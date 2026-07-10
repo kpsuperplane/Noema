@@ -5,10 +5,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use super::{NewToolCalibration, ToolCalibrationRecord, rows::tool_calibration_from_row};
 use crate::{
     McpCalibrationStatus,
-    store::{
-        NoemaStore, StoreError,
-        sqlite::{now_timestamp_sql, serialize_json},
-    },
+    store::{NoemaStore, StoreError, sqlite::now_timestamp_sql},
 };
 
 impl NoemaStore {
@@ -136,6 +133,9 @@ pub(super) fn update_mcp_server_enabled_from_calibrations_on_connection(
           JOIN tool_calibrations c ON c.mcp_tool_id = t.mcp_tool_id
           WHERE t.mcp_server_id = ?1
             AND c.status = 'ready'
+            AND c.read_classification <> 'mixed'
+            AND c.write_classification <> 'mixed'
+            AND c.export_classification <> 'mixed'
           LIMIT 1
         )
         "#,
@@ -162,22 +162,20 @@ fn write_tool_calibration_row(
     conn: &Connection,
     calibration: &NewToolCalibration,
 ) -> Result<(), StoreError> {
-    let owner_extractors_json = serialize_json(&calibration.owner_extractors)?;
     conn.execute(
         format!(
             r#"
             INSERT INTO tool_calibrations (
               calibration_id, mcp_tool_id, read_classification,
-              write_classification, export_classification, owner_extractors_json,
-              status, reviewed_by, reviewed_metadata_fingerprint, updated_at
+              write_classification, export_classification, status, reviewed_by,
+              reviewed_metadata_fingerprint, updated_at
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, {})
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, {})
             ON CONFLICT(calibration_id) DO UPDATE SET
               mcp_tool_id = excluded.mcp_tool_id,
               read_classification = excluded.read_classification,
               write_classification = excluded.write_classification,
               export_classification = excluded.export_classification,
-              owner_extractors_json = excluded.owner_extractors_json,
               status = excluded.status,
               reviewed_by = excluded.reviewed_by,
               reviewed_metadata_fingerprint = excluded.reviewed_metadata_fingerprint,
@@ -192,7 +190,6 @@ fn write_tool_calibration_row(
             calibration.read_classification.as_str(),
             calibration.write_classification.as_str(),
             calibration.export_classification.as_str(),
-            owner_extractors_json,
             calibration.status.as_str(),
             calibration.reviewed_by,
             calibration.reviewed_metadata_fingerprint,
@@ -277,10 +274,9 @@ fn validate_tool_calibration_on_connection(
         }
         if calibration.status == McpCalibrationStatus::Ready
             && calibration.has_mixed_classification()
-            && calibration.owner_extractors.is_empty()
         {
             return Err(StoreError::Schema(format!(
-                "ready mixed MCP tool calibration requires an owner extractor: {}",
+                "ready mixed MCP tool calibration is unsupported without ownership enforcement: {}",
                 calibration.mcp_tool_id
             )));
         }
@@ -301,8 +297,7 @@ fn get_tool_calibration_on_connection(
 
 const TOOL_CALIBRATION_SELECT_BY_CALIBRATION_ID: &str = r#"
 SELECT calibration_id, mcp_tool_id, read_classification, write_classification,
-  export_classification, owner_extractors_json, status, reviewed_by,
-  reviewed_metadata_fingerprint
+  export_classification, status, reviewed_by, reviewed_metadata_fingerprint
 FROM tool_calibrations
 WHERE calibration_id = ?1
 LIMIT 1
@@ -310,8 +305,7 @@ LIMIT 1
 
 const TOOL_CALIBRATION_SELECT_BY_TOOL_ID: &str = r#"
 SELECT calibration_id, mcp_tool_id, read_classification, write_classification,
-  export_classification, owner_extractors_json, status, reviewed_by,
-  reviewed_metadata_fingerprint
+  export_classification, status, reviewed_by, reviewed_metadata_fingerprint
 FROM tool_calibrations
 WHERE mcp_tool_id = ?1
 LIMIT 1

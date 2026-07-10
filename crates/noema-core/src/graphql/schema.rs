@@ -25,7 +25,6 @@ use super::{
         GraphqlMcpServer, GraphqlMcpServerSetupResult, GraphqlMcpTool,
         GraphqlSaveToolCalibrationInput, GraphqlStartMcpServerOAuthSetupInput,
         GraphqlStartMcpServerReauthenticationOAuthSetupInput, GraphqlToolCalibration,
-        GraphqlTrustedIdentitySelector,
     },
     memory::{
         self, GraphqlMemoryArticle, GraphqlMemoryGraph, GraphqlMemoryGraphInput,
@@ -455,16 +454,6 @@ impl QueryRoot {
         mcp::mcp_oauth_setup_attempt(state, attempt_id).await
     }
 
-    /// List trusted identity selectors for one owner scope.
-    async fn trusted_identity_selectors(
-        &self,
-        ctx: &Context<'_>,
-        owner_scope_id: String,
-    ) -> Result<Vec<GraphqlTrustedIdentitySelector>> {
-        let state = ctx.data_unchecked::<GraphqlState>();
-        mcp::trusted_identity_selectors(state, owner_scope_id).await
-    }
-
     /// List MCP approval requests safe to show in Settings.
     async fn mcp_approval_requests(
         &self,
@@ -877,8 +866,6 @@ mod tests {
         assert!(sdl.contains("type McpServer"));
         assert!(sdl.contains("mcpTools"));
         assert!(sdl.contains("type McpTool"));
-        assert!(sdl.contains("trustedIdentitySelectors"));
-        assert!(sdl.contains("type TrustedIdentitySelector"));
         assert!(sdl.contains("mcpApprovalRequests"));
         assert!(sdl.contains("type McpApprovalRequest"));
         assert!(!sdl.contains("type MemoryClaim"));
@@ -3725,11 +3712,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mcp_settings_query_returns_servers_and_trusted_identity_selectors() {
-        use crate::{
-            McpTransportKind, NewMcpServer, NewMcpTool, NewTrustedIdentitySelector,
-            TrustedIdentitySelectorEffect, TrustedIdentitySelectorKind, store::tests::test_store,
-        };
+    async fn mcp_settings_query_returns_servers() {
+        use crate::{McpTransportKind, NewMcpServer, NewMcpTool, store::tests::test_store};
 
         let store = test_store().await;
         store
@@ -3767,18 +3751,6 @@ mod tests {
             })
             .await
             .expect("create browser oauth server");
-        store
-            .create_trusted_identity_selector(NewTrustedIdentitySelector {
-                selector_id: "trusted_identity:human-local:email".to_string(),
-                owner_scope_id: "human:local".to_string(),
-                selector_kind: TrustedIdentitySelectorKind::Email,
-                raw_value: "Kevin@Noema.Example".to_string(),
-                effect: TrustedIdentitySelectorEffect::Trust,
-                issuer_actor_id: "human:local".to_string(),
-            })
-            .await
-            .expect("create selector");
-
         let schema = build_schema(GraphqlState::for_tests_with_store(store));
         let response = schema
             .execute(async_graphql::Request::new(
@@ -3792,13 +3764,6 @@ mod tests {
                     healthStatus
                     toolCount
                     browserOauthReauthenticationSupported
-                  }
-                  trustedIdentitySelectors(ownerScopeId: "human:local") {
-                    selectorId
-                    ownerScopeId
-                    selectorKind
-                    normalizedValue
-                    effect
                   }
                 }
                 "#,
@@ -3831,13 +3796,6 @@ mod tests {
             browser_oauth_server["browserOauthReauthenticationSupported"],
             true
         );
-
-        let selector = &data["trustedIdentitySelectors"][0];
-        assert_eq!(selector["selectorId"], "trusted_identity:human-local:email");
-        assert_eq!(selector["ownerScopeId"], "human:local");
-        assert_eq!(selector["selectorKind"], "email");
-        assert_eq!(selector["normalizedValue"], "kevin@noema.example");
-        assert_eq!(selector["effect"], "trust");
     }
 
     #[tokio::test]
@@ -4378,7 +4336,6 @@ mod tests {
                     readClassification: "mixed"
                     writeClassification: "none"
                     exportClassification: "none"
-                    ownerExtractors: []
                     status: "blocked_unresolved_ownership"
                     reviewedBy: "human:local"
                     reviewedMetadataFingerprint: "fingerprint_1"
@@ -4447,7 +4404,6 @@ mod tests {
                       readClassification: "mixed"
                       writeClassification: "none"
                       exportClassification: "none"
-                      ownerExtractors: []
                       status: "blocked_unresolved_ownership"
                       reviewedBy: "human:local"
                       reviewedMetadataFingerprint: "fingerprint_read"
@@ -4458,7 +4414,6 @@ mod tests {
                       readClassification: "none"
                       writeClassification: "trusted"
                       exportClassification: "untrusted"
-                      ownerExtractors: []
                       status: "ready"
                       reviewedBy: "human:local"
                       reviewedMetadataFingerprint: "fingerprint_share"
@@ -4534,7 +4489,6 @@ mod tests {
                       readClassification: "mixed"
                       writeClassification: "none"
                       exportClassification: "none"
-                      ownerExtractors: []
                       status: "blocked_unresolved_ownership"
                       reviewedBy: "human:local"
                       reviewedMetadataFingerprint: "fingerprint_read"
@@ -4545,7 +4499,6 @@ mod tests {
                       readClassification: "none"
                       writeClassification: "trusted"
                       exportClassification: "untrusted"
-                      ownerExtractors: []
                       status: "ready"
                       reviewedBy: "human:local"
                       reviewedMetadataFingerprint: "wrong_fingerprint"
@@ -4593,7 +4546,6 @@ mod tests {
                     readClassification: "Mixed"
                     writeClassification: "none"
                     exportClassification: "none"
-                    ownerExtractors: []
                     status: "blocked_unresolved_ownership"
                   }) {
                     calibrationId
@@ -4647,7 +4599,6 @@ mod tests {
                       writeClassification
                       exportClassification
                       disabled
-                      ownerExtractors { source selectorKind path }
                     }
                   }
                 }
@@ -4662,9 +4613,6 @@ mod tests {
         assert_eq!(suggestion["readClassification"], "mixed");
         assert_eq!(suggestion["writeClassification"], "none");
         assert_eq!(suggestion["exportClassification"], "none");
-        assert_eq!(suggestion["ownerExtractors"][0]["source"], "arguments");
-        assert_eq!(suggestion["ownerExtractors"][0]["selectorKind"], "email");
-        assert_eq!(suggestion["ownerExtractors"][0]["path"], "/owner_email");
         assert_eq!(suggestion["disabled"], false);
         assert!(
             store

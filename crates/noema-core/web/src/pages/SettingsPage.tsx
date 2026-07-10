@@ -3,7 +3,6 @@ import { ApprovalsSettingsPane } from "@/components/settings/ApprovalsSettingsPa
 import { MemorySettingsPane } from "@/components/settings/MemorySettingsPane";
 import { McpSettingsPane } from "@/components/settings/McpSettingsPane";
 import { ProvidersSettingsPane } from "@/components/settings/ProvidersSettingsPane";
-import { TrustedIdentitiesSettingsPane } from "@/components/settings/TrustedIdentitiesSettingsPane";
 import { UsageSettingsPane } from "@/components/settings/UsageSettingsPane";
 import { WebSettingsPane } from "@/components/settings/WebSettingsPane";
 import type { SettingsSection } from "@/app/routes";
@@ -37,10 +36,6 @@ const settingsSectionCopy: Record<SettingsSection, { title: string; description:
   "safety-approvals": {
     title: "Approvals",
     description: "Review pending MCP approval checkpoints."
-  },
-  "safety-identities": {
-    title: "Identities",
-    description: "Review identity selectors used to resolve tool-result ownership."
   },
   "system-providers": {
     title: "Providers",
@@ -87,8 +82,6 @@ function SettingsSectionPane({ section }: { section: SettingsSection }) {
       return <UsageSettingsPane />;
     case "safety-approvals":
       return <ApprovalsSettingsPane />;
-    case "safety-identities":
-      return <TrustedIdentitiesSettingsPane />;
     case "system-providers":
       return <ProvidersSettingsPane />;
   }

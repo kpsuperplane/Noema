@@ -475,27 +475,9 @@ export const McpToolsDocument = gql`
         readClassification
         writeClassification
         exportClassification
-        ownerExtractors {
-          source
-          selectorKind
-          path
-        }
         reviewedBy
         reviewedMetadataFingerprint
       }
-    }
-  }
-`;
-
-export const TrustedIdentitySettingsDocument = gql`
-  query TrustedIdentitySettings($ownerScopeId: String!) {
-    trustedIdentitySelectors(ownerScopeId: $ownerScopeId) {
-      selectorId
-      ownerScopeId
-      selectorKind
-      normalizedValue
-      effect
-      issuerActorId
     }
   }
 `;
@@ -546,11 +528,6 @@ export const AutofillToolCalibrationsDocument = gql`
         writeClassification
         exportClassification
         disabled
-        ownerExtractors {
-          source
-          selectorKind
-          path
-        }
       }
     }
   }

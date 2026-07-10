@@ -1,10 +1,7 @@
 use serde_json::json;
 
-use super::{build_autofill_prompt, deterministic_owner_extractors, parse_autofill_response};
-use crate::{
-    McpToolRecord, McpTrustClassification, OwnerExtractor, OwnerExtractorSource,
-    TrustedIdentitySelectorKind,
-};
+use super::{build_autofill_prompt, parse_autofill_response};
+use crate::{McpToolRecord, McpTrustClassification};
 
 #[test]
 fn parses_valid_autofill_response_for_known_tools() {
@@ -27,7 +24,6 @@ fn parses_valid_autofill_response_for_known_tools() {
         suggestions[0].read_classification,
         McpTrustClassification::Mixed
     );
-    assert_eq!(suggestions[0].owner_extractors[0].path, "/owner_email");
     assert_eq!(suggestions[0].disabled, Some(false));
 }
 
@@ -123,9 +119,7 @@ fn prompt_names_trust_axes_and_demands_strict_json() {
 fn prompt_limits_model_to_trust_classification_rubric() {
     let prompt = build_autofill_prompt("Docs", &[test_tool("mcp_tool:docs:read", "read_doc")]);
 
-    assert!(prompt.contains("No owner extractors"));
     assert!(prompt.contains("Writing is not a reason to disable"));
-    assert!(!prompt.contains("owner_extractors"));
     assert!(prompt.contains(r#""tool":"name""#));
     assert!(prompt.contains(r#""read":"n|t|u|m""#));
     assert!(!prompt.contains(r#""mcp_tool_id":"...""#));
@@ -144,165 +138,6 @@ fn prompt_omits_annotations_when_empty() {
 
     assert!(prompt.contains("read_doc\tRead a document\towner_email\t-\t-"));
     assert!(!prompt.contains("readOnlyHint"));
-}
-
-#[test]
-fn deterministic_extractors_use_shallow_scalar_owner_identity_fields() {
-    let mut tool = test_tool("mcp_tool:docs:read", "read_doc");
-    tool.input_schema = json!({
-        "type": "object",
-        "properties": {
-            "owner_email": { "type": "string", "format": "email" },
-            "workspace": {
-                "type": "object",
-                "properties": {
-                    "domain": { "type": "string" }
-                }
-            },
-            "created_by": {
-                "type": "object",
-                "properties": {
-                    "phone": { "type": "string" }
-                }
-            },
-            "page_id": { "type": "string" },
-            "owners": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "email": { "type": "string", "format": "email" }
-                    }
-                }
-            },
-            "result": {
-                "type": "object",
-                "properties": {
-                    "profile": {
-                        "type": "object",
-                        "properties": {
-                            "email": { "type": "string", "format": "email" }
-                        }
-                    }
-                }
-            }
-        }
-    });
-
-    let extractors = deterministic_owner_extractors(&tool);
-
-    assert_eq!(
-        extractors,
-        vec![
-            owner_extractor(
-                OwnerExtractorSource::Arguments,
-                TrustedIdentitySelectorKind::Email,
-                "/owner_email"
-            ),
-            owner_extractor(
-                OwnerExtractorSource::Arguments,
-                TrustedIdentitySelectorKind::Phone,
-                "/created_by/phone"
-            ),
-            owner_extractor(
-                OwnerExtractorSource::Arguments,
-                TrustedIdentitySelectorKind::Domain,
-                "/workspace/domain"
-            ),
-        ]
-    );
-}
-
-#[test]
-fn deterministic_extractors_read_structured_output_and_camel_case_fields() {
-    let mut tool = test_tool("mcp_tool:docs:fetch", "fetch_doc");
-    tool.input_schema = json!({
-        "type": "object",
-        "properties": {
-            "doc_id": { "type": "string" }
-        }
-    });
-    tool.output_schema = Some(json!({
-        "type": "object",
-        "properties": {
-            "createdBy": {
-                "type": "object",
-                "properties": {
-                    "emailAddress": { "type": "string" }
-                }
-            },
-            "workspaceDomain": { "type": "string" },
-            "results": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "ownerEmail": { "type": "string" }
-                    }
-                }
-            }
-        }
-    }));
-
-    let extractors = deterministic_owner_extractors(&tool);
-
-    assert_eq!(
-        extractors,
-        vec![
-            owner_extractor(
-                OwnerExtractorSource::StructuredContent,
-                TrustedIdentitySelectorKind::Domain,
-                "/workspaceDomain"
-            ),
-            owner_extractor(
-                OwnerExtractorSource::StructuredContent,
-                TrustedIdentitySelectorKind::Email,
-                "/createdBy/emailAddress"
-            ),
-        ]
-    );
-}
-
-#[test]
-fn parse_ignores_model_extractors_and_uses_deterministic_extractors() {
-    let mut tool = test_tool("mcp_tool:notion:update", "notion-update-page");
-    tool.input_schema = json!({
-        "type": "object",
-        "properties": {
-            "owner": {
-                "type": "object",
-                "properties": {
-                    "email": { "type": "string", "format": "email" }
-                }
-            },
-            "page_id": { "type": "string" }
-        }
-    });
-    let response = r#"{
-      "suggestions": [{
-        "tool": "notion-update-page",
-        "read": "n",
-        "write": "m",
-        "export": "n",
-        "owner_extractors": [{
-          "source": "arguments",
-          "selector_kind": "domain",
-          "path": "/page_id"
-        }],
-        "disabled": false
-      }]
-    }"#;
-
-    let suggestions = parse_autofill_response(response, &[tool]).expect("suggestions");
-
-    assert_eq!(
-        suggestions[0].owner_extractors,
-        vec![owner_extractor(
-            OwnerExtractorSource::Arguments,
-            TrustedIdentitySelectorKind::Email,
-            "/owner/email"
-        )]
-    );
 }
 
 #[test]
@@ -357,17 +192,5 @@ fn test_tool(mcp_tool_id: &str, name: &str) -> McpToolRecord {
         annotations: json!({"readOnlyHint": true}),
         metadata_fingerprint: "fingerprint_1".to_string(),
         discovered_at: "2026-07-01T00:00:00Z".to_string(),
-    }
-}
-
-fn owner_extractor(
-    source: OwnerExtractorSource,
-    selector_kind: TrustedIdentitySelectorKind,
-    path: &str,
-) -> OwnerExtractor {
-    OwnerExtractor {
-        source,
-        selector_kind,
-        path: path.to_string(),
     }
 }

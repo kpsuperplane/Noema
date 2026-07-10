@@ -17,7 +17,6 @@ describe("settings shell navigation", () => {
         "MCPs",
         "Safety",
         "Approvals",
-        "Identities",
         "System",
         "Providers"
       ]
@@ -88,14 +87,6 @@ describe("settings shell navigation", () => {
             route: { kind: "settings", section: "safety-approvals" }
           }
         },
-        {
-          kind: "item",
-          item: {
-            itemId: "settings.safety.identities",
-            label: "Identities",
-            route: { kind: "settings", section: "safety-identities" }
-          }
-        },
         { kind: "group", label: "System" },
         {
           kind: "item",
@@ -114,7 +105,6 @@ describe("settings shell navigation", () => {
     assert.equal(settingsItemIdForSection("tools-web"), "settings.tools.web");
     assert.equal(settingsItemIdForSection("tools-mcps"), "settings.tools.mcps");
     assert.equal(settingsItemIdForSection("safety-approvals"), "settings.safety.approvals");
-    assert.equal(settingsItemIdForSection("safety-identities"), "settings.safety.identities");
     assert.equal(settingsItemIdForSection("system-providers"), "settings.system.providers");
   });
 });

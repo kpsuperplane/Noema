@@ -4,90 +4,8 @@ use super::test_store;
 use crate::{
     McpCalibrationStatus, McpServerAuthStatus, McpServerHealthStatus, McpTransportKind,
     McpTrustClassification, NewMcpApprovalRequest, NewMcpServer, NewMcpTool, NewToolCalibration,
-    NewTrustedIdentitySelector, OwnerExtractor, OwnerExtractorSource, StoreError,
-    TrustedIdentitySelectorEffect, TrustedIdentitySelectorKind, normalize_trusted_identity_value,
+    mcp::{McpToolIneligibility, mcp_tool_ineligibility},
 };
-
-#[test]
-fn trusted_identity_selectors_normalize_email_phone_and_domain() {
-    let cases = [
-        (
-            TrustedIdentitySelectorKind::Email,
-            " Kevin@Example.COM ",
-            Some("kevin@example.com"),
-        ),
-        (
-            TrustedIdentitySelectorKind::Email,
-            " Kevin+Noema_1@Example.COM ",
-            Some("kevin+noema_1@example.com"),
-        ),
-        (
-            TrustedIdentitySelectorKind::Domain,
-            " Example.COM ",
-            Some("example.com"),
-        ),
-        (
-            TrustedIdentitySelectorKind::Phone,
-            " +1 (415) 555-0100 ",
-            Some("+14155550100"),
-        ),
-        (
-            TrustedIdentitySelectorKind::Phone,
-            "+1-415-555-0100",
-            Some("+14155550100"),
-        ),
-        (
-            TrustedIdentitySelectorKind::Phone,
-            "+1-415-555-0100abc",
-            None,
-        ),
-        (TrustedIdentitySelectorKind::Phone, "+1+4155550100", None),
-        (TrustedIdentitySelectorKind::Phone, "415.555.0100", None),
-        (TrustedIdentitySelectorKind::Phone, "1-415-555-0100", None),
-        (TrustedIdentitySelectorKind::Phone, " ext. ", None),
-        (TrustedIdentitySelectorKind::Email, " ", None),
-        (
-            TrustedIdentitySelectorKind::Email,
-            "kevin@@example.com",
-            None,
-        ),
-        (TrustedIdentitySelectorKind::Email, "kevin@example", None),
-        (
-            TrustedIdentitySelectorKind::Email,
-            ".kevin@example.com",
-            None,
-        ),
-        (
-            TrustedIdentitySelectorKind::Email,
-            "kevin..x@example.com",
-            None,
-        ),
-        (
-            TrustedIdentitySelectorKind::Email,
-            "bad()@example.com",
-            None,
-        ),
-        (
-            TrustedIdentitySelectorKind::Domain,
-            "https://example.com",
-            None,
-        ),
-        (
-            TrustedIdentitySelectorKind::Domain,
-            "bad-.example.com",
-            None,
-        ),
-        (TrustedIdentitySelectorKind::Domain, "example com", None),
-    ];
-
-    for (kind, value, expected) in cases {
-        assert_eq!(
-            normalize_trusted_identity_value(kind, value),
-            expected.map(str::to_string),
-            "{kind:?} should normalize {value:?}"
-        );
-    }
-}
 
 #[tokio::test]
 async fn mcp_control_plane_tables_bootstrap() {
@@ -119,22 +37,11 @@ async fn mcp_control_plane_tables_bootstrap() {
 
             INSERT INTO tool_calibrations (
               calibration_id, mcp_tool_id, read_classification,
-              write_classification, export_classification, owner_extractors_json, status
+              write_classification, export_classification, status
             )
             VALUES (
               'tool_calibration:local-test:read', 'mcp_tool:local-test:read',
-              'trusted', 'none', 'none',
-              '[{"source":"arguments","selector_kind":"email","path":"/owner/email"}]',
-              'needs_review'
-            );
-
-            INSERT INTO trusted_identity_selectors (
-              selector_id, owner_scope_id, selector_kind, normalized_value, effect,
-              issuer_actor_id
-            )
-            VALUES (
-              'trusted_identity:human-local:email', 'human:local', 'email',
-              'kevin@example.com', 'trust', 'human:local'
+              'trusted', 'none', 'none', 'needs_review'
             );
 
             INSERT INTO approval_requests (
@@ -349,7 +256,7 @@ async fn mcp_server_status_can_be_updated_after_setup() {
 async fn delete_mcp_server_removes_server_tools_and_calibrations() {
     let store = test_store_with_mcp_tool().await;
     store
-        .save_tool_calibration(ready_mixed_calibration("fingerprint_1"))
+        .save_tool_calibration(ready_google_read_calibration("fingerprint_1"))
         .await
         .expect("save calibration");
 
@@ -396,7 +303,6 @@ async fn calibration_blocks_unresolved_ownership_until_reviewed() {
         .save_tool_calibration(google_read_calibration(
             McpTrustClassification::Mixed,
             McpTrustClassification::None,
-            Vec::new(),
             McpCalibrationStatus::BlockedUnresolvedOwnership,
             "fingerprint_1",
         ))
@@ -409,7 +315,6 @@ async fn calibration_blocks_unresolved_ownership_until_reviewed() {
         calibration.read_classification,
         McpTrustClassification::Mixed
     );
-    assert_eq!(calibration.owner_extractors, Vec::new());
     assert_eq!(
         calibration.status,
         McpCalibrationStatus::BlockedUnresolvedOwnership
@@ -429,21 +334,84 @@ async fn calibration_blocks_unresolved_ownership_until_reviewed() {
 }
 
 #[tokio::test]
-async fn ready_mixed_calibration_requires_owner_extractor() {
+async fn ready_mixed_calibration_is_rejected_without_ownership_enforcement() {
     let store = test_store_with_mcp_tool().await;
 
     let error = store
         .save_tool_calibration(google_read_calibration(
             McpTrustClassification::Mixed,
             McpTrustClassification::None,
-            Vec::new(),
             McpCalibrationStatus::Ready,
             "fingerprint_1",
         ))
         .await
-        .expect_err("ready mixed calibration without extractor should fail");
+        .expect_err("ready mixed calibration should fail closed");
 
-    assert!(error.to_string().contains("requires an owner extractor"));
+    assert!(
+        error
+            .to_string()
+            .contains("unsupported without ownership enforcement")
+    );
+}
+
+#[tokio::test]
+async fn persisted_ready_mixed_calibration_is_blocked_on_read_and_execution() {
+    let store = test_store_with_mcp_tool().await;
+    store
+        .with_connection(|conn| {
+            conn.execute(
+                "UPDATE mcp_servers SET enabled = 1, health_status = 'healthy' WHERE mcp_server_id = 'mcp_server:google'",
+                [],
+            )?;
+            conn.execute(
+                r#"
+                INSERT INTO tool_calibrations (
+                  calibration_id, mcp_tool_id, read_classification, write_classification,
+                  export_classification, status, reviewed_by, reviewed_metadata_fingerprint
+                ) VALUES (
+                  'tool_calibration:read_doc', 'mcp_tool:google:read_doc', 'mixed', 'none',
+                  'none', 'ready', 'human:local', 'fingerprint_1'
+                )
+                "#,
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("insert legacy ready mixed calibration");
+
+    let calibration = store
+        .get_tool_calibration("mcp_tool:google:read_doc")
+        .await
+        .expect("get calibration")
+        .expect("calibration");
+    assert_eq!(
+        calibration.status,
+        McpCalibrationStatus::BlockedUnresolvedOwnership
+    );
+
+    let server = store
+        .get_mcp_server("mcp_server:google")
+        .await
+        .expect("get server")
+        .expect("server");
+    assert!(!server.enabled, "stored enabled bit must not control reads");
+
+    let tool = store
+        .list_mcp_tools_for_server("mcp_server:google")
+        .await
+        .expect("tools")
+        .into_iter()
+        .next()
+        .expect("tool");
+    let mut stale_server = server;
+    stale_server.enabled = true;
+    let mut stale_calibration = calibration;
+    stale_calibration.status = McpCalibrationStatus::Ready;
+    assert_eq!(
+        mcp_tool_ineligibility(&stale_server, &tool, Some(&stale_calibration)),
+        Some(McpToolIneligibility::ToolNotCalibrated)
+    );
 }
 
 #[tokio::test]
@@ -454,7 +422,6 @@ async fn ready_calibration_requires_at_least_one_non_none_classification() {
         .save_tool_calibration(google_read_calibration(
             McpTrustClassification::None,
             McpTrustClassification::None,
-            Vec::new(),
             McpCalibrationStatus::Ready,
             "fingerprint_1",
         ))
@@ -469,7 +436,7 @@ async fn ready_calibration_requires_current_metadata_fingerprint() {
     let store = test_store_with_mcp_tool().await;
 
     let error = store
-        .save_tool_calibration(ready_mixed_calibration("fingerprint_2"))
+        .save_tool_calibration(ready_google_read_calibration("fingerprint_2"))
         .await
         .expect_err("stale reviewed fingerprint should fail");
 
@@ -488,7 +455,7 @@ async fn ready_calibration_enables_mcp_server() {
     assert!(!before.enabled);
 
     store
-        .save_tool_calibration(ready_mixed_calibration("fingerprint_1"))
+        .save_tool_calibration(ready_google_read_calibration("fingerprint_1"))
         .await
         .expect("save ready calibration");
 
@@ -612,7 +579,7 @@ async fn calibration_id_cannot_move_between_tools() {
     .await;
 
     store
-        .save_tool_calibration(ready_mixed_calibration("fingerprint_1"))
+        .save_tool_calibration(ready_google_read_calibration("fingerprint_1"))
         .await
         .expect("save first calibration");
 
@@ -634,7 +601,7 @@ async fn calibration_id_cannot_move_between_tools() {
 async fn rediscovered_tool_metadata_invalidates_reviewed_calibration() {
     let store = test_store_with_mcp_tool().await;
     store
-        .save_tool_calibration(ready_mixed_calibration("fingerprint_1"))
+        .save_tool_calibration(ready_google_read_calibration("fingerprint_1"))
         .await
         .expect("save calibration");
 
@@ -677,7 +644,7 @@ async fn same_fingerprint_tool_move_recomputes_old_and_new_server_enabled_state(
         .await
         .expect("create second server");
     store
-        .save_tool_calibration(ready_mixed_calibration("fingerprint_1"))
+        .save_tool_calibration(ready_google_read_calibration("fingerprint_1"))
         .await
         .expect("save calibration");
 
@@ -734,37 +701,6 @@ async fn same_fingerprint_tool_move_recomputes_old_and_new_server_enabled_state(
     );
 }
 
-#[tokio::test]
-async fn stores_trusted_identity_selector_normalized() {
-    let store = test_store().await;
-
-    let selector = store
-        .create_trusted_identity_selector(NewTrustedIdentitySelector {
-            selector_id: "trusted_identity:human-local:email".to_string(),
-            owner_scope_id: "human:local".to_string(),
-            selector_kind: TrustedIdentitySelectorKind::Email,
-            raw_value: "Kevin+Noema_1@Example.COM".to_string(),
-            effect: TrustedIdentitySelectorEffect::Trust,
-            issuer_actor_id: "human:local".to_string(),
-        })
-        .await
-        .expect("create selector");
-
-    assert_eq!(selector.selector_id, "trusted_identity:human-local:email");
-    assert_eq!(selector.owner_scope_id, "human:local");
-    assert_eq!(selector.selector_kind, TrustedIdentitySelectorKind::Email);
-    assert_eq!(selector.normalized_value, "kevin+noema_1@example.com");
-    assert_eq!(selector.effect, TrustedIdentitySelectorEffect::Trust);
-    assert_eq!(selector.issuer_actor_id, "human:local");
-    assert_eq!(selector.revoked_at, None);
-
-    let selectors = store
-        .list_trusted_identity_selectors("human:local")
-        .await
-        .expect("list selectors");
-    assert_eq!(selectors, vec![selector]);
-}
-
 async fn test_store_with_mcp_tool() -> crate::NoemaStore {
     let store = test_store().await;
     store
@@ -815,15 +751,10 @@ async fn upsert_google_tool(
         .expect("upsert tool");
 }
 
-fn ready_mixed_calibration(reviewed_metadata_fingerprint: &str) -> NewToolCalibration {
+fn ready_google_read_calibration(reviewed_metadata_fingerprint: &str) -> NewToolCalibration {
     google_read_calibration(
-        McpTrustClassification::Mixed,
+        McpTrustClassification::Trusted,
         McpTrustClassification::None,
-        vec![OwnerExtractor {
-            source: OwnerExtractorSource::Arguments,
-            selector_kind: TrustedIdentitySelectorKind::Email,
-            path: "/owner/email".to_string(),
-        }],
         McpCalibrationStatus::Ready,
         reviewed_metadata_fingerprint,
     )
@@ -842,7 +773,6 @@ fn ready_google_calibration(
         read_classification,
         write_classification,
         export_classification: McpTrustClassification::None,
-        owner_extractors: Vec::new(),
         status: McpCalibrationStatus::Ready,
         reviewed_by: Some("human:local".to_string()),
         reviewed_metadata_fingerprint: Some(reviewed_metadata_fingerprint.to_string()),
@@ -852,7 +782,6 @@ fn ready_google_calibration(
 fn google_read_calibration(
     read_classification: McpTrustClassification,
     write_classification: McpTrustClassification,
-    owner_extractors: Vec<OwnerExtractor>,
     status: McpCalibrationStatus,
     reviewed_metadata_fingerprint: &str,
 ) -> NewToolCalibration {
@@ -862,39 +791,10 @@ fn google_read_calibration(
         read_classification,
         write_classification,
         export_classification: McpTrustClassification::None,
-        owner_extractors,
         status,
         reviewed_by: Some("human:local".to_string()),
         reviewed_metadata_fingerprint: Some(reviewed_metadata_fingerprint.to_string()),
     }
-}
-
-#[tokio::test]
-async fn create_trusted_identity_selector_rejects_invalid_raw_value() {
-    let store = test_store().await;
-
-    let error = store
-        .create_trusted_identity_selector(NewTrustedIdentitySelector {
-            selector_id: "trusted_identity:human-local:phone".to_string(),
-            owner_scope_id: "human:local".to_string(),
-            selector_kind: TrustedIdentitySelectorKind::Phone,
-            raw_value: "14155550100".to_string(),
-            effect: TrustedIdentitySelectorEffect::Trust,
-            issuer_actor_id: "human:local".to_string(),
-        })
-        .await
-        .expect_err("invalid raw phone should be rejected before insert");
-
-    assert!(
-        matches!(error, StoreError::Schema(message) if message.contains("invalid trusted identity selector value"))
-    );
-    assert!(
-        store
-            .get_trusted_identity_selector("trusted_identity:human-local:phone")
-            .await
-            .expect("get selector")
-            .is_none()
-    );
 }
 
 #[tokio::test]
@@ -959,101 +859,6 @@ async fn mcp_control_plane_schema_rejects_invalid_enum_values() {
 
     assert!(
         error.to_string().contains("transport_kind") || error.to_string().contains("websocket"),
-        "unexpected error: {error}"
-    );
-}
-
-#[tokio::test]
-async fn trusted_identity_schema_rejects_empty_identity_fields() {
-    let store = test_store().await;
-
-    let error = store
-        .with_connection(|conn| {
-            conn.execute(
-                r#"
-            INSERT INTO trusted_identity_selectors (
-              selector_id, owner_scope_id, selector_kind, normalized_value, effect,
-              issuer_actor_id
-            )
-            VALUES (
-              'trusted_identity:empty-value', 'human:local', 'email', '',
-              'trust', 'human:local'
-            )
-            "#,
-                [],
-            )?;
-            Ok(())
-        })
-        .await
-        .expect_err("empty normalized identity value should be rejected");
-
-    assert!(
-        error.to_string().contains("normalized_value"),
-        "unexpected error: {error}"
-    );
-}
-
-#[tokio::test]
-async fn trusted_identity_repository_rejects_invalid_raw_shapes() {
-    let store = test_store().await;
-    let cases = [
-        (TrustedIdentitySelectorKind::Email, "kevin.example.com"),
-        (TrustedIdentitySelectorKind::Email, "kevin @example.com"),
-        (TrustedIdentitySelectorKind::Domain, "example"),
-        (TrustedIdentitySelectorKind::Domain, "example.com/path"),
-        (TrustedIdentitySelectorKind::Domain, "bad-.example.com"),
-        (TrustedIdentitySelectorKind::Phone, "14155550100"),
-    ];
-
-    for (index, (selector_kind, raw_value)) in cases.into_iter().enumerate() {
-        let error = store
-            .create_trusted_identity_selector(NewTrustedIdentitySelector {
-                selector_id: format!("trusted_identity:invalid:{index}"),
-                owner_scope_id: "human:local".to_string(),
-                selector_kind,
-                raw_value: raw_value.to_string(),
-                effect: TrustedIdentitySelectorEffect::Trust,
-                issuer_actor_id: "human:local".to_string(),
-            })
-            .await
-            .expect_err("invalid trusted identity shape should be rejected");
-
-        assert!(
-            error
-                .to_string()
-                .contains("invalid trusted identity selector value"),
-            "unexpected error for {raw_value}: {error}"
-        );
-    }
-}
-
-#[tokio::test]
-async fn tool_calibration_schema_rejects_malformed_owner_extractors() {
-    let store = test_store().await;
-
-    let error = store
-        .with_connection(|conn| {
-            conn.execute(
-                r#"
-            INSERT INTO tool_calibrations (
-              calibration_id, mcp_tool_id, read_classification, write_classification,
-              export_classification, owner_extractors_json, status
-            )
-            VALUES (
-              'tool_calibration:malformed-extractor',
-              'mcp_tool:malformed-extractor',
-              'mixed', 'none', 'none', '{"not":"an array"}', 'ready'
-            )
-            "#,
-                [],
-            )?;
-            Ok(())
-        })
-        .await
-        .expect_err("malformed owner extractor should be rejected");
-
-    assert!(
-        error.to_string().contains("owner_extractors"),
         "unexpected error: {error}"
     );
 }

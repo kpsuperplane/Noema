@@ -12,7 +12,6 @@ import {
   type McpToolsQuery,
   type SaveToolCalibrationsMutation
 } from "@/generated/graphql";
-import { McpToolOwnerResolutionFields } from "./McpToolOwnerResolutionFields";
 import { McpToolPermissionRow } from "./McpToolPermissionRow";
 import { ToolPermissionsFooter } from "./McpToolPermissionsFooter";
 import { McpToolDescription, McpToolSchemaPreview } from "./McpToolSchemaPreview";
@@ -205,7 +204,7 @@ export function McpToolPermissionsModal({
               title="Configure tool permissions"
               subtitle={`${
                 serverName ?? serverId ?? "MCP server"
-              } tools stay unavailable until each ready tool has reviewed permissions and owner resolution where needed.`}
+              } tools stay unavailable until each ready tool has reviewed permissions.`}
               onOpenChange={handleOpenChange}
               hasDivider
             />
@@ -258,18 +257,10 @@ export function McpToolPermissionsModal({
   );
 }
 
-export type OwnerExtractorDraft = {
-  id: string;
-  source: string;
-  selectorKind: string;
-  path: string;
-};
-
 export type ToolPermissionDraft = {
   readClassification: string;
   writeClassification: string;
   exportClassification: string;
-  ownerExtractors: OwnerExtractorDraft[];
   disabled: boolean;
 };
 
@@ -336,11 +327,10 @@ function ToolPermissionEditor({
           onChange={(disabled) => onDraftChange((current) => ({ ...current, disabled }))}
         />
       </div>
-      <McpToolOwnerResolutionFields draft={draft} onChange={onDraftChange} />
       {validationError ? <p {...stylex.props(styles.errorText)}>{validationError}</p> : null}
       {blocked ? (
         <p {...stylex.props(styles.mutedText)}>
-          This mixed tool will stay blocked until an owner extractor is added.
+          Mixed ownership cannot be enforced yet, so this tool will stay blocked.
         </p>
       ) : null}
     </>
@@ -352,12 +342,6 @@ function draftFromTool(tool: McpTool): ToolPermissionDraft {
     readClassification: tool.calibration?.readClassification ?? "mixed",
     writeClassification: tool.calibration?.writeClassification ?? "none",
     exportClassification: tool.calibration?.exportClassification ?? "none",
-    ownerExtractors: (tool.calibration?.ownerExtractors ?? []).map((extractor, index) => ({
-      id: `${tool.mcpToolId}:extractor:${index}`,
-      source: extractor.source,
-      selectorKind: extractor.selectorKind,
-      path: extractor.path
-    })),
     disabled: tool.calibration?.status === "disabled"
   };
 }
@@ -370,12 +354,6 @@ function draftFromSuggestion(
     readClassification: suggestion.readClassification,
     writeClassification: suggestion.writeClassification,
     exportClassification: suggestion.exportClassification,
-    ownerExtractors: suggestion.ownerExtractors.map((extractor, index) => ({
-      id: `${suggestion.mcpToolId}:autofill:${index}`,
-      source: extractor.source,
-      selectorKind: extractor.selectorKind,
-      path: extractor.path
-    })),
     disabled: suggestion.disabled ?? currentDraft.disabled
   };
 }
@@ -387,9 +365,6 @@ function validateDraft(draft: ToolPermissionDraft) {
     draft.writeClassification,
     draft.exportClassification
   ].some((classification) => classification !== "none");
-  const hasBlankExtractorPath = draft.ownerExtractors.some((extractor) => !extractor.path.trim());
-
-  if (hasBlankExtractorPath) return "Owner extractor paths cannot be empty.";
   if (!hasAnyClassification) return "Enabled tools need at least one non-none permission axis.";
   return null;
 }
@@ -397,7 +372,7 @@ function validateDraft(draft: ToolPermissionDraft) {
 function toolAttentionLabel(draft: ToolPermissionDraft) {
   if (draft.disabled) return null;
   if (validateDraft(draft)) return "Needs attention";
-  if (hasMixedClassification(draft) && draft.ownerExtractors.length === 0) return "Needs attention";
+  if (hasMixedClassification(draft)) return "Needs attention";
   return null;
 }
 
@@ -410,13 +385,6 @@ function calibrationInputForTool(tool: McpTool, draft: ToolPermissionDraft) {
     readClassification: draft.readClassification,
     writeClassification: draft.writeClassification,
     exportClassification: draft.exportClassification,
-    ownerExtractors: draft.ownerExtractors
-      .filter((extractor) => !draft.disabled || extractor.path.trim())
-      .map(({ source, selectorKind, path }) => ({
-        source,
-        selectorKind,
-        path: path.trim()
-      })),
     status,
     reviewedBy: reviewed ? "human:local" : null,
     reviewedMetadataFingerprint: reviewed ? tool.metadataFingerprint : null
@@ -425,7 +393,7 @@ function calibrationInputForTool(tool: McpTool, draft: ToolPermissionDraft) {
 
 function derivedCalibrationStatus(draft: ToolPermissionDraft) {
   if (draft.disabled) return "disabled";
-  if (hasMixedClassification(draft) && draft.ownerExtractors.length === 0) {
+  if (hasMixedClassification(draft)) {
     return "blocked_unresolved_ownership";
   }
   return "ready";

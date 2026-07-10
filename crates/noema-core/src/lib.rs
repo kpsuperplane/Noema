@@ -72,10 +72,7 @@ pub use home::{
     init_noema_home,
 };
 pub use ids::{ActorId, ContextPacketId, ConversationId, ConversationItemId, ObjectId};
-pub use mcp::{
-    McpCalibrationStatus, McpTransportKind, McpTrustClassification, OwnerExtractor,
-    OwnerExtractorSource, TrustedIdentitySelectorKind, normalize_trusted_identity_value,
-};
+pub use mcp::{McpCalibrationStatus, McpTransportKind, McpTrustClassification};
 pub use memory::error::MemoryPersistenceError;
 pub use memory_model_proxy::{MemoryModelProxy, MemoryModelProxyConfig, MemoryModelProxyError};
 pub use mnemosyne::{
@@ -110,9 +107,8 @@ pub use store::{
     MemoryArticleCacheRecord, MemoryServiceMode, MemoryServiceSettingsRecord, NewAgent,
     NewAgentRuntimePreference, NewArtifact, NewArtifactVersion, NewAuxiliaryModelPreference,
     NewConversationContextSummary, NewMcpApprovalRequest, NewMcpServer, NewMcpTool,
-    NewToolCalibration, NewTrustedIdentitySelector, NoemaStore, SaveMemoryArticleCache,
-    SaveMemoryServiceSettings, StoreConfig, StoreError, ToolCalibrationRecord,
-    TrustedIdentitySelectorEffect, TrustedIdentitySelectorRecord, WEB_FETCH_SUMMARIZER_TASK_ID,
+    NewToolCalibration, NoemaStore, SaveMemoryArticleCache, SaveMemoryServiceSettings, StoreConfig,
+    StoreError, ToolCalibrationRecord, WEB_FETCH_SUMMARIZER_TASK_ID,
     validate_external_artifact_url,
 };
 pub use system_errors::{

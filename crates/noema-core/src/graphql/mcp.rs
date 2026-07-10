@@ -6,8 +6,7 @@ use serde_json::Value;
 use crate::{
     McpApprovalRequestRecord, McpCalibrationStatus, McpServerAuthStatus, McpServerHealthStatus,
     McpServerRecord, McpToolRecord, McpTransportKind, McpTrustClassification, NewToolCalibration,
-    OwnerExtractor, OwnerExtractorSource, ToolCalibrationRecord, TrustedIdentitySelectorEffect,
-    TrustedIdentitySelectorKind, TrustedIdentitySelectorRecord,
+    ToolCalibrationRecord,
     mcp::{
         McpOAuthSetupAttemptView, StartMcpOAuthSetupRequest,
         oauth::oauth_secret_material,
@@ -296,8 +295,6 @@ pub struct GraphqlToolCalibration {
     pub write_classification: String,
     /// Effective export classification.
     pub export_classification: String,
-    /// Deterministic owner extractors configured for this tool.
-    pub owner_extractors: Vec<GraphqlOwnerExtractor>,
     /// Review/gateway readiness status.
     pub status: String,
     /// Actor who reviewed the calibration, when reviewed.
@@ -314,11 +311,6 @@ impl From<ToolCalibrationRecord> for GraphqlToolCalibration {
             read_classification: calibration.read_classification.as_str().to_string(),
             write_classification: calibration.write_classification.as_str().to_string(),
             export_classification: calibration.export_classification.as_str().to_string(),
-            owner_extractors: calibration
-                .owner_extractors
-                .into_iter()
-                .map(Into::into)
-                .collect(),
             status: calibration.status.as_str().to_string(),
             reviewed_by: calibration.reviewed_by,
             reviewed_metadata_fingerprint: calibration.reviewed_metadata_fingerprint,
@@ -346,8 +338,6 @@ pub struct GraphqlToolCalibrationSuggestion {
     pub write_classification: String,
     /// Suggested export classification.
     pub export_classification: String,
-    /// Suggested owner extractors.
-    pub owner_extractors: Vec<GraphqlOwnerExtractor>,
     /// Optional disabled-state suggestion; null preserves the current frontend draft.
     pub disabled: Option<bool>,
 }
@@ -359,34 +349,7 @@ impl From<crate::mcp::autofill::McpToolCalibrationSuggestion> for GraphqlToolCal
             read_classification: suggestion.read_classification.as_str().to_string(),
             write_classification: suggestion.write_classification.as_str().to_string(),
             export_classification: suggestion.export_classification.as_str().to_string(),
-            owner_extractors: suggestion
-                .owner_extractors
-                .into_iter()
-                .map(Into::into)
-                .collect(),
             disabled: suggestion.disabled,
-        }
-    }
-}
-
-/// Deterministic owner extractor safe to show in Settings.
-#[derive(Clone, Debug, SimpleObject)]
-#[graphql(name = "OwnerExtractor")]
-pub struct GraphqlOwnerExtractor {
-    /// Source document or field family to inspect.
-    pub source: String,
-    /// Type of trusted identity this extractor returns.
-    pub selector_kind: String,
-    /// JSON pointer, JSONPath-style path, URI pattern, or adapter key.
-    pub path: String,
-}
-
-impl From<OwnerExtractor> for GraphqlOwnerExtractor {
-    fn from(extractor: OwnerExtractor) -> Self {
-        Self {
-            source: owner_extractor_source_label(extractor.source).to_string(),
-            selector_kind: extractor.selector_kind.as_str().to_string(),
-            path: extractor.path,
         }
     }
 }
@@ -405,57 +368,12 @@ pub struct GraphqlSaveToolCalibrationInput {
     pub write_classification: String,
     /// Effective export classification.
     pub export_classification: String,
-    /// Deterministic owner extractors configured for this tool.
-    pub owner_extractors: Vec<GraphqlOwnerExtractorInput>,
     /// Review/gateway readiness status.
     pub status: String,
     /// Actor who reviewed the calibration, when reviewed.
     pub reviewed_by: Option<String>,
     /// Tool metadata fingerprint reviewed by the actor.
     pub reviewed_metadata_fingerprint: Option<String>,
-}
-
-/// Deterministic owner extractor input for MCP ownership resolution.
-#[derive(Clone, Debug, InputObject)]
-#[graphql(name = "OwnerExtractorInput")]
-pub struct GraphqlOwnerExtractorInput {
-    /// Source document or field family to inspect.
-    pub source: String,
-    /// Type of trusted identity this extractor returns.
-    pub selector_kind: String,
-    /// JSON pointer, JSONPath-style path, URI pattern, or adapter key.
-    pub path: String,
-}
-
-/// Trusted identity selector metadata safe to show in Settings.
-#[derive(Clone, Debug, SimpleObject)]
-#[graphql(name = "TrustedIdentitySelector")]
-pub struct GraphqlTrustedIdentitySelector {
-    /// Durable selector id.
-    pub selector_id: String,
-    /// Governable owner scope the selector belongs to.
-    pub owner_scope_id: String,
-    /// Selector type.
-    pub selector_kind: String,
-    /// Normalized selector value.
-    pub normalized_value: String,
-    /// Selector effect.
-    pub effect: String,
-    /// Actor that issued this selector.
-    pub issuer_actor_id: String,
-}
-
-impl From<TrustedIdentitySelectorRecord> for GraphqlTrustedIdentitySelector {
-    fn from(selector: TrustedIdentitySelectorRecord) -> Self {
-        Self {
-            selector_id: selector.selector_id,
-            owner_scope_id: selector.owner_scope_id,
-            selector_kind: selector.selector_kind.as_str().to_string(),
-            normalized_value: selector.normalized_value,
-            effect: selector_effect_label(selector.effect).to_string(),
-            issuer_actor_id: selector.issuer_actor_id,
-        }
-    }
 }
 
 /// MCP approval request metadata safe to show in Settings.
@@ -545,23 +463,6 @@ const fn auth_status_label(status: McpServerAuthStatus) -> &'static str {
         McpServerAuthStatus::NeedsAuth => "needs_auth",
         McpServerAuthStatus::Authenticated => "authenticated",
         McpServerAuthStatus::Unavailable => "unavailable",
-    }
-}
-
-const fn selector_effect_label(effect: TrustedIdentitySelectorEffect) -> &'static str {
-    match effect {
-        TrustedIdentitySelectorEffect::Trust => "trust",
-        TrustedIdentitySelectorEffect::Restrict => "restrict",
-    }
-}
-
-const fn owner_extractor_source_label(source: OwnerExtractorSource) -> &'static str {
-    match source {
-        OwnerExtractorSource::Arguments => "arguments",
-        OwnerExtractorSource::StructuredContent => "structured_content",
-        OwnerExtractorSource::Metadata => "metadata",
-        OwnerExtractorSource::ResourceUri => "resource_uri",
-        OwnerExtractorSource::BuiltInAdapter => "built_in_adapter",
     }
 }
 
@@ -835,18 +736,6 @@ pub(super) async fn delete_mcp_server(state: &GraphqlState, mcp_server_id: Strin
     Ok(deleted)
 }
 
-pub(super) async fn trusted_identity_selectors(
-    state: &GraphqlState,
-    owner_scope_id: String,
-) -> Result<Vec<GraphqlTrustedIdentitySelector>> {
-    let store = state.store()?;
-    let selectors = store
-        .list_trusted_identity_selectors(&owner_scope_id)
-        .await
-        .map_err(graphql_error)?;
-    Ok(selectors.into_iter().map(Into::into).collect())
-}
-
 pub(super) async fn mcp_approval_requests(
     state: &GraphqlState,
     status: Option<String>,
@@ -899,19 +788,12 @@ fn parse_save_tool_calibration_input(
     let export_classification =
         parse_graphql_trust_classification(&input.export_classification, "exportClassification")?;
     let status = parse_graphql_calibration_status(&input.status)?;
-    let owner_extractors = input
-        .owner_extractors
-        .into_iter()
-        .map(parse_graphql_owner_extractor)
-        .collect::<Result<Vec<_>>>()?;
-
     Ok(NewToolCalibration {
         calibration_id: input.calibration_id,
         mcp_tool_id: input.mcp_tool_id,
         read_classification,
         write_classification,
         export_classification,
-        owner_extractors,
         status,
         reviewed_by: input.reviewed_by,
         reviewed_metadata_fingerprint: input.reviewed_metadata_fingerprint,
@@ -1067,44 +949,6 @@ fn parse_graphql_calibration_status(value: &str) -> Result<McpCalibrationStatus>
         "disabled" => Ok(McpCalibrationStatus::Disabled),
         _ => Err(graphql_error(
             "invalid status: expected one of needs_review, blocked_unresolved_ownership, ready, disabled",
-        )),
-    }
-}
-
-fn parse_graphql_owner_extractor(input: GraphqlOwnerExtractorInput) -> Result<OwnerExtractor> {
-    if input.path.is_empty() {
-        return Err(graphql_error(
-            "invalid owner extractor path: cannot be empty",
-        ));
-    }
-
-    Ok(OwnerExtractor {
-        source: parse_graphql_owner_extractor_source(&input.source)?,
-        selector_kind: parse_graphql_selector_kind(&input.selector_kind)?,
-        path: input.path,
-    })
-}
-
-fn parse_graphql_owner_extractor_source(value: &str) -> Result<OwnerExtractorSource> {
-    match value {
-        "arguments" => Ok(OwnerExtractorSource::Arguments),
-        "structured_content" => Ok(OwnerExtractorSource::StructuredContent),
-        "metadata" => Ok(OwnerExtractorSource::Metadata),
-        "resource_uri" => Ok(OwnerExtractorSource::ResourceUri),
-        "built_in_adapter" => Ok(OwnerExtractorSource::BuiltInAdapter),
-        _ => Err(graphql_error(
-            "invalid owner extractor source: expected one of arguments, structured_content, metadata, resource_uri, built_in_adapter",
-        )),
-    }
-}
-
-fn parse_graphql_selector_kind(value: &str) -> Result<TrustedIdentitySelectorKind> {
-    match value {
-        "email" => Ok(TrustedIdentitySelectorKind::Email),
-        "phone" => Ok(TrustedIdentitySelectorKind::Phone),
-        "domain" => Ok(TrustedIdentitySelectorKind::Domain),
-        _ => Err(graphql_error(
-            "invalid owner extractor selectorKind: expected one of email, phone, domain",
         )),
     }
 }

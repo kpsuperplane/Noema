@@ -35,8 +35,7 @@ pub use error::StoreError;
 pub use mcp::{
     McpApprovalRequestRecord, McpServerAuthStatus, McpServerHealthStatus, McpServerRecord,
     McpToolRecord, NewMcpApprovalRequest, NewMcpServer, NewMcpTool, NewToolCalibration,
-    NewTrustedIdentitySelector, ToolCalibrationRecord, TrustedIdentitySelectorEffect,
-    TrustedIdentitySelectorRecord,
+    ToolCalibrationRecord,
 };
 pub use memory_service::{
     MemoryArticleCacheRecord, MemoryServiceMode, MemoryServiceSettingsRecord,

@@ -2,7 +2,7 @@
 
 use crate::{
     McpCalibrationStatus, McpServerAuthStatus, McpServerHealthStatus, McpServerRecord,
-    McpToolRecord, ToolCalibrationRecord,
+    McpToolRecord, McpTrustClassification, ToolCalibrationRecord,
 };
 
 /// Reason a discovered MCP tool must not be exposed to or executed for the model.
@@ -55,6 +55,12 @@ pub fn mcp_tool_ineligibility(
         return Some(McpToolIneligibility::ToolNotCalibrated);
     };
     if calibration.status != McpCalibrationStatus::Ready
+        || [
+            calibration.read_classification,
+            calibration.write_classification,
+            calibration.export_classification,
+        ]
+        .contains(&McpTrustClassification::Mixed)
         || calibration.reviewed_metadata_fingerprint.as_deref()
             != Some(tool.metadata_fingerprint.as_str())
     {

@@ -19,7 +19,6 @@ import { Route as SettingsToolsWebRouteImport } from './routes/settings/tools/we
 import { Route as SettingsToolsMcpsRouteImport } from './routes/settings/tools/mcps'
 import { Route as SettingsSystemProvidersRouteImport } from './routes/settings/system/providers'
 import { Route as SettingsSafetyUsageRouteImport } from './routes/settings/safety/usage'
-import { Route as SettingsSafetyIdentitiesRouteImport } from './routes/settings/safety/identities'
 import { Route as SettingsSafetyApprovalsRouteImport } from './routes/settings/safety/approvals'
 
 const SettingsRoute = SettingsRouteImport.update({
@@ -72,12 +71,6 @@ const SettingsSafetyUsageRoute = SettingsSafetyUsageRouteImport.update({
   path: '/safety/usage',
   getParentRoute: () => SettingsRoute,
 } as any)
-const SettingsSafetyIdentitiesRoute =
-  SettingsSafetyIdentitiesRouteImport.update({
-    id: '/safety/identities',
-    path: '/safety/identities',
-    getParentRoute: () => SettingsRoute,
-  } as any)
 const SettingsSafetyApprovalsRoute = SettingsSafetyApprovalsRouteImport.update({
   id: '/safety/approvals',
   path: '/safety/approvals',
@@ -92,7 +85,6 @@ export interface FileRoutesByFullPath {
   '/settings/memory': typeof SettingsMemoryRoute
   '/settings/': typeof SettingsIndexRoute
   '/settings/safety/approvals': typeof SettingsSafetyApprovalsRoute
-  '/settings/safety/identities': typeof SettingsSafetyIdentitiesRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
   '/settings/system/providers': typeof SettingsSystemProvidersRoute
   '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
@@ -105,7 +97,6 @@ export interface FileRoutesByTo {
   '/settings/memory': typeof SettingsMemoryRoute
   '/settings': typeof SettingsIndexRoute
   '/settings/safety/approvals': typeof SettingsSafetyApprovalsRoute
-  '/settings/safety/identities': typeof SettingsSafetyIdentitiesRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
   '/settings/system/providers': typeof SettingsSystemProvidersRoute
   '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
@@ -120,7 +111,6 @@ export interface FileRoutesById {
   '/settings/memory': typeof SettingsMemoryRoute
   '/settings/': typeof SettingsIndexRoute
   '/settings/safety/approvals': typeof SettingsSafetyApprovalsRoute
-  '/settings/safety/identities': typeof SettingsSafetyIdentitiesRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
   '/settings/system/providers': typeof SettingsSystemProvidersRoute
   '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
@@ -136,7 +126,6 @@ export interface FileRouteTypes {
     | '/settings/memory'
     | '/settings/'
     | '/settings/safety/approvals'
-    | '/settings/safety/identities'
     | '/settings/safety/usage'
     | '/settings/system/providers'
     | '/settings/tools/mcps'
@@ -149,7 +138,6 @@ export interface FileRouteTypes {
     | '/settings/memory'
     | '/settings'
     | '/settings/safety/approvals'
-    | '/settings/safety/identities'
     | '/settings/safety/usage'
     | '/settings/system/providers'
     | '/settings/tools/mcps'
@@ -163,7 +151,6 @@ export interface FileRouteTypes {
     | '/settings/memory'
     | '/settings/'
     | '/settings/safety/approvals'
-    | '/settings/safety/identities'
     | '/settings/safety/usage'
     | '/settings/system/providers'
     | '/settings/tools/mcps'
@@ -248,13 +235,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsSafetyUsageRouteImport
       parentRoute: typeof SettingsRoute
     }
-    '/settings/safety/identities': {
-      id: '/settings/safety/identities'
-      path: '/safety/identities'
-      fullPath: '/settings/safety/identities'
-      preLoaderRoute: typeof SettingsSafetyIdentitiesRouteImport
-      parentRoute: typeof SettingsRoute
-    }
     '/settings/safety/approvals': {
       id: '/settings/safety/approvals'
       path: '/safety/approvals'
@@ -270,7 +250,6 @@ interface SettingsRouteChildren {
   SettingsMemoryRoute: typeof SettingsMemoryRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
   SettingsSafetyApprovalsRoute: typeof SettingsSafetyApprovalsRoute
-  SettingsSafetyIdentitiesRoute: typeof SettingsSafetyIdentitiesRoute
   SettingsSafetyUsageRoute: typeof SettingsSafetyUsageRoute
   SettingsSystemProvidersRoute: typeof SettingsSystemProvidersRoute
   SettingsToolsMcpsRoute: typeof SettingsToolsMcpsRoute
@@ -282,7 +261,6 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsMemoryRoute: SettingsMemoryRoute,
   SettingsIndexRoute: SettingsIndexRoute,
   SettingsSafetyApprovalsRoute: SettingsSafetyApprovalsRoute,
-  SettingsSafetyIdentitiesRoute: SettingsSafetyIdentitiesRoute,
   SettingsSafetyUsageRoute: SettingsSafetyUsageRoute,
   SettingsSystemProvidersRoute: SettingsSystemProvidersRoute,
   SettingsToolsMcpsRoute: SettingsToolsMcpsRoute,

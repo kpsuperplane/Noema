@@ -2,11 +2,10 @@ use rusqlite::Row;
 
 use super::{
     McpApprovalRequestRecord, McpServerAuthStatus, McpServerHealthStatus, McpServerRecord,
-    McpToolRecord, ToolCalibrationRecord, TrustedIdentitySelectorEffect,
-    TrustedIdentitySelectorRecord,
+    McpToolRecord, ToolCalibrationRecord,
 };
 use crate::{
-    McpCalibrationStatus, McpTransportKind, McpTrustClassification, TrustedIdentitySelectorKind,
+    McpCalibrationStatus, McpTransportKind, McpTrustClassification,
     store::{StoreError, ids::invalid_enum},
 };
 
@@ -58,41 +57,33 @@ pub(super) fn mcp_tool_from_row(row: &Row<'_>) -> rusqlite::Result<McpToolRecord
 }
 
 pub(super) fn tool_calibration_from_row(row: &Row<'_>) -> rusqlite::Result<ToolCalibrationRecord> {
-    let read_classification: String = row.get(2)?;
-    let write_classification: String = row.get(3)?;
-    let export_classification: String = row.get(4)?;
-    let owner_extractors_json: String = row.get(5)?;
-    let status: String = row.get(6)?;
+    let read_classification =
+        parse_mcp_trust_classification(&row.get::<_, String>(2)?).map_err(to_sql_error)?;
+    let write_classification =
+        parse_mcp_trust_classification(&row.get::<_, String>(3)?).map_err(to_sql_error)?;
+    let export_classification =
+        parse_mcp_trust_classification(&row.get::<_, String>(4)?).map_err(to_sql_error)?;
+    let mut status =
+        parse_mcp_calibration_status(&row.get::<_, String>(5)?).map_err(to_sql_error)?;
+    if status == McpCalibrationStatus::Ready
+        && [
+            read_classification,
+            write_classification,
+            export_classification,
+        ]
+        .contains(&McpTrustClassification::Mixed)
+    {
+        status = McpCalibrationStatus::BlockedUnresolvedOwnership;
+    }
     Ok(ToolCalibrationRecord {
         calibration_id: row.get(0)?,
         mcp_tool_id: row.get(1)?,
-        read_classification: parse_mcp_trust_classification(&read_classification)
-            .map_err(to_sql_error)?,
-        write_classification: parse_mcp_trust_classification(&write_classification)
-            .map_err(to_sql_error)?,
-        export_classification: parse_mcp_trust_classification(&export_classification)
-            .map_err(to_sql_error)?,
-        owner_extractors: serde_json::from_str(&owner_extractors_json).map_err(to_sql_error)?,
-        status: parse_mcp_calibration_status(&status).map_err(to_sql_error)?,
-        reviewed_by: row.get(7)?,
-        reviewed_metadata_fingerprint: row.get(8)?,
-    })
-}
-
-pub(super) fn trusted_identity_selector_from_row(
-    row: &Row<'_>,
-) -> rusqlite::Result<TrustedIdentitySelectorRecord> {
-    let selector_kind: String = row.get(2)?;
-    let effect: String = row.get(4)?;
-    Ok(TrustedIdentitySelectorRecord {
-        selector_id: row.get(0)?,
-        owner_scope_id: row.get(1)?,
-        selector_kind: parse_trusted_identity_selector_kind(&selector_kind)
-            .map_err(to_sql_error)?,
-        normalized_value: row.get(3)?,
-        effect: parse_trusted_identity_selector_effect(&effect).map_err(to_sql_error)?,
-        issuer_actor_id: row.get(5)?,
-        revoked_at: row.get(6)?,
+        read_classification,
+        write_classification,
+        export_classification,
+        status,
+        reviewed_by: row.get(6)?,
+        reviewed_metadata_fingerprint: row.get(7)?,
     })
 }
 
@@ -168,27 +159,6 @@ fn parse_mcp_calibration_status(value: &str) -> Result<McpCalibrationStatus, Sto
         "ready" => Ok(McpCalibrationStatus::Ready),
         "disabled" => Ok(McpCalibrationStatus::Disabled),
         _ => invalid_enum("mcp_calibration_status", value),
-    }
-}
-
-fn parse_trusted_identity_selector_kind(
-    value: &str,
-) -> Result<TrustedIdentitySelectorKind, StoreError> {
-    match value {
-        "email" => Ok(TrustedIdentitySelectorKind::Email),
-        "phone" => Ok(TrustedIdentitySelectorKind::Phone),
-        "domain" => Ok(TrustedIdentitySelectorKind::Domain),
-        _ => invalid_enum("trusted_identity_selector_kind", value),
-    }
-}
-
-fn parse_trusted_identity_selector_effect(
-    value: &str,
-) -> Result<TrustedIdentitySelectorEffect, StoreError> {
-    match value {
-        "trust" => Ok(TrustedIdentitySelectorEffect::Trust),
-        "restrict" => Ok(TrustedIdentitySelectorEffect::Restrict),
-        _ => invalid_enum("trusted_identity_selector_effect", value),
     }
 }
 

@@ -3,7 +3,6 @@ import {
   Bot,
   Brain,
   CheckSquare,
-  Fingerprint,
   Gauge,
   Globe,
   House,
@@ -26,7 +25,6 @@ export type ShellMenuItemId =
   | "settings.tools.mcps"
   | "settings.safety.usage"
   | "settings.safety.approvals"
-  | "settings.safety.identities"
   | "settings.system.providers"
   | "settings.go-back";
 
@@ -112,15 +110,6 @@ export const shellSettingsEntries: ShellSettingsEntry[] = [
       itemId: "settings.safety.approvals",
       label: "Approvals",
       icon: CheckSquare
-    }
-  },
-  {
-    kind: "section",
-    item: {
-      section: "safety-identities",
-      itemId: "settings.safety.identities",
-      label: "Identities",
-      icon: Fingerprint
     }
   },
   { kind: "group", label: "System" },

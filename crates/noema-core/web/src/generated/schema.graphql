@@ -1609,42 +1609,6 @@ enum OnboardingStepStatus {
 }
 
 """
-Deterministic owner extractor safe to show in Settings.
-"""
-type OwnerExtractor {
-	"""
-	Source document or field family to inspect.
-	"""
-	source: String!
-	"""
-	Type of trusted identity this extractor returns.
-	"""
-	selectorKind: String!
-	"""
-	JSON pointer, JSONPath-style path, URI pattern, or adapter key.
-	"""
-	path: String!
-}
-
-"""
-Deterministic owner extractor input for MCP ownership resolution.
-"""
-input OwnerExtractorInput {
-	"""
-	Source document or field family to inspect.
-	"""
-	source: String!
-	"""
-	Type of trusted identity this extractor returns.
-	"""
-	selectorKind: String!
-	"""
-	JSON pointer, JSONPath-style path, URI pattern, or adapter key.
-	"""
-	path: String!
-}
-
-"""
 Primary conversation identity.
 """
 type PrimaryConversation {
@@ -1923,10 +1887,6 @@ type QueryRoot {
 	"""
 	mcpOauthSetupAttempt(attemptId: String!): McpOAuthSetupAttempt
 	"""
-	List trusted identity selectors for one owner scope.
-	"""
-	trustedIdentitySelectors(ownerScopeId: String!): [TrustedIdentitySelector!]!
-	"""
 	List MCP approval requests safe to show in Settings.
 	"""
 	mcpApprovalRequests(status: String): [McpApprovalRequest!]!
@@ -2045,10 +2005,6 @@ input SaveToolCalibrationInput {
 	Effective export classification.
 	"""
 	exportClassification: String!
-	"""
-	Deterministic owner extractors configured for this tool.
-	"""
-	ownerExtractors: [OwnerExtractorInput!]!
 	"""
 	Review/gateway readiness status.
 	"""
@@ -2233,10 +2189,6 @@ type ToolCalibration {
 	"""
 	exportClassification: String!
 	"""
-	Deterministic owner extractors configured for this tool.
-	"""
-	ownerExtractors: [OwnerExtractor!]!
-	"""
 	Review/gateway readiness status.
 	"""
 	status: String!
@@ -2271,10 +2223,6 @@ type ToolCalibrationSuggestion {
 	"""
 	exportClassification: String!
 	"""
-	Suggested owner extractors.
-	"""
-	ownerExtractors: [OwnerExtractor!]!
-	"""
 	Optional disabled-state suggestion; null preserves the current frontend draft.
 	"""
 	disabled: Boolean
@@ -2302,36 +2250,6 @@ type ToolProgressAuditSettings {
 Transcript item union.
 """
 union TranscriptItem = UserText | AssistantText | Activity | A2UiCard | MultipleChoicePrompt | MultipleChoiceSelection | ErrorNotice | ArtifactReference
-
-"""
-Trusted identity selector metadata safe to show in Settings.
-"""
-type TrustedIdentitySelector {
-	"""
-	Durable selector id.
-	"""
-	selectorId: String!
-	"""
-	Governable owner scope the selector belongs to.
-	"""
-	ownerScopeId: String!
-	"""
-	Selector type.
-	"""
-	selectorKind: String!
-	"""
-	Normalized selector value.
-	"""
-	normalizedValue: String!
-	"""
-	Selector effect.
-	"""
-	effect: String!
-	"""
-	Actor that issued this selector.
-	"""
-	issuerActorId: String!
-}
 
 """
 Acceptance response for a queued conversation turn.

@@ -243,25 +243,11 @@ CREATE TABLE IF NOT EXISTS tool_calibrations (
   read_classification TEXT NOT NULL CHECK (read_classification IN ('none', 'trusted', 'untrusted', 'mixed')),
   write_classification TEXT NOT NULL CHECK (write_classification IN ('none', 'trusted', 'untrusted', 'mixed')),
   export_classification TEXT NOT NULL CHECK (export_classification IN ('none', 'trusted', 'untrusted', 'mixed')),
-  owner_extractors_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(owner_extractors_json) AND json_type(owner_extractors_json) = 'array'),
   status TEXT NOT NULL CHECK (status IN ('needs_review', 'blocked_unresolved_ownership', 'ready', 'disabled')),
   reviewed_by TEXT,
   reviewed_metadata_fingerprint TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-);
-
-CREATE TABLE IF NOT EXISTS trusted_identity_selectors (
-  selector_id TEXT PRIMARY KEY NOT NULL,
-  owner_scope_id TEXT NOT NULL,
-  selector_kind TEXT NOT NULL CHECK (selector_kind IN ('email', 'phone', 'domain')),
-  normalized_value TEXT NOT NULL CHECK (normalized_value <> ''),
-  effect TEXT NOT NULL CHECK (effect IN ('trust', 'restrict')),
-  issuer_actor_id TEXT NOT NULL,
-  revoked_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  UNIQUE(owner_scope_id, selector_kind, normalized_value)
 );
 
 CREATE TABLE IF NOT EXISTS approval_requests (

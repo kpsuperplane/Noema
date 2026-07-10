@@ -358,7 +358,6 @@ mod tests {
                 read_classification: McpTrustClassification::Trusted,
                 write_classification: McpTrustClassification::None,
                 export_classification: McpTrustClassification::None,
-                owner_extractors: Vec::new(),
                 status: McpCalibrationStatus::Ready,
                 reviewed_by: Some("human:local".to_string()),
                 reviewed_metadata_fingerprint: Some("fp1".to_string()),

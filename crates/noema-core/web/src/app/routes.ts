@@ -5,7 +5,6 @@ export type SettingsSection =
   | "tools-mcps"
   | "safety-usage"
   | "safety-approvals"
-  | "safety-identities"
   | "system-providers";
 
 export type AppRoute =
@@ -24,7 +23,6 @@ export type AppPath =
   | "/settings/tools/mcps"
   | "/settings/safety/usage"
   | "/settings/safety/approvals"
-  | "/settings/safety/identities"
   | "/settings/system/providers";
 
 export function routeFromPathname(pathname: string): AppRoute {
@@ -48,9 +46,6 @@ export function routeFromPathname(pathname: string): AppRoute {
   }
   if (pathname === "/settings/safety/approvals") {
     return { kind: "settings", section: "safety-approvals" };
-  }
-  if (pathname === "/settings/safety/identities") {
-    return { kind: "settings", section: "safety-identities" };
   }
   if (pathname === "/settings/system/providers") {
     return { kind: "settings", section: "system-providers" };
@@ -76,8 +71,6 @@ export function pathForRoute(route: AppRoute): AppPath {
         return "/settings/safety/usage";
       case "safety-approvals":
         return "/settings/safety/approvals";
-      case "safety-identities":
-        return "/settings/safety/identities";
       case "system-providers":
         return "/settings/system/providers";
     }

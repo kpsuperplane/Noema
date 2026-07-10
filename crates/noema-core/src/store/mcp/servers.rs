@@ -82,7 +82,17 @@ impl NoemaStore {
             let mut statement = conn.prepare(
                 r#"
                 SELECT m.mcp_server_id, m.display_name, m.transport_kind, m.safe_config_json,
-                  m.enabled, m.health_status, m.auth_status, COUNT(t.mcp_tool_id) AS tool_count
+                  EXISTS (
+                    SELECT 1
+                    FROM mcp_tools eligible_t
+                    JOIN tool_calibrations c ON c.mcp_tool_id = eligible_t.mcp_tool_id
+                    WHERE eligible_t.mcp_server_id = m.mcp_server_id
+                      AND c.status = 'ready'
+                      AND c.read_classification <> 'mixed'
+                      AND c.write_classification <> 'mixed'
+                      AND c.export_classification <> 'mixed'
+                  ) AS enabled,
+                  m.health_status, m.auth_status, COUNT(t.mcp_tool_id) AS tool_count
                 FROM mcp_servers m
                 LEFT JOIN mcp_tools t ON t.mcp_server_id = m.mcp_server_id
                 GROUP BY m.mcp_server_id
@@ -173,7 +183,17 @@ impl NoemaStore {
 
 const MCP_SERVER_SELECT_WITH_TOOL_COUNT: &str = r#"
 SELECT m.mcp_server_id, m.display_name, m.transport_kind, m.safe_config_json,
-  m.enabled, m.health_status, m.auth_status, COUNT(t.mcp_tool_id) AS tool_count
+  EXISTS (
+    SELECT 1
+    FROM mcp_tools eligible_t
+    JOIN tool_calibrations c ON c.mcp_tool_id = eligible_t.mcp_tool_id
+    WHERE eligible_t.mcp_server_id = m.mcp_server_id
+      AND c.status = 'ready'
+      AND c.read_classification <> 'mixed'
+      AND c.write_classification <> 'mixed'
+      AND c.export_classification <> 'mixed'
+  ) AS enabled,
+  m.health_status, m.auth_status, COUNT(t.mcp_tool_id) AS tool_count
 FROM mcp_servers m
 LEFT JOIN mcp_tools t ON t.mcp_server_id = m.mcp_server_id
 WHERE m.mcp_server_id = ?1

@@ -1,9 +1,6 @@
 use serde_json::Value;
 
-use crate::{
-    McpCalibrationStatus, McpTransportKind, McpTrustClassification, OwnerExtractor,
-    TrustedIdentitySelectorKind,
-};
+use crate::{McpCalibrationStatus, McpTransportKind, McpTrustClassification};
 
 /// Input for creating an MCP server metadata row.
 #[derive(Debug, Clone, PartialEq)]
@@ -120,8 +117,6 @@ pub struct NewToolCalibration {
     pub write_classification: McpTrustClassification,
     /// Effective export classification.
     pub export_classification: McpTrustClassification,
-    /// Deterministic owner extractors configured for this tool.
-    pub owner_extractors: Vec<OwnerExtractor>,
     /// Review/gateway readiness status.
     pub status: McpCalibrationStatus,
     /// Actor who reviewed the calibration, when reviewed.
@@ -143,59 +138,12 @@ pub struct ToolCalibrationRecord {
     pub write_classification: McpTrustClassification,
     /// Effective export classification.
     pub export_classification: McpTrustClassification,
-    /// Deterministic owner extractors configured for this tool.
-    pub owner_extractors: Vec<OwnerExtractor>,
     /// Review/gateway readiness status.
     pub status: McpCalibrationStatus,
     /// Actor who reviewed the calibration, when reviewed.
     pub reviewed_by: Option<String>,
     /// Tool metadata fingerprint reviewed by the actor.
     pub reviewed_metadata_fingerprint: Option<String>,
-}
-
-/// Input for creating a trusted identity selector.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NewTrustedIdentitySelector {
-    /// Durable selector id.
-    pub selector_id: String,
-    /// Governable owner scope the selector belongs to.
-    pub owner_scope_id: String,
-    /// Selector type.
-    pub selector_kind: TrustedIdentitySelectorKind,
-    /// Unnormalized user-provided selector value.
-    pub raw_value: String,
-    /// Selector effect.
-    pub effect: TrustedIdentitySelectorEffect,
-    /// Actor that issued this selector.
-    pub issuer_actor_id: String,
-}
-
-/// Trusted identity selector effect.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TrustedIdentitySelectorEffect {
-    /// Trust this identity for the owner scope.
-    Trust,
-    /// Restrict this identity for the owner scope.
-    Restrict,
-}
-
-/// Persisted trusted identity selector read model.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TrustedIdentitySelectorRecord {
-    /// Durable selector id.
-    pub selector_id: String,
-    /// Governable owner scope the selector belongs to.
-    pub owner_scope_id: String,
-    /// Selector type.
-    pub selector_kind: TrustedIdentitySelectorKind,
-    /// Normalized selector value.
-    pub normalized_value: String,
-    /// Selector effect.
-    pub effect: TrustedIdentitySelectorEffect,
-    /// Actor that issued this selector.
-    pub issuer_actor_id: String,
-    /// Revocation timestamp string, when revoked.
-    pub revoked_at: Option<String>,
 }
 
 /// Input for creating a durable MCP approval request.
@@ -297,15 +245,6 @@ impl McpServerAuthStatus {
             Self::NeedsAuth => "needs_auth",
             Self::Authenticated => "authenticated",
             Self::Unavailable => "unavailable",
-        }
-    }
-}
-
-impl TrustedIdentitySelectorEffect {
-    pub(super) const fn as_str(self) -> &'static str {
-        match self {
-            Self::Trust => "trust",
-            Self::Restrict => "restrict",
         }
     }
 }

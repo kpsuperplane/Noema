@@ -14,7 +14,6 @@ pub mod secrets;
 pub mod setup;
 /// Stdio MCP metadata transport.
 pub mod stdio;
-mod trusted_identities;
 
 pub use client::{DiscoveredMcpTool, McpClientError, McpClientRuntime, McpTransport};
 pub use eligibility::{
@@ -27,7 +26,6 @@ pub use oauth::{
     StartMcpOAuthSetupRequest,
 };
 pub use stdio::StdioMcpTransport;
-pub use trusted_identities::{TrustedIdentitySelectorKind, normalize_trusted_identity_value};
 
 use serde::{Deserialize, Serialize};
 
@@ -104,31 +102,4 @@ impl McpCalibrationStatus {
             Self::Disabled => "disabled",
         }
     }
-}
-
-/// Deterministic owner extractor used during MCP ownership resolution.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct OwnerExtractor {
-    /// Source document or field family to inspect.
-    pub source: OwnerExtractorSource,
-    /// Type of trusted identity this extractor returns.
-    pub selector_kind: TrustedIdentitySelectorKind,
-    /// JSON pointer, JSONPath-style path, URI pattern, or adapter key.
-    pub path: String,
-}
-
-/// Source for a deterministic MCP owner extractor.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum OwnerExtractorSource {
-    /// Extract from MCP tool arguments.
-    Arguments,
-    /// Extract from MCP structured result content.
-    StructuredContent,
-    /// Extract from MCP result or resource metadata.
-    Metadata,
-    /// Extract from an MCP resource URI.
-    ResourceUri,
-    /// Extract through a built-in Noema adapter rule.
-    BuiltInAdapter,
 }

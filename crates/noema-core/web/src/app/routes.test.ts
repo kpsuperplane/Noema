@@ -31,10 +31,6 @@ describe("settings routes", () => {
       kind: "settings",
       section: "safety-approvals"
     });
-    assert.deepEqual(routeFromPathname("/settings/safety/identities"), {
-      kind: "settings",
-      section: "safety-identities"
-    });
     assert.deepEqual(routeFromPathname("/settings/system/providers"), {
       kind: "settings",
       section: "system-providers"
@@ -60,10 +56,6 @@ describe("settings routes", () => {
     assert.equal(
       pathForRoute({ kind: "settings", section: "safety-approvals" }),
       "/settings/safety/approvals"
-    );
-    assert.equal(
-      pathForRoute({ kind: "settings", section: "safety-identities" }),
-      "/settings/safety/identities"
     );
     assert.equal(
       pathForRoute({ kind: "settings", section: "system-providers" }),
