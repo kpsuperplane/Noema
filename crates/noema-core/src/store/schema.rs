@@ -211,7 +211,7 @@ ON artifact_versions(artifact_id, version_index);
 CREATE TABLE IF NOT EXISTS mcp_servers (
   mcp_server_id TEXT PRIMARY KEY NOT NULL,
   display_name TEXT NOT NULL,
-  transport_kind TEXT NOT NULL CHECK (transport_kind IN ('stdio', 'sse', 'streamable_http')),
+  transport_kind TEXT NOT NULL CHECK (transport_kind IN ('stdio', 'streamable_http')),
   safe_config_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(safe_config_json)),
   auth_status TEXT NOT NULL CHECK (auth_status IN ('none', 'needs_auth', 'authenticated', 'unavailable')),
   health_status TEXT NOT NULL CHECK (health_status IN ('unknown', 'healthy', 'unavailable')),

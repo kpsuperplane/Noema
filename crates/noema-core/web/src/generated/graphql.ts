@@ -88,11 +88,11 @@ export type CreateConversationExternalArtifactInput = {
 export type CreateMcpServerInput = {
   /** Human-visible server name. */
   displayName: string;
-  /** HTTP transport config, when `transport_kind` is `sse` or `streamable_http`. */
+  /** HTTP transport config, when `transport_kind` is `streamable_http`. */
   http?: McpHttpConfigInput | null | undefined;
   /** Stdio transport config, when `transport_kind` is `stdio`. */
   stdio?: McpStdioConfigInput | null | undefined;
-  /** MCP transport kind: `stdio`, `sse`, or `streamable_http`. */
+  /** MCP transport kind: `stdio` or `streamable_http`. */
   transportKind: string;
 };
 

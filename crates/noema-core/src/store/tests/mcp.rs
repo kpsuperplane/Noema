@@ -161,6 +161,32 @@ async fn mcp_control_plane_tables_bootstrap() {
 }
 
 #[tokio::test]
+async fn mcp_server_transport_constraint_rejects_removed_sse_kind() {
+    let store = test_store().await;
+
+    let error = store
+        .with_connection(|conn| {
+            conn.execute(
+                r#"
+                INSERT INTO mcp_servers (
+                  mcp_server_id, display_name, transport_kind, safe_config_json,
+                  auth_status, health_status, enabled
+                ) VALUES (
+                  'mcp_server:removed-sse', 'Removed SSE', 'sse', '{}',
+                  'none', 'unknown', 0
+                )
+                "#,
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect_err("removed SSE transport should violate the schema constraint");
+
+    assert!(error.to_string().contains("transport_kind"));
+}
+
+#[tokio::test]
 async fn export_decision_creates_manual_approval_request() {
     let store = test_store().await;
 

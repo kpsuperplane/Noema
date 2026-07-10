@@ -21,7 +21,7 @@ pub use eligibility::{
     McpToolIneligibility, mcp_tool_ineligibility, prompt_safe_mcp_tool_description,
 };
 pub(crate) use eligibility::{sanitize_prompt_line, truncate_chars};
-pub use http::{SseMcpTransport, StreamableHttpMcpTransport};
+pub use http::StreamableHttpMcpTransport;
 pub use oauth::{
     McpOAuthSetupAttemptStatus, McpOAuthSetupAttemptView, McpOAuthSetupManager,
     StartMcpOAuthSetupRequest,
@@ -64,8 +64,6 @@ impl McpTrustClassification {
 pub enum McpTransportKind {
     /// Local stdio MCP transport.
     Stdio,
-    /// Legacy remote HTTP+SSE MCP transport.
-    Sse,
     /// Remote Streamable HTTP MCP transport.
     StreamableHttp,
 }
@@ -76,7 +74,6 @@ impl McpTransportKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Stdio => "stdio",
-            Self::Sse => "sse",
             Self::StreamableHttp => "streamable_http",
         }
     }

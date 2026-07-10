@@ -154,10 +154,8 @@ where
 }
 
 fn browser_oauth_probe_applies(server: &McpServerRecord, secrets: &McpSecretMaterial) -> bool {
-    matches!(
-        server.transport_kind,
-        McpTransportKind::Sse | McpTransportKind::StreamableHttp
-    ) && !secrets.has_secret_material()
+    matches!(server.transport_kind, McpTransportKind::StreamableHttp)
+        && !secrets.has_secret_material()
 }
 
 /// Update secrets for an existing MCP server and retry metadata discovery.
@@ -335,7 +333,7 @@ fn setup_failure_from_error(
 
 fn auth_details_for_transport(transport_kind: McpTransportKind) -> Option<McpSetupAuthDetails> {
     match transport_kind {
-        McpTransportKind::Sse | McpTransportKind::StreamableHttp => Some(McpSetupAuthDetails {
+        McpTransportKind::StreamableHttp => Some(McpSetupAuthDetails {
             oauth_client_credentials_supported: true,
             oauth_authorization_supported: true,
             scopes: Vec::new(),
@@ -498,7 +496,7 @@ fn normalize_safe_config(
                 secrets,
             )?)
         }
-        McpTransportKind::Sse | McpTransportKind::StreamableHttp => {
+        McpTransportKind::StreamableHttp => {
             let url = string_field(object, "url").map_err(StoreError::Schema)?;
             if !(url.starts_with("http://") || url.starts_with("https://")) {
                 return Err(StoreError::Schema(

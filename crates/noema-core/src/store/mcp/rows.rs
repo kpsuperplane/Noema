@@ -127,7 +127,6 @@ pub(super) fn mcp_approval_request_from_row(
 fn parse_mcp_transport_kind(value: &str) -> Result<McpTransportKind, StoreError> {
     match value {
         "stdio" => Ok(McpTransportKind::Stdio),
-        "sse" => Ok(McpTransportKind::Sse),
         "streamable_http" => Ok(McpTransportKind::StreamableHttp),
         _ => invalid_enum("mcp_transport_kind", value),
     }

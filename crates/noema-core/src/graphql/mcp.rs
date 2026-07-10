@@ -50,11 +50,11 @@ pub struct GraphqlMcpServer {
 pub struct GraphqlCreateMcpServerInput {
     /// Human-visible server name.
     pub display_name: String,
-    /// MCP transport kind: `stdio`, `sse`, or `streamable_http`.
+    /// MCP transport kind: `stdio` or `streamable_http`.
     pub transport_kind: String,
     /// Stdio transport config, when `transport_kind` is `stdio`.
     pub stdio: Option<GraphqlMcpStdioConfigInput>,
-    /// HTTP transport config, when `transport_kind` is `sse` or `streamable_http`.
+    /// HTTP transport config, when `transport_kind` is `streamable_http`.
     pub http: Option<GraphqlMcpHttpConfigInput>,
 }
 
@@ -272,16 +272,14 @@ impl From<McpServerRecord> for GraphqlMcpServer {
 }
 
 fn browser_oauth_reauth_supported(server: &McpServerRecord) -> bool {
-    matches!(
-        server.transport_kind,
-        McpTransportKind::Sse | McpTransportKind::StreamableHttp
-    ) && server
-        .safe_config
-        .get("secret_refs")
-        .and_then(Value::as_object)
-        .and_then(|refs| refs.get("oauth_credentials"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
+    matches!(server.transport_kind, McpTransportKind::StreamableHttp)
+        && server
+            .safe_config
+            .get("secret_refs")
+            .and_then(Value::as_object)
+            .and_then(|refs| refs.get("oauth_credentials"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
 }
 
 /// MCP tool calibration safe to show in Settings.
@@ -967,7 +965,7 @@ fn parse_create_mcp_server_input(input: GraphqlCreateMcpServerInput) -> Result<N
                 browser_oauth_supported: false,
             })
         }
-        McpTransportKind::Sse | McpTransportKind::StreamableHttp => {
+        McpTransportKind::StreamableHttp => {
             if input.stdio.is_some() {
                 return Err(graphql_error(
                     "invalid MCP setup input: stdio cannot be set for HTTP transport",
@@ -1027,10 +1025,9 @@ fn parse_oauth_client_credentials(
 fn parse_graphql_transport_kind(value: &str) -> Result<McpTransportKind> {
     match value {
         "stdio" => Ok(McpTransportKind::Stdio),
-        "sse" => Ok(McpTransportKind::Sse),
         "streamable_http" => Ok(McpTransportKind::StreamableHttp),
         _ => Err(graphql_error(
-            "invalid transportKind: expected one of stdio, sse, streamable_http",
+            "invalid transportKind: expected one of stdio, streamable_http",
         )),
     }
 }
@@ -1109,5 +1106,17 @@ fn parse_graphql_selector_kind(value: &str) -> Result<TrustedIdentitySelectorKin
         _ => Err(graphql_error(
             "invalid owner extractor selectorKind: expected one of email, phone, domain",
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_removed_sse_transport_kind() {
+        let error = parse_graphql_transport_kind("sse").expect_err("SSE must be rejected");
+
+        assert!(error.message.contains("stdio, streamable_http"));
     }
 }

@@ -4,7 +4,7 @@ export type KeyValueParseResult =
 
 export type McpSetupFormSubmission = {
   displayName: string;
-  transportKind: "stdio" | "sse" | "streamable_http";
+  transportKind: "stdio" | "streamable_http";
   stdio?: {
     command: string;
     args: string[];

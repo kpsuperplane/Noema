@@ -8,7 +8,7 @@ import { createClientId } from "@/shared/clientId";
 import type { McpSetupFormSubmission } from "./mcpSetupForm";
 
 export type McpServerSetupResult = CreateMcpServerMutation["createMcpServer"];
-type TransportKind = "stdio" | "sse" | "streamable_http";
+type TransportKind = "stdio" | "streamable_http";
 type AuthMode = "browser" | "secrets";
 
 export function McpServerSetupFlow({
@@ -173,11 +173,9 @@ export function McpServerSetupFlow({
             aria-label="Transport"
           >
             <Tab value="streamable_http" label="Streamable HTTP" />
-            <Tab value="sse" label="SSE" />
             <Tab value="stdio" label="stdio" />
           </TabList>
           {transportKind === "streamable_http" ? renderHttpTransportFields() : null}
-          {transportKind === "sse" ? renderHttpTransportFields() : null}
           {transportKind === "stdio" ? (
             <div {...stylex.props(styles.twoColumnGrid)}>
               <TextField label="Command" value={command} onChange={setCommand} />
@@ -372,7 +370,7 @@ function mergeRetrySecrets(
     };
   }
   if (
-    (submission.transportKind === "sse" || submission.transportKind === "streamable_http") &&
+    submission.transportKind === "streamable_http" &&
     submission.http
   ) {
     return {

@@ -641,7 +641,7 @@ input CreateMcpServerInput {
 	"""
 	displayName: String!
 	"""
-	MCP transport kind: `stdio`, `sse`, or `streamable_http`.
+	MCP transport kind: `stdio` or `streamable_http`.
 	"""
 	transportKind: String!
 	"""
@@ -649,7 +649,7 @@ input CreateMcpServerInput {
 	"""
 	stdio: McpStdioConfigInput
 	"""
-	HTTP transport config, when `transport_kind` is `sse` or `streamable_http`.
+	HTTP transport config, when `transport_kind` is `streamable_http`.
 	"""
 	http: McpHttpConfigInput
 }

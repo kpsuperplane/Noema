@@ -22,15 +22,6 @@ pub struct DiscoveredMcpTool {
     pub annotations: Value,
 }
 
-/// One parsed `tools/list` result page.
-#[derive(Debug)]
-pub(crate) struct DiscoveredMcpToolsPage {
-    /// Discovered tools in the page.
-    pub(crate) tools: Vec<DiscoveredMcpTool>,
-    /// Cursor for the next page, when present.
-    pub(crate) next_cursor: Option<String>,
-}
-
 /// Context for logging malformed MCP responses.
 #[derive(Debug, Clone)]
 pub struct McpDiagnosticContext {
@@ -162,48 +153,6 @@ where
     }
 }
 
-/// Parse an MCP `tools/list` result object into normalized discovery records.
-pub(crate) fn parse_tools_list_result(
-    result: Value,
-) -> Result<DiscoveredMcpToolsPage, McpClientError> {
-    let object = result.as_object().ok_or_else(|| {
-        McpClientError::Malformed("tools/list result must be an object".to_string())
-    })?;
-    let tools = object
-        .get("tools")
-        .and_then(Value::as_array)
-        .ok_or_else(|| {
-            McpClientError::Malformed("tools/list result must include tools array".to_string())
-        })?
-        .iter()
-        .map(parse_tool)
-        .collect::<Result<Vec<_>, _>>()?;
-    let next_cursor = match object.get("nextCursor") {
-        None | Some(Value::Null) => None,
-        Some(Value::String(value)) => Some(value.clone()),
-        Some(_) => {
-            return Err(McpClientError::Malformed(
-                "tools/list nextCursor must be a string".to_string(),
-            ));
-        }
-    };
-    Ok(DiscoveredMcpToolsPage { tools, next_cursor })
-}
-
-pub(crate) fn parse_tools_list_result_with_diagnostics(
-    result: Value,
-    diagnostics: &McpDiagnosticContext,
-) -> Result<DiscoveredMcpToolsPage, McpClientError> {
-    match parse_tools_list_result(result.clone()) {
-        Ok(page) => Ok(page),
-        Err(error @ McpClientError::Malformed(_)) => {
-            diagnostics.log_malformed(&error, result);
-            Err(error)
-        }
-        Err(error) => Err(error),
-    }
-}
-
 /// Normalize an SDK-discovered MCP tool into Noema's setup metadata shape.
 pub(crate) fn discovered_tool_from_rmcp(
     tool: rmcp::model::Tool,
@@ -221,57 +170,6 @@ pub(crate) fn discovered_tool_from_rmcp(
     Ok(DiscoveredMcpTool {
         name: tool.name.into_owned(),
         description: tool.description.map(std::borrow::Cow::into_owned),
-        input_schema,
-        output_schema,
-        annotations,
-    })
-}
-
-fn parse_tool(value: &Value) -> Result<DiscoveredMcpTool, McpClientError> {
-    let object = value
-        .as_object()
-        .ok_or_else(|| McpClientError::Malformed("MCP tool must be an object".to_string()))?;
-    let name = string_field(object, "name").map_err(McpClientError::Malformed)?;
-    let description = match object.get("description") {
-        None | Some(Value::Null) => None,
-        Some(Value::String(value)) => Some(value.clone()),
-        Some(_) => {
-            return Err(McpClientError::Malformed(
-                "MCP tool description must be a string".to_string(),
-            ));
-        }
-    };
-    let input_schema = object
-        .get("inputSchema")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
-    if !input_schema.is_object() {
-        return Err(McpClientError::Malformed(
-            "MCP tool inputSchema must be an object".to_string(),
-        ));
-    }
-    let output_schema = match object.get("outputSchema") {
-        None | Some(Value::Null) => None,
-        Some(value) if value.is_object() => Some(value.clone()),
-        Some(_) => {
-            return Err(McpClientError::Malformed(
-                "MCP tool outputSchema must be an object".to_string(),
-            ));
-        }
-    };
-    let annotations = object
-        .get("annotations")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
-    if !annotations.is_object() {
-        return Err(McpClientError::Malformed(
-            "MCP tool annotations must be an object".to_string(),
-        ));
-    }
-
-    Ok(DiscoveredMcpTool {
-        name,
-        description,
         input_schema,
         output_schema,
         annotations,
@@ -407,60 +305,6 @@ mod tests {
         assert_eq!(transport.initialize_count(), 1);
         assert_eq!(transport.list_tools_count(), 1);
         assert_eq!(transport.call_count(), 0);
-    }
-
-    #[test]
-    fn tools_list_parser_accepts_schema_and_annotations() {
-        let page = parse_tools_list_result(json!({
-            "tools": [{
-                "name": "read_doc",
-                "description": "Read a document",
-                "inputSchema": { "type": "object" },
-                "outputSchema": { "type": "object" },
-                "annotations": { "readOnlyHint": true }
-            }],
-            "nextCursor": "next"
-        }))
-        .expect("page");
-
-        assert_eq!(page.tools.len(), 1);
-        assert_eq!(page.tools[0].name, "read_doc");
-        assert_eq!(
-            page.tools[0].description.as_deref(),
-            Some("Read a document")
-        );
-        assert_eq!(page.tools[0].input_schema, json!({ "type": "object" }));
-        assert_eq!(
-            page.tools[0].output_schema,
-            Some(json!({ "type": "object" }))
-        );
-        assert_eq!(page.tools[0].annotations, json!({ "readOnlyHint": true }));
-        assert_eq!(page.next_cursor.as_deref(), Some("next"));
-    }
-
-    #[test]
-    fn tools_list_parser_logs_malformed_payload_with_diagnostics() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let logger = SystemErrorLogger::new(dir.path().join("errors.log"));
-        let diagnostics = McpDiagnosticContext::new(
-            Some(logger.clone()),
-            Some("mcp:test".to_string()),
-            Some("sse".to_string()),
-            "tools/list",
-        );
-        let raw = json!({"tools": "not-an-array"});
-
-        let error =
-            parse_tools_list_result_with_diagnostics(raw.clone(), &diagnostics).expect_err("error");
-
-        assert!(matches!(error, McpClientError::Malformed(_)));
-        let events = crate::system_errors::read_system_error_events(logger.path()).expect("events");
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0]["category"], SYSTEM_ERROR_MCP_MALFORMED_RESPONSE);
-        assert_eq!(events[0]["context"]["mcp_server_id"], "mcp:test");
-        assert_eq!(events[0]["context"]["transport_kind"], "sse");
-        assert_eq!(events[0]["context"]["method"], "tools/list");
-        assert_eq!(events[0]["raw"]["payload"], raw);
     }
 
     #[tokio::test]

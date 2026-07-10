@@ -39,8 +39,7 @@ export function McpServerReauthenticationDialog({
   const [oauthScopes, setOauthScopes] = React.useState("");
   const [formError, setFormError] = React.useState<string | null>(null);
 
-  const isHttp =
-    server?.transportKind === "sse" || server?.transportKind === "streamable_http";
+  const isHttp = server?.transportKind === "streamable_http";
   const usesBrowserOAuth = Boolean(server?.browserOauthReauthenticationSupported);
   const visibleError = formError ?? error ?? setupResult?.setupError ?? null;
 

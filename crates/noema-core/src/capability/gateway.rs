@@ -5,7 +5,7 @@ use crate::{
     SYSTEM_ERROR_MCP_MALFORMED_RESPONSE, SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE, SystemErrorEvent,
     SystemErrorLogger,
     mcp::{
-        McpClientError, McpClientRuntime, McpTransport, SseMcpTransport, StdioMcpTransport,
+        McpClientError, McpClientRuntime, McpTransport, StdioMcpTransport,
         StreamableHttpMcpTransport, mcp_tool_ineligibility,
         secrets::{
             McpOAuthStoredCredentials, McpSecretMaterial, read_mcp_secrets, write_mcp_secrets,
@@ -115,27 +115,6 @@ impl CapabilityGateway<'_> {
                         Some(server.mcp_server_id.clone()),
                     );
                 call_mcp_transport_tool(transport, &tool.name, arguments.clone()).await
-            }
-            McpTransportKind::Sse => {
-                let transport = SseMcpTransport::from_server_config(&server, &secrets)
-                    .map_err(|_| "mcp_transport_unavailable")?
-                    .with_diagnostics(
-                        Some(self.system_errors.clone()),
-                        Some(server.mcp_server_id.clone()),
-                    );
-                let (result, transport) = call_mcp_transport_tool_returning_transport(
-                    transport,
-                    &tool.name,
-                    arguments.clone(),
-                )
-                .await;
-                persist_refreshed_oauth_credentials(
-                    &server_home,
-                    &mut secrets,
-                    transport.oauth_credentials(),
-                )
-                .map_err(|_| "mcp_secrets_unavailable")?;
-                result
             }
             McpTransportKind::StreamableHttp => {
                 let transport = StreamableHttpMcpTransport::from_server_config(&server, &secrets)

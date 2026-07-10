@@ -3,6 +3,7 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use ring::rand::{SecureRandom, SystemRandom};
+use rmcp::model::ProtocolVersion;
 use rmcp::transport::auth::OAuthState;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -288,7 +289,7 @@ async fn resolved_oauth_resource_url(mcp_url: &str) -> Option<String> {
 async fn fetch_protected_resource_metadata(client: &reqwest::Client, url: &Url) -> Option<Value> {
     let response = client
         .get(url.clone())
-        .header("MCP-Protocol-Version", "2024-11-05")
+        .header("MCP-Protocol-Version", mcp_protocol_version())
         .send()
         .await
         .ok()?;
@@ -306,13 +307,17 @@ async fn fetch_protected_resource_metadata(client: &reqwest::Client, url: &Url) 
         .find_map(|value| www_authenticate_resource_metadata_url(value, url))?;
     client
         .get(metadata_url)
-        .header("MCP-Protocol-Version", "2024-11-05")
+        .header("MCP-Protocol-Version", mcp_protocol_version())
         .send()
         .await
         .ok()?
         .json::<Value>()
         .await
         .ok()
+}
+
+fn mcp_protocol_version() -> &'static str {
+    ProtocolVersion::LATEST.as_str()
 }
 
 fn protected_resource_metadata_candidate_urls(mcp_url: &Url) -> Vec<Url> {
@@ -419,10 +424,7 @@ pub async fn oauth_secret_material(
 }
 
 fn mcp_url_from_setup(setup: &NewMcpServerSetup) -> Result<String, StoreError> {
-    if !matches!(
-        setup.transport_kind,
-        McpTransportKind::Sse | McpTransportKind::StreamableHttp
-    ) {
+    if !matches!(setup.transport_kind, McpTransportKind::StreamableHttp) {
         return Err(StoreError::Schema(
             "MCP OAuth setup is only available for HTTP transports".to_string(),
         ));
@@ -461,7 +463,52 @@ fn hex_bytes(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
     use super::*;
+
+    #[tokio::test]
+    async fn metadata_request_sends_current_sdk_protocol_version() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("listener");
+        let address = listener.local_addr().expect("listener address");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("request");
+            let mut request = Vec::new();
+            loop {
+                let mut buffer = [0_u8; 1024];
+                let read = stream.read(&mut buffer).await.expect("read request");
+                request.extend_from_slice(&buffer[..read]);
+                if read == 0 || request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let request = String::from_utf8(request).expect("HTTP request");
+            let expected = format!("mcp-protocol-version: {}", ProtocolVersion::LATEST.as_str());
+            assert!(
+                request.to_ascii_lowercase().contains(&expected),
+                "missing current protocol header in {request:?}"
+            );
+
+            let body = r#"{"resource":"http://127.0.0.1/"}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("write response");
+        });
+        let url = Url::parse(&format!("http://{address}/metadata")).expect("metadata URL");
+        let client = reqwest::Client::new();
+
+        let metadata = fetch_protected_resource_metadata(&client, &url).await;
+
+        assert!(metadata.is_some());
+        server.await.expect("server task");
+    }
 
     #[test]
     fn oauth_resource_mismatch_still_indicates_browser_auth_metadata() {
