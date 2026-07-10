@@ -461,6 +461,76 @@ impl NoemaStore {
         row.map(artifact_version_from_row).transpose()
     }
 
+    /// Load a local artifact version owned by one live human conversation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store read fails or stored rows
+    /// violate artifact invariants.
+    pub(crate) async fn get_local_artifact_version_for_human(
+        &self,
+        artifact_version_id: &str,
+        human_id: &str,
+    ) -> Result<Option<(ArtifactRecord, ArtifactVersionRecord)>, StoreError> {
+        let rows = self
+            .with_connection(|conn| {
+                let authorized = conn.query_row(
+                    r#"
+                    SELECT EXISTS(
+                      SELECT 1
+                      FROM artifact_versions AS version
+                      JOIN artifacts AS artifact
+                        ON artifact.artifact_id = version.artifact_id
+                      JOIN conversations AS conversation
+                        ON conversation.conversation_id = artifact.owner_object_id
+                      WHERE version.artifact_version_id = ?1
+                        AND version.local_relative_path IS NOT NULL
+                        AND version.external_url IS NULL
+                        AND artifact.owner_object_type = 'conversation'
+                        AND artifact.storage_kind = 'local_file'
+                        AND artifact.deleted_at IS NULL
+                        AND conversation.owner_object_type = 'human'
+                        AND conversation.owner_object_id = ?2
+                        AND conversation.primary_human_id = ?2
+                        AND conversation.lifecycle_status = 'active'
+                        AND conversation.deleted_at IS NULL
+                    )
+                    "#,
+                    params![artifact_version_id, human_id],
+                    |row| row.get::<_, bool>(0),
+                )?;
+                if !authorized {
+                    return Ok(None);
+                }
+
+                let version = conn.query_row(
+                    format!(
+                        "SELECT {ARTIFACT_VERSION_SELECT} FROM artifact_versions WHERE artifact_version_id = ?1 LIMIT 1"
+                    )
+                    .as_str(),
+                    [artifact_version_id],
+                    artifact_version_row,
+                )?;
+                let artifact = conn.query_row(
+                    format!(
+                        "SELECT {ARTIFACT_SELECT} FROM artifacts WHERE artifact_id = ?1 AND deleted_at IS NULL LIMIT 1"
+                    )
+                    .as_str(),
+                    [&version.artifact_id],
+                    artifact_row,
+                )?;
+                Ok(Some((artifact, version)))
+            })
+            .await?;
+        rows.map(|(artifact, version)| {
+            Ok((
+                artifact_from_row(artifact)?,
+                artifact_version_from_row(version)?,
+            ))
+        })
+        .transpose()
+    }
+
     /// List non-deleted artifacts for one owner in newest-first update order.
     ///
     /// # Errors

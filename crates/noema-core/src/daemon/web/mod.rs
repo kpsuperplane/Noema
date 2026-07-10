@@ -2,9 +2,6 @@
 
 mod assets;
 pub(super) mod authority;
-#[cfg(test)]
-#[allow(dead_code)]
-mod http;
 mod provider_auth;
 mod replay;
 mod router;

@@ -578,6 +578,100 @@ async fn artifact_download_routes_serve_bytes_and_safe_headers() {
 }
 
 #[tokio::test]
+async fn artifact_download_requires_authenticated_owner() {
+    let (_home, _paths, store, artifact, router, cookie) = artifact_fixture().await;
+    let uri = crate::artifact_download_url(&artifact.current_version.artifact_version_id);
+
+    let (missing_session_status, _, missing_session_body) = request(
+        router.clone(),
+        Request::builder()
+            .uri(&uri)
+            .body(Body::empty())
+            .expect("artifact request"),
+    )
+    .await;
+    assert_eq!(missing_session_status, StatusCode::UNAUTHORIZED);
+    assert!(missing_session_body.is_empty());
+
+    store
+        .with_connection(|conn| {
+            conn.execute(
+                "UPDATE conversations SET owner_object_id = 'human:other', primary_human_id = 'human:other' WHERE conversation_id = ?1",
+                [&artifact.artifact.owner.object_id],
+            )
+            .map(|_| ())
+            .map_err(crate::StoreError::Sqlite)
+        })
+        .await
+        .expect("change conversation owner");
+    let (wrong_owner_status, _, wrong_owner_body) = authenticated_request(
+        router,
+        &cookie,
+        Request::builder()
+            .uri(uri)
+            .body(Body::empty())
+            .expect("artifact request"),
+    )
+    .await;
+    assert_eq!(wrong_owner_status, StatusCode::NOT_FOUND);
+    assert_eq!(wrong_owner_body, NOT_FOUND);
+}
+
+#[tokio::test]
+async fn artifact_download_hides_deleted_owner_and_non_local_versions() {
+    let (_home, _paths, store, artifact, router, cookie) = artifact_fixture().await;
+    let uri = crate::artifact_download_url(&artifact.current_version.artifact_version_id);
+    store
+        .with_connection(|conn| {
+            conn.execute(
+                "UPDATE conversations SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE conversation_id = ?1",
+                [&artifact.artifact.owner.object_id],
+            )
+            .map(|_| ())
+            .map_err(crate::StoreError::Sqlite)
+        })
+        .await
+        .expect("delete conversation");
+    let (deleted_status, _, deleted_body) = authenticated_request(
+        router,
+        &cookie,
+        Request::builder()
+            .uri(&uri)
+            .body(Body::empty())
+            .expect("artifact request"),
+    )
+    .await;
+    assert_eq!(deleted_status, StatusCode::NOT_FOUND);
+    assert_eq!(deleted_body, NOT_FOUND);
+
+    let (_home, _paths, store, artifact, router, cookie) = artifact_fixture().await;
+    store
+        .with_connection(|conn| {
+            conn.execute(
+                "UPDATE artifacts SET storage_kind = 'external_url' WHERE artifact_id = ?1",
+                [&artifact.artifact.artifact_id],
+            )
+            .map(|_| ())
+            .map_err(crate::StoreError::Sqlite)
+        })
+        .await
+        .expect("make artifact non-local");
+    let (external_status, _, external_body) = authenticated_request(
+        router,
+        &cookie,
+        Request::builder()
+            .uri(crate::artifact_download_url(
+                &artifact.current_version.artifact_version_id,
+            ))
+            .body(Body::empty())
+            .expect("artifact request"),
+    )
+    .await;
+    assert_eq!(external_status, StatusCode::NOT_FOUND);
+    assert_eq!(external_body, NOT_FOUND);
+}
+
+#[tokio::test]
 async fn artifact_download_refuses_traversal_and_symlinks() {
     let (_home, paths, store, artifact, router, cookie) = artifact_fixture().await;
     let version_id = &artifact.current_version.artifact_version_id;
@@ -728,7 +822,7 @@ async fn artifact_store_failure_is_safe_500_with_bounded_diagnostic() {
     assert_eq!(body, "internal server error");
     let diagnostics = std::fs::read_to_string(paths.errors_log_path()).expect("diagnostic log");
     assert!(diagnostics.contains("artifact_download_failure"));
-    assert!(diagnostics.contains("version_query"));
+    assert!(diagnostics.contains("authorized_version_query"));
     assert!(!diagnostics.contains("report.md"));
     assert!(!diagnostics.contains("hello download"));
 }

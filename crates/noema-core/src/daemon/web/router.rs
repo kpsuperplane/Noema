@@ -218,15 +218,15 @@ async fn download_artifact_slug(
     session_value: Session,
     Path(artifact_version_slug): Path<String>,
 ) -> Response {
-    if !session::is_authenticated(&session_value).await {
+    let Some(principal) = session::request_principal(&session_value).await else {
         return StatusCode::UNAUTHORIZED.into_response();
-    }
+    };
     let Some(artifact_version_id) =
         crate::artifact_version_id_from_download_slug(&artifact_version_slug)
     else {
         return not_found();
     };
-    download_artifact(&state, &artifact_version_id).await
+    download_artifact(&state, &principal, &artifact_version_id).await
 }
 
 async fn download_artifact_id(
@@ -234,13 +234,17 @@ async fn download_artifact_id(
     session_value: Session,
     Path(artifact_version_id): Path<String>,
 ) -> Response {
-    if !session::is_authenticated(&session_value).await {
+    let Some(principal) = session::request_principal(&session_value).await else {
         return StatusCode::UNAUTHORIZED.into_response();
-    }
-    download_artifact(&state, &artifact_version_id).await
+    };
+    download_artifact(&state, &principal, &artifact_version_id).await
 }
 
-async fn download_artifact(state: &WebState, artifact_version_id: &str) -> Response {
+async fn download_artifact(
+    state: &WebState,
+    principal: &crate::graphql::RequestPrincipal,
+    artifact_version_id: &str,
+) -> Response {
     let store = match state.graphql_state().store() {
         Ok(store) => store,
         Err(_) => return internal_error(state, "store_state"),
@@ -249,24 +253,16 @@ async fn download_artifact(state: &WebState, artifact_version_id: &str) -> Respo
         Ok(paths) => paths,
         Err(_) => return internal_error(state, "path_state"),
     };
-    let version = match store.get_artifact_version(artifact_version_id).await {
-        Ok(Some(version)) => version,
-        Ok(None) => return not_found(),
-        Err(_) => return internal_error(state, "version_query"),
-    };
-    let artifact = match store.get_artifact(&version.artifact_id).await {
+    let (artifact, version) = match store
+        .get_local_artifact_version_for_human(artifact_version_id, principal.subject_id())
+        .await
+    {
         Ok(Some(artifact)) => artifact,
         Ok(None) => return not_found(),
-        Err(_) => return internal_error(state, "artifact_query"),
+        Err(_) => return internal_error(state, "authorized_version_query"),
     };
-    if !matches!(
-        version.storage,
-        crate::ArtifactVersionStorage::LocalFile { .. }
-    ) {
-        return not_found();
-    }
     let Ok((absolute_path, bytes)) =
-        crate::artifacts::read_validated_local_artifact_file(paths, &artifact.artifact, &version)
+        crate::artifacts::read_validated_local_artifact_file(paths, &artifact, &version)
     else {
         return not_found();
     };

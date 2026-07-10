@@ -69,3 +69,11 @@ pub(super) async fn is_authenticated(session: &Session) -> bool {
         .flatten()
         .unwrap_or(false)
 }
+
+pub(super) async fn request_principal(
+    session: &Session,
+) -> Option<crate::graphql::RequestPrincipal> {
+    is_authenticated(session)
+        .await
+        .then(crate::graphql::RequestPrincipal::local)
+}
