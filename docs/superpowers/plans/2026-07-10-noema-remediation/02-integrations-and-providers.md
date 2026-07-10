@@ -68,7 +68,8 @@ Checkpoint target: at least 900 net lines deleted.
 - [ ] Replace per-adapter client construction and hand-coded retry/redirect
   behavior. Do not add `reqwest-middleware` unless it removes more code than a
   small shared wrapper.
-- [ ] Use `oauth2` CSRF/state, PKCE, expiry, and token response types in provider
+- [ ] Use `oauth2` 5.0 with default features disabled for CSRF/state, PKCE,
+  expiry, and token response types in provider
   and MCP flows touched here. Keep provider-specific device authorization where
   the standard crate does not model it.
 - [ ] Use `secrecy` for token/client-secret fields crossing adapter boundaries;
@@ -83,8 +84,9 @@ Checkpoint target: at least 900 net lines deleted.
 - [ ] Prefer `rmcp` streamable HTTP/SSE, auth, pagination, and protocol types
   over `mcp/http.rs`. Delete the custom transport only if current `rmcp` covers
   all required operations without a compatibility wrapper.
-- [ ] Add local-only `jsonschema` validation for reviewed MCP tool arguments and
-  structured results. Disable remote schema resolution.
+- [ ] Add `jsonschema 0.47` with all default features disabled for reviewed MCP
+  tool arguments and structured results. Do not enable remote or file schema
+  resolution.
 - [ ] Bound MCP pages/cursors, SSE buffer, response bytes, and total operation
   deadline through library/client configuration and one small policy layer.
 - [ ] Use FastAPI's `HTTPBearer` dependency and Python `secrets.compare_digest`

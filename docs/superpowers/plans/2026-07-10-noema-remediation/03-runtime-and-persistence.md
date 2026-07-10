@@ -97,6 +97,8 @@ worker without an explicit facade.
 - [ ] Apply `0700` to Noema private directories and `0600` to credential,
   database, WAL/SHM, configuration, artifact, and diagnostic files where the OS
   supports Unix modes.
+- [ ] New private files explicitly request Unix mode `0600`; do not rely on
+  `atomic-write-file`'s default `0666 & umask` creation mode.
 - [ ] Repair unsafe existing permissions during startup without reading or
   logging secret content.
 - [ ] Persist refreshed provider credentials through the shared atomic writer.

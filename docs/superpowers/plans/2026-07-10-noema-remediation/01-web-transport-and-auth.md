@@ -60,7 +60,8 @@ multi-human work.
 
 ### Checkpoint 1A — Axum composition (45 minutes)
 
-- [ ] Add `axum`, matching `async-graphql-axum`, selected `tower-http` features,
+- [ ] Add Axum `0.8.9`, `async-graphql-axum 7.2.1`, selected existing
+  `tower-http 0.6.11` features,
   and `tower-sessions` with private in-memory sessions.
 - [ ] Build one GraphQL schema in `WebState` during server startup.
 - [ ] Replace the accept/connection loop with `axum::serve` on a numeric
