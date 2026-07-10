@@ -525,9 +525,11 @@ The next storage slice should stay small and concrete:
   unreachable OpenAI-hosted search path are gone. The full workspace gate is
   green. Phase 3 landed owned runtime cancellation/draining and atomic durable
   shutdown recovery at `92,387` lines, but rejected a partial `tokio-rusqlite`
-  conversion and LOC-positive atomic-writer adoption. Phase 4 is GraphQL and
-  frontend simplification; do not reopen earlier library adoption unless a
-  proposed crate replaces more code than it adds.
+  conversion and LOC-positive atomic-writer adoption. Phase 4 removed the
+  unenforced MCP ownership/trusted-identity surfaces and English schema-field
+  inference, leaving Mixed calibrations fail-closed, and ended at `90,541`
+  lines. Phase 5 is measured crate extraction; do not reopen earlier library
+  adoption unless a proposed crate replaces more code than it adds.
 
 - Decide whether richer Mnemosyne memory browsing should include entity, provenance,
   and history drill-ins.
