@@ -214,10 +214,10 @@ mod tests {
             .expect("codex account");
         insert_provider_account(
             &store,
-            "provider_account:openai:default",
-            "openai",
-            "default",
-            true,
+            "provider_account:exa:research",
+            "exa",
+            "research",
+            false,
             ProviderAccountStatus::Authenticated,
         )
         .await;
@@ -241,7 +241,7 @@ mod tests {
                 .search
                 .provider_options
                 .iter()
-                .any(|option| { option.provider_account_id == "provider_account:openai:default" })
+                .any(|option| { option.provider_account_id == "provider_account:exa:research" })
         );
         assert!(
             settings.fetch.provider_options.iter().any(|option| {
@@ -269,21 +269,30 @@ mod tests {
         let store = test_store().await;
         insert_provider_account(
             &store,
-            "provider_account:openai:default",
-            "openai",
-            "default",
-            true,
-            ProviderAccountStatus::Unknown,
+            "provider_account:exa:research",
+            "exa",
+            "research",
+            false,
+            ProviderAccountStatus::Authenticated,
         )
         .await;
         store
             .upsert_provider_capability_binding(
                 "web.search",
                 "web.search",
-                "provider_account:openai:default",
+                "provider_account:exa:research",
             )
             .await
             .expect("save binding");
+        store
+            .update_provider_account_status(
+                "provider_account:exa:research",
+                ProviderAccountStatus::Unknown,
+                None,
+                None,
+            )
+            .await
+            .expect("make account non-selectable");
         let state = GraphqlState::for_tests_with_store(store);
 
         let settings = web_tool_settings(&state).await.expect("settings");
@@ -297,7 +306,7 @@ mod tests {
                 .search
                 .provider_options
                 .iter()
-                .any(|option| { option.provider_account_id == "provider_account:openai:default" })
+                .any(|option| { option.provider_account_id == "provider_account:exa:research" })
         );
     }
 
@@ -356,10 +365,10 @@ mod tests {
         let store = test_store().await;
         insert_provider_account(
             &store,
-            "provider_account:openai:default",
-            "openai",
-            "default",
-            true,
+            "provider_account:exa:research",
+            "exa",
+            "research",
+            false,
             ProviderAccountStatus::Unknown,
         )
         .await;
@@ -370,7 +379,7 @@ mod tests {
             GraphqlSaveWebToolProviderBindingInput {
                 tool_name: "web.search".to_string(),
                 capability_id: "web.search".to_string(),
-                provider_account_id: "provider_account:openai:default".to_string(),
+                provider_account_id: "provider_account:exa:research".to_string(),
             },
         )
         .await
@@ -389,10 +398,10 @@ mod tests {
         let store = test_store().await;
         insert_provider_account(
             &store,
-            "provider_account:openai:default",
-            "openai",
-            "default",
-            true,
+            "provider_account:exa:research",
+            "exa",
+            "research",
+            false,
             ProviderAccountStatus::Authenticated,
         )
         .await;
@@ -403,7 +412,7 @@ mod tests {
             GraphqlSaveWebToolProviderBindingInput {
                 tool_name: "web.search".to_string(),
                 capability_id: "web.search".to_string(),
-                provider_account_id: "provider_account:openai:default".to_string(),
+                provider_account_id: "provider_account:exa:research".to_string(),
             },
         )
         .await
@@ -411,17 +420,14 @@ mod tests {
 
         assert_eq!(
             saved.active_provider_account_id,
-            "provider_account:openai:default"
+            "provider_account:exa:research"
         );
         let binding = store
             .provider_capability_binding("web.search", "web.search")
             .await
             .expect("binding lookup")
             .expect("binding row");
-        assert_eq!(
-            binding.provider_account_id,
-            "provider_account:openai:default"
-        );
+        assert_eq!(binding.provider_account_id, "provider_account:exa:research");
     }
 
     async fn insert_provider_account(

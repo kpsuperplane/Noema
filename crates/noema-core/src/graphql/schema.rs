@@ -2470,10 +2470,10 @@ mod tests {
         let store = test_store().await;
         crate::store::tests::insert_provider_account_for_tests(
             &store,
-            "provider_account:openai:default",
-            "openai",
-            "default",
-            "OpenAI default",
+            "provider_account:exa:research",
+            "exa",
+            "research",
+            "Exa research",
             crate::ProviderAuthMethod::SecretInput,
             true,
             ProviderAccountStatus::Authenticated,
@@ -2489,7 +2489,7 @@ mod tests {
                   saveWebToolProviderBinding(input: {
                     toolName: "web.search"
                     capabilityId: "web.search"
-                    providerAccountId: "provider_account:openai:default"
+                    providerAccountId: "provider_account:exa:research"
                   }) {
                     toolName
                     capabilityId
@@ -2505,7 +2505,7 @@ mod tests {
         assert_eq!(data["saveWebToolProviderBinding"]["toolName"], "web.search");
         assert_eq!(
             data["saveWebToolProviderBinding"]["activeProviderAccountId"],
-            "provider_account:openai:default"
+            "provider_account:exa:research"
         );
     }
 

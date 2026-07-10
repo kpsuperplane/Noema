@@ -450,11 +450,17 @@ mod tests {
 
         let graphql = GraphqlProviderAccount::from(account);
 
-        assert!(graphql.capabilities.iter().any(|capability| {
-            capability.capability_id == "web.search"
-                && capability.status == "available"
-                && capability.features.citations
-                && !capability.features.direct_url_fetch
-        }));
+        let capability_ids = graphql
+            .capabilities
+            .iter()
+            .map(|capability| capability.capability_id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(capability_ids, ["model.generate", "model.classify"]);
+        assert!(
+            graphql
+                .capabilities
+                .iter()
+                .all(|capability| capability.status == "available")
+        );
     }
 }
