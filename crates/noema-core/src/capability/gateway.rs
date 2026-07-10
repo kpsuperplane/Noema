@@ -642,6 +642,7 @@ mod tests {
     }
 
     async fn seed_ready_calibration(store: &crate::NoemaStore) {
+        store.ensure_default_actors().await.expect("actors");
         store
             .save_tool_calibration(NewToolCalibration {
                 calibration_id: "tool_calibration:notion-search".to_string(),

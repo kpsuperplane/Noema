@@ -249,15 +249,23 @@ impl NoemaStore {
             return Err(StoreError::ArtifactStorageKindMismatch);
         }
 
-        let artifact_id = artifact
-            .artifact_id
-            .unwrap_or_else(|| self.new_artifact_id());
-        let artifact_version_id = initial_version
-            .artifact_version_id
-            .unwrap_or_else(|| self.new_artifact_version_id());
+        let artifact_id = match artifact.artifact_id {
+            Some(artifact_id) => artifact_id,
+            None => self.new_artifact_id()?,
+        };
+        let artifact_version_id = match initial_version.artifact_version_id {
+            Some(artifact_version_id) => artifact_version_id,
+            None => self.new_artifact_version_id()?,
+        };
         let artifact_metadata_json = json_to_string(&artifact.metadata)?;
         let version_metadata_json = json_to_string(&initial_version.metadata)?;
         let version_storage = VersionStorageParts::try_from_storage(initial_version.storage)?;
+        let (owner_human_id, owner_agent_id, owner_conversation_id) =
+            concrete_owner_columns(&artifact.owner)?;
+        let (artifact_creator_human_id, artifact_creator_agent_id) =
+            concrete_actor_columns(&artifact.created_by_actor_id);
+        let (version_creator_human_id, version_creator_agent_id) =
+            concrete_actor_columns(&initial_version.created_by_actor_id);
 
         self.with_connection(|conn| {
             let tx = conn.transaction()?;
@@ -265,26 +273,29 @@ impl NoemaStore {
                 format!(
                     r#"
                     INSERT INTO artifacts (
-                      artifact_id, owner_object_type, owner_object_id, title, description,
-                      artifact_kind, storage_kind, current_version_id, created_by_actor_id,
+                      artifact_id, owner_human_id, owner_agent_id, owner_conversation_id,
+                      title, description, artifact_kind, storage_kind, current_version_id,
+                      created_by_human_id, created_by_agent_id,
                       source_conversation_id, source_turn_id, source_item_id, metadata_json,
                       created_at, updated_at
                     )
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, {now}, {now})
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, {now}, {now})
                     "#,
                     now = now_timestamp_sql()
                 )
                 .as_str(),
                 params![
                     artifact_id,
-                    artifact.owner.object_type,
-                    artifact.owner.object_id,
+                    owner_human_id,
+                    owner_agent_id,
+                    owner_conversation_id,
                     title,
                     artifact.description,
                     artifact_kind,
                     artifact.storage_kind.as_str(),
                     artifact_version_id,
-                    artifact.created_by_actor_id,
+                    artifact_creator_human_id,
+                    artifact_creator_agent_id,
                     artifact.source.conversation_id,
                     artifact.source.turn_id,
                     artifact.source.item_id,
@@ -296,11 +307,12 @@ impl NoemaStore {
                     r#"
                     INSERT INTO artifact_versions (
                       artifact_version_id, artifact_id, version_index, title, local_relative_path,
-                      external_url, media_type, byte_size, content_sha256, created_by_actor_id,
+                      external_url, media_type, byte_size, content_sha256,
+                      created_by_human_id, created_by_agent_id,
                       source_conversation_id, source_turn_id, source_item_id, metadata_json,
                       created_at
                     )
-                    VALUES (?1, ?2, 1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, {now})
+                    VALUES (?1, ?2, 1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, {now})
                     "#,
                     now = now_timestamp_sql()
                 )
@@ -314,7 +326,8 @@ impl NoemaStore {
                     initial_version.media_type,
                     initial_version.byte_size,
                     initial_version.content_sha256,
-                    initial_version.created_by_actor_id,
+                    version_creator_human_id,
+                    version_creator_agent_id,
                     initial_version.source.conversation_id,
                     initial_version.source.turn_id,
                     initial_version.source.item_id,
@@ -350,11 +363,14 @@ impl NoemaStore {
             return Err(StoreError::ArtifactStorageKindMismatch);
         }
 
-        let artifact_version_id = version
-            .artifact_version_id
-            .unwrap_or_else(|| self.new_artifact_version_id());
+        let artifact_version_id = match version.artifact_version_id {
+            Some(artifact_version_id) => artifact_version_id,
+            None => self.new_artifact_version_id()?,
+        };
         let version_metadata_json = json_to_string(&version.metadata)?;
         let version_storage = VersionStorageParts::try_from_storage(version.storage)?;
+        let (creator_human_id, creator_agent_id) =
+            concrete_actor_columns(&version.created_by_actor_id);
 
         self.with_connection(|conn| {
             let tx = conn.transaction()?;
@@ -368,11 +384,12 @@ impl NoemaStore {
                     r#"
                     INSERT INTO artifact_versions (
                       artifact_version_id, artifact_id, version_index, title, local_relative_path,
-                      external_url, media_type, byte_size, content_sha256, created_by_actor_id,
+                      external_url, media_type, byte_size, content_sha256,
+                      created_by_human_id, created_by_agent_id,
                       source_conversation_id, source_turn_id, source_item_id, metadata_json,
                       created_at
                     )
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, {now})
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, {now})
                     "#
                 , now = now_timestamp_sql())
                 .as_str(),
@@ -386,7 +403,8 @@ impl NoemaStore {
                     version.media_type,
                     version.byte_size,
                     version.content_sha256,
-                    version.created_by_actor_id,
+                    creator_human_id,
+                    creator_agent_id,
                     version.source.conversation_id,
                     version.source.turn_id,
                     version.source.item_id,
@@ -480,8 +498,9 @@ impl NoemaStore {
                         r#"
                         SELECT {ARTIFACT_SELECT}
                         FROM artifacts
-                        WHERE owner_object_type = ?1
-                          AND owner_object_id = ?2
+                        WHERE ((?1 = 'human' AND owner_human_id = ?2)
+                            OR (?1 = 'agent' AND owner_agent_id = ?2)
+                            OR (?1 = 'conversation' AND owner_conversation_id = ?2))
                           AND deleted_at IS NULL
                         ORDER BY updated_at DESC, artifact_id DESC
                         LIMIT ?3
@@ -544,14 +563,22 @@ impl NoemaStore {
     }
 
     /// Allocate a new artifact id using the canonical store prefix.
-    #[must_use]
-    pub fn new_artifact_id(&self) -> String {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::RandomnessUnavailable`] when the operating-system
+    /// cryptographic random source fails.
+    pub fn new_artifact_id(&self) -> Result<String, StoreError> {
         allocate_id("artifact")
     }
 
     /// Allocate a new artifact version id using the canonical store prefix.
-    #[must_use]
-    pub fn new_artifact_version_id(&self) -> String {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::RandomnessUnavailable`] when the operating-system
+    /// cryptographic random source fails.
+    pub fn new_artifact_version_id(&self) -> Result<String, StoreError> {
         allocate_id("artifact_version")
     }
 
@@ -597,15 +624,20 @@ impl NoemaStore {
 }
 
 const ARTIFACT_SELECT: &str = r#"
-artifact_id, owner_object_type, owner_object_id, title, description,
-artifact_kind, storage_kind, current_version_id, created_by_actor_id,
+artifact_id,
+CASE WHEN owner_human_id IS NOT NULL THEN 'human'
+     WHEN owner_agent_id IS NOT NULL THEN 'agent' ELSE 'conversation' END,
+COALESCE(owner_human_id, owner_agent_id, owner_conversation_id), title, description,
+artifact_kind, storage_kind, current_version_id,
+COALESCE(created_by_human_id, created_by_agent_id),
 source_conversation_id, source_turn_id, source_item_id, metadata_json,
 created_at, updated_at
 "#;
 
 const ARTIFACT_VERSION_SELECT: &str = r#"
 artifact_version_id, artifact_id, version_index, title, local_relative_path,
-external_url, media_type, byte_size, content_sha256, created_by_actor_id,
+external_url, media_type, byte_size, content_sha256,
+COALESCE(created_by_human_id, created_by_agent_id),
 source_conversation_id, source_turn_id, source_item_id, metadata_json,
 created_at
 "#;
@@ -728,8 +760,8 @@ fn artifact_from_row(row: ArtifactRow) -> Result<ArtifactRecord, StoreError> {
             item_id: row.source_item_id,
         },
         metadata: json_from_string(row.metadata_json)?,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
+        created_at: super::ids::validate_timestamp(row.created_at)?,
+        updated_at: super::ids::validate_timestamp(row.updated_at)?,
     })
 }
 
@@ -750,7 +782,7 @@ fn artifact_version_from_row(row: ArtifactVersionRow) -> Result<ArtifactVersionR
             item_id: row.source_item_id,
         },
         metadata: json_from_string(row.metadata_json)?,
-        created_at: row.created_at,
+        created_at: super::ids::validate_timestamp(row.created_at)?,
     })
 }
 
@@ -766,6 +798,28 @@ fn artifact_version_storage_from_row(
         (Some(_), Some(_)) | (None, None) => Err(StoreError::InvariantViolation {
             message: "artifact version row must contain exactly one storage location".to_string(),
         }),
+    }
+}
+
+type ConcreteOwnerColumns = (Option<String>, Option<String>, Option<String>);
+
+fn concrete_owner_columns(owner: &ArtifactOwnerRef) -> Result<ConcreteOwnerColumns, StoreError> {
+    match owner.object_type.as_str() {
+        "human" => Ok((Some(owner.object_id.clone()), None, None)),
+        "agent" => Ok((None, Some(owner.object_id.clone()), None)),
+        "conversation" => Ok((None, None, Some(owner.object_id.clone()))),
+        _ => Err(StoreError::UnsupportedArtifactOwner {
+            owner_object_type: owner.object_type.clone(),
+            owner_object_id: owner.object_id.clone(),
+        }),
+    }
+}
+
+fn concrete_actor_columns(actor_id: &str) -> (Option<String>, Option<String>) {
+    if actor_id.starts_with("human:") {
+        (Some(actor_id.to_string()), None)
+    } else {
+        (None, Some(actor_id.to_string()))
     }
 }
 

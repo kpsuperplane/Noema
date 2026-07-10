@@ -1,11 +1,7 @@
 use rusqlite::{OptionalExtension, params};
-use serde_json::{Map, Value};
 
 use super::{McpApprovalRequestRecord, NewMcpApprovalRequest, rows::mcp_approval_request_from_row};
-use crate::store::{
-    NoemaStore, StoreError,
-    sqlite::{json_to_string, now_timestamp_sql},
-};
+use crate::store::{NoemaStore, StoreError, sqlite::now_timestamp_sql};
 
 impl NoemaStore {
     /// Create one durable MCP approval request.
@@ -17,24 +13,30 @@ impl NoemaStore {
         &self,
         approval: NewMcpApprovalRequest,
     ) -> Result<McpApprovalRequestRecord, StoreError> {
+        if approval.mcp_server_id.is_some() != approval.mcp_tool_id.is_some() {
+            return Err(StoreError::InvariantViolation {
+                message: "MCP approval server and tool references must both be present or absent"
+                    .to_string(),
+            });
+        }
+        self.ensure_default_actors().await?;
         let approval_id = approval.approval_id.clone();
-        let payload_preview_json =
-            json_to_string(&sanitize_approval_payload_preview(approval.payload_preview))?;
         self.with_connection(|conn| {
             conn.execute(
                 format!(
                     r#"
                     INSERT INTO approval_requests (
                       approval_id, action_summary, tool_invocation_id, mcp_server_id,
-                      mcp_tool_id, requester_actor_id, owner_scope_id, active_scope_id,
+                      mcp_tool_id, requester_human_id, requester_agent_id,
+                      owner_human_id, owner_agent_id, active_human_id, active_agent_id,
                       destination_summary, data_source_summary, source_owner_identity,
                       source_owner_trust, destination_owner_identity, destination_owner_trust,
-                      export_summary, payload_preview_json, status, decision_actor_id,
-                      decision_comment, decided_at, updated_at
+                      export_summary, redacted_review_json, attempt_fingerprint, status,
+                      decision_human_id, decision_agent_id, decision_comment, decided_at, updated_at
                     )
                     VALUES (
                       ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-                      ?14, ?15, ?16, 'pending', NULL, NULL, NULL, {}
+                      ?14, ?15, ?16, ?17, ?18, ?19, ?3, 'pending', NULL, NULL, NULL, NULL, {}
                     )
                     "#,
                     now_timestamp_sql()
@@ -46,9 +48,12 @@ impl NoemaStore {
                     approval.tool_invocation_id,
                     approval.mcp_server_id,
                     approval.mcp_tool_id,
-                    approval.requester_actor_id,
-                    approval.owner_scope_id,
-                    approval.active_scope_id,
+                    concrete_human(&approval.requester_actor_id),
+                    concrete_agent(&approval.requester_actor_id),
+                    concrete_human(&approval.owner_scope_id),
+                    concrete_agent(&approval.owner_scope_id),
+                    concrete_human(&approval.active_scope_id),
+                    concrete_agent(&approval.active_scope_id),
                     approval.destination_summary,
                     approval.data_source_summary,
                     approval.source_owner_identity,
@@ -56,7 +61,7 @@ impl NoemaStore {
                     approval.destination_owner_identity,
                     approval.destination_owner_trust,
                     approval.export_summary,
-                    payload_preview_json,
+                    "{}",
                 ],
             )?;
             Ok(())
@@ -125,71 +130,19 @@ impl NoemaStore {
 
 const MCP_APPROVAL_REQUEST_SELECT: &str = r#"
 SELECT approval_id, action_summary, tool_invocation_id, mcp_server_id,
-  mcp_tool_id, requester_actor_id, owner_scope_id, active_scope_id,
+  mcp_tool_id, COALESCE(requester_human_id, requester_agent_id),
+  COALESCE(owner_human_id, owner_agent_id), COALESCE(active_human_id, active_agent_id),
   destination_summary, data_source_summary, source_owner_identity,
   source_owner_trust, destination_owner_identity, destination_owner_trust,
-  export_summary, payload_preview_json, status, decision_actor_id,
+  export_summary, redacted_review_json, status, COALESCE(decision_human_id, decision_agent_id),
   decision_comment, decided_at
 FROM approval_requests
 "#;
 
-fn sanitize_approval_payload_preview(value: Value) -> Value {
-    match value {
-        Value::Object(object) => Value::Object(sanitize_preview_object(object)),
-        Value::Array(values) => Value::Array(
-            values
-                .into_iter()
-                .take(10)
-                .map(sanitize_approval_payload_preview)
-                .collect(),
-        ),
-        Value::String(value) => Value::String(truncate_preview_string(value)),
-        other => other,
-    }
+fn concrete_human(value: &str) -> Option<&str> {
+    value.starts_with("human:").then_some(value)
 }
 
-fn sanitize_preview_object(object: Map<String, Value>) -> Map<String, Value> {
-    object
-        .into_iter()
-        .take(20)
-        .map(|(key, value)| {
-            let sanitized_value = if approval_preview_key_is_sensitive(&key) {
-                Value::String("[redacted]".to_string())
-            } else {
-                sanitize_approval_payload_preview(value)
-            };
-            (key, sanitized_value)
-        })
-        .collect()
-}
-
-fn approval_preview_key_is_sensitive(key: &str) -> bool {
-    let lower = key.to_ascii_lowercase();
-    [
-        "secret",
-        "token",
-        "password",
-        "credential",
-        "api_key",
-        "apikey",
-        "private_key",
-        "authorization",
-        "auth",
-        "cookie",
-        "session",
-        "set-cookie",
-    ]
-    .iter()
-    .any(|marker| lower.contains(marker))
-}
-
-fn truncate_preview_string(value: String) -> String {
-    const MAX_PREVIEW_CHARS: usize = 240;
-    if value.chars().count() <= MAX_PREVIEW_CHARS {
-        return value;
-    }
-
-    let mut truncated = value.chars().take(MAX_PREVIEW_CHARS).collect::<String>();
-    truncated.push_str("...");
-    truncated
+fn concrete_agent(value: &str) -> Option<&str> {
+    (!value.starts_with("human:")).then_some(value)
 }

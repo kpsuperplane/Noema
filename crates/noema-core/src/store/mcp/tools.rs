@@ -10,7 +10,7 @@ use super::{
 };
 use crate::store::{
     NoemaStore, StoreError,
-    ids::now_string,
+    ids::now_rfc3339,
     sqlite::{json_to_string, now_timestamp_sql},
 };
 
@@ -24,7 +24,7 @@ impl NoemaStore {
         &self,
         tool: NewMcpTool,
     ) -> Result<McpToolRecord, StoreError> {
-        let discovered_at = now_string();
+        let discovered_at = now_rfc3339();
         let input_schema_json = json_to_string(&tool.input_schema)?;
         let output_schema_json = tool
             .output_schema

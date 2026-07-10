@@ -111,7 +111,8 @@ pub(super) fn invalidate_tool_calibration_review_on_connection(
             r#"
             UPDATE tool_calibrations SET
               status = 'needs_review',
-              reviewed_by = NULL,
+              reviewed_by_human_id = NULL,
+              reviewed_by_agent_id = NULL,
               reviewed_metadata_fingerprint = NULL,
               updated_at = {}
             WHERE mcp_tool_id = ?1
@@ -163,15 +164,18 @@ fn write_tool_calibration_row(
     calibration: &NewToolCalibration,
 ) -> Result<(), StoreError> {
     let owner_extractors_json = serialize_json(&calibration.owner_extractors)?;
+    let (reviewed_by_human_id, reviewed_by_agent_id) =
+        reviewer_columns(calibration.reviewed_by.as_deref())?;
     conn.execute(
         format!(
             r#"
             INSERT INTO tool_calibrations (
               calibration_id, mcp_tool_id, read_classification,
               write_classification, export_classification, owner_extractors_json,
-              status, reviewed_by, reviewed_metadata_fingerprint, updated_at
+              status, reviewed_by_human_id, reviewed_by_agent_id,
+              reviewed_metadata_fingerprint, updated_at
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, {})
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, {})
             ON CONFLICT(calibration_id) DO UPDATE SET
               mcp_tool_id = excluded.mcp_tool_id,
               read_classification = excluded.read_classification,
@@ -179,7 +183,8 @@ fn write_tool_calibration_row(
               export_classification = excluded.export_classification,
               owner_extractors_json = excluded.owner_extractors_json,
               status = excluded.status,
-              reviewed_by = excluded.reviewed_by,
+              reviewed_by_human_id = excluded.reviewed_by_human_id,
+              reviewed_by_agent_id = excluded.reviewed_by_agent_id,
               reviewed_metadata_fingerprint = excluded.reviewed_metadata_fingerprint,
               updated_at = excluded.updated_at
             "#,
@@ -194,7 +199,8 @@ fn write_tool_calibration_row(
             calibration.export_classification.as_str(),
             owner_extractors_json,
             calibration.status.as_str(),
-            calibration.reviewed_by,
+            reviewed_by_human_id,
+            reviewed_by_agent_id,
             calibration.reviewed_metadata_fingerprint,
         ],
     )?;
@@ -241,6 +247,10 @@ fn validate_tool_calibration_on_connection(
             "MCP tool {} already has calibration {}",
             calibration.mcp_tool_id, existing.calibration_id
         )));
+    }
+
+    if let Some(reviewer) = calibration.reviewed_by.as_deref() {
+        require_reviewer_on_connection(conn, reviewer)?;
     }
 
     if calibration.status.requires_reviewed_metadata() {
@@ -301,7 +311,8 @@ fn get_tool_calibration_on_connection(
 
 const TOOL_CALIBRATION_SELECT_BY_CALIBRATION_ID: &str = r#"
 SELECT calibration_id, mcp_tool_id, read_classification, write_classification,
-  export_classification, owner_extractors_json, status, reviewed_by,
+  export_classification, owner_extractors_json, status,
+  COALESCE(reviewed_by_human_id, reviewed_by_agent_id),
   reviewed_metadata_fingerprint
 FROM tool_calibrations
 WHERE calibration_id = ?1
@@ -310,7 +321,8 @@ LIMIT 1
 
 const TOOL_CALIBRATION_SELECT_BY_TOOL_ID: &str = r#"
 SELECT calibration_id, mcp_tool_id, read_classification, write_classification,
-  export_classification, owner_extractors_json, status, reviewed_by,
+  export_classification, owner_extractors_json, status,
+  COALESCE(reviewed_by_human_id, reviewed_by_agent_id),
   reviewed_metadata_fingerprint
 FROM tool_calibrations
 WHERE mcp_tool_id = ?1
@@ -337,4 +349,41 @@ fn reject_duplicate_calibrations_in_batch(
         }
     }
     Ok(())
+}
+
+fn reviewer_columns(reviewer: Option<&str>) -> Result<(Option<&str>, Option<&str>), StoreError> {
+    match reviewer {
+        None => Ok((None, None)),
+        Some(reviewer) if reviewer.starts_with("human:") => Ok((Some(reviewer), None)),
+        Some(reviewer) if reviewer.starts_with("agent:") => Ok((None, Some(reviewer))),
+        Some(reviewer) => Err(StoreError::Schema(format!(
+            "calibration reviewer must be a concrete human: or agent: id: {reviewer}"
+        ))),
+    }
+}
+
+fn require_reviewer_on_connection(conn: &Connection, reviewer: &str) -> Result<(), StoreError> {
+    let (human_id, agent_id) = reviewer_columns(Some(reviewer))?;
+    let exists = if let Some(human_id) = human_id {
+        conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM humans WHERE human_id = ?1)",
+            [human_id],
+            |row| row.get::<_, bool>(0),
+        )?
+    } else if let Some(agent_id) = agent_id {
+        conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM agents WHERE agent_id = ?1)",
+            [agent_id],
+            |row| row.get::<_, bool>(0),
+        )?
+    } else {
+        false
+    };
+    if exists {
+        Ok(())
+    } else {
+        Err(StoreError::Schema(format!(
+            "reviewed MCP tool calibration references missing actor: {reviewer}"
+        )))
+    }
 }

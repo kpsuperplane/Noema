@@ -260,15 +260,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn falls_back_when_bound_provider_account_is_missing() {
+    async fn deleting_bound_provider_cascades_binding_and_falls_back() {
         let store = test_store().await;
+        insert_provider_account(
+            &store,
+            "provider_account:openai:deleted",
+            "openai",
+            "deleted",
+            ProviderAccountStatus::Authenticated,
+        )
+        .await;
         insert_binding_row(
             &store,
             WEB_SEARCH_TOOL,
             WEB_SEARCH_TOOL,
-            "provider_account:openai:missing",
+            "provider_account:openai:deleted",
         )
         .await;
+        store
+            .with_connection(|conn| {
+                conn.execute(
+                    "DELETE FROM provider_accounts WHERE provider_account_id = ?1",
+                    ["provider_account:openai:deleted"],
+                )?;
+                Ok(())
+            })
+            .await
+            .expect("delete provider account");
 
         let resolved = resolve_web_search_provider(&store).await.expect("resolve");
 
@@ -276,14 +294,8 @@ mod tests {
             resolved.provider_account_id,
             "provider_account:duckduckgo_public:system"
         );
-        assert_eq!(
-            resolved.fallback_from.as_deref(),
-            Some("provider_account:openai:missing")
-        );
-        assert_eq!(
-            resolved.fallback_reason.as_deref(),
-            Some("bound provider account is no longer available")
-        );
+        assert!(resolved.fallback_from.is_none());
+        assert!(resolved.fallback_reason.is_none());
     }
 
     #[tokio::test]

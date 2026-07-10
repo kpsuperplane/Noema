@@ -93,7 +93,8 @@ fn trusted_identity_selectors_normalize_email_phone_and_domain() {
 async fn mcp_control_plane_tables_bootstrap() {
     let store = test_store().await;
 
-    assert_eq!(store.schema_version().await.expect("schema version"), 1);
+    assert_eq!(store.schema_version().await.expect("schema version"), 2);
+    store.ensure_default_actors().await.expect("actors");
     store
         .with_connection(|conn| {
             conn.execute_batch(
@@ -114,7 +115,7 @@ async fn mcp_control_plane_tables_bootstrap() {
             VALUES (
               'mcp_tool:local-test:read', 'mcp_server:local-test', 'read',
               'Read metadata', '{}', NULL, '{}', 'fingerprint:local-test:read',
-              '2026-06-30T00:00:00Z'
+              '2026-06-30T00:00:00.000Z'
             );
 
             INSERT INTO tool_calibrations (
@@ -129,8 +130,8 @@ async fn mcp_control_plane_tables_bootstrap() {
             );
 
             INSERT INTO trusted_identity_selectors (
-              selector_id, owner_scope_id, selector_kind, normalized_value, effect,
-              issuer_actor_id
+              selector_id, owner_human_id, selector_kind, normalized_value, effect,
+              issuer_human_id
             )
             VALUES (
               'trusted_identity:human-local:email', 'human:local', 'email',
@@ -139,10 +140,10 @@ async fn mcp_control_plane_tables_bootstrap() {
 
             INSERT INTO approval_requests (
               approval_id, action_summary, tool_invocation_id, mcp_server_id,
-              mcp_tool_id, requester_actor_id, owner_scope_id, active_scope_id,
+              mcp_tool_id, requester_agent_id, owner_human_id, active_human_id,
               destination_summary, data_source_summary, source_owner_identity,
               source_owner_trust, destination_owner_identity, destination_owner_trust,
-              export_summary, payload_preview_json, status
+              export_summary, redacted_review_json, status
             )
             VALUES (
               'approval:local-test', 'Approve local test MCP call',
@@ -169,8 +170,8 @@ async fn export_decision_creates_manual_approval_request() {
             approval_id: "approval:mcp:1".to_string(),
             action_summary: "Share Google Doc".to_string(),
             tool_invocation_id: "tool_invocation:mcp:1".to_string(),
-            mcp_server_id: Some("mcp_server:google".to_string()),
-            mcp_tool_id: Some("mcp_tool:google:share_doc".to_string()),
+            mcp_server_id: None,
+            mcp_tool_id: None,
             requester_actor_id: "agent:primary".to_string(),
             owner_scope_id: "human:local".to_string(),
             active_scope_id: "human:local".to_string(),
@@ -196,11 +197,8 @@ async fn export_decision_creates_manual_approval_request() {
     assert_eq!(approval.approval_id, "approval:mcp:1");
     assert_eq!(approval.action_summary, "Share Google Doc");
     assert_eq!(approval.tool_invocation_id, "tool_invocation:mcp:1");
-    assert_eq!(approval.mcp_server_id.as_deref(), Some("mcp_server:google"));
-    assert_eq!(
-        approval.mcp_tool_id.as_deref(),
-        Some("mcp_tool:google:share_doc")
-    );
+    assert_eq!(approval.mcp_server_id, None);
+    assert_eq!(approval.mcp_tool_id, None);
     assert_eq!(approval.requester_actor_id, "agent:primary");
     assert_eq!(approval.owner_scope_id, "human:local");
     assert_eq!(approval.active_scope_id, "human:local");
@@ -214,17 +212,7 @@ async fn export_decision_creates_manual_approval_request() {
         approval.export_summary,
         "Document title and share permission"
     );
-    assert_eq!(
-        approval.payload_preview,
-        json!({
-            "recipient": "person@example.com",
-            "api_token": "[redacted]",
-            "headers": {
-                "Authorization": "[redacted]",
-                "cookie": "[redacted]"
-            }
-        })
-    );
+    assert_eq!(approval.payload_preview, json!({}));
     assert_eq!(approval.status, "pending");
 
     let pending = store
@@ -232,6 +220,42 @@ async fn export_decision_creates_manual_approval_request() {
         .await
         .expect("pending approvals");
     assert_eq!(pending, vec![approval]);
+    let persisted_review = store
+        .with_connection(|conn| {
+            conn.query_row(
+                "SELECT redacted_review_json FROM approval_requests WHERE approval_id = 'approval:mcp:1'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(crate::StoreError::Sqlite)
+        })
+        .await
+        .expect("persisted review");
+    assert_eq!(persisted_review, "{}");
+    assert!(!persisted_review.contains("secret-token"));
+}
+
+#[tokio::test]
+async fn approval_request_rejects_partial_mcp_reference_pairs_before_sql() {
+    let store = test_store_with_mcp_tool().await;
+    let server_only =
+        approval_request_with_mcp_links("server-only", Some("mcp_server:google"), None);
+    let tool_only =
+        approval_request_with_mcp_links("tool-only", None, Some("mcp_tool:google:read_doc"));
+
+    for partial in [server_only, tool_only] {
+        let error = store
+            .create_mcp_approval_request(partial)
+            .await
+            .expect_err("partial MCP references must fail before persistence");
+        assert!(matches!(error, StoreError::InvariantViolation { .. }));
+    }
+
+    let persisted = store
+        .list_mcp_approval_requests(None)
+        .await
+        .expect("approvals");
+    assert!(persisted.is_empty());
 }
 
 #[tokio::test]
@@ -451,6 +475,18 @@ async fn ready_calibration_requires_current_metadata_fingerprint() {
 }
 
 #[tokio::test]
+async fn calibration_reviewer_must_be_a_persisted_concrete_actor() {
+    let store = test_store_with_mcp_tool().await;
+    let mut calibration = ready_mixed_calibration("fingerprint_1");
+    calibration.reviewed_by = Some("reviewer-without-kind".to_string());
+    assert!(store.save_tool_calibration(calibration).await.is_err());
+
+    let mut calibration = ready_mixed_calibration("fingerprint_1");
+    calibration.reviewed_by = Some("human:missing".to_string());
+    assert!(store.save_tool_calibration(calibration).await.is_err());
+}
+
+#[tokio::test]
 async fn ready_calibration_enables_mcp_server() {
     let store = test_store_with_mcp_tool().await;
 
@@ -639,7 +675,7 @@ async fn rediscovered_tool_metadata_invalidates_reviewed_calibration() {
 }
 
 #[tokio::test]
-async fn same_fingerprint_tool_move_recomputes_old_and_new_server_enabled_state() {
+async fn same_fingerprint_tool_move_is_rejected_and_preserves_server_state() {
     let store = test_store_with_mcp_tool().await;
     store
         .create_mcp_server(NewMcpServer {
@@ -672,16 +708,17 @@ async fn same_fingerprint_tool_move_recomputes_old_and_new_server_enabled_state(
             .enabled
     );
 
-    store
+    let error = store
         .upsert_discovered_mcp_tool(NewMcpTool {
             mcp_server_id: "mcp_server:drive".to_string(),
             ..google_tool("read_doc", json!({"readOnlyHint": true}), "fingerprint_1")
         })
         .await
-        .expect("move tool to second server");
+        .expect_err("tool server relationship is immutable");
+    assert!(error.to_string().contains("server is immutable"));
 
     assert!(
-        !store
+        store
             .get_mcp_server("mcp_server:google")
             .await
             .expect("get old server")
@@ -689,7 +726,7 @@ async fn same_fingerprint_tool_move_recomputes_old_and_new_server_enabled_state(
             .enabled
     );
     assert!(
-        store
+        !store
             .get_mcp_server("mcp_server:drive")
             .await
             .expect("get new server")
@@ -741,6 +778,7 @@ async fn stores_trusted_identity_selector_normalized() {
 
 async fn test_store_with_mcp_tool() -> crate::NoemaStore {
     let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
     store
         .create_mcp_server(google_server())
         .await
@@ -753,6 +791,31 @@ async fn test_store_with_mcp_tool() -> crate::NoemaStore {
     )
     .await;
     store
+}
+
+fn approval_request_with_mcp_links(
+    suffix: &str,
+    mcp_server_id: Option<&str>,
+    mcp_tool_id: Option<&str>,
+) -> NewMcpApprovalRequest {
+    NewMcpApprovalRequest {
+        approval_id: format!("approval:mcp:{suffix}"),
+        action_summary: "Review MCP action".to_string(),
+        tool_invocation_id: format!("tool_invocation:mcp:{suffix}"),
+        mcp_server_id: mcp_server_id.map(str::to_string),
+        mcp_tool_id: mcp_tool_id.map(str::to_string),
+        requester_actor_id: "agent:primary".to_string(),
+        owner_scope_id: "human:local".to_string(),
+        active_scope_id: "human:local".to_string(),
+        destination_summary: "Destination".to_string(),
+        data_source_summary: "Source".to_string(),
+        source_owner_identity: "human:local".to_string(),
+        source_owner_trust: "trusted".to_string(),
+        destination_owner_identity: "other".to_string(),
+        destination_owner_trust: "untrusted".to_string(),
+        export_summary: "Export".to_string(),
+        payload_preview: json!({}),
+    }
 }
 
 fn google_server() -> NewMcpServer {
@@ -940,14 +1003,15 @@ async fn mcp_control_plane_schema_rejects_invalid_enum_values() {
 #[tokio::test]
 async fn trusted_identity_schema_rejects_empty_identity_fields() {
     let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
 
     let error = store
         .with_connection(|conn| {
             conn.execute(
                 r#"
             INSERT INTO trusted_identity_selectors (
-              selector_id, owner_scope_id, selector_kind, normalized_value, effect,
-              issuer_actor_id
+              selector_id, owner_human_id, selector_kind, normalized_value, effect,
+              issuer_human_id
             )
             VALUES (
               'trusted_identity:empty-value', 'human:local', 'email', '',
@@ -1035,16 +1099,17 @@ async fn tool_calibration_schema_rejects_malformed_owner_extractors() {
 #[tokio::test]
 async fn approval_request_schema_rejects_invalid_status() {
     let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
 
     let error = store
         .with_connection(|conn| {
             conn.execute(
                 r#"
             INSERT INTO approval_requests (
-              approval_id, action_summary, tool_invocation_id, requester_actor_id,
-              owner_scope_id, active_scope_id, destination_summary, data_source_summary,
+              approval_id, action_summary, tool_invocation_id, requester_agent_id,
+              owner_human_id, active_human_id, destination_summary, data_source_summary,
               source_owner_identity, source_owner_trust, destination_owner_identity,
-              destination_owner_trust, export_summary, payload_preview_json, status
+              destination_owner_trust, export_summary, redacted_review_json, status
             )
             VALUES (
               'approval:invalid-status', 'Invalid approval status test',
@@ -1070,17 +1135,18 @@ async fn approval_request_schema_rejects_invalid_status() {
 #[tokio::test]
 async fn terminal_approval_request_requires_decision_evidence() {
     let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
 
     let error = store
         .with_connection(|conn| {
             conn.execute(
                 r#"
             INSERT INTO approval_requests (
-              approval_id, action_summary, tool_invocation_id, requester_actor_id,
-              owner_scope_id, active_scope_id, destination_summary, data_source_summary,
+              approval_id, action_summary, tool_invocation_id, requester_agent_id,
+              owner_human_id, active_human_id, destination_summary, data_source_summary,
               source_owner_identity, source_owner_trust, destination_owner_identity,
-              destination_owner_trust, export_summary, payload_preview_json, status,
-              decision_actor_id, decided_at
+              destination_owner_trust, export_summary, redacted_review_json, status,
+              decision_agent_id, decided_at
             )
             VALUES (
               'approval:approved-without-decision',
@@ -1099,7 +1165,7 @@ async fn terminal_approval_request_requires_decision_evidence() {
         .expect_err("terminal approval without decision evidence should be rejected");
 
     assert!(
-        error.to_string().contains("decision_actor_id")
+        error.to_string().contains("decision_agent_id")
             || error.to_string().contains("decided_at")
             || error.to_string().contains("approved"),
         "unexpected error: {error}"

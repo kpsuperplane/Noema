@@ -12,9 +12,28 @@ pub enum StoreError {
     /// JSON encoding or decoding failed.
     #[error("store JSON encoding failed: {0}")]
     Json(#[from] serde_json::Error),
+    /// Persisted timestamp was not canonical RFC 3339 UTC with subseconds.
+    #[error("invalid persisted RFC 3339 UTC timestamp: {value}")]
+    InvalidTimestamp {
+        /// Rejected stored value.
+        value: String,
+    },
+    /// The operating-system cryptographic random source failed.
+    #[error("secure randomness is unavailable for store id allocation")]
+    RandomnessUnavailable,
     /// Schema bootstrap returned an invalid result.
     #[error("store schema bootstrap failed: {0}")]
     Schema(String),
+    /// Existing database is not the exact canonical pre-V1 schema.
+    #[error(
+        "Noema database reset required (found: {found}; expected: {expected}). Stop all Noema writers, then move the database, -wal, and -shm files together. Preserve providers/, configuration, and secrets. Follow docs/operations/sqlite-reset-protocol.md; Noema did not modify or delete the database."
+    )]
+    ResetRequired {
+        /// Safe description of the observed schema state.
+        found: String,
+        /// Safe description of the required schema state.
+        expected: String,
+    },
     /// A stored value did not match a closed Noema vocabulary.
     #[error("invalid {kind} value in embedded store: {value}")]
     InvalidEnum {
@@ -115,7 +134,11 @@ impl StoreError {
     pub fn is_system_invariant(&self) -> bool {
         matches!(
             self,
-            Self::Schema(_) | Self::InvalidEnum { .. } | Self::InvariantViolation { .. }
+            Self::Schema(_)
+                | Self::ResetRequired { .. }
+                | Self::InvalidTimestamp { .. }
+                | Self::InvalidEnum { .. }
+                | Self::InvariantViolation { .. }
         )
     }
 

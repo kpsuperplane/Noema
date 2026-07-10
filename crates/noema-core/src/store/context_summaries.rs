@@ -1,4 +1,4 @@
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{ErrorCode, OptionalExtension, TransactionBehavior, params};
 
 use crate::ConversationContextSummaryStatus;
 
@@ -88,32 +88,63 @@ impl NoemaStore {
         summary: NewConversationContextSummary,
     ) -> Result<ConversationContextSummaryRecord, StoreError> {
         self.require_conversation(&summary.conversation_id).await?;
-        if summary.status == ConversationContextSummaryStatus::Active {
-            if let Some(active) = self
-                .latest_active_context_summary(
-                    &summary.conversation_id,
-                    &summary.provider_kind,
-                    summary.model_profile.as_deref(),
-                )
-                .await?
-                && active.covered_item_end_sequence > summary.covered_item_end_sequence
-            {
-                return Ok(active);
-            }
-            self.supersede_active_context_summaries(
-                &summary.conversation_id,
-                &summary.provider_kind,
-                summary.model_profile.as_deref(),
-            )
-            .await?;
-        }
-
-        let summary_id = allocate_id("context-summary");
+        let summary_id = allocate_id("context-summary")?;
         let source_item_ids_json = serialize_json(&summary.source_item_ids)?;
         let input_token_estimate = estimate_to_i64(summary.input_token_estimate);
         let summary_token_estimate = estimate_to_i64(summary.summary_token_estimate);
         self.with_connection(|conn| {
-            conn.execute(
+            let transaction =
+                conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            if summary.status == ConversationContextSummaryStatus::Active {
+                if let Some(active) = active_summary_in_transaction(
+                    &transaction,
+                    &summary.conversation_id,
+                    &summary.provider_kind,
+                    summary.model_profile.as_deref(),
+                )? {
+                    let active_contains_new = active.covered_item_start_sequence
+                        <= summary.covered_item_start_sequence
+                        && active.covered_item_end_sequence
+                            >= summary.covered_item_end_sequence;
+                    if active_contains_new {
+                        transaction.commit()?;
+                        return Ok(active);
+                    }
+                    let new_contains_active = summary.covered_item_start_sequence
+                        <= active.covered_item_start_sequence
+                        && summary.covered_item_end_sequence
+                            >= active.covered_item_end_sequence;
+                    if !new_contains_active {
+                        return Err(StoreError::InvariantViolation {
+                            message: format!(
+                                "active context summary interval {}..={} is incomparable with replacement {}..={}",
+                                active.covered_item_start_sequence,
+                                active.covered_item_end_sequence,
+                                summary.covered_item_start_sequence,
+                                summary.covered_item_end_sequence,
+                            ),
+                        });
+                    }
+                }
+                transaction.execute(
+                    r#"
+                    UPDATE conversation_context_summaries
+                    SET status = 'superseded',
+                        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                    WHERE conversation_id = ?1
+                      AND provider_kind = ?2
+                      AND model_profile IS ?3
+                      AND status = 'active'
+                    "#,
+                    params![
+                        &summary.conversation_id,
+                        &summary.provider_kind,
+                        summary.model_profile.as_deref()
+                    ],
+                )?;
+            }
+
+            let insert = transaction.execute(
                 r#"
                 INSERT INTO conversation_context_summaries (
                   summary_id, conversation_id, provider_kind, model_profile, summary_text,
@@ -124,44 +155,51 @@ impl NoemaStore {
                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
                 "#,
                 params![
-                    summary_id,
-                    summary.conversation_id,
-                    summary.provider_kind,
-                    summary.model_profile,
-                    summary.summary_text,
+                    &summary_id,
+                    &summary.conversation_id,
+                    &summary.provider_kind,
+                    &summary.model_profile,
+                    &summary.summary_text,
                     summary.covered_item_start_sequence,
                     summary.covered_item_end_sequence,
-                    source_item_ids_json,
+                    &source_item_ids_json,
                     input_token_estimate,
                     summary_token_estimate,
-                    summary.compaction_provider_kind,
-                    summary.compaction_model_profile,
+                    &summary.compaction_provider_kind,
+                    &summary.compaction_model_profile,
                     summary.status.as_str(),
-                    summary.error_code,
-                    summary.error_message,
+                    &summary.error_code,
+                    &summary.error_message,
                 ],
+            );
+            if let Err(error) = insert {
+                if summary.status == ConversationContextSummaryStatus::Active
+                    && is_constraint_violation(&error)
+                    && let Some(winner) = active_summary_in_transaction(
+                        &transaction,
+                        &summary.conversation_id,
+                        &summary.provider_kind,
+                        summary.model_profile.as_deref(),
+                    )?
+                {
+                    transaction.commit()?;
+                    return Ok(winner);
+                }
+                return Err(StoreError::Sqlite(error));
+            }
+            let saved = transaction.query_row(
+                format!(
+                    "SELECT {CONTEXT_SUMMARY_SELECT} FROM conversation_context_summaries WHERE summary_id = ?1"
+                )
+                .as_str(),
+                [&summary_id],
+                context_summary_row,
             )?;
-            Ok(())
+            let saved = context_summary_from_row(saved)?;
+            transaction.commit()?;
+            Ok(saved)
         })
-        .await?;
-
-        Ok(ConversationContextSummaryRecord {
-            summary_id,
-            conversation_id: summary.conversation_id,
-            provider_kind: summary.provider_kind,
-            model_profile: summary.model_profile,
-            summary_text: summary.summary_text,
-            covered_item_start_sequence: summary.covered_item_start_sequence,
-            covered_item_end_sequence: summary.covered_item_end_sequence,
-            source_item_ids: summary.source_item_ids,
-            input_token_estimate: summary.input_token_estimate,
-            summary_token_estimate: summary.summary_token_estimate,
-            compaction_provider_kind: summary.compaction_provider_kind,
-            compaction_model_profile: summary.compaction_model_profile,
-            status: summary.status,
-            error_code: summary.error_code,
-            error_message: summary.error_message,
-        })
+        .await
     }
 
     /// Return the latest active context summary for a conversation context profile.
@@ -188,7 +226,8 @@ impl NoemaStore {
                           AND provider_kind = ?2
                           AND model_profile IS ?3
                           AND status = 'active'
-                        ORDER BY covered_item_end_sequence DESC
+                        ORDER BY covered_item_end_sequence DESC,
+                                 covered_item_start_sequence ASC
                         LIMIT 1
                         "#
                     )
@@ -266,30 +305,6 @@ impl NoemaStore {
             .await?;
         rows.into_iter().map(context_summary_from_row).collect()
     }
-
-    async fn supersede_active_context_summaries(
-        &self,
-        conversation_id: &str,
-        provider_kind: &str,
-        model_profile: Option<&str>,
-    ) -> Result<(), StoreError> {
-        self.with_connection(|conn| {
-            conn.execute(
-                r#"
-                UPDATE conversation_context_summaries
-                SET status = 'superseded',
-                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                WHERE conversation_id = ?1
-                  AND provider_kind = ?2
-                  AND model_profile IS ?3
-                  AND status = 'active'
-                "#,
-                params![conversation_id, provider_kind, model_profile],
-            )?;
-            Ok(())
-        })
-        .await
-    }
 }
 
 const CONTEXT_SUMMARY_SELECT: &str = r#"
@@ -364,4 +379,41 @@ fn context_summary_from_row(
 
 fn estimate_to_i64(value: u64) -> i64 {
     i64::try_from(value).unwrap_or(i64::MAX)
+}
+
+fn active_summary_in_transaction(
+    transaction: &rusqlite::Transaction<'_>,
+    conversation_id: &str,
+    provider_kind: &str,
+    model_profile: Option<&str>,
+) -> Result<Option<ConversationContextSummaryRecord>, StoreError> {
+    let row = transaction
+        .query_row(
+            format!(
+                r#"
+                SELECT {CONTEXT_SUMMARY_SELECT}
+                FROM conversation_context_summaries
+                WHERE conversation_id = ?1
+                  AND provider_kind = ?2
+                  AND model_profile IS ?3
+                  AND status = 'active'
+                ORDER BY covered_item_end_sequence DESC,
+                         covered_item_start_sequence ASC
+                LIMIT 1
+                "#
+            )
+            .as_str(),
+            params![conversation_id, provider_kind, model_profile],
+            context_summary_row,
+        )
+        .optional()?;
+    row.map(context_summary_from_row).transpose()
+}
+
+fn is_constraint_violation(error: &rusqlite::Error) -> bool {
+    matches!(
+        error,
+        rusqlite::Error::SqliteFailure(details, _)
+            if details.code == ErrorCode::ConstraintViolation
+    )
 }

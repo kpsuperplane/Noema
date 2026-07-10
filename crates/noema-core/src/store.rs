@@ -45,3 +45,7 @@ pub use memory_service::{
 pub use provider_accounts::{NewProviderAccount, ProviderAccountCatalogEntry};
 pub use provider_capability_bindings::ProviderCapabilityBindingRecord;
 pub use runtime::{NoemaStore, StoreConfig};
+
+pub(crate) fn store_now_rfc3339() -> String {
+    ids::now_rfc3339()
+}

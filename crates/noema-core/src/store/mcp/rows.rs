@@ -7,7 +7,10 @@ use super::{
 };
 use crate::{
     McpCalibrationStatus, McpTransportKind, McpTrustClassification, TrustedIdentitySelectorKind,
-    store::{StoreError, ids::invalid_enum},
+    store::{
+        StoreError,
+        ids::{Timestamp, invalid_enum},
+    },
 };
 
 pub(super) fn bool_from_i64(value: i64) -> bool {
@@ -40,6 +43,8 @@ pub(super) fn mcp_tool_from_row(row: &Row<'_>) -> rusqlite::Result<McpToolRecord
     let input_schema_json: String = row.get(4)?;
     let output_schema_json: Option<String> = row.get(5)?;
     let annotations_json: String = row.get(6)?;
+    let discovered_at: String = row.get(8)?;
+    Timestamp::parse(&discovered_at).map_err(to_sql_error)?;
     Ok(McpToolRecord {
         mcp_tool_id: row.get(0)?,
         mcp_server_id: row.get(1)?,
@@ -53,7 +58,7 @@ pub(super) fn mcp_tool_from_row(row: &Row<'_>) -> rusqlite::Result<McpToolRecord
             .map_err(to_sql_error)?,
         annotations: serde_json::from_str(&annotations_json).map_err(to_sql_error)?,
         metadata_fingerprint: row.get(7)?,
-        discovered_at: row.get(8)?,
+        discovered_at,
     })
 }
 
@@ -92,7 +97,7 @@ pub(super) fn trusted_identity_selector_from_row(
         normalized_value: row.get(3)?,
         effect: parse_trusted_identity_selector_effect(&effect).map_err(to_sql_error)?,
         issuer_actor_id: row.get(5)?,
-        revoked_at: row.get(6)?,
+        revoked_at: validated_optional_timestamp(row.get(6)?)?,
     })
 }
 
@@ -120,8 +125,18 @@ pub(super) fn mcp_approval_request_from_row(
         status: row.get(16)?,
         decision_actor_id: row.get(17)?,
         decision_comment: row.get(18)?,
-        decided_at: row.get(19)?,
+        decided_at: validated_optional_timestamp(row.get(19)?)?,
     })
+}
+
+fn validated_optional_timestamp(value: Option<String>) -> rusqlite::Result<Option<String>> {
+    value
+        .map(|timestamp| {
+            Timestamp::parse(&timestamp)
+                .map(|_| timestamp)
+                .map_err(to_sql_error)
+        })
+        .transpose()
 }
 
 fn parse_mcp_transport_kind(value: &str) -> Result<McpTransportKind, StoreError> {

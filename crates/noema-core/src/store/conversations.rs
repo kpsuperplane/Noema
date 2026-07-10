@@ -1,15 +1,16 @@
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{ErrorCode, OptionalExtension, TransactionBehavior, params};
 use serde_json::Value;
 
 use crate::{
-    ConversationItemKind, ConversationItemPage, ConversationItemRecord, ConversationItemStatus,
-    ConversationRecord, ConversationTurnRecord, NewConversation, NewConversationItem,
-    NewConversationTurn, PersistedAgentStatus as AgentStatus, ReplayMode,
+    ActorKind, ConversationItemKind, ConversationItemPage, ConversationItemRecord,
+    ConversationItemStatus, ConversationRecord, ConversationTurnRecord, NewConversation,
+    NewConversationItem, NewConversationTurn, ObjectType, PersistedAgentStatus as AgentStatus,
+    ReplayMode,
 };
 
 use super::{
     NoemaStore, StoreError,
-    ids::{allocate_id, now_string},
+    ids::{allocate_id, now_rfc3339},
     sqlite::{json_from_string, json_to_string},
 };
 
@@ -27,7 +28,8 @@ impl NoemaStore {
         &self,
         conversation: NewConversation,
     ) -> Result<ConversationRecord, StoreError> {
-        let conversation_id = allocate_id("conversation");
+        self.ensure_default_actors().await?;
+        let conversation_id = allocate_id("conversation")?;
         self.create_conversation_with_id(conversation_id, conversation)
             .await
     }
@@ -60,46 +62,51 @@ impl NoemaStore {
         cwd: Option<String>,
     ) -> Result<ConversationRecord, StoreError> {
         self.ensure_default_actors().await?;
-        let primary_conversation_id = self
-            .with_connection(|conn| {
-                conn.query_row(
-                    "SELECT primary_conversation_id FROM humans WHERE human_id = ?1 LIMIT 1",
-                    [human_id],
-                    |row| row.get::<_, Option<String>>(0),
-                )
-                .optional()
-                .map(|row| row.flatten())
-                .map_err(StoreError::Sqlite)
-            })
-            .await?;
-        if let Some(conversation_id) = primary_conversation_id
-            && self
-                .primary_conversation_matches_human(&conversation_id, human_id)
-                .await?
-        {
-            return Ok(ConversationRecord { conversation_id });
-        }
-
-        let record = self
-            .create_conversation_with_id(
-                allocate_id("conversation"),
-                NewConversation::local_chat_for_provider(provider, model, cwd),
-            )
-            .await?;
+        let candidate_id = allocate_id("conversation")?;
         self.with_connection(|conn| {
-            conn.execute(
+            let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            if let Some(conversation_id) =
+                primary_conversation_in_transaction(&transaction, human_id)?
+            {
+                transaction.commit()?;
+                return Ok(ConversationRecord { conversation_id });
+            }
+
+            let insert = transaction.execute(
+                r#"
+                INSERT INTO conversations (
+                  conversation_id, owner_human_id, primary_human_id, primary_agent_id,
+                  is_primary, provider, model, cwd, lifecycle_status, agent_status, metadata_json
+                )
+                VALUES (?1, ?2, ?2, 'agent:primary', 1, ?3, ?4, ?5, 'active', 'idle', '{}')
+                "#,
+                params![candidate_id, human_id, provider, model, cwd],
+            );
+            if let Err(error) = insert {
+                if is_constraint_violation(&error)
+                    && let Some(conversation_id) =
+                        primary_conversation_in_transaction(&transaction, human_id)?
+                {
+                    transaction.commit()?;
+                    return Ok(ConversationRecord { conversation_id });
+                }
+                return Err(StoreError::Sqlite(error));
+            }
+            transaction.execute(
                 r#"
                 UPDATE humans
                 SET primary_conversation_id = ?2,
                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                 WHERE human_id = ?1
                 "#,
-                params![human_id, record.conversation_id],
+                params![human_id, candidate_id],
             )?;
-            Ok(())
+            transaction.commit()?;
+            Ok(ConversationRecord {
+                conversation_id: candidate_id,
+            })
         })
-        .await?;
-        Ok(record)
+        .await
     }
 
     /// Return a human's active primary conversation without creating one.
@@ -181,7 +188,7 @@ impl NoemaStore {
             self.require_conversation_item_for_conversation(trigger_item_id, &turn.conversation_id)
                 .await?;
         }
-        let turn_id = allocate_id("turn");
+        let turn_id = allocate_id("turn")?;
         let metadata_json = json_to_string(&turn.metadata)?;
         self.with_connection(|conn| {
             conn.execute(
@@ -213,6 +220,7 @@ impl NoemaStore {
         &self,
         item: NewConversationItem,
     ) -> Result<ConversationItemRecord, StoreError> {
+        self.ensure_default_actors().await?;
         self.require_conversation(&item.conversation_id).await?;
         if let Some(turn_id) = &item.turn_id {
             self.require_turn_for_conversation(turn_id, &item.conversation_id)
@@ -223,7 +231,7 @@ impl NoemaStore {
                 .await?;
         }
         let _append_guard = self.append_item_lock.lock().await;
-        let item_id = allocate_id("item");
+        let item_id = allocate_id("item")?;
         let sequence_index = self
             .with_connection(|conn| {
                 let next_sequence = conn.query_row(
@@ -235,8 +243,8 @@ impl NoemaStore {
                     r#"
                     INSERT INTO conversation_items
                       (item_id, conversation_id, turn_id, parent_item_id, sequence_index, kind, status,
-                       author_actor_id, content_text, payload_json, metadata_json)
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                       author_human_id, author_agent_id, content_text, payload_json, metadata_json)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
                     "#,
                     params![
                         item_id,
@@ -246,7 +254,10 @@ impl NoemaStore {
                         next_sequence,
                         item.kind.as_str(),
                         item.status.as_str(),
-                        item.author.actor_id.to_string(),
+                        (item.author.actor_kind == ActorKind::Human)
+                            .then(|| item.author.actor_id.to_string()),
+                        (item.author.actor_kind == ActorKind::Agent)
+                            .then(|| item.author.actor_id.to_string()),
                         item.content_text,
                         json_to_string(&item.payload_json)?,
                         json_to_string(&item.metadata)?,
@@ -549,19 +560,34 @@ impl NoemaStore {
         conversation: NewConversation,
     ) -> Result<ConversationRecord, StoreError> {
         let metadata_json = json_to_string(&conversation.metadata)?;
+        let owner_id = conversation.owner.object_id.to_string();
+        let (owner_human_id, owner_agent_id, owner_conversation_id) =
+            match conversation.owner.object_type {
+                ObjectType::Human => (Some(owner_id), None, None),
+                ObjectType::Agent => (None, Some(owner_id), None),
+                ObjectType::Conversation => (None, None, Some(owner_id)),
+                unsupported => {
+                    return Err(StoreError::Schema(format!(
+                        "unsupported conversation owner kind: {}",
+                        unsupported.as_str()
+                    )));
+                }
+            };
         self.with_connection(|conn| {
             conn.execute(
                 r#"
                 INSERT INTO conversations
-                  (conversation_id, title, owner_object_type, owner_object_id, primary_human_id,
-                   primary_agent_id, provider, model, cwd, lifecycle_status, agent_status, metadata_json)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'active', 'idle', ?10)
+                  (conversation_id, title, owner_human_id, owner_agent_id, owner_conversation_id,
+                   primary_human_id, primary_agent_id, provider, model, cwd, lifecycle_status,
+                   agent_status, metadata_json)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'active', 'idle', ?11)
                 "#,
                 params![
                     conversation_id,
                     conversation.title,
-                    conversation.owner.object_type.as_str(),
-                    conversation.owner.object_id.to_string(),
+                    owner_human_id,
+                    owner_agent_id,
+                    owner_conversation_id,
                     conversation.primary_human_id,
                     conversation.primary_agent_id,
                     conversation.provider,
@@ -588,8 +614,7 @@ impl NoemaStore {
                   SELECT 1
                   FROM conversations
                   WHERE conversation_id = ?1
-                    AND owner_object_type = 'human'
-                    AND owner_object_id = ?2
+                    AND owner_human_id = ?2
                     AND primary_human_id = ?2
                     AND lifecycle_status = 'active'
                     AND deleted_at IS NULL
@@ -726,7 +751,7 @@ impl NoemaStore {
 
     async fn update_turn_status(&self, turn_id: &str, status: &str) -> Result<(), StoreError> {
         self.require_turn(turn_id).await?;
-        let completed_at = now_string();
+        let completed_at = now_rfc3339();
         self.with_connection(|conn| {
             conn.execute(
                 r#"
@@ -742,6 +767,40 @@ impl NoemaStore {
         })
         .await
     }
+}
+
+fn primary_conversation_in_transaction(
+    transaction: &rusqlite::Transaction<'_>,
+    human_id: &str,
+) -> rusqlite::Result<Option<String>> {
+    transaction
+        .query_row(
+            r#"
+            SELECT conversations.conversation_id
+            FROM conversations
+            LEFT JOIN humans
+              ON humans.human_id = ?1
+             AND humans.primary_conversation_id = conversations.conversation_id
+            WHERE conversations.primary_human_id = ?1
+              AND conversations.owner_human_id = ?1
+              AND conversations.is_primary = 1
+              AND conversations.lifecycle_status = 'active'
+              AND conversations.deleted_at IS NULL
+            ORDER BY humans.primary_conversation_id IS NOT NULL DESC
+            LIMIT 1
+            "#,
+            [human_id],
+            |row| row.get(0),
+        )
+        .optional()
+}
+
+fn is_constraint_violation(error: &rusqlite::Error) -> bool {
+    matches!(
+        error,
+        rusqlite::Error::SqliteFailure(details, _)
+            if details.code == ErrorCode::ConstraintViolation
+    )
 }
 
 fn collect_conversation_item_rows<P>(

@@ -137,8 +137,8 @@ pub async fn create_conversation_local_file_artifact(
     paths: &crate::NoemaPaths,
     input: NewConversationLocalFileArtifact,
 ) -> Result<crate::ArtifactWithVersions, ArtifactWriteError> {
-    let artifact_id = store.new_artifact_id();
-    let artifact_version_id = store.new_artifact_version_id();
+    let artifact_id = store.new_artifact_id()?;
+    let artifact_version_id = store.new_artifact_version_id()?;
     let filename = crate::paths::safe_artifact_filename(&input.filename)?;
     let version_dir =
         paths.conversation_artifact_version_dir(&input.conversation_id, &artifact_id, 1);

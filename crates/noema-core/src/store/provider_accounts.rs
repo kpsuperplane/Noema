@@ -5,7 +5,7 @@ use crate::{
     ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod,
     provider::capabilities_for_provider_account,
     store::{
-        ids::{allocate_id, invalid_enum, now_string},
+        ids::{allocate_id, invalid_enum, now_rfc3339},
         sqlite::{json_from_string, json_to_string},
     },
 };
@@ -223,7 +223,7 @@ impl NoemaStore {
             });
         }
 
-        let account_key = generated_account_key(&input.provider_kind);
+        let account_key = generated_account_key(&input.provider_kind)?;
         let provider_account_id = format!("provider_account:{}:{account_key}", input.provider_kind);
         let display_name = input
             .display_name
@@ -342,7 +342,7 @@ impl NoemaStore {
                 provider_account_id: provider_account_id.to_string(),
             });
         };
-        let checked_at = now_string();
+        let checked_at = now_rfc3339();
         let last_authenticated_at = if status == ProviderAccountStatus::Authenticated {
             Some(checked_at.clone())
         } else {
@@ -482,8 +482,8 @@ fn provider_account_from_row(row: ProviderAccountRow) -> Result<ProviderAccountR
         is_active: row.is_active,
         is_default: row.is_default,
         status,
-        last_checked_at: row.last_checked_at,
-        last_authenticated_at: row.last_authenticated_at,
+        last_checked_at: super::ids::validate_optional_timestamp(row.last_checked_at)?,
+        last_authenticated_at: super::ids::validate_optional_timestamp(row.last_authenticated_at)?,
         last_error_code: row.last_error_code,
         last_error_message: row.last_error_message,
         metadata: json_from_string(row.metadata_json)?,
@@ -512,8 +512,8 @@ fn system_provider_account(provider_kind: &str, display_name: &str) -> ProviderA
     }
 }
 
-fn generated_account_key(provider_kind: &str) -> String {
-    let allocated = allocate_id("provider_account");
+fn generated_account_key(provider_kind: &str) -> Result<String, StoreError> {
+    let allocated = allocate_id("provider_account")?;
     let suffix = allocated
         .rsplit(':')
         .next()
@@ -527,7 +527,7 @@ fn generated_account_key(provider_kind: &str) -> String {
             }
         })
         .collect::<String>();
-    format!("acct_{provider_kind}_{suffix}")
+    Ok(format!("acct_{provider_kind}_{suffix}"))
 }
 
 fn parse_provider_auth_method(value: &str) -> Result<ProviderAuthMethod, StoreError> {
