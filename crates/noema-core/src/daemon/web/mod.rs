@@ -1,12 +1,14 @@
 //! Local web UI server for the Noema daemon.
 
 mod assets;
+pub(super) mod authority;
 #[cfg(test)]
 #[allow(dead_code)]
 mod http;
 mod provider_auth;
 mod replay;
 mod router;
+pub(super) mod session;
 
 use tokio::net::TcpListener;
 
@@ -29,12 +31,18 @@ pub(crate) struct WebState {
     graphql_state: crate::graphql::GraphqlState,
     graphql_schema: crate::graphql::GraphqlSchema,
     system_errors: Option<crate::SystemErrorLogger>,
+    authority: authority::CanonicalAuthority,
+    sessions: session::SessionSecurity,
 }
 
 impl WebState {
     /// Build shared web UI state.
     #[must_use]
-    pub(super) fn new(graphql_state: crate::graphql::GraphqlState) -> Self {
+    pub(super) fn new(
+        graphql_state: crate::graphql::GraphqlState,
+        authority: authority::CanonicalAuthority,
+        sessions: session::SessionSecurity,
+    ) -> Self {
         let graphql_schema = crate::graphql::build_schema(graphql_state.clone());
         let system_errors = graphql_state
             .paths()
@@ -44,6 +52,8 @@ impl WebState {
             graphql_state,
             graphql_schema,
             system_errors,
+            authority,
+            sessions,
         }
     }
 
@@ -53,6 +63,14 @@ impl WebState {
 
     pub(crate) fn graphql_schema(&self) -> &crate::graphql::GraphqlSchema {
         &self.graphql_schema
+    }
+
+    fn authority(&self) -> &authority::CanonicalAuthority {
+        &self.authority
+    }
+
+    fn sessions(&self) -> &session::SessionSecurity {
+        &self.sessions
     }
 
     fn record_artifact_failure(&self, operation: &'static str) {
@@ -75,7 +93,8 @@ pub(super) use router::build_router;
 
 /// Bind the local web UI listener.
 pub(super) async fn bind_listener(config: &WebConfig) -> Result<TcpListener, DaemonError> {
-    TcpListener::bind((config.host.as_str(), config.port))
+    let host = authority::parse_loopback_ip(&config.host).map_err(DaemonError::Protocol)?;
+    TcpListener::bind((host, config.port))
         .await
         .map_err(|source| {
             DaemonError::Protocol(format!(

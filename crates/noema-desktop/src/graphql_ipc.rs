@@ -16,6 +16,14 @@ struct SubscriptionEventPayload {
     response: Value,
 }
 
+fn require_main_window_label(label: &str) -> Result<(), String> {
+    if label == "main" {
+        Ok(())
+    } else {
+        Err("Noema rejected a request from an unauthorized app window.".to_string())
+    }
+}
+
 /// Execute one GraphQL operation through Tauri IPC.
 ///
 /// # Errors
@@ -23,13 +31,17 @@ struct SubscriptionEventPayload {
 /// Returns a user-facing error if the request cannot be decoded or executed.
 #[tauri::command]
 pub async fn graphql_execute(
+    window: Window,
     state: State<'_, DesktopState>,
     request_json: Value,
 ) -> Result<Value, String> {
+    require_main_window_label(window.label())?;
     let request: Request = serde_json::from_value(request_json)
         .map_err(|_| "Noema lost connection to its local app service.".to_string())?;
     let schema = state.schema().await?;
-    let response: Response = schema.execute(request).await;
+    let response: Response = schema
+        .execute(request.data(noema_core::RequestPrincipal::local()))
+        .await;
     serde_json::to_value(response)
         .map_err(|_| "Noema lost connection to its local app service.".to_string())
 }
@@ -46,8 +58,10 @@ pub async fn graphql_subscribe(
     subscription_id: String,
     request_json: Value,
 ) -> Result<(), String> {
+    require_main_window_label(window.label())?;
     let request: Request = serde_json::from_value(request_json)
         .map_err(|_| "Noema lost connection to its local app service.".to_string())?;
+    let request = request.data(noema_core::RequestPrincipal::local());
     let schema = state.schema().await?;
     let (generation_tx, generation_rx) = oneshot::channel();
     let event_id = subscription_id.clone();
@@ -92,9 +106,11 @@ pub async fn graphql_subscribe(
 /// This command currently does not fail.
 #[tauri::command]
 pub async fn graphql_unsubscribe(
+    window: Window,
     state: State<'_, DesktopState>,
     subscription_id: String,
 ) -> Result<(), String> {
+    require_main_window_label(window.label())?;
     state.remove_subscription(&subscription_id).await;
     Ok(())
 }
@@ -116,5 +132,12 @@ mod tests {
         assert_eq!(serialized["subscriptionId"], "sub_1");
         assert!(serialized.get("subscription_id").is_none());
         assert_eq!(serialized["response"]["data"]["ok"], true);
+    }
+
+    #[test]
+    fn only_main_window_is_authorized() {
+        assert!(require_main_window_label("main").is_ok());
+        assert!(require_main_window_label("secondary").is_err());
+        assert!(require_main_window_label("").is_err());
     }
 }

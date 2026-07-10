@@ -66,6 +66,7 @@ pub use daemon::{
     AgentStatus, DaemonError, DaemonWebServerConfig, StartedConversation, TurnActivityStatus,
     TurnTranscriptItem, run_daemon_web,
 };
+pub use graphql::RequestPrincipal;
 pub use home::{
     DEFAULT_NOEMA_CONFIG_YAML, NoemaHomeError, NoemaHomeInitOptions, NoemaHomeInitResult,
     init_noema_home,

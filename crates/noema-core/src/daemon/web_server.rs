@@ -28,11 +28,20 @@ impl DaemonWebServerConfig {
 /// fails.
 pub async fn run_daemon_web(config: DaemonWebServerConfig) -> Result<(), DaemonError> {
     let web_listener = web::bind_listener(&config.web).await?;
+    let listener_address = web_listener.local_addr()?;
+    let authority = web::authority::CanonicalAuthority::from_socket_addr(listener_address);
+    let sessions = web::session::SessionSecurity::generate().map_err(|_| {
+        DaemonError::Protocol("failed to generate the browser bootstrap capability".to_string())
+    })?;
     let host = NoemaRuntimeHost::start(config.provider)
         .await
         .map_err(|source| DaemonError::Protocol(source.to_string()))?;
     let graphql_state = crate::graphql::GraphqlState::from_runtime_host(&host);
-    let web_state = WebState::new(graphql_state);
+    let web_state = WebState::new(graphql_state, authority.clone(), sessions.clone());
+    let bootstrap_url = sessions.bootstrap_url(authority.as_str()).ok_or_else(|| {
+        DaemonError::Protocol("failed to read the browser bootstrap capability".to_string())
+    })?;
+    println!("Noema browser bootstrap: {bootstrap_url}");
     let shutdown_error = std::sync::Arc::new(std::sync::Mutex::new(None));
     let signal_error = shutdown_error.clone();
     let server_result = axum::serve(web_listener, web::build_router(web_state))

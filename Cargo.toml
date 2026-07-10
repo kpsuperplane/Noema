@@ -35,6 +35,7 @@ time = { version = "0.3", features = ["formatting", "macros"] }
 tokio = { version = "1", features = ["io-std", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6.11", features = ["limit", "set-header"] }
+tower-sessions = { version = "0.15.0", default-features = false, features = ["axum-core", "memory-store", "private"] }
 ts-rs = "12.0"
 url = "2.5"
 

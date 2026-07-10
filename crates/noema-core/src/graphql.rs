@@ -25,3 +25,25 @@ pub use mcp::complete_mcp_server_oauth_setup;
 pub(crate) use runtime_state::GraphqlRuntimeState;
 pub use schema::{GraphqlSchema, GraphqlState, build_schema};
 pub(crate) use subscriptions::{ConversationLiveEvent, ConversationSubscriptionRegistry};
+
+/// Server-derived identity attached to every authenticated GraphQL operation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RequestPrincipal {
+    subject_id: &'static str,
+}
+
+impl RequestPrincipal {
+    /// Return the single local authenticated subject.
+    #[must_use]
+    pub fn local() -> Self {
+        Self {
+            subject_id: "human:local",
+        }
+    }
+
+    /// Return the stable subject identifier.
+    #[must_use]
+    pub fn subject_id(&self) -> &str {
+        self.subject_id
+    }
+}

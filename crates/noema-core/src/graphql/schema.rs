@@ -374,6 +374,13 @@ pub struct QueryRoot;
 
 #[Object]
 impl QueryRoot {
+    #[cfg(test)]
+    async fn test_request_principal(&self, ctx: &Context<'_>) -> String {
+        ctx.data_unchecked::<super::RequestPrincipal>()
+            .subject_id()
+            .to_string()
+    }
+
     /// Return local Noema status.
     async fn local_status(&self, ctx: &Context<'_>) -> Result<GraphqlLocalStatus> {
         let state = ctx.data_unchecked::<GraphqlState>();
@@ -788,6 +795,15 @@ pub struct SubscriptionRoot;
 
 #[Subscription]
 impl SubscriptionRoot {
+    #[cfg(test)]
+    async fn test_request_principal(&self, ctx: &Context<'_>) -> impl Stream<Item = String> {
+        futures_util::stream::once(std::future::ready(
+            ctx.data_unchecked::<super::RequestPrincipal>()
+                .subject_id()
+                .to_string(),
+        ))
+    }
+
     /// Stream conversation events.
     async fn conversation_events(
         &self,

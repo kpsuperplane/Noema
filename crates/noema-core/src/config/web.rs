@@ -22,11 +22,3 @@ impl Default for WebConfig {
         }
     }
 }
-
-impl WebConfig {
-    /// Return the user-facing URL for this web UI configuration.
-    #[must_use]
-    pub fn url(&self) -> String {
-        format!("http://{}:{}", self.host, self.port)
-    }
-}
