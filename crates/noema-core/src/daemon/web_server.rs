@@ -33,23 +33,24 @@ pub async fn run_daemon_web(config: DaemonWebServerConfig) -> Result<(), DaemonE
         .map_err(|source| DaemonError::Protocol(source.to_string()))?;
     let graphql_state = crate::graphql::GraphqlState::from_runtime_host(&host);
     let web_state = WebState::new(graphql_state);
-
-    loop {
-        tokio::select! {
-            signal = tokio::signal::ctrl_c() => {
-                signal?;
-                break;
+    let shutdown_error = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let signal_error = shutdown_error.clone();
+    let server_result = axum::serve(web_listener, web::build_router(web_state))
+        .with_graceful_shutdown(async move {
+            if let Err(error) = tokio::signal::ctrl_c().await
+                && let Ok(mut shutdown_error) = signal_error.lock()
+            {
+                *shutdown_error = Some(error);
             }
-            accepted = web_listener.accept() => {
-                let (stream, _) = accepted?;
-                let web_state = web_state.clone();
-                tokio::spawn(async move {
-                    let _ = web::handle_connection(stream, web_state).await;
-                });
-            }
-        }
-    }
-
+        })
+        .await;
     host.shutdown().await;
-    Ok(())
+    let signal_result = shutdown_error
+        .lock()
+        .map_err(|_| DaemonError::Protocol("Ctrl-C error state was poisoned".to_string()))?
+        .take();
+    if let Some(error) = signal_result {
+        return Err(error.into());
+    }
+    server_result.map_err(DaemonError::from)
 }

@@ -11,7 +11,9 @@ rust-version = "1.96"
 
 [workspace.dependencies]
 async-graphql = "7"
+async-graphql-axum = "7.2.1"
 async-stream = "0.3"
+axum = "0.8.9"
 base64 = "0.22"
 bytes = "1"
 cap-std = "4.0.2"
@@ -31,6 +33,8 @@ tempfile = "3"
 thiserror = "2"
 time = { version = "0.3", features = ["formatting", "macros"] }
 tokio = { version = "1", features = ["io-std", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6.11", features = ["limit", "set-header"] }
 ts-rs = "12.0"
 url = "2.5"
 

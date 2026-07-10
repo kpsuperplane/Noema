@@ -9,7 +9,7 @@ use crate::{
     },
 };
 
-use super::{DaemonError, http::HttpRequestError};
+use super::DaemonError;
 
 const PROVIDER_AUTH_TERMINAL_PERSIST_INTERVAL: Duration = Duration::from_millis(250);
 
@@ -42,14 +42,6 @@ impl WebApiError {
     }
 }
 
-impl From<HttpRequestError> for WebApiError {
-    fn from(error: HttpRequestError) -> Self {
-        Self {
-            message: error.message().to_string(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProviderAuthStartRequest {
     pub(crate) provider_kind: String,
@@ -79,9 +71,7 @@ pub(crate) async fn start_provider_auth_attempt_view_from_parts(
         return Err(WebApiError::not_found("provider account not found"));
     };
 
-    if let Err(error) = validate_provider_auth_account(&account, &body.provider_kind, body.method) {
-        return Err(error.into());
-    }
+    validate_provider_auth_account(&account, &body.provider_kind, body.method)?;
 
     match start_codex_provider_auth_attempt(provider_auth, store, paths, &account).await {
         Ok(attempt) => {
@@ -107,15 +97,15 @@ pub(super) fn validate_provider_auth_account(
     account: &crate::ProviderAccountRecord,
     provider_kind: &str,
     method: crate::ProviderAuthMethod,
-) -> Result<(), HttpRequestError> {
+) -> Result<(), WebApiError> {
     if account.provider_kind != provider_kind {
-        return Err(HttpRequestError::bad_request("provider account mismatch"));
+        return Err(WebApiError::bad_request("provider account mismatch"));
     }
     if !account.is_active {
-        return Err(HttpRequestError::bad_request("provider account not found"));
+        return Err(WebApiError::bad_request("provider account not found"));
     }
     if account.auth_method != method {
-        return Err(HttpRequestError::bad_request(
+        return Err(WebApiError::bad_request(
             "provider account auth method mismatch",
         ));
     }
