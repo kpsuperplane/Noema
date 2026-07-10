@@ -85,9 +85,9 @@ Priority labels:
 
 - [ ] **P1** Replace the single global turn actor with supervised per-conversation workers.
 - [ ] **P1** Add first-class turn cancellation and interruption commands.
-- [ ] **P1** Track and join runtime-owned background tasks during shutdown.
+- [x] **P1** Track and join runtime-owned background tasks during shutdown.
 - [ ] **P1** Stop detaching memory ingestion, compaction, provider generation, and connection-handler tasks without ownership.
-- [ ] **P1** Shut down the runtime before terminating Mnemosyne and the memory model proxy.
+- [x] **P1** Shut down the runtime before terminating Mnemosyne and the memory model proxy.
 - [ ] **P1** Add deadlines to all provider calls, including Exa search and fetch.
 - [ ] **P1** Stream and cap Exa response bodies before JSON decoding.
 - [ ] **P1** Add a real Mnemosyne readiness probe covering database, embeddings, and model connectivity.

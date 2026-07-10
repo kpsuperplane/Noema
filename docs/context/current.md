@@ -523,8 +523,11 @@ The next storage slice should stay small and concrete:
   local web boundary; OpenAI and Codex share a Responses dialect; MCP supports
   stdio and `rmcp` Streamable HTTP only; the deprecated HTTP+SSE transport and
   unreachable OpenAI-hosted search path are gone. The full workspace gate is
-  green. Phase 3 is runtime lifecycle and persistence; do not reopen Phase 2
-  library adoption unless a proposed crate replaces more code than it adds.
+  green. Phase 3 landed owned runtime cancellation/draining and atomic durable
+  shutdown recovery at `92,387` lines, but rejected a partial `tokio-rusqlite`
+  conversion and LOC-positive atomic-writer adoption. Phase 4 is GraphQL and
+  frontend simplification; do not reopen earlier library adoption unless a
+  proposed crate replaces more code than it adds.
 
 - Decide whether richer Mnemosyne memory browsing should include entity, provenance,
   and history drill-ins.

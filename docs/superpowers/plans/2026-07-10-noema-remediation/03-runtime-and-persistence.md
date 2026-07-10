@@ -41,13 +41,13 @@ Persistence:
 
 ### Checkpoint 3A — Owned tasks and cancellation (60 minutes)
 
-- [ ] Add direct `tokio-util` `CancellationToken` and `TaskTracker` dependencies
+- [x] Add direct `tokio-util` `CancellationToken` and `TaskTracker` dependencies
   with the minimum feature set.
 - [ ] Give the runtime host one root cancellation token and task tracker.
 - [ ] Replace detached memory ingestion, compaction, provider generation,
   connection, and subscription relays with tracked tasks or explicitly
   documented short-lived request tasks.
-- [ ] Implement dependency-ordered shutdown: stop accepting work, cancel turns,
+- [x] Implement dependency-ordered shutdown: stop accepting work, cancel turns,
   close queues, wait for tracked tasks, then stop Mnemosyne/model proxy/bridges.
 - [ ] Replace the single global turn actor with a small conversation-worker
   registry only if the existing actor can be removed in this checkpoint.
@@ -59,7 +59,7 @@ Persistence:
   one scoped finalizer and delete repeated cleanup branches.
 - [ ] Add focused unit coverage for two concurrent conversations, duplicate
   same-conversation submission, cancellation, interruption, and clean shutdown.
-- [ ] Commit the runtime checkpoint before altering SQLite plumbing.
+- [x] Commit the runtime checkpoint before altering SQLite plumbing.
 
 Checkpoint target: at least 500 net lines deleted.
 
@@ -90,7 +90,7 @@ worker without an explicit facade.
 
 ### Checkpoint 3C — Atomic private state (35 minutes)
 
-- [ ] Evaluate `atomic-write-file` against current macOS/Linux permission,
+- [x] Evaluate `atomic-write-file` against current macOS/Linux permission,
   same-directory rename, sync, and replacement requirements.
 - [ ] Adopt one private atomic writer only if it replaces provider, MCP,
   configuration, and artifact temp-write helpers in this checkpoint.
@@ -137,11 +137,36 @@ workspace suite to the phase gate or Phase 6.
 
 - [ ] At least 800 net source lines deleted.
 - [ ] No runtime-owned detached task remains without a documented owner.
-- [ ] Cancellation and shutdown tests pass without fixed sleeps.
+- [x] Cancellation and shutdown tests pass without fixed sleeps.
 - [ ] Runtime SQLite operations do not block Tokio worker threads.
 - [ ] Critical multi-step store operations are transactional.
 - [ ] Atomic private writes use one implementation.
-- [ ] Correctness review has no unresolved Critical finding.
+- [x] Correctness review has no unresolved Critical finding.
+
+## Completion Record
+
+Phase 3 stopped at its timebox after commit `03543b22`. Maintained source is
+`92,387` lines: `+230` in this phase and `-1,537` from the program baseline.
+The phase intentionally missed its deletion target rather than forcing an
+incomplete persistence conversion.
+
+The landed unit uses `tokio-util`'s `CancellationToken` and `TaskTracker` to own
+provider one-shots, memory ingestion, and background compaction. Explicit and
+last-handle shutdown cancel those jobs, interrupt blocked inline turns, atomically
+recover nonterminal items/turns to cancelled with the conversation idle, drain
+tracked work, and only then stop Mnemosyne. Independent Luna-max final review
+found no Critical or Important issue. The full workspace gate passed with 669
+core library, 10 development-binary, and 7 desktop tests.
+
+`tokio-rusqlite` 0.7 is dependency-compatible with the workspace's `rusqlite`
+0.37, but conversion requires 75 production closures across 14 modules and was
+estimated at 90–150 minutes plus 100–250 added lines because `call` requires
+owned `Send + 'static` closures and new error adaptation. Partial conversion was
+rejected. `atomic-write-file` 0.3 was also rejected here: only four mutable file
+writes qualify, while its mode/durability glue and new `rand`/`nix` versions
+would be LOC-positive. Dedicated SQLite execution, remaining proxy/GraphQL task
+ownership, public turn cancellation/interruption, and private-file permission
+repair remain deferred rather than hidden behind partial abstractions.
 
 ## Stop Conditions
 
