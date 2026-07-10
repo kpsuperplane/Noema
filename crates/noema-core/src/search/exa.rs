@@ -116,9 +116,8 @@ fn map_reqwest_error(error: reqwest::Error) -> SearchError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::search::types::SearchRequest;
+    use crate::{provider::adapters::test_support::spawn_server, search::types::SearchRequest};
     use serde_json::json;
-    use tokio::sync::mpsc;
 
     #[test]
     fn normalizes_exa_search_results() {
@@ -154,7 +153,7 @@ mod tests {
 
     #[tokio::test]
     async fn sends_search_request_with_api_key() {
-        let (base_url, mut request_rx) = spawn_server(200, r#"{"results":[]}"#).await;
+        let (base_url, request_rx) = spawn_server(200, r#"{"results":[]}"#).await;
         let client = ExaSearchClient {
             base_url,
             api_key: "secret".to_string(),
@@ -172,74 +171,15 @@ mod tests {
         .await
         .expect("search");
 
-        let request = request_rx.recv().await.expect("request");
+        let request = request_rx.await.expect("request");
         assert_eq!(request.method, "POST");
         assert_eq!(request.path, "/search");
-        assert_eq!(request.x_api_key.as_deref(), Some("secret"));
+        assert_eq!(
+            request.headers.get("x-api-key").map(String::as_str),
+            Some("secret")
+        );
         assert!(request.body.contains("\"query\":\"rust\""));
         assert!(request.body.contains("\"numResults\":3"));
         assert!(response.results.is_empty());
-    }
-
-    #[derive(Debug)]
-    struct CapturedRequest {
-        method: String,
-        path: String,
-        x_api_key: Option<String>,
-        body: String,
-    }
-
-    async fn spawn_server(
-        status: u16,
-        body: &'static str,
-    ) -> (String, mpsc::Receiver<CapturedRequest>) {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("bind");
-        let address = listener.local_addr().expect("local addr");
-        let (request_tx, request_rx) = mpsc::channel(1);
-
-        tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.expect("accept");
-            let mut buffer = vec![0_u8; 8192];
-            let read = tokio::io::AsyncReadExt::read(&mut stream, &mut buffer)
-                .await
-                .expect("read request");
-            let request_text = String::from_utf8(buffer[..read].to_vec()).expect("utf8 request");
-            let (head, body_text) = request_text
-                .split_once("\r\n\r\n")
-                .expect("request separator");
-            let mut lines = head.lines();
-            let request_line = lines.next().expect("request line");
-            let mut request_parts = request_line.split_whitespace();
-            let method = request_parts.next().unwrap_or_default().to_string();
-            let path = request_parts.next().unwrap_or_default().to_string();
-            let x_api_key = lines.find_map(|line| {
-                line.split_once(':').and_then(|(name, value)| {
-                    name.eq_ignore_ascii_case("x-api-key")
-                        .then(|| value.trim().to_string())
-                })
-            });
-            request_tx
-                .send(CapturedRequest {
-                    method,
-                    path,
-                    x_api_key,
-                    body: body_text.to_string(),
-                })
-                .await
-                .expect("send request");
-
-            let response = format!(
-                "HTTP/1.1 {status} OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
-                body.len(),
-                body
-            );
-            tokio::io::AsyncWriteExt::write_all(&mut stream, response.as_bytes())
-                .await
-                .expect("write response");
-        });
-
-        (format!("http://{}", address), request_rx)
     }
 }

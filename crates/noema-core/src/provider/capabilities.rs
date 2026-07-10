@@ -189,21 +189,6 @@ pub fn capabilities_for_provider_account(
                 CapabilityId::ModelClassify,
                 status,
             ),
-            ProviderCapability {
-                provider_kind: provider_kind.to_string(),
-                account_key: account_key.to_string(),
-                capability_id: CapabilityId::WebSearch,
-                status,
-                reliability_contract: ReliabilityContract::HostedProvider,
-                data_flow_class: DataFlowClass::TrustedExternalSearchQuery,
-                features: CapabilityFeatures {
-                    citations: true,
-                    direct_url_fetch: false,
-                    js_rendering: false,
-                    authenticated_context: false,
-                    result_persistence: ResultPersistencePolicy::CompactMetadata,
-                },
-            },
         ],
         "codex" | "foundation_local" => vec![
             model_capability(
@@ -328,7 +313,7 @@ mod tests {
     use crate::ProviderAccountStatus;
 
     #[test]
-    fn openai_account_declares_models_and_hosted_search() {
+    fn openai_account_declares_model_capabilities_only() {
         let capabilities = capabilities_for_provider_account(
             "openai",
             "default",
@@ -339,14 +324,7 @@ mod tests {
             .map(|capability| capability.capability_id.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(ids, vec!["model.generate", "model.classify", "web.search"]);
-        assert!(capabilities.iter().any(|capability| {
-            capability.provider_kind == "openai"
-                && capability.account_key == "default"
-                && capability.capability_id == CapabilityId::WebSearch
-                && capability.features.citations
-                && !capability.features.direct_url_fetch
-        }));
+        assert_eq!(ids, vec!["model.generate", "model.classify"]);
     }
 
     #[test]

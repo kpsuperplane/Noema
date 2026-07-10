@@ -312,9 +312,6 @@ impl CodexRuntimeActor {
                 resolved.fallback_reason,
                 None,
             )),
-            crate::search::openai_hosted::OPENAI_HOSTED_SEARCH_PROVIDER_ID => {
-                Err("OpenAI hosted web search provider is not available in this daemon".to_string())
-            }
             crate::search::exa::EXA_SEARCH_PROVIDER_ID => {
                 let provider_account_id = resolved.provider_account_id.clone();
                 let api_key = match self
@@ -1142,53 +1139,6 @@ mod tests {
         );
         assert!(auth_failure_account_id.is_none());
         assert_eq!(context.summarizer_model, DEFAULT_TOOL_CLASSIFICATION_MODEL);
-    }
-
-    #[tokio::test]
-    async fn bound_openai_web_search_runtime_provider_reports_unavailable_without_credentials() {
-        let store = crate::store::tests::test_store().await;
-        crate::store::tests::insert_provider_account_for_tests(
-            &store,
-            "provider_account:openai:test",
-            "openai",
-            "test",
-            "openai test",
-            crate::ProviderAuthMethod::SecretInput,
-            false,
-            crate::ProviderAccountStatus::Authenticated,
-            json!({}),
-        )
-        .await;
-        crate::store::tests::insert_provider_capability_binding_for_tests(
-            &store,
-            "web.search",
-            "web.search",
-            "provider_account:openai:test",
-        )
-        .await;
-
-        let actor = CodexRuntimeActor::new(
-            "codex".to_string(),
-            HashMap::from([(
-                "codex".to_string(),
-                Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
-                    as Arc<dyn RuntimeModelProvider>,
-            )]),
-            store.clone(),
-            store.system_error_logger(),
-        )
-        .await
-        .expect("actor");
-
-        let result = actor
-            .web_search_runtime_provider_resolution()
-            .await
-            .expect_err("openai runtime search provider should be unavailable");
-
-        assert_eq!(
-            result,
-            "OpenAI hosted web search provider is not available in this daemon"
-        );
     }
 
     #[tokio::test]

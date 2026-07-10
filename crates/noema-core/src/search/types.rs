@@ -58,10 +58,6 @@ pub(crate) enum SearchRuntimeProvider {
     DuckDuckGoPublic {
         client: Client,
     },
-    #[allow(dead_code)]
-    OpenAiHosted {
-        client: crate::search::openai_hosted::OpenAiHostedSearchClient,
-    },
     Exa {
         client: crate::search::exa::ExaSearchClient,
     },
@@ -87,9 +83,6 @@ impl SearchRuntimeProvider {
         match self {
             Self::DuckDuckGoPublic { client } => {
                 crate::search::duckduckgo::search_duckduckgo_public(client, request).await
-            }
-            Self::OpenAiHosted { client } => {
-                crate::search::openai_hosted::search_openai_hosted(client, request).await
             }
             Self::Exa { client } => crate::search::exa::search_exa(client, request).await,
             #[cfg(test)]

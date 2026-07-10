@@ -231,35 +231,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn resolves_bound_openai_web_search_provider_when_available() {
-        let store = test_store().await;
-        insert_provider_account(
-            &store,
-            "provider_account:openai:test",
-            "openai",
-            "test",
-            ProviderAccountStatus::Authenticated,
-        )
-        .await;
-        store
-            .upsert_provider_capability_binding(
-                WEB_SEARCH_TOOL,
-                WEB_SEARCH_TOOL,
-                "provider_account:openai:test",
-            )
-            .await
-            .expect("save binding");
-
-        let resolved = resolve_web_search_provider(&store).await.expect("resolve");
-
-        assert_eq!(resolved.provider_account_id, "provider_account:openai:test");
-        assert_eq!(resolved.provider_kind, "openai");
-        assert_eq!(resolved.account_key, "test");
-        assert!(resolved.fallback_from.is_none());
-        assert!(resolved.fallback_reason.is_none());
-    }
-
-    #[tokio::test]
     async fn falls_back_when_bound_provider_account_is_missing() {
         let store = test_store().await;
         insert_binding_row(
@@ -322,8 +293,8 @@ mod tests {
         let store = test_store().await;
         insert_provider_account(
             &store,
-            "provider_account:openai:test",
-            "openai",
+            "provider_account:exa:test",
+            "exa",
             "test",
             ProviderAccountStatus::Unknown,
         )
@@ -332,7 +303,7 @@ mod tests {
             .upsert_provider_capability_binding(
                 WEB_SEARCH_TOOL,
                 WEB_SEARCH_TOOL,
-                "provider_account:openai:test",
+                "provider_account:exa:test",
             )
             .await
             .expect("save binding");
@@ -345,7 +316,7 @@ mod tests {
         );
         assert_eq!(
             resolved.fallback_from.as_deref(),
-            Some("provider_account:openai:test")
+            Some("provider_account:exa:test")
         );
         assert_eq!(
             resolved.fallback_reason.as_deref(),
@@ -393,8 +364,8 @@ mod tests {
         let store = test_store().await;
         insert_provider_account(
             &store,
-            "provider_account:openai:test",
-            "openai",
+            "provider_account:exa:test",
+            "exa",
             "test",
             ProviderAccountStatus::Authenticated,
         )
@@ -403,7 +374,7 @@ mod tests {
             .upsert_provider_capability_binding(
                 WEB_SEARCH_TOOL,
                 WEB_SEARCH_TOOL,
-                "provider_account:openai:test",
+                "provider_account:exa:test",
             )
             .await
             .expect("save binding");
@@ -418,8 +389,8 @@ mod tests {
 
         let resolved = actor.resolved_web_search_provider().await.expect("resolve");
 
-        assert_eq!(resolved.provider_account_id, "provider_account:openai:test");
-        assert_eq!(resolved.provider_kind, "openai");
+        assert_eq!(resolved.provider_account_id, "provider_account:exa:test");
+        assert_eq!(resolved.provider_kind, "exa");
     }
 
     #[tokio::test]

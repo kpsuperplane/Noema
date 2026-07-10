@@ -1,7 +1,7 @@
-//! Shared test helpers for Responses API adapter tests.
+//! Shared test helpers for provider HTTP integration tests.
 //!
 //! Provides a minimal one-shot HTTP server that captures a single request and
-//! replies with a canned response, used by the OpenAI and Codex adapter tests.
+//! replies with a canned response.
 
 use std::collections::HashMap;
 
