@@ -11,6 +11,7 @@ use crate::{
     },
 };
 use tokio::sync::{mpsc, oneshot};
+use tokio_util::sync::CancellationToken;
 
 use super::actor::CodexRuntimeActor;
 use crate::daemon::protocol::{DaemonError, StartedConversation, TurnStreamEvent};
@@ -90,8 +91,18 @@ where
 #[derive(Debug, Clone)]
 pub(crate) struct CodexRuntimeHandle {
     sender: mpsc::Sender<CodexRuntimeCommand>,
+    cancellation: Arc<RuntimeCancellation>,
     default_provider_kind: String,
     tool_classification_model: Option<String>,
+}
+
+#[derive(Debug)]
+struct RuntimeCancellation(CancellationToken);
+
+impl Drop for RuntimeCancellation {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
 }
 
 impl CodexRuntimeHandle {
@@ -209,9 +220,11 @@ impl CodexRuntimeHandle {
             search_provider,
         )
         .await?;
+        let cancellation = Arc::new(RuntimeCancellation(actor.tasks.cancellation_token()));
         tokio::spawn(actor.run(receiver));
         Ok(Self {
             sender,
+            cancellation,
             default_provider_kind: provider_kind,
             tool_classification_model,
         })
@@ -244,9 +257,11 @@ impl CodexRuntimeHandle {
             web_fetch_provider,
         )
         .await?;
+        let cancellation = Arc::new(RuntimeCancellation(actor.tasks.cancellation_token()));
         tokio::spawn(actor.run(receiver));
         Ok(Self {
             sender,
+            cancellation,
             default_provider_kind: provider_kind,
             tool_classification_model,
         })
@@ -295,9 +310,11 @@ impl CodexRuntimeHandle {
             memory_connection,
         )
         .await?;
+        let cancellation = Arc::new(RuntimeCancellation(actor.tasks.cancellation_token()));
         tokio::spawn(actor.run(receiver));
         Ok(Self {
             sender,
+            cancellation,
             default_provider_kind,
             tool_classification_model,
         })
@@ -422,6 +439,7 @@ impl CodexRuntimeHandle {
     }
 
     pub(crate) async fn shutdown(&self) {
+        self.cancellation.0.cancel();
         let (reply, reply_rx) = oneshot::channel();
         let _ = self
             .sender

@@ -8,6 +8,7 @@ mod model_tools;
 mod progress;
 mod progress_audit;
 mod prompt_context;
+mod tasks;
 mod tool_lifecycle;
 pub(in crate::daemon) mod transcript_persistence;
 pub(in crate::daemon) mod turn;

@@ -1,4 +1,4 @@
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use serde_json::Value;
 
 use crate::{
@@ -538,6 +538,59 @@ impl NoemaStore {
                 "#,
                 params![conversation_id, status.as_str()],
             )?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Recover in-flight conversation state after process shutdown cancels runtime work.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the transactional recovery write fails.
+    pub(crate) async fn recover_shutdown_cancelled_work(
+        &self,
+        conversation_id: &str,
+    ) -> Result<(), StoreError> {
+        self.with_connection(|conn| {
+            let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            transaction.execute(
+                r#"
+                UPDATE conversation_items
+                SET status = 'cancelled',
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE conversation_id = ?1
+                  AND status IN ('pending', 'running')
+                  AND turn_id IN (
+                    SELECT turn_id
+                    FROM conversation_turns
+                    WHERE conversation_id = ?1
+                      AND status IN ('input_received', 'running', 'waiting_for_tool')
+                  )
+                "#,
+                [conversation_id],
+            )?;
+            transaction.execute(
+                r#"
+                UPDATE conversation_turns
+                SET status = 'cancelled',
+                    completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE conversation_id = ?1
+                  AND status IN ('input_received', 'running', 'waiting_for_tool')
+                "#,
+                [conversation_id],
+            )?;
+            transaction.execute(
+                r#"
+                UPDATE conversations
+                SET agent_status = 'idle',
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE conversation_id = ?1
+                "#,
+                [conversation_id],
+            )?;
+            transaction.commit()?;
             Ok(())
         })
         .await

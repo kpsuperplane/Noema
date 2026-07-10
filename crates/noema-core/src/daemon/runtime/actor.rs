@@ -4,6 +4,7 @@ use crate::{NoemaStore, SystemErrorLogger};
 use tokio::sync::mpsc;
 
 use super::handle::{CodexRuntimeCommand, RuntimeModelProvider};
+use super::tasks::RuntimeTaskGroup;
 use crate::daemon::protocol::DaemonError;
 
 #[derive(Debug)]
@@ -16,6 +17,7 @@ pub(in crate::daemon) struct CodexRuntimeActor {
     pub(in crate::daemon) search_provider: crate::search::types::SearchRuntimeProvider,
     pub(in crate::daemon) web_fetch_provider: crate::web_fetch::types::WebFetchRuntimeProvider,
     pub(in crate::daemon) conversations: HashMap<String, ActiveConversation>,
+    pub(super) tasks: RuntimeTaskGroup,
 }
 
 impl CodexRuntimeActor {
@@ -45,6 +47,7 @@ impl CodexRuntimeActor {
             search_provider: crate::search::types::SearchRuntimeProvider::default(),
             web_fetch_provider: crate::web_fetch::types::WebFetchRuntimeProvider::default(),
             conversations: HashMap::new(),
+            tasks: RuntimeTaskGroup::default(),
         })
     }
 
@@ -121,6 +124,7 @@ impl CodexRuntimeActor {
     }
 
     pub(super) async fn run(mut self, mut receiver: mpsc::Receiver<CodexRuntimeCommand>) {
+        let mut shutdown_reply = None;
         while let Some(command) = receiver.recv().await {
             match command {
                 #[cfg(test)]
@@ -137,10 +141,20 @@ impl CodexRuntimeActor {
                     client_message_id,
                     reply,
                 } => {
-                    let _ = reply.send(
-                        self.turn(conversation_id, input, item_tx, client_message_id)
-                            .await,
-                    );
+                    let cancellation = self.tasks.cancellation_token();
+                    let result = tokio::select! {
+                        biased;
+                        () = cancellation.cancelled() => match self
+                            .store
+                            .recover_shutdown_cancelled_work(&conversation_id)
+                            .await
+                        {
+                            Ok(()) => Err(runtime_stopped()),
+                            Err(error) => Err(error.into()),
+                        },
+                        result = self.turn(conversation_id.clone(), input, item_tx, client_message_id) => result,
+                    };
+                    let _ = reply.send(result);
                 }
                 CodexRuntimeCommand::SelectMultipleChoice {
                     conversation_id,
@@ -150,16 +164,26 @@ impl CodexRuntimeActor {
                     client_message_id,
                     reply,
                 } => {
-                    let _ = reply.send(
-                        self.select_multiple_choice(
-                            conversation_id,
+                    let cancellation = self.tasks.cancellation_token();
+                    let result = tokio::select! {
+                        biased;
+                        () = cancellation.cancelled() => match self
+                            .store
+                            .recover_shutdown_cancelled_work(&conversation_id)
+                            .await
+                        {
+                            Ok(()) => Err(runtime_stopped()),
+                            Err(error) => Err(error.into()),
+                        },
+                        result = self.select_multiple_choice(
+                            conversation_id.clone(),
                             prompt_item_id,
                             selected_option_ids,
                             item_tx,
                             client_message_id,
-                        )
-                        .await,
-                    );
+                        ) => result,
+                    };
+                    let _ = reply.send(result);
                 }
                 CodexRuntimeCommand::GenerateOnce {
                     provider_kind,
@@ -177,7 +201,7 @@ impl CodexRuntimeActor {
                             continue;
                         }
                     };
-                    tokio::spawn(async move {
+                    self.tasks.spawn(async move {
                         let mut ignore_event = |_| {};
                         let result = provider
                             .generate_streaming(request, &mut ignore_event)
@@ -187,12 +211,20 @@ impl CodexRuntimeActor {
                     });
                 }
                 CodexRuntimeCommand::Shutdown { reply } => {
-                    let _ = reply.send(());
+                    shutdown_reply = Some(reply);
                     break;
                 }
             }
         }
+        self.tasks.shutdown().await;
+        if let Some(reply) = shutdown_reply {
+            let _ = reply.send(());
+        }
     }
+}
+
+fn runtime_stopped() -> DaemonError {
+    DaemonError::Protocol("daemon runtime stopped".to_string())
 }
 
 #[derive(Debug, Clone)]

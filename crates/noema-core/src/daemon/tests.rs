@@ -125,6 +125,100 @@ async fn runtime_handle_generate_once_does_not_block_subsequent_commands() {
 }
 
 #[tokio::test]
+async fn runtime_shutdown_cancels_and_drains_generate_once() {
+    assert_shutdown_cancels_blocked_operation(false).await;
+}
+
+#[tokio::test]
+async fn runtime_shutdown_interrupts_inline_turn() {
+    assert_shutdown_cancels_blocked_operation(true).await;
+}
+
+async fn assert_shutdown_cancels_blocked_operation(inline_turn: bool) {
+    let (started_tx, started_rx) = oneshot::channel();
+    let (release_tx, release_rx) = oneshot::channel();
+    let provider = BlockingOnceProvider {
+        started: Mutex::new(Some(started_tx)),
+        release: Mutex::new(Some(release_rx)),
+    };
+    let store = crate::store::tests::test_store().await;
+    let handle = CodexRuntimeHandle::spawn_with_provider(Arc::new(provider), store.clone())
+        .await
+        .expect("runtime");
+    let conversation_id = if inline_turn {
+        Some(
+            handle
+                .start_conversation(None)
+                .await
+                .expect("conversation")
+                .conversation_id,
+        )
+    } else {
+        None
+    };
+    let durable_conversation_id = conversation_id.clone();
+    let operation_handle = handle.clone();
+    let pending_operation = tokio::spawn(async move {
+        if let Some(conversation_id) = conversation_id {
+            let (item_tx, _item_rx) = mpsc::unbounded_channel();
+            operation_handle
+                .turn(conversation_id, "slow".to_string(), item_tx)
+                .await
+        } else {
+            operation_handle
+                .generate_once(GenerateRequest::text("slow"))
+                .await
+                .map(|_| ())
+        }
+    });
+
+    started_rx.await.expect("provider started");
+    tokio::time::timeout(Duration::from_secs(1), handle.shutdown())
+        .await
+        .expect("shutdown should interrupt the inline turn");
+
+    assert!(
+        release_tx.send(()).is_err(),
+        "provider future was not dropped"
+    );
+    assert!(
+        pending_operation
+            .await
+            .expect("operation task")
+            .expect_err("cancelled operation should fail")
+            .to_string()
+            .contains("daemon runtime stopped")
+    );
+
+    if let Some(conversation_id) = durable_conversation_id {
+        let (turn_status, agent_status) = store
+            .with_connection(|conn| {
+                let turn_status = conn.query_row(
+                    r#"
+                    SELECT status
+                    FROM conversation_turns
+                    WHERE conversation_id = ?1
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    "#,
+                    [&conversation_id],
+                    |row| row.get::<_, String>(0),
+                )?;
+                let agent_status = conn.query_row(
+                    "SELECT agent_status FROM conversations WHERE conversation_id = ?1",
+                    [&conversation_id],
+                    |row| row.get::<_, String>(0),
+                )?;
+                Ok((turn_status, agent_status))
+            })
+            .await
+            .expect("durable shutdown recovery state");
+        assert_eq!(turn_status, "cancelled");
+        assert_eq!(agent_status, "idle");
+    }
+}
+
+#[tokio::test]
 async fn runtime_turn_streams_durable_assistant_item_and_idle_status() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_provider(FakeCodexScenario::Simple)).await;

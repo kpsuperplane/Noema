@@ -226,10 +226,10 @@ impl NoemaRuntimeHost {
 
     /// Shut down runtime-owned work.
     pub async fn shutdown(self) {
+        self.runtime.shutdown().await;
         if let Some(mnemosyne) = self.mnemosyne {
             mnemosyne.shutdown().await;
         }
-        self.runtime.shutdown().await;
     }
 }
 

@@ -1694,7 +1694,7 @@ impl CodexRuntimeActor {
             "turn_id": turn_id,
             "source_item_id": user_item_id,
         });
-        tokio::spawn(async move {
+        self.tasks.spawn(async move {
             if let Err(error) = client.add_memory(request).await {
                 let message = "memory observation submit failed".to_string();
                 system_errors.try_append(
@@ -1917,7 +1917,7 @@ impl CodexRuntimeActor {
         let Ok(provider) = self.provider_for_kind(&schedule.provider_kind) else {
             return;
         };
-        tokio::spawn(async move {
+        self.tasks.spawn(async move {
             let BackgroundContextCompactionSchedule {
                 conversation_id,
                 provider_kind,
