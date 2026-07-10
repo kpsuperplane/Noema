@@ -208,8 +208,8 @@ Proposed responsibilities:
 
 Staged extraction:
 
-- [ ] `ARCH-017` **P2** Capture baseline `cargo build --timings` results before changing crate boundaries.
-- [ ] `ARCH-018` **P2** Measure incremental checks after representative GraphQL, store, provider, and frontend-asset edits.
+- [x] `ARCH-017` **P2** Capture baseline `cargo build --timings` results before changing crate boundaries.
+- [x] `ARCH-018` **P2** Measure incremental checks after representative GraphQL, store, provider, and frontend-asset edits.
 - [ ] `ARCH-019` **P1** Extract `noema-server` so frontend assets and sidecar source changes no longer invalidate the entire core crate.
 - [ ] `ARCH-020` **P1** Move `daemon/web/**`, `graphql/**`, `noema_web`, `noema_dev`, and web asset embedding into the server/API boundary.
 - [ ] `ARCH-021` **P1** Make release asset generation fail when required entry assets are absent.
@@ -234,9 +234,9 @@ Boundary guardrails:
 ## Testing And CI
 
 - [ ] `TEST-001` **P1** Add a CI workflow covering Rust, frontend, Python, generated artifacts, and release packaging.
-- [ ] `TEST-002` **P1** Add a frontend `test` script and include it in normal validation.
-- [ ] `TEST-003` **P1** Fix the stale shell-navigation tests for Memory and Usage settings.
-- [ ] `TEST-004` **P1** Stabilize Foundation subprocess tests under the default parallel Rust test command.
+- [x] `TEST-002` **P1** Add a frontend `test` script and include it in normal validation.
+- [x] `TEST-003` **P1** Fix the stale shell-navigation tests for Memory and Usage settings.
+- [x] `TEST-004` **P1** Stabilize Foundation subprocess tests under the default parallel Rust test command.
 - [ ] `TEST-005` **P1** Add multi-conversation concurrency and hung-turn shutdown tests.
 - [ ] `TEST-006` **P1** Add two-user memory isolation tests against the real Mnemosyne adapter.
 - [ ] `TEST-007` **P1** Add Unix permission tests for the Noema root, SQLite/WAL/SHM, artifacts, and logs.
@@ -245,7 +245,7 @@ Boundary guardrails:
 - [ ] `TEST-010` **P1** Add MCP policy matrices covering ownership, scopes, approval, revocation, and execution-time revalidation.
 - [ ] `TEST-011` **P2** Add stale-tool reconciliation, tool-ID collision, schema violation, and cursor-cycle tests.
 - [ ] `TEST-012` **P2** Add concurrent primary-conversation and active-summary creation tests.
-- [ ] `TEST-013` **P2** Regenerate GraphQL schema, operation types, and route trees in CI and require a clean diff.
+- [x] `TEST-013` **P2** Regenerate GraphQL schema, operation types, and route trees in CI and require a clean diff.
 - [ ] `TEST-014` **P2** Add clean-release and installed-application tests.
 
 ## Documentation And Repository Hygiene
@@ -260,7 +260,7 @@ Boundary guardrails:
 - [ ] `DOC-008` **P3** Untrack ignored `.superpowers` task reports.
 - [ ] `DOC-009` **P3** Add Python cache and packaging outputs to `.gitignore`.
 - [ ] `DOC-010` **P3** Remove unused `@xyflow/react`, `d3-force`, and `@types/d3-force` dependencies.
-- [ ] `DOC-011` **P2** Add the missing root MIT `LICENSE` file.
+- [x] `DOC-011` **P2** Add the missing root MIT `LICENSE` file.
 - [ ] `DOC-012` **P2** Document the actual release build and packaging contract.
 
 ## Recommended Milestones

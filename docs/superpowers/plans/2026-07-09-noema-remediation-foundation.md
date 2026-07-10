@@ -59,13 +59,16 @@ schema implementation begins.
 
 ### F5b — Provisional redistribution inventory
 
-- Inventory locked transitive Rust, Bun, current Python, Swift/Foundation,
-  Tauri, asset, font, icon, installer, and updater inputs by shipped artifact.
-- Record package, version, license expression, source, bundled status, and
-  notice/source obligations; generate `THIRD_PARTY_NOTICES.md` where required.
-- Fail the release gate for unknown, incompatible, or restricted licenses. Mark
-  the inventory provisional until Milestone 5 freezes Python/model/package
-  contents.
+- Record locked ecosystem counts and distribution classes plus direct runtime
+  inputs for Rust/Tauri, bundled frontend assets, the current Python sidecar,
+  Swift/Foundation, and repository-owned assets.
+- Identify unknown, restricted, incompatible, and review-required transitive
+  classes explicitly; every unresolved item remains a release blocker.
+- Record the provisional notice/source obligations and root
+  `THIRD_PARTY_NOTICES.md` boundary without hand-transcribing the full lockfiles.
+- Defer exhaustive target-specific per-package and per-artifact notices to
+  Milestone 5, when the actual Python/model/package, installer, updater,
+  signing, and release bundles are frozen.
 
 ## Foundation Exit Gate
 

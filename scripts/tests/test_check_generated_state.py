@@ -201,6 +201,121 @@ class GeneratedStateCheckerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("built asset check passed", result.stdout)
 
+    def test_accepts_current_vite_javascript_reference_shapes(self) -> None:
+        self.write_valid_assets()
+        self.write_file(
+            ASSET_ROOT / "app.js",
+            """const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["event.js","route.css"])))=>i.map(i=>d[i]);
+const route=()=>import("./route.js");
+""",
+        )
+        self.write_file(
+            ASSET_ROOT / "route.js",
+            'import{value as shared}from"./shared.js"; export{shared};\n',
+        )
+        self.write_file(ASSET_ROOT / "shared.js", "export const value = 1;\n")
+        self.write_file(
+            ASSET_ROOT / "event.js",
+            'import{invoke}from"./shared.js"; export{invoke};\n',
+        )
+        self.write_file(ASSET_ROOT / "route.css", ".route { display: block; }\n")
+
+        result = self.run_checker("--assets")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("built asset check passed", result.stdout)
+
+    def test_rejects_missing_lazy_javascript_chunk(self) -> None:
+        self.write_valid_assets()
+        self.write_file(ASSET_ROOT / "app.js", 'import("./missing-lazy.js");\n')
+
+        result = self.run_checker("--assets")
+
+        missing_path = ASSET_ROOT / "missing-lazy.js"
+        self.assert_error(result, f"built asset error: {missing_path}: missing")
+
+    def test_rejects_empty_lazy_javascript_chunk(self) -> None:
+        self.write_valid_assets()
+        self.write_file(ASSET_ROOT / "app.js", 'import("./empty-lazy.js");\n')
+        self.write_file(ASSET_ROOT / "empty-lazy.js", "")
+
+        result = self.run_checker("--assets")
+
+        empty_path = ASSET_ROOT / "empty-lazy.js"
+        self.assert_error(result, f"built asset error: {empty_path}: empty")
+
+    def test_rejects_missing_transitive_javascript_chunk(self) -> None:
+        self.write_valid_assets()
+        self.write_file(ASSET_ROOT / "app.js", 'import("./route.js");\n')
+        self.write_file(
+            ASSET_ROOT / "route.js",
+            'import{value}from"./missing-shared.js"; export{value};\n',
+        )
+
+        result = self.run_checker("--assets")
+
+        missing_path = ASSET_ROOT / "missing-shared.js"
+        self.assert_error(result, f"built asset error: {missing_path}: missing")
+
+    def test_traverses_recursive_javascript_chunks(self) -> None:
+        self.write_valid_assets()
+        self.write_file(ASSET_ROOT / "app.js", 'import("./route.js");\n')
+        self.write_file(ASSET_ROOT / "route.js", 'import "./shared.js";\n')
+        self.write_file(ASSET_ROOT / "shared.js", "export const value = 1;\n")
+
+        result = self.run_checker("--assets")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_cycle_protects_javascript_traversal(self) -> None:
+        self.write_valid_assets()
+        self.write_file(ASSET_ROOT / "app.js", 'import("./route.js");\n')
+        self.write_file(ASSET_ROOT / "route.js", 'import "./shared.js";\n')
+        self.write_file(ASSET_ROOT / "shared.js", 'import "./route.js";\n')
+
+        result = self.run_checker("--assets")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_rejects_missing_vite_dependency_table_asset(self) -> None:
+        self.write_valid_assets()
+        self.write_file(
+            ASSET_ROOT / "app.js",
+            'const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["missing-preload.js"])))=>i.map(i=>d[i]);\n',
+        )
+
+        result = self.run_checker("--assets")
+
+        missing_path = ASSET_ROOT / "missing-preload.js"
+        self.assert_error(result, f"built asset error: {missing_path}: missing")
+
+    def test_rejects_unsafe_javascript_references_without_echoing_them(self) -> None:
+        unsafe_references = (
+            ('import("../private/secret.js")', "traversal reference", "private"),
+            (
+                'import("/absolute/secret.js")',
+                "unsupported absolute reference",
+                "secret.js",
+            ),
+            (
+                'import("https://cdn.example.invalid/secret.js")',
+                "external reference",
+                "cdn.example.invalid",
+            ),
+            ('import("./nested/secret.js")', "invalid reference", "nested"),
+            ("import(routeName)", "malformed JavaScript reference", "routeName"),
+        )
+        app_path = ASSET_ROOT / "app.js"
+        for source, reason, attacker_value in unsafe_references:
+            with self.subTest(reason=reason):
+                self.write_valid_assets()
+                self.write_file(app_path, source + ";\n")
+
+                result = self.run_checker("--assets")
+
+                self.assert_error(result, f"built asset error: {app_path}: {reason}")
+                self.assertNotIn(attacker_value, result.stderr)
+
     def test_all_checks_generated_state_and_built_assets(self) -> None:
         self.initialize_clean_generated_repository()
         self.write_valid_assets()

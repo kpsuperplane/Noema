@@ -4,6 +4,7 @@
 from argparse import ArgumentParser, Namespace
 from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
+import re
 import subprocess
 import sys
 from typing import List, Optional, Sequence, Tuple
@@ -19,6 +20,22 @@ GENERATED_PATHS = (
 ASSET_ROOT = Path("crates/noema-core/target/web-assets")
 REQUIRED_ASSETS = ("index.html", "app.js", "styles.css")
 ASSET_URL_PREFIX = "/assets/"
+MAX_JAVASCRIPT_FILES = 512
+MAX_JAVASCRIPT_FILE_BYTES = 4 * 1024 * 1024
+MAX_JAVASCRIPT_TOTAL_BYTES = 32 * 1024 * 1024
+MAX_JAVASCRIPT_REFERENCES = 4096
+MAX_VITE_TABLE_SCAN_BYTES = 64 * 1024
+
+_DYNAMIC_IMPORT = re.compile(
+    r"\bimport\s*\(\s*(?P<quote>['\"])(?P<reference>[^'\"\\\r\n]*\.(?:js|css))"
+    r"(?P=quote)\s*\)"
+)
+_DYNAMIC_IMPORT_START = re.compile(r"\bimport\s*\(")
+_STATIC_IMPORT = re.compile(
+    r"\bimport\s*(?!\()(?:[^;'\"()]{0,4096}?\bfrom\s*)?"
+    r"(?P<quote>['\"])(?P<reference>[^'\"\\\r\n]*\.(?:js|css))(?P=quote)"
+)
+_VITE_TABLE_START = re.compile(r"\.f\s*=\s*\[")
 
 
 class _ReferenceParser(HTMLParser):
@@ -119,6 +136,144 @@ def _asset_file_error(asset_root: Path, candidate: Path) -> Optional[str]:
     return None
 
 
+def _javascript_asset_path(reference: str) -> Tuple[Optional[Path], Optional[str]]:
+    if reference.startswith("/") and not reference.startswith("//"):
+        return None, "unsupported absolute reference"
+
+    referenced_path, error = _referenced_asset_path(reference)
+    if error is not None:
+        return None, error
+    assert referenced_path is not None
+
+    if len(referenced_path.parts) != 1:
+        return None, "invalid reference"
+    if referenced_path.suffix not in (".js", ".css"):
+        return None, "invalid reference"
+    return referenced_path, None
+
+
+def _vite_dependency_references(source: str) -> Tuple[List[str], Optional[str]]:
+    marker = source.find("__vite__mapDeps")
+    if marker == -1:
+        return [], None
+
+    scan_end = min(len(source), marker + MAX_VITE_TABLE_SCAN_BYTES)
+    table_start = _VITE_TABLE_START.search(source, marker, scan_end)
+    if table_start is None:
+        return [], "malformed JavaScript reference"
+    table_end = source.find("]", table_start.end(), scan_end)
+    if table_end == -1:
+        return [], "malformed JavaScript reference"
+
+    references: List[str] = []
+    position = table_start.end()
+    while position < table_end:
+        while position < table_end and source[position].isspace():
+            position += 1
+        if position == table_end:
+            break
+        quote = source[position]
+        if quote not in ('"', "'"):
+            return [], "malformed JavaScript reference"
+        closing_quote = source.find(quote, position + 1, table_end)
+        if closing_quote == -1 or "\\" in source[position + 1 : closing_quote]:
+            return [], "malformed JavaScript reference"
+        references.append(source[position + 1 : closing_quote])
+        position = closing_quote + 1
+        while position < table_end and source[position].isspace():
+            position += 1
+        if position < table_end:
+            if source[position] != ",":
+                return [], "malformed JavaScript reference"
+            position += 1
+    return references, None
+
+
+def _javascript_references(source: str) -> Tuple[List[str], Optional[str]]:
+    dynamic_matches = list(_DYNAMIC_IMPORT.finditer(source))
+    dynamic_starts = {match.start() for match in dynamic_matches}
+    if any(
+        match.start() not in dynamic_starts
+        for match in _DYNAMIC_IMPORT_START.finditer(source)
+    ):
+        return [], "malformed JavaScript reference"
+
+    references = [match.group("reference") for match in dynamic_matches]
+    references.extend(
+        match.group("reference") for match in _STATIC_IMPORT.finditer(source)
+    )
+    vite_references, vite_error = _vite_dependency_references(source)
+    if vite_error is not None:
+        return [], vite_error
+    references.extend(vite_references)
+    return references, None
+
+
+def _check_javascript_graph(asset_root: Path, entries: Sequence[Path]) -> List[str]:
+    errors: List[str] = []
+    pending = list(entries)
+    visited: set[Path] = set()
+    total_bytes = 0
+    reference_count = 0
+
+    while pending:
+        referenced_path = pending.pop()
+        if referenced_path in visited:
+            continue
+        if len(visited) >= MAX_JAVASCRIPT_FILES:
+            errors.append(
+                _asset_error(
+                    ASSET_ROOT / referenced_path, "JavaScript graph limit exceeded"
+                )
+            )
+            break
+        visited.add(referenced_path)
+
+        relative_path = ASSET_ROOT / referenced_path
+        path = asset_root / referenced_path
+        file_error = _asset_file_error(asset_root, path)
+        if file_error is not None:
+            errors.append(_asset_error(relative_path, file_error))
+            continue
+        if referenced_path.suffix != ".js":
+            continue
+
+        file_bytes = path.stat().st_size
+        total_bytes += file_bytes
+        if (
+            file_bytes > MAX_JAVASCRIPT_FILE_BYTES
+            or total_bytes > MAX_JAVASCRIPT_TOTAL_BYTES
+        ):
+            errors.append(_asset_error(relative_path, "JavaScript graph limit exceeded"))
+            break
+        try:
+            source = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            errors.append(
+                _asset_error(relative_path, "malformed JavaScript reference")
+            )
+            continue
+
+        references, reference_error = _javascript_references(source)
+        if reference_error is not None:
+            errors.append(_asset_error(relative_path, reference_error))
+            continue
+        reference_count += len(references)
+        if reference_count > MAX_JAVASCRIPT_REFERENCES:
+            errors.append(_asset_error(relative_path, "JavaScript graph limit exceeded"))
+            break
+
+        for reference in references:
+            child_path, child_error = _javascript_asset_path(reference)
+            if child_error is not None:
+                errors.append(_asset_error(relative_path, child_error))
+                continue
+            assert child_path is not None
+            pending.append(child_path)
+
+    return errors
+
+
 def check_built_assets(repo_root: Path) -> List[str]:
     errors: List[str] = []
     asset_root = repo_root / ASSET_ROOT
@@ -141,6 +296,7 @@ def check_built_assets(repo_root: Path) -> List[str]:
     parser.feed(index_path.read_text(encoding="utf-8"))
     has_javascript_entry = False
     has_stylesheet_entry = False
+    javascript_entries: List[Path] = []
     index_relative_path = ASSET_ROOT / "index.html"
 
     for tag, attribute, reference, rel in parser.references:
@@ -156,6 +312,7 @@ def check_built_assets(repo_root: Path) -> List[str]:
 
         if tag == "script" and attribute == "src" and referenced_path.suffix == ".js":
             has_javascript_entry = True
+            javascript_entries.append(referenced_path)
         if (
             tag == "link"
             and attribute == "href"
@@ -178,6 +335,8 @@ def check_built_assets(repo_root: Path) -> List[str]:
         errors.append(
             _asset_error(index_relative_path, "missing stylesheet reference")
         )
+
+    errors.extend(_check_javascript_graph(asset_root, javascript_entries))
 
     return list(dict.fromkeys(errors))
 

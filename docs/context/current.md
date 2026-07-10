@@ -21,6 +21,12 @@ The next storage slice should stay small and concrete:
 - Frontend IA that keeps memory configuration in Settings > Memory and exposes
   human memories through the top-level `/memory` page.
 
+The codebase remediation Foundation milestone is complete: control artifacts,
+build/bundle baselines, generated-state checks, minimal CI, existing frontend
+test scripts, the root MIT license, and a provisional redistribution inventory
+are in place. Browser automation was explicitly removed. The active remediation
+phase is the combined Trust and Integrity milestone (M1+M2).
+
 ## Settled Decisions
 
 - SQLite is the target canonical structured store for the always-on personal

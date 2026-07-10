@@ -142,8 +142,8 @@ packaging.
 | ARCH-014 | M7 | Workspace; maintainers | Pending | Pending | Pending | Pending |
 | ARCH-015 | M7 | Workspace; maintainers | Pending | Pending | Pending | Pending |
 | ARCH-016 | M7 | Workspace; maintainers | Pending | Pending | Pending | Pending |
-| ARCH-017 | Foundation | Workspace; maintainers | Pending | Pending | Pending | Pending |
-| ARCH-018 | Foundation | Workspace; maintainers | Pending | Pending | Pending | Pending |
+| ARCH-017 | Foundation | Workspace; maintainers | Baseline capture tests and recorded timing artifacts | Clean, no-op, and representative build timing samples recorded without altering sccache | `docs/engineering/baselines/foundation.md` and `.json` | `7c92c0f2` |
+| ARCH-018 | Foundation | Workspace; maintainers | Baseline capture tests and recorded timing artifacts | Representative GraphQL, store, provider, and frontend-asset edit timings recorded | `docs/engineering/baselines/foundation.md` and `.json` | `7c92c0f2` |
 | ARCH-019 | M7 | Workspace; maintainers | Pending | Pending | Pending | Pending |
 | ARCH-020 | M7 | Workspace; maintainers | Pending | Pending | Pending | Pending |
 | ARCH-021 | M7 | Workspace; maintainers | Pending | Pending | Pending | Pending |
@@ -162,9 +162,9 @@ packaging.
 | ARCH-034 | M7 | Workspace; maintainers | Pending | Pending | Pending | Pending |
 | ARCH-035 | M7 | Workspace; maintainers | Pending | Pending | Pending | Pending |
 | TEST-001 | M8 | CI; maintainers | Pending | Pending | Pending | Pending |
-| TEST-002 | Foundation | CI; maintainers | Pending | Pending | Pending | Pending |
-| TEST-003 | Foundation | CI; maintainers | Pending | Pending | Pending | Pending |
-| TEST-004 | Foundation | CI; maintainers | Pending | Pending | Pending | Pending |
+| TEST-002 | Foundation | CI; maintainers | `bun run test:ci` package script | Existing focused frontend tests run through normal package validation | 63 focused tests, lint, and build passed | `f89be670` |
+| TEST-003 | Foundation | CI; maintainers | Shell navigation unit tests | Memory and Usage settings expectations match canonical routes | Corrected navigation suite passed | `f89be670` |
+| TEST-004 | Foundation | CI; maintainers | Default-parallel Rust workspace CI plus Foundation bridge process tests | 11 Foundation process tests passed five consecutive 16-thread runs | 55/55 repeated process-test executions passed on 2026-07-10 | `6867a287` |
 | TEST-005 | M3 | CI; maintainers | Pending | Pending | Pending | Pending |
 | TEST-006 | M1+M2 | CI; maintainers | Pending | Pending | Pending | Pending |
 | TEST-007 | M1+M2 | CI; maintainers | Pending | Pending | Pending | Pending |
@@ -173,7 +173,7 @@ packaging.
 | TEST-010 | M1+M2 | CI; maintainers | Pending | Pending | Pending | Pending |
 | TEST-011 | M4 | MCP schema/policy (M1+M2); MCP transport (M4) | Pending | Pending | Pending | Pending |
 | TEST-012 | M1+M2 | CI; maintainers | Pending | Pending | Pending | Pending |
-| TEST-013 | Foundation | CI; maintainers | Pending | Pending | Pending | Pending |
+| TEST-013 | Foundation | CI; maintainers | Generated-state verifier and CI clean-diff gate | GraphQL schema/types and route tree regenerate before `git diff --exit-code` | 28 verifier tests and real generated/import-graph/asset checks passed | `6867a287` |
 | TEST-014 | M5 | CI; maintainers | Pending | Pending | Pending | Pending |
 | DOC-001 | M8 | Contributors; release | Pending | Pending | Pending | Pending |
 | DOC-002 | M8 | Contributors; release | Pending | Pending | Pending | Pending |
@@ -185,7 +185,7 @@ packaging.
 | DOC-008 | M8 | Contributors; release | Pending | Pending | Pending | Pending |
 | DOC-009 | M8 | Contributors; release | Pending | Pending | Pending | Pending |
 | DOC-010 | M8 | Contributors; release | Pending | Pending | Pending | Pending |
-| DOC-011 | Foundation | Contributors; release | Pending | Pending | Pending | Pending |
+| DOC-011 | Foundation | Contributors; release | Exact MIT text and cited-path checks | Root 21-line MIT license and provisional redistribution inventory present | `LICENSE`, `docs/licensing.md`, and `THIRD_PARTY_NOTICES.md` | `582af72a` |
 | DOC-012 | M5 | Contributors; release | Pending | Pending | Pending | Pending |
 | MILESTONE-001 | M1+M2 | Remediation program | Pending | Pending | Pending | Pending |
 | MILESTONE-002 | M1+M2 | Remediation program | Pending | Pending | Pending | Pending |
