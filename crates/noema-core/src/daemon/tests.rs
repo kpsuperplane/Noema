@@ -3777,7 +3777,7 @@ async fn search_memory_tool_invalid_arguments_are_failed_tool_result() {
 }
 
 #[tokio::test]
-async fn uncalibrated_mcp_tool_call_returns_failed_tool_result() {
+async fn uncalibrated_mcp_tool_call_returns_disabled_server_result() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_provider(FakeCodexScenario::UncalibratedMcpToolCall))
             .await;
@@ -3803,9 +3803,9 @@ async fn uncalibrated_mcp_tool_call_returns_failed_tool_result() {
                 && item.status == ConversationItemStatus::Failed
                 && item.payload_json["metadata"]["action"]["name"] == "mcp.docs.read"
                 && item.payload_json["metadata"]["action"]["payload"]["error"]
-                    == "mcp_tool_not_calibrated"
+                    == "mcp_server_disabled"
         }),
-        "expected failed uncalibrated MCP tool result, got {items:?}"
+        "expected disabled MCP server result, got {items:?}"
     );
 }
 

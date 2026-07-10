@@ -345,10 +345,15 @@ mod tests {
             crate::mcp::mcp_tool_ineligibility(&server, &tool, None)
                 .expect("uncalibrated tool should be ineligible")
                 .gateway_error(),
-            "mcp_tool_not_calibrated"
+            "mcp_server_disabled"
         );
 
         seed_ready_calibration(&store).await;
+        let server = store
+            .get_mcp_server("mcp:notion")
+            .await
+            .expect("server read")
+            .expect("server");
         let calibration = store
             .get_tool_calibration(&tool.mcp_tool_id)
             .await
@@ -392,7 +397,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn gateway_reports_uncalibrated_enabled_tool() {
+    async fn gateway_reports_uncalibrated_server_as_disabled() {
         let store = test_store().await;
         seed_mcp_tool(&store, true).await;
         let temp_dir = tempfile::tempdir().expect("temp dir");
@@ -410,7 +415,7 @@ mod tests {
             .await;
 
         assert!(!result.success);
-        assert_eq!(result.payload["error"], "mcp_tool_not_calibrated");
+        assert_eq!(result.payload["error"], "mcp_server_disabled");
         assert!(result.requires_provider_continuation);
     }
 

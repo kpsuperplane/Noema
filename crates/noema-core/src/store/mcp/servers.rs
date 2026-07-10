@@ -82,7 +82,7 @@ impl NoemaStore {
             let mut statement = conn.prepare(
                 r#"
                 SELECT m.mcp_server_id, m.display_name, m.transport_kind, m.safe_config_json,
-                  EXISTS (
+                  m.enabled AND EXISTS (
                     SELECT 1
                     FROM mcp_tools eligible_t
                     JOIN tool_calibrations c ON c.mcp_tool_id = eligible_t.mcp_tool_id
@@ -183,7 +183,7 @@ impl NoemaStore {
 
 const MCP_SERVER_SELECT_WITH_TOOL_COUNT: &str = r#"
 SELECT m.mcp_server_id, m.display_name, m.transport_kind, m.safe_config_json,
-  EXISTS (
+  m.enabled AND EXISTS (
     SELECT 1
     FROM mcp_tools eligible_t
     JOIN tool_calibrations c ON c.mcp_tool_id = eligible_t.mcp_tool_id
