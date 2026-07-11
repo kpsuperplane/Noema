@@ -83,6 +83,13 @@ The next storage slice should stay small and concrete:
 - Codex provider account homes contain Noema-owned `codex_tokens.json` OAuth
   state. They are not `CODEX_HOME` directories, and Noema does not silently
   import Codex CLI `auth.json` files.
+- Codex model/profile catalogs are fetched from the provider `/models` endpoint
+  after a six-hour TTL. The `client_version` query value is resolved from the
+  official `@openai/codex` npm `latest` metadata endpoint, with the last cached
+  value or the historical `0.142.3` value as an offline fallback. Successful
+  catalogs persist the resolved client version and refresh timestamp; failed
+  refreshes preserve the previous catalog, while the metadata schema version
+  still forces refreshes after parser changes.
 - Concrete object records are the canonical structured state; actor/principal,
   governable scope, provenance source, and transcript item are interfaces
   implemented by concrete objects rather than universal parent tables.
