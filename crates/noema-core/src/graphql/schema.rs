@@ -40,6 +40,10 @@ use super::{
         GraphqlProviderAccount, GraphqlProviderAccountCatalogEntry, GraphqlProviderCapability,
         GraphqlProviderSecretInput,
     },
+    tasks::{
+        self, GraphqlTaskComplexity, GraphqlTaskDetail, GraphqlTaskModelPoolEntry,
+        GraphqlTaskModelPoolEntryInput,
+    },
     usage_settings::{self, GraphqlSaveToolProgressAuditPreferenceInput, GraphqlUsageSettings},
     web_fetch_settings::{
         self, GraphqlSaveWebFetchSummarizerPreferenceInput, GraphqlWebFetchSettings,
@@ -410,6 +414,35 @@ impl QueryRoot {
         agents::agents(state).await
     }
 
+    /// Return one owner-authorized durable background task detail.
+    async fn task(&self, ctx: &Context<'_>, task_id: String) -> Result<Option<GraphqlTaskDetail>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = ctx
+            .data_opt::<super::RequestPrincipal>()
+            .map_or("human:local", super::RequestPrincipal::subject_id);
+        tasks::task(state, principal, task_id).await
+    }
+
+    /// Return human-controlled executor model-pool entries.
+    async fn task_model_pools(
+        &self,
+        ctx: &Context<'_>,
+        complexity: Option<GraphqlTaskComplexity>,
+    ) -> Result<Vec<GraphqlTaskModelPoolEntry>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        tasks::task_model_pools(state, complexity).await
+    }
+
+    /// Alias for clients that prefer the storage-oriented pool-entry name.
+    async fn task_model_pool_entries(
+        &self,
+        ctx: &Context<'_>,
+        complexity: Option<GraphqlTaskComplexity>,
+    ) -> Result<Vec<GraphqlTaskModelPoolEntry>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        tasks::task_model_pools(state, complexity).await
+    }
+
     /// Return web fetch settings safe to show in Settings.
     async fn web_fetch_settings(&self, ctx: &Context<'_>) -> Result<GraphqlWebFetchSettings> {
         let state = ctx.data_unchecked::<GraphqlState>();
@@ -527,6 +560,46 @@ pub struct MutationRoot;
 
 #[Object]
 impl MutationRoot {
+    /// Add one human-controlled executor model-pool entry.
+    async fn create_task_model_pool_entry(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlTaskModelPoolEntryInput,
+    ) -> Result<GraphqlTaskModelPoolEntry> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = ctx
+            .data_opt::<super::RequestPrincipal>()
+            .map_or("human:local", super::RequestPrincipal::subject_id);
+        tasks::create_task_model_pool_entry(state, principal, input).await
+    }
+
+    /// Replace one human-controlled executor model-pool entry.
+    async fn update_task_model_pool_entry(
+        &self,
+        ctx: &Context<'_>,
+        pool_entry_id: String,
+        input: GraphqlTaskModelPoolEntryInput,
+    ) -> Result<GraphqlTaskModelPoolEntry> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = ctx
+            .data_opt::<super::RequestPrincipal>()
+            .map_or("human:local", super::RequestPrincipal::subject_id);
+        tasks::update_task_model_pool_entry(state, principal, pool_entry_id, input).await
+    }
+
+    /// Disable or remove one human-controlled executor model-pool entry.
+    async fn delete_task_model_pool_entry(
+        &self,
+        ctx: &Context<'_>,
+        pool_entry_id: String,
+    ) -> Result<bool> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = ctx
+            .data_opt::<super::RequestPrincipal>()
+            .map_or("human:local", super::RequestPrincipal::subject_id);
+        tasks::delete_task_model_pool_entry(state, principal, pool_entry_id).await
+    }
+
     /// Start a provider auth attempt.
     async fn start_provider_auth_attempt(
         &self,

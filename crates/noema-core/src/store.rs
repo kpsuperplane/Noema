@@ -18,6 +18,7 @@ mod schema;
 mod sqlite;
 mod task_events;
 mod task_model_pools;
+mod task_reads;
 mod tasks;
 
 #[cfg(test)]

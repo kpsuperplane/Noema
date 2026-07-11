@@ -21,6 +21,7 @@ mod schema;
 mod subscriptions;
 #[cfg(test)]
 mod support_tests;
+mod tasks;
 mod usage_settings;
 mod web_fetch_settings;
 mod web_tool_settings;
