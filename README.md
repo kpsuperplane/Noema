@@ -122,6 +122,22 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --no-fail-fast
 ```
 
+For the normal edit loop, use the package-scoped commands instead of the full
+workspace gate:
+
+```bash
+cargo fmt --all --check
+cargo fast                         # dev server dependency check
+cargo focused-lint && cargo focused-test
+cargo gate-lint && cargo gate-test
+```
+
+`cargo fast` is intended for frequent edits. The focused pair is the unit-level
+completion check. The gate pair is for cross-crate changes, milestone boundaries,
+and pre-handoff validation; Clippy and tests already compile the workspace, so
+the gate does not run a redundant separate `cargo check`. Cargo aliases are
+single commands, so the format check is kept as an explicit first step.
+
 Frontend assets are built with Bun. The web build is emitted under
 `noema-server`, which validates and embeds those assets in release builds:
 

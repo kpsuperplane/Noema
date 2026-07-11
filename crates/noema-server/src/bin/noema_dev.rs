@@ -15,6 +15,8 @@ use tokio::{
 };
 
 const WEB_ASSET_WATCH_SCRIPT: &str = "dev:assets";
+const DEV_RUST_TARGET_DIR: &str = "target/noema-dev";
+const MNEMOSYNE_INSTALL_STAMP_FILE: &str = ".noema-install.stamp";
 
 #[derive(Debug, Error)]
 enum DevError {
@@ -74,6 +76,10 @@ async fn run() -> Result<(), DevError> {
     eprintln!("Noema dev supervisor started");
     eprintln!("web assets: bun run {WEB_ASSET_WATCH_SCRIPT}");
     eprintln!("web server: cargo watch -x {}", web_server_watch_command());
+    eprintln!(
+        "web server target: {}",
+        dev_rust_target_dir(&repo_root).display()
+    );
     if bridge.is_some() {
         eprintln!("foundation bridge: cargo watch -s swift build");
     }
@@ -166,6 +172,7 @@ fn spawn_web_server_watcher(
     }
 
     command.arg("-x").arg(web_server_watch_command());
+    command.env("CARGO_TARGET_DIR", dev_rust_target_dir(repo_root));
     command.env("NOEMA_WEB__HOST", "0.0.0.0");
     if let Some(mnemosyne_sidecar_command) = mnemosyne_sidecar_command {
         command.env(
@@ -179,6 +186,10 @@ fn spawn_web_server_watcher(
 
 fn web_server_watch_command() -> &'static str {
     "run -p noema-server --bin noema_web --features dev-no-auth"
+}
+
+fn dev_rust_target_dir(repo_root: &Path) -> PathBuf {
+    repo_root.join(DEV_RUST_TARGET_DIR)
 }
 
 fn web_server_watch_ignore_globs() -> [&'static str; 2] {
@@ -268,16 +279,24 @@ async fn ensure_dev_mnemosyne_sidecar(repo_root: &Path) -> Result<Option<String>
         }
     }
 
-    eprintln!(
-        "installing dev Mnemosyne sidecar package into {}",
-        mnemosyne_sidecar_venv_dir(repo_root).display()
-    );
-    let status = mnemosyne_install_command(repo_root)
-        .status()
-        .await
-        .map_err(|source| DevError::InstallMnemosyne { source })?;
-    if !status.success() {
-        return Err(DevError::MnemosyneInstallerExited { status });
+    if mnemosyne_install_is_current(repo_root)? {
+        eprintln!(
+            "reusing dev Mnemosyne sidecar package in {}",
+            mnemosyne_sidecar_venv_dir(repo_root).display()
+        );
+    } else {
+        eprintln!(
+            "installing dev Mnemosyne sidecar package into {}",
+            mnemosyne_sidecar_venv_dir(repo_root).display()
+        );
+        let status = mnemosyne_install_command(repo_root)
+            .status()
+            .await
+            .map_err(|source| DevError::InstallMnemosyne { source })?;
+        if !status.success() {
+            return Err(DevError::MnemosyneInstallerExited { status });
+        }
+        mark_mnemosyne_install_current(repo_root)?;
     }
     let command = mnemosyne_sidecar_uvicorn_command(&python);
     eprintln!("dev Mnemosyne sidecar: {}", python.display());
@@ -289,6 +308,31 @@ fn mnemosyne_sidecar_uvicorn_command(python: &Path) -> String {
         "{} -m uvicorn --factory noema_mnemosyne_sidecar.app:create_app --host 127.0.0.1 --port \"$NOEMA_MNEMOSYNE_PORT\"",
         shell_quote(python)
     )
+}
+
+fn mnemosyne_install_stamp_path(repo_root: &Path) -> PathBuf {
+    mnemosyne_sidecar_venv_dir(repo_root).join(MNEMOSYNE_INSTALL_STAMP_FILE)
+}
+
+fn mnemosyne_install_is_current(repo_root: &Path) -> Result<bool, DevError> {
+    let Ok(stamp) = std::fs::metadata(mnemosyne_install_stamp_path(repo_root)) else {
+        return Ok(false);
+    };
+    let manifest =
+        std::fs::metadata(mnemosyne_sidecar_source_dir(repo_root).join("pyproject.toml"))
+            .map_err(|source| DevError::InstallMnemosyne { source })?;
+    let stamp_modified = stamp
+        .modified()
+        .map_err(|source| DevError::InstallMnemosyne { source })?;
+    let manifest_modified = manifest
+        .modified()
+        .map_err(|source| DevError::InstallMnemosyne { source })?;
+    Ok(stamp_modified >= manifest_modified)
+}
+
+fn mark_mnemosyne_install_current(repo_root: &Path) -> Result<(), DevError> {
+    std::fs::write(mnemosyne_install_stamp_path(repo_root), b"editable")
+        .map_err(|source| DevError::InstallMnemosyne { source })
 }
 
 async fn mnemosyne_base_python() -> Result<PathBuf, DevError> {
@@ -567,6 +611,14 @@ mod tests {
     }
 
     #[test]
+    fn server_watcher_uses_an_isolated_rust_target_dir() {
+        assert_eq!(
+            dev_rust_target_dir(Path::new("/workspace")),
+            PathBuf::from("/workspace/target/noema-dev")
+        );
+    }
+
+    #[test]
     fn graphql_schema_output_path_targets_web_generated_dir() {
         assert_eq!(
             graphql_schema_output_path(Path::new("/workspace")),
@@ -587,6 +639,12 @@ mod tests {
         assert_eq!(
             mnemosyne_venv_python(Path::new("/workspace")),
             PathBuf::from("/workspace/crates/noema-core/target/mnemosyne-sidecar-venv/bin/python")
+        );
+        assert_eq!(
+            mnemosyne_install_stamp_path(Path::new("/workspace")),
+            PathBuf::from(
+                "/workspace/crates/noema-core/target/mnemosyne-sidecar-venv/.noema-install.stamp"
+            )
         );
     }
 

@@ -7,3 +7,26 @@ CXX = "sccache clang++"
 
 [alias]
 dev = ["run", "-p", "noema-server", "--bin", "noema_dev"]
+fast = ["check", "-p", "noema-server", "--features", "dev-no-auth"]
+focused-lint = [
+    "clippy",
+    "-p",
+    "noema-server",
+    "--features",
+    "dev-no-auth",
+    "--all-targets",
+    "--",
+    "-D",
+    "warnings",
+]
+focused-test = [
+    "test",
+    "-p",
+    "noema-server",
+    "--features",
+    "dev-no-auth",
+    "--no-fail-fast",
+]
+gate-lint = ["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]
+gate-test = ["test", "--workspace", "--no-fail-fast"]
+check-workspace = ["check", "--workspace"]

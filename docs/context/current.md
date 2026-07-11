@@ -239,6 +239,11 @@ The next storage slice should stay small and concrete:
   feature and binds to `0.0.0.0` for trusted-LAN development; it relaxes Host
   and Origin checks alongside the unauthenticated session mode. Direct daemon
   and release builds remain loopback-only and retain this session boundary.
+- `cargo dev` builds its Rust watcher under `target/noema-dev`, separate from
+  the validation target, so live reload does not contend with checks or tests.
+  The supervisor reuses the editable Mnemosyne install until its `pyproject.toml`
+  changes. `cargo fast`, the focused lint/test pair, and the gate lint/test pair
+  provide package-scoped, unit-level, and full-workspace validation tiers respectively.
 - Authenticated web and desktop GraphQL operations receive the server-derived
   `human:local` request principal. Desktop commands additionally require the
   Tauri `main` window. Artifact downloads authorize the version's live
