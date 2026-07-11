@@ -617,12 +617,12 @@ impl NewTask {
             complexity: self.complexity,
             owner_human_id: self.owner_human_id.trim().to_string(),
             source: TaskSource {
-                conversation_id: normalize_optional(&self.source.conversation_id),
-                turn_id: normalize_optional(&self.source.turn_id),
-                item_id: normalize_optional(&self.source.item_id),
+                conversation_id: normalize_optional(self.source.conversation_id.as_ref()),
+                turn_id: normalize_optional(self.source.turn_id.as_ref()),
+                item_id: normalize_optional(self.source.item_id.as_ref()),
             },
             created_by_agent_id: self.created_by_agent_id.trim().to_string(),
-            creation_tool_call_id: normalize_optional(&self.creation_tool_call_id),
+            creation_tool_call_id: normalize_optional(self.creation_tool_call_id.as_ref()),
             pool_entry_id: self.pool_entry_id.trim().to_string(),
             executor_model: self
                 .executor_model
@@ -638,10 +638,9 @@ impl NewTask {
     }
 }
 
-fn normalize_optional(value: &Option<String>) -> Option<String> {
+fn normalize_optional(value: Option<&String>) -> Option<String> {
     value
-        .as_deref()
-        .map(str::trim)
+        .map(|value| value.trim())
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
 }

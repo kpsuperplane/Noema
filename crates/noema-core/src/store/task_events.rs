@@ -1,5 +1,7 @@
 //! Append-only task and run event persistence.
 
+#![allow(clippy::missing_errors_doc, clippy::too_many_arguments)]
+
 use serde_json::Value;
 
 use super::{NoemaStore, StoreError, ids::allocate_id};

@@ -1,5 +1,7 @@
 //! Read-model helpers for task inspection surfaces.
 
+#![allow(clippy::missing_errors_doc)]
+
 use super::{NoemaStore, StoreError};
 use crate::{TaskReviewCriterion, TaskReviewRecord, TaskReviewVerdict};
 

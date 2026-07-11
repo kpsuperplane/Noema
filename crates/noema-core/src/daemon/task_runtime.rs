@@ -60,13 +60,14 @@ impl TaskRuntimeHandle {
     /// Request cancellation and join the worker loop.
     pub(crate) async fn shutdown(&self) {
         self.inner.cancellation.cancel();
-        if let Some(join) = self
-            .inner
-            .join
-            .lock()
-            .expect("task runtime join lock")
-            .take()
-        {
+        let join = {
+            self.inner
+                .join
+                .lock()
+                .expect("task runtime join lock")
+                .take()
+        };
+        if let Some(join) = join {
             let _ = join.await;
         }
     }
@@ -133,14 +134,14 @@ async fn fail_run(store: &NoemaStore, run: &crate::AgentRunRecord, lease_token: 
             Some(("task_runtime_failed".to_string(), error.to_string())),
         )
         .await;
-    if run.run_kind != RunKind::CompletionDelivery {
-        if let Ok(Some(task)) = store.get_task(&run.task_id).await {
-            if !task.status.is_terminal() && task.status.can_transition_to(TaskStatus::Failed) {
-                let _ = store
-                    .transition_task(&task.task_id, TaskStatus::Failed, Some(error))
-                    .await;
-            }
-        }
+    if run.run_kind != RunKind::CompletionDelivery
+        && let Ok(Some(task)) = store.get_task(&run.task_id).await
+        && !task.status.is_terminal()
+        && task.status.can_transition_to(TaskStatus::Failed)
+    {
+        let _ = store
+            .transition_task(&task.task_id, TaskStatus::Failed, Some(error))
+            .await;
     }
 }
 
@@ -524,10 +525,10 @@ fn parse_reviewer_response(text: &str) -> Result<ReviewerResponse, String> {
     }
     let start = trimmed.find('{');
     let end = trimmed.rfind('}');
-    if let (Some(start), Some(end)) = (start, end) {
-        if let Ok(parsed) = serde_json::from_str::<ReviewerResponse>(&trimmed[start..=end]) {
-            return Ok(parsed);
-        }
+    if let (Some(start), Some(end)) = (start, end)
+        && let Ok(parsed) = serde_json::from_str::<ReviewerResponse>(&trimmed[start..=end])
+    {
+        return Ok(parsed);
     }
     Err("reviewer JSON was invalid".to_string())
 }

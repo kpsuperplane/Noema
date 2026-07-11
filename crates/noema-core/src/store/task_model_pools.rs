@@ -1,5 +1,7 @@
 //! Human-controlled executor model pools.
 
+#![allow(clippy::missing_errors_doc)]
+
 use rusqlite::{OptionalExtension, params};
 
 use crate::{

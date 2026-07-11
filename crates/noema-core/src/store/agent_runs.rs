@@ -1,5 +1,7 @@
 //! Durable queue and lease records for task executor/reviewer runs.
 
+#![allow(clippy::missing_errors_doc)]
+
 use rusqlite::{OptionalExtension, params};
 
 use crate::{ModelConfigSnapshot, RunKind, RunStatus, provider::ReasoningEffort};

@@ -1,5 +1,7 @@
 //! Durable one-off task records and state transitions.
 
+#![allow(clippy::missing_errors_doc)]
+
 use rusqlite::{OptionalExtension, params};
 
 use crate::{
@@ -122,24 +124,19 @@ impl NoemaStore {
         if let (Some(conversation_id), Some(call_id)) = (
             input.source.conversation_id.as_deref(),
             input.creation_tool_call_id.as_deref(),
-        ) {
-            if let Some(existing) = self
-                .find_task_by_creation_call(conversation_id, call_id)
+        ) && let Some(existing) = self
+            .find_task_by_creation_call(conversation_id, call_id)
+            .await?
+        {
+            let run = self
+                .list_agent_runs_for_task(&existing.task_id)
                 .await?
-            {
-                let run = self
-                    .list_agent_runs_for_task(&existing.task_id)
-                    .await?
-                    .into_iter()
-                    .find(|run| run.run_kind == RunKind::Executor)
-                    .ok_or_else(|| StoreError::InvariantViolation {
-                        message: format!(
-                            "idempotent task has no executor run: {}",
-                            existing.task_id
-                        ),
-                    })?;
-                return Ok((existing, run));
-            }
+                .into_iter()
+                .find(|run| run.run_kind == RunKind::Executor)
+                .ok_or_else(|| StoreError::InvariantViolation {
+                    message: format!("idempotent task has no executor run: {}", existing.task_id),
+                })?;
+            return Ok((existing, run));
         }
         let run_id = allocate_id("run");
         let criterion_ids = input
