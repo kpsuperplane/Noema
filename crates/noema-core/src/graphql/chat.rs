@@ -388,8 +388,8 @@ pub struct GraphqlConversationItem {
     pub item: GraphqlTranscriptItem,
 }
 
-impl From<crate::daemon::web::ConversationReplayItem> for GraphqlConversationItem {
-    fn from(item: crate::daemon::web::ConversationReplayItem) -> Self {
+impl From<crate::graphql::ConversationReplayItem> for GraphqlConversationItem {
+    fn from(item: crate::graphql::ConversationReplayItem) -> Self {
         Self {
             item_id: item.item_id,
             cursor: item.cursor,
@@ -543,7 +543,7 @@ pub(super) async fn ensure_primary_conversation(
         .active_provider_account(&provider_kind)
         .await
         .map_err(graphql_error)?;
-    if !crate::daemon::web::is_user_onboarded_for_chat(account) {
+    if !crate::graphql::is_user_onboarded_for_chat(account) {
         return Err(async_graphql::Error::new(
             "Noema onboarding is incomplete. Connect a provider account before starting chat.",
         ));
@@ -607,7 +607,7 @@ async fn visible_conversation_transcript_page(
     let mut items = Vec::new();
     for record in page.items {
         if let Some(item) =
-            crate::daemon::web::web_conversation_item_from_record(record).map_err(graphql_error)?
+            crate::graphql::web_conversation_item_from_record(record).map_err(graphql_error)?
         {
             items.push(GraphqlConversationItem::from(item));
         }

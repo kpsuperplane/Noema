@@ -72,8 +72,8 @@ pub(super) async fn is_authenticated(session: &Session) -> bool {
 
 pub(super) async fn request_principal(
     session: &Session,
-) -> Option<crate::graphql::RequestPrincipal> {
+) -> Option<noema_core::graphql::RequestPrincipal> {
     is_authenticated(session)
         .await
-        .then(crate::graphql::RequestPrincipal::local)
+        .then(noema_core::graphql::RequestPrincipal::local)
 }

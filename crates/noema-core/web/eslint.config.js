@@ -4,7 +4,7 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", "../target/web-assets", "src/generated"] },
+  { ignores: ["dist", "../../noema-server/target/web-assets", "src/generated"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

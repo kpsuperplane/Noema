@@ -9,13 +9,6 @@ fn main() -> io::Result<()> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("manifest dir"));
     let asset_dir = manifest_dir.join("target/web-assets");
     println!("cargo:rerun-if-changed={}", asset_dir.display());
-    let mnemosyne_sidecar_dir = manifest_dir.join("mnemosyne-sidecar");
-    println!("cargo:rerun-if-changed={}", mnemosyne_sidecar_dir.display());
-    println!(
-        "cargo:rustc-env=NOEMA_MNEMOSYNE_SIDECAR_DIR={}",
-        mnemosyne_sidecar_dir.display()
-    );
-
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("out dir"));
     fs::write(
         out_dir.join("web_assets.rs"),

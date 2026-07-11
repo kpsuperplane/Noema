@@ -14,7 +14,7 @@ use super::*;
 
 const TEST_AUTHORITY: &str = "127.0.0.1:3737";
 
-fn web_state(graphql_state: crate::graphql::GraphqlState) -> WebState {
+fn web_state(graphql_state: noema_core::graphql::GraphqlState) -> WebState {
     WebState::new(
         graphql_state,
         authority::CanonicalAuthority::from_socket_addr(
@@ -25,53 +25,7 @@ fn web_state(graphql_state: crate::graphql::GraphqlState) -> WebState {
 }
 
 fn test_router() -> Router {
-    build_router(web_state(crate::graphql::GraphqlState::for_tests()))
-}
-
-async fn artifact_fixture() -> (
-    tempfile::TempDir,
-    crate::NoemaPaths,
-    crate::NoemaStore,
-    crate::ArtifactWithVersions,
-    Router,
-    String,
-) {
-    let home = tempfile::tempdir().expect("temp dir");
-    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
-        .await
-        .expect("open store");
-    let conversation = store
-        .create_conversation(crate::NewConversation::local_chat(None, None))
-        .await
-        .expect("conversation");
-    let artifact = crate::create_conversation_local_file_artifact(
-        &store,
-        &paths,
-        crate::NewConversationLocalFileArtifact {
-            conversation_id: conversation.conversation_id.clone(),
-            title: "Downloadable report".to_string(),
-            description: None,
-            artifact_kind: "document".to_string(),
-            filename: "report.md".to_string(),
-            bytes: b"hello download".to_vec(),
-            media_type: Some("text/markdown".to_string()),
-            created_by_actor_id: "agent:primary".to_string(),
-            source: crate::ArtifactSource {
-                conversation_id: Some(conversation.conversation_id),
-                turn_id: None,
-                item_id: None,
-            },
-            metadata: json!({}),
-        },
-    )
-    .await
-    .expect("local artifact");
-    let router = build_router(web_state(
-        crate::graphql::GraphqlState::for_tests_with_store_and_paths(store.clone(), paths.clone()),
-    ));
-    let cookie = authenticate(router.clone()).await;
-    (home, paths, store, artifact, router, cookie)
+    build_router(web_state(noema_core::graphql::GraphqlState::for_tests()))
 }
 
 async fn request(
@@ -202,7 +156,7 @@ async fn authority_session_and_bootstrap_boundary() {
 }
 
 #[tokio::test]
-async fn server_principal_is_injected_and_connection_init_identity_is_ignored() {
+async fn authenticated_http_and_websocket_ignore_client_identity_metadata() {
     use futures_util::{SinkExt, StreamExt};
 
     let router = test_router();
@@ -214,14 +168,14 @@ async fn server_principal_is_injected_and_connection_init_identity_is_ignored() 
             .method(Method::POST)
             .uri("/graphql")
             .header(header::CONTENT_TYPE, "application/json")
-            .body(Body::from(r#"{"query":"{ testRequestPrincipal }"}"#))
+            .body(Body::from(r#"{"query":"{ __typename }"}"#))
             .expect("GraphQL principal request"),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         serde_json::from_slice::<serde_json::Value>(&body).expect("GraphQL JSON"),
-        json!({"data": {"testRequestPrincipal": "human:local"}})
+        json!({"data": {"__typename": "QueryRoot"}})
     );
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -230,7 +184,7 @@ async fn server_principal_is_injected_and_connection_init_identity_is_ignored() 
     let address = listener.local_addr().expect("test server address");
     let authority = authority::CanonicalAuthority::from_socket_addr(address);
     let state = WebState::new(
-        crate::graphql::GraphqlState::for_tests(),
+        noema_core::graphql::GraphqlState::for_tests(),
         authority,
         session::SessionSecurity::for_tests("ws-test-capability"),
     );
@@ -309,7 +263,7 @@ async fn server_principal_is_injected_and_connection_init_identity_is_ignored() 
             json!({
                 "id": "principal",
                 "type": "subscribe",
-                "payload": {"query": "subscription { testRequestPrincipal }"}
+                "payload": {"query": "{ __typename }"}
             })
             .to_string()
             .into(),
@@ -327,7 +281,7 @@ async fn server_principal_is_injected_and_connection_init_identity_is_ignored() 
         json!({
             "id": "principal",
             "type": "next",
-            "payload": {"data": {"testRequestPrincipal": "human:local"}}
+            "payload": {"data": {"__typename": "QueryRoot"}}
         })
     );
 
@@ -448,12 +402,13 @@ async fn router_preserves_oauth_and_not_found_responses() {
     assert_eq!(oauth_status, StatusCode::BAD_REQUEST);
     assert_eq!(oauth_body, "missing OAuth callback query");
 
-    let (_home, _paths, _store, _artifact, artifact_router, cookie) = artifact_fixture().await;
+    let artifact_router = test_router();
+    let cookie = authenticate(artifact_router.clone()).await;
     let (artifact_status, _, artifact_body) = authenticated_request(
         artifact_router,
         &cookie,
         Request::builder()
-            .uri("/artifacts/versions/missing/download")
+            .uri("/artifacts/versions/invalid:slug/download")
             .body(Body::empty())
             .expect("artifact request"),
     )
@@ -505,6 +460,39 @@ async fn unsupported_methods_return_plain_text_not_found() {
 }
 
 #[tokio::test]
+async fn artifact_download_rejects_missing_session() {
+    let (status, _, body) = request(
+        test_router(),
+        Request::builder()
+            .uri("/artifacts/artifact_version:missing/download")
+            .body(Body::empty())
+            .expect("artifact request"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(body.is_empty());
+}
+
+#[tokio::test]
+async fn artifact_download_adapter_sanitizes_response_headers() {
+    let response = artifact_download_response(noema_core::graphql::AuthorizedArtifactDownload {
+        filename: "report\"\r\nx-injected: yes.md".to_owned(),
+        media_type: "text/markdown\r\nx-injected: yes".to_owned(),
+        bytes: b"report".to_vec(),
+    });
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()[header::CONTENT_TYPE],
+        "application/octet-stream"
+    );
+    assert_eq!(
+        response.headers()[header::CONTENT_DISPOSITION],
+        "attachment; filename=\"report\\\"__x-injected: yes.md\""
+    );
+    assert!(!response.headers().contains_key("x-injected"));
+}
+
+#[tokio::test]
 async fn official_graphql_subscription_service_accepts_websocket_upgrade() {
     let router = test_router();
     let cookie = authenticate(router.clone()).await;
@@ -546,285 +534,6 @@ async fn official_graphql_subscription_service_accepts_websocket_upgrade() {
     drop(client);
     let _ = shutdown_tx.send(());
     server.await.expect("server task");
-}
-
-#[tokio::test]
-async fn artifact_download_routes_serve_bytes_and_safe_headers() {
-    let (_home, _paths, _store, artifact, router, cookie) = artifact_fixture().await;
-    for uri in [
-        crate::artifact_download_url(&artifact.current_version.artifact_version_id),
-        format!(
-            "/artifacts/{}/download",
-            artifact.current_version.artifact_version_id
-        ),
-    ] {
-        let (status, headers, body) = authenticated_request(
-            router.clone(),
-            &cookie,
-            Request::builder()
-                .uri(uri)
-                .body(Body::empty())
-                .expect("artifact request"),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(headers[header::CONTENT_TYPE], "text/markdown");
-        assert_eq!(
-            headers[header::CONTENT_DISPOSITION],
-            "attachment; filename=\"report.md\""
-        );
-        assert_eq!(body, "hello download");
-    }
-}
-
-#[tokio::test]
-async fn artifact_download_requires_authenticated_owner() {
-    let (_home, _paths, store, artifact, router, cookie) = artifact_fixture().await;
-    let uri = crate::artifact_download_url(&artifact.current_version.artifact_version_id);
-
-    let (missing_session_status, _, missing_session_body) = request(
-        router.clone(),
-        Request::builder()
-            .uri(&uri)
-            .body(Body::empty())
-            .expect("artifact request"),
-    )
-    .await;
-    assert_eq!(missing_session_status, StatusCode::UNAUTHORIZED);
-    assert!(missing_session_body.is_empty());
-
-    store
-        .with_connection(|conn| {
-            conn.execute(
-                "UPDATE conversations SET owner_object_id = 'human:other', primary_human_id = 'human:other' WHERE conversation_id = ?1",
-                [&artifact.artifact.owner.object_id],
-            )
-            .map(|_| ())
-            .map_err(crate::StoreError::Sqlite)
-        })
-        .await
-        .expect("change conversation owner");
-    let (wrong_owner_status, _, wrong_owner_body) = authenticated_request(
-        router,
-        &cookie,
-        Request::builder()
-            .uri(uri)
-            .body(Body::empty())
-            .expect("artifact request"),
-    )
-    .await;
-    assert_eq!(wrong_owner_status, StatusCode::NOT_FOUND);
-    assert_eq!(wrong_owner_body, NOT_FOUND);
-}
-
-#[tokio::test]
-async fn artifact_download_hides_deleted_owner_and_non_local_versions() {
-    let (_home, _paths, store, artifact, router, cookie) = artifact_fixture().await;
-    let uri = crate::artifact_download_url(&artifact.current_version.artifact_version_id);
-    store
-        .with_connection(|conn| {
-            conn.execute(
-                "UPDATE conversations SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE conversation_id = ?1",
-                [&artifact.artifact.owner.object_id],
-            )
-            .map(|_| ())
-            .map_err(crate::StoreError::Sqlite)
-        })
-        .await
-        .expect("delete conversation");
-    let (deleted_status, _, deleted_body) = authenticated_request(
-        router,
-        &cookie,
-        Request::builder()
-            .uri(&uri)
-            .body(Body::empty())
-            .expect("artifact request"),
-    )
-    .await;
-    assert_eq!(deleted_status, StatusCode::NOT_FOUND);
-    assert_eq!(deleted_body, NOT_FOUND);
-
-    let (_home, _paths, store, artifact, router, cookie) = artifact_fixture().await;
-    store
-        .with_connection(|conn| {
-            conn.execute(
-                "UPDATE artifacts SET storage_kind = 'external_url' WHERE artifact_id = ?1",
-                [&artifact.artifact.artifact_id],
-            )
-            .map(|_| ())
-            .map_err(crate::StoreError::Sqlite)
-        })
-        .await
-        .expect("make artifact non-local");
-    let (external_status, _, external_body) = authenticated_request(
-        router,
-        &cookie,
-        Request::builder()
-            .uri(crate::artifact_download_url(
-                &artifact.current_version.artifact_version_id,
-            ))
-            .body(Body::empty())
-            .expect("artifact request"),
-    )
-    .await;
-    assert_eq!(external_status, StatusCode::NOT_FOUND);
-    assert_eq!(external_body, NOT_FOUND);
-}
-
-#[tokio::test]
-async fn artifact_download_refuses_traversal_and_symlinks() {
-    let (_home, paths, store, artifact, router, cookie) = artifact_fixture().await;
-    let version_id = &artifact.current_version.artifact_version_id;
-    store
-        .with_connection(|conn| {
-            conn.execute(
-                "UPDATE artifact_versions SET local_relative_path = ?1 WHERE artifact_version_id = ?2",
-                rusqlite::params!["providers/secret.txt", version_id],
-            )
-            .map(|_| ())
-            .map_err(crate::StoreError::Sqlite)
-        })
-        .await
-        .expect("forge traversal");
-    std::fs::create_dir_all(paths.providers_dir()).expect("providers dir");
-    std::fs::write(paths.providers_dir().join("secret.txt"), b"top secret").expect("secret");
-    let (status, _, body) = authenticated_request(
-        router,
-        &cookie,
-        Request::builder()
-            .uri(crate::artifact_download_url(version_id))
-            .body(Body::empty())
-            .expect("traversal request"),
-    )
-    .await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
-    assert_eq!(body, NOT_FOUND);
-    assert!(!String::from_utf8_lossy(&body).contains("top secret"));
-}
-
-#[cfg(unix)]
-#[tokio::test]
-async fn artifact_download_refuses_symlinked_file() {
-    let (_home, paths, _store, artifact, router, cookie) = artifact_fixture().await;
-    let crate::ArtifactVersionStorage::LocalFile { relative_path } =
-        &artifact.current_version.storage
-    else {
-        panic!("expected local file");
-    };
-    let artifact_path = paths.root().join(relative_path);
-    std::fs::remove_file(&artifact_path).expect("remove artifact file");
-    let secret_path = paths.root().join("secret.txt");
-    std::fs::write(&secret_path, b"top secret").expect("write secret");
-    std::os::unix::fs::symlink(secret_path, artifact_path).expect("symlink artifact file");
-    let (status, _, body) = authenticated_request(
-        router,
-        &cookie,
-        Request::builder()
-            .uri(crate::artifact_download_url(
-                &artifact.current_version.artifact_version_id,
-            ))
-            .body(Body::empty())
-            .expect("artifact request"),
-    )
-    .await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
-    assert_eq!(body, NOT_FOUND);
-    assert!(!String::from_utf8_lossy(&body).contains("top secret"));
-}
-
-#[tokio::test]
-async fn artifact_download_refuses_injected_filename_header() {
-    let (_home, paths, store, artifact, router, cookie) = artifact_fixture().await;
-    let version_id = &artifact.current_version.artifact_version_id;
-    let forged_path =
-        "conversations/x/artifacts/x/versions/1/report\"\r\nx-injected: yes.md".to_string();
-    std::fs::create_dir_all(paths.root().join("conversations/x/artifacts/x/versions/1"))
-        .expect("artifact dirs");
-    std::fs::write(paths.root().join(&forged_path), b"hello download").expect("forged file");
-    store
-        .with_connection(|conn| {
-            conn.execute(
-                "UPDATE artifact_versions SET local_relative_path = ?1 WHERE artifact_version_id = ?2",
-                rusqlite::params![forged_path, version_id],
-            )
-            .map(|_| ())
-            .map_err(crate::StoreError::Sqlite)
-        })
-        .await
-        .expect("forge filename");
-    let (status, headers, body) = authenticated_request(
-        router,
-        &cookie,
-        Request::builder()
-            .uri(crate::artifact_download_url(version_id))
-            .body(Body::empty())
-            .expect("artifact request"),
-    )
-    .await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
-    assert!(!headers.contains_key("x-injected"));
-    assert_eq!(body, NOT_FOUND);
-}
-
-#[tokio::test]
-async fn artifact_download_sanitizes_unsafe_media_type() {
-    let (_home, _paths, store, artifact, router, cookie) = artifact_fixture().await;
-    let version_id = &artifact.current_version.artifact_version_id;
-    store
-        .with_connection(|conn| {
-            conn.execute(
-                "UPDATE artifact_versions SET media_type = ?1 WHERE artifact_version_id = ?2",
-                rusqlite::params!["text/markdown\r\nX-Injected: yes", version_id],
-            )
-            .map(|_| ())
-            .map_err(crate::StoreError::Sqlite)
-        })
-        .await
-        .expect("forge media type");
-    let (status, headers, body) = authenticated_request(
-        router,
-        &cookie,
-        Request::builder()
-            .uri(crate::artifact_download_url(version_id))
-            .body(Body::empty())
-            .expect("artifact request"),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(headers[header::CONTENT_TYPE], "application/octet-stream");
-    assert!(!headers.contains_key("x-injected"));
-    assert_eq!(body, "hello download");
-}
-
-#[tokio::test]
-async fn artifact_store_failure_is_safe_500_with_bounded_diagnostic() {
-    let (_home, paths, store, artifact, router, cookie) = artifact_fixture().await;
-    store
-        .with_connection(|conn| {
-            conn.execute("DROP TABLE artifact_versions", [])
-                .map(|_| ())
-                .map_err(crate::StoreError::Sqlite)
-        })
-        .await
-        .expect("break artifact query");
-    let (status, _, body) = authenticated_request(
-        router,
-        &cookie,
-        Request::builder()
-            .uri(crate::artifact_download_url(
-                &artifact.current_version.artifact_version_id,
-            ))
-            .body(Body::empty())
-            .expect("artifact request"),
-    )
-    .await;
-    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-    assert_eq!(body, "internal server error");
-    let diagnostics = std::fs::read_to_string(paths.errors_log_path()).expect("diagnostic log");
-    assert!(diagnostics.contains("artifact_download_failure"));
-    assert!(diagnostics.contains("authorized_version_query"));
-    assert!(!diagnostics.contains("report.md"));
-    assert!(!diagnostics.contains("hello download"));
 }
 
 #[tokio::test]

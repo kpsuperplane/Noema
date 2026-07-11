@@ -5,9 +5,10 @@ system.
 
 This repository currently contains the active Rust product paths:
 
-- `noema-core`: the local runtime host, SQLite store, Supermemory integration, provider
-  adapters, GraphQL schema, local web transport, memory systems, MCP control
-  plane, and generated web assets.
+- `noema-core`: the local runtime host, SQLite store, Mnemosyne integration,
+  provider adapters, GraphQL schema, memory systems, and MCP control plane.
+- `noema-server`: the loopback HTTP transport, browser session boundary,
+  embedded web assets, and standalone web development entrypoints.
 - `noema-desktop`: a macOS Tauri app that starts the Noema runtime host inside
   the desktop process and talks to it through Tauri IPC/events.
 - `crates/noema-core/web`: the React product UI used by the web and desktop
@@ -41,8 +42,8 @@ local HTTP server.
 
 `noema-core` owns the runtime and store. It initializes `${NOEMA_HOME}` when the
 runtime host starts, opens SQLite at
-`${NOEMA_HOME:-$HOME/.noema}/db/noema.sqlite3`, manages local Supermemory state
-under `${NOEMA_HOME:-$HOME/.noema}/supermemory/`, and stores provider credential
+`${NOEMA_HOME:-$HOME/.noema}/db/noema.sqlite3`, manages local Mnemosyne state
+under `${NOEMA_HOME:-$HOME/.noema}/mnemosyne/`, and stores provider credential
 material under `${NOEMA_HOME:-$HOME/.noema}/providers/<provider>/<account>/`.
 
 ## Configuration

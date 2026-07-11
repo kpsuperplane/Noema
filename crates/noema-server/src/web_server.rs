@@ -1,4 +1,4 @@
-use crate::{DaemonError, NoemaRuntimeHost, ProviderConfig, WebConfig};
+use noema_core::{DaemonError, NoemaRuntimeHost, ProviderConfig, WebConfig};
 
 use super::web::{self, WebState};
 
@@ -36,7 +36,7 @@ pub async fn run_daemon_web(config: DaemonWebServerConfig) -> Result<(), DaemonE
     let host = NoemaRuntimeHost::start(config.provider)
         .await
         .map_err(|source| DaemonError::Protocol(source.to_string()))?;
-    let graphql_state = crate::graphql::GraphqlState::from_runtime_host(&host);
+    let graphql_state = noema_core::graphql::GraphqlState::from_runtime_host(&host);
     let web_state = WebState::new(graphql_state, authority.clone(), sessions.clone());
     let bootstrap_url = sessions.bootstrap_url(authority.as_str()).ok_or_else(|| {
         DaemonError::Protocol("failed to read the browser bootstrap capability".to_string())

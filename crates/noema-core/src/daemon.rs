@@ -9,8 +9,6 @@ mod protocol;
 mod runtime;
 #[cfg(test)]
 mod tests;
-pub(crate) mod web;
-mod web_server;
 
 pub(crate) use protocol::TurnStreamEvent;
 pub use protocol::{
@@ -19,4 +17,3 @@ pub use protocol::{
 pub use runtime::RuntimeModelProvider;
 pub(crate) use runtime::turn_timing::mark_graphql_turn_event;
 pub(crate) use runtime::{CodexRuntimeHandle, RuntimeProviderMap};
-pub use web_server::{DaemonWebServerConfig, run_daemon_web};

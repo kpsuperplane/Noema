@@ -1,9 +1,7 @@
 //! Standalone local web server entrypoint for Noema.
 
-use noema_core::{
-    Config, ConfigOverrides, DaemonWebServerConfig, NoemaHomeInitOptions, NoemaPaths,
-    init_noema_home, run_daemon_web,
-};
+use noema_core::{Config, ConfigOverrides, NoemaHomeInitOptions, NoemaPaths, init_noema_home};
+use noema_server::{DaemonWebServerConfig, run_daemon_web};
 
 #[tokio::main]
 async fn main() {

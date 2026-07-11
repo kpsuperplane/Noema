@@ -5,7 +5,7 @@ use crate::{
     TurnActivityStatus, TurnTranscriptItem, {ConversationItemKind, ConversationItemRecord},
 };
 
-use super::DaemonError;
+use crate::DaemonError;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ConversationReplayItem {

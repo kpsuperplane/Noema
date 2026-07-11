@@ -128,12 +128,12 @@ async fn graphql_ws(
 }
 
 fn with_request_principal(request: async_graphql::Request) -> async_graphql::Request {
-    request.data(crate::graphql::RequestPrincipal::local())
+    request.data(noema_core::graphql::RequestPrincipal::local())
 }
 
 fn request_principal_data() -> Data {
     let mut data = Data::default();
-    data.insert(crate::graphql::RequestPrincipal::local());
+    data.insert(noema_core::graphql::RequestPrincipal::local());
     data
 }
 
@@ -180,7 +180,7 @@ async fn mcp_oauth_callback(State(state): State<WebState>, RawQuery(query): RawQ
     };
     let callback_url = oauth_callback_url(state.authority(), &query);
 
-    match crate::graphql::complete_mcp_server_oauth_setup(
+    match noema_core::graphql::complete_mcp_server_oauth_setup(
         state.graphql_state(),
         &attempt_id,
         &callback_url,
@@ -222,7 +222,7 @@ async fn download_artifact_slug(
         return StatusCode::UNAUTHORIZED.into_response();
     };
     let Some(artifact_version_id) =
-        crate::artifact_version_id_from_download_slug(&artifact_version_slug)
+        noema_core::artifact_version_id_from_download_slug(&artifact_version_slug)
     else {
         return not_found();
     };
@@ -242,41 +242,30 @@ async fn download_artifact_id(
 
 async fn download_artifact(
     state: &WebState,
-    principal: &crate::graphql::RequestPrincipal,
+    principal: &noema_core::graphql::RequestPrincipal,
     artifact_version_id: &str,
 ) -> Response {
-    let store = match state.graphql_state().store() {
-        Ok(store) => store,
-        Err(_) => return internal_error(state, "store_state"),
-    };
-    let paths = match state.graphql_state().paths() {
-        Ok(paths) => paths,
-        Err(_) => return internal_error(state, "path_state"),
-    };
-    let (artifact, version) = match store
-        .get_local_artifact_version_for_human(artifact_version_id, principal.subject_id())
-        .await
+    let download = match noema_core::graphql::authorized_artifact_download(
+        state.graphql_state(),
+        principal,
+        artifact_version_id,
+    )
+    .await
     {
-        Ok(Some(artifact)) => artifact,
+        Ok(Some(download)) => download,
         Ok(None) => return not_found(),
-        Err(_) => return internal_error(state, "authorized_version_query"),
+        Err(_) => return internal_error(),
     };
-    let Ok((absolute_path, bytes)) =
-        crate::artifacts::read_validated_local_artifact_file(paths, &artifact, &version)
-    else {
-        return not_found();
-    };
-    let Some(filename) = absolute_path.file_name().and_then(|value| value.to_str()) else {
-        return not_found();
-    };
-    let content_type = safe_header_value(
-        version
-            .media_type
-            .as_deref()
-            .unwrap_or("application/octet-stream"),
-    );
-    let content_disposition = safe_header_value(&attachment_content_disposition(filename));
-    let mut response = Body::from(bytes).into_response();
+    artifact_download_response(download)
+}
+
+fn artifact_download_response(
+    download: noema_core::graphql::AuthorizedArtifactDownload,
+) -> Response {
+    let content_type = safe_header_value(&download.media_type);
+    let content_disposition =
+        safe_header_value(&attachment_content_disposition(&download.filename));
+    let mut response = Body::from(download.bytes).into_response();
     response
         .headers_mut()
         .insert(header::CONTENT_TYPE, content_type);
@@ -318,8 +307,7 @@ async fn method_not_found() -> Response {
     not_found()
 }
 
-fn internal_error(state: &WebState, operation: &'static str) -> Response {
-    state.record_artifact_failure(operation);
+fn internal_error() -> Response {
     plain_response(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
 }
 

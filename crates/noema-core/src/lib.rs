@@ -63,8 +63,7 @@ pub use conversation::{
     NewConversationTurn, ReplayMode,
 };
 pub use daemon::{
-    AgentStatus, DaemonError, DaemonWebServerConfig, StartedConversation, TurnActivityStatus,
-    TurnTranscriptItem, run_daemon_web,
+    AgentStatus, DaemonError, StartedConversation, TurnActivityStatus, TurnTranscriptItem,
 };
 pub use graphql::RequestPrincipal;
 pub use home::{

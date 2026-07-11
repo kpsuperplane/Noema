@@ -6,4 +6,4 @@ CC = "sccache clang"
 CXX = "sccache clang++"
 
 [alias]
-dev = ["run", "-p", "noema-core", "--bin", "noema_dev"]
+dev = ["run", "-p", "noema-server", "--bin", "noema_dev"]

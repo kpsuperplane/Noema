@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/noema-core", "crates/noema-desktop"]
+members = ["crates/noema-core", "crates/noema-desktop", "crates/noema-server"]
 default-members = ["crates/noema-core"]
 resolver = "3"
 

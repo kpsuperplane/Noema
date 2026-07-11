@@ -9,7 +9,7 @@ use crate::{
     },
 };
 
-use super::DaemonError;
+use crate::DaemonError;
 
 const PROVIDER_AUTH_TERMINAL_PERSIST_INTERVAL: Duration = Duration::from_millis(250);
 

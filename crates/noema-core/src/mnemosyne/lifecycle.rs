@@ -198,7 +198,9 @@ impl MnemosyneSidecarCommand {
                     .arg("127.0.0.1")
                     .arg("--port")
                     .arg(port.to_string())
-                    .current_dir(env!("NOEMA_MNEMOSYNE_SIDECAR_DIR"));
+                    .current_dir(
+                        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("mnemosyne-sidecar"),
+                    );
                 command
             }
             Self::Shell(script) => {

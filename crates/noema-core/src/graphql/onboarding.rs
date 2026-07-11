@@ -235,7 +235,7 @@ pub(super) async fn onboarding_status(state: &GraphqlState) -> Result<GraphqlOnb
         .active_provider_account("codex")
         .await
         .map_err(graphql_error)?;
-    let account = crate::daemon::web::reconcile_onboarding_provider_account(store, paths, account)
+    let account = crate::graphql::reconcile_onboarding_provider_account(store, paths, account)
         .await
         .map_err(graphql_error)?;
 
@@ -253,7 +253,7 @@ pub(super) async fn provider_auth_attempt(
         .await
         .map_err(graphql_error)?;
     if let Some(attempt) = &attempt {
-        crate::daemon::web::persist_provider_account_status_from_attempt(store, attempt)
+        crate::graphql::persist_provider_account_status_from_attempt(store, attempt)
             .await
             .map_err(graphql_error)?;
     }
@@ -267,12 +267,12 @@ pub(super) async fn start_provider_auth_attempt(
     let store = state.store()?;
     let paths = state.paths()?;
     let provider_auth = state.provider_auth()?;
-    let request = crate::daemon::web::ProviderAuthStartRequest {
+    let request = crate::graphql::ProviderAuthStartRequest {
         provider_kind: input.provider_kind,
         provider_account_id: input.provider_account_id,
         method: input.method.into(),
     };
-    let attempt = crate::daemon::web::start_provider_auth_attempt_view_from_parts(
+    let attempt = crate::graphql::start_provider_auth_attempt_view_from_parts(
         provider_auth,
         store,
         paths,
