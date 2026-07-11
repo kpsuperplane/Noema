@@ -199,8 +199,24 @@ impl NoemaStore {
                 "UPDATE agent_runs SET status = 'leased', lease_owner = ?1, lease_token = ?2, lease_expires_at = ?3, heartbeat_at = ?4, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = (SELECT run_id FROM agent_runs WHERE status IN ('queued', 'interrupted') ORDER BY priority DESC, queued_at, run_id LIMIT 1) AND status IN ('queued', 'interrupted')",
                 params![worker_id, lease_token, lease_expires_at, now],
             )?;
-            if changed == 0 { return Ok(None); }
-            conn.query_row("SELECT run_id, task_id, run_kind, agent_id, attempt_index, revision_index, parent_run_id, triggering_submission_id, triggering_review_id, provider_kind, provider_account_id, selection_mode, model_profile, reasoning_effort, selection_source, actual_provider_kind, actual_model_profile, status, priority, queued_at, lease_owner, lease_token, lease_expires_at, heartbeat_at, started_at, ended_at, cancellation_requested, retry_count, error_code, error_message, input_tokens, output_tokens, created_at, updated_at FROM agent_runs WHERE lease_owner = ?1 AND lease_token = ?2 AND status = 'leased' ORDER BY updated_at DESC LIMIT 1", params![worker_id, lease_token], run_from_row).optional().map_err(StoreError::Sqlite)
+            if changed == 0 {
+                return Ok(None);
+            }
+            let run = conn
+                .query_row("SELECT run_id, task_id, run_kind, agent_id, attempt_index, revision_index, parent_run_id, triggering_submission_id, triggering_review_id, provider_kind, provider_account_id, selection_mode, model_profile, reasoning_effort, selection_source, actual_provider_kind, actual_model_profile, status, priority, queued_at, lease_owner, lease_token, lease_expires_at, heartbeat_at, started_at, ended_at, cancellation_requested, retry_count, error_code, error_message, input_tokens, output_tokens, created_at, updated_at FROM agent_runs WHERE lease_owner = ?1 AND lease_token = ?2 AND status = 'leased' ORDER BY updated_at DESC LIMIT 1", params![worker_id, lease_token], run_from_row)
+                .optional()?;
+            if let Some(run) = &run {
+                append_run_event(
+                    conn,
+                    &run.run_id,
+                    "run.leased",
+                    serde_json::json!({
+                        "worker_id": worker_id,
+                        "lease_expires_at": run.lease_expires_at,
+                    }),
+                )?;
+            }
+            Ok(run)
         }).await
     }
 
@@ -222,6 +238,16 @@ impl NoemaStore {
                 conn.execute("UPDATE agent_runs SET status = ?2, error_code = ?3, error_message = ?4, started_at = CASE WHEN ?2 = 'running' THEN COALESCE(started_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) ELSE started_at END, ended_at = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled') THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE ended_at END, lease_owner = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled', 'interrupted') THEN NULL ELSE lease_owner END, lease_token = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled', 'interrupted') THEN NULL ELSE lease_token END, lease_expires_at = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled', 'interrupted') THEN NULL ELSE lease_expires_at END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1", params![run_id, next.as_str(), error.as_ref().map(|value| value.0.as_str()), error.as_ref().map(|value| value.1.as_str())])?
             };
             if changed != 1 { return Err(StoreError::InvariantViolation { message: format!("agent run lease or state changed while updating: {run_id}") }); }
+            append_run_event(
+                conn,
+                run_id,
+                &format!("run.{}", next.as_str()),
+                serde_json::json!({
+                    "from": current.as_str(),
+                    "to": next.as_str(),
+                    "error_code": error.as_ref().map(|value| value.0.as_str()),
+                }),
+            )?;
             Ok(())
         }).await?;
         self.get_agent_run(run_id)
@@ -264,6 +290,30 @@ impl NoemaStore {
         }
         Ok(())
     }
+}
+
+fn append_run_event(
+    conn: &rusqlite::Connection,
+    run_id: &str,
+    event_kind: &str,
+    payload: serde_json::Value,
+) -> Result<(), rusqlite::Error> {
+    let sequence: i64 = conn.query_row(
+        "SELECT COALESCE(MAX(sequence_number), 0) + 1 FROM run_events WHERE run_id = ?1",
+        [run_id],
+        |row| row.get(0),
+    )?;
+    conn.execute(
+        "INSERT INTO run_events (event_id, run_id, sequence_number, event_kind, actor_id, payload_json) VALUES (?1, ?2, ?3, ?4, 'system:task-runtime', ?5)",
+        params![
+            super::ids::allocate_id("event"),
+            run_id,
+            sequence,
+            event_kind,
+            payload.to_string(),
+        ],
+    )?;
+    Ok(())
 }
 
 fn run_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRunRecord> {
