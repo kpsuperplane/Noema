@@ -73,14 +73,27 @@ implemented; the program must not expose them optimistically.
 
 ## Remaining Crate Sequence
 
-After `noema-server` and `noema-store`, reconsider in this order using Phase 5's
+`noema-server` landed in `e3e00321`. `noema-store` was measured and rejected for
+this program: its 5,448 production lines have 33 consumers and currently depend
+on conversation, provider, MCP, path, diagnostic, and artifact types owned by
+core. A responsible split needs an estimated 140–240 lines of glue and did not
+show enough likely benefit for the remaining LOC budget.
+
+Before reconsidering `noema-store`, extract or internalize a true leaf domain
+boundary, remove provider capability derivation from repository code, replace
+`StoreConfig::from_paths` with primitive path inputs, move diagnostic conversion
+out of `StoreError`, and eliminate external raw-connection test helpers. Then
+re-measure and proceed only if the split needs at most 100 new lines.
+
+After that prerequisite cleanup, reconsider in this order using Phase 5's
 measurement gate:
 
 1. `noema-domain`
-2. `noema-runtime`
-3. `noema-integrations`
-4. `noema-api`
-5. composition-only `noema-core`
+2. `noema-store`
+3. `noema-runtime`
+4. `noema-integrations`
+5. `noema-api`
+6. composition-only `noema-core`
 
 Each later extraction requires its own two-hour maximum plan, a +300 LOC cap,
 at least a 20% focused incremental improvement, no more than 10% clean-build

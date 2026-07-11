@@ -211,10 +211,10 @@ Proposed responsibilities:
 
 Staged extraction:
 
-- [ ] **P2** Capture baseline `cargo build --timings` results before changing crate boundaries.
-- [ ] **P2** Measure incremental checks after representative GraphQL, store, provider, and frontend-asset edits.
-- [ ] **P1** Extract `noema-server` so frontend assets and sidecar source changes no longer invalidate the entire core crate.
-- [ ] **P1** Move `daemon/web/**`, `graphql/**`, `noema_web`, `noema_dev`, and web asset embedding into the server/API boundary.
+- [x] **P2** Capture baseline `cargo build --timings` results before changing crate boundaries.
+- [x] **P2** Measure incremental checks after representative store, provider, runtime, server-route, and frontend-asset edits.
+- [x] **P1** Extract `noema-server` so frontend assets and sidecar source changes no longer invalidate the entire core crate.
+- [x] **P1** Move HTTP/session/asset transport, `noema_web`, `noema_dev`, and web asset embedding into `noema-server`; keep GraphQL product logic and shared provider/replay support in core to preserve acyclic ownership.
 - [ ] **P1** Make release asset generation fail when required entry assets are absent.
 - [ ] **P1** Extract `noema-store` with no dependency on GraphQL, provider adapters, MCP transports, or web parsing.
 - [ ] **P2** Extract stable shared types into `noema-domain` after server and store boundaries clarify dependency direction.
@@ -223,16 +223,16 @@ Staged extraction:
 - [ ] **P2** Reduce `noema-core` to composition and curated public re-exports.
 - [ ] **P2** Update `noema-desktop` to depend only on the composition/API surfaces it requires.
 - [ ] **P2** Move subsystem tests into their owning crates so focused package tests avoid unrelated dependencies.
-- [ ] **P2** Compare clean and incremental timings after each extraction and stop splitting when gains flatten.
+- [x] **P2** Compare clean and incremental timings after the server extraction and stop the store split when its prerequisite boundary and benefit fail the gate.
 
 Boundary guardrails:
 
-- [ ] Keep dependency flow acyclic and directed from domain toward composition.
-- [ ] Avoid broad internal preludes or facade imports in lower-level crates.
-- [ ] Use `pub(crate)` and narrow public interfaces instead of exporting implementation details solely to complete the split.
-- [ ] Avoid cross-crate generic-heavy APIs unless measurements justify them.
-- [ ] Preserve workspace dependency inheritance, lints, MSRV, and validation commands across every crate.
-- [ ] Keep the initial split to a small number of cohesive crates; create provider- or MCP-specific crates only from measured evidence.
+- [x] Keep dependency flow acyclic and directed from core composition toward the server executable boundary.
+- [x] Avoid broad internal preludes or facade imports in lower-level crates.
+- [x] Use `pub(crate)` and narrow public interfaces instead of exporting implementation details solely to complete the split.
+- [x] Avoid cross-crate generic-heavy APIs unless measurements justify them.
+- [x] Preserve workspace dependency inheritance, lints, MSRV, and validation commands across every crate.
+- [x] Keep the initial split to one cohesive server crate; create additional crates only from measured evidence.
 
 ## Testing And CI
 

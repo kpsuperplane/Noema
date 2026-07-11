@@ -34,14 +34,14 @@ composition facade and owns `NoemaRuntimeHost`.
 
 Before moving files:
 
-- [ ] Capture a clean `cargo build --workspace --timings` duration once.
-- [ ] Capture warm `cargo check` duration for `noema-core` and
+- [x] Capture a clean `cargo build --workspace --timings` duration once.
+- [x] Capture warm `cargo check` duration for `noema-core` and
   `noema-desktop` three times; use the median.
-- [ ] Capture representative warm checks after a no-op-preserving edit to a web
+- [x] Capture representative warm checks after a no-op-preserving edit to a web
   route, store query, provider adapter, and runtime module, restoring the edit
   after each measurement.
-- [ ] Record rustc unit counts and which packages rebuild.
-- [ ] Do not clear sccache, change the compiler wrapper, or delete shared cache
+- [x] Record rustc unit counts and which packages rebuild.
+- [x] Do not clear sccache, change the compiler wrapper, or delete shared cache
   state.
 
 Use wall-clock timings only as directional evidence; the primary gate is
@@ -71,18 +71,24 @@ Move from `noema-core`:
 
 Requirements:
 
-- [ ] `noema-server` depends on the narrow `noema-core` composition/API surface.
-- [ ] `noema-core` no longer has a build script invalidated by frontend assets or
+- [x] `noema-server` depends on the narrow `noema-core` composition/API surface.
+- [x] `noema-core` no longer has a build script invalidated by frontend assets or
   sidecar source.
-- [ ] Server-only dependencies leave `noema-core` when no longer used there.
-- [ ] Product behavior and generated frontend paths remain unchanged.
-- [ ] `cargo check -p noema-core` does not compile server-only route/asset code.
-- [ ] Commit and measure before beginning `noema-store`.
+- [x] Server-only dependencies leave `noema-core` when no longer used there.
+- [x] Product behavior and generated frontend paths remain unchanged.
+- [x] `cargo check -p noema-core` does not compile server-only route/asset code.
+- [x] Commit and measure before beginning `noema-store`.
 
 Reject the extraction if it needs broad re-exports of internal runtime/provider
 types or exceeds +200 net lines by itself.
 
 ### Checkpoint 5B — Extract `noema-store` (60 minutes)
+
+**Gate result:** rejected for this program. The store imports conversation,
+provider, MCP, path, diagnostic, and artifact vocabulary from core; extracting
+it now would require a premature domain crate, an estimated 140–240 lines of
+new glue, and no demonstrated build-time gain. The prerequisite cleanup is
+recorded in `deferred-backlog.md`.
 
 Create:
 
@@ -163,9 +169,28 @@ application solely to make the crate diagram symmetric.
 
 ## Exit Evidence
 
-- [ ] Net phase addition is 300 lines or fewer.
-- [ ] Clean and warm before/after timings recorded.
-- [ ] Focused store/server tests avoid unrelated packages.
-- [ ] Workspace dependency graph is acyclic.
-- [ ] `noema-core` has no server asset build invalidation.
-- [ ] Only measured, completed crate boundaries are checked off in the tracker.
+- [x] Net phase addition is 300 lines or fewer.
+- [x] Clean and warm before/after timings recorded.
+- [x] Focused server tests avoid unrelated packages; the store extraction was
+  rejected before implementation.
+- [x] Workspace dependency graph is acyclic.
+- [x] `noema-core` has no server asset build invalidation.
+- [x] Only measured, completed crate boundaries are checked off in the tracker.
+
+## Completed Evidence
+
+- Commit: `e3e00321`.
+- Maintained source: 88,642 before, 88,571 after (`-71`).
+- Baseline workspace build: 19.58s, 597 units (592 fresh, 5 dirty); generated
+  assets rebuilt core, its three binaries, and desktop.
+- First post-extraction workspace build: 20.10s (`+2.6%`, within the 10% gate).
+- Asset-only workspace rebuild: 4.43s and only `noema-server`, down 77% from
+  the baseline asset-triggered build.
+- Representative core edits: about 3.4s, down from about 5.45s (38%). Warm
+  no-op medians remained 0.16s for core and 0.20s for desktop.
+- Full gate: 623 core, 17 server, 10 dev-supervisor, and 7 desktop tests passed;
+  formatting, workspace check, strict Clippy, frontend generation/routes/lint/
+  build, and diff checks passed. A first overloaded run exposed known parallel
+  Foundation timeouts; targeted reruns and the subsequent full run were green.
+- Two Luna-max reviews found no remaining Critical or Important issue after
+  artifact authorization/filesystem/header coverage was restored.

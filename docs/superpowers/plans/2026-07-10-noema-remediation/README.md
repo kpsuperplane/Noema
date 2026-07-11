@@ -82,10 +82,9 @@ Rules:
 
 - Root owns scope, live integration, validation, commits, time accounting, and
   final decisions.
-- Use a Terra-medium implementation agent only when a task is large enough to
-  save at least 20 minutes. Give it one bounded subsystem and no commit access.
-- Use a Sol-high read-only reviewer only for transport authentication,
-  persistence integrity, or final closure. Cap each review at 20 minutes.
+- Use GPT-5.6 Luna at maximum reasoning for implementation and read-only review
+  agents, per the user's July 10 direction. Give each agent one bounded
+  subsystem and no commit access; cap reviews at 20 minutes.
 - Do not create a separate planner for each phase. These files are the plan.
 - Never run agents concurrently against the same files or shared Cargo build.
 - Interrupt an agent that has produced no reviewable diff or decision within 45

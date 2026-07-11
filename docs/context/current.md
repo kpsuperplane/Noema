@@ -528,8 +528,15 @@ The next storage slice should stay small and concrete:
   conversion and LOC-positive atomic-writer adoption. Phase 4 removed the
   unenforced MCP ownership/trusted-identity surfaces and English schema-field
   inference, leaving Mixed calibrations fail-closed, and ended at `90,541`
-  lines. Phase 5 is measured crate extraction; do not reopen earlier library
-  adoption unless a proposed crate replaces more code than it adds.
+  lines. Two reserve deletions then consolidated Responses request profiles and
+  removed the inert MCP approval placeholder, reaching `88,642`. Phase 5
+  extracted the loopback HTTP/session/asset boundary and web/dev
+  binaries into `noema-server` at `88,571` lines. Asset-only workspace rebuilds
+  now invalidate only the server (4.43s versus 19.58s baseline), and
+  representative core edits check in about 3.4s versus 5.45s. The store split
+  was rejected pending a true leaf-domain cleanup; do not force it through
+  reverse dependencies or an accidental store-owned domain layer. Phase 6 is
+  release, CI, dependency cleanup, and final accounting.
 
 - Decide whether richer Mnemosyne memory browsing should include entity, provenance,
   and history drill-ins.
