@@ -1032,6 +1032,66 @@ export const TaskDetailDocument = gql`
   }
 `;
 
+export const TaskModelPoolsDocument = gql`
+  query TaskModelPools {
+    taskModelPools {
+      poolEntryId
+      complexity
+      label
+      providerKind
+      providerAccountId
+      modelProfile
+      reasoningEffort
+      enabled
+      sortOrder
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
+export const CreateTaskModelPoolEntryDocument = gql`
+  mutation CreateTaskModelPoolEntry($input: TaskModelPoolEntryInput!) {
+    createTaskModelPoolEntry(input: $input) {
+      poolEntryId
+      complexity
+      label
+      providerKind
+      providerAccountId
+      modelProfile
+      reasoningEffort
+      enabled
+      sortOrder
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
+export const UpdateTaskModelPoolEntryDocument = gql`
+  mutation UpdateTaskModelPoolEntry($poolEntryId: String!, $input: TaskModelPoolEntryInput!) {
+    updateTaskModelPoolEntry(poolEntryId: $poolEntryId, input: $input) {
+      poolEntryId
+      complexity
+      label
+      providerKind
+      providerAccountId
+      modelProfile
+      reasoningEffort
+      enabled
+      sortOrder
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
+export const DeleteTaskModelPoolEntryDocument = gql`
+  mutation DeleteTaskModelPoolEntry($poolEntryId: String!) {
+    deleteTaskModelPoolEntry(poolEntryId: $poolEntryId)
+  }
+`;
+
 export const CreateConversationExternalArtifactDocument = gql`
   mutation CreateConversationExternalArtifact($input: CreateConversationExternalArtifactInput!) {
     createConversationExternalArtifact(input: $input) {

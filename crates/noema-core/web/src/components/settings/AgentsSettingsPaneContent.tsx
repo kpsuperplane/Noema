@@ -1,6 +1,8 @@
 import { Badge } from "@astryxdesign/core/Badge";
 import * as stylex from "@stylexjs/stylex";
+import type { TaskModelPoolEntryInput, TaskModelPoolsQuery } from "@/generated/graphql";
 import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
+import { TaskModelPoolsSettings } from "./TaskModelPoolsSettings";
 import type {
   ModelPreference,
   ModelPreferenceSaveInput,
@@ -31,7 +33,16 @@ export function AgentsSettingsPaneContent({
   error,
   saving,
   saveError,
-  onSaveModelPreference
+  onSaveModelPreference,
+  taskModelPoolEntries,
+  taskModelPoolModelOptions,
+  taskModelPoolLoading,
+  taskModelPoolError,
+  taskModelPoolSaving,
+  taskModelPoolSaveError,
+  onCreateTaskModelPool,
+  onUpdateTaskModelPool,
+  onDeleteTaskModelPool
 }: {
   agents: readonly AgentSettingsAgent[];
   loading: boolean;
@@ -39,6 +50,15 @@ export function AgentsSettingsPaneContent({
   saving: boolean;
   saveError: string | null;
   onSaveModelPreference: (input: SaveAgentModelPreferenceInput) => Promise<unknown>;
+  taskModelPoolEntries: readonly TaskModelPoolsQuery["taskModelPools"][number][];
+  taskModelPoolModelOptions: readonly ModelProviderOption[];
+  taskModelPoolLoading: boolean;
+  taskModelPoolError: string | null;
+  taskModelPoolSaving: boolean;
+  taskModelPoolSaveError: string | null;
+  onCreateTaskModelPool: (input: TaskModelPoolEntryInput) => Promise<unknown>;
+  onUpdateTaskModelPool: (poolEntryId: string, input: TaskModelPoolEntryInput) => Promise<unknown>;
+  onDeleteTaskModelPool: (poolEntryId: string) => Promise<unknown>;
 }) {
   if (loading) {
     return <p {...stylex.props(styles.mutedText)}>Loading agents...</p>;
@@ -109,6 +129,17 @@ export function AgentsSettingsPaneContent({
           </article>
         );
       })}
+      <TaskModelPoolsSettings
+        entries={taskModelPoolEntries}
+        error={taskModelPoolError}
+        loading={taskModelPoolLoading}
+        modelOptions={taskModelPoolModelOptions}
+        onCreate={onCreateTaskModelPool}
+        onDelete={onDeleteTaskModelPool}
+        onUpdate={onUpdateTaskModelPool}
+        saveError={taskModelPoolSaveError}
+        saving={taskModelPoolSaving}
+      />
     </div>
   );
 }
