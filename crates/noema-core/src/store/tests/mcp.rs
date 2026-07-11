@@ -376,6 +376,99 @@ async fn ready_calibration_enables_mcp_server() {
         .expect("get server")
         .expect("server");
     assert!(after.enabled);
+
+    store
+        .save_tool_calibration(google_read_calibration(
+            McpTrustClassification::Untrusted,
+            McpTrustClassification::None,
+            McpCalibrationStatus::Ready,
+            "fingerprint_1",
+        ))
+        .await
+        .expect("save untrusted read calibration");
+    assert!(
+        store
+            .get_mcp_server("mcp_server:google")
+            .await
+            .expect("get server")
+            .expect("server")
+            .enabled
+    );
+}
+
+#[tokio::test]
+async fn ready_write_or_export_calibration_does_not_enable_mcp_server() {
+    let store = test_store_with_mcp_tool().await;
+    for (write_classification, export_classification) in [
+        (
+            McpTrustClassification::Trusted,
+            McpTrustClassification::None,
+        ),
+        (
+            McpTrustClassification::None,
+            McpTrustClassification::Untrusted,
+        ),
+    ] {
+        store
+            .save_tool_calibration(NewToolCalibration {
+                calibration_id: "tool_calibration:read_doc".to_string(),
+                mcp_tool_id: "mcp_tool:google:read_doc".to_string(),
+                read_classification: McpTrustClassification::Trusted,
+                write_classification,
+                export_classification,
+                status: McpCalibrationStatus::Ready,
+                reviewed_by: Some("human:local".to_string()),
+                reviewed_metadata_fingerprint: Some("fingerprint_1".to_string()),
+            })
+            .await
+            .expect("save calibration");
+        assert!(
+            !store
+                .get_mcp_server("mcp_server:google")
+                .await
+                .expect("server")
+                .expect("server exists")
+                .enabled
+        );
+    }
+}
+
+#[tokio::test]
+async fn stale_ready_fingerprint_is_not_projected_enabled() {
+    let store = test_store_with_mcp_tool().await;
+    store
+        .save_tool_calibration(ready_google_read_calibration("fingerprint_1"))
+        .await
+        .expect("save calibration");
+    store
+        .with_connection(|connection| {
+            connection.execute(
+                "UPDATE mcp_tools SET metadata_fingerprint = 'fingerprint_2' WHERE mcp_tool_id = 'mcp_tool:google:read_doc'",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("simulate stale persisted calibration");
+
+    assert!(
+        !store
+            .get_mcp_server("mcp_server:google")
+            .await
+            .expect("server")
+            .expect("server exists")
+            .enabled
+    );
+    assert!(
+        !store
+            .list_mcp_servers()
+            .await
+            .expect("servers")
+            .into_iter()
+            .next()
+            .expect("server exists")
+            .enabled
+    );
 }
 
 #[tokio::test]

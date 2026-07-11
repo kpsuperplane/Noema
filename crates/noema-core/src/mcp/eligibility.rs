@@ -16,6 +16,8 @@ pub enum McpToolIneligibility {
     ServerAuthRequired,
     /// The tool is missing a current ready calibration.
     ToolNotCalibrated,
+    /// The tool can write or export and has no one-shot approval for this dispatch.
+    ToolApprovalRequired,
 }
 
 impl McpToolIneligibility {
@@ -27,6 +29,7 @@ impl McpToolIneligibility {
             Self::ServerUnhealthy => "mcp_server_unhealthy",
             Self::ServerAuthRequired => "mcp_server_auth_required",
             Self::ToolNotCalibrated => "mcp_tool_not_calibrated",
+            Self::ToolApprovalRequired => "mcp_tool_approval_required",
         }
     }
 }
@@ -65,6 +68,11 @@ pub fn mcp_tool_ineligibility(
             != Some(tool.metadata_fingerprint.as_str())
     {
         return Some(McpToolIneligibility::ToolNotCalibrated);
+    }
+    if calibration.write_classification != McpTrustClassification::None
+        || calibration.export_classification != McpTrustClassification::None
+    {
+        return Some(McpToolIneligibility::ToolApprovalRequired);
     }
 
     None
@@ -134,4 +142,80 @@ pub(crate) fn truncate_chars(value: &str, max_chars: usize) -> String {
         .collect::<String>();
     truncated.push_str("...");
     truncated
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ready_write_or_export_tool_requires_one_shot_approval() {
+        let server = McpServerRecord {
+            mcp_server_id: "mcp:docs".to_string(),
+            display_name: "Docs".to_string(),
+            transport_kind: crate::McpTransportKind::Stdio,
+            safe_config: serde_json::json!({}),
+            enabled: true,
+            health_status: McpServerHealthStatus::Healthy,
+            auth_status: McpServerAuthStatus::Authenticated,
+            tool_count: 1,
+        };
+        let tool = McpToolRecord {
+            mcp_tool_id: "mcp_tool:docs:read".to_string(),
+            mcp_server_id: "mcp:docs".to_string(),
+            name: "read".to_string(),
+            description: None,
+            input_schema: serde_json::json!({}),
+            output_schema: None,
+            annotations: serde_json::json!({}),
+            metadata_fingerprint: "fp1".to_string(),
+            discovered_at: "now".to_string(),
+        };
+        for (write_classification, export_classification) in [
+            (
+                McpTrustClassification::Trusted,
+                McpTrustClassification::None,
+            ),
+            (
+                McpTrustClassification::None,
+                McpTrustClassification::Untrusted,
+            ),
+        ] {
+            let calibration = ToolCalibrationRecord {
+                calibration_id: "cal1".to_string(),
+                mcp_tool_id: tool.mcp_tool_id.clone(),
+                read_classification: McpTrustClassification::Trusted,
+                write_classification,
+                export_classification,
+                status: McpCalibrationStatus::Ready,
+                reviewed_by: Some("human:local".to_string()),
+                reviewed_metadata_fingerprint: Some("fp1".to_string()),
+            };
+            let reason = mcp_tool_ineligibility(&server, &tool, Some(&calibration))
+                .expect("write/export tool must require approval");
+            assert_eq!(reason, McpToolIneligibility::ToolApprovalRequired);
+            assert_eq!(reason.gateway_error(), "mcp_tool_approval_required");
+        }
+
+        let calibration = ToolCalibrationRecord {
+            calibration_id: "cal1".to_string(),
+            mcp_tool_id: tool.mcp_tool_id.clone(),
+            read_classification: McpTrustClassification::Trusted,
+            write_classification: McpTrustClassification::Trusted,
+            export_classification: McpTrustClassification::None,
+            status: McpCalibrationStatus::Ready,
+            reviewed_by: Some("human:local".to_string()),
+            reviewed_metadata_fingerprint: Some("stale".to_string()),
+        };
+        assert_eq!(
+            mcp_tool_ineligibility(&server, &tool, Some(&calibration)),
+            Some(McpToolIneligibility::ToolNotCalibrated)
+        );
+        let mut disabled_server = server;
+        disabled_server.enabled = false;
+        assert_eq!(
+            mcp_tool_ineligibility(&disabled_server, &tool, Some(&calibration)),
+            Some(McpToolIneligibility::ServerDisabled)
+        );
+    }
 }

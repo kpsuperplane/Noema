@@ -133,9 +133,10 @@ pub(super) fn update_mcp_server_enabled_from_calibrations_on_connection(
           JOIN tool_calibrations c ON c.mcp_tool_id = t.mcp_tool_id
           WHERE t.mcp_server_id = ?1
             AND c.status = 'ready'
-            AND c.read_classification <> 'mixed'
-            AND c.write_classification <> 'mixed'
-            AND c.export_classification <> 'mixed'
+            AND c.read_classification IN ('trusted', 'untrusted')
+            AND c.write_classification = 'none'
+            AND c.export_classification = 'none'
+            AND c.reviewed_metadata_fingerprint = t.metadata_fingerprint
           LIMIT 1
         )
         "#,

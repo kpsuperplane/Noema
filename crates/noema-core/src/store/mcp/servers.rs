@@ -88,9 +88,10 @@ impl NoemaStore {
                     JOIN tool_calibrations c ON c.mcp_tool_id = eligible_t.mcp_tool_id
                     WHERE eligible_t.mcp_server_id = m.mcp_server_id
                       AND c.status = 'ready'
-                      AND c.read_classification <> 'mixed'
-                      AND c.write_classification <> 'mixed'
-                      AND c.export_classification <> 'mixed'
+                      AND c.read_classification IN ('trusted', 'untrusted')
+                      AND c.write_classification = 'none'
+                      AND c.export_classification = 'none'
+                      AND c.reviewed_metadata_fingerprint = eligible_t.metadata_fingerprint
                   ) AS enabled,
                   m.health_status, m.auth_status, COUNT(t.mcp_tool_id) AS tool_count
                 FROM mcp_servers m
@@ -189,9 +190,10 @@ SELECT m.mcp_server_id, m.display_name, m.transport_kind, m.safe_config_json,
     JOIN tool_calibrations c ON c.mcp_tool_id = eligible_t.mcp_tool_id
     WHERE eligible_t.mcp_server_id = m.mcp_server_id
       AND c.status = 'ready'
-      AND c.read_classification <> 'mixed'
-      AND c.write_classification <> 'mixed'
-      AND c.export_classification <> 'mixed'
+      AND c.read_classification IN ('trusted', 'untrusted')
+      AND c.write_classification = 'none'
+      AND c.export_classification = 'none'
+      AND c.reviewed_metadata_fingerprint = eligible_t.metadata_fingerprint
   ) AS enabled,
   m.health_status, m.auth_status, COUNT(t.mcp_tool_id) AS tool_count
 FROM mcp_servers m

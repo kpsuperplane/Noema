@@ -420,6 +420,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn gateway_rejects_ready_write_tool_from_disabled_projection() {
+        let store = test_store().await;
+        seed_mcp_tool(&store, true).await;
+        seed_ready_write_calibration(&store).await;
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let system_errors = SystemErrorLogger::new(temp_dir.path().join("errors.log"));
+        let gateway = CapabilityGateway {
+            store: &store,
+            system_errors: &system_errors,
+        };
+
+        let result = gateway
+            .execute_tool_proposal(GatewayToolProposal {
+                name: "mcp.mcp:notion.notion-search",
+                payload: &json!({"arguments": {"query": "project"}}),
+            })
+            .await;
+        assert!(!result.success);
+        assert_eq!(result.payload["error"], "mcp_server_disabled");
+        assert!(result.requires_provider_continuation);
+    }
+
+    #[tokio::test]
     async fn gateway_reports_unknown_tool_with_provider_continuation() {
         let store = test_store().await;
         let temp_dir = tempfile::tempdir().expect("temp dir");
@@ -632,6 +655,22 @@ mod tests {
                 mcp_tool_id: "mcp_tool:mcp_notion:notion-search".to_string(),
                 read_classification: McpTrustClassification::Trusted,
                 write_classification: McpTrustClassification::None,
+                export_classification: McpTrustClassification::None,
+                status: McpCalibrationStatus::Ready,
+                reviewed_by: Some("human:local".to_string()),
+                reviewed_metadata_fingerprint: Some("fingerprint:notion-search:v1".to_string()),
+            })
+            .await
+            .expect("calibration");
+    }
+
+    async fn seed_ready_write_calibration(store: &crate::NoemaStore) {
+        store
+            .save_tool_calibration(NewToolCalibration {
+                calibration_id: "tool_calibration:notion-search".to_string(),
+                mcp_tool_id: "mcp_tool:mcp_notion:notion-search".to_string(),
+                read_classification: McpTrustClassification::Trusted,
+                write_classification: McpTrustClassification::Trusted,
                 export_classification: McpTrustClassification::None,
                 status: McpCalibrationStatus::Ready,
                 reviewed_by: Some("human:local".to_string()),

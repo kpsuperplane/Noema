@@ -313,6 +313,42 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn native_provider_hides_ready_write_tool_without_one_shot_approval() {
+        let store = crate::store::tests::test_store().await;
+        seed_ready_mcp_tool(&store).await;
+        store
+            .save_tool_calibration(NewToolCalibration {
+                calibration_id: "cal_docs_read".to_string(),
+                mcp_tool_id: "mcp:docs:read".to_string(),
+                read_classification: McpTrustClassification::Trusted,
+                write_classification: McpTrustClassification::Trusted,
+                export_classification: McpTrustClassification::None,
+                status: McpCalibrationStatus::Ready,
+                reviewed_by: Some("human:local".to_string()),
+                reviewed_metadata_fingerprint: Some("fp1".to_string()),
+            })
+            .await
+            .expect("write calibration");
+
+        let tools = build_model_tools(
+            &store,
+            false,
+            ProviderToolCapabilities {
+                native_tools: true,
+                ..ProviderToolCapabilities::default()
+            },
+        )
+        .await
+        .expect("tools");
+        assert!(
+            tools
+                .native
+                .iter()
+                .all(|tool| tool.name.as_str() != "mcp.mcp:docs.read")
+        );
+    }
+
     async fn seed_ready_mcp_tool(store: &crate::NoemaStore) {
         let server = store
             .create_mcp_server(NewMcpServer {
