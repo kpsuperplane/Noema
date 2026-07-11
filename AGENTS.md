@@ -9,7 +9,7 @@
 - Clean code and good architecture are of utmost priority. When implementing features or fixing bugs, take a bigger-picture look at the surrounding system before editing, and aggressively look for ways to deliver the change with the least new net code.
 - Consolidate existing logic whenever reasonable. Prefer improving or reusing the right abstraction over adding parallel paths, duplicate helpers, or narrowly scoped patches that leave the system more fragmented.
 - The project is under active development, do not build backwards compatibility unless explicitly instructed
-- Pre-V1 schema changes may rewrite tables/docs directly. Do not add migrations or compatibility layers unless explicitly requested.
+- Early stage active development, schema changes may rewrite tables/docs directly. Do not add migrations or compatibility layers unless explicitly requested.
 - Try to keep code source files under 750 lines. It is not a hard rule, however any file exceeding that threshold should be inspected for refactor, split up, and cleanup opportunities
 - Do not use direct text, prefix, or English phrase matching as the authority for semantic user intent. It is brittle and fails for multilingual users. Prefer explicit product state, structured model/tool interpretation with policy checks, or language-aware parsers/tests.
 
@@ -23,9 +23,6 @@
 - Treat raw `~/.codex/sessions` files as private source material. Read them only when asked, summarize durable decisions, and do not quote raw transcript unless explicitly requested.
 
 ## Review And Subagents
-- Default coding subagents to `gpt-5.6-terra` with medium reasoning.
-- Use `gpt-5.6-sol` with high reasoning for difficult architecture and adversarial review.
-- Use `gpt-5.6-luna` with low or medium reasoning only for mechanical, high-volume work.
 - Keep narrow changes inline when delegation overhead would exceed the implementation work.
 - For implementation work, assign disjoint ownership by large areas (eg. frontend implementation, rust changes).
 - For adversarial review, reviewers should inspect and report findings without editing files.
