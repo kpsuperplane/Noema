@@ -17,35 +17,36 @@ and leave an honest tracker and release contract.
 ### Checkpoint 6A — Deletion and dependency sweep (30 minutes)
 
 - [ ] Run `cargo-shear` and confirm every finding with `rg` before removal.
-- [ ] Inspect Cargo duplicate versions with `cargo tree -d`; remove avoidable
+  The tool was unavailable; direct dependencies were audited with `rg` instead.
+- [x] Inspect Cargo duplicate versions with `cargo tree -d`; remove avoidable
   duplicates introduced by the program.
-- [ ] Remove dead feature flags, obsolete transport/provider compatibility
-  modules, unused binaries, stale frontend dependencies, ignored generated
-  Python artifacts, and wrapper modules made redundant by crate extraction.
-- [ ] Search for the raw HTTP/WebSocket, old Responses dialect, old SQLite
+- [x] Remove confirmed obsolete transport/provider helpers, stale frontend
+  dependencies, generated Python artifacts, and wrapper types made redundant
+  by the remediation; no unverified feature or binary was removed.
+- [x] Search for the raw HTTP/WebSocket, old Responses dialect, old SQLite
   mutex, detached-task, and duplicated atomic-writer symbols removed by prior
   phases. Delete residual dead paths rather than leaving deprecated shims.
-- [ ] Consolidate repeated validation/dev commands only when one existing tool
+- [x] Consolidate repeated validation/dev commands only when one existing tool
   can own them; do not add a large bespoke script.
-- [ ] Re-run the LOC command. Allocate reserve only if the total exceeds 89,000
+- [x] Re-run the LOC command. Allocate reserve only if the total exceeds 89,000
   and a safe concrete deletion remains.
 
 ### Checkpoint 6B — Standard release and compliance tooling (25 minutes)
 
-- [ ] Add the root MIT `LICENSE`.
+- [x] Add the root MIT `LICENSE`.
 - [ ] Configure `cargo-deny` for licenses, advisories, sources, and duplicate
   bans that are currently actionable.
 - [ ] Configure `cargo-about` to generate Rust redistribution notices instead
   of maintaining a handwritten crate inventory.
 - [ ] Add a `cargo-cyclonedx` command for Rust SBOM generation; use the package
   manager's standard lockfile metadata for the frontend/Python components.
-- [ ] Keep Tauri's official build/bundle/sign/updater path authoritative. Add
+- [x] Keep Tauri's official build/bundle/sign/updater path authoritative. Add
   only the workflow/configuration currently possible without signing secrets.
-- [ ] Make release asset generation fail when the built entry asset or required
+- [x] Make release asset generation fail when the built entry asset or required
   route chunks are absent.
 - [ ] Pin Python sidecar dependencies with the existing Python packaging tool;
   do not create a second lock format.
-- [ ] Document clean-machine prerequisites and the exact unsigned developer
+- [x] Document clean-machine prerequisites and the exact unsigned developer
   bundle command. Signing, notarization, and updater publication remain
   deferred until credentials exist.
 
@@ -76,19 +77,52 @@ application tests.
 
 Then:
 
-- [ ] Run `git diff --check` and confirm a clean worktree after commits.
-- [ ] Record final LOC, total delta, and percentage change.
-- [ ] Record aggregate active agent time by phase and reserve allocation.
-- [ ] Update `docs/codebase-audit-tracker.md` only for evidence-backed completed
+- [x] Run `git diff --check` and confirm only the preserved user `AGENTS.md`
+  change remains after commits.
+- [x] Record final LOC, total delta, and percentage change.
+- [x] Record aggregate active agent time by phase and reserve allocation.
+- [x] Update `docs/codebase-audit-tracker.md` only for evidence-backed completed
   items.
-- [ ] Update `deferred-backlog.md` with uncompleted attempts and newly discovered
+- [x] Update `deferred-backlog.md` with uncompleted attempts and newly discovered
   work.
-- [ ] Reduce `docs/context/current.md` only where current architecture or commands
+- [x] Reduce `docs/context/current.md` only where current architecture or commands
   changed.
-- [ ] Have one Sol-high reviewer inspect the complete program diff for Critical
+- [x] Have one Luna-max reviewer inspect the complete program diff for Critical
   correctness/security/data-loss findings. Cap review at 20 minutes and permit
   one correction round.
-- [ ] Do not push.
+- [x] Do not push.
+
+## Completed Evidence
+
+- Commits: `7d6f1386`, `f813d0b1`, `943a1efa`, and final security correction
+  `98a8d777`.
+- Maintained source: 88,571 before, 88,807 after (`+236`); program total is
+  `-5,117` lines (`-5.45%`) from the 93,924 baseline. Phase 6 exceeded its
+  deletion target only because the final review required 255 lines of focused
+  MCP fail-closed implementation and coverage; the program remains under its
+  89,000-line hard gate.
+- Phase 6A centralized three persistence conversions, collapsed duplicate web
+  provider records, removed a one-use server wrapper and unused direct
+  dependency, and eliminated the duplicate scraper 0.27 parser stack (`-85`).
+- Phase 6B added the MIT license, Python artifact hygiene, generated-source
+  cleanliness, honest developer-bundle documentation, and a Vite-manifest
+  release gate. Positive release builds passed; missing, nested, traversal, and
+  absolute manifest asset cases failed closed (`+66`).
+- CI now runs Rust on macOS, frontend generation/lint/build plus release asset
+  embedding, and Python sidecar unit tests. `cargo-deny` remains explicitly
+  partial/deferred because no tool or validated policy exists.
+- Final review found and closed one Critical gap: write/export MCP tools are now
+  excluded from enabled store projection and model exposure and revalidated at
+  dispatch, while current Ready read-only tools remain available.
+- Final local gate: formatting, workspace check, strict Clippy, 629 core + 17
+  server + 10 dev-supervisor + 7 desktop tests, frontend frozen install/
+  generated/lint/build, Python 5/5, release server build, LOC, and diff checks
+  passed.
+- Estimated aggregate active agent time: approximately 12 agent-hours, below
+  the 16-hour cap: Phase 0 `0.2h`, Phase 1 `3.0h`, Phase 2 `1.5h`, Phase 3
+  `1.4h`, Phase 4 `1.0h`, deletion reserve `1.0h`, Phase 5 `1.7h`, and Phase 6
+  `2.2h`. The reserve funded the two deletion slices that secured the LOC gate;
+  the final security correction stayed within the review reserve.
 
 ## CI Minimum
 

@@ -536,7 +536,16 @@ The next storage slice should stay small and concrete:
   representative core edits check in about 3.4s versus 5.45s. The store split
   was rejected pending a true leaf-domain cleanup; do not force it through
   reverse dependencies or an accidental store-owned domain layer. Phase 6 is
-  release, CI, dependency cleanup, and final accounting.
+  complete at `88,807` maintained lines (`-5,117`, or 5.45%, from baseline).
+  It removed duplicate persistence/provider helpers and the second scraper
+  stack, added root licensing and Python artifact hygiene, made release web
+  assets fail closed through Vite's manifest, documented the unsigned
+  developer-bundle limitation, and added focused Rust/frontend/Python CI.
+  Cargo-deny/about/CycloneDX, Python locking/provisioning, signing, and
+  clean-machine packaging remain explicit follow-ups rather than unvalidated
+  release claims. Write/export MCP tools now remain hidden and fail closed at
+  dispatch until exact one-shot approval is implemented; current-fingerprint
+  Ready read-only tools remain available.
 
 - Decide whether richer Mnemosyne memory browsing should include entity, provenance,
   and history drill-ins.

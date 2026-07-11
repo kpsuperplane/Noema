@@ -49,7 +49,7 @@ Priority labels:
 - [ ] **P1** Stop accepting client-supplied `reviewed_by` values as authoritative identity.
 - [ ] **P1** Make memory retrieval purpose participate in policy decisions.
 - [ ] **P1** Fail closed when a requested memory scope cannot be represented by the memory backend.
-- [ ] **P1** Keep write/export MCP tools hidden or blocked until execution-time governance is complete.
+- [x] **P1** Keep write/export MCP tools hidden or blocked until execution-time governance is complete.
 - [ ] **P2** Persist an auditable policy decision record for every governed tool attempt.
 
 ## Correctness And Data Integrity
@@ -141,7 +141,7 @@ Priority labels:
 
 ## Release And Deployment
 
-- [ ] **P1** Fail release builds when required web assets are missing.
+- [x] **P1** Fail release builds when required web assets are missing.
 - [ ] **P1** Define and implement a distributable managed Mnemosyne runtime.
 - [ ] **P1** Bundle or explicitly provision the required Python runtime and dependencies.
 - [ ] **P1** Pin and lock Python dependencies used by the managed sidecar.
@@ -215,7 +215,7 @@ Staged extraction:
 - [x] **P2** Measure incremental checks after representative store, provider, runtime, server-route, and frontend-asset edits.
 - [x] **P1** Extract `noema-server` so frontend assets and sidecar source changes no longer invalidate the entire core crate.
 - [x] **P1** Move HTTP/session/asset transport, `noema_web`, `noema_dev`, and web asset embedding into `noema-server`; keep GraphQL product logic and shared provider/replay support in core to preserve acyclic ownership.
-- [ ] **P1** Make release asset generation fail when required entry assets are absent.
+- [x] **P1** Make release asset generation fail when required entry assets are absent.
 - [ ] **P1** Extract `noema-store` with no dependency on GraphQL, provider adapters, MCP transports, or web parsing.
 - [ ] **P2** Extract stable shared types into `noema-domain` after server and store boundaries clarify dependency direction.
 - [ ] **P2** Extract runtime orchestration into `noema-runtime`.
@@ -236,7 +236,7 @@ Boundary guardrails:
 
 ## Testing And CI
 
-- [ ] **P1** Add a CI workflow covering Rust, frontend, Python, generated artifacts, and release packaging.
+- [x] **P1** Add CI covering Rust, frontend, Python, generated artifacts, and release web-asset embedding; clean-machine application packaging remains deferred.
 - [ ] **P1** Add a frontend `test` script and include it in normal validation.
 - [ ] **P1** Fix the stale shell-navigation tests for Memory and Usage settings.
 - [ ] **P1** Stabilize Foundation subprocess tests under the default parallel Rust test command.
@@ -248,7 +248,7 @@ Boundary guardrails:
 - [ ] **P1** Add MCP policy matrices covering ownership, scopes, approval, revocation, and execution-time revalidation.
 - [ ] **P2** Add stale-tool reconciliation, tool-ID collision, schema violation, and cursor-cycle tests.
 - [ ] **P2** Add concurrent primary-conversation and active-summary creation tests.
-- [ ] **P2** Regenerate GraphQL schema, operation types, and route trees in CI and require a clean diff.
+- [x] **P2** Regenerate GraphQL schema, operation types, and route trees in CI and require a clean diff.
 - [ ] **P2** Add clean-release and installed-application tests.
 
 ## Documentation And Repository Hygiene
@@ -259,12 +259,12 @@ Boundary guardrails:
 - [ ] **P2** Remove obsolete `/remember`, `/memory/graph`, and flat Settings route claims.
 - [ ] **P2** Reduce `docs/context/current.md` to concise current state, decisions, and open loops.
 - [ ] **P2** Separate historical plans and superseded architecture from current authoritative docs.
-- [ ] **P3** Untrack Python `__pycache__`, `.pyc`, and `.egg-info` artifacts.
+- [x] **P3** Untrack Python `__pycache__`, `.pyc`, and `.egg-info` artifacts.
 - [ ] **P3** Untrack ignored `.superpowers` task reports.
-- [ ] **P3** Add Python cache and packaging outputs to `.gitignore`.
-- [ ] **P3** Remove unused `@xyflow/react`, `d3-force`, and `@types/d3-force` dependencies.
-- [ ] **P2** Add the missing root MIT `LICENSE` file.
-- [ ] **P2** Document the actual release build and packaging contract.
+- [x] **P3** Add Python cache and packaging outputs to `.gitignore`.
+- [x] **P3** Remove unused `@xyflow/react`, `d3-force`, and `@types/d3-force` dependencies.
+- [x] **P2** Add the missing root MIT `LICENSE` file.
+- [x] **P2** Document the actual release build and packaging contract, including its current developer-only Mnemosyne limitation.
 
 ## Recommended Milestones
 

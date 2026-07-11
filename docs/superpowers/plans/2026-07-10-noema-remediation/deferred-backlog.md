@@ -102,6 +102,18 @@ are not planned until profiling shows an independent hotspot.
 
 ## Release Follow-ups
 
+- Adopt and validate `cargo-deny` before making it a required CI policy. The
+  current graph has legitimate duplicate families and a broad license set, so
+  a guessed allowlist was rejected. The CI minimum is partial until this lands.
+- Add `cargo-about` notices and `cargo-cyclonedx` SBOM generation only with a
+  concrete release-artifact owner and locally validated templates/commands.
+- Choose one Python locking tool before pinning Mnemosyne transitives. The
+  current PEP 621 project uses range constraints and has no lock tool; direct
+  `==` pins would not provide a transitive lock.
+- Provision a Python runtime, dependencies, and sidecar sources in the desktop
+  bundle. The current unsigned developer bundle uses ambient Python plus the
+  source tree or an explicit sidecar command.
+
 - macOS signing and notarization once credentials are available.
 - Published updater manifests and explicit-confirmation update UX.
 - Windows/Linux installed bundles and platform-specific sidecar provisioning.
