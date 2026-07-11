@@ -363,6 +363,34 @@ pub enum ReasoningEffort {
     XHigh,
 }
 
+impl ReasoningEffort {
+    /// Return the stable lowercase value stored in Noema persistence.
+    #[must_use]
+    pub(crate) const fn as_persistence_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Minimal => "minimal",
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::XHigh => "xhigh",
+        }
+    }
+
+    /// Parse a stable lowercase value read from Noema persistence.
+    pub(crate) fn from_persistence_str(value: &str) -> Option<Self> {
+        match value {
+            "none" => Some(Self::None),
+            "minimal" => Some(Self::Minimal),
+            "low" => Some(Self::Low),
+            "medium" => Some(Self::Medium),
+            "high" => Some(Self::High),
+            "xhigh" => Some(Self::XHigh),
+            _ => None,
+        }
+    }
+}
+
 /// Provider-neutral optional generation controls.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct GenerateOptions {
@@ -719,6 +747,22 @@ mod reasoning_effort_tests {
             ReasoningEffort::XHigh
         );
         assert!(serde_json::from_str::<ReasoningEffort>("\"extreme\"").is_err());
+    }
+
+    #[test]
+    fn reasoning_effort_persistence_values_round_trip_exactly() {
+        for (effort, stored) in [
+            (ReasoningEffort::None, "none"),
+            (ReasoningEffort::Minimal, "minimal"),
+            (ReasoningEffort::Low, "low"),
+            (ReasoningEffort::Medium, "medium"),
+            (ReasoningEffort::High, "high"),
+            (ReasoningEffort::XHigh, "xhigh"),
+        ] {
+            assert_eq!(effort.as_persistence_str(), stored);
+            assert_eq!(ReasoningEffort::from_persistence_str(stored), Some(effort));
+        }
+        assert_eq!(ReasoningEffort::from_persistence_str("extreme"), None);
     }
 }
 

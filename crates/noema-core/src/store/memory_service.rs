@@ -168,7 +168,7 @@ impl NoemaStore {
                     input.provider_account_id,
                     input.provider_kind,
                     input.model_profile,
-                    input.reasoning_effort.map(reasoning_effort_as_str),
+                    input.reasoning_effort.map(ReasoningEffort::as_persistence_str),
                 ],
             )?;
             Ok(())
@@ -243,29 +243,6 @@ impl NoemaStore {
     }
 }
 
-fn reasoning_effort_as_str(reasoning_effort: ReasoningEffort) -> &'static str {
-    match reasoning_effort {
-        ReasoningEffort::None => "none",
-        ReasoningEffort::Minimal => "minimal",
-        ReasoningEffort::Low => "low",
-        ReasoningEffort::Medium => "medium",
-        ReasoningEffort::High => "high",
-        ReasoningEffort::XHigh => "xhigh",
-    }
-}
-
-fn reasoning_effort_from_str(reasoning_effort: &str) -> Option<ReasoningEffort> {
-    match reasoning_effort {
-        "none" => Some(ReasoningEffort::None),
-        "minimal" => Some(ReasoningEffort::Minimal),
-        "low" => Some(ReasoningEffort::Low),
-        "medium" => Some(ReasoningEffort::Medium),
-        "high" => Some(ReasoningEffort::High),
-        "xhigh" => Some(ReasoningEffort::XHigh),
-        _ => None,
-    }
-}
-
 fn settings_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryServiceSettingsRecord> {
     let mode: String = row.get(1)?;
     let port: Option<u16> = row.get(3)?;
@@ -280,7 +257,7 @@ fn settings_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryServiceS
         model_profile: row.get(6)?,
         reasoning_effort: reasoning_effort
             .as_deref()
-            .and_then(reasoning_effort_from_str),
+            .and_then(ReasoningEffort::from_persistence_str),
     })
 }
 

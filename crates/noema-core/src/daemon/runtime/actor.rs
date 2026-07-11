@@ -112,14 +112,14 @@ impl CodexRuntimeActor {
     #[allow(dead_code)]
     pub(in crate::daemon) async fn resolved_web_search_provider(
         &self,
-    ) -> Result<super::web_tools::ResolvedWebSearchProvider, crate::StoreError> {
+    ) -> Result<super::web_tools::ResolvedWebProvider, crate::StoreError> {
         super::web_tools::resolve_web_search_provider(&self.store).await
     }
 
     #[allow(dead_code)]
     pub(in crate::daemon) async fn resolved_web_fetch_provider(
         &self,
-    ) -> Result<super::web_tools::ResolvedWebFetchProvider, crate::StoreError> {
+    ) -> Result<super::web_tools::ResolvedWebProvider, crate::StoreError> {
         super::web_tools::resolve_web_fetch_provider(&self.store).await
     }
 

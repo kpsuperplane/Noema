@@ -3,4 +3,4 @@
 mod web;
 mod web_server;
 
-pub use web_server::{DaemonWebServerConfig, run_daemon_web};
+pub use web_server::run_daemon_web;

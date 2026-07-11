@@ -2,23 +2,6 @@ use noema_core::{DaemonError, NoemaRuntimeHost, ProviderConfig, WebConfig};
 
 use super::web::{self, WebState};
 
-/// Configuration required to start the daemon web server.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DaemonWebServerConfig {
-    /// Provider configuration used by daemon conversations.
-    pub provider: ProviderConfig,
-    /// Local web UI configuration.
-    pub web: WebConfig,
-}
-
-impl DaemonWebServerConfig {
-    /// Create daemon web server configuration.
-    #[must_use]
-    pub fn new(provider: ProviderConfig, web: WebConfig) -> Self {
-        Self { provider, web }
-    }
-}
-
 /// Run the daemon web server until the process receives Ctrl-C.
 ///
 /// # Errors
@@ -26,14 +9,17 @@ impl DaemonWebServerConfig {
 /// Returns [`DaemonError`] when the web listener cannot be bound, the runtime
 /// cannot start, Ctrl-C cannot be observed, or accepting a client connection
 /// fails.
-pub async fn run_daemon_web(config: DaemonWebServerConfig) -> Result<(), DaemonError> {
-    let web_listener = web::bind_listener(&config.web).await?;
+pub async fn run_daemon_web(
+    provider: ProviderConfig,
+    web_config: WebConfig,
+) -> Result<(), DaemonError> {
+    let web_listener = web::bind_listener(&web_config).await?;
     let listener_address = web_listener.local_addr()?;
     let authority = web::authority::CanonicalAuthority::from_socket_addr(listener_address);
     let sessions = web::session::SessionSecurity::generate().map_err(|_| {
         DaemonError::Protocol("failed to generate the browser bootstrap capability".to_string())
     })?;
-    let host = NoemaRuntimeHost::start(config.provider)
+    let host = NoemaRuntimeHost::start(provider)
         .await
         .map_err(|source| DaemonError::Protocol(source.to_string()))?;
     let graphql_state = noema_core::graphql::GraphqlState::from_runtime_host(&host);

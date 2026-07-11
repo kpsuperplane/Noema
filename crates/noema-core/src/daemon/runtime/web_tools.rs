@@ -8,16 +8,7 @@ const WEB_FETCH_TOOL: &str = "web.fetch";
 const SYSTEM_ACCOUNT_KEY: &str = "system";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(in crate::daemon) struct ResolvedWebSearchProvider {
-    pub provider_account_id: String,
-    pub provider_kind: String,
-    pub account_key: String,
-    pub fallback_from: Option<String>,
-    pub fallback_reason: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(in crate::daemon) struct ResolvedWebFetchProvider {
+pub(in crate::daemon) struct ResolvedWebProvider {
     pub provider_account_id: String,
     pub provider_kind: String,
     pub account_key: String,
@@ -27,34 +18,21 @@ pub(in crate::daemon) struct ResolvedWebFetchProvider {
 
 pub(in crate::daemon) async fn resolve_web_search_provider(
     store: &NoemaStore,
-) -> Result<ResolvedWebSearchProvider, StoreError> {
-    resolve_bound_provider(store, WEB_SEARCH_TOOL, WEB_SEARCH_TOOL)
-        .await
-        .map(Into::into)
+) -> Result<ResolvedWebProvider, StoreError> {
+    resolve_bound_provider(store, WEB_SEARCH_TOOL, WEB_SEARCH_TOOL).await
 }
 
 pub(in crate::daemon) async fn resolve_web_fetch_provider(
     store: &NoemaStore,
-) -> Result<ResolvedWebFetchProvider, StoreError> {
-    resolve_bound_provider(store, WEB_FETCH_TOOL, WEB_FETCH_TOOL)
-        .await
-        .map(Into::into)
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ResolvedProvider {
-    provider_account_id: String,
-    provider_kind: String,
-    account_key: String,
-    fallback_from: Option<String>,
-    fallback_reason: Option<String>,
+) -> Result<ResolvedWebProvider, StoreError> {
+    resolve_bound_provider(store, WEB_FETCH_TOOL, WEB_FETCH_TOOL).await
 }
 
 async fn resolve_bound_provider(
     store: &NoemaStore,
     tool_name: &str,
     capability_id: &str,
-) -> Result<ResolvedProvider, StoreError> {
+) -> Result<ResolvedWebProvider, StoreError> {
     let Some(expected_capability) = capability_enum(capability_id) else {
         return Ok(default_provider(tool_name));
     };
@@ -90,7 +68,7 @@ async fn resolve_bound_provider(
                 ));
             }
 
-            Ok(ResolvedProvider {
+            Ok(ResolvedWebProvider {
                 provider_account_id: account.provider_account_id,
                 provider_kind: account.provider_kind,
                 account_key: account.account_key,
@@ -120,9 +98,9 @@ async fn load_provider_account(
         .find(|account| account.provider_account_id == provider_account_id))
 }
 
-fn default_provider(tool_name: &str) -> ResolvedProvider {
+fn default_provider(tool_name: &str) -> ResolvedWebProvider {
     match tool_name {
-        WEB_SEARCH_TOOL => ResolvedProvider {
+        WEB_SEARCH_TOOL => ResolvedWebProvider {
             provider_account_id: format!(
                 "provider_account:{}:{SYSTEM_ACCOUNT_KEY}",
                 crate::search::types::DUCKDUCKGO_PUBLIC_PROVIDER_ID
@@ -132,7 +110,7 @@ fn default_provider(tool_name: &str) -> ResolvedProvider {
             fallback_from: None,
             fallback_reason: None,
         },
-        WEB_FETCH_TOOL => ResolvedProvider {
+        WEB_FETCH_TOOL => ResolvedWebProvider {
             provider_account_id: format!(
                 "provider_account:{}:{SYSTEM_ACCOUNT_KEY}",
                 crate::web_fetch::types::DIRECT_HTTP_PROVIDER_ID
@@ -150,7 +128,7 @@ fn fallback_provider(
     tool_name: &str,
     provider_account_id: String,
     fallback_reason: String,
-) -> ResolvedProvider {
+) -> ResolvedWebProvider {
     let mut fallback = default_provider(tool_name);
     fallback.fallback_from = Some(provider_account_id);
     fallback.fallback_reason = Some(fallback_reason);
@@ -162,30 +140,6 @@ fn capability_enum(capability_id: &str) -> Option<CapabilityId> {
         "web.search" => Some(CapabilityId::WebSearch),
         "web.fetch" => Some(CapabilityId::WebFetch),
         _ => None,
-    }
-}
-
-impl From<ResolvedProvider> for ResolvedWebSearchProvider {
-    fn from(resolved: ResolvedProvider) -> Self {
-        Self {
-            provider_account_id: resolved.provider_account_id,
-            provider_kind: resolved.provider_kind,
-            account_key: resolved.account_key,
-            fallback_from: resolved.fallback_from,
-            fallback_reason: resolved.fallback_reason,
-        }
-    }
-}
-
-impl From<ResolvedProvider> for ResolvedWebFetchProvider {
-    fn from(resolved: ResolvedProvider) -> Self {
-        Self {
-            provider_account_id: resolved.provider_account_id,
-            provider_kind: resolved.provider_kind,
-            account_key: resolved.account_key,
-            fallback_from: resolved.fallback_from,
-            fallback_reason: resolved.fallback_reason,
-        }
     }
 }
 

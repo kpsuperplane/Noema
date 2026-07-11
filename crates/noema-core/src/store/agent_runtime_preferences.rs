@@ -112,7 +112,7 @@ impl NoemaStore {
                     account.provider_kind,
                     account.provider_account_id,
                     model_profile,
-                    preference.reasoning_effort.map(reasoning_effort_as_str),
+                    preference.reasoning_effort.map(ReasoningEffort::as_persistence_str),
                 ],
             )?;
             Ok(())
@@ -126,29 +126,6 @@ impl NoemaStore {
     }
 }
 
-fn reasoning_effort_as_str(reasoning_effort: ReasoningEffort) -> &'static str {
-    match reasoning_effort {
-        ReasoningEffort::None => "none",
-        ReasoningEffort::Minimal => "minimal",
-        ReasoningEffort::Low => "low",
-        ReasoningEffort::Medium => "medium",
-        ReasoningEffort::High => "high",
-        ReasoningEffort::XHigh => "xhigh",
-    }
-}
-
-fn reasoning_effort_from_str(reasoning_effort: &str) -> Option<ReasoningEffort> {
-    match reasoning_effort {
-        "none" => Some(ReasoningEffort::None),
-        "minimal" => Some(ReasoningEffort::Minimal),
-        "low" => Some(ReasoningEffort::Low),
-        "medium" => Some(ReasoningEffort::Medium),
-        "high" => Some(ReasoningEffort::High),
-        "xhigh" => Some(ReasoningEffort::XHigh),
-        _ => None,
-    }
-}
-
 fn preference_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRuntimePreferenceRecord> {
     let reasoning_effort: Option<String> = row.get(4)?;
     Ok(AgentRuntimePreferenceRecord {
@@ -158,6 +135,6 @@ fn preference_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRuntime
         model_profile: row.get(3)?,
         reasoning_effort: reasoning_effort
             .as_deref()
-            .and_then(reasoning_effort_from_str),
+            .and_then(ReasoningEffort::from_persistence_str),
     })
 }
