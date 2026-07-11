@@ -47,6 +47,10 @@ pub struct TaskRecord {
     pub final_submission_id: Option<String>,
     /// Latest run id.
     pub latest_run_id: Option<String>,
+    /// Human-facing question that must be answered before resuming.
+    pub blocked_question: Option<String>,
+    /// Executor summary retained while waiting for human input.
+    pub blocked_context: Option<String>,
     /// Terminal reason.
     pub terminal_reason: Option<String>,
     /// Safe error code.
@@ -111,6 +115,7 @@ impl NoemaStore {
         input: NewTask,
     ) -> Result<(TaskRecord, AgentRunRecord), StoreError> {
         let input = input.normalized().map_err(task_domain_error)?;
+        let execution_policy = self.get_task_execution_policy().await?;
         let pool = self
             .select_task_model_pool_entry(input.complexity, &input.pool_entry_id)
             .await?;
@@ -218,8 +223,10 @@ impl NoemaStore {
                 r#"INSERT INTO agent_runs (
                     run_id, task_id, run_kind, agent_id, attempt_index, revision_index,
                     provider_kind, provider_account_id, selection_mode, model_profile,
-                    reasoning_effort, selection_source, status
-                ) VALUES (?1, ?2, 'executor', ?3, 0, 0, ?4, ?5, ?6, ?7, ?8, ?9, 'queued')"#,
+                    reasoning_effort, selection_source, max_provider_continuations,
+                    max_tool_calls, max_active_minutes, progress_audit_interval, status
+                ) VALUES (?1, ?2, 'executor', ?3, 0, 0, ?4, ?5, ?6, ?7, ?8, ?9,
+                    ?10, ?11, ?12, ?13, 'queued')"#,
                 params![
                     run_id,
                     task_id,
@@ -230,6 +237,10 @@ impl NoemaStore {
                     executor.model_profile,
                     executor.reasoning_effort.map(ReasoningEffort::as_persistence_str),
                     executor.selection_source,
+                    execution_policy.max_provider_continuations,
+                    execution_policy.max_tool_calls,
+                    execution_policy.max_active_minutes,
+                    execution_policy.progress_audit_interval,
                 ],
             )?;
             tx.execute(
@@ -271,7 +282,7 @@ impl NoemaStore {
     ) -> Result<Option<TaskRecord>, StoreError> {
         self.with_connection(|conn| {
             conn.query_row(
-                "SELECT task_id, title, request_markdown, complexity, status, owner_human_id, source_conversation_id, source_turn_id, source_item_id, created_by_agent_id, creation_tool_call_id, pool_entry_id, executor_provider_kind, executor_provider_account_id, executor_selection_mode, executor_model_profile, executor_reasoning_effort, executor_selection_source, reviewer_provider_kind, reviewer_provider_account_id, reviewer_selection_mode, reviewer_model_profile, reviewer_reasoning_effort, reviewer_selection_source, revision_index, max_review_rounds, final_submission_id, latest_run_id, terminal_reason, error_code, error_message, created_at, updated_at, completed_at FROM tasks WHERE source_conversation_id = ?1 AND creation_tool_call_id = ?2 LIMIT 1",
+                "SELECT task_id, title, request_markdown, complexity, status, owner_human_id, source_conversation_id, source_turn_id, source_item_id, created_by_agent_id, creation_tool_call_id, pool_entry_id, executor_provider_kind, executor_provider_account_id, executor_selection_mode, executor_model_profile, executor_reasoning_effort, executor_selection_source, reviewer_provider_kind, reviewer_provider_account_id, reviewer_selection_mode, reviewer_model_profile, reviewer_reasoning_effort, reviewer_selection_source, revision_index, max_review_rounds, final_submission_id, latest_run_id, blocked_question, blocked_context, terminal_reason, error_code, error_message, created_at, updated_at, completed_at FROM tasks WHERE source_conversation_id = ?1 AND creation_tool_call_id = ?2 LIMIT 1",
                 params![conversation_id, call_id],
                 task_from_row,
             ).optional().map_err(StoreError::Sqlite)
@@ -282,7 +293,7 @@ impl NoemaStore {
     pub async fn get_task(&self, task_id: &str) -> Result<Option<TaskRecord>, StoreError> {
         self.with_connection(|conn| {
             conn.query_row(
-                "SELECT task_id, title, request_markdown, complexity, status, owner_human_id, source_conversation_id, source_turn_id, source_item_id, created_by_agent_id, creation_tool_call_id, pool_entry_id, executor_provider_kind, executor_provider_account_id, executor_selection_mode, executor_model_profile, executor_reasoning_effort, executor_selection_source, reviewer_provider_kind, reviewer_provider_account_id, reviewer_selection_mode, reviewer_model_profile, reviewer_reasoning_effort, reviewer_selection_source, revision_index, max_review_rounds, final_submission_id, latest_run_id, terminal_reason, error_code, error_message, created_at, updated_at, completed_at FROM tasks WHERE task_id = ?1 LIMIT 1",
+                "SELECT task_id, title, request_markdown, complexity, status, owner_human_id, source_conversation_id, source_turn_id, source_item_id, created_by_agent_id, creation_tool_call_id, pool_entry_id, executor_provider_kind, executor_provider_account_id, executor_selection_mode, executor_model_profile, executor_reasoning_effort, executor_selection_source, reviewer_provider_kind, reviewer_provider_account_id, reviewer_selection_mode, reviewer_model_profile, reviewer_reasoning_effort, reviewer_selection_source, revision_index, max_review_rounds, final_submission_id, latest_run_id, blocked_question, blocked_context, terminal_reason, error_code, error_message, created_at, updated_at, completed_at FROM tasks WHERE task_id = ?1 LIMIT 1",
                 [task_id],
                 task_from_row,
             ).optional().map_err(StoreError::Sqlite)
@@ -342,6 +353,7 @@ impl NoemaStore {
             });
         }
         validate_submission_criteria(self, &input.task_id, &input.criteria).await?;
+        let execution_policy = self.get_task_execution_policy().await?;
         if let Some(existing_submission_id) = self
             .with_connection(|conn| {
                 conn.query_row(
@@ -393,7 +405,7 @@ impl NoemaStore {
                 )?;
             }
             tx.execute(
-                "INSERT INTO agent_runs (run_id, task_id, run_kind, agent_id, attempt_index, revision_index, triggering_submission_id, provider_kind, provider_account_id, selection_mode, model_profile, reasoning_effort, selection_source, status) VALUES (?1, ?2, 'reviewer', ?3, 0, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'queued')",
+                "INSERT INTO agent_runs (run_id, task_id, run_kind, agent_id, attempt_index, revision_index, triggering_submission_id, provider_kind, provider_account_id, selection_mode, model_profile, reasoning_effort, selection_source, max_provider_continuations, max_tool_calls, max_active_minutes, progress_audit_interval, status) VALUES (?1, ?2, 'reviewer', ?3, 0, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 'queued')",
                 rusqlite::params![
                     reviewer_run_id,
                     task.task_id,
@@ -406,6 +418,10 @@ impl NoemaStore {
                     task.reviewer_model.model_profile,
                     task.reviewer_model.reasoning_effort.map(crate::provider::ReasoningEffort::as_persistence_str),
                     task.reviewer_model.selection_source,
+                    execution_policy.max_provider_continuations,
+                    execution_policy.max_tool_calls,
+                    execution_policy.max_active_minutes,
+                    execution_policy.progress_audit_interval,
                 ],
             )?;
             tx.execute(
@@ -479,40 +495,21 @@ impl NoemaStore {
                 });
         }
         let review_id = input.review_id.unwrap_or_else(|| allocate_id("review"));
-        let completion_model =
-            if input.overall_verdict == TaskReviewVerdict::Approve {
-                let preference_model = self
-                    .get_agent_runtime_preference("agent:primary")
+        let execution_policy = self.get_task_execution_policy().await?;
+        let current_executor_model = if input.overall_verdict == TaskReviewVerdict::RequestChanges {
+            Some(
+                self.select_task_model_pool_entry(task.complexity, &task.pool_entry_id)
                     .await?
-                    .map(|preference| {
-                        ModelConfigSnapshot::explicit(
-                            preference.provider_kind,
-                            preference.provider_account_id,
-                            preference.model_profile,
-                            preference.reasoning_effort,
-                            Some("primary_agent".to_string()),
-                        )
-                    });
-                match preference_model {
-                    Some(model) => Some(model.normalized().map_err(|error| {
-                        StoreError::InvariantViolation {
-                            message: error.to_string(),
-                        }
-                    })?),
-                    None => Some(task.reviewer_model.clone()),
-                }
-            } else {
-                None
-            };
+                    .model,
+            )
+        } else {
+            None
+        };
         let (next_status, next_revision, next_run_id, next_run_kind, next_run_model) =
             match input.overall_verdict {
-                TaskReviewVerdict::Approve => (
-                    TaskStatus::Completed,
-                    task.revision_index,
-                    Some(allocate_id("run")),
-                    Some(RunKind::CompletionDelivery),
-                    completion_model,
-                ),
+                TaskReviewVerdict::Approve => {
+                    (TaskStatus::Completed, task.revision_index, None, None, None)
+                }
                 TaskReviewVerdict::NeedsHuman => (
                     TaskStatus::WaitingForHuman,
                     task.revision_index,
@@ -528,7 +525,7 @@ impl NoemaStore {
                         task.revision_index + 1,
                         Some(allocate_id("run")),
                         Some(RunKind::Executor),
-                        Some(task.executor_model.clone()),
+                        current_executor_model,
                     )
                 }
                 TaskReviewVerdict::RequestChanges => (
@@ -555,8 +552,8 @@ impl NoemaStore {
                 (&next_run_id, next_run_kind, &next_run_model)
             {
                 tx.execute(
-                    "INSERT INTO agent_runs (run_id, task_id, run_kind, agent_id, attempt_index, revision_index, triggering_review_id, provider_kind, provider_account_id, selection_mode, model_profile, reasoning_effort, selection_source, status) VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'queued')",
-                    rusqlite::params![run_id, task.task_id, run_kind.as_str(), if run_kind == RunKind::CompletionDelivery { "agent:primary" } else { TASK_EXECUTOR_AGENT_ID }, next_revision, review_id, run_model.provider_kind, run_model.provider_account_id, run_model.selection_mode.as_str(), run_model.model_profile, run_model.reasoning_effort.map(crate::provider::ReasoningEffort::as_persistence_str), run_model.selection_source],
+                    "INSERT INTO agent_runs (run_id, task_id, run_kind, agent_id, attempt_index, revision_index, triggering_review_id, provider_kind, provider_account_id, selection_mode, model_profile, reasoning_effort, selection_source, max_provider_continuations, max_tool_calls, max_active_minutes, progress_audit_interval, status) VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, 'queued')",
+                    rusqlite::params![run_id, task.task_id, run_kind.as_str(), TASK_EXECUTOR_AGENT_ID, next_revision, review_id, run_model.provider_kind, run_model.provider_account_id, run_model.selection_mode.as_str(), run_model.model_profile, run_model.reasoning_effort.map(crate::provider::ReasoningEffort::as_persistence_str), run_model.selection_source, execution_policy.max_provider_continuations, execution_policy.max_tool_calls, execution_policy.max_active_minutes, execution_policy.progress_audit_interval],
                 )?;
                 tx.execute(
                     "INSERT INTO run_events (event_id, run_id, sequence_number, event_kind, actor_id, payload_json) VALUES (?1, ?2, 1, 'run.queued', ?3, ?4)",
@@ -569,8 +566,8 @@ impl NoemaStore {
                 )?;
             }
             tx.execute(
-                "UPDATE tasks SET status = ?2, revision_index = ?3, latest_run_id = COALESCE(?4, latest_run_id), final_submission_id = CASE WHEN ?2 = 'completed' THEN ?5 ELSE final_submission_id END, completed_at = CASE WHEN ?2 = 'completed' THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE completed_at END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1",
-                rusqlite::params![task.task_id, next_status.as_str(), next_revision, next_run_id, input.reviewed_submission_id],
+                "UPDATE tasks SET status = ?2, revision_index = ?3, latest_run_id = COALESCE(?4, latest_run_id), final_submission_id = CASE WHEN ?2 = 'completed' THEN ?5 ELSE final_submission_id END, blocked_question = CASE WHEN ?2 = 'waiting_for_human' THEN ?6 ELSE NULL END, blocked_context = CASE WHEN ?2 = 'waiting_for_human' THEN 'The task reviewer requires human input before execution can continue.' ELSE NULL END, completed_at = CASE WHEN ?2 = 'completed' THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE completed_at END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1",
+                rusqlite::params![task.task_id, next_status.as_str(), next_revision, next_run_id, input.reviewed_submission_id, input.overall_feedback.trim()],
             )?;
             append_task_event_tx(&tx, &task.task_id, "task.review_created", &input.reviewer_run_id, serde_json::json!({"review_id": review_id, "verdict": input.overall_verdict.as_str(), "next_run_id": next_run_id}))?;
             tx.commit()?;
@@ -770,12 +767,14 @@ fn task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRecord> {
         max_review_rounds: row.get(25)?,
         final_submission_id: row.get(26)?,
         latest_run_id: row.get(27)?,
-        terminal_reason: row.get(28)?,
-        error_code: row.get(29)?,
-        error_message: row.get(30)?,
-        created_at: row.get(31)?,
-        updated_at: row.get(32)?,
-        completed_at: row.get(33)?,
+        blocked_question: row.get(28)?,
+        blocked_context: row.get(29)?,
+        terminal_reason: row.get(30)?,
+        error_code: row.get(31)?,
+        error_message: row.get(32)?,
+        created_at: row.get(33)?,
+        updated_at: row.get(34)?,
+        completed_at: row.get(35)?,
     })
 }
 

@@ -106,17 +106,18 @@ pub use provider::{
 };
 pub use runtime_host::{NoemaRuntimeHost, RuntimeHostError};
 pub use store::{
-    AgentRecord, AgentRunItemRecord, AgentRunRecord, AgentRuntimePreferenceRecord, AgentSystemRole,
-    ArtifactOwnerRef, ArtifactRecord, ArtifactSource, ArtifactStorageKind, ArtifactVersionRecord,
-    ArtifactVersionStorage, ArtifactWithVersions, AuxiliaryModelPreferenceRecord,
-    ConversationContextSummaryRecord, McpServerAuthStatus, McpServerHealthStatus, McpServerRecord,
-    McpToolRecord, MemoryArticleCacheRecord, MemoryServiceMode, MemoryServiceSettingsRecord,
-    NewAgent, NewAgentRun, NewAgentRunItem, NewAgentRuntimePreference, NewArtifact,
-    NewArtifactVersion, NewAuxiliaryModelPreference, NewConversationContextSummary, NewMcpServer,
-    NewMcpTool, NewTaskModelPoolEntry, NewToolCalibration, NoemaStore, SaveMemoryArticleCache,
-    SaveMemoryServiceSettings, StoreConfig, StoreError, TaskModelPoolEntry, TaskRecord,
-    TaskReviewRecord, TaskSubmissionRecord, ToolCalibrationRecord, WEB_FETCH_SUMMARIZER_TASK_ID,
-    validate_external_artifact_url,
+    AgentRecord, AgentRunHeartbeat, AgentRunItemRecord, AgentRunItemStatus, AgentRunRecord,
+    AgentRuntimePreferenceRecord, AgentSystemRole, ArtifactOwnerRef, ArtifactRecord,
+    ArtifactSource, ArtifactStorageKind, ArtifactVersionRecord, ArtifactVersionStorage,
+    ArtifactWithVersions, AuxiliaryModelPreferenceRecord, ConversationContextSummaryRecord,
+    McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolRecord,
+    MemoryArticleCacheRecord, MemoryServiceMode, MemoryServiceSettingsRecord, NewAgent,
+    NewAgentRun, NewAgentRunItem, NewAgentRuntimePreference, NewArtifact, NewArtifactVersion,
+    NewAuxiliaryModelPreference, NewConversationContextSummary, NewMcpServer, NewMcpTool,
+    NewTaskModelPoolEntry, NewToolCalibration, NoemaStore, SaveMemoryArticleCache,
+    SaveMemoryServiceSettings, StoreConfig, StoreError, TaskEventRecord, TaskModelPoolEntry,
+    TaskRecord, TaskReviewRecord, TaskSubmissionRecord, ToolCalibrationRecord,
+    WEB_FETCH_SUMMARIZER_TASK_ID, validate_external_artifact_url,
 };
 pub use system_errors::{
     SYSTEM_ERROR_MCP_MALFORMED_RESPONSE, SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE,
@@ -124,9 +125,12 @@ pub use system_errors::{
     SYSTEM_ERROR_STORE_INVARIANT, SystemErrorEvent, SystemErrorLogger, SystemErrorWriteError,
 };
 pub use task::{
-    CriterionOutcome, DEFAULT_TASK_MAX_REVIEW_ROUNDS, ModelConfigError, ModelConfigSnapshot,
-    ModelSelectionMode, NewTask, NewTaskReview, NewTaskSubmission, NewTaskValidationCriterion,
-    RunKind, RunStatus, SubmissionCriterionEvidence, TASK_EXECUTOR_AGENT_ID,
-    TASK_REVIEWER_AGENT_ID, TaskComplexity, TaskDomainError, TaskReviewCriterion,
-    TaskReviewVerdict, TaskSource, TaskStatus, TaskValidationCriterion,
+    CriterionOutcome, DEFAULT_TASK_MAX_ACTIVE_MINUTES, DEFAULT_TASK_MAX_PROVIDER_CONTINUATIONS,
+    DEFAULT_TASK_MAX_REVIEW_ROUNDS, DEFAULT_TASK_MAX_TOOL_CALLS,
+    DEFAULT_TASK_PROGRESS_AUDIT_INTERVAL, MAX_TASK_ACTIVE_MINUTES, MAX_TASK_PROVIDER_CONTINUATIONS,
+    MAX_TASK_TOOL_CALLS, ModelConfigError, ModelConfigSnapshot, ModelSelectionMode, NewTask,
+    NewTaskReview, NewTaskSubmission, NewTaskValidationCriterion, RunKind, RunStatus,
+    SubmissionCriterionEvidence, TASK_EXECUTOR_AGENT_ID, TASK_REVIEWER_AGENT_ID, TaskComplexity,
+    TaskDomainError, TaskExecutionPolicy, TaskReviewCriterion, TaskReviewVerdict, TaskSource,
+    TaskStatus, TaskValidationCriterion,
 };

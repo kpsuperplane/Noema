@@ -406,7 +406,7 @@ pub(crate) async fn test_store() -> crate::NoemaStore {
 }
 
 #[tokio::test]
-async fn task_lifecycle_queues_review_and_completion_delivery() {
+async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
     let store = test_store().await;
     store.ensure_default_actors().await.expect("actors");
     store
@@ -489,7 +489,7 @@ async fn task_lifecycle_queues_review_and_completion_delivery() {
         .create_task_review(crate::NewTaskReview {
             review_id: None,
             task_id: task.task_id.clone(),
-            reviewer_run_id: reviewer_run.run_id,
+            reviewer_run_id: reviewer_run.run_id.clone(),
             reviewed_submission_id: submission.submission_id,
             overall_verdict: crate::TaskReviewVerdict::Approve,
             overall_feedback: "All criteria pass".to_string(),
@@ -508,18 +508,14 @@ async fn task_lifecycle_queues_review_and_completion_delivery() {
         .await
         .expect("review");
     assert_eq!(completed.status, crate::TaskStatus::Completed);
-    let runs = store
-        .list_agent_runs_for_task(&task.task_id)
-        .await
-        .expect("runs");
-    assert!(
-        runs.iter()
-            .any(|run| run.run_kind == crate::RunKind::CompletionDelivery)
+    assert_eq!(
+        completed.latest_run_id.as_deref(),
+        Some(reviewer_run.run_id.as_str())
     );
 }
 
 #[tokio::test]
-async fn failed_task_retry_queues_a_linked_attempt_and_clears_failure() {
+async fn failed_task_resume_queues_a_linked_attempt_with_current_snapshots() {
     let store = test_store().await;
     store.ensure_default_actors().await.expect("actors");
     store
@@ -577,17 +573,13 @@ async fn failed_task_retry_queues_a_linked_attempt_and_clears_failure() {
         )
         .await
         .expect("failed run");
-    store
-        .transition_task(
-            &task.task_id,
-            crate::TaskStatus::Failed,
-            Some("model unavailable"),
-        )
-        .await
-        .expect("failed task");
-
     let (retried_task, retried_run) = store
-        .retry_failed_task(&task.task_id, "human:local", "human:local")
+        .resume_task(
+            &task.task_id,
+            "human:local",
+            "human:local",
+            Some("Continue with the corrected configuration"),
+        )
         .await
         .expect("retry task");
 
@@ -604,9 +596,17 @@ async fn failed_task_retry_queues_a_linked_attempt_and_clears_failure() {
     );
     assert_eq!(retried_run.attempt_index, 1);
     assert_eq!(retried_run.model, failed_run.model);
+    assert_eq!(
+        retried_run.execution_policy,
+        crate::TaskExecutionPolicy::default()
+    );
+    assert_eq!(
+        retried_run.resume_message.as_deref(),
+        Some("Continue with the corrected configuration")
+    );
     assert!(
         store
-            .retry_failed_task(&task.task_id, "human:local", "human:local")
+            .resume_task(&task.task_id, "human:local", "human:local", None)
             .await
             .is_err()
     );
@@ -616,24 +616,76 @@ async fn failed_task_retry_queues_a_linked_attempt_and_clears_failure() {
 async fn agent_run_items_round_trip_in_sequence_order() {
     let store = test_store().await;
     store.ensure_default_actors().await.expect("actors");
-    store
-        .append_agent_run_item(crate::NewAgentRunItem {
-            item_id: Some("run_item:1".to_string()),
-            run_id: "run:test".to_string(),
-            kind: "assistant_output".to_string(),
-            content_text: Some("first".to_string()),
-            payload: serde_json::json!({"response_index": 0}),
+    let run = store
+        .create_agent_run(crate::NewAgentRun {
+            run_id: Some("run:test".to_string()),
+            task_id: "task:test".to_string(),
+            run_kind: crate::RunKind::Executor,
+            agent_id: crate::TASK_EXECUTOR_AGENT_ID.to_string(),
+            revision_index: 0,
+            attempt_index: 0,
+            parent_run_id: None,
+            triggering_submission_id: None,
+            triggering_review_id: None,
+            model: crate::ModelConfigSnapshot::explicit(
+                "codex",
+                "provider_account:codex:default",
+                "gpt-test",
+                None,
+                Some("test".to_string()),
+            ),
+            execution_policy: crate::TaskExecutionPolicy::default(),
+            priority: 0,
         })
+        .await
+        .expect("run");
+    let leased = store
+        .claim_next_agent_run("worker:test", "lease:test", 120)
+        .await
+        .expect("claim")
+        .expect("leased run");
+    assert_eq!(leased.run_id, run.run_id);
+    store
+        .transition_agent_run(
+            &run.run_id,
+            crate::RunStatus::Running,
+            Some("lease:test"),
+            None,
+        )
+        .await
+        .expect("running");
+    store
+        .append_agent_run_item(
+            crate::NewAgentRunItem {
+                item_id: Some("run_item:1".to_string()),
+                run_id: "run:test".to_string(),
+                round_index: 0,
+                kind: "assistant_output".to_string(),
+                status: crate::AgentRunItemStatus::Completed,
+                correlation_id: None,
+                parent_item_id: None,
+                content_text: Some("first".to_string()),
+                payload: serde_json::json!({"response_index": 0}),
+            },
+            "lease:test",
+        )
         .await
         .expect("first item");
     store
-        .append_agent_run_item(crate::NewAgentRunItem {
-            item_id: Some("run_item:2".to_string()),
-            run_id: "run:test".to_string(),
-            kind: "tool_call".to_string(),
-            content_text: Some("web.fetch".to_string()),
-            payload: serde_json::json!({"output_index": 1}),
-        })
+        .append_agent_run_item(
+            crate::NewAgentRunItem {
+                item_id: Some("run_item:2".to_string()),
+                run_id: "run:test".to_string(),
+                round_index: 0,
+                kind: "tool_call".to_string(),
+                status: crate::AgentRunItemStatus::Completed,
+                correlation_id: Some("call:1".to_string()),
+                parent_item_id: None,
+                content_text: Some("web.fetch".to_string()),
+                payload: serde_json::json!({"output_index": 1}),
+            },
+            "lease:test",
+        )
         .await
         .expect("second item");
 
@@ -642,6 +694,244 @@ async fn agent_run_items_round_trip_in_sequence_order() {
     assert_eq!(items[0].sequence_index, 1);
     assert_eq!(items[0].content_text.as_deref(), Some("first"));
     assert_eq!(items[1].kind, "tool_call");
+}
+
+#[tokio::test]
+async fn task_execution_policy_is_global_and_snapshotted_on_new_runs() {
+    let store = test_store().await;
+    let defaults = store
+        .get_task_execution_policy()
+        .await
+        .expect("default policy");
+    assert_eq!(defaults, crate::TaskExecutionPolicy::default());
+    let updated = crate::TaskExecutionPolicy {
+        max_provider_continuations: 42,
+        max_tool_calls: 210,
+        max_active_minutes: 90,
+        progress_audit_interval: 14,
+    };
+    assert_eq!(
+        store
+            .update_task_execution_policy(updated)
+            .await
+            .expect("updated policy"),
+        updated
+    );
+    let (_, run) = seed_task(&store, "Policy snapshot").await;
+    assert_eq!(run.execution_policy, updated);
+}
+
+#[tokio::test]
+async fn blocked_task_persists_context_and_resumes_as_a_child_run() {
+    let store = test_store().await;
+    let (task, run) = seed_task(&store, "Blocked task").await;
+    let leased = store
+        .claim_next_agent_run("worker:blocked", "lease:blocked", 120)
+        .await
+        .expect("claim")
+        .expect("leased");
+    assert_eq!(leased.run_id, run.run_id);
+    store
+        .transition_agent_run(
+            &run.run_id,
+            crate::RunStatus::Running,
+            Some("lease:blocked"),
+            None,
+        )
+        .await
+        .expect("running");
+    store
+        .transition_task(&task.task_id, crate::TaskStatus::Executing, None)
+        .await
+        .expect("executing");
+    let blocked = store
+        .report_task_blocked(
+            &task.task_id,
+            &run.run_id,
+            "lease:blocked",
+            "Which account should I use?",
+            "Research is complete except for account selection.",
+        )
+        .await
+        .expect("blocked");
+    assert_eq!(blocked.status, crate::TaskStatus::WaitingForHuman);
+    assert_eq!(
+        blocked.blocked_question.as_deref(),
+        Some("Which account should I use?")
+    );
+    let (resumed, child) = store
+        .resume_task(
+            &task.task_id,
+            "human:local",
+            "human:local",
+            Some("Use the personal account"),
+        )
+        .await
+        .expect("resume");
+    assert_eq!(resumed.status, crate::TaskStatus::Queued);
+    assert_eq!(resumed.blocked_question, None);
+    assert_eq!(child.parent_run_id.as_deref(), Some(run.run_id.as_str()));
+    assert_eq!(
+        child.resume_message.as_deref(),
+        Some("Use the personal account")
+    );
+}
+
+#[tokio::test]
+async fn expired_lease_interrupts_parent_and_claims_automatic_child() {
+    let store = test_store().await;
+    let (task, run) = seed_task(&store, "Lease recovery").await;
+    store
+        .claim_next_agent_run("worker:old", "lease:old", 120)
+        .await
+        .expect("initial claim")
+        .expect("leased");
+    store
+        .transition_task(&task.task_id, crate::TaskStatus::Executing, None)
+        .await
+        .expect("executing");
+    store
+        .with_connection(|conn| {
+            conn.execute(
+                "UPDATE agent_runs SET lease_expires_at = '0' WHERE run_id = ?1",
+                [&run.run_id],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("expire lease");
+    let child = store
+        .claim_next_agent_run("worker:new", "lease:new", 120)
+        .await
+        .expect("recovery claim")
+        .expect("child run");
+    assert_ne!(child.run_id, run.run_id);
+    assert_eq!(child.parent_run_id.as_deref(), Some(run.run_id.as_str()));
+    assert_eq!(child.retry_count, 1);
+    assert_eq!(
+        store
+            .get_agent_run(&run.run_id)
+            .await
+            .expect("parent")
+            .expect("parent run")
+            .status,
+        crate::RunStatus::Interrupted
+    );
+}
+
+#[tokio::test]
+async fn run_usage_and_progress_accumulate_across_provider_calls() {
+    let store = test_store().await;
+    let (_, run) = seed_task(&store, "Usage accounting").await;
+    store
+        .claim_next_agent_run("worker:usage", "lease:usage", 120)
+        .await
+        .expect("claim")
+        .expect("leased");
+    store
+        .transition_agent_run(
+            &run.run_id,
+            crate::RunStatus::Running,
+            Some("lease:usage"),
+            None,
+        )
+        .await
+        .expect("running");
+    for usage in [
+        crate::TokenUsage {
+            input_tokens: 100,
+            output_tokens: 20,
+            total_tokens: 120,
+            cached_input_tokens: Some(40),
+        },
+        crate::TokenUsage {
+            input_tokens: 70,
+            output_tokens: 10,
+            total_tokens: 80,
+            cached_input_tokens: None,
+        },
+    ] {
+        store
+            .record_agent_run_observation(
+                &run.run_id,
+                "lease:usage",
+                "codex",
+                "gpt-test",
+                Some(&usage),
+            )
+            .await
+            .expect("usage");
+    }
+    store
+        .record_agent_run_progress(&run.run_id, "lease:usage", 3, 250)
+        .await
+        .expect("progress");
+    let heartbeat = store
+        .heartbeat_agent_run(&run.run_id, "lease:usage", 120)
+        .await
+        .expect("heartbeat");
+    assert!(!heartbeat.cancellation_requested);
+    let updated = store
+        .get_agent_run(&run.run_id)
+        .await
+        .expect("run")
+        .expect("updated run");
+    assert_eq!(updated.provider_call_count, 2);
+    assert_eq!(updated.tool_call_count, 3);
+    assert_eq!(updated.input_tokens, 170);
+    assert_eq!(updated.cached_input_tokens, 40);
+    assert_eq!(updated.output_tokens, 30);
+    assert_eq!(updated.active_milliseconds, 250);
+}
+
+async fn seed_task(
+    store: &crate::NoemaStore,
+    title: &str,
+) -> (crate::TaskRecord, crate::AgentRunRecord) {
+    store.ensure_default_actors().await.expect("actors");
+    store
+        .ensure_default_provider_account()
+        .await
+        .expect("provider account");
+    store
+        .update_provider_account_status(
+            "provider_account:codex:default",
+            crate::ProviderAccountStatus::Authenticated,
+            None,
+            None,
+        )
+        .await
+        .expect("authenticated provider account");
+    let pool = store
+        .ensure_default_task_model_pool_settings("codex")
+        .await
+        .expect("task model settings")
+        .into_iter()
+        .find(|entry| entry.complexity == crate::TaskComplexity::Simple)
+        .expect("simple task model");
+    store
+        .create_task_with_executor(crate::NewTask {
+            task_id: None,
+            title: title.to_string(),
+            request_markdown: "Complete the task".to_string(),
+            complexity: crate::TaskComplexity::Simple,
+            owner_human_id: "human:local".to_string(),
+            source: crate::TaskSource::default(),
+            created_by_agent_id: "agent:primary".to_string(),
+            creation_tool_call_id: None,
+            pool_entry_id: pool.pool_entry_id,
+            executor_model: pool.model.clone(),
+            reviewer_model: pool.model,
+            max_review_rounds: None,
+            criteria: vec![crate::NewTaskValidationCriterion {
+                criterion_id: None,
+                ordinal: 1,
+                description: "Task is complete".to_string(),
+                expected_evidence: None,
+            }],
+        })
+        .await
+        .expect("task")
 }
 
 async fn seed_external_artifact(

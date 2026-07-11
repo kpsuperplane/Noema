@@ -306,6 +306,25 @@ ON task_model_pool_entries(
   COALESCE(reasoning_effort, '')
 );
 
+CREATE TABLE IF NOT EXISTS task_execution_policy (
+  policy_id TEXT PRIMARY KEY NOT NULL CHECK (policy_id = 'default'),
+  max_provider_continuations INTEGER NOT NULL CHECK (max_provider_continuations BETWEEN 1 AND 1000),
+  max_tool_calls INTEGER NOT NULL CHECK (max_tool_calls BETWEEN 1 AND 10000),
+  max_active_minutes INTEGER NOT NULL CHECK (max_active_minutes BETWEEN 1 AND 10080),
+  progress_audit_interval INTEGER NOT NULL CHECK (
+    progress_audit_interval > 0
+    AND progress_audit_interval <= max_provider_continuations
+  ),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+INSERT INTO task_execution_policy (
+  policy_id, max_provider_continuations, max_tool_calls,
+  max_active_minutes, progress_audit_interval
+) VALUES ('default', 80, 400, 120, 20)
+ON CONFLICT(policy_id) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS tasks (
   task_id TEXT PRIMARY KEY NOT NULL,
   title TEXT NOT NULL CHECK (title <> ''),
@@ -335,6 +354,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   max_review_rounds INTEGER NOT NULL DEFAULT 3 CHECK (max_review_rounds > 0),
   final_submission_id TEXT,
   latest_run_id TEXT,
+  blocked_question TEXT,
+  blocked_context TEXT,
   terminal_reason TEXT,
   error_code TEXT,
   error_message TEXT,
@@ -368,13 +389,14 @@ ON task_validation_criteria(task_id, ordinal, criterion_id);
 CREATE TABLE IF NOT EXISTS agent_runs (
   run_id TEXT PRIMARY KEY NOT NULL,
   task_id TEXT NOT NULL,
-  run_kind TEXT NOT NULL CHECK (run_kind IN ('executor', 'reviewer', 'completion_delivery')),
+  run_kind TEXT NOT NULL CHECK (run_kind IN ('executor', 'reviewer')),
   agent_id TEXT NOT NULL,
   attempt_index INTEGER NOT NULL DEFAULT 0 CHECK (attempt_index >= 0),
   revision_index INTEGER NOT NULL DEFAULT 0 CHECK (revision_index >= 0),
   parent_run_id TEXT,
   triggering_submission_id TEXT,
   triggering_review_id TEXT,
+  resume_message TEXT,
   provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local')),
   provider_account_id TEXT NOT NULL,
   selection_mode TEXT NOT NULL CHECK (selection_mode IN ('explicit_profile', 'provider_default')),
@@ -383,6 +405,13 @@ CREATE TABLE IF NOT EXISTS agent_runs (
   selection_source TEXT,
   actual_provider_kind TEXT,
   actual_model_profile TEXT,
+  max_provider_continuations INTEGER NOT NULL CHECK (max_provider_continuations BETWEEN 1 AND 1000),
+  max_tool_calls INTEGER NOT NULL CHECK (max_tool_calls BETWEEN 1 AND 10000),
+  max_active_minutes INTEGER NOT NULL CHECK (max_active_minutes BETWEEN 1 AND 10080),
+  progress_audit_interval INTEGER NOT NULL CHECK (
+    progress_audit_interval > 0
+    AND progress_audit_interval <= max_provider_continuations
+  ),
   status TEXT NOT NULL CHECK (status IN ('queued', 'leased', 'running', 'completed', 'waiting_for_approval', 'interrupted', 'failed', 'cancelled')),
   priority INTEGER NOT NULL DEFAULT 0,
   queued_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
@@ -396,8 +425,12 @@ CREATE TABLE IF NOT EXISTS agent_runs (
   retry_count INTEGER NOT NULL DEFAULT 0 CHECK (retry_count >= 0),
   error_code TEXT,
   error_message TEXT,
-  input_tokens INTEGER CHECK (input_tokens IS NULL OR input_tokens >= 0),
-  output_tokens INTEGER CHECK (output_tokens IS NULL OR output_tokens >= 0),
+  provider_call_count INTEGER NOT NULL DEFAULT 0 CHECK (provider_call_count >= 0),
+  tool_call_count INTEGER NOT NULL DEFAULT 0 CHECK (tool_call_count >= 0),
+  input_tokens INTEGER NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),
+  cached_input_tokens INTEGER NOT NULL DEFAULT 0 CHECK (cached_input_tokens >= 0),
+  output_tokens INTEGER NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
+  active_milliseconds INTEGER NOT NULL DEFAULT 0 CHECK (active_milliseconds >= 0),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
@@ -415,10 +448,15 @@ CREATE TABLE IF NOT EXISTS agent_run_items (
   item_id TEXT PRIMARY KEY NOT NULL,
   run_id TEXT NOT NULL,
   sequence_index INTEGER NOT NULL CHECK (sequence_index >= 1),
-  kind TEXT NOT NULL CHECK (kind IN ('model_input', 'assistant_output', 'tool_call', 'tool_result', 'progress_notice', 'task_submission', 'task_review', 'artifact_reference', 'failure', 'cancellation')),
+  round_index INTEGER NOT NULL DEFAULT 0 CHECK (round_index >= 0),
+  kind TEXT NOT NULL CHECK (kind IN ('model_input', 'assistant_output', 'tool_call', 'tool_result', 'progress_notice', 'context_checkpoint', 'task_submission', 'task_review', 'artifact_reference', 'failure', 'cancellation')),
+  status TEXT NOT NULL DEFAULT 'completed' CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled', 'skipped')),
+  correlation_id TEXT,
+  parent_item_id TEXT,
   content_text TEXT,
   payload_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(payload_json)),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   UNIQUE(run_id, sequence_index)
 );
 

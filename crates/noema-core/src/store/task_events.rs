@@ -6,6 +6,29 @@ use serde_json::Value;
 
 use super::{NoemaStore, StoreError, ids::allocate_id};
 
+/// Persisted task lifecycle event used as a durable subscription cursor.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TaskEventRecord {
+    /// Stable event id.
+    pub event_id: String,
+    /// Owning task id.
+    pub task_id: String,
+    /// Durable monotonic cursor within the task.
+    pub sequence_number: i64,
+    /// Event vocabulary name.
+    pub event_kind: String,
+    /// Actor or component that emitted the event.
+    pub actor_id: String,
+    /// Direct causation id, when present.
+    pub causation_id: Option<String>,
+    /// Cross-run correlation id, when present.
+    pub correlation_id: Option<String>,
+    /// Safe structured payload.
+    pub payload: Value,
+    /// Creation timestamp.
+    pub created_at: String,
+}
+
 /// One append-only task lifecycle event.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewTaskEvent {
@@ -76,6 +99,64 @@ impl NoemaStore {
             event.correlation_id,
             event.payload,
         )
+        .await
+    }
+
+    /// Return task events after an exclusive durable sequence cursor.
+    pub async fn list_task_events_after(
+        &self,
+        task_id: &str,
+        after_sequence: Option<i64>,
+        limit: i64,
+    ) -> Result<Vec<TaskEventRecord>, StoreError> {
+        if limit < 1 {
+            return Err(StoreError::InvariantViolation {
+                message: "task event limit must be positive".to_string(),
+            });
+        }
+        self.with_connection(|conn| {
+            let mut statement = conn.prepare(
+                "SELECT event_id, task_id, sequence_number, event_kind, actor_id, causation_id, correlation_id, payload_json, created_at FROM task_events WHERE task_id = ?1 AND sequence_number > ?2 ORDER BY sequence_number, event_id LIMIT ?3",
+            )?;
+            let rows = statement.query_map(
+                rusqlite::params![task_id, after_sequence.unwrap_or(0).max(0), limit],
+                |row| {
+                    let payload = serde_json::from_str::<Value>(&row.get::<_, String>(7)?)
+                        .map_err(|error| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                7,
+                                rusqlite::types::Type::Text,
+                                Box::new(error),
+                            )
+                        })?;
+                    Ok(TaskEventRecord {
+                        event_id: row.get(0)?,
+                        task_id: row.get(1)?,
+                        sequence_number: row.get(2)?,
+                        event_kind: row.get(3)?,
+                        actor_id: row.get(4)?,
+                        causation_id: row.get(5)?,
+                        correlation_id: row.get(6)?,
+                        payload,
+                        created_at: row.get(8)?,
+                    })
+                },
+            )?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(StoreError::Sqlite)
+        })
+        .await
+    }
+
+    /// Return the latest durable task event sequence, or zero for no events.
+    pub async fn latest_task_event_sequence(&self, task_id: &str) -> Result<i64, StoreError> {
+        self.with_connection(|conn| {
+            conn.query_row(
+                "SELECT COALESCE(MAX(sequence_number), 0) FROM task_events WHERE task_id = ?1",
+                [task_id],
+                |row| row.get(0),
+            )
+            .map_err(StoreError::Sqlite)
+        })
         .await
     }
 }

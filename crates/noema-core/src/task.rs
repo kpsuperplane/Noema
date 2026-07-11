@@ -20,6 +20,96 @@ pub const TASK_EXECUTOR_AGENT_ID: &str = "agent:task-executor";
 pub const TASK_REVIEWER_AGENT_ID: &str = "agent:task-reviewer";
 /// Default maximum number of reviewed executor submissions for one task.
 pub const DEFAULT_TASK_MAX_REVIEW_ROUNDS: i64 = 3;
+/// Default provider continuation safety ceiling for every task run.
+pub const DEFAULT_TASK_MAX_PROVIDER_CONTINUATIONS: i64 = 80;
+/// Default tool-call safety ceiling for every task run.
+pub const DEFAULT_TASK_MAX_TOOL_CALLS: i64 = 400;
+/// Default active execution safety ceiling, in minutes, for every task run.
+pub const DEFAULT_TASK_MAX_ACTIVE_MINUTES: i64 = 120;
+/// Default interval between task progress audits, measured in continuations.
+pub const DEFAULT_TASK_PROGRESS_AUDIT_INTERVAL: i64 = 20;
+/// Hard upper bound for the configurable provider continuation ceiling.
+pub const MAX_TASK_PROVIDER_CONTINUATIONS: i64 = 1_000;
+/// Hard upper bound for the configurable tool-call ceiling.
+pub const MAX_TASK_TOOL_CALLS: i64 = 10_000;
+/// Hard upper bound for active execution time (seven days).
+pub const MAX_TASK_ACTIVE_MINUTES: i64 = 10_080;
+
+/// Provider-independent execution safety policy shared by every task model tier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskExecutionPolicy {
+    /// Maximum provider continuations before terminal-only finalization.
+    pub max_provider_continuations: i64,
+    /// Maximum tool calls before terminal-only finalization.
+    pub max_tool_calls: i64,
+    /// Maximum active execution time, excluding queue time.
+    pub max_active_minutes: i64,
+    /// Continuation interval between progress audits.
+    pub progress_audit_interval: i64,
+}
+
+impl Default for TaskExecutionPolicy {
+    fn default() -> Self {
+        Self {
+            max_provider_continuations: DEFAULT_TASK_MAX_PROVIDER_CONTINUATIONS,
+            max_tool_calls: DEFAULT_TASK_MAX_TOOL_CALLS,
+            max_active_minutes: DEFAULT_TASK_MAX_ACTIVE_MINUTES,
+            progress_audit_interval: DEFAULT_TASK_PROGRESS_AUDIT_INTERVAL,
+        }
+    }
+}
+
+impl TaskExecutionPolicy {
+    /// Validate values before persisting a policy or run snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TaskDomainError::InvalidExecutionPolicy`] when a limit is not
+    /// positive or the audit interval exceeds the continuation ceiling.
+    pub fn validated(self) -> Result<Self, TaskDomainError> {
+        if self.max_provider_continuations < 1 {
+            return Err(TaskDomainError::InvalidExecutionPolicy {
+                message: "maximum provider continuations must be positive".to_string(),
+            });
+        }
+        if self.max_provider_continuations > MAX_TASK_PROVIDER_CONTINUATIONS {
+            return Err(TaskDomainError::InvalidExecutionPolicy {
+                message: format!(
+                    "maximum provider continuations cannot exceed {MAX_TASK_PROVIDER_CONTINUATIONS}"
+                ),
+            });
+        }
+        if self.max_tool_calls < 1 {
+            return Err(TaskDomainError::InvalidExecutionPolicy {
+                message: "maximum tool calls must be positive".to_string(),
+            });
+        }
+        if self.max_tool_calls > MAX_TASK_TOOL_CALLS {
+            return Err(TaskDomainError::InvalidExecutionPolicy {
+                message: format!("maximum tool calls cannot exceed {MAX_TASK_TOOL_CALLS}"),
+            });
+        }
+        if self.max_active_minutes < 1 {
+            return Err(TaskDomainError::InvalidExecutionPolicy {
+                message: "maximum active minutes must be positive".to_string(),
+            });
+        }
+        if self.max_active_minutes > MAX_TASK_ACTIVE_MINUTES {
+            return Err(TaskDomainError::InvalidExecutionPolicy {
+                message: format!("maximum active minutes cannot exceed {MAX_TASK_ACTIVE_MINUTES}"),
+            });
+        }
+        if self.progress_audit_interval < 1
+            || self.progress_audit_interval > self.max_provider_continuations
+        {
+            return Err(TaskDomainError::InvalidExecutionPolicy {
+                message: "progress audit interval must be positive and no larger than the continuation limit"
+                    .to_string(),
+            });
+        }
+        Ok(self)
+    }
+}
 
 /// A bounded complexity tier chosen by the primary agent for a delegated task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -178,8 +268,6 @@ pub enum RunKind {
     Executor,
     /// Independently checks one executor submission.
     Reviewer,
-    /// Delivers an approved result back into the source conversation.
-    CompletionDelivery,
 }
 
 impl RunKind {
@@ -189,7 +277,6 @@ impl RunKind {
         match self {
             Self::Executor => "executor",
             Self::Reviewer => "reviewer",
-            Self::CompletionDelivery => "completion_delivery",
         }
     }
 }
@@ -207,7 +294,6 @@ impl FromStr for RunKind {
         match value {
             "executor" => Ok(Self::Executor),
             "reviewer" => Ok(Self::Reviewer),
-            "completion_delivery" => Ok(Self::CompletionDelivery),
             other => Err(TaskDomainError::InvalidEnum {
                 kind: "run_kind",
                 value: other.to_string(),
@@ -276,11 +362,8 @@ impl RunStatus {
                     Self::WaitingForApproval,
                     Self::Completed | Self::Failed | Self::Cancelled
                 )
-                | (
-                    Self::Interrupted,
-                    Self::Queued | Self::Failed | Self::Cancelled
-                )
-                | (Self::Failed, Self::Queued | Self::Cancelled)
+                | (Self::Interrupted, Self::Failed | Self::Cancelled)
+                | (Self::Failed, Self::Cancelled)
         )
     }
 }
@@ -821,6 +904,12 @@ pub enum TaskDomainError {
     /// A task's review-round bound was not positive.
     #[error("invalid maximum review rounds: {0}")]
     InvalidReviewRoundLimit(i64),
+    /// A provider-independent task execution policy was malformed.
+    #[error("invalid task execution policy: {message}")]
+    InvalidExecutionPolicy {
+        /// Actionable validation failure.
+        message: String,
+    },
     /// A model snapshot was malformed.
     #[error("invalid task model snapshot: {0}")]
     Model(#[from] ModelConfigError),
@@ -834,7 +923,7 @@ mod tests {
     fn task_transition_matrix_rejects_terminal_reopening() {
         assert!(TaskStatus::Reviewing.can_transition_to(TaskStatus::Completed));
         assert!(!TaskStatus::Completed.can_transition_to(TaskStatus::Queued));
-        assert!(RunStatus::Interrupted.can_transition_to(RunStatus::Queued));
+        assert!(!RunStatus::Interrupted.can_transition_to(RunStatus::Queued));
         assert!(!RunStatus::Completed.can_transition_to(RunStatus::Running));
     }
 
