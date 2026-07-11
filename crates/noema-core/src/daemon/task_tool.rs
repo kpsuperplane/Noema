@@ -1,4 +1,4 @@
-//! Agent-facing task delegation, inspection, and retry tools.
+//! Agent-facing task delegation, inspection, control, and terminal-contract tools.
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -10,7 +10,11 @@ use crate::{
 
 pub(crate) const TASK_DELEGATE_TOOL: &str = "task.delegate";
 pub(crate) const TASK_INSPECT_TOOL: &str = "task.inspect";
-pub(crate) const TASK_RETRY_TOOL: &str = "task.retry";
+pub(crate) const TASK_RESUME_TOOL: &str = "task.resume";
+pub(crate) const TASK_CANCEL_TOOL: &str = "task.cancel";
+pub(crate) const TASK_SUBMIT_RESULT_TOOL: &str = "task.submit_result";
+pub(crate) const TASK_SUBMIT_REVIEW_TOOL: &str = "task.submit_review";
+pub(crate) const TASK_REPORT_BLOCKED_TOOL: &str = "task.report_blocked";
 
 /// Owner scope applied to task inspection and control calls.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,6 +81,14 @@ struct TaskIdArguments {
     task_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ResumeArguments {
+    task_id: String,
+    #[serde(default)]
+    message: Option<String>,
+}
+
 /// Return whether a model call is the primary delegation tool.
 #[must_use]
 pub(crate) fn is_task_delegate_tool(name: &str) -> bool {
@@ -89,8 +101,28 @@ pub(crate) fn is_task_inspect_tool(name: &str) -> bool {
 }
 
 #[must_use]
-pub(crate) fn is_task_retry_tool(name: &str) -> bool {
-    name == TASK_RETRY_TOOL
+pub(crate) fn is_task_resume_tool(name: &str) -> bool {
+    name == TASK_RESUME_TOOL
+}
+
+#[must_use]
+pub(crate) fn is_task_cancel_tool(name: &str) -> bool {
+    name == TASK_CANCEL_TOOL
+}
+
+#[must_use]
+pub(crate) fn is_task_submit_result_tool(name: &str) -> bool {
+    name == TASK_SUBMIT_RESULT_TOOL
+}
+
+#[must_use]
+pub(crate) fn is_task_submit_review_tool(name: &str) -> bool {
+    name == TASK_SUBMIT_REVIEW_TOOL
+}
+
+#[must_use]
+pub(crate) fn is_task_report_blocked_tool(name: &str) -> bool {
+    name == TASK_REPORT_BLOCKED_TOOL
 }
 
 pub(crate) fn task_inspect_tool_spec() -> Result<NoemaToolSpec, crate::provider::ToolContractError>
@@ -101,10 +133,114 @@ pub(crate) fn task_inspect_tool_spec() -> Result<NoemaToolSpec, crate::provider:
     )
 }
 
-pub(crate) fn task_retry_tool_spec() -> Result<NoemaToolSpec, crate::provider::ToolContractError> {
+pub(crate) fn task_resume_tool_spec() -> Result<NoemaToolSpec, crate::provider::ToolContractError> {
+    NoemaToolSpec::new(
+        TASK_RESUME_TOOL,
+        "Continue a failed or human-blocked delegated task from its durable transcript and evidence. Supply the human's answer in message when the task is waiting for human input.",
+        json!({
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "string", "minLength": 1, "maxLength": 200},
+                "message": {"type": "string", "minLength": 1, "maxLength": 20000}
+            },
+            "required": ["task_id"],
+            "additionalProperties": false
+        }),
+        crate::provider::NoemaToolExecution::LocalBuiltin,
+    )
+}
+
+pub(crate) fn task_cancel_tool_spec() -> Result<NoemaToolSpec, crate::provider::ToolContractError> {
     task_id_tool_spec(
-        TASK_RETRY_TOOL,
-        "Retry a failed delegated task. This preserves the failed run as audit history and queues a new attempt with the same role, revision, model, and validation contract.",
+        TASK_CANCEL_TOOL,
+        "Cancel a queued, running, or human-blocked delegated task. Cancellation is durable and preserves the task transcript for inspection.",
+    )
+}
+
+pub(crate) fn task_submit_result_tool_spec()
+-> Result<NoemaToolSpec, crate::provider::ToolContractError> {
+    NoemaToolSpec::new(
+        TASK_SUBMIT_RESULT_TOOL,
+        "Submit the executor's final result and evidence. Use exactly once when the delegated task can be completed from the available evidence.",
+        json!({
+            "type": "object",
+            "properties": {
+                "summary": {"type": "string", "minLength": 1, "maxLength": 4000},
+                "result_markdown": {"type": "string", "minLength": 1, "maxLength": 100000},
+                "criteria": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "criterion_id": {"type": "string", "minLength": 1, "maxLength": 200},
+                            "evidence_markdown": {"type": "string", "minLength": 1, "maxLength": 20000}
+                        },
+                        "required": ["criterion_id", "evidence_markdown"],
+                        "additionalProperties": false
+                    }
+                },
+                "artifact_ids": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1, "maxLength": 200},
+                    "maxItems": 100,
+                    "uniqueItems": true
+                }
+            },
+            "required": ["summary", "result_markdown", "criteria", "artifact_ids"],
+            "additionalProperties": false
+        }),
+        crate::provider::NoemaToolExecution::LocalBuiltin,
+    )
+}
+
+pub(crate) fn task_submit_review_tool_spec()
+-> Result<NoemaToolSpec, crate::provider::ToolContractError> {
+    NoemaToolSpec::new(
+        TASK_SUBMIT_REVIEW_TOOL,
+        "Submit the reviewer's typed verdict and one assessment for every validation criterion.",
+        json!({
+            "type": "object",
+            "properties": {
+                "overall_verdict": {"type": "string", "enum": ["approve", "request_changes", "needs_human"]},
+                "overall_feedback": {"type": "string", "minLength": 1, "maxLength": 20000},
+                "criteria": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "criterion_id": {"type": "string", "minLength": 1, "maxLength": 200},
+                            "outcome": {"type": "string", "enum": ["pass", "fail", "uncertain"]},
+                            "evidence_markdown": {"type": "string", "maxLength": 20000},
+                            "feedback": {"type": "string", "maxLength": 20000}
+                        },
+                        "required": ["criterion_id", "outcome"],
+                        "additionalProperties": false
+                    }
+                }
+            },
+            "required": ["overall_verdict", "overall_feedback", "criteria"],
+            "additionalProperties": false
+        }),
+        crate::provider::NoemaToolExecution::LocalBuiltin,
+    )
+}
+
+pub(crate) fn task_report_blocked_tool_spec()
+-> Result<NoemaToolSpec, crate::provider::ToolContractError> {
+    NoemaToolSpec::new(
+        TASK_REPORT_BLOCKED_TOOL,
+        "Stop execution and ask the task owner one blocking question when safe progress requires human input.",
+        json!({
+            "type": "object",
+            "properties": {
+                "question": {"type": "string", "minLength": 1, "maxLength": 4000},
+                "work_summary": {"type": "string", "minLength": 1, "maxLength": 20000},
+                "resume_context": {"type": "string", "maxLength": 20000}
+            },
+            "required": ["question", "work_summary"],
+            "additionalProperties": false
+        }),
+        crate::provider::NoemaToolExecution::LocalBuiltin,
     )
 }
 
@@ -222,14 +358,24 @@ pub(crate) async fn execute_task_inspect(
     task_tool_result(TASK_INSPECT_TOOL, call_id, result)
 }
 
-pub(crate) async fn execute_task_retry(
+pub(crate) async fn execute_task_resume(
     store: &NoemaStore,
     context: &TaskAccessRuntimeContext,
     call_id: Option<String>,
     payload: &Value,
 ) -> TaskToolResult {
-    let result = retry_inner(store, context, payload).await;
-    task_tool_result(TASK_RETRY_TOOL, call_id, result)
+    let result = resume_inner(store, context, payload).await;
+    task_tool_result(TASK_RESUME_TOOL, call_id, result)
+}
+
+pub(crate) async fn execute_task_cancel(
+    store: &NoemaStore,
+    context: &TaskAccessRuntimeContext,
+    call_id: Option<String>,
+    payload: &Value,
+) -> TaskToolResult {
+    let result = cancel_inner(store, context, payload).await;
+    task_tool_result(TASK_CANCEL_TOOL, call_id, result)
 }
 
 fn task_tool_result(
@@ -277,6 +423,35 @@ async fn inspect_inner(
         .list_task_reviews(&task.task_id)
         .await
         .map_err(|error| error.to_string())?;
+    let latest_items = if let Some(run) = runs.last() {
+        store
+            .list_recent_agent_run_items(&run.run_id, 50)
+            .await
+            .map_err(|error| error.to_string())?
+    } else {
+        Vec::new()
+    };
+    let transcript_cursor = latest_items
+        .last()
+        .map(|item| item.sequence_index.to_string());
+    let recent_items = latest_items
+        .iter()
+        .map(|item| {
+            json!({
+                "item_id": item.item_id,
+                "cursor": item.sequence_index.to_string(),
+                "round": item.round_index,
+                "kind": item.kind,
+                "status": item.status.as_str(),
+                "correlation_id": item.correlation_id,
+                "parent_item_id": item.parent_item_id,
+                "content_text": item.content_text,
+                "payload": item.payload,
+                "created_at": item.created_at,
+                "updated_at": item.updated_at,
+            })
+        })
+        .collect::<Vec<_>>();
     let latest_run = runs.last().map(|run| {
         json!({
             "run_id": run.run_id,
@@ -308,37 +483,79 @@ async fn inspect_inner(
             "created_at": review.created_at,
         })
     });
+    let last_activity_at = latest_items
+        .last()
+        .map(|item| item.updated_at.as_str())
+        .or_else(|| runs.last().map(|run| run.updated_at.as_str()))
+        .unwrap_or(task.updated_at.as_str());
+    let can_resume = matches!(
+        task.status,
+        TaskStatus::Failed | TaskStatus::WaitingForHuman
+    );
+    let can_cancel = matches!(
+        task.status,
+        TaskStatus::Queued
+            | TaskStatus::Executing
+            | TaskStatus::Reviewing
+            | TaskStatus::RevisionRequested
+            | TaskStatus::WaitingForHuman
+    );
+    let current_phase = runs.last().map_or_else(
+        || task.status.as_str().to_string(),
+        |run| format!("{}.{}", run.run_kind.as_str(), run.status.as_str()),
+    );
     Ok(json!({
         "task_id": task.task_id,
         "title": task.title,
         "status": task.status.as_str(),
+        "current_phase": current_phase,
         "complexity": task.complexity.as_str(),
         "revision": task.revision_index,
         "max_review_rounds": task.max_review_rounds,
         "created_at": task.created_at,
         "updated_at": task.updated_at,
+        "last_activity_at": last_activity_at,
         "completed_at": task.completed_at,
-        "can_retry": task.status == TaskStatus::Failed,
+        "can_resume": can_resume,
+        "can_cancel": can_cancel,
+        "blocking_question": task.blocked_question,
         "terminal_reason": task.terminal_reason,
         "error_code": task.error_code,
         "error_message": task.error_message,
+        "policy_consumption": {
+            "provider_calls": runs.last().map_or(0, |run| run.provider_call_count),
+            "tool_calls": runs.last().map_or(0, |run| run.tool_call_count),
+            "active_milliseconds": runs.last().map_or(0, |run| run.active_milliseconds),
+            "input_tokens": runs.last().map_or(0, |run| run.input_tokens),
+            "cached_input_tokens": runs.last().map_or(0, |run| run.cached_input_tokens),
+            "output_tokens": runs.last().map_or(0, |run| run.output_tokens),
+            "limits": runs.last().map(|run| json!({
+                "provider_continuations": run.execution_policy.max_provider_continuations,
+                "tool_calls": run.execution_policy.max_tool_calls,
+                "active_minutes": run.execution_policy.max_active_minutes,
+                "progress_audit_interval": run.execution_policy.progress_audit_interval,
+            })),
+        },
+        "transcript_cursor": transcript_cursor,
+        "recent_items": recent_items,
         "latest_run": latest_run,
         "latest_submission": latest_submission,
         "latest_review": latest_review,
     }))
 }
 
-async fn retry_inner(
+async fn resume_inner(
     store: &NoemaStore,
     context: &TaskAccessRuntimeContext,
     payload: &Value,
 ) -> Result<Value, String> {
-    let arguments = task_id_arguments(payload)?;
+    let arguments = resume_arguments(payload)?;
     let (task, run) = store
-        .retry_failed_task(
+        .resume_task(
             arguments.task_id.trim(),
             &context.owner_human_id,
             &context.actor_id,
+            arguments.message.as_deref(),
         )
         .await
         .map_err(|error| error.to_string())?;
@@ -354,7 +571,37 @@ async fn retry_inner(
     }))
 }
 
+async fn cancel_inner(
+    store: &NoemaStore,
+    context: &TaskAccessRuntimeContext,
+    payload: &Value,
+) -> Result<Value, String> {
+    let arguments = task_id_arguments(payload)?;
+    let task = store
+        .cancel_task(
+            arguments.task_id.trim(),
+            &context.owner_human_id,
+            &context.actor_id,
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(json!({
+        "task_id": task.task_id,
+        "title": task.title,
+        "status": task.status.as_str(),
+        "cancelled": task.status == TaskStatus::Cancelled,
+    }))
+}
+
 fn task_id_arguments(payload: &Value) -> Result<TaskIdArguments, String> {
+    let arguments = payload
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| payload.clone());
+    serde_json::from_value(arguments).map_err(|error| format!("invalid task arguments: {error}"))
+}
+
+fn resume_arguments(payload: &Value) -> Result<ResumeArguments, String> {
     let arguments = payload
         .get("arguments")
         .cloned()
@@ -473,8 +720,32 @@ async fn reviewer_model_snapshot(
 mod tests {
     use super::*;
 
+    #[test]
+    fn terminal_contract_specs_are_typed_and_role_specific() {
+        let result = task_submit_result_tool_spec().expect("result spec");
+        assert_eq!(result.name.as_str(), TASK_SUBMIT_RESULT_TOOL);
+        assert_eq!(
+            result.input_schema.as_value()["required"],
+            json!(["summary", "result_markdown", "criteria", "artifact_ids"])
+        );
+
+        let review = task_submit_review_tool_spec().expect("review spec");
+        assert_eq!(review.name.as_str(), TASK_SUBMIT_REVIEW_TOOL);
+        assert_eq!(
+            review.input_schema.as_value()["properties"]["overall_verdict"]["enum"],
+            json!(["approve", "request_changes", "needs_human"])
+        );
+
+        let blocked = task_report_blocked_tool_spec().expect("blocked spec");
+        assert_eq!(blocked.name.as_str(), TASK_REPORT_BLOCKED_TOOL);
+        assert_eq!(
+            blocked.input_schema.as_value()["required"],
+            json!(["question", "work_summary"])
+        );
+    }
+
     #[tokio::test]
-    async fn inspect_and_retry_tools_use_canonical_task_state() {
+    async fn inspect_and_resume_tools_use_canonical_task_state() {
         let store = crate::store::tests::test_store().await;
         store.ensure_default_actors().await.expect("actors");
         store
@@ -530,7 +801,8 @@ mod tests {
         assert!(queued.success);
         assert_eq!(queued.payload["status"], "queued");
         assert_eq!(queued.payload["latest_run"]["status"], "queued");
-        assert_eq!(queued.payload["can_retry"], false);
+        assert_eq!(queued.payload["can_resume"], false);
+        assert_eq!(queued.payload["can_cancel"], true);
 
         store
             .transition_agent_run(
@@ -541,22 +813,21 @@ mod tests {
             )
             .await
             .expect("failed run");
-        store
-            .transition_task(&task.task_id, TaskStatus::Failed, Some("model missing"))
-            .await
-            .expect("failed task");
-
         let failed = execute_task_inspect(&store, &context, None, &arguments).await;
         assert_eq!(failed.payload["status"], "failed");
-        assert_eq!(failed.payload["can_retry"], true);
+        assert_eq!(failed.payload["can_resume"], true);
         assert_eq!(
             failed.payload["latest_run"]["error_message"],
             "model missing"
         );
 
-        let retried = execute_task_retry(&store, &context, None, &arguments).await;
-        assert!(retried.success);
-        assert_eq!(retried.payload["status"], "queued");
-        assert_eq!(retried.payload["attempt"], 1);
+        let resumed = execute_task_resume(&store, &context, None, &arguments).await;
+        assert!(resumed.success);
+        assert_eq!(resumed.payload["status"], "queued");
+        assert_eq!(resumed.payload["attempt"], 1);
+
+        let cancelled = execute_task_cancel(&store, &context, None, &arguments).await;
+        assert!(cancelled.success);
+        assert_eq!(cancelled.payload["status"], "cancelled");
     }
 }

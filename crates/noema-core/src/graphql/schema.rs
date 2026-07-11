@@ -41,8 +41,9 @@ use super::{
         GraphqlProviderSecretInput,
     },
     tasks::{
-        self, GraphqlTaskComplexity, GraphqlTaskDetail, GraphqlTaskModelPoolEntry,
-        GraphqlTaskModelPoolEntryInput,
+        self, GraphqlTaskComplexity, GraphqlTaskDetail, GraphqlTaskExecutionPolicy,
+        GraphqlTaskExecutionPolicyInput, GraphqlTaskModelPoolEntry, GraphqlTaskModelPoolEntryInput,
+        GraphqlTaskRunItemsConnection,
     },
     usage_settings::{self, GraphqlSaveToolProgressAuditPreferenceInput, GraphqlUsageSettings},
     web_fetch_settings::{
@@ -423,6 +424,21 @@ impl QueryRoot {
         tasks::task(state, principal, task_id).await
     }
 
+    /// Return a newest-page, owner-authorized task-run transcript connection.
+    async fn task_run_items(
+        &self,
+        ctx: &Context<'_>,
+        run_id: String,
+        after: Option<String>,
+        first: Option<i32>,
+    ) -> Result<GraphqlTaskRunItemsConnection> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = ctx
+            .data_opt::<super::RequestPrincipal>()
+            .map_or("human:local", super::RequestPrincipal::subject_id);
+        tasks::task_run_items(state, principal, run_id, after, first).await
+    }
+
     /// Return human-controlled executor model-pool entries.
     async fn task_model_pools(
         &self,
@@ -441,6 +457,12 @@ impl QueryRoot {
     ) -> Result<Vec<GraphqlTaskModelPoolEntry>> {
         let state = ctx.data_unchecked::<GraphqlState>();
         tasks::task_model_pools(state, complexity).await
+    }
+
+    /// Return provider-independent safety limits shared by every task tier.
+    async fn task_execution_policy(&self, ctx: &Context<'_>) -> Result<GraphqlTaskExecutionPolicy> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        tasks::task_execution_policy(state).await
     }
 
     /// Return web fetch settings safe to show in Settings.
@@ -560,13 +582,27 @@ pub struct MutationRoot;
 
 #[Object]
 impl MutationRoot {
-    /// Retry the latest failed run for one owner-authorized task.
-    async fn retry_task(&self, ctx: &Context<'_>, task_id: String) -> Result<GraphqlTaskDetail> {
+    /// Continue one failed or human-blocked task from its durable context.
+    async fn resume_task(
+        &self,
+        ctx: &Context<'_>,
+        task_id: String,
+        message: Option<String>,
+    ) -> Result<GraphqlTaskDetail> {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = ctx
             .data_opt::<super::RequestPrincipal>()
             .map_or("human:local", super::RequestPrincipal::subject_id);
-        tasks::retry_task(state, principal, task_id).await
+        tasks::resume_task(state, principal, task_id, message).await
+    }
+
+    /// Cancel one owner-authorized queued, active, or blocked task.
+    async fn cancel_task(&self, ctx: &Context<'_>, task_id: String) -> Result<GraphqlTaskDetail> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = ctx
+            .data_opt::<super::RequestPrincipal>()
+            .map_or("human:local", super::RequestPrincipal::subject_id);
+        tasks::cancel_task(state, principal, task_id).await
     }
 
     /// Replace one human-controlled executor model-pool entry.
@@ -581,6 +617,19 @@ impl MutationRoot {
             .data_opt::<super::RequestPrincipal>()
             .map_or("human:local", super::RequestPrincipal::subject_id);
         tasks::update_task_model_pool_entry(state, principal, pool_entry_id, input).await
+    }
+
+    /// Replace provider-independent task safety limits for future/resumed runs.
+    async fn update_task_execution_policy(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlTaskExecutionPolicyInput,
+    ) -> Result<GraphqlTaskExecutionPolicy> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = ctx
+            .data_opt::<super::RequestPrincipal>()
+            .map_or("human:local", super::RequestPrincipal::subject_id);
+        tasks::update_task_execution_policy(state, principal, input).await
     }
 
     /// Start a provider auth attempt.
@@ -815,12 +864,36 @@ impl MutationRoot {
 /// Root GraphQL subscription object.
 pub struct SubscriptionRoot;
 
-/// One task detail invalidation emitted while a background run changes.
+/// Durable task subscription event category.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, async_graphql::Enum)]
+#[graphql(name = "TaskEventKind")]
+pub enum GraphqlTaskEventKind {
+    /// Task lifecycle/read-model state changed.
+    TaskUpdated,
+    /// One durable task run changed.
+    RunUpdated,
+    /// One task-run transcript item was inserted or updated.
+    RunItemUpserted,
+}
+
+/// One durable owner-authorized task event.
 #[derive(Clone, Debug, async_graphql::SimpleObject)]
 #[graphql(name = "TaskEvent")]
 pub struct GraphqlTaskEvent {
-    /// Task whose detail projection changed.
+    /// Exclusive cursor for reconnect/backfill.
+    pub cursor: String,
+    /// Typed event category.
+    pub kind: GraphqlTaskEventKind,
+    /// Task whose durable projection changed.
     pub task_id: String,
+    /// Run affected by the event, when applicable.
+    pub run_id: Option<String>,
+    /// Current task or run status, when applicable.
+    pub status: Option<String>,
+    /// Appended or updated transcript item, when applicable.
+    pub item: Option<tasks::GraphqlTaskRunItem>,
+    /// Durable event creation timestamp.
+    pub created_at: String,
 }
 
 #[Subscription]
@@ -844,24 +917,151 @@ impl SubscriptionRoot {
         chat::conversation_events(state.subscriptions().clone(), conversation_id)
     }
 
-    /// Stream durable/live updates for one task detail projection.
+    /// Stream owner-authorized durable task updates with reconnect backfill.
     async fn task_events(
         &self,
         ctx: &Context<'_>,
         task_id: String,
-    ) -> impl Stream<Item = GraphqlTaskEvent> {
+        after: Option<String>,
+    ) -> Result<impl Stream<Item = Result<GraphqlTaskEvent>>> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        let mut rx = state.subscriptions().subscribe_task(task_id.trim());
-        async_stream::stream! {
+        let principal = ctx
+            .data_opt::<super::RequestPrincipal>()
+            .map_or("human:local", super::RequestPrincipal::subject_id);
+        let store = state.store()?.clone();
+        let task_id = task_id.trim().to_string();
+        let is_authorized = store
+            .get_task(&task_id)
+            .await
+            .map_err(super::errors::graphql_error)?
+            .is_some_and(|task| task.owner_human_id == principal);
+        if !is_authorized {
+            return Err(async_graphql::Error::new("task is unavailable"));
+        }
+        let mut rx = state.subscriptions().subscribe_task(&task_id);
+        let mut cursor = match after {
+            Some(cursor) => parse_task_event_cursor(&cursor)?,
+            None => store
+                .latest_task_event_sequence(&task_id)
+                .await
+                .map_err(super::errors::graphql_error)?,
+        };
+        Ok(async_stream::stream! {
             loop {
+                let events = match store.list_task_events_after(&task_id, Some(cursor), 256).await {
+                    Ok(events) => events,
+                    Err(error) => {
+                        yield Err(super::errors::graphql_error(error));
+                        break;
+                    }
+                };
+                if !events.is_empty() {
+                    for event in events {
+                        cursor = event.sequence_number;
+                        yield project_task_event(&store, event).await;
+                    }
+                    continue;
+                }
                 match rx.recv().await {
-                    Ok(TaskLiveEvent::Changed { task_id }) => yield GraphqlTaskEvent { task_id },
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Ok(TaskLiveEvent::Changed { .. })
+                    | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 }
             }
-        }
+        })
     }
+}
+
+fn parse_task_event_cursor(cursor: &str) -> Result<i64> {
+    let cursor = cursor.trim();
+    let value = cursor
+        .parse::<i64>()
+        .map_err(|_| async_graphql::Error::new("task event cursor is invalid"))?;
+    if value < 0 {
+        return Err(async_graphql::Error::new("task event cursor is invalid"));
+    }
+    Ok(value)
+}
+
+async fn project_task_event(
+    store: &crate::NoemaStore,
+    event: crate::TaskEventRecord,
+) -> Result<GraphqlTaskEvent> {
+    let kind = if event.event_kind == "run.item_upserted" {
+        GraphqlTaskEventKind::RunItemUpserted
+    } else if event.event_kind.starts_with("run.") {
+        GraphqlTaskEventKind::RunUpdated
+    } else {
+        GraphqlTaskEventKind::TaskUpdated
+    };
+    let run_id = event
+        .payload
+        .get("run_id")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    let item = if kind == GraphqlTaskEventKind::RunItemUpserted {
+        let item_id = event
+            .payload
+            .get("item_id")
+            .and_then(serde_json::Value::as_str);
+        let sequence_index = event
+            .payload
+            .get("sequence_index")
+            .and_then(serde_json::Value::as_i64);
+        if let (Some(run_id), Some(item_id), Some(sequence_index)) =
+            (run_id.as_deref(), item_id, sequence_index)
+        {
+            store
+                .list_agent_run_items_page(run_id, Some(sequence_index.saturating_sub(1)), 1)
+                .await
+                .map_err(super::errors::graphql_error)?
+                .into_iter()
+                .find(|item| item.item_id == item_id)
+                .map(Into::into)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let event_status = event
+        .payload
+        .get("status")
+        .or_else(|| event.payload.get("to"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    let status = match kind {
+        GraphqlTaskEventKind::TaskUpdated => match event_status {
+            Some(status) => Some(status),
+            None => store
+                .get_task(&event.task_id)
+                .await
+                .map_err(super::errors::graphql_error)?
+                .map(|task| task.status.as_str().to_string()),
+        },
+        GraphqlTaskEventKind::RunUpdated | GraphqlTaskEventKind::RunItemUpserted => {
+            if event_status.is_some() {
+                event_status
+            } else if let Some(run_id) = run_id.as_deref() {
+                store
+                    .get_agent_run(run_id)
+                    .await
+                    .map_err(super::errors::graphql_error)?
+                    .map(|run| run.status.as_str().to_string())
+            } else {
+                None
+            }
+        }
+    };
+    Ok(GraphqlTaskEvent {
+        cursor: event.sequence_number.to_string(),
+        kind,
+        task_id: event.task_id,
+        run_id,
+        status,
+        item,
+        created_at: event.created_at,
+    })
 }
 
 #[cfg(test)]
@@ -903,6 +1103,12 @@ mod tests {
         assert!(sdl.contains("conversationEvents"));
         assert!(sdl.contains("taskEvents"));
         assert!(sdl.contains("type TaskRunItem"));
+        assert!(sdl.contains("taskRunItems"));
+        assert!(sdl.contains("taskExecutionPolicy"));
+        assert!(sdl.contains("updateTaskExecutionPolicy"));
+        assert!(sdl.contains("resumeTask"));
+        assert!(sdl.contains("cancelTask"));
+        assert!(!sdl.contains("retryTask"));
         assert!(sdl.contains("AssistantTextDeltaEvent"));
         assert!(sdl.contains("memorySettings"));
         assert!(sdl.contains("memoryGraph"));
@@ -5475,32 +5681,83 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn task_events_emits_live_detail_invalidations() {
-        let state = GraphqlState::for_tests();
-        let subscriptions = state.subscriptions().clone();
+    async fn task_events_backfills_from_durable_cursor() {
+        let store = crate::store::tests::test_store().await;
+        store.ensure_default_actors().await.expect("actors");
+        store
+            .ensure_default_provider_account()
+            .await
+            .expect("provider account");
+        store
+            .update_provider_account_status(
+                "provider_account:codex:default",
+                crate::ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .expect("authenticated provider");
+        let pool = store
+            .ensure_default_task_model_pool_settings("codex")
+            .await
+            .expect("task models")
+            .into_iter()
+            .find(|entry| entry.complexity == crate::TaskComplexity::Simple)
+            .expect("simple task model");
+        let (task, _) = store
+            .create_task_with_executor(crate::NewTask {
+                task_id: None,
+                title: "Subscription task".to_string(),
+                request_markdown: "Stream updates".to_string(),
+                complexity: crate::TaskComplexity::Simple,
+                owner_human_id: "human:local".to_string(),
+                source: crate::TaskSource::default(),
+                created_by_agent_id: "agent:primary".to_string(),
+                creation_tool_call_id: None,
+                pool_entry_id: pool.pool_entry_id,
+                executor_model: pool.model.clone(),
+                reviewer_model: pool.model,
+                max_review_rounds: None,
+                criteria: vec![crate::NewTaskValidationCriterion {
+                    criterion_id: None,
+                    ordinal: 1,
+                    description: "Completes".to_string(),
+                    expected_evidence: None,
+                }],
+            })
+            .await
+            .expect("task");
+        let state = GraphqlState::for_tests_with_store(store);
         let schema = build_schema(state);
-        let mut stream = schema.execute_stream(async_graphql::Request::new(
+        let mut stream = schema.execute_stream(async_graphql::Request::new(format!(
             r#"
-            subscription {
-              taskEvents(taskId: "task_1") {
+            subscription {{
+              taskEvents(taskId: "{}", after: "0") {{
+                cursor
+                kind
                 taskId
-              }
-            }
+                status
+              }}
+            }}
             "#,
-        ));
-
-        tokio::spawn(async move {
-            tokio::task::yield_now().await;
-            subscriptions.publish_task(TaskLiveEvent::Changed {
-                task_id: "task_1".to_string(),
-            });
-        });
+            task.task_id
+        )));
         let response = stream.next().await.expect("task event response");
         let data = response.data.into_json().expect("task event json");
         assert_eq!(
             data.pointer("/taskEvents/taskId")
                 .and_then(serde_json::Value::as_str),
-            Some("task_1")
+            Some(task.task_id.as_str())
+        );
+        assert_eq!(
+            data.pointer("/taskEvents/cursor")
+                .and_then(serde_json::Value::as_str),
+            Some("1")
+        );
+        assert_eq!(
+            data.pointer("/taskEvents/kind")
+                .and_then(serde_json::Value::as_str),
+            Some("TASK_UPDATED")
         );
     }
 
