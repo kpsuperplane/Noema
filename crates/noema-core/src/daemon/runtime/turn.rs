@@ -44,6 +44,7 @@ use crate::daemon::{
     protocol::{
         AgentStatus, DaemonError, StartedConversation, TurnStreamEvent, TurnTranscriptItem,
     },
+    task_tool::is_task_delegate_tool,
 };
 
 const MEMORY_OBSERVATION_CONTEXT_ITEM_LIMIT: usize = 4;
@@ -1089,7 +1090,11 @@ impl CodexRuntimeActor {
             stream_id: None,
         };
         let mut local_tool_results = Vec::new();
+        let mut task_handoff = false;
         for call in &initial_tool_calls {
+            if task_handoff {
+                break;
+            }
             timing.mark(
                 "runtime_tool_call_started",
                 json!({
@@ -1165,6 +1170,7 @@ impl CodexRuntimeActor {
                 }),
             );
             next_output_index += 1;
+            task_handoff = is_task_delegate_tool(result.name()) && result.success();
             local_tool_results.push(result);
         }
         let mut all_local_tool_results = local_tool_results.clone();
@@ -1329,12 +1335,19 @@ impl CodexRuntimeActor {
                 turn.cwd.as_deref(),
                 &turn.user_input,
                 &continuation_agent_identity,
-                &turn.rendered_continuation_tools,
+                if task_handoff {
+                    ""
+                } else {
+                    &turn.rendered_continuation_tools
+                },
                 PromptToolExposure {
-                    native_tools_available: !turn.continuation_model_tools.native.is_empty(),
-                    legacy_builtin_envelope_tools: &turn
-                        .continuation_model_tools
-                        .legacy_builtin_envelope_tools,
+                    native_tools_available: !task_handoff
+                        && !turn.continuation_model_tools.native.is_empty(),
+                    legacy_builtin_envelope_tools: if task_handoff {
+                        &[]
+                    } else {
+                        &turn.continuation_model_tools.legacy_builtin_envelope_tools
+                    },
                 },
             );
             let continuation_stream_suffix = if continuation_step == 0 {
@@ -1398,7 +1411,11 @@ impl CodexRuntimeActor {
                 json!({
                     "continuation_step": continuation_step,
                     "tool_result_count": continuation_result_refs.len(),
-                    "native_tool_count": turn.continuation_model_tools.native.len(),
+                    "native_tool_count": if task_handoff {
+                        0
+                    } else {
+                        turn.continuation_model_tools.native.len()
+                    },
                 }),
             );
             let continuation_provider_started_at = std::time::Instant::now();
@@ -1417,9 +1434,14 @@ impl CodexRuntimeActor {
                             reasoning_effort: turn.reasoning_effort,
                             ..GenerateOptions::default()
                         },
-                        tools: turn.continuation_model_tools.native.clone(),
+                        tools: if task_handoff {
+                            Vec::new()
+                        } else {
+                            turn.continuation_model_tools.native.clone()
+                        },
                         tool_choice: Default::default(),
-                        parallel_tool_calls: !turn.continuation_model_tools.native.is_empty()
+                        parallel_tool_calls: !task_handoff
+                            && !turn.continuation_model_tools.native.is_empty()
                             && turn.tool_capabilities.parallel_tool_calls,
                     },
                     &mut on_continuation_event,
@@ -1476,12 +1498,13 @@ impl CodexRuntimeActor {
                 .cloned()
                 .collect::<Vec<_>>();
             let continuation_response_count = continuation_response.responses.len();
-            let continuation_tool_calls =
-                if continuation_response.response_status == GenerateResponseStatus::NeedsTools {
-                    local_tool_calls(&continuation_tool_call_items)
-                } else {
-                    Vec::new()
-                };
+            let continuation_tool_calls = if !task_handoff
+                && continuation_response.response_status == GenerateResponseStatus::NeedsTools
+            {
+                local_tool_calls(&continuation_tool_call_items)
+            } else {
+                Vec::new()
+            };
             let continuation_phase_has_tools = !continuation_tool_calls.is_empty();
             for (offset, response_item) in
                 continuation_response.responses.iter().cloned().enumerate()
