@@ -1,5 +1,10 @@
 //! Provider/tool continuation loop for supervised task runs.
 
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+
 use crate::{
     GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
     agent_execution::ExecutionRole,
@@ -7,6 +12,7 @@ use crate::{
     graphql::{ConversationSubscriptionRegistry, TaskLiveEvent},
     provider::GenerateStreamEvent,
     store::NewAgentRunItem,
+    web_fetch::tool::{WEB_FETCH_TOOL, sanitize_web_fetch_payload_for_storage},
 };
 
 use super::{
@@ -127,15 +133,27 @@ impl CodexRuntimeActor {
             };
             let mut results = Vec::with_capacity(calls.len());
             for call in &calls {
-                results.push(
-                    self.execute_local_tool_with_policy(
+                let result = self
+                    .execute_local_tool_with_policy(
                         &turn,
                         &agent_identity,
                         call,
                         &model_tools.tool_policy,
                     )
-                    .await,
-                );
+                    .await;
+                self.persist_run_item(
+                    &request.task_id,
+                    &request.task_subscriptions,
+                    NewAgentRunItem {
+                        item_id: None,
+                        run_id: request.run_id.clone(),
+                        kind: "tool_result".to_string(),
+                        content_text: Some(result.name().to_string()),
+                        payload: result.transcript_payload(),
+                    },
+                )
+                .await;
+                results.push(result);
             }
             if !results
                 .iter()
@@ -194,11 +212,29 @@ impl CodexRuntimeActor {
         task_id: &str,
         subscriptions: &ConversationSubscriptionRegistry,
     ) -> Result<GenerateResponse, crate::provider::ProviderError> {
+        self.persist_run_item(
+            task_id,
+            subscriptions,
+            NewAgentRunItem {
+                item_id: None,
+                run_id: run_id.to_string(),
+                kind: "model_input".to_string(),
+                content_text: Some(render_run_input(&request)),
+                payload: serde_json::json!({
+                    "conversation_id": request.conversation_id.clone(),
+                    "model": request.model.clone(),
+                    "instructions": request.instructions.clone(),
+                }),
+            },
+        )
+        .await;
         let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
         let store = self.store.clone();
         let run_id_for_writer = run_id.to_string();
         let task_id_for_writer = task_id.to_string();
-        let subscriptions = subscriptions.clone();
+        let subscriptions_for_writer = subscriptions.clone();
+        let saw_assistant_delta = Arc::new(AtomicBool::new(false));
+        let saw_assistant_delta_for_emit = Arc::clone(&saw_assistant_delta);
         let writer = tokio::spawn(async move {
             while let Some(event) = event_rx.recv().await {
                 let item = match event {
@@ -212,33 +248,94 @@ impl CodexRuntimeActor {
                         content_text: Some(delta),
                         payload: serde_json::json!({"response_index": response_index}),
                     }),
-                    GenerateStreamEvent::ToolCallStarted { output_index, name } => {
-                        Some(NewAgentRunItem {
-                            item_id: None,
-                            run_id: run_id_for_writer.clone(),
-                            kind: "tool_call".to_string(),
-                            content_text: Some(name),
-                            payload: serde_json::json!({"output_index": output_index}),
-                        })
-                    }
                     _ => None,
                 };
                 if let Some(item) = item
                     && store.append_agent_run_item(item).await.is_ok()
                 {
-                    subscriptions.publish_task(TaskLiveEvent::Changed {
+                    subscriptions_for_writer.publish_task(TaskLiveEvent::Changed {
                         task_id: task_id_for_writer.clone(),
                     });
                 }
             }
         });
         let mut emit = |event| {
+            if matches!(&event, GenerateStreamEvent::AssistantTextDelta { .. }) {
+                saw_assistant_delta_for_emit.store(true, Ordering::Relaxed);
+            }
             let _ = event_tx.send(event);
         };
         let result = provider.generate_streaming(request, &mut emit).await;
         drop(event_tx);
         let _ = writer.await;
+        if let Ok(response) = result.as_ref() {
+            if !saw_assistant_delta.load(Ordering::Relaxed) {
+                let assistant_text = response.assistant_text();
+                if !assistant_text.is_empty() {
+                    self.persist_run_item(
+                        task_id,
+                        subscriptions,
+                        NewAgentRunItem {
+                            item_id: None,
+                            run_id: run_id.to_string(),
+                            kind: "assistant_output".to_string(),
+                            content_text: Some(assistant_text),
+                            payload: serde_json::json!({"source": "response"}),
+                        },
+                    )
+                    .await;
+                }
+            }
+            for (output_index, call) in response.tool_calls.iter().enumerate() {
+                let arguments = if call.name == WEB_FETCH_TOOL {
+                    sanitize_web_fetch_payload_for_storage(&call.payload)
+                } else {
+                    call.payload.clone()
+                };
+                self.persist_run_item(
+                    task_id,
+                    subscriptions,
+                    NewAgentRunItem {
+                        item_id: None,
+                        run_id: run_id.to_string(),
+                        kind: "tool_call".to_string(),
+                        content_text: Some(call.name.clone()),
+                        payload: serde_json::json!({
+                            "output_index": output_index,
+                            "id": call.id,
+                            "call_id": call.provider_call_id,
+                            "provider_name": call.provider_name,
+                            "arguments": arguments,
+                        }),
+                    },
+                )
+                .await;
+            }
+        }
         result
+    }
+
+    async fn persist_run_item(
+        &self,
+        task_id: &str,
+        subscriptions: &ConversationSubscriptionRegistry,
+        item: NewAgentRunItem,
+    ) {
+        if self.store.append_agent_run_item(item).await.is_ok() {
+            subscriptions.publish_task(TaskLiveEvent::Changed {
+                task_id: task_id.to_string(),
+            });
+        }
+    }
+}
+
+fn render_run_input(request: &GenerateRequest) -> String {
+    let input = request.input.render_for_token_count();
+    match request.instructions.as_deref() {
+        Some(instructions) if !instructions.trim().is_empty() => {
+            format!("System instructions:\n{instructions}\n\nModel input:\n{input}")
+        }
+        _ => input,
     }
 }
 

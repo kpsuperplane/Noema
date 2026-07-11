@@ -650,6 +650,18 @@ impl LocalToolResult {
         }
     }
 
+    pub(super) fn transcript_payload(&self) -> Value {
+        json!({
+            "call_id": self.call_id(),
+            "provider_call_id": self.provider_call_id(),
+            "provider_name": self.provider_name(),
+            "name": self.name(),
+            "arguments": self.arguments(),
+            "success": self.success(),
+            "payload": self.payload(),
+        })
+    }
+
     pub(super) fn requires_provider_continuation(&self) -> bool {
         match self {
             Self::Memory { .. }

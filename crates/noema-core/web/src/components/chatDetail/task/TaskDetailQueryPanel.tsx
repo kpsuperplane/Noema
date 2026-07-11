@@ -229,35 +229,71 @@ function mapReview(review: GraphqlTaskDetail["reviews"][number]): TaskReview {
 }
 
 function mapRun(run: GraphqlTaskDetail["runs"][number]): TaskRun {
+  const role = runRole(run.runKind);
   return {
     id: run.runId,
-    role: runRole(run.runKind),
+    role,
     status: runStatus(run.status),
     revision: run.revisionIndex,
     model: modelSnapshot(run.model),
     error: [run.errorCode, run.errorMessage].filter(Boolean).join(" · ") || null,
-    items: run.items.map(mapRunItem),
+    items: run.items.map((item) => mapRunItem(item, role)),
     startedAt: run.startedAt,
     completedAt: run.endedAt
   };
 }
 
-function mapRunItem(item: GraphqlTaskDetail["runs"][number]["items"][number]): TaskRunItem {
+function mapRunItem(
+  item: GraphqlTaskDetail["runs"][number]["items"][number],
+  role: TaskRunRole
+): TaskRunItem {
+  const details = item.kind === "tool_call" || item.kind === "tool_result" ? jsonText(item.payload) : null;
   const isTool = item.kind === "tool_call";
   return {
     id: item.itemId,
-    kind: isTool ? "tool" : item.kind === "assistant_output" ? "message" : "status",
-    title: isTool ? `Tool call · ${item.contentText || "unnamed"}` : item.kind === "assistant_output" ? "Agent" : item.kind,
+    kind:
+      item.kind === "model_input"
+        ? "input"
+        : isTool
+          ? "tool"
+          : item.kind === "assistant_output"
+            ? "message"
+            : item.kind === "tool_result"
+              ? "result"
+              : "status",
+    title:
+      item.kind === "model_input"
+        ? "Model input"
+        : isTool
+          ? `Tool call · ${item.contentText || "unnamed"}`
+          : item.kind === "assistant_output"
+            ? "Agent"
+            : item.kind === "tool_result"
+              ? `Tool result · ${item.contentText || "unnamed"}`
+              : item.kind,
     summary: item.contentText,
+    details,
+    role,
     occurredAt: item.createdAt
   };
+}
+
+function jsonText(value: unknown): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
 }
 
 function coalesceRunItems(items: readonly TaskRunItem[]): TaskRunItem[] {
   const coalesced: TaskRunItem[] = [];
   for (const item of items) {
     const previous = coalesced.at(-1);
-    if (previous?.kind === "message" && item.kind === "message") {
+    if (previous?.kind === "message" && item.kind === "message" && previous.role === item.role) {
       previous.summary = `${previous.summary ?? ""}${item.summary ?? ""}`;
       continue;
     }

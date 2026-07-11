@@ -79,9 +79,11 @@ export type TaskReview = {
 
 export type TaskRunItem = {
   id: string;
-  kind: "tool" | "message" | "artifact" | "status";
+  kind: "input" | "tool" | "message" | "result" | "artifact" | "status";
   title: string;
   summary?: string | null;
+  details?: string | null;
+  role?: TaskRunRole;
   status?: "running" | "completed" | "failed" | null;
   occurredAt?: string | null;
 };

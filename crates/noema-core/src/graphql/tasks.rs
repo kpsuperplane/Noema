@@ -269,21 +269,21 @@ pub struct GraphqlTaskRun {
     pub created_at: String,
     /// Last update timestamp.
     pub updated_at: String,
-    /// Safe transcript/activity items emitted by this run.
+    /// Full transcript/activity items emitted by this run.
     pub items: Vec<GraphqlTaskRunItem>,
 }
 
-/// Safe live transcript/activity item for one background run.
+/// Live transcript/activity item for one background run.
 #[derive(Clone, Debug, SimpleObject)]
 #[graphql(name = "TaskRunItem")]
 pub struct GraphqlTaskRunItem {
     /// Stable item id.
     pub item_id: String,
-    /// Activity kind, such as `assistant_output` or `tool_call`.
+    /// Transcript kind, such as `model_input`, `assistant_output`, `tool_call`, or `tool_result`.
     pub kind: String,
     /// Human-readable activity text.
     pub content_text: Option<String>,
-    /// Safe structured metadata.
+    /// Structured event payload.
     pub payload: Json<serde_json::Value>,
     /// Creation timestamp.
     pub created_at: String,

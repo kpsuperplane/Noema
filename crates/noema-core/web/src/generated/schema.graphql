@@ -2518,13 +2518,13 @@ type TaskRun {
 	"""
 	updatedAt: String!
 	"""
-	Safe transcript/activity items emitted by this run.
+	Full transcript/activity items emitted by this run.
 	"""
 	items: [TaskRunItem!]!
 }
 
 """
-Safe live transcript/activity item for one background run.
+Live transcript/activity item for one background run.
 """
 type TaskRunItem {
 	"""
@@ -2532,7 +2532,7 @@ type TaskRunItem {
 	"""
 	itemId: String!
 	"""
-	Activity kind, such as `assistant_output` or `tool_call`.
+	Transcript kind, such as `model_input`, `assistant_output`, `tool_call`, or `tool_result`.
 	"""
 	kind: String!
 	"""
@@ -2540,7 +2540,7 @@ type TaskRunItem {
 	"""
 	contentText: String
 	"""
-	Safe structured metadata.
+	Structured event payload.
 	"""
 	payload: JSON!
 	"""

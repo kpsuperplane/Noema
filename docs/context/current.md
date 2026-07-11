@@ -147,10 +147,11 @@ The next storage slice should stay small and concrete:
   marker and opens a GraphQL-backed detail rail showing the request, criteria,
   revisions, executor/reviewer runs, model snapshots, submissions, reviews, and
   final result. The detail rail subscribes to task-scoped GraphQL invalidation
-  events rather than polling, and background runs persist safe assistant-output
-  deltas and tool-call summaries as `agent_run_items` so the running transcript
-  refreshes live. Humans can retry failed tasks from that rail; retry preserves
-  the failed run and atomically queues a linked attempt with the same role,
+  events rather than polling, and background runs persist full model inputs,
+  assistant output, tool calls, and tool results as `agent_run_items` so the
+  running transcript refreshes live. Humans can retry failed tasks from that
+  rail; retry preserves the failed run and atomically queues a linked attempt
+  with the same role,
   revision, model snapshot, and trigger provenance. Agents can use the
   read-only `task.inspect` tool to query owner-scoped durable task/run progress,
   while the primary agent can use `task.retry` for the same canonical retry

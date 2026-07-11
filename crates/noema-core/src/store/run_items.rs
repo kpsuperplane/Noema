@@ -1,4 +1,4 @@
-//! Durable, safe activity items emitted by background agent runs.
+//! Durable transcript items emitted by background agent runs.
 
 #![allow(clippy::missing_errors_doc)]
 
@@ -7,22 +7,22 @@ use serde_json::Value;
 
 use super::{NoemaStore, StoreError, ids::allocate_id};
 
-/// Input for one safe run activity item.
+/// Input for one run transcript item.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewAgentRunItem {
     /// Optional stable item id.
     pub item_id: Option<String>,
     /// Run that emitted the item.
     pub run_id: String,
-    /// Safe activity kind, such as `assistant_output` or `tool_call`.
+    /// Transcript kind, such as `model_input`, `assistant_output`, `tool_call`, or `tool_result`.
     pub kind: String,
     /// Human-readable text, when present.
     pub content_text: Option<String>,
-    /// Structured non-secret metadata.
+    /// Structured event payload.
     pub payload: Value,
 }
 
-/// Persisted safe activity item for one background run.
+/// Persisted transcript item for one background run.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AgentRunItemRecord {
     /// Stable item id.
@@ -31,18 +31,18 @@ pub struct AgentRunItemRecord {
     pub run_id: String,
     /// Monotonic display order within the run.
     pub sequence_index: i64,
-    /// Safe activity kind.
+    /// Transcript kind.
     pub kind: String,
     /// Human-readable text, when present.
     pub content_text: Option<String>,
-    /// Structured non-secret metadata.
+    /// Structured event payload.
     pub payload: Value,
     /// Creation timestamp.
     pub created_at: String,
 }
 
 impl NoemaStore {
-    /// Append one safe activity item and allocate its per-run sequence.
+    /// Append one transcript item and allocate its per-run sequence.
     pub async fn append_agent_run_item(
         &self,
         input: NewAgentRunItem,
@@ -82,7 +82,7 @@ impl NoemaStore {
             })
     }
 
-    /// Return safe activity items in display order.
+    /// Return transcript items in display order.
     pub async fn list_agent_run_items(
         &self,
         run_id: &str,
