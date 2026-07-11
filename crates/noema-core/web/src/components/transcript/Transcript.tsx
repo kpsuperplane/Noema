@@ -27,6 +27,7 @@ import {
   transcriptScrollKey
 } from "./scrollModel";
 import { StructuredCard } from "./StructuredCard";
+import { TaskReferenceCard } from "./TaskReferenceCard";
 import { toolMarkerExpandable } from "./markerModel";
 import { ToolDetailAttachment } from "./ToolDetailAttachment";
 import { ToolMarker } from "./ToolMarker";
@@ -296,6 +297,19 @@ function renderTranscriptEntry(
     return (
       <TranscriptRow lane="assistant" showAvatar={showAvatar}>
         <ArtifactReferenceCard item={entry.item} onOpenDetail={onOpenDetail} />
+      </TranscriptRow>
+    );
+  }
+  if (entry.type === "task") {
+    return (
+      <TranscriptRow lane="assistant" showAvatar={showAvatar}>
+        <TaskReferenceCard
+          revision={entry.item.revision}
+          status={entry.item.status}
+          taskId={entry.item.task_id}
+          title={entry.item.title}
+          onOpenDetail={onOpenDetail}
+        />
       </TranscriptRow>
     );
   }

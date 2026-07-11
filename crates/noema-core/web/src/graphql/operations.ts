@@ -688,6 +688,12 @@ export const ConversationItemFields = gql`
         downloadUrl
         mediaType
       }
+      ... on TaskReference {
+        taskId
+        title
+        taskStatus: status
+        revision
+      }
     }
   }
 `;
@@ -844,6 +850,12 @@ export const ConversationEventsDocument = gql`
             externalUrl
             downloadUrl
             mediaType
+          }
+          ... on TaskReference {
+            taskId
+            title
+            taskStatus: status
+            revision
           }
         }
       }

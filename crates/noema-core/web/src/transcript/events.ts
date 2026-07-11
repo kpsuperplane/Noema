@@ -2,7 +2,7 @@ import type {
   ConversationEventsSubscription,
   ConversationTranscriptPageQuery
 } from "@/generated/graphql";
-import type { TranscriptEntry, TurnTranscriptItem } from "@/shared/types";
+import type { TaskReferenceStatus, TranscriptEntry, TurnTranscriptItem } from "@/shared/types";
 
 type ReplayItem = ConversationTranscriptPageQuery["conversationTranscriptPage"]["items"][number];
 export type ConversationEvent = ConversationEventsSubscription["conversationEvents"];
@@ -163,6 +163,9 @@ function entryFromConversationItem(
   }
   if (transcriptItem.kind === "artifact_reference") {
     return { id: itemId, itemId, cursor, turnId, type: "artifact", item: transcriptItem };
+  }
+  if (transcriptItem.kind === "task_reference") {
+    return { id: itemId, itemId, cursor, turnId, type: "task", item: transcriptItem };
   }
   if (transcriptItem.kind === "error_notice") {
     return {
@@ -326,5 +329,30 @@ function transcriptItemFromGraphql(item: GraphqlTranscriptItem): TurnTranscriptI
       media_type: item.mediaType
     };
   }
+  if (item.__typename === "TaskReference") {
+    return {
+      kind: "task_reference",
+      task_id: item.taskId,
+      title: item.title,
+      status: parseTaskReferenceStatus(item.taskStatus),
+      revision: item.revision
+    };
+  }
   return null;
+}
+
+function parseTaskReferenceStatus(value: string): TaskReferenceStatus {
+  switch (value) {
+    case "queued":
+    case "executing":
+    case "reviewing":
+    case "revision_requested":
+    case "waiting_for_human":
+    case "completed":
+    case "failed":
+    case "cancelled":
+      return value;
+    default:
+      return "queued";
+  }
 }

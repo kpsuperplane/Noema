@@ -5,6 +5,16 @@ export type ConversationAgentStatus = AgentStatus | "connecting" | "closed";
 
 export type TranscriptEntrySource = "replay";
 
+export type TaskReferenceStatus =
+  | "queued"
+  | "executing"
+  | "reviewing"
+  | "revision_requested"
+  | "waiting_for_human"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
 export type TurnTranscriptItem =
   | { kind: "user_text"; text: string }
   | { kind: "assistant_text"; text: string }
@@ -40,6 +50,13 @@ export type TurnTranscriptItem =
       external_url: string | null;
       download_url: string | null;
       media_type: string | null;
+    }
+  | {
+      kind: "task_reference";
+      task_id: string;
+      title: string;
+      status: TaskReferenceStatus;
+      revision: number;
     }
   | { kind: "error_notice"; message: string; recoverable: boolean };
 
@@ -123,6 +140,15 @@ export type TranscriptEntry =
       turnId?: string;
       type: "artifact";
       item: Extract<TurnTranscriptItem, { kind: "artifact_reference" }>;
+    }
+  | {
+      id: string;
+      itemId?: string;
+      cursor?: string | null;
+      source?: TranscriptEntrySource;
+      turnId?: string;
+      type: "task";
+      item: Extract<TurnTranscriptItem, { kind: "task_reference" }>;
     }
   | {
       id: string;
