@@ -79,13 +79,19 @@ export type TaskReview = {
 
 export type TaskRunItem = {
   id: string;
+  runId?: string | null;
+  sequenceIndex?: number | null;
+  roundIndex?: number | null;
   kind: "input" | "tool" | "message" | "result" | "artifact" | "status";
   title: string;
   summary?: string | null;
   details?: string | null;
   role?: TaskRunRole;
-  status?: "running" | "completed" | "failed" | null;
+  status?: "queued" | "running" | "completed" | "failed" | "cancelled" | "skipped" | null;
+  correlationId?: string | null;
+  parentItemId?: string | null;
   occurredAt?: string | null;
+  updatedAt?: string | null;
 };
 
 export type TaskRun = {
@@ -98,6 +104,18 @@ export type TaskRun = {
   error?: string | null;
   toolActivities?: readonly TaskToolActivity[];
   items?: readonly TaskRunItem[];
+  providerCallCount?: number | null;
+  toolCallCount?: number | null;
+  inputTokens?: number | null;
+  cachedInputTokens?: number | null;
+  outputTokens?: number | null;
+  activeMilliseconds?: number | null;
+  executionPolicy?: {
+    maxProviderContinuations: number;
+    maxToolCalls: number;
+    maxActiveMinutes: number;
+    progressAuditInterval: number;
+  } | null;
   startedAt?: string | null;
   completedAt?: string | null;
 };
@@ -157,5 +175,6 @@ export type TaskDetail = {
   delivery?: TaskDelivery | null;
   failureReason?: string | null;
   canCancel?: boolean;
-  canRetry?: boolean;
+  canResume?: boolean;
+  blockingQuestion?: string | null;
 };

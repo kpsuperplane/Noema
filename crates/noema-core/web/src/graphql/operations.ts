@@ -967,6 +967,9 @@ export const TaskDetailDocument = gql`
       createdAt
       updatedAt
       completedAt
+      resumable
+      cancellable
+      blockingQuestion
       criteria {
         criterionId
         ordinal
@@ -1020,6 +1023,16 @@ export const TaskDetailDocument = gql`
         triggeringReviewId
         errorCode
         errorMessage
+        executionPolicy {
+          maxProviderContinuations
+          maxToolCalls
+          maxActiveMinutes
+          progressAuditInterval
+        }
+        providerCallCount
+        toolCallCount
+        cachedInputTokens
+        activeMilliseconds
         inputTokens
         outputTokens
         queuedAt
@@ -1027,21 +1040,14 @@ export const TaskDetailDocument = gql`
         endedAt
         createdAt
         updatedAt
-        items {
-          itemId
-          kind
-          contentText
-          payload
-          createdAt
-        }
       }
     }
   }
 `;
 
-export const RetryTaskDocument = gql`
-  mutation RetryTask($taskId: String!) {
-    retryTask(taskId: $taskId) {
+export const ResumeTaskDocument = gql`
+  mutation ResumeTask($taskId: String!, $message: String) {
+    resumeTask(taskId: $taskId, message: $message) {
       taskId
       status
       latestRunId
@@ -1052,10 +1058,89 @@ export const RetryTaskDocument = gql`
   }
 `;
 
-export const TaskEventsDocument = gql`
-  subscription TaskEvents($taskId: String!) {
-    taskEvents(taskId: $taskId) {
+export const CancelTaskDocument = gql`
+  mutation CancelTask($taskId: String!) {
+    cancelTask(taskId: $taskId) {
       taskId
+      status
+      latestRunId
+      errorCode
+      errorMessage
+      updatedAt
+    }
+  }
+`;
+
+export const TaskRunItemsDocument = gql`
+  query TaskRunItems($runId: String!, $after: String, $first: Int = 50) {
+    taskRunItems(runId: $runId, after: $after, first: $first) {
+      items {
+        itemId
+        runId
+        sequenceIndex
+        roundIndex
+        kind
+        status
+        correlationId
+        parentItemId
+        contentText
+        payload
+        createdAt
+        updatedAt
+      }
+      pageInfo {
+        endCursor
+        hasNextPage
+      }
+    }
+  }
+`;
+
+export const TaskEventsDocument = gql`
+  subscription TaskEvents($taskId: String!, $after: String) {
+    taskEvents(taskId: $taskId, after: $after) {
+      cursor
+      kind
+      taskId
+      runId
+      status
+      createdAt
+      item {
+        itemId
+        runId
+        sequenceIndex
+        roundIndex
+        kind
+        status
+        correlationId
+        parentItemId
+        contentText
+        payload
+        createdAt
+        updatedAt
+      }
+    }
+  }
+`;
+
+export const TaskExecutionPolicyDocument = gql`
+  query TaskExecutionPolicy {
+    taskExecutionPolicy {
+      maxProviderContinuations
+      maxToolCalls
+      maxActiveMinutes
+      progressAuditInterval
+    }
+  }
+`;
+
+export const UpdateTaskExecutionPolicyDocument = gql`
+  mutation UpdateTaskExecutionPolicy($input: TaskExecutionPolicyInput!) {
+    updateTaskExecutionPolicy(input: $input) {
+      maxProviderContinuations
+      maxToolCalls
+      maxActiveMinutes
+      progressAuditInterval
     }
   }
 `;

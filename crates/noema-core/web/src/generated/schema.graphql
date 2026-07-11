@@ -1359,13 +1359,21 @@ enum MultipleChoiceSelectionMode {
 
 type MutationRoot {
 	"""
-	Retry the latest failed run for one owner-authorized task.
+	Continue one failed or human-blocked task from its durable context.
 	"""
-	retryTask(taskId: String!): TaskDetail!
+	resumeTask(taskId: String!, message: String): TaskDetail!
+	"""
+	Cancel one owner-authorized queued, active, or blocked task.
+	"""
+	cancelTask(taskId: String!): TaskDetail!
 	"""
 	Replace one human-controlled executor model-pool entry.
 	"""
 	updateTaskModelPoolEntry(poolEntryId: String!, input: TaskModelPoolEntryInput!): TaskModelPoolEntry!
+	"""
+	Replace provider-independent task safety limits for future/resumed runs.
+	"""
+	updateTaskExecutionPolicy(input: TaskExecutionPolicyInput!): TaskExecutionPolicy!
 	"""
 	Start a provider auth attempt.
 	"""
@@ -1789,6 +1797,10 @@ type QueryRoot {
 	"""
 	task(taskId: String!): TaskDetail
 	"""
+	Return a newest-page, owner-authorized task-run transcript connection.
+	"""
+	taskRunItems(runId: String!, after: String, first: Int): TaskRunItemsConnection!
+	"""
 	Return human-controlled executor model-pool entries.
 	"""
 	taskModelPools(complexity: TaskComplexity): [TaskModelPoolEntry!]!
@@ -1796,6 +1808,10 @@ type QueryRoot {
 	Alias for clients that prefer the storage-oriented pool-entry name.
 	"""
 	taskModelPoolEntries(complexity: TaskComplexity): [TaskModelPoolEntry!]!
+	"""
+	Return provider-independent safety limits shared by every task tier.
+	"""
+	taskExecutionPolicy: TaskExecutionPolicy!
 	"""
 	Return web fetch settings safe to show in Settings.
 	"""
@@ -2093,9 +2109,9 @@ type SubscriptionRoot {
 	"""
 	conversationEvents(conversationId: String!): ConversationEvent!
 	"""
-	Stream durable/live updates for one task detail projection.
+	Stream owner-authorized durable task updates with reconnect backfill.
 	"""
-	taskEvents(taskId: String!): TaskEvent!
+	taskEvents(taskId: String!, after: String): TaskEvent!
 }
 
 """
@@ -2210,6 +2226,18 @@ type TaskDetail {
 	"""
 	completedAt: String
 	"""
+	Whether the owner can continue this task from its durable context.
+	"""
+	resumable: Boolean!
+	"""
+	Whether the owner can cancel this task.
+	"""
+	cancellable: Boolean!
+	"""
+	Blocking question awaiting a human answer, when present.
+	"""
+	blockingQuestion: String
+	"""
 	Immutable validation criteria.
 	"""
 	criteria: [TaskValidationCriterion!]!
@@ -2228,13 +2256,99 @@ type TaskDetail {
 }
 
 """
-One task detail invalidation emitted while a background run changes.
+One durable owner-authorized task event.
 """
 type TaskEvent {
 	"""
-	Task whose detail projection changed.
+	Exclusive cursor for reconnect/backfill.
+	"""
+	cursor: String!
+	"""
+	Typed event category.
+	"""
+	kind: TaskEventKind!
+	"""
+	Task whose durable projection changed.
 	"""
 	taskId: String!
+	"""
+	Run affected by the event, when applicable.
+	"""
+	runId: String
+	"""
+	Current task or run status, when applicable.
+	"""
+	status: String
+	"""
+	Appended or updated transcript item, when applicable.
+	"""
+	item: TaskRunItem
+	"""
+	Durable event creation timestamp.
+	"""
+	createdAt: String!
+}
+
+"""
+Durable task subscription event category.
+"""
+enum TaskEventKind {
+	"""
+	Task lifecycle/read-model state changed.
+	"""
+	TASK_UPDATED
+	"""
+	One durable task run changed.
+	"""
+	RUN_UPDATED
+	"""
+	One task-run transcript item was inserted or updated.
+	"""
+	RUN_ITEM_UPSERTED
+}
+
+"""
+Global provider-independent safety limits applied to every task model tier.
+"""
+type TaskExecutionPolicy {
+	"""
+	Maximum provider continuations before terminal-only finalization.
+	"""
+	maxProviderContinuations: Int!
+	"""
+	Maximum tool calls before terminal-only finalization.
+	"""
+	maxToolCalls: Int!
+	"""
+	Maximum active execution time in minutes, excluding queue time.
+	"""
+	maxActiveMinutes: Int!
+	"""
+	Continuation interval between progress audits.
+	"""
+	progressAuditInterval: Int!
+}
+
+"""
+Input for replacing the global Task Executor safety limits.
+"""
+input TaskExecutionPolicyInput {
+	"""
+	Maximum provider continuations before terminal-only finalization.
+	"""
+	maxProviderContinuations: Int!
+	"""
+	Maximum tool calls before terminal-only finalization.
+	"""
+	maxToolCalls: Int!
+	"""
+	Maximum active execution time in minutes, excluding queue time.
+	"""
+	maxActiveMinutes: Int!
+	"""
+	Continuation interval between progress audits.
+	"""
+	progressAuditInterval: Int!
 }
 
 """
@@ -2490,13 +2604,33 @@ type TaskRun {
 	"""
 	errorMessage: String
 	"""
-	Input tokens, when reported.
+	Immutable execution-policy snapshot.
 	"""
-	inputTokens: Int
+	executionPolicy: TaskExecutionPolicy!
 	"""
-	Output tokens, when reported.
+	Completed provider calls.
 	"""
-	outputTokens: Int
+	providerCallCount: Int!
+	"""
+	Dispatched tool calls.
+	"""
+	toolCallCount: Int!
+	"""
+	Cumulative input tokens.
+	"""
+	inputTokens: Int!
+	"""
+	Cumulative cached-input tokens.
+	"""
+	cachedInputTokens: Int!
+	"""
+	Cumulative output tokens.
+	"""
+	outputTokens: Int!
+	"""
+	Active execution duration in milliseconds.
+	"""
+	activeMilliseconds: Int!
 	"""
 	Queue timestamp.
 	"""
@@ -2517,10 +2651,6 @@ type TaskRun {
 	Last update timestamp.
 	"""
 	updatedAt: String!
-	"""
-	Full transcript/activity items emitted by this run.
-	"""
-	items: [TaskRunItem!]!
 }
 
 """
@@ -2532,9 +2662,37 @@ type TaskRunItem {
 	"""
 	itemId: String!
 	"""
+	Owning run id.
+	"""
+	runId: String!
+	"""
+	Opaque durable pagination/subscription cursor.
+	"""
+	cursor: String!
+	"""
+	Monotonic display order within the run.
+	"""
+	sequenceIndex: Int!
+	"""
+	Zero-based provider round that emitted the item.
+	"""
+	roundIndex: Int!
+	"""
 	Transcript kind, such as `model_input`, `assistant_output`, `tool_call`, or `tool_result`.
 	"""
 	kind: String!
+	"""
+	Canonical pending/running/completed/failed/cancelled/skipped state.
+	"""
+	status: String!
+	"""
+	Provider/tool correlation id, when present.
+	"""
+	correlationId: String
+	"""
+	Parent transcript item id, when present.
+	"""
+	parentItemId: String
 	"""
 	Human-readable activity text.
 	"""
@@ -2547,6 +2705,38 @@ type TaskRunItem {
 	Creation timestamp.
 	"""
 	createdAt: String!
+	"""
+	Last update timestamp.
+	"""
+	updatedAt: String!
+}
+
+"""
+A newest-first page stream for one task-run transcript.
+"""
+type TaskRunItemsConnection {
+	"""
+	Items in chronological display order within this page.
+	"""
+	items: [TaskRunItem!]!
+	"""
+	Pagination state for loading the next older page.
+	"""
+	pageInfo: TaskRunItemsPageInfo!
+}
+
+"""
+Cursor metadata for one page of task-run transcript items.
+"""
+type TaskRunItemsPageInfo {
+	"""
+	Cursor to pass as `after` to load the next older page.
+	"""
+	endCursor: String
+	"""
+	Whether another older page exists.
+	"""
+	hasNextPage: Boolean!
 }
 
 """

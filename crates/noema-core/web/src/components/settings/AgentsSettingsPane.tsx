@@ -2,7 +2,9 @@ import { useMutation, useQuery } from "@apollo/client/react";
 import {
   AgentsDocument,
   SaveAgentModelPreferenceDocument,
+  TaskExecutionPolicyDocument,
   TaskModelPoolsDocument,
+  UpdateTaskExecutionPolicyDocument,
   UpdateTaskModelPoolEntryDocument,
   type AgentsQuery,
   type SaveAgentModelPreferenceMutation,
@@ -19,6 +21,7 @@ export { AgentsSettingsPaneContent } from "./AgentsSettingsPaneContent";
 export function AgentsSettingsPane() {
   const agentsResult = useQuery<AgentsQuery>(AgentsDocument, { fetchPolicy: "cache-and-network" });
   const poolsResult = useQuery<TaskModelPoolsQuery>(TaskModelPoolsDocument, { fetchPolicy: "cache-and-network" });
+  const policyResult = useQuery(TaskExecutionPolicyDocument, { fetchPolicy: "cache-and-network" });
   const [savePreference, saveResult] = useMutation<
     SaveAgentModelPreferenceMutation,
     SaveAgentModelPreferenceMutationVariables
@@ -31,6 +34,10 @@ export function AgentsSettingsPane() {
     UpdateTaskModelPoolEntryMutationVariables
   >(UpdateTaskModelPoolEntryDocument, {
     refetchQueries: [{ query: TaskModelPoolsDocument }],
+    awaitRefetchQueries: true
+  });
+  const [updatePolicy, updatePolicyResult] = useMutation(UpdateTaskExecutionPolicyDocument, {
+    refetchQueries: [{ query: TaskExecutionPolicyDocument }],
     awaitRefetchQueries: true
   });
 
@@ -53,6 +60,14 @@ export function AgentsSettingsPane() {
       taskModelPoolSaveError={poolSaveError}
       taskModelPoolSaving={poolSaving}
       onUpdateTaskModelPool={(poolEntryId, input: TaskModelPoolEntryInput) => updatePool({ variables: { poolEntryId, input } })}
+      taskExecutionPolicy={policyResult.data?.taskExecutionPolicy ?? null}
+      taskExecutionPolicyError={policyResult.error?.message ?? null}
+      taskExecutionPolicyLoading={policyResult.loading && !policyResult.data}
+      taskExecutionPolicySaveError={updatePolicyResult.error?.message ?? null}
+      taskExecutionPolicySaving={updatePolicyResult.loading}
+      onUpdateTaskExecutionPolicy={async (input) => {
+        await updatePolicy({ variables: { input } });
+      }}
     />
   );
 }

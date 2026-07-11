@@ -1,7 +1,8 @@
 import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
-import { Ban, RotateCcw } from "lucide-react";
+import { Ban } from "lucide-react";
 import type { TaskDetail } from "./taskTypes";
+import { TaskResumeControls } from "./TaskResumeControls";
 import { TaskStatusBadge } from "./TaskStatusBadge";
 
 export function TaskOverview({
@@ -9,16 +10,15 @@ export function TaskOverview({
   actionBusy,
   actionError,
   onCancel,
-  onRetry
+  onResume
 }: {
   detail: TaskDetail;
-  actionBusy?: "cancel" | "retry" | null;
+  actionBusy?: "cancel" | "resume" | null;
   actionError?: string | null;
   onCancel?: (taskId: string) => void | Promise<void>;
-  onRetry?: (taskId: string) => void | Promise<void>;
+  onResume?: (message?: string) => void | Promise<void>;
 }) {
   const canCancel = Boolean(detail.canCancel ?? cancellableTaskStatus(detail.status));
-  const canRetry = Boolean(detail.canRetry ?? retryableTaskStatus(detail.status));
   const revision = detail.currentRevision ?? latestRevision(detail);
   const stage = stageLabel(detail.status);
   const provenance = [detail.createdBy, detail.sourceLabel].filter(Boolean).join(" · ");
@@ -34,21 +34,11 @@ export function TaskOverview({
           </div>
         </div>
         <div {...stylex.props(styles.actions)}>
-          {canRetry && onRetry ? (
-            <Button
-              clickAction={() => onRetry(detail.taskId)}
-              icon={<RotateCcw aria-hidden="true" size={14} />}
-              isLoading={actionBusy === "retry"}
-              label="Retry"
-              size="sm"
-              variant="secondary"
-            />
-          ) : null}
           {canCancel && onCancel ? (
             <Button
               clickAction={() => onCancel(detail.taskId)}
               icon={<Ban aria-hidden="true" size={14} />}
-              isDisabled={actionBusy === "retry"}
+              isDisabled={actionBusy === "resume"}
               isLoading={actionBusy === "cancel"}
               label="Cancel"
               size="sm"
@@ -61,6 +51,13 @@ export function TaskOverview({
         <p role="alert" {...stylex.props(styles.actionError)}>
           {actionError}
         </p>
+      ) : null}
+      {onResume ? (
+        <TaskResumeControls
+          busy={actionBusy === "resume"}
+          detail={detail}
+          onResume={onResume}
+        />
       ) : null}
       <dl id="task-overview-title" {...stylex.props(styles.metadata)}>
         <MetadataRow label="Complexity" value={capitalize(detail.complexity)} />
@@ -87,10 +84,6 @@ function MetadataRow({ label, value }: { label: string; value: string }) {
 
 export function cancellableTaskStatus(status: TaskDetail["status"]): boolean {
   return status === "queued" || status === "executing" || status === "reviewing" || status === "revision_requested";
-}
-
-export function retryableTaskStatus(status: TaskDetail["status"]): boolean {
-  return status === "failed";
 }
 
 function latestRevision(detail: TaskDetail): number {

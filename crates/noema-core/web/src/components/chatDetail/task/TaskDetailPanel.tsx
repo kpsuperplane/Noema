@@ -2,7 +2,7 @@ import * as React from "react";
 import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import * as stylex from "@stylexjs/stylex";
 import { AlertCircle } from "lucide-react";
-import type { TaskDetail } from "./taskTypes";
+import type { TaskDetail, TaskRunItem } from "./taskTypes";
 import { TaskCriteria } from "./TaskCriteria";
 import { TaskDelivery } from "./TaskDelivery";
 import { TaskModelSnapshots } from "./TaskModelSnapshots";
@@ -18,7 +18,8 @@ export function TaskDetailPanel({
   loading = false,
   error = null,
   onCancelTask,
-  onRetryTask,
+  onResumeTask,
+  liveRunItems,
   onExpandRevision
 }: {
   taskId: string;
@@ -26,16 +27,21 @@ export function TaskDetailPanel({
   loading?: boolean;
   error?: string | null;
   onCancelTask?: (taskId: string) => void | Promise<void>;
-  onRetryTask?: (taskId: string) => void | Promise<void>;
+  onResumeTask?: (taskId: string, message?: string) => void | Promise<void>;
+  liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
   onExpandRevision?: (taskId: string, revision: number) => void;
 }) {
-  const [actionBusy, setActionBusy] = React.useState<"cancel" | "retry" | null>(null);
+  const [actionBusy, setActionBusy] = React.useState<"cancel" | "resume" | null>(null);
   const [actionError, setActionError] = React.useState<string | null>(null);
   const currentDetail = detail?.taskId === taskId ? detail : null;
 
   const runAction = React.useCallback(
-    async (kind: "cancel" | "retry") => {
-      const action = kind === "cancel" ? onCancelTask : onRetryTask;
+    async (kind: "cancel" | "resume", message?: string) => {
+      const action = kind === "cancel"
+        ? onCancelTask
+        : onResumeTask
+          ? (currentTaskId: string) => onResumeTask(currentTaskId, message)
+          : undefined;
       if (!action || actionBusy) {
         return;
       }
@@ -49,7 +55,7 @@ export function TaskDetailPanel({
         setActionBusy(null);
       }
     },
-    [actionBusy, onCancelTask, onRetryTask, taskId]
+    [actionBusy, onCancelTask, onResumeTask, taskId]
   );
 
   if (loading && !currentDetail) {
@@ -73,7 +79,7 @@ export function TaskDetailPanel({
         actionError={actionError}
         detail={currentDetail}
         onCancel={onCancelTask ? () => runAction("cancel") : undefined}
-        onRetry={onRetryTask ? () => runAction("retry") : undefined}
+        onResume={onResumeTask ? (message) => runAction("resume", message) : undefined}
       />
       <Divider />
       <TaskTextSection title="Original request" text={currentDetail.request} />
@@ -87,6 +93,7 @@ export function TaskDetailPanel({
       <Divider />
       <TaskRevisionTimeline
         criteria={currentDetail.criteria}
+        liveRunItems={liveRunItems}
         onExpandRevision={(revision) => onExpandRevision?.(currentDetail.taskId, revision)}
         revisions={currentDetail.revisions}
       />

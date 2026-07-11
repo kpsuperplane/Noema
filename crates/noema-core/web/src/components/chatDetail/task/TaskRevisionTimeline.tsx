@@ -2,19 +2,22 @@ import * as React from "react";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import * as stylex from "@stylexjs/stylex";
-import { ChevronDown, ChevronRight, FileText, Wrench } from "lucide-react";
+import { ChevronDown, ChevronRight, Wrench } from "lucide-react";
 import type { TaskCriterion, TaskRevision, TaskReview, TaskRun, TaskRunItem } from "./taskTypes";
 import { SectionHeading } from "./TaskCriteria";
+import { TaskRunTranscript } from "./TaskRunTranscript";
 
 type MarkdownXStyle = MarkdownProps["xstyle"];
 
 export function TaskRevisionTimeline({
   revisions,
   criteria,
+  liveRunItems,
   onExpandRevision
 }: {
   revisions: readonly TaskRevision[];
   criteria: readonly TaskCriterion[];
+  liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
   onExpandRevision?: (revision: number) => void;
 }) {
   return (
@@ -29,6 +32,7 @@ export function TaskRevisionTimeline({
               key={revision.revision}
               criteria={criteria}
               revision={revision}
+              liveRunItems={liveRunItems}
               onExpand={onExpandRevision}
             />
           ))}
@@ -41,10 +45,12 @@ export function TaskRevisionTimeline({
 export function TaskRunCycle({
   revision,
   criteria,
+  liveRunItems,
   onExpand
 }: {
   revision: TaskRevision;
   criteria: readonly TaskCriterion[];
+  liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
   onExpand?: (revision: number) => void;
 }) {
   const active = revisionIsActive(revision);
@@ -77,14 +83,27 @@ export function TaskRunCycle({
       {expanded ? (
         <div id={`task-revision-${revision.revision}`} {...stylex.props(styles.cycleBody)}>
           <RunSummary label="Executor" run={revision.executor} />
+          {revision.executor ? (
+            <TaskRunTranscript
+              key={revision.executor.id}
+              liveItems={liveRunItems?.get(revision.executor.id)}
+              run={revision.executor}
+            />
+          ) : null}
           {revision.submission ? (
             <OutputBlock label="Submission" text={revision.submission.summary || revision.submission.result} />
           ) : null}
           {revision.review ? <ReviewBlock criteria={criteria} review={revision.review} /> : null}
-          <AgentTranscript revision={revision} />
           {revision.itemsLoading ? <p {...stylex.props(styles.loading)}>Loading run activity...</p> : null}
           {revision.itemsError ? <p role="alert" {...stylex.props(styles.error)}>{revision.itemsError}</p> : null}
           <RunSummary label="Reviewer" run={revision.reviewer} />
+          {revision.reviewer ? (
+            <TaskRunTranscript
+              key={revision.reviewer.id}
+              liveItems={liveRunItems?.get(revision.reviewer.id)}
+              run={revision.reviewer}
+            />
+          ) : null}
         </div>
       ) : null}
     </article>
@@ -107,6 +126,9 @@ function RunSummary({ label, run }: { label: string; run?: TaskRun | null }) {
           {run.model.modelLabel || run.model.modelProfile}
           {run.model.reasoningEffort ? ` · ${run.model.reasoningEffort}` : ""}
         </p>
+      ) : null}
+      {run.executionPolicy ? (
+        <p {...stylex.props(styles.usage)}>{runUsageLabel(run)}</p>
       ) : null}
       {output ? <OutputBlock label="Output" text={output} /> : null}
       {run.error ? <p role="alert" {...stylex.props(styles.error)}>{run.error}</p> : null}
@@ -170,60 +192,23 @@ function ReviewBlock({ criteria, review }: { criteria: readonly TaskCriterion[];
   );
 }
 
-function AgentTranscript({ revision }: { revision: TaskRevision }) {
-  if (!revision.items?.length) {
-    return null;
-  }
-  return (
-    <section {...stylex.props(styles.transcript)}>
-      <div {...stylex.props(styles.subheading)}>
-        <h4 {...stylex.props(styles.subheadingTitle)}>Agent transcript</h4>
-        <span {...stylex.props(styles.activityHint)}>Full run exchange</span>
-      </div>
-      <div role="log" aria-live="polite" {...stylex.props(styles.transcriptList)}>
-        {revision.items.map((item) => <TranscriptItem key={item.id} item={item} />)}
-      </div>
-    </section>
-  );
-}
-
-function TranscriptItem({ item }: { item: TaskRunItem }) {
-  const role = item.role === "reviewer" ? "Reviewer" : item.role === "completion_delivery" ? "Delivery" : "Executor";
-  const isMessage = item.kind === "message";
-  const isInput = item.kind === "input";
-  const content = item.details || item.summary;
-  return (
-    <article {...stylex.props(styles.transcriptItem, isMessage && styles.transcriptMessage)}>
-      <div {...stylex.props(styles.transcriptHeader)}>
-        <span {...stylex.props(styles.transcriptRole)}>{role}</span>
-        <span {...stylex.props(styles.transcriptTitle)}>
-          {item.kind === "tool" ? <Wrench aria-hidden="true" size={12} /> : <FileText aria-hidden="true" size={12} />}
-          {item.title}
-        </span>
-      </div>
-      {isMessage && item.summary ? (
-        <Markdown
-          autolink="gfm"
-          contentWidth="100%"
-          density="compact"
-          headingLevelStart={5}
-          xstyle={markdownXStyle(styles.transcriptMarkdown)}
-        >
-          {item.summary}
-        </Markdown>
-      ) : content ? (
-        <pre {...stylex.props(styles.transcriptPre)}>{content}</pre>
-      ) : isInput ? (
-        <p {...stylex.props(styles.activitySummary)}>No input text recorded.</p>
-      ) : null}
-    </article>
-  );
-}
-
 function revisionIsActive(revision: TaskRevision): boolean {
   return [revision.executor, revision.reviewer].some(
     (run) => run?.status === "queued" || run?.status === "leased" || run?.status === "running"
   );
+}
+
+function runUsageLabel(run: TaskRun): string {
+  const policy = run.executionPolicy;
+  if (!policy) {
+    return "";
+  }
+  const activeMinutes = Math.max(0, Math.ceil((run.activeMilliseconds ?? 0) / 60_000));
+  return [
+    `${run.providerCallCount ?? 0}/${policy.maxProviderContinuations} provider calls`,
+    `${run.toolCallCount ?? 0}/${policy.maxToolCalls} tool calls`,
+    `${activeMinutes}/${policy.maxActiveMinutes} active min`
+  ].join(" · ");
 }
 
 function ToolActivityList({ activities }: { activities: NonNullable<TaskRun["toolActivities"]> }) {
@@ -311,6 +296,7 @@ const styles = stylex.create({
   subheadingTitle: { margin: 0, color: "var(--noema-text-primary)", fontSize: 11, fontWeight: 700 },
   smallBadge: { flexShrink: 0, fontSize: 9 },
   model: { margin: 0, color: "var(--noema-text-muted)", fontFamily: "var(--noema-font-mono)", fontSize: 10, overflowWrap: "anywhere" },
+  usage: { margin: 0, color: "var(--noema-text-muted)", fontSize: 10, fontVariantNumeric: "tabular-nums", overflowWrap: "anywhere" },
   output: { display: "grid", gap: 4, minWidth: 0 },
   outputLabel: { color: "var(--noema-text-muted)", fontSize: 10, fontWeight: 650, letterSpacing: "0.06em", textTransform: "uppercase" },
   markdown: { color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: 1.45 },
@@ -321,15 +307,6 @@ const styles = stylex.create({
   reviewFeedback: { margin: 0, paddingInlineStart: 4, color: "var(--noema-text-secondary)", fontSize: 11, lineHeight: 1.4, overflowWrap: "anywhere" },
   reviewEvidence: { margin: 0, paddingInlineStart: 4, color: "var(--noema-text-muted)", fontSize: 10, lineHeight: 1.4, overflowWrap: "anywhere", whiteSpace: "pre-wrap" },
   tools: { display: "grid", gap: 5 },
-  transcript: { display: "grid", gap: 6, minWidth: 0 },
-  transcriptList: { display: "grid", gap: 6, maxHeight: 520, overflowY: "auto", minWidth: 0, padding: 1 },
-  transcriptItem: { display: "grid", gap: 6, minWidth: 0, borderRadius: 7, backgroundColor: "var(--noema-surface-card)", padding: 8 },
-  transcriptMessage: { backgroundColor: "color-mix(in srgb, var(--noema-pine-100) 24%, var(--noema-surface-card))" },
-  transcriptHeader: { display: "flex", alignItems: "center", gap: 7, minWidth: 0 },
-  transcriptRole: { flexShrink: 0, color: "var(--noema-text-muted)", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" },
-  transcriptTitle: { display: "inline-flex", alignItems: "center", gap: 5, minWidth: 0, color: "var(--noema-text-secondary)", fontSize: 11, overflowWrap: "anywhere" },
-  transcriptMarkdown: { color: "var(--noema-text-primary)", fontSize: 12, lineHeight: 1.5 },
-  transcriptPre: { maxWidth: "100%", margin: 0, overflowX: "auto", whiteSpace: "pre-wrap", overflowWrap: "anywhere", color: "var(--noema-text-secondary)", fontFamily: "var(--noema-font-mono)", fontSize: 10, lineHeight: 1.45 },
   activity: { display: "grid", gap: 6 },
   activityHint: { color: "var(--noema-text-muted)", fontSize: 10 },
   activityList: { display: "grid", gap: 4, margin: 0, padding: 0, listStyle: "none" },

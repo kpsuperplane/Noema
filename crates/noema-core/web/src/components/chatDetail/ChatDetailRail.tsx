@@ -18,7 +18,7 @@ export function ChatDetailRail({
   onClose,
   onMotionEnd,
   onCancelTask,
-  onRetryTask,
+  onResumeTask,
   onExpandTaskRevision
 }: {
   target: ChatDetailTarget;
@@ -27,7 +27,7 @@ export function ChatDetailRail({
   onClose: () => void;
   onMotionEnd: () => void;
   onCancelTask?: (taskId: string) => void | Promise<void>;
-  onRetryTask?: (taskId: string) => void | Promise<void>;
+  onResumeTask?: (taskId: string, message?: string) => void | Promise<void>;
   onExpandTaskRevision?: (taskId: string, revision: number) => void;
 }) {
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
@@ -134,7 +134,7 @@ export function ChatDetailRail({
               onTitleChange={handleTaskTitleChange}
               onCancelTask={onCancelTask}
               onExpandRevision={onExpandTaskRevision}
-              onRetryTask={onRetryTask}
+              onResumeTask={onResumeTask}
               taskId={target.taskId}
             />
           )}

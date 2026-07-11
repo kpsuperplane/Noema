@@ -55,6 +55,10 @@ export function TaskStatusBadge({ status }: { status: TaskStatus }) {
   );
 }
 
+const rotate = stylex.keyframes({
+  to: { transform: "rotate(360deg)" }
+});
+
 const styles = stylex.create({
   badge: {
     width: "fit-content",
@@ -65,7 +69,7 @@ const styles = stylex.create({
     display: "inline-flex",
     animationDuration: "900ms",
     animationIterationCount: "infinite",
-    animationName: "tool-marker-spinner-rotate",
+    animationName: rotate,
     animationTimingFunction: "linear",
     "@media (prefers-reduced-motion: reduce)": {
       animationName: "none"
