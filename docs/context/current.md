@@ -133,8 +133,8 @@ The next storage slice should stay small and concrete:
 - Task references are first-class transcript items. The web chat renders a
   marker and opens a GraphQL-backed detail rail showing the request, criteria,
   revisions, executor/reviewer runs, model snapshots, submissions, reviews, and
-  final result. Pool entries have local-human GraphQL create/update/delete
-  mutations. The current task runtime intentionally exposes read-only search,
+  final result. Pool entries are editable in Settings > Agents and have
+  local-human GraphQL create/update/delete mutations. The current task runtime intentionally exposes read-only search,
   fetch, memory, and calibrated MCP tools to background roles; task-owned write
   tools and richer workspace/project orchestration remain later milestones.
 - Memory is governed context, not hidden model state. Durable memory truth now
