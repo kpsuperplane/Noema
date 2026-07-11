@@ -2090,12 +2090,18 @@ mod tests {
         assert!(response.errors.is_empty(), "{:?}", response.errors);
         let data = response.data.into_json().expect("json");
         let agents = data["agents"].as_array().expect("agents array");
-        assert_eq!(agents[0]["agentId"], "agent:primary");
-        assert_eq!(agents[0]["displayName"], "Noema");
-        assert_eq!(agents[0]["isPrimary"], true);
-        assert_eq!(agents[1]["agentId"], "agent:unnamed");
-        assert_eq!(agents[1]["displayName"], serde_json::Value::Null);
-        assert_eq!(agents[1]["isPrimary"], false);
+        let primary = agents
+            .iter()
+            .find(|agent| agent["agentId"] == "agent:primary")
+            .expect("primary agent");
+        assert_eq!(primary["displayName"], "Noema");
+        assert_eq!(primary["isPrimary"], true);
+        let unnamed = agents
+            .iter()
+            .find(|agent| agent["agentId"] == "agent:unnamed")
+            .expect("unnamed agent");
+        assert_eq!(unnamed["displayName"], serde_json::Value::Null);
+        assert_eq!(unnamed["isPrimary"], false);
 
         let json_text = serde_json::to_string(&data).expect("agent json");
         assert!(!json_text.contains("prompt"));

@@ -8,11 +8,12 @@ use tokio_util::sync::CancellationToken;
 
 use crate::graphql::{ConversationLiveEvent, ConversationSubscriptionRegistry};
 use crate::{
-    ActorRef, ConversationItemKind, ConversationItemStatus, CriterionOutcome, GenerateInput,
-    GenerateOptions, GenerateRequest, GenerateResponseItem, NewConversationItem, NewTaskReview,
-    NewTaskSubmission, NoemaStore, ReplayMode, RunKind, RunStatus, SubmissionCriterionEvidence,
-    SystemErrorLogger, TaskReviewCriterion, TaskReviewVerdict, TaskStatus,
-    daemon::CodexRuntimeHandle,
+    ActorRef, ConversationItemKind, ConversationItemStatus, CriterionOutcome, GenerateResponseItem,
+    NewConversationItem, NewTaskReview, NewTaskSubmission, NoemaStore, ReplayMode, RunKind,
+    RunStatus, SubmissionCriterionEvidence, SystemErrorLogger, TaskReviewCriterion,
+    TaskReviewVerdict, TaskStatus,
+    agent_execution::ExecutionRole,
+    daemon::{CodexRuntimeHandle, runtime::BackgroundTaskGenerateRequest},
 };
 
 const LEASE_SECONDS: i64 = 120;
@@ -416,23 +417,20 @@ async fn generate_once(
     instructions: &str,
 ) -> Result<crate::GenerateResponse, String> {
     runtime
-        .generate_once_with_provider_kind(
-            Some(run.model.provider_kind.clone()),
-            GenerateRequest {
-                conversation_id: Some(format!("task_run:{}", run.run_id)),
-                model: run.model.model_profile.clone(),
-                input: GenerateInput::Text(input),
-                instructions: Some(instructions.to_string()),
-                options: GenerateOptions {
-                    reasoning_effort: run.model.reasoning_effort,
-                    max_output_tokens: Some(8_000),
-                    ..GenerateOptions::default()
-                },
-                tools: Vec::new(),
-                tool_choice: Default::default(),
-                parallel_tool_calls: false,
+        .generate_background_task(BackgroundTaskGenerateRequest {
+            run_id: run.run_id.clone(),
+            agent_id: run.agent_id.clone(),
+            role: if run.run_kind == RunKind::Reviewer {
+                ExecutionRole::TaskReviewer
+            } else {
+                ExecutionRole::TaskExecutor
             },
-        )
+            provider_kind: run.model.provider_kind.clone(),
+            model: run.model.model_profile.clone(),
+            reasoning_effort: run.model.reasoning_effort,
+            input,
+            instructions: instructions.to_string(),
+        })
         .await
         .map_err(|error| error.to_string())
 }

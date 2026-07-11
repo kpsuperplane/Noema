@@ -438,6 +438,20 @@ impl CodexRuntimeHandle {
             .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?
     }
 
+    pub(crate) async fn generate_background_task(
+        &self,
+        request: super::BackgroundTaskGenerateRequest,
+    ) -> Result<GenerateResponse, DaemonError> {
+        let (reply, reply_rx) = oneshot::channel();
+        self.sender
+            .send(CodexRuntimeCommand::BackgroundTask { request, reply })
+            .await
+            .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?;
+        reply_rx
+            .await
+            .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?
+    }
+
     pub(crate) async fn shutdown(&self) {
         self.cancellation.0.cancel();
         let (reply, reply_rx) = oneshot::channel();
@@ -550,6 +564,10 @@ pub(super) enum CodexRuntimeCommand {
     GenerateOnce {
         provider_kind: Option<String>,
         request: GenerateRequest,
+        reply: oneshot::Sender<Result<GenerateResponse, DaemonError>>,
+    },
+    BackgroundTask {
+        request: super::BackgroundTaskGenerateRequest,
         reply: oneshot::Sender<Result<GenerateResponse, DaemonError>>,
     },
     Shutdown {

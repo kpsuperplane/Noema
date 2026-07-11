@@ -534,7 +534,7 @@ pub(super) enum LocalToolResult {
 }
 
 impl LocalToolResult {
-    fn call_id(&self) -> Option<&String> {
+    pub(super) fn call_id(&self) -> Option<&String> {
         match self {
             Self::Memory { call_id, .. }
             | Self::AgentName { call_id, .. }
@@ -545,7 +545,7 @@ impl LocalToolResult {
         }
     }
 
-    fn provider_call_id(&self) -> Option<&String> {
+    pub(super) fn provider_call_id(&self) -> Option<&String> {
         match self {
             Self::Memory {
                 provider_call_id, ..
@@ -568,7 +568,7 @@ impl LocalToolResult {
         }
     }
 
-    fn provider_name(&self) -> Option<&String> {
+    pub(super) fn provider_name(&self) -> Option<&String> {
         match self {
             Self::Memory { provider_name, .. }
             | Self::AgentName { provider_name, .. }
@@ -612,7 +612,7 @@ impl LocalToolResult {
         }
     }
 
-    fn payload(&self) -> &Value {
+    pub(super) fn payload(&self) -> &Value {
         match self {
             Self::Memory { result, .. } => &result.payload,
             Self::AgentName { result, .. } => &result.payload,

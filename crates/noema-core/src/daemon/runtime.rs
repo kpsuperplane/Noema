@@ -1,4 +1,5 @@
 pub(in crate::daemon) mod actor;
+mod background_task;
 mod context_compaction;
 mod context_window;
 mod conversation_state;
@@ -15,5 +16,6 @@ pub(in crate::daemon) mod turn;
 pub(crate) mod turn_timing;
 mod web_tools;
 
+pub(crate) use background_task::BackgroundTaskGenerateRequest;
 pub use handle::RuntimeModelProvider;
 pub(crate) use handle::{CodexRuntimeHandle, RuntimeProviderMap};

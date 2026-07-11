@@ -103,6 +103,20 @@ impl CodexRuntimeActor {
         self.provider_for_kind(&self.default_provider_kind)
     }
 
+    pub(super) fn clone_for_background(&self) -> Self {
+        Self {
+            default_provider_kind: self.default_provider_kind.clone(),
+            providers: self.providers.clone(),
+            store: self.store.clone(),
+            system_errors: self.system_errors.clone(),
+            memory_connection: self.memory_connection.clone(),
+            search_provider: self.search_provider.clone(),
+            web_fetch_provider: self.web_fetch_provider.clone(),
+            conversations: HashMap::new(),
+            tasks: RuntimeTaskGroup::default(),
+        }
+    }
+
     pub(in crate::daemon) fn memory_client(&self) -> Option<crate::MnemosyneClient> {
         self.memory_connection.as_ref().map(|connection| {
             crate::MnemosyneClient::new(connection.base_url.clone(), connection.api_key.clone())
@@ -207,6 +221,13 @@ impl CodexRuntimeActor {
                             .generate_streaming(request, &mut ignore_event)
                             .await
                             .map_err(DaemonError::Provider);
+                        let _ = reply.send(result);
+                    });
+                }
+                CodexRuntimeCommand::BackgroundTask { request, reply } => {
+                    let actor = self.clone_for_background();
+                    self.tasks.spawn(async move {
+                        let result = actor.generate_background_task(request).await;
                         let _ = reply.send(result);
                     });
                 }
