@@ -379,8 +379,6 @@ pub struct GraphqlTaskModelPoolEntry {
     pub reasoning_effort: Option<GraphqlReasoningEffort>,
     /// Whether this entry can be selected for new tasks.
     pub enabled: bool,
-    /// Whether Noema supplied this provider-owned default.
-    pub is_provider_default: bool,
     /// Human-controlled ordering within its tier.
     pub sort_order: i32,
     /// Creation timestamp.
@@ -413,7 +411,6 @@ pub struct GraphqlTaskModelPoolEntryInput {
 
 impl From<TaskModelPoolEntry> for GraphqlTaskModelPoolEntry {
     fn from(value: TaskModelPoolEntry) -> Self {
-        let is_provider_default = value.is_provider_default();
         Self {
             pool_entry_id: value.pool_entry_id,
             complexity: value.complexity.into(),
@@ -426,7 +423,6 @@ impl From<TaskModelPoolEntry> for GraphqlTaskModelPoolEntry {
                 .reasoning_effort
                 .map(GraphqlReasoningEffort::from),
             enabled: value.enabled,
-            is_provider_default,
             sort_order: value.sort_order as i32,
             created_at: value.created_at,
             updated_at: value.updated_at,
@@ -462,35 +458,10 @@ pub(super) async fn task_model_pools(
 ) -> Result<Vec<GraphqlTaskModelPoolEntry>> {
     let store = state.store()?;
     store
-        .list_task_model_pool_entries(complexity.map(TaskComplexity::from))
+        .list_task_model_pool_settings(complexity.map(TaskComplexity::from))
         .await
         .map_err(graphql_error)
         .map(|entries| entries.into_iter().map(Into::into).collect())
-}
-
-/// Create one executor model-pool entry for the local human.
-pub(super) async fn create_task_model_pool_entry(
-    state: &GraphqlState,
-    principal_subject: &str,
-    input: GraphqlTaskModelPoolEntryInput,
-) -> Result<GraphqlTaskModelPoolEntry> {
-    require_local_principal(principal_subject)?;
-    let store = state.store()?;
-    store
-        .create_task_model_pool_entry(crate::NewTaskModelPoolEntry {
-            pool_entry_id: None,
-            complexity: input.complexity.into(),
-            label: input.label,
-            provider_kind: input.provider_kind,
-            provider_account_id: input.provider_account_id,
-            model_profile: input.model_profile,
-            reasoning_effort: input.reasoning_effort.map(Into::into),
-            enabled: input.enabled,
-            sort_order: i64::from(input.sort_order),
-        })
-        .await
-        .map(Into::into)
-        .map_err(graphql_error)
 }
 
 /// Replace one executor model-pool entry for the local human.
@@ -520,21 +491,6 @@ pub(super) async fn update_task_model_pool_entry(
         )
         .await
         .map(Into::into)
-        .map_err(graphql_error)
-}
-
-/// Disable or remove one executor model-pool entry for the local human.
-pub(super) async fn delete_task_model_pool_entry(
-    state: &GraphqlState,
-    principal_subject: &str,
-    pool_entry_id: String,
-) -> Result<bool> {
-    require_local_principal(principal_subject)?;
-    state
-        .store()?
-        .delete_task_model_pool_entry(pool_entry_id.trim())
-        .await
-        .map(|()| true)
         .map_err(graphql_error)
 }
 
@@ -615,19 +571,12 @@ mod tests {
             .await
             .expect("provider account");
         let entry = store
-            .create_task_model_pool_entry(crate::NewTaskModelPoolEntry {
-                pool_entry_id: Some("pool:simple".to_string()),
-                complexity: TaskComplexity::Simple,
-                label: Some("Fast".to_string()),
-                provider_kind: "codex".to_string(),
-                provider_account_id: "provider_account:codex:default".to_string(),
-                model_profile: "gpt-5.6-mini".to_string(),
-                reasoning_effort: None,
-                enabled: true,
-                sort_order: 1,
-            })
+            .ensure_default_task_model_pool_settings("codex")
             .await
-            .expect("pool entry");
+            .expect("task model settings")
+            .into_iter()
+            .find(|entry| entry.complexity == TaskComplexity::Simple)
+            .expect("simple task model");
 
         let state = GraphqlState::for_tests_with_store(store);
         let entries = task_model_pools(&state, Some(GraphqlTaskComplexity::Simple))
@@ -635,32 +584,37 @@ mod tests {
             .expect("pool query");
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].pool_entry_id, entry.pool_entry_id);
-        assert_eq!(entries[0].model_profile, "gpt-5.6-mini");
+        assert_eq!(entries[0].model_profile, "gpt-5.6-luna");
     }
 
     #[tokio::test]
-    async fn schema_exposes_pool_query_and_local_human_mutations() {
+    async fn schema_exposes_three_global_settings_and_update_mutation() {
         let store = test_store().await;
         store
             .ensure_default_provider_account()
             .await
             .expect("provider account");
+        store
+            .ensure_default_task_model_pool_settings("codex")
+            .await
+            .expect("task model settings");
         let schema = crate::graphql::build_schema(
             crate::graphql::GraphqlState::for_tests_with_store(store.clone()),
         );
 
-        let create = schema
+        let update = schema
             .execute(async_graphql::Request::new(
                 r#"
                 mutation {
-                  createTaskModelPoolEntry(input: {
+                  updateTaskModelPoolEntry(poolEntryId: "task_pool:setting:simple", input: {
                     complexity: SIMPLE
                     label: "Fast"
                     providerKind: "codex"
                     providerAccountId: "provider_account:codex:default"
                     modelProfile: "gpt-5.6-mini"
+                    reasoningEffort: MEDIUM
                     enabled: true
-                    sortOrder: 1
+                    sortOrder: 0
                   }) {
                     poolEntryId
                     complexity
@@ -671,37 +625,20 @@ mod tests {
             ))
             .await
             .into_result()
-            .expect("create mutation");
-        let created = create.data.into_json().expect("create json");
-        assert_eq!(created["createTaskModelPoolEntry"]["complexity"], "SIMPLE");
-        let pool_entry_id = created["createTaskModelPoolEntry"]["poolEntryId"]
-            .as_str()
-            .expect("pool entry id")
-            .to_string();
+            .expect("update mutation");
+        let updated = update.data.into_json().expect("update json");
+        assert_eq!(updated["updateTaskModelPoolEntry"]["complexity"], "SIMPLE");
 
         let query = schema
             .execute(async_graphql::Request::new(
-                "{ taskModelPools(complexity: SIMPLE) { poolEntryId modelProfile } }",
+                "{ taskModelPools { poolEntryId modelProfile } }",
             ))
             .await
             .into_result()
             .expect("pool query");
         let queried = query.data.into_json().expect("query json");
-        assert_eq!(
-            queried["taskModelPools"][0]["poolEntryId"],
-            pool_entry_id.as_str()
-        );
-
-        let delete = schema
-            .execute(async_graphql::Request::new(format!(
-                "mutation {{ deleteTaskModelPoolEntry(poolEntryId: \"{pool_entry_id}\") }}"
-            )))
-            .await
-            .into_result()
-            .expect("delete mutation");
-        assert_eq!(
-            delete.data.into_json().expect("delete json")["deleteTaskModelPoolEntry"],
-            true
-        );
+        assert_eq!(queried["taskModelPools"].as_array().map(Vec::len), Some(3));
+        assert!(!schema.sdl().contains("createTaskModelPoolEntry"));
+        assert!(!schema.sdl().contains("deleteTaskModelPoolEntry"));
     }
 }

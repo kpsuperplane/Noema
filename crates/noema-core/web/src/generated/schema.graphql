@@ -1359,17 +1359,9 @@ enum MultipleChoiceSelectionMode {
 
 type MutationRoot {
 	"""
-	Add one human-controlled executor model-pool entry.
-	"""
-	createTaskModelPoolEntry(input: TaskModelPoolEntryInput!): TaskModelPoolEntry!
-	"""
 	Replace one human-controlled executor model-pool entry.
 	"""
 	updateTaskModelPoolEntry(poolEntryId: String!, input: TaskModelPoolEntryInput!): TaskModelPoolEntry!
-	"""
-	Disable or remove one human-controlled executor model-pool entry.
-	"""
-	deleteTaskModelPoolEntry(poolEntryId: String!): Boolean!
 	"""
 	Start a provider auth attempt.
 	"""
@@ -2263,10 +2255,6 @@ type TaskModelPoolEntry {
 	Whether this entry can be selected for new tasks.
 	"""
 	enabled: Boolean!
-	"""
-	Whether Noema supplied this provider-owned default.
-	"""
-	isProviderDefault: Boolean!
 	"""
 	Human-controlled ordering within its tier.
 	"""

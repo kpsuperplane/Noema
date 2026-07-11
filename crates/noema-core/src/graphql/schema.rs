@@ -560,19 +560,6 @@ pub struct MutationRoot;
 
 #[Object]
 impl MutationRoot {
-    /// Add one human-controlled executor model-pool entry.
-    async fn create_task_model_pool_entry(
-        &self,
-        ctx: &Context<'_>,
-        input: GraphqlTaskModelPoolEntryInput,
-    ) -> Result<GraphqlTaskModelPoolEntry> {
-        let state = ctx.data_unchecked::<GraphqlState>();
-        let principal = ctx
-            .data_opt::<super::RequestPrincipal>()
-            .map_or("human:local", super::RequestPrincipal::subject_id);
-        tasks::create_task_model_pool_entry(state, principal, input).await
-    }
-
     /// Replace one human-controlled executor model-pool entry.
     async fn update_task_model_pool_entry(
         &self,
@@ -585,19 +572,6 @@ impl MutationRoot {
             .data_opt::<super::RequestPrincipal>()
             .map_or("human:local", super::RequestPrincipal::subject_id);
         tasks::update_task_model_pool_entry(state, principal, pool_entry_id, input).await
-    }
-
-    /// Disable or remove one human-controlled executor model-pool entry.
-    async fn delete_task_model_pool_entry(
-        &self,
-        ctx: &Context<'_>,
-        pool_entry_id: String,
-    ) -> Result<bool> {
-        let state = ctx.data_unchecked::<GraphqlState>();
-        let principal = ctx
-            .data_opt::<super::RequestPrincipal>()
-            .map_or("human:local", super::RequestPrincipal::subject_id);
-        tasks::delete_task_model_pool_entry(state, principal, pool_entry_id).await
     }
 
     /// Start a provider auth attempt.

@@ -40,9 +40,7 @@ export function AgentsSettingsPaneContent({
   taskModelPoolError,
   taskModelPoolSaving,
   taskModelPoolSaveError,
-  onCreateTaskModelPool,
-  onUpdateTaskModelPool,
-  onDeleteTaskModelPool
+  onUpdateTaskModelPool
 }: {
   agents: readonly AgentSettingsAgent[];
   loading: boolean;
@@ -56,9 +54,7 @@ export function AgentsSettingsPaneContent({
   taskModelPoolError: string | null;
   taskModelPoolSaving: boolean;
   taskModelPoolSaveError: string | null;
-  onCreateTaskModelPool: (input: TaskModelPoolEntryInput) => Promise<unknown>;
   onUpdateTaskModelPool: (poolEntryId: string, input: TaskModelPoolEntryInput) => Promise<unknown>;
-  onDeleteTaskModelPool: (poolEntryId: string) => Promise<unknown>;
 }) {
   if (loading) {
     return <p {...stylex.props(styles.mutedText)}>Loading agents...</p>;
@@ -134,8 +130,6 @@ export function AgentsSettingsPaneContent({
         error={taskModelPoolError}
         loading={taskModelPoolLoading}
         modelOptions={taskModelPoolModelOptions}
-        onCreate={onCreateTaskModelPool}
-        onDelete={onDeleteTaskModelPool}
         onUpdate={onUpdateTaskModelPool}
         saveError={taskModelPoolSaveError}
         saving={taskModelPoolSaving}

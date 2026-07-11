@@ -1043,25 +1043,6 @@ export const TaskModelPoolsDocument = gql`
       modelProfile
       reasoningEffort
       enabled
-      isProviderDefault
-      sortOrder
-      createdAt
-      updatedAt
-    }
-  }
-`;
-
-export const CreateTaskModelPoolEntryDocument = gql`
-  mutation CreateTaskModelPoolEntry($input: TaskModelPoolEntryInput!) {
-    createTaskModelPoolEntry(input: $input) {
-      poolEntryId
-      complexity
-      label
-      providerKind
-      providerAccountId
-      modelProfile
-      reasoningEffort
-      enabled
       sortOrder
       createdAt
       updatedAt
@@ -1084,12 +1065,6 @@ export const UpdateTaskModelPoolEntryDocument = gql`
       createdAt
       updatedAt
     }
-  }
-`;
-
-export const DeleteTaskModelPoolEntryDocument = gql`
-  mutation DeleteTaskModelPoolEntry($poolEntryId: String!) {
-    deleteTaskModelPoolEntry(poolEntryId: $poolEntryId)
   }
 `;
 

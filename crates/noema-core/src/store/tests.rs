@@ -430,19 +430,12 @@ async fn task_lifecycle_queues_review_and_completion_delivery() {
         Some("test".to_string()),
     );
     let pool = store
-        .create_task_model_pool_entry(crate::NewTaskModelPoolEntry {
-            pool_entry_id: Some("pool:task-lifecycle".to_string()),
-            complexity: crate::TaskComplexity::Simple,
-            label: Some("Test".to_string()),
-            provider_kind: "codex".to_string(),
-            provider_account_id: "provider_account:codex:default".to_string(),
-            model_profile: "gpt-5.6".to_string(),
-            reasoning_effort: None,
-            enabled: true,
-            sort_order: 0,
-        })
+        .ensure_default_task_model_pool_settings("codex")
         .await
-        .expect("pool");
+        .expect("task model settings")
+        .into_iter()
+        .find(|entry| entry.complexity == crate::TaskComplexity::Simple)
+        .expect("simple task model");
     let (task, executor_run) = store
         .create_task_with_executor(crate::NewTask {
             task_id: None,

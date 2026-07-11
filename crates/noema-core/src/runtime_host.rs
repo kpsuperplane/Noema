@@ -36,6 +36,7 @@ impl NoemaRuntimeHost {
     /// Returns [`RuntimeHostError`] when path setup, store startup, or runtime
     /// startup fails.
     pub async fn start(provider: ProviderConfig) -> Result<Self, RuntimeHostError> {
+        let configured_provider_kind = provider.kind().as_str().to_string();
         let paths = NoemaPaths::from_process_env()
             .map_err(|source| RuntimeHostError::DataFolder(source.to_string()))?;
         crate::init_noema_home(
@@ -60,7 +61,7 @@ impl NoemaRuntimeHost {
             .await
             .map_err(|source| RuntimeHostError::Store(source.to_string()))?;
         store
-            .ensure_provider_default_task_model_pool_entries()
+            .ensure_default_task_model_pool_settings(&configured_provider_kind)
             .await
             .map_err(|source| RuntimeHostError::Store(source.to_string()))?;
 

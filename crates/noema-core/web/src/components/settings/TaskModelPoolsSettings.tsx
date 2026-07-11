@@ -3,7 +3,7 @@ import { Button } from "@astryxdesign/core/Button";
 import { Selector, type SelectorOptionType } from "@astryxdesign/core/Selector";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import * as stylex from "@stylexjs/stylex";
-import { Pencil, Plus, Trash2, X } from "lucide-react";
+import { Pencil, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import type {
   ReasoningEffort,
@@ -14,8 +14,6 @@ import type {
 import type { ModelProviderOption } from "./modelPreferenceTypes";
 
 type PoolEntry = TaskModelPoolsQuery["taskModelPools"][number];
-type SavePoolEntry = (input: TaskModelPoolEntryInput) => Promise<unknown>;
-
 const complexities: readonly TaskComplexity[] = ["SIMPLE", "MEDIUM", "DIFFICULT"];
 
 export function TaskModelPoolsSettings({
@@ -25,9 +23,7 @@ export function TaskModelPoolsSettings({
   error,
   saving,
   saveError,
-  onCreate,
-  onUpdate,
-  onDelete
+  onUpdate
 }: {
   entries: readonly PoolEntry[];
   modelOptions: readonly ModelProviderOption[];
@@ -35,46 +31,17 @@ export function TaskModelPoolsSettings({
   error: string | null;
   saving: boolean;
   saveError: string | null;
-  onCreate: SavePoolEntry;
   onUpdate: (poolEntryId: string, input: TaskModelPoolEntryInput) => Promise<unknown>;
-  onDelete: (poolEntryId: string) => Promise<unknown>;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
   const enabledEntryCount = entries.filter((entry) => entry.enabled).length;
 
-  const beginAdd = () => {
-    setActionError(null);
-    setEditingId(null);
-    setAdding(true);
-  };
-
   const beginEdit = (entry: PoolEntry) => {
-    setActionError(null);
-    setAdding(false);
     setEditingId(entry.poolEntryId);
   };
 
   const finishAction = () => {
-    setAdding(false);
     setEditingId(null);
-  };
-
-  const handleDelete = async (poolEntryId: string) => {
-    setDeletingId(poolEntryId);
-    setActionError(null);
-    try {
-      await onDelete(poolEntryId);
-      if (editingId === poolEntryId) {
-        setEditingId(null);
-      }
-    } catch (caught) {
-      setActionError(caught instanceof Error ? caught.message : "Noema could not remove this model.");
-    } finally {
-      setDeletingId(null);
-    }
   };
 
   return (
@@ -82,23 +49,15 @@ export function TaskModelPoolsSettings({
       <div {...stylex.props(styles.header)}>
         <div {...stylex.props(styles.headerCopy)}>
           <div {...stylex.props(styles.titleRow)}>
-            <h2 id="task-model-pools-title" {...stylex.props(styles.title)}>Task executor pools</h2>
-            <Badge variant={enabledEntryCount > 0 ? "success" : "warning"} label={enabledEntryCount > 0 ? `${enabledEntryCount} enabled` : "Delegation off"} />
+            <h2 id="task-model-pools-title" {...stylex.props(styles.title)}>Task executor models</h2>
+            <Badge variant={enabledEntryCount > 0 ? "success" : "warning"} label={`${enabledEntryCount}/3 enabled`} />
           </div>
           <p {...stylex.props(styles.description)}>
-            Each provider includes ready-to-use defaults. Edit a default or add another model to override how background work runs.
+            One global model setting per complexity tier applies to every background task executor.
           </p>
         </div>
-        <Button
-          icon={<Plus aria-hidden="true" size={14} />}
-          label="Add model"
-          onClick={beginAdd}
-          size="sm"
-          variant="secondary"
-        />
       </div>
       {saveError ? <p role="alert" {...stylex.props(styles.error)}>{saveError}</p> : null}
-      {actionError ? <p role="alert" {...stylex.props(styles.error)}>{actionError}</p> : null}
       {loading && entries.length === 0 ? (
         <p {...stylex.props(styles.muted)}>Loading task model pools...</p>
       ) : error ? (
@@ -106,33 +65,21 @@ export function TaskModelPoolsSettings({
       ) : (
         <div {...stylex.props(styles.tiers)}>
           {complexities.map((complexity) => {
-            const tierEntries = entries
-              .filter((entry) => entry.complexity === complexity)
-              .sort((left, right) => left.sortOrder - right.sortOrder);
+            const entry = entries.find((entry) => entry.complexity === complexity);
             return (
               <div key={complexity} {...stylex.props(styles.tier)}>
                 <div {...stylex.props(styles.tierHeader)}>
                   <h3 {...stylex.props(styles.tierTitle)}>{complexityLabel(complexity)}</h3>
-                  <span {...stylex.props(styles.tierHint)}>{tierEntries.length} {tierEntries.length === 1 ? "entry" : "entries"}</span>
+                  <span {...stylex.props(styles.tierHint)}>Global setting</span>
                 </div>
-                {tierEntries.length === 0 ? (
-                  <p {...stylex.props(styles.empty)}>No models configured for this tier.</p>
+                {!entry ? (
+                  <p {...stylex.props(styles.empty)}>This task model setting is unavailable.</p>
                 ) : (
-                  <div {...stylex.props(styles.entryList)}>
-                    {tierEntries.map((entry) => (
-                      <PoolEntryRow
-                        key={entry.poolEntryId}
-                        deleting={deletingId === entry.poolEntryId}
-                        entry={entry}
-                        onDelete={handleDelete}
-                        onEdit={beginEdit}
-                      />
-                    ))}
-                  </div>
+                  <PoolEntryRow entry={entry} onEdit={beginEdit} />
                 )}
-                {editingId && tierEntries.some((entry) => entry.poolEntryId === editingId) ? (
+                {entry && editingId === entry.poolEntryId ? (
                   <PoolEntryEditor
-                    entry={entries.find((entry) => entry.poolEntryId === editingId) ?? null}
+                    entry={entry}
                     modelOptions={modelOptions}
                     saving={saving}
                     onCancel={finishAction}
@@ -147,39 +94,22 @@ export function TaskModelPoolsSettings({
           })}
         </div>
       )}
-      {adding ? (
-        <PoolEntryEditor
-          entry={null}
-          modelOptions={modelOptions}
-          saving={saving}
-          onCancel={finishAction}
-          onSave={async (input) => {
-            await onCreate(input);
-            finishAction();
-          }}
-        />
-      ) : null}
     </section>
   );
 }
 
 function PoolEntryRow({
   entry,
-  deleting,
-  onEdit,
-  onDelete
+  onEdit
 }: {
   entry: PoolEntry;
-  deleting: boolean;
   onEdit: (entry: PoolEntry) => void;
-  onDelete: (poolEntryId: string) => Promise<void>;
 }) {
   return (
     <article {...stylex.props(styles.entry, !entry.enabled && styles.disabledEntry)}>
       <div {...stylex.props(styles.entryCopy)}>
         <div {...stylex.props(styles.entryTitleRow)}>
           <strong {...stylex.props(styles.entryTitle)}>{entry.label || entry.modelProfile}</strong>
-          {entry.isProviderDefault ? <Badge variant="neutral" label="Default" /> : null}
           <Badge variant={entry.enabled ? "success" : "neutral"} label={entry.enabled ? "Enabled" : "Disabled"} />
         </div>
         <p {...stylex.props(styles.entryMeta)}>
@@ -196,17 +126,6 @@ function PoolEntryRow({
           size="sm"
           variant="ghost"
         />
-        {entry.isProviderDefault ? null : (
-          <Button
-            clickAction={() => onDelete(entry.poolEntryId)}
-            icon={<Trash2 aria-hidden="true" size={13} />}
-            isIconOnly
-            isLoading={deleting}
-            label={`Remove ${entry.label || entry.modelProfile}`}
-            size="sm"
-            variant="ghost"
-          />
-        )}
       </div>
     </article>
   );
@@ -219,23 +138,19 @@ function PoolEntryEditor({
   onSave,
   onCancel
 }: {
-  entry: PoolEntry | null;
+  entry: PoolEntry;
   modelOptions: readonly ModelProviderOption[];
   saving: boolean;
   onSave: (input: TaskModelPoolEntryInput) => Promise<void>;
   onCancel: () => void;
 }) {
-  const initialModel = entry
-    ? { providerKind: entry.providerKind, providerAccountId: entry.providerAccountId, modelProfile: entry.modelProfile, reasoningEffort: entry.reasoningEffort }
-    : firstModelSelection(modelOptions);
-  const [complexity, setComplexity] = useState<TaskComplexity>(entry?.complexity ?? "SIMPLE");
-  const [label, setLabel] = useState(entry?.label ?? "");
+  const initialModel = { providerKind: entry.providerKind, providerAccountId: entry.providerAccountId, modelProfile: entry.modelProfile, reasoningEffort: entry.reasoningEffort };
+  const [label, setLabel] = useState(entry.label ?? "");
   const [providerKind, setProviderKind] = useState(initialModel.providerKind);
   const [providerAccountId, setProviderAccountId] = useState(initialModel.providerAccountId);
   const [modelProfile, setModelProfile] = useState(initialModel.modelProfile);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | null>(initialModel.reasoningEffort ?? null);
-  const [enabled, setEnabled] = useState(entry?.enabled ?? true);
-  const [sortOrder, setSortOrder] = useState(String(entry?.sortOrder ?? 0));
+  const [enabled, setEnabled] = useState(entry.enabled);
   const [error, setError] = useState<string | null>(null);
   const selectedProvider = modelOptions.find(
     (option) => option.providerKind === providerKind && option.providerAccountId === providerAccountId
@@ -269,14 +184,9 @@ function PoolEntryEditor({
 
   const submit = async () => {
     if (!canSave) return;
-    const order = Number.parseInt(sortOrder, 10);
-    if (!Number.isFinite(order) || order < 0) {
-      setError("Sort order must be a non-negative number.");
-      return;
-    }
     setError(null);
     try {
-      await onSave({ complexity, label: label.trim() || null, providerKind, providerAccountId, modelProfile, reasoningEffort, enabled, sortOrder: order });
+      await onSave({ complexity: entry.complexity, label: label.trim() || null, providerKind, providerAccountId, modelProfile, reasoningEffort, enabled, sortOrder: 0 });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Noema could not save this model.");
     }
@@ -285,19 +195,11 @@ function PoolEntryEditor({
   return (
     <div {...stylex.props(styles.editor)}>
       <div {...stylex.props(styles.editorHeader)}>
-        <strong {...stylex.props(styles.editorTitle)}>{entry ? "Edit pool entry" : "Add pool entry"}</strong>
+        <strong {...stylex.props(styles.editorTitle)}>Edit {complexityLabel(entry.complexity)} task model</strong>
         <Button icon={<X aria-hidden="true" size={14} />} isIconOnly label="Close editor" onClick={onCancel} size="sm" variant="ghost" />
       </div>
       {error ? <p role="alert" {...stylex.props(styles.error)}>{error}</p> : null}
       <div {...stylex.props(styles.fields)}>
-        <Selector
-          label="Complexity tier"
-          options={complexities.map((value) => ({ value, label: complexityLabel(value) }))}
-          onChange={(value) => setComplexity(value as TaskComplexity)}
-          placement="below"
-          value={complexity}
-          width="100%"
-        />
         <Selector
           label="Model"
           options={modelSelectorOptions}
@@ -318,7 +220,6 @@ function PoolEntryEditor({
           />
         ) : null}
         <TextInput label="Label" onChange={setLabel} placeholder="Optional label" value={label} width="100%" />
-        <TextInput label="Sort order" onChange={setSortOrder} type="text" value={sortOrder} width="100%" />
         <label {...stylex.props(styles.checkbox)}>
           <input checked={enabled} onChange={(event) => setEnabled(event.target.checked)} type="checkbox" />
           <span>Enabled for new tasks</span>
@@ -326,25 +227,10 @@ function PoolEntryEditor({
       </div>
       <div {...stylex.props(styles.editorActions)}>
         <Button label="Cancel" onClick={onCancel} size="sm" variant="ghost" />
-        <Button clickAction={submit} isDisabled={!canSave} isLoading={saving} label={entry ? "Save changes" : "Add model"} size="sm" variant="primary" />
+        <Button clickAction={submit} isDisabled={!canSave} isLoading={saving} label="Save changes" size="sm" variant="primary" />
       </div>
     </div>
   );
-}
-
-function firstModelSelection(options: readonly ModelProviderOption[]) {
-  for (const provider of options) {
-    const profile = provider.profiles.find((candidate) => !candidate.disabledReason);
-    if (profile && !provider.disabledReason) {
-      return {
-        providerKind: provider.providerKind,
-        providerAccountId: provider.providerAccountId,
-        modelProfile: profile.id,
-        reasoningEffort: profile.defaultReasoningEffort ?? profile.reasoningEfforts[0] ?? null
-      };
-    }
-  }
-  return { providerKind: "", providerAccountId: "", modelProfile: "", reasoningEffort: null };
 }
 
 function modelOptionValue(providerKind: string, providerAccountId: string, modelProfile: string): string {

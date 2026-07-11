@@ -385,7 +385,7 @@ mod tests {
             .await
             .expect("provider account");
         store
-            .ensure_provider_default_task_model_pool_entries()
+            .ensure_default_task_model_pool_settings("codex")
             .await
             .expect("provider defaults");
         store
