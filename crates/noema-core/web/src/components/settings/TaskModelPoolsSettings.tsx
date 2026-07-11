@@ -86,7 +86,7 @@ export function TaskModelPoolsSettings({
             <Badge variant={enabledEntryCount > 0 ? "success" : "warning"} label={enabledEntryCount > 0 ? `${enabledEntryCount} enabled` : "Delegation off"} />
           </div>
           <p {...stylex.props(styles.description)}>
-            The primary agent picks one enabled model from the task&apos;s complexity tier when it delegates background work.
+            Each provider includes ready-to-use defaults. Edit a default or add another model to override how background work runs.
           </p>
         </div>
         <Button
@@ -179,6 +179,7 @@ function PoolEntryRow({
       <div {...stylex.props(styles.entryCopy)}>
         <div {...stylex.props(styles.entryTitleRow)}>
           <strong {...stylex.props(styles.entryTitle)}>{entry.label || entry.modelProfile}</strong>
+          {entry.isProviderDefault ? <Badge variant="neutral" label="Default" /> : null}
           <Badge variant={entry.enabled ? "success" : "neutral"} label={entry.enabled ? "Enabled" : "Disabled"} />
         </div>
         <p {...stylex.props(styles.entryMeta)}>
@@ -195,15 +196,17 @@ function PoolEntryRow({
           size="sm"
           variant="ghost"
         />
-        <Button
-          clickAction={() => onDelete(entry.poolEntryId)}
-          icon={<Trash2 aria-hidden="true" size={13} />}
-          isIconOnly
-          isLoading={deleting}
-          label={`Remove ${entry.label || entry.modelProfile}`}
-          size="sm"
-          variant="ghost"
-        />
+        {entry.isProviderDefault ? null : (
+          <Button
+            clickAction={() => onDelete(entry.poolEntryId)}
+            icon={<Trash2 aria-hidden="true" size={13} />}
+            isIconOnly
+            isLoading={deleting}
+            label={`Remove ${entry.label || entry.modelProfile}`}
+            size="sm"
+            variant="ghost"
+          />
+        )}
       </div>
     </article>
   );
@@ -361,6 +364,7 @@ function parseModelValue(value: string): { providerKind: string; providerAccount
 }
 
 function complexityLabel(value: TaskComplexity): string {
+  if (value === "DIFFICULT") return "High";
   return value.charAt(0) + value.slice(1).toLowerCase();
 }
 

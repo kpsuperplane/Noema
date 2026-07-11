@@ -55,10 +55,10 @@ pub(super) async fn build_model_tools_for_role(
     let mut builtin_tools = builtin_tool_specs(include_agent_name_tool)?;
     if role == ExecutionRole::PrimaryConversation {
         let pool_entries = store
-            .list_task_model_pool_entries(None)
+            .list_usable_task_model_pool_entries()
             .await
             .map_err(|error| ToolContractError::InvalidSchema(error.to_string()))?;
-        if pool_entries.iter().any(|entry| entry.enabled) {
+        if !pool_entries.is_empty() {
             builtin_tools.push(task_delegate_tool_spec(&pool_entries)?);
         }
     }
@@ -375,6 +375,53 @@ mod tests {
                 .iter()
                 .all(|row| !row.contains("mcp.mcp:docs.read"))
         );
+    }
+
+    #[tokio::test]
+    async fn authenticated_provider_defaults_expose_task_delegation() {
+        let store = crate::store::tests::test_store().await;
+        store
+            .ensure_default_provider_account()
+            .await
+            .expect("provider account");
+        store
+            .ensure_provider_default_task_model_pool_entries()
+            .await
+            .expect("provider defaults");
+        store
+            .update_provider_account_status(
+                "provider_account:codex:default",
+                crate::ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .expect("authenticated provider");
+
+        let tools = build_model_tools(
+            &store,
+            false,
+            ProviderToolCapabilities {
+                native_tools: true,
+                ..ProviderToolCapabilities::default()
+            },
+        )
+        .await
+        .expect("tools");
+        let delegation = tools
+            .native
+            .iter()
+            .find(|tool| tool.name.as_str() == "task.delegate")
+            .expect("task delegation tool");
+
+        let pool_ids = delegation.input_schema.as_value()["properties"]
+            ["executor_model_pool_entry_id"]["enum"]
+            .as_array()
+            .expect("pool ids");
+        assert_eq!(pool_ids.len(), 3);
+        assert!(delegation.description.contains("GPT-5.6-Luna · medium"));
+        assert!(delegation.description.contains("GPT-5.6-Luna · max"));
+        assert!(delegation.description.contains("GPT-5.6-Sol · high"));
     }
 
     #[tokio::test]

@@ -413,6 +413,15 @@ async fn task_lifecycle_queues_review_and_completion_delivery() {
         .ensure_default_provider_account()
         .await
         .expect("provider account");
+    store
+        .update_provider_account_status(
+            "provider_account:codex:default",
+            crate::ProviderAccountStatus::Authenticated,
+            None,
+            None,
+        )
+        .await
+        .expect("authenticated provider account");
     let model = crate::ModelConfigSnapshot::explicit(
         "codex",
         "provider_account:codex:default",

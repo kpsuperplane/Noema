@@ -2264,6 +2264,10 @@ type TaskModelPoolEntry {
 	"""
 	enabled: Boolean!
 	"""
+	Whether Noema supplied this provider-owned default.
+	"""
+	isProviderDefault: Boolean!
+	"""
 	Human-controlled ordering within its tier.
 	"""
 	sortOrder: Int!

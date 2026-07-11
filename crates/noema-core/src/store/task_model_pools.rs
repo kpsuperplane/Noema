@@ -5,11 +5,14 @@
 use rusqlite::{OptionalExtension, params};
 
 use crate::{
+    ProviderAccountRecord, ProviderAccountStatus,
     provider::ReasoningEffort,
-    task::{ModelConfigSnapshot, TaskComplexity},
+    task::{ModelConfigSnapshot, TaskComplexity, provider_defaults::provider_default_task_models},
 };
 
 use super::{NoemaStore, StoreError, ids::allocate_id};
+
+const PROVIDER_DEFAULT_POOL_PREFIX: &str = "task_pool:provider_default:";
 
 /// Input for creating or updating one executor pool entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,6 +56,20 @@ pub struct TaskModelPoolEntry {
     pub created_at: String,
     /// Last update timestamp.
     pub updated_at: String,
+}
+
+impl TaskModelPoolEntry {
+    /// Return whether this row is one of Noema's provider-owned defaults.
+    #[must_use]
+    pub fn is_provider_default(&self) -> bool {
+        is_provider_default_pool_entry_id(&self.pool_entry_id)
+    }
+}
+
+/// Return whether an id belongs to a provider-owned default pool entry.
+#[must_use]
+pub fn is_provider_default_pool_entry_id(pool_entry_id: &str) -> bool {
+    pool_entry_id.starts_with(PROVIDER_DEFAULT_POOL_PREFIX)
 }
 
 impl NewTaskModelPoolEntry {
@@ -102,6 +119,57 @@ impl NewTaskModelPoolEntry {
 }
 
 impl NoemaStore {
+    /// Ensure every active default model provider has its built-in executor
+    /// choices. Existing rows keep their user overrides unchanged.
+    pub async fn ensure_provider_default_task_model_pool_entries(
+        &self,
+    ) -> Result<Vec<TaskModelPoolEntry>, StoreError> {
+        let accounts = self.active_default_provider_accounts().await?;
+        for account in &accounts {
+            self.insert_provider_default_pool_entries(account).await?;
+        }
+        self.list_task_model_pool_entries(None).await
+    }
+
+    async fn insert_provider_default_pool_entries(
+        &self,
+        account: &ProviderAccountRecord,
+    ) -> Result<(), StoreError> {
+        let defaults = provider_default_task_models(&account.provider_kind);
+        self.with_connection(|conn| {
+            let transaction = conn.transaction()?;
+            for default in defaults {
+                transaction.execute(
+                    r#"
+                    INSERT OR IGNORE INTO task_model_pool_entries (
+                      pool_entry_id, complexity, label, provider_kind,
+                      provider_account_id, model_profile, reasoning_effort,
+                      enabled, sort_order
+                    )
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, 0)
+                    "#,
+                    params![
+                        provider_default_pool_entry_id(
+                            &account.provider_account_id,
+                            default.complexity,
+                        ),
+                        default.complexity.as_str(),
+                        default.label,
+                        account.provider_kind,
+                        account.provider_account_id,
+                        default.model_profile,
+                        default
+                            .reasoning_effort
+                            .map(ReasoningEffort::as_persistence_str),
+                    ],
+                )?;
+            }
+            transaction.commit()?;
+            Ok(())
+        })
+        .await
+    }
+
     /// Create one enabled/disabled executor model-pool entry.
     ///
     /// The account family and exact profile are validated before insertion.
@@ -254,6 +322,25 @@ impl NoemaStore {
         .await
     }
 
+    /// List enabled pool entries backed by an authenticated provider account.
+    pub async fn list_usable_task_model_pool_entries(
+        &self,
+    ) -> Result<Vec<TaskModelPoolEntry>, StoreError> {
+        let entries = self.list_task_model_pool_entries(None).await?;
+        let accounts = self.active_default_provider_accounts().await?;
+        Ok(entries
+            .into_iter()
+            .filter(|entry| entry.enabled)
+            .filter(|entry| {
+                accounts.iter().any(|account| {
+                    account.provider_account_id == entry.model.provider_account_id
+                        && account.provider_kind == entry.model.provider_kind
+                        && account.status == ProviderAccountStatus::Authenticated
+                })
+            })
+            .collect())
+    }
+
     /// Select an enabled exact entry from the requested tier.
     pub async fn select_task_model_pool_entry(
         &self,
@@ -279,8 +366,11 @@ impl NoemaStore {
                 message: format!("task model pool entry is disabled: {pool_entry_id}"),
             });
         }
-        self.validate_pool_account(&entry.model.provider_kind, &entry.model.provider_account_id)
-            .await?;
+        self.validate_usable_pool_account(
+            &entry.model.provider_kind,
+            &entry.model.provider_account_id,
+        )
+        .await?;
         Ok(entry)
     }
 
@@ -341,9 +431,40 @@ impl NoemaStore {
         }
         Ok(())
     }
+
+    async fn validate_usable_pool_account(
+        &self,
+        provider_kind: &str,
+        provider_account_id: &str,
+    ) -> Result<(), StoreError> {
+        self.validate_pool_account(provider_kind, provider_account_id)
+            .await?;
+        let account = self
+            .get_provider_account(provider_account_id)
+            .await?
+            .ok_or_else(|| StoreError::ProviderAccountNotFound {
+                provider_account_id: provider_account_id.to_string(),
+            })?;
+        if account.status != ProviderAccountStatus::Authenticated {
+            return Err(StoreError::InvariantViolation {
+                message: format!(
+                    "provider account {provider_account_id} is not authenticated for task execution"
+                ),
+            });
+        }
+        Ok(())
+    }
+}
+
+fn provider_default_pool_entry_id(provider_account_id: &str, complexity: TaskComplexity) -> String {
+    format!(
+        "{PROVIDER_DEFAULT_POOL_PREFIX}{provider_account_id}:{}",
+        complexity.as_str()
+    )
 }
 
 fn pool_entry_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskModelPoolEntry> {
+    let pool_entry_id: String = row.get(0)?;
     let complexity: String = row.get(1)?;
     let complexity = complexity.parse::<TaskComplexity>().map_err(|error| {
         rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(error))
@@ -356,7 +477,7 @@ fn pool_entry_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskModelPoo
         rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, Box::new(error))
     })?;
     Ok(TaskModelPoolEntry {
-        pool_entry_id: row.get(0)?,
+        pool_entry_id: pool_entry_id.clone(),
         complexity,
         label: row.get(2)?,
         model: ModelConfigSnapshot::explicit(
@@ -364,7 +485,11 @@ fn pool_entry_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskModelPoo
             provider_account_id,
             model_profile,
             reasoning_effort,
-            Some("task_model_pool".to_string()),
+            Some(if is_provider_default_pool_entry_id(&pool_entry_id) {
+                "provider_default_task_pool".to_string()
+            } else {
+                "task_model_pool_override".to_string()
+            }),
         ),
         enabled: row.get::<_, i64>(7)? != 0,
         sort_order: row.get(8)?,
@@ -382,4 +507,143 @@ fn parse_reasoning(value: Option<&str>) -> Result<Option<ReasoningEffort>, Store
             })
         })
         .transpose()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::tests::test_store;
+
+    #[tokio::test]
+    async fn provider_defaults_seed_codex_and_foundation_tiers_idempotently() {
+        let store = test_store().await;
+        store
+            .ensure_default_provider_account()
+            .await
+            .expect("codex account");
+        store
+            .ensure_default_foundation_local_provider_account()
+            .await
+            .expect("foundation account");
+
+        let first = store
+            .ensure_provider_default_task_model_pool_entries()
+            .await
+            .expect("defaults");
+        let second = store
+            .ensure_provider_default_task_model_pool_entries()
+            .await
+            .expect("idempotent defaults");
+
+        assert_eq!(first, second);
+        assert_eq!(first.len(), 6);
+        assert!(first.iter().all(TaskModelPoolEntry::is_provider_default));
+        let codex = first
+            .iter()
+            .filter(|entry| entry.model.provider_kind == "codex")
+            .collect::<Vec<_>>();
+        assert_eq!(codex.len(), 3);
+        assert!(codex.iter().any(|entry| {
+            entry.complexity == TaskComplexity::Simple
+                && entry.model.model_profile.as_deref() == Some("gpt-5.6-luna")
+                && entry.model.reasoning_effort == Some(ReasoningEffort::Medium)
+        }));
+        assert!(codex.iter().any(|entry| {
+            entry.complexity == TaskComplexity::Medium
+                && entry.model.model_profile.as_deref() == Some("gpt-5.6-luna")
+                && entry.model.reasoning_effort == Some(ReasoningEffort::XHigh)
+        }));
+        assert!(codex.iter().any(|entry| {
+            entry.complexity == TaskComplexity::Difficult
+                && entry.model.model_profile.as_deref() == Some("gpt-5.6-sol")
+                && entry.model.reasoning_effort == Some(ReasoningEffort::High)
+        }));
+    }
+
+    #[tokio::test]
+    async fn usable_defaults_require_an_authenticated_provider() {
+        let store = test_store().await;
+        store
+            .ensure_default_provider_account()
+            .await
+            .expect("codex account");
+        store
+            .ensure_provider_default_task_model_pool_entries()
+            .await
+            .expect("defaults");
+
+        assert!(
+            store
+                .list_usable_task_model_pool_entries()
+                .await
+                .expect("unavailable defaults")
+                .is_empty()
+        );
+
+        store
+            .update_provider_account_status(
+                "provider_account:codex:default",
+                ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .expect("authenticated account");
+
+        let usable = store
+            .list_usable_task_model_pool_entries()
+            .await
+            .expect("usable defaults");
+        assert_eq!(usable.len(), 3);
+        assert!(usable.iter().all(|entry| entry.enabled));
+    }
+
+    #[tokio::test]
+    async fn ensuring_defaults_preserves_user_edits() {
+        let store = test_store().await;
+        store
+            .ensure_default_provider_account()
+            .await
+            .expect("codex account");
+        let defaults = store
+            .ensure_provider_default_task_model_pool_entries()
+            .await
+            .expect("defaults");
+        let simple = defaults
+            .into_iter()
+            .find(|entry| {
+                entry.model.provider_kind == "codex" && entry.complexity == TaskComplexity::Simple
+            })
+            .expect("simple default");
+
+        store
+            .update_task_model_pool_entry(
+                &simple.pool_entry_id,
+                NewTaskModelPoolEntry {
+                    pool_entry_id: Some(simple.pool_entry_id.clone()),
+                    complexity: TaskComplexity::Simple,
+                    label: Some("My fast model".to_string()),
+                    provider_kind: "codex".to_string(),
+                    provider_account_id: "provider_account:codex:default".to_string(),
+                    model_profile: "gpt-5.6-terra".to_string(),
+                    reasoning_effort: Some(ReasoningEffort::High),
+                    enabled: true,
+                    sort_order: 0,
+                },
+            )
+            .await
+            .expect("override");
+
+        let entries = store
+            .ensure_provider_default_task_model_pool_entries()
+            .await
+            .expect("defaults after override");
+        let edited = entries
+            .into_iter()
+            .find(|entry| entry.pool_entry_id == simple.pool_entry_id)
+            .expect("edited default");
+        assert_eq!(edited.label.as_deref(), Some("My fast model"));
+        assert_eq!(edited.model.model_profile.as_deref(), Some("gpt-5.6-terra"));
+        assert_eq!(edited.model.reasoning_effort, Some(ReasoningEffort::High));
+    }
 }

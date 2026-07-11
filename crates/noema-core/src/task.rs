@@ -12,6 +12,8 @@ use thiserror::Error;
 
 use crate::provider::ReasoningEffort;
 
+pub(crate) mod provider_defaults;
+
 /// Stable built-in agent id for background executors.
 pub const TASK_EXECUTOR_AGENT_ID: &str = "agent:task-executor";
 /// Stable built-in agent id for adversarial reviewers.

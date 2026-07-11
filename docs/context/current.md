@@ -120,8 +120,8 @@ The next storage slice should stay small and concrete:
   `artifactVersionDetail`; download is a secondary action in the rail, and there
   is intentionally no artifact URL route in this slice.
 - The first one-off background task slice is durable and supervised. The primary
-  agent's `task.delegate` tool validates a human-managed simple/medium/difficult
-  executor model pool entry, persists the request and immutable validation
+  agent's `task.delegate` tool validates a simple/medium/difficult executor model
+  pool entry, persists the request and immutable validation
   criteria, and queues an executor run. A host-owned worker leases runs,
   executes role-gated native read-only tools, records provider/model/usage
   observations, creates a structured submission, queues an adversarial reviewer,
@@ -130,6 +130,11 @@ The next storage slice should stay small and concrete:
   conversation and publishes a live transcript event. Reviewer configuration is
   stored through the normal agent model preference surface for
   `agent:task-reviewer`; executor selection is snapshotted per task.
+  Each active default model provider owns ready-to-use executor pool presets,
+  while Settings edits persist as user overrides. Codex defaults to
+  GPT-5.6-Luna/medium for simple work, GPT-5.6-Luna/xhigh (shown as max) for
+  medium work, and GPT-5.6-Sol/high for the highest tier. Only enabled entries
+  backed by an authenticated provider account are advertised to the primary.
 - Task references are first-class transcript items. The web chat renders a
   marker and opens a GraphQL-backed detail rail showing the request, criteria,
   revisions, executor/reviewer runs, model snapshots, submissions, reviews, and

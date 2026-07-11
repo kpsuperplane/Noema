@@ -379,6 +379,8 @@ pub struct GraphqlTaskModelPoolEntry {
     pub reasoning_effort: Option<GraphqlReasoningEffort>,
     /// Whether this entry can be selected for new tasks.
     pub enabled: bool,
+    /// Whether Noema supplied this provider-owned default.
+    pub is_provider_default: bool,
     /// Human-controlled ordering within its tier.
     pub sort_order: i32,
     /// Creation timestamp.
@@ -411,6 +413,7 @@ pub struct GraphqlTaskModelPoolEntryInput {
 
 impl From<TaskModelPoolEntry> for GraphqlTaskModelPoolEntry {
     fn from(value: TaskModelPoolEntry) -> Self {
+        let is_provider_default = value.is_provider_default();
         Self {
             pool_entry_id: value.pool_entry_id,
             complexity: value.complexity.into(),
@@ -423,6 +426,7 @@ impl From<TaskModelPoolEntry> for GraphqlTaskModelPoolEntry {
                 .reasoning_effort
                 .map(GraphqlReasoningEffort::from),
             enabled: value.enabled,
+            is_provider_default,
             sort_order: value.sort_order as i32,
             created_at: value.created_at,
             updated_at: value.updated_at,

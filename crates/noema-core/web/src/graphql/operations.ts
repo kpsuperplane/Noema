@@ -1043,6 +1043,7 @@ export const TaskModelPoolsDocument = gql`
       modelProfile
       reasoningEffort
       enabled
+      isProviderDefault
       sortOrder
       createdAt
       updatedAt

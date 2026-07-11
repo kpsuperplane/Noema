@@ -59,6 +59,10 @@ impl NoemaRuntimeHost {
             .ensure_default_foundation_local_provider_account()
             .await
             .map_err(|source| RuntimeHostError::Store(source.to_string()))?;
+        store
+            .ensure_provider_default_task_model_pool_entries()
+            .await
+            .map_err(|source| RuntimeHostError::Store(source.to_string()))?;
 
         let (default_provider_kind, providers) =
             CodexRuntimeHandle::provider_map_from_config(provider, system_errors.clone())
