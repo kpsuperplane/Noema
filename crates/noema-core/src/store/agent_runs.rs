@@ -189,6 +189,10 @@ impl NoemaStore {
         self.with_connection(|conn| {
             let now = now_string();
             let lease_expires_at = (now.parse::<i64>().unwrap_or_default() + lease_seconds).to_string();
+            conn.execute(
+                "UPDATE agent_runs SET status = 'interrupted', lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, heartbeat_at = NULL, retry_count = retry_count + 1, error_code = 'lease_expired', error_message = 'worker lease expired before run completion', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE status IN ('leased', 'running') AND lease_expires_at IS NOT NULL AND CAST(lease_expires_at AS INTEGER) <= CAST(?1 AS INTEGER)",
+                [now.as_str()],
+            )?;
             let changed = conn.execute(
                 "UPDATE agent_runs SET status = 'leased', lease_owner = ?1, lease_token = ?2, lease_expires_at = ?3, heartbeat_at = ?4, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = (SELECT run_id FROM agent_runs WHERE status IN ('queued', 'interrupted') ORDER BY priority DESC, queued_at, run_id LIMIT 1) AND status IN ('queued', 'interrupted')",
                 params![worker_id, lease_token, lease_expires_at, now],
@@ -211,9 +215,9 @@ impl NoemaStore {
             let current = current.parse::<RunStatus>().map_err(|error| StoreError::InvalidEnum { kind: "run_status", value: error.to_string() })?;
             if !current.can_transition_to(next) { return Err(StoreError::InvariantViolation { message: format!("invalid run transition {current} -> {next}") }); }
             let changed = if let Some(lease_token) = lease_token {
-                conn.execute("UPDATE agent_runs SET status = ?2, error_code = ?3, error_message = ?4, ended_at = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled') THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE ended_at END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND lease_token = ?5", params![run_id, next.as_str(), error.as_ref().map(|value| value.0.as_str()), error.as_ref().map(|value| value.1.as_str()), lease_token])?
+                conn.execute("UPDATE agent_runs SET status = ?2, error_code = ?3, error_message = ?4, started_at = CASE WHEN ?2 = 'running' THEN COALESCE(started_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) ELSE started_at END, ended_at = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled') THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE ended_at END, lease_owner = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled', 'interrupted') THEN NULL ELSE lease_owner END, lease_token = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled', 'interrupted') THEN NULL ELSE lease_token END, lease_expires_at = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled', 'interrupted') THEN NULL ELSE lease_expires_at END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND lease_token = ?5", params![run_id, next.as_str(), error.as_ref().map(|value| value.0.as_str()), error.as_ref().map(|value| value.1.as_str()), lease_token])?
             } else {
-                conn.execute("UPDATE agent_runs SET status = ?2, error_code = ?3, error_message = ?4, ended_at = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled') THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE ended_at END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1", params![run_id, next.as_str(), error.as_ref().map(|value| value.0.as_str()), error.as_ref().map(|value| value.1.as_str())])?
+                conn.execute("UPDATE agent_runs SET status = ?2, error_code = ?3, error_message = ?4, started_at = CASE WHEN ?2 = 'running' THEN COALESCE(started_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) ELSE started_at END, ended_at = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled') THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE ended_at END, lease_owner = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled', 'interrupted') THEN NULL ELSE lease_owner END, lease_token = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled', 'interrupted') THEN NULL ELSE lease_token END, lease_expires_at = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled', 'interrupted') THEN NULL ELSE lease_expires_at END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1", params![run_id, next.as_str(), error.as_ref().map(|value| value.0.as_str()), error.as_ref().map(|value| value.1.as_str())])?
             };
             if changed != 1 { return Err(StoreError::InvariantViolation { message: format!("agent run lease or state changed while updating: {run_id}") }); }
             Ok(())
@@ -223,6 +227,40 @@ impl NoemaStore {
             .ok_or_else(|| StoreError::InvariantViolation {
                 message: format!("agent run disappeared: {run_id}"),
             })
+    }
+
+    /// Record provider identity and usage for a leased run.
+    pub async fn record_agent_run_observation(
+        &self,
+        run_id: &str,
+        lease_token: &str,
+        actual_provider_kind: &str,
+        actual_model_profile: &str,
+        usage: Option<&crate::TokenUsage>,
+    ) -> Result<(), StoreError> {
+        let changed = self
+            .with_connection(|conn| {
+                Ok(conn.execute(
+                    "UPDATE agent_runs SET actual_provider_kind = ?3, actual_model_profile = ?4, input_tokens = ?5, output_tokens = ?6, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND lease_token = ?2 AND status = 'running'",
+                    params![
+                        run_id,
+                        lease_token,
+                        actual_provider_kind,
+                        actual_model_profile,
+                        usage.map(|value| i64::try_from(value.input_tokens).unwrap_or(i64::MAX)),
+                        usage.map(|value| i64::try_from(value.output_tokens).unwrap_or(i64::MAX)),
+                    ],
+                )?)
+            })
+            .await?;
+        if changed != 1 {
+            return Err(StoreError::InvariantViolation {
+                message: format!(
+                    "agent run lease or state changed while recording observation: {run_id}"
+                ),
+            });
+        }
+        Ok(())
     }
 }
 

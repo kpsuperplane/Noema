@@ -2,8 +2,11 @@
 
 use crate::{
     DaemonError, NoemaHomeInitOptions, NoemaPathError, NoemaPaths, NoemaStore, ProviderConfig,
-    StoreConfig, SystemErrorLogger, daemon::CodexRuntimeHandle, mcp::McpOAuthSetupManager,
-    provider::DEFAULT_TOOL_CLASSIFICATION_MODEL, provider::auth::ProviderAuthManager,
+    StoreConfig, SystemErrorLogger,
+    daemon::{CodexRuntimeHandle, TaskRuntimeHandle},
+    mcp::McpOAuthSetupManager,
+    provider::DEFAULT_TOOL_CLASSIFICATION_MODEL,
+    provider::auth::ProviderAuthManager,
 };
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -13,6 +16,7 @@ use thiserror::Error;
 /// Shared host state for Noema client surfaces.
 pub struct NoemaRuntimeHost {
     runtime: CodexRuntimeHandle,
+    task_runtime: TaskRuntimeHandle,
     store: NoemaStore,
     provider_auth: ProviderAuthManager,
     mcp_oauth: McpOAuthSetupManager,
@@ -155,9 +159,17 @@ impl NoemaRuntimeHost {
         )
         .await
         .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
+        let subscriptions = crate::graphql::ConversationSubscriptionRegistry::default();
+        let task_runtime = TaskRuntimeHandle::start(
+            store.clone(),
+            runtime.clone(),
+            system_errors.clone(),
+            subscriptions.clone(),
+        );
 
         Ok(Self {
             runtime,
+            task_runtime,
             store,
             provider_auth: ProviderAuthManager::new(),
             mcp_oauth: McpOAuthSetupManager::new(),
@@ -165,7 +177,7 @@ impl NoemaRuntimeHost {
             memory_startup_error,
             system_errors,
             paths,
-            subscriptions: crate::graphql::ConversationSubscriptionRegistry::default(),
+            subscriptions,
         })
     }
 
@@ -226,6 +238,7 @@ impl NoemaRuntimeHost {
 
     /// Shut down runtime-owned work.
     pub async fn shutdown(self) {
+        self.task_runtime.shutdown().await;
         self.runtime.shutdown().await;
         if let Some(mnemosyne) = self.mnemosyne {
             mnemosyne.shutdown().await;

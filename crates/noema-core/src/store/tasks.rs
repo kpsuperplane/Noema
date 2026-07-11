@@ -336,6 +336,40 @@ impl NoemaStore {
             });
         }
         validate_submission_criteria(self, &input.task_id, &input.criteria).await?;
+        if let Some(existing_submission_id) = self
+            .with_connection(|conn| {
+                conn.query_row(
+                    "SELECT submission_id FROM task_submissions WHERE task_id = ?1 AND revision_index = ?2 LIMIT 1",
+                    rusqlite::params![input.task_id, input.revision_index],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(StoreError::Sqlite)
+            })
+            .await?
+        {
+            let submission = self
+                .get_task_submission(&existing_submission_id)
+                .await?
+                .ok_or_else(|| StoreError::InvariantViolation {
+                    message: format!("existing submission disappeared: {existing_submission_id}"),
+                })?;
+            let reviewer_run = self
+                .list_agent_runs_for_task(&input.task_id)
+                .await?
+                .into_iter()
+                .find(|run| {
+                    run.run_kind == RunKind::Reviewer
+                        && run.triggering_submission_id.as_deref()
+                            == Some(existing_submission_id.as_str())
+                })
+                .ok_or_else(|| StoreError::InvariantViolation {
+                    message: format!(
+                        "existing submission has no reviewer run: {existing_submission_id}"
+                    ),
+                })?;
+            return Ok((submission, reviewer_run));
+        }
         let submission_id = input
             .submission_id
             .unwrap_or_else(|| allocate_id("submission"));
@@ -409,25 +443,87 @@ impl NoemaStore {
                 message: "review approval requires every criterion to pass".to_string(),
             });
         }
-        let review_id = input.review_id.unwrap_or_else(|| allocate_id("review"));
-        let (next_status, next_revision, next_run_id) = match input.overall_verdict {
-            TaskReviewVerdict::Approve => (TaskStatus::Completed, task.revision_index, None),
-            TaskReviewVerdict::NeedsHuman => {
-                (TaskStatus::WaitingForHuman, task.revision_index, None)
-            }
-            TaskReviewVerdict::RequestChanges
-                if task.revision_index + 1 < task.max_review_rounds =>
-            {
-                (
-                    TaskStatus::RevisionRequested,
-                    task.revision_index + 1,
-                    Some(allocate_id("run")),
+        if self
+            .with_connection(|conn| {
+                conn.query_row(
+                    "SELECT 1 FROM task_reviews WHERE task_id = ?1 AND reviewed_submission_id = ?2 LIMIT 1",
+                    rusqlite::params![input.task_id, input.reviewed_submission_id],
+                    |_row| Ok(()),
                 )
-            }
-            TaskReviewVerdict::RequestChanges => {
-                (TaskStatus::WaitingForHuman, task.revision_index, None)
-            }
-        };
+                .optional()
+                .map_err(StoreError::Sqlite)
+            })
+            .await?
+            .is_some()
+        {
+            return self
+                .get_task(&input.task_id)
+                .await?
+                .ok_or_else(|| StoreError::InvariantViolation {
+                    message: format!("reviewed task disappeared: {}", input.task_id),
+                });
+        }
+        let review_id = input.review_id.unwrap_or_else(|| allocate_id("review"));
+        let completion_model =
+            if input.overall_verdict == TaskReviewVerdict::Approve {
+                let preference_model = self
+                    .get_agent_runtime_preference("agent:primary")
+                    .await?
+                    .map(|preference| {
+                        ModelConfigSnapshot::explicit(
+                            preference.provider_kind,
+                            preference.provider_account_id,
+                            preference.model_profile,
+                            preference.reasoning_effort,
+                            Some("primary_agent".to_string()),
+                        )
+                    });
+                match preference_model {
+                    Some(model) => Some(model.normalized().map_err(|error| {
+                        StoreError::InvariantViolation {
+                            message: error.to_string(),
+                        }
+                    })?),
+                    None => Some(task.reviewer_model.clone()),
+                }
+            } else {
+                None
+            };
+        let (next_status, next_revision, next_run_id, next_run_kind, next_run_model) =
+            match input.overall_verdict {
+                TaskReviewVerdict::Approve => (
+                    TaskStatus::Completed,
+                    task.revision_index,
+                    Some(allocate_id("run")),
+                    Some(RunKind::CompletionDelivery),
+                    completion_model,
+                ),
+                TaskReviewVerdict::NeedsHuman => (
+                    TaskStatus::WaitingForHuman,
+                    task.revision_index,
+                    None,
+                    None,
+                    None,
+                ),
+                TaskReviewVerdict::RequestChanges
+                    if task.revision_index + 1 < task.max_review_rounds =>
+                {
+                    (
+                        TaskStatus::RevisionRequested,
+                        task.revision_index + 1,
+                        Some(allocate_id("run")),
+                        Some(RunKind::Executor),
+                        Some(task.executor_model.clone()),
+                    )
+                }
+                TaskReviewVerdict::RequestChanges => (
+                    TaskStatus::WaitingForHuman,
+                    task.revision_index,
+                    None,
+                    None,
+                    None,
+                ),
+            };
         self.with_connection(|conn| {
             let tx = conn.transaction()?;
             tx.execute(
@@ -440,10 +536,12 @@ impl NoemaStore {
                     rusqlite::params![review_id, criterion.criterion_id, criterion.outcome.as_str(), criterion.evidence_markdown, criterion.feedback],
                 )?;
             }
-            if let Some(run_id) = &next_run_id {
+            if let (Some(run_id), Some(run_kind), Some(run_model)) =
+                (&next_run_id, next_run_kind, &next_run_model)
+            {
                 tx.execute(
-                    "INSERT INTO agent_runs (run_id, task_id, run_kind, agent_id, attempt_index, revision_index, provider_kind, provider_account_id, selection_mode, model_profile, reasoning_effort, selection_source, status) VALUES (?1, ?2, 'executor', ?3, 0, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'queued')",
-                    rusqlite::params![run_id, task.task_id, TASK_EXECUTOR_AGENT_ID, next_revision, task.executor_model.provider_kind, task.executor_model.provider_account_id, task.executor_model.selection_mode.as_str(), task.executor_model.model_profile, task.executor_model.reasoning_effort.map(crate::provider::ReasoningEffort::as_persistence_str), task.executor_model.selection_source],
+                    "INSERT INTO agent_runs (run_id, task_id, run_kind, agent_id, attempt_index, revision_index, triggering_review_id, provider_kind, provider_account_id, selection_mode, model_profile, reasoning_effort, selection_source, status) VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'queued')",
+                    rusqlite::params![run_id, task.task_id, run_kind.as_str(), if run_kind == RunKind::CompletionDelivery { "agent:primary" } else { TASK_EXECUTOR_AGENT_ID }, next_revision, review_id, run_model.provider_kind, run_model.provider_account_id, run_model.selection_mode.as_str(), run_model.model_profile, run_model.reasoning_effort.map(crate::provider::ReasoningEffort::as_persistence_str), run_model.selection_source],
                 )?;
             }
             tx.execute(
@@ -510,7 +608,8 @@ async fn validate_submission_criteria(
         .map(|criterion| criterion.criterion_id.as_str())
         .collect::<Vec<_>>();
     expected_ids.sort_unstable();
-    if ids != expected_ids
+    if submitted.len() != expected.len()
+        || ids != expected_ids
         || submitted
             .iter()
             .any(|criterion| criterion.evidence_markdown.trim().is_empty())
@@ -539,7 +638,7 @@ fn validate_review_criteria(
         .map(|criterion| criterion.criterion_id.as_str())
         .collect::<Vec<_>>();
     expected_ids.sort_unstable();
-    if ids != expected_ids {
+    if submitted.len() != expected.len() || ids != expected_ids {
         return Err(StoreError::InvariantViolation {
             message: "review must include exactly one result for every task criterion".to_string(),
         });

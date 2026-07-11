@@ -7,6 +7,7 @@ mod memory;
 mod prompts;
 mod protocol;
 mod runtime;
+mod task_runtime;
 pub(crate) mod task_tool;
 #[cfg(test)]
 mod tests;
@@ -18,3 +19,4 @@ pub use protocol::{
 pub use runtime::RuntimeModelProvider;
 pub(crate) use runtime::turn_timing::mark_graphql_turn_event;
 pub(crate) use runtime::{CodexRuntimeHandle, RuntimeProviderMap};
+pub(crate) use task_runtime::TaskRuntimeHandle;

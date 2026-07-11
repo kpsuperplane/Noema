@@ -405,6 +405,117 @@ pub(crate) async fn test_store() -> crate::NoemaStore {
     store
 }
 
+#[tokio::test]
+async fn task_lifecycle_queues_review_and_completion_delivery() {
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    store
+        .ensure_default_provider_account()
+        .await
+        .expect("provider account");
+    let model = crate::ModelConfigSnapshot::explicit(
+        "codex",
+        "provider_account:codex:default",
+        "gpt-5.6",
+        None,
+        Some("test".to_string()),
+    );
+    let pool = store
+        .create_task_model_pool_entry(crate::NewTaskModelPoolEntry {
+            pool_entry_id: Some("pool:task-lifecycle".to_string()),
+            complexity: crate::TaskComplexity::Simple,
+            label: Some("Test".to_string()),
+            provider_kind: "codex".to_string(),
+            provider_account_id: "provider_account:codex:default".to_string(),
+            model_profile: "gpt-5.6".to_string(),
+            reasoning_effort: None,
+            enabled: true,
+            sort_order: 0,
+        })
+        .await
+        .expect("pool");
+    let (task, executor_run) = store
+        .create_task_with_executor(crate::NewTask {
+            task_id: None,
+            title: "Lifecycle task".to_string(),
+            request_markdown: "Produce a short result".to_string(),
+            complexity: crate::TaskComplexity::Simple,
+            owner_human_id: "human:local".to_string(),
+            source: crate::TaskSource::default(),
+            created_by_agent_id: "agent:primary".to_string(),
+            creation_tool_call_id: None,
+            pool_entry_id: pool.pool_entry_id,
+            executor_model: pool.model.clone(),
+            reviewer_model: model,
+            max_review_rounds: None,
+            criteria: vec![crate::NewTaskValidationCriterion {
+                criterion_id: None,
+                ordinal: 1,
+                description: "Result is present".to_string(),
+                expected_evidence: None,
+            }],
+        })
+        .await
+        .expect("task");
+    assert_eq!(executor_run.run_kind, crate::RunKind::Executor);
+    store
+        .transition_task(&task.task_id, crate::TaskStatus::Executing, Some("test"))
+        .await
+        .expect("executing");
+    let (submission, reviewer_run) = store
+        .create_task_submission(crate::NewTaskSubmission {
+            submission_id: None,
+            task_id: task.task_id.clone(),
+            executor_run_id: executor_run.run_id,
+            revision_index: 0,
+            summary: "Done".to_string(),
+            result_markdown: "# Result\n\nDone".to_string(),
+            criteria: vec![crate::SubmissionCriterionEvidence {
+                criterion_id: store
+                    .list_task_validation_criteria(&task.task_id)
+                    .await
+                    .expect("criteria")[0]
+                    .criterion_id
+                    .clone(),
+                evidence_markdown: "The result is present".to_string(),
+            }],
+            artifact_ids: Vec::new(),
+        })
+        .await
+        .expect("submission");
+    let completed = store
+        .create_task_review(crate::NewTaskReview {
+            review_id: None,
+            task_id: task.task_id.clone(),
+            reviewer_run_id: reviewer_run.run_id,
+            reviewed_submission_id: submission.submission_id,
+            overall_verdict: crate::TaskReviewVerdict::Approve,
+            overall_feedback: "All criteria pass".to_string(),
+            criteria: vec![crate::TaskReviewCriterion {
+                criterion_id: store
+                    .list_task_validation_criteria(&task.task_id)
+                    .await
+                    .expect("criteria")[0]
+                    .criterion_id
+                    .clone(),
+                outcome: crate::CriterionOutcome::Pass,
+                evidence_markdown: Some("Verified".to_string()),
+                feedback: None,
+            }],
+        })
+        .await
+        .expect("review");
+    assert_eq!(completed.status, crate::TaskStatus::Completed);
+    let runs = store
+        .list_agent_runs_for_task(&task.task_id)
+        .await
+        .expect("runs");
+    assert!(
+        runs.iter()
+            .any(|run| run.run_kind == crate::RunKind::CompletionDelivery)
+    );
+}
+
 async fn seed_external_artifact(
     store: &crate::NoemaStore,
     conversation_id: &str,

@@ -340,6 +340,9 @@ CREATE INDEX IF NOT EXISTS tasks_status_queue
 ON tasks(status, updated_at, task_id);
 CREATE INDEX IF NOT EXISTS tasks_owner_source
 ON tasks(owner_human_id, source_conversation_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS tasks_creation_call
+ON tasks(source_conversation_id, creation_tool_call_id)
+WHERE source_conversation_id IS NOT NULL AND creation_tool_call_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS task_validation_criteria (
   criterion_id TEXT PRIMARY KEY NOT NULL,
@@ -444,6 +447,8 @@ CREATE TABLE IF NOT EXISTS task_submission_artifacts (
 
 CREATE INDEX IF NOT EXISTS task_submissions_task
 ON task_submissions(task_id, revision_index, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS task_submissions_task_revision
+ON task_submissions(task_id, revision_index);
 
 CREATE TABLE IF NOT EXISTS task_reviews (
   review_id TEXT PRIMARY KEY NOT NULL,
@@ -467,6 +472,8 @@ CREATE TABLE IF NOT EXISTS task_review_criteria (
 
 CREATE INDEX IF NOT EXISTS task_reviews_task
 ON task_reviews(task_id, created_at, review_id);
+CREATE UNIQUE INDEX IF NOT EXISTS task_reviews_submission
+ON task_reviews(task_id, reviewed_submission_id);
 
 CREATE TABLE IF NOT EXISTS task_events (
   event_id TEXT PRIMARY KEY NOT NULL,

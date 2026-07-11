@@ -670,6 +670,22 @@ impl TaskReviewVerdict {
     }
 }
 
+impl FromStr for TaskReviewVerdict {
+    type Err = TaskDomainError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "approve" => Ok(Self::Approve),
+            "request_changes" => Ok(Self::RequestChanges),
+            "needs_human" => Ok(Self::NeedsHuman),
+            other => Err(TaskDomainError::InvalidEnum {
+                kind: "task_review_verdict",
+                value: other.to_string(),
+            }),
+        }
+    }
+}
+
 /// Per-criterion reviewer outcome.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -690,6 +706,22 @@ impl CriterionOutcome {
             Self::Pass => "pass",
             Self::Fail => "fail",
             Self::Uncertain => "uncertain",
+        }
+    }
+}
+
+impl FromStr for CriterionOutcome {
+    type Err = TaskDomainError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "pass" => Ok(Self::Pass),
+            "fail" => Ok(Self::Fail),
+            "uncertain" => Ok(Self::Uncertain),
+            other => Err(TaskDomainError::InvalidEnum {
+                kind: "criterion_outcome",
+                value: other.to_string(),
+            }),
         }
     }
 }
