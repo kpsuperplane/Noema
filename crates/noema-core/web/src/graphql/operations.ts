@@ -1119,6 +1119,45 @@ export const TaskEventsDocument = gql`
         createdAt
         updatedAt
       }
+      run {
+        runId
+        runKind
+        agentId
+        revisionIndex
+        attemptIndex
+        status
+        model {
+          providerKind
+          providerAccountId
+          selectionMode
+          modelProfile
+          reasoningEffort
+          selectionSource
+        }
+        actualProviderKind
+        actualModelProfile
+        triggeringSubmissionId
+        triggeringReviewId
+        errorCode
+        errorMessage
+        executionPolicy {
+          maxProviderContinuations
+          maxToolCalls
+          maxActiveMinutes
+          progressAuditInterval
+        }
+        providerCallCount
+        toolCallCount
+        cachedInputTokens
+        activeMilliseconds
+        inputTokens
+        outputTokens
+        queuedAt
+        startedAt
+        endedAt
+        createdAt
+        updatedAt
+      }
     }
   }
 `;

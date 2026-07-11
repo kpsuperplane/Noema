@@ -4,7 +4,6 @@ import * as stylex from "@stylexjs/stylex";
 import { AlertCircle } from "lucide-react";
 import type { TaskDetail, TaskRunItem } from "./taskTypes";
 import { TaskCriteria } from "./TaskCriteria";
-import { TaskDelivery } from "./TaskDelivery";
 import { TaskModelSnapshots } from "./TaskModelSnapshots";
 import { TaskOverview } from "./TaskOverview";
 import { TaskResult } from "./TaskResult";
@@ -103,12 +102,6 @@ export function TaskDetailPanel({
         <>
           <Divider />
           <FailureNotice message={currentDetail.failureReason} />
-        </>
-      ) : null}
-      {currentDetail.delivery ? (
-        <>
-          <Divider />
-          <TaskDelivery delivery={currentDetail.delivery} />
         </>
       ) : null}
     </div>

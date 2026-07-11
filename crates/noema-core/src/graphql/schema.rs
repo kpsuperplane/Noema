@@ -892,6 +892,8 @@ pub struct GraphqlTaskEvent {
     pub status: Option<String>,
     /// Appended or updated transcript item, when applicable.
     pub item: Option<tasks::GraphqlTaskRunItem>,
+    /// Current durable run projection, when the event is associated with a run.
+    pub run: Option<tasks::GraphqlTaskRun>,
     /// Durable event creation timestamp.
     pub created_at: String,
 }
@@ -999,6 +1001,14 @@ async fn project_task_event(
         .get("run_id")
         .and_then(serde_json::Value::as_str)
         .map(str::to_string);
+    let run = if let Some(run_id) = run_id.as_deref() {
+        store
+            .get_agent_run(run_id)
+            .await
+            .map_err(super::errors::graphql_error)?
+    } else {
+        None
+    };
     let item = if kind == GraphqlTaskEventKind::RunItemUpserted {
         let item_id = event
             .payload
@@ -1042,14 +1052,8 @@ async fn project_task_event(
         GraphqlTaskEventKind::RunUpdated | GraphqlTaskEventKind::RunItemUpserted => {
             if event_status.is_some() {
                 event_status
-            } else if let Some(run_id) = run_id.as_deref() {
-                store
-                    .get_agent_run(run_id)
-                    .await
-                    .map_err(super::errors::graphql_error)?
-                    .map(|run| run.status.as_str().to_string())
             } else {
-                None
+                run.as_ref().map(|run| run.status.as_str().to_string())
             }
         }
     };
@@ -1060,6 +1064,7 @@ async fn project_task_event(
         run_id,
         status,
         item,
+        run: run.map(Into::into),
         created_at: event.created_at,
     })
 }
@@ -5704,7 +5709,7 @@ mod tests {
             .into_iter()
             .find(|entry| entry.complexity == crate::TaskComplexity::Simple)
             .expect("simple task model");
-        let (task, _) = store
+        let (task, run) = store
             .create_task_with_executor(crate::NewTask {
                 task_id: None,
                 title: "Subscription task".to_string(),
@@ -5737,6 +5742,10 @@ mod tests {
                 kind
                 taskId
                 status
+                run {{
+                  runId
+                  providerCallCount
+                }}
               }}
             }}
             "#,
@@ -5758,6 +5767,16 @@ mod tests {
             data.pointer("/taskEvents/kind")
                 .and_then(serde_json::Value::as_str),
             Some("TASK_UPDATED")
+        );
+        assert_eq!(
+            data.pointer("/taskEvents/run/runId")
+                .and_then(serde_json::Value::as_str),
+            Some(run.run_id.as_str())
+        );
+        assert_eq!(
+            data.pointer("/taskEvents/run/providerCallCount")
+                .and_then(serde_json::Value::as_i64),
+            Some(0)
         );
     }
 

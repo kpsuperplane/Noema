@@ -10,7 +10,7 @@ export type TaskStatus =
 
 export type TaskComplexity = "simple" | "medium" | "difficult";
 
-export type TaskRunRole = "executor" | "reviewer" | "completion_delivery";
+export type TaskRunRole = "executor" | "reviewer";
 
 export type TaskRunStatus =
   | "queued"
@@ -25,8 +25,6 @@ export type TaskRunStatus =
 export type TaskCriterionVerdict = "pending" | "pass" | "fail" | "uncertain";
 
 export type TaskReviewVerdict = "approve" | "request_changes" | "needs_human";
-
-export type TaskDeliveryStatus = "pending" | "delivered" | "failed" | "not_required";
 
 export type TaskModelSnapshot = {
   providerDisplayName?: string | null;
@@ -99,6 +97,8 @@ export type TaskRun = {
   role: TaskRunRole;
   status: TaskRunStatus;
   revision?: number | null;
+  attemptIndex: number;
+  isLatest?: boolean;
   model?: TaskModelSnapshot | null;
   output?: string | null;
   error?: string | null;
@@ -118,18 +118,17 @@ export type TaskRun = {
   } | null;
   startedAt?: string | null;
   completedAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
 };
 
 export type TaskRevision = {
   revision: number;
-  executor?: TaskRun | null;
+  executors: readonly TaskRun[];
   submission?: TaskSubmission | null;
-  reviewer?: TaskRun | null;
+  reviewers: readonly TaskRun[];
   review?: TaskReview | null;
-  items?: readonly TaskRunItem[];
-  itemsLoading?: boolean;
-  itemsError?: string | null;
-  hasMoreItems?: boolean;
+  latestRunId?: string | null;
 };
 
 export type TaskArtifact = {
@@ -144,13 +143,6 @@ export type TaskFinalResult = {
   summary?: string | null;
   body?: string | null;
   approvedAt?: string | null;
-};
-
-export type TaskDelivery = {
-  status: TaskDeliveryStatus;
-  deliveredAt?: string | null;
-  destination?: string | null;
-  error?: string | null;
 };
 
 export type TaskDetail = {
@@ -172,7 +164,6 @@ export type TaskDetail = {
   revisions: readonly TaskRevision[];
   finalResult?: TaskFinalResult | null;
   artifacts?: readonly TaskArtifact[];
-  delivery?: TaskDelivery | null;
   failureReason?: string | null;
   canCancel?: boolean;
   canResume?: boolean;

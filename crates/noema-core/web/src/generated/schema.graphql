@@ -2284,6 +2284,10 @@ type TaskEvent {
 	"""
 	item: TaskRunItem
 	"""
+	Current durable run projection, when the event is associated with a run.
+	"""
+	run: TaskRun
+	"""
 	Durable event creation timestamp.
 	"""
 	createdAt: String!
@@ -2556,7 +2560,7 @@ type TaskRun {
 	"""
 	runId: String!
 	"""
-	Canonical `executor`, `reviewer`, or `completion_delivery` kind.
+	Canonical `executor` or `reviewer` kind.
 	"""
 	runKind: String!
 	"""
@@ -2568,7 +2572,7 @@ type TaskRun {
 	"""
 	revisionIndex: Int!
 	"""
-	Retry attempt within the revision.
+	Continuation or infrastructure-recovery attempt within the revision.
 	"""
 	attemptIndex: Int!
 	"""

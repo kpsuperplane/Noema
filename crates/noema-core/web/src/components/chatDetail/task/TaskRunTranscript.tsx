@@ -182,7 +182,6 @@ function roundLabel(roundIndex: number | null): string {
 
 function runRoleLabel(run: TaskRun): string {
   if (run.role === "reviewer") return "Reviewer";
-  if (run.role === "completion_delivery") return "Delivery";
   return "Executor";
 }
 

@@ -29,7 +29,7 @@ export function TaskRevisionTimeline({
         <div {...stylex.props(styles.timeline)}>
           {revisions.map((revision) => (
             <TaskRunCycle
-              key={revision.revision}
+              key={`${revision.revision}:${revision.latestRunId ?? "settled"}`}
               criteria={criteria}
               revision={revision}
               liveRunItems={liveRunItems}
@@ -82,31 +82,42 @@ export function TaskRunCycle({
       </button>
       {expanded ? (
         <div id={`task-revision-${revision.revision}`} {...stylex.props(styles.cycleBody)}>
-          <RunSummary label="Executor" run={revision.executor} />
-          {revision.executor ? (
-            <TaskRunTranscript
-              key={revision.executor.id}
-              liveItems={liveRunItems?.get(revision.executor.id)}
-              run={revision.executor}
-            />
-          ) : null}
+          <RunAttemptList label="Executor" liveRunItems={liveRunItems} runs={revision.executors} />
           {revision.submission ? (
             <OutputBlock label="Submission" text={revision.submission.summary || revision.submission.result} />
           ) : null}
           {revision.review ? <ReviewBlock criteria={criteria} review={revision.review} /> : null}
-          {revision.itemsLoading ? <p {...stylex.props(styles.loading)}>Loading run activity...</p> : null}
-          {revision.itemsError ? <p role="alert" {...stylex.props(styles.error)}>{revision.itemsError}</p> : null}
-          <RunSummary label="Reviewer" run={revision.reviewer} />
-          {revision.reviewer ? (
-            <TaskRunTranscript
-              key={revision.reviewer.id}
-              liveItems={liveRunItems?.get(revision.reviewer.id)}
-              run={revision.reviewer}
-            />
-          ) : null}
+          <RunAttemptList label="Reviewer" liveRunItems={liveRunItems} runs={revision.reviewers} />
         </div>
       ) : null}
     </article>
+  );
+}
+
+function RunAttemptList({
+  label,
+  runs,
+  liveRunItems
+}: {
+  label: string;
+  runs: readonly TaskRun[];
+  liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
+}) {
+  if (runs.length === 0) {
+    return null;
+  }
+  return (
+    <div {...stylex.props(styles.attempts)}>
+      {runs.map((run, index) => (
+        <section
+          key={run.id}
+          {...stylex.props(styles.attempt, index > 0 && styles.laterAttempt)}
+        >
+          <RunSummary label={`${label} · Attempt ${run.attemptIndex + 1}`} run={run} />
+          <TaskRunTranscript liveItems={liveRunItems?.get(run.id)} run={run} />
+        </section>
+      ))}
+    </div>
   );
 }
 
@@ -119,7 +130,10 @@ function RunSummary({ label, run }: { label: string; run?: TaskRun | null }) {
     <section {...stylex.props(styles.run)}>
       <div {...stylex.props(styles.subheading)}>
         <h4 {...stylex.props(styles.subheadingTitle)}>{label}</h4>
-        <Badge variant={run.status === "failed" ? "error" : run.status === "completed" ? "success" : "neutral"} label={run.status} {...stylex.props(styles.smallBadge)} />
+        <div {...stylex.props(styles.runBadges)}>
+          {run.isLatest ? <Badge variant="info" label="Latest" {...stylex.props(styles.smallBadge)} /> : null}
+          <Badge variant={run.status === "failed" ? "error" : run.status === "completed" ? "success" : "neutral"} label={run.status} {...stylex.props(styles.smallBadge)} />
+        </div>
       </div>
       {run.model ? (
         <p {...stylex.props(styles.model)}>
@@ -193,7 +207,7 @@ function ReviewBlock({ criteria, review }: { criteria: readonly TaskCriterion[];
 }
 
 function revisionIsActive(revision: TaskRevision): boolean {
-  return [revision.executor, revision.reviewer].some(
+  return [...revision.executors, ...revision.reviewers].some(
     (run) => run?.status === "queued" || run?.status === "leased" || run?.status === "running"
   );
 }
@@ -244,7 +258,13 @@ function revisionSummary(revision: TaskRevision): string {
   if (revision.review?.verdict === "approve") return "Approved";
   if (revision.review?.verdict === "request_changes") return "Feedback returned";
   if (revision.review?.verdict === "needs_human") return "Needs attention";
-  if (revision.executor?.status === "running") return "Executor working";
+  const latest = [...revision.executors, ...revision.reviewers].find(
+    (run) => run.id === revision.latestRunId
+  );
+  if (latest?.status === "queued" || latest?.status === "leased") return "Waiting to start";
+  if (latest?.status === "running") {
+    return latest.role === "reviewer" ? "Reviewer working" : "Executor working";
+  }
   return "Activity recorded";
 }
 
@@ -291,8 +311,12 @@ const styles = stylex.create({
   cycleSummary: { minWidth: 0, color: "var(--noema-text-secondary)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   cycleBody: { display: "grid", gap: 12, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", padding: 11 },
   run: { display: "grid", gap: 7, minWidth: 0 },
+  attempts: { display: "grid", gap: 12, minWidth: 0 },
+  attempt: { display: "grid", gap: 8, minWidth: 0 },
+  laterAttempt: { borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", paddingTop: 12 },
   review: { display: "grid", gap: 8, minWidth: 0, borderRadius: 7, backgroundColor: "color-mix(in srgb, var(--noema-yellow-100) 25%, transparent)", padding: 9 },
   subheading: { display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 7 },
+  runBadges: { display: "flex", flexWrap: "wrap", justifyContent: "end", gap: 5 },
   subheadingTitle: { margin: 0, color: "var(--noema-text-primary)", fontSize: 11, fontWeight: 700 },
   smallBadge: { flexShrink: 0, fontSize: 9 },
   model: { margin: 0, color: "var(--noema-text-muted)", fontFamily: "var(--noema-font-mono)", fontSize: 10, overflowWrap: "anywhere" },
@@ -316,7 +340,6 @@ const styles = stylex.create({
   activityTitle: { minWidth: 0, color: "var(--noema-text-secondary)", fontSize: 11, overflowWrap: "anywhere" },
   activitySummary: { minWidth: 0, color: "var(--noema-text-muted)", fontSize: 10, overflowWrap: "anywhere" },
   activityStatus: { flexShrink: 0, color: "var(--noema-text-muted)", fontSize: 10 },
-  loading: { margin: 0, color: "var(--noema-text-muted)", fontSize: 11 },
   error: { margin: 0, color: "var(--noema-red-700)", fontSize: 11, lineHeight: 1.35 },
   empty: { margin: 0, color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: 1.45 }
 });

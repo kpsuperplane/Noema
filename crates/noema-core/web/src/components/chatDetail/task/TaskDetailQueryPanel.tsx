@@ -50,11 +50,17 @@ export function TaskDetailQueryPanel({
   const [liveState, setLiveState] = React.useState<{
     taskId: string;
     items: Map<string, readonly TaskRunItem[]>;
-  }>(() => ({ taskId, items: new Map() }));
+    runs: Map<string, TaskRun>;
+  }>(() => ({ taskId, items: new Map(), runs: new Map() }));
   const refreshTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const detail = data?.task ? mapGraphqlTaskDetail(data.task) : null;
+  const currentLiveState = liveState.taskId === taskId
+    ? liveState
+    : { taskId, items: new Map<string, readonly TaskRunItem[]>(), runs: new Map<string, TaskRun>() };
+  const detail = data?.task
+    ? mapGraphqlTaskDetail(data.task, [...currentLiveState.runs.values()])
+    : null;
   useSubscription(TaskEventsDocument, {
-    variables: { taskId, after: taskEventCursorByTask.get(taskId) ?? null },
+    variables: { taskId, after: taskEventCursorByTask.get(taskId) ?? "0" },
     skip: Boolean(detail && isTerminalTaskStatus(detail.status)),
     onData: ({ data: result }) => {
       const event = result.data?.taskEvents;
@@ -62,16 +68,31 @@ export function TaskDetailQueryPanel({
         return;
       }
       taskEventCursorByTask.set(taskId, event.cursor);
+      const liveRun = event.run ? mapRun(event.run) : null;
       if (event.item && event.runId) {
         const run = data?.task?.runs.find((candidate) => candidate.runId === event.runId);
-        const mapped = mapTaskRunItem(event.item, runRole(run?.runKind ?? "executor"));
+        const mapped = mapTaskRunItem(
+          event.item,
+          liveRun?.role ?? runRole(run?.runKind ?? "executor")
+        );
         setLiveState((previous) => {
           const items = previous.taskId === taskId ? new Map(previous.items) : new Map();
+          const runs = previous.taskId === taskId ? new Map(previous.runs) : new Map();
           items.set(event.runId!, mergeTaskRunItems(items.get(event.runId!) ?? [], [mapped]));
-          return { taskId, items };
+          if (liveRun) {
+            runs.set(liveRun.id, liveRun);
+          }
+          return { taskId, items, runs };
+        });
+      } else if (liveRun) {
+        setLiveState((previous) => {
+          const items = previous.taskId === taskId ? previous.items : new Map();
+          const runs = previous.taskId === taskId ? new Map(previous.runs) : new Map();
+          runs.set(liveRun.id, liveRun);
+          return { taskId, items, runs };
         });
       }
-      if (String(event.kind).toLowerCase() === "run_item_upserted") {
+      if (String(event.kind).toLowerCase() !== "task_updated" && (liveRun || event.item)) {
         return;
       }
       if (refreshTimer.current) {
@@ -83,7 +104,7 @@ export function TaskDetailQueryPanel({
       }, 120);
     }
   });
-  const liveRunItems = liveState.taskId === taskId ? liveState.items : new Map();
+  const liveRunItems = currentLiveState.items;
 
   const handleResumeTask = React.useCallback(
     async (resumeTaskId: string, message?: string) => {
@@ -137,13 +158,16 @@ export function TaskDetailQueryPanel({
 }
 
 function isTerminalTaskStatus(status: TaskStatus): boolean {
-  return status === "completed" || status === "failed" || status === "cancelled";
+  return status === "completed" || status === "cancelled";
 }
 
-export function mapGraphqlTaskDetail(detail: GraphqlTaskDetail): TaskDetail {
+export function mapGraphqlTaskDetail(
+  detail: GraphqlTaskDetail,
+  liveRuns: readonly TaskRun[] = []
+): TaskDetail {
   const submissions = detail.submissions.map(mapSubmission);
   const reviews = detail.reviews.map(mapReview);
-  const runs = detail.runs.map(mapRun);
+  const runs = mergeTaskRuns(detail.runs.map(mapRun), liveRuns, detail.latestRunId);
   const submissionById = new Map(submissions.map((submission) => [submission.id, submission]));
   const reviewBySubmissionId = new Map(
     detail.reviews.map((review, index) => [review.reviewedSubmissionId, reviews[index]])
@@ -202,11 +226,17 @@ export function mapGraphqlTaskDetail(detail: GraphqlTaskDetail): TaskDetail {
     revisions: [...revisionIndexes]
       .sort((left, right) => left - right)
       .map((revision) =>
-        revisionDetail(revision, submissions, runs, reviewBySubmissionId, reviewByReviewerRunId)
+        revisionDetail(
+          revision,
+          submissions,
+          runs,
+          detail.latestRunId,
+          reviewBySubmissionId,
+          reviewByReviewerRunId
+        )
       ),
     finalResult: finalResult(detail.finalSubmissionId, submissionById, detail.reviews),
     artifacts: [],
-    delivery: null,
     failureReason: failureReason(detail),
     blockingQuestion: detail.blockingQuestion,
     canCancel: detail.cancellable,
@@ -218,23 +248,27 @@ function revisionDetail(
   revision: number,
   submissions: readonly TaskSubmission[],
   runs: readonly TaskRun[],
+  latestRunId: string | null,
   reviewBySubmissionId: ReadonlyMap<string, TaskReview>,
   reviewByReviewerRunId: ReadonlyMap<string, TaskReview>
 ): TaskRevision {
-  const executor = runs.find((run) => run.role === "executor" && run.revision === revision) ?? null;
-  const reviewer = runs.find((run) => run.role === "reviewer" && run.revision === revision) ?? null;
+  const executors = runs.filter((run) => run.role === "executor" && run.revision === revision);
+  const reviewers = runs.filter((run) => run.role === "reviewer" && run.revision === revision);
   const submission = submissions.find((candidate) => candidate.revision === revision) ?? null;
   const review = submission
     ? reviewBySubmissionId.get(submission.id) ?? null
-    : reviewer
-      ? reviewByReviewerRunId.get(reviewer.id) ?? null
+    : reviewers.length > 0
+      ? reviewByReviewerRunId.get(reviewers.at(-1)!.id) ?? null
       : null;
   return {
     revision,
-    executor,
+    executors,
     submission,
-    reviewer,
-    review
+    reviewers,
+    review,
+    latestRunId: runs.some((run) => run.revision === revision && run.id === latestRunId)
+      ? latestRunId
+      : null
   };
 }
 
@@ -275,6 +309,7 @@ function mapRun(run: GraphqlTaskDetail["runs"][number]): TaskRun {
     role,
     status: runStatus(run.status),
     revision: run.revisionIndex,
+    attemptIndex: run.attemptIndex,
     model: modelSnapshot(run.model),
     error: [run.errorCode, run.errorMessage].filter(Boolean).join(" · ") || null,
     providerCallCount: run.providerCallCount,
@@ -285,8 +320,35 @@ function mapRun(run: GraphqlTaskDetail["runs"][number]): TaskRun {
     activeMilliseconds: run.activeMilliseconds,
     executionPolicy: run.executionPolicy,
     startedAt: run.startedAt,
-    completedAt: run.endedAt
+    completedAt: run.endedAt,
+    createdAt: run.createdAt,
+    updatedAt: run.updatedAt
   };
+}
+
+function mergeTaskRuns(
+  durableRuns: readonly TaskRun[],
+  liveRuns: readonly TaskRun[],
+  latestRunId: string | null
+): TaskRun[] {
+  const runs = new Map(durableRuns.map((run) => [run.id, run]));
+  for (const liveRun of liveRuns) {
+    const durable = runs.get(liveRun.id);
+    if (!durable || (liveRun.updatedAt ?? "") >= (durable.updatedAt ?? "")) {
+      runs.set(liveRun.id, liveRun);
+    }
+  }
+  return [...runs.values()]
+    .map((run) => ({ ...run, isLatest: run.id === latestRunId }))
+    .sort((left, right) => {
+      if ((left.revision ?? 0) !== (right.revision ?? 0)) {
+        return (left.revision ?? 0) - (right.revision ?? 0);
+      }
+      if (left.attemptIndex !== right.attemptIndex) {
+        return left.attemptIndex - right.attemptIndex;
+      }
+      return (left.createdAt ?? "").localeCompare(right.createdAt ?? "");
+    });
 }
 
 function modelSnapshot(snapshot: GraphqlTaskDetail["executorModel"]): TaskModelSnapshot {
@@ -388,8 +450,6 @@ function runRole(value: string): TaskRunRole {
   switch (value) {
     case "reviewer":
       return "reviewer";
-    case "completion_delivery":
-      return "completion_delivery";
     default:
       return "executor";
   }
