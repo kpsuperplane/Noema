@@ -233,6 +233,15 @@ impl NoemaStore {
                 ],
             )?;
             tx.execute(
+                "INSERT INTO run_events (event_id, run_id, sequence_number, event_kind, actor_id, payload_json) VALUES (?1, ?2, 1, 'run.queued', ?3, ?4)",
+                params![
+                    allocate_id("event"),
+                    run_id,
+                    input.created_by_agent_id,
+                    serde_json::json!({"run_kind": "executor", "revision_index": 0}).to_string(),
+                ],
+            )?;
+            tx.execute(
                 "INSERT INTO task_events (event_id, task_id, sequence_number, event_kind, actor_id, payload_json) VALUES (?1, ?2, 1, 'task.created', ?3, ?4)",
                 params![allocate_id("event"), task_id, input.created_by_agent_id, serde_json::json!({"run_id": run_id, "complexity": input.complexity.as_str()}).to_string()],
             )?;
@@ -400,6 +409,15 @@ impl NoemaStore {
                 ],
             )?;
             tx.execute(
+                "INSERT INTO run_events (event_id, run_id, sequence_number, event_kind, actor_id, payload_json) VALUES (?1, ?2, 1, 'run.queued', ?3, ?4)",
+                rusqlite::params![
+                    allocate_id("event"),
+                    reviewer_run_id,
+                    input.executor_run_id,
+                    serde_json::json!({"run_kind": "reviewer", "revision_index": input.revision_index, "triggering_submission_id": submission_id}).to_string(),
+                ],
+            )?;
+            tx.execute(
                 "UPDATE tasks SET status = 'reviewing', latest_run_id = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1",
                 rusqlite::params![task.task_id, reviewer_run_id],
             )?;
@@ -539,6 +557,15 @@ impl NoemaStore {
                 tx.execute(
                     "INSERT INTO agent_runs (run_id, task_id, run_kind, agent_id, attempt_index, revision_index, triggering_review_id, provider_kind, provider_account_id, selection_mode, model_profile, reasoning_effort, selection_source, status) VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'queued')",
                     rusqlite::params![run_id, task.task_id, run_kind.as_str(), if run_kind == RunKind::CompletionDelivery { "agent:primary" } else { TASK_EXECUTOR_AGENT_ID }, next_revision, review_id, run_model.provider_kind, run_model.provider_account_id, run_model.selection_mode.as_str(), run_model.model_profile, run_model.reasoning_effort.map(crate::provider::ReasoningEffort::as_persistence_str), run_model.selection_source],
+                )?;
+                tx.execute(
+                    "INSERT INTO run_events (event_id, run_id, sequence_number, event_kind, actor_id, payload_json) VALUES (?1, ?2, 1, 'run.queued', ?3, ?4)",
+                    rusqlite::params![
+                        allocate_id("event"),
+                        run_id,
+                        input.reviewer_run_id,
+                        serde_json::json!({"run_kind": run_kind.as_str(), "revision_index": next_revision, "triggering_review_id": review_id}).to_string(),
+                    ],
                 )?;
             }
             tx.execute(
