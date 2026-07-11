@@ -5,6 +5,10 @@
 /crates/noema-core/supermemory/supermemory-server.exe
 /crates/noema-desktop/gen/
 node_modules/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
 .noema-dev/
 .local/
 .superpowers/

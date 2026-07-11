@@ -37,6 +37,7 @@ export default defineConfig({
   },
   build: {
     outDir: "../../noema-server/target/web-assets",
+    manifest: true,
     emptyOutDir: true,
     cssCodeSplit: false,
     rollupOptions: {

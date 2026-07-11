@@ -3,18 +3,83 @@
 use std::env;
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
+
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct ManifestChunk {
+    file: String,
+    #[serde(default, rename = "isEntry")]
+    is_entry: bool,
+    #[serde(default)]
+    css: Vec<String>,
+    #[serde(default)]
+    assets: Vec<String>,
+}
 
 fn main() -> io::Result<()> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("manifest dir"));
     let asset_dir = manifest_dir.join("target/web-assets");
     println!("cargo:rerun-if-changed={}", asset_dir.display());
+    if env::var("PROFILE").as_deref() == Ok("release") {
+        validate_release_assets(&asset_dir)?;
+    }
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("out dir"));
     fs::write(
         out_dir.join("web_assets.rs"),
         release_asset_table(&asset_dir)?,
     )?;
     Ok(())
+}
+
+fn validate_release_assets(asset_dir: &Path) -> io::Result<()> {
+    require_asset(asset_dir, "index.html")?;
+    require_asset(asset_dir, "noema-mark.svg")?;
+    let manifest_path = require_file(asset_dir, ".vite/manifest.json")?;
+    let manifest: std::collections::HashMap<String, ManifestChunk> =
+        serde_json::from_slice(&fs::read(manifest_path)?)
+            .map_err(|error| invalid_assets(format!("invalid Vite manifest: {error}")))?;
+    if !manifest.values().any(|chunk| chunk.is_entry) {
+        return Err(invalid_assets("Vite manifest has no entry chunk"));
+    }
+    for chunk in manifest.values() {
+        for path in std::iter::once(&chunk.file)
+            .chain(chunk.css.iter())
+            .chain(chunk.assets.iter())
+        {
+            require_asset(asset_dir, path)?;
+        }
+    }
+    Ok(())
+}
+
+fn require_asset(asset_dir: &Path, relative_path: &str) -> io::Result<PathBuf> {
+    let mut components = Path::new(relative_path).components();
+    if !matches!(components.next(), Some(Component::Normal(_)))
+        || components.next().is_some()
+        || relative_path.contains('\\')
+    {
+        return Err(invalid_assets(format!(
+            "web asset path must be one relative filename: {relative_path}"
+        )));
+    }
+    require_file(asset_dir, relative_path)
+}
+
+fn require_file(asset_dir: &Path, relative_path: &str) -> io::Result<PathBuf> {
+    let path = asset_dir.join(relative_path);
+    if path.is_file() {
+        Ok(path)
+    } else {
+        Err(invalid_assets(format!(
+            "required web asset is missing: {relative_path}"
+        )))
+    }
+}
+
+fn invalid_assets(message: impl Into<String>) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, message.into())
 }
 
 fn release_asset_table(asset_dir: &Path) -> io::Result<String> {

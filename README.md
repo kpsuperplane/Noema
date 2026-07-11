@@ -27,7 +27,10 @@ NOEMA_HOME=.noema-dev cargo dev
 ## Requirements
 
 - Rust and Cargo
-- Bun for frontend development
+- Bun for frontend dependency installation and builds
+- Python 3.10 or newer for the managed Mnemosyne sidecar
+- For macOS desktop builds: Xcode (including its command-line tools) and the
+  Cargo Tauri CLI
 - A provider account for chat:
   - OpenAI Platform API key for `provider: openai`
   - Noema-managed Codex OAuth credentials for `provider: codex`, created through
@@ -119,12 +122,13 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --no-fail-fast
 ```
 
-Frontend assets are built with Bun and embedded into `noema-core`:
+Frontend assets are built with Bun. The web build is emitted under
+`noema-server`, which validates and embeds those assets in release builds:
 
 ```bash
 cd crates/noema-core/web
-bun install
-bun run gen:types
+bun install --frozen-lockfile
+bun run check:generated
 bun run lint
 bun run build
 ```
@@ -147,14 +151,29 @@ cd crates/noema-core/web
 bun run dev:tauri
 ```
 
-For desktop packaging assets:
+For an unsigned macOS desktop bundle, install frontend dependencies exactly
+from the lockfile and run the Tauri build from the desktop crate. Tauri's build
+hook creates the desktop frontend assets:
 
 ```bash
 cd crates/noema-core/web
-bun run build:tauri
+bun install --frozen-lockfile
 ```
 
-Then use the Rust desktop crate for desktop-side validation:
+Then, from the repository root:
+
+```bash
+cd crates/noema-desktop && cargo tauri build
+```
+
+The current desktop bundle is developer-only, not a clean-machine
+self-contained release: managed Mnemosyne still launches through an ambient
+Python 3.10+ installation, requires its dependencies to be installed in that
+interpreter, and uses the source-tree sidecar directory. The desktop bundle does
+not provision that environment; an explicit sidecar command is the current
+alternative.
+
+Use the Rust desktop crate for desktop-side validation:
 
 ```bash
 cargo check -p noema-desktop
@@ -164,8 +183,9 @@ cargo test -p noema-desktop
 ## Repository Layout
 
 ```text
-crates/noema-core/       Rust runtime, store, providers, GraphQL, and web assets
+crates/noema-core/       Rust runtime, store, providers, and GraphQL
 crates/noema-core/web/   React UI and GraphQL operation generation
+crates/noema-server/     Loopback HTTP transport and release web-asset owner
 crates/noema-desktop/    Tauri desktop app
 docs/                    Current design notes and historical plans/specs
 ```
