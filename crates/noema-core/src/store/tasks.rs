@@ -340,7 +340,13 @@ impl NoemaStore {
     pub async fn create_task_submission(
         &self,
         input: NewTaskSubmission,
+        lease_token: &str,
     ) -> Result<(TaskSubmissionRecord, AgentRunRecord), StoreError> {
+        if lease_token.trim().is_empty() {
+            return Err(StoreError::InvariantViolation {
+                message: "task submission requires the active run lease".to_string(),
+            });
+        }
         let task =
             self.get_task(&input.task_id)
                 .await?
@@ -394,6 +400,18 @@ impl NoemaStore {
         let reviewer_run_id = allocate_id("run");
         self.with_connection(|conn| {
             let tx = conn.transaction()?;
+            let fenced = tx.execute(
+                "UPDATE agent_runs SET status = 'completed', ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, heartbeat_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND task_id = ?2 AND run_kind = 'executor' AND revision_index = ?3 AND lease_token = ?4 AND status = 'running' AND cancellation_requested = 0 AND EXISTS (SELECT 1 FROM tasks WHERE task_id = ?2 AND latest_run_id = ?1 AND status IN ('executing', 'revision_requested'))",
+                rusqlite::params![input.executor_run_id, input.task_id, input.revision_index, lease_token],
+            )?;
+            if fenced != 1 {
+                return Err(StoreError::InvariantViolation {
+                    message: format!(
+                        "executor run lease, cancellation, or task state changed while submitting: {}",
+                        input.executor_run_id
+                    ),
+                });
+            }
             tx.execute(
                 "INSERT INTO task_submissions (submission_id, task_id, executor_run_id, revision_index, summary, result_markdown) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 rusqlite::params![submission_id, input.task_id, input.executor_run_id, input.revision_index, input.summary.trim(), input.result_markdown.trim()],
@@ -433,9 +451,21 @@ impl NoemaStore {
                     serde_json::json!({"run_kind": "reviewer", "revision_index": input.revision_index, "triggering_submission_id": submission_id}).to_string(),
                 ],
             )?;
-            tx.execute(
-                "UPDATE tasks SET status = 'reviewing', latest_run_id = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1",
-                rusqlite::params![task.task_id, reviewer_run_id],
+            let task_changed = tx.execute(
+                "UPDATE tasks SET status = 'reviewing', latest_run_id = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND latest_run_id = ?3 AND status IN ('executing', 'revision_requested')",
+                rusqlite::params![task.task_id, reviewer_run_id, input.executor_run_id],
+            )?;
+            if task_changed != 1 {
+                return Err(StoreError::InvariantViolation {
+                    message: format!("task changed while submitting: {}", task.task_id),
+                });
+            }
+            append_run_event_tx(
+                &tx,
+                &input.executor_run_id,
+                "run.completed",
+                &input.executor_run_id,
+                serde_json::json!({"submission_id": submission_id}),
             )?;
             append_task_event_tx(&tx, &task.task_id, "task.submission_created", &input.executor_run_id, serde_json::json!({"submission_id": submission_id, "reviewer_run_id": reviewer_run_id}))?;
             tx.commit()?;
@@ -456,7 +486,16 @@ impl NoemaStore {
     }
 
     /// Commit an adversarial review and derive the next task state.
-    pub async fn create_task_review(&self, input: NewTaskReview) -> Result<TaskRecord, StoreError> {
+    pub async fn create_task_review(
+        &self,
+        input: NewTaskReview,
+        lease_token: &str,
+    ) -> Result<TaskRecord, StoreError> {
+        if lease_token.trim().is_empty() {
+            return Err(StoreError::InvariantViolation {
+                message: "task review requires the active run lease".to_string(),
+            });
+        }
         let task =
             self.get_task(&input.task_id)
                 .await?
@@ -538,6 +577,18 @@ impl NoemaStore {
             };
         self.with_connection(|conn| {
             let tx = conn.transaction()?;
+            let fenced = tx.execute(
+                "UPDATE agent_runs SET status = 'completed', ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, heartbeat_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND task_id = ?2 AND run_kind = 'reviewer' AND triggering_submission_id = ?3 AND lease_token = ?4 AND status = 'running' AND cancellation_requested = 0 AND EXISTS (SELECT 1 FROM tasks WHERE task_id = ?2 AND latest_run_id = ?1 AND status = 'reviewing')",
+                rusqlite::params![input.reviewer_run_id, input.task_id, input.reviewed_submission_id, lease_token],
+            )?;
+            if fenced != 1 {
+                return Err(StoreError::InvariantViolation {
+                    message: format!(
+                        "reviewer run lease, cancellation, or task state changed while reviewing: {}",
+                        input.reviewer_run_id
+                    ),
+                });
+            }
             tx.execute(
                 "INSERT INTO task_reviews (review_id, task_id, reviewer_run_id, reviewed_submission_id, overall_verdict, overall_feedback) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 rusqlite::params![review_id, task.task_id, input.reviewer_run_id, input.reviewed_submission_id, input.overall_verdict.as_str(), input.overall_feedback.trim()],
@@ -565,11 +616,34 @@ impl NoemaStore {
                     ],
                 )?;
             }
-            tx.execute(
-                "UPDATE tasks SET status = ?2, revision_index = ?3, latest_run_id = COALESCE(?4, latest_run_id), final_submission_id = CASE WHEN ?2 = 'completed' THEN ?5 ELSE final_submission_id END, blocked_question = CASE WHEN ?2 = 'waiting_for_human' THEN ?6 ELSE NULL END, blocked_context = CASE WHEN ?2 = 'waiting_for_human' THEN 'The task reviewer requires human input before execution can continue.' ELSE NULL END, completed_at = CASE WHEN ?2 = 'completed' THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE completed_at END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1",
-                rusqlite::params![task.task_id, next_status.as_str(), next_revision, next_run_id, input.reviewed_submission_id, input.overall_feedback.trim()],
+            let task_changed = tx.execute(
+                "UPDATE tasks SET status = ?2, revision_index = ?3, latest_run_id = COALESCE(?4, latest_run_id), final_submission_id = CASE WHEN ?2 = 'completed' THEN ?5 ELSE final_submission_id END, blocked_question = CASE WHEN ?2 = 'waiting_for_human' THEN ?6 ELSE NULL END, blocked_context = CASE WHEN ?2 = 'waiting_for_human' THEN 'The task reviewer requires human input before execution can continue.' ELSE NULL END, completed_at = CASE WHEN ?2 = 'completed' THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE completed_at END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND latest_run_id = ?7 AND status = 'reviewing'",
+                rusqlite::params![task.task_id, next_status.as_str(), next_revision, next_run_id, input.reviewed_submission_id, input.overall_feedback.trim(), input.reviewer_run_id],
+            )?;
+            if task_changed != 1 {
+                return Err(StoreError::InvariantViolation {
+                    message: format!("task changed while reviewing: {}", task.task_id),
+                });
+            }
+            append_run_event_tx(
+                &tx,
+                &input.reviewer_run_id,
+                "run.completed",
+                &input.reviewer_run_id,
+                serde_json::json!({"review_id": review_id}),
             )?;
             append_task_event_tx(&tx, &task.task_id, "task.review_created", &input.reviewer_run_id, serde_json::json!({"review_id": review_id, "verdict": input.overall_verdict.as_str(), "next_run_id": next_run_id}))?;
+            append_task_event_tx(
+                &tx,
+                &task.task_id,
+                &format!("task.{}", next_status.as_str()),
+                &input.reviewer_run_id,
+                serde_json::json!({
+                    "review_id": review_id,
+                    "reviewer_run_id": input.reviewer_run_id,
+                    "status": next_status.as_str(),
+                }),
+            )?;
             tx.commit()?;
             Ok(())
         }).await?;
@@ -680,6 +754,32 @@ fn append_task_event_tx(
         |row| row.get(0),
     )?;
     tx.execute("INSERT INTO task_events (event_id, task_id, sequence_number, event_kind, actor_id, payload_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", rusqlite::params![allocate_id("event"), task_id, sequence, kind, actor_id, payload.to_string()])?;
+    Ok(())
+}
+
+fn append_run_event_tx(
+    tx: &rusqlite::Transaction<'_>,
+    run_id: &str,
+    kind: &str,
+    actor_id: &str,
+    payload: serde_json::Value,
+) -> Result<(), rusqlite::Error> {
+    let sequence: i64 = tx.query_row(
+        "SELECT COALESCE(MAX(sequence_number), 0) + 1 FROM run_events WHERE run_id = ?1",
+        [run_id],
+        |row| row.get(0),
+    )?;
+    tx.execute(
+        "INSERT INTO run_events (event_id, run_id, sequence_number, event_kind, actor_id, payload_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        rusqlite::params![
+            allocate_id("event"),
+            run_id,
+            sequence,
+            kind,
+            actor_id,
+            payload.to_string()
+        ],
+    )?;
     Ok(())
 }
 

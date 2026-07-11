@@ -23,13 +23,13 @@ pub struct NewAgentRun {
     pub run_id: Option<String>,
     /// Owning task id.
     pub task_id: String,
-    /// Executor, reviewer, or completion-delivery role.
+    /// Executor or reviewer role.
     pub run_kind: RunKind,
     /// Built-in or user-configured agent id.
     pub agent_id: String,
     /// Revision represented by this run.
     pub revision_index: i64,
-    /// Retry attempt within the revision.
+    /// Continuation or infrastructure-recovery attempt within the revision.
     pub attempt_index: i64,
     /// Optional parent run.
     pub parent_run_id: Option<String>,
@@ -58,7 +58,7 @@ pub struct AgentRunRecord {
     pub agent_id: String,
     /// Revision index.
     pub revision_index: i64,
-    /// Retry attempt.
+    /// Continuation or infrastructure-recovery attempt.
     pub attempt_index: i64,
     /// Optional parent run.
     pub parent_run_id: Option<String>,
@@ -232,6 +232,7 @@ impl NoemaStore {
             let now = now_string();
             let lease_expires_at = (now.parse::<i64>().unwrap_or_default() + lease_seconds).to_string();
             recover_expired_runs(&tx, &now)?;
+            recover_interrupted_runs(&tx)?;
             let changed = tx.execute(
                 "UPDATE agent_runs SET status = 'leased', lease_owner = ?1, lease_token = ?2, lease_expires_at = ?3, heartbeat_at = ?4, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = (SELECT run_id FROM agent_runs WHERE status = 'queued' ORDER BY priority DESC, queued_at, run_id LIMIT 1) AND status = 'queued'",
                 params![worker_id, lease_token, lease_expires_at, now],
@@ -281,9 +282,9 @@ impl NoemaStore {
             let current = current.parse::<RunStatus>().map_err(|error| StoreError::InvalidEnum { kind: "run_status", value: error.to_string() })?;
             if !current.can_transition_to(next) { return Err(StoreError::InvariantViolation { message: format!("invalid run transition {current} -> {next}") }); }
             let changed = if let Some(lease_token) = lease_token {
-                conn.execute("UPDATE agent_runs SET status = ?2, error_code = ?3, error_message = ?4, started_at = CASE WHEN ?2 = 'running' THEN COALESCE(started_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) ELSE started_at END, ended_at = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled', 'interrupted') THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE ended_at END, lease_owner = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled', 'interrupted') THEN NULL ELSE lease_owner END, lease_token = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled', 'interrupted') THEN NULL ELSE lease_token END, lease_expires_at = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled', 'interrupted') THEN NULL ELSE lease_expires_at END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND lease_token = ?5", params![run_id, next.as_str(), error.as_ref().map(|value| value.0.as_str()), error.as_ref().map(|value| value.1.as_str()), lease_token])?
+                conn.execute("UPDATE agent_runs SET status = ?2, error_code = ?3, error_message = ?4, started_at = CASE WHEN ?2 = 'running' THEN COALESCE(started_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) ELSE started_at END, ended_at = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled', 'interrupted') THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE ended_at END, lease_owner = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled', 'interrupted') THEN NULL ELSE lease_owner END, lease_token = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled', 'interrupted') THEN NULL ELSE lease_token END, lease_expires_at = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled', 'interrupted') THEN NULL ELSE lease_expires_at END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND lease_token = ?5 AND (?2 = 'cancelled' OR cancellation_requested = 0)", params![run_id, next.as_str(), error.as_ref().map(|value| value.0.as_str()), error.as_ref().map(|value| value.1.as_str()), lease_token])?
             } else {
-                conn.execute("UPDATE agent_runs SET status = ?2, error_code = ?3, error_message = ?4, started_at = CASE WHEN ?2 = 'running' THEN COALESCE(started_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) ELSE started_at END, ended_at = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled', 'interrupted') THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE ended_at END, lease_owner = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled', 'interrupted') THEN NULL ELSE lease_owner END, lease_token = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled', 'interrupted') THEN NULL ELSE lease_token END, lease_expires_at = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled', 'interrupted') THEN NULL ELSE lease_expires_at END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1", params![run_id, next.as_str(), error.as_ref().map(|value| value.0.as_str()), error.as_ref().map(|value| value.1.as_str())])?
+                conn.execute("UPDATE agent_runs SET status = ?2, error_code = ?3, error_message = ?4, started_at = CASE WHEN ?2 = 'running' THEN COALESCE(started_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) ELSE started_at END, ended_at = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled', 'interrupted') THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE ended_at END, lease_owner = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled', 'interrupted') THEN NULL ELSE lease_owner END, lease_token = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled', 'interrupted') THEN NULL ELSE lease_token END, lease_expires_at = CASE WHEN ?2 IN ('completed', 'failed', 'cancelled', 'interrupted') THEN NULL ELSE lease_expires_at END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND (?2 = 'cancelled' OR cancellation_requested = 0)", params![run_id, next.as_str(), error.as_ref().map(|value| value.0.as_str()), error.as_ref().map(|value| value.1.as_str())])?
             };
             if changed != 1 { return Err(StoreError::InvariantViolation { message: format!("agent run lease or state changed while updating: {run_id}") }); }
             append_run_event(
@@ -591,6 +592,100 @@ fn recover_expired_runs(conn: &rusqlite::Connection, now: &str) -> Result<(), St
                 "interrupted_run_id": run_id,
                 "new_run_id": child_run_id,
                 "retry_count": child_retry_count,
+            }),
+        )?;
+    }
+    Ok(())
+}
+
+fn recover_interrupted_runs(conn: &rusqlite::Connection) -> Result<(), StoreError> {
+    let interrupted = {
+        let mut statement = conn.prepare(
+            "SELECT r.run_id, r.task_id, r.run_kind, r.retry_count FROM agent_runs r JOIN tasks t ON t.task_id = r.task_id AND t.latest_run_id = r.run_id WHERE r.status = 'interrupted' AND r.cancellation_requested = 0 AND t.status NOT IN ('completed', 'failed', 'cancelled') ORDER BY r.updated_at, r.run_id",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    for (run_id, task_id, run_kind, retry_count) in interrupted {
+        if retry_count >= 3 {
+            let changed = conn.execute(
+                "UPDATE tasks SET status = 'failed', terminal_reason = 'automatic infrastructure resume limit reached', error_code = 'automatic_resume_exhausted', error_message = 'run was interrupted after three automatic resumptions', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND latest_run_id = ?2 AND status NOT IN ('completed', 'failed', 'cancelled')",
+                params![task_id, run_id],
+            )?;
+            if changed == 1 {
+                append_task_event(
+                    conn,
+                    &task_id,
+                    "task.failed",
+                    serde_json::json!({
+                        "run_id": run_id,
+                        "error_code": "automatic_resume_exhausted",
+                    }),
+                )?;
+            }
+            continue;
+        }
+        let child_run_id = allocate_id("run");
+        let inserted = conn.execute(
+            r#"INSERT INTO agent_runs (
+                run_id, task_id, run_kind, agent_id, attempt_index, revision_index,
+                parent_run_id, triggering_submission_id, triggering_review_id,
+                provider_kind, provider_account_id, selection_mode, model_profile,
+                reasoning_effort, selection_source, max_provider_continuations,
+                max_tool_calls, max_active_minutes, progress_audit_interval,
+                status, priority, retry_count
+            ) SELECT ?2, task_id, run_kind, agent_id, attempt_index + 1, revision_index,
+                run_id, triggering_submission_id, triggering_review_id,
+                provider_kind, provider_account_id, selection_mode, model_profile,
+                reasoning_effort, selection_source, max_provider_continuations,
+                max_tool_calls, max_active_minutes, progress_audit_interval,
+                'queued', priority, retry_count + 1
+              FROM agent_runs WHERE run_id = ?1 AND status = 'interrupted'
+                AND cancellation_requested = 0"#,
+            params![run_id, child_run_id],
+        )?;
+        if inserted != 1 {
+            continue;
+        }
+        append_run_event(
+            conn,
+            &child_run_id,
+            "run.queued",
+            serde_json::json!({
+                "automatic_resume_of_run_id": run_id,
+                "retry_count": retry_count + 1,
+            }),
+        )?;
+        let next_task_status = if run_kind == RunKind::Reviewer.as_str() {
+            TaskStatus::Reviewing
+        } else {
+            TaskStatus::Queued
+        };
+        let changed = conn.execute(
+            "UPDATE tasks SET status = ?3, latest_run_id = ?2, terminal_reason = NULL, error_code = NULL, error_message = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND latest_run_id = ?4 AND status NOT IN ('completed', 'failed', 'cancelled')",
+            params![task_id, child_run_id, next_task_status.as_str(), run_id],
+        )?;
+        if changed != 1 {
+            return Err(StoreError::InvariantViolation {
+                message: format!("task changed while recovering interrupted run: {task_id}"),
+            });
+        }
+        append_task_event(
+            conn,
+            &task_id,
+            "task.automatically_resumed",
+            serde_json::json!({
+                "interrupted_run_id": run_id,
+                "new_run_id": child_run_id,
+                "retry_count": retry_count + 1,
             }),
         )?;
     }

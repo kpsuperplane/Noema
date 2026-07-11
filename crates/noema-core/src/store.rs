@@ -16,6 +16,7 @@ mod provider_capability_bindings;
 mod run_items;
 mod runtime;
 mod schema;
+mod schema_upgrade;
 mod sqlite;
 mod task_controls;
 mod task_events;

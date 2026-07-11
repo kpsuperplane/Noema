@@ -47,8 +47,12 @@ impl NoemaStore {
         if let Some(parent) = config.path.parent() {
             fs::create_dir_all(parent).map_err(StoreError::PreparePath)?;
         }
-        let conn = Connection::open(&config.path)?;
+        let mut conn = Connection::open(&config.path)?;
         conn.pragma_update(None, "foreign_keys", true)?;
+        conn.execute_batch(STORE_SCHEMA_SQL)?;
+        super::schema_upgrade::upgrade_task_runtime_tables(&mut conn)?;
+        // A compatibility rebuild drops the old table-owned indexes. Running
+        // the idempotent bootstrap again restores every current index.
         conn.execute_batch(STORE_SCHEMA_SQL)?;
         debug_assert_eq!(STORE_SCHEMA_VERSION, 1);
 

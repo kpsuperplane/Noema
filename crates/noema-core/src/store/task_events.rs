@@ -159,6 +159,47 @@ impl NoemaStore {
         })
         .await
     }
+
+    /// Return actionable/terminal task ids whose durable status event has not
+    /// yet been materialized into the source conversation. Task events form
+    /// the outbox; deterministic conversation item ids make draining safe to
+    /// repeat after a crash.
+    pub async fn list_pending_task_status_deliveries(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<String>, StoreError> {
+        if limit < 1 {
+            return Err(StoreError::InvariantViolation {
+                message: "task status delivery limit must be positive".to_string(),
+            });
+        }
+        self.with_connection(|conn| {
+            let mut statement = conn.prepare(
+                r#"SELECT t.task_id
+                   FROM tasks t
+                   JOIN task_events e ON e.event_id = (
+                     SELECT candidate.event_id
+                     FROM task_events candidate
+                     WHERE candidate.task_id = t.task_id
+                       AND candidate.event_kind = 'task.' || t.status
+                     ORDER BY candidate.sequence_number DESC
+                     LIMIT 1
+                   )
+                   WHERE t.source_conversation_id IS NOT NULL
+                     AND t.status IN ('waiting_for_human', 'completed', 'failed', 'cancelled')
+                     AND NOT EXISTS (
+                       SELECT 1 FROM conversation_items item
+                       WHERE item.item_id = 'item:task_status:' || e.event_id
+                     )
+                   ORDER BY e.created_at, t.task_id
+                   LIMIT ?1"#,
+            )?;
+            let rows = statement.query_map([limit], |row| row.get::<_, String>(0))?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(StoreError::Sqlite)
+        })
+        .await
+    }
 }
 
 async fn append_event(
