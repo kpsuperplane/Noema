@@ -213,6 +213,42 @@ impl NoemaStore {
         &self,
         item: NewConversationItem,
     ) -> Result<ConversationItemRecord, StoreError> {
+        self.append_conversation_item_with_id(allocate_id("item"), item)
+            .await
+    }
+
+    /// Idempotently append a durable item with a caller-derived stable id.
+    /// This is reserved for exactly-once projections of another durable event.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the id is empty, ownership references are
+    /// invalid, or an existing id belongs to a different projection.
+    pub async fn append_conversation_item_with_id(
+        &self,
+        item_id: String,
+        item: NewConversationItem,
+    ) -> Result<ConversationItemRecord, StoreError> {
+        self.append_conversation_item_with_id_if_absent(item_id, item)
+            .await
+            .map(|(record, _)| record)
+    }
+
+    /// Idempotently append an item and report whether this call inserted it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when validation, insertion, or readback fails.
+    pub async fn append_conversation_item_with_id_if_absent(
+        &self,
+        item_id: String,
+        item: NewConversationItem,
+    ) -> Result<(ConversationItemRecord, bool), StoreError> {
+        if item_id.trim().is_empty() {
+            return Err(StoreError::InvariantViolation {
+                message: "conversation item id cannot be empty".to_string(),
+            });
+        }
         self.require_conversation(&item.conversation_id).await?;
         if let Some(turn_id) = &item.turn_id {
             self.require_turn_for_conversation(turn_id, &item.conversation_id)
@@ -223,9 +259,28 @@ impl NoemaStore {
                 .await?;
         }
         let _append_guard = self.append_item_lock.lock().await;
-        let item_id = allocate_id("item");
-        let sequence_index = self
+        let (sequence_index, inserted) = self
             .with_connection(|conn| {
+                if let Some(existing) = collect_conversation_item_rows(
+                    conn,
+                    "WHERE item_id = ?1 LIMIT 1",
+                    params![item_id],
+                )?
+                .into_iter()
+                .next()
+                {
+                    let existing = conversation_item_from_row(existing)?;
+                    if existing.conversation_id != item.conversation_id
+                        || existing.kind != item.kind
+                    {
+                        return Err(StoreError::InvariantViolation {
+                            message: format!(
+                                "idempotent conversation item id belongs to another projection: {item_id}"
+                            ),
+                        });
+                    }
+                    return Ok((existing.sequence_index, false));
+                }
                 let next_sequence = conn.query_row(
                     "SELECT COALESCE(MAX(sequence_index), 0) + 1 FROM conversation_items WHERE conversation_id = ?1",
                     [&item.conversation_id],
@@ -252,21 +307,43 @@ impl NoemaStore {
                         json_to_string(&item.metadata)?,
                     ],
                 )?;
-                Ok(next_sequence)
+                Ok((next_sequence, true))
             })
             .await?;
-        Ok(ConversationItemRecord {
-            item_id,
-            conversation_id: item.conversation_id,
-            turn_id: item.turn_id,
-            sequence_index,
-            cursor: conversation_item_cursor(sequence_index),
-            kind: item.kind,
-            status: item.status,
-            content_text: item.content_text,
-            payload_json: item.payload_json,
-            metadata: item.metadata,
-        })
+        if !inserted {
+            let existing = self
+                .with_connection(|conn| {
+                    collect_conversation_item_rows(
+                        conn,
+                        "WHERE item_id = ?1 LIMIT 1",
+                        params![item_id],
+                    )?
+                    .into_iter()
+                    .next()
+                    .map(conversation_item_from_row)
+                    .transpose()?
+                    .ok_or_else(|| StoreError::InvariantViolation {
+                        message: "idempotent conversation item disappeared".to_string(),
+                    })
+                })
+                .await?;
+            return Ok((existing, false));
+        }
+        Ok((
+            ConversationItemRecord {
+                item_id: item_id.clone(),
+                conversation_id: item.conversation_id,
+                turn_id: item.turn_id,
+                sequence_index,
+                cursor: conversation_item_cursor(sequence_index),
+                kind: item.kind,
+                status: item.status,
+                content_text: item.content_text,
+                payload_json: item.payload_json,
+                metadata: item.metadata,
+            },
+            true,
+        ))
     }
 
     /// List conversation items in replay order.

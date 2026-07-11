@@ -155,16 +155,17 @@ impl NoemaRuntimeHost {
             }
         };
 
+        let subscriptions = crate::graphql::ConversationSubscriptionRegistry::default();
         let runtime = CodexRuntimeHandle::spawn_with_provider_map_and_memory(
             default_provider_kind,
             providers,
             store.clone(),
             system_errors.clone(),
             mnemosyne_connection,
+            subscriptions.clone(),
         )
         .await
         .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
-        let subscriptions = crate::graphql::ConversationSubscriptionRegistry::default();
         let task_runtime = TaskRuntimeHandle::start(
             store.clone(),
             runtime.clone(),

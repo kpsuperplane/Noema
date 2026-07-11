@@ -224,14 +224,38 @@ pub(super) fn input_item_from_transcript_item(
         ConversationItemKind::ToolCall => tool_call_input_item(item),
         ConversationItemKind::ToolResult => tool_result_input_item(item),
         ConversationItemKind::Reasoning => reasoning_input_item(item),
+        ConversationItemKind::TaskReference => task_status_message_item(item),
         ConversationItemKind::Activity
         | ConversationItemKind::A2uiCard
         | ConversationItemKind::ApprovalRequest
         | ConversationItemKind::ApprovalResult
         | ConversationItemKind::ArtifactReference
-        | ConversationItemKind::TaskReference
         | ConversationItemKind::ErrorNotice => None,
     }
+}
+
+fn task_status_message_item(item: &ConversationItemRecord) -> Option<GenerateInputItem> {
+    if item.metadata.get("source").and_then(Value::as_str) != Some("background_task_status") {
+        return None;
+    }
+    let task_id = action_string(&item.payload_json, "task_id")?;
+    let title = action_string(&item.payload_json, "title")
+        .or_else(|| item.content_text.clone())
+        .unwrap_or_else(|| "Delegated task".to_string());
+    let status = action_string(&item.payload_json, "status")?;
+    let mut content = format!("Noema task update: {title} ({task_id}) is {status}.");
+    if let Some(question) = action_string(&item.payload_json, "blocking_question") {
+        content.push_str(" Blocking question: ");
+        content.push_str(&question);
+    }
+    if let Some(error) = action_string(&item.payload_json, "error_message") {
+        content.push_str(" Error: ");
+        content.push_str(&error);
+    }
+    Some(GenerateInputItem::Message(GenerateMessage {
+        role: GenerateMessageRole::System,
+        content,
+    }))
 }
 
 fn reasoning_input_item(item: &ConversationItemRecord) -> Option<GenerateInputItem> {
@@ -389,5 +413,34 @@ mod tests {
 
         assert_eq!(call.id, None);
         assert_eq!(call.call_id, "call_name_1");
+    }
+
+    #[test]
+    fn structured_task_status_updates_are_visible_to_the_primary_context() {
+        let item = ConversationItemRecord {
+            item_id: "item:task-status".to_string(),
+            conversation_id: "conversation:1".to_string(),
+            turn_id: None,
+            sequence_index: 2,
+            cursor: "conversation_item:2".to_string(),
+            kind: ConversationItemKind::TaskReference,
+            status: ConversationItemStatus::Completed,
+            content_text: Some("Research task".to_string()),
+            payload_json: serde_json::json!({
+                "task_id": "task:1",
+                "title": "Research task",
+                "status": "waiting_for_human",
+                "blocking_question": "Which region?"
+            }),
+            metadata: serde_json::json!({"source": "background_task_status"}),
+        };
+
+        let Some(GenerateInputItem::Message(message)) = input_item_from_transcript_item(&item)
+        else {
+            panic!("expected task status message");
+        };
+        assert_eq!(message.role, GenerateMessageRole::System);
+        assert!(message.content.contains("task:1"));
+        assert!(message.content.contains("Which region?"));
     }
 }

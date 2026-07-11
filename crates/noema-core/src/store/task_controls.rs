@@ -85,6 +85,7 @@ impl NoemaStore {
         .map_err(|error| StoreError::InvariantViolation {
             message: error.to_string(),
         })?;
+        self.validate_task_model_snapshot(&model).await?;
         let execution_policy = self.get_task_execution_policy().await?;
         let new_run_id = allocate_id("run");
         let next_attempt_index =

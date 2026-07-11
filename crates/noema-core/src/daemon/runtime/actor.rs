@@ -18,6 +18,7 @@ pub(in crate::daemon) struct CodexRuntimeActor {
     pub(in crate::daemon) web_fetch_provider: crate::web_fetch::types::WebFetchRuntimeProvider,
     pub(in crate::daemon) conversations: HashMap<String, ActiveConversation>,
     pub(super) tasks: RuntimeTaskGroup,
+    pub(super) task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
 }
 
 impl CodexRuntimeActor {
@@ -28,7 +29,15 @@ impl CodexRuntimeActor {
         store: NoemaStore,
         system_errors: SystemErrorLogger,
     ) -> Result<Self, DaemonError> {
-        Self::new_with_memory(default_provider_kind, providers, store, system_errors, None).await
+        Self::new_with_memory(
+            default_provider_kind,
+            providers,
+            store,
+            system_errors,
+            None,
+            crate::graphql::ConversationSubscriptionRegistry::default(),
+        )
+        .await
     }
 
     pub(in crate::daemon) async fn new_with_memory(
@@ -37,6 +46,7 @@ impl CodexRuntimeActor {
         store: NoemaStore,
         system_errors: SystemErrorLogger,
         memory_connection: Option<crate::MnemosyneConnection>,
+        task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
     ) -> Result<Self, DaemonError> {
         Ok(Self {
             default_provider_kind,
@@ -48,6 +58,7 @@ impl CodexRuntimeActor {
             web_fetch_provider: crate::web_fetch::types::WebFetchRuntimeProvider::default(),
             conversations: HashMap::new(),
             tasks: RuntimeTaskGroup::default(),
+            task_subscriptions,
         })
     }
 
@@ -114,6 +125,7 @@ impl CodexRuntimeActor {
             web_fetch_provider: self.web_fetch_provider.clone(),
             conversations: HashMap::new(),
             tasks: RuntimeTaskGroup::default(),
+            task_subscriptions: self.task_subscriptions.clone(),
         }
     }
 

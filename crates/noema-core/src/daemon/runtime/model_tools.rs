@@ -7,8 +7,10 @@ use crate::{
         memory::tool::search_memory_tool_spec,
         runtime::turn::{mcp_auth_status_label, mcp_health_status_label},
         task_tool::{
-            TASK_INSPECT_TOOL, TASK_RETRY_TOOL, task_delegate_tool_spec, task_inspect_tool_spec,
-            task_retry_tool_spec,
+            TASK_CANCEL_TOOL, TASK_INSPECT_TOOL, TASK_REPORT_BLOCKED_TOOL, TASK_RESUME_TOOL,
+            TASK_SUBMIT_RESULT_TOOL, TASK_SUBMIT_REVIEW_TOOL, task_cancel_tool_spec,
+            task_delegate_tool_spec, task_inspect_tool_spec, task_report_blocked_tool_spec,
+            task_resume_tool_spec, task_submit_result_tool_spec, task_submit_review_tool_spec,
         },
     },
     mcp::{mcp_tool_ineligibility, prompt_safe_mcp_tool_description},
@@ -57,7 +59,8 @@ pub(super) async fn build_model_tools_for_role(
 ) -> Result<ModelTools, ToolContractError> {
     let mut builtin_tools = builtin_tool_specs(include_agent_name_tool)?;
     if role == ExecutionRole::PrimaryConversation {
-        builtin_tools.push(task_retry_tool_spec()?);
+        builtin_tools.push(task_resume_tool_spec()?);
+        builtin_tools.push(task_cancel_tool_spec()?);
         let pool_entries = store
             .list_usable_task_model_pool_entries()
             .await
@@ -65,6 +68,11 @@ pub(super) async fn build_model_tools_for_role(
         if !pool_entries.is_empty() {
             builtin_tools.push(task_delegate_tool_spec(&pool_entries)?);
         }
+    } else if role == ExecutionRole::TaskExecutor {
+        builtin_tools.push(task_submit_result_tool_spec()?);
+        builtin_tools.push(task_report_blocked_tool_spec()?);
+    } else if role == ExecutionRole::TaskReviewer {
+        builtin_tools.push(task_submit_review_tool_spec()?);
     }
     let web_search_tool = web_search_tool_spec()?;
     let web_fetch_tool = web_fetch_tool_spec()?;
@@ -140,7 +148,9 @@ fn builtin_tool_access_class(name: &str) -> ToolAccessClass {
         // after the typed task context is implemented.
         "artifact.create_local_file" => ToolAccessClass::ConversationWrite,
         // Renaming the primary identity is a foreground-only control action.
-        "update_own_name" | TASK_RETRY_TOOL => ToolAccessClass::Internal,
+        "update_own_name" | TASK_RESUME_TOOL | TASK_CANCEL_TOOL => ToolAccessClass::Internal,
+        TASK_SUBMIT_RESULT_TOOL | TASK_REPORT_BLOCKED_TOOL => ToolAccessClass::ExecutorTerminal,
+        TASK_SUBMIT_REVIEW_TOOL => ToolAccessClass::ReviewerTerminal,
         _ => ToolAccessClass::Internal,
     }
 }
@@ -308,7 +318,8 @@ mod tests {
                 "task.inspect",
                 "update_own_name",
                 "artifact.create_local_file",
-                "task.retry",
+                "task.resume",
+                "task.cancel",
                 "web.search",
                 "web.fetch",
                 "mcp.mcp:docs.read"
@@ -374,7 +385,8 @@ mod tests {
                 "task.inspect".to_string(),
                 "update_own_name".to_string(),
                 "artifact.create_local_file".to_string(),
-                "task.retry".to_string(),
+                "task.resume".to_string(),
+                "task.cancel".to_string(),
             ]
         );
         assert!(
@@ -431,7 +443,7 @@ mod tests {
             tools
                 .native
                 .iter()
-                .any(|tool| tool.name.as_str() == TASK_RETRY_TOOL)
+                .any(|tool| tool.name.as_str() == TASK_RESUME_TOOL)
         );
 
         let pool_ids = delegation.input_schema.as_value()["properties"]
@@ -445,7 +457,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn background_roles_expose_only_read_only_declared_tools() {
+    async fn background_roles_expose_read_tools_and_their_typed_terminal_contracts() {
         let store = crate::store::tests::test_store().await;
         seed_ready_mcp_tool(&store).await;
 
@@ -464,19 +476,20 @@ mod tests {
                 .map(|tool| tool.name.as_str())
                 .collect::<Vec<_>>();
 
-            assert_eq!(
-                names,
-                vec![
-                    "search_memory",
-                    "task.inspect",
-                    "web.search",
-                    "web.fetch",
-                    "mcp.mcp:docs.read"
-                ]
-            );
+            let terminal_tools = match role {
+                ExecutionRole::TaskExecutor => {
+                    vec![TASK_SUBMIT_RESULT_TOOL, TASK_REPORT_BLOCKED_TOOL]
+                }
+                ExecutionRole::TaskReviewer => vec![TASK_SUBMIT_REVIEW_TOOL],
+                _ => unreachable!(),
+            };
+            for terminal in terminal_tools {
+                assert!(names.contains(&terminal));
+                assert!(tools.tool_policy.allows_tool(terminal));
+            }
             assert!(tools.tool_policy.allows_tool("web.fetch"));
             assert!(tools.tool_policy.allows_tool(TASK_INSPECT_TOOL));
-            assert!(!tools.tool_policy.allows_tool(TASK_RETRY_TOOL));
+            assert!(!tools.tool_policy.allows_tool(TASK_RESUME_TOOL));
             assert!(!tools.tool_policy.allows_tool("artifact.create_local_file"));
             assert!(!tools.tool_policy.allows_tool("task.delegate"));
         }

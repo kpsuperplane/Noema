@@ -127,12 +127,12 @@ The next storage slice should stay small and concrete:
   agent's `task.delegate` tool validates one of the three global
   simple/medium/difficult executor model settings, persists the request and immutable validation
   criteria, and queues an executor run. A host-owned worker leases runs,
-  executes role-gated native read-only tools, records provider/model/usage
-  observations, creates a structured submission, queues an adversarial reviewer,
-  and either requests a bounded revision, waits for human input, or approves the
-  task. Approval queues exactly-once completion delivery back into the source
-  conversation and publishes a live transcript event. Reviewer configuration is
-  stored through the normal agent model preference surface for
+  executes role-gated native tools, records complete model/tool transcripts and
+  cumulative usage, creates a typed submission, queues an adversarial reviewer,
+  and either requests revision, pauses for human input, or approves the task.
+  Task status is delivered idempotently as a structured conversation event; it
+  is not synthesized by a separate completion model run. Reviewer configuration
+  is stored through the normal agent model preference surface for
   `agent:task-reviewer`; executor selection is snapshotted per task.
   Task executors share exactly three global model settings: one each for simple,
   medium, and the highest-complexity work. The configured provider supplies the
@@ -142,24 +142,36 @@ The next storage slice should stay small and concrete:
   backed by an authenticated provider account are advertised to the primary.
   Settings nests these three model controls inside the Task Executor agent card;
   the executor identity exists for run ownership and audit but has no independent
-  agent model preference.
+  agent model preference. Complexity selects only the model/reasoning tier. All
+  task runs use the same provider-independent execution policy, currently 80
+  provider continuations, 400 tool calls, 120 active minutes, and a progress
+  audit every 20 steps; each run snapshots that policy. Delegation, revision,
+  and continuation revalidate authenticated provider accounts and reject exact
+  model profiles that are absent from an available provider catalog before a
+  run is queued.
 - Task references are first-class transcript items. The web chat renders a
   marker and opens a GraphQL-backed detail rail showing the request, criteria,
   revisions, executor/reviewer runs, model snapshots, submissions, reviews, and
-  final result. The detail rail subscribes to task-scoped GraphQL invalidation
-  events rather than polling, and background runs persist full model inputs,
-  assistant output, tool calls, and tool results as `agent_run_items` so the
-  running transcript refreshes live. Humans can retry failed tasks from that
-  rail; retry preserves the failed run and atomically queues a linked attempt
-  with the same role,
-  revision, model snapshot, and trigger provenance. Agents can use the
-  read-only `task.inspect` tool to query owner-scoped durable task/run progress,
-  while the primary agent can use `task.retry` for the same canonical retry
-  operation as the UI. The three task model settings are editable through a
-  local-human GraphQL update mutation. The current task runtime intentionally
+  final result. The detail rail subscribes to cursor-bearing GraphQL task and
+  run-item events rather than polling, upserts streaming items, and pages older
+  transcript rows directly from SQLite. Background roles reuse the primary
+  runtime's prompt, provider continuation, progress audit, repetition detection,
+  tool dispatch, and finalization primitives while replacing interactive user
+  input with typed terminal contracts: `task.submit_result`,
+  `task.submit_review`, and `task.report_blocked`. Every continuation repeats the
+  immutable original request. Lease heartbeats and cancellation interrupt active
+  provider/tool futures; expired leases have bounded automatic recovery.
+  Human-blocked and failed tasks resume only as linked child runs with reconstructed
+  lineage and an optional answer—there is no fresh retry path. Agents can inspect,
+  resume, and cancel owner-scoped tasks through canonical task tools, and the UI
+  offers the same continue/answer/cancel controls. Terminal task events form a
+  durable delivery outbox, and deterministic conversation item ids make crash
+  recovery idempotent. Transcript persistence redacts secret-shaped fields and
+  all opaque MCP arguments/results while retaining full payloads only in the
+  live provider continuation. The current task runtime
   exposes read-only search, fetch, memory, task inspection, and calibrated MCP
-  tools to background roles; task-owned write tools and richer
-  workspace/project orchestration remain later milestones.
+  tools to background roles; task-owned write tools and richer workspace/project
+  orchestration remain later milestones.
 - Memory is governed context, not hidden model state. Durable memory truth now
   belongs to local Mnemosyne, while Noema owns service lifecycle, configuration,
   live readiness proxying, provenance, UI, model routing, ingest diagnostics,

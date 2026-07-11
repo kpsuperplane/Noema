@@ -238,13 +238,13 @@ impl From<TaskReviewRecord> for GraphqlTaskReview {
 pub struct GraphqlTaskRun {
     /// Stable run id.
     pub run_id: String,
-    /// Canonical `executor`, `reviewer`, or `completion_delivery` kind.
+    /// Canonical `executor` or `reviewer` kind.
     pub run_kind: String,
     /// Built-in agent identity used by the run.
     pub agent_id: String,
     /// Revision represented by this run.
     pub revision_index: i32,
-    /// Retry attempt within the revision.
+    /// Continuation or infrastructure-recovery attempt within the revision.
     pub attempt_index: i32,
     /// Canonical durable run status.
     pub status: String,
@@ -640,17 +640,15 @@ pub(super) async fn task_run_items(
                 .map_err(|_| async_graphql::Error::new("task run transcript cursor is invalid"))
         })
         .transpose()?;
-    let mut items = store
-        .list_agent_run_items(run_id)
+    let page_size = i64::from(first);
+    let mut page = store
+        .list_agent_run_items_before_page(run_id, continuation, page_size + 1)
         .await
         .map_err(graphql_error)?;
-    if let Some(before_sequence) = continuation {
-        items.retain(|item| item.sequence_index < before_sequence);
+    let has_next_page = page.len() > usize::try_from(page_size).unwrap_or(100);
+    if has_next_page {
+        page.remove(0);
     }
-    let page_size = usize::try_from(first).unwrap_or(100);
-    let start = items.len().saturating_sub(page_size);
-    let has_next_page = start > 0;
-    let page = items.split_off(start);
     let end_cursor = has_next_page
         .then(|| page.first().map(|item| item.sequence_index.to_string()))
         .flatten();
@@ -706,13 +704,12 @@ pub(super) async fn cancel_task(
         .publish_task(crate::graphql::TaskLiveEvent::Changed {
             task_id: task.task_id.clone(),
         });
-    crate::daemon::task_delivery::deliver_task_status_event(
+    let _ = crate::daemon::task_delivery::deliver_task_status_event(
         store,
         state.subscriptions(),
         &task.task_id,
     )
-    .await
-    .map_err(async_graphql::Error::new)?;
+    .await;
     detail_from_task(store, task).await
 }
 

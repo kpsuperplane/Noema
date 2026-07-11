@@ -7,6 +7,8 @@ mod memory;
 mod prompts;
 mod protocol;
 mod runtime;
+pub(crate) mod task_delivery;
+mod task_run_context;
 mod task_runtime;
 pub(crate) mod task_tool;
 #[cfg(test)]

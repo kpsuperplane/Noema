@@ -139,6 +139,7 @@ impl CodexRuntimeHandle {
         store: NoemaStore,
         system_errors: SystemErrorLogger,
         memory_connection: Option<crate::MnemosyneConnection>,
+        task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
     ) -> Result<Self, DaemonError> {
         Self::spawn_with_provider_map_inner(
             default_provider_kind,
@@ -146,6 +147,7 @@ impl CodexRuntimeHandle {
             store,
             system_errors,
             memory_connection,
+            task_subscriptions,
         )
         .await
     }
@@ -176,6 +178,7 @@ impl CodexRuntimeHandle {
             store,
             system_errors,
             memory_connection,
+            crate::graphql::ConversationSubscriptionRegistry::default(),
         )
         .await
     }
@@ -283,6 +286,7 @@ impl CodexRuntimeHandle {
             store,
             system_errors,
             None,
+            crate::graphql::ConversationSubscriptionRegistry::default(),
         )
         .await
     }
@@ -293,6 +297,7 @@ impl CodexRuntimeHandle {
         store: NoemaStore,
         system_errors: SystemErrorLogger,
         memory_connection: Option<crate::MnemosyneConnection>,
+        task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
     ) -> Result<Self, DaemonError> {
         let Some(default_provider) = providers.get(&default_provider_kind) else {
             return Err(DaemonError::Provider(ProviderError::ProviderUnavailable {
@@ -308,6 +313,7 @@ impl CodexRuntimeHandle {
             store,
             system_errors,
             memory_connection,
+            task_subscriptions,
         )
         .await?;
         let cancellation = Arc::new(RuntimeCancellation(actor.tasks.cancellation_token()));

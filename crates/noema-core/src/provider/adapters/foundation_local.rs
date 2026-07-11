@@ -418,6 +418,7 @@ fn bridge_replay_input_items(items: &[GenerateInputItem]) -> Vec<BridgeReplayTur
         .map(|item| match item {
             GenerateInputItem::Message(message) => BridgeReplayTurn {
                 role: match message.role {
+                    GenerateMessageRole::System => BridgeRole::Assistant,
                     GenerateMessageRole::User => BridgeRole::User,
                     GenerateMessageRole::Assistant => BridgeRole::Assistant,
                 },
@@ -439,6 +440,7 @@ fn bridge_replay_turns(messages: &[crate::GenerateMessage]) -> Vec<BridgeReplayT
         .filter(|message| !message.content.trim().is_empty())
         .map(|message| BridgeReplayTurn {
             role: match message.role {
+                GenerateMessageRole::System => BridgeRole::Assistant,
                 GenerateMessageRole::User => BridgeRole::User,
                 GenerateMessageRole::Assistant => BridgeRole::Assistant,
             },

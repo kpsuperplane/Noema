@@ -16,8 +16,6 @@ pub enum ExecutionRole {
     TaskExecutor,
     /// A background reviewer validating a task submission.
     TaskReviewer,
-    /// A no-tools primary response that delivers an approved task result.
-    CompletionDelivery,
 }
 
 /// Semantic class assigned by a tool builder before it enters a role policy.
@@ -127,7 +125,6 @@ impl ToolPolicy {
                 class,
                 ToolAccessClass::ReadOnly | ToolAccessClass::ReviewerTerminal
             ),
-            ExecutionRole::CompletionDelivery => false,
         }
     }
 
@@ -188,12 +185,5 @@ mod tests {
         assert!(!strict.allows_tool("legacy.existing.tool"));
         policy.declare_tool("search_memory", ToolAccessClass::ReadOnly);
         assert!(policy.allows_tool("search_memory"));
-    }
-
-    #[test]
-    fn completion_delivery_has_no_tool_access() {
-        let mut policy = ToolPolicy::for_role(ExecutionRole::CompletionDelivery);
-        assert!(!policy.declare_tool("task.submit_review", ToolAccessClass::ReviewerTerminal));
-        assert!(!policy.allows_tool("task.submit_review"));
     }
 }

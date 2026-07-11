@@ -315,6 +315,8 @@ pub struct GenerateMessage {
 /// Role for a provider-neutral generation message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GenerateMessageRole {
+    /// Runtime/system state that is neither human- nor assistant-authored.
+    System,
     /// Human/user message.
     User,
     /// Assistant/model message.
@@ -326,6 +328,7 @@ impl GenerateMessageRole {
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::System => "system",
             Self::User => "user",
             Self::Assistant => "assistant",
         }

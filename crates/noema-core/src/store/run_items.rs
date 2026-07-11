@@ -255,6 +255,35 @@ impl NoemaStore {
         .await
     }
 
+    /// Return the newest page before an exclusive sequence cursor, ordered for display.
+    pub async fn list_agent_run_items_before_page(
+        &self,
+        run_id: &str,
+        before_sequence: Option<i64>,
+        first: i64,
+    ) -> Result<Vec<AgentRunItemRecord>, StoreError> {
+        if first < 1 {
+            return Err(StoreError::InvariantViolation {
+                message: "run item page size must be positive".to_string(),
+            });
+        }
+        self.with_connection(|conn| {
+            let mut statement = conn.prepare(
+                "SELECT item_id, run_id, sequence_index, round_index, kind, status, correlation_id, parent_item_id, content_text, payload_json, created_at, updated_at FROM agent_run_items WHERE run_id = ?1 AND (?2 IS NULL OR sequence_index < ?2) ORDER BY sequence_index DESC, item_id DESC LIMIT ?3",
+            )?;
+            let rows = statement.query_map(
+                params![run_id, before_sequence, first],
+                run_item_from_row,
+            )?;
+            let mut items = rows
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(StoreError::Sqlite)?;
+            items.reverse();
+            Ok(items)
+        })
+        .await
+    }
+
     /// Return the most recent transcript items in chronological order.
     pub async fn list_recent_agent_run_items(
         &self,

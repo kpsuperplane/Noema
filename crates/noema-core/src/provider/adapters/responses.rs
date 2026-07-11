@@ -446,6 +446,7 @@ impl From<&GenerateInput> for ResponsesInput {
                     .map(|message| {
                         ResponsesInputItem::Message(ResponsesInputMessage {
                             role: match message.role {
+                                GenerateMessageRole::System => "system",
                                 GenerateMessageRole::User => "user",
                                 GenerateMessageRole::Assistant => "assistant",
                             },
@@ -502,6 +503,7 @@ impl From<&GenerateInputItem> for ResponsesInputItem {
         match value {
             GenerateInputItem::Message(message) => Self::Message(ResponsesInputMessage {
                 role: match message.role {
+                    GenerateMessageRole::System => "system",
                     GenerateMessageRole::User => "user",
                     GenerateMessageRole::Assistant => "assistant",
                 },

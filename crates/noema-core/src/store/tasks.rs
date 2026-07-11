@@ -114,6 +114,10 @@ impl NoemaStore {
         &self,
         input: NewTask,
     ) -> Result<(TaskRecord, AgentRunRecord), StoreError> {
+        self.validate_task_model_snapshot(&input.executor_model)
+            .await?;
+        self.validate_task_model_snapshot(&input.reviewer_model)
+            .await?;
         let input = input.normalized().map_err(task_domain_error)?;
         let execution_policy = self.get_task_execution_policy().await?;
         let pool = self
@@ -358,6 +362,8 @@ impl NoemaStore {
                 message: format!("task is not executable: {}", task.status),
             });
         }
+        self.validate_task_model_snapshot(&task.reviewer_model)
+            .await?;
         validate_submission_criteria(self, &input.task_id, &input.criteria).await?;
         let execution_policy = self.get_task_execution_policy().await?;
         if let Some(existing_submission_id) = self

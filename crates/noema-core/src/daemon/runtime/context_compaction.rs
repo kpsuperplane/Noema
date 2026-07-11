@@ -382,6 +382,7 @@ fn render_compaction_transcript(items: &[ConversationItemRecord]) -> String {
             let (role, text) = match input_item {
                 crate::provider::GenerateInputItem::Message(message) => {
                     let role = match message.role {
+                        crate::GenerateMessageRole::System => "System",
                         crate::GenerateMessageRole::User => "User",
                         crate::GenerateMessageRole::Assistant => "Noema",
                     };

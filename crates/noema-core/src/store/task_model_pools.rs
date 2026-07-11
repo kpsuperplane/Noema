@@ -359,18 +359,17 @@ impl NoemaStore {
         &self,
     ) -> Result<Vec<TaskModelPoolEntry>, StoreError> {
         let entries = self.list_task_model_pool_settings(None).await?;
-        let accounts = self.active_default_provider_accounts().await?;
-        Ok(entries
-            .into_iter()
-            .filter(|entry| entry.enabled)
-            .filter(|entry| {
-                accounts.iter().any(|account| {
-                    account.provider_account_id == entry.model.provider_account_id
-                        && account.provider_kind == entry.model.provider_kind
-                        && account.status == ProviderAccountStatus::Authenticated
-                })
-            })
-            .collect())
+        let mut usable = Vec::new();
+        for entry in entries.into_iter().filter(|entry| entry.enabled) {
+            if self
+                .validate_task_model_snapshot(&entry.model)
+                .await
+                .is_ok()
+            {
+                usable.push(entry);
+            }
+        }
+        Ok(usable)
     }
 
     /// Select an enabled exact entry from the requested tier.
@@ -398,12 +397,22 @@ impl NoemaStore {
                 message: format!("task model pool entry is disabled: {pool_entry_id}"),
             });
         }
-        self.validate_usable_pool_account(
-            &entry.model.provider_kind,
-            &entry.model.provider_account_id,
-        )
-        .await?;
+        self.validate_task_model_snapshot(&entry.model).await?;
         Ok(entry)
+    }
+
+    /// Verify that a task model still belongs to an authenticated account and,
+    /// when a catalog is available, that the exact profile is advertised.
+    pub async fn validate_task_model_snapshot(
+        &self,
+        model: &ModelConfigSnapshot,
+    ) -> Result<(), StoreError> {
+        self.validate_usable_pool_account(
+            &model.provider_kind,
+            &model.provider_account_id,
+            model.model_profile.as_deref(),
+        )
+        .await
     }
 
     async fn validate_pool_account(
@@ -432,6 +441,7 @@ impl NoemaStore {
         &self,
         provider_kind: &str,
         provider_account_id: &str,
+        model_profile: Option<&str>,
     ) -> Result<(), StoreError> {
         self.validate_pool_account(provider_kind, provider_account_id)
             .await?;
@@ -445,6 +455,22 @@ impl NoemaStore {
             return Err(StoreError::InvariantViolation {
                 message: format!(
                     "provider account {provider_account_id} is not authenticated for task execution"
+                ),
+            });
+        }
+        if let Some(model_profile) = model_profile
+            && let Some(profiles) = account
+                .metadata
+                .get("profiles")
+                .and_then(serde_json::Value::as_array)
+            && !profiles.is_empty()
+            && !profiles.iter().any(|profile| {
+                profile.get("id").and_then(serde_json::Value::as_str) == Some(model_profile)
+            })
+        {
+            return Err(StoreError::InvariantViolation {
+                message: format!(
+                    "model profile {model_profile} is not available for provider account {provider_account_id}"
                 ),
             });
         }
@@ -585,6 +611,45 @@ mod tests {
             .expect("usable defaults");
         assert_eq!(usable.len(), 3);
         assert!(usable.iter().all(|entry| entry.enabled));
+    }
+
+    #[tokio::test]
+    async fn selection_rejects_a_profile_missing_from_the_provider_catalog() {
+        let store = test_store().await;
+        store
+            .ensure_default_provider_account()
+            .await
+            .expect("codex account");
+        let settings = store
+            .ensure_default_task_model_pool_settings("codex")
+            .await
+            .expect("defaults");
+        store
+            .update_provider_account_status(
+                "provider_account:codex:default",
+                ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .expect("authenticated account");
+        store
+            .update_provider_account_metadata(
+                "provider_account:codex:default",
+                serde_json::json!({"profiles": [{"id": "gpt-live"}]}),
+            )
+            .await
+            .expect("catalog");
+        let simple = settings
+            .iter()
+            .find(|entry| entry.complexity == TaskComplexity::Simple)
+            .expect("simple setting");
+
+        let error = store
+            .select_task_model_pool_entry(TaskComplexity::Simple, &simple.pool_entry_id)
+            .await
+            .expect_err("stale model must be rejected");
+        assert!(error.to_string().contains("is not available"));
     }
 
     #[tokio::test]

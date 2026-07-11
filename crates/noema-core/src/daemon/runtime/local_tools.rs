@@ -25,9 +25,10 @@ use crate::daemon::{
         MemoryToolResult, MemoryToolRuntimeContext, execute_search_memory, is_search_memory_tool,
     },
     task_tool::{
-        TaskAccessRuntimeContext, TaskDelegateRuntimeContext, execute_task_delegate,
-        execute_task_inspect, execute_task_retry, is_task_delegate_tool, is_task_inspect_tool,
-        is_task_retry_tool,
+        TaskAccessRuntimeContext, TaskDelegateRuntimeContext, execute_task_cancel,
+        execute_task_delegate, execute_task_inspect, execute_task_resume, is_task_cancel_tool,
+        is_task_delegate_tool, is_task_inspect_tool, is_task_report_blocked_tool,
+        is_task_resume_tool, is_task_submit_result_tool, is_task_submit_review_tool,
     },
 };
 use crate::search::tool::{WebSearchToolResult, execute_web_search, is_web_search_tool};
@@ -142,7 +143,12 @@ impl CodexRuntimeActor {
                 )
                 .await,
             }
-        } else if is_task_inspect_tool(&call.name) || is_task_retry_tool(&call.name) {
+        } else if is_task_inspect_tool(&call.name)
+            || is_task_resume_tool(&call.name)
+            || is_task_cancel_tool(&call.name)
+        {
+            let is_resume = is_task_resume_tool(&call.name);
+            let is_cancel = is_task_cancel_tool(&call.name);
             let context = TaskAccessRuntimeContext {
                 owner_human_id: "human:local".to_string(),
                 actor_id: agent_identity.agent_id.clone(),
@@ -150,9 +156,30 @@ impl CodexRuntimeActor {
             let result = if is_task_inspect_tool(&call.name) {
                 execute_task_inspect(&self.store, &context, call.call_id.clone(), &call.payload)
                     .await
+            } else if is_resume {
+                execute_task_resume(&self.store, &context, call.call_id.clone(), &call.payload)
+                    .await
             } else {
-                execute_task_retry(&self.store, &context, call.call_id.clone(), &call.payload).await
+                execute_task_cancel(&self.store, &context, call.call_id.clone(), &call.payload)
+                    .await
             };
+            if result.success
+                && (is_resume || is_cancel)
+                && let Some(task_id) = result.payload.get("task_id").and_then(Value::as_str)
+            {
+                self.task_subscriptions
+                    .publish_task(crate::graphql::TaskLiveEvent::Changed {
+                        task_id: task_id.to_string(),
+                    });
+                if is_cancel {
+                    let _ = crate::daemon::task_delivery::deliver_task_status_event(
+                        &self.store,
+                        &self.task_subscriptions,
+                        task_id,
+                    )
+                    .await;
+                }
+            }
             LocalToolResult::Gateway {
                 call_id: result.call_id,
                 provider_call_id: call.provider_call_id.clone(),
@@ -163,6 +190,22 @@ impl CodexRuntimeActor {
                     success: result.success,
                     payload: result.payload,
                     requires_provider_continuation: true,
+                },
+            }
+        } else if is_task_submit_result_tool(&call.name)
+            || is_task_submit_review_tool(&call.name)
+            || is_task_report_blocked_tool(&call.name)
+        {
+            LocalToolResult::Gateway {
+                call_id: call.call_id.clone(),
+                provider_call_id: call.provider_call_id.clone(),
+                provider_name: call.provider_name.clone(),
+                name: call.name.clone(),
+                arguments: call.payload.clone(),
+                result: GatewayToolResult {
+                    success: true,
+                    payload: call.payload.clone(),
+                    requires_provider_continuation: false,
                 },
             }
         } else if is_task_delegate_tool(&call.name) {
@@ -606,7 +649,7 @@ impl LocalToolResult {
         }
     }
 
-    fn arguments(&self) -> &Value {
+    pub(super) fn arguments(&self) -> &Value {
         match self {
             Self::Memory { arguments, .. }
             | Self::AgentName { arguments, .. }
@@ -774,11 +817,19 @@ pub(super) fn local_tool_artifact_reference_item(
     })
 }
 
-/// Build a durable task marker after a successful primary delegation call.
+/// Build a durable task marker after successful primary task creation or
+/// control so agent-issued resume/cancel actions update the source transcript
+/// through the normal conversation sink.
 pub(super) fn local_tool_task_reference_item(
     result: &LocalToolResult,
 ) -> Option<TurnTranscriptItem> {
-    if result.name() != crate::daemon::task_tool::TASK_DELEGATE_TOOL || !result.success() {
+    if !matches!(
+        result.name(),
+        crate::daemon::task_tool::TASK_DELEGATE_TOOL
+            | crate::daemon::task_tool::TASK_RESUME_TOOL
+            | crate::daemon::task_tool::TASK_CANCEL_TOOL
+    ) || !result.success()
+    {
         return None;
     }
     let payload = result.payload();
