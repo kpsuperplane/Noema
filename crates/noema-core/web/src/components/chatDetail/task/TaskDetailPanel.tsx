@@ -59,7 +59,7 @@ export function TaskDetailPanel({
       </div>
     );
   }
-  if (error) {
+  if (error && !currentDetail) {
     return <TaskUnavailable message={error} />;
   }
   if (!currentDetail) {

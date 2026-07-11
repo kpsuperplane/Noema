@@ -924,6 +924,114 @@ export const ArtifactVersionDetailDocument = gql`
   }
 `;
 
+export const TaskDetailDocument = gql`
+  query TaskDetail($taskId: String!) {
+    task(taskId: $taskId) {
+      taskId
+      title
+      requestMarkdown
+      complexity
+      status
+      ownerHumanId
+      source {
+        conversationId
+        turnId
+        itemId
+      }
+      createdByAgentId
+      creationToolCallId
+      poolEntryId
+      executorModel {
+        providerKind
+        providerAccountId
+        selectionMode
+        modelProfile
+        reasoningEffort
+        selectionSource
+      }
+      reviewerModel {
+        providerKind
+        providerAccountId
+        selectionMode
+        modelProfile
+        reasoningEffort
+        selectionSource
+      }
+      revisionIndex
+      maxReviewRounds
+      finalSubmissionId
+      latestRunId
+      terminalReason
+      errorCode
+      errorMessage
+      createdAt
+      updatedAt
+      completedAt
+      criteria {
+        criterionId
+        ordinal
+        description
+        expectedEvidence
+      }
+      submissions {
+        submissionId
+        executorRunId
+        revisionIndex
+        summary
+        resultMarkdown
+        criteria {
+          criterionId
+          evidenceMarkdown
+        }
+        createdAt
+      }
+      reviews {
+        reviewId
+        reviewerRunId
+        reviewedSubmissionId
+        overallVerdict
+        overallFeedback
+        criteria {
+          criterionId
+          outcome
+          evidenceMarkdown
+          feedback
+        }
+        createdAt
+      }
+      runs {
+        runId
+        runKind
+        agentId
+        revisionIndex
+        attemptIndex
+        status
+        model {
+          providerKind
+          providerAccountId
+          selectionMode
+          modelProfile
+          reasoningEffort
+          selectionSource
+        }
+        actualProviderKind
+        actualModelProfile
+        triggeringSubmissionId
+        triggeringReviewId
+        errorCode
+        errorMessage
+        inputTokens
+        outputTokens
+        queuedAt
+        startedAt
+        endedAt
+        createdAt
+        updatedAt
+      }
+    }
+  }
+`;
+
 export const CreateConversationExternalArtifactDocument = gql`
   mutation CreateConversationExternalArtifact($input: CreateConversationExternalArtifactInput!) {
     createConversationExternalArtifact(input: $input) {

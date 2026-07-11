@@ -40,6 +40,12 @@ function CriterionRow({ criterion }: { criterion: TaskCriterion }) {
             {criterion.evidence}
           </p>
         ) : null}
+        {criterion.expectedEvidence ? (
+          <p {...stylex.props(styles.evidence)}>
+            <span {...stylex.props(styles.evidenceLabel)}>Expected evidence</span>
+            {criterion.expectedEvidence}
+          </p>
+        ) : null}
       </div>
     </li>
   );

@@ -9,8 +9,7 @@ import {
   type ArtifactDetail
 } from "./ArtifactDetailPanel";
 import type { ChatDetailTarget } from "./chatDetailTypes";
-import { TaskDetailPanel } from "./task/TaskDetailPanel";
-import type { TaskDetail } from "./task/taskTypes";
+import { TaskDetailQueryPanel } from "./task/TaskDetailQueryPanel";
 
 export function ChatDetailRail({
   target,
@@ -18,9 +17,6 @@ export function ChatDetailRail({
   onChangeVersion,
   onClose,
   onMotionEnd,
-  taskDetail,
-  taskDetailLoading = false,
-  taskDetailError = null,
   onCancelTask,
   onRetryTask,
   onExpandTaskRevision
@@ -30,9 +26,6 @@ export function ChatDetailRail({
   onChangeVersion: (version: string) => void;
   onClose: () => void;
   onMotionEnd: () => void;
-  taskDetail?: TaskDetail | null;
-  taskDetailLoading?: boolean;
-  taskDetailError?: string | null;
   onCancelTask?: (taskId: string) => void | Promise<void>;
   onRetryTask?: (taskId: string) => void | Promise<void>;
   onExpandTaskRevision?: (taskId: string, revision: number) => void;
@@ -43,16 +36,28 @@ export function ChatDetailRail({
     detail: ArtifactDetail | null;
     latestDetail: ArtifactDetail | null;
   } | null>(null);
+  const [taskTitleState, setTaskTitleState] = React.useState<{ taskId: string; title: string } | null>(null);
   const artifactVersion = target.type === "artifact" ? target.version : null;
+  const taskId = target.type === "task" ? target.taskId : null;
   const artifactDetail = artifactVersion && artifactDetailState?.version === artifactVersion
     ? artifactDetailState.detail
     : null;
   const latestArtifactDetail = artifactDetailState?.latestDetail ?? null;
-  const currentTaskDetail = target.type === "task" && taskDetail?.taskId === target.taskId ? taskDetail : null;
   const title = artifactDetail?.title ??
     latestArtifactDetail?.title ??
-    currentTaskDetail?.title ??
-    (target.type === "artifact" ? "Artifact" : "Task details");
+    (target.type === "artifact"
+      ? "Artifact"
+      : taskTitleState?.taskId === taskId
+        ? taskTitleState.title
+        : "Task details");
+  const handleTaskTitleChange = React.useCallback(
+    (nextTitle: string | null) => {
+      if (nextTitle && taskId) {
+        setTaskTitleState({ taskId, title: nextTitle });
+      }
+    },
+    [taskId]
+  );
 
   React.useEffect(() => {
     if (motionState === "open") {
@@ -127,10 +132,8 @@ export function ChatDetailRail({
           {target.type === "artifact" ? (
             <ArtifactDetailPanel version={target.version} onDetailChange={updateArtifactDetail} />
           ) : (
-            <TaskDetailPanel
-              detail={currentTaskDetail}
-              error={taskDetailError}
-              loading={taskDetailLoading}
+            <TaskDetailQueryPanel
+              onTitleChange={handleTaskTitleChange}
               onCancelTask={onCancelTask}
               onExpandRevision={onExpandTaskRevision}
               onRetryTask={onRetryTask}

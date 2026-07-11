@@ -1359,6 +1359,18 @@ enum MultipleChoiceSelectionMode {
 
 type MutationRoot {
 	"""
+	Add one human-controlled executor model-pool entry.
+	"""
+	createTaskModelPoolEntry(input: TaskModelPoolEntryInput!): TaskModelPoolEntry!
+	"""
+	Replace one human-controlled executor model-pool entry.
+	"""
+	updateTaskModelPoolEntry(poolEntryId: String!, input: TaskModelPoolEntryInput!): TaskModelPoolEntry!
+	"""
+	Disable or remove one human-controlled executor model-pool entry.
+	"""
+	deleteTaskModelPoolEntry(poolEntryId: String!): Boolean!
+	"""
 	Start a provider auth attempt.
 	"""
 	startProviderAuthAttempt(input: StartProviderAuthAttemptInput!): ProviderAuthAttempt!
@@ -1777,6 +1789,18 @@ type QueryRoot {
 	"""
 	agents: [Agent!]!
 	"""
+	Return one owner-authorized durable background task detail.
+	"""
+	task(taskId: String!): TaskDetail
+	"""
+	Return human-controlled executor model-pool entries.
+	"""
+	taskModelPools(complexity: TaskComplexity): [TaskModelPoolEntry!]!
+	"""
+	Alias for clients that prefer the storage-oriented pool-entry name.
+	"""
+	taskModelPoolEntries(complexity: TaskComplexity): [TaskModelPoolEntry!]!
+	"""
 	Return web fetch settings safe to show in Settings.
 	"""
 	webFetchSettings: WebFetchSettings!
@@ -2075,6 +2099,253 @@ type SubscriptionRoot {
 }
 
 """
+Complexity tier used by the primary agent when selecting an executor pool
+entry.
+"""
+enum TaskComplexity {
+	"""
+	Small, low-risk work.
+	"""
+	SIMPLE
+	"""
+	Typical multi-step work.
+	"""
+	MEDIUM
+	"""
+	Large or reasoning-intensive work.
+	"""
+	DIFFICULT
+}
+
+"""
+Full read model used by the task detail rail.
+"""
+type TaskDetail {
+	"""
+	Stable task id.
+	"""
+	taskId: String!
+	"""
+	Human-visible title.
+	"""
+	title: String!
+	"""
+	Immutable executor request Markdown.
+	"""
+	requestMarkdown: String!
+	"""
+	Selected complexity tier.
+	"""
+	complexity: TaskComplexity!
+	"""
+	Canonical task status.
+	"""
+	status: String!
+	"""
+	Source human owning the task.
+	"""
+	ownerHumanId: String!
+	"""
+	Source provenance.
+	"""
+	source: TaskSource!
+	"""
+	Agent that created the task.
+	"""
+	createdByAgentId: String!
+	"""
+	Delegation tool call id, when available.
+	"""
+	creationToolCallId: String
+	"""
+	Selected executor pool entry.
+	"""
+	poolEntryId: String!
+	"""
+	Immutable executor model snapshot.
+	"""
+	executorModel: TaskModelSnapshot!
+	"""
+	Immutable reviewer model snapshot.
+	"""
+	reviewerModel: TaskModelSnapshot!
+	"""
+	Current revision index.
+	"""
+	revisionIndex: Int!
+	"""
+	Maximum number of reviewed submissions.
+	"""
+	maxReviewRounds: Int!
+	"""
+	Approved submission id, when complete.
+	"""
+	finalSubmissionId: String
+	"""
+	Latest queued/running run id.
+	"""
+	latestRunId: String
+	"""
+	Safe terminal reason.
+	"""
+	terminalReason: String
+	"""
+	Safe failure code.
+	"""
+	errorCode: String
+	"""
+	Safe failure message.
+	"""
+	errorMessage: String
+	"""
+	Creation timestamp.
+	"""
+	createdAt: String!
+	"""
+	Last update timestamp.
+	"""
+	updatedAt: String!
+	"""
+	Completion timestamp.
+	"""
+	completedAt: String
+	"""
+	Immutable validation criteria.
+	"""
+	criteria: [TaskValidationCriterion!]!
+	"""
+	Executor submissions in revision order.
+	"""
+	submissions: [TaskSubmission!]!
+	"""
+	Adversarial reviews in creation order.
+	"""
+	reviews: [TaskReview!]!
+	"""
+	Safe run history.
+	"""
+	runs: [TaskRun!]!
+}
+
+"""
+One human-controlled executor model-pool entry.
+"""
+type TaskModelPoolEntry {
+	"""
+	Stable pool entry id.
+	"""
+	poolEntryId: String!
+	"""
+	Complexity tier exposed to the primary agent.
+	"""
+	complexity: TaskComplexity!
+	"""
+	Optional human-facing label.
+	"""
+	label: String
+	"""
+	Provider family for this entry.
+	"""
+	providerKind: String!
+	"""
+	Provider account owning the model profile.
+	"""
+	providerAccountId: String!
+	"""
+	Exact provider model/profile.
+	"""
+	modelProfile: String!
+	"""
+	Optional reasoning effort.
+	"""
+	reasoningEffort: ReasoningEffort
+	"""
+	Whether this entry can be selected for new tasks.
+	"""
+	enabled: Boolean!
+	"""
+	Human-controlled ordering within its tier.
+	"""
+	sortOrder: Int!
+	"""
+	Creation timestamp.
+	"""
+	createdAt: String!
+	"""
+	Last update timestamp.
+	"""
+	updatedAt: String!
+}
+
+"""
+Input for creating or replacing one human-controlled executor pool entry.
+"""
+input TaskModelPoolEntryInput {
+	"""
+	Complexity tier exposed to the primary agent.
+	"""
+	complexity: TaskComplexity!
+	"""
+	Optional human-facing label.
+	"""
+	label: String
+	"""
+	Provider family for this entry.
+	"""
+	providerKind: String!
+	"""
+	Provider account owning the model profile.
+	"""
+	providerAccountId: String!
+	"""
+	Exact provider model/profile.
+	"""
+	modelProfile: String!
+	"""
+	Optional reasoning effort.
+	"""
+	reasoningEffort: ReasoningEffort
+	"""
+	Whether this entry can be selected for new tasks.
+	"""
+	enabled: Boolean!
+	"""
+	Human-controlled ordering within its tier.
+	"""
+	sortOrder: Int!
+}
+
+"""
+Immutable model-selection provenance captured on a task or run.
+"""
+type TaskModelSnapshot {
+	"""
+	Provider family selected for the run.
+	"""
+	providerKind: String!
+	"""
+	Concrete provider account selected for the run.
+	"""
+	providerAccountId: String!
+	"""
+	`explicit_profile` or `provider_default`.
+	"""
+	selectionMode: String!
+	"""
+	Provider-specific model/profile when explicitly selected.
+	"""
+	modelProfile: String
+	"""
+	Explicit reasoning effort, when present.
+	"""
+	reasoningEffort: ReasoningEffort
+	"""
+	Source of the model selection, when recorded.
+	"""
+	selectionSource: String
+}
+
+"""
 Durable background task reference transcript item.
 """
 type TaskReference {
@@ -2094,6 +2365,236 @@ type TaskReference {
 	Executor revision represented by this reference.
 	"""
 	revision: Int!
+}
+
+"""
+Immutable adversarial review for one executor submission.
+"""
+type TaskReview {
+	"""
+	Stable review id.
+	"""
+	reviewId: String!
+	"""
+	Reviewer run that produced the review.
+	"""
+	reviewerRunId: String!
+	"""
+	Submission under review.
+	"""
+	reviewedSubmissionId: String!
+	"""
+	Canonical `approve`, `request_changes`, or `needs_human` verdict.
+	"""
+	overallVerdict: String!
+	"""
+	Safe overall reviewer feedback.
+	"""
+	overallFeedback: String!
+	"""
+	Per-criterion outcomes and feedback.
+	"""
+	criteria: [TaskReviewCriterion!]!
+	"""
+	Creation timestamp.
+	"""
+	createdAt: String!
+}
+
+"""
+One reviewer criterion outcome.
+"""
+type TaskReviewCriterion {
+	"""
+	Criterion being evaluated.
+	"""
+	criterionId: String!
+	"""
+	Canonical `pass`, `fail`, or `uncertain` outcome.
+	"""
+	outcome: String!
+	"""
+	Evidence considered by the reviewer.
+	"""
+	evidenceMarkdown: String
+	"""
+	Feedback for a requested executor revision.
+	"""
+	feedback: String
+}
+
+"""
+Safe audit projection of one executor or reviewer run.
+"""
+type TaskRun {
+	"""
+	Stable run id.
+	"""
+	runId: String!
+	"""
+	Canonical `executor`, `reviewer`, or `completion_delivery` kind.
+	"""
+	runKind: String!
+	"""
+	Built-in agent identity used by the run.
+	"""
+	agentId: String!
+	"""
+	Revision represented by this run.
+	"""
+	revisionIndex: Int!
+	"""
+	Retry attempt within the revision.
+	"""
+	attemptIndex: Int!
+	"""
+	Canonical durable run status.
+	"""
+	status: String!
+	"""
+	Requested model snapshot.
+	"""
+	model: TaskModelSnapshot!
+	"""
+	Provider family that actually answered, when recorded.
+	"""
+	actualProviderKind: String
+	"""
+	Provider model/profile that actually answered, when recorded.
+	"""
+	actualModelProfile: String
+	"""
+	Submission that triggered a reviewer run, when applicable.
+	"""
+	triggeringSubmissionId: String
+	"""
+	Review that triggered a revision run, when applicable.
+	"""
+	triggeringReviewId: String
+	"""
+	Safe terminal error code.
+	"""
+	errorCode: String
+	"""
+	Safe terminal error message.
+	"""
+	errorMessage: String
+	"""
+	Input tokens, when reported.
+	"""
+	inputTokens: Int
+	"""
+	Output tokens, when reported.
+	"""
+	outputTokens: Int
+	"""
+	Queue timestamp.
+	"""
+	queuedAt: String!
+	"""
+	Start timestamp.
+	"""
+	startedAt: String
+	"""
+	End timestamp.
+	"""
+	endedAt: String
+	"""
+	Creation timestamp.
+	"""
+	createdAt: String!
+	"""
+	Last update timestamp.
+	"""
+	updatedAt: String!
+}
+
+"""
+Source provenance for a delegated task.
+"""
+type TaskSource {
+	"""
+	Source conversation id, when delegated from chat.
+	"""
+	conversationId: String
+	"""
+	Source turn id, when known.
+	"""
+	turnId: String
+	"""
+	Source transcript item id, when known.
+	"""
+	itemId: String
+}
+
+"""
+Immutable executor output for one revision.
+"""
+type TaskSubmission {
+	"""
+	Stable submission id.
+	"""
+	submissionId: String!
+	"""
+	Executor run that produced the submission.
+	"""
+	executorRunId: String!
+	"""
+	Revision represented by the submission.
+	"""
+	revisionIndex: Int!
+	"""
+	Short result summary.
+	"""
+	summary: String!
+	"""
+	Complete result Markdown.
+	"""
+	resultMarkdown: String!
+	"""
+	Criterion evidence captured with the output.
+	"""
+	criteria: [TaskSubmissionCriterionEvidence!]!
+	"""
+	Creation timestamp.
+	"""
+	createdAt: String!
+}
+
+"""
+Evidence attached to one executor submission criterion.
+"""
+type TaskSubmissionCriterionEvidence {
+	"""
+	Criterion being addressed.
+	"""
+	criterionId: String!
+	"""
+	Evidence supplied by the executor.
+	"""
+	evidenceMarkdown: String!
+}
+
+"""
+One immutable criterion that the reviewer must evaluate.
+"""
+type TaskValidationCriterion {
+	"""
+	Stable criterion id.
+	"""
+	criterionId: String!
+	"""
+	One-based display order.
+	"""
+	ordinal: Int!
+	"""
+	Condition the executor must satisfy.
+	"""
+	description: String!
+	"""
+	Optional evidence guidance.
+	"""
+	expectedEvidence: String
 }
 
 """

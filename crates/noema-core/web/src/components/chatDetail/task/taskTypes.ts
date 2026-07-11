@@ -40,6 +40,7 @@ export type TaskCriterion = {
   id: string;
   position: number;
   text: string;
+  expectedEvidence?: string | null;
   verdict?: TaskCriterionVerdict | null;
   evidence?: string | null;
 };
@@ -54,6 +55,7 @@ export type TaskToolActivity = {
 
 export type TaskSubmission = {
   id: string;
+  revision?: number | null;
   summary?: string | null;
   result?: string | null;
   evidence?: string | null;
