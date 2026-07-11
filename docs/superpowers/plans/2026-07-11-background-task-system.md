@@ -1,6 +1,10 @@
 # Background Task System Implementation Plan
 
-**Mode:** plan only
+**Mode:** implementation plan
+
+**Status:** First one-off task slice implemented. Projects/workspaces,
+cancellation/retry commands, richer task-owned writes, and bulk task views
+remain deferred milestones.
 
 **Goal:** Add the first durable, auditable Noema task workflow: the primary
 agent may delegate a bounded one-off request to a background executor, an
