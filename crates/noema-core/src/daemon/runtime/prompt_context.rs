@@ -229,6 +229,7 @@ pub(super) fn input_item_from_transcript_item(
         | ConversationItemKind::ApprovalRequest
         | ConversationItemKind::ApprovalResult
         | ConversationItemKind::ArtifactReference
+        | ConversationItemKind::TaskReference
         | ConversationItemKind::ErrorNotice => None,
     }
 }

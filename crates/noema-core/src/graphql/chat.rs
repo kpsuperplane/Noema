@@ -208,6 +208,20 @@ pub struct GraphqlArtifactReference {
     pub media_type: Option<String>,
 }
 
+/// Durable background task reference transcript item.
+#[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "TaskReference")]
+pub struct GraphqlTaskReference {
+    /// Stable task id.
+    pub task_id: String,
+    /// Display title captured when the reference was written.
+    pub title: String,
+    /// Canonical task status string from [`crate::TaskStatus::as_str`].
+    pub status: String,
+    /// Executor revision represented by this reference.
+    pub revision: i64,
+}
+
 /// Transcript item union.
 #[derive(Clone, Debug, Union)]
 #[graphql(name = "TranscriptItem")]
@@ -228,6 +242,8 @@ pub enum GraphqlTranscriptItem {
     ErrorNotice(GraphqlErrorNotice),
     /// Artifact reference.
     ArtifactReference(GraphqlArtifactReference),
+    /// Background task reference.
+    TaskReference(GraphqlTaskReference),
 }
 
 impl From<TurnTranscriptItem> for GraphqlTranscriptItem {
@@ -310,6 +326,17 @@ impl From<TurnTranscriptItem> for GraphqlTranscriptItem {
                 external_url,
                 download_url,
                 media_type,
+            }),
+            TurnTranscriptItem::TaskReference {
+                task_id,
+                title,
+                status,
+                revision,
+            } => Self::TaskReference(GraphqlTaskReference {
+                task_id,
+                title,
+                status,
+                revision,
             }),
         }
     }
@@ -957,6 +984,9 @@ fn mark_graphql_published_turn_event(event: &TurnStreamEvent, client_message_id:
                 }
                 TurnTranscriptItem::ErrorNotice { .. } => ("error_notice", None, None),
                 TurnTranscriptItem::ArtifactReference { .. } => ("artifact_reference", None, None),
+                TurnTranscriptItem::TaskReference { status, .. } => {
+                    ("task_reference", None, Some(status.as_str()))
+                }
             };
             mark_graphql_turn_event(
                 "graphql_publish_conversation_item",
@@ -1075,6 +1105,26 @@ mod tests {
                 );
                 assert!(value.download_url.is_none());
                 assert_eq!(value.media_type.as_deref(), Some("text/html"));
+            }
+            other => panic!("unexpected item: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn transcript_item_converts_to_graphql_task_reference() {
+        let item = GraphqlTranscriptItem::from(TurnTranscriptItem::TaskReference {
+            task_id: "task_1".to_string(),
+            title: "Research providers".to_string(),
+            status: crate::TaskStatus::Reviewing.as_str().to_string(),
+            revision: 2,
+        });
+
+        match item {
+            GraphqlTranscriptItem::TaskReference(value) => {
+                assert_eq!(value.task_id, "task_1");
+                assert_eq!(value.title, "Research providers");
+                assert_eq!(value.status, "reviewing");
+                assert_eq!(value.revision, 2);
             }
             other => panic!("unexpected item: {other:?}"),
         }

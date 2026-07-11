@@ -140,6 +140,8 @@ pub enum ConversationItemKind {
     ApprovalResult,
     /// A reference to a persisted artifact.
     ArtifactReference,
+    /// A durable reference to a background task.
+    TaskReference,
     /// An error visible in conversation history.
     ErrorNotice,
 }
@@ -161,6 +163,7 @@ impl ConversationItemKind {
             Self::ApprovalRequest => "approval_request",
             Self::ApprovalResult => "approval_result",
             Self::ArtifactReference => "artifact_reference",
+            Self::TaskReference => "task_reference",
             Self::ErrorNotice => "error_notice",
         }
     }
@@ -184,6 +187,7 @@ impl ConversationItemKind {
             "approval_request" => Ok(Self::ApprovalRequest),
             "approval_result" => Ok(Self::ApprovalResult),
             "artifact_reference" => Ok(Self::ArtifactReference),
+            "task_reference" => Ok(Self::TaskReference),
             "error_notice" => Ok(Self::ErrorNotice),
             _ => invalid_enum("conversation_item_kind", value),
         }
@@ -290,5 +294,13 @@ mod tests {
 
         assert_eq!(kind, ConversationItemKind::ArtifactReference);
         assert_eq!(kind.as_str(), "artifact_reference");
+    }
+
+    #[test]
+    fn conversation_item_kind_parse_round_trips_task_reference() {
+        let kind = ConversationItemKind::parse("task_reference").expect("valid kind");
+
+        assert_eq!(kind, ConversationItemKind::TaskReference);
+        assert_eq!(kind.as_str(), "task_reference");
     }
 }

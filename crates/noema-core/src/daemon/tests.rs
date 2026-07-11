@@ -3954,7 +3954,8 @@ fn assistant_text(items: &[TurnTranscriptItem]) -> &str {
         | TurnTranscriptItem::Activity { .. }
         | TurnTranscriptItem::A2uiCard { .. }
         | TurnTranscriptItem::ErrorNotice { .. }
-        | TurnTranscriptItem::ArtifactReference { .. } => None,
+        | TurnTranscriptItem::ArtifactReference { .. }
+        | TurnTranscriptItem::TaskReference { .. } => None,
     }) else {
         panic!("expected assistant text item, got {items:?}");
     };
@@ -4261,6 +4262,7 @@ async fn append_test_text_item_with_kind(
         | ConversationItemKind::ApprovalRequest
         | ConversationItemKind::ApprovalResult
         | ConversationItemKind::ArtifactReference
+        | ConversationItemKind::TaskReference
         | ConversationItemKind::ErrorNotice => ActorRef::agent("agent:primary"),
     };
     store

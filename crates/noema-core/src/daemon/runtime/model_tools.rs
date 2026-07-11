@@ -6,6 +6,7 @@ use crate::{
         artifact_tool::artifact_create_local_file_tool_spec,
         memory::tool::search_memory_tool_spec,
         runtime::turn::{mcp_auth_status_label, mcp_health_status_label},
+        task_tool::task_delegate_tool_spec,
     },
     mcp::{mcp_tool_ineligibility, prompt_safe_mcp_tool_description},
     provider::{
@@ -51,7 +52,16 @@ pub(super) async fn build_model_tools_for_role(
     include_agent_name_tool: bool,
     capabilities: ProviderToolCapabilities,
 ) -> Result<ModelTools, ToolContractError> {
-    let builtin_tools = builtin_tool_specs(include_agent_name_tool)?;
+    let mut builtin_tools = builtin_tool_specs(include_agent_name_tool)?;
+    if role == ExecutionRole::PrimaryConversation {
+        let pool_entries = store
+            .list_task_model_pool_entries(None)
+            .await
+            .map_err(|error| ToolContractError::InvalidSchema(error.to_string()))?;
+        if pool_entries.iter().any(|entry| entry.enabled) {
+            builtin_tools.push(task_delegate_tool_spec(&pool_entries)?);
+        }
+    }
     let web_search_tool = web_search_tool_spec()?;
     let web_fetch_tool = web_fetch_tool_spec()?;
     let unavailable_rows = unavailable_mcp_rows(store).await?;

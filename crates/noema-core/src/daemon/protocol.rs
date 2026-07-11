@@ -138,6 +138,17 @@ pub enum TurnTranscriptItem {
         #[ts(optional)]
         media_type: Option<String>,
     },
+    /// Reference to a durable background task.
+    TaskReference {
+        /// Stable task id.
+        task_id: String,
+        /// Display title captured when the reference was written.
+        title: String,
+        /// Canonical [`crate::TaskStatus::as_str`] value.
+        status: String,
+        /// Current executor revision at the time of the reference.
+        revision: i64,
+    },
 }
 
 /// Status for transcript activity notices.

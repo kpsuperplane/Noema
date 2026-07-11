@@ -814,6 +814,36 @@ impl CodexRuntimeActor {
                     }),
                     json!({ "turn_index": context.turn_index }),
                 ),
+                TurnTranscriptItem::TaskReference {
+                    task_id,
+                    title,
+                    status,
+                    revision,
+                } => {
+                    let status = status
+                        .parse::<crate::TaskStatus>()
+                        .map_err(|error| {
+                            DaemonError::Protocol(format!(
+                                "invalid task reference status for {task_id}: {error}"
+                            ))
+                        })?
+                        .as_str()
+                        .to_string();
+                    (
+                        ConversationItemKind::TaskReference,
+                        ConversationItemStatus::Completed,
+                        ActorRef::agent("agent:primary"),
+                        default_parent_item_id,
+                        Some(title.clone()),
+                        json!({
+                            "task_id": task_id,
+                            "title": title,
+                            "status": status,
+                            "revision": revision,
+                        }),
+                        json!({ "turn_index": context.turn_index }),
+                    )
+                }
             };
 
         let record = self
@@ -864,7 +894,8 @@ pub(in crate::daemon) fn send_transient_turn_item(
         | TurnTranscriptItem::MultipleChoicePrompt { .. }
         | TurnTranscriptItem::MultipleChoiceSelection { .. }
         | TurnTranscriptItem::ErrorNotice { .. }
-        | TurnTranscriptItem::ArtifactReference { .. } => format!(
+        | TurnTranscriptItem::ArtifactReference { .. }
+        | TurnTranscriptItem::TaskReference { .. } => format!(
             "transient:{}:{}",
             context.conversation_id, context.turn_index
         ),

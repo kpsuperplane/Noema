@@ -801,6 +801,8 @@ mod tests {
         assert!(sdl.contains("startProviderAuthAttempt"));
         assert!(sdl.contains("primaryConversation"));
         assert!(sdl.contains("conversationTranscriptPage"));
+        assert!(sdl.contains("type TaskReference"));
+        assert!(sdl.contains("TaskReference"));
         assert!(sdl.contains("ensurePrimaryConversation"));
         assert!(!sdl.contains("startPrimaryConversation"));
         assert!(sdl.contains("sendConversationTurn"));

@@ -24,6 +24,7 @@ use crate::daemon::{
     memory::tool::{
         MemoryToolResult, MemoryToolRuntimeContext, execute_search_memory, is_search_memory_tool,
     },
+    task_tool::{TaskDelegateRuntimeContext, execute_task_delegate, is_task_delegate_tool},
 };
 use crate::search::tool::{WebSearchToolResult, execute_web_search, is_web_search_tool};
 use crate::web_fetch::{
@@ -136,6 +137,47 @@ impl CodexRuntimeActor {
                     &call.payload,
                 )
                 .await,
+            }
+        } else if is_task_delegate_tool(&call.name) {
+            let provider_account_id = self
+                .store
+                .active_default_provider_accounts()
+                .await
+                .ok()
+                .and_then(|accounts| {
+                    accounts
+                        .into_iter()
+                        .find(|account| account.provider_kind == turn.provider_kind)
+                })
+                .map(|account| account.provider_account_id)
+                .unwrap_or_else(|| format!("provider_account:{}:default", turn.provider_kind));
+            let result = execute_task_delegate(
+                &self.store,
+                &TaskDelegateRuntimeContext {
+                    conversation_id: turn.conversation_id.clone(),
+                    turn_id: turn.turn_id.clone(),
+                    user_item_id: turn.user_item_id.clone(),
+                    agent_id: agent_identity.agent_id.clone(),
+                    provider_kind: turn.provider_kind.clone(),
+                    provider_account_id,
+                    model_profile: turn.model.clone(),
+                    reasoning_effort: turn.reasoning_effort,
+                },
+                call.call_id.clone(),
+                &call.payload,
+            )
+            .await;
+            LocalToolResult::Gateway {
+                call_id: result.call_id,
+                provider_call_id: call.provider_call_id.clone(),
+                provider_name: call.provider_name.clone(),
+                name: result.name,
+                arguments: call.payload.clone(),
+                result: GatewayToolResult {
+                    success: result.success,
+                    payload: result.payload,
+                    requires_provider_continuation: true,
+                },
             }
         } else if is_web_search_tool(&call.name) {
             let result = match self.web_search_runtime_provider_resolution().await {
@@ -690,6 +732,32 @@ pub(super) fn local_tool_artifact_reference_item(
         external_url: None,
         download_url,
         media_type,
+    })
+}
+
+/// Build a durable task marker after a successful primary delegation call.
+pub(super) fn local_tool_task_reference_item(
+    result: &LocalToolResult,
+) -> Option<TurnTranscriptItem> {
+    if result.name() != crate::daemon::task_tool::TASK_DELEGATE_TOOL || !result.success() {
+        return None;
+    }
+    let payload = result.payload();
+    let task_id = payload.get("task_id")?.as_str()?.to_string();
+    let title = payload.get("title")?.as_str()?.to_string();
+    let status = payload
+        .get("status")
+        .and_then(Value::as_str)
+        .and_then(|value| value.parse::<crate::TaskStatus>().ok())?;
+    let revision = payload
+        .get("revision")
+        .and_then(Value::as_i64)
+        .unwrap_or_default();
+    Some(TurnTranscriptItem::TaskReference {
+        task_id,
+        title,
+        status: status.as_str().to_string(),
+        revision,
     })
 }
 

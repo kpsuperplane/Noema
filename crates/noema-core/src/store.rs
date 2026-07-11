@@ -49,4 +49,4 @@ pub use provider_accounts::{NewProviderAccount, ProviderAccountCatalogEntry};
 pub use provider_capability_bindings::ProviderCapabilityBindingRecord;
 pub use runtime::{NoemaStore, StoreConfig};
 pub use task_model_pools::{NewTaskModelPoolEntry, TaskModelPoolEntry};
-pub use tasks::TaskRecord;
+pub use tasks::{TaskRecord, TaskReviewRecord, TaskSubmissionRecord};

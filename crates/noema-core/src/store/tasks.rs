@@ -3,9 +3,9 @@
 use rusqlite::{OptionalExtension, params};
 
 use crate::{
-    DEFAULT_TASK_MAX_REVIEW_ROUNDS, ModelConfigSnapshot, NewTask, RunKind, TASK_EXECUTOR_AGENT_ID,
-    TaskComplexity, TaskDomainError, TaskSource, TaskStatus, TaskValidationCriterion,
-    provider::ReasoningEffort,
+    DEFAULT_TASK_MAX_REVIEW_ROUNDS, ModelConfigSnapshot, NewTask, NewTaskReview, NewTaskSubmission,
+    RunKind, TASK_EXECUTOR_AGENT_ID, TaskComplexity, TaskDomainError, TaskReviewCriterion,
+    TaskReviewVerdict, TaskSource, TaskStatus, TaskValidationCriterion, provider::ReasoningEffort,
 };
 
 use super::{NoemaStore, StoreError, agent_runs::AgentRunRecord, ids::allocate_id};
@@ -57,6 +57,48 @@ pub struct TaskRecord {
     pub updated_at: String,
     /// Completion timestamp.
     pub completed_at: Option<String>,
+}
+
+/// Persisted executor submission with criterion evidence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskSubmissionRecord {
+    /// Stable submission id.
+    pub submission_id: String,
+    /// Owning task id.
+    pub task_id: String,
+    /// Executor run id.
+    pub executor_run_id: String,
+    /// Revision index.
+    pub revision_index: i64,
+    /// Short summary.
+    pub summary: String,
+    /// Complete result Markdown.
+    pub result_markdown: String,
+    /// Criterion evidence.
+    pub criteria: Vec<crate::SubmissionCriterionEvidence>,
+    /// Creation timestamp.
+    pub created_at: String,
+}
+
+/// Persisted adversarial review with per-criterion outcomes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskReviewRecord {
+    /// Stable review id.
+    pub review_id: String,
+    /// Owning task id.
+    pub task_id: String,
+    /// Reviewer run id.
+    pub reviewer_run_id: String,
+    /// Submission under review.
+    pub reviewed_submission_id: String,
+    /// Overall verdict.
+    pub overall_verdict: TaskReviewVerdict,
+    /// Safe overall feedback.
+    pub overall_feedback: String,
+    /// Criterion outcomes.
+    pub criteria: Vec<TaskReviewCriterion>,
+    /// Creation timestamp.
+    pub created_at: String,
 }
 
 impl NoemaStore {
@@ -276,6 +318,249 @@ impl NoemaStore {
                 message: format!("task disappeared: {task_id}"),
             })
     }
+
+    /// Commit an executor submission and queue its reviewer in one transaction.
+    pub async fn create_task_submission(
+        &self,
+        input: NewTaskSubmission,
+    ) -> Result<(TaskSubmissionRecord, AgentRunRecord), StoreError> {
+        let task =
+            self.get_task(&input.task_id)
+                .await?
+                .ok_or_else(|| StoreError::InvariantViolation {
+                    message: format!("task not found: {}", input.task_id),
+                })?;
+        if task.status != TaskStatus::Executing && task.status != TaskStatus::RevisionRequested {
+            return Err(StoreError::InvariantViolation {
+                message: format!("task is not executable: {}", task.status),
+            });
+        }
+        validate_submission_criteria(self, &input.task_id, &input.criteria).await?;
+        let submission_id = input
+            .submission_id
+            .unwrap_or_else(|| allocate_id("submission"));
+        let reviewer_run_id = allocate_id("run");
+        self.with_connection(|conn| {
+            let tx = conn.transaction()?;
+            tx.execute(
+                "INSERT INTO task_submissions (submission_id, task_id, executor_run_id, revision_index, summary, result_markdown) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![submission_id, input.task_id, input.executor_run_id, input.revision_index, input.summary.trim(), input.result_markdown.trim()],
+            )?;
+            for criterion in &input.criteria {
+                tx.execute(
+                    "INSERT INTO task_submission_criteria (submission_id, criterion_id, evidence_markdown) VALUES (?1, ?2, ?3)",
+                    rusqlite::params![submission_id, criterion.criterion_id, criterion.evidence_markdown.trim()],
+                )?;
+            }
+            tx.execute(
+                "INSERT INTO agent_runs (run_id, task_id, run_kind, agent_id, attempt_index, revision_index, triggering_submission_id, provider_kind, provider_account_id, selection_mode, model_profile, reasoning_effort, selection_source, status) VALUES (?1, ?2, 'reviewer', ?3, 0, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'queued')",
+                rusqlite::params![
+                    reviewer_run_id,
+                    task.task_id,
+                    crate::TASK_REVIEWER_AGENT_ID,
+                    input.revision_index,
+                    submission_id,
+                    task.reviewer_model.provider_kind,
+                    task.reviewer_model.provider_account_id,
+                    task.reviewer_model.selection_mode.as_str(),
+                    task.reviewer_model.model_profile,
+                    task.reviewer_model.reasoning_effort.map(crate::provider::ReasoningEffort::as_persistence_str),
+                    task.reviewer_model.selection_source,
+                ],
+            )?;
+            tx.execute(
+                "UPDATE tasks SET status = 'reviewing', latest_run_id = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1",
+                rusqlite::params![task.task_id, reviewer_run_id],
+            )?;
+            append_task_event_tx(&tx, &task.task_id, "task.submission_created", &input.executor_run_id, serde_json::json!({"submission_id": submission_id, "reviewer_run_id": reviewer_run_id}))?;
+            tx.commit()?;
+            Ok(())
+        }).await?;
+        let submission = self
+            .get_task_submission(&submission_id)
+            .await?
+            .ok_or_else(|| StoreError::InvariantViolation {
+                message: format!("submission disappeared: {submission_id}"),
+            })?;
+        let run = self.get_agent_run(&reviewer_run_id).await?.ok_or_else(|| {
+            StoreError::InvariantViolation {
+                message: format!("reviewer run disappeared: {reviewer_run_id}"),
+            }
+        })?;
+        Ok((submission, run))
+    }
+
+    /// Commit an adversarial review and derive the next task state.
+    pub async fn create_task_review(&self, input: NewTaskReview) -> Result<TaskRecord, StoreError> {
+        let task =
+            self.get_task(&input.task_id)
+                .await?
+                .ok_or_else(|| StoreError::InvariantViolation {
+                    message: format!("task not found: {}", input.task_id),
+                })?;
+        let criteria = self.list_task_validation_criteria(&task.task_id).await?;
+        validate_review_criteria(&criteria, &input.criteria)?;
+        let all_pass = input
+            .criteria
+            .iter()
+            .all(|criterion| criterion.outcome == crate::CriterionOutcome::Pass);
+        if input.overall_verdict == TaskReviewVerdict::Approve && !all_pass {
+            return Err(StoreError::InvariantViolation {
+                message: "review approval requires every criterion to pass".to_string(),
+            });
+        }
+        let review_id = input.review_id.unwrap_or_else(|| allocate_id("review"));
+        let (next_status, next_revision, next_run_id) = match input.overall_verdict {
+            TaskReviewVerdict::Approve => (TaskStatus::Completed, task.revision_index, None),
+            TaskReviewVerdict::NeedsHuman => {
+                (TaskStatus::WaitingForHuman, task.revision_index, None)
+            }
+            TaskReviewVerdict::RequestChanges
+                if task.revision_index + 1 < task.max_review_rounds =>
+            {
+                (
+                    TaskStatus::RevisionRequested,
+                    task.revision_index + 1,
+                    Some(allocate_id("run")),
+                )
+            }
+            TaskReviewVerdict::RequestChanges => {
+                (TaskStatus::WaitingForHuman, task.revision_index, None)
+            }
+        };
+        self.with_connection(|conn| {
+            let tx = conn.transaction()?;
+            tx.execute(
+                "INSERT INTO task_reviews (review_id, task_id, reviewer_run_id, reviewed_submission_id, overall_verdict, overall_feedback) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![review_id, task.task_id, input.reviewer_run_id, input.reviewed_submission_id, input.overall_verdict.as_str(), input.overall_feedback.trim()],
+            )?;
+            for criterion in &input.criteria {
+                tx.execute(
+                    "INSERT INTO task_review_criteria (review_id, criterion_id, outcome, evidence_markdown, feedback) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    rusqlite::params![review_id, criterion.criterion_id, criterion.outcome.as_str(), criterion.evidence_markdown, criterion.feedback],
+                )?;
+            }
+            if let Some(run_id) = &next_run_id {
+                tx.execute(
+                    "INSERT INTO agent_runs (run_id, task_id, run_kind, agent_id, attempt_index, revision_index, provider_kind, provider_account_id, selection_mode, model_profile, reasoning_effort, selection_source, status) VALUES (?1, ?2, 'executor', ?3, 0, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'queued')",
+                    rusqlite::params![run_id, task.task_id, TASK_EXECUTOR_AGENT_ID, next_revision, task.executor_model.provider_kind, task.executor_model.provider_account_id, task.executor_model.selection_mode.as_str(), task.executor_model.model_profile, task.executor_model.reasoning_effort.map(crate::provider::ReasoningEffort::as_persistence_str), task.executor_model.selection_source],
+                )?;
+            }
+            tx.execute(
+                "UPDATE tasks SET status = ?2, revision_index = ?3, latest_run_id = COALESCE(?4, latest_run_id), final_submission_id = CASE WHEN ?2 = 'completed' THEN ?5 ELSE final_submission_id END, completed_at = CASE WHEN ?2 = 'completed' THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE completed_at END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1",
+                rusqlite::params![task.task_id, next_status.as_str(), next_revision, next_run_id, input.reviewed_submission_id],
+            )?;
+            append_task_event_tx(&tx, &task.task_id, "task.review_created", &input.reviewer_run_id, serde_json::json!({"review_id": review_id, "verdict": input.overall_verdict.as_str(), "next_run_id": next_run_id}))?;
+            tx.commit()?;
+            Ok(())
+        }).await?;
+        self.get_task(&task.task_id)
+            .await?
+            .ok_or_else(|| StoreError::InvariantViolation {
+                message: format!("task disappeared: {}", task.task_id),
+            })
+    }
+
+    /// Return one submission with its criterion evidence.
+    pub async fn get_task_submission(
+        &self,
+        submission_id: &str,
+    ) -> Result<Option<TaskSubmissionRecord>, StoreError> {
+        let base = self.with_connection(|conn| conn.query_row("SELECT submission_id, task_id, executor_run_id, revision_index, summary, result_markdown, created_at FROM task_submissions WHERE submission_id = ?1 LIMIT 1", [submission_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, i64>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?, row.get::<_, String>(6)?))).optional().map_err(StoreError::Sqlite)).await?;
+        let Some((
+            submission_id,
+            task_id,
+            executor_run_id,
+            revision_index,
+            summary,
+            result_markdown,
+            created_at,
+        )) = base
+        else {
+            return Ok(None);
+        };
+        let criteria = self.with_connection(|conn| { let mut statement = conn.prepare("SELECT criterion_id, evidence_markdown FROM task_submission_criteria WHERE submission_id = ?1 ORDER BY criterion_id")?; let rows = statement.query_map([submission_id.as_str()], |row| Ok(crate::SubmissionCriterionEvidence { criterion_id: row.get(0)?, evidence_markdown: row.get(1)? }))?; rows.collect::<Result<Vec<_>, _>>().map_err(StoreError::Sqlite) }).await?;
+        Ok(Some(TaskSubmissionRecord {
+            submission_id,
+            task_id,
+            executor_run_id,
+            revision_index,
+            summary,
+            result_markdown,
+            criteria,
+            created_at,
+        }))
+    }
+}
+
+async fn validate_submission_criteria(
+    store: &NoemaStore,
+    task_id: &str,
+    submitted: &[crate::SubmissionCriterionEvidence],
+) -> Result<(), StoreError> {
+    let expected = store.list_task_validation_criteria(task_id).await?;
+    let mut ids = submitted
+        .iter()
+        .map(|criterion| criterion.criterion_id.as_str())
+        .collect::<Vec<_>>();
+    ids.sort_unstable();
+    ids.dedup();
+    let mut expected_ids = expected
+        .iter()
+        .map(|criterion| criterion.criterion_id.as_str())
+        .collect::<Vec<_>>();
+    expected_ids.sort_unstable();
+    if ids != expected_ids
+        || submitted
+            .iter()
+            .any(|criterion| criterion.evidence_markdown.trim().is_empty())
+    {
+        return Err(StoreError::InvariantViolation {
+            message:
+                "submission must include non-empty evidence for every task criterion exactly once"
+                    .to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn validate_review_criteria(
+    expected: &[TaskValidationCriterion],
+    submitted: &[TaskReviewCriterion],
+) -> Result<(), StoreError> {
+    let mut ids = submitted
+        .iter()
+        .map(|criterion| criterion.criterion_id.as_str())
+        .collect::<Vec<_>>();
+    ids.sort_unstable();
+    ids.dedup();
+    let mut expected_ids = expected
+        .iter()
+        .map(|criterion| criterion.criterion_id.as_str())
+        .collect::<Vec<_>>();
+    expected_ids.sort_unstable();
+    if ids != expected_ids {
+        return Err(StoreError::InvariantViolation {
+            message: "review must include exactly one result for every task criterion".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn append_task_event_tx(
+    tx: &rusqlite::Transaction<'_>,
+    task_id: &str,
+    kind: &str,
+    actor_id: &str,
+    payload: serde_json::Value,
+) -> Result<(), rusqlite::Error> {
+    let sequence: i64 = tx.query_row(
+        "SELECT COALESCE(MAX(sequence_number), 0) + 1 FROM task_events WHERE task_id = ?1",
+        [task_id],
+        |row| row.get(0),
+    )?;
+    tx.execute("INSERT INTO task_events (event_id, task_id, sequence_number, event_kind, actor_id, payload_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", rusqlite::params![allocate_id("event"), task_id, sequence, kind, actor_id, payload.to_string()])?;
+    Ok(())
 }
 
 fn task_domain_error(error: TaskDomainError) -> StoreError {

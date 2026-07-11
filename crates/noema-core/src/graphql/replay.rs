@@ -118,6 +118,26 @@ fn turn_transcript_item_from_record(
                 media_type: payload.media_type,
             }))
         }
+        ConversationItemKind::TaskReference => {
+            let payload: ReplayTaskReferencePayload = replay_payload(record)?;
+            let status = payload
+                .status
+                .parse::<crate::TaskStatus>()
+                .map_err(|error| {
+                    DaemonError::Protocol(format!(
+                        "invalid task reference status for {}: {error}",
+                        payload.task_id
+                    ))
+                })?
+                .as_str()
+                .to_string();
+            Ok(Some(TurnTranscriptItem::TaskReference {
+                task_id: payload.task_id,
+                title: payload.title,
+                status,
+                revision: payload.revision,
+            }))
+        }
         ConversationItemKind::ToolCall
         | ConversationItemKind::ToolResult
         | ConversationItemKind::ApprovalRequest
@@ -217,6 +237,14 @@ struct ReplayArtifactReferencePayload {
     download_url: Option<String>,
     #[serde(default)]
     media_type: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReplayTaskReferencePayload {
+    task_id: String,
+    title: String,
+    status: String,
+    revision: i64,
 }
 
 #[cfg(test)]
@@ -321,6 +349,56 @@ mod tests {
                 external_url: Some("https://notion.so/noema-notes".to_string()),
                 download_url: None,
                 media_type: Some("text/html".to_string()),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn conversation_replay_maps_task_reference_with_canonical_status() {
+        let store = crate::store::tests::test_store().await;
+        let conversation = store
+            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .await
+            .expect("conversation");
+        let turn = store
+            .create_conversation_turn(NewConversationTurn {
+                conversation_id: conversation.conversation_id.clone(),
+                trigger_item_id: None,
+                metadata: json!({}),
+            })
+            .await
+            .expect("turn");
+        let record = store
+            .append_conversation_item(NewConversationItem {
+                conversation_id: conversation.conversation_id,
+                turn_id: Some(turn.turn_id),
+                parent_item_id: None,
+                kind: ConversationItemKind::TaskReference,
+                status: ConversationItemStatus::Completed,
+                author: ActorRef::agent("agent:primary"),
+                content_text: Some("Research providers".to_string()),
+                payload_json: json!({
+                    "task_id": "task_1",
+                    "title": "Research providers",
+                    "status": "reviewing",
+                    "revision": 2
+                }),
+                metadata: json!({}),
+            })
+            .await
+            .expect("conversation item");
+
+        let item = web_conversation_item_from_record(record)
+            .expect("convert record")
+            .expect("visible item");
+
+        assert_eq!(
+            item.item,
+            TurnTranscriptItem::TaskReference {
+                task_id: "task_1".to_string(),
+                title: "Research providers".to_string(),
+                status: "reviewing".to_string(),
+                revision: 2,
             }
         );
     }
