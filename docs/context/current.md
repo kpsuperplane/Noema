@@ -235,6 +235,9 @@ The next storage slice should stay small and concrete:
   subscriptions, schema/GraphiQL, and artifact downloads require that session;
   assets and the state/PKCE-authenticated MCP OAuth callback remain public after
   Host validation. OAuth callback URLs come from listener authority, never Host.
+  The `cargo dev` supervisor explicitly enables the debug-only `dev-no-auth`
+  feature for local convenience; direct daemon and release builds retain this
+  session boundary.
 - Authenticated web and desktop GraphQL operations receive the server-derived
   `human:local` request principal. Desktop commands additionally require the
   Tauri `main` window. Artifact downloads authorize the version's live

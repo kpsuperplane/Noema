@@ -10,6 +10,8 @@ use tokio_tungstenite::{
 };
 use tower::ServiceExt;
 
+use super::super::WebAuthMode;
+
 use super::*;
 
 const TEST_AUTHORITY: &str = "127.0.0.1:3737";
@@ -21,11 +23,23 @@ fn web_state(graphql_state: noema_core::graphql::GraphqlState) -> WebState {
             TEST_AUTHORITY.parse().expect("test authority"),
         ),
         session::SessionSecurity::for_tests("test-capability"),
+        WebAuthMode::Required,
     )
 }
 
 fn test_router() -> Router {
     build_router(web_state(noema_core::graphql::GraphqlState::for_tests()))
+}
+
+fn test_router_without_auth() -> Router {
+    build_router(WebState::new(
+        noema_core::graphql::GraphqlState::for_tests(),
+        authority::CanonicalAuthority::from_socket_addr(
+            TEST_AUTHORITY.parse().expect("test authority"),
+        ),
+        session::SessionSecurity::for_tests("test-capability"),
+        WebAuthMode::DisabledForDevelopment,
+    ))
 }
 
 async fn request(
@@ -156,6 +170,26 @@ async fn authority_session_and_bootstrap_boundary() {
 }
 
 #[tokio::test]
+async fn development_auth_bypass_allows_graphql_without_bootstrap() {
+    let (status, _, body) = request(
+        test_router_without_auth(),
+        Request::builder()
+            .method(Method::POST)
+            .uri("/graphql")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"query":"{ __typename }"}"#))
+            .expect("GraphQL request"),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).expect("GraphQL JSON"),
+        json!({"data": {"__typename": "QueryRoot"}})
+    );
+}
+
+#[tokio::test]
 async fn authenticated_http_and_websocket_ignore_client_identity_metadata() {
     use futures_util::{SinkExt, StreamExt};
 
@@ -187,6 +221,7 @@ async fn authenticated_http_and_websocket_ignore_client_identity_metadata() {
         noema_core::graphql::GraphqlState::for_tests(),
         authority,
         session::SessionSecurity::for_tests("ws-test-capability"),
+        WebAuthMode::Required,
     );
     let server = tokio::spawn(async move {
         axum::serve(listener, build_router(state))

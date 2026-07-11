@@ -72,8 +72,8 @@ pub(super) async fn is_authenticated(session: &Session) -> bool {
 
 pub(super) async fn request_principal(
     session: &Session,
+    authentication_required: bool,
 ) -> Option<noema_core::graphql::RequestPrincipal> {
-    is_authenticated(session)
-        .await
+    (!authentication_required || is_authenticated(session).await)
         .then(noema_core::graphql::RequestPrincipal::local)
 }

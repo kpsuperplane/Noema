@@ -140,6 +140,12 @@ root:
 NOEMA_HOME=.noema-dev cargo dev
 ```
 
+`cargo dev` enables the explicit debug-only `dev-no-auth` feature, so the local
+loopback UI does not require the one-shot browser bootstrap URL. This is only a
+development convenience; direct daemon runs and release builds retain the
+authenticated browser session boundary. Keep the development daemon bound to
+loopback and do not expose it to a network interface.
+
 This expects `cargo-watch` to be installed because it restarts the Rust web
 server on backend changes.
 

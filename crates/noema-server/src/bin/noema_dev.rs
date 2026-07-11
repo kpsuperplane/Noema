@@ -177,7 +177,7 @@ fn spawn_web_server_watcher(
 }
 
 fn web_server_watch_command() -> &'static str {
-    "run -p noema-server --bin noema_web"
+    "run -p noema-server --bin noema_web --features dev-no-auth"
 }
 
 fn web_server_watch_ignore_globs() -> [&'static str; 2] {
@@ -545,7 +545,7 @@ mod tests {
     fn cargo_watch_runs_noema_web() {
         assert_eq!(
             web_server_watch_command(),
-            "run -p noema-server --bin noema_web"
+            "run -p noema-server --bin noema_web --features dev-no-auth"
         );
     }
 

@@ -95,7 +95,7 @@ async fn graphql(
     session: Session,
     request: GraphQLRequest,
 ) -> Response {
-    if !session::is_authenticated(&session).await {
+    if state.auth_mode().requires_session() && !session::is_authenticated(&session).await {
         return StatusCode::UNAUTHORIZED.into_response();
     }
     GraphQLResponse::from(
@@ -113,7 +113,7 @@ async fn graphql_ws(
     protocol: GraphQLProtocol,
     upgrade: WebSocketUpgrade,
 ) -> Response {
-    if !session::is_authenticated(&session).await {
+    if state.auth_mode().requires_session() && !session::is_authenticated(&session).await {
         return StatusCode::UNAUTHORIZED.into_response();
     }
     let schema = state.graphql_schema().clone();
@@ -137,8 +137,8 @@ fn request_principal_data() -> Data {
     data
 }
 
-async fn graphiql(session: Session) -> Response {
-    if !session::is_authenticated(&session).await {
+async fn graphiql(State(state): State<WebState>, session: Session) -> Response {
+    if state.auth_mode().requires_session() && !session::is_authenticated(&session).await {
         return StatusCode::UNAUTHORIZED.into_response();
     }
     Html(
@@ -151,7 +151,7 @@ async fn graphiql(session: Session) -> Response {
 }
 
 async fn graphql_schema(State(state): State<WebState>, session: Session) -> Response {
-    if !session::is_authenticated(&session).await {
+    if state.auth_mode().requires_session() && !session::is_authenticated(&session).await {
         return StatusCode::UNAUTHORIZED.into_response();
     }
     plain_response(StatusCode::OK, state.graphql_schema().sdl())
@@ -218,7 +218,9 @@ async fn download_artifact_slug(
     session_value: Session,
     Path(artifact_version_slug): Path<String>,
 ) -> Response {
-    let Some(principal) = session::request_principal(&session_value).await else {
+    let Some(principal) =
+        session::request_principal(&session_value, state.auth_mode().requires_session()).await
+    else {
         return StatusCode::UNAUTHORIZED.into_response();
     };
     let Some(artifact_version_id) =
@@ -234,7 +236,9 @@ async fn download_artifact_id(
     session_value: Session,
     Path(artifact_version_id): Path<String>,
 ) -> Response {
-    let Some(principal) = session::request_principal(&session_value).await else {
+    let Some(principal) =
+        session::request_principal(&session_value, state.auth_mode().requires_session()).await
+    else {
         return StatusCode::UNAUTHORIZED.into_response();
     };
     download_artifact(&state, &principal, &artifact_version_id).await

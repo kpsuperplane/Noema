@@ -19,15 +19,25 @@ pub async fn run_daemon_web(
     let sessions = web::session::SessionSecurity::generate().map_err(|_| {
         DaemonError::Protocol("failed to generate the browser bootstrap capability".to_string())
     })?;
+    let auth_mode = web::WebAuthMode::from_build();
     let host = NoemaRuntimeHost::start(provider)
         .await
         .map_err(|source| DaemonError::Protocol(source.to_string()))?;
     let graphql_state = noema_core::graphql::GraphqlState::from_runtime_host(&host);
-    let web_state = WebState::new(graphql_state, authority.clone(), sessions.clone());
-    let bootstrap_url = sessions.bootstrap_url(authority.as_str()).ok_or_else(|| {
-        DaemonError::Protocol("failed to read the browser bootstrap capability".to_string())
-    })?;
-    println!("Noema browser bootstrap: {bootstrap_url}");
+    let web_state = WebState::new(
+        graphql_state,
+        authority.clone(),
+        sessions.clone(),
+        auth_mode,
+    );
+    if auth_mode.requires_session() {
+        let bootstrap_url = sessions.bootstrap_url(authority.as_str()).ok_or_else(|| {
+            DaemonError::Protocol("failed to read the browser bootstrap capability".to_string())
+        })?;
+        println!("Noema browser bootstrap: {bootstrap_url}");
+    } else {
+        println!("Noema browser authentication disabled (development only)");
+    }
     let shutdown_error = std::sync::Arc::new(std::sync::Mutex::new(None));
     let signal_error = shutdown_error.clone();
     let server_result = axum::serve(web_listener, web::build_router(web_state))
