@@ -136,11 +136,14 @@ The next storage slice should stay small and concrete:
   GPT-5.6-Luna/medium for simple work, GPT-5.6-Luna/xhigh (shown as max) for
   medium work, and GPT-5.6-Sol/high for the highest tier. Only enabled entries
   backed by an authenticated provider account are advertised to the primary.
+  Settings nests these three model controls inside the Task Executor agent card;
+  the executor identity exists for run ownership and audit but has no independent
+  agent model preference.
 - Task references are first-class transcript items. The web chat renders a
   marker and opens a GraphQL-backed detail rail showing the request, criteria,
   revisions, executor/reviewer runs, model snapshots, submissions, reviews, and
-  final result. Pool entries are editable in Settings > Agents and have
-  local-human GraphQL create/update/delete mutations. The current task runtime intentionally exposes read-only search,
+  final result. The three task model settings are editable through a local-human
+  GraphQL update mutation. The current task runtime intentionally exposes read-only search,
   fetch, memory, and calibrated MCP tools to background roles; task-owned write
   tools and richer workspace/project orchestration remain later milestones.
 - Memory is governed context, not hidden model state. Durable memory truth now

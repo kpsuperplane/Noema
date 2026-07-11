@@ -2978,6 +2978,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn save_agent_model_preference_rejects_task_executor_identity() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        store.ensure_default_actors().await.expect("actors");
+        let foundation = store
+            .ensure_default_foundation_local_provider_account()
+            .await
+            .expect("foundation account");
+        store
+            .update_provider_account_status(
+                &foundation.provider_account_id,
+                crate::ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .expect("foundation available");
+
+        let schema = build_schema(GraphqlState::for_tests_with_store(store.clone()));
+        let response = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                mutation {{
+                  saveAgentModelPreference(input: {{
+                    agentId: "agent:task-executor"
+                    providerAccountId: "{}"
+                    modelProfile: "default"
+                  }}) {{
+                    modelProfile
+                  }}
+                }}
+                "#,
+                foundation.provider_account_id
+            )))
+            .await;
+
+        assert_eq!(response.errors.len(), 1);
+        assert!(response.errors[0].message.contains("complexity tier"));
+        assert!(
+            store
+                .get_agent_runtime_preference(crate::TASK_EXECUTOR_AGENT_ID)
+                .await
+                .expect("preference read")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
     async fn save_agent_model_preference_requires_reasoning_for_reasoning_profile() {
         let (schema, account_id) = schema_with_reasoning_openai_profile().await;
         let response = schema

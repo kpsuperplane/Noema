@@ -3,7 +3,7 @@ use serde_json::Value;
 
 use crate::{
     AgentRecord, AgentRuntimePreferenceRecord, NewAgentRuntimePreference, ProviderAccountRecord,
-    ProviderAccountStatus,
+    ProviderAccountStatus, TASK_EXECUTOR_AGENT_ID,
     config::DEFAULT_FOUNDATION_LOCAL_PROFILE,
     provider::{
         DEFAULT_TOOL_CLASSIFICATION_MODEL, ReasoningEffort,
@@ -195,6 +195,11 @@ pub(super) async fn save_agent_model_preference(
     state: &GraphqlState,
     input: GraphqlSaveAgentModelPreferenceInput,
 ) -> Result<GraphqlAgentModelPreference> {
+    if input.agent_id == TASK_EXECUTOR_AGENT_ID {
+        return Err(async_graphql::Error::new(
+            "Task Executor models are configured by complexity tier",
+        ));
+    }
     let store = state.store()?;
     let account = store
         .get_provider_account(&input.provider_account_id)

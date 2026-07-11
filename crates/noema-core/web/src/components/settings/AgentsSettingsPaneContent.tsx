@@ -27,6 +27,8 @@ type SaveAgentModelPreferenceInput = ModelPreferenceSaveInput & {
   agentId: string;
 };
 
+const TASK_EXECUTOR_AGENT_ID = "agent:task-executor";
+
 export function AgentsSettingsPaneContent({
   agents,
   loading,
@@ -83,6 +85,7 @@ export function AgentsSettingsPaneContent({
         const badgeLabel = agentBadgeLabel(agent);
         const rows = agentMetadataRows(agent);
         const warning = selectedModelWarning(agent);
+        const isTaskExecutor = agent.agentId === TASK_EXECUTOR_AGENT_ID;
         return (
           <article
             key={agent.agentId}
@@ -95,18 +98,20 @@ export function AgentsSettingsPaneContent({
                 </h2>
                 {badgeLabel ? <Badge variant="neutral" label={badgeLabel} /> : null}
               </div>
-              <ModelPreferenceSelect
-                options={agent.modelOptions ?? []}
-                preference={agent.modelPreference ?? null}
-                saving={saving}
-                ariaLabel={`Model settings for ${displayName}`}
-                onSave={(input) =>
-                  onSaveModelPreference({
-                    agentId: agent.agentId,
-                    ...input
-                  })
-                }
-              />
+              {isTaskExecutor ? null : (
+                <ModelPreferenceSelect
+                  options={agent.modelOptions ?? []}
+                  preference={agent.modelPreference ?? null}
+                  saving={saving}
+                  ariaLabel={`Model settings for ${displayName}`}
+                  onSave={(input) =>
+                    onSaveModelPreference({
+                      agentId: agent.agentId,
+                      ...input
+                    })
+                  }
+                />
+              )}
             </div>
             <dl {...stylex.props(styles.definitionList)}>
               {rows.map((row) => (
@@ -121,19 +126,20 @@ export function AgentsSettingsPaneContent({
                 </div>
               ))}
             </dl>
-            {warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}
+            {isTaskExecutor ? (
+              <TaskModelPoolsSettings
+                entries={taskModelPoolEntries}
+                error={taskModelPoolError}
+                loading={taskModelPoolLoading}
+                modelOptions={taskModelPoolModelOptions}
+                onUpdate={onUpdateTaskModelPool}
+                saveError={taskModelPoolSaveError}
+                saving={taskModelPoolSaving}
+              />
+            ) : warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}
           </article>
         );
       })}
-      <TaskModelPoolsSettings
-        entries={taskModelPoolEntries}
-        error={taskModelPoolError}
-        loading={taskModelPoolLoading}
-        modelOptions={taskModelPoolModelOptions}
-        onUpdate={onUpdateTaskModelPool}
-        saveError={taskModelPoolSaveError}
-        saving={taskModelPoolSaving}
-      />
     </div>
   );
 }

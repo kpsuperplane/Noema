@@ -45,15 +45,15 @@ export function TaskModelPoolsSettings({
   };
 
   return (
-    <section aria-labelledby="task-model-pools-title" {...stylex.props(styles.card)}>
+    <section aria-labelledby="task-model-pools-title" {...stylex.props(styles.section)}>
       <div {...stylex.props(styles.header)}>
         <div {...stylex.props(styles.headerCopy)}>
           <div {...stylex.props(styles.titleRow)}>
-            <h2 id="task-model-pools-title" {...stylex.props(styles.title)}>Task executor models</h2>
+            <h3 id="task-model-pools-title" {...stylex.props(styles.title)}>Models</h3>
             <Badge variant={enabledEntryCount > 0 ? "success" : "warning"} label={`${enabledEntryCount}/3 enabled`} />
           </div>
           <p {...stylex.props(styles.description)}>
-            One global model setting per complexity tier applies to every background task executor.
+            Every task executor uses the model configured for its complexity tier.
           </p>
         </div>
       </div>
@@ -255,11 +255,11 @@ function complexityLabel(value: TaskComplexity): string {
 }
 
 const styles = stylex.create({
-  card: { display: "grid", gap: 16, borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 6, backgroundColor: "white", padding: 16 },
+  section: { display: "grid", gap: 16, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--border-subtle)", paddingTop: 14 },
   header: { display: "flex", flexWrap: "wrap", alignItems: "start", justifyContent: "space-between", gap: 14 },
   headerCopy: { display: "grid", flex: "1 1 360px", gap: 6, minWidth: 0 },
   titleRow: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 },
-  title: { margin: 0, fontFamily: "var(--font-heading)", fontSize: 20, lineHeight: 1.25, color: "var(--foreground)" },
+  title: { margin: 0, fontFamily: "var(--font-heading)", fontSize: 16, lineHeight: 1.25, color: "var(--foreground)" },
   description: { margin: 0, maxWidth: 640, color: "var(--muted-foreground)", fontSize: 13, lineHeight: 1.5 },
   tiers: { display: "grid", gap: 14 },
   tier: { display: "grid", gap: 8 },
