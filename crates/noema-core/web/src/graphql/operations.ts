@@ -1032,6 +1032,19 @@ export const TaskDetailDocument = gql`
   }
 `;
 
+export const RetryTaskDocument = gql`
+  mutation RetryTask($taskId: String!) {
+    retryTask(taskId: $taskId) {
+      taskId
+      status
+      latestRunId
+      errorCode
+      errorMessage
+      updatedAt
+    }
+  }
+`;
+
 export const TaskModelPoolsDocument = gql`
   query TaskModelPools {
     taskModelPools {

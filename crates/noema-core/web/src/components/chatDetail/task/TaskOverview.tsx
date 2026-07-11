@@ -90,7 +90,7 @@ export function cancellableTaskStatus(status: TaskDetail["status"]): boolean {
 }
 
 export function retryableTaskStatus(status: TaskDetail["status"]): boolean {
-  return status === "failed" || status === "waiting_for_human";
+  return status === "failed";
 }
 
 function latestRevision(detail: TaskDetail): number {

@@ -1,8 +1,4 @@
-//! Read-only GraphQL projections for durable background tasks.
-//!
-//! Task creation and state-changing actions stay behind the primary-agent
-//! tool/runtime boundary.  This module only projects the canonical SQLite
-//! records needed by the task marker, detail rail, and model-pool settings.
+//! GraphQL projections and owner-authorized controls for background tasks.
 
 use async_graphql::{Enum, InputObject, Result, SimpleObject};
 
@@ -451,6 +447,21 @@ pub(super) async fn task(
     detail_from_task(store, task).await.map(Some)
 }
 
+/// Retry the latest failed run while preserving its immutable audit history.
+pub(super) async fn retry_task(
+    state: &GraphqlState,
+    principal_subject: &str,
+    task_id: String,
+) -> Result<GraphqlTaskDetail> {
+    require_local_principal(principal_subject)?;
+    let store = state.store()?;
+    let (task, _) = store
+        .retry_failed_task(task_id.trim(), principal_subject, principal_subject)
+        .await
+        .map_err(graphql_error)?;
+    detail_from_task(store, task).await
+}
+
 /// Resolve the human-controlled executor model pool.
 pub(super) async fn task_model_pools(
     state: &GraphqlState,
@@ -640,5 +651,90 @@ mod tests {
         assert_eq!(queried["taskModelPools"].as_array().map(Vec::len), Some(3));
         assert!(!schema.sdl().contains("createTaskModelPoolEntry"));
         assert!(!schema.sdl().contains("deleteTaskModelPoolEntry"));
+    }
+
+    #[tokio::test]
+    async fn retry_task_mutation_queues_a_new_attempt() {
+        let store = test_store().await;
+        store.ensure_default_actors().await.expect("actors");
+        store
+            .ensure_default_provider_account()
+            .await
+            .expect("provider account");
+        store
+            .update_provider_account_status(
+                "provider_account:codex:default",
+                crate::ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .expect("authenticated provider");
+        store
+            .ensure_default_task_model_pool_settings("codex")
+            .await
+            .expect("task model settings");
+        let delegated = crate::daemon::task_tool::execute_task_delegate(
+            &store,
+            &crate::daemon::task_tool::TaskDelegateRuntimeContext {
+                conversation_id: "conversation:test".to_string(),
+                turn_id: "turn:test".to_string(),
+                user_item_id: "item:test".to_string(),
+                agent_id: "agent:primary".to_string(),
+                provider_kind: "codex".to_string(),
+                provider_account_id: "provider_account:codex:default".to_string(),
+                model_profile: Some("gpt-5.6-luna".to_string()),
+                reasoning_effort: Some(crate::provider::ReasoningEffort::Medium),
+            },
+            Some("call:test".to_string()),
+            &serde_json::json!({
+                "title": "Retry through GraphQL",
+                "request": "Complete the task",
+                "complexity": "simple",
+                "executor_model_pool_entry_id": "task_pool:setting:simple",
+                "validation_criteria": [{"description": "Completes"}]
+            }),
+        )
+        .await;
+        assert!(delegated.success);
+        let task_id = delegated.payload["task_id"]
+            .as_str()
+            .expect("task id")
+            .to_string();
+        let run = store
+            .list_agent_runs_for_task(&task_id)
+            .await
+            .expect("runs")
+            .into_iter()
+            .next()
+            .expect("executor run");
+        store
+            .transition_agent_run(
+                &run.run_id,
+                crate::RunStatus::Failed,
+                None,
+                Some(("provider_error".to_string(), "model missing".to_string())),
+            )
+            .await
+            .expect("failed run");
+        store
+            .transition_task(&task_id, crate::TaskStatus::Failed, Some("model missing"))
+            .await
+            .expect("failed task");
+        let schema = crate::graphql::build_schema(GraphqlState::for_tests_with_store(store));
+
+        let response = schema
+            .execute(async_graphql::Request::new(format!(
+                "mutation {{ retryTask(taskId: \"{task_id}\") {{ taskId status latestRunId errorMessage runs {{ attemptIndex status }} }} }}"
+            )))
+            .await
+            .into_result()
+            .expect("retry mutation");
+        let value = response.data.into_json().expect("retry json");
+
+        assert_eq!(value["retryTask"]["status"], "queued");
+        assert_eq!(value["retryTask"]["errorMessage"], serde_json::Value::Null);
+        assert_eq!(value["retryTask"]["runs"].as_array().map(Vec::len), Some(2));
+        assert_eq!(value["retryTask"]["runs"][1]["attemptIndex"], 1);
     }
 }

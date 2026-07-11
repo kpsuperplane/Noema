@@ -24,7 +24,11 @@ use crate::daemon::{
     memory::tool::{
         MemoryToolResult, MemoryToolRuntimeContext, execute_search_memory, is_search_memory_tool,
     },
-    task_tool::{TaskDelegateRuntimeContext, execute_task_delegate, is_task_delegate_tool},
+    task_tool::{
+        TaskAccessRuntimeContext, TaskDelegateRuntimeContext, execute_task_delegate,
+        execute_task_inspect, execute_task_retry, is_task_delegate_tool, is_task_inspect_tool,
+        is_task_retry_tool,
+    },
 };
 use crate::search::tool::{WebSearchToolResult, execute_web_search, is_web_search_tool};
 use crate::web_fetch::{
@@ -137,6 +141,29 @@ impl CodexRuntimeActor {
                     &call.payload,
                 )
                 .await,
+            }
+        } else if is_task_inspect_tool(&call.name) || is_task_retry_tool(&call.name) {
+            let context = TaskAccessRuntimeContext {
+                owner_human_id: "human:local".to_string(),
+                actor_id: agent_identity.agent_id.clone(),
+            };
+            let result = if is_task_inspect_tool(&call.name) {
+                execute_task_inspect(&self.store, &context, call.call_id.clone(), &call.payload)
+                    .await
+            } else {
+                execute_task_retry(&self.store, &context, call.call_id.clone(), &call.payload).await
+            };
+            LocalToolResult::Gateway {
+                call_id: result.call_id,
+                provider_call_id: call.provider_call_id.clone(),
+                provider_name: call.provider_name.clone(),
+                name: result.name,
+                arguments: call.payload.clone(),
+                result: GatewayToolResult {
+                    success: result.success,
+                    payload: result.payload,
+                    requires_provider_continuation: true,
+                },
             }
         } else if is_task_delegate_tool(&call.name) {
             let provider_account_id = self

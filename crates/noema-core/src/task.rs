@@ -135,7 +135,10 @@ impl TaskStatus {
             ) | (
                 Self::WaitingForHuman,
                 Self::Queued | Self::Executing | Self::Failed | Self::Cancelled
-            ) | (Self::Failed, Self::Queued | Self::Cancelled)
+            ) | (
+                Self::Failed,
+                Self::Queued | Self::Reviewing | Self::Cancelled
+            )
         )
     }
 }

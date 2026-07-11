@@ -560,6 +560,15 @@ pub struct MutationRoot;
 
 #[Object]
 impl MutationRoot {
+    /// Retry the latest failed run for one owner-authorized task.
+    async fn retry_task(&self, ctx: &Context<'_>, task_id: String) -> Result<GraphqlTaskDetail> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = ctx
+            .data_opt::<super::RequestPrincipal>()
+            .map_or("human:local", super::RequestPrincipal::subject_id);
+        tasks::retry_task(state, principal, task_id).await
+    }
+
     /// Replace one human-controlled executor model-pool entry.
     async fn update_task_model_pool_entry(
         &self,

@@ -6,7 +6,10 @@ use crate::{
         artifact_tool::artifact_create_local_file_tool_spec,
         memory::tool::search_memory_tool_spec,
         runtime::turn::{mcp_auth_status_label, mcp_health_status_label},
-        task_tool::task_delegate_tool_spec,
+        task_tool::{
+            TASK_INSPECT_TOOL, TASK_RETRY_TOOL, task_delegate_tool_spec, task_inspect_tool_spec,
+            task_retry_tool_spec,
+        },
     },
     mcp::{mcp_tool_ineligibility, prompt_safe_mcp_tool_description},
     provider::{
@@ -54,6 +57,7 @@ pub(super) async fn build_model_tools_for_role(
 ) -> Result<ModelTools, ToolContractError> {
     let mut builtin_tools = builtin_tool_specs(include_agent_name_tool)?;
     if role == ExecutionRole::PrimaryConversation {
+        builtin_tools.push(task_retry_tool_spec()?);
         let pool_entries = store
             .list_usable_task_model_pool_entries()
             .await
@@ -130,13 +134,13 @@ fn builtin_tool_access_class(name: &str) -> ToolAccessClass {
     match name {
         // This tool is read-only and can be safely used by executor/reviewer
         // roles once their scope context is supplied by the task runtime.
-        "search_memory" => ToolAccessClass::ReadOnly,
+        "search_memory" | TASK_INSPECT_TOOL => ToolAccessClass::ReadOnly,
         // The current artifact helper is conversation-owned.  Task-owned
         // artifact support must explicitly reclassify/declare its task tool
         // after the typed task context is implemented.
         "artifact.create_local_file" => ToolAccessClass::ConversationWrite,
         // Renaming the primary identity is a foreground-only control action.
-        "update_own_name" => ToolAccessClass::Internal,
+        "update_own_name" | TASK_RETRY_TOOL => ToolAccessClass::Internal,
         _ => ToolAccessClass::Internal,
     }
 }
@@ -144,7 +148,7 @@ fn builtin_tool_access_class(name: &str) -> ToolAccessClass {
 fn builtin_tool_specs(
     include_agent_name_tool: bool,
 ) -> Result<Vec<NoemaToolSpec>, ToolContractError> {
-    let mut specs = vec![search_memory_tool_spec()?];
+    let mut specs = vec![search_memory_tool_spec()?, task_inspect_tool_spec()?];
     if include_agent_name_tool {
         specs.push(update_own_name_tool_spec()?);
     }
@@ -301,8 +305,10 @@ mod tests {
             names,
             vec![
                 "search_memory",
+                "task.inspect",
                 "update_own_name",
                 "artifact.create_local_file",
+                "task.retry",
                 "web.search",
                 "web.fetch",
                 "mcp.mcp:docs.read"
@@ -365,8 +371,10 @@ mod tests {
             tools.legacy_builtin_envelope_tools,
             vec![
                 "search_memory".to_string(),
+                "task.inspect".to_string(),
                 "update_own_name".to_string(),
                 "artifact.create_local_file".to_string(),
+                "task.retry".to_string(),
             ]
         );
         assert!(
@@ -413,6 +421,18 @@ mod tests {
             .iter()
             .find(|tool| tool.name.as_str() == "task.delegate")
             .expect("task delegation tool");
+        assert!(
+            tools
+                .native
+                .iter()
+                .any(|tool| tool.name.as_str() == TASK_INSPECT_TOOL)
+        );
+        assert!(
+            tools
+                .native
+                .iter()
+                .any(|tool| tool.name.as_str() == TASK_RETRY_TOOL)
+        );
 
         let pool_ids = delegation.input_schema.as_value()["properties"]
             ["executor_model_pool_entry_id"]["enum"]
@@ -448,12 +468,15 @@ mod tests {
                 names,
                 vec![
                     "search_memory",
+                    "task.inspect",
                     "web.search",
                     "web.fetch",
                     "mcp.mcp:docs.read"
                 ]
             );
             assert!(tools.tool_policy.allows_tool("web.fetch"));
+            assert!(tools.tool_policy.allows_tool(TASK_INSPECT_TOOL));
+            assert!(!tools.tool_policy.allows_tool(TASK_RETRY_TOOL));
             assert!(!tools.tool_policy.allows_tool("artifact.create_local_file"));
             assert!(!tools.tool_policy.allows_tool("task.delegate"));
         }

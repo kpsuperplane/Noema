@@ -518,6 +518,100 @@ async fn task_lifecycle_queues_review_and_completion_delivery() {
     );
 }
 
+#[tokio::test]
+async fn failed_task_retry_queues_a_linked_attempt_and_clears_failure() {
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    store
+        .ensure_default_provider_account()
+        .await
+        .expect("provider account");
+    store
+        .update_provider_account_status(
+            "provider_account:codex:default",
+            crate::ProviderAccountStatus::Authenticated,
+            None,
+            None,
+        )
+        .await
+        .expect("authenticated provider account");
+    let pool = store
+        .ensure_default_task_model_pool_settings("codex")
+        .await
+        .expect("task model settings")
+        .into_iter()
+        .find(|entry| entry.complexity == crate::TaskComplexity::Simple)
+        .expect("simple task model");
+    let (task, failed_run) = store
+        .create_task_with_executor(crate::NewTask {
+            task_id: None,
+            title: "Retry task".to_string(),
+            request_markdown: "Try once more".to_string(),
+            complexity: crate::TaskComplexity::Simple,
+            owner_human_id: "human:local".to_string(),
+            source: crate::TaskSource::default(),
+            created_by_agent_id: "agent:primary".to_string(),
+            creation_tool_call_id: None,
+            pool_entry_id: pool.pool_entry_id,
+            executor_model: pool.model.clone(),
+            reviewer_model: pool.model,
+            max_review_rounds: None,
+            criteria: vec![crate::NewTaskValidationCriterion {
+                criterion_id: None,
+                ordinal: 1,
+                description: "Completes".to_string(),
+                expected_evidence: None,
+            }],
+        })
+        .await
+        .expect("task");
+    store
+        .transition_agent_run(
+            &failed_run.run_id,
+            crate::RunStatus::Failed,
+            None,
+            Some((
+                "provider_error".to_string(),
+                "model unavailable".to_string(),
+            )),
+        )
+        .await
+        .expect("failed run");
+    store
+        .transition_task(
+            &task.task_id,
+            crate::TaskStatus::Failed,
+            Some("model unavailable"),
+        )
+        .await
+        .expect("failed task");
+
+    let (retried_task, retried_run) = store
+        .retry_failed_task(&task.task_id, "human:local", "human:local")
+        .await
+        .expect("retry task");
+
+    assert_eq!(retried_task.status, crate::TaskStatus::Queued);
+    assert_eq!(
+        retried_task.latest_run_id.as_deref(),
+        Some(retried_run.run_id.as_str())
+    );
+    assert_eq!(retried_task.error_code, None);
+    assert_eq!(retried_task.error_message, None);
+    assert_eq!(
+        retried_run.parent_run_id.as_deref(),
+        Some(failed_run.run_id.as_str())
+    );
+    assert_eq!(retried_run.attempt_index, 1);
+    assert_eq!(retried_run.model, failed_run.model);
+    assert!(
+        store
+            .retry_failed_task(&task.task_id, "human:local", "human:local")
+            .await
+            .is_err()
+    );
+}
+
 async fn seed_external_artifact(
     store: &crate::NoemaStore,
     conversation_id: &str,

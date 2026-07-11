@@ -1359,6 +1359,10 @@ enum MultipleChoiceSelectionMode {
 
 type MutationRoot {
 	"""
+	Retry the latest failed run for one owner-authorized task.
+	"""
+	retryTask(taskId: String!): TaskDetail!
+	"""
 	Replace one human-controlled executor model-pool entry.
 	"""
 	updateTaskModelPoolEntry(poolEntryId: String!, input: TaskModelPoolEntryInput!): TaskModelPoolEntry!

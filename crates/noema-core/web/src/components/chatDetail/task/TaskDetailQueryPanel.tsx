@@ -1,7 +1,8 @@
-import { useQuery } from "@apollo/client/react";
+import { useMutation, useQuery } from "@apollo/client/react";
 import * as React from "react";
 import {
   TaskDetailDocument,
+  RetryTaskDocument,
   type TaskDetailQuery
 } from "@/generated/graphql";
 import { TaskDetailPanel } from "./TaskDetailPanel";
@@ -35,11 +36,24 @@ export function TaskDetailQueryPanel({
   onRetryTask?: (taskId: string) => void | Promise<void>;
   onExpandRevision?: (taskId: string, revision: number) => void;
 }) {
-  const { data, error, loading } = useQuery(TaskDetailDocument, {
+  const { data, error, loading, refetch } = useQuery(TaskDetailDocument, {
     fetchPolicy: "cache-and-network",
     variables: { taskId }
   });
+  const [retryTask] = useMutation(RetryTaskDocument);
   const detail = data?.task ? mapGraphqlTaskDetail(data.task) : null;
+
+  const handleRetryTask = React.useCallback(
+    async (retryTaskId: string) => {
+      if (onRetryTask) {
+        await onRetryTask(retryTaskId);
+      } else {
+        await retryTask({ variables: { taskId: retryTaskId } });
+      }
+      await refetch();
+    },
+    [onRetryTask, refetch, retryTask]
+  );
 
   React.useEffect(() => {
     onTitleChange?.(data?.task?.title ?? null);
@@ -52,7 +66,7 @@ export function TaskDetailQueryPanel({
       loading={loading}
       onCancelTask={onCancelTask}
       onExpandRevision={onExpandRevision}
-      onRetryTask={onRetryTask}
+      onRetryTask={handleRetryTask}
       taskId={taskId}
     />
   );

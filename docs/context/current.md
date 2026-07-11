@@ -146,10 +146,16 @@ The next storage slice should stay small and concrete:
 - Task references are first-class transcript items. The web chat renders a
   marker and opens a GraphQL-backed detail rail showing the request, criteria,
   revisions, executor/reviewer runs, model snapshots, submissions, reviews, and
-  final result. The three task model settings are editable through a local-human
-  GraphQL update mutation. The current task runtime intentionally exposes read-only search,
-  fetch, memory, and calibrated MCP tools to background roles; task-owned write
-  tools and richer workspace/project orchestration remain later milestones.
+  final result. Humans can retry failed tasks from that rail; retry preserves
+  the failed run and atomically queues a linked attempt with the same role,
+  revision, model snapshot, and trigger provenance. Agents can use the
+  read-only `task.inspect` tool to query owner-scoped durable task/run progress,
+  while the primary agent can use `task.retry` for the same canonical retry
+  operation as the UI. The three task model settings are editable through a
+  local-human GraphQL update mutation. The current task runtime intentionally
+  exposes read-only search, fetch, memory, task inspection, and calibrated MCP
+  tools to background roles; task-owned write tools and richer
+  workspace/project orchestration remain later milestones.
 - Memory is governed context, not hidden model state. Durable memory truth now
   belongs to local Mnemosyne, while Noema owns service lifecycle, configuration,
   live readiness proxying, provenance, UI, model routing, ingest diagnostics,
