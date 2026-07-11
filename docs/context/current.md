@@ -119,6 +119,24 @@ The next storage slice should stay small and concrete:
   Markdown local file versions render inline through GraphQL
   `artifactVersionDetail`; download is a secondary action in the rail, and there
   is intentionally no artifact URL route in this slice.
+- The first one-off background task slice is durable and supervised. The primary
+  agent's `task.delegate` tool validates a human-managed simple/medium/difficult
+  executor model pool entry, persists the request and immutable validation
+  criteria, and queues an executor run. A host-owned worker leases runs,
+  executes role-gated native read-only tools, records provider/model/usage
+  observations, creates a structured submission, queues an adversarial reviewer,
+  and either requests a bounded revision, waits for human input, or approves the
+  task. Approval queues exactly-once completion delivery back into the source
+  conversation and publishes a live transcript event. Reviewer configuration is
+  stored through the normal agent model preference surface for
+  `agent:task-reviewer`; executor selection is snapshotted per task.
+- Task references are first-class transcript items. The web chat renders a
+  marker and opens a GraphQL-backed detail rail showing the request, criteria,
+  revisions, executor/reviewer runs, model snapshots, submissions, reviews, and
+  final result. Pool entries have local-human GraphQL create/update/delete
+  mutations. The current task runtime intentionally exposes read-only search,
+  fetch, memory, and calibrated MCP tools to background roles; task-owned write
+  tools and richer workspace/project orchestration remain later milestones.
 - Memory is governed context, not hidden model state. Durable memory truth now
   belongs to local Mnemosyne, while Noema owns service lifecycle, configuration,
   live readiness proxying, provenance, UI, model routing, ingest diagnostics,
