@@ -83,3 +83,11 @@ persistence_id!(
     "A typed id for rows in `conversation_items`."
 );
 persistence_id!(ContextPacketId, "A typed id for rows in `context_packets`.");
+persistence_id!(TaskId, "A typed id for rows in `tasks`.");
+persistence_id!(AgentRunId, "A typed id for rows in `agent_runs`.");
+persistence_id!(
+    TaskSubmissionId,
+    "A typed id for rows in `task_submissions`."
+);
+persistence_id!(TaskReviewId, "A typed id for rows in `task_reviews`.");
+persistence_id!(TaskEventId, "A typed id for rows in task event streams.");

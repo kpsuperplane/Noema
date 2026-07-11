@@ -1,5 +1,6 @@
 use crate::{
     ProviderAccountStatus,
+    agent_execution::{ExecutionRole, ToolPolicy},
     capability::{CapabilityGateway, GatewayToolProposal, GatewayToolResult},
     provider::{DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateActionItem, GenerateToolResultInput},
     search::types::{DUCKDUCKGO_PUBLIC_PROVIDER_ID, SearchRuntimeProvider},
@@ -34,16 +35,48 @@ const EXA_API_BASE_URL: &str = "https://api.exa.ai";
 const PROVIDER_ACCOUNT_UNAUTHENTICATED: &str = "provider account unauthenticated";
 
 impl CodexRuntimeActor {
+    /// Execute a foreground tool with the legacy primary-agent policy.
+    ///
+    /// Background execution should call [`Self::execute_local_tool_with_policy`]
+    /// so the same allowlist used to build provider-visible tools is enforced
+    /// again at dispatch.
     pub(super) async fn execute_local_tool(
         &self,
         turn: &SuccessfulProviderTurn,
         agent_identity: &AgentPromptIdentity,
         call: &LocalToolCall,
     ) -> LocalToolResult {
+        let policy = ToolPolicy::for_role(ExecutionRole::PrimaryConversation);
+        self.execute_local_tool_with_policy(turn, agent_identity, call, &policy)
+            .await
+    }
+
+    /// Execute one local/MCP tool under an explicit role policy.
+    pub(super) async fn execute_local_tool_with_policy(
+        &self,
+        turn: &SuccessfulProviderTurn,
+        agent_identity: &AgentPromptIdentity,
+        call: &LocalToolCall,
+        policy: &ToolPolicy,
+    ) -> LocalToolResult {
         let gateway = CapabilityGateway {
             store: &self.store,
             system_errors: &self.system_errors,
         };
+        if !policy.allows_tool(&call.name) {
+            return LocalToolResult::Gateway {
+                call_id: call.call_id.clone(),
+                provider_call_id: call.provider_call_id.clone(),
+                provider_name: call.provider_name.clone(),
+                name: call.name.clone(),
+                arguments: call.payload.clone(),
+                result: GatewayToolResult {
+                    success: false,
+                    payload: json!({"error": "tool_not_allowed_for_execution_role"}),
+                    requires_provider_continuation: true,
+                },
+            };
+        }
         if is_search_memory_tool(&call.name) {
             let context = MemoryToolRuntimeContext {
                 conversation_id: turn.conversation_id.clone(),
@@ -186,7 +219,9 @@ impl CodexRuntimeActor {
                 provider_name: call.provider_name.clone(),
                 name: call.name.clone(),
                 arguments: call.payload.clone(),
-                result: gateway.execute_tool_proposal(proposal).await,
+                result: gateway
+                    .execute_tool_proposal_with_policy(proposal, policy)
+                    .await,
             }
         }
     }
@@ -780,6 +815,7 @@ mod tests {
                 legacy_builtin_envelope_tools: Vec::new(),
                 prompt_rows: Vec::new(),
                 unavailable_rows: Vec::new(),
+                tool_policy: crate::agent_execution::ToolPolicy::default(),
             },
             rendered_tools: String::new(),
             rendered_continuation_tools: String::new(),

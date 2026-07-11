@@ -4,6 +4,7 @@ use crate::{
     McpServerAuthStatus, McpServerHealthStatus, McpTransportKind, NoemaStore,
     SYSTEM_ERROR_MCP_MALFORMED_RESPONSE, SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE, SystemErrorEvent,
     SystemErrorLogger,
+    agent_execution::ToolPolicy,
     mcp::{
         McpClientError, McpClientRuntime, McpTransport, StdioMcpTransport,
         StreamableHttpMcpTransport, mcp_tool_ineligibility,
@@ -43,6 +44,28 @@ pub struct GatewayToolResult {
 }
 
 impl CapabilityGateway<'_> {
+    /// Execute a provider-proposed tool call after checking the role's exact
+    /// dispatch allowlist.
+    ///
+    /// The legacy [`Self::execute_tool_proposal`] entry point remains
+    /// available for foreground compatibility.  Background execution must use
+    /// this policy-aware entry point so hidden or forged tool names cannot
+    /// bypass the set advertised by its role-specific model builder.
+    pub async fn execute_tool_proposal_with_policy(
+        &self,
+        proposal: GatewayToolProposal<'_>,
+        policy: &ToolPolicy,
+    ) -> GatewayToolResult {
+        if !policy.allows_tool(proposal.name) {
+            return GatewayToolResult {
+                success: false,
+                payload: json!({"error": "tool_not_allowed_for_execution_role"}),
+                requires_provider_continuation: true,
+            };
+        }
+        self.execute_tool_proposal(proposal).await
+    }
+
     /// Execute or deny a provider-proposed tool call.
     pub async fn execute_tool_proposal(
         &self,
@@ -461,6 +484,37 @@ mod tests {
 
         assert!(!result.success);
         assert_eq!(result.payload["error"], "unknown_tool");
+        assert!(result.requires_provider_continuation);
+    }
+
+    #[tokio::test]
+    async fn policy_aware_gateway_rejects_hidden_tool_before_mcp_lookup() {
+        let store = test_store().await;
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let system_errors = SystemErrorLogger::new(temp_dir.path().join("errors.log"));
+        let gateway = CapabilityGateway {
+            store: &store,
+            system_errors: &system_errors,
+        };
+        let policy = crate::agent_execution::ToolPolicy::for_role(
+            crate::agent_execution::ExecutionRole::TaskReviewer,
+        );
+
+        let result = gateway
+            .execute_tool_proposal_with_policy(
+                GatewayToolProposal {
+                    name: "mcp.hidden.write",
+                    payload: &json!({"arguments": {}}),
+                },
+                &policy,
+            )
+            .await;
+
+        assert!(!result.success);
+        assert_eq!(
+            result.payload["error"],
+            "tool_not_allowed_for_execution_role"
+        );
         assert!(result.requires_provider_continuation);
     }
 

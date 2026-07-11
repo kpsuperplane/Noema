@@ -23,6 +23,10 @@ pub enum ObjectType {
     Relationship,
     /// A retrieval/context packet.
     ContextPacket,
+    /// A durable one-off background task.
+    Task,
+    /// A durable executor, reviewer, or delivery run.
+    AgentRun,
 }
 
 impl ObjectType {
@@ -39,6 +43,8 @@ impl ObjectType {
             Self::Entity => "entity",
             Self::Relationship => "relationship",
             Self::ContextPacket => "context_packet",
+            Self::Task => "task",
+            Self::AgentRun => "agent_run",
         }
     }
 
@@ -59,6 +65,8 @@ impl ObjectType {
             "entity" => Ok(Self::Entity),
             "relationship" => Ok(Self::Relationship),
             "context_packet" => Ok(Self::ContextPacket),
+            "task" => Ok(Self::Task),
+            "agent_run" => Ok(Self::AgentRun),
             _ => Err(MemoryPersistenceError::InvalidObjectType {
                 value: value.to_string(),
             }),
@@ -78,6 +86,8 @@ impl ObjectType {
             Self::Entity => "entities",
             Self::Relationship => "relationships",
             Self::ContextPacket => "context_packets",
+            Self::Task => "tasks",
+            Self::AgentRun => "agent_runs",
         }
     }
 
@@ -94,6 +104,8 @@ impl ObjectType {
             Self::Entity => "entity_id",
             Self::Relationship => "relationship_id",
             Self::ContextPacket => "context_packet_id",
+            Self::Task => "task_id",
+            Self::AgentRun => "run_id",
         }
     }
 }
@@ -255,6 +267,18 @@ impl ObjectRef {
     pub fn conversation_item(object_id: impl Into<String>) -> Self {
         Self::new(ObjectType::ConversationItem, object_id)
             .expect("conversation item object id must not be empty")
+    }
+
+    /// Reference a durable task row.
+    #[must_use]
+    pub fn task(object_id: impl Into<String>) -> Self {
+        Self::new(ObjectType::Task, object_id).expect("task object id must not be empty")
+    }
+
+    /// Reference a durable agent run row.
+    #[must_use]
+    pub fn agent_run(object_id: impl Into<String>) -> Self {
+        Self::new(ObjectType::AgentRun, object_id).expect("agent run object id must not be empty")
     }
 }
 

@@ -1,5 +1,6 @@
 use crate::{
     McpServerAuthStatus, McpServerHealthStatus, NoemaStore,
+    agent_execution::{ExecutionRole, ToolAccessClass, ToolPolicy},
     daemon::{
         agent_name_tool::update_own_name_tool_spec,
         artifact_tool::artifact_create_local_file_tool_spec,
@@ -21,6 +22,8 @@ pub(in crate::daemon) struct ModelTools {
     pub(in crate::daemon) legacy_builtin_envelope_tools: Vec<String>,
     pub(in crate::daemon) prompt_rows: Vec<String>,
     pub(in crate::daemon) unavailable_rows: Vec<String>,
+    /// Exact names advertised for this role and safe to dispatch.
+    pub(in crate::daemon) tool_policy: ToolPolicy,
 }
 
 pub(super) async fn build_model_tools(
@@ -28,17 +31,51 @@ pub(super) async fn build_model_tools(
     include_agent_name_tool: bool,
     capabilities: ProviderToolCapabilities,
 ) -> Result<ModelTools, ToolContractError> {
+    build_model_tools_for_role(
+        store,
+        ExecutionRole::PrimaryConversation,
+        include_agent_name_tool,
+        capabilities,
+    )
+    .await
+}
+
+/// Build tools for one explicit execution role.
+///
+/// The primary wrapper above preserves the current foreground call sites.
+/// Background execution should call this role-aware entry point and pass the
+/// resulting policy to dispatch as well as to the provider request builder.
+pub(super) async fn build_model_tools_for_role(
+    store: &NoemaStore,
+    role: ExecutionRole,
+    include_agent_name_tool: bool,
+    capabilities: ProviderToolCapabilities,
+) -> Result<ModelTools, ToolContractError> {
     let builtin_tools = builtin_tool_specs(include_agent_name_tool)?;
     let web_search_tool = web_search_tool_spec()?;
     let web_fetch_tool = web_fetch_tool_spec()?;
     let unavailable_rows = unavailable_mcp_rows(store).await?;
+    let mut tool_policy = ToolPolicy::for_role(role);
+    let mut declared_builtin_tools = Vec::new();
+    for tool in builtin_tools {
+        let class = builtin_tool_access_class(tool.name.as_str());
+        if tool_policy.declare_tool(tool.name.as_str(), class) {
+            declared_builtin_tools.push(tool);
+        }
+    }
+    let declared_web_tools = [web_search_tool, web_fetch_tool]
+        .into_iter()
+        .filter(|tool| tool_policy.declare_tool(tool.name.as_str(), ToolAccessClass::ReadOnly))
+        .collect::<Vec<_>>();
 
     if capabilities.native_tools {
-        let mut native = builtin_tools.clone();
-        native.push(web_search_tool);
-        native.push(web_fetch_tool);
+        let mut native = declared_builtin_tools.clone();
+        native.extend(declared_web_tools.iter().cloned());
         let mut prompt_rows = prompt_rows(&native);
         for mcp_tool in calibrated_mcp_tool_specs(store).await? {
+            if !tool_policy.declare_tool(mcp_tool.spec.name.as_str(), ToolAccessClass::ReadOnly) {
+                continue;
+            }
             prompt_rows.push(format!(
                 "- mcp\t{}\t{}",
                 mcp_tool.spec.name, mcp_tool.prompt_description
@@ -50,13 +87,14 @@ pub(super) async fn build_model_tools(
             native,
             legacy_builtin_envelope_tools: Vec::new(),
             unavailable_rows,
+            tool_policy,
         });
     }
 
     let builtin_envelope_fallback =
         capabilities.fallback_mode == ProviderToolFallbackMode::BuiltinOnlyEnvelope;
     let legacy_builtin_envelope_tools = if builtin_envelope_fallback {
-        builtin_tools
+        declared_builtin_tools
             .iter()
             .map(|tool| tool.name.as_str().to_string())
             .collect()
@@ -64,7 +102,7 @@ pub(super) async fn build_model_tools(
         Vec::new()
     };
     let prompt_rows = if builtin_envelope_fallback {
-        prompt_rows(&builtin_tools)
+        prompt_rows(&declared_builtin_tools)
     } else {
         Vec::new()
     };
@@ -74,7 +112,23 @@ pub(super) async fn build_model_tools(
         prompt_rows,
         legacy_builtin_envelope_tools,
         unavailable_rows,
+        tool_policy,
     })
+}
+
+fn builtin_tool_access_class(name: &str) -> ToolAccessClass {
+    match name {
+        // This tool is read-only and can be safely used by executor/reviewer
+        // roles once their scope context is supplied by the task runtime.
+        "search_memory" => ToolAccessClass::ReadOnly,
+        // The current artifact helper is conversation-owned.  Task-owned
+        // artifact support must explicitly reclassify/declare its task tool
+        // after the typed task context is implemented.
+        "artifact.create_local_file" => ToolAccessClass::ConversationWrite,
+        // Renaming the primary identity is a foreground-only control action.
+        "update_own_name" => ToolAccessClass::Internal,
+        _ => ToolAccessClass::Internal,
+    }
 }
 
 fn builtin_tool_specs(
@@ -311,6 +365,41 @@ mod tests {
                 .iter()
                 .all(|row| !row.contains("mcp.mcp:docs.read"))
         );
+    }
+
+    #[tokio::test]
+    async fn background_roles_expose_only_read_only_declared_tools() {
+        let store = crate::store::tests::test_store().await;
+        seed_ready_mcp_tool(&store).await;
+
+        let capabilities = ProviderToolCapabilities {
+            native_tools: true,
+            native_tool_results: true,
+            ..ProviderToolCapabilities::default()
+        };
+        for role in [ExecutionRole::TaskExecutor, ExecutionRole::TaskReviewer] {
+            let tools = build_model_tools_for_role(&store, role, true, capabilities)
+                .await
+                .expect("role-aware tools");
+            let names = tools
+                .native
+                .iter()
+                .map(|tool| tool.name.as_str())
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                names,
+                vec![
+                    "search_memory",
+                    "web.search",
+                    "web.fetch",
+                    "mcp.mcp:docs.read"
+                ]
+            );
+            assert!(tools.tool_policy.allows_tool("web.fetch"));
+            assert!(!tools.tool_policy.allows_tool("artifact.create_local_file"));
+            assert!(!tools.tool_policy.allows_tool("task.delegate"));
+        }
     }
 
     #[tokio::test]

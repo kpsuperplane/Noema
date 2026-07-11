@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS humans (
 CREATE TABLE IF NOT EXISTS agents (
   agent_id TEXT PRIMARY KEY NOT NULL,
   display_name TEXT,
+  system_role TEXT CHECK (system_role IS NULL OR system_role IN ('primary', 'task_executor', 'task_reviewer')),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
@@ -276,5 +277,226 @@ CREATE TABLE IF NOT EXISTS memory_article_cache (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
+
+-- Background task orchestration is intentionally concrete in this first slice.
+-- Projection rows are authoritative current state; event rows below provide the
+-- append-only explanation used by the worker and inspection surfaces.
+CREATE TABLE IF NOT EXISTS task_model_pool_entries (
+  pool_entry_id TEXT PRIMARY KEY NOT NULL,
+  complexity TEXT NOT NULL CHECK (complexity IN ('simple', 'medium', 'difficult')),
+  label TEXT,
+  provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local')),
+  provider_account_id TEXT NOT NULL,
+  model_profile TEXT NOT NULL CHECK (model_profile <> ''),
+  reasoning_effort TEXT CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
+  enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  UNIQUE(complexity, provider_account_id, model_profile, reasoning_effort)
+);
+
+CREATE INDEX IF NOT EXISTS task_model_pool_entries_selection
+ON task_model_pool_entries(complexity, enabled, sort_order, label, pool_entry_id);
+
+CREATE TABLE IF NOT EXISTS tasks (
+  task_id TEXT PRIMARY KEY NOT NULL,
+  title TEXT NOT NULL CHECK (title <> ''),
+  request_markdown TEXT NOT NULL CHECK (request_markdown <> ''),
+  complexity TEXT NOT NULL CHECK (complexity IN ('simple', 'medium', 'difficult')),
+  status TEXT NOT NULL CHECK (status IN ('queued', 'executing', 'reviewing', 'revision_requested', 'waiting_for_human', 'completed', 'failed', 'cancelled')),
+  owner_human_id TEXT NOT NULL,
+  source_conversation_id TEXT,
+  source_turn_id TEXT,
+  source_item_id TEXT,
+  created_by_agent_id TEXT NOT NULL,
+  creation_tool_call_id TEXT,
+  pool_entry_id TEXT NOT NULL,
+  executor_provider_kind TEXT NOT NULL CHECK (executor_provider_kind IN ('codex', 'openai', 'foundation_local')),
+  executor_provider_account_id TEXT NOT NULL,
+  executor_selection_mode TEXT NOT NULL CHECK (executor_selection_mode IN ('explicit_profile', 'provider_default')),
+  executor_model_profile TEXT,
+  executor_reasoning_effort TEXT CHECK (executor_reasoning_effort IS NULL OR executor_reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
+  executor_selection_source TEXT,
+  reviewer_provider_kind TEXT NOT NULL CHECK (reviewer_provider_kind IN ('codex', 'openai', 'foundation_local')),
+  reviewer_provider_account_id TEXT NOT NULL,
+  reviewer_selection_mode TEXT NOT NULL CHECK (reviewer_selection_mode IN ('explicit_profile', 'provider_default')),
+  reviewer_model_profile TEXT,
+  reviewer_reasoning_effort TEXT CHECK (reviewer_reasoning_effort IS NULL OR reviewer_reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
+  reviewer_selection_source TEXT,
+  revision_index INTEGER NOT NULL DEFAULT 0 CHECK (revision_index >= 0),
+  max_review_rounds INTEGER NOT NULL DEFAULT 3 CHECK (max_review_rounds > 0),
+  final_submission_id TEXT,
+  latest_run_id TEXT,
+  terminal_reason TEXT,
+  error_code TEXT,
+  error_message TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  completed_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS tasks_status_queue
+ON tasks(status, updated_at, task_id);
+CREATE INDEX IF NOT EXISTS tasks_owner_source
+ON tasks(owner_human_id, source_conversation_id, created_at);
+
+CREATE TABLE IF NOT EXISTS task_validation_criteria (
+  criterion_id TEXT PRIMARY KEY NOT NULL,
+  task_id TEXT NOT NULL,
+  ordinal INTEGER NOT NULL CHECK (ordinal >= 1),
+  description TEXT NOT NULL CHECK (description <> ''),
+  expected_evidence TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  UNIQUE(task_id, ordinal),
+  UNIQUE(task_id, description)
+);
+
+CREATE INDEX IF NOT EXISTS task_validation_criteria_task
+ON task_validation_criteria(task_id, ordinal, criterion_id);
+
+CREATE TABLE IF NOT EXISTS agent_runs (
+  run_id TEXT PRIMARY KEY NOT NULL,
+  task_id TEXT NOT NULL,
+  run_kind TEXT NOT NULL CHECK (run_kind IN ('executor', 'reviewer', 'completion_delivery')),
+  agent_id TEXT NOT NULL,
+  attempt_index INTEGER NOT NULL DEFAULT 0 CHECK (attempt_index >= 0),
+  revision_index INTEGER NOT NULL DEFAULT 0 CHECK (revision_index >= 0),
+  parent_run_id TEXT,
+  triggering_submission_id TEXT,
+  triggering_review_id TEXT,
+  provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local')),
+  provider_account_id TEXT NOT NULL,
+  selection_mode TEXT NOT NULL CHECK (selection_mode IN ('explicit_profile', 'provider_default')),
+  model_profile TEXT,
+  reasoning_effort TEXT CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
+  selection_source TEXT,
+  actual_provider_kind TEXT,
+  actual_model_profile TEXT,
+  status TEXT NOT NULL CHECK (status IN ('queued', 'leased', 'running', 'completed', 'waiting_for_approval', 'interrupted', 'failed', 'cancelled')),
+  priority INTEGER NOT NULL DEFAULT 0,
+  queued_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  lease_owner TEXT,
+  lease_token TEXT,
+  lease_expires_at TEXT,
+  heartbeat_at TEXT,
+  started_at TEXT,
+  ended_at TEXT,
+  cancellation_requested INTEGER NOT NULL DEFAULT 0 CHECK (cancellation_requested IN (0, 1)),
+  retry_count INTEGER NOT NULL DEFAULT 0 CHECK (retry_count >= 0),
+  error_code TEXT,
+  error_message TEXT,
+  input_tokens INTEGER CHECK (input_tokens IS NULL OR input_tokens >= 0),
+  output_tokens INTEGER CHECK (output_tokens IS NULL OR output_tokens >= 0),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS agent_runs_queue
+ON agent_runs(status, priority DESC, queued_at, run_id);
+CREATE INDEX IF NOT EXISTS agent_runs_task_history
+ON agent_runs(task_id, created_at, run_id);
+CREATE INDEX IF NOT EXISTS agent_runs_expired_leases
+ON agent_runs(status, lease_expires_at);
+CREATE INDEX IF NOT EXISTS agent_runs_parent
+ON agent_runs(parent_run_id, created_at);
+
+CREATE TABLE IF NOT EXISTS agent_run_items (
+  item_id TEXT PRIMARY KEY NOT NULL,
+  run_id TEXT NOT NULL,
+  sequence_index INTEGER NOT NULL CHECK (sequence_index >= 1),
+  kind TEXT NOT NULL CHECK (kind IN ('model_input', 'assistant_output', 'tool_call', 'tool_result', 'progress_notice', 'task_submission', 'task_review', 'artifact_reference', 'failure', 'cancellation')),
+  content_text TEXT,
+  payload_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(payload_json)),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  UNIQUE(run_id, sequence_index)
+);
+
+CREATE INDEX IF NOT EXISTS agent_run_items_run_sequence
+ON agent_run_items(run_id, sequence_index, item_id);
+
+CREATE TABLE IF NOT EXISTS task_submissions (
+  submission_id TEXT PRIMARY KEY NOT NULL,
+  task_id TEXT NOT NULL,
+  executor_run_id TEXT NOT NULL,
+  revision_index INTEGER NOT NULL CHECK (revision_index >= 0),
+  summary TEXT NOT NULL CHECK (summary <> ''),
+  result_markdown TEXT NOT NULL CHECK (result_markdown <> ''),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  UNIQUE(task_id, revision_index)
+);
+
+CREATE TABLE IF NOT EXISTS task_submission_criteria (
+  submission_id TEXT NOT NULL,
+  criterion_id TEXT NOT NULL,
+  evidence_markdown TEXT NOT NULL CHECK (evidence_markdown <> ''),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY(submission_id, criterion_id)
+);
+
+CREATE TABLE IF NOT EXISTS task_submission_artifacts (
+  submission_id TEXT NOT NULL,
+  artifact_id TEXT NOT NULL,
+  artifact_version_id TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY(submission_id, artifact_id, artifact_version_id)
+);
+
+CREATE INDEX IF NOT EXISTS task_submissions_task
+ON task_submissions(task_id, revision_index, created_at);
+
+CREATE TABLE IF NOT EXISTS task_reviews (
+  review_id TEXT PRIMARY KEY NOT NULL,
+  task_id TEXT NOT NULL,
+  reviewer_run_id TEXT NOT NULL,
+  reviewed_submission_id TEXT NOT NULL,
+  overall_verdict TEXT NOT NULL CHECK (overall_verdict IN ('approve', 'request_changes', 'needs_human')),
+  overall_feedback TEXT NOT NULL CHECK (overall_feedback <> ''),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE TABLE IF NOT EXISTS task_review_criteria (
+  review_id TEXT NOT NULL,
+  criterion_id TEXT NOT NULL,
+  outcome TEXT NOT NULL CHECK (outcome IN ('pass', 'fail', 'uncertain')),
+  evidence_markdown TEXT,
+  feedback TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY(review_id, criterion_id)
+);
+
+CREATE INDEX IF NOT EXISTS task_reviews_task
+ON task_reviews(task_id, created_at, review_id);
+
+CREATE TABLE IF NOT EXISTS task_events (
+  event_id TEXT PRIMARY KEY NOT NULL,
+  task_id TEXT NOT NULL,
+  sequence_number INTEGER NOT NULL CHECK (sequence_number >= 1),
+  event_kind TEXT NOT NULL CHECK (event_kind <> ''),
+  actor_id TEXT NOT NULL,
+  causation_id TEXT,
+  correlation_id TEXT,
+  payload_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(payload_json)),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  UNIQUE(task_id, sequence_number)
+);
+
+CREATE TABLE IF NOT EXISTS run_events (
+  event_id TEXT PRIMARY KEY NOT NULL,
+  run_id TEXT NOT NULL,
+  sequence_number INTEGER NOT NULL CHECK (sequence_number >= 1),
+  event_kind TEXT NOT NULL CHECK (event_kind <> ''),
+  actor_id TEXT NOT NULL,
+  causation_id TEXT,
+  correlation_id TEXT,
+  payload_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(payload_json)),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  UNIQUE(run_id, sequence_number)
+);
+
+CREATE INDEX IF NOT EXISTS task_events_task_sequence
+ON task_events(task_id, sequence_number, event_id);
+CREATE INDEX IF NOT EXISTS run_events_run_sequence
+ON run_events(run_id, sequence_number, event_id);
 
 "#;

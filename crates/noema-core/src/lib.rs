@@ -4,6 +4,8 @@
 //! runtime support, home-directory setup, path resolution, and the memory
 //! retrieval model.
 
+/// Shared execution roles and role-aware tool dispatch policy.
+pub mod agent_execution;
 /// Governed artifact filesystem helpers and local artifact writers.
 pub mod artifacts;
 /// Capability Gateway runtime entrypoint.
@@ -44,6 +46,8 @@ pub mod search;
 pub mod store;
 /// Developer diagnostic system error logging.
 pub mod system_errors;
+/// Durable one-off task vocabulary and workflow contracts.
+pub mod task;
 #[doc(hidden)]
 pub mod web_fetch;
 
@@ -70,7 +74,10 @@ pub use home::{
     DEFAULT_NOEMA_CONFIG_YAML, NoemaHomeError, NoemaHomeInitOptions, NoemaHomeInitResult,
     init_noema_home,
 };
-pub use ids::{ActorId, ContextPacketId, ConversationId, ConversationItemId, ObjectId};
+pub use ids::{
+    ActorId, AgentRunId, ContextPacketId, ConversationId, ConversationItemId, ObjectId,
+    TaskEventId, TaskId, TaskReviewId, TaskSubmissionId,
+};
 pub use mcp::{McpCalibrationStatus, McpTransportKind, McpTrustClassification};
 pub use memory::error::MemoryPersistenceError;
 pub use memory_model_proxy::{MemoryModelProxy, MemoryModelProxyConfig, MemoryModelProxyError};
@@ -99,18 +106,26 @@ pub use provider::{
 };
 pub use runtime_host::{NoemaRuntimeHost, RuntimeHostError};
 pub use store::{
-    AgentRecord, AgentRuntimePreferenceRecord, ArtifactOwnerRef, ArtifactRecord, ArtifactSource,
-    ArtifactStorageKind, ArtifactVersionRecord, ArtifactVersionStorage, ArtifactWithVersions,
-    AuxiliaryModelPreferenceRecord, ConversationContextSummaryRecord, McpServerAuthStatus,
-    McpServerHealthStatus, McpServerRecord, McpToolRecord, MemoryArticleCacheRecord,
-    MemoryServiceMode, MemoryServiceSettingsRecord, NewAgent, NewAgentRuntimePreference,
-    NewArtifact, NewArtifactVersion, NewAuxiliaryModelPreference, NewConversationContextSummary,
-    NewMcpServer, NewMcpTool, NewToolCalibration, NoemaStore, SaveMemoryArticleCache,
-    SaveMemoryServiceSettings, StoreConfig, StoreError, ToolCalibrationRecord,
-    WEB_FETCH_SUMMARIZER_TASK_ID, validate_external_artifact_url,
+    AgentRecord, AgentRunRecord, AgentRuntimePreferenceRecord, AgentSystemRole, ArtifactOwnerRef,
+    ArtifactRecord, ArtifactSource, ArtifactStorageKind, ArtifactVersionRecord,
+    ArtifactVersionStorage, ArtifactWithVersions, AuxiliaryModelPreferenceRecord,
+    ConversationContextSummaryRecord, McpServerAuthStatus, McpServerHealthStatus, McpServerRecord,
+    McpToolRecord, MemoryArticleCacheRecord, MemoryServiceMode, MemoryServiceSettingsRecord,
+    NewAgent, NewAgentRun, NewAgentRuntimePreference, NewArtifact, NewArtifactVersion,
+    NewAuxiliaryModelPreference, NewConversationContextSummary, NewMcpServer, NewMcpTool,
+    NewTaskModelPoolEntry, NewToolCalibration, NoemaStore, SaveMemoryArticleCache,
+    SaveMemoryServiceSettings, StoreConfig, StoreError, TaskModelPoolEntry, TaskRecord,
+    ToolCalibrationRecord, WEB_FETCH_SUMMARIZER_TASK_ID, validate_external_artifact_url,
 };
 pub use system_errors::{
     SYSTEM_ERROR_MCP_MALFORMED_RESPONSE, SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE,
     SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SYSTEM_ERROR_RUNTIME_INVARIANT,
     SYSTEM_ERROR_STORE_INVARIANT, SystemErrorEvent, SystemErrorLogger, SystemErrorWriteError,
+};
+pub use task::{
+    CriterionOutcome, DEFAULT_TASK_MAX_REVIEW_ROUNDS, ModelConfigError, ModelConfigSnapshot,
+    ModelSelectionMode, NewTask, NewTaskReview, NewTaskSubmission, NewTaskValidationCriterion,
+    RunKind, RunStatus, SubmissionCriterionEvidence, TASK_EXECUTOR_AGENT_ID,
+    TASK_REVIEWER_AGENT_ID, TaskComplexity, TaskDomainError, TaskReviewCriterion,
+    TaskReviewVerdict, TaskSource, TaskStatus, TaskValidationCriterion,
 };

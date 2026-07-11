@@ -2,6 +2,41 @@ use rusqlite::{OptionalExtension, params};
 
 use super::{NoemaStore, StoreError};
 
+/// Explicit built-in role for an agent row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentSystemRole {
+    /// The foreground user-facing agent.
+    Primary,
+    /// The stable identity used by background task executors.
+    TaskExecutor,
+    /// The stable identity used by background task reviewers.
+    TaskReviewer,
+}
+
+impl AgentSystemRole {
+    /// Return the stable SQLite representation.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Primary => "primary",
+            Self::TaskExecutor => "task_executor",
+            Self::TaskReviewer => "task_reviewer",
+        }
+    }
+
+    fn parse(value: &str) -> Result<Self, StoreError> {
+        match value {
+            "primary" => Ok(Self::Primary),
+            "task_executor" => Ok(Self::TaskExecutor),
+            "task_reviewer" => Ok(Self::TaskReviewer),
+            other => Err(StoreError::InvalidEnum {
+                kind: "agent_system_role",
+                value: other.to_string(),
+            }),
+        }
+    }
+}
+
 /// Input for creating a durable agent row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewAgent {
@@ -29,6 +64,8 @@ pub struct AgentRecord {
     pub agent_id: String,
     /// Optional human-visible agent name.
     pub display_name: Option<String>,
+    /// Explicit built-in role, when this is a system agent.
+    pub system_role: Option<AgentSystemRole>,
 }
 
 impl NoemaStore {
@@ -49,9 +86,25 @@ impl NoemaStore {
             )?;
             conn.execute(
                 r#"
-                INSERT INTO agents (agent_id, display_name)
-                VALUES ('agent:primary', NULL)
-                ON CONFLICT(agent_id) DO NOTHING
+                INSERT INTO agents (agent_id, display_name, system_role)
+                VALUES ('agent:primary', NULL, 'primary')
+                ON CONFLICT(agent_id) DO UPDATE SET system_role = 'primary', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                "#,
+                [],
+            )?;
+            conn.execute(
+                r#"
+                INSERT INTO agents (agent_id, display_name, system_role)
+                VALUES ('agent:task-executor', 'Task Executor', 'task_executor')
+                ON CONFLICT(agent_id) DO UPDATE SET system_role = 'task_executor', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                "#,
+                [],
+            )?;
+            conn.execute(
+                r#"
+                INSERT INTO agents (agent_id, display_name, system_role)
+                VALUES ('agent:task-reviewer', 'Task Reviewer', 'task_reviewer')
+                ON CONFLICT(agent_id) DO UPDATE SET system_role = 'task_reviewer', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                 "#,
                 [],
             )?;
@@ -123,7 +176,7 @@ impl NoemaStore {
         self.with_connection(|conn| {
             conn.query_row(
                 r#"
-                SELECT agent_id, display_name
+                SELECT agent_id, display_name, system_role
                 FROM agents
                 WHERE agent_id = ?1
                 LIMIT 1
@@ -146,10 +199,10 @@ impl NoemaStore {
         self.with_connection(|conn| {
             let mut statement = conn.prepare(
                 r#"
-                SELECT agent_id, display_name
+                SELECT agent_id, display_name, system_role
                 FROM agents
                 ORDER BY
-                  CASE WHEN agent_id = 'agent:primary' THEN 0 ELSE 1 END,
+                  CASE system_role WHEN 'primary' THEN 0 WHEN 'task_executor' THEN 1 WHEN 'task_reviewer' THEN 2 ELSE 3 END,
                   CASE WHEN display_name IS NULL THEN 1 ELSE 0 END,
                   display_name,
                   agent_id
@@ -208,9 +261,21 @@ impl NoemaStore {
 }
 
 fn agent_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRecord> {
+    let system_role: Option<String> = row.get(2)?;
     Ok(AgentRecord {
         agent_id: row.get(0)?,
         display_name: row.get(1)?,
+        system_role: system_role
+            .as_deref()
+            .map(AgentSystemRole::parse)
+            .transpose()
+            .map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    2,
+                    rusqlite::types::Type::Text,
+                    Box::new(error),
+                )
+            })?,
     })
 }
 

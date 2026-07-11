@@ -9,19 +9,33 @@ import {
   type ArtifactDetail
 } from "./ArtifactDetailPanel";
 import type { ChatDetailTarget } from "./chatDetailTypes";
+import { TaskDetailPanel } from "./task/TaskDetailPanel";
+import type { TaskDetail } from "./task/taskTypes";
 
 export function ChatDetailRail({
   target,
   motionState,
   onChangeVersion,
   onClose,
-  onMotionEnd
+  onMotionEnd,
+  taskDetail,
+  taskDetailLoading = false,
+  taskDetailError = null,
+  onCancelTask,
+  onRetryTask,
+  onExpandTaskRevision
 }: {
   target: ChatDetailTarget;
   motionState: "opening" | "entering" | "open" | "exiting";
   onChangeVersion: (version: string) => void;
   onClose: () => void;
   onMotionEnd: () => void;
+  taskDetail?: TaskDetail | null;
+  taskDetailLoading?: boolean;
+  taskDetailError?: string | null;
+  onCancelTask?: (taskId: string) => void | Promise<void>;
+  onRetryTask?: (taskId: string) => void | Promise<void>;
+  onExpandTaskRevision?: (taskId: string, revision: number) => void;
 }) {
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
   const [artifactDetailState, setArtifactDetailState] = React.useState<{
@@ -29,9 +43,16 @@ export function ChatDetailRail({
     detail: ArtifactDetail | null;
     latestDetail: ArtifactDetail | null;
   } | null>(null);
-  const artifactDetail = artifactDetailState?.version === target.version ? artifactDetailState.detail : null;
+  const artifactVersion = target.type === "artifact" ? target.version : null;
+  const artifactDetail = artifactVersion && artifactDetailState?.version === artifactVersion
+    ? artifactDetailState.detail
+    : null;
   const latestArtifactDetail = artifactDetailState?.latestDetail ?? null;
-  const title = artifactDetail?.title ?? latestArtifactDetail?.title ?? (target.type === "artifact" ? "Artifact" : "Details");
+  const currentTaskDetail = target.type === "task" && taskDetail?.taskId === target.taskId ? taskDetail : null;
+  const title = artifactDetail?.title ??
+    latestArtifactDetail?.title ??
+    currentTaskDetail?.title ??
+    (target.type === "artifact" ? "Artifact" : "Task details");
 
   React.useEffect(() => {
     if (motionState === "open") {
@@ -50,13 +71,16 @@ export function ChatDetailRail({
 
   const updateArtifactDetail = React.useCallback(
     (detail: ArtifactDetail | null) => {
+      if (!artifactVersion) {
+        return;
+      }
       setArtifactDetailState((previous) => ({
-        version: target.version,
+        version: artifactVersion,
         detail,
         latestDetail: detail ?? previous?.latestDetail ?? null
       }));
     },
-    [target.version]
+    [artifactVersion]
   );
 
   return (
@@ -102,7 +126,17 @@ export function ChatDetailRail({
         <div {...stylex.props(styles.body)}>
           {target.type === "artifact" ? (
             <ArtifactDetailPanel version={target.version} onDetailChange={updateArtifactDetail} />
-          ) : null}
+          ) : (
+            <TaskDetailPanel
+              detail={currentTaskDetail}
+              error={taskDetailError}
+              loading={taskDetailLoading}
+              onCancelTask={onCancelTask}
+              onExpandRevision={onExpandTaskRevision}
+              onRetryTask={onRetryTask}
+              taskId={target.taskId}
+            />
+          )}
         </div>
       </div>
     </aside>

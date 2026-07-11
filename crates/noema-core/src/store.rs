@@ -1,5 +1,6 @@
 //! SQLite-backed canonical Noema store.
 
+mod agent_runs;
 mod agent_runtime_preferences;
 mod agents;
 mod artifacts;
@@ -15,12 +16,16 @@ mod provider_capability_bindings;
 mod runtime;
 mod schema;
 mod sqlite;
+mod task_events;
+mod task_model_pools;
+mod tasks;
 
 #[cfg(test)]
 pub(crate) mod tests;
 
+pub use agent_runs::{AgentRunRecord, NewAgentRun};
 pub use agent_runtime_preferences::{AgentRuntimePreferenceRecord, NewAgentRuntimePreference};
-pub use agents::{AgentRecord, HumanRecord, NewAgent};
+pub use agents::{AgentRecord, AgentSystemRole, HumanRecord, NewAgent};
 pub use artifacts::{
     ArtifactOwnerRef, ArtifactRecord, ArtifactSource, ArtifactStorageKind, ArtifactVersionRecord,
     ArtifactVersionStorage, ArtifactWithVersions, NewArtifact, NewArtifactVersion,
@@ -43,3 +48,5 @@ pub use memory_service::{
 pub use provider_accounts::{NewProviderAccount, ProviderAccountCatalogEntry};
 pub use provider_capability_bindings::ProviderCapabilityBindingRecord;
 pub use runtime::{NoemaStore, StoreConfig};
+pub use task_model_pools::{NewTaskModelPoolEntry, TaskModelPoolEntry};
+pub use tasks::TaskRecord;
