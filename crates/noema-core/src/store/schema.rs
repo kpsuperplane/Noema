@@ -298,6 +298,13 @@ CREATE TABLE IF NOT EXISTS task_model_pool_entries (
 
 CREATE INDEX IF NOT EXISTS task_model_pool_entries_selection
 ON task_model_pool_entries(complexity, enabled, sort_order, label, pool_entry_id);
+CREATE UNIQUE INDEX IF NOT EXISTS task_model_pool_entries_unique_selection
+ON task_model_pool_entries(
+  complexity,
+  provider_account_id,
+  model_profile,
+  COALESCE(reasoning_effort, '')
+);
 
 CREATE TABLE IF NOT EXISTS tasks (
   task_id TEXT PRIMARY KEY NOT NULL,
