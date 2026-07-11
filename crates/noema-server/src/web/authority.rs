@@ -5,6 +5,9 @@ use std::{
     str::FromStr,
 };
 
+#[cfg(all(feature = "dev-no-auth", debug_assertions))]
+use std::net::Ipv4Addr;
+
 use axum::{
     body::Body,
     extract::{Request, State},
@@ -31,12 +34,22 @@ impl CanonicalAuthority {
     }
 }
 
-pub(super) fn parse_loopback_ip(host: &str) -> Result<IpAddr, String> {
+pub(super) fn parse_bind_ip(host: &str) -> Result<IpAddr, String> {
     let address = IpAddr::from_str(host).map_err(|_| "web host must be a numeric IP address")?;
-    if !address.is_loopback() {
-        return Err("web host must be a loopback IP address".to_string());
+    if address.is_loopback() || dev_allows_unspecified_bind(address) {
+        return Ok(address);
     }
-    Ok(address)
+    Err("web host must be a loopback IP address".to_string())
+}
+
+#[cfg(all(feature = "dev-no-auth", debug_assertions))]
+fn dev_allows_unspecified_bind(address: IpAddr) -> bool {
+    address == IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+}
+
+#[cfg(not(all(feature = "dev-no-auth", debug_assertions)))]
+const fn dev_allows_unspecified_bind(_address: IpAddr) -> bool {
+    false
 }
 
 pub(super) async fn enforce_authority(
@@ -44,12 +57,13 @@ pub(super) async fn enforce_authority(
     request: Request<Body>,
     next: Next,
 ) -> Response {
+    let dev_permissive = dev_permissive_authority();
     let headers = request.headers();
     let valid_host = headers
         .get(header::HOST)
         .and_then(|value| value.to_str().ok())
         .is_some_and(|host| host == authority.as_str());
-    if !valid_host {
+    if !valid_host && !dev_permissive {
         return StatusCode::BAD_REQUEST.into_response();
     }
 
@@ -60,12 +74,22 @@ pub(super) async fn enforce_authority(
             .get(header::ORIGIN)
             .and_then(|value| value.to_str().ok())
             .is_some_and(|origin| origin == authority.origin());
-        if !valid_origin {
+        if !valid_origin && !dev_permissive {
             return StatusCode::FORBIDDEN.into_response();
         }
     }
 
     next.run(request).await
+}
+
+#[cfg(all(feature = "dev-no-auth", debug_assertions))]
+const fn dev_permissive_authority() -> bool {
+    true
+}
+
+#[cfg(not(all(feature = "dev-no-auth", debug_assertions)))]
+const fn dev_permissive_authority() -> bool {
+    false
 }
 
 #[cfg(test)]
@@ -74,12 +98,28 @@ mod tests {
 
     #[test]
     fn rejects_non_loopback_bind_hosts() {
-        assert!(parse_loopback_ip("localhost").is_err());
-        assert!(parse_loopback_ip("0.0.0.0").is_err());
+        assert!(parse_bind_ip("localhost").is_err());
         assert_eq!(
-            parse_loopback_ip("127.0.0.1").expect("numeric loopback"),
+            parse_bind_ip("127.0.0.1").expect("numeric loopback"),
             "127.0.0.1".parse::<std::net::IpAddr>().expect("IP")
         );
+    }
+
+    #[test]
+    fn bind_ip_allows_wildcard_only_for_dev_feature() {
+        assert_eq!(
+            parse_bind_ip("127.0.0.1").expect("loopback IP"),
+            "127.0.0.1".parse::<std::net::IpAddr>().expect("IP")
+        );
+
+        #[cfg(all(feature = "dev-no-auth", debug_assertions))]
+        assert_eq!(
+            parse_bind_ip("0.0.0.0").expect("development wildcard IP"),
+            IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+        );
+
+        #[cfg(not(all(feature = "dev-no-auth", debug_assertions)))]
+        assert!(parse_bind_ip("0.0.0.0").is_err());
     }
 
     #[test]

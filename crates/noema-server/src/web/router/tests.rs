@@ -76,6 +76,7 @@ async fn raw_request(
     (status, headers, body)
 }
 
+#[cfg(not(all(feature = "dev-no-auth", debug_assertions)))]
 #[tokio::test]
 async fn authority_session_and_bootstrap_boundary() {
     for (method, uri) in [
@@ -167,6 +168,29 @@ async fn authority_session_and_bootstrap_boundary() {
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(body, NOT_FOUND);
     }
+}
+
+#[cfg(all(feature = "dev-no-auth", debug_assertions))]
+#[tokio::test]
+async fn development_mode_allows_noncanonical_host_and_origin() {
+    let (status, _, body) = raw_request(
+        test_router_without_auth(),
+        Request::builder()
+            .method(Method::POST)
+            .uri("/graphql")
+            .header(header::HOST, "192.0.2.10:3737")
+            .header(header::ORIGIN, "http://192.0.2.10:3737")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"query":"{ __typename }"}"#))
+            .expect("GraphQL request"),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).expect("GraphQL JSON"),
+        json!({"data": {"__typename": "QueryRoot"}})
+    );
 }
 
 #[tokio::test]

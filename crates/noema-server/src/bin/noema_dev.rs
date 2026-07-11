@@ -166,6 +166,7 @@ fn spawn_web_server_watcher(
     }
 
     command.arg("-x").arg(web_server_watch_command());
+    command.env("NOEMA_WEB__HOST", "0.0.0.0");
     if let Some(mnemosyne_sidecar_command) = mnemosyne_sidecar_command {
         command.env(
             noema_core::mnemosyne::NOEMA_MNEMOSYNE_SIDECAR_COMMAND_ENV,

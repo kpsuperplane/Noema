@@ -79,7 +79,7 @@ impl WebState {
 pub(super) use router::build_router;
 
 pub(super) async fn bind_listener(config: &WebConfig) -> Result<TcpListener, DaemonError> {
-    let host = authority::parse_loopback_ip(&config.host).map_err(DaemonError::Protocol)?;
+    let host = authority::parse_bind_ip(&config.host).map_err(DaemonError::Protocol)?;
     TcpListener::bind((host, config.port))
         .await
         .map_err(|source| {
