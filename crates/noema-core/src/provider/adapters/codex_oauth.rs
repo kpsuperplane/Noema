@@ -656,6 +656,21 @@ fn token_needs_refresh(access_token: &str, refresh_skew_seconds: u64) -> bool {
     exp <= now_unix_seconds().saturating_add(refresh_skew_seconds)
 }
 
+/// Extract the selected ChatGPT workspace from a Codex OAuth access token.
+pub(crate) fn chatgpt_account_id_from_access_token(token: &str) -> Option<String> {
+    let claims_segment = token.split('.').nth(1)?;
+    let bytes = URL_SAFE_NO_PAD.decode(claims_segment).ok()?;
+    let claims = serde_json::from_slice::<serde_json::Value>(&bytes).ok()?;
+    claims
+        .get("https://api.openai.com/auth")
+        .and_then(|auth| auth.get("chatgpt_account_id"))
+        .or_else(|| claims.get("chatgpt_account_id"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|account_id| !account_id.is_empty())
+        .map(ToString::to_string)
+}
+
 fn now_unix_seconds() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -848,6 +863,19 @@ mod tests {
             &token,
             CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS
         ));
+    }
+
+    #[test]
+    fn extracts_chatgpt_workspace_from_access_token() {
+        let header = URL_SAFE_NO_PAD.encode(br#"{"alg":"none"}"#);
+        let claims = URL_SAFE_NO_PAD
+            .encode(br#"{"https://api.openai.com/auth":{"chatgpt_account_id":"workspace-test"}}"#);
+        let token = format!("{header}.{claims}.sig");
+
+        assert_eq!(
+            chatgpt_account_id_from_access_token(&token).as_deref(),
+            Some("workspace-test")
+        );
     }
 
     #[test]

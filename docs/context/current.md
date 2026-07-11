@@ -86,10 +86,14 @@ The next storage slice should stay small and concrete:
 - Codex model/profile catalogs are fetched from the provider `/models` endpoint
   after a six-hour TTL. The `client_version` query value is resolved from the
   official `@openai/codex` npm `latest` metadata endpoint, with the last cached
-  value or the historical `0.142.3` value as an offline fallback. Successful
+  value or `0.144.0` as an offline fallback. Successful
   catalogs persist the resolved client version and refresh timestamp; failed
   refreshes preserve the previous catalog, while the metadata schema version
-  still forces refreshes after parser changes.
+  still forces refreshes after parser changes. Codex Responses calls resolve
+  that same current client version once per runtime and send the Codex client
+  identity headers plus the selected ChatGPT workspace extracted from the OAuth
+  access token; model availability on the subscription backend is scoped by
+  those request fields.
 - Concrete object records are the canonical structured state; actor/principal,
   governable scope, provenance source, and transcript item are interfaces
   implemented by concrete objects rather than universal parent tables.

@@ -1,11 +1,11 @@
 //! Provider adapter for Codex direct Responses API calls.
 
-use std::{path::PathBuf, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use super::{
     codex_oauth::{
         CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS, CodexOAuthClient, CodexOAuthConfig,
-        CodexTokenStore, DEFAULT_CODEX_BASE_URL,
+        CodexTokenStore, DEFAULT_CODEX_BASE_URL, chatgpt_account_id_from_access_token,
     },
     noema_response_stream::NoemaAssistantTextDeltaExtractor,
     responses::{
@@ -18,10 +18,13 @@ use crate::{
     provider::{
         DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, GenerateStreamEvent,
         ModelProvider, ProviderError, ProviderToolCapabilities, ProviderToolFallbackMode,
-        ProviderToolSchemaDialect,
+        ProviderToolSchemaDialect, model_catalog::latest_codex_client_version,
     },
 };
-use reqwest::header::HeaderMap;
+use reqwest::header::{ACCEPT, HeaderMap, HeaderValue, USER_AGENT};
+use tokio::sync::OnceCell;
+
+const CODEX_ORIGINATOR: &str = "codex_cli_rs";
 
 /// Default Codex Responses model used when no override is supplied.
 pub const DEFAULT_CODEX_MODEL: &str = "gpt-5.5";
@@ -41,6 +44,8 @@ pub struct CodexProviderConfig {
     pub reasoning_effort: Option<crate::provider::ReasoningEffort>,
     /// Request timeout in seconds.
     pub timeout_seconds: u64,
+    /// Codex client version advertised to the subscription backend.
+    pub client_version: Option<String>,
     /// Provider account home containing Noema-owned token state.
     pub account_home: Option<PathBuf>,
     /// OAuth endpoint configuration used for token refresh and login.
@@ -57,6 +62,7 @@ impl Default for CodexProviderConfig {
             tool_classification_model: None,
             reasoning_effort: None,
             timeout_seconds: DEFAULT_CODEX_TIMEOUT_SECONDS,
+            client_version: None,
             account_home: None,
             oauth: CodexOAuthConfig::default(),
             system_errors: None,
@@ -68,6 +74,8 @@ impl Default for CodexProviderConfig {
 #[derive(Debug, Clone)]
 pub struct CodexResponsesProvider {
     transport: ResponsesTransport,
+    version_client: reqwest::Client,
+    resolved_client_version: Arc<OnceCell<String>>,
     token_store: CodexTokenStore,
     oauth_client: CodexOAuthClient,
     config: CodexProviderConfig,
@@ -107,11 +115,13 @@ impl CodexResponsesProvider {
                 .ok_or_else(|| ProviderError::InvalidRequest {
                     message: "codex account home is required".to_string(),
                 })?;
-        let transport = ResponsesTransport::new(client, config.base_url.clone())?;
+        let transport = ResponsesTransport::new(client.clone(), config.base_url.clone())?;
         let token_store = CodexTokenStore::new(account_home);
         let oauth_client = CodexOAuthClient::new(config.oauth.clone())?;
         Ok(Self {
             transport,
+            version_client: client,
+            resolved_client_version: Arc::new(OnceCell::new()),
             token_store,
             oauth_client,
             system_errors: config.system_errors.clone(),
@@ -138,6 +148,50 @@ impl CodexResponsesProvider {
         }
         Ok(model)
     }
+
+    async fn client_version(&self) -> &str {
+        if let Some(version) = self.config.client_version.as_deref() {
+            return version;
+        }
+        self.resolved_client_version
+            .get_or_init(|| latest_codex_client_version(&self.version_client))
+            .await
+    }
+
+    async fn request_headers(
+        &self,
+        access_token: &str,
+        session_id: Option<&str>,
+    ) -> Result<HeaderMap, ProviderError> {
+        let version = self.client_version().await;
+        let mut headers = HeaderMap::new();
+        headers.insert("originator", HeaderValue::from_static(CODEX_ORIGINATOR));
+        headers.insert(
+            USER_AGENT,
+            super::responses::header_value(
+                &format!("{CODEX_ORIGINATOR}/{version} (Noema)"),
+                "codex user agent",
+            )?,
+        );
+        headers.insert(
+            "version",
+            super::responses::header_value(version, "codex client version")?,
+        );
+        headers.insert(ACCEPT, HeaderValue::from_static("text/event-stream"));
+        if let Some(account_id) = chatgpt_account_id_from_access_token(access_token) {
+            headers.insert(
+                "ChatGPT-Account-ID",
+                super::responses::header_value(&account_id, "ChatGPT account id")?,
+            );
+        }
+        if let Some(session_id) = session_id.filter(|value| !value.trim().is_empty()) {
+            headers.insert(
+                "session-id",
+                super::responses::header_value(session_id, "Codex session id")?,
+            );
+        }
+        Ok(headers)
+    }
 }
 
 fn normalize_config(mut config: CodexProviderConfig) -> Result<CodexProviderConfig, ProviderError> {
@@ -154,6 +208,10 @@ fn normalize_config(mut config: CodexProviderConfig) -> Result<CodexProviderConf
     config.tool_classification_model = config.tool_classification_model.and_then(|model| {
         let model = model.trim().to_string();
         (!model.is_empty()).then_some(model)
+    });
+    config.client_version = config.client_version.and_then(|version| {
+        let version = version.trim().to_string();
+        (!version.is_empty()).then_some(version)
     });
     Ok(config)
 }
@@ -196,6 +254,9 @@ impl CodexResponsesProvider {
             .token_store
             .access_token(&self.oauth_client, CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS)
             .await?;
+        let request_headers = self
+            .request_headers(&access_token, request.conversation_id.as_deref())
+            .await?;
         let mut noema_delta_extractor = NoemaAssistantTextDeltaExtractor::default();
         let mut forward_event = |event| {
             if require_noema_response {
@@ -211,7 +272,7 @@ impl CodexResponsesProvider {
             .send_streaming(
                 &access_token,
                 body.clone(),
-                HeaderMap::new(),
+                request_headers,
                 diagnostics.clone(),
                 &mut forward_event,
             )
@@ -223,11 +284,14 @@ impl CodexResponsesProvider {
                     .token_store
                     .refresh_access_token(&self.oauth_client)
                     .await?;
+                let request_headers = self
+                    .request_headers(&refreshed, request.conversation_id.as_deref())
+                    .await?;
                 self.transport
                     .send_streaming(
                         &refreshed,
                         body,
-                        HeaderMap::new(),
+                        request_headers,
                         diagnostics.clone(),
                         &mut forward_event,
                     )
@@ -415,8 +479,31 @@ mod tests {
         assert_eq!(captured.method, "POST");
         assert_eq!(captured.path, "/responses");
         assert_eq!(
-            captured.headers.get("authorization").map(String::as_str),
-            Some("Bearer access")
+            captured.headers.get("authorization"),
+            Some(&format!("Bearer {}", test_access_token()))
+        );
+        assert_eq!(
+            captured
+                .headers
+                .get("chatgpt-account-id")
+                .map(String::as_str),
+            Some("workspace-test")
+        );
+        assert_eq!(
+            captured.headers.get("originator").map(String::as_str),
+            Some(CODEX_ORIGINATOR)
+        );
+        assert_eq!(
+            captured.headers.get("version").map(String::as_str),
+            Some("0.144.0")
+        );
+        assert_eq!(
+            captured.headers.get("user-agent").map(String::as_str),
+            Some("codex_cli_rs/0.144.0 (Noema)")
+        );
+        assert_eq!(
+            captured.headers.get("accept").map(String::as_str),
+            Some("text/event-stream")
         );
         let body: Value = serde_json::from_str(&captured.body).expect("json body");
         assert_eq!(body["model"], "gpt-test");
@@ -673,6 +760,7 @@ mod tests {
         let provider = CodexResponsesProvider::new(CodexProviderConfig {
             base_url,
             default_model: Some("gpt-test".to_string()),
+            client_version: Some("0.144.0".to_string()),
             account_home: Some(account_home.clone()),
             ..CodexProviderConfig::default()
         })
@@ -680,12 +768,27 @@ mod tests {
         provider
             .token_store()
             .write(&CodexOAuthTokens {
-                access_token: "access".to_string(),
+                access_token: test_access_token(),
                 refresh_token: "refresh".to_string(),
                 last_refresh: 123,
             })
             .expect("write token");
         (provider, dir)
+    }
+
+    fn test_access_token() -> String {
+        use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+
+        let claims = URL_SAFE_NO_PAD.encode(
+            serde_json::json!({
+                "https://api.openai.com/auth": {
+                    "chatgpt_account_id": "workspace-test"
+                },
+                "exp": 4_102_444_800_u64
+            })
+            .to_string(),
+        );
+        format!("header.{claims}.signature")
     }
 
     fn sse_delta(delta: &str) -> String {

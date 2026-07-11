@@ -18,7 +18,7 @@ use crate::{
 
 const MODEL_CATALOG_TIMEOUT_SECONDS: u64 = 20;
 const CODEX_CLIENT_VERSION_ENDPOINT: &str = "https://registry.npmjs.org/@openai%2fcodex/latest";
-const FALLBACK_CODEX_MODELS_CLIENT_VERSION: &str = "0.142.3";
+pub(crate) const FALLBACK_CODEX_MODELS_CLIENT_VERSION: &str = "0.144.0";
 const MODEL_CATALOG_TTL_SECONDS: u64 = 6 * 60 * 60;
 const MODEL_METADATA_VERSION: u64 = 3;
 const CODEX_VERSION_USER_AGENT: &str = "Noema/0.1 (+https://github.com/kpsuperplane/Noema)";
@@ -249,6 +249,7 @@ async fn fetch_latest_codex_client_version(
 ) -> Result<String, ProviderError> {
     let response = client
         .get(version_endpoint)
+        .timeout(Duration::from_secs(MODEL_CATALOG_TIMEOUT_SECONDS))
         .header(reqwest::header::USER_AGENT, CODEX_VERSION_USER_AGENT)
         .send()
         .await
@@ -278,6 +279,12 @@ async fn fetch_latest_codex_client_version(
             message: "Codex client version response did not contain a valid version".to_string(),
         })?;
     Ok(version.to_string())
+}
+
+pub(crate) async fn latest_codex_client_version(client: &reqwest::Client) -> String {
+    fetch_latest_codex_client_version(client, CODEX_CLIENT_VERSION_ENDPOINT)
+        .await
+        .unwrap_or_else(|_| FALLBACK_CODEX_MODELS_CLIENT_VERSION.to_string())
 }
 
 async fn fetch_model_list(

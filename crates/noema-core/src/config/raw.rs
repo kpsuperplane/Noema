@@ -151,6 +151,7 @@ impl RawConfig {
                 .map(ToString::to_string),
             reasoning_effort,
             timeout_seconds,
+            client_version: None,
             account_home: None,
             oauth: Default::default(),
             system_errors: None,
