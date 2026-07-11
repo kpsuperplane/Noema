@@ -1,10 +1,11 @@
 //! GraphQL projections and owner-authorized controls for background tasks.
 
-use async_graphql::{Enum, InputObject, Result, SimpleObject};
+use async_graphql::{Enum, InputObject, Json, Result, SimpleObject};
 
 use crate::{
-    AgentRunRecord, ModelConfigSnapshot, TaskComplexity, TaskModelPoolEntry, TaskRecord,
-    TaskReviewCriterion, TaskReviewRecord, TaskSubmissionRecord, TaskValidationCriterion,
+    AgentRunItemRecord, AgentRunRecord, ModelConfigSnapshot, TaskComplexity, TaskModelPoolEntry,
+    TaskRecord, TaskReviewCriterion, TaskReviewRecord, TaskSubmissionRecord,
+    TaskValidationCriterion,
 };
 
 use super::{agents::GraphqlReasoningEffort, errors::graphql_error, schema::GraphqlState};
@@ -268,6 +269,24 @@ pub struct GraphqlTaskRun {
     pub created_at: String,
     /// Last update timestamp.
     pub updated_at: String,
+    /// Safe transcript/activity items emitted by this run.
+    pub items: Vec<GraphqlTaskRunItem>,
+}
+
+/// Safe live transcript/activity item for one background run.
+#[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "TaskRunItem")]
+pub struct GraphqlTaskRunItem {
+    /// Stable item id.
+    pub item_id: String,
+    /// Activity kind, such as `assistant_output` or `tool_call`.
+    pub kind: String,
+    /// Human-readable activity text.
+    pub content_text: Option<String>,
+    /// Safe structured metadata.
+    pub payload: Json<serde_json::Value>,
+    /// Creation timestamp.
+    pub created_at: String,
 }
 
 impl From<AgentRunRecord> for GraphqlTaskRun {
@@ -293,6 +312,27 @@ impl From<AgentRunRecord> for GraphqlTaskRun {
             ended_at: value.ended_at,
             created_at: value.created_at,
             updated_at: value.updated_at,
+            items: Vec::new(),
+        }
+    }
+}
+
+impl GraphqlTaskRun {
+    fn with_items(value: AgentRunRecord, items: Vec<GraphqlTaskRunItem>) -> Self {
+        let mut run = Self::from(value);
+        run.items = items;
+        run
+    }
+}
+
+impl From<AgentRunItemRecord> for GraphqlTaskRunItem {
+    fn from(value: AgentRunItemRecord) -> Self {
+        Self {
+            item_id: value.item_id,
+            kind: value.kind,
+            content_text: value.content_text,
+            payload: Json(value.payload),
+            created_at: value.created_at,
         }
     }
 }
@@ -459,6 +499,11 @@ pub(super) async fn retry_task(
         .retry_failed_task(task_id.trim(), principal_subject, principal_subject)
         .await
         .map_err(graphql_error)?;
+    state
+        .subscriptions()
+        .publish_task(crate::graphql::TaskLiveEvent::Changed {
+            task_id: task.task_id.clone(),
+        });
     detail_from_task(store, task).await
 }
 
@@ -535,6 +580,17 @@ async fn detail_from_task(
         .list_agent_runs_for_task(&task.task_id)
         .await
         .map_err(graphql_error)?;
+    let mut runs_with_items = Vec::with_capacity(runs.len());
+    for run in runs {
+        let items = store
+            .list_agent_run_items(&run.run_id)
+            .await
+            .map_err(graphql_error)?
+            .into_iter()
+            .map(Into::into)
+            .collect();
+        runs_with_items.push(GraphqlTaskRun::with_items(run, items));
+    }
     Ok(GraphqlTaskDetail {
         task_id: task.task_id,
         title: task.title,
@@ -565,7 +621,7 @@ async fn detail_from_task(
         criteria: criteria.into_iter().map(Into::into).collect(),
         submissions: submissions.into_iter().map(Into::into).collect(),
         reviews: reviews.into_iter().map(Into::into).collect(),
-        runs: runs.into_iter().map(Into::into).collect(),
+        runs: runs_with_items,
     })
 }
 
@@ -721,11 +777,21 @@ mod tests {
             .transition_task(&task_id, crate::TaskStatus::Failed, Some("model missing"))
             .await
             .expect("failed task");
+        store
+            .append_agent_run_item(crate::NewAgentRunItem {
+                item_id: Some("run_item:retry-test".to_string()),
+                run_id: run.run_id.clone(),
+                kind: "assistant_output".to_string(),
+                content_text: Some("live output".to_string()),
+                payload: serde_json::json!({"response_index": 0}),
+            })
+            .await
+            .expect("run item");
         let schema = crate::graphql::build_schema(GraphqlState::for_tests_with_store(store));
 
         let response = schema
             .execute(async_graphql::Request::new(format!(
-                "mutation {{ retryTask(taskId: \"{task_id}\") {{ taskId status latestRunId errorMessage runs {{ attemptIndex status }} }} }}"
+                "mutation {{ retryTask(taskId: \"{task_id}\") {{ taskId status latestRunId errorMessage runs {{ attemptIndex status items {{ kind contentText }} }} }} }}"
             )))
             .await
             .into_result()
@@ -736,5 +802,9 @@ mod tests {
         assert_eq!(value["retryTask"]["errorMessage"], serde_json::Value::Null);
         assert_eq!(value["retryTask"]["runs"].as_array().map(Vec::len), Some(2));
         assert_eq!(value["retryTask"]["runs"][1]["attemptIndex"], 1);
+        assert_eq!(
+            value["retryTask"]["runs"][0]["items"][0]["contentText"],
+            "live output"
+        );
     }
 }

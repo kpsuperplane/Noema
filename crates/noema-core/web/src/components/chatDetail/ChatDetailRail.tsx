@@ -102,31 +102,29 @@ export function ChatDetailRail({
         {...stylex.props(styles.surface)}
       >
         <header {...stylex.props(styles.header)}>
-          <div {...stylex.props(styles.actionRow)}>
-            <div {...stylex.props(styles.versionSlot)}>
-              {target.type === "artifact" ? (
-                <ArtifactVersionSelector
-                  detail={artifactDetail ?? latestArtifactDetail}
-                  selectedVersion={target.version}
-                  onChangeVersion={onChangeVersion}
-                />
-              ) : null}
+          {target.type === "task" ? (
+            <div {...stylex.props(styles.taskTitleRow)}>
+              <h2 {...stylex.props(styles.title)}>{title}</h2>
+              <CloseButton closeButtonRef={closeButtonRef} onClose={onClose} />
             </div>
-            <div {...stylex.props(styles.actions)}>
-              {target.type === "artifact" ? <ArtifactDownloadAction detail={artifactDetail} /> : null}
-              <Button
-                ref={closeButtonRef}
-                type="button"
-                variant="ghost"
-                size="sm"
-                label="Close detail"
-                icon={<X aria-hidden="true" size={16} />}
-                isIconOnly
-                onClick={onClose}
-              />
-            </div>
-          </div>
-          <h2 {...stylex.props(styles.title)}>{title}</h2>
+          ) : (
+            <>
+              <div {...stylex.props(styles.actionRow)}>
+                <div {...stylex.props(styles.versionSlot)}>
+                  <ArtifactVersionSelector
+                    detail={artifactDetail ?? latestArtifactDetail}
+                    selectedVersion={target.version}
+                    onChangeVersion={onChangeVersion}
+                  />
+                </div>
+                <div {...stylex.props(styles.actions)}>
+                  <ArtifactDownloadAction detail={artifactDetail} />
+                  <CloseButton closeButtonRef={closeButtonRef} onClose={onClose} />
+                </div>
+              </div>
+              <h2 {...stylex.props(styles.title)}>{title}</h2>
+            </>
+          )}
         </header>
         <div {...stylex.props(styles.body)}>
           {target.type === "artifact" ? (
@@ -143,6 +141,27 @@ export function ChatDetailRail({
         </div>
       </div>
     </aside>
+  );
+}
+
+function CloseButton({
+  closeButtonRef,
+  onClose
+}: {
+  closeButtonRef: React.RefObject<HTMLButtonElement | null>;
+  onClose: () => void;
+}) {
+  return (
+    <Button
+      ref={closeButtonRef}
+      type="button"
+      variant="ghost"
+      size="sm"
+      label="Close detail"
+      icon={<X aria-hidden="true" size={16} />}
+      isIconOnly
+      onClick={onClose}
+    />
   );
 }
 
@@ -234,6 +253,13 @@ const styles = stylex.create({
     display: "grid",
     gridTemplateColumns: "minmax(0, 1fr) auto",
     alignItems: "start",
+    gap: 12
+  },
+  taskTitleRow: {
+    minWidth: 0,
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) auto",
+    alignItems: "center",
     gap: 12
   },
   versionSlot: {

@@ -106,14 +106,14 @@ pub use provider::{
 };
 pub use runtime_host::{NoemaRuntimeHost, RuntimeHostError};
 pub use store::{
-    AgentRecord, AgentRunRecord, AgentRuntimePreferenceRecord, AgentSystemRole, ArtifactOwnerRef,
-    ArtifactRecord, ArtifactSource, ArtifactStorageKind, ArtifactVersionRecord,
+    AgentRecord, AgentRunItemRecord, AgentRunRecord, AgentRuntimePreferenceRecord, AgentSystemRole,
+    ArtifactOwnerRef, ArtifactRecord, ArtifactSource, ArtifactStorageKind, ArtifactVersionRecord,
     ArtifactVersionStorage, ArtifactWithVersions, AuxiliaryModelPreferenceRecord,
     ConversationContextSummaryRecord, McpServerAuthStatus, McpServerHealthStatus, McpServerRecord,
     McpToolRecord, MemoryArticleCacheRecord, MemoryServiceMode, MemoryServiceSettingsRecord,
-    NewAgent, NewAgentRun, NewAgentRuntimePreference, NewArtifact, NewArtifactVersion,
-    NewAuxiliaryModelPreference, NewConversationContextSummary, NewMcpServer, NewMcpTool,
-    NewTaskModelPoolEntry, NewToolCalibration, NoemaStore, SaveMemoryArticleCache,
+    NewAgent, NewAgentRun, NewAgentRunItem, NewAgentRuntimePreference, NewArtifact,
+    NewArtifactVersion, NewAuxiliaryModelPreference, NewConversationContextSummary, NewMcpServer,
+    NewMcpTool, NewTaskModelPoolEntry, NewToolCalibration, NoemaStore, SaveMemoryArticleCache,
     SaveMemoryServiceSettings, StoreConfig, StoreError, TaskModelPoolEntry, TaskRecord,
     TaskReviewRecord, TaskSubmissionRecord, ToolCalibrationRecord, WEB_FETCH_SUMMARIZER_TASK_ID,
     validate_external_artifact_url,

@@ -38,7 +38,9 @@ pub(crate) use provider_auth::{
 pub(crate) use replay::{ConversationReplayItem, web_conversation_item_from_record};
 pub(crate) use runtime_state::GraphqlRuntimeState;
 pub use schema::{GraphqlSchema, GraphqlState, build_schema};
-pub(crate) use subscriptions::{ConversationLiveEvent, ConversationSubscriptionRegistry};
+pub(crate) use subscriptions::{
+    ConversationLiveEvent, ConversationSubscriptionRegistry, TaskLiveEvent,
+};
 
 /// Server-derived identity attached to every authenticated GraphQL operation.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -13,6 +13,7 @@ mod mcp;
 mod memory_service;
 mod provider_accounts;
 mod provider_capability_bindings;
+mod run_items;
 mod runtime;
 mod schema;
 mod sqlite;
@@ -49,6 +50,7 @@ pub use memory_service::{
 };
 pub use provider_accounts::{NewProviderAccount, ProviderAccountCatalogEntry};
 pub use provider_capability_bindings::ProviderCapabilityBindingRecord;
+pub use run_items::{AgentRunItemRecord, NewAgentRunItem};
 pub use runtime::{NoemaStore, StoreConfig};
 pub use task_model_pools::{NewTaskModelPoolEntry, TaskModelPoolEntry};
 pub use tasks::{TaskRecord, TaskReviewRecord, TaskSubmissionRecord};

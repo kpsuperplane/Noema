@@ -1,8 +1,9 @@
-import { useMutation, useQuery } from "@apollo/client/react";
+import { useMutation, useQuery, useSubscription } from "@apollo/client/react";
 import * as React from "react";
 import {
   TaskDetailDocument,
   RetryTaskDocument,
+  TaskEventsDocument,
   type TaskDetailQuery
 } from "@/generated/graphql";
 import { TaskDetailPanel } from "./TaskDetailPanel";
@@ -15,6 +16,7 @@ import type {
   TaskReview,
   TaskRevision,
   TaskRun,
+  TaskRunItem,
   TaskRunRole,
   TaskRunStatus,
   TaskSubmission,
@@ -42,6 +44,10 @@ export function TaskDetailQueryPanel({
   });
   const [retryTask] = useMutation(RetryTaskDocument);
   const detail = data?.task ? mapGraphqlTaskDetail(data.task) : null;
+  const { data: taskEvent } = useSubscription(TaskEventsDocument, {
+    variables: { taskId },
+    skip: Boolean(detail && isTerminalTaskStatus(detail.status))
+  });
 
   const handleRetryTask = React.useCallback(
     async (retryTaskId: string) => {
@@ -54,6 +60,26 @@ export function TaskDetailQueryPanel({
     },
     [onRetryTask, refetch, retryTask]
   );
+
+  const refreshTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  React.useEffect(() => {
+    if (!taskEvent?.taskEvents) {
+      return;
+    }
+    if (refreshTimer.current) {
+      clearTimeout(refreshTimer.current);
+    }
+    refreshTimer.current = setTimeout(() => {
+      refreshTimer.current = null;
+      void refetch();
+    }, 120);
+    return () => {
+      if (refreshTimer.current) {
+        clearTimeout(refreshTimer.current);
+        refreshTimer.current = null;
+      }
+    };
+  }, [refetch, taskEvent]);
 
   React.useEffect(() => {
     onTitleChange?.(data?.task?.title ?? null);
@@ -70,6 +96,10 @@ export function TaskDetailQueryPanel({
       taskId={taskId}
     />
   );
+}
+
+function isTerminalTaskStatus(status: TaskStatus): boolean {
+  return status === "completed" || status === "failed" || status === "cancelled";
 }
 
 export function mapGraphqlTaskDetail(detail: GraphqlTaskDetail): TaskDetail {
@@ -158,7 +188,14 @@ function revisionDetail(
     : reviewer
       ? reviewByReviewerRunId.get(reviewer.id) ?? null
       : null;
-  return { revision, executor, submission, reviewer, review, items: [] };
+  return {
+    revision,
+    executor,
+    submission,
+    reviewer,
+    review,
+    items: coalesceRunItems([...(executor?.items ?? []), ...(reviewer?.items ?? [])])
+  };
 }
 
 function mapSubmission(
@@ -199,9 +236,34 @@ function mapRun(run: GraphqlTaskDetail["runs"][number]): TaskRun {
     revision: run.revisionIndex,
     model: modelSnapshot(run.model),
     error: [run.errorCode, run.errorMessage].filter(Boolean).join(" · ") || null,
+    items: run.items.map(mapRunItem),
     startedAt: run.startedAt,
     completedAt: run.endedAt
   };
+}
+
+function mapRunItem(item: GraphqlTaskDetail["runs"][number]["items"][number]): TaskRunItem {
+  const isTool = item.kind === "tool_call";
+  return {
+    id: item.itemId,
+    kind: isTool ? "tool" : item.kind === "assistant_output" ? "message" : "status",
+    title: isTool ? `Tool call · ${item.contentText || "unnamed"}` : item.kind === "assistant_output" ? "Agent" : item.kind,
+    summary: item.contentText,
+    occurredAt: item.createdAt
+  };
+}
+
+function coalesceRunItems(items: readonly TaskRunItem[]): TaskRunItem[] {
+  const coalesced: TaskRunItem[] = [];
+  for (const item of items) {
+    const previous = coalesced.at(-1);
+    if (previous?.kind === "message" && item.kind === "message") {
+      previous.summary = `${previous.summary ?? ""}${item.summary ?? ""}`;
+      continue;
+    }
+    coalesced.push({ ...item });
+  }
+  return coalesced;
 }
 
 function modelSnapshot(snapshot: GraphqlTaskDetail["executorModel"]): TaskModelSnapshot {

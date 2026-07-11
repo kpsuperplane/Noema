@@ -6,7 +6,7 @@ use serde::Deserialize;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
-use crate::graphql::{ConversationLiveEvent, ConversationSubscriptionRegistry};
+use crate::graphql::{ConversationLiveEvent, ConversationSubscriptionRegistry, TaskLiveEvent};
 use crate::{
     ActorRef, ConversationItemKind, ConversationItemStatus, CriterionOutcome, GenerateResponseItem,
     NewConversationItem, NewTaskReview, NewTaskSubmission, NoemaStore, ReplayMode, RunKind,
@@ -92,10 +92,12 @@ async fn run_loop(
             .await
         {
             Ok(Some(run)) => {
+                publish_task_changed(&subscriptions, &run.task_id);
                 if let Err(error) =
                     execute_run(&store, &runtime, &subscriptions, &run, &lease_token).await
                 {
                     fail_run(&store, &run, &lease_token, &error).await;
+                    publish_task_changed(&subscriptions, &run.task_id);
                     system_errors.try_append(
                         crate::SystemErrorEvent::new(
                             "task_runtime_worker_error",
@@ -104,6 +106,8 @@ async fn run_loop(
                         .with_context(json!({"run_id": run.run_id, "task_id": run.task_id}))
                         .with_error_chain([error]),
                     );
+                } else {
+                    publish_task_changed(&subscriptions, &run.task_id);
                 }
             }
             Ok(None) => {
@@ -157,10 +161,11 @@ async fn execute_run(
         .transition_agent_run(&run.run_id, RunStatus::Running, Some(lease_token), None)
         .await
         .map_err(|error| error.to_string())?;
+    publish_task_changed(subscriptions, &run.task_id);
     if run.run_kind == RunKind::Executor {
-        execute_executor(store, runtime, run, lease_token).await
+        execute_executor(store, runtime, subscriptions, run, lease_token).await
     } else if run.run_kind == RunKind::Reviewer {
-        execute_reviewer(store, runtime, run, lease_token).await
+        execute_reviewer(store, runtime, subscriptions, run, lease_token).await
     } else {
         execute_completion_delivery(store, subscriptions, run, lease_token).await
     }
@@ -258,6 +263,7 @@ async fn execute_completion_delivery(
 async fn execute_executor(
     store: &NoemaStore,
     runtime: &CodexRuntimeHandle,
+    subscriptions: &ConversationSubscriptionRegistry,
     run: &crate::AgentRunRecord,
     lease_token: &str,
 ) -> Result<(), String> {
@@ -275,6 +281,7 @@ async fn execute_executor(
             )
             .await
             .map_err(|error| error.to_string())?;
+        publish_task_changed(subscriptions, &task.task_id);
     }
     let criteria = store
         .list_task_validation_criteria(&task.task_id)
@@ -286,6 +293,7 @@ async fn execute_executor(
         run,
         prompt,
         "You are Noema's background task executor.",
+        subscriptions,
     )
     .await?;
     store
@@ -320,6 +328,7 @@ async fn execute_executor(
         })
         .await
         .map_err(|error| error.to_string())?;
+    publish_task_changed(subscriptions, &task.task_id);
     store
         .transition_agent_run(&run.run_id, RunStatus::Completed, Some(lease_token), None)
         .await
@@ -330,6 +339,7 @@ async fn execute_executor(
 async fn execute_reviewer(
     store: &NoemaStore,
     runtime: &CodexRuntimeHandle,
+    subscriptions: &ConversationSubscriptionRegistry,
     run: &crate::AgentRunRecord,
     lease_token: &str,
 ) -> Result<(), String> {
@@ -357,6 +367,7 @@ async fn execute_reviewer(
         run,
         prompt,
         "You are Noema's adversarial task reviewer. Return only the requested JSON.",
+        subscriptions,
     )
     .await?;
     store
@@ -394,7 +405,7 @@ async fn execute_reviewer(
     store
         .create_task_review(NewTaskReview {
             review_id: None,
-            task_id: task.task_id,
+            task_id: task.task_id.clone(),
             reviewer_run_id: run.run_id.clone(),
             reviewed_submission_id: submission_id.to_string(),
             overall_verdict: verdict,
@@ -403,6 +414,7 @@ async fn execute_reviewer(
         })
         .await
         .map_err(|error| error.to_string())?;
+    publish_task_changed(subscriptions, &task.task_id);
     store
         .transition_agent_run(&run.run_id, RunStatus::Completed, Some(lease_token), None)
         .await
@@ -415,10 +427,12 @@ async fn generate_once(
     run: &crate::AgentRunRecord,
     input: String,
     instructions: &str,
+    subscriptions: &ConversationSubscriptionRegistry,
 ) -> Result<crate::GenerateResponse, String> {
     runtime
         .generate_background_task(BackgroundTaskGenerateRequest {
             run_id: run.run_id.clone(),
+            task_id: run.task_id.clone(),
             agent_id: run.agent_id.clone(),
             role: if run.run_kind == RunKind::Reviewer {
                 ExecutionRole::TaskReviewer
@@ -430,9 +444,16 @@ async fn generate_once(
             reasoning_effort: run.model.reasoning_effort,
             input,
             instructions: instructions.to_string(),
+            task_subscriptions: subscriptions.clone(),
         })
         .await
         .map_err(|error| error.to_string())
+}
+
+fn publish_task_changed(subscriptions: &ConversationSubscriptionRegistry, task_id: &str) {
+    subscriptions.publish_task(TaskLiveEvent::Changed {
+        task_id: task_id.to_string(),
+    });
 }
 
 fn response_text(response: crate::GenerateResponse) -> Option<String> {

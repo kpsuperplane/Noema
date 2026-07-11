@@ -2092,6 +2092,10 @@ type SubscriptionRoot {
 	Stream conversation events.
 	"""
 	conversationEvents(conversationId: String!): ConversationEvent!
+	"""
+	Stream durable/live updates for one task detail projection.
+	"""
+	taskEvents(taskId: String!): TaskEvent!
 }
 
 """
@@ -2221,6 +2225,16 @@ type TaskDetail {
 	Safe run history.
 	"""
 	runs: [TaskRun!]!
+}
+
+"""
+One task detail invalidation emitted while a background run changes.
+"""
+type TaskEvent {
+	"""
+	Task whose detail projection changed.
+	"""
+	taskId: String!
 }
 
 """
@@ -2503,6 +2517,36 @@ type TaskRun {
 	Last update timestamp.
 	"""
 	updatedAt: String!
+	"""
+	Safe transcript/activity items emitted by this run.
+	"""
+	items: [TaskRunItem!]!
+}
+
+"""
+Safe live transcript/activity item for one background run.
+"""
+type TaskRunItem {
+	"""
+	Stable item id.
+	"""
+	itemId: String!
+	"""
+	Activity kind, such as `assistant_output` or `tool_call`.
+	"""
+	kind: String!
+	"""
+	Human-readable activity text.
+	"""
+	contentText: String
+	"""
+	Safe structured metadata.
+	"""
+	payload: JSON!
+	"""
+	Creation timestamp.
+	"""
+	createdAt: String!
 }
 
 """

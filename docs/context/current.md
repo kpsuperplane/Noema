@@ -146,7 +146,10 @@ The next storage slice should stay small and concrete:
 - Task references are first-class transcript items. The web chat renders a
   marker and opens a GraphQL-backed detail rail showing the request, criteria,
   revisions, executor/reviewer runs, model snapshots, submissions, reviews, and
-  final result. Humans can retry failed tasks from that rail; retry preserves
+  final result. The detail rail subscribes to task-scoped GraphQL invalidation
+  events rather than polling, and background runs persist safe assistant-output
+  deltas and tool-call summaries as `agent_run_items` so the running transcript
+  refreshes live. Humans can retry failed tasks from that rail; retry preserves
   the failed run and atomically queues a linked attempt with the same role,
   revision, model snapshot, and trigger provenance. Agents can use the
   read-only `task.inspect` tool to query owner-scoped durable task/run progress,

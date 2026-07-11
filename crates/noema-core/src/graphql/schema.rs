@@ -7,7 +7,7 @@ use std::{
 };
 
 use super::{
-    ConversationSubscriptionRegistry, GraphqlRuntimeState,
+    ConversationSubscriptionRegistry, GraphqlRuntimeState, TaskLiveEvent,
     agents::{
         self, GraphqlAgent, GraphqlAgentModelPreference, GraphqlSaveAgentModelPreferenceInput,
     },
@@ -815,6 +815,14 @@ impl MutationRoot {
 /// Root GraphQL subscription object.
 pub struct SubscriptionRoot;
 
+/// One task detail invalidation emitted while a background run changes.
+#[derive(Clone, Debug, async_graphql::SimpleObject)]
+#[graphql(name = "TaskEvent")]
+pub struct GraphqlTaskEvent {
+    /// Task whose detail projection changed.
+    pub task_id: String,
+}
+
 #[Subscription]
 impl SubscriptionRoot {
     #[cfg(test)]
@@ -834,6 +842,25 @@ impl SubscriptionRoot {
     ) -> impl Stream<Item = GraphqlConversationEvent> {
         let state = ctx.data_unchecked::<GraphqlState>();
         chat::conversation_events(state.subscriptions().clone(), conversation_id)
+    }
+
+    /// Stream durable/live updates for one task detail projection.
+    async fn task_events(
+        &self,
+        ctx: &Context<'_>,
+        task_id: String,
+    ) -> impl Stream<Item = GraphqlTaskEvent> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let mut rx = state.subscriptions().subscribe_task(task_id.trim());
+        async_stream::stream! {
+            loop {
+                match rx.recv().await {
+                    Ok(TaskLiveEvent::Changed { task_id }) => yield GraphqlTaskEvent { task_id },
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        }
     }
 }
 
@@ -874,6 +901,8 @@ mod tests {
         assert!(sdl.contains("type ToolCalibration"));
         assert!(sdl.contains("type Subscription"));
         assert!(sdl.contains("conversationEvents"));
+        assert!(sdl.contains("taskEvents"));
+        assert!(sdl.contains("type TaskRunItem"));
         assert!(sdl.contains("AssistantTextDeltaEvent"));
         assert!(sdl.contains("memorySettings"));
         assert!(sdl.contains("memoryGraph"));
@@ -5442,6 +5471,36 @@ mod tests {
             data.pointer("/conversationEvents/clientMessageId")
                 .and_then(serde_json::Value::as_str),
             Some("client_1")
+        );
+    }
+
+    #[tokio::test]
+    async fn task_events_emits_live_detail_invalidations() {
+        let state = GraphqlState::for_tests();
+        let subscriptions = state.subscriptions().clone();
+        let schema = build_schema(state);
+        let mut stream = schema.execute_stream(async_graphql::Request::new(
+            r#"
+            subscription {
+              taskEvents(taskId: "task_1") {
+                taskId
+              }
+            }
+            "#,
+        ));
+
+        tokio::spawn(async move {
+            tokio::task::yield_now().await;
+            subscriptions.publish_task(TaskLiveEvent::Changed {
+                task_id: "task_1".to_string(),
+            });
+        });
+        let response = stream.next().await.expect("task event response");
+        let data = response.data.into_json().expect("task event json");
+        assert_eq!(
+            data.pointer("/taskEvents/taskId")
+                .and_then(serde_json::Value::as_str),
+            Some("task_1")
         );
     }
 

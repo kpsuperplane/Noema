@@ -1027,6 +1027,13 @@ export const TaskDetailDocument = gql`
         endedAt
         createdAt
         updatedAt
+        items {
+          itemId
+          kind
+          contentText
+          payload
+          createdAt
+        }
       }
     }
   }
@@ -1041,6 +1048,14 @@ export const RetryTaskDocument = gql`
       errorCode
       errorMessage
       updatedAt
+    }
+  }
+`;
+
+export const TaskEventsDocument = gql`
+  subscription TaskEvents($taskId: String!) {
+    taskEvents(taskId: $taskId) {
+      taskId
     }
   }
 `;

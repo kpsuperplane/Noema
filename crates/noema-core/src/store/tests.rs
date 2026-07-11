@@ -612,6 +612,38 @@ async fn failed_task_retry_queues_a_linked_attempt_and_clears_failure() {
     );
 }
 
+#[tokio::test]
+async fn agent_run_items_round_trip_in_sequence_order() {
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    store
+        .append_agent_run_item(crate::NewAgentRunItem {
+            item_id: Some("run_item:1".to_string()),
+            run_id: "run:test".to_string(),
+            kind: "assistant_output".to_string(),
+            content_text: Some("first".to_string()),
+            payload: serde_json::json!({"response_index": 0}),
+        })
+        .await
+        .expect("first item");
+    store
+        .append_agent_run_item(crate::NewAgentRunItem {
+            item_id: Some("run_item:2".to_string()),
+            run_id: "run:test".to_string(),
+            kind: "tool_call".to_string(),
+            content_text: Some("web.fetch".to_string()),
+            payload: serde_json::json!({"output_index": 1}),
+        })
+        .await
+        .expect("second item");
+
+    let items = store.list_agent_run_items("run:test").await.expect("items");
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0].sequence_index, 1);
+    assert_eq!(items[0].content_text.as_deref(), Some("first"));
+    assert_eq!(items[1].kind, "tool_call");
+}
+
 async fn seed_external_artifact(
     store: &crate::NoemaStore,
     conversation_id: &str,

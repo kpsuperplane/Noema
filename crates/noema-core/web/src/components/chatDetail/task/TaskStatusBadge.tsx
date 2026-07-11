@@ -17,13 +17,14 @@ type TaskStatusMeta = {
   label: string;
   variant: "neutral" | "info" | "success" | "warning" | "error";
   icon: ReactNode;
+  animated?: boolean;
 };
 
 const iconProps = { "aria-hidden": true, size: 12, strokeWidth: 2 } as const;
 
 const statusMeta: Record<TaskStatus, TaskStatusMeta> = {
   queued: { label: "Queued", variant: "neutral", icon: <Clock3 {...iconProps} /> },
-  executing: { label: "Working", variant: "info", icon: <LoaderCircle {...iconProps} /> },
+  executing: { label: "Working", variant: "info", icon: <LoaderCircle {...iconProps} />, animated: true },
   reviewing: { label: "Reviewing", variant: "warning", icon: <CircleDot {...iconProps} /> },
   revision_requested: { label: "Revising", variant: "warning", icon: <RotateCcw {...iconProps} /> },
   waiting_for_human: { label: "Needs you", variant: "warning", icon: <UserRound {...iconProps} /> },
@@ -42,10 +43,11 @@ export function taskStatusLabel(status: TaskStatus): string {
 
 export function TaskStatusBadge({ status }: { status: TaskStatus }) {
   const meta = taskStatusMeta(status);
+  const icon = meta.animated ? <span {...stylex.props(styles.spinner)}>{meta.icon}</span> : meta.icon;
   return (
     <Badge
       aria-label={`Task status: ${meta.label}`}
-      icon={meta.icon}
+      icon={icon}
       label={meta.label}
       variant={meta.variant}
       {...stylex.props(styles.badge)}
@@ -58,5 +60,15 @@ const styles = stylex.create({
     width: "fit-content",
     fontSize: 11,
     lineHeight: 1.2
+  },
+  spinner: {
+    display: "inline-flex",
+    animationDuration: "900ms",
+    animationIterationCount: "infinite",
+    animationName: "tool-marker-spinner-rotate",
+    animationTimingFunction: "linear",
+    "@media (prefers-reduced-motion: reduce)": {
+      animationName: "none"
+    }
   }
 });

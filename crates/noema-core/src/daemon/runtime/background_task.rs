@@ -4,6 +4,9 @@ use crate::{
     GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
     agent_execution::ExecutionRole,
     daemon::{agent_onboarding::AgentPromptIdentity, protocol::DaemonError},
+    graphql::{ConversationSubscriptionRegistry, TaskLiveEvent},
+    provider::GenerateStreamEvent,
+    store::NewAgentRunItem,
 };
 
 use super::{
@@ -21,6 +24,8 @@ const MAX_TOOL_CONTINUATIONS: usize = 8;
 pub(crate) struct BackgroundTaskGenerateRequest {
     /// Durable run id used as the stateless provider conversation id.
     pub run_id: String,
+    /// Durable task id used to route GraphQL detail updates.
+    pub task_id: String,
     /// Built-in agent identity that owns this run.
     pub agent_id: String,
     /// Role policy applied to advertised and dispatched tools.
@@ -35,6 +40,8 @@ pub(crate) struct BackgroundTaskGenerateRequest {
     pub input: String,
     /// System instructions for the executor or reviewer contract.
     pub instructions: String,
+    /// GraphQL task subscription registry for live detail refreshes.
+    pub task_subscriptions: ConversationSubscriptionRegistry,
 }
 
 impl CodexRuntimeActor {
@@ -63,8 +70,9 @@ impl CodexRuntimeActor {
         let turn_id = format!("task_turn:{}", request.run_id);
         let user_item_id = format!("task_input:{}", request.run_id);
         let tool_instructions = background_tool_instructions(&request.instructions, &model_tools);
-        let mut response = provider
-            .generate_streaming(
+        let mut response = self
+            .generate_with_activity(
+                &provider,
                 GenerateRequest {
                     conversation_id: Some(conversation_id.clone()),
                     model: request.model.clone(),
@@ -81,7 +89,9 @@ impl CodexRuntimeActor {
                     parallel_tool_calls: !model_tools.native.is_empty()
                         && capabilities.parallel_tool_calls,
                 },
-                &mut |_| {},
+                &request.run_id,
+                &request.task_id,
+                &request.task_subscriptions,
             )
             .await
             .map_err(DaemonError::Provider)?;
@@ -147,8 +157,9 @@ impl CodexRuntimeActor {
                 GenerateInput::Text(render_tool_results(&result_refs))
             };
             let instructions = background_tool_instructions(&request.instructions, &model_tools);
-            response = provider
-                .generate_streaming(
+            response = self
+                .generate_with_activity(
+                    &provider,
                     GenerateRequest {
                         conversation_id: Some(conversation_id.clone()),
                         model: request.model.clone(),
@@ -165,12 +176,69 @@ impl CodexRuntimeActor {
                         parallel_tool_calls: !model_tools.native.is_empty()
                             && capabilities.parallel_tool_calls,
                     },
-                    &mut |_| {},
+                    &request.run_id,
+                    &request.task_id,
+                    &request.task_subscriptions,
                 )
                 .await
                 .map_err(DaemonError::Provider)?;
         }
         Ok(response)
+    }
+
+    async fn generate_with_activity(
+        &self,
+        provider: &std::sync::Arc<dyn super::handle::RuntimeModelProvider>,
+        request: GenerateRequest,
+        run_id: &str,
+        task_id: &str,
+        subscriptions: &ConversationSubscriptionRegistry,
+    ) -> Result<GenerateResponse, crate::provider::ProviderError> {
+        let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
+        let store = self.store.clone();
+        let run_id_for_writer = run_id.to_string();
+        let task_id_for_writer = task_id.to_string();
+        let subscriptions = subscriptions.clone();
+        let writer = tokio::spawn(async move {
+            while let Some(event) = event_rx.recv().await {
+                let item = match event {
+                    GenerateStreamEvent::AssistantTextDelta {
+                        response_index,
+                        delta,
+                    } if !delta.is_empty() => Some(NewAgentRunItem {
+                        item_id: None,
+                        run_id: run_id_for_writer.clone(),
+                        kind: "assistant_output".to_string(),
+                        content_text: Some(delta),
+                        payload: serde_json::json!({"response_index": response_index}),
+                    }),
+                    GenerateStreamEvent::ToolCallStarted { output_index, name } => {
+                        Some(NewAgentRunItem {
+                            item_id: None,
+                            run_id: run_id_for_writer.clone(),
+                            kind: "tool_call".to_string(),
+                            content_text: Some(name),
+                            payload: serde_json::json!({"output_index": output_index}),
+                        })
+                    }
+                    _ => None,
+                };
+                if let Some(item) = item
+                    && store.append_agent_run_item(item).await.is_ok()
+                {
+                    subscriptions.publish_task(TaskLiveEvent::Changed {
+                        task_id: task_id_for_writer.clone(),
+                    });
+                }
+            }
+        });
+        let mut emit = |event| {
+            let _ = event_tx.send(event);
+        };
+        let result = provider.generate_streaming(request, &mut emit).await;
+        drop(event_tx);
+        let _ = writer.await;
+        result
     }
 }
 

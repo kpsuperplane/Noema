@@ -26,6 +26,13 @@ pub(crate) enum ConversationLiveEvent {
     },
 }
 
+/// Live task detail event used to invalidate/refill the task rail.
+#[derive(Clone, Debug)]
+pub(crate) enum TaskLiveEvent {
+    /// Durable task/run state or safe run activity changed.
+    Changed { task_id: String },
+}
+
 impl ConversationLiveEvent {
     /// Return the durable conversation id for this event.
     #[must_use]
@@ -40,9 +47,10 @@ impl ConversationLiveEvent {
 }
 
 /// In-process conversation event registry for GraphQL subscriptions.
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct ConversationSubscriptionRegistry {
     inner: Arc<Mutex<HashMap<String, broadcast::Sender<ConversationLiveEvent>>>>,
+    task_inner: Arc<Mutex<HashMap<String, broadcast::Sender<TaskLiveEvent>>>>,
 }
 
 impl ConversationSubscriptionRegistry {
@@ -60,10 +68,34 @@ impl ConversationSubscriptionRegistry {
         let _ = sender.send(event);
     }
 
+    /// Subscribe to one task's durable/live detail updates.
+    pub(crate) fn subscribe_task(&self, task_id: &str) -> broadcast::Receiver<TaskLiveEvent> {
+        self.task_sender(task_id).subscribe()
+    }
+
+    /// Publish one task detail update.
+    pub(crate) fn publish_task(&self, event: TaskLiveEvent) {
+        let task_id = match &event {
+            TaskLiveEvent::Changed { task_id } => task_id,
+        };
+        let _ = self.task_sender(task_id).send(event);
+    }
+
     fn sender(&self, conversation_id: &str) -> broadcast::Sender<ConversationLiveEvent> {
         let mut inner = self.inner.lock().expect("subscription registry poisoned");
         inner
             .entry(conversation_id.to_string())
+            .or_insert_with(|| broadcast::channel(256).0)
+            .clone()
+    }
+
+    fn task_sender(&self, task_id: &str) -> broadcast::Sender<TaskLiveEvent> {
+        let mut inner = self
+            .task_inner
+            .lock()
+            .expect("task subscription registry poisoned");
+        inner
+            .entry(task_id.to_string())
             .or_insert_with(|| broadcast::channel(256).0)
             .clone()
     }
@@ -90,5 +122,19 @@ mod tests {
 
         let event = rx.recv().await.expect("event should be delivered");
         assert_eq!(event.conversation_id(), "conversation_1");
+    }
+
+    #[tokio::test]
+    async fn registry_delivers_task_events_to_subscriber() {
+        let registry = ConversationSubscriptionRegistry::default();
+        let mut rx = registry.subscribe_task("task_1");
+
+        registry.publish_task(TaskLiveEvent::Changed {
+            task_id: "task_1".to_string(),
+        });
+
+        assert!(
+            matches!(rx.recv().await, Ok(TaskLiveEvent::Changed { task_id }) if task_id == "task_1")
+        );
     }
 }

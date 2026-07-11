@@ -95,6 +95,7 @@ export type TaskRun = {
   output?: string | null;
   error?: string | null;
   toolActivities?: readonly TaskToolActivity[];
+  items?: readonly TaskRunItem[];
   startedAt?: string | null;
   completedAt?: string | null;
 };
