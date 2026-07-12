@@ -95,7 +95,11 @@ export function TaskReferenceCard({
           <ListTodo size={18} strokeWidth={2} />
         </span>
       }
-      xstyle={itemXStyle(styles.item, !opensDetail && styles.disabledItem)}
+      xstyle={itemXStyle(
+        styles.item,
+        opensDetail && styles.actionItem,
+        !opensDetail && styles.disabledItem
+      )}
     />
   );
 }
@@ -144,6 +148,7 @@ const styles = stylex.create({
     }
   },
   disabledItem: { opacity: 0.72 },
+  actionItem: { paddingInlineEnd: 48 },
   iconFrame: {
     display: "inline-flex",
     width: 32,
