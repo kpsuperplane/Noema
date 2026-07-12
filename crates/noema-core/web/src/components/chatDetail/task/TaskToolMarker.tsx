@@ -17,12 +17,14 @@ type TaskToolMarkerProps = {
   | {
       input?: unknown;
       output?: unknown;
+      detail?: React.ReactNode;
       activationLabel?: never;
       onActivate?: never;
     }
   | {
       input?: never;
       output?: never;
+      detail?: never;
       activationLabel?: string;
       onActivate: () => void;
     }
@@ -35,13 +37,21 @@ export function TaskToolMarker({
   status,
   input,
   output,
+  detail,
   errorMessage,
   activationLabel,
   onActivate
 }: TaskToolMarkerProps) {
   const [open, setOpen] = React.useState(false);
   const marker = taskToolMarker({ id, name, target, status, input, output, errorMessage });
-  const content = <ToolMarker data={{ kind: "tool", marker }} open={open} onToggle={() => setOpen((value) => !value)} />;
+  const content = (
+    <ToolMarker
+      data={{ kind: "tool", marker }}
+      detail={detail}
+      open={open}
+      onToggle={() => setOpen((value) => !value)}
+    />
+  );
 
   if (!onActivate) {
     return content;

@@ -137,15 +137,20 @@ export function ToolMarker({
   data,
   open,
   onToggle,
+  detail,
   renderDetail = true
 }: {
   data: ToolMarkerData;
   open: boolean;
   onToggle: () => void;
+  detail?: ReactNode;
   renderDetail?: boolean;
 }) {
   const calls = toolMarkerCalls(data);
-  const call = calls[0];
+  const defaultCall = calls[0];
+  const call = detail === undefined
+    ? defaultCall
+    : { ...defaultCall, expandable: true, resultDetail: detail };
 
   return (
     <div {...stylex.props(styles.root)}>

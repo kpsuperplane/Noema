@@ -25,22 +25,32 @@ function CriterionRow({ criterion }: { criterion: TaskCriterion }) {
   return (
     <li {...stylex.props(styles.item)}>
       <TaskToolMarker
-        errorMessage={verdict === "fail" ? criterion.evidence ?? undefined : undefined}
+        detail={hasDetails ? <CriterionEvidence criterion={criterion} /> : undefined}
         id={criterion.id}
-        input={hasDetails ? {
-          expected_evidence: criterion.expectedEvidence,
-          ...((verdict === "pending" || verdict === "uncertain")
-            ? { observed_evidence: criterion.evidence }
-            : {})
-        } : undefined}
         name={criterion.text}
-        output={hasDetails && (verdict === "pass" || verdict === "fail")
-          ? { evidence: criterion.evidence }
-          : undefined}
         status={criterionToolCallStatus(verdict)}
-        target={`Criterion ${criterion.position} · ${criterionVerdictLabel(verdict)}`}
+        target={criterionVerdictLabel(verdict)}
       />
     </li>
+  );
+}
+
+function CriterionEvidence({ criterion }: { criterion: TaskCriterion }) {
+  return (
+    <dl {...stylex.props(styles.evidence)}>
+      {criterion.expectedEvidence ? (
+        <div {...stylex.props(styles.evidenceRow)}>
+          <dt {...stylex.props(styles.evidenceLabel)}>Expected</dt>
+          <dd {...stylex.props(styles.evidenceValue)}>{criterion.expectedEvidence}</dd>
+        </div>
+      ) : null}
+      {criterion.evidence ? (
+        <div {...stylex.props(styles.evidenceRow)}>
+          <dt {...stylex.props(styles.evidenceLabel)}>Observed</dt>
+          <dd {...stylex.props(styles.evidenceValue)}>{criterion.evidence}</dd>
+        </div>
+      ) : null}
+    </dl>
   );
 }
 
@@ -78,6 +88,37 @@ const styles = stylex.create({
     listStyle: "none"
   },
   item: { minWidth: 0 },
+  evidence: {
+    display: "grid",
+    gap: 7,
+    maxWidth: 520,
+    margin: 0,
+    paddingBlock: 2
+  },
+  evidenceRow: {
+    display: "grid",
+    gridTemplateColumns: "80px minmax(0, 1fr)",
+    alignItems: "baseline",
+    gap: 10,
+    "@media (max-width: 520px)": {
+      gridTemplateColumns: "1fr",
+      gap: 2
+    }
+  },
+  evidenceLabel: {
+    color: "var(--noema-text-muted)",
+    fontSize: 10,
+    fontWeight: 650
+  },
+  evidenceValue: {
+    minWidth: 0,
+    margin: 0,
+    color: "var(--noema-text-secondary)",
+    fontSize: 12,
+    lineHeight: 1.45,
+    overflowWrap: "anywhere",
+    whiteSpace: "pre-wrap"
+  },
   empty: {
     margin: 0,
     color: "var(--noema-text-secondary)",
