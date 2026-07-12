@@ -11,6 +11,9 @@ import { TaskRevisionTimeline } from "./TaskRevisionTimeline";
 import { TaskRunConversationView } from "./TaskRunConversationView";
 
 type MarkdownXStyle = MarkdownProps["xstyle"];
+type TaskDetailView = { kind: "overview" } | { kind: "run"; runId: string };
+
+const taskDetailTransitionMs = 300;
 
 export function TaskDetailPanel({
   taskId,
@@ -35,23 +38,41 @@ export function TaskDetailPanel({
     taskId: string;
     runId: string;
   } | null>(null);
+  const [settledRunKey, setSettledRunKey] = React.useState<{
+    taskId: string;
+    runId: string;
+  } | null>(null);
+  const focusTimelineAfterTransitionRef = React.useRef(false);
   const currentDetail = detail?.taskId === taskId ? detail : null;
   const selectedRunId = selectedRunKey?.taskId === taskId ? selectedRunKey.runId : null;
-  const selectedRunContext = currentDetail
-    ? currentDetail.revisions
-        .flatMap((revision) => [
-          ...revision.executors.map((run) => ({ revision, run })),
-          ...revision.reviewers.map((run) => ({ revision, run }))
-        ])
-        .find(({ run }) => run.id === selectedRunId) ?? null
-    : null;
-  const selectedRun = selectedRunContext?.run ?? null;
+  const settledRunId = settledRunKey?.taskId === taskId ? settledRunKey.runId : null;
+  const transitioning = selectedRunId !== settledRunId;
+  const transitionDirection = selectedRunId ? "forward" : "backward";
   const handleRunBack = React.useCallback(() => {
+    if (transitioning) {
+      return;
+    }
+    focusTimelineAfterTransitionRef.current = true;
     setSelectedRunKey(null);
-    window.requestAnimationFrame(() => {
-      document.getElementById("task-timeline-title")?.focus();
-    });
-  }, []);
+  }, [transitioning]);
+
+  React.useEffect(() => {
+    if (!transitioning) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setSettledRunKey(selectedRunId ? { taskId, runId: selectedRunId } : null);
+      if (focusTimelineAfterTransitionRef.current && !selectedRunId) {
+        focusTimelineAfterTransitionRef.current = false;
+        window.requestAnimationFrame(() => {
+          document.getElementById("task-timeline-title")?.focus();
+        });
+      }
+    }, taskDetailTransitionMs);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [selectedRunId, taskId, transitioning]);
 
   const runAction = React.useCallback(
     async (kind: "cancel" | "resume", message?: string) => {
@@ -90,42 +111,93 @@ export function TaskDetailPanel({
     return <TaskUnavailable message="Task details are unavailable." />;
   }
 
-  if (selectedRun) {
+  const selectedView: TaskDetailView = selectedRunId
+    ? { kind: "run", runId: selectedRunId }
+    : { kind: "overview" };
+  const settledView: TaskDetailView = settledRunId
+    ? { kind: "run", runId: settledRunId }
+    : { kind: "overview" };
+  const renderView = (view: TaskDetailView) => {
+    if (view.kind === "run") {
+      const runContext = currentDetail.revisions
+        .flatMap((revision) => [
+          ...revision.executors.map((run) => ({ revision, run })),
+          ...revision.reviewers.map((run) => ({ revision, run }))
+        ])
+        .find(({ run }) => run.id === view.runId);
+      if (runContext) {
+        return (
+          <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root)}>
+            <TaskRunConversationView
+              liveItems={liveRunItems?.get(runContext.run.id)}
+              onBack={handleRunBack}
+              review={runContext.revision.review}
+              run={runContext.run}
+            />
+          </div>
+        );
+      }
+    }
+
     return (
       <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root)}>
-        <TaskRunConversationView
-          liveItems={liveRunItems?.get(selectedRun.id)}
-          onBack={handleRunBack}
-          review={selectedRunContext?.revision.review}
-          run={selectedRun}
+        <TaskStatusSummary
+          key={`status:${taskId}`}
+          actionBusy={actionBusy}
+          actionError={actionError}
+          detail={currentDetail}
+          onCancel={onCancelTask ? () => runAction("cancel") : undefined}
+          onResume={onResumeTask ? (message) => runAction("resume", message) : undefined}
         />
+        <TaskTextSection key={`request:${taskId}`} text={currentDetail.request} />
+        <TaskRevisionTimeline
+          onSelectRun={(run) => {
+            if (!transitioning) {
+              setSelectedRunKey({ taskId, runId: run.id });
+            }
+          }}
+          revisions={currentDetail.revisions}
+        />
+        <TaskCriteria key={`criteria:${taskId}`} criteria={currentDetail.criteria} />
+        <TaskResult key={`result:${taskId}`} artifacts={currentDetail.artifacts} result={currentDetail.finalResult} />
+        {currentDetail.failureReason ? (
+          <FailureNotice message={currentDetail.failureReason} />
+        ) : null}
+        <TaskDetails key={`details:${taskId}`} detail={currentDetail} />
       </div>
     );
-  }
+  };
 
   return (
-    <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root)}>
-      <TaskStatusSummary
-        key={`status:${taskId}`}
-        actionBusy={actionBusy}
-        actionError={actionError}
-        detail={currentDetail}
-        onCancel={onCancelTask ? () => runAction("cancel") : undefined}
-        onResume={onResumeTask ? (message) => runAction("resume", message) : undefined}
-      />
-      <TaskTextSection key={`request:${taskId}`} text={currentDetail.request} />
-      <TaskRevisionTimeline
-        onSelectRun={(run) => setSelectedRunKey({ taskId, runId: run.id })}
-        revisions={currentDetail.revisions}
-      />
-      <TaskCriteria key={`criteria:${taskId}`} criteria={currentDetail.criteria} />
-      <TaskResult key={`result:${taskId}`} artifacts={currentDetail.artifacts} result={currentDetail.finalResult} />
-      {currentDetail.failureReason ? (
-        <FailureNotice message={currentDetail.failureReason} />
+    <div data-slot="task-detail-view-viewport" {...stylex.props(styles.viewport)}>
+      {transitioning ? (
+        <div
+          key={`exiting:${taskViewKey(settledView)}`}
+          data-slot="task-detail-view-frame"
+          data-task-detail-frame-state="exiting"
+          data-task-detail-transition-direction={transitionDirection}
+          aria-hidden="true"
+          inert
+          {...stylex.props(styles.frame, styles.exitingFrame)}
+        >
+          {renderView(settledView)}
+        </div>
       ) : null}
-      <TaskDetails key={`details:${taskId}`} detail={currentDetail} />
+      <div
+        key={taskViewKey(selectedView)}
+        data-slot="task-detail-view-frame"
+        data-task-detail-frame-state={transitioning ? "entering" : "current"}
+        data-task-detail-transition-direction={transitionDirection}
+        {...stylex.props(styles.frame)}
+      >
+        {renderView(selectedView)}
+      </div>
     </div>
   );
+}
+
+function taskViewKey(view: TaskDetailView): string {
+  return view.kind === "run" ? `run:${view.runId}` : "overview";
 }
 
 function TaskTextSection({ text }: { text: string }) {
@@ -164,6 +236,9 @@ function markdownXStyle(...xstyle: unknown[]): MarkdownXStyle {
 }
 
 const styles = stylex.create({
+  viewport: { position: "relative", minWidth: 0, overflow: "hidden" },
+  frame: { position: "relative", minWidth: 0, width: "100%", willChange: "transform, opacity" },
+  exitingFrame: { position: "absolute", insetInline: 0, top: 0, pointerEvents: "none" },
   root: { display: "grid", minWidth: 0 },
   status: { color: "var(--noema-text-secondary)", fontSize: 13 },
   unavailable: { color: "var(--noema-text-secondary)", fontSize: 13, lineHeight: 1.45 },

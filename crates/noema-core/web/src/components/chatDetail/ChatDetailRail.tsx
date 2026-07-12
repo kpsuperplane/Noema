@@ -167,7 +167,7 @@ export function ChatDetailRail({
             </>
           )}
         </header>
-        <div {...stylex.props(styles.body)}>
+        <div {...stylex.props(styles.body, target.type === "task" && styles.taskBody)}>
           {target.type === "artifact" ? (
             <ArtifactDetailPanel version={target.version} onDetailChange={updateArtifactDetail} />
           ) : (
@@ -337,5 +337,8 @@ const styles = stylex.create({
     minHeight: 0,
     overflow: "auto",
     padding: 16
+  },
+  taskBody: {
+    padding: 8
   }
 });
