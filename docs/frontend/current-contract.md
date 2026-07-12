@@ -100,6 +100,10 @@ Current behavior:
 - Daemon runtime state is live coordination state only. After restart, Noema
   reactivates the durable conversation and assembles context from SQLite plus
   provider-independent runtime state.
+- The browser GraphQL transport retries WebSocket connections indefinitely with
+  capped backoff. While disconnected, chat becomes read-only and reports a
+  reconnecting state; after reconnection it refetches active GraphQL reads and
+  backfills the latest durable transcript page before resuming normal use.
 - Provider runtime ids are not part of the current product contract.
 - `agent_status` is live coordination state and is not replayed as transcript
   history.

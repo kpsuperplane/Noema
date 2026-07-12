@@ -134,7 +134,14 @@ function entryFromConversationItem(
     return null;
   }
   if (transcriptItem.kind === "user_text") {
-    return { id: itemId, itemId, cursor, turnId, type: "user", text: transcriptItem.text };
+    return {
+      id: clientMessageIdFromMetadata(metadata) ?? itemId,
+      itemId,
+      cursor,
+      turnId,
+      type: "user",
+      text: transcriptItem.text
+    };
   }
   if (transcriptItem.kind === "assistant_text") {
     return {
@@ -179,6 +186,13 @@ function entryFromConversationItem(
     };
   }
   return null;
+}
+
+function clientMessageIdFromMetadata(metadata: unknown): string | undefined {
+  if (!isRecord(metadata)) {
+    return undefined;
+  }
+  return typeof metadata.client_message_id === "string" ? metadata.client_message_id : undefined;
 }
 
 function streamIdFromMetadata(metadata: unknown): string | undefined {

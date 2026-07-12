@@ -57,6 +57,8 @@ import {
 } from "@/transcript/window";
 import type { ConversationAgentStatus, SocketState } from "@/shared/types";
 import { createClientId } from "@/shared/clientId";
+import { isTauriRuntime } from "@/graphql/transportMode";
+import { useBrowserGraphqlRecovery } from "./useBrowserGraphqlRecovery";
 
 type ProviderAuthAttemptView =
   | StartProviderAuthAttemptMutation["startProviderAuthAttempt"]
@@ -115,6 +117,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   );
   const canGoBackFromSettingsRef = React.useRef(false);
   const apolloClient = useApolloClient();
+  const desktopRuntime = isTauriRuntime();
   const boot = useSuspenseQuery(ChatBootDocument, {
     variables: { transcriptLimit: 80 },
     fetchPolicy: "network-only"
@@ -151,6 +154,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   const latestTranscriptRetryBlockedConversationRef = React.useRef<string | null>(null);
   const latestTranscriptRetryTimeoutRef = React.useRef<number | null>(null);
   const latestTranscriptErrorVisibleConversationRef = React.useRef<string | null>(null);
+  const reconcilingRecoveryRef = React.useRef(false);
   const lastProcessedConversationEventRef = React.useRef<ConversationEvent | null>(null);
   const localStatusRefetchRef = React.useRef(boot.refetch);
 
@@ -246,6 +250,24 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     setAgentStatus("connecting");
   }, []);
 
+  const markConversationReady = React.useCallback(() => {
+    setSocketState("ready");
+  }, []);
+
+  const recoverBrowserConversation = React.useCallback(() => {
+    reconcilingRecoveryRef.current = true;
+    setSocketState("connecting");
+    setPending(false);
+    setAwaitingAssistantTurn(false);
+    setAgentStatus("IDLE");
+    latestTranscriptLoadedConversationRef.current = null;
+    latestTranscriptRetryBlockedConversationRef.current = null;
+    setLatestTranscriptLoadedConversationId(null);
+    setLatestTranscriptRetryBlockedConversationId(null);
+    setLatestTranscriptRetryTick((current) => current + 1);
+    void apolloClient.refetchObservableQueries();
+  }, [apolloClient]);
+
   const acceptPrimaryConversation = React.useCallback((nextConversationId: string) => {
     setConversationId(nextConversationId);
     setPending(false);
@@ -283,6 +305,13 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     onError: reportConversationError
   });
 
+  useBrowserGraphqlRecovery({
+    enabled: !desktopRuntime && conversationId !== null,
+    onConnecting: markConversationConnecting,
+    onReady: markConversationReady,
+    onRecovered: recoverBrowserConversation
+  });
+
   React.useEffect(() => {
     localStatusRefetchRef.current = boot.refetch;
   }, [boot.refetch]);
@@ -314,13 +343,15 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
         if (!page) {
           throw new Error("Noema did not return chat history.");
         }
-        setTranscriptWindow((current) =>
-          mergeDurableEntries(current, entriesFromReplay(page.items), {
+        const reconcileOptimisticEntries = placement === "latest" && reconcilingRecoveryRef.current;
+        setTranscriptWindow((current) => {
+          const merged = mergeDurableEntries(current, entriesFromReplay(page.items), {
             placement,
             beforeCursor: page.pageInfo.beforeCursor ?? null,
             hasMoreBefore: page.pageInfo.hasMoreBefore
-          })
-        );
+          });
+          return reconcileOptimisticEntries ? { ...merged, optimisticEntries: [] } : merged;
+        });
         if (placement === "latest") {
           latestTranscriptRetryBlockedConversationRef.current = null;
           latestTranscriptErrorVisibleConversationRef.current = null;
@@ -329,6 +360,10 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
           if (latestTranscriptRetryTimeoutRef.current !== null) {
             window.clearTimeout(latestTranscriptRetryTimeoutRef.current);
             latestTranscriptRetryTimeoutRef.current = null;
+          }
+          if (reconcileOptimisticEntries) {
+            reconcilingRecoveryRef.current = false;
+            setSocketState("ready");
           }
         } else {
           setOlderTranscriptPageError(null);

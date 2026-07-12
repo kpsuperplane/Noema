@@ -154,12 +154,13 @@ function removeOptimisticEntriesWithDurableItemIds(
   optimisticEntries: TranscriptEntry[],
   durableEntries: TranscriptEntry[]
 ): TranscriptEntry[] {
+  const durableEntryIds = new Set(durableEntries.map((entry) => entry.id));
   const durableItemIds = new Set(
     durableEntries.map(transcriptEntryItemId).filter((itemId) => itemId !== undefined)
   );
   return optimisticEntries.filter((entry) => {
     const itemId = transcriptEntryItemId(entry);
-    return itemId === undefined || !durableItemIds.has(itemId);
+    return !durableEntryIds.has(entry.id) && (itemId === undefined || !durableItemIds.has(itemId));
   });
 }
 

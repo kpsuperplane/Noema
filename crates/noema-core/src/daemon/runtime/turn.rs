@@ -552,7 +552,7 @@ impl CodexRuntimeActor {
             conversation_id.clone(),
             turn.turn_id.clone(),
             turn_index,
-            client_message_id,
+            client_message_id.clone(),
         );
         timing.mark(
             "runtime_turn_started",
@@ -620,7 +620,10 @@ impl CodexRuntimeActor {
                 "budget_output_reserve_tokens": planned_context.budget.output_reserve_tokens(),
             }),
         );
-        let user_metadata = json!({ "turn_index": turn_index });
+        let user_metadata = json!({
+            "turn_index": turn_index,
+            "client_message_id": client_message_id,
+        });
         let (user_kind, parent_item_id, user_content_text, user_payload, transcript_item) =
             match &user_input {
                 UserTurnInput::Text(text) => (
