@@ -1,5 +1,6 @@
 import { Badge } from "@astryxdesign/core/Badge";
 import * as stylex from "@stylexjs/stylex";
+import { TaskDisclosureSection } from "./TaskDisclosureSection";
 import type { TaskModelSnapshot } from "./taskTypes";
 
 export function TaskModelSnapshots({
@@ -16,13 +17,12 @@ export function TaskModelSnapshots({
   }
 
   return (
-    <section aria-labelledby="task-models-title" {...stylex.props(styles.section)}>
-      <div {...stylex.props(styles.heading)}>
-        <h3 id="task-models-title" {...stylex.props(styles.headingTitle)}>
-          Agent models
-        </h3>
-        <span {...stylex.props(styles.headingHint)}>Captured when the task was created</span>
-      </div>
+    <TaskDisclosureSection
+      id="task-models-title"
+      summary={modelSummary(executor, reviewer)}
+      title="Agent models"
+    >
+      <p {...stylex.props(styles.hint)}>Captured when the task was created</p>
       <div {...stylex.props(styles.grid)}>
         {executor ? <ModelCard label="Executor" snapshot={executor} /> : null}
         {reviewer ? (
@@ -33,8 +33,18 @@ export function TaskModelSnapshots({
           />
         ) : null}
       </div>
-    </section>
+    </TaskDisclosureSection>
   );
+}
+
+function modelSummary(
+  executor?: TaskModelSnapshot | null,
+  reviewer?: TaskModelSnapshot | null
+): string {
+  return [
+    executor ? `Executor · ${executor.modelLabel || executor.modelProfile}` : null,
+    reviewer ? `Reviewer · ${reviewer.modelLabel || reviewer.modelProfile}` : null
+  ].filter(Boolean).join(" · ");
 }
 
 function ModelCard({
@@ -73,27 +83,12 @@ function MetadataRow({ label, value }: { label: string; value: string }) {
 }
 
 const styles = stylex.create({
-  section: {
-    display: "grid",
-    gap: 10,
-    paddingBlock: 2
-  },
-  heading: {
-    display: "flex",
-    flexWrap: "wrap",
-    alignItems: "baseline",
-    gap: 8
-  },
-  headingTitle: {
+  hint: {
     margin: 0,
-    color: "var(--noema-text-primary)",
-    fontSize: 13,
-    fontWeight: 700,
-    lineHeight: 1.35
-  },
-  headingHint: {
     color: "var(--noema-text-muted)",
-    fontSize: 11
+    fontSize: 10,
+    lineHeight: 1.35,
+    paddingBottom: 7
   },
   grid: {
     display: "grid",

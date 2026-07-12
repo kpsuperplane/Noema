@@ -1,8 +1,8 @@
 import * as stylex from "@stylexjs/stylex";
 import { ChevronRight } from "lucide-react";
 import * as React from "react";
+import { TaskDisclosureSection } from "./TaskDisclosureSection";
 import type { TaskRevision, TaskReview, TaskRun, TaskRunStatus } from "./taskTypes";
-import { SectionHeading } from "./TaskCriteria";
 
 type TimelineEntry = {
   revision: TaskRevision;
@@ -11,17 +11,31 @@ type TimelineEntry = {
 
 export function TaskRevisionTimeline({
   revisions,
-  onSelectRun
+  onSelectRun,
+  expanded,
+  onExpandedChange
 }: {
   revisions: readonly TaskRevision[];
   onSelectRun?: (run: TaskRun) => void;
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
 }) {
   const entries = timelineEntries(revisions);
   const now = useTaskRunClock(entries.some(({ run }) => run.status === "running"));
+  const latest = entries.at(-1);
 
   return (
-    <section aria-labelledby="task-timeline-title" {...stylex.props(styles.section)}>
-      <SectionHeading id="task-timeline-title" tabIndex={-1} title="Timeline" count={entries.length} />
+    <TaskDisclosureSection
+      count={entries.length}
+      expanded={expanded}
+      headingTabIndex={-1}
+      id="task-timeline-title"
+      onExpandedChange={onExpandedChange}
+      summary={latest
+        ? `${runTimelineLabel(latest.run, latest.revision.review)} · Revision ${latest.revision.revision} · Attempt ${latest.run.attemptIndex + 1} · ${runDurationLabel(latest.run, now)}`
+        : "No executor or review activity yet"}
+      title="Timeline"
+    >
       {entries.length === 0 ? (
         <p {...stylex.props(styles.empty)}>Executor and review activity will appear here.</p>
       ) : (
@@ -48,7 +62,7 @@ export function TaskRevisionTimeline({
           ))}
         </ol>
       )}
-    </section>
+    </TaskDisclosureSection>
   );
 }
 
@@ -162,7 +176,6 @@ function parseTimestamp(value?: string | null): number | null {
 }
 
 const styles = stylex.create({
-  section: { display: "grid", gap: 10, paddingBlock: 2 },
   timeline: {
     display: "grid",
     gap: 4,

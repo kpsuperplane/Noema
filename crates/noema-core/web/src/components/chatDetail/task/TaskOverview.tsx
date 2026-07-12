@@ -1,6 +1,7 @@
 import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
 import { Ban } from "lucide-react";
+import { TaskDisclosureSection } from "./TaskDisclosureSection";
 import type { TaskDetail } from "./taskTypes";
 import { TaskResumeControls } from "./TaskResumeControls";
 import { TaskStatusBadge } from "./TaskStatusBadge";
@@ -22,19 +23,23 @@ export function TaskOverview({
   const revision = detail.currentRevision ?? latestRevision(detail);
   const stage = stageLabel(detail.status);
   const provenance = [detail.createdBy, detail.sourceLabel].filter(Boolean).join(" · ");
+  const needsAttention = detail.status === "failed" || detail.status === "waiting_for_human";
 
   return (
-    <section aria-labelledby="task-overview-title" {...stylex.props(styles.section)}>
-      <div {...stylex.props(styles.statusHeader)}>
-        <div {...stylex.props(styles.statusCopy)}>
-          <span {...stylex.props(styles.eyebrow)}>Task status</span>
-          <div {...stylex.props(styles.statusLine)}>
-            <TaskStatusBadge status={detail.status} />
-            <span {...stylex.props(styles.stage)}>{stage}</span>
-          </div>
-        </div>
-        <div {...stylex.props(styles.actions)}>
-          {canCancel && onCancel ? (
+    <TaskDisclosureSection
+      defaultExpanded={needsAttention}
+      id="task-overview-title"
+      summary={
+        <span {...stylex.props(styles.statusLine)}>
+          <TaskStatusBadge status={detail.status} />
+          <span {...stylex.props(styles.stage)}>{stage}</span>
+        </span>
+      }
+      title="Status"
+    >
+      <div {...stylex.props(styles.body)}>
+        {canCancel && onCancel ? (
+          <div {...stylex.props(styles.actions)}>
             <Button
               clickAction={() => onCancel(detail.taskId)}
               icon={<Ban aria-hidden="true" size={14} />}
@@ -44,32 +49,32 @@ export function TaskOverview({
               size="sm"
               variant="ghost"
             />
-          ) : null}
-        </div>
-      </div>
-      {actionError ? (
-        <p role="alert" {...stylex.props(styles.actionError)}>
-          {actionError}
-        </p>
-      ) : null}
-      {onResume ? (
-        <TaskResumeControls
-          busy={actionBusy === "resume"}
-          detail={detail}
-          onResume={onResume}
-        />
-      ) : null}
-      <dl id="task-overview-title" {...stylex.props(styles.metadata)}>
-        <MetadataRow label="Complexity" value={capitalize(detail.complexity)} />
-        <MetadataRow label="Current stage" value={stage} />
-        {revision > 0 ? <MetadataRow label="Revision" value={`${revision}`} /> : null}
-        {detail.maxReviewRounds ? (
-          <MetadataRow label="Review limit" value={`${detail.maxReviewRounds} rounds`} />
+          </div>
         ) : null}
-        {detail.createdAt ? <MetadataRow label="Created" value={formatDate(detail.createdAt)} /> : null}
-        {provenance ? <MetadataRow label="Created from" value={provenance} /> : null}
-      </dl>
-    </section>
+        {actionError ? (
+          <p role="alert" {...stylex.props(styles.actionError)}>
+            {actionError}
+          </p>
+        ) : null}
+        {onResume ? (
+          <TaskResumeControls
+            busy={actionBusy === "resume"}
+            detail={detail}
+            onResume={onResume}
+          />
+        ) : null}
+        <dl {...stylex.props(styles.metadata)}>
+          <MetadataRow label="Complexity" value={capitalize(detail.complexity)} />
+          <MetadataRow label="Current stage" value={stage} />
+          {revision > 0 ? <MetadataRow label="Revision" value={`${revision}`} /> : null}
+          {detail.maxReviewRounds ? (
+            <MetadataRow label="Review limit" value={`${detail.maxReviewRounds} rounds`} />
+          ) : null}
+          {detail.createdAt ? <MetadataRow label="Created" value={formatDate(detail.createdAt)} /> : null}
+          {provenance ? <MetadataRow label="Created from" value={provenance} /> : null}
+        </dl>
+      </div>
+    </TaskDisclosureSection>
   );
 }
 
@@ -124,32 +129,12 @@ function capitalize(value: string): string {
 }
 
 const styles = stylex.create({
-  section: {
+  body: {
     display: "grid",
-    gap: 14,
-    paddingBlock: 2
-  },
-  statusHeader: {
-    display: "flex",
-    flexWrap: "wrap",
-    alignItems: "start",
-    justifyContent: "space-between",
-    gap: 12
-  },
-  statusCopy: {
-    display: "grid",
-    gap: 7,
-    minWidth: 0
-  },
-  eyebrow: {
-    color: "var(--noema-text-muted)",
-    fontSize: 11,
-    fontWeight: 650,
-    letterSpacing: "0.08em",
-    textTransform: "uppercase"
+    gap: 10
   },
   statusLine: {
-    display: "flex",
+    display: "inline-flex",
     flexWrap: "wrap",
     alignItems: "center",
     gap: 8

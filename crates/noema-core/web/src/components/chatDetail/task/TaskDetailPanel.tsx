@@ -2,6 +2,7 @@ import * as React from "react";
 import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import * as stylex from "@stylexjs/stylex";
 import { AlertCircle } from "lucide-react";
+import { TaskDisclosureSection } from "./TaskDisclosureSection";
 import type { TaskDetail, TaskRunItem } from "./taskTypes";
 import { TaskCriteria } from "./TaskCriteria";
 import { TaskModelSnapshots } from "./TaskModelSnapshots";
@@ -35,6 +36,10 @@ export function TaskDetailPanel({
     taskId: string;
     runId: string;
   } | null>(null);
+  const [timelineDisclosureState, setTimelineDisclosureState] = React.useState({
+    taskId,
+    expanded: false
+  });
   const currentDetail = detail?.taskId === taskId ? detail : null;
   const selectedRunId = selectedRunKey?.taskId === taskId ? selectedRunKey.runId : null;
   const selectedRunContext = currentDetail
@@ -46,6 +51,12 @@ export function TaskDetailPanel({
         .find(({ run }) => run.id === selectedRunId) ?? null
     : null;
   const selectedRun = selectedRunContext?.run ?? null;
+  const timelineExpanded = timelineDisclosureState.taskId === taskId
+    ? timelineDisclosureState.expanded
+    : false;
+  const handleTimelineExpandedChange = React.useCallback((expanded: boolean) => {
+    setTimelineDisclosureState({ taskId, expanded });
+  }, [taskId]);
   const handleRunBack = React.useCallback(() => {
     setSelectedRunKey(null);
     window.requestAnimationFrame(() => {
@@ -106,33 +117,30 @@ export function TaskDetailPanel({
   return (
     <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root)}>
       <TaskOverview
+        key={`overview:${taskId}`}
         actionBusy={actionBusy}
         actionError={actionError}
         detail={currentDetail}
         onCancel={onCancelTask ? () => runAction("cancel") : undefined}
         onResume={onResumeTask ? (message) => runAction("resume", message) : undefined}
       />
-      <Divider />
-      <TaskTextSection title="Original request" text={currentDetail.request} />
-      <Divider />
-      <TaskCriteria criteria={currentDetail.criteria} />
+      <TaskTextSection key={`request:${taskId}`} title="Original request" text={currentDetail.request} />
+      <TaskCriteria key={`criteria:${taskId}`} criteria={currentDetail.criteria} />
       <TaskModelSnapshots
+        key={`models:${taskId}`}
         executor={currentDetail.executorModel}
         reviewer={currentDetail.reviewerModel}
         reviewerInherited={currentDetail.reviewerModelInherited}
       />
-      <Divider />
       <TaskRevisionTimeline
+        expanded={timelineExpanded}
+        onExpandedChange={handleTimelineExpandedChange}
         onSelectRun={(run) => setSelectedRunKey({ taskId, runId: run.id })}
         revisions={currentDetail.revisions}
       />
-      {currentDetail.finalResult || currentDetail.artifacts?.length ? <Divider /> : null}
-      <TaskResult artifacts={currentDetail.artifacts} result={currentDetail.finalResult} />
+      <TaskResult key={`result:${taskId}`} artifacts={currentDetail.artifacts} result={currentDetail.finalResult} />
       {currentDetail.failureReason ? (
-        <>
-          <Divider />
-          <FailureNotice message={currentDetail.failureReason} />
-        </>
+        <FailureNotice message={currentDetail.failureReason} />
       ) : null}
     </div>
   );
@@ -140,8 +148,11 @@ export function TaskDetailPanel({
 
 function TaskTextSection({ title, text }: { title: string; text: string }) {
   return (
-    <section aria-labelledby="task-request-title" {...stylex.props(styles.textSection)}>
-      <h3 id="task-request-title" {...stylex.props(styles.sectionTitle)}>{title}</h3>
+    <TaskDisclosureSection
+      id="task-request-title"
+      summary={text.replace(/\s+/g, " ").trim()}
+      title={title}
+    >
       <Markdown
         autolink="gfm"
         contentWidth="100%"
@@ -151,7 +162,7 @@ function TaskTextSection({ title, text }: { title: string; text: string }) {
       >
         {text}
       </Markdown>
-    </section>
+    </TaskDisclosureSection>
   );
 }
 
@@ -159,7 +170,7 @@ function FailureNotice({ message }: { message: string }) {
   return (
     <div role="alert" {...stylex.props(styles.failure)}>
       <AlertCircle aria-hidden="true" size={15} />
-      <p>{message}</p>
+      <p {...stylex.props(styles.failureText)}>{message}</p>
     </div>
   );
 }
@@ -168,22 +179,15 @@ function TaskUnavailable({ message }: { message: string }) {
   return <div role="status" {...stylex.props(styles.unavailable)}>{message}</div>;
 }
 
-function Divider() {
-  return <div aria-hidden="true" {...stylex.props(styles.divider)} />;
-}
-
 function markdownXStyle(...xstyle: unknown[]): MarkdownXStyle {
   return xstyle as unknown as MarkdownXStyle;
 }
 
 const styles = stylex.create({
-  root: { display: "grid", gap: 13, minWidth: 0 },
+  root: { display: "grid", minWidth: 0 },
   status: { color: "var(--noema-text-secondary)", fontSize: 13 },
   unavailable: { color: "var(--noema-text-secondary)", fontSize: 13, lineHeight: 1.45 },
-  textSection: { display: "grid", gap: 8, minWidth: 0 },
-  sectionTitle: { margin: 0, color: "var(--noema-text-primary)", fontSize: 13, fontWeight: 700, lineHeight: 1.35 },
   markdown: { color: "var(--noema-text-secondary)", fontSize: 13, lineHeight: 1.55 },
-  divider: { height: 1, backgroundColor: "var(--noema-border-subtle)" },
-  failure: { display: "flex", alignItems: "start", gap: 8, borderRadius: 8, backgroundColor: "color-mix(in srgb, var(--noema-red-100) 55%, transparent)", padding: 10, color: "var(--noema-red-700)", fontSize: 12, lineHeight: 1.4 },
+  failure: { display: "flex", alignItems: "start", gap: 8, marginTop: 10, borderRadius: 8, backgroundColor: "color-mix(in srgb, var(--noema-red-100) 55%, transparent)", padding: 10, color: "var(--noema-red-700)", fontSize: 12, lineHeight: 1.4 },
   failureText: { margin: 0 }
 });

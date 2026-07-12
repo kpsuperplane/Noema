@@ -1,13 +1,19 @@
 import { Badge } from "@astryxdesign/core/Badge";
 import * as stylex from "@stylexjs/stylex";
-import { AlertCircle, Check, Circle, HelpCircle } from "lucide-react";
+import { AlertCircle, Check, ChevronDown, Circle, HelpCircle } from "lucide-react";
+import * as React from "react";
 import type { ReactNode } from "react";
+import { TaskDisclosureSection } from "./TaskDisclosureSection";
 import type { TaskCriterion, TaskCriterionVerdict } from "./taskTypes";
 
 export function TaskCriteria({ criteria }: { criteria: readonly TaskCriterion[] }) {
   return (
-    <section aria-labelledby="task-criteria-title" {...stylex.props(styles.section)}>
-      <SectionHeading id="task-criteria-title" title="Validation criteria" count={criteria.length} />
+    <TaskDisclosureSection
+      count={criteria.length}
+      id="task-criteria-title"
+      summary={criteriaSummary(criteria)}
+      title="Validation criteria"
+    >
       {criteria.length === 0 ? (
         <p {...stylex.props(styles.empty)}>No validation criteria were recorded.</p>
       ) : (
@@ -17,13 +23,15 @@ export function TaskCriteria({ criteria }: { criteria: readonly TaskCriterion[] 
           ))}
         </ol>
       )}
-    </section>
+    </TaskDisclosureSection>
   );
 }
 
 function CriterionRow({ criterion }: { criterion: TaskCriterion }) {
   const verdict = criterion.verdict ?? "pending";
   const meta = criterionMeta(verdict);
+  const hasDetails = Boolean(criterion.evidence || criterion.expectedEvidence);
+  const [expanded, setExpanded] = React.useState(false);
   return (
     <li {...stylex.props(styles.item)}>
       <span {...stylex.props(styles.index)} aria-hidden="true">
@@ -34,32 +42,61 @@ function CriterionRow({ criterion }: { criterion: TaskCriterion }) {
           <p {...stylex.props(styles.text)}>{criterion.text}</p>
           <Badge variant={meta.variant} icon={meta.icon} label={meta.label} {...stylex.props(styles.badge)} />
         </div>
-        {criterion.evidence ? (
-          <p {...stylex.props(styles.evidence)}>
-            <span {...stylex.props(styles.evidenceLabel)}>Evidence</span>
-            {criterion.evidence}
-          </p>
+        {hasDetails ? (
+          <button
+            type="button"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((current) => !current)}
+            {...stylex.props(styles.detailsButton)}
+          >
+            <span>{expanded ? "Hide details" : "Show details"}</span>
+            <ChevronDown
+              aria-hidden="true"
+              size={13}
+              {...stylex.props(styles.detailsChevron, expanded && styles.detailsChevronExpanded)}
+            />
+          </button>
         ) : null}
-        {criterion.expectedEvidence ? (
-          <p {...stylex.props(styles.evidence)}>
-            <span {...stylex.props(styles.evidenceLabel)}>Expected evidence</span>
-            {criterion.expectedEvidence}
-          </p>
+        {expanded ? (
+          <div {...stylex.props(styles.evidenceGroup)}>
+            {criterion.evidence ? (
+              <p {...stylex.props(styles.evidence)}>
+                <span {...stylex.props(styles.evidenceLabel)}>Evidence</span>
+                {criterion.evidence}
+              </p>
+            ) : null}
+            {criterion.expectedEvidence ? (
+              <p {...stylex.props(styles.evidence)}>
+                <span {...stylex.props(styles.evidenceLabel)}>Expected evidence</span>
+                {criterion.expectedEvidence}
+              </p>
+            ) : null}
+          </div>
         ) : null}
       </div>
     </li>
   );
 }
 
-export function SectionHeading({ id, title, count, tabIndex }: { id: string; title: string; count?: number; tabIndex?: number }) {
-  return (
-    <div {...stylex.props(styles.heading)}>
-      <h3 id={id} tabIndex={tabIndex} {...stylex.props(styles.headingTitle)}>
-        {title}
-      </h3>
-      {typeof count === "number" ? <span {...stylex.props(styles.headingCount)}>{count}</span> : null}
-    </div>
-  );
+function criteriaSummary(criteria: readonly TaskCriterion[]): string {
+  if (criteria.length === 0) {
+    return "No validation criteria";
+  }
+  const counts = new Map<TaskCriterionVerdict, number>();
+  for (const criterion of criteria) {
+    const verdict = criterion.verdict ?? "pending";
+    counts.set(verdict, (counts.get(verdict) ?? 0) + 1);
+  }
+  return [
+    countLabel(counts.get("pass"), "passed"),
+    countLabel(counts.get("fail"), "failed"),
+    countLabel(counts.get("uncertain"), "uncertain"),
+    countLabel(counts.get("pending"), "pending")
+  ].filter(Boolean).join(" · ");
+}
+
+function countLabel(count: number | undefined, label: string): string {
+  return count ? `${count} ${label}` : "";
 }
 
 function criterionMeta(verdict: TaskCriterionVerdict): {
@@ -81,35 +118,6 @@ function criterionMeta(verdict: TaskCriterionVerdict): {
 }
 
 const styles = stylex.create({
-  section: {
-    display: "grid",
-    gap: 11,
-    paddingBlock: 2
-  },
-  heading: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8
-  },
-  headingTitle: {
-    margin: 0,
-    color: "var(--noema-text-primary)",
-    fontSize: 13,
-    fontWeight: 700,
-    lineHeight: 1.35
-  },
-  headingCount: {
-    display: "inline-flex",
-    minWidth: 20,
-    height: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 999,
-    backgroundColor: "var(--noema-surface-sunken)",
-    color: "var(--noema-text-muted)",
-    fontFamily: "var(--noema-font-mono)",
-    fontSize: 10
-  },
   list: {
     display: "grid",
     gap: 8,
@@ -140,7 +148,7 @@ const styles = stylex.create({
   },
   content: {
     display: "grid",
-    gap: 6,
+    gap: 5,
     minWidth: 0
   },
   textRow: {
@@ -163,6 +171,42 @@ const styles = stylex.create({
   badge: {
     flexShrink: 0,
     fontSize: 10
+  },
+  detailsButton: {
+    display: "inline-flex",
+    width: "fit-content",
+    alignItems: "center",
+    gap: 3,
+    borderWidth: 0,
+    borderRadius: 5,
+    backgroundColor: "transparent",
+    paddingBlock: 3,
+    paddingInline: 4,
+    color: "var(--noema-text-muted)",
+    font: "inherit",
+    fontSize: 10,
+    fontWeight: 600,
+    cursor: "pointer",
+    ":hover": {
+      backgroundColor: "var(--noema-surface-hover)",
+      color: "var(--noema-text-secondary)"
+    },
+    ":focus-visible": {
+      outlineWidth: 3,
+      outlineStyle: "solid",
+      outlineColor: "color-mix(in srgb, var(--noema-pine-500) 24%, transparent)"
+    }
+  },
+  detailsChevron: {
+    transition: "transform 140ms ease"
+  },
+  detailsChevronExpanded: {
+    transform: "rotate(180deg)"
+  },
+  evidenceGroup: {
+    display: "grid",
+    gap: 6,
+    paddingTop: 2
   },
   evidence: {
     margin: 0,
