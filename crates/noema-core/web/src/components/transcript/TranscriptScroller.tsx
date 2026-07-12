@@ -58,7 +58,7 @@ const styles = stylex.create({
     overflow: "hidden"
   },
   rootEmbedded: {
-    height: "auto"
+    height: "100%"
   },
   viewport: {
     "--chat-transcript-top-fade": "calc(var(--shell-deck-header-height, 44px) + 56px)",
@@ -76,8 +76,8 @@ const styles = stylex.create({
       "linear-gradient(to bottom, transparent 0, black var(--chat-transcript-top-fade), black calc(100% - var(--chat-transcript-bottom-fade, 128px)), transparent 100%)"
   },
   viewportEmbedded: {
-    height: "auto",
-    maxHeight: 560,
+    height: "100%",
+    maxHeight: "none",
     maskImage: "none",
     WebkitMaskImage: "none"
   },

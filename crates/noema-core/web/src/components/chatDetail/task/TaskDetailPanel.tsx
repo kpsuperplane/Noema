@@ -127,7 +127,7 @@ export function TaskDetailPanel({
         .find(({ run }) => run.id === view.runId);
       if (runContext) {
         return (
-          <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root)}>
+          <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root, styles.runRoot)}>
             <TaskRunConversationView
               liveItems={liveRunItems?.get(runContext.run.id)}
               onBack={handleRunBack}
@@ -178,7 +178,11 @@ export function TaskDetailPanel({
           data-task-detail-transition-direction={transitionDirection}
           aria-hidden="true"
           inert
-          {...stylex.props(styles.frame, styles.exitingFrame)}
+          {...stylex.props(
+            styles.frame,
+            settledView.kind === "run" ? styles.runFrame : styles.scrollFrame,
+            styles.exitingFrame
+          )}
         >
           {renderView(settledView)}
         </div>
@@ -188,7 +192,10 @@ export function TaskDetailPanel({
         data-slot="task-detail-view-frame"
         data-task-detail-frame-state={transitioning ? "entering" : "current"}
         data-task-detail-transition-direction={transitionDirection}
-        {...stylex.props(styles.frame)}
+        {...stylex.props(
+          styles.frame,
+          selectedView.kind === "run" ? styles.runFrame : styles.scrollFrame
+        )}
       >
         {renderView(selectedView)}
       </div>
@@ -236,18 +243,23 @@ function markdownXStyle(...xstyle: unknown[]): MarkdownXStyle {
 }
 
 const styles = stylex.create({
-  viewport: { position: "relative", minWidth: 0, overflow: "hidden" },
+  viewport: { position: "relative", minWidth: 0, minHeight: 0, height: "100%", overflow: "hidden" },
   frame: {
     position: "relative",
     boxSizing: "border-box",
     minWidth: 0,
+    minHeight: 0,
+    height: "100%",
     width: "100%",
     padding: 8,
     backgroundColor: "var(--noema-surface-card)",
     willChange: "transform, opacity"
   },
-  exitingFrame: { position: "absolute", insetInline: 0, top: 0, pointerEvents: "none" },
+  runFrame: { overflow: "hidden" },
+  scrollFrame: { overflowX: "hidden", overflowY: "auto" },
+  exitingFrame: { position: "absolute", inset: 0, pointerEvents: "none" },
   root: { display: "grid", minWidth: 0 },
+  runRoot: { minHeight: 0, height: "100%" },
   status: { padding: 8, color: "var(--noema-text-secondary)", fontSize: 13 },
   unavailable: { padding: 8, color: "var(--noema-text-secondary)", fontSize: 13, lineHeight: 1.45 },
   markdown: { color: "var(--noema-text-secondary)", fontSize: 13, lineHeight: 1.55 },

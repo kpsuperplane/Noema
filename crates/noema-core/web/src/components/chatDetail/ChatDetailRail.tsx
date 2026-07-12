@@ -339,6 +339,7 @@ const styles = stylex.create({
     padding: 16
   },
   taskBody: {
+    overflow: "hidden",
     padding: 0
   }
 });

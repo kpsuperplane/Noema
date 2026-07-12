@@ -132,7 +132,15 @@ function statusIconStyle(kind: RunPresentation["kind"]) {
 }
 
 const styles = stylex.create({
-  root: { display: "grid", gap: 6, minWidth: 0 },
+  root: {
+    display: "grid",
+    gridTemplateRows: "auto minmax(0, 1fr)",
+    gap: 6,
+    minWidth: 0,
+    minHeight: 0,
+    height: "100%",
+    overflow: "hidden"
+  },
   header: {
     display: "grid",
     gridTemplateColumns: "auto minmax(0, 1fr) auto auto",
