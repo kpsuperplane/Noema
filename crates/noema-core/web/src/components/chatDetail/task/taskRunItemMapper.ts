@@ -55,6 +55,7 @@ export function mapTaskRunItem(item: TaskRunItemSource, role: TaskRunRole): Task
     status: runItemStatus(item.status),
     correlationId: item.correlationId,
     parentItemId: item.parentItemId,
+    responseIndex: responseIndex(item.payload),
     occurredAt: item.createdAt,
     updatedAt: item.updatedAt
   };
@@ -80,11 +81,21 @@ export function mergeTaskRunItems(
 }
 
 export function taskRunItemsToTranscriptEntries(items: readonly TaskRunItem[]): TranscriptEntry[] {
-  return items.map(taskRunItemToTranscriptEntry);
+  const entries: TranscriptEntry[] = [];
+  for (const item of items) {
+    const entry = taskRunItemToTranscriptEntry(item);
+    const previous = entries.at(-1);
+    if (entry.type === "assistant" && previous?.type === "assistant" && entry.turnId === previous.turnId) {
+      entries[entries.length - 1] = { ...previous, text: `${previous.text}${entry.text}` };
+    } else {
+      entries.push(entry);
+    }
+  }
+  return entries;
 }
 
 function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry {
-  const turnId = `${item.runId ?? "task-run"}:${item.roundIndex ?? "setup"}`;
+  const turnId = `${item.runId ?? "task-run"}:${item.roundIndex ?? "setup"}:${item.responseIndex ?? "default"}`;
   const base = { id: item.id, source: "replay" as const, turnId };
 
   if (item.kind === "tool" || item.kind === "result") {
@@ -153,7 +164,7 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry {
   return {
     ...base,
     type: "assistant",
-    text: item.summary?.trim() || item.details?.trim() || item.title
+    text: item.summary ?? item.details ?? item.title
   };
 }
 
@@ -166,6 +177,14 @@ function jsonText(value: unknown): string | null {
   } catch {
     return String(value);
   }
+}
+
+function responseIndex(value: unknown): number | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const candidate = (value as { response_index?: unknown }).response_index;
+  return typeof candidate === "number" && Number.isInteger(candidate) ? candidate : null;
 }
 
 function modelInputSummary(value: string | null | undefined): string {

@@ -89,6 +89,7 @@ export type TaskRunItem = {
   status?: "queued" | "running" | "completed" | "failed" | "cancelled" | "skipped" | null;
   correlationId?: string | null;
   parentItemId?: string | null;
+  responseIndex?: number | null;
   occurredAt?: string | null;
   updatedAt?: string | null;
 };
