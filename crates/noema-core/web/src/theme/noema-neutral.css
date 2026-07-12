@@ -57,7 +57,7 @@
   --color-on-accent: var(--noema-white);
   --color-on-success: var(--noema-white);
   --color-on-error: var(--noema-white);
-  --color-on-warning: var(--noema-ink-900);
+  --color-on-warning: var(--noema-white);
   --color-icon-accent: var(--noema-pine-600);
   --color-icon-primary: var(--noema-text-primary);
   --color-icon-secondary: var(--noema-text-secondary);
