@@ -40,6 +40,8 @@ import { parseProviderUsageDebug } from "./debugUsage";
 
 const TOOL_DETAIL_EXIT_DURATION_MS = 400;
 
+export type TranscriptDensity = "full" | "embedded";
+
 export function Transcript({
   entries,
   loadingOlderTranscript,
@@ -53,7 +55,10 @@ export function Transcript({
   onToggleActivity,
   onSubmitMultipleChoiceSelection,
   onLoadOlderTranscript,
-  onOpenDetail
+  onOpenDetail,
+  showHumanMessages = true,
+  density = "full",
+  ariaLabel = "Conversation transcript"
 }: {
   entries: TranscriptEntry[];
   loadingOlderTranscript: boolean;
@@ -68,9 +73,15 @@ export function Transcript({
   onSubmitMultipleChoiceSelection: (promptItemId: string, selectedOptionIds: string[]) => void;
   onLoadOlderTranscript: () => void;
   onOpenDetail?: (target: ChatDetailTarget) => void;
+  showHumanMessages?: boolean;
+  density?: TranscriptDensity;
+  ariaLabel?: string;
 }) {
   void awaitingAssistantTurn;
-  const renderedEntries = renderableTranscriptEntries(entries, pending, agentStatus);
+  const visibleEntries = showHumanMessages
+    ? entries
+    : entries.filter((entry) => entry.type !== "user" && entry.type !== "multiple_choice_selection");
+  const renderedEntries = renderableTranscriptEntries(visibleEntries, pending, agentStatus);
   const [seenArrivalMessageIds, setSeenArrivalMessageIds] = React.useState<ReadonlySet<string>>(() =>
     initialSeenArrivalMessageIds(renderedEntries)
   );
@@ -124,7 +135,8 @@ export function Transcript({
   return (
     <TranscriptScrollerProvider>
       <TranscriptScroller
-        aria-label="Conversation transcript"
+        aria-label={ariaLabel}
+        density={density}
         entries={renderedEntries}
         hasMoreBefore={hasMoreTranscriptBefore}
         loadingBefore={loadingOlderTranscript}
@@ -163,7 +175,7 @@ export function Transcript({
               <RenderedTranscriptEntryFrame lane={lane}>
                 {renderTranscriptRenderEntry(
                   entry,
-                  entries,
+                  visibleEntries,
                   expandedActivities,
                   onToggleActivity,
                   onSubmitMultipleChoiceSelection,

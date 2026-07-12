@@ -22,6 +22,7 @@ type TranscriptScrollerProviderProps = {
 
 type TranscriptScrollerProps = {
   entries: RenderTranscriptEntry[];
+  density?: "full" | "embedded";
   hasMoreBefore: boolean;
   loadingBefore: boolean;
   loadBeforeError: string | null;
@@ -56,6 +57,9 @@ const styles = stylex.create({
     flexDirection: "column",
     overflow: "hidden"
   },
+  rootEmbedded: {
+    height: "auto"
+  },
   viewport: {
     "--chat-transcript-top-fade": "calc(var(--shell-deck-header-height, 44px) + 56px)",
     width: "100%",
@@ -71,6 +75,12 @@ const styles = stylex.create({
     WebkitMaskImage:
       "linear-gradient(to bottom, transparent 0, black var(--chat-transcript-top-fade), black calc(100% - var(--chat-transcript-bottom-fade, 128px)), transparent 100%)"
   },
+  viewportEmbedded: {
+    height: "auto",
+    maxHeight: 560,
+    maskImage: "none",
+    WebkitMaskImage: "none"
+  },
   content: {
     width: "var(--chat-column-width)",
     maxWidth: "100%",
@@ -80,6 +90,15 @@ const styles = stylex.create({
     paddingTop: 24,
     paddingBottom: "max(80px, calc(var(--chat-composer-dock-height, 0px) + 16px))",
     paddingInline: 2
+  },
+  contentEmbedded: {
+    width: "100%",
+    maxWidth: "100%",
+    minHeight: 0,
+    marginInline: 0,
+    paddingTop: 0,
+    paddingBottom: 12,
+    paddingInline: 0
   },
   virtualSizer: {
     position: "relative",
@@ -161,6 +180,9 @@ const styles = stylex.create({
       outlineColor: "color-mix(in srgb, var(--noema-pine-500) 24%, transparent)"
     }
   },
+  embeddedScrollButton: {
+    bottom: 8
+  },
   hidden: {
     pointerEvents: "none",
     opacity: 0,
@@ -204,6 +226,7 @@ export function useTranscriptScroller() {
 
 export function TranscriptScroller({
   entries,
+  density = "full",
   hasMoreBefore,
   loadingBefore,
   loadBeforeError,
@@ -377,10 +400,10 @@ export function TranscriptScroller({
   }, [entries, oldestEntryKey, rowVirtualizer, viewportRef]);
 
   return (
-    <div {...stylex.props(styles.root)}>
+    <div {...stylex.props(styles.root, density === "embedded" && styles.rootEmbedded)}>
       <div
         ref={viewportRef}
-        {...stylex.props(styles.viewport)}
+        {...stylex.props(styles.viewport, density === "embedded" && styles.viewportEmbedded)}
         aria-label={ariaLabel}
         onKeyDown={handleKeyDown}
         onScroll={handleScroll}
@@ -390,7 +413,7 @@ export function TranscriptScroller({
         role="region"
         tabIndex={0}
       >
-        <div ref={contentRef} {...stylex.props(styles.content)}>
+        <div ref={contentRef} {...stylex.props(styles.content, density === "embedded" && styles.contentEmbedded)}>
           {hasMoreBefore || loadingBefore || loadBeforeError ? (
             <div
               ref={loadBeforeStatusRef}
@@ -426,7 +449,11 @@ export function TranscriptScroller({
       </div>
       <button
         type="button"
-        {...stylex.props(styles.scrollButton, stuckToBottom && styles.hidden)}
+        {...stylex.props(
+          styles.scrollButton,
+          density === "embedded" && styles.embeddedScrollButton,
+          stuckToBottom && styles.hidden
+        )}
         aria-hidden={stuckToBottom}
         data-active={stuckToBottom ? "false" : "true"}
         disabled={stuckToBottom}

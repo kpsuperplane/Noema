@@ -1,4 +1,6 @@
 import type { TaskRunItem, TaskRunRole } from "./taskTypes";
+import type { TurnActivityStatus } from "@/generated/graphql";
+import type { TranscriptEntry } from "@/shared/types";
 
 export type TaskRunItemSource = {
   itemId: string;
@@ -76,6 +78,68 @@ export function mergeTaskRunItems(
   });
 }
 
+export function taskRunItemsToTranscriptEntries(items: readonly TaskRunItem[]): TranscriptEntry[] {
+  return items.map(taskRunItemToTranscriptEntry);
+}
+
+function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry {
+  const turnId = `${item.runId ?? "task-run"}:${item.roundIndex ?? "setup"}`;
+  const base = { id: item.id, source: "replay" as const, turnId };
+
+  if (item.kind === "tool" || item.kind === "result") {
+    const isCall = item.kind === "tool";
+    const correlationId = item.correlationId ?? item.id;
+    const toolName = taskToolName(item);
+    const action = {
+      ...(isCall ? { id: correlationId } : { call_id: correlationId }),
+      name: toolName,
+      payload: parseDetails(item.details),
+      ...(isCall ? {} : { success: item.status !== "failed" })
+    };
+    return {
+      ...base,
+      type: "activity",
+      item: {
+        kind: "activity",
+        id: item.id,
+        activity_kind: isCall ? "tool_call" : "tool_result",
+        status: taskActivityStatus(item.status),
+        title: item.title,
+        summary: item.summary,
+        metadata: {
+          action,
+          display: {
+            name: toolName,
+            ...(item.summary ? { result: item.summary } : {})
+          }
+        }
+      }
+    };
+  }
+
+  if (item.kind === "status") {
+    return {
+      ...base,
+      type: "activity",
+      item: {
+        kind: "activity",
+        id: item.id,
+        activity_kind: "task_status",
+        status: taskActivityStatus(item.status),
+        title: item.title,
+        summary: item.summary,
+        metadata: null
+      }
+    };
+  }
+
+  return {
+    ...base,
+    type: "assistant",
+    text: item.summary?.trim() || item.details?.trim() || item.title
+  };
+}
+
 function jsonText(value: unknown): string | null {
   if (value === null || value === undefined) {
     return null;
@@ -85,6 +149,31 @@ function jsonText(value: unknown): string | null {
   } catch {
     return String(value);
   }
+}
+
+function parseDetails(value: string | null | undefined): unknown {
+  if (!value?.trim()) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function taskToolName(item: TaskRunItem): string {
+  return item.title.replace(/^Tool (?:call|result) ·\s*/i, "").trim() || "Tool activity";
+}
+
+function taskActivityStatus(status: TaskRunItem["status"]): TurnActivityStatus {
+  if (status === "running" || status === "queued") {
+    return "STARTED";
+  }
+  if (status === "failed") {
+    return "FAILED";
+  }
+  return "COMPLETED";
 }
 
 function runItemStatus(value: string | null | undefined): TaskRunItem["status"] {
