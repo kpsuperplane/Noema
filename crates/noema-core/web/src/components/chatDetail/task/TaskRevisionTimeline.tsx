@@ -1,7 +1,6 @@
+import { ChatToolCalls, type ChatToolCallStatus } from "@astryxdesign/core/Chat";
 import * as stylex from "@stylexjs/stylex";
-import { ChevronRight } from "lucide-react";
 import * as React from "react";
-import { TaskStaticSection } from "./TaskDisclosureSection";
 import type { TaskRevision, TaskReview, TaskRun, TaskRunStatus } from "./taskTypes";
 
 type TimelineEntry = {
@@ -20,34 +19,46 @@ export function TaskRevisionTimeline({
   const now = useTaskRunClock(entries.some(({ run }) => run.status === "running"));
 
   return (
-    <TaskStaticSection count={entries.length} id="task-timeline-title" tabIndex={-1} title="Timeline">
+    <section aria-label="Timeline" id="task-timeline-title" tabIndex={-1} {...stylex.props(styles.section)}>
       {entries.length === 0 ? (
         <p {...stylex.props(styles.empty)}>Executor and review activity will appear here.</p>
       ) : (
         <ol {...stylex.props(styles.timeline)}>
-          {entries.map(({ revision, run }) => (
-            <li key={run.id} {...stylex.props(styles.item)}>
-              <button
-                type="button"
-                aria-label={`Open ${runTimelineLabel(run, revision.review)} conversation, Revision ${revision.revision}, Attempt ${run.attemptIndex + 1}`}
-                onClick={() => onSelectRun?.(run)}
-                {...stylex.props(styles.itemButton)}
-              >
-                <span aria-hidden="true" {...stylex.props(styles.dot, runDotStyle(run.status))} />
-                <span {...stylex.props(styles.copy)}>
-                  <span {...stylex.props(styles.label)}>{runTimelineLabel(run, revision.review)}</span>
-                  <span {...stylex.props(styles.meta)}>
-                    Revision {revision.revision} · Attempt {run.attemptIndex + 1}
-                  </span>
-                </span>
-                <span {...stylex.props(styles.duration)}>{runDurationLabel(run, now)}</span>
-                <ChevronRight aria-hidden="true" size={15} {...stylex.props(styles.chevron)} />
-              </button>
-            </li>
-          ))}
+          {entries.map(({ revision, run }) => {
+            const label = runTimelineLabel(run, revision.review);
+            const status = runToolCallStatus(run, revision.review);
+            const duration = runDurationLabel(run, now);
+            const openRun = () => onSelectRun?.(run);
+            return (
+              <li key={run.id} {...stylex.props(styles.item)}>
+                <ChatToolCalls
+                  aria-label={`Open ${label} conversation, Revision ${revision.revision}, Attempt ${run.attemptIndex + 1}`}
+                  calls={[{
+                    key: run.id,
+                    name: label,
+                    target: `Revision ${revision.revision} · Attempt ${run.attemptIndex + 1}`,
+                    status,
+                    duration: status === "complete" ? duration : undefined,
+                    stats: status === "complete" ? undefined : duration,
+                    errorMessage: run.error ?? undefined
+                  }]}
+                  onClick={openRun}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      openRun();
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  {...stylex.props(styles.toolCall)}
+                />
+              </li>
+            );
+          })}
         </ol>
       )}
-    </TaskStaticSection>
+    </section>
   );
 }
 
@@ -139,17 +150,24 @@ function terminalRoleLabel(label: string, status: TaskRunStatus): string {
   }
 }
 
-function runDotStyle(status: TaskRunStatus) {
-  if (status === "completed") {
-    return styles.dotSuccess;
-  }
+function runToolCallStatus(run: TaskRun, review?: TaskReview | null): ChatToolCallStatus {
+  const status = run.status;
   if (status === "failed" || status === "cancelled" || status === "interrupted") {
-    return styles.dotError;
+    return "error";
   }
   if (status === "running") {
-    return styles.dotRunning;
+    return "running";
   }
-  return styles.dotPending;
+  if (status !== "completed") {
+    return "pending";
+  }
+  if (run.role === "reviewer" && review?.reviewerRunId === run.id && review.verdict === "request_changes") {
+    return "error";
+  }
+  if (run.role === "reviewer" && review?.reviewerRunId === run.id && review.verdict === "needs_human") {
+    return "pending";
+  }
+  return "complete";
 }
 
 function parseTimestamp(value?: string | null): number | null {
@@ -161,6 +179,14 @@ function parseTimestamp(value?: string | null): number | null {
 }
 
 const styles = stylex.create({
+  section: {
+    minWidth: 0,
+    borderBottomWidth: 1,
+    borderBottomStyle: "solid",
+    borderBottomColor: "var(--noema-border-subtle)",
+    paddingBlock: 10,
+    paddingInline: 8
+  },
   timeline: {
     display: "grid",
     gap: 4,
@@ -169,19 +195,9 @@ const styles = stylex.create({
     listStyle: "none"
   },
   item: { minWidth: 0 },
-  itemButton: {
-    display: "grid",
-    gridTemplateColumns: "8px minmax(0, 1fr) auto 15px",
-    alignItems: "center",
+  toolCall: {
     width: "100%",
-    gap: 10,
-    border: 0,
     borderRadius: 8,
-    backgroundColor: "transparent",
-    padding: 10,
-    color: "var(--noema-text-primary)",
-    font: "inherit",
-    textAlign: "left",
     cursor: "pointer",
     ":hover": { backgroundColor: "var(--noema-surface-hover)" },
     ":focus-visible": {
@@ -191,15 +207,5 @@ const styles = stylex.create({
       outlineOffset: -2
     }
   },
-  dot: { width: 8, height: 8, borderRadius: 999 },
-  dotSuccess: { backgroundColor: "var(--noema-green-600)" },
-  dotError: { backgroundColor: "var(--noema-red-600)" },
-  dotRunning: { backgroundColor: "var(--noema-pine-600)" },
-  dotPending: { backgroundColor: "var(--noema-text-muted)" },
-  copy: { display: "grid", minWidth: 0, gap: 2 },
-  label: { minWidth: 0, fontSize: 12, fontWeight: 700, overflowWrap: "anywhere" },
-  meta: { minWidth: 0, color: "var(--noema-text-muted)", fontSize: 10, overflowWrap: "anywhere" },
-  duration: { color: "var(--noema-text-secondary)", fontFamily: "var(--noema-font-mono)", fontSize: 11, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" },
-  chevron: { color: "var(--noema-text-muted)" },
   empty: { margin: 0, color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: 1.45 }
 });

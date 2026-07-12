@@ -22,8 +22,7 @@ export function TaskStatusSummary({
   const canCancel = Boolean(detail.canCancel ?? cancellableTaskStatus(detail.status));
 
   return (
-    <section aria-labelledby="task-status-title" {...stylex.props(styles.statusSection)}>
-      <h3 id="task-status-title" {...stylex.props(styles.statusTitle)}>Status</h3>
+    <section aria-label="Task status" {...stylex.props(styles.statusSection)}>
       <div {...stylex.props(styles.statusLine)}>
         <TaskStatusBadge status={detail.status} />
         <span {...stylex.props(styles.stage)}>{stageLabel(detail.status)}</span>
@@ -138,13 +137,6 @@ const styles = stylex.create({
     borderBottomColor: "var(--noema-border-subtle)",
     paddingBlock: 10,
     paddingInline: 8
-  },
-  statusTitle: {
-    margin: 0,
-    color: "var(--noema-text-primary)",
-    fontSize: 13,
-    fontWeight: 700,
-    lineHeight: 1.3
   },
   statusLine: {
     display: "inline-flex",

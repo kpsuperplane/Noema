@@ -114,11 +114,11 @@ export function TaskDetailPanel({
         onResume={onResumeTask ? (message) => runAction("resume", message) : undefined}
       />
       <TaskTextSection key={`request:${taskId}`} title="Original request" text={currentDetail.request} />
-      <TaskCriteria key={`criteria:${taskId}`} criteria={currentDetail.criteria} />
       <TaskRevisionTimeline
         onSelectRun={(run) => setSelectedRunKey({ taskId, runId: run.id })}
         revisions={currentDetail.revisions}
       />
+      <TaskCriteria key={`criteria:${taskId}`} criteria={currentDetail.criteria} />
       <TaskResult key={`result:${taskId}`} artifacts={currentDetail.artifacts} result={currentDetail.finalResult} />
       {currentDetail.failureReason ? (
         <FailureNotice message={currentDetail.failureReason} />
