@@ -97,7 +97,7 @@ const styles = stylex.create({
     minHeight: 0,
     marginInline: 0,
     paddingTop: 0,
-    paddingBottom: 12,
+    paddingBottom: 0,
     paddingInline: 0
   },
   virtualSizer: {

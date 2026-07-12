@@ -237,11 +237,19 @@ function markdownXStyle(...xstyle: unknown[]): MarkdownXStyle {
 
 const styles = stylex.create({
   viewport: { position: "relative", minWidth: 0, overflow: "hidden" },
-  frame: { position: "relative", minWidth: 0, width: "100%", willChange: "transform, opacity" },
+  frame: {
+    position: "relative",
+    boxSizing: "border-box",
+    minWidth: 0,
+    width: "100%",
+    padding: 8,
+    backgroundColor: "var(--noema-surface-card)",
+    willChange: "transform, opacity"
+  },
   exitingFrame: { position: "absolute", insetInline: 0, top: 0, pointerEvents: "none" },
   root: { display: "grid", minWidth: 0 },
-  status: { color: "var(--noema-text-secondary)", fontSize: 13 },
-  unavailable: { color: "var(--noema-text-secondary)", fontSize: 13, lineHeight: 1.45 },
+  status: { padding: 8, color: "var(--noema-text-secondary)", fontSize: 13 },
+  unavailable: { padding: 8, color: "var(--noema-text-secondary)", fontSize: 13, lineHeight: 1.45 },
   markdown: { color: "var(--noema-text-secondary)", fontSize: 13, lineHeight: 1.55 },
   failure: { display: "flex", alignItems: "start", gap: 8, marginTop: 10, borderRadius: 8, backgroundColor: "color-mix(in srgb, var(--noema-red-100) 55%, transparent)", padding: 10, color: "var(--noema-red-700)", fontSize: 12, lineHeight: 1.4 },
   failureText: { margin: 0 }

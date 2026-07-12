@@ -339,6 +339,6 @@ const styles = stylex.create({
     padding: 16
   },
   taskBody: {
-    padding: 8
+    padding: 0
   }
 });

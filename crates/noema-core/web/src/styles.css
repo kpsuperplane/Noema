@@ -140,7 +140,7 @@ html[data-tauri-runtime="true"] #root {
 }
 
 [data-slot="task-detail-view-frame"][data-task-detail-frame-state="exiting"][data-task-detail-transition-direction="forward"] {
-  animation: shell-sidebar-menu-exit-forward 300ms cubic-bezier(0.2, 0, 0, 1) both;
+  animation: task-detail-view-exit-forward 300ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
 [data-slot="task-detail-view-frame"][data-task-detail-frame-state="entering"][data-task-detail-transition-direction="backward"] {
@@ -148,7 +148,7 @@ html[data-tauri-runtime="true"] #root {
 }
 
 [data-slot="task-detail-view-frame"][data-task-detail-frame-state="exiting"][data-task-detail-transition-direction="backward"] {
-  animation: shell-sidebar-menu-exit-backward 300ms cubic-bezier(0.2, 0, 0, 1) both;
+  animation: task-detail-view-exit-backward 300ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
 [data-slot="message-scroller-item"][data-arrival="true"] {
@@ -373,6 +373,30 @@ html[data-tauri-runtime="true"] #root {
 
   to {
     opacity: 0.4;
+    transform: translateX(100%);
+  }
+}
+
+@keyframes task-detail-view-exit-forward {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateX(-22%);
+  }
+}
+
+@keyframes task-detail-view-exit-backward {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  to {
+    opacity: 0;
     transform: translateX(100%);
   }
 }
