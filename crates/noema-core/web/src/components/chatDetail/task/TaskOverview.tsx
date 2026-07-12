@@ -36,7 +36,7 @@ export function TaskStatusSummary({
             isLoading={actionBusy === "cancel"}
             label="Cancel"
             size="sm"
-            variant="ghost"
+            variant="destructive"
           />
         </div>
       ) : null}
@@ -149,7 +149,7 @@ const styles = stylex.create({
   actions: {
     display: "flex",
     flexWrap: "wrap",
-    justifyContent: "end",
+    justifyContent: "start",
     gap: 6
   },
   actionError: {

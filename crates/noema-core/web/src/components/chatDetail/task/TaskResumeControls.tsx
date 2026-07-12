@@ -96,5 +96,5 @@ const styles = stylex.create({
     lineHeight: 1.45,
     textWrap: "pretty"
   },
-  actions: { display: "flex", justifyContent: "end" }
+  actions: { display: "flex", justifyContent: "start" }
 });
