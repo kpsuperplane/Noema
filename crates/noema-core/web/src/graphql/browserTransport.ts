@@ -1,5 +1,6 @@
 import { ApolloLink, HttpLink } from "@apollo/client";
 import { GraphQLWsLink } from "@apollo/client/link/subscriptions";
+import { RetryLink } from "@apollo/client/link/retry";
 import { OperationTypeNode } from "graphql";
 import { createClient, type ClientOptions } from "graphql-ws";
 
@@ -21,6 +22,10 @@ export class BrowserGraphqlConnectionMonitor {
 
   private readonly listeners = new Set<() => void>();
 
+  private hasConnected = false;
+
+  private recovering = false;
+
   getSnapshot = () => this.snapshot;
 
   subscribe = (listener: () => void) => {
@@ -28,14 +33,18 @@ export class BrowserGraphqlConnectionMonitor {
     return () => this.listeners.delete(listener);
   };
 
-  connecting() {
+  connecting(wasRetry = false) {
+    this.recovering ||= this.hasConnected || wasRetry;
     this.update({ ...this.snapshot, state: "connecting" });
   }
 
   connected(wasRetry: boolean) {
+    const recovered = wasRetry || this.recovering;
+    this.hasConnected = true;
+    this.recovering = false;
     this.update({
       state: "ready",
-      recoverySequence: this.snapshot.recoverySequence + (wasRetry ? 1 : 0)
+      recoverySequence: this.snapshot.recoverySequence + (recovered ? 1 : 0)
     });
   }
 
@@ -70,7 +79,7 @@ export function createBrowserGraphqlWsClientOptions(
     lazy: true,
     retryAttempts: Number.POSITIVE_INFINITY,
     on: {
-      connecting: () => connectionMonitor.connecting(),
+      connecting: (wasRetry) => connectionMonitor.connecting(wasRetry),
       connected: (_socket, _payload, wasRetry) => connectionMonitor.connected(wasRetry),
       closed: () => connectionMonitor.connecting(),
       error: () => connectionMonitor.connecting()
@@ -91,10 +100,18 @@ export function createBrowserGraphqlLink() {
   const wsLink = new GraphQLWsLink(
     createClient(createBrowserGraphqlWsClientOptions())
   );
+  const retryingWsLink = new RetryLink({
+    attempts: { max: Number.POSITIVE_INFINITY },
+    delay: {
+      initial: GRAPHQL_WS_INITIAL_RETRY_DELAY_MS,
+      max: GRAPHQL_WS_MAX_RETRY_DELAY_MS,
+      jitter: true
+    }
+  }).concat(wsLink);
 
   return ApolloLink.split(
     ({ operationType }) => operationType === OperationTypeNode.SUBSCRIPTION,
-    wsLink,
+    retryingWsLink,
     httpLink
   );
 }
