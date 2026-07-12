@@ -1,12 +1,12 @@
 import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
 import { Ban } from "lucide-react";
-import { TaskDisclosureSection } from "./TaskDisclosureSection";
+import { TaskStaticSection } from "./TaskDisclosureSection";
 import type { TaskDetail } from "./taskTypes";
 import { TaskResumeControls } from "./TaskResumeControls";
 import { TaskStatusBadge } from "./TaskStatusBadge";
 
-export function TaskOverview({
+export function TaskStatusSummary({
   detail,
   actionBusy,
   actionError,
@@ -20,61 +20,61 @@ export function TaskOverview({
   onResume?: (message?: string) => void | Promise<void>;
 }) {
   const canCancel = Boolean(detail.canCancel ?? cancellableTaskStatus(detail.status));
+
+  return (
+    <section aria-labelledby="task-status-title" {...stylex.props(styles.statusSection)}>
+      <h3 id="task-status-title" {...stylex.props(styles.statusTitle)}>Status</h3>
+      <div {...stylex.props(styles.statusLine)}>
+        <TaskStatusBadge status={detail.status} />
+        <span {...stylex.props(styles.stage)}>{stageLabel(detail.status)}</span>
+      </div>
+      {canCancel && onCancel ? (
+        <div {...stylex.props(styles.actions)}>
+          <Button
+            clickAction={() => onCancel(detail.taskId)}
+            icon={<Ban aria-hidden="true" size={14} />}
+            isDisabled={actionBusy === "resume"}
+            isLoading={actionBusy === "cancel"}
+            label="Cancel"
+            size="sm"
+            variant="ghost"
+          />
+        </div>
+      ) : null}
+      {actionError ? (
+        <p role="alert" {...stylex.props(styles.actionError)}>
+          {actionError}
+        </p>
+      ) : null}
+      {onResume ? (
+        <TaskResumeControls
+          busy={actionBusy === "resume"}
+          detail={detail}
+          onResume={onResume}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+export function TaskDetails({ detail }: { detail: TaskDetail }) {
   const revision = detail.currentRevision ?? latestRevision(detail);
   const stage = stageLabel(detail.status);
   const provenance = [detail.createdBy, detail.sourceLabel].filter(Boolean).join(" · ");
-  const needsAttention = detail.status === "failed" || detail.status === "waiting_for_human";
 
   return (
-    <TaskDisclosureSection
-      defaultExpanded={needsAttention}
-      id="task-overview-title"
-      summary={
-        <span {...stylex.props(styles.statusLine)}>
-          <TaskStatusBadge status={detail.status} />
-          <span {...stylex.props(styles.stage)}>{stage}</span>
-        </span>
-      }
-      title="Status"
-    >
-      <div {...stylex.props(styles.body)}>
-        {canCancel && onCancel ? (
-          <div {...stylex.props(styles.actions)}>
-            <Button
-              clickAction={() => onCancel(detail.taskId)}
-              icon={<Ban aria-hidden="true" size={14} />}
-              isDisabled={actionBusy === "resume"}
-              isLoading={actionBusy === "cancel"}
-              label="Cancel"
-              size="sm"
-              variant="ghost"
-            />
-          </div>
+    <TaskStaticSection id="task-details-title" title="Task details">
+      <dl {...stylex.props(styles.metadata)}>
+        <MetadataRow label="Complexity" value={capitalize(detail.complexity)} />
+        <MetadataRow label="Current stage" value={stage} />
+        {revision > 0 ? <MetadataRow label="Revision" value={`${revision}`} /> : null}
+        {detail.maxReviewRounds ? (
+          <MetadataRow label="Review limit" value={`${detail.maxReviewRounds} rounds`} />
         ) : null}
-        {actionError ? (
-          <p role="alert" {...stylex.props(styles.actionError)}>
-            {actionError}
-          </p>
-        ) : null}
-        {onResume ? (
-          <TaskResumeControls
-            busy={actionBusy === "resume"}
-            detail={detail}
-            onResume={onResume}
-          />
-        ) : null}
-        <dl {...stylex.props(styles.metadata)}>
-          <MetadataRow label="Complexity" value={capitalize(detail.complexity)} />
-          <MetadataRow label="Current stage" value={stage} />
-          {revision > 0 ? <MetadataRow label="Revision" value={`${revision}`} /> : null}
-          {detail.maxReviewRounds ? (
-            <MetadataRow label="Review limit" value={`${detail.maxReviewRounds} rounds`} />
-          ) : null}
-          {detail.createdAt ? <MetadataRow label="Created" value={formatDate(detail.createdAt)} /> : null}
-          {provenance ? <MetadataRow label="Created from" value={provenance} /> : null}
-        </dl>
-      </div>
-    </TaskDisclosureSection>
+        {detail.createdAt ? <MetadataRow label="Created" value={formatDate(detail.createdAt)} /> : null}
+        {provenance ? <MetadataRow label="Created from" value={provenance} /> : null}
+      </dl>
+    </TaskStaticSection>
   );
 }
 
@@ -129,9 +129,22 @@ function capitalize(value: string): string {
 }
 
 const styles = stylex.create({
-  body: {
+  statusSection: {
     display: "grid",
-    gap: 10
+    gap: 5,
+    minWidth: 0,
+    borderBottomWidth: 1,
+    borderBottomStyle: "solid",
+    borderBottomColor: "var(--noema-border-subtle)",
+    paddingBlock: 10,
+    paddingInline: 8
+  },
+  statusTitle: {
+    margin: 0,
+    color: "var(--noema-text-primary)",
+    fontSize: 13,
+    fontWeight: 700,
+    lineHeight: 1.3
   },
   statusLine: {
     display: "inline-flex",

@@ -5,7 +5,7 @@ import { AlertCircle } from "lucide-react";
 import { TaskDisclosureSection } from "./TaskDisclosureSection";
 import type { TaskDetail, TaskRunItem } from "./taskTypes";
 import { TaskCriteria } from "./TaskCriteria";
-import { TaskOverview } from "./TaskOverview";
+import { TaskDetails, TaskStatusSummary } from "./TaskOverview";
 import { TaskResult } from "./TaskResult";
 import { runTimelineLabel, TaskRevisionTimeline } from "./TaskRevisionTimeline";
 import { TaskRunConversationView } from "./TaskRunConversationView";
@@ -105,8 +105,8 @@ export function TaskDetailPanel({
 
   return (
     <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root)}>
-      <TaskOverview
-        key={`overview:${taskId}`}
+      <TaskStatusSummary
+        key={`status:${taskId}`}
         actionBusy={actionBusy}
         actionError={actionError}
         detail={currentDetail}
@@ -123,6 +123,7 @@ export function TaskDetailPanel({
       {currentDetail.failureReason ? (
         <FailureNotice message={currentDetail.failureReason} />
       ) : null}
+      <TaskDetails key={`details:${taskId}`} detail={currentDetail} />
     </div>
   );
 }
