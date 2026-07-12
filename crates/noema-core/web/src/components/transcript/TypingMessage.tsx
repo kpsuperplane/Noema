@@ -32,9 +32,20 @@ const styles = stylex.create({
   }
 });
 
-export function TypingMessage({ showAvatar }: { showAvatar: boolean }) {
+export function TypingMessage({
+  showAvatar,
+  reserveAvatarSpace = true
+}: {
+  showAvatar: boolean;
+  reserveAvatarSpace?: boolean;
+}) {
   return (
-    <TranscriptChatBubble role="assistant" showAvatar={showAvatar} variant="typing">
+    <TranscriptChatBubble
+      reserveAvatarSpace={reserveAvatarSpace}
+      role="assistant"
+      showAvatar={showAvatar}
+      variant="typing"
+    >
       <div {...stylex.props(styles.content)} aria-label="Noema is typing" role="status">
         <span {...stylex.props(styles.dot, styles.firstDot)} />
         <span {...stylex.props(styles.dot, styles.secondDot)} />

@@ -16,6 +16,9 @@ const styles = stylex.create({
   human: {
     flexDirection: "row-reverse"
   },
+  withoutAvatar: {
+    gap: 0
+  },
   content: {
     display: "flex",
     flex: 1,
@@ -27,22 +30,31 @@ const styles = stylex.create({
   },
   humanContent: {
     alignItems: "flex-end"
+  },
+  contentWithoutAvatar: {
+    maxWidth: "100%"
   }
 });
 
 export function TranscriptRow({
   lane,
   showAvatar = true,
+  reserveAvatarSpace = true,
   children
 }: {
   lane: TranscriptLane;
   showAvatar?: boolean;
+  reserveAvatarSpace?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <div {...stylex.props(styles.root, lane === "human" && styles.human)} data-lane={lane}>
-      <TranscriptActorAvatar lane={lane} visible={showAvatar} />
-      <div {...stylex.props(styles.content, lane === "human" && styles.humanContent)}>{children}</div>
+    <div {...stylex.props(styles.root, lane === "human" && styles.human, !reserveAvatarSpace && styles.withoutAvatar)} data-lane={lane}>
+      {reserveAvatarSpace ? <TranscriptActorAvatar lane={lane} visible={showAvatar} /> : null}
+      <div {...stylex.props(
+        styles.content,
+        lane === "human" && styles.humanContent,
+        !reserveAvatarSpace && styles.contentWithoutAvatar
+      )}>{children}</div>
     </div>
   );
 }

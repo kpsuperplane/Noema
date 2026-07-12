@@ -64,6 +64,7 @@ export function Message({
   role,
   text,
   showAvatar,
+  reserveAvatarSpace = true,
   debugUsage = null
 }: {
   animate: boolean;
@@ -71,11 +72,17 @@ export function Message({
   role: "user" | "assistant" | "system";
   text: string;
   showAvatar: boolean;
+  reserveAvatarSpace?: boolean;
   debugUsage?: ProviderUsageDebug | null;
 }) {
   const [debugOpen, setDebugOpen] = React.useState(false);
   const bubble = (
-    <TranscriptChatBubble group={group} role={role} showAvatar={showAvatar}>
+    <TranscriptChatBubble
+      group={group}
+      reserveAvatarSpace={reserveAvatarSpace}
+      role={role}
+      showAvatar={showAvatar}
+    >
       <Markdown
         autolink="gfm"
         components={role === "user" ? userMarkdownComponents : undefined}

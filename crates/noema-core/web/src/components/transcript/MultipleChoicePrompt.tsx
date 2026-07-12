@@ -136,6 +136,7 @@ export function MultipleChoicePrompt({
   promptItemId,
   submittedSelectedOptionIds,
   showAvatar,
+  reserveAvatarSpace = true,
   onSubmit
 }: {
   disabled: boolean;
@@ -144,6 +145,7 @@ export function MultipleChoicePrompt({
   promptItemId: string;
   submittedSelectedOptionIds: ReadonlySet<string>;
   showAvatar: boolean;
+  reserveAvatarSpace?: boolean;
   onSubmit: (promptItemId: string, selectedOptionIds: string[]) => void;
 }) {
   const [selectedIds, setSelectedIds] = React.useState<ReadonlySet<string>>(() => new Set());
@@ -178,7 +180,12 @@ export function MultipleChoicePrompt({
   }, [item.options, onSubmit, promptItemId, selectedIds]);
 
   return (
-    <TranscriptChatBubble group={group} role="assistant" showAvatar={showAvatar}>
+    <TranscriptChatBubble
+      group={group}
+      reserveAvatarSpace={reserveAvatarSpace}
+      role="assistant"
+      showAvatar={showAvatar}
+    >
       <div {...stylex.props(styles.root)}>
         <p {...stylex.props(styles.prompt)}>{item.prompt}</p>
         {pickMany ? (

@@ -18,6 +18,9 @@ export function TaskRunConversationView({
 }) {
   const role = run.role === "reviewer" ? "Review" : "Executor";
   const displayLabel = label ?? role;
+  const title = displayLabel === role
+    ? `${role} · ${runStatusLabel(run.status)}`
+    : displayLabel;
   const now = useTaskRunClock(run.status === "running");
 
   return (
@@ -32,17 +35,8 @@ export function TaskRunConversationView({
         onClick={onBack}
       />
       <header {...stylex.props(styles.header)}>
-        <div {...stylex.props(styles.headingCopy)}>
-          <span {...stylex.props(styles.eyebrow)}>{displayLabel} conversation</span>
-          <h3 {...stylex.props(styles.title)}>Run history</h3>
-        </div>
-        <div {...stylex.props(styles.meta)}>
-          <span>{label ?? runStatusLabel(run.status)}</span>
-          <span aria-hidden="true">·</span>
-          <span>Revision {run.revision ?? 0} · Attempt {run.attemptIndex + 1}</span>
-          <span aria-hidden="true">·</span>
-          <span>{runDurationLabel(run, now)}</span>
-        </div>
+        <h3 {...stylex.props(styles.title)}>{title}</h3>
+        <span {...stylex.props(styles.duration)}>{runDurationLabel(run, now)}</span>
       </header>
       <TaskRunTranscript liveItems={liveItems} run={run} />
     </section>
@@ -52,7 +46,7 @@ export function TaskRunConversationView({
 function runStatusLabel(status: TaskRun["status"]): string {
   switch (status) {
     case "completed":
-      return "Passed";
+      return "Completed";
     case "failed":
       return "Failed";
     case "cancelled":
@@ -71,40 +65,31 @@ function runStatusLabel(status: TaskRun["status"]): string {
 }
 
 const styles = stylex.create({
-  root: { display: "grid", gap: 14, minWidth: 0 },
+  root: { display: "grid", gap: 10, minWidth: 0 },
   backButton: { justifySelf: "start", width: "fit-content" },
   header: {
     display: "grid",
-    gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-    alignItems: "end",
+    gridTemplateColumns: "minmax(0, 1fr) auto",
+    alignItems: "baseline",
     justifyContent: "space-between",
-    gap: 12,
-    paddingBottom: 12,
-    "@media (max-width: 520px)": {
-      gridTemplateColumns: "1fr",
-      alignItems: "start"
-    }
+    gap: 10,
+    paddingBottom: 4
   },
-  headingCopy: { display: "grid", minWidth: 0, gap: 3 },
-  eyebrow: { color: "var(--noema-text-muted)", fontSize: 10, fontWeight: 650, letterSpacing: "0.06em", textTransform: "uppercase" },
-  title: { margin: 0, color: "var(--noema-text-primary)", fontSize: 16, fontWeight: 700, lineHeight: 1.25 },
-  meta: {
-    display: "flex",
+  title: {
     minWidth: 0,
-    maxWidth: "100%",
-    flexWrap: "wrap",
-    alignItems: "center",
-    justifyContent: "end",
-    gap: 5,
+    margin: 0,
+    color: "var(--noema-text-primary)",
+    fontSize: 14,
+    fontWeight: 700,
+    lineHeight: 1.3,
+    overflowWrap: "anywhere"
+  },
+  duration: {
     color: "var(--noema-text-secondary)",
     fontFamily: "var(--noema-font-mono)",
     fontSize: 10,
     lineHeight: 1.35,
     fontVariantNumeric: "tabular-nums",
-    overflowWrap: "anywhere",
-    "@media (max-width: 520px)": {
-      justifySelf: "start",
-      justifyContent: "start"
-    }
+    whiteSpace: "nowrap"
   }
 });

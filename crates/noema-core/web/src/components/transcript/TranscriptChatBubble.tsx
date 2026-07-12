@@ -16,6 +16,9 @@ const styles = stylex.create({
     minWidth: 0,
     alignItems: "flex-end"
   },
+  messageWithoutAvatar: {
+    width: "100%"
+  },
   bubble: {
     minWidth: 0,
     overflow: "hidden",
@@ -34,6 +37,10 @@ const styles = stylex.create({
     backgroundColor: "var(--primary)",
     color: "var(--primary-foreground)"
   },
+  systemBubble: {
+    backgroundColor: "color-mix(in srgb, var(--noema-text-muted) 12%, var(--noema-surface-card))",
+    color: "var(--noema-text-primary)"
+  },
   assistantBubble: {
     maxWidth: "100%"
   },
@@ -50,12 +57,14 @@ export function TranscriptChatBubble({
   group,
   role,
   showAvatar,
+  reserveAvatarSpace = true,
   variant = "message"
 }: {
   children: React.ReactNode;
   group?: ChatBubbleGroup;
   role: TranscriptChatBubbleRole;
   showAvatar: boolean;
+  reserveAvatarSpace?: boolean;
   variant?: TranscriptChatBubbleVariant;
 }) {
   const lane = role === "assistant" ? "assistant" : "human";
@@ -64,8 +73,8 @@ export function TranscriptChatBubble({
   return (
     <ChatMessage
       sender={sender}
-      avatar={<TranscriptActorAvatar lane={lane} visible={showAvatar} />}
-      xstyle={chatMessageXStyle(styles.message)}
+      avatar={reserveAvatarSpace ? <TranscriptActorAvatar lane={lane} visible={showAvatar} /> : undefined}
+      xstyle={chatMessageXStyle(styles.message, !reserveAvatarSpace && styles.messageWithoutAvatar)}
     >
       <ChatMessageBubble
         group={variant === "message" ? group : undefined}
@@ -73,6 +82,7 @@ export function TranscriptChatBubble({
           styles.bubble,
           variant === "message" && styles.textBubble,
           variant === "message" && role === "user" && styles.userBubble,
+          variant === "message" && role === "system" && styles.systemBubble,
           variant === "message" && role === "assistant" && styles.assistantBubble,
           variant === "typing" && styles.typingBubble
         )}

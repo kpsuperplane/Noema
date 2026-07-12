@@ -58,6 +58,7 @@ export function Transcript({
   onLoadOlderTranscript,
   onOpenDetail,
   density = "full",
+  showActorAvatars = true,
   ariaLabel = "Conversation transcript"
 }: {
   entries: TranscriptEntry[];
@@ -74,6 +75,7 @@ export function Transcript({
   onLoadOlderTranscript: () => void;
   onOpenDetail?: (target: ChatDetailTarget) => void;
   density?: TranscriptDensity;
+  showActorAvatars?: boolean;
   ariaLabel?: string;
 }) {
   void awaitingAssistantTurn;
@@ -145,7 +147,7 @@ export function Transcript({
           const previousEntry = renderedEntries[index - 1];
           const nextEntry = renderedEntries[index + 1];
           const previousLane = previousEntry ? transcriptLane(previousEntry) : null;
-          const showAvatar = previousLane !== lane;
+          const showAvatar = showActorAvatars && previousLane !== lane;
           const bubbleGroup = renderedChatBubbleGroup(entry, previousEntry, nextEntry);
           const messageId = renderedEntryMessageId(entry);
           const animateArrival = shouldAnimateRenderedEntryArrivalForSeen(entry, messageId, seenArrivalMessageIds);
@@ -177,6 +179,7 @@ export function Transcript({
                   onToggleActivity,
                   onSubmitMultipleChoiceSelection,
                   showAvatar,
+                  showActorAvatars,
                   bubbleGroup,
                   animateText,
                   followBottomRef,
@@ -210,6 +213,7 @@ function renderTranscriptRenderEntry(
   onToggleActivity: (id: string) => void,
   onSubmitMultipleChoiceSelection: (promptItemId: string, selectedOptionIds: string[]) => void,
   showAvatar: boolean,
+  reserveAvatarSpace: boolean,
   bubbleGroup: ChatBubbleGroup | undefined,
   animateText: boolean,
   followBottomRef: React.MutableRefObject<boolean>,
@@ -219,7 +223,7 @@ function renderTranscriptRenderEntry(
     const open = expandedActivities.has(entry.id);
     return (
       <>
-        <TranscriptRow lane="assistant" showAvatar={showAvatar}>
+        <TranscriptRow lane="assistant" reserveAvatarSpace={reserveAvatarSpace} showAvatar={showAvatar}>
           <ToolMarker
             data={{ kind: "tool", marker: entry.marker }}
             open={open}
@@ -231,12 +235,13 @@ function renderTranscriptRenderEntry(
           open={open && toolMarkerExpandable(entry.marker)}
           marker={entry.marker}
           followBottomRef={followBottomRef}
+          reserveAvatarSpace={reserveAvatarSpace}
         />
       </>
     );
   }
   if (entry.kind === "typing") {
-    return <TypingMessage showAvatar={showAvatar} />;
+    return <TypingMessage reserveAvatarSpace={reserveAvatarSpace} showAvatar={showAvatar} />;
   }
   return renderTranscriptEntry(
     entry.entry,
@@ -245,6 +250,7 @@ function renderTranscriptRenderEntry(
     onToggleActivity,
     onSubmitMultipleChoiceSelection,
     showAvatar,
+    reserveAvatarSpace,
     bubbleGroup,
     animateText,
     onOpenDetail
@@ -258,18 +264,33 @@ function renderTranscriptEntry(
   onToggleActivity: (id: string) => void,
   onSubmitMultipleChoiceSelection: (promptItemId: string, selectedOptionIds: string[]) => void,
   showAvatar: boolean,
+  reserveAvatarSpace: boolean,
   bubbleGroup: ChatBubbleGroup | undefined,
   animateText: boolean,
   onOpenDetail: ((target: ChatDetailTarget) => void) | undefined
 ) {
   if (entry.type === "user") {
     return (
-      <Message animate={animateText} group={bubbleGroup} role="user" text={entry.text} showAvatar={showAvatar} />
+      <Message
+        animate={animateText}
+        group={bubbleGroup}
+        reserveAvatarSpace={reserveAvatarSpace}
+        role="user"
+        text={entry.text}
+        showAvatar={showAvatar}
+      />
     );
   }
   if (entry.type === "system") {
     return (
-      <Message animate={animateText} group={bubbleGroup} role="system" text={entry.text} showAvatar={false} />
+      <Message
+        animate={animateText}
+        group={bubbleGroup}
+        reserveAvatarSpace={reserveAvatarSpace}
+        role="system"
+        text={entry.text}
+        showAvatar={false}
+      />
     );
   }
   if (entry.type === "assistant") {
@@ -277,6 +298,7 @@ function renderTranscriptEntry(
       <Message
         animate={animateText}
         group={bubbleGroup}
+        reserveAvatarSpace={reserveAvatarSpace}
         role="assistant"
         text={entry.text}
         showAvatar={showAvatar}
@@ -289,6 +311,7 @@ function renderTranscriptEntry(
       <Message
         animate={animateText}
         group={bubbleGroup}
+        reserveAvatarSpace={reserveAvatarSpace}
         role="assistant"
         text={entry.text}
         showAvatar={showAvatar}
@@ -302,21 +325,21 @@ function renderTranscriptEntry(
   }
   if (entry.type === "card") {
     return (
-      <TranscriptRow lane="assistant" showAvatar={showAvatar}>
+      <TranscriptRow lane="assistant" reserveAvatarSpace={reserveAvatarSpace} showAvatar={showAvatar}>
         <StructuredCard item={entry.item} open={expandedActivities.has(entry.id)} onToggle={() => onToggleActivity(entry.id)} />
       </TranscriptRow>
     );
   }
   if (entry.type === "artifact") {
     return (
-      <TranscriptRow lane="assistant" showAvatar={showAvatar}>
+      <TranscriptRow lane="assistant" reserveAvatarSpace={reserveAvatarSpace} showAvatar={showAvatar}>
         <ArtifactReferenceCard item={entry.item} onOpenDetail={onOpenDetail} />
       </TranscriptRow>
     );
   }
   if (entry.type === "task") {
     return (
-      <TranscriptRow lane="assistant" showAvatar={showAvatar}>
+      <TranscriptRow lane="assistant" reserveAvatarSpace={reserveAvatarSpace} showAvatar={showAvatar}>
         <TaskReferenceCard
           revision={entry.item.revision}
           status={entry.item.status}
@@ -337,6 +360,7 @@ function renderTranscriptEntry(
         item={entry.item}
         promptItemId={promptItemId}
         submittedSelectedOptionIds={submittedSelectedOptionIds}
+        reserveAvatarSpace={reserveAvatarSpace}
         showAvatar={showAvatar}
         onSubmit={onSubmitMultipleChoiceSelection}
       />
@@ -346,6 +370,7 @@ function renderTranscriptEntry(
     return (
       <Message
         animate={animateText}
+        reserveAvatarSpace={reserveAvatarSpace}
         role="user"
         text={entry.item.selected_options.map((option) => option.label).join(", ")}
         showAvatar={showAvatar}
@@ -368,11 +393,13 @@ function multipleChoicePromptSelectedOptionIds(entries: TranscriptEntry[], promp
 function AnimatedToolDetailRow({
   open,
   marker,
-  followBottomRef
+  followBottomRef,
+  reserveAvatarSpace
 }: {
   open: boolean;
   marker: Extract<RenderTranscriptEntry, { kind: "tool_marker" }>["marker"];
   followBottomRef: React.MutableRefObject<boolean>;
+  reserveAvatarSpace: boolean;
 }) {
   const { scrollToEnd } = useTranscriptScroller();
   const [rendered, setRendered] = React.useState(open);
@@ -431,7 +458,7 @@ function AnimatedToolDetailRow({
       }}
     >
       <div data-slot="tool-detail-row-motion-inner">
-        <TranscriptRow lane="assistant" showAvatar={false}>
+        <TranscriptRow lane="assistant" reserveAvatarSpace={reserveAvatarSpace} showAvatar={false}>
           <ToolDetailAttachment id={`${marker.id}-details`} marker={marker} />
         </TranscriptRow>
       </div>
