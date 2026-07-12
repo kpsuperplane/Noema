@@ -2,7 +2,7 @@ import * as React from "react";
 import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import * as stylex from "@stylexjs/stylex";
 import { AlertCircle } from "lucide-react";
-import { TaskDisclosureSection } from "./TaskDisclosureSection";
+import { TaskStaticSection } from "./TaskDisclosureSection";
 import type { TaskDetail, TaskRunItem } from "./taskTypes";
 import { TaskCriteria } from "./TaskCriteria";
 import { TaskDetails, TaskStatusSummary } from "./TaskOverview";
@@ -129,22 +129,56 @@ export function TaskDetailPanel({
 }
 
 function TaskTextSection({ title, text }: { title: string; text: string }) {
+  const [expanded, setExpanded] = React.useState(false);
+  const [truncated, setTruncated] = React.useState(false);
+  const contentRef = React.useRef<HTMLDivElement>(null);
+
+  React.useLayoutEffect(() => {
+    const content = contentRef.current;
+    if (!content || expanded) {
+      return;
+    }
+    const updateTruncation = () => {
+      setTruncated(content.scrollHeight > content.clientHeight + 1);
+    };
+    updateTruncation();
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(updateTruncation);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [expanded, text]);
+
   return (
-    <TaskDisclosureSection
-      id="task-request-title"
-      summary={text.replace(/\s+/g, " ").trim()}
-      title={title}
-    >
-      <Markdown
-        autolink="gfm"
-        contentWidth="100%"
-        density="default"
-        headingLevelStart={3}
-        xstyle={markdownXStyle(styles.markdown)}
+    <TaskStaticSection id="task-request-title" title={title}>
+      <div
+        ref={contentRef}
+        id="task-request-content"
+        {...stylex.props(styles.requestContent, expanded && styles.requestContentExpanded)}
       >
-        {text}
-      </Markdown>
-    </TaskDisclosureSection>
+        <Markdown
+          autolink="gfm"
+          contentWidth="100%"
+          density="default"
+          headingLevelStart={3}
+          xstyle={markdownXStyle(styles.markdown)}
+        >
+          {text}
+        </Markdown>
+      </div>
+      {expanded || truncated ? (
+        <button
+          type="button"
+          aria-controls="task-request-content"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((current) => !current)}
+          {...stylex.props(styles.readMore)}
+        >
+          {expanded ? "Show Less" : "Read More"}
+        </button>
+      ) : null}
+    </TaskStaticSection>
   );
 }
 
@@ -170,6 +204,38 @@ const styles = stylex.create({
   status: { color: "var(--noema-text-secondary)", fontSize: 13 },
   unavailable: { color: "var(--noema-text-secondary)", fontSize: 13, lineHeight: 1.45 },
   markdown: { color: "var(--noema-text-secondary)", fontSize: 13, lineHeight: 1.55 },
+  requestContent: {
+    maxHeight: "4.65em",
+    minWidth: 0,
+    overflow: "hidden",
+    fontSize: 13
+  },
+  requestContentExpanded: {
+    maxHeight: "none",
+    overflow: "visible"
+  },
+  readMore: {
+    width: "fit-content",
+    borderWidth: 0,
+    borderRadius: 5,
+    backgroundColor: "transparent",
+    paddingBlock: 3,
+    paddingInline: 4,
+    color: "var(--noema-text-muted)",
+    font: "inherit",
+    fontSize: 10,
+    fontWeight: 650,
+    cursor: "pointer",
+    ":hover": {
+      backgroundColor: "var(--noema-surface-hover)",
+      color: "var(--noema-text-secondary)"
+    },
+    ":focus-visible": {
+      outlineWidth: 3,
+      outlineStyle: "solid",
+      outlineColor: "color-mix(in srgb, var(--noema-pine-500) 24%, transparent)"
+    }
+  },
   failure: { display: "flex", alignItems: "start", gap: 8, marginTop: 10, borderRadius: 8, backgroundColor: "color-mix(in srgb, var(--noema-red-100) 55%, transparent)", padding: 10, color: "var(--noema-red-700)", fontSize: 12, lineHeight: 1.4 },
   failureText: { margin: 0 }
 });
