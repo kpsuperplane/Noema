@@ -24,22 +24,24 @@ export function TaskStatusSummary({
   return (
     <section aria-label="Task status" {...stylex.props(styles.statusSection)}>
       <div {...stylex.props(styles.statusLine)}>
-        <TaskStatusBadge status={detail.status} />
-        <span {...stylex.props(styles.stage)}>{stageLabel(detail.status)}</span>
-      </div>
-      {canCancel && onCancel ? (
-        <div {...stylex.props(styles.actions)}>
+        <div {...stylex.props(styles.statusCopy)}>
+          <TaskStatusBadge status={detail.status} />
+          <span {...stylex.props(styles.stage)}>{stageLabel(detail.status)}</span>
+        </div>
+        {canCancel && onCancel ? (
           <Button
             clickAction={() => onCancel(detail.taskId)}
             icon={<Ban aria-hidden="true" size={14} />}
+            isIconOnly
             isDisabled={actionBusy === "resume"}
             isLoading={actionBusy === "cancel"}
-            label="Cancel"
+            label="Cancel task"
             size="sm"
+            tooltip="Cancel task"
             variant="destructive"
           />
-        </div>
-      ) : null}
+        ) : null}
+      </div>
       {actionError ? (
         <p role="alert" {...stylex.props(styles.actionError)}>
           {actionError}
@@ -136,21 +138,22 @@ const styles = stylex.create({
     paddingInline: 8
   },
   statusLine: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) auto",
+    alignItems: "center",
+    gap: 8
+  },
+  statusCopy: {
     display: "inline-flex",
     flexWrap: "wrap",
     alignItems: "center",
+    minWidth: 0,
     gap: 8
   },
   stage: {
     color: "var(--noema-text-secondary)",
     fontSize: 12,
     lineHeight: 1.35
-  },
-  actions: {
-    display: "flex",
-    flexWrap: "wrap",
-    justifyContent: "start",
-    gap: 6
   },
   actionError: {
     margin: 0,
