@@ -54,7 +54,7 @@ export function TaskExpandableContent({
   }, [children, expanded]);
 
   return (
-    <>
+    <div {...stylex.props(styles.expandable)}>
       <div
         ref={contentRef}
         id={id}
@@ -68,21 +68,21 @@ export function TaskExpandableContent({
           aria-controls={id}
           aria-expanded={expanded}
           onClick={() => setExpanded((current) => !current)}
-          {...stylex.props(styles.readMore)}
+          {...stylex.props(styles.readMore, expanded && styles.readMoreExpanded)}
         >
           {expanded ? "Show Less" : "Read More"}
         </button>
       ) : null}
-    </>
+    </div>
   );
 }
 
 const styles = stylex.create({
   section: {
     display: "grid",
-    gap: 9,
+    gap: 6,
     minWidth: 0,
-    paddingBlock: 10,
+    paddingBlock: 4,
     paddingInline: 8
   },
   heading: {
@@ -118,30 +118,49 @@ const styles = stylex.create({
     overflow: "hidden",
     fontSize: 13
   },
+  expandable: {
+    position: "relative",
+    minWidth: 0
+  },
   expandableContentExpanded: {
     maxHeight: "none",
     overflow: "visible"
   },
   readMore: {
+    position: "absolute",
+    right: 0,
+    bottom: 0,
     width: "fit-content",
     borderWidth: 0,
-    borderRadius: 5,
+    borderRadius: 0,
     backgroundColor: "transparent",
-    paddingBlock: 3,
-    paddingInline: 4,
+    backgroundImage: "linear-gradient(90deg, transparent, var(--noema-surface-card) 18px)",
+    paddingBlock: 1,
+    paddingInlineEnd: 2,
+    paddingInlineStart: 22,
     color: "var(--noema-text-muted)",
     font: "inherit",
     fontSize: 10,
     fontWeight: 650,
     cursor: "pointer",
     ":hover": {
-      backgroundColor: "var(--noema-surface-hover)",
       color: "var(--noema-text-secondary)"
     },
     ":focus-visible": {
       outlineWidth: 3,
       outlineStyle: "solid",
       outlineColor: "color-mix(in srgb, var(--noema-pine-500) 24%, transparent)"
+    }
+  },
+  readMoreExpanded: {
+    position: "static",
+    marginTop: 4,
+    borderRadius: 5,
+    backgroundImage: "none",
+    paddingBlock: 3,
+    paddingInline: 4,
+    ":hover": {
+      backgroundColor: "var(--noema-surface-hover)"
     }
   }
 });

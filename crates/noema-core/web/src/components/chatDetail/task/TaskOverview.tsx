@@ -132,7 +132,7 @@ const styles = stylex.create({
     display: "grid",
     gap: 5,
     minWidth: 0,
-    paddingBlock: 10,
+    paddingBlock: 4,
     paddingInline: 8
   },
   statusLine: {
