@@ -90,20 +90,14 @@ const styles = stylex.create({
   item: { minWidth: 0 },
   evidence: {
     display: "grid",
-    gap: 7,
+    gap: 10,
     maxWidth: 520,
     margin: 0,
     paddingBlock: 2
   },
   evidenceRow: {
     display: "grid",
-    gridTemplateColumns: "80px minmax(0, 1fr)",
-    alignItems: "baseline",
-    gap: 10,
-    "@media (max-width: 520px)": {
-      gridTemplateColumns: "1fr",
-      gap: 2
-    }
+    gap: 2
   },
   evidenceLabel: {
     color: "var(--noema-text-muted)",
