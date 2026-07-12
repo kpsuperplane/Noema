@@ -107,6 +107,39 @@ async fn opening_pre_v1_task_runtime_tables_rebuilds_and_preserves_history() {
 }
 
 #[tokio::test]
+async fn opening_legacy_tasks_adds_blocking_columns() {
+    let home = TempDir::new().expect("temp noema home");
+    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let config = StoreConfig::from_paths(&paths);
+    let store = NoemaStore::open(&config).await.expect("open store");
+    store
+        .with_connection(|conn| {
+            conn.execute_batch(
+                "ALTER TABLE tasks DROP COLUMN blocked_question; ALTER TABLE tasks DROP COLUMN blocked_context;",
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("install legacy task schema");
+    drop(store);
+
+    let reopened = NoemaStore::open(&config)
+        .await
+        .expect("upgrade legacy task schema");
+    let columns = reopened
+        .with_connection(|conn| {
+            let mut statement = conn.prepare("PRAGMA table_info(tasks)")?;
+            let rows = statement.query_map([], |row| row.get::<_, String>(1))?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(crate::StoreError::Sqlite)
+        })
+        .await
+        .expect("read task columns");
+    assert!(columns.iter().any(|column| column == "blocked_question"));
+    assert!(columns.iter().any(|column| column == "blocked_context"));
+}
+
+#[tokio::test]
 async fn sqlite_schema_does_not_create_memory_ingest_jobs() {
     let store = test_store().await;
 

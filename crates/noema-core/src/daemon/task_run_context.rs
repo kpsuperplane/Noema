@@ -13,8 +13,9 @@ pub(super) fn format_executor_prompt(
         .iter()
         .map(|criterion| {
             format!(
-                "{}. {}{}",
+                "{}. criterion_id={}: {}{}",
                 criterion.ordinal,
+                criterion.criterion_id,
                 criterion.description,
                 criterion
                     .expected_evidence
@@ -26,8 +27,8 @@ pub(super) fn format_executor_prompt(
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "Task: {}\nRevision: {revision}\n\nRequest:\n{}\n\nValidation criteria:\n{criteria}\n\nProduce a complete, useful result. Address every criterion explicitly, then submit it through task.submit_result. Do not finish with ordinary assistant text.",
-        task.title, task.request_markdown
+        "Task ID: {}\nTask: {}\nRevision: {revision}\n\nRequest:\n{}\n\nValidation criteria:\n{criteria}\n\nUse each criterion_id exactly as shown, including any prefix, when calling task.submit_result. If you call task.inspect, use the exact Task ID above. Produce a complete, useful result. Address every criterion explicitly, then submit it through task.submit_result. Do not finish with ordinary assistant text.",
+        task.task_id, task.title, task.request_markdown
     )
 }
 
@@ -38,12 +39,17 @@ pub(super) fn format_reviewer_prompt(
 ) -> String {
     let criteria = criteria
         .iter()
-        .map(|criterion| format!("{}: {}", criterion.criterion_id, criterion.description))
+        .map(|criterion| {
+            format!(
+                "criterion_id={}: {}",
+                criterion.criterion_id, criterion.description
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "Original request:\n{}\n\nCriteria:\n{criteria}\n\nExecutor result:\n{}\n\nBe adversarial, include every criterion exactly once, and submit the typed verdict through task.submit_review. Do not return JSON as ordinary assistant text.",
-        task.request_markdown, submission.result_markdown
+        "Task ID: {}\n\nOriginal request:\n{}\n\nCriteria:\n{criteria}\n\nExecutor result:\n{}\n\nUse each criterion_id exactly as shown, including any prefix, when calling task.submit_review. If you call task.inspect, use the exact Task ID above. Be adversarial, include every criterion exactly once, and submit the typed verdict through task.submit_review. Do not return JSON as ordinary assistant text.",
+        task.task_id, task.request_markdown, submission.result_markdown
     )
 }
 
@@ -172,4 +178,90 @@ pub(super) struct ReviewerCriterionResponse {
     pub(super) outcome: String,
     pub(super) evidence_markdown: Option<String>,
     pub(super) feedback: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{format_executor_prompt, format_reviewer_prompt};
+
+    fn task() -> crate::TaskRecord {
+        let model = crate::ModelConfigSnapshot::explicit(
+            "codex",
+            "provider_account:codex:default",
+            "gpt-5.6-luna",
+            None,
+            Some("test".to_string()),
+        );
+        crate::TaskRecord {
+            task_id: "task:test".to_string(),
+            title: "Test task".to_string(),
+            request_markdown: "Return a result".to_string(),
+            complexity: crate::TaskComplexity::Simple,
+            status: crate::TaskStatus::Queued,
+            owner_human_id: "human:local".to_string(),
+            source: crate::TaskSource::default(),
+            created_by_agent_id: "agent:primary".to_string(),
+            creation_tool_call_id: None,
+            pool_entry_id: "pool:test".to_string(),
+            executor_model: model.clone(),
+            reviewer_model: model,
+            revision_index: 0,
+            max_review_rounds: 3,
+            final_submission_id: None,
+            latest_run_id: None,
+            blocked_question: None,
+            blocked_context: None,
+            terminal_reason: None,
+            error_code: None,
+            error_message: None,
+            created_at: "now".to_string(),
+            updated_at: "now".to_string(),
+            completed_at: None,
+        }
+    }
+
+    #[test]
+    fn executor_prompt_preserves_task_and_criterion_ids() {
+        let prompt = format_executor_prompt(
+            &task(),
+            &[crate::TaskValidationCriterion {
+                criterion_id: "criterion:abc".to_string(),
+                ordinal: 1,
+                description: "The result is present".to_string(),
+                expected_evidence: None,
+            }],
+            0,
+        );
+
+        assert!(prompt.contains("Task ID: task:test"));
+        assert!(prompt.contains("criterion_id=criterion:abc"));
+        assert!(prompt.contains("including any prefix"));
+    }
+
+    #[test]
+    fn reviewer_prompt_preserves_task_and_criterion_ids() {
+        let prompt = format_reviewer_prompt(
+            &task(),
+            &crate::TaskSubmissionRecord {
+                submission_id: "submission:test".to_string(),
+                task_id: "task:test".to_string(),
+                executor_run_id: "run:test".to_string(),
+                revision_index: 0,
+                summary: "A result".to_string(),
+                result_markdown: "Result".to_string(),
+                criteria: Vec::new(),
+                created_at: "now".to_string(),
+            },
+            &[crate::TaskValidationCriterion {
+                criterion_id: "criterion:abc".to_string(),
+                ordinal: 1,
+                description: "The result is present".to_string(),
+                expected_evidence: None,
+            }],
+        );
+
+        assert!(prompt.contains("Task ID: task:test"));
+        assert!(prompt.contains("criterion_id=criterion:abc"));
+        assert!(prompt.contains("including any prefix"));
+    }
 }

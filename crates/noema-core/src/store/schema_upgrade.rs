@@ -26,9 +26,14 @@ const CURRENT_ITEM_COLUMNS: &[&str] = &[
     "updated_at",
 ];
 
+const CURRENT_TASK_COLUMNS: &[(&str, &str)] =
+    &[("blocked_question", "TEXT"), ("blocked_context", "TEXT")];
+
 /// Repair the pre-v1 task runtime tables that shipped before their durable
 /// supervision and transcript columns stabilized.
 pub(super) fn upgrade_task_runtime_tables(conn: &mut Connection) -> Result<(), StoreError> {
+    upgrade_tasks(conn)?;
+
     let run_columns = table_columns(conn, "agent_runs")?;
     let item_columns = table_columns(conn, "agent_run_items")?;
     let run_sql = table_sql(conn, "agent_runs")?;
@@ -51,6 +56,27 @@ pub(super) fn upgrade_task_runtime_tables(conn: &mut Connection) -> Result<(), S
     }
     if rebuild_runs {
         rebuild_agent_runs(&tx, &run_columns)?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+fn upgrade_tasks(conn: &mut Connection) -> Result<(), StoreError> {
+    let columns = table_columns(conn, "tasks")?;
+    let missing = CURRENT_TASK_COLUMNS
+        .iter()
+        .filter(|(name, _)| !columns.contains(*name))
+        .collect::<Vec<_>>();
+    if missing.is_empty() {
+        return Ok(());
+    }
+
+    let tx = conn.transaction()?;
+    for (name, definition) in missing {
+        tx.execute(
+            &format!("ALTER TABLE tasks ADD COLUMN {name} {definition}"),
+            [],
+        )?;
     }
     tx.commit()?;
     Ok(())
