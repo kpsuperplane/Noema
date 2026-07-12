@@ -1,7 +1,7 @@
 import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
 import { Ban } from "lucide-react";
-import { TaskStaticSection } from "./TaskDisclosureSection";
+import { TaskStaticSection } from "./TaskSection";
 import type { TaskDetail } from "./taskTypes";
 import { TaskResumeControls } from "./TaskResumeControls";
 import { TaskStatusBadge } from "./TaskStatusBadge";
@@ -132,9 +132,6 @@ const styles = stylex.create({
     display: "grid",
     gap: 5,
     minWidth: 0,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: "var(--noema-border-subtle)",
     paddingBlock: 10,
     paddingInline: 8
   },

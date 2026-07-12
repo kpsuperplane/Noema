@@ -79,9 +79,6 @@ const styles = stylex.create({
     alignItems: "end",
     justifyContent: "space-between",
     gap: 12,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: "var(--noema-border-subtle)",
     paddingBottom: 12,
     "@media (max-width: 520px)": {
       gridTemplateColumns: "1fr",

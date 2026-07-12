@@ -2,7 +2,7 @@ import { Button } from "@astryxdesign/core/Button";
 import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import * as stylex from "@stylexjs/stylex";
 import { ExternalLink, FileText } from "lucide-react";
-import { TaskDisclosureSection } from "./TaskDisclosureSection";
+import { TaskExpandableContent, TaskStaticSection } from "./TaskSection";
 import type { TaskArtifact, TaskFinalResult } from "./taskTypes";
 
 type MarkdownXStyle = MarkdownProps["xstyle"];
@@ -18,26 +18,28 @@ export function TaskResult({
     return null;
   }
   return (
-    <TaskDisclosureSection
-      id="task-result-title"
-      summary={resultSummary(result, artifacts)}
-      title="Approved result"
-    >
+    <TaskStaticSection id="task-result-title" title="Approved result">
       <div {...stylex.props(styles.content)}>
-        {result?.summary ? <p {...stylex.props(styles.summary)}>{result.summary}</p> : null}
-        {result?.body ? (
-          <Markdown
-            autolink="gfm"
-            contentWidth="100%"
-            density="default"
-            headingLevelStart={3}
-            xstyle={markdownXStyle(styles.markdown)}
-          >
-            {result.body}
-          </Markdown>
-        ) : null}
-        {result?.approvedAt ? (
-          <p {...stylex.props(styles.approvedAt)}>Approved {formatDate(result.approvedAt)}</p>
+        {result ? (
+          <TaskExpandableContent id="task-result-content">
+            <div {...stylex.props(styles.resultCopy)}>
+              {result.summary ? <p {...stylex.props(styles.summary)}>{result.summary}</p> : null}
+              {result.body ? (
+                <Markdown
+                  autolink="gfm"
+                  contentWidth="100%"
+                  density="default"
+                  headingLevelStart={3}
+                  xstyle={markdownXStyle(styles.markdown)}
+                >
+                  {result.body}
+                </Markdown>
+              ) : null}
+              {result.approvedAt ? (
+                <p {...stylex.props(styles.approvedAt)}>Approved {formatDate(result.approvedAt)}</p>
+              ) : null}
+            </div>
+          </TaskExpandableContent>
         ) : null}
         {artifacts?.length ? (
           <div {...stylex.props(styles.artifacts)}>
@@ -48,20 +50,8 @@ export function TaskResult({
           </div>
         ) : null}
       </div>
-    </TaskDisclosureSection>
+    </TaskStaticSection>
   );
-}
-
-function resultSummary(
-  result?: TaskFinalResult | null,
-  artifacts?: readonly TaskArtifact[]
-): string {
-  const text = result?.summary?.trim() || result?.body?.replace(/\s+/g, " ").trim();
-  if (text) {
-    return text;
-  }
-  const count = artifacts?.length ?? 0;
-  return `${count} ${count === 1 ? "artifact" : "artifacts"}`;
 }
 
 function ArtifactRow({ artifact }: { artifact: TaskArtifact }) {
@@ -115,6 +105,7 @@ function formatDate(value: string): string {
 
 const styles = stylex.create({
   content: { display: "grid", gap: 9, minWidth: 0 },
+  resultCopy: { display: "grid", gap: 9, minWidth: 0 },
   summary: { margin: 0, color: "var(--noema-text-primary)", fontSize: 13, lineHeight: 1.45, overflowWrap: "anywhere" },
   markdown: { color: "var(--noema-text-secondary)", fontSize: 13, lineHeight: 1.55 },
   approvedAt: { margin: 0, color: "var(--noema-text-muted)", fontSize: 10 },

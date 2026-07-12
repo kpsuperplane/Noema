@@ -3,7 +3,7 @@ import * as stylex from "@stylexjs/stylex";
 import { AlertCircle, Check, ChevronDown, Circle, HelpCircle } from "lucide-react";
 import * as React from "react";
 import type { ReactNode } from "react";
-import { TaskStaticSection } from "./TaskDisclosureSection";
+import { TaskStaticSection } from "./TaskSection";
 import type { TaskCriterion, TaskCriterionVerdict } from "./taskTypes";
 
 export function TaskCriteria({ criteria }: { criteria: readonly TaskCriterion[] }) {

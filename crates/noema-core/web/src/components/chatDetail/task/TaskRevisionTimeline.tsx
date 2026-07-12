@@ -181,9 +181,6 @@ function parseTimestamp(value?: string | null): number | null {
 const styles = stylex.create({
   section: {
     minWidth: 0,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: "var(--noema-border-subtle)",
     paddingBlock: 10,
     paddingInline: 8
   },
