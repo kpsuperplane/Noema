@@ -180,7 +180,10 @@ The next storage slice should stay small and concrete:
   artifacts. Reviewers receive the manifest and can read only linked bounded
   UTF-8 content through `task.read_artifact`. Approved artifacts appear in task
   detail and are delivered as artifact-reference cards beside the primary
-  agent's completion update in the originating conversation. Richer
+  agent's completion update in the originating conversation. Reviewer prompts
+  also reconstruct question-and-answer guidance from the task's causal run
+  history through the submitted executor and treat human answers as authoritative
+  clarifications that may refine the original request or validation criteria. Richer
   workspace/project orchestration remains a later milestone.
 - Task run transcripts reuse the shared chat `Transcript` renderer and scroller.
   The task adapter maps run items into the common assistant/activity entry model,

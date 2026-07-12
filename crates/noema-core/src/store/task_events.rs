@@ -2,6 +2,7 @@
 
 #![allow(clippy::missing_errors_doc, clippy::too_many_arguments)]
 
+use rusqlite::OptionalExtension;
 use serde_json::Value;
 
 use super::{NoemaStore, StoreError, ids::allocate_id};
@@ -68,6 +69,42 @@ pub struct NewRunEvent {
 }
 
 impl NoemaStore {
+    /// Return the blocking question recorded for one task run, when present.
+    pub async fn task_blocking_question_for_run(
+        &self,
+        task_id: &str,
+        run_id: &str,
+    ) -> Result<Option<String>, StoreError> {
+        let payload = self
+            .with_connection(|conn| {
+                conn.query_row(
+                    "SELECT payload_json FROM task_events WHERE task_id = ?1 AND event_kind = 'task.waiting_for_human' AND json_extract(payload_json, '$.run_id') = ?2 ORDER BY sequence_number DESC LIMIT 1",
+                    rusqlite::params![task_id, run_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(StoreError::Sqlite)
+            })
+            .await?;
+        payload
+            .map(|payload| {
+                serde_json::from_str::<Value>(&payload)
+                    .map_err(|error| StoreError::InvariantViolation {
+                        message: format!("task blocking event payload is invalid: {error}"),
+                    })
+                    .map(|payload| {
+                        payload
+                            .get("question")
+                            .and_then(Value::as_str)
+                            .map(str::trim)
+                            .filter(|question| !question.is_empty())
+                            .map(ToOwned::to_owned)
+                    })
+            })
+            .transpose()
+            .map(Option::flatten)
+    }
+
     /// Append a task event with the next monotonic sequence number.
     pub async fn append_task_event(&self, event: NewTaskEvent) -> Result<String, StoreError> {
         append_event(

@@ -16,7 +16,8 @@ use crate::{
         runtime::BackgroundTaskGenerateRequest,
         task_run_context::{
             ExecutorBlockedResponse, ExecutorSubmissionResponse, ReviewerResponse,
-            format_executor_prompt, format_reviewer_prompt, with_resume_context,
+            format_executor_prompt, format_reviewer_prompt,
+            human_continuation_context_for_submission, with_resume_context,
         },
         task_tool::{TASK_REPORT_BLOCKED_TOOL, TASK_SUBMIT_RESULT_TOOL, TASK_SUBMIT_REVIEW_TOOL},
     },
@@ -544,10 +545,11 @@ async fn execute_reviewer(
         .list_task_validation_criteria(&task.task_id)
         .await
         .map_err(|error| error.to_string())?;
+    let human_context = human_continuation_context_for_submission(store, &submission).await?;
     let prompt = with_resume_context(
         store,
         run,
-        format_reviewer_prompt(&task, &submission, &criteria),
+        format_reviewer_prompt(&task, &submission, &criteria, &human_context),
     )
     .await?;
     let response = generate_once(
