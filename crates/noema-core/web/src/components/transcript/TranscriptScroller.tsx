@@ -243,6 +243,7 @@ export function TranscriptScroller({
   const loadBeforeStatusRef = React.useRef<HTMLDivElement | null>(null);
   const nearTopLoadArmedRef = React.useRef(true);
   const requestedOldestKeyRef = React.useRef<React.Key | null>(null);
+  const autoFillOldestKeyRef = React.useRef<React.Key | null>(null);
   const touchStartYRef = React.useRef<number | null>(null);
   // TanStack Virtual exposes imperative measurement functions that React Compiler cannot memoize.
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -375,6 +376,18 @@ export function TranscriptScroller({
   }, [hasMoreBefore, loadingBefore, oldestEntryKey, onLoadBefore, userScrolledTowardStart, viewportRef, virtualItems]);
 
   React.useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport || !hasMoreBefore || loadingBefore || loadBeforeError || oldestEntryKey === null) {
+      return;
+    }
+    if (viewport.scrollHeight > viewport.clientHeight + 1 || autoFillOldestKeyRef.current === oldestEntryKey) {
+      return;
+    }
+    autoFillOldestKeyRef.current = oldestEntryKey;
+    onLoadBefore();
+  }, [availableHeight, entries.length, hasMoreBefore, loadBeforeError, loadingBefore, oldestEntryKey, onLoadBefore, viewportRef]);
+
+  React.useLayoutEffect(() => {
     const anchor = pendingPrependAnchorRef.current;
     const viewport = viewportRef.current;
     if (!anchor || !viewport) {
@@ -426,6 +439,10 @@ export function TranscriptScroller({
                 </button>
               ) : loadingBefore ? (
                 "Loading earlier messages"
+              ) : hasMoreBefore ? (
+                <button type="button" {...stylex.props(styles.loadBeforeButton)} onClick={onLoadBefore}>
+                  Load earlier messages
+                </button>
               ) : null}
             </div>
           ) : null}
