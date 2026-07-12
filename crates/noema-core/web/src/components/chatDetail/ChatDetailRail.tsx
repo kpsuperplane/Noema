@@ -253,33 +253,20 @@ function ArtifactVersionSelector({
 
 const styles = stylex.create({
   rail: {
-    position: {
-      default: "absolute",
-      "@media (min-width: 980px)": "absolute"
-    },
-    inset: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: {
       default: 0,
       "@media (min-width: 980px)": "auto"
-    },
-    top: {
-      default: "auto",
-      "@media (min-width: 980px)": 0
-    },
-    right: {
-      default: "auto",
-      "@media (min-width: 980px)": 0
-    },
-    bottom: {
-      default: "auto",
-      "@media (min-width: 980px)": 0
     },
     zIndex: 4,
     minWidth: 0,
     width: {
-      default: "auto",
+      default: "100%",
       "@media (min-width: 980px)": "var(--chat-detail-rail-width)"
     },
-    height: "100%",
     overflow: "hidden"
   },
   surface: {
