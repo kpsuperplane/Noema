@@ -5520,6 +5520,7 @@ mod tests {
                     mediaType
                     previewKind
                     markdown
+                    plainText
                     downloadUrl
                     externalUrl
                     versions {{
@@ -5552,6 +5553,7 @@ mod tests {
         assert_eq!(detail["mediaType"], "text/markdown");
         assert_eq!(detail["previewKind"], "MARKDOWN");
         assert_eq!(detail["markdown"], "# Report\n\nA sharper note.\n");
+        assert!(detail["plainText"].is_null());
         assert_eq!(
             detail["downloadUrl"],
             crate::artifact_download_url(&second_version.artifact_version_id)
@@ -5568,6 +5570,68 @@ mod tests {
         assert_eq!(
             versions[1]["artifactVersionId"],
             second_version.artifact_version_id
+        );
+    }
+
+    #[tokio::test]
+    async fn artifact_version_detail_previews_plain_text_literally() {
+        let home = tempfile::TempDir::new().expect("home");
+        let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
+            .await
+            .expect("store");
+        let conversation = store
+            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .await
+            .expect("conversation");
+        let content = "# Literal heading\n\n* literal asterisk\n  indented\n";
+        let artifact = crate::create_conversation_local_file_artifact(
+            &store,
+            &paths,
+            crate::NewConversationLocalFileArtifact {
+                conversation_id: conversation.conversation_id,
+                title: "Notes".to_string(),
+                description: None,
+                artifact_kind: "document".to_string(),
+                filename: "notes.txt".to_string(),
+                bytes: content.as_bytes().to_vec(),
+                media_type: Some("text/plain; charset=utf-8".to_string()),
+                created_by_actor_id: "agent:primary".to_string(),
+                source: crate::ArtifactSource::default(),
+                metadata: serde_json::json!({}),
+            },
+        )
+        .await
+        .expect("artifact");
+        let schema = build_schema(GraphqlState::for_tests_with_store_and_paths(store, paths));
+
+        let response = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                {{
+                  artifactVersionDetail(artifactVersionId: "{}") {{
+                    previewKind
+                    markdown
+                    plainText
+                    downloadUrl
+                  }}
+                }}
+                "#,
+                artifact.current_version.artifact_version_id
+            )))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        let data = response.data.into_json().expect("json");
+        let detail = data["artifactVersionDetail"]
+            .as_object()
+            .expect("detail object");
+        assert_eq!(detail["previewKind"], "PLAIN_TEXT");
+        assert!(detail["markdown"].is_null());
+        assert_eq!(detail["plainText"], content);
+        assert_eq!(
+            detail["downloadUrl"],
+            crate::artifact_download_url(&artifact.current_version.artifact_version_id)
         );
     }
 
@@ -5609,6 +5673,7 @@ mod tests {
                   artifactVersionDetail(artifactVersionId: "{}") {{
                     previewKind
                     markdown
+                    plainText
                     downloadUrl
                     mediaType
                   }}
@@ -5625,6 +5690,7 @@ mod tests {
             .expect("detail object");
         assert_eq!(detail["previewKind"], "UNSUPPORTED");
         assert!(detail["markdown"].is_null());
+        assert!(detail["plainText"].is_null());
         assert_eq!(detail["mediaType"], "text/csv");
         assert_eq!(
             detail["downloadUrl"],

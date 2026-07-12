@@ -120,6 +120,8 @@ pub struct GraphqlArtifactVersion {
 pub enum GraphqlArtifactVersionPreviewKind {
     /// Local Markdown bytes are available as UTF-8 text.
     Markdown,
+    /// Local plain-text bytes are available as UTF-8 text.
+    PlainText,
     /// The version exists but this first slice cannot render it inline.
     Unsupported,
     /// The version points at an external URL.
@@ -148,6 +150,8 @@ pub struct GraphqlArtifactVersionDetail {
     pub preview_kind: GraphqlArtifactVersionPreviewKind,
     /// Markdown content when previewKind is MARKDOWN.
     pub markdown: Option<String>,
+    /// Literal text content when previewKind is PLAIN_TEXT.
+    pub plain_text: Option<String>,
     /// Local download route when the version is stored in Noema.
     pub download_url: Option<String>,
     /// External durable URL when the version is externally hosted.
@@ -278,6 +282,7 @@ pub async fn artifact_version_detail(
                 media_type,
                 preview_kind: GraphqlArtifactVersionPreviewKind::External,
                 markdown: None,
+                plain_text: None,
                 download_url: None,
                 external_url: Some(url.clone()),
                 versions,
@@ -285,7 +290,7 @@ pub async fn artifact_version_detail(
         }
         crate::ArtifactVersionStorage::LocalFile { .. } => {
             let download_url = Some(crate::artifact_download_url(&version.artifact_version_id));
-            if !is_markdown_media_type(media_type.as_deref()) {
+            let Some(preview_kind) = text_preview_kind(media_type.as_deref()) else {
                 return Ok(Some(GraphqlArtifactVersionDetail {
                     artifact_version_id: version.artifact_version_id,
                     artifact_id: version.artifact_id,
@@ -296,11 +301,12 @@ pub async fn artifact_version_detail(
                     media_type,
                     preview_kind: GraphqlArtifactVersionPreviewKind::Unsupported,
                     markdown: None,
+                    plain_text: None,
                     download_url,
                     external_url: None,
                     versions,
                 }));
-            }
+            };
 
             let (_, bytes) = crate::artifacts::read_validated_local_artifact_file(
                 state.paths()?,
@@ -308,11 +314,17 @@ pub async fn artifact_version_detail(
                 &version,
             )
             .map_err(graphql_error)?;
-            let markdown = String::from_utf8(bytes).map_err(|error| {
-                graphql_error(format!(
-                    "artifact Markdown content is not valid UTF-8: {error}"
-                ))
+            let content = String::from_utf8(bytes).map_err(|error| {
+                graphql_error(format!("artifact text content is not valid UTF-8: {error}"))
             })?;
+            let (markdown, plain_text) = match preview_kind {
+                GraphqlArtifactVersionPreviewKind::Markdown => (Some(content), None),
+                GraphqlArtifactVersionPreviewKind::PlainText => (None, Some(content)),
+                GraphqlArtifactVersionPreviewKind::Unsupported
+                | GraphqlArtifactVersionPreviewKind::External => {
+                    unreachable!("only local text preview kinds reach content decoding")
+                }
+            };
 
             Ok(Some(GraphqlArtifactVersionDetail {
                 artifact_version_id: version.artifact_version_id,
@@ -322,8 +334,9 @@ pub async fn artifact_version_detail(
                 artifact_kind: artifact.artifact.artifact_kind,
                 storage_kind: artifact.artifact.storage_kind.into(),
                 media_type,
-                preview_kind: GraphqlArtifactVersionPreviewKind::Markdown,
-                markdown: Some(markdown),
+                preview_kind,
+                markdown,
+                plain_text,
                 download_url,
                 external_url: None,
                 versions,
@@ -408,18 +421,18 @@ fn graphql_artifact_version_from_store(
     })
 }
 
-fn is_markdown_media_type(media_type: Option<&str>) -> bool {
-    media_type
-        .map(|value| {
-            let normalized = value
-                .split(';')
-                .next()
-                .unwrap_or(value)
-                .trim()
-                .to_ascii_lowercase();
-            normalized == "text/markdown" || normalized == "text/x-markdown"
-        })
-        .unwrap_or(false)
+fn text_preview_kind(media_type: Option<&str>) -> Option<GraphqlArtifactVersionPreviewKind> {
+    let normalized = media_type?
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    match normalized.as_str() {
+        "text/markdown" | "text/x-markdown" => Some(GraphqlArtifactVersionPreviewKind::Markdown),
+        "text/plain" => Some(GraphqlArtifactVersionPreviewKind::PlainText),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

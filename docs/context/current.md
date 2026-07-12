@@ -124,7 +124,7 @@ The next storage slice should stay small and concrete:
   than direct artifact mutations.
 - Local transcript artifact cards open a chat-owned generic detail rail with
   `type=artifact&version=<artifact_version_id>` state held inside the chat root.
-  Markdown local file versions render inline through GraphQL
+  Markdown and plain-text local file versions render inline through GraphQL
   `artifactVersionDetail`; download is a secondary action in the rail, and there
   is intentionally no artifact URL route in this slice.
 - The first one-off background task slice is durable and supervised. The primary

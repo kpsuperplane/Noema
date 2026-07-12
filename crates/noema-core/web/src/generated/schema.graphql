@@ -363,6 +363,10 @@ type ArtifactVersionDetail {
 	"""
 	markdown: String
 	"""
+	Literal text content when previewKind is PLAIN_TEXT.
+	"""
+	plainText: String
+	"""
 	Local download route when the version is stored in Noema.
 	"""
 	downloadUrl: String
@@ -384,6 +388,10 @@ enum ArtifactVersionPreviewKind {
 	Local Markdown bytes are available as UTF-8 text.
 	"""
 	MARKDOWN
+	"""
+	Local plain-text bytes are available as UTF-8 text.
+	"""
+	PLAIN_TEXT
 	"""
 	The version exists but this first slice cannot render it inline.
 	"""

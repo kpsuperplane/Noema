@@ -58,6 +58,8 @@ export function ArtifactDetailPanel({
         >
           {detail.markdown}
         </Markdown>
+      ) : detail.previewKind === "PLAIN_TEXT" && detail.plainText !== null ? (
+        <pre {...stylex.props(styles.plainText)}>{detail.plainText}</pre>
       ) : (
         <ArtifactUnavailable message="Preview unavailable" />
       )}
@@ -117,6 +119,15 @@ const styles = stylex.create({
     color: "var(--noema-text-primary)",
     fontSize: 14,
     lineHeight: 1.55
+  },
+  plainText: {
+    margin: 0,
+    color: "var(--noema-text-primary)",
+    fontFamily: "var(--noema-font-mono)",
+    fontSize: 13,
+    lineHeight: 1.55,
+    overflowWrap: "anywhere",
+    whiteSpace: "pre-wrap"
   },
   empty: {
     display: "grid",

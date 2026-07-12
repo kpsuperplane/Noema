@@ -911,6 +911,7 @@ export const ArtifactVersionDetailDocument = gql`
       mediaType
       previewKind
       markdown
+      plainText
       downloadUrl
       externalUrl
       versions {
