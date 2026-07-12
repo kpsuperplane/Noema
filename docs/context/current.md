@@ -172,6 +172,11 @@ The next storage slice should stay small and concrete:
   exposes read-only search, fetch, memory, task inspection, and calibrated MCP
   tools to background roles; task-owned write tools and richer workspace/project
   orchestration remain later milestones.
+- Task run transcripts reuse the shared chat `Transcript` renderer and scroller.
+  The task adapter maps run items into the common assistant/activity entry model,
+  filters human entries, and uses an embedded density without mounting a
+  composer, so task conversations inherit the main chat's Markdown, tool markers,
+  live-arrival behavior, pagination, and accessibility infrastructure.
 - Memory is governed context, not hidden model state. Durable memory truth now
   belongs to local Mnemosyne, while Noema owns service lifecycle, configuration,
   live readiness proxying, provenance, UI, model routing, ingest diagnostics,
