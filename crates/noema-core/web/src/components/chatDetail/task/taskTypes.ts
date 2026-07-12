@@ -69,6 +69,7 @@ export type TaskCriterionReview = {
 
 export type TaskReview = {
   id: string;
+  reviewerRunId?: string | null;
   verdict: TaskReviewVerdict;
   summary?: string | null;
   criteria: readonly TaskCriterionReview[];

@@ -18,8 +18,7 @@ export function ChatDetailRail({
   onClose,
   onMotionEnd,
   onCancelTask,
-  onResumeTask,
-  onExpandTaskRevision
+  onResumeTask
 }: {
   target: ChatDetailTarget;
   motionState: "opening" | "entering" | "open" | "exiting";
@@ -28,7 +27,6 @@ export function ChatDetailRail({
   onMotionEnd: () => void;
   onCancelTask?: (taskId: string) => void | Promise<void>;
   onResumeTask?: (taskId: string, message?: string) => void | Promise<void>;
-  onExpandTaskRevision?: (taskId: string, revision: number) => void;
 }) {
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
   const [artifactDetailState, setArtifactDetailState] = React.useState<{
@@ -133,7 +131,6 @@ export function ChatDetailRail({
             <TaskDetailQueryPanel
               onTitleChange={handleTaskTitleChange}
               onCancelTask={onCancelTask}
-              onExpandRevision={onExpandTaskRevision}
               onResumeTask={onResumeTask}
               taskId={target.taskId}
             />

@@ -7,7 +7,8 @@ import { TaskCriteria } from "./TaskCriteria";
 import { TaskModelSnapshots } from "./TaskModelSnapshots";
 import { TaskOverview } from "./TaskOverview";
 import { TaskResult } from "./TaskResult";
-import { TaskRevisionTimeline } from "./TaskRevisionTimeline";
+import { runTimelineLabel, TaskRevisionTimeline } from "./TaskRevisionTimeline";
+import { TaskRunConversationView } from "./TaskRunConversationView";
 
 type MarkdownXStyle = MarkdownProps["xstyle"];
 
@@ -18,8 +19,7 @@ export function TaskDetailPanel({
   error = null,
   onCancelTask,
   onResumeTask,
-  liveRunItems,
-  onExpandRevision
+  liveRunItems
 }: {
   taskId: string;
   detail?: TaskDetail | null;
@@ -28,11 +28,24 @@ export function TaskDetailPanel({
   onCancelTask?: (taskId: string) => void | Promise<void>;
   onResumeTask?: (taskId: string, message?: string) => void | Promise<void>;
   liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
-  onExpandRevision?: (taskId: string, revision: number) => void;
 }) {
   const [actionBusy, setActionBusy] = React.useState<"cancel" | "resume" | null>(null);
   const [actionError, setActionError] = React.useState<string | null>(null);
+  const [selectedRunKey, setSelectedRunKey] = React.useState<{
+    taskId: string;
+    runId: string;
+  } | null>(null);
   const currentDetail = detail?.taskId === taskId ? detail : null;
+  const selectedRunId = selectedRunKey?.taskId === taskId ? selectedRunKey.runId : null;
+  const selectedRunContext = currentDetail
+    ? currentDetail.revisions
+        .flatMap((revision) => [
+          ...revision.executors.map((run) => ({ revision, run })),
+          ...revision.reviewers.map((run) => ({ revision, run }))
+        ])
+        .find(({ run }) => run.id === selectedRunId) ?? null
+    : null;
+  const selectedRun = selectedRunContext?.run ?? null;
 
   const runAction = React.useCallback(
     async (kind: "cancel" | "resume", message?: string) => {
@@ -71,6 +84,19 @@ export function TaskDetailPanel({
     return <TaskUnavailable message="Task details are unavailable." />;
   }
 
+  if (selectedRun) {
+    return (
+      <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root)}>
+        <TaskRunConversationView
+          liveItems={liveRunItems?.get(selectedRun.id)}
+          label={runTimelineLabel(selectedRun, selectedRunContext?.revision.review)}
+          onBack={() => setSelectedRunKey(null)}
+          run={selectedRun}
+        />
+      </div>
+    );
+  }
+
   return (
     <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root)}>
       <TaskOverview
@@ -91,9 +117,7 @@ export function TaskDetailPanel({
       />
       <Divider />
       <TaskRevisionTimeline
-        criteria={currentDetail.criteria}
-        liveRunItems={liveRunItems}
-        onExpandRevision={(revision) => onExpandRevision?.(currentDetail.taskId, revision)}
+        onSelectRun={(run) => setSelectedRunKey({ taskId, runId: run.id })}
         revisions={currentDetail.revisions}
       />
       {currentDetail.finalResult || currentDetail.artifacts?.length ? <Divider /> : null}

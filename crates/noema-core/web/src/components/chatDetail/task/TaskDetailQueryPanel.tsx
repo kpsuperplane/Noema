@@ -32,14 +32,12 @@ export function TaskDetailQueryPanel({
   taskId,
   onTitleChange,
   onCancelTask,
-  onResumeTask,
-  onExpandRevision
+  onResumeTask
 }: {
   taskId: string;
   onTitleChange?: (title: string | null) => void;
   onCancelTask?: (taskId: string) => void | Promise<void>;
   onResumeTask?: (taskId: string, message?: string) => void | Promise<void>;
-  onExpandRevision?: (taskId: string, revision: number) => void;
 }) {
   const { data, error, loading, refetch } = useQuery(TaskDetailDocument, {
     fetchPolicy: "cache-and-network",
@@ -150,7 +148,6 @@ export function TaskDetailQueryPanel({
       liveRunItems={liveRunItems}
       loading={loading}
       onCancelTask={handleCancelTask}
-      onExpandRevision={onExpandRevision}
       onResumeTask={handleResumeTask}
       taskId={taskId}
     />
@@ -290,6 +287,7 @@ function mapSubmission(
 function mapReview(review: GraphqlTaskDetail["reviews"][number]): TaskReview {
   return {
     id: review.reviewId,
+    reviewerRunId: review.reviewerRunId,
     verdict: reviewVerdict(review.overallVerdict),
     summary: review.overallFeedback,
     criteria: review.criteria.map((criterion) => ({
