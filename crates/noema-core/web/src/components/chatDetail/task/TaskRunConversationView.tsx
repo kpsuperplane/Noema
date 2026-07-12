@@ -75,6 +75,7 @@ const styles = stylex.create({
   backButton: { justifySelf: "start", width: "fit-content" },
   header: {
     display: "flex",
+    flexWrap: "wrap",
     alignItems: "end",
     justifyContent: "space-between",
     gap: 12,
@@ -83,8 +84,26 @@ const styles = stylex.create({
     borderBottomColor: "var(--noema-border-subtle)",
     paddingBottom: 12
   },
-  headingCopy: { display: "grid", minWidth: 0, gap: 3 },
+  headingCopy: { display: "grid", minWidth: 0, flex: "1 1 160px", gap: 3 },
   eyebrow: { color: "var(--noema-text-muted)", fontSize: 10, fontWeight: 650, letterSpacing: "0.06em", textTransform: "uppercase" },
   title: { margin: 0, color: "var(--noema-text-primary)", fontSize: 16, fontWeight: 700, lineHeight: 1.25 },
-  meta: { display: "flex", flexShrink: 0, alignItems: "center", gap: 5, color: "var(--noema-text-secondary)", fontFamily: "var(--noema-font-mono)", fontSize: 10, fontVariantNumeric: "tabular-nums" }
+  meta: {
+    display: "flex",
+    minWidth: 0,
+    maxWidth: "100%",
+    flex: "1 1 180px",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "end",
+    gap: 5,
+    color: "var(--noema-text-secondary)",
+    fontFamily: "var(--noema-font-mono)",
+    fontSize: 10,
+    lineHeight: 1.35,
+    fontVariantNumeric: "tabular-nums",
+    overflowWrap: "anywhere",
+    "@media (max-width: 520px)": {
+      justifyContent: "start"
+    }
+  }
 });
