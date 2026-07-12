@@ -46,6 +46,12 @@ export function TaskDetailPanel({
         .find(({ run }) => run.id === selectedRunId) ?? null
     : null;
   const selectedRun = selectedRunContext?.run ?? null;
+  const handleRunBack = React.useCallback(() => {
+    setSelectedRunKey(null);
+    window.requestAnimationFrame(() => {
+      document.getElementById("task-timeline-title")?.focus();
+    });
+  }, []);
 
   const runAction = React.useCallback(
     async (kind: "cancel" | "resume", message?: string) => {
@@ -90,7 +96,7 @@ export function TaskDetailPanel({
         <TaskRunConversationView
           liveItems={liveRunItems?.get(selectedRun.id)}
           label={runTimelineLabel(selectedRun, selectedRunContext?.revision.review)}
-          onBack={() => setSelectedRunKey(null)}
+          onBack={handleRunBack}
           run={selectedRun}
         />
       </div>

@@ -51,10 +51,10 @@ function CriterionRow({ criterion }: { criterion: TaskCriterion }) {
   );
 }
 
-export function SectionHeading({ id, title, count }: { id: string; title: string; count?: number }) {
+export function SectionHeading({ id, title, count, tabIndex }: { id: string; title: string; count?: number; tabIndex?: number }) {
   return (
     <div {...stylex.props(styles.heading)}>
-      <h3 id={id} {...stylex.props(styles.headingTitle)}>
+      <h3 id={id} tabIndex={tabIndex} {...stylex.props(styles.headingTitle)}>
         {title}
       </h3>
       {typeof count === "number" ? <span {...stylex.props(styles.headingCount)}>{count}</span> : null}

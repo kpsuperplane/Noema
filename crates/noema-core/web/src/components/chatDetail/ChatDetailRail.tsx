@@ -99,6 +99,11 @@ export function ChatDetailRail({
   );
 
   const handleKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onClose();
+      return;
+    }
     if (event.key !== "Tab") {
       return;
     }
@@ -117,7 +122,7 @@ export function ChatDetailRail({
       event.preventDefault();
       first.focus();
     }
-  }, []);
+  }, [onClose]);
 
   return (
     <aside

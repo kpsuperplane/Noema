@@ -21,7 +21,7 @@ export function TaskRevisionTimeline({
 
   return (
     <section aria-labelledby="task-timeline-title" {...stylex.props(styles.section)}>
-      <SectionHeading id="task-timeline-title" title="Timeline" count={entries.length} />
+      <SectionHeading id="task-timeline-title" tabIndex={-1} title="Timeline" count={entries.length} />
       {entries.length === 0 ? (
         <p {...stylex.props(styles.empty)}>Executor and review activity will appear here.</p>
       ) : (
