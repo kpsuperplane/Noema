@@ -7,7 +7,7 @@ import type { TaskDetail, TaskRunItem } from "./taskTypes";
 import { TaskCriteria } from "./TaskCriteria";
 import { TaskDetails, TaskStatusSummary } from "./TaskOverview";
 import { TaskResult } from "./TaskResult";
-import { runTimelineLabel, TaskRevisionTimeline } from "./TaskRevisionTimeline";
+import { TaskRevisionTimeline } from "./TaskRevisionTimeline";
 import { TaskRunConversationView } from "./TaskRunConversationView";
 
 type MarkdownXStyle = MarkdownProps["xstyle"];
@@ -95,8 +95,8 @@ export function TaskDetailPanel({
       <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root)}>
         <TaskRunConversationView
           liveItems={liveRunItems?.get(selectedRun.id)}
-          label={runTimelineLabel(selectedRun, selectedRunContext?.revision.review)}
           onBack={handleRunBack}
+          review={selectedRunContext?.revision.review}
           run={selectedRun}
         />
       </div>
