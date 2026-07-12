@@ -68,7 +68,7 @@ export function Message({
 }: {
   animate: boolean;
   group?: ChatBubbleGroup;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "system";
   text: string;
   showAvatar: boolean;
   debugUsage?: ProviderUsageDebug | null;

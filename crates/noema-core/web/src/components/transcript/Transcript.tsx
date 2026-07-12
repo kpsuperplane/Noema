@@ -267,6 +267,11 @@ function renderTranscriptEntry(
       <Message animate={animateText} group={bubbleGroup} role="user" text={entry.text} showAvatar={showAvatar} />
     );
   }
+  if (entry.type === "system") {
+    return (
+      <Message animate={animateText} group={bubbleGroup} role="system" text={entry.text} showAvatar={false} />
+    );
+  }
   if (entry.type === "assistant") {
     return (
       <Message

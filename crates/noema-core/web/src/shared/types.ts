@@ -81,6 +81,15 @@ export type TranscriptEntry =
       cursor?: string | null;
       source?: TranscriptEntrySource;
       turnId?: string;
+      type: "system";
+      text: string;
+    }
+  | {
+      id: string;
+      itemId?: string;
+      cursor?: string | null;
+      source?: TranscriptEntrySource;
+      turnId?: string;
       type: "assistant";
       streamId?: string;
       responseIndex?: number;

@@ -49,7 +49,7 @@ export function mapTaskRunItem(item: TaskRunItemSource, role: TaskRunRole): Task
             : isToolResult
               ? `Tool result · ${item.contentText || "unnamed"}`
               : humanize(item.kind),
-    summary: isModelInput ? modelInputSummary(item.contentText) : item.contentText,
+    summary: item.contentText,
     details,
     role,
     status: runItemStatus(item.status),
@@ -84,6 +84,9 @@ export function taskRunItemsToTranscriptEntries(items: readonly TaskRunItem[]): 
   const entries: TranscriptEntry[] = [];
   for (const item of items) {
     const entry = taskRunItemToTranscriptEntry(item);
+    if (!entry) {
+      continue;
+    }
     const previous = entries.at(-1);
     if (entry.type === "assistant" && previous?.type === "assistant" && entry.turnId === previous.turnId) {
       entries[entries.length - 1] = { ...previous, text: `${previous.text}${entry.text}` };
@@ -94,7 +97,7 @@ export function taskRunItemsToTranscriptEntries(items: readonly TaskRunItem[]): 
   return entries;
 }
 
-function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry {
+function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry | null {
   const turnId = `${item.runId ?? "task-run"}:${item.roundIndex ?? "setup"}:${item.responseIndex ?? "default"}`;
   const base = { id: item.id, source: "replay" as const, turnId };
 
@@ -146,18 +149,14 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry {
   }
 
   if (item.kind === "input") {
+    const text = visibleModelInput(item.details ?? item.summary);
+    if (!text) {
+      return null;
+    }
     return {
       ...base,
-      type: "activity",
-      item: {
-        kind: "activity",
-        id: item.id,
-        activity_kind: "model_input",
-        status: taskActivityStatus(item.status),
-        title: item.title,
-        summary: item.summary,
-        metadata: item.details ? { detail: item.details } : null
-      }
+      type: "system",
+      text
     };
   }
 
@@ -187,25 +186,48 @@ function responseIndex(value: unknown): number | null {
   return typeof candidate === "number" && Number.isInteger(candidate) ? candidate : null;
 }
 
-function modelInputSummary(value: string | null | undefined): string {
+function visibleModelInput(value: string | null | undefined): string | null {
   const text = value?.trim();
   if (!text) {
-    return "Provider context";
+    return null;
   }
 
   try {
     const parsed: unknown = JSON.parse(text);
     if (Array.isArray(parsed)) {
-      const count = parsed.length;
-      return count === 0
-        ? "Context refreshed"
-        : `Context refreshed · ${count} recorded ${count === 1 ? "result" : "results"}`;
+      const visible = parsed.filter((item) => !isToolContextRecord(item));
+      return visible.length > 0 ? JSON.stringify(visible, null, 2) : null;
     }
-    return "Provider context refreshed";
+    return isToolContextRecord(parsed) ? null : JSON.stringify(parsed, null, 2);
   } catch {
-    const firstLine = text.split("\n").map((line) => line.trim()).find(Boolean);
-    return firstLine && firstLine.length <= 120 ? firstLine : "Initial task context";
+    const visibleLines = text
+      .split("\n")
+      .filter((line) => !isSerializedToolContext(line));
+    const visible = visibleLines.join("\n").trim();
+    return visible || null;
   }
+}
+
+function isSerializedToolContext(value: string): boolean {
+  const text = value.trim();
+  if (!text) {
+    return false;
+  }
+  try {
+    return isToolContextRecord(JSON.parse(text));
+  } catch {
+    return false;
+  }
+}
+
+function isToolContextRecord(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return record.type === "tool_call" ||
+    record.type === "tool_result" ||
+    (typeof record.call_id === "string" && typeof record.name === "string");
 }
 
 function parseDetails(value: string | null | undefined): unknown {

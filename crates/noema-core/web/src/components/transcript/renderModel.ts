@@ -127,7 +127,9 @@ export function shouldAnimateRenderedEntryTextForSeen(
 }
 
 export function transcriptEntryLane(entryType: TranscriptEntry["type"]): TranscriptLane {
-  return entryType === "user" || entryType === "multiple_choice_selection" ? "human" : "assistant";
+  return entryType === "user" || entryType === "system" || entryType === "multiple_choice_selection"
+    ? "human"
+    : "assistant";
 }
 
 export function renderedTranscriptLane(entry: RenderTranscriptLaneCandidate): TranscriptLane {
@@ -267,7 +269,10 @@ function isMarkerRenderEntry(entry: RenderTranscriptEntry): boolean {
 function isTextMessageRenderEntry(entry: RenderTranscriptEntry): boolean {
   return (
     entry.kind === "entry" &&
-    (entry.entry.type === "user" || entry.entry.type === "assistant" || entry.entry.type === "assistant_stream")
+    (entry.entry.type === "user" ||
+      entry.entry.type === "system" ||
+      entry.entry.type === "assistant" ||
+      entry.entry.type === "assistant_stream")
   );
 }
 

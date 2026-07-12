@@ -3,7 +3,7 @@ import * as stylex from "@stylexjs/stylex";
 import { TranscriptActorAvatar } from "./TranscriptActorAvatar";
 import type { ChatBubbleGroup } from "./renderModel";
 
-type TranscriptChatBubbleRole = "user" | "assistant";
+type TranscriptChatBubbleRole = "user" | "assistant" | "system";
 type TranscriptChatBubbleVariant = "message" | "typing";
 
 type ChatMessageXStyle = ChatMessageProps["xstyle"];
@@ -58,8 +58,8 @@ export function TranscriptChatBubble({
   showAvatar: boolean;
   variant?: TranscriptChatBubbleVariant;
 }) {
-  const lane = role === "user" ? "human" : "assistant";
-  const sender = role === "user" ? "user" : "assistant";
+  const lane = role === "assistant" ? "assistant" : "human";
+  const sender = role === "assistant" ? "assistant" : "user";
 
   return (
     <ChatMessage

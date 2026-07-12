@@ -49,7 +49,12 @@ function renderedEntryScrollFingerprint(entry: RenderTranscriptEntry): string {
 function transcriptEntryScrollFingerprint(entry: TranscriptEntry): string {
   const renderId = transcriptEntryRenderId(entry);
 
-  if (entry.type === "user" || entry.type === "assistant" || entry.type === "assistant_stream") {
+  if (
+    entry.type === "user" ||
+    entry.type === "system" ||
+    entry.type === "assistant" ||
+    entry.type === "assistant_stream"
+  ) {
     return `${renderId}:${entry.text.length}`;
   }
   if (entry.type === "activity") {
