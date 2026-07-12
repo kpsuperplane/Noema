@@ -20,7 +20,8 @@ export type TaskRunItemSource = {
 export function mapTaskRunItem(item: TaskRunItemSource, role: TaskRunRole): TaskRunItem {
   const isToolCall = item.kind === "tool_call";
   const isToolResult = item.kind === "tool_result";
-  const details = isToolCall || isToolResult ? jsonText(item.payload) : null;
+  const isModelInput = item.kind === "model_input";
+  const details = isModelInput ? item.contentText : isToolCall || isToolResult ? jsonText(item.payload) : null;
   return {
     id: item.itemId,
     runId: item.runId,
@@ -48,7 +49,7 @@ export function mapTaskRunItem(item: TaskRunItemSource, role: TaskRunRole): Task
             : isToolResult
               ? `Tool result · ${item.contentText || "unnamed"}`
               : humanize(item.kind),
-    summary: item.contentText,
+    summary: isModelInput ? modelInputSummary(item.contentText) : item.contentText,
     details,
     role,
     status: runItemStatus(item.status),
@@ -133,6 +134,22 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry {
     };
   }
 
+  if (item.kind === "input") {
+    return {
+      ...base,
+      type: "activity",
+      item: {
+        kind: "activity",
+        id: item.id,
+        activity_kind: "model_input",
+        status: taskActivityStatus(item.status),
+        title: item.title,
+        summary: item.summary,
+        metadata: item.details ? { detail: item.details } : null
+      }
+    };
+  }
+
   return {
     ...base,
     type: "assistant",
@@ -148,6 +165,27 @@ function jsonText(value: unknown): string | null {
     return JSON.stringify(value, null, 2);
   } catch {
     return String(value);
+  }
+}
+
+function modelInputSummary(value: string | null | undefined): string {
+  const text = value?.trim();
+  if (!text) {
+    return "Provider context";
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (Array.isArray(parsed)) {
+      const count = parsed.length;
+      return count === 0
+        ? "Context refreshed"
+        : `Context refreshed · ${count} recorded ${count === 1 ? "result" : "results"}`;
+    }
+    return "Provider context refreshed";
+  } catch {
+    const firstLine = text.split("\n").map((line) => line.trim()).find(Boolean);
+    return firstLine && firstLine.length <= 120 ? firstLine : "Initial task context";
   }
 }
 

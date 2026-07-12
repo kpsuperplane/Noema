@@ -95,7 +95,14 @@ function mergeEntriesByItemId(
       return entry.type === "assistant" && key ? [[key, entry]] : [];
     })
   );
+  const incomingAssistantByTurnText = new Map(
+    incoming.flatMap((entry) => {
+      const key = assistantTurnTextKey(entry);
+      return entry.type === "assistant" && key ? [[key, entry]] : [];
+    })
+  );
   const seenItemIds = new Set<string>();
+  const seenAssistantTurnText = new Set<string>();
 
   return baseEntries.flatMap((entry) => {
     if (entry.type === "assistant_stream") {
@@ -113,6 +120,23 @@ function mergeEntriesByItemId(
         seenItemIds.add(replacementItemId);
       }
       return [replacement];
+    }
+    if (entry.type === "assistant") {
+      const turnTextKey = assistantTurnTextKey(entry);
+      if (turnTextKey) {
+        const replacement = incomingAssistantByTurnText.get(turnTextKey);
+        if (replacement) {
+          if (seenAssistantTurnText.has(turnTextKey)) {
+            return [];
+          }
+          seenAssistantTurnText.add(turnTextKey);
+          return [replacement];
+        }
+        if (seenAssistantTurnText.has(turnTextKey)) {
+          return [];
+        }
+        seenAssistantTurnText.add(turnTextKey);
+      }
     }
     const itemId = transcriptEntryItemId(entry);
     if (itemId === undefined) {
@@ -148,4 +172,11 @@ function assistantTurnResponseKey(entry: TranscriptEntry): string | undefined {
     return undefined;
   }
   return typeof entry.responseIndex === "number" ? `${entry.turnId}:${entry.responseIndex}` : undefined;
+}
+
+function assistantTurnTextKey(entry: TranscriptEntry): string | undefined {
+  if (entry.type !== "assistant" || !entry.turnId || !entry.text.trim()) {
+    return undefined;
+  }
+  return `${entry.turnId}:${entry.text}`;
 }

@@ -1,8 +1,14 @@
+import { useQuery, useSubscription } from "@apollo/client/react";
+import * as React from "react";
 import { IconButton, type IconButtonProps } from "@astryxdesign/core/IconButton";
 import { Item, type ItemProps } from "@astryxdesign/core/Item";
 import * as stylex from "@stylexjs/stylex";
 import { ListTodo, PanelRightOpen } from "lucide-react";
 import { taskDetailTarget, type ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
+import {
+  TaskEventsDocument,
+  TaskReferenceStatusDocument
+} from "@/generated/graphql";
 import { TaskStatusBadge } from "@/components/chatDetail/task/TaskStatusBadge";
 import type { TaskStatus } from "@/components/chatDetail/task/taskTypes";
 
@@ -27,10 +33,31 @@ export function TaskReferenceCard({
   const target = taskDetailTarget(taskId);
   const taskTarget = target?.type === "task" ? target : null;
   const opensDetail = Boolean(taskTarget && onOpenDetail);
-  const progressLine = progress || (revision ? `Revision ${revision}` : "Background task");
+  const { data } = useQuery(TaskReferenceStatusDocument, {
+    fetchPolicy: "cache-and-network",
+    variables: { taskId },
+    skip: !taskTarget
+  });
+  const [liveStatus, setLiveStatus] = React.useState<TaskStatus | null>(null);
+  useSubscription(TaskEventsDocument, {
+    variables: { taskId, after: null },
+    skip: !taskTarget,
+    onData: ({ data: result }) => {
+      const event = result.data?.taskEvents;
+      if (event?.kind === "TASK_UPDATED") {
+        const nextStatus = taskStatusFromGraphql(event.status);
+        if (nextStatus) {
+          setLiveStatus(nextStatus);
+        }
+      }
+    }
+  });
+  const currentStatus = liveStatus ?? taskStatusFromGraphql(data?.task?.status) ?? status;
+  const currentRevision = data?.task?.revisionIndex ?? revision;
+  const progressLine = progress || (currentRevision ? `Revision ${currentRevision}` : "Background task");
   const description = (
     <span {...stylex.props(styles.description)}>
-      <TaskStatusBadge status={status} />
+      <TaskStatusBadge status={currentStatus} />
       <span {...stylex.props(styles.progress)}>{progressLine}</span>
     </span>
   );
@@ -71,6 +98,22 @@ export function TaskReferenceCard({
       xstyle={itemXStyle(styles.item, !opensDetail && styles.disabledItem)}
     />
   );
+}
+
+function taskStatusFromGraphql(value?: string | null): TaskStatus | null {
+  switch (value?.toLowerCase()) {
+    case "queued":
+    case "executing":
+    case "reviewing":
+    case "revision_requested":
+    case "waiting_for_human":
+    case "completed":
+    case "failed":
+    case "cancelled":
+      return value.toLowerCase() as TaskStatus;
+    default:
+      return null;
+  }
 }
 
 function itemXStyle(...xstyle: unknown[]): ItemXStyle {

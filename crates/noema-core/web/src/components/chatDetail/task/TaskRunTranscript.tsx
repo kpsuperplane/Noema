@@ -29,6 +29,7 @@ export function TaskRunTranscript({
     hasNextPage: boolean;
   } | null>(null);
   const [loadingOlder, setLoadingOlder] = React.useState(false);
+  const [olderPageError, setOlderPageError] = React.useState<string | null>(null);
   const [expandedActivities, setExpandedActivities] = React.useState<Set<string>>(() => new Set());
   const pageInfo = pageInfoOverride ?? data?.taskRunItems.pageInfo ?? null;
 
@@ -57,6 +58,7 @@ export function TaskRunTranscript({
       return;
     }
     setLoadingOlder(true);
+    setOlderPageError(null);
     try {
       const result = await fetchMore({
         variables: { runId: run.id, after: pageInfo.endCursor, first: 50 }
@@ -69,6 +71,8 @@ export function TaskRunTranscript({
         mergeTaskRunItems(next.items.map((item) => mapNode(item, run)), previous)
       );
       setPageInfoOverride(next.pageInfo);
+    } catch (caught) {
+      setOlderPageError(caught instanceof Error ? caught.message : "Older transcript items could not be loaded.");
     } finally {
       setLoadingOlder(false);
     }
@@ -85,7 +89,7 @@ export function TaskRunTranscript({
     );
   }
   if (entries.length === 0) {
-    return null;
+    return <TranscriptSystemNotice label="Empty">No transcript items were recorded for this run.</TranscriptSystemNotice>;
   }
 
   return (
@@ -98,7 +102,7 @@ export function TaskRunTranscript({
       expandedActivities={expandedActivities}
       hasMoreTranscriptBefore={Boolean(pageInfo?.hasNextPage)}
       loadingOlderTranscript={loadingOlder}
-      olderTranscriptPageError={null}
+      olderTranscriptPageError={olderPageError}
       onLoadOlderTranscript={loadOlder}
       onSubmitMultipleChoiceSelection={() => undefined}
       onToggleActivity={toggleActivity}

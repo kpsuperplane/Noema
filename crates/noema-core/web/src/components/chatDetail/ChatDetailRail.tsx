@@ -28,7 +28,9 @@ export function ChatDetailRail({
   onCancelTask?: (taskId: string) => void | Promise<void>;
   onResumeTask?: (taskId: string, message?: string) => void | Promise<void>;
 }) {
+  const railRef = React.useRef<HTMLElement>(null);
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
+  const returnFocusRef = React.useRef<HTMLElement | null>(null);
   const [artifactDetailState, setArtifactDetailState] = React.useState<{
     version: string;
     detail: ArtifactDetail | null;
@@ -58,6 +60,12 @@ export function ChatDetailRail({
   );
 
   React.useEffect(() => {
+    if (motionState === "opening" && returnFocusRef.current === null && document.activeElement instanceof HTMLElement) {
+      returnFocusRef.current = document.activeElement;
+    }
+  }, [motionState]);
+
+  React.useEffect(() => {
     if (motionState === "open") {
       closeButtonRef.current?.focus();
     }
@@ -66,10 +74,14 @@ export function ChatDetailRail({
   const handleTransitionEnd = React.useCallback(
     (event: React.TransitionEvent<HTMLElement>) => {
       if (event.currentTarget === event.target && event.propertyName === "transform") {
+        if (motionState === "exiting") {
+          returnFocusRef.current?.focus();
+          returnFocusRef.current = null;
+        }
         onMotionEnd();
       }
     },
-    [onMotionEnd]
+    [motionState, onMotionEnd]
   );
 
   const updateArtifactDetail = React.useCallback(
@@ -86,12 +98,38 @@ export function ChatDetailRail({
     [artifactVersion]
   );
 
+  const handleKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key !== "Tab") {
+      return;
+    }
+    const focusable = focusableElements(railRef.current);
+    if (focusable.length === 0) {
+      event.preventDefault();
+      railRef.current?.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && event.target === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && event.target === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }, []);
+
   return (
     <aside
       data-slot="chat-detail-rail"
       data-state={motionState}
+      aria-modal="true"
       aria-label="Chat detail"
+      ref={railRef}
+      role="dialog"
       {...stylex.props(styles.rail)}
+      tabIndex={-1}
+      onKeyDown={handleKeyDown}
       onTransitionEnd={handleTransitionEnd}
     >
       <div
@@ -139,6 +177,17 @@ export function ChatDetailRail({
       </div>
     </aside>
   );
+}
+
+function focusableElements(root: HTMLElement | null): HTMLElement[] {
+  if (!root) {
+    return [];
+  }
+  return Array.from(
+    root.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )
+  ).filter((element) => element.getAttribute("aria-hidden") !== "true");
 }
 
 function CloseButton({

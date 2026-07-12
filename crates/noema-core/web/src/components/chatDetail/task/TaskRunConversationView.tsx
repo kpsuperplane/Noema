@@ -2,7 +2,7 @@ import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
 import { ArrowLeft } from "lucide-react";
 import { TaskRunTranscript } from "./TaskRunTranscript";
-import { runDurationLabel } from "./TaskRevisionTimeline";
+import { runDurationLabel, useTaskRunClock } from "./TaskRevisionTimeline";
 import type { TaskRun, TaskRunItem } from "./taskTypes";
 
 export function TaskRunConversationView({
@@ -18,6 +18,7 @@ export function TaskRunConversationView({
 }) {
   const role = run.role === "reviewer" ? "Review" : "Executor";
   const displayLabel = label ?? role;
+  const now = useTaskRunClock(run.status === "running");
 
   return (
     <section data-task-run-id={run.id} {...stylex.props(styles.root)}>
@@ -38,7 +39,9 @@ export function TaskRunConversationView({
         <div {...stylex.props(styles.meta)}>
           <span>{label ?? runStatusLabel(run.status)}</span>
           <span aria-hidden="true">·</span>
-          <span>{runDurationLabel(run)}</span>
+          <span>Revision {run.revision ?? 0} · Attempt {run.attemptIndex + 1}</span>
+          <span aria-hidden="true">·</span>
+          <span>{runDurationLabel(run, now)}</span>
         </div>
       </header>
       <TaskRunTranscript liveItems={liveItems} run={run} />

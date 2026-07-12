@@ -1,5 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { ChevronRight } from "lucide-react";
+import * as React from "react";
 import type { TaskRevision, TaskReview, TaskRun, TaskRunStatus } from "./taskTypes";
 import { SectionHeading } from "./TaskCriteria";
 
@@ -16,6 +17,7 @@ export function TaskRevisionTimeline({
   onSelectRun?: (run: TaskRun) => void;
 }) {
   const entries = timelineEntries(revisions);
+  const now = useTaskRunClock(entries.some(({ run }) => run.status === "running"));
 
   return (
     <section aria-labelledby="task-timeline-title" {...stylex.props(styles.section)}>
@@ -28,7 +30,7 @@ export function TaskRevisionTimeline({
             <li key={run.id} {...stylex.props(styles.item)}>
               <button
                 type="button"
-                aria-label={`Open ${runTimelineLabel(run, revision.review)} conversation`}
+                aria-label={`Open ${runTimelineLabel(run, revision.review)} conversation, Revision ${revision.revision}, Attempt ${run.attemptIndex + 1}`}
                 onClick={() => onSelectRun?.(run)}
                 {...stylex.props(styles.itemButton)}
               >
@@ -39,7 +41,7 @@ export function TaskRevisionTimeline({
                     Revision {revision.revision} · Attempt {run.attemptIndex + 1}
                   </span>
                 </span>
-                <span {...stylex.props(styles.duration)}>{runDurationLabel(run)}</span>
+                <span {...stylex.props(styles.duration)}>{runDurationLabel(run, now)}</span>
                 <ChevronRight aria-hidden="true" size={15} {...stylex.props(styles.chevron)} />
               </button>
             </li>
@@ -70,7 +72,7 @@ export function runTimelineLabel(run: TaskRun, review?: TaskReview | null): stri
   return terminalRoleLabel("Review", run.status);
 }
 
-export function runDurationLabel(run: TaskRun): string {
+export function runDurationLabel(run: TaskRun, now = Date.now()): string {
   const activeMilliseconds = Math.max(0, run.activeMilliseconds ?? 0);
   const startedAt = parseTimestamp(run.startedAt ?? run.createdAt);
   const endedAt = parseTimestamp(run.completedAt ?? run.updatedAt);
@@ -78,7 +80,7 @@ export function runDurationLabel(run: TaskRun): string {
     ? activeMilliseconds
     : startedAt === null
       ? 0
-      : Math.max(0, (run.status === "running" ? Date.now() : endedAt ?? Date.now()) - startedAt);
+      : Math.max(0, (run.status === "running" ? now : endedAt ?? now) - startedAt);
   const seconds = Math.max(0, Math.round(measuredMilliseconds / 1_000));
   if (seconds < 60) {
     return `${seconds}s`;
@@ -90,6 +92,20 @@ export function runDurationLabel(run: TaskRun): string {
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
   return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+}
+
+export function useTaskRunClock(active: boolean): number {
+  const [now, setNow] = React.useState(() => Date.now());
+
+  React.useEffect(() => {
+    if (!active) {
+      return;
+    }
+    const interval = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(interval);
+  }, [active]);
+
+  return now;
 }
 
 function timelineEntries(revisions: readonly TaskRevision[]): TimelineEntry[] {

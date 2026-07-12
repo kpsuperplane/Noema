@@ -17,6 +17,7 @@ import {
   shouldContinueRenderedEntryTextAnimation,
   shouldAnimateRenderedEntryTextForSeen,
   shouldCompactMarkerClusterSpacing,
+  collapseTaskReferenceEntries,
   type ChatBubbleGroup,
   type RenderTranscriptEntry
 } from "./renderModel";
@@ -76,7 +77,8 @@ export function Transcript({
   ariaLabel?: string;
 }) {
   void awaitingAssistantTurn;
-  const renderedEntries = renderableTranscriptEntries(entries, pending, agentStatus);
+  const displayEntries = React.useMemo(() => collapseTaskReferenceEntries(entries), [entries]);
+  const renderedEntries = renderableTranscriptEntries(displayEntries, pending, agentStatus);
   const [seenArrivalMessageIds, setSeenArrivalMessageIds] = React.useState<ReadonlySet<string>>(() =>
     initialSeenArrivalMessageIds(renderedEntries)
   );
@@ -170,7 +172,7 @@ export function Transcript({
               <RenderedTranscriptEntryFrame lane={lane}>
                 {renderTranscriptRenderEntry(
                   entry,
-                  entries,
+                  displayEntries,
                   expandedActivities,
                   onToggleActivity,
                   onSubmitMultipleChoiceSelection,

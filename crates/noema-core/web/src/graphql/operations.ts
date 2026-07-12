@@ -1045,6 +1045,17 @@ export const TaskDetailDocument = gql`
   }
 `;
 
+export const TaskReferenceStatusDocument = gql`
+  query TaskReferenceStatus($taskId: String!) {
+    task(taskId: $taskId) {
+      taskId
+      title
+      status
+      revisionIndex
+    }
+  }
+`;
+
 export const ResumeTaskDocument = gql`
   mutation ResumeTask($taskId: String!, $message: String) {
     resumeTask(taskId: $taskId, message: $message) {

@@ -40,6 +40,7 @@ const styles = stylex.create({
   },
   headerButton: {
     appearance: "none",
+    cursor: "pointer",
     width: "100%",
     borderWidth: 0,
     borderRadius: 8,

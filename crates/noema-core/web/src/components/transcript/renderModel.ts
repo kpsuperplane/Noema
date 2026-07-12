@@ -44,6 +44,30 @@ export function renderableTranscriptEntries(
   return renderedEntries;
 }
 
+/** Keep one current task reference in the chat while the detail rail owns run history. */
+export function collapseTaskReferenceEntries(entries: TranscriptEntry[]): TranscriptEntry[] {
+  const collapsed: TranscriptEntry[] = [];
+  const taskIndexById = new Map<string, number>();
+
+  for (const entry of entries) {
+    if (entry.type !== "task") {
+      collapsed.push(entry);
+      continue;
+    }
+
+    const taskId = entry.item.task_id;
+    const existingIndex = taskIndexById.get(taskId);
+    if (existingIndex === undefined) {
+      taskIndexById.set(taskId, collapsed.length);
+      collapsed.push(entry);
+    } else {
+      collapsed[existingIndex] = entry;
+    }
+  }
+
+  return collapsed;
+}
+
 export function shouldAnchorTranscriptEntry(entry: TranscriptEntryAnchorCandidate): boolean {
   switch (entry.kind) {
     case "entry":
