@@ -3,17 +3,12 @@ import * as stylex from "@stylexjs/stylex";
 import { AlertCircle, Check, ChevronDown, Circle, HelpCircle } from "lucide-react";
 import * as React from "react";
 import type { ReactNode } from "react";
-import { TaskDisclosureSection } from "./TaskDisclosureSection";
+import { TaskStaticSection } from "./TaskDisclosureSection";
 import type { TaskCriterion, TaskCriterionVerdict } from "./taskTypes";
 
 export function TaskCriteria({ criteria }: { criteria: readonly TaskCriterion[] }) {
   return (
-    <TaskDisclosureSection
-      count={criteria.length}
-      id="task-criteria-title"
-      summary={criteriaSummary(criteria)}
-      title="Validation criteria"
-    >
+    <TaskStaticSection count={criteria.length} id="task-criteria-title" title="Validation criteria">
       {criteria.length === 0 ? (
         <p {...stylex.props(styles.empty)}>No validation criteria were recorded.</p>
       ) : (
@@ -23,7 +18,7 @@ export function TaskCriteria({ criteria }: { criteria: readonly TaskCriterion[] 
           ))}
         </ol>
       )}
-    </TaskDisclosureSection>
+    </TaskStaticSection>
   );
 }
 
@@ -76,27 +71,6 @@ function CriterionRow({ criterion }: { criterion: TaskCriterion }) {
       </div>
     </li>
   );
-}
-
-function criteriaSummary(criteria: readonly TaskCriterion[]): string {
-  if (criteria.length === 0) {
-    return "No validation criteria";
-  }
-  const counts = new Map<TaskCriterionVerdict, number>();
-  for (const criterion of criteria) {
-    const verdict = criterion.verdict ?? "pending";
-    counts.set(verdict, (counts.get(verdict) ?? 0) + 1);
-  }
-  return [
-    countLabel(counts.get("pass"), "passed"),
-    countLabel(counts.get("fail"), "failed"),
-    countLabel(counts.get("uncertain"), "uncertain"),
-    countLabel(counts.get("pending"), "pending")
-  ].filter(Boolean).join(" · ");
-}
-
-function countLabel(count: number | undefined, label: string): string {
-  return count ? `${count} ${label}` : "";
 }
 
 function criterionMeta(verdict: TaskCriterionVerdict): {

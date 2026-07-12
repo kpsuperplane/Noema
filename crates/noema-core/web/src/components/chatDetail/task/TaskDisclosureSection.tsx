@@ -47,6 +47,7 @@ export function TaskDisclosureSection({
         type="button"
         aria-controls={contentId}
         aria-expanded={isExpanded}
+        aria-label={`${isExpanded ? "Collapse" : "Expand"} ${title}`}
         onClick={toggle}
         {...stylex.props(styles.trigger)}
       >
@@ -59,10 +60,8 @@ export function TaskDisclosureSection({
           </span>
           {summary ? <span {...stylex.props(styles.summary)}>{summary}</span> : null}
         </span>
-        <span {...stylex.props(styles.toggle)}>
-          <span {...stylex.props(styles.toggleLabel)}>{isExpanded ? "Show less" : "Show more"}</span>
+        <span aria-hidden="true" {...stylex.props(styles.toggle)}>
           <ChevronDown
-            aria-hidden="true"
             size={14}
             {...stylex.props(styles.chevron, isExpanded && styles.chevronExpanded)}
           />
@@ -75,12 +74,46 @@ export function TaskDisclosureSection({
   );
 }
 
+export function TaskStaticSection({
+  id,
+  title,
+  count,
+  tabIndex,
+  children
+}: {
+  id: string;
+  title: string;
+  count?: number;
+  tabIndex?: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <section aria-labelledby={id} {...stylex.props(styles.staticSection)}>
+      <div {...stylex.props(styles.staticHeading)}>
+        <h3 id={id} tabIndex={tabIndex} {...stylex.props(styles.title)}>{title}</h3>
+        {typeof count === "number" ? <span {...stylex.props(styles.count)}>{count}</span> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
 const styles = stylex.create({
   section: {
     minWidth: 0,
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
     borderBottomColor: "var(--noema-border-subtle)"
+  },
+  staticSection: {
+    display: "grid",
+    gap: 9,
+    minWidth: 0,
+    borderBottomWidth: 1,
+    borderBottomStyle: "solid",
+    borderBottomColor: "var(--noema-border-subtle)",
+    paddingBlock: 10,
+    paddingInline: 8
   },
   trigger: {
     display: "grid",
@@ -124,7 +157,14 @@ const styles = stylex.create({
     alignItems: "center",
     gap: 7
   },
+  staticHeading: {
+    display: "flex",
+    minWidth: 0,
+    alignItems: "center",
+    gap: 7
+  },
   title: {
+    margin: 0,
     minWidth: 0,
     color: "var(--noema-text-primary)",
     fontSize: 13,
@@ -159,13 +199,8 @@ const styles = stylex.create({
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "end",
-    gap: 4,
     color: "var(--noema-text-muted)",
     whiteSpace: "nowrap"
-  },
-  toggleLabel: {
-    fontSize: 10,
-    fontWeight: 600
   },
   chevron: {
     transition: "transform 140ms ease"

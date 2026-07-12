@@ -5,7 +5,6 @@ import { AlertCircle } from "lucide-react";
 import { TaskDisclosureSection } from "./TaskDisclosureSection";
 import type { TaskDetail, TaskRunItem } from "./taskTypes";
 import { TaskCriteria } from "./TaskCriteria";
-import { TaskModelSnapshots } from "./TaskModelSnapshots";
 import { TaskOverview } from "./TaskOverview";
 import { TaskResult } from "./TaskResult";
 import { runTimelineLabel, TaskRevisionTimeline } from "./TaskRevisionTimeline";
@@ -36,10 +35,6 @@ export function TaskDetailPanel({
     taskId: string;
     runId: string;
   } | null>(null);
-  const [timelineDisclosureState, setTimelineDisclosureState] = React.useState({
-    taskId,
-    expanded: false
-  });
   const currentDetail = detail?.taskId === taskId ? detail : null;
   const selectedRunId = selectedRunKey?.taskId === taskId ? selectedRunKey.runId : null;
   const selectedRunContext = currentDetail
@@ -51,12 +46,6 @@ export function TaskDetailPanel({
         .find(({ run }) => run.id === selectedRunId) ?? null
     : null;
   const selectedRun = selectedRunContext?.run ?? null;
-  const timelineExpanded = timelineDisclosureState.taskId === taskId
-    ? timelineDisclosureState.expanded
-    : false;
-  const handleTimelineExpandedChange = React.useCallback((expanded: boolean) => {
-    setTimelineDisclosureState({ taskId, expanded });
-  }, [taskId]);
   const handleRunBack = React.useCallback(() => {
     setSelectedRunKey(null);
     window.requestAnimationFrame(() => {
@@ -126,15 +115,7 @@ export function TaskDetailPanel({
       />
       <TaskTextSection key={`request:${taskId}`} title="Original request" text={currentDetail.request} />
       <TaskCriteria key={`criteria:${taskId}`} criteria={currentDetail.criteria} />
-      <TaskModelSnapshots
-        key={`models:${taskId}`}
-        executor={currentDetail.executorModel}
-        reviewer={currentDetail.reviewerModel}
-        reviewerInherited={currentDetail.reviewerModelInherited}
-      />
       <TaskRevisionTimeline
-        expanded={timelineExpanded}
-        onExpandedChange={handleTimelineExpandedChange}
         onSelectRun={(run) => setSelectedRunKey({ taskId, runId: run.id })}
         revisions={currentDetail.revisions}
       />

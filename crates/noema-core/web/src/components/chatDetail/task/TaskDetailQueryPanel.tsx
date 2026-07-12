@@ -387,6 +387,9 @@ function finalResult(
 }
 
 function failureReason(detail: GraphqlTaskDetail): string | null {
+  if (taskStatus(detail.status) !== "failed") {
+    return null;
+  }
   const parts = [detail.errorMessage, detail.terminalReason, detail.errorCode].filter(
     (part): part is string => Boolean(part?.trim())
   );

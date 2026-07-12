@@ -582,10 +582,11 @@ async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
         .await
         .expect("task");
     assert_eq!(executor_run.run_kind, crate::RunKind::Executor);
-    store
+    let executing_task = store
         .transition_task(&task.task_id, crate::TaskStatus::Executing, Some("test"))
         .await
         .expect("executing");
+    assert_eq!(executing_task.terminal_reason, None);
     store
         .claim_next_agent_run("worker:executor", "lease:executor", 120)
         .await
