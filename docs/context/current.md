@@ -172,10 +172,16 @@ The next storage slice should stay small and concrete:
   durable delivery outbox, and deterministic conversation item ids make crash
   recovery idempotent. Transcript persistence redacts secret-shaped fields and
   all opaque MCP arguments/results while retaining full payloads only in the
-  live provider continuation. The current task runtime
-  exposes read-only search, fetch, memory, task inspection, and calibrated MCP
-  tools to background roles; task-owned write tools and richer workspace/project
-  orchestration remain later milestones.
+  live provider continuation. The task runtime exposes read-only search, fetch,
+  memory, task inspection, and calibrated MCP tools to background roles.
+  Executors can also create multiple task-owned local artifacts through the
+  governed artifact tool and attach their ids to `task.submit_result`; submission
+  rows snapshot linked versions and reject missing, duplicate, or foreign
+  artifacts. Reviewers receive the manifest and can read only linked bounded
+  UTF-8 content through `task.read_artifact`. Approved artifacts appear in task
+  detail and are delivered as artifact-reference cards beside the primary
+  agent's completion update in the originating conversation. Richer
+  workspace/project orchestration remains a later milestone.
 - Task run transcripts reuse the shared chat `Transcript` renderer and scroller.
   The task adapter maps run items into the common assistant/activity entry model,
   uses an embedded density without mounting a composer, so task conversations

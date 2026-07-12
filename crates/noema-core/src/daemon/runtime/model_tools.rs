@@ -6,6 +6,7 @@ use crate::{
         artifact_tool::artifact_create_local_file_tool_spec,
         memory::tool::search_memory_tool_spec,
         runtime::turn::{mcp_auth_status_label, mcp_health_status_label},
+        task_artifact_tool::{TASK_READ_ARTIFACT_TOOL, task_read_artifact_tool_spec},
         task_tool::{
             TASK_CANCEL_TOOL, TASK_INSPECT_TOOL, TASK_REPORT_BLOCKED_TOOL, TASK_RESUME_TOOL,
             TASK_SUBMIT_RESULT_TOOL, TASK_SUBMIT_REVIEW_TOOL, task_cancel_tool_spec,
@@ -72,6 +73,7 @@ pub(super) async fn build_model_tools_for_role(
         builtin_tools.push(task_submit_result_tool_spec()?);
         builtin_tools.push(task_report_blocked_tool_spec()?);
     } else if role == ExecutionRole::TaskReviewer {
+        builtin_tools.push(task_read_artifact_tool_spec()?);
         builtin_tools.push(task_submit_review_tool_spec()?);
     }
     let web_search_tool = web_search_tool_spec()?;
@@ -80,7 +82,7 @@ pub(super) async fn build_model_tools_for_role(
     let mut tool_policy = ToolPolicy::for_role(role);
     let mut declared_builtin_tools = Vec::new();
     for tool in builtin_tools {
-        let class = builtin_tool_access_class(tool.name.as_str());
+        let class = builtin_tool_access_class(role, tool.name.as_str());
         if tool_policy.declare_tool(tool.name.as_str(), class) {
             declared_builtin_tools.push(tool);
         }
@@ -138,14 +140,14 @@ pub(super) async fn build_model_tools_for_role(
     })
 }
 
-fn builtin_tool_access_class(name: &str) -> ToolAccessClass {
+fn builtin_tool_access_class(role: ExecutionRole, name: &str) -> ToolAccessClass {
     match name {
         // This tool is read-only and can be safely used by executor/reviewer
         // roles once their scope context is supplied by the task runtime.
-        "search_memory" | TASK_INSPECT_TOOL => ToolAccessClass::ReadOnly,
-        // The current artifact helper is conversation-owned.  Task-owned
-        // artifact support must explicitly reclassify/declare its task tool
-        // after the typed task context is implemented.
+        "search_memory" | TASK_INSPECT_TOOL | TASK_READ_ARTIFACT_TOOL => ToolAccessClass::ReadOnly,
+        "artifact.create_local_file" if role == ExecutionRole::TaskExecutor => {
+            ToolAccessClass::TaskOwnedWrite
+        }
         "artifact.create_local_file" => ToolAccessClass::ConversationWrite,
         // Renaming the primary identity is a foreground-only control action.
         "update_own_name" | TASK_RESUME_TOOL | TASK_CANCEL_TOOL => ToolAccessClass::Internal,
@@ -490,7 +492,13 @@ mod tests {
             assert!(tools.tool_policy.allows_tool("web.fetch"));
             assert!(tools.tool_policy.allows_tool(TASK_INSPECT_TOOL));
             assert!(!tools.tool_policy.allows_tool(TASK_RESUME_TOOL));
-            assert!(!tools.tool_policy.allows_tool("artifact.create_local_file"));
+            if role == ExecutionRole::TaskExecutor {
+                assert!(tools.tool_policy.allows_tool("artifact.create_local_file"));
+                assert!(!tools.tool_policy.allows_tool(TASK_READ_ARTIFACT_TOOL));
+            } else {
+                assert!(!tools.tool_policy.allows_tool("artifact.create_local_file"));
+                assert!(tools.tool_policy.allows_tool(TASK_READ_ARTIFACT_TOOL));
+            }
             assert!(!tools.tool_policy.allows_tool("task.delegate"));
         }
     }

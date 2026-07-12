@@ -25,6 +25,15 @@ impl ArtifactOwnerRef {
             object_id: conversation_id.into(),
         }
     }
+
+    /// Build a task-owned artifact reference.
+    #[must_use]
+    pub fn task(task_id: impl Into<String>) -> Self {
+        Self {
+            object_type: "task".to_string(),
+            object_id: task_id.into(),
+        }
+    }
 }
 
 /// Durable storage kind for an artifact family.
@@ -481,19 +490,31 @@ impl NoemaStore {
                       FROM artifact_versions AS version
                       JOIN artifacts AS artifact
                         ON artifact.artifact_id = version.artifact_id
-                      JOIN conversations AS conversation
-                        ON conversation.conversation_id = artifact.owner_object_id
+                      LEFT JOIN conversations AS conversation
+                        ON artifact.owner_object_type = 'conversation'
+                       AND conversation.conversation_id = artifact.owner_object_id
+                      LEFT JOIN tasks AS task
+                        ON artifact.owner_object_type = 'task'
+                       AND task.task_id = artifact.owner_object_id
                       WHERE version.artifact_version_id = ?1
                         AND version.local_relative_path IS NOT NULL
                         AND version.external_url IS NULL
-                        AND artifact.owner_object_type = 'conversation'
                         AND artifact.storage_kind = 'local_file'
                         AND artifact.deleted_at IS NULL
-                        AND conversation.owner_object_type = 'human'
-                        AND conversation.owner_object_id = ?2
-                        AND conversation.primary_human_id = ?2
-                        AND conversation.lifecycle_status = 'active'
-                        AND conversation.deleted_at IS NULL
+                        AND (
+                          (
+                            artifact.owner_object_type = 'conversation'
+                            AND conversation.owner_object_type = 'human'
+                            AND conversation.owner_object_id = ?2
+                            AND conversation.primary_human_id = ?2
+                            AND conversation.lifecycle_status = 'active'
+                            AND conversation.deleted_at IS NULL
+                          )
+                          OR (
+                            artifact.owner_object_type = 'task'
+                            AND task.owner_human_id = ?2
+                          )
+                        )
                     )
                     "#,
                     params![artifact_version_id, human_id],
@@ -656,13 +677,21 @@ impl NoemaStore {
         &self,
         owner: &ArtifactOwnerRef,
     ) -> Result<(), StoreError> {
-        if owner.object_type != "conversation" {
-            return Err(StoreError::UnsupportedArtifactOwner {
+        match owner.object_type.as_str() {
+            "conversation" => self.require_conversation(&owner.object_id).await,
+            "task" => self
+                .get_task(&owner.object_id)
+                .await?
+                .map(|_| ())
+                .ok_or_else(|| StoreError::UnsupportedArtifactOwner {
+                    owner_object_type: owner.object_type.clone(),
+                    owner_object_id: owner.object_id.clone(),
+                }),
+            _ => Err(StoreError::UnsupportedArtifactOwner {
                 owner_object_type: owner.object_type.clone(),
                 owner_object_id: owner.object_id.clone(),
-            });
+            }),
         }
-        self.require_conversation(&owner.object_id).await
     }
 }
 

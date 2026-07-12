@@ -7,6 +7,7 @@ mod memory;
 mod prompts;
 mod protocol;
 mod runtime;
+mod task_artifact_tool;
 pub(crate) mod task_delivery;
 mod task_run_context;
 mod task_runtime;

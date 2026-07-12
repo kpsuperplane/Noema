@@ -2,8 +2,10 @@ use crate::{
     ArtifactSource, NoemaStore,
     artifacts::{
         NewConversationLocalFileArtifact, NewConversationLocalFileArtifactVersion,
-        append_conversation_local_file_artifact_version, artifact_download_url,
-        create_conversation_local_file_artifact,
+        NewTaskLocalFileArtifact, NewTaskLocalFileArtifactVersion,
+        append_conversation_local_file_artifact_version, append_task_local_file_artifact_version,
+        artifact_download_url, create_conversation_local_file_artifact,
+        create_task_local_file_artifact,
     },
     provider::{NoemaToolExecution, NoemaToolSpec, ToolContractError},
 };
@@ -24,6 +26,8 @@ pub(super) struct ArtifactToolRuntimeContext {
     pub turn_id: String,
     pub user_item_id: String,
     pub created_by_actor_id: String,
+    pub task_id: Option<String>,
+    pub task_run_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -74,7 +78,7 @@ pub(super) fn is_artifact_create_local_file_tool(name: &str) -> bool {
 pub(super) fn artifact_create_local_file_tool_spec() -> Result<NoemaToolSpec, ToolContractError> {
     NoemaToolSpec::new(
         ARTIFACT_CREATE_LOCAL_FILE_TOOL,
-        "Create a durable conversation-owned local file artifact, optionally with multiple immutable text versions, when the user asks the agent to produce a viewable or downloadable artifact.",
+        "Create a durable local file artifact owned by the current conversation or task execution scope, optionally with multiple immutable text versions.",
         json!({
             "type": "object",
             "properties": {
@@ -170,45 +174,87 @@ async fn execute_artifact_create_local_file_inner(
 ) -> Result<Value, ArtifactToolError> {
     let arguments = parse_arguments(payload)?;
     let paths = store.noema_paths()?;
-    let source = ArtifactSource {
-        conversation_id: Some(context.conversation_id.clone()),
-        turn_id: Some(context.turn_id.clone()),
-        item_id: Some(context.user_item_id.clone()),
+    let task = match (&context.task_id, &context.task_run_id) {
+        (Some(task_id), Some(run_id)) => {
+            let task = store.get_task(task_id).await?.ok_or_else(|| {
+                ArtifactToolError::InvalidArguments("task context is unavailable".to_string())
+            })?;
+            let run = store.get_agent_run(run_id).await?.ok_or_else(|| {
+                ArtifactToolError::InvalidArguments("task run context is unavailable".to_string())
+            })?;
+            if run.task_id != task.task_id
+                || run.agent_id != context.created_by_actor_id
+                || run.run_kind != crate::RunKind::Executor
+                || run.status != crate::RunStatus::Running
+                || run.cancellation_requested
+                || !matches!(
+                    task.status,
+                    crate::TaskStatus::Executing | crate::TaskStatus::RevisionRequested
+                )
+            {
+                return Err(ArtifactToolError::InvalidArguments(
+                    "task artifact context does not match the active executor".to_string(),
+                ));
+            }
+            Some(task)
+        }
+        (None, None) => None,
+        _ => {
+            return Err(ArtifactToolError::InvalidArguments(
+                "task artifact context is incomplete".to_string(),
+            ));
+        }
     };
+    let source = task.as_ref().map_or_else(
+        || ArtifactSource {
+            conversation_id: Some(context.conversation_id.clone()),
+            turn_id: Some(context.turn_id.clone()),
+            item_id: Some(context.user_item_id.clone()),
+        },
+        |task| ArtifactSource {
+            conversation_id: task.source.conversation_id.clone(),
+            turn_id: task.source.turn_id.clone(),
+            item_id: task.source.item_id.clone(),
+        },
+    );
     let mut versions = arguments.versions.into_iter();
     let first_version = versions.next().ok_or_else(|| {
         ArtifactToolError::InvalidArguments("versions must include at least one item".to_string())
     })?;
-    let artifact = create_conversation_local_file_artifact(
-        store,
-        &paths,
-        NewConversationLocalFileArtifact {
-            conversation_id: context.conversation_id.clone(),
-            title: arguments.title.clone(),
-            description: arguments.description.clone(),
-            artifact_kind: arguments.artifact_kind.clone(),
-            filename: arguments.filename.clone(),
-            bytes: first_version.content.into_bytes(),
-            media_type: arguments.media_type.clone(),
-            created_by_actor_id: context.created_by_actor_id.clone(),
-            source: source.clone(),
-            metadata: json!({
-                "created_by_tool": ARTIFACT_CREATE_LOCAL_FILE_TOOL,
-            }),
-        },
-    )
-    .await?;
-
-    let artifact_id = artifact.artifact.artifact_id.clone();
-    for version in versions {
-        append_conversation_local_file_artifact_version(
+    let first_bytes = first_version.content.into_bytes();
+    let artifact = if let Some(task) = &task {
+        create_task_local_file_artifact(
             store,
             &paths,
-            NewConversationLocalFileArtifactVersion {
-                artifact_id: artifact_id.clone(),
-                title: version.title,
+            NewTaskLocalFileArtifact {
+                task_id: task.task_id.clone(),
+                title: arguments.title.clone(),
+                description: arguments.description.clone(),
+                artifact_kind: arguments.artifact_kind.clone(),
                 filename: arguments.filename.clone(),
-                bytes: version.content.into_bytes(),
+                bytes: first_bytes,
+                media_type: arguments.media_type.clone(),
+                created_by_actor_id: context.created_by_actor_id.clone(),
+                source: source.clone(),
+                metadata: json!({
+                    "created_by_tool": ARTIFACT_CREATE_LOCAL_FILE_TOOL,
+                    "task_id": task.task_id,
+                    "task_run_id": context.task_run_id,
+                }),
+            },
+        )
+        .await?
+    } else {
+        create_conversation_local_file_artifact(
+            store,
+            &paths,
+            NewConversationLocalFileArtifact {
+                conversation_id: context.conversation_id.clone(),
+                title: arguments.title.clone(),
+                description: arguments.description.clone(),
+                artifact_kind: arguments.artifact_kind.clone(),
+                filename: arguments.filename.clone(),
+                bytes: first_bytes,
                 media_type: arguments.media_type.clone(),
                 created_by_actor_id: context.created_by_actor_id.clone(),
                 source: source.clone(),
@@ -217,7 +263,44 @@ async fn execute_artifact_create_local_file_inner(
                 }),
             },
         )
-        .await?;
+        .await?
+    };
+
+    let artifact_id = artifact.artifact.artifact_id.clone();
+    for version in versions {
+        if task.is_some() {
+            append_task_local_file_artifact_version(
+                store,
+                &paths,
+                NewTaskLocalFileArtifactVersion {
+                    artifact_id: artifact_id.clone(),
+                    title: version.title,
+                    filename: arguments.filename.clone(),
+                    bytes: version.content.into_bytes(),
+                    media_type: arguments.media_type.clone(),
+                    created_by_actor_id: context.created_by_actor_id.clone(),
+                    source: source.clone(),
+                    metadata: json!({"created_by_tool": ARTIFACT_CREATE_LOCAL_FILE_TOOL}),
+                },
+            )
+            .await?;
+        } else {
+            append_conversation_local_file_artifact_version(
+                store,
+                &paths,
+                NewConversationLocalFileArtifactVersion {
+                    artifact_id: artifact_id.clone(),
+                    title: version.title,
+                    filename: arguments.filename.clone(),
+                    bytes: version.content.into_bytes(),
+                    media_type: arguments.media_type.clone(),
+                    created_by_actor_id: context.created_by_actor_id.clone(),
+                    source: source.clone(),
+                    metadata: json!({"created_by_tool": ARTIFACT_CREATE_LOCAL_FILE_TOOL}),
+                },
+            )
+            .await?;
+        }
     }
 
     let artifact =

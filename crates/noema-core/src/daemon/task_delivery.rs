@@ -5,7 +5,7 @@ use crate::{
     SystemErrorLogger, TaskStatus,
     daemon::{
         CodexRuntimeHandle,
-        runtime::{TaskCompletionCriterion, TaskCompletionDeliveryRequest},
+        runtime::{TaskCompletionArtifact, TaskCompletionCriterion, TaskCompletionDeliveryRequest},
     },
     graphql::{ConversationLiveEvent, ConversationSubscriptionRegistry},
 };
@@ -120,6 +120,38 @@ async fn build_task_completion_request(
                 .as_ref()
                 .map(|review| review.overall_feedback.clone())
         });
+    let artifacts = submission
+        .as_ref()
+        .map(|submission| {
+            submission
+                .artifacts
+                .iter()
+                .map(|linked| {
+                    let (external_url, download_url) = match &linked.version.storage {
+                        crate::ArtifactVersionStorage::LocalFile { .. } => (
+                            None,
+                            Some(crate::artifact_download_url(
+                                &linked.version.artifact_version_id,
+                            )),
+                        ),
+                        crate::ArtifactVersionStorage::ExternalUrl { url } => {
+                            (Some(url.clone()), None)
+                        }
+                    };
+                    TaskCompletionArtifact {
+                        artifact_id: linked.artifact.artifact_id.clone(),
+                        artifact_version_id: linked.version.artifact_version_id.clone(),
+                        title: linked.artifact.title.clone(),
+                        artifact_kind: linked.artifact.artifact_kind.clone(),
+                        storage_kind: linked.artifact.storage_kind.as_str().to_string(),
+                        external_url,
+                        download_url,
+                        media_type: linked.version.media_type.clone(),
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     Ok(Some(TaskCompletionDeliveryRequest {
         delivery_id,
         task_id: task.task_id,
@@ -131,7 +163,10 @@ async fn build_task_completion_request(
         summary: submission
             .as_ref()
             .map(|submission| submission.summary.clone()),
-        result_markdown: submission.map(|submission| submission.result_markdown),
+        result_markdown: submission
+            .as_ref()
+            .map(|submission| submission.result_markdown.clone()),
+        artifacts,
         review_feedback: latest_review.map(|review| review.overall_feedback),
         criteria,
         detail,

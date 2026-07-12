@@ -57,6 +57,7 @@ export type TaskSubmission = {
   summary?: string | null;
   result?: string | null;
   evidence?: string | null;
+  artifacts?: readonly TaskArtifact[];
   createdAt?: string | null;
 };
 

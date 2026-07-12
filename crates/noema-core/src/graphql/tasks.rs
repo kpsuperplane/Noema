@@ -128,6 +128,28 @@ pub struct GraphqlTaskSubmissionCriterionEvidence {
     pub evidence_markdown: String,
 }
 
+/// Governed artifact snapshot returned by one executor submission.
+#[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "TaskSubmissionArtifact")]
+pub struct GraphqlTaskSubmissionArtifact {
+    /// Stable artifact id.
+    pub artifact_id: String,
+    /// Immutable linked version id.
+    pub artifact_version_id: String,
+    /// Human-readable title.
+    pub title: String,
+    /// Product-defined artifact kind.
+    pub artifact_kind: String,
+    /// Canonical storage kind.
+    pub storage_kind: String,
+    /// Optional media type.
+    pub media_type: Option<String>,
+    /// Local download route when stored in Noema.
+    pub download_url: Option<String>,
+    /// External URL when externally hosted.
+    pub external_url: Option<String>,
+}
+
 /// Immutable executor output for one revision.
 #[derive(Clone, Debug, SimpleObject)]
 #[graphql(name = "TaskSubmission")]
@@ -144,6 +166,8 @@ pub struct GraphqlTaskSubmission {
     pub result_markdown: String,
     /// Criterion evidence captured with the output.
     pub criteria: Vec<GraphqlTaskSubmissionCriterionEvidence>,
+    /// Ordered artifact snapshots attached to the output.
+    pub artifacts: Vec<GraphqlTaskSubmissionArtifact>,
     /// Creation timestamp.
     pub created_at: String,
 }
@@ -162,6 +186,31 @@ impl From<TaskSubmissionRecord> for GraphqlTaskSubmission {
                 .map(|criterion| GraphqlTaskSubmissionCriterionEvidence {
                     criterion_id: criterion.criterion_id,
                     evidence_markdown: criterion.evidence_markdown,
+                })
+                .collect(),
+            artifacts: value
+                .artifacts
+                .into_iter()
+                .map(|linked| {
+                    let (download_url, external_url) = match linked.version.storage {
+                        crate::ArtifactVersionStorage::LocalFile { .. } => (
+                            Some(crate::artifact_download_url(
+                                &linked.version.artifact_version_id,
+                            )),
+                            None,
+                        ),
+                        crate::ArtifactVersionStorage::ExternalUrl { url } => (None, Some(url)),
+                    };
+                    GraphqlTaskSubmissionArtifact {
+                        artifact_id: linked.artifact.artifact_id,
+                        artifact_version_id: linked.version.artifact_version_id,
+                        title: linked.artifact.title,
+                        artifact_kind: linked.artifact.artifact_kind,
+                        storage_kind: linked.artifact.storage_kind.as_str().to_string(),
+                        media_type: linked.version.media_type,
+                        download_url,
+                        external_url,
+                    }
                 })
                 .collect(),
             created_at: value.created_at,

@@ -56,4 +56,4 @@ pub use run_items::{AgentRunItemRecord, AgentRunItemStatus, NewAgentRunItem};
 pub use runtime::{NoemaStore, StoreConfig};
 pub use task_events::TaskEventRecord;
 pub use task_model_pools::{NewTaskModelPoolEntry, TaskModelPoolEntry};
-pub use tasks::{TaskRecord, TaskReviewRecord, TaskSubmissionRecord};
+pub use tasks::{TaskRecord, TaskReviewRecord, TaskSubmissionArtifactRecord, TaskSubmissionRecord};

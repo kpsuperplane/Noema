@@ -33,6 +33,8 @@ impl CodexRuntimeActor {
         let item_id = format!("item:task_completion:{}", request.delivery_id);
         if let Some(existing) = self.store.get_visible_conversation_item(&item_id).await? {
             if let Some(turn_id) = existing.turn_id {
+                self.persist_task_completion_artifacts(&request, &turn_id)
+                    .await?;
                 let _ = self.store.complete_conversation_turn(&turn_id).await;
             }
             self.publish_completed(&request.conversation_id);
@@ -187,6 +189,8 @@ impl CodexRuntimeActor {
                     }),
                 });
         }
+        self.persist_task_completion_artifacts(&request, &turn.turn_id)
+            .await?;
         self.store.complete_conversation_turn(&turn.turn_id).await?;
         if let Some(active) = self.conversations.get_mut(&request.conversation_id) {
             active.next_turn_index = active.next_turn_index.max(turn_index.saturating_add(1));
@@ -219,6 +223,76 @@ impl CodexRuntimeActor {
                 client_message_id: None,
             });
     }
+
+    async fn persist_task_completion_artifacts(
+        &self,
+        request: &TaskCompletionDeliveryRequest,
+        turn_id: &str,
+    ) -> Result<(), DaemonError> {
+        for (index, artifact) in request.artifacts.iter().enumerate() {
+            let item_id = format!(
+                "item:task_completion_artifact:{}:{}",
+                request.delivery_id,
+                index + 1
+            );
+            let payload = json!({
+                "artifact_id": artifact.artifact_id,
+                "artifact_version_id": artifact.artifact_version_id,
+                "title": artifact.title,
+                "artifact_kind": artifact.artifact_kind,
+                "storage_kind": artifact.storage_kind,
+                "external_url": artifact.external_url,
+                "download_url": artifact.download_url,
+                "media_type": artifact.media_type,
+            });
+            let metadata = json!({
+                "source": "background_task_completion_artifact",
+                "task_id": request.task_id,
+                "delivery_id": request.delivery_id,
+            });
+            let (record, inserted) = self
+                .store
+                .append_conversation_item_with_id_if_absent(
+                    item_id,
+                    NewConversationItem {
+                        conversation_id: request.conversation_id.clone(),
+                        turn_id: Some(turn_id.to_string()),
+                        parent_item_id: None,
+                        kind: ConversationItemKind::ArtifactReference,
+                        status: ConversationItemStatus::Completed,
+                        author: ActorRef::agent("agent:primary"),
+                        content_text: None,
+                        payload_json: payload,
+                        metadata: metadata.clone(),
+                    },
+                )
+                .await?;
+            if inserted {
+                self.task_subscriptions
+                    .publish(ConversationLiveEvent::Turn {
+                        client_message_id: None,
+                        event: Box::new(TurnStreamEvent::ConversationItem {
+                            conversation_id: record.conversation_id,
+                            item_id: record.item_id,
+                            cursor: Some(record.cursor),
+                            turn_id: record.turn_id,
+                            metadata,
+                            item: Box::new(TurnTranscriptItem::ArtifactReference {
+                                artifact_id: artifact.artifact_id.clone(),
+                                artifact_version_id: Some(artifact.artifact_version_id.clone()),
+                                title: artifact.title.clone(),
+                                artifact_kind: artifact.artifact_kind.clone(),
+                                storage_kind: artifact.storage_kind.clone(),
+                                external_url: artifact.external_url.clone(),
+                                download_url: artifact.download_url.clone(),
+                                media_type: artifact.media_type.clone(),
+                            }),
+                        }),
+                    });
+            }
+        }
+        Ok(())
+    }
 }
 
 fn completion_instructions() -> String {
@@ -247,6 +321,20 @@ fn completion_context(request: &TaskCompletionDeliveryRequest) -> String {
             "Executor result:\n{}",
             bounded_text(result, MAX_COMPLETION_RESULT_CHARS)
         ));
+    }
+    if !request.artifacts.is_empty() {
+        let artifacts = request
+            .artifacts
+            .iter()
+            .map(|artifact| {
+                format!(
+                    "- {} ({}, {})",
+                    artifact.title, artifact.artifact_kind, artifact.artifact_id
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        context.push(format!("Approved artifacts:\n{artifacts}"));
     }
     if let Some(review_feedback) = request.review_feedback.as_deref() {
         context.push(format!(

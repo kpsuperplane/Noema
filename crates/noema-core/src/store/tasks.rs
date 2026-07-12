@@ -66,7 +66,7 @@ pub struct TaskRecord {
 }
 
 /// Persisted executor submission with criterion evidence.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TaskSubmissionRecord {
     /// Stable submission id.
     pub submission_id: String,
@@ -82,8 +82,21 @@ pub struct TaskSubmissionRecord {
     pub result_markdown: String,
     /// Criterion evidence.
     pub criteria: Vec<crate::SubmissionCriterionEvidence>,
+    /// Ordered governed artifact snapshots linked by this submission.
+    pub artifacts: Vec<TaskSubmissionArtifactRecord>,
     /// Creation timestamp.
     pub created_at: String,
+}
+
+/// One governed artifact snapshot linked to an executor submission.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TaskSubmissionArtifactRecord {
+    /// One-based order supplied by the executor.
+    pub ordinal: i64,
+    /// Durable artifact metadata.
+    pub artifact: crate::ArtifactRecord,
+    /// Immutable version captured when the submission was committed.
+    pub version: crate::ArtifactVersionRecord,
 }
 
 /// Persisted adversarial review with per-criterion outcomes.
@@ -365,6 +378,8 @@ impl NoemaStore {
         self.validate_task_model_snapshot(&task.reviewer_model)
             .await?;
         validate_submission_criteria(self, &input.task_id, &input.criteria).await?;
+        let artifacts =
+            validate_submission_artifacts(self, &input.task_id, &input.artifact_ids).await?;
         let execution_policy = self.get_task_execution_policy().await?;
         if let Some(existing_submission_id) = self
             .with_connection(|conn| {
@@ -426,6 +441,12 @@ impl NoemaStore {
                 tx.execute(
                     "INSERT INTO task_submission_criteria (submission_id, criterion_id, evidence_markdown) VALUES (?1, ?2, ?3)",
                     rusqlite::params![submission_id, criterion.criterion_id, criterion.evidence_markdown.trim()],
+                )?;
+            }
+            for artifact in &artifacts {
+                tx.execute(
+                    "INSERT INTO task_submission_artifacts (submission_id, artifact_id, artifact_version_id) VALUES (?1, ?2, ?3)",
+                    rusqlite::params![submission_id, artifact.artifact.artifact_id, artifact.version.artifact_version_id],
                 )?;
             }
             tx.execute(
@@ -679,6 +700,28 @@ impl NoemaStore {
             return Ok(None);
         };
         let criteria = self.with_connection(|conn| { let mut statement = conn.prepare("SELECT criterion_id, evidence_markdown FROM task_submission_criteria WHERE submission_id = ?1 ORDER BY criterion_id")?; let rows = statement.query_map([submission_id.as_str()], |row| Ok(crate::SubmissionCriterionEvidence { criterion_id: row.get(0)?, evidence_markdown: row.get(1)? }))?; rows.collect::<Result<Vec<_>, _>>().map_err(StoreError::Sqlite) }).await?;
+        let artifact_links = self.with_connection(|conn| { let mut statement = conn.prepare("SELECT artifact_id, artifact_version_id FROM task_submission_artifacts WHERE submission_id = ?1 ORDER BY rowid")?; let rows = statement.query_map([submission_id.as_str()], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?; rows.collect::<Result<Vec<_>, _>>().map_err(StoreError::Sqlite) }).await?;
+        let mut artifacts = Vec::with_capacity(artifact_links.len());
+        for (index, (artifact_id, artifact_version_id)) in artifact_links.into_iter().enumerate() {
+            let artifact = self.get_artifact(&artifact_id).await?.ok_or_else(|| {
+                StoreError::InvariantViolation {
+                    message: format!("submission artifact disappeared: {artifact_id}"),
+                }
+            })?;
+            let version = self
+                .get_artifact_version(&artifact_version_id)
+                .await?
+                .ok_or_else(|| StoreError::InvariantViolation {
+                    message: format!(
+                        "submission artifact version disappeared: {artifact_version_id}"
+                    ),
+                })?;
+            artifacts.push(TaskSubmissionArtifactRecord {
+                ordinal: i64::try_from(index + 1).unwrap_or(i64::MAX),
+                artifact: artifact.artifact,
+                version,
+            });
+        }
         Ok(Some(TaskSubmissionRecord {
             submission_id,
             task_id,
@@ -687,9 +730,47 @@ impl NoemaStore {
             summary,
             result_markdown,
             criteria,
+            artifacts,
             created_at,
         }))
     }
+}
+
+async fn validate_submission_artifacts(
+    store: &NoemaStore,
+    task_id: &str,
+    artifact_ids: &[String],
+) -> Result<Vec<TaskSubmissionArtifactRecord>, StoreError> {
+    if artifact_ids.len() > 100 {
+        return Err(StoreError::InvariantViolation {
+            message: "task submission cannot link more than 100 artifacts".to_string(),
+        });
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    let mut artifacts = Vec::with_capacity(artifact_ids.len());
+    for (index, artifact_id) in artifact_ids.iter().enumerate() {
+        if artifact_id.trim().is_empty() || !seen.insert(artifact_id.as_str()) {
+            return Err(StoreError::InvariantViolation {
+                message: "task submission artifact ids must be non-empty and unique".to_string(),
+            });
+        }
+        let artifact = store.get_artifact(artifact_id).await?.ok_or_else(|| {
+            StoreError::InvariantViolation {
+                message: format!("task submission artifact not found: {artifact_id}"),
+            }
+        })?;
+        if artifact.artifact.owner != crate::ArtifactOwnerRef::task(task_id) {
+            return Err(StoreError::InvariantViolation {
+                message: format!("artifact is not owned by task {task_id}: {artifact_id}"),
+            });
+        }
+        artifacts.push(TaskSubmissionArtifactRecord {
+            ordinal: i64::try_from(index + 1).unwrap_or(i64::MAX),
+            artifact: artifact.artifact,
+            version: artifact.current_version,
+        });
+    }
+    Ok(artifacts)
 }
 
 async fn validate_submission_criteria(

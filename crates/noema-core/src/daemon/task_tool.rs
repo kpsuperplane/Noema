@@ -472,6 +472,13 @@ async fn inspect_inner(
             "submission_id": submission.submission_id,
             "revision": submission.revision_index,
             "summary": submission.summary,
+            "artifacts": submission.artifacts.iter().map(|linked| json!({
+                "artifact_id": linked.artifact.artifact_id,
+                "artifact_version_id": linked.version.artifact_version_id,
+                "title": linked.artifact.title,
+                "artifact_kind": linked.artifact.artifact_kind,
+                "media_type": linked.version.media_type,
+            })).collect::<Vec<_>>(),
             "created_at": submission.created_at,
         })
     });

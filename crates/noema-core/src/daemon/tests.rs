@@ -108,6 +108,16 @@ async fn task_completion_delivery_writes_primary_assistant_item_without_human_in
         request_markdown: "Find the result".to_string(),
         summary: Some("The result is ready.".to_string()),
         result_markdown: Some("A durable result.".to_string()),
+        artifacts: vec![super::runtime::TaskCompletionArtifact {
+            artifact_id: "artifact:task-report".to_string(),
+            artifact_version_id: "artifact_version:task-report".to_string(),
+            title: "Task report".to_string(),
+            artifact_kind: "document".to_string(),
+            storage_kind: "local_file".to_string(),
+            external_url: None,
+            download_url: Some("/artifacts/versions/task-report/download".to_string()),
+            media_type: Some("text/markdown".to_string()),
+        }],
         review_feedback: Some("All criteria passed.".to_string()),
         criteria: Vec::new(),
         detail: None,
@@ -139,6 +149,13 @@ async fn task_completion_delivery_writes_primary_assistant_item_without_human_in
         items
             .iter()
             .filter(|item| item.item_id == "item:task_completion:event:completion")
+            .count(),
+        1
+    );
+    assert_eq!(
+        items
+            .iter()
+            .filter(|item| item.kind == ConversationItemKind::ArtifactReference)
             .count(),
         1
     );

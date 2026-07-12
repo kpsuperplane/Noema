@@ -160,6 +160,33 @@ impl NoemaPaths {
             .join(version_index.to_string())
     }
 
+    /// Path to the task filesystem root.
+    #[must_use]
+    pub fn tasks_dir(&self) -> PathBuf {
+        self.root.join("tasks")
+    }
+
+    /// Path to one task's durable filesystem directory.
+    #[must_use]
+    pub fn task_dir(&self, task_id: &str) -> PathBuf {
+        self.tasks_dir().join(sanitize_path_segment(task_id))
+    }
+
+    /// Path to one task artifact version directory.
+    #[must_use]
+    pub fn task_artifact_version_dir(
+        &self,
+        task_id: &str,
+        artifact_id: &str,
+        version_index: i64,
+    ) -> PathBuf {
+        self.task_dir(task_id)
+            .join("artifacts")
+            .join(sanitize_path_segment(artifact_id))
+            .join("versions")
+            .join(version_index.to_string())
+    }
+
     /// Path to the provider credential root.
     #[must_use]
     pub fn providers_dir(&self) -> PathBuf {
@@ -312,6 +339,16 @@ mod tests {
             PathBuf::from(
                 "/tmp/noema/conversations/conversation_abc/artifacts/artifact_def/versions/2"
             )
+        );
+    }
+
+    #[test]
+    fn task_artifact_version_dir_lives_under_task_artifacts() {
+        let paths = NoemaPaths::from_noema_home("/tmp/noema").expect("paths");
+
+        assert_eq!(
+            paths.task_artifact_version_dir("task:abc", "artifact:def", 2),
+            PathBuf::from("/tmp/noema/tasks/task_abc/artifacts/artifact_def/versions/2")
         );
     }
 

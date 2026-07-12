@@ -2790,9 +2790,51 @@ type TaskSubmission {
 	"""
 	criteria: [TaskSubmissionCriterionEvidence!]!
 	"""
+	Ordered artifact snapshots attached to the output.
+	"""
+	artifacts: [TaskSubmissionArtifact!]!
+	"""
 	Creation timestamp.
 	"""
 	createdAt: String!
+}
+
+"""
+Governed artifact snapshot returned by one executor submission.
+"""
+type TaskSubmissionArtifact {
+	"""
+	Stable artifact id.
+	"""
+	artifactId: String!
+	"""
+	Immutable linked version id.
+	"""
+	artifactVersionId: String!
+	"""
+	Human-readable title.
+	"""
+	title: String!
+	"""
+	Product-defined artifact kind.
+	"""
+	artifactKind: String!
+	"""
+	Canonical storage kind.
+	"""
+	storageKind: String!
+	"""
+	Optional media type.
+	"""
+	mediaType: String
+	"""
+	Local download route when stored in Noema.
+	"""
+	downloadUrl: String
+	"""
+	External URL when externally hosted.
+	"""
+	externalUrl: String
 }
 
 """

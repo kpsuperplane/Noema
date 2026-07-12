@@ -418,6 +418,26 @@ pub(super) fn sanitize_task_tool_payload(
     if name == WEB_FETCH_TOOL {
         return sanitize_web_fetch_payload_for_storage(payload);
     }
+    if name == "artifact.create_local_file" {
+        let mut sanitized = payload.clone();
+        if let Some(versions) = sanitized
+            .get_mut("versions")
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            for version in versions {
+                if let Some(object) = version.as_object_mut()
+                    && let Some(content) = object.get_mut("content")
+                {
+                    let chars = content.as_str().map(str::chars).map(Iterator::count);
+                    *content = serde_json::json!({
+                        "omitted": true,
+                        "character_count": chars,
+                    });
+                }
+            }
+        }
+        return redact_secret_fields(&sanitized);
+    }
     if is_mcp_shaped_tool_name(name) {
         return serde_json::json!({
             "redacted": true,
@@ -492,6 +512,20 @@ mod tests {
         );
         assert_eq!(sanitized["redacted"], true);
         assert!(!sanitized.to_string().contains("workspace"));
+    }
+
+    #[test]
+    fn task_transcript_omits_artifact_file_contents() {
+        let sanitized = sanitize_task_tool_payload(
+            "artifact.create_local_file",
+            &serde_json::json!({
+                "title": "Report",
+                "versions": [{"content": "private report body"}],
+            }),
+        );
+        assert_eq!(sanitized["title"], "Report");
+        assert_eq!(sanitized["versions"][0]["content"]["omitted"], true);
+        assert!(!sanitized.to_string().contains("private report body"));
     }
 
     #[test]

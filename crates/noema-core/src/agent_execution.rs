@@ -158,7 +158,7 @@ mod tests {
         assert!(executor.declare_tool("web.search", ToolAccessClass::ReadOnly));
         assert!(executor.declare_tool("task.submit_result", ToolAccessClass::ExecutorTerminal));
         assert!(!executor.declare_tool("task.submit_review", ToolAccessClass::ReviewerTerminal));
-        assert!(reviewer.declare_tool("task.read_artifact", ToolAccessClass::ReviewerTerminal));
+        assert!(reviewer.declare_tool("task.read_artifact", ToolAccessClass::ReadOnly));
         assert!(!reviewer.declare_tool("task.submit_result", ToolAccessClass::ExecutorTerminal));
         assert!(!reviewer.declare_tool(
             "artifact.create_local_file",

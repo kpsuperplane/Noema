@@ -233,7 +233,9 @@ export function mapGraphqlTaskDetail(
         )
       ),
     finalResult: finalResult(detail.finalSubmissionId, submissionById, detail.reviews),
-    artifacts: [],
+    artifacts: detail.finalSubmissionId
+      ? submissionById.get(detail.finalSubmissionId)?.artifacts ?? []
+      : [],
     failureReason: failureReason(detail),
     blockingQuestion: detail.blockingQuestion,
     canCancel: detail.cancellable,
@@ -280,6 +282,13 @@ function mapSubmission(
     evidence: submission.criteria
       .map((criterion) => `${criterion.criterionId}: ${criterion.evidenceMarkdown}`)
       .join("\n\n"),
+    artifacts: submission.artifacts.map((artifact) => ({
+      id: artifact.artifactId,
+      title: artifact.title,
+      kind: artifact.artifactKind,
+      mediaType: artifact.mediaType,
+      href: artifact.downloadUrl ?? artifact.externalUrl
+    })),
     createdAt: submission.createdAt
   };
 }

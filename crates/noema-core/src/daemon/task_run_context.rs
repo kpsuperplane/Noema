@@ -27,7 +27,7 @@ pub(super) fn format_executor_prompt(
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "Task ID: {}\nTask: {}\nRevision: {revision}\n\nRequest:\n{}\n\nValidation criteria:\n{criteria}\n\nUse each criterion_id exactly as shown, including any prefix, when calling task.submit_result. If you call task.inspect, use the exact Task ID above. Produce a complete, useful result. Address every criterion explicitly, then submit it through task.submit_result. Do not finish with ordinary assistant text.",
+        "Task ID: {}\nTask: {}\nRevision: {revision}\n\nRequest:\n{}\n\nValidation criteria:\n{criteria}\n\nUse artifact.create_local_file once per requested file and include every returned artifact_id in task.submit_result. Use each criterion_id exactly as shown, including any prefix, when calling task.submit_result. If you call task.inspect, use the exact Task ID above. Produce a complete, useful result. Address every criterion explicitly, then submit it through task.submit_result. Do not finish with ordinary assistant text.",
         task.task_id, task.title, task.request_markdown
     )
 }
@@ -47,8 +47,28 @@ pub(super) fn format_reviewer_prompt(
         })
         .collect::<Vec<_>>()
         .join("\n");
+    let artifacts = if submission.artifacts.is_empty() {
+        "None".to_string()
+    } else {
+        submission
+            .artifacts
+            .iter()
+            .map(|linked| {
+                format!(
+                    "{}. artifact_id={} version_id={} title={} kind={} media_type={}",
+                    linked.ordinal,
+                    linked.artifact.artifact_id,
+                    linked.version.artifact_version_id,
+                    linked.artifact.title,
+                    linked.artifact.artifact_kind,
+                    linked.version.media_type.as_deref().unwrap_or("unknown"),
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
     format!(
-        "Task ID: {}\n\nOriginal request:\n{}\n\nCriteria:\n{criteria}\n\nExecutor result:\n{}\n\nUse each criterion_id exactly as shown, including any prefix, when calling task.submit_review. If you call task.inspect, use the exact Task ID above. Be adversarial, include every criterion exactly once, and submit the typed verdict through task.submit_review. Do not return JSON as ordinary assistant text.",
+        "Task ID: {}\n\nOriginal request:\n{}\n\nCriteria:\n{criteria}\n\nExecutor result:\n{}\n\nSubmitted artifacts:\n{artifacts}\n\nUse task.read_artifact with the exact artifact_id when artifact contents affect a criterion. Use each criterion_id exactly as shown, including any prefix, when calling task.submit_review. If you call task.inspect, use the exact Task ID above. Be adversarial, include every criterion exactly once, and submit the typed verdict through task.submit_review. Do not return JSON as ordinary assistant text.",
         task.task_id, task.request_markdown, submission.result_markdown
     )
 }
@@ -250,6 +270,7 @@ mod tests {
                 summary: "A result".to_string(),
                 result_markdown: "Result".to_string(),
                 criteria: Vec::new(),
+                artifacts: Vec::new(),
                 created_at: "now".to_string(),
             },
             &[crate::TaskValidationCriterion {

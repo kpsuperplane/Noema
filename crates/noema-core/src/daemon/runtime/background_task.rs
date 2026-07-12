@@ -243,6 +243,8 @@ impl CodexRuntimeActor {
                 turn_index: 0,
                 user_item_id: user_item_id.clone(),
                 user_input: request.input.clone(),
+                task_id: Some(request.task_id.clone()),
+                task_run_id: Some(request.run_id.clone()),
                 cwd: None,
                 provider_kind: request.provider_kind.clone(),
                 model: request.model.clone(),

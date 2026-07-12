@@ -44,12 +44,27 @@ pub(crate) struct TaskCompletionDeliveryRequest {
     pub(crate) summary: Option<String>,
     /// Full executor result, when a submission exists.
     pub(crate) result_markdown: Option<String>,
+    /// Approved governed artifact snapshots.
+    pub(crate) artifacts: Vec<TaskCompletionArtifact>,
     /// Reviewer feedback, when a review exists.
     pub(crate) review_feedback: Option<String>,
     /// Reviewer criterion outcomes.
     pub(crate) criteria: Vec<TaskCompletionCriterion>,
     /// Task-level blocked/error detail.
     pub(crate) detail: Option<String>,
+}
+
+/// One artifact attached to a completed task report.
+#[derive(Debug, Clone)]
+pub(crate) struct TaskCompletionArtifact {
+    pub(crate) artifact_id: String,
+    pub(crate) artifact_version_id: String,
+    pub(crate) title: String,
+    pub(crate) artifact_kind: String,
+    pub(crate) storage_kind: String,
+    pub(crate) external_url: Option<String>,
+    pub(crate) download_url: Option<String>,
+    pub(crate) media_type: Option<String>,
 }
 
 /// One criterion included in a completion report context.

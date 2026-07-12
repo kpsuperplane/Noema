@@ -601,6 +601,91 @@ async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
         )
         .await
         .expect("run executor");
+    let task_artifact = crate::create_task_local_file_artifact(
+        &store,
+        &store.noema_paths().expect("paths"),
+        crate::NewTaskLocalFileArtifact {
+            task_id: task.task_id.clone(),
+            title: "Task report".to_string(),
+            description: None,
+            artifact_kind: "document".to_string(),
+            filename: "report.md".to_string(),
+            bytes: b"# Task report".to_vec(),
+            media_type: Some("text/markdown".to_string()),
+            created_by_actor_id: crate::TASK_EXECUTOR_AGENT_ID.to_string(),
+            source: crate::ArtifactSource::default(),
+            metadata: serde_json::json!({}),
+        },
+    )
+    .await
+    .expect("task artifact");
+    let data_artifact = crate::create_task_local_file_artifact(
+        &store,
+        &store.noema_paths().expect("paths"),
+        crate::NewTaskLocalFileArtifact {
+            task_id: task.task_id.clone(),
+            title: "Task data".to_string(),
+            description: None,
+            artifact_kind: "data".to_string(),
+            filename: "data.csv".to_string(),
+            bytes: b"value\n42\n".to_vec(),
+            media_type: Some("text/csv".to_string()),
+            created_by_actor_id: crate::TASK_EXECUTOR_AGENT_ID.to_string(),
+            source: crate::ArtifactSource::default(),
+            metadata: serde_json::json!({}),
+        },
+    )
+    .await
+    .expect("second task artifact");
+    let criterion_id = store
+        .list_task_validation_criteria(&task.task_id)
+        .await
+        .expect("criteria")[0]
+        .criterion_id
+        .clone();
+    let conversation = store
+        .create_conversation(crate::NewConversation::local_chat(None, None))
+        .await
+        .expect("conversation");
+    let foreign_artifact = crate::create_conversation_local_file_artifact(
+        &store,
+        &store.noema_paths().expect("paths"),
+        crate::NewConversationLocalFileArtifact {
+            conversation_id: conversation.conversation_id,
+            title: "Foreign artifact".to_string(),
+            description: None,
+            artifact_kind: "document".to_string(),
+            filename: "foreign.txt".to_string(),
+            bytes: b"foreign".to_vec(),
+            media_type: Some("text/plain".to_string()),
+            created_by_actor_id: "agent:primary".to_string(),
+            source: crate::ArtifactSource::default(),
+            metadata: serde_json::json!({}),
+        },
+    )
+    .await
+    .expect("foreign artifact");
+    assert!(
+        store
+            .create_task_submission(
+                crate::NewTaskSubmission {
+                    submission_id: None,
+                    task_id: task.task_id.clone(),
+                    executor_run_id: executor_run.run_id.clone(),
+                    revision_index: 0,
+                    summary: "Invalid".to_string(),
+                    result_markdown: "Invalid".to_string(),
+                    criteria: vec![crate::SubmissionCriterionEvidence {
+                        criterion_id: criterion_id.clone(),
+                        evidence_markdown: "Invalid".to_string(),
+                    }],
+                    artifact_ids: vec![foreign_artifact.artifact.artifact_id],
+                },
+                "lease:executor",
+            )
+            .await
+            .is_err()
+    );
     let (submission, reviewer_run) = store
         .create_task_submission(
             crate::NewTaskSubmission {
@@ -611,20 +696,31 @@ async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
                 summary: "Done".to_string(),
                 result_markdown: "# Result\n\nDone".to_string(),
                 criteria: vec![crate::SubmissionCriterionEvidence {
-                    criterion_id: store
-                        .list_task_validation_criteria(&task.task_id)
-                        .await
-                        .expect("criteria")[0]
-                        .criterion_id
-                        .clone(),
+                    criterion_id,
                     evidence_markdown: "The result is present".to_string(),
                 }],
-                artifact_ids: Vec::new(),
+                artifact_ids: vec![
+                    task_artifact.artifact.artifact_id.clone(),
+                    data_artifact.artifact.artifact_id.clone(),
+                ],
             },
             "lease:executor",
         )
         .await
         .expect("submission");
+    assert_eq!(submission.artifacts.len(), 2);
+    assert_eq!(
+        submission.artifacts[0].artifact.artifact_id,
+        task_artifact.artifact.artifact_id
+    );
+    assert_eq!(
+        submission.artifacts[0].version.artifact_version_id,
+        task_artifact.current_version.artifact_version_id
+    );
+    assert_eq!(
+        submission.artifacts[1].artifact.artifact_id,
+        data_artifact.artifact.artifact_id
+    );
     store
         .claim_next_agent_run("worker:reviewer", "lease:reviewer", 120)
         .await
@@ -1206,7 +1302,7 @@ async fn run_usage_and_progress_accumulate_across_provider_calls() {
     assert_eq!(updated.active_milliseconds, 250);
 }
 
-async fn seed_task(
+pub(crate) async fn seed_task(
     store: &crate::NoemaStore,
     title: &str,
 ) -> (crate::TaskRecord, crate::AgentRunRecord) {

@@ -24,6 +24,9 @@ use crate::daemon::{
     memory::tool::{
         MemoryToolResult, MemoryToolRuntimeContext, execute_search_memory, is_search_memory_tool,
     },
+    task_artifact_tool::{
+        TaskArtifactReadContext, execute_task_read_artifact, is_task_read_artifact_tool,
+    },
     task_tool::{
         TaskAccessRuntimeContext, TaskDelegateRuntimeContext, execute_task_cancel,
         execute_task_delegate, execute_task_inspect, execute_task_resume, is_task_cancel_tool,
@@ -129,6 +132,8 @@ impl CodexRuntimeActor {
                 turn_id: turn.turn_id.clone(),
                 user_item_id: turn.user_item_id.clone(),
                 created_by_actor_id: agent_identity.agent_id.clone(),
+                task_id: turn.task_id.clone(),
+                task_run_id: turn.task_run_id.clone(),
             };
             LocalToolResult::Artifact {
                 call_id: call.call_id.clone(),
@@ -142,6 +147,40 @@ impl CodexRuntimeActor {
                     &call.payload,
                 )
                 .await,
+            }
+        } else if is_task_read_artifact_tool(&call.name) {
+            let result = match (&turn.task_id, &turn.task_run_id) {
+                (Some(task_id), Some(run_id)) => {
+                    execute_task_read_artifact(
+                        &self.store,
+                        &TaskArtifactReadContext {
+                            task_id: task_id.clone(),
+                            run_id: run_id.clone(),
+                        },
+                        &call.payload,
+                    )
+                    .await
+                }
+                _ => Err("task artifact context is unavailable".to_string()),
+            };
+            LocalToolResult::Gateway {
+                call_id: call.call_id.clone(),
+                provider_call_id: call.provider_call_id.clone(),
+                provider_name: call.provider_name.clone(),
+                name: call.name.clone(),
+                arguments: call.payload.clone(),
+                result: match result {
+                    Ok(payload) => GatewayToolResult {
+                        success: true,
+                        payload,
+                        requires_provider_continuation: true,
+                    },
+                    Err(error) => GatewayToolResult {
+                        success: false,
+                        payload: json!({"error": error}),
+                        requires_provider_continuation: true,
+                    },
+                },
             }
         } else if is_task_inspect_tool(&call.name)
             || is_task_resume_tool(&call.name)
@@ -948,6 +987,8 @@ mod tests {
             turn_index: 1,
             user_item_id: "item:user:test".to_string(),
             user_input: "test".to_string(),
+            task_id: None,
+            task_run_id: None,
             cwd: None,
             provider_kind: "codex".to_string(),
             model: Some("gpt-test".to_string()),

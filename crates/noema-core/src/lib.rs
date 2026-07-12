@@ -52,8 +52,10 @@ pub mod task;
 pub mod web_fetch;
 
 pub use artifacts::{
-    ArtifactWriteError, NewConversationLocalFileArtifact, artifact_download_url,
-    artifact_version_id_from_download_slug, create_conversation_local_file_artifact,
+    ArtifactWriteError, NewConversationLocalFileArtifact, NewTaskLocalFileArtifact,
+    NewTaskLocalFileArtifactVersion, append_task_local_file_artifact_version,
+    artifact_download_url, artifact_version_id_from_download_slug,
+    create_conversation_local_file_artifact, create_task_local_file_artifact,
 };
 pub use capability::{CapabilityGateway, GatewayToolProposal, GatewayToolResult};
 pub use config::{
@@ -116,8 +118,8 @@ pub use store::{
     NewAuxiliaryModelPreference, NewConversationContextSummary, NewMcpServer, NewMcpTool,
     NewTaskModelPoolEntry, NewToolCalibration, NoemaStore, SaveMemoryArticleCache,
     SaveMemoryServiceSettings, StoreConfig, StoreError, TaskEventRecord, TaskModelPoolEntry,
-    TaskRecord, TaskReviewRecord, TaskSubmissionRecord, ToolCalibrationRecord,
-    WEB_FETCH_SUMMARIZER_TASK_ID, validate_external_artifact_url,
+    TaskRecord, TaskReviewRecord, TaskSubmissionArtifactRecord, TaskSubmissionRecord,
+    ToolCalibrationRecord, WEB_FETCH_SUMMARIZER_TASK_ID, validate_external_artifact_url,
 };
 pub use system_errors::{
     SYSTEM_ERROR_MCP_MALFORMED_RESPONSE, SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE,

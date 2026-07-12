@@ -986,6 +986,16 @@ export const TaskDetailDocument = gql`
           criterionId
           evidenceMarkdown
         }
+        artifacts {
+          artifactId
+          artifactVersionId
+          title
+          artifactKind
+          storageKind
+          mediaType
+          downloadUrl
+          externalUrl
+        }
         createdAt
       }
       reviews {

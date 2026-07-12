@@ -61,6 +61,10 @@ Noema at another directory with `NOEMA_HOME`.
       attachments/
       artifacts/
 
+  tasks/
+    [task_id]/
+      artifacts/
+
   workspaces/
     [workspace_id]/
       docs/

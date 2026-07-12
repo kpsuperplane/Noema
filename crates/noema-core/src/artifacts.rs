@@ -11,6 +11,12 @@ use cap_std::{
 };
 use thiserror::Error;
 
+mod task_local;
+pub use task_local::{
+    NewTaskLocalFileArtifact, NewTaskLocalFileArtifactVersion,
+    append_task_local_file_artifact_version, create_task_local_file_artifact,
+};
+
 const ARTIFACT_VERSION_ID_PREFIX: &str = "artifact_version:";
 
 /// Input for creating a conversation-owned local file artifact and first version.
@@ -281,12 +287,6 @@ pub(crate) fn validated_local_artifact_absolute_path(
         });
     };
 
-    if artifact.owner.object_type != "conversation" {
-        return Err(crate::NoemaPathError::UnsafeArtifactFilename {
-            value: artifact.owner.object_type.clone(),
-        });
-    }
-
     let absolute_path = local_artifact_absolute_path(paths, relative_path)?;
     let filename = absolute_path
         .file_name()
@@ -295,13 +295,24 @@ pub(crate) fn validated_local_artifact_absolute_path(
             value: relative_path.clone(),
         })?;
     let filename = crate::paths::safe_artifact_filename(filename)?;
-    let expected_path = paths
-        .conversation_artifact_version_dir(
+    let expected_dir = match artifact.owner.object_type.as_str() {
+        "conversation" => paths.conversation_artifact_version_dir(
             &artifact.owner.object_id,
             &artifact.artifact_id,
             version.version_index,
-        )
-        .join(filename);
+        ),
+        "task" => paths.task_artifact_version_dir(
+            &artifact.owner.object_id,
+            &artifact.artifact_id,
+            version.version_index,
+        ),
+        _ => {
+            return Err(crate::NoemaPathError::UnsafeArtifactFilename {
+                value: artifact.owner.object_type.clone(),
+            });
+        }
+    };
+    let expected_path = expected_dir.join(filename);
     if absolute_path != expected_path {
         return Err(crate::NoemaPathError::UnsafeArtifactFilename {
             value: relative_path.clone(),
