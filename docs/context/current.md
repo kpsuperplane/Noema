@@ -130,8 +130,10 @@ The next storage slice should stay small and concrete:
 - The first one-off background task slice is durable and supervised. The primary
   agent's `task.delegate` tool validates one of the three global
   simple/medium/difficult executor model settings, persists the request and immutable validation
-  criteria, and queues an executor run. A host-owned worker leases runs,
-  executes role-gated native tools, records complete model/tool transcripts and
+  criteria, and queues an executor run. The host worker supervises up to eight
+  independently leased task runs concurrently while the store prevents active
+  run overlap within one task. Each run executes role-gated native tools,
+  records complete model/tool transcripts and
   cumulative usage, creates a typed submission, queues an adversarial reviewer,
   and either requests revision, pauses for human input, or approves the task.
   Task status is delivered idempotently as a structured conversation event, and

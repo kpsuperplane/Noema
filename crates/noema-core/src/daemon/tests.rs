@@ -200,6 +200,47 @@ async fn runtime_handle_generate_once_does_not_block_subsequent_commands() {
 }
 
 #[tokio::test]
+async fn task_supervisor_starts_distinct_tasks_concurrently() {
+    let store = crate::store::tests::test_store().await;
+    let (_, first_run) = crate::store::tests::seed_task(&store, "Concurrent task one").await;
+    let (_, second_run) = crate::store::tests::seed_task(&store, "Concurrent task two").await;
+    let (started_tx, mut started_rx) = mpsc::unbounded_channel();
+    let runtime = CodexRuntimeHandle::spawn_with_provider(
+        Arc::new(ConcurrentTaskProvider {
+            started: started_tx,
+        }),
+        store.clone(),
+    )
+    .await
+    .expect("runtime");
+    let subscriptions = crate::graphql::ConversationSubscriptionRegistry::default();
+    let task_runtime = TaskRuntimeHandle::start(
+        store.clone(),
+        runtime.clone(),
+        store.system_error_logger(),
+        subscriptions,
+    );
+
+    let first_started = tokio::time::timeout(Duration::from_secs(2), started_rx.recv())
+        .await
+        .expect("first task should start")
+        .expect("first task id");
+    let second_started = tokio::time::timeout(Duration::from_secs(2), started_rx.recv())
+        .await
+        .expect("second task should start before the first finishes")
+        .expect("second task id");
+
+    task_runtime.shutdown().await;
+    runtime.shutdown().await;
+
+    assert_ne!(first_started, second_started);
+    assert!([first_started.as_str(), second_started.as_str()].contains(&first_run.run_id.as_str()));
+    assert!(
+        [first_started.as_str(), second_started.as_str()].contains(&second_run.run_id.as_str())
+    );
+}
+
+#[tokio::test]
 async fn runtime_shutdown_cancels_and_drains_generate_once() {
     assert_shutdown_cancels_blocked_operation(false).await;
 }
@@ -4485,6 +4526,11 @@ struct BlockingOnceProvider {
     release: Mutex<Option<oneshot::Receiver<()>>>,
 }
 
+#[derive(Debug)]
+struct ConcurrentTaskProvider {
+    started: mpsc::UnboundedSender<String>,
+}
+
 #[derive(Debug, Clone, Copy)]
 enum FakeCodexScenario {
     Simple,
@@ -5370,6 +5416,25 @@ impl super::runtime::RuntimeModelProvider for BlockingOnceProvider {
                 "test",
                 "blocking-once".to_string(),
             ))
+        })
+    }
+}
+
+impl super::runtime::RuntimeModelProvider for ConcurrentTaskProvider {
+    fn generate_streaming<'a>(
+        &'a self,
+        request: GenerateRequest,
+        _on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
+        Box::pin(async move {
+            let run_id = request
+                .conversation_id
+                .as_deref()
+                .and_then(|conversation_id| conversation_id.strip_prefix("task_run:"))
+                .map(ToOwned::to_owned)
+                .unwrap_or_else(|| "unknown".to_string());
+            let _ = self.started.send(run_id);
+            std::future::pending::<Result<GenerateResponse, ProviderError>>().await
         })
     }
 }

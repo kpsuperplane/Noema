@@ -25,6 +25,7 @@ use crate::{
 
 const LEASE_SECONDS: i64 = 120;
 const POLL_INTERVAL: Duration = Duration::from_millis(300);
+const MAX_CONCURRENT_TASK_RUNS: usize = 8;
 
 /// Runtime handle for supervised task workers.
 #[derive(Clone)]
@@ -89,62 +90,115 @@ async fn run_loop(
     inner: Arc<TaskRuntimeInner>,
 ) {
     let worker_id = format!("task-worker:{}", std::process::id());
+    let mut active_runs = tokio::task::JoinSet::new();
     loop {
         if inner.cancellation.is_cancelled() {
             break;
         }
-        drain_task_status_outbox(&store, &runtime, &subscriptions, &system_errors).await;
-        let lease_token = format!("{}:{}", worker_id, uuid_fragment());
-        match store
-            .claim_next_agent_run(&worker_id, &lease_token, LEASE_SECONDS)
-            .await
+        let mut queue_available = true;
+        while active_runs.len() < MAX_CONCURRENT_TASK_RUNS
+            && queue_available
+            && !inner.cancellation.is_cancelled()
         {
-            Ok(Some(run)) => {
-                publish_task_changed(&subscriptions, &run.task_id);
-                let run_cancellation = CancellationToken::new();
-                if let Err(error) = supervise_run(
-                    &store,
-                    &runtime,
-                    &subscriptions,
-                    &run,
-                    &lease_token,
-                    &run_cancellation,
-                    &inner.cancellation,
-                )
+            let lease_token = format!("{}:{}", worker_id, uuid_fragment());
+            match store
+                .claim_next_agent_run(&worker_id, &lease_token, LEASE_SECONDS)
                 .await
-                {
-                    fail_run(&store, &subscriptions, &run, &lease_token, &error).await;
-                    publish_task_changed(&subscriptions, &run.task_id);
+            {
+                Ok(Some(run)) => {
+                    let run_store = store.clone();
+                    let run_runtime = runtime.clone();
+                    let run_subscriptions = subscriptions.clone();
+                    let run_system_errors = system_errors.clone();
+                    let shutdown = inner.cancellation.clone();
+                    active_runs.spawn(async move {
+                        supervise_claimed_run(
+                            run_store,
+                            run_runtime,
+                            run_subscriptions,
+                            run_system_errors,
+                            run,
+                            lease_token,
+                            shutdown,
+                        )
+                        .await;
+                    });
+                }
+                Ok(None) => queue_available = false,
+                Err(error) => {
                     system_errors.try_append(
                         crate::SystemErrorEvent::new(
-                            "task_runtime_worker_error",
-                            "Background task run failed",
+                            "task_runtime_claim_error",
+                            "Background task queue could not be read",
                         )
-                        .with_context(json!({"run_id": run.run_id, "task_id": run.task_id}))
-                        .with_error_chain([error]),
+                        .with_error_chain([error.to_string()]),
                     );
-                } else {
-                    publish_task_changed(&subscriptions, &run.task_id);
+                    queue_available = false;
                 }
-            }
-            Ok(None) => {
-                tokio::select! {
-                    _ = inner.cancellation.cancelled() => break,
-                    _ = tokio::time::sleep(POLL_INTERVAL) => {}
-                }
-            }
-            Err(error) => {
-                system_errors.try_append(
-                    crate::SystemErrorEvent::new(
-                        "task_runtime_claim_error",
-                        "Background task queue claim failed",
-                    )
-                    .with_error_chain([error.to_string()]),
-                );
-                tokio::time::sleep(POLL_INTERVAL).await;
             }
         }
+
+        drain_task_status_outbox(&store, &runtime, &subscriptions, &system_errors).await;
+        tokio::select! {
+            _ = inner.cancellation.cancelled() => break,
+            completed = active_runs.join_next(), if !active_runs.is_empty() => {
+                if let Some(Err(error)) = completed {
+                    log_task_run_join_error(&system_errors, &error);
+                }
+            }
+            _ = tokio::time::sleep(POLL_INTERVAL) => {}
+        }
     }
+
+    while let Some(result) = active_runs.join_next().await {
+        if let Err(error) = result {
+            log_task_run_join_error(&system_errors, &error);
+        }
+    }
+}
+
+async fn supervise_claimed_run(
+    store: NoemaStore,
+    runtime: CodexRuntimeHandle,
+    subscriptions: ConversationSubscriptionRegistry,
+    system_errors: SystemErrorLogger,
+    run: crate::AgentRunRecord,
+    lease_token: String,
+    shutdown: CancellationToken,
+) {
+    publish_task_changed(&subscriptions, &run.task_id);
+    let run_cancellation = CancellationToken::new();
+    if let Err(error) = supervise_run(
+        &store,
+        &runtime,
+        &subscriptions,
+        &run,
+        &lease_token,
+        &run_cancellation,
+        &shutdown,
+    )
+    .await
+    {
+        fail_run(&store, &subscriptions, &run, &lease_token, &error).await;
+        publish_task_changed(&subscriptions, &run.task_id);
+        system_errors.try_append(
+            crate::SystemErrorEvent::new("task_runtime_worker_error", "Background task run failed")
+                .with_context(json!({"run_id": run.run_id, "task_id": run.task_id}))
+                .with_error_chain([error]),
+        );
+    } else {
+        publish_task_changed(&subscriptions, &run.task_id);
+    }
+}
+
+fn log_task_run_join_error(system_errors: &SystemErrorLogger, error: &tokio::task::JoinError) {
+    system_errors.try_append(
+        crate::SystemErrorEvent::new(
+            "task_runtime_worker_join_error",
+            "Background task worker stopped unexpectedly",
+        )
+        .with_error_chain([error.to_string()]),
+    );
 }
 
 async fn drain_task_status_outbox(

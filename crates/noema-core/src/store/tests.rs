@@ -1073,6 +1073,58 @@ async fn blocked_task_persists_context_and_resumes_as_a_child_run() {
 }
 
 #[tokio::test]
+async fn queue_leases_distinct_tasks_concurrently_without_overlapping_one_task() {
+    let store = test_store().await;
+    let (first_task, first_run) = seed_task(&store, "First concurrent task").await;
+    let (second_task, _) = seed_task(&store, "Second concurrent task").await;
+    store
+        .create_agent_run(crate::NewAgentRun {
+            run_id: None,
+            task_id: first_task.task_id.clone(),
+            run_kind: crate::RunKind::Executor,
+            agent_id: crate::TASK_EXECUTOR_AGENT_ID.to_string(),
+            revision_index: first_run.revision_index,
+            attempt_index: first_run.attempt_index + 1,
+            parent_run_id: Some(first_run.run_id.clone()),
+            triggering_submission_id: None,
+            triggering_review_id: None,
+            model: first_run.model.clone(),
+            execution_policy: first_run.execution_policy,
+            priority: first_run.priority,
+        })
+        .await
+        .expect("same-task queued run");
+
+    let first_claim = store
+        .claim_next_agent_run("worker:concurrent", "lease:first", 120)
+        .await
+        .expect("first claim")
+        .expect("first leased run");
+    let second_claim = store
+        .claim_next_agent_run("worker:concurrent", "lease:second", 120)
+        .await
+        .expect("second claim")
+        .expect("second leased run");
+
+    assert_ne!(first_claim.task_id, second_claim.task_id);
+    assert!(
+        [first_claim.task_id.as_str(), second_claim.task_id.as_str()]
+            .contains(&first_task.task_id.as_str())
+    );
+    assert!(
+        [first_claim.task_id.as_str(), second_claim.task_id.as_str()]
+            .contains(&second_task.task_id.as_str())
+    );
+    assert!(
+        store
+            .claim_next_agent_run("worker:concurrent", "lease:blocked-sibling", 120)
+            .await
+            .expect("same-task overlap check")
+            .is_none()
+    );
+}
+
+#[tokio::test]
 async fn expired_lease_interrupts_parent_and_claims_automatic_child() {
     let store = test_store().await;
     let (task, run) = seed_task(&store, "Lease recovery").await;

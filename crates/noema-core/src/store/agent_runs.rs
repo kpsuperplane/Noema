@@ -234,7 +234,7 @@ impl NoemaStore {
             recover_expired_runs(&tx, &now)?;
             recover_interrupted_runs(&tx)?;
             let changed = tx.execute(
-                "UPDATE agent_runs SET status = 'leased', lease_owner = ?1, lease_token = ?2, lease_expires_at = ?3, heartbeat_at = ?4, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = (SELECT run_id FROM agent_runs WHERE status = 'queued' ORDER BY priority DESC, queued_at, run_id LIMIT 1) AND status = 'queued'",
+                "UPDATE agent_runs SET status = 'leased', lease_owner = ?1, lease_token = ?2, lease_expires_at = ?3, heartbeat_at = ?4, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = (SELECT queued.run_id FROM agent_runs queued WHERE queued.status = 'queued' AND NOT EXISTS (SELECT 1 FROM agent_runs active WHERE active.task_id = queued.task_id AND active.status IN ('leased', 'running')) ORDER BY queued.priority DESC, queued.queued_at, queued.run_id LIMIT 1) AND status = 'queued'",
                 params![worker_id, lease_token, lease_expires_at, now],
             )?;
             if changed == 0 {
