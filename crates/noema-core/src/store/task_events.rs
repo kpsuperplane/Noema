@@ -200,6 +200,50 @@ impl NoemaStore {
         })
         .await
     }
+
+    /// Return terminal task/event pairs whose primary-agent completion report
+    /// has not yet been materialized into the source conversation.
+    ///
+    /// The event id is part of the projected item id so a later terminal state
+    /// (for example, a successful retry after a failure) gets its own report.
+    pub async fn list_pending_task_completion_deliveries(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<(String, String)>, StoreError> {
+        if limit < 1 {
+            return Err(StoreError::InvariantViolation {
+                message: "task completion delivery limit must be positive".to_string(),
+            });
+        }
+        self.with_connection(|conn| {
+            let mut statement = conn.prepare(
+                r#"SELECT t.task_id, e.event_id
+                   FROM tasks t
+                   JOIN task_events e ON e.event_id = (
+                     SELECT candidate.event_id
+                     FROM task_events candidate
+                     WHERE candidate.task_id = t.task_id
+                       AND candidate.event_kind = 'task.' || t.status
+                     ORDER BY candidate.sequence_number DESC
+                     LIMIT 1
+                   )
+                   WHERE t.source_conversation_id IS NOT NULL
+                     AND t.status IN ('completed', 'failed', 'cancelled')
+                     AND NOT EXISTS (
+                       SELECT 1 FROM conversation_items item
+                       WHERE item.item_id = 'item:task_completion:' || e.event_id
+                   )
+                   ORDER BY e.created_at, t.task_id
+                   LIMIT ?1"#,
+            )?;
+            let rows = statement.query_map([limit], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(StoreError::Sqlite)
+        })
+        .await
+    }
 }
 
 async fn append_event(

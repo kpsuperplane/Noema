@@ -2,11 +2,141 @@
 
 use crate::{
     ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem, NoemaStore,
-    TaskStatus,
+    SystemErrorLogger, TaskStatus,
+    daemon::{
+        CodexRuntimeHandle,
+        runtime::{TaskCompletionCriterion, TaskCompletionDeliveryRequest},
+    },
     graphql::{ConversationLiveEvent, ConversationSubscriptionRegistry},
 };
 
 use super::{TurnStreamEvent, TurnTranscriptItem};
+
+/// Drain terminal task outcomes into primary-agent assistant turns.
+pub(crate) async fn drain_task_completion_outbox(
+    store: &NoemaStore,
+    runtime: &CodexRuntimeHandle,
+    system_errors: &SystemErrorLogger,
+) {
+    let completion_deliveries = match store.list_pending_task_completion_deliveries(32).await {
+        Ok(deliveries) => deliveries,
+        Err(error) => {
+            system_errors.try_append(
+                crate::SystemErrorEvent::new(
+                    "task_completion_outbox_read_failed",
+                    "Task completion delivery queue could not be read",
+                )
+                .with_error_chain([error.to_string()]),
+            );
+            return;
+        }
+    };
+    for (task_id, delivery_id) in completion_deliveries {
+        let Some(request) = (match build_task_completion_request(store, &task_id, delivery_id).await
+        {
+            Ok(request) => request,
+            Err(error) => {
+                system_errors.try_append(
+                    crate::SystemErrorEvent::new(
+                        "task_completion_context_failed",
+                        "Task completion context could not be assembled",
+                    )
+                    .with_context(serde_json::json!({ "task_id": task_id }))
+                    .with_error_chain([error]),
+                );
+                continue;
+            }
+        }) else {
+            continue;
+        };
+        if let Err(error) = runtime.deliver_task_completion(request).await {
+            system_errors.try_append(
+                crate::SystemErrorEvent::new(
+                    "task_completion_delivery_failed",
+                    "Primary-agent task completion report could not be delivered",
+                )
+                .with_context(serde_json::json!({ "task_id": task_id }))
+                .with_error_chain([error.to_string()]),
+            );
+        }
+    }
+}
+
+async fn build_task_completion_request(
+    store: &NoemaStore,
+    task_id: &str,
+    delivery_id: String,
+) -> Result<Option<TaskCompletionDeliveryRequest>, String> {
+    let Some(task) = store
+        .get_task(task_id)
+        .await
+        .map_err(|error| error.to_string())?
+    else {
+        return Ok(None);
+    };
+    let Some(conversation_id) = task.source.conversation_id.clone() else {
+        return Ok(None);
+    };
+    if !matches!(
+        task.status,
+        TaskStatus::Completed | TaskStatus::Failed | TaskStatus::Cancelled
+    ) {
+        return Ok(None);
+    }
+    let submission = match task.final_submission_id.as_deref() {
+        Some(submission_id) => store
+            .get_task_submission(submission_id)
+            .await
+            .map_err(|error| error.to_string())?,
+        None => None,
+    };
+    let latest_review = store
+        .list_task_reviews(&task.task_id)
+        .await
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .last();
+    let criteria = latest_review
+        .as_ref()
+        .map(|review| {
+            review
+                .criteria
+                .iter()
+                .map(|criterion| TaskCompletionCriterion {
+                    criterion_id: criterion.criterion_id.clone(),
+                    outcome: Some(criterion.outcome.as_str().to_string()),
+                    evidence: criterion.evidence_markdown.clone(),
+                    feedback: criterion.feedback.clone(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let detail = task
+        .blocked_question
+        .clone()
+        .or_else(|| task.error_message.clone())
+        .or_else(|| {
+            latest_review
+                .as_ref()
+                .map(|review| review.overall_feedback.clone())
+        });
+    Ok(Some(TaskCompletionDeliveryRequest {
+        delivery_id,
+        task_id: task.task_id,
+        conversation_id,
+        source_item_id: task.source.item_id,
+        title: task.title,
+        status: task.status.as_str().to_string(),
+        request_markdown: task.request_markdown,
+        summary: submission
+            .as_ref()
+            .map(|submission| submission.summary.clone()),
+        result_markdown: submission.map(|submission| submission.result_markdown),
+        review_feedback: latest_review.map(|review| review.overall_feedback),
+        criteria,
+        detail,
+    }))
+}
 
 /// Append and publish the latest actionable or terminal task status as a
 /// structured task reference. Durable task-event identity makes repeated

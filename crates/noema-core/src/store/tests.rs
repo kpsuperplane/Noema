@@ -1681,12 +1681,19 @@ async fn durable_task_events_expose_pending_status_deliveries_until_materialized
             .expect("pending"),
         vec![task.task_id.clone()]
     );
+    assert_eq!(
+        store
+            .list_pending_task_completion_deliveries(10)
+            .await
+            .expect("pending completion"),
+        vec![(task.task_id.clone(), event_id.clone())]
+    );
 
     store
         .append_conversation_item_with_id(
             format!("item:task_status:{event_id}"),
             crate::NewConversationItem {
-                conversation_id: conversation.conversation_id,
+                conversation_id: conversation.conversation_id.clone(),
                 turn_id: None,
                 parent_item_id: None,
                 kind: crate::ConversationItemKind::TaskReference,
@@ -1704,6 +1711,31 @@ async fn durable_task_events_expose_pending_status_deliveries_until_materialized
             .list_pending_task_status_deliveries(10)
             .await
             .expect("drained")
+            .is_empty()
+    );
+
+    store
+        .append_conversation_item_with_id(
+            format!("item:task_completion:{event_id}"),
+            crate::NewConversationItem {
+                conversation_id: conversation.conversation_id,
+                turn_id: None,
+                parent_item_id: None,
+                kind: crate::ConversationItemKind::AssistantText,
+                status: crate::ConversationItemStatus::Completed,
+                author: crate::ActorRef::agent("agent:primary"),
+                content_text: Some("The task failed.".to_string()),
+                payload_json: serde_json::json!({"task_id": task.task_id}),
+                metadata: serde_json::json!({"delivery_id": event_id}),
+            },
+        )
+        .await
+        .expect("completion delivery");
+    assert!(
+        store
+            .list_pending_task_completion_deliveries(10)
+            .await
+            .expect("completion drained")
             .is_empty()
     );
 }

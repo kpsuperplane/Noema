@@ -130,9 +130,13 @@ The next storage slice should stay small and concrete:
   executes role-gated native tools, records complete model/tool transcripts and
   cumulative usage, creates a typed submission, queues an adversarial reviewer,
   and either requests revision, pauses for human input, or approves the task.
-  Task status is delivered idempotently as a structured conversation event; it
-  is not synthesized by a separate completion model run. Reviewer configuration
-  is stored through the normal agent model preference surface for
+  Task status is delivered idempotently as a structured conversation event, and
+  terminal outcomes also enter a durable completion outbox. The primary runtime
+  serializes each completion report behind any active foreground turn, invokes
+  the primary agent with tools disabled, and persists one event-derived
+  `assistant_text` item with a deterministic id; provider failures fall back to
+  a deterministic report so approved work is still visible after restart.
+  Reviewer configuration is stored through the normal agent model preference surface for
   `agent:task-reviewer`; executor selection is snapshotted per task.
   Task executors share exactly three global model settings: one each for simple,
   medium, and the highest-complexity work. The configured provider supplies the

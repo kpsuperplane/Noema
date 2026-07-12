@@ -243,6 +243,10 @@ impl CodexRuntimeActor {
                         let _ = reply.send(result);
                     });
                 }
+                CodexRuntimeCommand::TaskCompletionDelivery { request, reply } => {
+                    let result = self.deliver_task_completion(request).await;
+                    let _ = reply.send(result);
+                }
                 CodexRuntimeCommand::Shutdown { reply } => {
                     shutdown_reply = Some(reply);
                     break;

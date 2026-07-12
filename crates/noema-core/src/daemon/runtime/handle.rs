@@ -13,7 +13,7 @@ use crate::{
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
-use super::actor::CodexRuntimeActor;
+use super::{TaskCompletionDeliveryRequest, actor::CodexRuntimeActor};
 use crate::daemon::protocol::{DaemonError, StartedConversation, TurnStreamEvent};
 
 pub(crate) type RuntimeProviderMap = HashMap<String, Arc<dyn RuntimeModelProvider>>;
@@ -458,6 +458,22 @@ impl CodexRuntimeHandle {
             .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?
     }
 
+    /// Queue a primary-agent completion report behind any active foreground
+    /// turn for the originating conversation.
+    pub(crate) async fn deliver_task_completion(
+        &self,
+        request: TaskCompletionDeliveryRequest,
+    ) -> Result<(), DaemonError> {
+        let (reply, reply_rx) = oneshot::channel();
+        self.sender
+            .send(CodexRuntimeCommand::TaskCompletionDelivery { request, reply })
+            .await
+            .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?;
+        reply_rx
+            .await
+            .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?
+    }
+
     pub(crate) async fn shutdown(&self) {
         self.cancellation.0.cancel();
         let (reply, reply_rx) = oneshot::channel();
@@ -575,6 +591,10 @@ pub(super) enum CodexRuntimeCommand {
     BackgroundTask {
         request: super::BackgroundTaskGenerateRequest,
         reply: oneshot::Sender<Result<GenerateResponse, DaemonError>>,
+    },
+    TaskCompletionDelivery {
+        request: TaskCompletionDeliveryRequest,
+        reply: oneshot::Sender<Result<(), DaemonError>>,
     },
     Shutdown {
         reply: oneshot::Sender<()>,

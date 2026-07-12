@@ -92,7 +92,7 @@ async fn run_loop(
         if inner.cancellation.is_cancelled() {
             break;
         }
-        drain_task_status_outbox(&store, &subscriptions, &system_errors).await;
+        drain_task_status_outbox(&store, &runtime, &subscriptions, &system_errors).await;
         let lease_token = format!("{}:{}", worker_id, uuid_fragment());
         match store
             .claim_next_agent_run(&worker_id, &lease_token, LEASE_SECONDS)
@@ -148,6 +148,7 @@ async fn run_loop(
 
 async fn drain_task_status_outbox(
     store: &NoemaStore,
+    runtime: &CodexRuntimeHandle,
     subscriptions: &ConversationSubscriptionRegistry,
     system_errors: &SystemErrorLogger,
 ) {
@@ -179,6 +180,8 @@ async fn drain_task_status_outbox(
             );
         }
     }
+
+    crate::daemon::task_delivery::drain_task_completion_outbox(store, runtime, system_errors).await;
 }
 
 #[allow(clippy::too_many_arguments)]

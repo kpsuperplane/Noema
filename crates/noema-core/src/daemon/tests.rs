@@ -89,6 +89,64 @@ async fn runtime_handle_generate_once_uses_provider_without_conversation() {
 }
 
 #[tokio::test]
+async fn task_completion_delivery_writes_primary_assistant_item_without_human_input() {
+    let (handle, store) =
+        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::Simple)).await;
+    let conversation = handle
+        .start_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+
+    let request = super::runtime::TaskCompletionDeliveryRequest {
+        delivery_id: "event:completion".to_string(),
+        task_id: "task:completion".to_string(),
+        conversation_id: conversation.clone(),
+        source_item_id: None,
+        title: "Research the result".to_string(),
+        status: "completed".to_string(),
+        request_markdown: "Find the result".to_string(),
+        summary: Some("The result is ready.".to_string()),
+        result_markdown: Some("A durable result.".to_string()),
+        review_feedback: Some("All criteria passed.".to_string()),
+        criteria: Vec::new(),
+        detail: None,
+    };
+    handle
+        .deliver_task_completion(request.clone())
+        .await
+        .expect("completion delivery");
+    handle
+        .deliver_task_completion(request)
+        .await
+        .expect("idempotent completion delivery");
+
+    let items = store
+        .list_conversation_items(&conversation, ReplayMode::Audit)
+        .await
+        .expect("conversation items");
+    assert!(items.iter().any(|item| {
+        item.item_id == "item:task_completion:event:completion"
+            && item.kind == ConversationItemKind::AssistantText
+            && item.content_text.as_deref() == Some("fake answer")
+    }));
+    assert!(
+        !items
+            .iter()
+            .any(|item| item.kind == ConversationItemKind::UserText)
+    );
+    assert_eq!(
+        items
+            .iter()
+            .filter(|item| item.item_id == "item:task_completion:event:completion")
+            .count(),
+        1
+    );
+
+    handle.shutdown().await;
+}
+
+#[tokio::test]
 async fn runtime_handle_generate_once_does_not_block_subsequent_commands() {
     let (started_tx, started_rx) = oneshot::channel();
     let (release_tx, release_rx) = oneshot::channel();
