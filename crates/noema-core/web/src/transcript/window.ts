@@ -121,6 +121,10 @@ function mergeEntriesByItemId(
       }
       return [replacement];
     }
+    const itemId = transcriptEntryItemId(entry);
+    if (itemId !== undefined && seenItemIds.has(itemId)) {
+      return [];
+    }
     if (entry.type === "assistant") {
       const turnTextKey = assistantTurnTextKey(entry);
       if (turnTextKey) {
@@ -130,6 +134,10 @@ function mergeEntriesByItemId(
             return [];
           }
           seenAssistantTurnText.add(turnTextKey);
+          const replacementItemId = transcriptEntryItemId(replacement);
+          if (replacementItemId) {
+            seenItemIds.add(replacementItemId);
+          }
           return [replacement];
         }
         if (seenAssistantTurnText.has(turnTextKey)) {
@@ -138,7 +146,6 @@ function mergeEntriesByItemId(
         seenAssistantTurnText.add(turnTextKey);
       }
     }
-    const itemId = transcriptEntryItemId(entry);
     if (itemId === undefined) {
       return [entry];
     }
