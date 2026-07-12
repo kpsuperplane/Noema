@@ -164,11 +164,14 @@ const styles = stylex.create({
   },
   readMoreExpanded: {
     position: "static",
+    display: "block",
     marginTop: 4,
     borderRadius: 5,
     backgroundImage: "none",
-    paddingBlock: 3,
-    paddingInline: 4,
+    paddingBlockEnd: 3,
+    paddingBlockStart: 3,
+    paddingInlineEnd: 4,
+    paddingInlineStart: 4,
     ":hover": {
       backgroundColor: "var(--noema-surface-hover)"
     }

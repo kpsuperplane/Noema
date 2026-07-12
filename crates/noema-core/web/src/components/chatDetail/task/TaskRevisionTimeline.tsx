@@ -1,7 +1,7 @@
-import { ChatToolCalls, type ChatToolCallStatus } from "@astryxdesign/core/Chat";
 import * as stylex from "@stylexjs/stylex";
 import * as React from "react";
 import { TaskStaticSection } from "./TaskSection";
+import { TaskToolMarker, type TaskToolMarkerStatus } from "./TaskToolMarker";
 import type { TaskRevision, TaskReview, TaskRun, TaskRunStatus } from "./taskTypes";
 
 type TimelineEntry = {
@@ -32,26 +32,14 @@ export function TaskRevisionTimeline({
             const openRun = () => onSelectRun?.(run);
             return (
               <li key={run.id} {...stylex.props(styles.item)}>
-                <ChatToolCalls
-                  aria-label={`Open ${label} conversation`}
-                  calls={[{
-                    key: run.id,
-                    name: label,
-                    status,
-                    duration: status === "complete" ? duration : undefined,
-                    stats: status === "complete" ? undefined : duration,
-                    errorMessage: run.error ?? undefined
-                  }]}
-                  onClick={openRun}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      openRun();
-                    }
-                  }}
-                  role="button"
-                  tabIndex={0}
-                  {...stylex.props(styles.toolCall)}
+                <TaskToolMarker
+                  activationLabel={`Open ${label} conversation`}
+                  errorMessage={run.error ?? undefined}
+                  id={run.id}
+                  name={label}
+                  onActivate={openRun}
+                  status={status}
+                  target={duration}
                 />
               </li>
             );
@@ -150,7 +138,7 @@ function terminalRoleLabel(label: string, status: TaskRunStatus): string {
   }
 }
 
-function runToolCallStatus(run: TaskRun, review?: TaskReview | null): ChatToolCallStatus {
+function runToolCallStatus(run: TaskRun, review?: TaskReview | null): TaskToolMarkerStatus {
   const status = run.status;
   if (status === "failed" || status === "cancelled" || status === "interrupted") {
     return "error";
@@ -187,17 +175,5 @@ const styles = stylex.create({
     listStyle: "none"
   },
   item: { minWidth: 0 },
-  toolCall: {
-    width: "100%",
-    borderRadius: 8,
-    cursor: "pointer",
-    ":hover": { backgroundColor: "var(--noema-surface-hover)" },
-    ":focus-visible": {
-      outlineWidth: 3,
-      outlineStyle: "solid",
-      outlineColor: "color-mix(in srgb, var(--noema-pine-500) 24%, transparent)",
-      outlineOffset: -2
-    }
-  },
   empty: { margin: 0, color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: 1.45 }
 });

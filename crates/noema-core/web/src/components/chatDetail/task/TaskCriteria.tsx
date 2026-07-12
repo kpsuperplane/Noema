@@ -1,6 +1,6 @@
-import { ChatToolCalls, type ChatToolCallStatus } from "@astryxdesign/core/Chat";
 import * as stylex from "@stylexjs/stylex";
 import { TaskStaticSection } from "./TaskSection";
+import { TaskToolMarker, type TaskToolMarkerStatus } from "./TaskToolMarker";
 import type { TaskCriterion, TaskCriterionVerdict } from "./taskTypes";
 
 export function TaskCriteria({ criteria }: { criteria: readonly TaskCriterion[] }) {
@@ -24,37 +24,27 @@ function CriterionRow({ criterion }: { criterion: TaskCriterion }) {
   const hasDetails = Boolean(criterion.evidence || criterion.expectedEvidence);
   return (
     <li {...stylex.props(styles.item)}>
-      <ChatToolCalls
-        calls={[{
-          key: criterion.id,
-          name: criterion.text,
-          target: `Criterion ${criterion.position} · ${criterionVerdictLabel(verdict)}`,
-          status: criterionToolCallStatus(verdict),
-          errorMessage: verdict === "fail" ? criterion.evidence ?? undefined : undefined,
-          resultDetail: hasDetails ? (
-            <div {...stylex.props(styles.evidenceGroup)}>
-              {criterion.evidence ? (
-                <p {...stylex.props(styles.evidence)}>
-                  <span {...stylex.props(styles.evidenceLabel)}>Evidence</span>
-                  {criterion.evidence}
-                </p>
-              ) : null}
-              {criterion.expectedEvidence ? (
-                <p {...stylex.props(styles.evidence)}>
-                  <span {...stylex.props(styles.evidenceLabel)}>Expected evidence</span>
-                  {criterion.expectedEvidence}
-                </p>
-              ) : null}
-            </div>
-          ) : undefined
-        }]}
-        {...stylex.props(styles.toolCall)}
+      <TaskToolMarker
+        errorMessage={verdict === "fail" ? criterion.evidence ?? undefined : undefined}
+        id={criterion.id}
+        input={hasDetails ? {
+          expected_evidence: criterion.expectedEvidence,
+          ...((verdict === "pending" || verdict === "uncertain")
+            ? { observed_evidence: criterion.evidence }
+            : {})
+        } : undefined}
+        name={criterion.text}
+        output={hasDetails && (verdict === "pass" || verdict === "fail")
+          ? { evidence: criterion.evidence }
+          : undefined}
+        status={criterionToolCallStatus(verdict)}
+        target={`Criterion ${criterion.position} · ${criterionVerdictLabel(verdict)}`}
       />
     </li>
   );
 }
 
-function criterionToolCallStatus(verdict: TaskCriterionVerdict): ChatToolCallStatus {
+function criterionToolCallStatus(verdict: TaskCriterionVerdict): TaskToolMarkerStatus {
   switch (verdict) {
     case "pass":
       return "complete";
@@ -88,34 +78,6 @@ const styles = stylex.create({
     listStyle: "none"
   },
   item: { minWidth: 0 },
-  toolCall: {
-    width: "100%",
-    borderRadius: 8,
-    ":hover": {
-      backgroundColor: "var(--noema-surface-hover)"
-    }
-  },
-  evidenceGroup: {
-    display: "grid",
-    gap: 6,
-    paddingTop: 2
-  },
-  evidence: {
-    margin: 0,
-    color: "var(--noema-text-secondary)",
-    fontSize: 12,
-    lineHeight: 1.4,
-    overflowWrap: "anywhere",
-    whiteSpace: "pre-wrap"
-  },
-  evidenceLabel: {
-    marginInlineEnd: 5,
-    color: "var(--noema-text-muted)",
-    fontSize: 10,
-    fontWeight: 650,
-    letterSpacing: "0.06em",
-    textTransform: "uppercase"
-  },
   empty: {
     margin: 0,
     color: "var(--noema-text-secondary)",
