@@ -2,7 +2,7 @@ import * as React from "react";
 import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import * as stylex from "@stylexjs/stylex";
 import { AlertCircle } from "lucide-react";
-import { TaskExpandableContent, TaskStaticSection } from "./TaskSection";
+import { TaskExpandableContent, TaskSection } from "./TaskSection";
 import type { TaskDetail, TaskRunItem } from "./taskTypes";
 import { TaskCriteria } from "./TaskCriteria";
 import { TaskDetails, TaskStatusSummary } from "./TaskOverview";
@@ -113,7 +113,7 @@ export function TaskDetailPanel({
         onCancel={onCancelTask ? () => runAction("cancel") : undefined}
         onResume={onResumeTask ? (message) => runAction("resume", message) : undefined}
       />
-      <TaskTextSection key={`request:${taskId}`} title="Original request" text={currentDetail.request} />
+      <TaskTextSection key={`request:${taskId}`} text={currentDetail.request} />
       <TaskRevisionTimeline
         onSelectRun={(run) => setSelectedRunKey({ taskId, runId: run.id })}
         revisions={currentDetail.revisions}
@@ -128,9 +128,9 @@ export function TaskDetailPanel({
   );
 }
 
-function TaskTextSection({ title, text }: { title: string; text: string }) {
+function TaskTextSection({ text }: { text: string }) {
   return (
-    <TaskStaticSection id="task-request-title" title={title}>
+    <TaskSection label="Original request">
       <TaskExpandableContent id="task-request-content">
         <Markdown
           autolink="gfm"
@@ -142,7 +142,7 @@ function TaskTextSection({ title, text }: { title: string; text: string }) {
           {text}
         </Markdown>
       </TaskExpandableContent>
-    </TaskStaticSection>
+    </TaskSection>
   );
 }
 

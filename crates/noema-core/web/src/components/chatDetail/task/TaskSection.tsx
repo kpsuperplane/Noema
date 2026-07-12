@@ -1,6 +1,16 @@
 import * as stylex from "@stylexjs/stylex";
 import * as React from "react";
 
+export function TaskSection({
+  label,
+  children
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return <section aria-label={label} {...stylex.props(styles.section)}>{children}</section>;
+}
+
 export function TaskStaticSection({
   id,
   title,

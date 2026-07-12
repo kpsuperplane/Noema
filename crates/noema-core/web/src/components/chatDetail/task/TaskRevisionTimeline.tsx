@@ -1,6 +1,7 @@
 import { ChatToolCalls, type ChatToolCallStatus } from "@astryxdesign/core/Chat";
 import * as stylex from "@stylexjs/stylex";
 import * as React from "react";
+import { TaskStaticSection } from "./TaskSection";
 import type { TaskRevision, TaskReview, TaskRun, TaskRunStatus } from "./taskTypes";
 
 type TimelineEntry = {
@@ -19,7 +20,7 @@ export function TaskRevisionTimeline({
   const now = useTaskRunClock(entries.some(({ run }) => run.status === "running"));
 
   return (
-    <section aria-label="Timeline" id="task-timeline-title" tabIndex={-1} {...stylex.props(styles.section)}>
+    <TaskStaticSection id="task-timeline-title" tabIndex={-1} title="Timeline">
       {entries.length === 0 ? (
         <p {...stylex.props(styles.empty)}>Executor and review activity will appear here.</p>
       ) : (
@@ -32,11 +33,10 @@ export function TaskRevisionTimeline({
             return (
               <li key={run.id} {...stylex.props(styles.item)}>
                 <ChatToolCalls
-                  aria-label={`Open ${label} conversation, Revision ${revision.revision}, Attempt ${run.attemptIndex + 1}`}
+                  aria-label={`Open ${label} conversation`}
                   calls={[{
                     key: run.id,
                     name: label,
-                    target: `Revision ${revision.revision} · Attempt ${run.attemptIndex + 1}`,
                     status,
                     duration: status === "complete" ? duration : undefined,
                     stats: status === "complete" ? undefined : duration,
@@ -58,7 +58,7 @@ export function TaskRevisionTimeline({
           })}
         </ol>
       )}
-    </section>
+    </TaskStaticSection>
   );
 }
 
@@ -179,11 +179,6 @@ function parseTimestamp(value?: string | null): number | null {
 }
 
 const styles = stylex.create({
-  section: {
-    minWidth: 0,
-    paddingBlock: 4,
-    paddingInline: 8
-  },
   timeline: {
     display: "grid",
     gap: 4,
