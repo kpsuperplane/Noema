@@ -104,7 +104,6 @@ export function TaskRunTranscript({
       onToggleActivity={toggleActivity}
       pending={false}
       sentMessageScrollRequest={0}
-      showHumanMessages={false}
     />
   );
 }

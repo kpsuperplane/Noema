@@ -56,7 +56,6 @@ export function Transcript({
   onSubmitMultipleChoiceSelection,
   onLoadOlderTranscript,
   onOpenDetail,
-  showHumanMessages = true,
   density = "full",
   ariaLabel = "Conversation transcript"
 }: {
@@ -73,15 +72,11 @@ export function Transcript({
   onSubmitMultipleChoiceSelection: (promptItemId: string, selectedOptionIds: string[]) => void;
   onLoadOlderTranscript: () => void;
   onOpenDetail?: (target: ChatDetailTarget) => void;
-  showHumanMessages?: boolean;
   density?: TranscriptDensity;
   ariaLabel?: string;
 }) {
   void awaitingAssistantTurn;
-  const visibleEntries = showHumanMessages
-    ? entries
-    : entries.filter((entry) => entry.type !== "user" && entry.type !== "multiple_choice_selection");
-  const renderedEntries = renderableTranscriptEntries(visibleEntries, pending, agentStatus);
+  const renderedEntries = renderableTranscriptEntries(entries, pending, agentStatus);
   const [seenArrivalMessageIds, setSeenArrivalMessageIds] = React.useState<ReadonlySet<string>>(() =>
     initialSeenArrivalMessageIds(renderedEntries)
   );
@@ -175,7 +170,7 @@ export function Transcript({
               <RenderedTranscriptEntryFrame lane={lane}>
                 {renderTranscriptRenderEntry(
                   entry,
-                  visibleEntries,
+                  entries,
                   expandedActivities,
                   onToggleActivity,
                   onSubmitMultipleChoiceSelection,
