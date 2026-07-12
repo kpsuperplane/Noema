@@ -66,8 +66,8 @@ export function ChatDetailRail({
   }, [motionState]);
 
   React.useEffect(() => {
-    if (motionState === "opening" || motionState === "entering" || motionState === "open") {
-      closeButtonRef.current?.focus();
+    if (motionState === "open") {
+      closeButtonRef.current?.focus({ preventScroll: true });
     }
   }, [motionState, target]);
 
