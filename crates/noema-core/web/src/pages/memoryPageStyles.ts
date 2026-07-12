@@ -8,6 +8,7 @@ export const styles = stylex.create({
     boxSizing: "border-box",
     height: "100%",
     minHeight: 0,
+    minWidth: 0,
     width: "100%",
     display: "flex",
     flexDirection: "column",
@@ -21,8 +22,12 @@ export const styles = stylex.create({
     display: "flex",
     flexDirection: "column",
     height: "100%",
+    minWidth: 0,
   },
   page: {
+    boxSizing: "border-box",
+    width: "100%",
+    minWidth: 0,
     maxWidth: 1220,
     margin: "0 auto",
     display: "block",
@@ -42,6 +47,7 @@ export const styles = stylex.create({
     overflowY: "auto",
     flex: 1,
     display: "block",
+    minWidth: 0,
   },
   articleTitle: {
     clear: "both",
@@ -86,6 +92,8 @@ export const styles = stylex.create({
   infobox: {
     float: "right",
     width: 292,
+    maxWidth: "100%",
+    minWidth: 0,
     margin: "18px 0 18px 24px",
     fontFamily: wikiSans,
     "@media (max-width: 760px)": {
@@ -96,6 +104,7 @@ export const styles = stylex.create({
   },
   infoTable: {
     width: "100%",
+    tableLayout: "fixed",
     borderCollapse: "collapse",
     borderWidth: 1,
     borderStyle: "solid",
@@ -150,16 +159,19 @@ export const styles = stylex.create({
     backgroundColor: "#eaecf0",
     padding: 7,
     textAlign: "left",
-    verticalAlign: "top"
+    verticalAlign: "top",
+    overflowWrap: "anywhere"
   },
   boxValue: {
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "#a2a9b1",
     padding: 7,
-    verticalAlign: "top"
+    verticalAlign: "top",
+    overflowWrap: "anywhere"
   },
   sidebox: {
+    minWidth: 0,
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "#a2a9b1",
@@ -180,6 +192,7 @@ export const styles = stylex.create({
     fontFamily: wikiSerif,
     fontSize: 16,
     lineHeight: 1.62,
+    overflowWrap: "anywhere",
     "@media (max-width: 760px)": {
       fontSize: 15
     }
@@ -248,7 +261,8 @@ export const styles = stylex.create({
     color: "#202122",
     fontFamily: wikiSerif,
     fontSize: 15,
-    lineHeight: 1.62
+    lineHeight: 1.62,
+    overflowWrap: "anywhere"
   },
   articleSection: {
     marginTop: 26
@@ -292,7 +306,9 @@ export const styles = stylex.create({
     lineHeight: 1.55
   },
   referenceItem: {
-    paddingLeft: 2
+    minWidth: 0,
+    paddingLeft: 2,
+    overflowWrap: "anywhere"
   },
   referenceLabel: {
     color: "#202122"
