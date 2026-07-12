@@ -66,7 +66,7 @@ export function ChatDetailRail({
   }, [motionState]);
 
   React.useEffect(() => {
-    if (motionState === "open") {
+    if (motionState === "opening" || motionState === "entering" || motionState === "open") {
       closeButtonRef.current?.focus();
     }
   }, [motionState, target]);

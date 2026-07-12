@@ -74,24 +74,27 @@ const styles = stylex.create({
   root: { display: "grid", gap: 14, minWidth: 0 },
   backButton: { justifySelf: "start", width: "fit-content" },
   header: {
-    display: "flex",
-    flexWrap: "wrap",
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
     alignItems: "end",
     justifyContent: "space-between",
     gap: 12,
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
     borderBottomColor: "var(--noema-border-subtle)",
-    paddingBottom: 12
+    paddingBottom: 12,
+    "@media (max-width: 520px)": {
+      gridTemplateColumns: "1fr",
+      alignItems: "start"
+    }
   },
-  headingCopy: { display: "grid", minWidth: 0, flex: "1 1 160px", gap: 3 },
+  headingCopy: { display: "grid", minWidth: 0, gap: 3 },
   eyebrow: { color: "var(--noema-text-muted)", fontSize: 10, fontWeight: 650, letterSpacing: "0.06em", textTransform: "uppercase" },
   title: { margin: 0, color: "var(--noema-text-primary)", fontSize: 16, fontWeight: 700, lineHeight: 1.25 },
   meta: {
     display: "flex",
     minWidth: 0,
     maxWidth: "100%",
-    flex: "1 1 180px",
     flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "end",
@@ -103,6 +106,7 @@ const styles = stylex.create({
     fontVariantNumeric: "tabular-nums",
     overflowWrap: "anywhere",
     "@media (max-width: 520px)": {
+      justifySelf: "start",
       justifyContent: "start"
     }
   }
