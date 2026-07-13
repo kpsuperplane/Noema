@@ -22,6 +22,13 @@ export function transcriptWindowEntries(state: TranscriptWindowState): Transcrip
   return [...state.durableEntries, ...state.optimisticEntries];
 }
 
+export function completeAssistantStreams(state: TranscriptWindowState): TranscriptWindowState {
+  return {
+    ...state,
+    durableEntries: state.durableEntries.filter((entry) => entry.type !== "assistant_stream")
+  };
+}
+
 export function appendOptimisticEntry(
   state: TranscriptWindowState,
   entry: TranscriptEntry
@@ -112,7 +119,8 @@ function mergeEntriesByItemId(
     if (entry.type === "assistant_stream") {
       const replacement =
         incomingAssistantByStreamId.get(entry.streamId) ??
-        incomingAssistantByTurnResponse.get(assistantTurnResponseKey(entry) ?? "");
+        incomingAssistantByTurnResponse.get(assistantTurnResponseKey(entry) ?? "") ??
+        incomingAssistantByTurnText.get(assistantTurnTextKey(entry) ?? "");
       const replacementItemId = replacement ? transcriptEntryItemId(replacement) : undefined;
       if (!replacement) {
         return [entry];
@@ -187,7 +195,11 @@ function assistantTurnResponseKey(entry: TranscriptEntry): string | undefined {
 }
 
 function assistantTurnTextKey(entry: TranscriptEntry): string | undefined {
-  if (entry.type !== "assistant" || !entry.turnId || !entry.text.trim()) {
+  if (
+    (entry.type !== "assistant" && entry.type !== "assistant_stream") ||
+    !entry.turnId ||
+    !entry.text.trim()
+  ) {
     return undefined;
   }
   return `${entry.turnId}:${entry.text}`;

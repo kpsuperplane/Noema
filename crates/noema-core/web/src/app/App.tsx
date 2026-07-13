@@ -50,6 +50,7 @@ import {
 } from "@/transcript/events";
 import {
   appendOptimisticEntry,
+  completeAssistantStreams,
   emptyTranscriptWindow,
   mergeDurableEntries,
   replaceOptimisticEntry,
@@ -155,7 +156,6 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   const latestTranscriptRetryTimeoutRef = React.useRef<number | null>(null);
   const latestTranscriptErrorVisibleConversationRef = React.useRef<string | null>(null);
   const reconcilingRecoveryRef = React.useRef(false);
-  const lastProcessedConversationEventRef = React.useRef<ConversationEvent | null>(null);
   const localStatusRefetchRef = React.useRef(boot.refetch);
 
   React.useEffect(() => {
@@ -298,12 +298,6 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     },
     [acceptPrimaryConversation]
   );
-
-  const conversationEvents = useSubscription(ConversationEventsDocument, {
-    variables: { conversationId: conversationId ?? "" },
-    skip: !conversationId,
-    onError: reportConversationError
-  });
 
   useBrowserGraphqlRecovery({
     enabled: !desktopRuntime && conversationId !== null,
@@ -521,6 +515,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
       setPending(false);
       setAwaitingAssistantTurn(false);
       setAgentStatus("IDLE");
+      setTranscriptWindow(completeAssistantStreams);
       markConversationEventScheduled(event);
     } else if (isAgentStatusEvent(event)) {
       setAgentStatus(event.status);
@@ -562,22 +557,17 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  React.useEffect(() => {
-    const event = conversationEvents.data?.conversationEvents;
-    if (!event) {
-      return;
-    }
-    let cancelled = false;
-    window.queueMicrotask(() => {
-      if (!cancelled && lastProcessedConversationEventRef.current !== event) {
-        lastProcessedConversationEventRef.current = event;
+  useSubscription(ConversationEventsDocument, {
+    variables: { conversationId: conversationId ?? "" },
+    skip: !conversationId,
+    onData: ({ data }) => {
+      const event = data.data?.conversationEvents;
+      if (event) {
         applyConversationEvent(event);
       }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [applyConversationEvent, conversationEvents.data]);
+    },
+    onError: reportConversationError
+  });
 
   async function connectProvider() {
     const step = onboarding.steps.find((candidate) => candidate.id === "connect_provider_account");
