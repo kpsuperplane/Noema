@@ -87,7 +87,11 @@ function mergeEntriesByItemId(
     })
   );
   const incomingAssistantByStreamId = new Map(
-    incoming.flatMap((entry) => (entry.type === "assistant" && entry.streamId ? [[entry.streamId, entry]] : []))
+    incoming.flatMap((entry) =>
+      entry.type === "assistant"
+        ? assistantReconciledStreamIds(entry).map((streamId) => [streamId, entry] as const)
+        : []
+    )
   );
   const incomingAssistantByTurnResponse = new Map(
     incoming.flatMap((entry) => {
@@ -187,4 +191,23 @@ function assistantTurnTextKey(entry: TranscriptEntry): string | undefined {
     return undefined;
   }
   return `${entry.turnId}:${entry.text}`;
+}
+
+function assistantReconciledStreamIds(
+  entry: Extract<TranscriptEntry, { type: "assistant" }>
+): string[] {
+  const streamIds = entry.streamId ? [entry.streamId] : [];
+  if (!isRecord(entry.metadata) || !Array.isArray(entry.metadata.reconciled_stream_ids)) {
+    return streamIds;
+  }
+  for (const streamId of entry.metadata.reconciled_stream_ids) {
+    if (typeof streamId === "string" && streamId && !streamIds.includes(streamId)) {
+      streamIds.push(streamId);
+    }
+  }
+  return streamIds;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

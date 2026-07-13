@@ -2398,6 +2398,174 @@ async fn runtime_keeps_commentary_before_tool_lifecycle_when_provider_orders_tex
 }
 
 #[tokio::test]
+async fn runtime_executes_every_homogeneous_delegation_and_writes_truthful_receipt() {
+    let (handle, store) = test_runtime_handle_with_task_delegation(fake_provider(
+        FakeCodexScenario::MultipleTaskDelegation,
+    ))
+    .await;
+    let conversation_id = handle
+        .start_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+
+    let (result, events) = collect_turn_events(
+        &handle,
+        conversation_id.clone(),
+        "Start the Canada and USA research tasks.".to_string(),
+    )
+    .await;
+    result.expect("delegation turn");
+    handle.shutdown().await;
+
+    assert!(
+        store
+            .find_task_by_creation_call(&conversation_id, "call_task_canada")
+            .await
+            .expect("Canada task lookup")
+            .is_some()
+    );
+    assert!(
+        store
+            .find_task_by_creation_call(&conversation_id, "call_task_usa")
+            .await
+            .expect("USA task lookup")
+            .is_some()
+    );
+    assert!(
+        store
+            .find_task_by_creation_call(&conversation_id, "call_task_invalid")
+            .await
+            .expect("invalid task lookup")
+            .is_none()
+    );
+
+    let replay = store
+        .list_conversation_items(&conversation_id, ReplayMode::Visible)
+        .await
+        .expect("conversation replay");
+    let assistant_texts = replay
+        .iter()
+        .filter(|item| item.kind == ConversationItemKind::AssistantText)
+        .filter_map(|item| item.content_text.as_deref())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        assistant_texts,
+        vec!["Started 2 background tasks; 1 delegation failed."]
+    );
+    assert_eq!(
+        replay
+            .iter()
+            .filter(|item| item.kind == ConversationItemKind::TaskReference)
+            .count(),
+        2
+    );
+    let receipt = replay
+        .iter()
+        .find(|item| item.metadata["source"] == "task_delegation_receipt")
+        .expect("delegation receipt");
+    assert_eq!(receipt.metadata["delegation_success_count"], 2);
+    assert_eq!(receipt.metadata["delegation_failure_count"], 1);
+    assert_eq!(
+        receipt.metadata["reconciled_stream_ids"],
+        json!([
+            format!(
+                "assistant_stream:{}:initial:response:0",
+                receipt.turn_id.as_deref().expect("turn id")
+            ),
+            format!(
+                "assistant_stream:{}:initial:response:1",
+                receipt.turn_id.as_deref().expect("turn id")
+            ),
+        ])
+    );
+    assert!(events.iter().any(|event| {
+        matches!(
+            event,
+            TurnStreamEvent::AssistantTextDelta { delta, .. }
+                if delta.contains("I st") || delta.contains("They")
+        )
+    }));
+}
+
+#[tokio::test]
+async fn runtime_rejects_mixed_delegation_batch_without_executing_any_call() {
+    let (handle, store) = test_runtime_handle_with_task_delegation(fake_provider(
+        FakeCodexScenario::MixedTaskDelegation,
+    ))
+    .await;
+    let conversation_id = handle
+        .start_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+
+    let (result, events) = collect_turn_events(
+        &handle,
+        conversation_id.clone(),
+        "Delegate the task and rename yourself.".to_string(),
+    )
+    .await;
+    result.expect("mixed delegation turn");
+    handle.shutdown().await;
+
+    assert!(
+        store
+            .find_task_by_creation_call(&conversation_id, "call_task_mixed")
+            .await
+            .expect("mixed task lookup")
+            .is_none()
+    );
+    assert_eq!(
+        store
+            .get_agent("agent:primary")
+            .await
+            .expect("primary agent")
+            .expect("primary agent record")
+            .display_name,
+        None
+    );
+    assert!(!events.iter().any(|event| {
+        matches!(
+            event,
+            TurnStreamEvent::ConversationItem { item_id, .. }
+                if item_id.starts_with("transient:tool_call:")
+        )
+    }));
+
+    let replay = store
+        .list_conversation_items(&conversation_id, ReplayMode::Visible)
+        .await
+        .expect("conversation replay");
+    let assistant_texts = replay
+        .iter()
+        .filter(|item| item.kind == ConversationItemKind::AssistantText)
+        .filter_map(|item| item.content_text.as_deref())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        assistant_texts,
+        vec![
+            "1 task delegation failed.",
+            "I could not combine delegation with another tool."
+        ]
+    );
+    assert_eq!(
+        replay
+            .iter()
+            .filter(|item| item.kind == ConversationItemKind::ToolResult)
+            .filter(|item| item.status == ConversationItemStatus::Failed)
+            .count(),
+        2
+    );
+    assert!(replay.iter().any(|item| {
+        item.kind == ConversationItemKind::ToolResult
+            && item.payload_json["metadata"]["action"]["payload"]["error"]
+                == "task_delegate_mixed_tool_batch"
+    }));
+    assert!(!assistant_texts.contains(&"I started the task and renamed myself."));
+}
+
+#[tokio::test]
 async fn runtime_actor_persists_provider_tool_items_before_turn_failure() {
     let handle = test_runtime_handle(fake_provider(FakeCodexScenario::ToolItemThenFailure)).await;
 
@@ -4097,6 +4265,39 @@ async fn test_runtime_handle_with_store(
     (handle, store)
 }
 
+async fn test_runtime_handle_with_task_delegation(
+    provider: FakeCodexProvider,
+) -> (CodexRuntimeHandle, crate::NoemaStore) {
+    let home = tempfile::tempdir().expect("temp noema home");
+    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
+        .await
+        .expect("store");
+    store.ensure_default_actors().await.expect("actors");
+    store
+        .ensure_default_provider_account()
+        .await
+        .expect("provider account");
+    store
+        .ensure_default_task_model_pool_settings("codex")
+        .await
+        .expect("task model pool");
+    store
+        .update_provider_account_status(
+            "provider_account:codex:default",
+            crate::ProviderAccountStatus::Authenticated,
+            None,
+            None,
+        )
+        .await
+        .expect("authenticate provider account");
+    std::mem::forget(home);
+    let handle = CodexRuntimeHandle::spawn_with_provider(Arc::new(provider), store.clone())
+        .await
+        .expect("runtime");
+    (handle, store)
+}
+
 async fn test_runtime_handle_with_mnemosyne(
     provider: FakeCodexProvider,
     response: serde_json::Value,
@@ -4544,6 +4745,8 @@ enum FakeCodexScenario {
     InitialNameOnboardingNoAssistant,
     TurnError,
     ToolItem,
+    MultipleTaskDelegation,
+    MixedTaskDelegation,
     ToolCallBeforeCommentary,
     ToolItemThenFailure,
     UncalibratedMcpToolCall,
@@ -4729,6 +4932,33 @@ impl FakeCodexProvider {
                             phase: None,
                             text: "fake answer".to_string(),
                         },
+                    ]
+                }
+            }
+            FakeCodexScenario::MultipleTaskDelegation => vec![
+                GenerateOutputItem::AssistantText {
+                    phase: Some(AssistantTextPhase::FinalAnswer),
+                    text: "I started all three background tasks.".to_string(),
+                },
+                GenerateOutputItem::AssistantText {
+                    phase: Some(AssistantTextPhase::FinalAnswer),
+                    text: "They are underway.".to_string(),
+                },
+                task_delegate_tool_call("call_task_canada", "Research Canada", true),
+                task_delegate_tool_call("call_task_usa", "Research USA", true),
+                task_delegate_tool_call("call_task_invalid", "Invalid task", false),
+            ],
+            FakeCodexScenario::MixedTaskDelegation => {
+                if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
+                    assistant_with_no_memories("I could not combine delegation with another tool.")
+                } else {
+                    vec![
+                        GenerateOutputItem::AssistantText {
+                            phase: Some(AssistantTextPhase::FinalAnswer),
+                            text: "I started the task and renamed myself.".to_string(),
+                        },
+                        task_delegate_tool_call("call_task_mixed", "Mixed task", true),
+                        update_own_name_tool_call("call_name_mixed", json!({"name": "Mira"})),
                     ]
                 }
             }
@@ -5542,6 +5772,30 @@ fn web_fetch_tool_call(id: &str, payload: serde_json::Value) -> GenerateOutputIt
         provider_name: Some("web.fetch".to_string()),
         name: "web.fetch".to_string(),
         payload,
+    }
+}
+
+fn task_delegate_tool_call(id: &str, title: &str, valid: bool) -> GenerateOutputItem {
+    let arguments = if valid {
+        json!({
+            "title": title,
+            "request": format!("Complete {title} and report the result."),
+            "complexity": "simple",
+            "executor_model_pool_entry_id": "task_pool:setting:simple",
+            "validation_criteria": [{
+                "description": format!("{title} is complete"),
+                "evidence_required": "A concise sourced result"
+            }]
+        })
+    } else {
+        json!({"title": title})
+    };
+    GenerateOutputItem::ToolCall {
+        id: Some(id.to_string()),
+        provider_call_id: None,
+        provider_name: None,
+        name: "task.delegate".to_string(),
+        payload: json!({"arguments": arguments}),
     }
 }
 

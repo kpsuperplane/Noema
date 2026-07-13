@@ -1433,7 +1433,7 @@ pub(super) fn assistant_stream_id(turn_id: &str, segment: &str) -> String {
     format!("assistant_stream:{turn_id}:{segment}")
 }
 
-fn assistant_response_stream_id(stream_id: &str, response_index: usize) -> String {
+pub(super) fn assistant_response_stream_id(stream_id: &str, response_index: usize) -> String {
     format!("{stream_id}:response:{response_index}")
 }
 

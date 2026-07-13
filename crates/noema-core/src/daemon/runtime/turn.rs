@@ -2,6 +2,7 @@ use crate::{
     ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
     NewConversationTurn, PersistedAgentStatus, ReplayMode, SYSTEM_ERROR_RUNTIME_INVARIANT,
     SystemErrorEvent,
+    capability::GatewayToolResult,
     provider::{
         GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
         GenerateStreamEvent, GenerateToolCall, MultipleChoiceOption, MultipleChoiceSelectionMode,
@@ -27,9 +28,10 @@ use super::{
     progress_audit::{
         ProgressAuditDecision, ProgressAuditError, build_no_tools_finalization_prompt,
     },
-    tool_lifecycle::local_tool_calls,
+    tool_lifecycle::{LocalToolCall, local_tool_calls},
     transcript_persistence::{
-        assistant_stream_id, handle_provider_stream_event, send_conversation_item,
+        assistant_response_stream_id, assistant_stream_id, handle_provider_stream_event,
+        send_conversation_item,
     },
     turn_timing::TurnTiming,
 };
@@ -836,6 +838,7 @@ impl CodexRuntimeActor {
         let initial_stream_id = assistant_stream_id(&turn.turn_id, "initial");
         let mut initial_stream_seen = false;
         let mut initial_assistant_delta_seen = false;
+        let mut initial_tool_start_events = Vec::new();
         let initial_event_context = ConversationMemoryContext {
             turn_index,
             conversation_id: conversation_id.clone(),
@@ -866,13 +869,18 @@ impl CodexRuntimeActor {
                     provider_stream_event_fields(&event),
                 );
             }
-            handle_provider_stream_event(
-                event,
-                &item_tx,
-                &initial_event_context,
-                &initial_stream_id,
-                0,
-            );
+            match event {
+                GenerateStreamEvent::ToolCallStarted { .. } => {
+                    initial_tool_start_events.push(event);
+                }
+                GenerateStreamEvent::AssistantTextDelta { .. } => handle_provider_stream_event(
+                    event,
+                    &item_tx,
+                    &initial_event_context,
+                    &initial_stream_id,
+                    0,
+                ),
+            }
         };
 
         timing.mark(
@@ -908,6 +916,20 @@ impl CodexRuntimeActor {
             .await
         {
             Ok(response) => {
+                drop(on_initial_event);
+                let initial_batch_kind =
+                    ForegroundToolBatchKind::for_calls(&local_tool_calls(&response.tool_calls));
+                if initial_batch_kind != ForegroundToolBatchKind::MixedDelegation {
+                    for event in initial_tool_start_events {
+                        handle_provider_stream_event(
+                            event,
+                            &item_tx,
+                            &initial_event_context,
+                            &initial_stream_id,
+                            0,
+                        );
+                    }
+                }
                 timing.mark(
                     "provider_initial_response_completed",
                     json!({
@@ -1059,27 +1081,30 @@ impl CodexRuntimeActor {
         .await?;
         let mut initial_assistant_response = ProviderAssistantResponse::default();
         let initial_tool_calls = local_tool_calls(&turn.response.tool_calls);
+        let initial_batch_kind = ForegroundToolBatchKind::for_calls(&initial_tool_calls);
         let initial_phase_has_tools = !initial_tool_calls.is_empty();
-        for (index, response_item) in turn.response.responses.iter().cloned().enumerate() {
-            self.persist_provider_response_item(
-                &action_turn,
-                ProviderResponsePosition {
-                    response_index: index,
-                    output_index: Some(index),
-                },
-                response_item,
-                initial_phase_has_tools,
-                &mut initial_assistant_response,
-                item_tx,
-            )
-            .await?;
-            timing.mark(
-                "runtime_assistant_response_item_persisted",
-                json!({
-                    "phase": "initial",
-                    "response_index": index,
-                }),
-            );
+        if !initial_batch_kind.contains_delegation() {
+            for (index, response_item) in turn.response.responses.iter().cloned().enumerate() {
+                self.persist_provider_response_item(
+                    &action_turn,
+                    ProviderResponsePosition {
+                        response_index: index,
+                        output_index: Some(index),
+                    },
+                    response_item,
+                    initial_phase_has_tools,
+                    &mut initial_assistant_response,
+                    item_tx,
+                )
+                .await?;
+                timing.mark(
+                    "runtime_assistant_response_item_persisted",
+                    json!({
+                        "phase": "initial",
+                        "response_index": index,
+                    }),
+                );
+            }
         }
 
         let mut next_output_index = initial_response_count + initial_tool_calls.len();
@@ -1095,11 +1120,7 @@ impl CodexRuntimeActor {
             stream_id: None,
         };
         let mut local_tool_results = Vec::new();
-        let mut task_handoff = false;
         for call in &initial_tool_calls {
-            if task_handoff {
-                break;
-            }
             timing.mark(
                 "runtime_tool_call_started",
                 json!({
@@ -1124,9 +1145,12 @@ impl CodexRuntimeActor {
                     "output_index": call.output_index,
                 }),
             );
-            let result = self
-                .execute_local_tool(&turn, &turn.agent_identity, call)
-                .await;
+            let result = if initial_batch_kind == ForegroundToolBatchKind::MixedDelegation {
+                rejected_mixed_delegation_result(call)
+            } else {
+                self.execute_local_tool(&turn, &turn.agent_identity, call)
+                    .await
+            };
             timing.mark(
                 "runtime_tool_execution_completed",
                 json!({
@@ -1175,18 +1199,32 @@ impl CodexRuntimeActor {
                 }),
             );
             next_output_index += 1;
-            task_handoff = is_task_delegate_tool(result.name()) && result.success();
             local_tool_results.push(result);
         }
+        if initial_batch_kind.contains_delegation() {
+            self.persist_task_delegation_receipt(
+                &turn,
+                &turn.initial_stream_id,
+                initial_response_count,
+                &local_tool_results,
+                item_tx,
+            )
+            .await?;
+        }
+        let mut task_handoff = initial_batch_kind.is_terminal_handoff();
         let mut all_local_tool_results = local_tool_results.clone();
         let mut progress_tracker = ContinuationProgressTracker::new(&turn.user_input);
         progress_tracker.observe_results(&local_tool_results);
 
-        let mut continuation_tool_results = local_tool_results
-            .iter()
-            .filter(|result| result.requires_provider_continuation())
-            .cloned()
-            .collect::<Vec<_>>();
+        let mut continuation_tool_results = if task_handoff {
+            Vec::new()
+        } else {
+            local_tool_results
+                .iter()
+                .filter(|result| result.requires_provider_continuation())
+                .cloned()
+                .collect::<Vec<_>>()
+        };
         for continuation_step in 0..MAX_PROVIDER_TOOL_CONTINUATIONS {
             if continuation_tool_results.is_empty() {
                 break;
@@ -1365,6 +1403,7 @@ impl CodexRuntimeActor {
             let continuation_output_base = next_output_index;
             let mut continuation_stream_seen = false;
             let mut continuation_assistant_delta_seen = false;
+            let mut continuation_tool_start_events = Vec::new();
             let continuation_event_context = ConversationMemoryContext {
                 turn_index: turn.turn_index,
                 conversation_id: turn.conversation_id.clone(),
@@ -1402,13 +1441,20 @@ impl CodexRuntimeActor {
                         continuation_provider_stream_event_fields(continuation_step, &event),
                     );
                 }
-                handle_provider_stream_event(
-                    event,
-                    item_tx,
-                    &continuation_event_context,
-                    &continuation_stream_id,
-                    continuation_output_base,
-                );
+                match event {
+                    GenerateStreamEvent::ToolCallStarted { .. } => {
+                        continuation_tool_start_events.push(event);
+                    }
+                    GenerateStreamEvent::AssistantTextDelta { .. } => {
+                        handle_provider_stream_event(
+                            event,
+                            item_tx,
+                            &continuation_event_context,
+                            &continuation_stream_id,
+                            continuation_output_base,
+                        );
+                    }
+                }
             };
             let provider = self.provider_for_kind(&turn.provider_kind)?;
             timing.mark(
@@ -1452,6 +1498,7 @@ impl CodexRuntimeActor {
                     &mut on_continuation_event,
                 )
                 .await?;
+            drop(on_continuation_event);
             timing.mark(
                 "provider_continuation_response_completed",
                 json!({
@@ -1510,30 +1557,45 @@ impl CodexRuntimeActor {
             } else {
                 Vec::new()
             };
+            let continuation_batch_kind =
+                ForegroundToolBatchKind::for_calls(&continuation_tool_calls);
+            if continuation_batch_kind != ForegroundToolBatchKind::MixedDelegation {
+                for event in continuation_tool_start_events {
+                    handle_provider_stream_event(
+                        event,
+                        item_tx,
+                        &continuation_event_context,
+                        &continuation_stream_id,
+                        continuation_output_base,
+                    );
+                }
+            }
             let continuation_phase_has_tools = !continuation_tool_calls.is_empty();
-            for (offset, response_item) in
-                continuation_response.responses.iter().cloned().enumerate()
-            {
-                self.persist_provider_response_item(
-                    &continuation_action_turn,
-                    ProviderResponsePosition {
-                        response_index: offset,
-                        output_index: Some(continuation_output_base + offset),
-                    },
-                    response_item,
-                    continuation_phase_has_tools,
-                    &mut continuation_assistant_response,
-                    item_tx,
-                )
-                .await?;
-                timing.mark(
-                    "runtime_assistant_response_item_persisted",
-                    json!({
-                        "phase": "continuation",
-                        "continuation_step": continuation_step,
-                        "response_index": continuation_output_base + offset,
-                    }),
-                );
+            if !continuation_batch_kind.contains_delegation() {
+                for (offset, response_item) in
+                    continuation_response.responses.iter().cloned().enumerate()
+                {
+                    self.persist_provider_response_item(
+                        &continuation_action_turn,
+                        ProviderResponsePosition {
+                            response_index: offset,
+                            output_index: Some(continuation_output_base + offset),
+                        },
+                        response_item,
+                        continuation_phase_has_tools,
+                        &mut continuation_assistant_response,
+                        item_tx,
+                    )
+                    .await?;
+                    timing.mark(
+                        "runtime_assistant_response_item_persisted",
+                        json!({
+                            "phase": "continuation",
+                            "continuation_step": continuation_step,
+                            "response_index": continuation_output_base + offset,
+                        }),
+                    );
+                }
             }
             next_output_index += continuation_response_count + continuation_tool_calls.len();
 
@@ -1605,9 +1667,17 @@ impl CodexRuntimeActor {
                         "output_index": call.output_index,
                     }),
                 );
-                let result = self
-                    .execute_local_tool(&continuation_turn, &continuation_turn.agent_identity, call)
-                    .await;
+                let result = if continuation_batch_kind == ForegroundToolBatchKind::MixedDelegation
+                {
+                    rejected_mixed_delegation_result(call)
+                } else {
+                    self.execute_local_tool(
+                        &continuation_turn,
+                        &continuation_turn.agent_identity,
+                        call,
+                    )
+                    .await
+                };
                 timing.mark(
                     "runtime_tool_execution_completed",
                     json!({
@@ -1660,11 +1730,26 @@ impl CodexRuntimeActor {
                 next_output_index += 1;
                 local_tool_results.push(result);
             }
-            continuation_tool_results = local_tool_results
-                .iter()
-                .filter(|result| result.requires_provider_continuation())
-                .cloned()
-                .collect::<Vec<_>>();
+            if continuation_batch_kind.contains_delegation() {
+                self.persist_task_delegation_receipt(
+                    &continuation_turn,
+                    &continuation_stream_id,
+                    continuation_response_count,
+                    &local_tool_results,
+                    item_tx,
+                )
+                .await?;
+            }
+            task_handoff = continuation_batch_kind.is_terminal_handoff();
+            continuation_tool_results = if task_handoff {
+                Vec::new()
+            } else {
+                local_tool_results
+                    .iter()
+                    .filter(|result| result.requires_provider_continuation())
+                    .cloned()
+                    .collect::<Vec<_>>()
+            };
             progress_tracker.observe_results(&local_tool_results);
             all_local_tool_results.extend(local_tool_results.clone());
         }
@@ -1936,6 +2021,59 @@ impl CodexRuntimeActor {
         Ok(())
     }
 
+    async fn persist_task_delegation_receipt(
+        &mut self,
+        turn: &SuccessfulProviderTurn,
+        response_stream_id: &str,
+        response_count: usize,
+        results: &[LocalToolResult],
+        item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
+    ) -> Result<(), DaemonError> {
+        let delegation_results = results
+            .iter()
+            .filter(|result| is_task_delegate_tool(result.name()))
+            .cloned()
+            .collect::<Vec<_>>();
+        if delegation_results.is_empty() {
+            return Ok(());
+        }
+        let text = task_delegation_receipt(&delegation_results);
+        let reconciled_stream_ids = (0..response_count)
+            .map(|response_index| assistant_response_stream_id(response_stream_id, response_index))
+            .collect::<Vec<_>>();
+        let metadata = json!({
+            "turn_index": turn.turn_index,
+            "response_index": 0,
+            "stream_id": reconciled_stream_ids.first(),
+            "reconciled_stream_ids": reconciled_stream_ids,
+            "phase": "final_answer",
+            "source": "task_delegation_receipt",
+            "delegation_success_count": delegation_results.iter().filter(|result| result.success()).count(),
+            "delegation_failure_count": delegation_results.iter().filter(|result| !result.success()).count(),
+        });
+        let assistant_item = self
+            .store
+            .append_conversation_item(NewConversationItem {
+                conversation_id: turn.conversation_id.clone(),
+                turn_id: Some(turn.turn_id.clone()),
+                parent_item_id: Some(turn.user_item_id.clone()),
+                kind: ConversationItemKind::AssistantText,
+                status: ConversationItemStatus::Completed,
+                author: ActorRef::agent("agent:primary"),
+                content_text: Some(text.clone()),
+                payload_json: json!({}),
+                metadata: metadata.clone(),
+            })
+            .await?;
+        send_conversation_item(
+            item_tx,
+            assistant_item,
+            metadata,
+            TurnTranscriptItem::AssistantText { text },
+        );
+        Ok(())
+    }
+
     async fn agent_identity_for_conversation(
         &self,
         _conversation_id: &str,
@@ -2143,6 +2281,79 @@ pub(in crate::daemon) struct ProviderActionOutput {
     pub(in crate::daemon) summary: Option<String>,
     pub(in crate::daemon) payload: serde_json::Value,
     pub(in crate::daemon) display: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ForegroundToolBatchKind {
+    Standard,
+    Delegation,
+    MixedDelegation,
+}
+
+impl ForegroundToolBatchKind {
+    fn for_calls(calls: &[LocalToolCall]) -> Self {
+        let delegation_count = calls
+            .iter()
+            .filter(|call| is_task_delegate_tool(&call.name))
+            .count();
+        match delegation_count {
+            0 => Self::Standard,
+            count if count == calls.len() => Self::Delegation,
+            _ => Self::MixedDelegation,
+        }
+    }
+
+    const fn contains_delegation(self) -> bool {
+        matches!(self, Self::Delegation | Self::MixedDelegation)
+    }
+
+    const fn is_terminal_handoff(self) -> bool {
+        matches!(self, Self::Delegation)
+    }
+}
+
+fn rejected_mixed_delegation_result(call: &LocalToolCall) -> LocalToolResult {
+    LocalToolResult::Gateway {
+        call_id: call.call_id.clone(),
+        provider_call_id: call.provider_call_id.clone(),
+        provider_name: call.provider_name.clone(),
+        name: call.name.clone(),
+        arguments: call.payload.clone(),
+        result: GatewayToolResult {
+            success: false,
+            payload: json!({
+                "error": "task_delegate_mixed_tool_batch",
+                "message": "task.delegate must be called without other tool kinds in the same provider response",
+            }),
+            requires_provider_continuation: true,
+        },
+    }
+}
+
+fn task_delegation_receipt(results: &[LocalToolResult]) -> String {
+    let (successful, failed) = results.iter().fold((0usize, 0usize), |counts, result| {
+        if result.success() {
+            (counts.0 + 1, counts.1)
+        } else {
+            (counts.0, counts.1 + 1)
+        }
+    });
+    match (successful, failed) {
+        (1, 0) => "Started 1 background task.".to_string(),
+        (successful, 0) => format!("Started {successful} background tasks."),
+        (0, 1) => "1 task delegation failed.".to_string(),
+        (0, failed) => format!("{failed} task delegations failed."),
+        (1, 1) => "Started 1 background task; 1 delegation failed.".to_string(),
+        (1, failed) => {
+            format!("Started 1 background task; {failed} delegations failed.")
+        }
+        (successful, 1) => {
+            format!("Started {successful} background tasks; 1 delegation failed.")
+        }
+        (successful, failed) => {
+            format!("Started {successful} background tasks; {failed} delegations failed.")
+        }
+    }
 }
 
 fn is_disallowed_continuation_tool_call(call: &GenerateToolCall) -> bool {

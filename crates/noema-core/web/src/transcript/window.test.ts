@@ -235,6 +235,74 @@ describe("transcript window model", () => {
     );
   });
 
+  test("replaces every reconciled provider stream with one runtime-owned assistant receipt", () => {
+    const current: TranscriptWindowState = {
+      durableEntries: [
+        {
+          id: "stream:0",
+          turnId: "turn:1",
+          type: "assistant_stream",
+          streamId: "assistant_stream:turn:1:initial:response:0",
+          text: "I started two tasks."
+        },
+        {
+          id: "stream:1",
+          turnId: "turn:1",
+          type: "assistant_stream",
+          streamId: "assistant_stream:turn:1:initial:response:1",
+          text: "They are both underway."
+        }
+      ],
+      optimisticEntries: [],
+      beforeCursor: null,
+      hasMoreBefore: false
+    };
+
+    const merged = mergeDurableEntries(
+      current,
+      [
+        {
+          id: "assistant:receipt",
+          itemId: "assistant:receipt",
+          cursor: "c1",
+          turnId: "turn:1",
+          type: "assistant",
+          streamId: "assistant_stream:turn:1:initial:response:0",
+          metadata: {
+            reconciled_stream_ids: [
+              "assistant_stream:turn:1:initial:response:0",
+              "assistant_stream:turn:1:initial:response:1"
+            ]
+          },
+          text: "Started 2 background tasks."
+        }
+      ],
+      {
+        beforeCursor: null,
+        hasMoreBefore: false,
+        placement: "append"
+      }
+    );
+
+    assert.deepEqual(transcriptWindowEntries(merged), [
+      {
+        id: "assistant:receipt",
+        itemId: "assistant:receipt",
+        cursor: "c1",
+        turnId: "turn:1",
+        type: "assistant",
+        streamId: "assistant_stream:turn:1:initial:response:0",
+        metadata: {
+          reconciled_stream_ids: [
+            "assistant_stream:turn:1:initial:response:0",
+            "assistant_stream:turn:1:initial:response:1"
+          ]
+        },
+        text: "Started 2 background tasks."
+      }
+    ]);
+  });
+
   test("replaces assistant stream entries by turn response index when durable stream ids are missing", () => {
     const current: TranscriptWindowState = {
       durableEntries: [
