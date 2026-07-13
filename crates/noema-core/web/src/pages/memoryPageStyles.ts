@@ -267,6 +267,9 @@ export const styles = stylex.create({
   articleSection: {
     marginTop: 26
   },
+  referencesSection: {
+    clear: "both"
+  },
   sectionTitle: {
     margin: "0 0 8px",
     borderBottomWidth: 1,
@@ -298,40 +301,13 @@ export const styles = stylex.create({
   },
   references: {
     display: "grid",
-    gap: 12,
+    gap: 8,
+    margin: 0,
     paddingLeft: 20,
     color: "#202122",
     fontFamily: wikiSans,
-    fontSize: 12,
+    fontSize: 13,
     lineHeight: 1.55
-  },
-  referenceItem: {
-    minWidth: 0,
-    paddingLeft: 2,
-    overflowWrap: "anywhere"
-  },
-  referenceLabel: {
-    color: "#202122"
-  },
-  referenceQuote: {
-    margin: "7px 0 0",
-    borderLeftWidth: 3,
-    borderLeftStyle: "solid",
-    borderLeftColor: "#c8ccd1",
-    padding: "3px 0 3px 9px",
-    color: "#202122",
-    fontFamily: wikiSerif,
-    fontSize: 14,
-    lineHeight: 1.45
-  },
-  referenceMeta: {
-    marginTop: 5,
-    color: "#54595d"
-  },
-  citedFacts: {
-    margin: "6px 0 0",
-    paddingLeft: 18,
-    color: "#54595d"
   },
   loadMore: {
     clear: "both",

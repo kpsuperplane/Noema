@@ -35,6 +35,7 @@ export type MemoryInfoboxRow = {
 export type MemoryArticleReference = {
   id: string;
   label: string;
+  memoryUpdatedAtLabel: string | null;
   sourceMessage: string | null;
   sourceMeta: string[];
   citedFacts: MemoryArticleEntry[];
@@ -54,7 +55,6 @@ export type MemoryArticleModel = {
   isStub: boolean;
   stubText: string;
   sections: MemoryArticleSection[];
-  sourceObservations: MemoryArticleEntry[];
   recallSample: MemoryArticleEntry | null;
   references: MemoryArticleReference[];
 };
@@ -66,15 +66,11 @@ export function buildMemoryArticleModel(graph: MemoryGraph | undefined): MemoryA
   const entries = flattenEntries(graph?.documents ?? []);
   const totalMemories = graph?.pageInfo.total ?? entries.length;
   const lastUpdatedLabel = formatLatestUpdated(entries);
-  const sourceObservations = uniqueSourceObservations(entries);
   const subjectName = inferSubjectName(entries) ?? subjectNameFromArticle(graph?.article);
   const articleContent = parseArticleMarkdown(graph?.article, entries);
   const title = graph?.article.title?.trim() || subjectName || FALLBACK_TITLE;
-  const referenceCountLabel = formatCount(
-    sourceObservations.length || entries.length,
-    "citation",
-    "citations"
-  );
+  const references = buildReferences(entries);
+  const referenceCountLabel = formatCount(references.length, "citation", "citations");
 
   return {
     title,
@@ -96,9 +92,8 @@ export function buildMemoryArticleModel(graph: MemoryGraph | undefined): MemoryA
     isStub: entries.length < 3,
     stubText: buildStubText(entries.length),
     sections: articleContent.sections,
-    sourceObservations,
     recallSample: entries[0] ?? null,
-    references: buildReferences(entries, sourceObservations)
+    references
   };
 }
 
@@ -197,50 +192,29 @@ function truncateInfoboxValue(value: string): string {
   return normalized.length > 96 ? `${normalized.slice(0, 93)}...` : normalized;
 }
 
-function buildReferences(
-  entries: MemoryArticleEntry[],
-  sourceObservations: MemoryArticleEntry[]
-): MemoryArticleReference[] {
+function buildReferences(entries: MemoryArticleEntry[]): MemoryArticleReference[] {
   if (entries.length === 0) {
-    return [
-      {
-        id: "empty",
-        label: "No local memory citations are available yet.",
-        sourceMessage: null,
-        sourceMeta: [],
-        citedFacts: []
-      }
-    ];
+    return [];
   }
-  if (sourceObservations.length > 0) {
-    const groups = new Map<string, MemoryArticleEntry[]>();
-    for (const entry of entries) {
-      const key = citationSourceKey(entry);
-      const group = groups.get(key) ?? [];
-      group.push(entry);
-      groups.set(key, group);
-    }
-    return [...groups.values()].map((citedFacts, index) => {
-      const first = citedFacts[0];
-      const timestamp = first?.updatedAt ?? first?.createdAt;
-      const sourceMessage = first?.sourceMessageText ?? first?.sourceObservation ?? null;
-      return {
-        id: first?.sourceItemId ?? first?.sourceObservation ?? first?.id ?? `citation-${index + 1}`,
-        label: `Local memory citation${timestamp ? `, ${formatDateTime(timestamp)}` : ""}.`,
-        sourceMessage,
-        sourceMeta: sourceMetaLabels(first),
-        citedFacts
-      };
-    });
+  const groups = new Map<string, MemoryArticleEntry[]>();
+  for (const entry of entries) {
+    const key = citationSourceKey(entry);
+    const group = groups.get(key) ?? [];
+    group.push(entry);
+    groups.set(key, group);
   }
-  const sourceTitles = [...new Set(entries.map((entry) => entry.sourceTitle))];
-  return sourceTitles.map((title) => ({
-    id: title,
-    label: `Local memory source: ${title}.`,
-    sourceMessage: null,
-    sourceMeta: [],
-    citedFacts: entries.filter((entry) => entry.sourceTitle === title)
-  }));
+  return [...groups.entries()].map(([sourceKey, citedFacts], index) => {
+    const first = citedFacts[0];
+    const timestamp = first?.updatedAt ?? first?.createdAt;
+    return {
+      id: sourceKey || first?.id || `citation-${index + 1}`,
+      label: referenceLabel(first),
+      memoryUpdatedAtLabel: timestamp ? formatDateTime(timestamp) : null,
+      sourceMessage: first?.sourceMessageText ?? first?.sourceObservation ?? null,
+      sourceMeta: sourceMetaLabels(first),
+      citedFacts
+    };
+  });
 }
 
 function parseArticleMarkdown(
@@ -378,20 +352,6 @@ function initialsForTitle(title: string): string {
     .join("");
 }
 
-function uniqueSourceObservations(entries: MemoryArticleEntry[]): MemoryArticleEntry[] {
-  const seen = new Set<string>();
-  const observations: MemoryArticleEntry[] = [];
-  for (const entry of entries) {
-    const source = entry.sourceObservation?.trim();
-    if (!source || seen.has(source)) {
-      continue;
-    }
-    seen.add(source);
-    observations.push(entry);
-  }
-  return observations;
-}
-
 function sourceObservationFromEntry(entry: MemoryGraphEntry): string | null {
   return (
     entry.source?.messageText ??
@@ -415,11 +375,23 @@ function sourceStringFromMetadata(metadata: unknown, keys: string[]): string | n
 function citationSourceKey(entry: MemoryArticleEntry): string {
   return (
     entry.sourceItemId ??
+    entry.sourceTurnId ??
     entry.sourceMessageText ??
     entry.sourceObservation ??
+    entry.sourceConversationId ??
     entry.sourceTitle ??
     entry.id
   );
+}
+
+function referenceLabel(entry: MemoryArticleEntry | undefined): string {
+  if (!entry) {
+    return "Local memory source";
+  }
+  if (entry.sourceConversationId || entry.sourceTurnId || entry.sourceItemId) {
+    return "Noema conversation";
+  }
+  return entry.sourceTitle || sourceKindLabel(entry.sourceKind) || "Local memory source";
 }
 
 function sourceMetaLabels(entry: MemoryArticleEntry | undefined): string[] {
