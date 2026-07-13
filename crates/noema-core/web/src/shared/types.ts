@@ -81,7 +81,7 @@ export type TranscriptEntry =
       cursor?: string | null;
       source?: TranscriptEntrySource;
       turnId?: string;
-      type: "system";
+      type: "input";
       label?: string;
       text: string;
     }

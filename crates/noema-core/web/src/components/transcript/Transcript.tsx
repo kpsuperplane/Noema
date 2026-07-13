@@ -29,7 +29,7 @@ import {
 } from "./scrollModel";
 import { StructuredCard } from "./StructuredCard";
 import { TaskReferenceCard } from "./TaskReferenceCard";
-import { TranscriptSystemMessage } from "./TranscriptSystemMessage";
+import { TranscriptInputMessage } from "./TranscriptInputMessage";
 import { toolMarkerExpandable } from "./markerModel";
 import { ToolDetailAttachment } from "./ToolDetailAttachment";
 import { ToolMarker } from "./ToolMarker";
@@ -282,8 +282,8 @@ function renderTranscriptEntry(
       />
     );
   }
-  if (entry.type === "system") {
-    return <TranscriptSystemMessage label={entry.label} text={entry.text} />;
+  if (entry.type === "input") {
+    return <TranscriptInputMessage text={entry.text} />;
   }
   if (entry.type === "assistant") {
     return (

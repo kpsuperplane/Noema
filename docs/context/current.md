@@ -207,11 +207,10 @@ The next storage slice should stay small and concrete:
   uses an embedded density without mounting a composer, so task conversations
   inherit the main chat's Markdown, tool markers, live-arrival behavior,
   pagination, and accessibility infrastructure. Persisted tool calls and results
-  pair into the normal chat tool marker; genuine model inputs render as neutral
-  Astryx chat system messages whose full content opens in a dialog, with valid
-  JSON normalized and pretty-printed. Cumulative continuation inputs, bounded
-  evidence, and semantic context checkpoints use the same labeled system-message
-  dialog path instead of repeated human-looking bubbles or accordion cards.
+  pair into the normal chat tool marker; model inputs, cumulative continuation
+  context, bounded evidence, and semantic context checkpoints render as neutral
+  gray input bubbles containing their complete payload inline. Valid JSON is
+  normalized and pretty-printed within the bubble.
 - Memory is governed context, not hidden model state. Durable memory truth now
   belongs to local Mnemosyne, while Noema owns service lifecycle, configuration,
   live readiness proxying, provenance, UI, model routing, ingest diagnostics,

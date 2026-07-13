@@ -3,7 +3,7 @@ import * as stylex from "@stylexjs/stylex";
 import { TranscriptActorAvatar } from "./TranscriptActorAvatar";
 import type { ChatBubbleGroup } from "./renderModel";
 
-type TranscriptChatBubbleRole = "user" | "assistant" | "system";
+type TranscriptChatBubbleRole = "user" | "assistant" | "input";
 type TranscriptChatBubbleVariant = "message" | "typing";
 
 type ChatMessageXStyle = ChatMessageProps["xstyle"];
@@ -37,7 +37,7 @@ const styles = stylex.create({
     backgroundColor: "var(--primary)",
     color: "var(--primary-foreground)"
   },
-  systemBubble: {
+  inputBubble: {
     backgroundColor: "color-mix(in srgb, var(--noema-text-muted) 12%, var(--noema-surface-card))",
     color: "var(--noema-text-primary)"
   },
@@ -82,7 +82,7 @@ export function TranscriptChatBubble({
           styles.bubble,
           variant === "message" && styles.textBubble,
           variant === "message" && role === "user" && styles.userBubble,
-          variant === "message" && role === "system" && styles.systemBubble,
+          variant === "message" && role === "input" && styles.inputBubble,
           variant === "message" && role === "assistant" && styles.assistantBubble,
           variant === "typing" && styles.typingBubble
         )}

@@ -51,7 +51,7 @@ function transcriptEntryScrollFingerprint(entry: TranscriptEntry): string {
 
   if (
     entry.type === "user" ||
-    entry.type === "system" ||
+    entry.type === "input" ||
     entry.type === "assistant" ||
     entry.type === "assistant_stream"
   ) {

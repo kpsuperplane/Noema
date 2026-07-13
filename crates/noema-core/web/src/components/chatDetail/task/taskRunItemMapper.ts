@@ -175,7 +175,7 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry | null
     }
     return {
       ...base,
-      type: "system",
+      type: "input",
       label: "Model input",
       text
     };
@@ -195,7 +195,7 @@ function checkpointSystemEntry(
 ): TranscriptEntry {
   return {
     ...base,
-    type: "system",
+    type: "input",
     label,
     text: persistedItemDetail(item)
   };
