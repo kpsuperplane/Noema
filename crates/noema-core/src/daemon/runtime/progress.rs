@@ -6,9 +6,10 @@ use super::local_tools::LocalToolResult;
 
 pub(super) const PROGRESS_AUDIT_INTERVAL: usize = 20;
 pub(super) const MAX_PROVIDER_TOOL_CONTINUATIONS: usize = 80;
+const RESULT_AUDIT_THRESHOLD: usize = 8;
 const RECENT_EVENT_LIMIT: usize = 5;
 const RECENT_EVENT_CHAR_LIMIT: usize = 240;
-const USER_GOAL_CHAR_LIMIT: usize = 240;
+const USER_GOAL_CHAR_LIMIT: usize = 2_000;
 const CURRENT_GOAL_CHAR_LIMIT: usize = 240;
 const REPEATED_ARGUMENT_THRESHOLD: usize = 4;
 const FAILURE_STREAK_THRESHOLD: usize = 6;
@@ -133,8 +134,12 @@ impl ContinuationProgressTracker {
         self.whole_turn.continuation_count = step;
     }
 
-    pub(super) fn should_audit(step: usize) -> bool {
-        step > 0 && step.is_multiple_of(PROGRESS_AUDIT_INTERVAL)
+    pub(super) fn should_audit(&self, step: usize, interval: usize) -> bool {
+        let completed_results = self
+            .window
+            .success_count
+            .saturating_add(self.window.failure_count);
+        step > 0 && (step.is_multiple_of(interval) || completed_results >= RESULT_AUDIT_THRESHOLD)
     }
 
     pub(super) fn deterministic_stop(&self) -> Option<DeterministicProgressStop> {
@@ -220,6 +225,64 @@ fn result_side_effect(name: &str, success: bool) -> bool {
 
 fn summarize_result(result: &LocalToolResult) -> String {
     let payload = result_payload(result);
+    if !result.success() {
+        return payload
+            .get("error")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("{} failed", result.name()));
+    }
+    if let LocalToolResult::WebSearch { arguments, .. } = result {
+        let query = arguments
+            .get("query")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown query");
+        let titles = payload
+            .get("results")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|item| item.get("title").and_then(Value::as_str))
+            .take(3)
+            .collect::<Vec<_>>()
+            .join("; ");
+        let reason = arguments
+            .get("reason")
+            .and_then(Value::as_str)
+            .filter(|reason| !reason.trim().is_empty())
+            .map(|reason| format!(" ({reason})"))
+            .unwrap_or_default();
+        return if titles.is_empty() {
+            format!("Searched for {query}; no titled results")
+        } else {
+            format!("Searched for {query}{reason}; found {titles}")
+        };
+    }
+    if let LocalToolResult::WebFetch { arguments, .. } = result {
+        let url = payload
+            .get("final_url")
+            .or_else(|| payload.get("url"))
+            .and_then(Value::as_str)
+            .or_else(|| arguments.get("url").and_then(Value::as_str))
+            .unwrap_or("unknown URL");
+        let title = payload
+            .get("title")
+            .and_then(Value::as_str)
+            .filter(|title| !title.trim().is_empty());
+        let reason = arguments
+            .get("reason")
+            .and_then(Value::as_str)
+            .filter(|reason| !reason.trim().is_empty());
+        return title.map_or_else(
+            || format!("Fetched {url}"),
+            |title| {
+                reason.map_or_else(
+                    || format!("Fetched {title} from {url}"),
+                    |reason| format!("Fetched {title} from {url} to {reason}"),
+                )
+            },
+        );
+    }
     payload
         .get("summary")
         .and_then(Value::as_str)
@@ -266,12 +329,51 @@ mod tests {
     }
 
     #[test]
-    fn audit_triggers_every_twenty_steps() {
-        assert!(!ContinuationProgressTracker::should_audit(0));
-        assert!(!ContinuationProgressTracker::should_audit(19));
-        assert!(ContinuationProgressTracker::should_audit(20));
-        assert!(!ContinuationProgressTracker::should_audit(21));
-        assert!(ContinuationProgressTracker::should_audit(40));
+    fn audit_triggers_at_the_configured_interval() {
+        let tracker = ContinuationProgressTracker::new("find restaurants");
+        assert!(!tracker.should_audit(0, 20));
+        assert!(!tracker.should_audit(19, 20));
+        assert!(tracker.should_audit(20, 20));
+        assert!(!tracker.should_audit(21, 20));
+        assert!(tracker.should_audit(40, 20));
+    }
+
+    #[test]
+    fn audit_triggers_after_a_bounded_volume_of_results() {
+        let mut tracker = ContinuationProgressTracker::new("find restaurants");
+        for index in 0..RESULT_AUDIT_THRESHOLD {
+            tracker.observe_results(&[web_search_result(
+                &format!("call_{index}"),
+                true,
+                json!({ "results": [{ "title": format!("Place {index}") }] }),
+            )]);
+        }
+
+        assert!(tracker.should_audit(2, 20));
+        tracker.reset_window();
+        assert!(!tracker.should_audit(2, 20));
+    }
+
+    #[test]
+    fn web_search_progress_includes_query_and_result_titles() {
+        let mut tracker = ContinuationProgressTracker::new("find restaurants");
+        tracker.observe_results(&[web_search_result(
+            "call",
+            true,
+            json!({ "results": [{ "title": "Official population report" }] }),
+        )]);
+
+        let digest = tracker.digest(1);
+        assert!(
+            digest.recent_events[0]
+                .summary
+                .contains("healthy restaurants")
+        );
+        assert!(
+            digest.recent_events[0]
+                .summary
+                .contains("Official population report")
+        );
     }
 
     #[test]
