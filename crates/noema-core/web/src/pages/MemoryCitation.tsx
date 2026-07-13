@@ -15,8 +15,18 @@ export function MemoryCitation({
   const [open, setOpen] = useState(false);
 
   return (
-    <li {...stylex.props(styles.item)}>
+    <li id={`reference-${number}`} {...stylex.props(styles.item)}>
+      <span aria-hidden="true" {...stylex.props(styles.referenceNumber)}>
+        {number}.
+      </span>
       <span {...stylex.props(styles.citationLine)}>
+        <a
+          href={`#citation-${number}-1`}
+          aria-label={`Return to the first use of citation ${number}`}
+          {...stylex.props(styles.backlink)}
+        >
+          ↑
+        </a>{" "}
         <Popover
           alignment="start"
           closeButtonLabel={`Close citation ${number} details`}
@@ -59,12 +69,40 @@ export function MemoryCitation({
 
 const styles = stylex.create({
   item: {
+    display: "grid",
+    gridTemplateColumns: "24px minmax(0, 1fr)",
+    gap: 6,
     minWidth: 0,
-    paddingLeft: 2,
-    overflowWrap: "anywhere"
+    borderRadius: 2,
+    padding: "2px 4px 2px 0",
+    scrollMarginTop: 16,
+    overflowWrap: "anywhere",
+    ":target": {
+      backgroundColor: "#eaf3ff"
+    }
+  },
+  referenceNumber: {
+    color: "#54595d",
+    fontVariantNumeric: "tabular-nums",
+    textAlign: "right"
   },
   citationLine: {
     color: "#202122"
+  },
+  backlink: {
+    borderRadius: 2,
+    color: "#36c",
+    textDecoration: "none",
+    ":hover": {
+      color: "#233f8f",
+      textDecoration: "underline"
+    },
+    ":focus-visible": {
+      outlineWidth: 2,
+      outlineStyle: "solid",
+      outlineColor: "#36c",
+      outlineOffset: 2
+    }
   },
   citationLink: {
     display: "inline-flex",

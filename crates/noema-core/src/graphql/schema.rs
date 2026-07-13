@@ -1420,6 +1420,7 @@ mod tests {
                       title
                       memoryEntries {
                         id
+                        citationKey
                         documentId
                         content
                         source {
@@ -1459,9 +1460,13 @@ mod tests {
 
         assert_eq!(data["memoryGraph"]["status"]["status"], "READY");
         assert_eq!(data["memoryGraph"]["article"]["title"], "Local human");
+        let first_citation = crate::graphql::memory::memory_citation_key("mem_1");
+        let second_citation = crate::graphql::memory::memory_citation_key("mem_2");
         assert_eq!(
             data["memoryGraph"]["article"]["markdown"],
-            "# Local human\n\nLocal human is described by the currently available biographical facts.\n\nKevin prefers local-first tools\n\nKevin likes tools that keep data local"
+            format!(
+                "# Local human\n\nLocal human is described by the currently available biographical facts.\n\nKevin prefers local-first tools [^{first_citation}]\n\nKevin likes tools that keep data local [^{second_citation}]"
+            )
         );
         assert_eq!(data["memoryGraph"]["article"]["isGenerated"], false);
         assert_eq!(
@@ -1471,6 +1476,10 @@ mod tests {
         assert_eq!(
             data["memoryGraph"]["documents"][0]["memoryEntries"][0]["id"],
             "mem_2"
+        );
+        assert_eq!(
+            data["memoryGraph"]["documents"][0]["memoryEntries"][0]["citationKey"],
+            second_citation
         );
         assert_eq!(
             data["memoryGraph"]["documents"][0]["memoryEntries"][0]["documentId"],
@@ -1619,9 +1628,23 @@ mod tests {
             })
             .await
             .expect("settings");
+        store
+            .save_memory_article_cache(crate::SaveMemoryArticleCache {
+                scope_id: "human:local".to_string(),
+                fact_fingerprint: "legacy-uncited-format".to_string(),
+                article_markdown: "# Legacy\n\nThis cached article has no footnotes.".to_string(),
+                generated_at: "2099-01-01T00:00:00Z".to_string(),
+            })
+            .await
+            .expect("legacy article cache");
+        let first_citation = crate::graphql::memory::memory_citation_key("mem_1");
+        let second_citation = crate::graphql::memory::memory_citation_key("mem_2");
+        let generated_article = format!(
+            "# Kevin\n\nKevin prefers local-first tools and tools that keep data local.[^{first_citation}][^{second_citation}]"
+        );
         let (requests, runtime) = test_autofill_runtime_with_requests(
             store.clone(),
-            "# Kevin\n\nKevin prefers local-first tools and tools that keep data local.",
+            &generated_article,
             Some("test-memory-writer"),
         )
         .await;
@@ -1653,7 +1676,7 @@ mod tests {
         assert_eq!(data["memoryGraph"]["article"]["title"], "Kevin");
         assert_eq!(
             data["memoryGraph"]["article"]["markdown"],
-            "# Kevin\n\nKevin prefers local-first tools and tools that keep data local."
+            generated_article
         );
         assert_eq!(data["memoryGraph"]["article"]["isGenerated"], true);
         assert!(data["memoryGraph"]["article"]["generatedAt"].is_string());
@@ -1666,6 +1689,8 @@ mod tests {
                     assert!(prompt.contains("Kevin prefers local-first tools"));
                     assert!(prompt.contains("User-authored source observation"));
                     assert!(prompt.contains("do not turn a preference about another speaker"));
+                    assert!(prompt.contains(&format!("cite as [^{first_citation}]")));
+                    assert!(prompt.contains("Every factual sentence or clause"));
                     assert!(prompt.contains("Return Markdown only"));
                 }
                 other => panic!("unexpected memory article input: {other:?}"),
@@ -1676,9 +1701,59 @@ mod tests {
             .await
             .expect("article cache")
             .expect("article cache row");
-        assert_eq!(
-            cached.article_markdown,
-            "# Kevin\n\nKevin prefers local-first tools and tools that keep data local."
+        assert_eq!(cached.article_markdown, generated_article);
+        assert!(cached.fact_fingerprint.starts_with("v2:"));
+    }
+
+    #[tokio::test]
+    async fn memory_article_falls_back_when_model_omits_citations() {
+        let server_base_url = spawn_memory_graph_mnemosyne_server().await;
+        let store = crate::store::tests::test_store().await;
+        store
+            .save_memory_service_settings(crate::SaveMemoryServiceSettings {
+                mode: crate::MemoryServiceMode::External,
+                base_url: Some(server_base_url),
+                port: None,
+                provider_account_id: None,
+                provider_kind: None,
+                model_profile: None,
+                reasoning_effort: None,
+            })
+            .await
+            .expect("settings");
+        let (_requests, runtime) = test_autofill_runtime_with_requests(
+            store.clone(),
+            "# Kevin\n\nKevin prefers local-first tools.",
+            Some("test-memory-writer"),
+        )
+        .await;
+        let schema = build_schema(GraphqlState::for_tests_with_store_and_runtime(
+            store.clone(),
+            runtime,
+        ));
+
+        let response = schema
+            .execute(async_graphql::Request::new(
+                "{ memoryGraph(input: { page: 1, limit: 25 }) { article { markdown isGenerated } } }",
+            ))
+            .await
+            .into_result()
+            .expect("query");
+        let data = response.data.into_json().expect("json");
+        let first_citation = crate::graphql::memory::memory_citation_key("mem_1");
+
+        assert_eq!(data["memoryGraph"]["article"]["isGenerated"], false);
+        assert!(
+            data["memoryGraph"]["article"]["markdown"]
+                .as_str()
+                .is_some_and(|markdown| markdown.contains(&format!("[^{first_citation}]")))
+        );
+        assert!(
+            store
+                .memory_article_cache("human:local")
+                .await
+                .expect("article cache")
+                .is_none()
         );
     }
 
@@ -1698,9 +1773,11 @@ mod tests {
             })
             .await
             .expect("settings");
+        let citation = crate::graphql::memory::memory_citation_key("mem_1");
+        let generated_article = format!("# Kevin\n\nKevin prefers local-first tools.[^{citation}]");
         let (requests, runtime) = test_autofill_runtime_with_requests(
             store.clone(),
-            "# Kevin\n\nKevin prefers local-first tools and tools that keep data local.",
+            &generated_article,
             Some("wrong-tool-classifier"),
         )
         .await;
@@ -1742,9 +1819,11 @@ mod tests {
             })
             .await
             .expect("settings");
+        let citation = crate::graphql::memory::memory_citation_key("mem_1");
+        let generated_article = format!("# Kevin\n\nKevin is freshly regenerated.[^{citation}]");
         let (requests, runtime) = test_autofill_runtime_with_requests(
             store.clone(),
-            "# Kevin\n\nKevin is freshly regenerated.",
+            &generated_article,
             Some("test-memory-writer"),
         )
         .await;
@@ -1773,7 +1852,7 @@ mod tests {
         assert_eq!(data["regenerateMemoryArticle"]["title"], "Kevin");
         assert_eq!(
             data["regenerateMemoryArticle"]["markdown"],
-            "# Kevin\n\nKevin is freshly regenerated."
+            generated_article
         );
         assert_eq!(data["regenerateMemoryArticle"]["isGenerated"], true);
         assert_eq!(requests.lock().expect("requests").len(), 1);

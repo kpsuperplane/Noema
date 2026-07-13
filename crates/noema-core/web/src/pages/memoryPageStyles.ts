@@ -303,25 +303,12 @@ export const styles = stylex.create({
     display: "grid",
     gap: 8,
     margin: 0,
-    paddingLeft: 20,
+    padding: 0,
     color: "#202122",
     fontFamily: wikiSans,
     fontSize: 13,
-    lineHeight: 1.55
-  },
-  loadMore: {
-    clear: "both",
-    marginTop: 18,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "#72777d",
-    borderRadius: 2,
-    backgroundColor: "#f8f9fa",
-    padding: "8px 12px",
-    color: "#202122",
-    fontFamily: wikiSans,
-    fontSize: 13,
-    fontWeight: 600
+    lineHeight: 1.55,
+    listStyle: "none"
   },
   regenerateButton: {
     marginTop: 8,

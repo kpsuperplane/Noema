@@ -65,13 +65,17 @@ The next storage slice should stay small and concrete:
   runtime model to write Markdown from Mnemosyne facts when the page is visited,
   caches that Markdown in SQLite by `human:local` fact fingerprint, automatically
   refreshes changed facts at most every 4 hours, and exposes a manual regenerate
-  mutation for explicit refreshes. The muted lead figure summarizes loaded memory
-  themes, source observations are shown as provenance rather than as memories,
-  and stubbed action, history, and recall controls should stay hidden until real
-  backend operations exist. The web UI queries Noema Core GraphQL only; Noema
-  Core resolves the configured Mnemosyne endpoint, fetches memories for
-  `human:local`, and adapts them into grouped memory documents for the frontend.
-  The browser never connects directly to Mnemosyne.
+  mutation for explicit refreshes. Generated prose carries stable fact citation
+  keys; the web article renders them as numbered inline footnotes, orders the
+  References list by first use, and keeps source messages, provenance, and
+  derived memories in an accessible citation popover. Legacy uncited cache rows
+  are regenerated, and invalid model citations fall back to deterministic cited
+  prose. The muted lead figure summarizes loaded memory themes, while stubbed
+  action, history, and recall controls should stay hidden until real backend
+  operations exist. The web UI queries Noema Core GraphQL only; Noema Core
+  resolves the configured Mnemosyne endpoint, fetches memories for `human:local`,
+  and adapts them into grouped memory documents for the frontend. The browser
+  never connects directly to Mnemosyne.
 - Docker/Compose development infrastructure has been retired; local development
   uses host Rust, Bun, and web/desktop product surfaces. The old standalone
   Noema binary and local dev alias have been removed.

@@ -369,6 +369,7 @@ export const MemoryGraphDocument = gql`
         updatedAt
         memoryEntries {
           id
+          citationKey
           documentId
           content
           summary

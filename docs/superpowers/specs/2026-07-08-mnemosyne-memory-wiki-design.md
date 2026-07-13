@@ -90,9 +90,11 @@ The `/memory` page becomes a single article-style surface:
    - Should use Noema Core GraphQL, backed by the existing Mnemosyne search path.
 
 8. References
-   - Lists source/provenance summaries.
-   - The first implementation can use existing Noema provenance metadata from
-     Mnemosyne rows when available, and generic source labels when it is not.
+   - Factual claims carry numbered inline footnote links.
+   - Footnote numbers are assigned to source groups by first appearance and are
+     reused when the same source supports multiple claims.
+   - Each reference links back to its first use and opens source text,
+     provenance metadata, and derived memories in an accessible popover.
 
 ## Content Voice
 
@@ -129,6 +131,10 @@ new UI should consume those entries and derive a display model:
 - Provenance:
   - Use `noemaConversationId`, `turnId`, `userItemId`, and source metadata when
     present.
+  - Give each memory fact a stable citation key that the article writer must
+    preserve in inline footnote markers.
+  - Reject unknown or missing citations from generated factual prose rather
+    than inventing claim-to-source associations in the frontend.
   - Do not expose raw Mnemosyne internals or sidecar URLs.
 
 ## Responsive Behavior

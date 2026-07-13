@@ -1,6 +1,5 @@
 import { useMutation, useQuery } from "@apollo/client/react";
 import * as stylex from "@stylexjs/stylex";
-import { useState } from "react";
 import {
   MemoryGraphDocument as MemoryGraphQueryDocument,
   RegenerateMemoryArticleDocument,
@@ -9,15 +8,15 @@ import {
   type RegenerateMemoryArticleMutation,
   type RegenerateMemoryArticleMutationVariables
 } from "@/generated/graphql";
+import { MemoryArticleParagraph } from "@/pages/MemoryArticleParagraph";
 import { MemoryCitation } from "@/pages/MemoryCitation";
 import { buildMemoryArticleModel, type MemoryArticleModel } from "@/pages/memoryPageModel";
 import { styles } from "@/pages/memoryPageStyles";
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 100;
 
 export function MemoryPage() {
-  const [loadingMore, setLoadingMore] = useState(false);
-  const { data, error, fetchMore, loading, refetch } = useQuery<
+  const { data, error, loading, refetch } = useQuery<
     MemoryGraphQuery,
     MemoryGraphQueryVariables
   >(MemoryGraphQueryDocument, {
@@ -36,37 +35,6 @@ export function MemoryPage() {
     RegenerateMemoryArticleMutation,
     RegenerateMemoryArticleMutationVariables
   >(RegenerateMemoryArticleDocument);
-
-  const loadMore = async () => {
-    if (!graph?.pageInfo.hasMore || loadingMore) {
-      return;
-    }
-    setLoadingMore(true);
-    try {
-      await fetchMore({
-        variables: {
-          page: graph.pageInfo.page + 1,
-          limit: PAGE_SIZE
-        },
-        updateQuery: (previous, { fetchMoreResult }) => {
-          if (!fetchMoreResult) {
-            return previous;
-          }
-          return {
-            memoryGraph: {
-              ...fetchMoreResult.memoryGraph,
-              documents: [
-                ...previous.memoryGraph.documents,
-                ...fetchMoreResult.memoryGraph.documents
-              ]
-            }
-          };
-        }
-      });
-    } finally {
-      setLoadingMore(false);
-    }
-  };
 
   return (
     <section
@@ -103,9 +71,7 @@ export function MemoryPage() {
             ) : null}
 
             {article.leadParagraphs.map((paragraph) => (
-              <p key={paragraph} {...stylex.props(styles.lead)}>
-                {paragraph}
-              </p>
+              <MemoryArticleParagraph key={paragraph.id} paragraph={paragraph} variant="lead" />
             ))}
 
             {article.isStub && !serviceError && !(loading && article.totalMemories === 0) ? (
@@ -138,9 +104,11 @@ export function MemoryPage() {
                 <h2 {...stylex.props(styles.sectionTitle)}>{section.title}</h2>
                 {section.paragraphs.length > 0 ? (
                   section.paragraphs.map((paragraph) => (
-                    <p key={paragraph} {...stylex.props(styles.bodyText)}>
-                      {paragraph}
-                    </p>
+                    <MemoryArticleParagraph
+                      key={paragraph.id}
+                      paragraph={paragraph}
+                      variant="body"
+                    />
                   ))
                 ) : (
                   <p {...stylex.props(styles.bodyText)}>
@@ -169,17 +137,6 @@ export function MemoryPage() {
                 <p {...stylex.props(styles.bodyText)}>No local memory citations are available yet.</p>
               )}
             </section>
-
-            {graph?.pageInfo.hasMore ? (
-              <button
-                type="button"
-                {...stylex.props(styles.loadMore)}
-                disabled={loadingMore}
-                onClick={() => void loadMore()}
-              >
-                {loadingMore ? "Loading..." : "Load more memories"}
-              </button>
-            ) : null}
           </article>
         </div>
       </div>

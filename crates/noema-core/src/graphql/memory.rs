@@ -1,5 +1,5 @@
 use async_graphql::{Enum, InputObject, Json, Result, SimpleObject};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::time::Duration;
 use time::{Duration as TimeDuration, OffsetDateTime, format_description::well_known::Rfc3339};
 
@@ -14,6 +14,7 @@ const DEFAULT_MEMORY_GRAPH_LIMIT: i32 = 25;
 const MAX_MEMORY_GRAPH_LIMIT: i32 = 100;
 const MEMORY_SERVICE_READINESS_TIMEOUT: Duration = Duration::from_secs(2);
 const MEMORY_ARTICLE_CACHE_MIN_AGE: TimeDuration = TimeDuration::hours(4);
+const MEMORY_ARTICLE_FORMAT_VERSION: &str = "v2";
 
 use super::{
     agents::{
@@ -193,6 +194,8 @@ pub struct GraphqlMemoryGraphDocument {
 pub struct GraphqlMemoryGraphMemoryEntry {
     /// Memory entry id.
     pub id: String,
+    /// Stable key used by generated article footnotes to cite this memory.
+    pub citation_key: String,
     /// Source document id.
     pub document_id: String,
     /// Memory content.
@@ -525,8 +528,10 @@ async fn mnemosyne_memories_to_graph_documents(
         for memory in memories {
             let source = memory_source_from_metadata(state, memory.metadata.as_ref()).await;
             let metadata = memory.metadata.map(Json);
+            let citation_key = memory_citation_key(&memory.id);
             memory_entries.push(GraphqlMemoryGraphMemoryEntry {
                 id: memory.id,
+                citation_key,
                 document_id: document_id.clone(),
                 content: memory.memory,
                 summary: None,
@@ -637,8 +642,10 @@ async fn memory_article_for_facts(
             .memory_article_cache(HUMAN_MEMORY_SCOPE_ID)
             .await
             .map_err(graphql_error)?
-        && (cached.fact_fingerprint == fingerprint || memory_article_cache_is_recent(&cached, now))
-        && let Some(article) = article_from_cache(cached)
+        && (cached.fact_fingerprint == fingerprint
+            || (memory_article_cache_has_current_format(&cached)
+                && memory_article_cache_is_recent(&cached, now)))
+        && let Some(article) = article_from_cache(cached, memories)
     {
         return Ok(article);
     }
@@ -676,7 +683,7 @@ async fn generate_memory_article(
     request.model = settings.model_profile.clone();
     request.options.reasoning_effort = settings.reasoning_effort;
     request.instructions = Some(
-        "Return Markdown only. Write a compact Wikipedia-style biographical article from the supplied memory facts. Do not invent facts."
+        "Return Markdown only. Write a compact Wikipedia-style biographical article from the supplied memory facts. Do not invent facts. Preserve the supplied inline footnote markers exactly."
             .to_string(),
     );
 
@@ -684,8 +691,10 @@ async fn generate_memory_article(
         .generate_once_with_provider_kind(settings.provider_kind.clone(), request)
         .await
         .map_err(graphql_error)?;
+    let markdown = response.assistant_text();
+    validate_memory_article_citations(&markdown, memories)?;
     Ok(markdown_to_memory_article(
-        &response.assistant_text(),
+        &markdown,
         memories,
         true,
         Some(generated_at.to_string()),
@@ -701,6 +710,7 @@ fn memory_article_prompt(memories: &[crate::MnemosyneMemory]) -> String {
             .enumerate()
             .map(|(index, memory)| {
                 let fact = memory.memory.as_deref().unwrap_or("").trim();
+                let citation_key = memory_citation_key(&memory.id);
                 let source = memory
                     .metadata
                     .as_ref()
@@ -708,11 +718,17 @@ fn memory_article_prompt(memories: &[crate::MnemosyneMemory]) -> String {
                     .and_then(serde_json::Value::as_str)
                     .unwrap_or("");
                 if source.is_empty() {
-                    format!("Fact {}:\n- Extracted fact: {}", index + 1, fact)
+                    format!(
+                        "Fact {} (cite as [^{}]):\n- Extracted fact: {}",
+                        index + 1,
+                        citation_key,
+                        fact
+                    )
                 } else {
                     format!(
-                        "Fact {}:\n- Extracted fact: {}\n- User-authored source observation: {}",
+                        "Fact {} (cite as [^{}]):\n- Extracted fact: {}\n- User-authored source observation: {}",
                         index + 1,
+                        citation_key,
                         fact,
                         source
                     )
@@ -738,19 +754,28 @@ Style:
 - Second person ("you", "your") refers to Noema/the assistant, not to the local human.
 - Preserve who said what: do not turn a preference about another speaker, tool, or assistant into a trait of the local human.
 - Omit sparse or awkward meta-preferences when they would make the biography sound strange.
-- Do not mention Noema, Mnemosyne, memory systems, records, extraction, citations, or model state in the prose.
+- Do not mention Noema, Mnemosyne, memory systems, records, extraction, or model state in the prose.
+- Every factual sentence or clause must end with the exact inline footnote marker for the fact or facts that support it, for example [^m0123456789abcdef].
+- Reuse a marker when the same fact supports multiple claims. Place multiple markers together when a claim combines facts.
+- Never invent, alter, renumber, or define a citation marker.
 
 Return Markdown only:
 - Start with a single H1 title.
 - Then write 1-3 compact lead paragraphs.
 - When facts support them, include H2 sections such as "Early life and education", "Career", "Projects", "Personal interests", or similarly natural biography headings.
 - Omit unsupported sections.
-- Do not include a References section, citations, or footnotes."#
+- Do not include a References section or footnote definitions; return inline footnote markers only."#
     )
 }
 
-fn article_from_cache(record: MemoryArticleCacheRecord) -> Option<GraphqlMemoryArticle> {
+fn article_from_cache(
+    record: MemoryArticleCacheRecord,
+    memories: &[crate::MnemosyneMemory],
+) -> Option<GraphqlMemoryArticle> {
     if record.article_markdown.trim().is_empty() {
+        return None;
+    }
+    if validate_memory_article_citations(&record.article_markdown, memories).is_err() {
         return None;
     }
     Some(markdown_to_memory_article(
@@ -767,6 +792,12 @@ fn memory_article_cache_is_recent(record: &MemoryArticleCacheRecord, now: Offset
         .unwrap_or(false)
 }
 
+fn memory_article_cache_has_current_format(record: &MemoryArticleCacheRecord) -> bool {
+    record
+        .fact_fingerprint
+        .starts_with(&format!("{MEMORY_ARTICLE_FORMAT_VERSION}:"))
+}
+
 fn fallback_memory_article(
     memories: &[crate::MnemosyneMemory],
     generated_at: Option<String>,
@@ -778,14 +809,16 @@ fn fallback_memory_article(
         format!("{title} is described by the currently available biographical facts.")
     };
     let mut markdown = format!("# {title}\n\n{lead}");
-    for fact in memories
-        .iter()
-        .filter_map(|memory| memory.memory.as_deref())
-        .map(str::trim)
-        .filter(|fact| !fact.is_empty())
-    {
+    for memory in memories {
+        let Some(fact) = memory.memory.as_deref().map(str::trim) else {
+            continue;
+        };
+        if fact.is_empty() {
+            continue;
+        }
         markdown.push_str("\n\n");
         markdown.push_str(&biographical_text_from_fact(fact));
+        markdown.push_str(&format!(" [^{}]", memory_citation_key(&memory.id)));
     }
     markdown_to_memory_article(&markdown, memories, false, generated_at)
 }
@@ -874,7 +907,63 @@ fn memory_fact_fingerprint(memories: &[crate::MnemosyneMemory]) -> String {
         .collect::<Vec<_>>();
     facts.sort();
     let digest = ring::digest::digest(&ring::digest::SHA256, facts.join("\u{1e}").as_bytes());
-    hex_digest(digest.as_ref())
+    format!(
+        "{MEMORY_ARTICLE_FORMAT_VERSION}:{}",
+        hex_digest(digest.as_ref())
+    )
+}
+
+pub(super) fn memory_citation_key(memory_id: &str) -> String {
+    let digest = ring::digest::digest(&ring::digest::SHA256, memory_id.as_bytes());
+    format!("m{}", &hex_digest(digest.as_ref())[..16])
+}
+
+fn validate_memory_article_citations(
+    markdown: &str,
+    memories: &[crate::MnemosyneMemory],
+) -> Result<()> {
+    let cited = article_citation_keys(markdown);
+    if memories.is_empty() {
+        return if cited.is_empty() {
+            Ok(())
+        } else {
+            Err(async_graphql::Error::new(
+                "generated memory article cited unavailable memories",
+            ))
+        };
+    }
+    let known = memories
+        .iter()
+        .map(|memory| memory_citation_key(&memory.id))
+        .collect::<HashSet<_>>();
+    if cited.is_empty() {
+        return Err(async_graphql::Error::new(
+            "generated memory article omitted required citations",
+        ));
+    }
+    if let Some(unknown) = cited.iter().find(|key| !known.contains(*key)) {
+        return Err(async_graphql::Error::new(format!(
+            "generated memory article used unknown citation {unknown}"
+        )));
+    }
+    Ok(())
+}
+
+fn article_citation_keys(markdown: &str) -> Vec<String> {
+    let mut keys = Vec::new();
+    let mut remaining = markdown;
+    while let Some(start) = remaining.find("[^") {
+        let after_start = &remaining[start + 2..];
+        let Some(end) = after_start.find(']') else {
+            break;
+        };
+        let key = &after_start[..end];
+        if !key.is_empty() {
+            keys.push(key.to_string());
+        }
+        remaining = &after_start[end + 1..];
+    }
+    keys
 }
 
 fn hex_digest(bytes: &[u8]) -> String {

@@ -7,6 +7,7 @@ type MemoryGraphArticle = MemoryGraph["article"];
 
 export type MemoryArticleEntry = {
   id: string;
+  citationKey: string;
   text: string;
   displayText: string;
   createdAt: string | null;
@@ -24,7 +25,21 @@ export type MemoryArticleEntry = {
 export type MemoryArticleSection = {
   id: string;
   title: string;
-  paragraphs: string[];
+  paragraphs: MemoryArticleParagraph[];
+};
+
+export type MemoryArticleParagraphPart =
+  | { kind: "text"; text: string }
+  | {
+      kind: "citation";
+      number: number;
+      anchorId: string;
+    };
+
+export type MemoryArticleParagraph = {
+  id: string;
+  plainText: string;
+  parts: MemoryArticleParagraphPart[];
 };
 
 export type MemoryInfoboxRow = {
@@ -35,6 +50,7 @@ export type MemoryInfoboxRow = {
 export type MemoryArticleReference = {
   id: string;
   label: string;
+  citationKeys: string[];
   memoryUpdatedAtLabel: string | null;
   sourceMessage: string | null;
   sourceMeta: string[];
@@ -51,7 +67,7 @@ export type MemoryArticleModel = {
   infoboxRows: MemoryInfoboxRow[];
   referenceCountLabel: string;
   leadText: string;
-  leadParagraphs: string[];
+  leadParagraphs: MemoryArticleParagraph[];
   isStub: boolean;
   stubText: string;
   sections: MemoryArticleSection[];
@@ -67,9 +83,15 @@ export function buildMemoryArticleModel(graph: MemoryGraph | undefined): MemoryA
   const totalMemories = graph?.pageInfo.total ?? entries.length;
   const lastUpdatedLabel = formatLatestUpdated(entries);
   const subjectName = inferSubjectName(entries) ?? subjectNameFromArticle(graph?.article);
-  const articleContent = parseArticleMarkdown(graph?.article, entries);
+  const allReferences = buildReferences(entries);
+  const citationContext = buildCitationContext(graph?.article?.markdown, allReferences, entries);
+  const articleContent = parseArticleMarkdown(
+    graph?.article,
+    entries,
+    citationContext.targetsByKey
+  );
   const title = graph?.article.title?.trim() || subjectName || FALLBACK_TITLE;
-  const references = buildReferences(entries);
+  const references = citationContext.references;
   const referenceCountLabel = formatCount(references.length, "citation", "citations");
 
   return {
@@ -115,6 +137,7 @@ function memoryEntryFromGraph(
   }
   return {
     id: entry.id,
+    citationKey: entry.citationKey,
     text: text.trim(),
     displayText: biographicalTextFromFact(text.trim()),
     createdAt: entry.createdAt || null,
@@ -209,6 +232,7 @@ function buildReferences(entries: MemoryArticleEntry[]): MemoryArticleReference[
     return {
       id: sourceKey || first?.id || `citation-${index + 1}`,
       label: referenceLabel(first),
+      citationKeys: citedFacts.map((fact) => fact.citationKey),
       memoryUpdatedAtLabel: timestamp ? formatDateTime(timestamp) : null,
       sourceMessage: first?.sourceMessageText ?? first?.sourceObservation ?? null,
       sourceMeta: sourceMetaLabels(first),
@@ -217,28 +241,86 @@ function buildReferences(entries: MemoryArticleEntry[]): MemoryArticleReference[
   });
 }
 
+type CitationTarget = {
+  number: number;
+  referenceId: string;
+};
+
+function buildCitationContext(
+  markdown: string | undefined,
+  allReferences: MemoryArticleReference[],
+  entries: MemoryArticleEntry[]
+): { references: MemoryArticleReference[]; targetsByKey: Map<string, CitationTarget> } {
+  const referenceByKey = new Map<string, MemoryArticleReference>();
+  for (const reference of allReferences) {
+    for (const citationKey of reference.citationKeys) {
+      referenceByKey.set(citationKey, reference);
+    }
+  }
+
+  const references: MemoryArticleReference[] = [];
+  const numberByReferenceId = new Map<string, number>();
+  const targetsByKey = new Map<string, CitationTarget>();
+  const register = (citationKey: string) => {
+    const reference = referenceByKey.get(citationKey);
+    if (!reference) {
+      return;
+    }
+    let number = numberByReferenceId.get(reference.id);
+    if (!number) {
+      references.push(reference);
+      number = references.length;
+      numberByReferenceId.set(reference.id, number);
+      for (const groupedKey of reference.citationKeys) {
+        targetsByKey.set(groupedKey, { number, referenceId: reference.id });
+      }
+    }
+  };
+
+  const citationKeys = markdown?.trim()
+    ? articleCitationKeys(markdown)
+    : entries.map((entry) => entry.citationKey);
+  for (const citationKey of citationKeys) {
+    register(citationKey);
+  }
+  return { references, targetsByKey };
+}
+
 function parseArticleMarkdown(
   article: MemoryGraphArticle | undefined,
-  entries: MemoryArticleEntry[]
-): { leadText: string; leadParagraphs: string[]; sections: MemoryArticleSection[] } {
+  entries: MemoryArticleEntry[],
+  targetsByKey: Map<string, CitationTarget>
+): {
+  leadText: string;
+  leadParagraphs: MemoryArticleParagraph[];
+  sections: MemoryArticleSection[];
+} {
   const markdown = article?.markdown?.trim();
   if (!markdown) {
-    return fallbackArticleContent(entries);
+    return fallbackArticleContent(entries, targetsByKey);
   }
 
   const sections: MemoryArticleSection[] = [];
-  const leadParagraphs: string[] = [];
+  const leadParagraphs: MemoryArticleParagraph[] = [];
+  const citationOccurrences = new Map<number, number>();
   let current: MemoryArticleSection | null = null;
   let paragraphLines: string[] = [];
+  let paragraphNumber = 0;
 
   const flushParagraph = () => {
     const paragraph = paragraphLines.join(" ").replace(/\s+/gu, " ").trim();
     if (paragraph) {
-      const stripped = stripInlineMarkdown(paragraph);
+      paragraphNumber += 1;
+      const parsed = articleParagraphFromMarkdown(
+        paragraph,
+        paragraphNumber,
+        targetsByKey,
+        citationOccurrences
+      );
       if (current) {
-        current.paragraphs.push(stripped);
+        current.paragraphs.push(parsed);
       } else {
-        leadParagraphs.push(stripped);
+        leadParagraphs.push(parsed);
       }
     }
     paragraphLines = [];
@@ -275,42 +357,128 @@ function parseArticleMarkdown(
   flushSection();
 
   if (leadParagraphs.length === 0 && sections.length === 0) {
-    return fallbackArticleContent(entries);
+    return fallbackArticleContent(entries, targetsByKey);
   }
-  const leadText =
+  const leadParagraph =
     leadParagraphs[0] ??
     sections[0]?.paragraphs[0] ??
-    "Little is currently known about the local human.";
+    articleParagraphFromMarkdown(
+      "Little is currently known about the local human.",
+      paragraphNumber + 1,
+      targetsByKey,
+      citationOccurrences
+    );
   return {
-    leadText,
-    leadParagraphs: leadParagraphs.length > 0 ? leadParagraphs : [leadText],
+    leadText: leadParagraph.plainText,
+    leadParagraphs: leadParagraphs.length > 0 ? leadParagraphs : [leadParagraph],
     sections
   };
 }
 
-function fallbackArticleContent(entries: MemoryArticleEntry[]): {
+function fallbackArticleContent(
+  entries: MemoryArticleEntry[],
+  targetsByKey: Map<string, CitationTarget>
+): {
   leadText: string;
-  leadParagraphs: string[];
+  leadParagraphs: MemoryArticleParagraph[];
   sections: MemoryArticleSection[];
 } {
+  const citationOccurrences = new Map<number, number>();
   if (entries.length === 0) {
     const leadText = "Little is currently known about the local human.";
+    const leadParagraph = articleParagraphFromMarkdown(
+      leadText,
+      1,
+      targetsByKey,
+      citationOccurrences
+    );
     return {
       leadText,
-      leadParagraphs: [leadText],
+      leadParagraphs: [leadParagraph],
       sections: []
     };
   }
-  const paragraphs = entries.map((entry) => entry.displayText);
-  const leadText = paragraphs[0] ?? "The local human is described by the available facts.";
+  const paragraphs = entries.map((entry, index) =>
+    articleParagraphFromMarkdown(
+      `${entry.displayText} [^${entry.citationKey}]`,
+      index + 1,
+      targetsByKey,
+      citationOccurrences
+    )
+  );
+  const leadParagraph = paragraphs[0] ??
+    articleParagraphFromMarkdown(
+      "The local human is described by the available facts.",
+      1,
+      targetsByKey,
+      citationOccurrences
+    );
   return {
-    leadText,
-    leadParagraphs: [leadText],
+    leadText: leadParagraph.plainText,
+    leadParagraphs: [leadParagraph],
     sections:
       paragraphs.length > 1
         ? [{ id: "biography", title: "Biography", paragraphs: paragraphs.slice(1) }]
         : []
   };
+}
+
+function articleParagraphFromMarkdown(
+  value: string,
+  paragraphNumber: number,
+  targetsByKey: Map<string, CitationTarget>,
+  citationOccurrences: Map<number, number>
+): MemoryArticleParagraph {
+  const normalized = stripInlineMarkdown(value);
+  const parts: MemoryArticleParagraphPart[] = [];
+  let cursor = 0;
+  let previousCitationReferenceId: string | null = null;
+  for (const match of normalized.matchAll(/\[\^([a-z0-9_-]+)\]/giu)) {
+    const index = match.index ?? cursor;
+    const text = normalized.slice(cursor, index);
+    if (text) {
+      parts.push({ kind: "text", text });
+      if (text.trim()) {
+        previousCitationReferenceId = null;
+      }
+    }
+    const target = match[1] ? targetsByKey.get(match[1]) : undefined;
+    if (target && previousCitationReferenceId !== target.referenceId) {
+      const occurrence = (citationOccurrences.get(target.number) ?? 0) + 1;
+      citationOccurrences.set(target.number, occurrence);
+      parts.push({
+        kind: "citation",
+        number: target.number,
+        anchorId: `citation-${target.number}-${occurrence}`
+      });
+      previousCitationReferenceId = target.referenceId;
+    }
+    cursor = index + match[0].length;
+  }
+  const trailingText = normalized.slice(cursor);
+  if (trailingText) {
+    parts.push({ kind: "text", text: trailingText });
+  }
+  const plainText = parts
+    .filter(
+      (part): part is Extract<MemoryArticleParagraphPart, { kind: "text" }> =>
+        part.kind === "text"
+    )
+    .map((part) => part.text)
+    .join("")
+    .replace(/\s+/gu, " ")
+    .trim();
+  return {
+    id: `article-paragraph-${paragraphNumber}`,
+    plainText,
+    parts: parts.length > 0 ? parts : [{ kind: "text", text: plainText }]
+  };
+}
+
+function articleCitationKeys(markdown: string): string[] {
+  return [...markdown.matchAll(/\[\^([a-z0-9_-]+)\]/giu)]
+    .map((match) => match[1])
+    .filter((key): key is string => Boolean(key));
 }
 
 function stripInlineMarkdown(value: string): string {
@@ -391,7 +559,10 @@ function referenceLabel(entry: MemoryArticleEntry | undefined): string {
   if (entry.sourceConversationId || entry.sourceTurnId || entry.sourceItemId) {
     return "Noema conversation";
   }
-  return entry.sourceTitle || sourceKindLabel(entry.sourceKind) || "Local memory source";
+  if (entry.sourceMessageText || entry.sourceObservation) {
+    return "Personal statement";
+  }
+  return sourceKindLabel(entry.sourceKind) || entry.sourceTitle || "Local memory source";
 }
 
 function sourceMetaLabels(entry: MemoryArticleEntry | undefined): string[] {

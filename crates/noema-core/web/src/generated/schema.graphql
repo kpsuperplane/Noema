@@ -1078,6 +1078,10 @@ type MemoryGraphMemoryEntry {
 	"""
 	id: String!
 	"""
+	Stable key used by generated article footnotes to cite this memory.
+	"""
+	citationKey: String!
+	"""
 	Source document id.
 	"""
 	documentId: String!
