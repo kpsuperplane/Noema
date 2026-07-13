@@ -1,5 +1,7 @@
 import * as React from "react";
-import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import { Button } from "@astryxdesign/core/Button";
+import { Dialog } from "@astryxdesign/core/Dialog";
+import { Icon } from "@astryxdesign/core/Icon";
 import * as stylex from "@stylexjs/stylex";
 
 const styles = stylex.create({
@@ -25,6 +27,12 @@ const styles = stylex.create({
     borderWidth: 0,
     cursor: "pointer",
     outline: "none"
+  },
+  closeRow: {
+    display: "flex",
+    justifyContent: "flex-end",
+    paddingBlock: 8,
+    paddingInline: 10
   },
   dialogBody: {
     minHeight: 0,
@@ -125,7 +133,16 @@ export function TextBubbleDialog({
       purpose="info"
       width={760}
     >
-      <DialogHeader hasDivider onOpenChange={onOpenChange} title={title} />
+      <div {...stylex.props(styles.closeRow)}>
+        <Button
+          icon={<Icon color="inherit" icon="close" />}
+          isIconOnly
+          label="Close"
+          onClick={() => onOpenChange(false)}
+          tooltip="Close"
+          variant="ghost"
+        />
+      </div>
       <div {...stylex.props(styles.dialogBody)}>{children}</div>
     </Dialog>
   );
