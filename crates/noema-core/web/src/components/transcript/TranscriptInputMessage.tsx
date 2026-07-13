@@ -1,19 +1,9 @@
+import * as React from "react";
 import * as stylex from "@stylexjs/stylex";
-import { TextCursorInput } from "lucide-react";
+import { ExpandableTextBubbleContent, TextBubbleDialog } from "./ExpandableTextBubble";
 import { TranscriptChatBubble } from "./TranscriptChatBubble";
 
 const styles = stylex.create({
-  content: {
-    display: "flex",
-    minWidth: 0,
-    alignItems: "flex-start",
-    gap: 8
-  },
-  icon: {
-    flexShrink: 0,
-    marginTop: 3,
-    color: "var(--noema-text-secondary)"
-  },
   text: {
     margin: 0,
     font: "inherit",
@@ -25,13 +15,21 @@ const styles = stylex.create({
 });
 
 export function TranscriptInputMessage({ text }: { text: string }) {
+  const [fullMessageOpen, setFullMessageOpen] = React.useState(false);
+  const [overflowing, setOverflowing] = React.useState(false);
+  const content = React.useMemo(() => formatInputContent(text), [text]);
+
   return (
-    <TranscriptChatBubble reserveAvatarSpace={false} role="input" showAvatar={false}>
-      <div {...stylex.props(styles.content)}>
-        <TextCursorInput aria-hidden="true" size={16} {...stylex.props(styles.icon)} />
-        <pre {...stylex.props(styles.text)}>{formatInputContent(text)}</pre>
-      </div>
-    </TranscriptChatBubble>
+    <>
+      <TranscriptChatBubble interactive={overflowing} reserveAvatarSpace={false} role="input" showAvatar={false}>
+        <ExpandableTextBubbleContent onOpen={() => setFullMessageOpen(true)} onOverflowChange={setOverflowing}>
+          <pre {...stylex.props(styles.text)}>{content}</pre>
+        </ExpandableTextBubbleContent>
+      </TranscriptChatBubble>
+      <TextBubbleDialog open={fullMessageOpen} title="System input" onOpenChange={setFullMessageOpen}>
+        <pre {...stylex.props(styles.text)}>{content}</pre>
+      </TextBubbleDialog>
+    </>
   );
 }
 

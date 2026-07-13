@@ -41,6 +41,17 @@ const styles = stylex.create({
     backgroundColor: "color-mix(in srgb, var(--noema-text-muted) 12%, var(--noema-surface-card))",
     color: "var(--noema-text-primary)"
   },
+  interactiveBubble: {
+    cursor: "pointer",
+    transitionDuration: "140ms",
+    transitionProperty: "box-shadow, filter",
+    ":hover": {
+      filter: "brightness(0.94)"
+    },
+    ":focus-within": {
+      boxShadow: "inset 0 0 0 2px var(--color-accent)"
+    }
+  },
   assistantBubble: {
     maxWidth: "100%"
   },
@@ -58,7 +69,8 @@ export function TranscriptChatBubble({
   role,
   showAvatar,
   reserveAvatarSpace = true,
-  variant = "message"
+  variant = "message",
+  interactive = false
 }: {
   children: React.ReactNode;
   group?: ChatBubbleGroup;
@@ -66,6 +78,7 @@ export function TranscriptChatBubble({
   showAvatar: boolean;
   reserveAvatarSpace?: boolean;
   variant?: TranscriptChatBubbleVariant;
+  interactive?: boolean;
 }) {
   const lane = role === "assistant" ? "assistant" : "human";
   const sender = role === "assistant" ? "assistant" : "user";
@@ -84,6 +97,7 @@ export function TranscriptChatBubble({
           variant === "message" && role === "user" && styles.userBubble,
           variant === "message" && role === "input" && styles.inputBubble,
           variant === "message" && role === "assistant" && styles.assistantBubble,
+          interactive && styles.interactiveBubble,
           variant === "typing" && styles.typingBubble
         )}
       >

@@ -4,6 +4,7 @@ import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
 import type { ProviderUsageDebug } from "./debugUsage";
+import { ExpandableTextBubbleContent, TextBubbleDialog } from "./ExpandableTextBubble";
 import { ProviderUsageDebugDialog } from "./ProviderUsageDebugDialog";
 import { TranscriptChatBubble } from "./TranscriptChatBubble";
 import type { ChatBubbleGroup } from "./renderModel";
@@ -76,29 +77,31 @@ export function Message({
   debugUsage?: ProviderUsageDebug | null;
 }) {
   const [debugOpen, setDebugOpen] = React.useState(false);
+  const [fullMessageOpen, setFullMessageOpen] = React.useState(false);
+  const [overflowing, setOverflowing] = React.useState(false);
   const bubble = (
     <TranscriptChatBubble
       group={group}
+      interactive={overflowing}
       reserveAvatarSpace={reserveAvatarSpace}
       role={role}
       showAvatar={showAvatar}
     >
-      <Markdown
-        autolink="gfm"
-        components={role === "user" ? userMarkdownComponents : undefined}
-        contentWidth="100%"
-        density="compact"
-        headingLevelStart={3}
-        isStreaming={animate}
-        xstyle={markdownXStyle(styles.markdown, role === "user" && styles.userMarkdown)}
-      >
-        {text}
-      </Markdown>
+      <ExpandableTextBubbleContent onOpen={() => setFullMessageOpen(true)} onOverflowChange={setOverflowing}>
+        <MessageMarkdown animate={animate} role={role} text={text} />
+      </ExpandableTextBubbleContent>
     </TranscriptChatBubble>
   );
 
   if (role !== "assistant") {
-    return bubble;
+    return (
+      <>
+        {bubble}
+        <TextBubbleDialog open={fullMessageOpen} title="Human message" onOpenChange={setFullMessageOpen}>
+          <MessageMarkdown animate={false} role={role} text={text} />
+        </TextBubbleDialog>
+      </>
+    );
   }
 
   return (
@@ -118,8 +121,27 @@ export function Message({
       >
         {bubble}
       </ContextMenu>
+      <TextBubbleDialog open={fullMessageOpen} title="Agent response" onOpenChange={setFullMessageOpen}>
+        <MessageMarkdown animate={false} role={role} text={text} />
+      </TextBubbleDialog>
       <ProviderUsageDebugDialog debug={debugUsage} open={debugOpen} onOpenChange={setDebugOpen} />
     </>
+  );
+}
+
+function MessageMarkdown({ animate, role, text }: { animate: boolean; role: "user" | "assistant"; text: string }) {
+  return (
+    <Markdown
+      autolink="gfm"
+      components={role === "user" ? userMarkdownComponents : undefined}
+      contentWidth="100%"
+      density="compact"
+      headingLevelStart={3}
+      isStreaming={animate}
+      xstyle={markdownXStyle(styles.markdown, role === "user" && styles.userMarkdown)}
+    >
+      {text}
+    </Markdown>
   );
 }
 

@@ -209,8 +209,10 @@ The next storage slice should stay small and concrete:
   pagination, and accessibility infrastructure. Persisted tool calls and results
   pair into the normal chat tool marker; model inputs, cumulative continuation
   context, bounded evidence, and semantic context checkpoints render as neutral
-  gray input bubbles containing their complete payload inline. Valid JSON is
-  normalized and pretty-printed within the bubble.
+  gray input bubbles containing their payload inline without a label or icon.
+  Valid JSON is normalized and pretty-printed. All transcript text bubbles cap
+  their inline preview at roughly six lines; overflowing content fades out and
+  opens the complete rendered message in a dialog when activated.
 - Memory is governed context, not hidden model state. Durable memory truth now
   belongs to local Mnemosyne, while Noema owns service lifecycle, configuration,
   live readiness proxying, provenance, UI, model routing, ingest diagnostics,
