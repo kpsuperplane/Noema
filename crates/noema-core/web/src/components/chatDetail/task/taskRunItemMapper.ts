@@ -202,15 +202,11 @@ function checkpointSystemEntry(
 }
 
 function persistedItemDetail(item: TaskRunItem): string {
-  const contentText = item.details ?? item.summary ?? null;
-  return JSON.stringify(
-    {
-      content_text: parseDetails(contentText),
-      payload: item.payload ?? null
-    },
-    null,
-    2
-  );
+  const contentText = (item.details ?? item.summary)?.trim();
+  const payloadText = jsonText(item.payload);
+  return [contentText, payloadText]
+    .filter((section): section is string => Boolean(section))
+    .join("\n\n");
 }
 
 function jsonText(value: unknown): string | null {
@@ -290,17 +286,6 @@ function parseJson(value: string | null | undefined): unknown {
     return JSON.parse(value);
   } catch {
     return undefined;
-  }
-}
-
-function parseDetails(value: string | null | undefined): unknown {
-  if (!value?.trim()) {
-    return undefined;
-  }
-  try {
-    return JSON.parse(value);
-  } catch {
-    return value;
   }
 }
 
