@@ -37,6 +37,11 @@ pub trait ModelProvider: Send + Sync {
         ProviderContextMetadata::default()
     }
 
+    /// Return the provider's supported response-continuation strategy.
+    fn response_continuation(&self, _model: Option<&str>) -> ProviderResponseContinuation {
+        ProviderResponseContinuation::default()
+    }
+
     /// Return native tool-calling capabilities for this provider/model.
     fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
         ProviderToolCapabilities::default()
@@ -78,6 +83,38 @@ pub struct ProviderContextMetadata {
     pub default_output_reserve_tokens: Option<u32>,
     /// Target summary size for compaction prompts.
     pub compact_summary_target_tokens: Option<u32>,
+}
+
+/// Provider strategy for continuing an earlier response without replaying its
+/// full input over the wire.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ProviderResponseContinuation {
+    /// The provider requires complete stateless input replay.
+    #[default]
+    Unsupported,
+    /// The provider accepts an opaque previous response identifier.
+    PreviousResponseId {
+        /// Whether the provider requires responses to be stored server-side
+        /// before they can be referenced by a later request.
+        store_response: bool,
+    },
+}
+
+impl ProviderResponseContinuation {
+    /// Return whether this strategy can continue using a previous response id.
+    #[must_use]
+    pub const fn supports_previous_response_id(self) -> bool {
+        matches!(self, Self::PreviousResponseId { .. })
+    }
+
+    /// Return whether requests must ask the provider to retain their response.
+    #[must_use]
+    pub const fn store_response(self) -> bool {
+        match self {
+            Self::Unsupported => false,
+            Self::PreviousResponseId { store_response } => store_response,
+        }
+    }
 }
 
 /// Input and options for a provider generation call.
@@ -407,6 +444,10 @@ pub struct GenerateOptions {
     pub require_noema_response: bool,
     /// Provider prompt-cache retention request when supported.
     pub prompt_cache_retention: Option<PromptCacheRetention>,
+    /// Opaque provider response id to continue from without replaying history.
+    pub previous_response_id: Option<String>,
+    /// Whether the provider should retain this response for later continuation.
+    pub store_response: bool,
 }
 
 /// Structured response returned by a model provider.

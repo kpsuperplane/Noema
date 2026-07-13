@@ -28,9 +28,9 @@ pub use contract::{
     GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall,
     GenerateToolCallInput, GenerateToolResultInput, ModelProvider, MultipleChoiceOption,
     MultipleChoiceSelectionMode, ParsedNoemaResponse, PromptCacheRetention,
-    ProviderContextMetadata, ProviderError, ReasoningEffort, TokenUsage, noema_response_from_text,
-    output_items_from_text, required_noema_response_from_text,
-    required_noema_response_from_text_with_native_tool_calls,
+    ProviderContextMetadata, ProviderError, ProviderResponseContinuation, ReasoningEffort,
+    TokenUsage, noema_response_from_text, output_items_from_text,
+    required_noema_response_from_text, required_noema_response_from_text_with_native_tool_calls,
 };
 
 pub use capabilities::{

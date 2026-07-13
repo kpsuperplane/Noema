@@ -498,6 +498,7 @@ impl OpenAiChatCompletionRequest {
                 reasoning_effort: config.reasoning_effort,
                 require_noema_response: false,
                 prompt_cache_retention: None,
+                ..GenerateOptions::default()
             },
             tools,
             tool_choice: self.tool_choice.map_or(NoemaToolChoice::Auto, Into::into),

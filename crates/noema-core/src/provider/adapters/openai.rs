@@ -8,8 +8,8 @@ use crate::{
     SystemErrorLogger,
     provider::{
         DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, ModelProvider,
-        ProviderError, ProviderToolCapabilities, ProviderToolFallbackMode,
-        ProviderToolSchemaDialect,
+        ProviderError, ProviderResponseContinuation, ProviderToolCapabilities,
+        ProviderToolFallbackMode, ProviderToolSchemaDialect,
     },
 };
 use reqwest::header::{HeaderMap, HeaderName};
@@ -173,6 +173,12 @@ impl ModelProvider for OpenAiProvider {
             prompt_cache_key: true,
             encrypted_reasoning: true,
             fallback_mode: ProviderToolFallbackMode::NativeRequired,
+        }
+    }
+
+    fn response_continuation(&self, _model: Option<&str>) -> ProviderResponseContinuation {
+        ProviderResponseContinuation::PreviousResponseId {
+            store_response: true,
         }
     }
 
@@ -580,6 +586,7 @@ mod tests {
         let provider = test_provider("http://127.0.0.1:1".to_string());
 
         let capabilities = provider.tool_capabilities(Some("gpt-test"));
+        let continuation = provider.response_continuation(Some("gpt-test"));
 
         assert!(capabilities.native_tools);
         assert!(capabilities.parallel_tool_calls);
@@ -595,6 +602,12 @@ mod tests {
         assert_eq!(
             capabilities.fallback_mode,
             ProviderToolFallbackMode::NativeRequired
+        );
+        assert_eq!(
+            continuation,
+            ProviderResponseContinuation::PreviousResponseId {
+                store_response: true
+            }
         );
     }
 

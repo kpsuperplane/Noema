@@ -7,7 +7,7 @@ use crate::{
     GenerateResponse, GenerateResponseItem,
     provider::{
         GenerateInputItem, GenerateReasoningInput, GenerateStreamEvent, GenerateToolCallInput,
-        GenerateToolResultInput, ProviderError, ReasoningEffort,
+        GenerateToolResultInput, ProviderError, ProviderResponseContinuation, ReasoningEffort,
     },
 };
 
@@ -30,11 +30,18 @@ pub(super) struct ContinuationCheckpoint {
     pub(super) retained_item_count: usize,
 }
 
+/// Minimal provider request state for the next continuation round.
+pub(super) struct ProviderContinuationInput {
+    pub(super) input: GenerateInput,
+    pub(super) previous_response_id: Option<String>,
+}
+
 /// Complete ordered model context for one tool-using execution.
 #[derive(Debug, Clone)]
 pub(super) struct ContinuationContext {
     checkpoint: Option<String>,
     items: Vec<GenerateInputItem>,
+    previous_response_id: Option<String>,
     round_ends: Vec<usize>,
     pending_call_ids: VecDeque<String>,
     next_synthetic_call: usize,
@@ -70,6 +77,7 @@ impl ContinuationContext {
         Self {
             checkpoint: None,
             items,
+            previous_response_id: None,
             round_ends: Vec::new(),
             pending_call_ids: VecDeque::new(),
             next_synthetic_call: 0,
@@ -79,6 +87,7 @@ impl ContinuationContext {
     /// Append one provider response exactly once, preserving reasoning, text,
     /// and tool calls in their provider-visible order.
     pub(super) fn append_response(&mut self, response: &GenerateResponse) {
+        self.previous_response_id.clone_from(&response.response_id);
         self.items
             .extend(response.reasoning_items.iter().filter_map(|item| {
                 item.encrypted_content
@@ -147,6 +156,52 @@ impl ContinuationContext {
             GenerateInput::Items(items)
         } else {
             GenerateInput::Text(render_items(&items))
+        }
+    }
+
+    /// Return only the tool outputs added since the most recent provider
+    /// response. Providers that retain response state already have the calls
+    /// and earlier history, so replaying them would duplicate context.
+    pub(super) fn provider_continuation_delta(&self) -> GenerateInput {
+        let mut results = self
+            .items
+            .iter()
+            .rev()
+            .take_while(|item| matches!(item, GenerateInputItem::ToolResult(_)))
+            .filter_map(|item| match item {
+                GenerateInputItem::ToolResult(result) => Some(result.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        results.reverse();
+        GenerateInput::NativeToolResults(results)
+    }
+
+    /// Prefer a provider-side response chain when both the provider and the
+    /// latest response support it; otherwise return complete local replay.
+    pub(super) fn next_provider_input(
+        &self,
+        native_history: bool,
+        strategy: ProviderResponseContinuation,
+    ) -> ProviderContinuationInput {
+        let mut previous_response_id = strategy
+            .supports_previous_response_id()
+            .then(|| self.previous_response_id.clone())
+            .flatten();
+        let input = if previous_response_id.is_some() {
+            let delta = self.provider_continuation_delta();
+            if delta.is_empty() {
+                previous_response_id = None;
+                self.provider_input(native_history)
+            } else {
+                delta
+            }
+        } else {
+            self.provider_input(native_history)
+        };
+        ProviderContinuationInput {
+            input,
+            previous_response_id,
         }
     }
 
@@ -341,7 +396,7 @@ mod tests {
         daemon::runtime::local_tools::LocalToolResult,
         provider::{
             GenerateReasoningItem, GenerateToolCall, ProviderContextMetadata,
-            ProviderToolCapabilities,
+            ProviderResponseContinuation, ProviderToolCapabilities,
         },
     };
     use serde_json::json;
@@ -442,6 +497,35 @@ mod tests {
         let rendered = GenerateInput::Items(items).render_for_token_count();
         assert!(rendered.contains("450,000 black bears"));
         assert!(rendered.contains("https://example.test/official"));
+    }
+
+    #[test]
+    fn response_chaining_uses_only_latest_tool_outputs() {
+        let mut context = ContinuationContext::new("Research bears");
+        let mut response = GenerateResponse::final_text("Checking.", "test", "test");
+        response.response_id = Some("resp_1".to_string());
+        context.append_response(&response);
+        context.append_results(&[gateway_result(
+            "call_1",
+            "https://example.test/official",
+            "450,000 black bears",
+        )]);
+        context.finish_round();
+
+        let continuation = context.next_provider_input(
+            true,
+            ProviderResponseContinuation::PreviousResponseId {
+                store_response: true,
+            },
+        );
+
+        assert_eq!(continuation.previous_response_id.as_deref(), Some("resp_1"));
+        let GenerateInput::NativeToolResults(results) = continuation.input else {
+            panic!("expected native tool-result delta");
+        };
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].call_id, "call_1");
+        assert_eq!(results[0].payload["content"], "450,000 black bears");
     }
 
     #[tokio::test]

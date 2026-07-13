@@ -6,8 +6,8 @@ use crate::{
         AssistantTextPhase, GenerateActionItem, GenerateInput, GenerateInputItem,
         GenerateReasoningItem, GenerateRequest, GenerateResponse, GenerateResponseItem,
         GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall, MultipleChoiceOption,
-        MultipleChoiceSelectionMode, ProviderError, ProviderToolCapabilities,
-        ProviderToolFallbackMode, ProviderToolSchemaDialect,
+        MultipleChoiceSelectionMode, ProviderError, ProviderResponseContinuation,
+        ProviderToolCapabilities, ProviderToolFallbackMode, ProviderToolSchemaDialect,
     },
     {ConversationItemKind, ConversationItemStatus, ReplayMode},
 };
@@ -3162,6 +3162,9 @@ async fn native_capable_provider_continuation_uses_native_tool_result_input() {
                 prompt_cache_key: false,
                 encrypted_reasoning: false,
                 fallback_mode: ProviderToolFallbackMode::NativeRequired,
+            })
+            .with_response_continuation(ProviderResponseContinuation::PreviousResponseId {
+                store_response: false,
             }),
     );
     let (handle, _store, _server) = spawn_runtime_with_memory_provider(
@@ -3216,12 +3219,78 @@ async fn native_capable_provider_continuation_uses_native_tool_result_input() {
     assert_eq!(results[0].provider_name.as_deref(), Some("search_memory"));
     assert_eq!(results[0].arguments["arguments"]["query"], "trains");
     assert!(results[0].success);
+    assert_eq!(
+        requests[1].options.previous_response_id.as_deref(),
+        Some("resp_1")
+    );
+    assert!(!requests[1].options.store_response);
     assert!(
         !requests[1]
             .input
             .render_for_token_count()
             .contains("NOEMA_LOCAL_TOOL_RESULT")
     );
+}
+
+#[tokio::test]
+async fn rejected_response_chain_falls_back_to_complete_local_replay() {
+    let provider = Arc::new(
+        RecordingFakeProvider::new("codex", FakeCodexScenario::NativeSearchMemoryContinuation)
+            .with_tool_capabilities(ProviderToolCapabilities {
+                native_tools: true,
+                parallel_tool_calls: true,
+                tool_choice: true,
+                schema_dialect: crate::provider::ProviderToolSchemaDialect::OpenAiResponses,
+                strict_schema: false,
+                custom_tools: false,
+                native_tool_results: true,
+                prompt_cache_retention: true,
+                prompt_cache_key: false,
+                encrypted_reasoning: false,
+                fallback_mode: ProviderToolFallbackMode::NativeRequired,
+            })
+            .with_response_continuation(ProviderResponseContinuation::PreviousResponseId {
+                store_response: false,
+            })
+            .rejecting_first_chained_request(),
+    );
+    let (handle, _store, _server) = spawn_runtime_with_memory_provider(
+        provider.clone(),
+        json!({"results": [{"memory": "Kevin likes trains."}]}),
+    )
+    .await;
+    let conversation_id = handle
+        .start_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+
+    let items = collect_turn(
+        &handle,
+        conversation_id,
+        "What do you remember about trains?".to_string(),
+    )
+    .await
+    .expect("turn succeeds after replay fallback");
+    handle.shutdown().await;
+
+    assert!(items.iter().any(|item| matches!(
+        item,
+        TurnTranscriptItem::AssistantText { text } if text == "native tool result received"
+    )));
+    let requests = provider.requests();
+    assert_eq!(requests.len(), 3);
+    assert_eq!(
+        requests[1].options.previous_response_id.as_deref(),
+        Some("resp_1")
+    );
+    assert!(matches!(
+        requests[1].input,
+        GenerateInput::NativeToolResults(_)
+    ));
+    assert!(requests[2].options.previous_response_id.is_none());
+    assert!(matches!(requests[2].input, GenerateInput::Items(_)));
+    assert_eq!(input_tool_results(&requests[2].input).len(), 1);
 }
 
 #[tokio::test]
@@ -4667,6 +4736,8 @@ struct RecordingFakeProvider {
     inner: FakeCodexProvider,
     requests: Mutex<Vec<GenerateRequest>>,
     tool_capabilities: ProviderToolCapabilities,
+    response_continuation: ProviderResponseContinuation,
+    reject_chained_once: Mutex<bool>,
 }
 
 impl RecordingFakeProvider {
@@ -4679,11 +4750,26 @@ impl RecordingFakeProvider {
                 fallback_mode: ProviderToolFallbackMode::BuiltinOnlyEnvelope,
                 ..ProviderToolCapabilities::default()
             },
+            response_continuation: ProviderResponseContinuation::Unsupported,
+            reject_chained_once: Mutex::new(false),
         }
     }
 
     fn with_tool_capabilities(mut self, tool_capabilities: ProviderToolCapabilities) -> Self {
         self.tool_capabilities = tool_capabilities;
+        self
+    }
+
+    fn with_response_continuation(
+        mut self,
+        response_continuation: ProviderResponseContinuation,
+    ) -> Self {
+        self.response_continuation = response_continuation;
+        self
+    }
+
+    fn rejecting_first_chained_request(self) -> Self {
+        *self.reject_chained_once.lock().expect("reject chained") = true;
         self
     }
 
@@ -5539,18 +5625,37 @@ impl super::runtime::RuntimeModelProvider for RecordingFakeProvider {
         self.tool_capabilities
     }
 
+    fn response_continuation(&self, _model: Option<&str>) -> ProviderResponseContinuation {
+        self.response_continuation
+    }
+
     fn generate_streaming<'a>(
         &'a self,
         request: GenerateRequest,
         on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
     ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
         Box::pin(async move {
-            self.requests
-                .lock()
-                .expect("requests")
-                .push(request.clone());
+            let request_number = {
+                let mut requests = self.requests.lock().expect("requests");
+                requests.push(request.clone());
+                requests.len()
+            };
+            if request.options.previous_response_id.is_some() {
+                let mut reject = self.reject_chained_once.lock().expect("reject chained");
+                if *reject {
+                    *reject = false;
+                    return Err(ProviderError::ApiError {
+                        status: 404,
+                        message: "previous response not found".to_string(),
+                        request_id: None,
+                    });
+                }
+            }
             let mut response = self.inner.generate_response(request)?;
             response.provider = self.provider_kind.clone();
+            if self.response_continuation.supports_previous_response_id() {
+                response.response_id = Some(format!("resp_{request_number}"));
+            }
             for (response_index, response_item) in response.responses.iter().enumerate() {
                 if let GenerateResponseItem::Text { text, .. } = response_item {
                     on_event(GenerateStreamEvent::AssistantTextDelta {

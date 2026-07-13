@@ -17,8 +17,9 @@ use crate::{
     SystemErrorLogger,
     provider::{
         DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, GenerateStreamEvent,
-        ModelProvider, ProviderError, ProviderToolCapabilities, ProviderToolFallbackMode,
-        ProviderToolSchemaDialect, model_catalog::latest_codex_client_version,
+        ModelProvider, ProviderError, ProviderResponseContinuation, ProviderToolCapabilities,
+        ProviderToolFallbackMode, ProviderToolSchemaDialect,
+        model_catalog::latest_codex_client_version,
     },
 };
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue, USER_AGENT};
@@ -329,6 +330,12 @@ impl ModelProvider for CodexResponsesProvider {
         }
     }
 
+    fn response_continuation(&self, _model: Option<&str>) -> ProviderResponseContinuation {
+        ProviderResponseContinuation::PreviousResponseId {
+            store_response: false,
+        }
+    }
+
     async fn generate(&self, request: GenerateRequest) -> Result<GenerateResponse, ProviderError> {
         self.generate_with_events(request, &mut |_| {}).await
     }
@@ -432,6 +439,7 @@ mod tests {
         .expect("provider");
 
         let capabilities = provider.tool_capabilities(Some("gpt-test"));
+        let continuation = provider.response_continuation(Some("gpt-test"));
 
         assert!(capabilities.native_tools);
         assert!(capabilities.parallel_tool_calls);
@@ -446,6 +454,12 @@ mod tests {
         assert_eq!(
             capabilities.schema_dialect,
             ProviderToolSchemaDialect::OpenAiResponses
+        );
+        assert_eq!(
+            continuation,
+            ProviderResponseContinuation::PreviousResponseId {
+                store_response: false
+            }
         );
         assert_eq!(
             capabilities.fallback_mode,

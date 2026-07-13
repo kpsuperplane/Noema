@@ -7,7 +7,8 @@ use crate::{
     provider::adapters::codex_responses::{CodexProviderConfig, CodexResponsesProvider},
     provider::{
         GenerateRequest, GenerateResponse, GenerateStreamEvent, ModelProvider,
-        ProviderContextMetadata, ProviderError, ProviderToolCapabilities,
+        ProviderContextMetadata, ProviderError, ProviderResponseContinuation,
+        ProviderToolCapabilities,
     },
 };
 use tokio::sync::{mpsc, oneshot};
@@ -28,6 +29,11 @@ pub trait RuntimeModelProvider: std::fmt::Debug + Send + Sync {
     /// Return context metadata for an optional model override.
     fn context_metadata(&self, _model: Option<&str>) -> ProviderContextMetadata {
         ProviderContextMetadata::default()
+    }
+
+    /// Return the provider's response-continuation strategy.
+    fn response_continuation(&self, _model: Option<&str>) -> ProviderResponseContinuation {
+        ProviderResponseContinuation::default()
     }
 
     /// Return provider tool capabilities for an optional model override.
@@ -64,6 +70,10 @@ where
 
     fn context_metadata(&self, model: Option<&str>) -> ProviderContextMetadata {
         ModelProvider::context_metadata(self, model)
+    }
+
+    fn response_continuation(&self, model: Option<&str>) -> ProviderResponseContinuation {
+        ModelProvider::response_continuation(self, model)
     }
 
     fn tool_capabilities(&self, model: Option<&str>) -> ProviderToolCapabilities {

@@ -168,10 +168,11 @@ The next storage slice should stay small and concrete:
   runtime's prompt, provider continuation, progress audit, repetition detection,
   tool dispatch, and finalization primitives while replacing interactive user
   input with typed terminal contracts: `task.submit_result`,
-  `task.submit_review`, and `task.report_blocked`. Every continuation repeats the
-  complete ordered provider context—original input, encrypted reasoning,
-  assistant output, tool calls, and tool results—and only compacts old rounds
-  through a same-model semantic checkpoint near the provider input limit.
+  `task.submit_review`, and `task.report_blocked`. Response-capable providers
+  continue foreground and background tool rounds with `previous_response_id`
+  plus only the latest tool outputs, while Noema retains the complete ordered
+  context locally for audit, compaction, and automatic stateless replay when a
+  provider does not support chaining or rejects a retained response id.
   Revision executors receive the exact prior submission and reviewer verdict,
   criterion evidence, and feedback, while reviewer inspection targets the
   executor run linked to the submission instead of the reviewer run itself.

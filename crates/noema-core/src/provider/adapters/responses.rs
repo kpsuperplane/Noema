@@ -30,6 +30,9 @@ pub struct ResponsesRequest {
     /// Optional system/developer instructions.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instructions: Option<String>,
+    /// Opaque id of the response whose provider-side context should be reused.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_response_id: Option<String>,
     /// Optional maximum output token budget.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_output_tokens: Option<u32>,
@@ -111,12 +114,17 @@ impl ResponsesRequest {
         let has_tools = !tool_names.tools.is_empty();
         let body = Self {
             model,
-            input: ResponsesInput::from_generate(&request.input, profile.input_shape),
+            input: ResponsesInput::from_generate(
+                &request.input,
+                profile.input_shape,
+                request.options.previous_response_id.is_some(),
+            ),
             instructions: request
                 .instructions
                 .as_deref()
                 .filter(|instructions| !instructions.trim().is_empty())
                 .map(ToString::to_string),
+            previous_response_id: request.options.previous_response_id.clone(),
             max_output_tokens: profile
                 .forward_max_output_tokens
                 .then_some(request.options.max_output_tokens)
@@ -142,7 +150,7 @@ impl ResponsesRequest {
             prompt_cache_key: prompt_cache_key_from_conversation_id(
                 request.conversation_id.as_deref(),
             ),
-            store: false,
+            store: request.options.store_response,
             prompt_cache_retention: profile
                 .forward_prompt_cache_retention
                 .then_some(request.options.prompt_cache_retention)
@@ -424,12 +432,19 @@ pub enum ResponsesInputShape {
 impl ResponsesInput {
     /// Lower provider-neutral input to the requested Responses wire shape.
     #[must_use]
-    pub fn from_generate(value: &GenerateInput, shape: ResponsesInputShape) -> Self {
+    pub fn from_generate(
+        value: &GenerateInput,
+        shape: ResponsesInputShape,
+        continuing_response: bool,
+    ) -> Self {
         if let (GenerateInput::Text(text), ResponsesInputShape::MessageArray) = (value, shape) {
             return Self::Items(vec![ResponsesInputItem::Message(ResponsesInputMessage {
                 role: "user",
                 content: text.clone(),
             })]);
+        }
+        if let (GenerateInput::NativeToolResults(results), true) = (value, continuing_response) {
+            return Self::Items(results.iter().map(ResponsesInputItem::from).collect());
         }
         Self::from(value)
     }
@@ -1576,6 +1591,41 @@ mod tests {
         assert_eq!(output["provider_name"], "mcp_x2e_docs_x3a_read");
         assert_eq!(output["success"], true);
         assert_eq!(output["payload"]["title"], "Docs");
+    }
+
+    #[test]
+    fn chained_response_sends_only_new_tool_outputs() {
+        let mut request = GenerateRequest {
+            input: GenerateInput::NativeToolResults(vec![
+                crate::provider::GenerateToolResultInput {
+                    id: Some("item_1".to_string()),
+                    call_id: "call_1".to_string(),
+                    name: "search_memory".to_string(),
+                    provider_name: None,
+                    arguments: serde_json::json!({"query": "trains"}),
+                    success: true,
+                    payload: serde_json::json!({"matches": []}),
+                },
+            ]),
+            ..GenerateRequest::text("unused")
+        };
+        request.options.previous_response_id = Some("resp_previous".to_string());
+        request.options.store_response = true;
+
+        let (body, _) = ResponsesRequest::from_generate(
+            &request,
+            "gpt-test".to_string(),
+            None,
+            OPENAI_RESPONSES_PROFILE,
+        )
+        .expect("chained request");
+        let value = serde_json::to_value(body).expect("serialize chained request");
+
+        assert_eq!(value["previous_response_id"], "resp_previous");
+        assert_eq!(value["store"], true);
+        assert_eq!(value["input"].as_array().map(Vec::len), Some(1));
+        assert_eq!(value["input"][0]["type"], "function_call_output");
+        assert_eq!(value["input"][0]["call_id"], "call_1");
     }
 
     #[test]

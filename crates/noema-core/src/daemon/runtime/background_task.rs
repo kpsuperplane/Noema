@@ -80,6 +80,7 @@ impl CodexRuntimeActor {
         let deadline = tokio::time::Instant::now() + max_active_duration;
         let provider = self.provider_for_kind(&request.provider_kind)?;
         let capabilities = provider.tool_capabilities(request.model.as_deref());
+        let response_continuation = provider.response_continuation(request.model.as_deref());
         let model_tools =
             build_model_tools_for_role(&self.store, request.role, false, capabilities)
                 .await
@@ -112,6 +113,7 @@ impl CodexRuntimeActor {
                         require_noema_response: true,
                         reasoning_effort: request.reasoning_effort,
                         max_output_tokens: Some(8_000),
+                        store_response: response_continuation.store_response(),
                         ..GenerateOptions::default()
                     },
                     tools: model_tools.native.clone(),
@@ -515,31 +517,35 @@ impl CodexRuntimeActor {
                     )
                     .await;
             }
-            let input = context.provider_input(capabilities.native_tool_results);
+            let continuation_input = context
+                .next_provider_input(capabilities.native_tool_results, response_continuation);
             let instructions = build_role_tool_result_continuation_system_prompt(
                 &request.instructions,
                 &request.input,
                 &render_tool_names(&model_tools),
             );
-            let continuation_response = self
+            let continuation_request = GenerateRequest {
+                conversation_id: Some(conversation_id.clone()),
+                model: request.model.clone(),
+                input: continuation_input.input,
+                instructions: Some(instructions.clone()),
+                options: GenerateOptions {
+                    require_noema_response: true,
+                    reasoning_effort: request.reasoning_effort,
+                    max_output_tokens: Some(8_000),
+                    previous_response_id: continuation_input.previous_response_id.clone(),
+                    store_response: response_continuation.store_response(),
+                    ..GenerateOptions::default()
+                },
+                tools: model_tools.native.clone(),
+                tool_choice: Default::default(),
+                parallel_tool_calls: !model_tools.native.is_empty()
+                    && capabilities.parallel_tool_calls,
+            };
+            let mut continuation_response = self
                 .generate_task_provider_round(
                     &provider,
-                    GenerateRequest {
-                        conversation_id: Some(conversation_id.clone()),
-                        model: request.model.clone(),
-                        input,
-                        instructions: Some(instructions),
-                        options: GenerateOptions {
-                            require_noema_response: true,
-                            reasoning_effort: request.reasoning_effort,
-                            max_output_tokens: Some(8_000),
-                            ..GenerateOptions::default()
-                        },
-                        tools: model_tools.native.clone(),
-                        tool_choice: Default::default(),
-                        parallel_tool_calls: !model_tools.native.is_empty()
-                            && capabilities.parallel_tool_calls,
-                    },
+                    continuation_request,
                     &request.run_id,
                     &request.task_id,
                     &request.lease_token,
@@ -549,6 +555,39 @@ impl CodexRuntimeActor {
                     &request.task_subscriptions,
                 )
                 .await;
+            if matches!(&continuation_response, Err(DaemonError::Provider(_)))
+                && continuation_input.previous_response_id.is_some()
+            {
+                continuation_response = self
+                    .generate_task_provider_round(
+                        &provider,
+                        GenerateRequest {
+                            conversation_id: Some(conversation_id.clone()),
+                            model: request.model.clone(),
+                            input: context.provider_input(capabilities.native_tool_results),
+                            instructions: Some(instructions),
+                            options: GenerateOptions {
+                                require_noema_response: true,
+                                reasoning_effort: request.reasoning_effort,
+                                max_output_tokens: Some(8_000),
+                                store_response: response_continuation.store_response(),
+                                ..GenerateOptions::default()
+                            },
+                            tools: model_tools.native.clone(),
+                            tool_choice: Default::default(),
+                            parallel_tool_calls: !model_tools.native.is_empty()
+                                && capabilities.parallel_tool_calls,
+                        },
+                        &request.run_id,
+                        &request.task_id,
+                        &request.lease_token,
+                        continuation_step as i64,
+                        deadline,
+                        &request.cancellation,
+                        &request.task_subscriptions,
+                    )
+                    .await;
+            }
             response = match continuation_response {
                 Ok(response) => response,
                 Err(error) if is_wall_time_error(&error) => {
@@ -599,28 +638,35 @@ impl CodexRuntimeActor {
             ));
         }
         let instructions = build_task_finalization_prompt(request.role, reason, &request.input);
-        let mut response = self
+        let response_continuation = provider.response_continuation(request.model.as_deref());
+        let continuation_input = context.next_provider_input(
+            provider
+                .tool_capabilities(request.model.as_deref())
+                .native_tool_results,
+            response_continuation,
+        );
+        let chained = continuation_input.previous_response_id.is_some();
+        let finalization_request = GenerateRequest {
+            conversation_id: Some(conversation_id.to_string()),
+            model: request.model.clone(),
+            input: continuation_input.input,
+            instructions: Some(instructions.clone()),
+            options: GenerateOptions {
+                require_noema_response: true,
+                reasoning_effort: request.reasoning_effort,
+                max_output_tokens: Some(8_000),
+                previous_response_id: continuation_input.previous_response_id,
+                store_response: response_continuation.store_response(),
+                ..GenerateOptions::default()
+            },
+            tools: terminal_tools.clone(),
+            tool_choice: Default::default(),
+            parallel_tool_calls: false,
+        };
+        let mut finalization_result = self
             .generate_task_provider_round(
                 provider,
-                GenerateRequest {
-                    conversation_id: Some(conversation_id.to_string()),
-                    model: request.model.clone(),
-                    input: context.provider_input(
-                        provider
-                            .tool_capabilities(request.model.as_deref())
-                            .native_tool_results,
-                    ),
-                    instructions: Some(instructions),
-                    options: GenerateOptions {
-                        require_noema_response: true,
-                        reasoning_effort: request.reasoning_effort,
-                        max_output_tokens: Some(8_000),
-                        ..GenerateOptions::default()
-                    },
-                    tools: terminal_tools.clone(),
-                    tool_choice: Default::default(),
-                    parallel_tool_calls: false,
-                },
+                finalization_request,
                 &request.run_id,
                 &request.task_id,
                 &request.lease_token,
@@ -629,7 +675,42 @@ impl CodexRuntimeActor {
                 &request.cancellation,
                 &request.task_subscriptions,
             )
-            .await?;
+            .await;
+        if chained && matches!(&finalization_result, Err(DaemonError::Provider(_))) {
+            finalization_result = self
+                .generate_task_provider_round(
+                    provider,
+                    GenerateRequest {
+                        conversation_id: Some(conversation_id.to_string()),
+                        model: request.model.clone(),
+                        input: context.provider_input(
+                            provider
+                                .tool_capabilities(request.model.as_deref())
+                                .native_tool_results,
+                        ),
+                        instructions: Some(instructions),
+                        options: GenerateOptions {
+                            require_noema_response: true,
+                            reasoning_effort: request.reasoning_effort,
+                            max_output_tokens: Some(8_000),
+                            store_response: response_continuation.store_response(),
+                            ..GenerateOptions::default()
+                        },
+                        tools: terminal_tools.clone(),
+                        tool_choice: Default::default(),
+                        parallel_tool_calls: false,
+                    },
+                    &request.run_id,
+                    &request.task_id,
+                    &request.lease_token,
+                    request.execution_policy.max_provider_continuations,
+                    deadline,
+                    &request.cancellation,
+                    &request.task_subscriptions,
+                )
+                .await;
+        }
+        let mut response = finalization_result?;
         add_usage(&mut aggregate_usage, response.usage.as_ref());
         response.usage = aggregate_usage;
         let terminal_calls = response

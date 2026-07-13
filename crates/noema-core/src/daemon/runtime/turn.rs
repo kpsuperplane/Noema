@@ -11,7 +11,13 @@ use crate::{
 };
 use serde::Deserialize;
 use serde_json::json;
-use std::collections::HashSet;
+use std::{
+    collections::HashSet,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 use tokio::sync::mpsc;
 
 use super::{
@@ -568,6 +574,7 @@ impl CodexRuntimeActor {
         );
         let provider = self.provider_for_kind(&conversation.provider_kind)?;
         let tool_capabilities = provider.tool_capabilities(conversation.model.as_deref());
+        let response_continuation = provider.response_continuation(conversation.model.as_deref());
         let agent_identity = self
             .agent_identity_for_conversation(&conversation_id)
             .await?;
@@ -906,6 +913,7 @@ impl CodexRuntimeActor {
                         reasoning_effort: conversation.reasoning_effort,
                         require_noema_response: true,
                         prompt_cache_retention: prompt_cache_retention_for(tool_capabilities),
+                        store_response: response_continuation.store_response(),
                         ..GenerateOptions::default()
                     },
                     tools: model_tools.native.clone(),
@@ -1360,8 +1368,12 @@ impl CodexRuntimeActor {
             let continuation_agent_identity =
                 agent_identity_after_local_tools(&turn.agent_identity, &all_local_tool_results);
             let continuation_result_count = continuation_tool_results.len();
-            let continuation_input =
-                continuation_context.provider_input(turn.tool_capabilities.native_tool_results);
+            let provider = self.provider_for_kind(&turn.provider_kind)?;
+            let response_continuation = provider.response_continuation(turn.model.as_deref());
+            let continuation_input = continuation_context.next_provider_input(
+                turn.tool_capabilities.native_tool_results,
+                response_continuation,
+            );
             let continuation_instructions = build_local_tool_result_continuation_system_prompt(
                 &turn.conversation_id,
                 turn.turn_index,
@@ -1391,7 +1403,8 @@ impl CodexRuntimeActor {
             let continuation_stream_id =
                 assistant_stream_id(&turn.turn_id, &continuation_stream_suffix);
             let continuation_output_base = next_output_index;
-            let mut continuation_stream_seen = false;
+            let continuation_stream_seen = Arc::new(AtomicBool::new(false));
+            let continuation_stream_seen_for_event = Arc::clone(&continuation_stream_seen);
             let mut continuation_assistant_delta_seen = false;
             let mut continuation_tool_start_events = Vec::new();
             let continuation_event_context = ConversationMemoryContext {
@@ -1409,12 +1422,11 @@ impl CodexRuntimeActor {
                 ) {
                     return;
                 }
-                if !continuation_stream_seen {
+                if !continuation_stream_seen_for_event.swap(true, Ordering::Relaxed) {
                     timing.mark(
                         "provider_continuation_first_stream_event",
                         continuation_provider_stream_event_fields(continuation_step, &event),
                     );
-                    continuation_stream_seen = true;
                 }
                 if matches!(&event, GenerateStreamEvent::AssistantTextDelta { .. })
                     && !continuation_assistant_delta_seen
@@ -1446,7 +1458,6 @@ impl CodexRuntimeActor {
                     }
                 }
             };
-            let provider = self.provider_for_kind(&turn.provider_kind)?;
             timing.mark(
                 "provider_continuation_request_started",
                 json!({
@@ -1460,34 +1471,73 @@ impl CodexRuntimeActor {
                 }),
             );
             let continuation_provider_started_at = std::time::Instant::now();
-            let continuation_response = provider
-                .generate_streaming(
-                    GenerateRequest {
-                        conversation_id: Some(turn.conversation_id.clone()),
-                        model: turn.model.clone(),
-                        input: continuation_input,
-                        instructions: Some(continuation_instructions),
-                        options: GenerateOptions {
-                            require_noema_response: true,
-                            prompt_cache_retention: prompt_cache_retention_for(
-                                turn.tool_capabilities,
-                            ),
-                            reasoning_effort: turn.reasoning_effort,
-                            ..GenerateOptions::default()
+            let chained = continuation_input.previous_response_id.is_some();
+            let continuation_request = GenerateRequest {
+                conversation_id: Some(turn.conversation_id.clone()),
+                model: turn.model.clone(),
+                input: continuation_input.input,
+                instructions: Some(continuation_instructions.clone()),
+                options: GenerateOptions {
+                    require_noema_response: true,
+                    prompt_cache_retention: prompt_cache_retention_for(turn.tool_capabilities),
+                    reasoning_effort: turn.reasoning_effort,
+                    previous_response_id: continuation_input.previous_response_id,
+                    store_response: response_continuation.store_response(),
+                    ..GenerateOptions::default()
+                },
+                tools: if task_handoff {
+                    Vec::new()
+                } else {
+                    turn.continuation_model_tools.native.clone()
+                },
+                tool_choice: Default::default(),
+                parallel_tool_calls: !task_handoff
+                    && !turn.continuation_model_tools.native.is_empty()
+                    && turn.tool_capabilities.parallel_tool_calls,
+            };
+            let mut continuation_result = provider
+                .generate_streaming(continuation_request, &mut on_continuation_event)
+                .await;
+            if chained
+                && continuation_result.is_err()
+                && !continuation_stream_seen.load(Ordering::Relaxed)
+            {
+                timing.mark(
+                    "provider_continuation_chain_fallback",
+                    json!({"continuation_step": continuation_step}),
+                );
+                continuation_result = provider
+                    .generate_streaming(
+                        GenerateRequest {
+                            conversation_id: Some(turn.conversation_id.clone()),
+                            model: turn.model.clone(),
+                            input: continuation_context
+                                .provider_input(turn.tool_capabilities.native_tool_results),
+                            instructions: Some(continuation_instructions),
+                            options: GenerateOptions {
+                                require_noema_response: true,
+                                prompt_cache_retention: prompt_cache_retention_for(
+                                    turn.tool_capabilities,
+                                ),
+                                reasoning_effort: turn.reasoning_effort,
+                                store_response: response_continuation.store_response(),
+                                ..GenerateOptions::default()
+                            },
+                            tools: if task_handoff {
+                                Vec::new()
+                            } else {
+                                turn.continuation_model_tools.native.clone()
+                            },
+                            tool_choice: Default::default(),
+                            parallel_tool_calls: !task_handoff
+                                && !turn.continuation_model_tools.native.is_empty()
+                                && turn.tool_capabilities.parallel_tool_calls,
                         },
-                        tools: if task_handoff {
-                            Vec::new()
-                        } else {
-                            turn.continuation_model_tools.native.clone()
-                        },
-                        tool_choice: Default::default(),
-                        parallel_tool_calls: !task_handoff
-                            && !turn.continuation_model_tools.native.is_empty()
-                            && turn.tool_capabilities.parallel_tool_calls,
-                    },
-                    &mut on_continuation_event,
-                )
-                .await?;
+                        &mut on_continuation_event,
+                    )
+                    .await;
+            }
+            let continuation_response = continuation_result?;
             timing.mark(
                 "provider_continuation_response_completed",
                 json!({
