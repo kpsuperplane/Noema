@@ -540,19 +540,26 @@ impl NoemaStore {
                 message: "review approval requires every criterion to pass".to_string(),
             });
         }
-        if self
+        if let Some(existing_reviewer_run_id) = self
             .with_connection(|conn| {
                 conn.query_row(
-                    "SELECT 1 FROM task_reviews WHERE task_id = ?1 AND reviewed_submission_id = ?2 LIMIT 1",
+                    "SELECT reviewer_run_id FROM task_reviews WHERE task_id = ?1 AND reviewed_submission_id = ?2 LIMIT 1",
                     rusqlite::params![input.task_id, input.reviewed_submission_id],
-                    |_row| Ok(()),
+                    |row| row.get::<_, String>(0),
                 )
                 .optional()
                 .map_err(StoreError::Sqlite)
             })
             .await?
-            .is_some()
         {
+            if existing_reviewer_run_id != input.reviewer_run_id {
+                return Err(StoreError::InvariantViolation {
+                    message: format!(
+                        "submission already has a completed review; continue with a new executor revision instead: {}",
+                        input.reviewed_submission_id
+                    ),
+                });
+            }
             return self
                 .get_task(&input.task_id)
                 .await?

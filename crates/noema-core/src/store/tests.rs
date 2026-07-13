@@ -866,6 +866,154 @@ async fn failed_task_resume_queues_a_linked_attempt_with_current_snapshots() {
 }
 
 #[tokio::test]
+async fn human_continuation_after_a_completed_review_queues_a_new_executor_revision() {
+    let store = test_store().await;
+    let (task, executor_run) = seed_task(&store, "Human-guided revision").await;
+    store
+        .with_connection(|conn| {
+            conn.execute(
+                "UPDATE tasks SET max_review_rounds = 1 WHERE task_id = ?1",
+                [&task.task_id],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("one automatic review round");
+    let leased_executor = store
+        .claim_next_agent_run("worker:executor", "lease:executor", 120)
+        .await
+        .expect("claim executor")
+        .expect("executor run");
+    assert_eq!(leased_executor.run_id, executor_run.run_id);
+    store
+        .transition_agent_run(
+            &executor_run.run_id,
+            crate::RunStatus::Running,
+            Some("lease:executor"),
+            None,
+        )
+        .await
+        .expect("run executor");
+    store
+        .transition_task(&task.task_id, crate::TaskStatus::Executing, None)
+        .await
+        .expect("execute task");
+    let criterion_id = store
+        .list_task_validation_criteria(&task.task_id)
+        .await
+        .expect("criteria")[0]
+        .criterion_id
+        .clone();
+    let (submission, reviewer_run) = store
+        .create_task_submission(
+            crate::NewTaskSubmission {
+                submission_id: None,
+                task_id: task.task_id.clone(),
+                executor_run_id: executor_run.run_id,
+                revision_index: 0,
+                summary: "First attempt".to_string(),
+                result_markdown: "Needs one human-guided revision".to_string(),
+                criteria: vec![crate::SubmissionCriterionEvidence {
+                    criterion_id: criterion_id.clone(),
+                    evidence_markdown: "Incomplete evidence".to_string(),
+                }],
+                artifact_ids: Vec::new(),
+            },
+            "lease:executor",
+        )
+        .await
+        .expect("submission");
+    let leased_reviewer = store
+        .claim_next_agent_run("worker:reviewer", "lease:reviewer", 120)
+        .await
+        .expect("claim reviewer")
+        .expect("reviewer run");
+    assert_eq!(leased_reviewer.run_id, reviewer_run.run_id);
+    store
+        .transition_agent_run(
+            &reviewer_run.run_id,
+            crate::RunStatus::Running,
+            Some("lease:reviewer"),
+            None,
+        )
+        .await
+        .expect("run reviewer");
+    let review_input = crate::NewTaskReview {
+        review_id: None,
+        task_id: task.task_id.clone(),
+        reviewer_run_id: reviewer_run.run_id.clone(),
+        reviewed_submission_id: submission.submission_id.clone(),
+        overall_verdict: crate::TaskReviewVerdict::RequestChanges,
+        overall_feedback: "Ask the human before another revision".to_string(),
+        criteria: vec![crate::TaskReviewCriterion {
+            criterion_id,
+            outcome: crate::CriterionOutcome::Fail,
+            evidence_markdown: Some("The evidence is incomplete".to_string()),
+            feedback: Some("Apply the human clarification".to_string()),
+        }],
+    };
+    let waiting = store
+        .create_task_review(review_input.clone(), "lease:reviewer")
+        .await
+        .expect("review");
+    assert_eq!(waiting.status, crate::TaskStatus::WaitingForHuman);
+    let committed_review = store
+        .list_task_reviews(&task.task_id)
+        .await
+        .expect("reviews")
+        .pop()
+        .expect("committed review");
+
+    let duplicate_error = store
+        .create_task_review(
+            crate::NewTaskReview {
+                reviewer_run_id: "run:redundant-reviewer".to_string(),
+                ..review_input
+            },
+            "lease:redundant",
+        )
+        .await
+        .expect_err("a different reviewer cannot review the same submission again");
+    assert!(
+        duplicate_error
+            .to_string()
+            .contains("continue with a new executor revision")
+    );
+
+    let (resumed_task, child) = store
+        .resume_task(
+            &task.task_id,
+            "human:local",
+            "human:local",
+            Some("Use the clarified interpretation"),
+        )
+        .await
+        .expect("resume with human guidance");
+    assert_eq!(resumed_task.status, crate::TaskStatus::Queued);
+    assert_eq!(
+        resumed_task.latest_run_id.as_deref(),
+        Some(child.run_id.as_str())
+    );
+    assert_eq!(child.run_kind, crate::RunKind::Executor);
+    assert_eq!(child.agent_id, crate::TASK_EXECUTOR_AGENT_ID);
+    assert_eq!(child.revision_index, 1);
+    assert_eq!(child.attempt_index, 0);
+    assert_eq!(
+        child.parent_run_id.as_deref(),
+        Some(reviewer_run.run_id.as_str())
+    );
+    assert_eq!(
+        child.triggering_review_id.as_deref(),
+        Some(committed_review.review_id.as_str())
+    );
+    assert_eq!(child.triggering_submission_id, None);
+    assert_eq!(
+        child.resume_message.as_deref(),
+        Some("Use the clarified interpretation")
+    );
+}
+
+#[tokio::test]
 async fn agent_run_items_round_trip_in_sequence_order() {
     let store = test_store().await;
     store.ensure_default_actors().await.expect("actors");

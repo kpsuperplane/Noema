@@ -178,9 +178,14 @@ The next storage slice should stay small and concrete:
   Lease heartbeats and cancellation interrupt active provider/tool futures;
   expired leases have bounded automatic recovery.
   Human-blocked and failed tasks resume only as linked child runs with reconstructed
-  lineage and an optional answer—there is no fresh retry path. Agents can inspect,
-  resume, and cancel owner-scoped tasks through canonical task tools, and the UI
-  offers the same continue/answer/cancel controls. Terminal task events form a
+  lineage and an optional answer—there is no fresh retry path. A continuation
+  after a committed reviewer verdict starts a new executor revision linked to
+  that review; only a reviewer blocked before committing a verdict resumes as a
+  reviewer. The worker also rejects any execution path that returns while its
+  run remains active, so terminal persistence bugs fail immediately instead of
+  idling until lease recovery. Agents can inspect, resume, and cancel owner-scoped
+  tasks through canonical task tools, and the UI offers the same
+  continue/answer/cancel controls. Terminal task events form a
   durable delivery outbox, and deterministic conversation item ids make crash
   recovery idempotent. Transcript persistence redacts secret-shaped fields and
   all opaque MCP arguments/results while retaining full payloads only in the

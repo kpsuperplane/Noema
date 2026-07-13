@@ -264,7 +264,21 @@ async fn supervise_run(
     );
     loop {
         tokio::select! {
-            result = &mut execution => return result,
+            result = &mut execution => {
+                result?;
+                let current = store
+                    .get_agent_run(&run.run_id)
+                    .await
+                    .map_err(|error| error.to_string())?
+                    .ok_or_else(|| "task run disappeared after execution".to_string())?;
+                if matches!(current.status, RunStatus::Leased | RunStatus::Running) {
+                    return Err(
+                        "task execution returned without committing a terminal run state"
+                            .to_string(),
+                    );
+                }
+                return Ok(());
+            },
             _ = shutdown.cancelled() => {
                 run_cancellation.cancel();
                 persist_terminal_run_notice(store, run, lease_token, "cancellation", crate::AgentRunItemStatus::Cancelled, "Task worker stopped; the run will continue after restart.").await;

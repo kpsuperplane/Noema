@@ -4,7 +4,10 @@
 
 use rusqlite::{OptionalExtension, params};
 
-use crate::{RunKind, RunStatus, TASK_REVIEWER_AGENT_ID, TaskStatus, provider::ReasoningEffort};
+use crate::{
+    RunKind, RunStatus, TASK_EXECUTOR_AGENT_ID, TASK_REVIEWER_AGENT_ID, TaskStatus,
+    provider::ReasoningEffort,
+};
 
 use super::{AgentRunRecord, NoemaStore, StoreError, TaskRecord, ids::allocate_id};
 
@@ -63,7 +66,21 @@ impl NoemaStore {
                 message: "latest task run cannot be continued".to_string(),
             });
         }
-        let model = if parent.run_kind == RunKind::Executor {
+        let committed_review = if parent.run_kind == RunKind::Reviewer {
+            let submission_id = parent.triggering_submission_id.as_deref();
+            self.list_task_reviews(task_id)
+                .await?
+                .into_iter()
+                .find(|review| Some(review.reviewed_submission_id.as_str()) == submission_id)
+        } else {
+            None
+        };
+        let resume_kind = if committed_review.is_some() {
+            RunKind::Executor
+        } else {
+            parent.run_kind
+        };
+        let model = if resume_kind == RunKind::Executor {
             self.select_task_model_pool_entry(task.complexity, &task.pool_entry_id)
                 .await?
                 .model
@@ -88,18 +105,44 @@ impl NoemaStore {
         self.validate_task_model_snapshot(&model).await?;
         let execution_policy = self.get_task_execution_policy().await?;
         let new_run_id = allocate_id("run");
-        let next_attempt_index =
+        let next_attempt_index = if resume_kind == parent.run_kind {
             parent
                 .attempt_index
                 .checked_add(1)
                 .ok_or_else(|| StoreError::InvariantViolation {
                     message: "task continuation attempt index is exhausted".to_string(),
-                })?;
-        let next_status = if parent.run_kind == RunKind::Reviewer {
+                })?
+        } else {
+            0
+        };
+        let next_revision_index = if committed_review.is_some() {
+            task.revision_index
+                .checked_add(1)
+                .ok_or_else(|| StoreError::InvariantViolation {
+                    message: "task revision index is exhausted".to_string(),
+                })?
+        } else {
+            parent.revision_index
+        };
+        let next_status = if resume_kind == RunKind::Reviewer {
             TaskStatus::Reviewing
         } else {
             TaskStatus::Queued
         };
+        let next_agent_id = if resume_kind == RunKind::Executor {
+            TASK_EXECUTOR_AGENT_ID
+        } else {
+            parent.agent_id.as_str()
+        };
+        let triggering_submission_id = if resume_kind == RunKind::Reviewer {
+            parent.triggering_submission_id.as_deref()
+        } else {
+            None
+        };
+        let triggering_review_id = committed_review
+            .as_ref()
+            .map(|review| review.review_id.as_str())
+            .or(parent.triggering_review_id.as_deref());
         self.with_connection(|conn| {
             let tx = conn.transaction()?;
             let current = tx
@@ -137,13 +180,13 @@ impl NoemaStore {
                 params![
                     new_run_id,
                     task_id,
-                    parent.run_kind.as_str(),
-                    parent.agent_id,
+                    resume_kind.as_str(),
+                    next_agent_id,
                     next_attempt_index,
-                    parent.revision_index,
+                    next_revision_index,
                     parent.run_id,
-                    parent.triggering_submission_id,
-                    parent.triggering_review_id,
+                    triggering_submission_id,
+                    triggering_review_id,
                     message,
                     model.provider_kind,
                     model.provider_account_id,
@@ -166,6 +209,8 @@ impl NoemaStore {
                 serde_json::json!({
                     "continued_from_run_id": parent.run_id,
                     "attempt_index": next_attempt_index,
+                    "run_kind": resume_kind.as_str(),
+                    "revision_index": next_revision_index,
                     "has_message": message.is_some(),
                 }),
             )?;
