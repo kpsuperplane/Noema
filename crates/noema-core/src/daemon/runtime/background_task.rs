@@ -412,7 +412,7 @@ impl CodexRuntimeActor {
             }
             let audit_interval = usize::try_from(request.execution_policy.progress_audit_interval)
                 .unwrap_or(usize::MAX);
-            if progress.should_audit(continuation_step, audit_interval) {
+            if continuation_step > 0 && continuation_step.is_multiple_of(audit_interval) {
                 let digest = progress.digest(continuation_step);
                 let audit_result = tokio::select! {
                     _ = request.cancellation.cancelled() => {
@@ -470,8 +470,6 @@ impl CodexRuntimeActor {
                             )
                             .await;
                     }
-                } else {
-                    progress.reset_window();
                 }
             }
             if continuation_step >= max_continuations {

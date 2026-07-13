@@ -23,7 +23,6 @@ use super::{
     model_tools::{ModelTools, build_model_tools},
     progress::{
         ContinuationProgressTracker, DeterministicProgressStop, MAX_PROVIDER_TOOL_CONTINUATIONS,
-        PROGRESS_AUDIT_INTERVAL,
     },
     progress_audit::{
         ProgressAuditDecision, ProgressAuditError, build_no_tools_finalization_prompt,
@@ -1211,7 +1210,7 @@ impl CodexRuntimeActor {
                 continuation_tool_results.clear();
                 break;
             }
-            if progress_tracker.should_audit(continuation_step_number, PROGRESS_AUDIT_INTERVAL) {
+            if ContinuationProgressTracker::should_audit(continuation_step_number) {
                 let audit_turn = ProviderActionTurn {
                     conversation_id: turn.conversation_id.clone(),
                     turn_id: turn.turn_id.clone(),

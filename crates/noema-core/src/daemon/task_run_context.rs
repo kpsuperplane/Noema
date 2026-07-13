@@ -36,7 +36,7 @@ pub(super) fn format_executor_prompt(
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "Task ID: {}\nTask: {}\nRevision: {revision}\n\nRequest:\n{}\n\nValidation criteria:\n{criteria}\n\nWork proportionally to the request. Before every tool batch, check whether the evidence already supports every criterion; if it does, stop gathering information and submit. Prefer the smallest set of high-quality sources or actions that establishes the result. Do not collect redundant corroboration unless sources conflict or a criterion requires it.\n\nUse artifact.create_local_file once per requested file and include every returned artifact_id in task.submit_result. Use each criterion_id exactly as shown, including any prefix, when calling task.submit_result. If you call task.inspect, use the exact Task ID above. Produce a complete, useful result. Address every criterion explicitly, then submit it through task.submit_result. Do not finish with ordinary assistant text.",
+        "Task ID: {}\nTask: {}\nRevision: {revision}\n\nRequest:\n{}\n\nValidation criteria:\n{criteria}\n\nUse artifact.create_local_file once per requested file and include every returned artifact_id in task.submit_result. Use each criterion_id exactly as shown, including any prefix, when calling task.submit_result. If you call task.inspect, use the exact Task ID above. Produce a complete, useful result. Address every criterion explicitly, then submit it through task.submit_result. Do not finish with ordinary assistant text.",
         task.task_id, task.title, task.request_markdown
     )
 }
@@ -348,8 +348,6 @@ mod tests {
         assert!(prompt.contains("Task ID: task:test"));
         assert!(prompt.contains("criterion_id=criterion:abc"));
         assert!(prompt.contains("including any prefix"));
-        assert!(prompt.contains("Work proportionally to the request"));
-        assert!(prompt.contains("smallest set of high-quality sources or actions"));
     }
 
     #[test]
