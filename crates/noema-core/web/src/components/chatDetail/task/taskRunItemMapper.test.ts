@@ -94,11 +94,12 @@ describe("taskRunItemsToTranscriptEntries", () => {
       source: "replay",
       turnId: "run-1:0:default",
       type: "system",
+      label: "Model input",
       text: "user: Review the evidence against every criterion."
     });
   });
 
-  test("renders bounded evidence and context checkpoints as expandable neutral activities", () => {
+  test("renders bounded evidence and context checkpoints as inspectable system messages", () => {
     const evidence = mapTaskRunItem(
       source({
         itemId: "evidence",
@@ -134,21 +135,16 @@ describe("taskRunItemsToTranscriptEntries", () => {
 
     const entries = taskRunItemsToTranscriptEntries([evidence, checkpoint, providerContext]);
     assert.deepEqual(
-      entries.map((entry) => entry.type === "activity" ? entry.item.title : entry.type),
+      entries.map((entry) => entry.type === "system" ? entry.label : entry.type),
       ["Evidence checkpoint", "Context compacted", "Model context"]
     );
     for (const entry of entries) {
-      assert.equal(entry.type, "activity");
-      if (entry.type !== "activity") {
+      assert.equal(entry.type, "system");
+      if (entry.type !== "system") {
         continue;
       }
-      const metadata = entry.item.metadata as {
-        detail: string;
-        presentation: { tone: string };
-      };
-      assert.equal(metadata.presentation.tone, "neutral");
       assert.match(
-        metadata.detail,
+        entry.text,
         entry.id === "evidence"
           ? /complete evidence/
           : entry.id === "checkpoint"

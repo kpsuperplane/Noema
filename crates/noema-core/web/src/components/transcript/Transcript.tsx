@@ -283,7 +283,7 @@ function renderTranscriptEntry(
     );
   }
   if (entry.type === "system") {
-    return <TranscriptSystemMessage text={entry.text} />;
+    return <TranscriptSystemMessage label={entry.label} text={entry.text} />;
   }
   if (entry.type === "assistant") {
     return (

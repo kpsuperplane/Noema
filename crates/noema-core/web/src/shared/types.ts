@@ -82,6 +82,7 @@ export type TranscriptEntry =
       source?: TranscriptEntrySource;
       turnId?: string;
       type: "system";
+      label?: string;
       text: string;
     }
   | {

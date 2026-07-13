@@ -46,7 +46,7 @@ const styles = stylex.create({
   }
 });
 
-export function TranscriptSystemMessage({ text }: { text: string }) {
+export function TranscriptSystemMessage({ label, text }: { label?: string; text: string }) {
   const [open, setOpen] = React.useState(false);
   const content = React.useMemo(() => formatSystemMessageContent(text), [text]);
 
@@ -59,7 +59,7 @@ export function TranscriptSystemMessage({ text }: { text: string }) {
           type="button"
           {...stylex.props(styles.trigger)}
         >
-          {systemMessagePreview(content.value, content.isJson)}
+          {label || systemMessagePreview(content.value, content.isJson)}
         </button>
       </ChatSystemMessage>
       <Dialog
@@ -75,7 +75,7 @@ export function TranscriptSystemMessage({ text }: { text: string }) {
           hasDivider
           onOpenChange={setOpen}
           subtitle={content.isJson ? "JSON" : "Task conversation"}
-          title="System message"
+          title={label || "System message"}
         />
         <div {...stylex.props(styles.body)}>
           {content.isJson ? (

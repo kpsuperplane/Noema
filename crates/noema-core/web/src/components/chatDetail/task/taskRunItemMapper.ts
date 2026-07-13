@@ -144,7 +144,7 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry | null
 
   if (item.kind === "status") {
     if (item.sourceKind === "context_checkpoint") {
-      return checkpointActivityEntry(base, item, "Context compacted", "context_checkpoint");
+      return checkpointSystemEntry(base, item, "Context compacted");
     }
     return {
       ...base,
@@ -164,10 +164,10 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry | null
   if (item.kind === "input") {
     const rawInput = item.details ?? item.summary;
     if (isBoundedEvidenceInput(rawInput)) {
-      return checkpointActivityEntry(base, item, "Evidence checkpoint", "evidence_checkpoint");
+      return checkpointSystemEntry(base, item, "Evidence checkpoint");
     }
     if (recordValue(item.payload)?.context_mode === "cumulative_replay") {
-      return checkpointActivityEntry(base, item, "Model context", "provider_context");
+      return checkpointSystemEntry(base, item, "Model context");
     }
     const text = visibleModelInput(rawInput);
     if (!text) {
@@ -176,6 +176,7 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry | null
     return {
       ...base,
       type: "system",
+      label: "Model input",
       text
     };
   }
@@ -187,32 +188,16 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry | null
   };
 }
 
-function checkpointActivityEntry(
+function checkpointSystemEntry(
   base: { id: string; source: "replay"; turnId: string },
   item: TaskRunItem,
-  title: string,
-  activityKind: string
+  label: string
 ): TranscriptEntry {
   return {
     ...base,
-    type: "activity",
-    item: {
-      kind: "activity",
-      id: item.id,
-      activity_kind: activityKind,
-      status: taskActivityStatus(item.status),
-      title,
-      summary:
-        activityKind === "evidence_checkpoint"
-          ? "Provider continuation evidence"
-          : activityKind === "provider_context"
-            ? "Full prior context and latest tool results"
-            : "Retained task context",
-      metadata: {
-        detail: persistedItemDetail(item),
-        presentation: { tone: "neutral" }
-      }
-    }
+    type: "system",
+    label,
+    text: persistedItemDetail(item)
   };
 }
 
