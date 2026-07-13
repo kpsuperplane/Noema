@@ -208,9 +208,10 @@ The next storage slice should stay small and concrete:
   inherit the main chat's Markdown, tool markers, live-arrival behavior,
   pagination, and accessibility infrastructure. Persisted tool calls and results
   pair into the normal chat tool marker; genuine model inputs render as neutral
-  system messages, while cumulative continuation inputs and semantic context
-  checkpoints remain fully inspectable neutral activities instead of repeated
-  human-looking bubbles.
+  Astryx chat system messages whose full content opens in a dialog, with valid
+  JSON normalized and pretty-printed. Cumulative continuation inputs and semantic
+  context checkpoints remain fully inspectable neutral activities instead of
+  repeated human-looking bubbles.
 - Memory is governed context, not hidden model state. Durable memory truth now
   belongs to local Mnemosyne, while Noema owns service lifecycle, configuration,
   live readiness proxying, provenance, UI, model routing, ingest diagnostics,
