@@ -22,14 +22,6 @@ const COMPACTION_THRESHOLD_DENOMINATOR: u32 = 10;
 const RECENT_ROUNDS_TO_RETAIN: usize = 2;
 const DEFAULT_SUMMARY_TARGET_TOKENS: u32 = 1_200;
 
-/// Semantic checkpoint produced when older continuation history is compacted.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct ContinuationCheckpoint {
-    pub(super) summary: String,
-    pub(super) covered_item_count: usize,
-    pub(super) retained_item_count: usize,
-}
-
 /// Minimal provider request state for the next continuation round.
 pub(super) struct ProviderContinuationInput {
     pub(super) input: GenerateInput,
@@ -213,13 +205,13 @@ impl ContinuationContext {
         model: Option<&str>,
         reasoning_effort: Option<ReasoningEffort>,
         execution_goal: &str,
-    ) -> Result<Option<ContinuationCheckpoint>, ProviderError> {
+    ) -> Result<bool, ProviderError> {
         let budget = ContextBudget::from_metadata(provider.context_metadata(model));
         let Some(available_tokens) = budget.available_input_tokens() else {
-            return Ok(None);
+            return Ok(false);
         };
         if self.round_ends.len() <= RECENT_ROUNDS_TO_RETAIN {
-            return Ok(None);
+            return Ok(false);
         }
 
         let rendered = self.provider_input(true).render_for_token_count();
@@ -227,13 +219,13 @@ impl ContinuationContext {
         let threshold = available_tokens.saturating_mul(COMPACTION_THRESHOLD_NUMERATOR)
             / COMPACTION_THRESHOLD_DENOMINATOR;
         if estimated_tokens < threshold {
-            return Ok(None);
+            return Ok(false);
         }
 
         let retained_round_start =
             self.round_ends[self.round_ends.len() - RECENT_ROUNDS_TO_RETAIN - 1];
         if retained_round_start == 0 {
-            return Ok(None);
+            return Ok(false);
         }
         let previous_checkpoint = self.checkpoint.as_deref();
         let compacted_items = &self.items[..retained_round_start];
@@ -271,19 +263,14 @@ impl ContinuationContext {
             });
         }
 
-        let covered_item_count = retained_round_start;
         self.items.drain(..retained_round_start);
         for round_end in &mut self.round_ends {
             *round_end = round_end.saturating_sub(retained_round_start);
         }
         self.round_ends
             .retain(|round_end| *round_end > 0 && *round_end <= self.items.len());
-        self.checkpoint = Some(summary.clone());
-        Ok(Some(ContinuationCheckpoint {
-            summary,
-            covered_item_count,
-            retained_item_count: self.items.len(),
-        }))
+        self.checkpoint = Some(summary);
+        Ok(true)
     }
 
     fn provider_items(&self) -> Vec<GenerateInputItem> {
@@ -544,7 +531,7 @@ mod tests {
             context.finish_round();
         }
 
-        let checkpoint = context
+        let compacted = context
             .compact_if_needed(
                 &provider,
                 Some("test"),
@@ -552,10 +539,9 @@ mod tests {
                 "Research Canadian bear populations with cited figures",
             )
             .await
-            .expect("compaction")
-            .expect("checkpoint");
+            .expect("compaction");
 
-        assert!(checkpoint.summary.contains("450,000"));
+        assert!(compacted);
         assert_eq!(requests.lock().expect("requests").len(), 1);
         let rendered = context.provider_input(true).render_for_token_count();
         assert!(rendered.contains("Noema execution context checkpoint"));

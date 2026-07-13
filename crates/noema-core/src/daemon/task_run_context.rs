@@ -173,9 +173,7 @@ pub(super) async fn with_resume_context(
                 continue;
             }
             let rendered = match item.kind.as_str() {
-                "assistant_output" | "progress_notice" | "context_checkpoint" => {
-                    item.content_text.unwrap_or_default()
-                }
+                "assistant_output" | "progress_notice" => item.content_text.unwrap_or_default(),
                 "tool_call" | "tool_result" | "failure" | "cancellation" => {
                     format!(
                         "{}: {}\n{}",

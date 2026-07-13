@@ -368,7 +368,7 @@ impl CodexRuntimeActor {
             progress.observe_results(&results);
             context.append_results(&results);
             context.finish_round();
-            let compaction = tokio::select! {
+            let _ = tokio::select! {
                 _ = request.cancellation.cancelled() => {
                     return Err(DaemonError::Protocol("task execution cancelled".to_string()));
                 }
@@ -391,19 +391,6 @@ impl CodexRuntimeActor {
                     &request.input,
                 ) => result,
             };
-            if let Ok(Some(checkpoint)) = compaction {
-                self.persist_context_checkpoint(
-                    &request,
-                    continuation_index as i64,
-                    &checkpoint.summary,
-                    serde_json::json!({
-                        "source": "semantic_continuation_compaction",
-                        "covered_item_count": checkpoint.covered_item_count,
-                        "retained_item_count": checkpoint.retained_item_count,
-                    }),
-                )
-                .await;
-            }
             if !results
                 .iter()
                 .any(LocalToolResult::requires_provider_continuation)
@@ -461,13 +448,6 @@ impl CodexRuntimeActor {
                 if let Ok(audit) = audit_result {
                     self.persist_progress_notice(&request, &audit.user_summary)
                         .await;
-                    self.persist_context_checkpoint(
-                        &request,
-                        continuation_step as i64,
-                        &audit.user_summary,
-                        serde_json::to_value(&digest).unwrap_or_default(),
-                    )
-                    .await;
                     progress.update_current_goal(audit.next_goal);
                     progress.reset_window();
                     if audit.decision != ProgressAuditDecision::Continue {

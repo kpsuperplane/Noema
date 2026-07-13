@@ -133,7 +133,7 @@ The next storage slice should stay small and concrete:
   criteria, and queues an executor run. The host worker supervises up to eight
   independently leased task runs concurrently while the store prevents active
   run overlap within one task. Each run executes role-gated native tools,
-  records complete model/tool transcripts and
+  records canonical agent/tool transcripts and
   cumulative usage, creates a typed submission, queues an adversarial reviewer,
   and either requests revision, pauses for human input, or approves the task.
   Task status is delivered idempotently as a structured conversation event, and
@@ -208,10 +208,10 @@ The next storage slice should stay small and concrete:
   uses an embedded density without mounting a composer, so task conversations
   inherit the main chat's Markdown, tool markers, live-arrival behavior,
   pagination, and accessibility infrastructure. Persisted tool calls and results
-  pair into the normal chat tool marker; model inputs, cumulative continuation
-  context, bounded evidence, and semantic context checkpoints render as neutral
-  gray input bubbles containing their payload inline without a label or icon.
-  Valid JSON is normalized and pretty-printed. All transcript text bubbles cap
+  pair into the normal chat tool marker. Provider request payloads, reconstructed
+  continuation context, and semantic compaction checkpoints remain runtime
+  implementation details rather than run transcript rows, matching main chat's
+  canonical event persistence. All transcript text bubbles cap
   their inline preview at roughly six lines; overflowing content fades out and
   opens the complete rendered message in a dialog when activated.
 - Memory is governed context, not hidden model state. Durable memory truth now

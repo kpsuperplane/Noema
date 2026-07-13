@@ -40,35 +40,6 @@ impl CodexRuntimeActor {
         cancellation: &CancellationToken,
         subscriptions: &ConversationSubscriptionRegistry,
     ) -> Result<GenerateResponse, DaemonError> {
-        self.persist_task_run_item(
-            task_id,
-            subscriptions,
-            NewAgentRunItem {
-                item_id: None,
-                run_id: run_id.to_string(),
-                round_index,
-                kind: "model_input".to_string(),
-                status: crate::store::AgentRunItemStatus::Completed,
-                correlation_id: None,
-                parent_item_id: None,
-                content_text: Some(task_model_input_projection(&request.input)),
-                payload: serde_json::json!({
-                    "conversation_id": request.conversation_id.clone(),
-                    "model": request.model.clone(),
-                    "has_system_instructions": request.instructions.as_ref().is_some_and(|value| !value.trim().is_empty()),
-                    "previous_response_id": request.options.previous_response_id.clone(),
-                    "context_mode": if request.options.previous_response_id.is_some() {
-                        "response_chain"
-                    } else if round_index > 0 && matches!(&request.input, crate::GenerateInput::Items(_)) {
-                        "cumulative_replay"
-                    } else {
-                        "input"
-                    },
-                }),
-            },
-            lease_token,
-        )
-        .await;
         let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
         let store = self.store.clone();
         let run_id_for_writer = run_id.to_string();
@@ -284,35 +255,6 @@ impl CodexRuntimeActor {
             .await;
         }
     }
-
-    pub(super) async fn persist_context_checkpoint(
-        &self,
-        request: &BackgroundTaskGenerateRequest,
-        round_index: i64,
-        summary: &str,
-        progress: serde_json::Value,
-    ) {
-        self.persist_task_run_item(
-            &request.task_id,
-            &request.task_subscriptions,
-            NewAgentRunItem {
-                item_id: Some(format!(
-                    "run_item:checkpoint:{}:{round_index}",
-                    request.run_id
-                )),
-                run_id: request.run_id.clone(),
-                round_index,
-                kind: "context_checkpoint".to_string(),
-                status: crate::store::AgentRunItemStatus::Completed,
-                correlation_id: None,
-                parent_item_id: None,
-                content_text: Some(summary.to_string()),
-                payload: serde_json::json!({"progress": progress}),
-            },
-            &request.lease_token,
-        )
-        .await;
-    }
 }
 
 fn assistant_run_item(
@@ -334,88 +276,6 @@ fn assistant_run_item(
         parent_item_id: None,
         content_text: Some(text),
         payload: serde_json::json!({"response_index": response_index}),
-    }
-}
-
-fn task_model_input_projection(input: &crate::GenerateInput) -> String {
-    match input {
-        crate::GenerateInput::Text(text) => serde_json::from_str::<serde_json::Value>(text)
-            .map(|value| sanitize_evidence_envelope(&value).to_string())
-            .unwrap_or_else(|_| text.clone()),
-        crate::GenerateInput::Messages(messages) => messages
-            .iter()
-            .map(|message| format!("{}: {}", message.role.as_str(), message.content))
-            .collect::<Vec<_>>()
-            .join("\n"),
-        crate::GenerateInput::Items(items) => items
-            .iter()
-            .map(|item| match item {
-                crate::provider::GenerateInputItem::Message(message) => {
-                    format!("{}: {}", message.role.as_str(), message.content)
-                }
-                crate::provider::GenerateInputItem::Reasoning(_) => {
-                    "[encrypted reasoning omitted]".to_string()
-                }
-                crate::provider::GenerateInputItem::ToolCall(call) => serde_json::json!({
-                    "type": "tool_call",
-                    "call_id": call.call_id,
-                    "name": call.name,
-                    "arguments": sanitize_task_tool_payload(&call.name, &call.arguments),
-                })
-                .to_string(),
-                crate::provider::GenerateInputItem::ToolResult(result) => serde_json::json!({
-                    "type": "tool_result",
-                    "call_id": result.call_id,
-                    "name": result.name,
-                    "success": result.success,
-                    "arguments": sanitize_task_tool_payload(&result.name, &result.arguments),
-                    "payload": sanitize_task_tool_payload(&result.name, &result.payload),
-                })
-                .to_string(),
-            })
-            .collect::<Vec<_>>()
-            .join("\n"),
-        crate::GenerateInput::NativeToolResults(results) => serde_json::Value::Array(
-            results
-                .iter()
-                .map(|result| {
-                    serde_json::json!({
-                        "call_id": result.call_id,
-                        "name": result.name,
-                        "success": result.success,
-                        "arguments": sanitize_task_tool_payload(&result.name, &result.arguments),
-                        "payload": sanitize_task_tool_payload(&result.name, &result.payload),
-                    })
-                })
-                .collect(),
-        )
-        .to_string(),
-    }
-}
-
-fn sanitize_evidence_envelope(value: &serde_json::Value) -> serde_json::Value {
-    match value {
-        serde_json::Value::Object(object) => {
-            if let Some(name) = object.get("name").and_then(serde_json::Value::as_str) {
-                let mut sanitized = object.clone();
-                for key in ["arguments", "payload"] {
-                    if let Some(value) = object.get(key) {
-                        sanitized.insert(key.to_string(), sanitize_task_tool_payload(name, value));
-                    }
-                }
-                return serde_json::Value::Object(sanitized);
-            }
-            serde_json::Value::Object(
-                object
-                    .iter()
-                    .map(|(key, value)| (key.clone(), sanitize_evidence_envelope(value)))
-                    .collect(),
-            )
-        }
-        serde_json::Value::Array(items) => {
-            serde_json::Value::Array(items.iter().map(sanitize_evidence_envelope).collect())
-        }
-        _ => value.clone(),
     }
 }
 
@@ -534,23 +394,5 @@ mod tests {
         assert_eq!(sanitized["title"], "Report");
         assert_eq!(sanitized["versions"][0]["content"]["omitted"], true);
         assert!(!sanitized.to_string().contains("private report body"));
-    }
-
-    #[test]
-    fn task_model_input_projection_redacts_native_mcp_results() {
-        let input = crate::GenerateInput::NativeToolResults(vec![
-            crate::provider::GenerateToolResultInput {
-                id: None,
-                call_id: "call-1".to_string(),
-                name: "mcp.mcp:notion.search".to_string(),
-                provider_name: None,
-                arguments: serde_json::json!({"query": "private workspace query"}),
-                success: true,
-                payload: serde_json::json!({"access_token": "private-token", "result": "private page"}),
-            },
-        ]);
-        let projection = task_model_input_projection(&input);
-        assert!(!projection.contains("private"));
-        assert!(projection.contains("mcp_payload"));
     }
 }

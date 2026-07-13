@@ -77,7 +77,7 @@ describe("taskRunItemsToTranscriptEntries", () => {
     ]);
   });
 
-  test("keeps genuine model input as an inspectable input message", () => {
+  test("omits provider model input from the conversation", () => {
     const [entry] = taskRunItemsToTranscriptEntries([
       mapTaskRunItem(
         source({
@@ -89,17 +89,10 @@ describe("taskRunItemsToTranscriptEntries", () => {
       )
     ]);
 
-    assert.deepEqual(entry, {
-      id: "model-input",
-      source: "replay",
-      turnId: "run-1:0:default",
-      type: "input",
-      label: "Model input",
-      text: "user: Review the evidence against every criterion."
-    });
+    assert.equal(entry, undefined);
   });
 
-  test("renders bounded evidence and context checkpoints as inspectable input messages", () => {
+  test("omits legacy model context and checkpoint rows from the conversation", () => {
     const evidence = mapTaskRunItem(
       source({
         itemId: "evidence",
@@ -134,24 +127,7 @@ describe("taskRunItemsToTranscriptEntries", () => {
     );
 
     const entries = taskRunItemsToTranscriptEntries([evidence, checkpoint, providerContext]);
-    assert.deepEqual(
-      entries.map((entry) => entry.type === "input" ? entry.label : entry.type),
-      ["Evidence checkpoint", "Context compacted", "Model context"]
-    );
-    for (const entry of entries) {
-      assert.equal(entry.type, "input");
-      if (entry.type !== "input") {
-        continue;
-      }
-      assert.match(
-        entry.text,
-        entry.id === "evidence"
-          ? /complete evidence/
-          : entry.id === "checkpoint"
-            ? /criteria_satisfied/
-            : /retained/
-      );
-    }
+    assert.deepEqual(entries, []);
   });
 });
 

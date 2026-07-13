@@ -20,8 +20,7 @@ export type TaskRunItemSource = {
 export function mapTaskRunItem(item: TaskRunItemSource, role: TaskRunRole): TaskRunItem {
   const isToolCall = item.kind === "tool_call";
   const isToolResult = item.kind === "tool_result";
-  const isModelInput = item.kind === "model_input";
-  const details = isModelInput ? item.contentText : isToolCall || isToolResult ? jsonText(item.payload) : null;
+  const details = isToolCall || isToolResult ? jsonText(item.payload) : null;
   return {
     id: item.itemId,
     runId: item.runId,
@@ -29,9 +28,7 @@ export function mapTaskRunItem(item: TaskRunItemSource, role: TaskRunRole): Task
     roundIndex: item.roundIndex,
     sourceKind: item.kind,
     kind:
-      item.kind === "model_input"
-        ? "input"
-        : isToolCall
+      isToolCall
           ? "tool"
           : item.kind === "assistant_output"
             ? "message"
@@ -41,9 +38,7 @@ export function mapTaskRunItem(item: TaskRunItemSource, role: TaskRunRole): Task
                 ? "artifact"
                 : "status",
     title:
-      item.kind === "model_input"
-        ? "Model input"
-        : isToolCall
+      isToolCall
           ? `Tool call · ${item.contentText || "unnamed"}`
           : item.kind === "assistant_output"
             ? "Agent"
@@ -100,6 +95,9 @@ export function taskRunItemsToTranscriptEntries(items: readonly TaskRunItem[]): 
 }
 
 function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry | null {
+  if (item.sourceKind === "model_input" || item.sourceKind === "context_checkpoint") {
+    return null;
+  }
   const turnId = `${item.runId ?? "task-run"}:${item.roundIndex ?? "setup"}:${item.responseIndex ?? "default"}`;
   const base = { id: item.id, source: "replay" as const, turnId };
 
@@ -143,9 +141,6 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry | null
   }
 
   if (item.kind === "status") {
-    if (item.sourceKind === "context_checkpoint") {
-      return checkpointSystemEntry(base, item, "Context compacted");
-    }
     return {
       ...base,
       type: "activity",
@@ -161,52 +156,11 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry | null
     };
   }
 
-  if (item.kind === "input") {
-    const rawInput = item.details ?? item.summary;
-    if (isBoundedEvidenceInput(rawInput)) {
-      return checkpointSystemEntry(base, item, "Evidence checkpoint");
-    }
-    if (recordValue(item.payload)?.context_mode === "cumulative_replay") {
-      return checkpointSystemEntry(base, item, "Model context");
-    }
-    const text = visibleModelInput(rawInput);
-    if (!text) {
-      return null;
-    }
-    return {
-      ...base,
-      type: "input",
-      label: "Model input",
-      text
-    };
-  }
-
   return {
     ...base,
     type: "assistant",
     text: item.summary ?? item.details ?? item.title
   };
-}
-
-function checkpointSystemEntry(
-  base: { id: string; source: "replay"; turnId: string },
-  item: TaskRunItem,
-  label: string
-): TranscriptEntry {
-  return {
-    ...base,
-    type: "input",
-    label,
-    text: persistedItemDetail(item)
-  };
-}
-
-function persistedItemDetail(item: TaskRunItem): string {
-  const contentText = (item.details ?? item.summary)?.trim();
-  const payloadText = jsonText(item.payload);
-  return [contentText, payloadText]
-    .filter((section): section is string => Boolean(section))
-    .join("\n\n");
 }
 
 function jsonText(value: unknown): string | null {
@@ -226,67 +180,6 @@ function responseIndex(value: unknown): number | null {
   }
   const candidate = (value as { response_index?: unknown }).response_index;
   return typeof candidate === "number" && Number.isInteger(candidate) ? candidate : null;
-}
-
-function visibleModelInput(value: string | null | undefined): string | null {
-  const text = value?.trim();
-  if (!text) {
-    return null;
-  }
-
-  try {
-    const parsed: unknown = JSON.parse(text);
-    if (Array.isArray(parsed)) {
-      const visible = parsed.filter((item) => !isToolContextRecord(item));
-      return visible.length > 0 ? JSON.stringify(visible, null, 2) : null;
-    }
-    return isToolContextRecord(parsed) ? null : JSON.stringify(parsed, null, 2);
-  } catch {
-    const visibleLines = text
-      .split("\n")
-      .filter((line) => !isSerializedToolContext(line));
-    const visible = visibleLines.join("\n").trim();
-    return visible || null;
-  }
-}
-
-function isBoundedEvidenceInput(value: string | null | undefined): boolean {
-  const parsed = parseJson(value);
-  return recordValue(parsed)?.type === "NOEMA_BOUNDED_TASK_EVIDENCE";
-}
-
-function isSerializedToolContext(value: string): boolean {
-  const text = value.trim();
-  if (!text) {
-    return false;
-  }
-  try {
-    return isToolContextRecord(JSON.parse(text));
-  } catch {
-    return false;
-  }
-}
-
-function isToolContextRecord(value: unknown): boolean {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
-  return record.type === "tool_call" ||
-    record.type === "tool_result" ||
-    record.type === "NOEMA_LOCAL_TOOL_RESULT" ||
-    (typeof record.call_id === "string" && typeof record.name === "string");
-}
-
-function parseJson(value: string | null | undefined): unknown {
-  if (!value?.trim()) {
-    return undefined;
-  }
-  try {
-    return JSON.parse(value);
-  } catch {
-    return undefined;
-  }
 }
 
 function recordValue(value: unknown): Record<string, unknown> | null {

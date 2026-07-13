@@ -351,7 +351,7 @@ pub struct GraphqlTaskRunItem {
     pub sequence_index: i32,
     /// Zero-based provider round that emitted the item.
     pub round_index: i32,
-    /// Transcript kind, such as `model_input`, `assistant_output`, `tool_call`, or `tool_result`.
+    /// Transcript kind, such as `assistant_output`, `tool_call`, or `tool_result`.
     pub kind: String,
     /// Canonical pending/running/completed/failed/cancelled/skipped state.
     pub status: String,

@@ -2690,7 +2690,7 @@ type TaskRunItem {
 	"""
 	roundIndex: Int!
 	"""
-	Transcript kind, such as `model_input`, `assistant_output`, `tool_call`, or `tool_result`.
+	Transcript kind, such as `assistant_output`, `tool_call`, or `tool_result`.
 	"""
 	kind: String!
 	"""
