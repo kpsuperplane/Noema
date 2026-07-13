@@ -38,9 +38,7 @@ export function mapTaskRunItem(item: TaskRunItemSource, role: TaskRunRole): Task
               ? "result"
               : item.kind === "artifact"
                 ? "artifact"
-                : item.kind === "context_checkpoint"
-                  ? "context"
-                  : "status",
+                : "status",
     title:
       item.kind === "model_input"
         ? "Model input"
@@ -103,20 +101,15 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry | null
   const turnId = `${item.runId ?? "task-run"}:${item.roundIndex ?? "setup"}:${item.responseIndex ?? "default"}`;
   const base = { id: item.id, source: "replay" as const, turnId };
 
-  if (item.kind === "context") {
-    return null;
-  }
-
   if (item.kind === "tool" || item.kind === "result") {
     const isCall = item.kind === "tool";
     const correlationId = item.correlationId ?? item.id;
     const toolName = taskToolName(item);
-    const persistedPayload = parseDetails(item.details);
     const action = {
       ...(isCall ? { id: correlationId } : { call_id: correlationId }),
       name: toolName,
-      payload: isCall ? toolCallArguments(persistedPayload) : toolResultPayload(persistedPayload),
-      ...(isCall ? {} : { success: toolResultSucceeded(persistedPayload, item.status) })
+      payload: parseDetails(item.details),
+      ...(isCall ? {} : { success: item.status !== "failed" })
     };
     return {
       ...base,
@@ -130,7 +123,10 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry | null
         summary: item.summary,
         metadata: {
           action,
-          display: { name: toolName }
+          display: {
+            name: toolName,
+            ...(item.summary ? { result: item.summary } : {})
+          }
         }
       }
     };
@@ -231,14 +227,7 @@ function isToolContextRecord(value: unknown): boolean {
   const record = value as Record<string, unknown>;
   return record.type === "tool_call" ||
     record.type === "tool_result" ||
-    isBoundedTaskEvidence(record) ||
     (typeof record.call_id === "string" && typeof record.name === "string");
-}
-
-function isBoundedTaskEvidence(record: Record<string, unknown>): boolean {
-  return record.type === "NOEMA_BOUNDED_TASK_EVIDENCE" &&
-    "older_evidence_checkpoint" in record &&
-    "recent_results" in record;
 }
 
 function parseDetails(value: string | null | undefined): unknown {
@@ -250,34 +239,6 @@ function parseDetails(value: string | null | undefined): unknown {
   } catch {
     return value;
   }
-}
-
-function toolCallArguments(value: unknown): unknown {
-  if (!isRecord(value)) {
-    return value;
-  }
-  return value.arguments ?? value.payload ?? value;
-}
-
-function toolResultPayload(value: unknown): unknown {
-  if (!isRecord(value)) {
-    return value;
-  }
-  return value.payload ?? value.result ?? value;
-}
-
-function toolResultSucceeded(
-  value: unknown,
-  status: TaskRunItem["status"]
-): boolean {
-  if (isRecord(value) && typeof value.success === "boolean") {
-    return value.success;
-  }
-  return status !== "failed";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function taskToolName(item: TaskRunItem): string {

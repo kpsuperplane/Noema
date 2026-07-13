@@ -82,7 +82,7 @@ export type TaskRunItem = {
   runId?: string | null;
   sequenceIndex?: number | null;
   roundIndex?: number | null;
-  kind: "input" | "tool" | "message" | "result" | "artifact" | "status" | "context";
+  kind: "input" | "tool" | "message" | "result" | "artifact" | "status";
   title: string;
   summary?: string | null;
   details?: string | null;
