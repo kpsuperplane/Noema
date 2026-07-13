@@ -42,6 +42,10 @@ export function formatToolDetail(fallback: string, metadata: unknown): string {
 }
 
 export function toolDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] {
+  const completeRows = completeToolDetailRows(marker);
+  if (completeRows) {
+    return completeRows;
+  }
   if (isSuccessfulWebSearchMarker(marker) || isSuccessfulWebFetchMarker(marker)) {
     return webFallbackDetailRows(marker);
   }
@@ -61,6 +65,56 @@ export function toolDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] {
   }
 
   return dedupeToolDetailRows(rows);
+}
+
+function completeToolDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] | null {
+  const callAction = actionFromMetadata(marker.call?.item.metadata);
+  const resultAction = actionFromMetadata(marker.result?.item.metadata);
+  if (callAction?.detail_mode !== "complete" && resultAction?.detail_mode !== "complete") {
+    return null;
+  }
+
+  const rows: ToolDetailRowData[] = [];
+  const correlation = stringValue(callAction?.correlation_id) ??
+    stringValue(resultAction?.correlation_id) ??
+    stringValue(callAction?.id) ??
+    stringValue(resultAction?.call_id);
+  if (correlation) {
+    rows.push({ label: "Correlation", value: correlation });
+  }
+
+  const input = callAction && "arguments" in callAction
+    ? callAction.arguments
+    : resultAction && "arguments" in resultAction
+      ? resultAction.arguments
+      : callAction?.payload;
+  if (input !== undefined) {
+    rows.push({ label: "Input", value: completeToolValue(input) });
+  }
+
+  const success = resultAction?.success;
+  if (typeof success === "boolean") {
+    rows.push({ label: "Success", value: success ? "true" : "false" });
+  }
+  if (resultAction && "payload" in resultAction && resultAction.payload !== undefined) {
+    rows.push({ label: success === false ? "Error" : "Output", value: completeToolValue(resultAction.payload) });
+  }
+  return rows;
+}
+
+function actionFromMetadata(metadata: unknown): Record<string, unknown> | null {
+  return isRecord(metadata) && isRecord(metadata.action) ? metadata.action : null;
+}
+
+function completeToolValue(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  try {
+    return JSON.stringify(value, null, 2) ?? String(value);
+  } catch {
+    return String(value);
+  }
 }
 
 export function toolMarkerExpandable(marker: ToolMarkerGroup): boolean {

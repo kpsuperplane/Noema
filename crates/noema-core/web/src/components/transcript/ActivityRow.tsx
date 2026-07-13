@@ -50,7 +50,14 @@ export function ActivityRow({
   onToggle: () => void;
 }) {
   const status = statusLabel(item.status);
-  const noticeTone = item.status === "FAILED" ? "error" : item.status === "COMPLETED" ? "success" : "default";
+  const neutral = activityPresentationTone(item) === "neutral";
+  const noticeTone = neutral
+    ? "default"
+    : item.status === "FAILED"
+      ? "error"
+      : item.status === "COMPLETED"
+        ? "success"
+        : "default";
   const detail = activityDetail(item);
 
   if (detail) {
@@ -69,7 +76,7 @@ export function ActivityRow({
               />
             </span>
           }
-          tone={noticeTone === "error" ? "error" : noticeTone === "success" ? "success" : "info"}
+          tone={neutral ? "default" : noticeTone === "error" ? "error" : noticeTone === "success" ? "success" : "info"}
           headerButtonProps={{
             "aria-expanded": open,
             "aria-controls": `${item.id}-detail`,
@@ -92,6 +99,19 @@ export function ActivityRow({
       {item.summary || item.title}
     </TranscriptSystemNotice>
   );
+}
+
+function activityPresentationTone(
+  item: Extract<TurnTranscriptItem, { kind: "activity" }>
+): string | null {
+  if (!item.metadata || typeof item.metadata !== "object" || !("presentation" in item.metadata)) {
+    return null;
+  }
+  const presentation = item.metadata.presentation;
+  if (!presentation || typeof presentation !== "object" || !("tone" in presentation)) {
+    return null;
+  }
+  return typeof presentation.tone === "string" ? presentation.tone : null;
 }
 
 function activityDetail(item: Extract<TurnTranscriptItem, { kind: "activity" }>): string | null {

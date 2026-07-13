@@ -27,6 +27,7 @@ export function mapTaskRunItem(item: TaskRunItemSource, role: TaskRunRole): Task
     runId: item.runId,
     sequenceIndex: item.sequenceIndex,
     roundIndex: item.roundIndex,
+    sourceKind: item.kind,
     kind:
       item.kind === "model_input"
         ? "input"
@@ -51,6 +52,7 @@ export function mapTaskRunItem(item: TaskRunItemSource, role: TaskRunRole): Task
               : humanize(item.kind),
     summary: item.contentText,
     details,
+    payload: item.payload,
     role,
     status: runItemStatus(item.status),
     correlationId: item.correlationId,
@@ -103,13 +105,22 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry | null
 
   if (item.kind === "tool" || item.kind === "result") {
     const isCall = item.kind === "tool";
-    const correlationId = item.correlationId ?? item.id;
+    const persisted = recordValue(item.payload);
+    const correlationId = item.correlationId ?? persistedCorrelationId(persisted) ?? item.id;
     const toolName = taskToolName(item);
+    const argumentsPayload = persisted?.arguments;
+    const resultPayload = isCall ? undefined : persistedResultPayload(persisted);
+    const success = persisted?.success;
     const action = {
       ...(isCall ? { id: correlationId } : { call_id: correlationId }),
       name: toolName,
-      payload: parseDetails(item.details),
-      ...(isCall ? {} : { success: item.status !== "failed" })
+      correlation_id: correlationId,
+      detail_mode: "complete",
+      ...(argumentsPayload === undefined ? {} : { arguments: argumentsPayload }),
+      payload: isCall ? argumentsPayload : resultPayload,
+      ...(isCall
+        ? {}
+        : { success: typeof success === "boolean" ? success : item.status !== "failed" })
     };
     return {
       ...base,
@@ -124,8 +135,7 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry | null
         metadata: {
           action,
           display: {
-            name: toolName,
-            ...(item.summary ? { result: item.summary } : {})
+            name: toolName
           }
         }
       }
@@ -133,6 +143,9 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry | null
   }
 
   if (item.kind === "status") {
+    if (item.sourceKind === "context_checkpoint") {
+      return checkpointActivityEntry(base, item, "Context compacted", "context_checkpoint");
+    }
     return {
       ...base,
       type: "activity",
@@ -149,7 +162,11 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry | null
   }
 
   if (item.kind === "input") {
-    const text = visibleModelInput(item.details ?? item.summary);
+    const rawInput = item.details ?? item.summary;
+    if (isBoundedEvidenceInput(rawInput)) {
+      return checkpointActivityEntry(base, item, "Evidence checkpoint", "evidence_checkpoint");
+    }
+    const text = visibleModelInput(rawInput);
     if (!text) {
       return null;
     }
@@ -165,6 +182,44 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry | null
     type: "assistant",
     text: item.summary ?? item.details ?? item.title
   };
+}
+
+function checkpointActivityEntry(
+  base: { id: string; source: "replay"; turnId: string },
+  item: TaskRunItem,
+  title: string,
+  activityKind: string
+): TranscriptEntry {
+  return {
+    ...base,
+    type: "activity",
+    item: {
+      kind: "activity",
+      id: item.id,
+      activity_kind: activityKind,
+      status: taskActivityStatus(item.status),
+      title,
+      summary: activityKind === "evidence_checkpoint"
+        ? "Provider continuation evidence"
+        : "Retained task context",
+      metadata: {
+        detail: persistedItemDetail(item),
+        presentation: { tone: "neutral" }
+      }
+    }
+  };
+}
+
+function persistedItemDetail(item: TaskRunItem): string {
+  const contentText = item.details ?? item.summary ?? null;
+  return JSON.stringify(
+    {
+      content_text: parseDetails(contentText),
+      payload: item.payload ?? null
+    },
+    null,
+    2
+  );
 }
 
 function jsonText(value: unknown): string | null {
@@ -208,6 +263,11 @@ function visibleModelInput(value: string | null | undefined): string | null {
   }
 }
 
+function isBoundedEvidenceInput(value: string | null | undefined): boolean {
+  const parsed = parseJson(value);
+  return recordValue(parsed)?.type === "NOEMA_BOUNDED_TASK_EVIDENCE";
+}
+
 function isSerializedToolContext(value: string): boolean {
   const text = value.trim();
   if (!text) {
@@ -227,7 +287,19 @@ function isToolContextRecord(value: unknown): boolean {
   const record = value as Record<string, unknown>;
   return record.type === "tool_call" ||
     record.type === "tool_result" ||
+    record.type === "NOEMA_LOCAL_TOOL_RESULT" ||
     (typeof record.call_id === "string" && typeof record.name === "string");
+}
+
+function parseJson(value: string | null | undefined): unknown {
+  if (!value?.trim()) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(value);
+  } catch {
+    return undefined;
+  }
 }
 
 function parseDetails(value: string | null | undefined): unknown {
@@ -241,8 +313,38 @@ function parseDetails(value: string | null | undefined): unknown {
   }
 }
 
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function persistedCorrelationId(payload: Record<string, unknown> | null): string | null {
+  if (!payload) {
+    return null;
+  }
+  for (const key of ["provider_call_id", "call_id", "id"]) {
+    const value = payload[key];
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function persistedResultPayload(payload: Record<string, unknown> | null): unknown {
+  if (!payload) {
+    return undefined;
+  }
+  return "payload" in payload ? payload.payload : payload;
+}
+
 function taskToolName(item: TaskRunItem): string {
-  return item.title.replace(/^Tool (?:call|result) ·\s*/i, "").trim() || "Tool activity";
+  const persistedName = recordValue(item.payload)?.name;
+  if (typeof persistedName === "string" && persistedName.trim()) {
+    return persistedName;
+  }
+  return item.summary?.trim() || "Tool activity";
 }
 
 function taskActivityStatus(status: TaskRunItem["status"]): TurnActivityStatus {

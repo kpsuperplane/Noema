@@ -82,10 +82,12 @@ export type TaskRunItem = {
   runId?: string | null;
   sequenceIndex?: number | null;
   roundIndex?: number | null;
+  sourceKind?: string;
   kind: "input" | "tool" | "message" | "result" | "artifact" | "status";
   title: string;
   summary?: string | null;
   details?: string | null;
+  payload?: unknown;
   role?: TaskRunRole;
   status?: "queued" | "running" | "completed" | "failed" | "cancelled" | "skipped" | null;
   correlationId?: string | null;
