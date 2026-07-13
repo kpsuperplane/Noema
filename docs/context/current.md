@@ -169,8 +169,14 @@ The next storage slice should stay small and concrete:
   tool dispatch, and finalization primitives while replacing interactive user
   input with typed terminal contracts: `task.submit_result`,
   `task.submit_review`, and `task.report_blocked`. Every continuation repeats the
-  immutable original request. Lease heartbeats and cancellation interrupt active
-  provider/tool futures; expired leases have bounded automatic recovery.
+  complete ordered provider context—original input, encrypted reasoning,
+  assistant output, tool calls, and tool results—and only compacts old rounds
+  through a same-model semantic checkpoint near the provider input limit.
+  Revision executors receive the exact prior submission and reviewer verdict,
+  criterion evidence, and feedback, while reviewer inspection targets the
+  executor run linked to the submission instead of the reviewer run itself.
+  Lease heartbeats and cancellation interrupt active provider/tool futures;
+  expired leases have bounded automatic recovery.
   Human-blocked and failed tasks resume only as linked child runs with reconstructed
   lineage and an optional answer—there is no fresh retry path. Agents can inspect,
   resume, and cancel owner-scoped tasks through canonical task tools, and the UI
@@ -195,7 +201,11 @@ The next storage slice should stay small and concrete:
   The task adapter maps run items into the common assistant/activity entry model,
   uses an embedded density without mounting a composer, so task conversations
   inherit the main chat's Markdown, tool markers, live-arrival behavior,
-  pagination, and accessibility infrastructure.
+  pagination, and accessibility infrastructure. Persisted tool calls and results
+  pair into the normal chat tool marker; genuine model inputs render as neutral
+  system messages, while cumulative continuation inputs and semantic context
+  checkpoints remain fully inspectable neutral activities instead of repeated
+  human-looking bubbles.
 - Memory is governed context, not hidden model state. Durable memory truth now
   belongs to local Mnemosyne, while Noema owns service lifecycle, configuration,
   live readiness proxying, provenance, UI, model routing, ingest diagnostics,

@@ -2,6 +2,7 @@ pub(in crate::daemon) mod actor;
 mod background_task;
 mod context_compaction;
 mod context_window;
+mod continuation_context;
 mod conversation_state;
 pub(in crate::daemon) mod handle;
 pub(in crate::daemon) mod local_tools;

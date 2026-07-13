@@ -13,14 +13,15 @@ use crate::{
 
 use super::{
     actor::CodexRuntimeActor,
+    continuation_context::ContinuationContext,
     local_tools::LocalToolResult,
     model_tools::{ModelTools, build_model_tools_for_role},
     progress::{ContinuationProgressTracker, DeterministicProgressStop},
     progress_audit::ProgressAuditDecision,
     task_continuation::{
-        TaskEvidenceContext, add_usage, append_assistant_history, background_tool_instructions,
-        build_task_finalization_prompt, is_task_terminal_tool, is_valid_terminal_tool,
-        record_assistant_history, render_tool_names, task_tool_result_transcript_payload,
+        add_usage, background_tool_instructions, build_task_finalization_prompt,
+        is_task_terminal_tool, is_valid_terminal_tool, render_tool_names,
+        task_tool_result_transcript_payload,
     },
     task_transcript::sanitize_task_tool_payload,
     tool_lifecycle::local_tool_calls,
@@ -98,7 +99,7 @@ impl CodexRuntimeActor {
         let turn_id = format!("task_turn:{}", request.run_id);
         let user_item_id = format!("task_input:{}", request.run_id);
         let tool_instructions = background_tool_instructions(&request.instructions, &model_tools);
-        let mut evidence = TaskEvidenceContext::new();
+        let mut context = ContinuationContext::new(&request.input);
         let initial_response = self
             .generate_task_provider_round(
                 &provider,
@@ -136,7 +137,7 @@ impl CodexRuntimeActor {
                         &provider,
                         &conversation_id,
                         &model_tools,
-                        &evidence,
+                        &context,
                         "task active wall-time safety ceiling reached",
                         deadline,
                         None,
@@ -145,9 +146,8 @@ impl CodexRuntimeActor {
             }
             Err(error) => return Err(error),
         };
+        context.append_response(&response);
         let mut aggregate_usage = response.usage.clone();
-        let mut assistant_history = Vec::new();
-        record_assistant_history(&mut assistant_history, &response);
         let mut progress = ContinuationProgressTracker::new(&request.input);
         let mut completed_tool_calls = 0usize;
 
@@ -169,7 +169,7 @@ impl CodexRuntimeActor {
                         &provider,
                         &conversation_id,
                         &model_tools,
-                        &evidence,
+                        &context,
                         "model returned without the required terminal contract",
                         deadline,
                         aggregate_usage,
@@ -204,7 +204,7 @@ impl CodexRuntimeActor {
                         &provider,
                         &conversation_id,
                         &model_tools,
-                        &evidence,
+                        &context,
                         "task active wall-time safety ceiling reached",
                         deadline,
                         aggregate_usage,
@@ -230,7 +230,7 @@ impl CodexRuntimeActor {
                         &provider,
                         &conversation_id,
                         &model_tools,
-                        &evidence,
+                        &context,
                         "task tool-call safety ceiling reached",
                         deadline,
                         aggregate_usage,
@@ -256,6 +256,7 @@ impl CodexRuntimeActor {
                 continuation_model_tools: model_tools.clone(),
                 rendered_tools: render_tool_names(&model_tools),
                 rendered_continuation_tools: render_tool_names(&model_tools),
+                initial_provider_input: GenerateInput::Text(request.input.clone()),
             };
             let mut results = Vec::with_capacity(calls.len());
             for (call_index, call) in calls.iter().enumerate() {
@@ -280,20 +281,14 @@ impl CodexRuntimeActor {
                             &calls[call_index..],
                             "task active wall-time safety ceiling reached",
                         ).await;
-                        if let Some(checkpoint) = evidence.observe(&results) {
-                            self.persist_context_checkpoint(
-                                &request,
-                                continuation_index as i64,
-                                &checkpoint,
-                                serde_json::json!({"source": "bounded_evidence_compaction"}),
-                            ).await;
-                        }
+                        context.append_results(&results);
+                        context.finish_round();
                         return self.finalize_background_task(
                             &request,
                             &provider,
                             &conversation_id,
                             &model_tools,
-                            &evidence,
+                            &context,
                             "task active wall-time safety ceiling reached",
                             deadline,
                             aggregate_usage,
@@ -369,12 +364,41 @@ impl CodexRuntimeActor {
             }
             completed_tool_calls = completed_tool_calls.saturating_add(results.len());
             progress.observe_results(&results);
-            if let Some(checkpoint) = evidence.observe(&results) {
+            context.append_results(&results);
+            context.finish_round();
+            let compaction = tokio::select! {
+                _ = request.cancellation.cancelled() => {
+                    return Err(DaemonError::Protocol("task execution cancelled".to_string()));
+                }
+                _ = tokio::time::sleep_until(deadline) => {
+                    return self.finalize_background_task(
+                        &request,
+                        &provider,
+                        &conversation_id,
+                        &model_tools,
+                        &context,
+                        "task active wall-time safety ceiling reached",
+                        deadline,
+                        aggregate_usage,
+                    ).await;
+                }
+                result = context.compact_if_needed(
+                    provider.as_ref(),
+                    request.model.as_deref(),
+                    request.reasoning_effort,
+                    &request.input,
+                ) => result,
+            };
+            if let Ok(Some(checkpoint)) = compaction {
                 self.persist_context_checkpoint(
                     &request,
                     continuation_index as i64,
-                    &checkpoint,
-                    serde_json::json!({"source": "bounded_evidence_compaction"}),
+                    &checkpoint.summary,
+                    serde_json::json!({
+                        "source": "semantic_continuation_compaction",
+                        "covered_item_count": checkpoint.covered_item_count,
+                        "retained_item_count": checkpoint.retained_item_count,
+                    }),
                 )
                 .await;
             }
@@ -403,7 +427,7 @@ impl CodexRuntimeActor {
                         &provider,
                         &conversation_id,
                         &model_tools,
-                        &evidence,
+                        &context,
                         reason,
                         deadline,
                         aggregate_usage,
@@ -424,7 +448,7 @@ impl CodexRuntimeActor {
                             &provider,
                             &conversation_id,
                             &model_tools,
-                            &evidence,
+                            &context,
                             "task active wall-time safety ceiling reached",
                             deadline,
                             aggregate_usage,
@@ -463,7 +487,7 @@ impl CodexRuntimeActor {
                                 &provider,
                                 &conversation_id,
                                 &model_tools,
-                                &evidence,
+                                &context,
                                 reason,
                                 deadline,
                                 aggregate_usage,
@@ -484,20 +508,19 @@ impl CodexRuntimeActor {
                         &provider,
                         &conversation_id,
                         &model_tools,
-                        &evidence,
+                        &context,
                         "maximum provider tool continuations reached",
                         deadline,
                         aggregate_usage,
                     )
                     .await;
             }
-            let input = evidence.provider_input(capabilities.native_tool_results);
-            let mut instructions = build_role_tool_result_continuation_system_prompt(
+            let input = context.provider_input(capabilities.native_tool_results);
+            let instructions = build_role_tool_result_continuation_system_prompt(
                 &request.instructions,
                 &request.input,
                 &render_tool_names(&model_tools),
             );
-            append_assistant_history(&mut instructions, &assistant_history);
             let continuation_response = self
                 .generate_task_provider_round(
                     &provider,
@@ -535,7 +558,7 @@ impl CodexRuntimeActor {
                             &provider,
                             &conversation_id,
                             &model_tools,
-                            &evidence,
+                            &context,
                             "task active wall-time safety ceiling reached",
                             deadline,
                             aggregate_usage,
@@ -545,7 +568,7 @@ impl CodexRuntimeActor {
                 Err(error) => return Err(error),
             };
             add_usage(&mut aggregate_usage, response.usage.as_ref());
-            record_assistant_history(&mut assistant_history, &response);
+            context.append_response(&response);
         }
         unreachable!("task continuation loop exits through a terminal outcome")
     }
@@ -557,7 +580,7 @@ impl CodexRuntimeActor {
         provider: &std::sync::Arc<dyn super::handle::RuntimeModelProvider>,
         conversation_id: &str,
         model_tools: &ModelTools,
-        evidence: &TaskEvidenceContext,
+        context: &ContinuationContext,
         reason: &str,
         deadline: tokio::time::Instant,
         mut aggregate_usage: Option<TokenUsage>,
@@ -582,7 +605,7 @@ impl CodexRuntimeActor {
                 GenerateRequest {
                     conversation_id: Some(conversation_id.to_string()),
                     model: request.model.clone(),
-                    input: evidence.provider_input(
+                    input: context.provider_input(
                         provider
                             .tool_capabilities(request.model.as_deref())
                             .native_tool_results,

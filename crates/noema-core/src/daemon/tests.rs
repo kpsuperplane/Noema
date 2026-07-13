@@ -3208,12 +3208,7 @@ async fn native_capable_provider_continuation_uses_native_tool_result_input() {
         2,
         "expected initial request and continuation"
     );
-    let GenerateInput::NativeToolResults(results) = &requests[1].input else {
-        panic!(
-            "expected native tool-result input, got {:?}",
-            requests[1].input
-        );
-    };
+    let results = input_tool_results(&requests[1].input);
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].id.as_deref(), Some("item_native_1"));
     assert_eq!(results[0].call_id, "call_native_1");
@@ -3270,9 +3265,7 @@ async fn web_search_result_is_sent_as_native_tool_result_input() {
 
     let requests = provider.requests();
     assert!(requests.iter().any(|request| {
-        let GenerateInput::NativeToolResults(results) = &request.input else {
-            return false;
-        };
+        let results = input_tool_results(&request.input);
         results.iter().any(|result| {
             result.name == "web.search"
                 && result.success
@@ -3338,9 +3331,7 @@ async fn native_provider_can_call_web_fetch_and_continue() {
     )));
     let requests = provider.requests();
     assert!(requests.iter().any(|request| {
-        let GenerateInput::NativeToolResults(results) = &request.input else {
-            return false;
-        };
+        let results = input_tool_results(&request.input);
         results.iter().any(|result| {
             result.name == "web.fetch"
                 && result.success
@@ -3420,9 +3411,7 @@ async fn native_provider_can_create_local_artifact_with_two_versions_and_continu
     )));
     let requests = provider.requests();
     assert!(requests.iter().any(|request| {
-        let GenerateInput::NativeToolResults(results) = &request.input else {
-            return false;
-        };
+        let results = input_tool_results(&request.input);
         results.iter().any(|result| {
             result.name == "artifact.create_local_file"
                 && result.success
@@ -3434,11 +3423,19 @@ async fn native_provider_can_create_local_artifact_with_two_versions_and_continu
 
 #[tokio::test]
 async fn runtime_actor_continues_after_continuation_tool_call() {
-    let (handle, _store, _server) = test_runtime_handle_with_mnemosyne(
-        fake_provider(FakeCodexScenario::ChainedSearchMemoryContinuation),
-        json!({"results": []}),
-    )
-    .await;
+    let provider = Arc::new(
+        RecordingFakeProvider::new("codex", FakeCodexScenario::ChainedSearchMemoryContinuation)
+            .with_tool_capabilities(ProviderToolCapabilities {
+                native_tools: true,
+                parallel_tool_calls: true,
+                native_tool_results: true,
+                schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
+                fallback_mode: ProviderToolFallbackMode::NativeRequired,
+                ..ProviderToolCapabilities::default()
+            }),
+    );
+    let (handle, _store, _server) =
+        spawn_runtime_with_memory_provider(provider.clone(), json!({"results": []})).await;
 
     let conversation_id = handle
         .start_conversation(None)
@@ -3473,6 +3470,16 @@ async fn runtime_actor_continues_after_continuation_tool_call() {
         item,
         TurnTranscriptItem::AssistantText { text } if text == "I checked both memory topics."
     )));
+    let requests = provider.requests();
+    assert_eq!(requests.len(), 3, "expected two ordered continuations");
+    let final_input = &requests[2].input;
+    let results = input_tool_results(final_input);
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].call_id, "call_1");
+    assert_eq!(results[1].call_id, "call_2");
+    let rendered = final_input.render_for_token_count();
+    assert!(rendered.contains("Checking memory first."));
+    assert!(rendered.contains("I need one more memory check."));
 }
 
 #[tokio::test]
@@ -5048,34 +5055,32 @@ impl FakeCodexProvider {
                     assistant_with_no_memories("fake answer")
                 }
             }
-            FakeCodexScenario::NativeSearchMemoryContinuation => match &request.input {
-                GenerateInput::NativeToolResults(results) => {
-                    if results.iter().any(|result| {
-                        result.call_id == "call_native_1" && result.name == "search_memory"
-                    }) {
-                        assistant_with_no_memories("native tool result received")
-                    } else {
-                        assistant_with_no_memories("wrong native tool result")
-                    }
-                }
-                _ if input.contains("NOEMA_LOCAL_TOOL_RESULT") => {
+            FakeCodexScenario::NativeSearchMemoryContinuation => {
+                let results = input_tool_results(&request.input);
+                if results.iter().any(|result| {
+                    result.call_id == "call_native_1" && result.name == "search_memory"
+                }) {
+                    assistant_with_no_memories("native tool result received")
+                } else if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
                     assistant_with_no_memories("legacy tool result received")
+                } else if input.contains("What do you remember about trains?") {
+                    vec![
+                        GenerateOutputItem::AssistantText {
+                            phase: None,
+                            text: "Searching memory.".to_string(),
+                        },
+                        GenerateOutputItem::ToolCall {
+                            id: Some("item_native_1".to_string()),
+                            provider_call_id: Some("call_native_1".to_string()),
+                            provider_name: Some("search_memory".to_string()),
+                            name: "search_memory".to_string(),
+                            payload: json!({"arguments": {"query": "trains"}}),
+                        },
+                    ]
+                } else {
+                    assistant_with_no_memories("fake answer")
                 }
-                _ if input.contains("What do you remember about trains?") => vec![
-                    GenerateOutputItem::AssistantText {
-                        phase: None,
-                        text: "Searching memory.".to_string(),
-                    },
-                    GenerateOutputItem::ToolCall {
-                        id: Some("item_native_1".to_string()),
-                        provider_call_id: Some("call_native_1".to_string()),
-                        provider_name: Some("search_memory".to_string()),
-                        name: "search_memory".to_string(),
-                        payload: json!({"arguments": {"query": "trains"}}),
-                    },
-                ],
-                _ => assistant_with_no_memories("fake answer"),
-            },
+            }
             FakeCodexScenario::NativeWebSearch => {
                 if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
                     assistant_with_no_memories("web search result received")
@@ -5090,80 +5095,78 @@ impl FakeCodexProvider {
                     )]
                 }
             }
-            FakeCodexScenario::NativeWebSearchContinuation => match &request.input {
-                GenerateInput::NativeToolResults(results)
-                    if results.iter().any(|result| result.name == "web.search") =>
-                {
+            FakeCodexScenario::NativeWebSearchContinuation => {
+                let results = input_tool_results(&request.input);
+                if results.iter().any(|result| result.name == "web.search") {
                     assistant_with_no_memories("I found a current web result.")
-                }
-                GenerateInput::NativeToolResults(_) => {
+                } else if !results.is_empty() {
                     assistant_with_no_memories("wrong web search tool result")
+                } else {
+                    vec![web_search_tool_call(
+                        "call_web_1",
+                        json!({
+                            "query": "rust language",
+                            "reason": "answer the current question",
+                            "max_results": 3
+                        }),
+                    )]
                 }
-                _ => vec![web_search_tool_call(
-                    "call_web_1",
-                    json!({
-                        "query": "rust language",
-                        "reason": "answer the current question",
-                        "max_results": 3
-                    }),
-                )],
-            },
-            FakeCodexScenario::NativeWebFetchContinuation => match &request.input {
-                GenerateInput::NativeToolResults(results)
-                    if results.iter().any(|result| result.name == "web.fetch") =>
-                {
+            }
+            FakeCodexScenario::NativeWebFetchContinuation => {
+                let results = input_tool_results(&request.input);
+                if results.iter().any(|result| result.name == "web.fetch") {
                     assistant_with_no_memories("I read the fetched page.")
-                }
-                GenerateInput::NativeToolResults(_) => {
+                } else if !results.is_empty() {
                     assistant_with_no_memories("wrong web fetch tool result")
+                } else {
+                    vec![web_fetch_tool_call(
+                        "call_fetch_1",
+                        json!({
+                            "url": "https://example.com/page",
+                            "reason": "answer the current question",
+                            "max_chars": 5000
+                        }),
+                    )]
                 }
-                _ => vec![web_fetch_tool_call(
-                    "call_fetch_1",
-                    json!({
-                        "url": "https://example.com/page",
-                        "reason": "answer the current question",
-                        "max_chars": 5000
-                    }),
-                )],
-            },
-            FakeCodexScenario::NativeArtifactCreateLocalFileContinuation => match &request.input {
-                GenerateInput::NativeToolResults(results)
-                    if results.iter().any(|result| {
-                        result.name == "artifact.create_local_file"
-                            && result.success
-                            && result.payload["current_version_index"] == 2
-                    }) =>
-                {
+            }
+            FakeCodexScenario::NativeArtifactCreateLocalFileContinuation => {
+                let results = input_tool_results(&request.input);
+                if results.iter().any(|result| {
+                    result.name == "artifact.create_local_file"
+                        && result.success
+                        && result.payload["current_version_index"] == 2
+                }) {
                     assistant_with_no_memories("I created the two-version artifact.")
-                }
-                GenerateInput::NativeToolResults(_) => {
+                } else if !results.is_empty() {
                     assistant_with_no_memories("wrong artifact tool result")
+                } else {
+                    vec![artifact_create_local_file_tool_call(
+                        "call_artifact_1",
+                        json!({
+                            "title": "Agent artifact smoke note",
+                            "description": "Created by the agent artifact tool test.",
+                            "artifact_kind": "document",
+                            "filename": "agent-artifact-smoke-note.md",
+                            "media_type": "text/markdown",
+                            "versions": [
+                                {
+                                    "title": "Draft",
+                                    "content": "# Agent artifact smoke note\n\nVersion one."
+                                },
+                                {
+                                    "title": "Revision",
+                                    "content": "# Agent artifact smoke note\n\nVersion two."
+                                }
+                            ]
+                        }),
+                    )]
                 }
-                _ => vec![artifact_create_local_file_tool_call(
-                    "call_artifact_1",
-                    json!({
-                        "title": "Agent artifact smoke note",
-                        "description": "Created by the agent artifact tool test.",
-                        "artifact_kind": "document",
-                        "filename": "agent-artifact-smoke-note.md",
-                        "media_type": "text/markdown",
-                        "versions": [
-                            {
-                                "title": "Draft",
-                                "content": "# Agent artifact smoke note\n\nVersion one."
-                            },
-                            {
-                                "title": "Revision",
-                                "content": "# Agent artifact smoke note\n\nVersion two."
-                            }
-                        ]
-                    }),
-                )],
-            },
+            }
             FakeCodexScenario::ChainedSearchMemoryContinuation => {
-                if input.contains("call_2") {
+                let history = request.input.render_for_token_count();
+                if history.contains("call_2") {
                     assistant_with_no_memories("I checked both memory topics.")
-                } else if input.contains("call_1") {
+                } else if history.contains("call_1") {
                     vec![
                         GenerateOutputItem::AssistantText {
                             phase: None,
@@ -5370,6 +5373,9 @@ impl FakeCodexProvider {
 
 fn current_user_input(input: &GenerateInput) -> String {
     match input {
+        GenerateInput::Text(text) if has_tool_result_after_last_user_text(text) => {
+            format!("NOEMA_LOCAL_TOOL_RESULT\n{text}")
+        }
         GenerateInput::Text(text) => text.clone(),
         GenerateInput::Messages(messages) => messages
             .iter()
@@ -5379,6 +5385,12 @@ fn current_user_input(input: &GenerateInput) -> String {
                 || input.render_for_token_count(),
                 |message| message.content.clone(),
             ),
+        GenerateInput::Items(items) if has_tool_result_after_last_user(items) => {
+            format!(
+                "NOEMA_LOCAL_TOOL_RESULT\n{}",
+                input.render_for_token_count()
+            )
+        }
         GenerateInput::Items(items) => items
             .iter()
             .rev()
@@ -5398,6 +5410,27 @@ fn current_user_input(input: &GenerateInput) -> String {
     }
 }
 
+fn has_tool_result_after_last_user(items: &[GenerateInputItem]) -> bool {
+    let last_user = items.iter().rposition(|item| {
+        matches!(
+            item,
+            GenerateInputItem::Message(message)
+                if message.role == crate::provider::GenerateMessageRole::User
+        )
+    });
+    items.iter().enumerate().any(|(index, item)| {
+        matches!(item, GenerateInputItem::ToolResult(_))
+            && last_user.is_none_or(|user| index > user)
+    })
+}
+
+fn has_tool_result_after_last_user_text(text: &str) -> bool {
+    let Some(tool_result) = text.rfind("\"type\":\"function_call_output\"") else {
+        return false;
+    };
+    text.rfind("user:").is_none_or(|user| tool_result > user)
+}
+
 fn input_message_texts(input: &GenerateInput) -> Vec<String> {
     match input {
         GenerateInput::Text(text) => vec![text.clone()],
@@ -5415,6 +5448,22 @@ fn input_message_texts(input: &GenerateInput) -> Vec<String> {
             })
             .collect(),
         GenerateInput::NativeToolResults(_) => Vec::new(),
+    }
+}
+
+fn input_tool_results(input: &GenerateInput) -> Vec<&crate::provider::GenerateToolResultInput> {
+    match input {
+        GenerateInput::Items(items) => items
+            .iter()
+            .filter_map(|item| match item {
+                GenerateInputItem::ToolResult(result) => Some(result),
+                GenerateInputItem::Message(_)
+                | GenerateInputItem::Reasoning(_)
+                | GenerateInputItem::ToolCall(_) => None,
+            })
+            .collect(),
+        GenerateInput::NativeToolResults(results) => results.iter().collect(),
+        GenerateInput::Text(_) | GenerateInput::Messages(_) => Vec::new(),
     }
 }
 

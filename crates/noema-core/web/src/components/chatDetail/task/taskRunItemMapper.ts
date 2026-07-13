@@ -166,6 +166,9 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry | null
     if (isBoundedEvidenceInput(rawInput)) {
       return checkpointActivityEntry(base, item, "Evidence checkpoint", "evidence_checkpoint");
     }
+    if (recordValue(item.payload)?.context_mode === "cumulative_replay") {
+      return checkpointActivityEntry(base, item, "Model context", "provider_context");
+    }
     const text = visibleModelInput(rawInput);
     if (!text) {
       return null;
@@ -199,9 +202,12 @@ function checkpointActivityEntry(
       activity_kind: activityKind,
       status: taskActivityStatus(item.status),
       title,
-      summary: activityKind === "evidence_checkpoint"
-        ? "Provider continuation evidence"
-        : "Retained task context",
+      summary:
+        activityKind === "evidence_checkpoint"
+          ? "Provider continuation evidence"
+          : activityKind === "provider_context"
+            ? "Full prior context and latest tool results"
+            : "Retained task context",
       metadata: {
         detail: persistedItemDetail(item),
         presentation: { tone: "neutral" }

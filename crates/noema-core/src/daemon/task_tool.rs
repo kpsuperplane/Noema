@@ -423,7 +423,18 @@ async fn inspect_inner(
         .list_task_reviews(&task.task_id)
         .await
         .map_err(|error| error.to_string())?;
-    let latest_items = if let Some(run) = runs.last() {
+    let inspected_run = if context.actor_id == TASK_REVIEWER_AGENT_ID {
+        submissions
+            .last()
+            .and_then(|submission| {
+                runs.iter()
+                    .find(|run| run.run_id == submission.executor_run_id)
+            })
+            .or_else(|| runs.last())
+    } else {
+        runs.last()
+    };
+    let latest_items = if let Some(run) = inspected_run {
         store
             .list_recent_agent_run_items(&run.run_id, 50)
             .await
@@ -530,19 +541,24 @@ async fn inspect_inner(
         "error_code": task.error_code,
         "error_message": task.error_message,
         "policy_consumption": {
-            "provider_calls": runs.last().map_or(0, |run| run.provider_call_count),
-            "tool_calls": runs.last().map_or(0, |run| run.tool_call_count),
-            "active_milliseconds": runs.last().map_or(0, |run| run.active_milliseconds),
-            "input_tokens": runs.last().map_or(0, |run| run.input_tokens),
-            "cached_input_tokens": runs.last().map_or(0, |run| run.cached_input_tokens),
-            "output_tokens": runs.last().map_or(0, |run| run.output_tokens),
-            "limits": runs.last().map(|run| json!({
+            "provider_calls": inspected_run.map_or(0, |run| run.provider_call_count),
+            "tool_calls": inspected_run.map_or(0, |run| run.tool_call_count),
+            "active_milliseconds": inspected_run.map_or(0, |run| run.active_milliseconds),
+            "input_tokens": inspected_run.map_or(0, |run| run.input_tokens),
+            "cached_input_tokens": inspected_run.map_or(0, |run| run.cached_input_tokens),
+            "output_tokens": inspected_run.map_or(0, |run| run.output_tokens),
+            "limits": inspected_run.map(|run| json!({
                 "provider_continuations": run.execution_policy.max_provider_continuations,
                 "tool_calls": run.execution_policy.max_tool_calls,
                 "active_minutes": run.execution_policy.max_active_minutes,
                 "progress_audit_interval": run.execution_policy.progress_audit_interval,
             })),
         },
+        "transcript_run": inspected_run.map(|run| json!({
+            "run_id": run.run_id,
+            "kind": run.run_kind.as_str(),
+            "revision": run.revision_index,
+        })),
         "transcript_cursor": transcript_cursor,
         "recent_items": recent_items,
         "latest_run": latest_run,
@@ -836,5 +852,95 @@ mod tests {
         let cancelled = execute_task_cancel(&store, &context, None, &arguments).await;
         assert!(cancelled.success);
         assert_eq!(cancelled.payload["status"], "cancelled");
+    }
+
+    #[tokio::test]
+    async fn reviewer_inspection_targets_the_submission_executor_run() {
+        let store = crate::store::tests::test_store().await;
+        let (task, executor_run) =
+            crate::store::tests::seed_task(&store, "Review inspection").await;
+        store
+            .claim_next_agent_run("worker:executor", "lease:executor", 120)
+            .await
+            .expect("claim executor")
+            .expect("executor run");
+        store
+            .transition_agent_run(
+                &executor_run.run_id,
+                crate::RunStatus::Running,
+                Some("lease:executor"),
+                None,
+            )
+            .await
+            .expect("run executor");
+        store
+            .transition_task(&task.task_id, crate::TaskStatus::Executing, None)
+            .await
+            .expect("execute task");
+        store
+            .record_agent_run_progress(&executor_run.run_id, "lease:executor", 2, 40)
+            .await
+            .expect("executor progress");
+        let criterion_id = store
+            .list_task_validation_criteria(&task.task_id)
+            .await
+            .expect("criteria")[0]
+            .criterion_id
+            .clone();
+        let (_, reviewer_run) = store
+            .create_task_submission(
+                crate::NewTaskSubmission {
+                    submission_id: None,
+                    task_id: task.task_id.clone(),
+                    executor_run_id: executor_run.run_id.clone(),
+                    revision_index: 0,
+                    summary: "Done".to_string(),
+                    result_markdown: "Done".to_string(),
+                    criteria: vec![crate::SubmissionCriterionEvidence {
+                        criterion_id,
+                        evidence_markdown: "Verified".to_string(),
+                    }],
+                    artifact_ids: Vec::new(),
+                },
+                "lease:executor",
+            )
+            .await
+            .expect("submission");
+        store
+            .claim_next_agent_run("worker:reviewer", "lease:reviewer", 120)
+            .await
+            .expect("claim reviewer")
+            .expect("reviewer run");
+        store
+            .transition_agent_run(
+                &reviewer_run.run_id,
+                crate::RunStatus::Running,
+                Some("lease:reviewer"),
+                None,
+            )
+            .await
+            .expect("run reviewer");
+
+        let inspected = execute_task_inspect(
+            &store,
+            &TaskAccessRuntimeContext {
+                owner_human_id: "human:local".to_string(),
+                actor_id: TASK_REVIEWER_AGENT_ID.to_string(),
+            },
+            None,
+            &json!({"task_id": task.task_id}),
+        )
+        .await;
+
+        assert!(inspected.success);
+        assert_eq!(
+            inspected.payload["latest_run"]["run_id"],
+            reviewer_run.run_id
+        );
+        assert_eq!(
+            inspected.payload["transcript_run"]["run_id"],
+            executor_run.run_id
+        );
+        assert_eq!(inspected.payload["policy_consumption"]["tool_calls"], 2);
     }
 }

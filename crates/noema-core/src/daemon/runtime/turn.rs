@@ -16,6 +16,7 @@ use tokio::sync::mpsc;
 
 use super::{
     actor::CodexRuntimeActor,
+    continuation_context::ContinuationContext,
     local_tools::{
         LocalToolResult, agent_identity_after_local_tools, local_tool_artifact_reference_item,
         local_tool_result_action_item, local_tool_result_continuation_input,
@@ -892,6 +893,7 @@ impl CodexRuntimeActor {
             }),
         );
         let initial_provider_started_at = std::time::Instant::now();
+        let initial_provider_input = planned_context.input.clone();
         match provider
             .generate_streaming(
                 GenerateRequest {
@@ -916,7 +918,6 @@ impl CodexRuntimeActor {
             .await
         {
             Ok(response) => {
-                drop(on_initial_event);
                 let initial_batch_kind =
                     ForegroundToolBatchKind::for_calls(&local_tool_calls(&response.tool_calls));
                 if initial_batch_kind != ForegroundToolBatchKind::MixedDelegation {
@@ -967,6 +968,7 @@ impl CodexRuntimeActor {
                             continuation_model_tools,
                             rendered_tools: rendered_tools.clone(),
                             rendered_continuation_tools,
+                            initial_provider_input,
                         },
                         &item_tx,
                         &timing,
@@ -1215,6 +1217,11 @@ impl CodexRuntimeActor {
         let mut all_local_tool_results = local_tool_results.clone();
         let mut progress_tracker = ContinuationProgressTracker::new(&turn.user_input);
         progress_tracker.observe_results(&local_tool_results);
+        let mut continuation_context =
+            ContinuationContext::from_provider_input(turn.initial_provider_input.clone());
+        continuation_context.append_response(&turn.response);
+        continuation_context.append_results(&local_tool_results);
+        continuation_context.finish_round();
 
         let mut continuation_tool_results = if task_handoff {
             Vec::new()
@@ -1352,26 +1359,9 @@ impl CodexRuntimeActor {
             }
             let continuation_agent_identity =
                 agent_identity_after_local_tools(&turn.agent_identity, &all_local_tool_results);
-            let continuation_result_refs = continuation_tool_results.iter().collect::<Vec<_>>();
-            let continuation_input = if turn.tool_capabilities.native_tool_results {
-                continuation_result_refs
-                    .iter()
-                    .map(|result| result.native_tool_result_input())
-                    .collect::<Option<Vec<_>>>()
-                    .map_or_else(
-                        || {
-                            GenerateInput::Text(
-                                local_tool_result_continuation_input(&continuation_result_refs)
-                                    .to_string(),
-                            )
-                        },
-                        GenerateInput::NativeToolResults,
-                    )
-            } else {
-                GenerateInput::Text(
-                    local_tool_result_continuation_input(&continuation_result_refs).to_string(),
-                )
-            };
+            let continuation_result_count = continuation_tool_results.len();
+            let continuation_input =
+                continuation_context.provider_input(turn.tool_capabilities.native_tool_results);
             let continuation_instructions = build_local_tool_result_continuation_system_prompt(
                 &turn.conversation_id,
                 turn.turn_index,
@@ -1461,7 +1451,7 @@ impl CodexRuntimeActor {
                 "provider_continuation_request_started",
                 json!({
                     "continuation_step": continuation_step,
-                    "tool_result_count": continuation_result_refs.len(),
+                    "tool_result_count": continuation_result_count,
                     "native_tool_count": if task_handoff {
                         0
                     } else {
@@ -1498,7 +1488,6 @@ impl CodexRuntimeActor {
                     &mut on_continuation_event,
                 )
                 .await?;
-            drop(on_continuation_event);
             timing.mark(
                 "provider_continuation_response_completed",
                 json!({
@@ -1543,12 +1532,31 @@ impl CodexRuntimeActor {
                 &continuation_response.reasoning_items,
             )
             .await?;
+            let raw_continuation_batch_kind = if !task_handoff
+                && continuation_response.response_status == GenerateResponseStatus::NeedsTools
+            {
+                ForegroundToolBatchKind::for_calls(&local_tool_calls(
+                    &continuation_response.tool_calls,
+                ))
+            } else {
+                ForegroundToolBatchKind::Standard
+            };
             let continuation_tool_call_items = continuation_response
                 .tool_calls
                 .iter()
                 .filter(|call| !is_disallowed_continuation_tool_call(call))
                 .cloned()
                 .collect::<Vec<_>>();
+            continuation_context.append_response(&GenerateResponse {
+                responses: continuation_response.responses.clone(),
+                tool_calls: continuation_tool_call_items.clone(),
+                reasoning_items: continuation_response.reasoning_items.clone(),
+                response_status: continuation_response.response_status,
+                provider: continuation_response.provider.clone(),
+                model: continuation_response.model.clone(),
+                response_id: continuation_response.response_id.clone(),
+                usage: continuation_response.usage.clone(),
+            });
             let continuation_response_count = continuation_response.responses.len();
             let continuation_tool_calls = if !task_handoff
                 && continuation_response.response_status == GenerateResponseStatus::NeedsTools
@@ -1558,7 +1566,11 @@ impl CodexRuntimeActor {
                 Vec::new()
             };
             let continuation_batch_kind =
-                ForegroundToolBatchKind::for_calls(&continuation_tool_calls);
+                if raw_continuation_batch_kind == ForegroundToolBatchKind::MixedDelegation {
+                    ForegroundToolBatchKind::MixedDelegation
+                } else {
+                    ForegroundToolBatchKind::for_calls(&continuation_tool_calls)
+                };
             if continuation_batch_kind != ForegroundToolBatchKind::MixedDelegation {
                 for event in continuation_tool_start_events {
                     handle_provider_stream_event(
@@ -1627,6 +1639,7 @@ impl CodexRuntimeActor {
                 continuation_model_tools: turn.continuation_model_tools.clone(),
                 rendered_tools: turn.rendered_tools.clone(),
                 rendered_continuation_tools: turn.rendered_continuation_tools.clone(),
+                initial_provider_input: turn.initial_provider_input.clone(),
             };
             let mut local_tool_results = Vec::new();
             let local_action_turn = ProviderActionTurn {
@@ -1751,6 +1764,8 @@ impl CodexRuntimeActor {
                     .collect::<Vec<_>>()
             };
             progress_tracker.observe_results(&local_tool_results);
+            continuation_context.append_results(&local_tool_results);
+            continuation_context.finish_round();
             all_local_tool_results.extend(local_tool_results.clone());
         }
         if !continuation_tool_results.is_empty() {
@@ -2237,6 +2252,7 @@ pub(in crate::daemon) struct SuccessfulProviderTurn {
     pub(in crate::daemon) continuation_model_tools: ModelTools,
     pub(in crate::daemon) rendered_tools: String,
     pub(in crate::daemon) rendered_continuation_tools: String,
+    pub(in crate::daemon) initial_provider_input: GenerateInput,
 }
 
 #[derive(Debug, Default)]

@@ -56,6 +56,11 @@ impl CodexRuntimeActor {
                     "conversation_id": request.conversation_id.clone(),
                     "model": request.model.clone(),
                     "has_system_instructions": request.instructions.as_ref().is_some_and(|value| !value.trim().is_empty()),
+                    "context_mode": if round_index > 0 && matches!(&request.input, crate::GenerateInput::Items(_)) {
+                        "cumulative_replay"
+                    } else {
+                        "input"
+                    },
                 }),
             },
             lease_token,

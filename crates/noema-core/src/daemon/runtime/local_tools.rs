@@ -2,7 +2,7 @@ use crate::{
     ProviderAccountStatus,
     agent_execution::{ExecutionRole, ToolPolicy},
     capability::{CapabilityGateway, GatewayToolProposal, GatewayToolResult},
-    provider::{DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateActionItem, GenerateToolResultInput},
+    provider::{DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateActionItem},
     search::types::{DUCKDUCKGO_PUBLIC_PROVIDER_ID, SearchRuntimeProvider},
 };
 use serde_json::{Value, json};
@@ -754,18 +754,6 @@ impl LocalToolResult {
             Self::Gateway { result, .. } => result.requires_provider_continuation,
         }
     }
-
-    pub(super) fn native_tool_result_input(&self) -> Option<GenerateToolResultInput> {
-        Some(GenerateToolResultInput {
-            id: self.call_id().cloned(),
-            call_id: self.provider_call_id()?.clone(),
-            name: self.name().to_string(),
-            provider_name: self.provider_name().cloned(),
-            arguments: self.arguments().clone(),
-            success: self.success(),
-            payload: self.payload().clone(),
-        })
-    }
 }
 
 pub(super) fn agent_identity_after_local_tools(
@@ -909,7 +897,7 @@ mod tests {
             },
         },
         provider::{
-            DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateActionItem, GenerateRequest,
+            DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateActionItem, GenerateInput, GenerateRequest,
             GenerateResponse, GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent,
             ProviderToolCapabilities,
         },
@@ -1018,6 +1006,7 @@ mod tests {
             },
             rendered_tools: String::new(),
             rendered_continuation_tools: String::new(),
+            initial_provider_input: GenerateInput::Text("test".to_string()),
         }
     }
 

@@ -121,11 +121,21 @@ describe("taskRunItemsToTranscriptEntries", () => {
       }),
       "executor"
     );
+    const providerContext = mapTaskRunItem(
+      source({
+        itemId: "provider-context",
+        kind: "model_input",
+        roundIndex: 1,
+        contentText: "user: Original request\n{\"type\":\"tool_result\",\"payload\":{\"fact\":\"retained\"}}",
+        payload: { context_mode: "cumulative_replay" }
+      }),
+      "executor"
+    );
 
-    const entries = taskRunItemsToTranscriptEntries([evidence, checkpoint]);
+    const entries = taskRunItemsToTranscriptEntries([evidence, checkpoint, providerContext]);
     assert.deepEqual(
       entries.map((entry) => entry.type === "activity" ? entry.item.title : entry.type),
-      ["Evidence checkpoint", "Context compacted"]
+      ["Evidence checkpoint", "Context compacted", "Model context"]
     );
     for (const entry of entries) {
       assert.equal(entry.type, "activity");
@@ -137,7 +147,14 @@ describe("taskRunItemsToTranscriptEntries", () => {
         presentation: { tone: string };
       };
       assert.equal(metadata.presentation.tone, "neutral");
-      assert.match(metadata.detail, entry.id === "evidence" ? /complete evidence/ : /criteria_satisfied/);
+      assert.match(
+        metadata.detail,
+        entry.id === "evidence"
+          ? /complete evidence/
+          : entry.id === "checkpoint"
+            ? /criteria_satisfied/
+            : /retained/
+      );
     }
   });
 });

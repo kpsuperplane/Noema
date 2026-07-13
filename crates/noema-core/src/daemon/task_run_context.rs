@@ -151,7 +151,8 @@ pub(super) async fn with_resume_context(
     mut prompt: String,
 ) -> Result<String, String> {
     let lineage = load_run_lineage(store, run).await?;
-    if lineage.is_empty() && run.resume_message.is_none() {
+    let revision_context = load_revision_context(store, run).await?;
+    if lineage.is_empty() && run.resume_message.is_none() && revision_context.is_none() {
         return Ok(prompt);
     }
     let mut history = String::new();
@@ -204,13 +205,82 @@ pub(super) async fn with_resume_context(
             .rev()
             .collect();
     }
-    prompt.push_str("\n\nDurable context from prior attempts:\n");
-    prompt.push_str(history.trim());
+    if !history.trim().is_empty() {
+        prompt.push_str("\n\nDurable context from prior attempts:\n");
+        prompt.push_str(history.trim());
+    }
+    if let Some(revision_context) = revision_context {
+        prompt.push_str("\n\nPrior submission and reviewer feedback for this revision:\n");
+        prompt.push_str(&revision_context);
+        prompt.push_str("\n\nRevise the prior submission in response to this feedback. Preserve already-satisfied criteria and established evidence; do not restart completed work unless the feedback identifies a specific evidence gap.");
+    }
     if let Some(message) = run.resume_message.as_deref() {
         prompt.push_str("\n\nHuman continuation answer (authoritative task clarification that may refine the request or validation criteria):\n");
         prompt.push_str(message);
     }
     Ok(prompt)
+}
+
+async fn load_revision_context(
+    store: &NoemaStore,
+    run: &crate::AgentRunRecord,
+) -> Result<Option<String>, String> {
+    let Some(triggering_review_id) = run.triggering_review_id.as_deref() else {
+        return Ok(None);
+    };
+    let review = store
+        .list_task_reviews(&run.task_id)
+        .await
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .find(|review| review.review_id == triggering_review_id)
+        .ok_or_else(|| "triggering task review disappeared before revision".to_string())?;
+    let submission = store
+        .get_task_submission(&review.reviewed_submission_id)
+        .await
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "reviewed task submission disappeared before revision".to_string())?;
+
+    Ok(Some(render_revision_context(&submission, &review)))
+}
+
+fn render_revision_context(
+    submission: &crate::TaskSubmissionRecord,
+    review: &crate::TaskReviewRecord,
+) -> String {
+    let criteria = review
+        .criteria
+        .iter()
+        .map(|criterion| {
+            format!(
+                "- criterion_id={} · {}\n  Evidence: {}\n  Feedback: {}",
+                criterion.criterion_id,
+                criterion.outcome.as_str(),
+                criterion.evidence_markdown.as_deref().unwrap_or("None"),
+                criterion.feedback.as_deref().unwrap_or("None"),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let artifacts = submission
+        .artifacts
+        .iter()
+        .map(|artifact| artifact.artifact.artifact_id.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "Previous executor summary:\n{}\n\nPrevious executor result:\n{}\n\nSubmitted artifact IDs: {}\n\nReviewer verdict: {}\nReviewer feedback:\n{}\n\nCriterion review:\n{}",
+        bounded_text(&submission.summary, HUMAN_CONTEXT_VALUE_CHAR_LIMIT),
+        bounded_text(&submission.result_markdown, HUMAN_CONTEXT_VALUE_CHAR_LIMIT),
+        if artifacts.is_empty() {
+            "None"
+        } else {
+            &artifacts
+        },
+        review.overall_verdict.as_str(),
+        bounded_text(&review.overall_feedback, HUMAN_CONTEXT_VALUE_CHAR_LIMIT),
+        criteria,
+    )
 }
 
 async fn load_run_lineage(
@@ -293,7 +363,7 @@ pub(super) struct ReviewerCriterionResponse {
 mod tests {
     use super::{
         TaskHumanContinuationContext, format_executor_prompt, format_reviewer_prompt,
-        human_continuation_context_for_submission,
+        human_continuation_context_for_submission, render_revision_context,
     };
 
     fn task() -> crate::TaskRecord {
@@ -383,6 +453,43 @@ mod tests {
         assert!(prompt.contains("No, evaluate only current data."));
         assert!(prompt.contains("may refine or supersede"));
         assert!(prompt.contains("including any prefix"));
+    }
+
+    #[test]
+    fn revision_context_preserves_submission_and_review_feedback() {
+        let submission = crate::TaskSubmissionRecord {
+            submission_id: "submission:test".to_string(),
+            task_id: "task:test".to_string(),
+            executor_run_id: "run:executor".to_string(),
+            revision_index: 0,
+            summary: "The source page was updated in 2021.".to_string(),
+            result_markdown: "Estimate year: 2021".to_string(),
+            criteria: Vec::new(),
+            artifacts: Vec::new(),
+            created_at: "now".to_string(),
+        };
+        let review = crate::TaskReviewRecord {
+            review_id: "review:test".to_string(),
+            task_id: "task:test".to_string(),
+            reviewer_run_id: "run:reviewer".to_string(),
+            reviewed_submission_id: submission.submission_id.clone(),
+            overall_verdict: crate::TaskReviewVerdict::RequestChanges,
+            overall_feedback: "Do not treat the page update date as the estimate year.".to_string(),
+            criteria: vec![crate::TaskReviewCriterion {
+                criterion_id: "criterion:year".to_string(),
+                outcome: crate::CriterionOutcome::Fail,
+                evidence_markdown: Some("The source does not date the estimate.".to_string()),
+                feedback: Some("State that the estimate year is unknown.".to_string()),
+            }],
+            created_at: "now".to_string(),
+        };
+
+        let context = render_revision_context(&submission, &review);
+
+        assert!(context.contains("Estimate year: 2021"));
+        assert!(context.contains("Do not treat the page update date"));
+        assert!(context.contains("criterion_id=criterion:year · fail"));
+        assert!(context.contains("State that the estimate year is unknown"));
     }
 
     #[tokio::test]
