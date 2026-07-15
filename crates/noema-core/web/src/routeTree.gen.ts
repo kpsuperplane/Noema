@@ -13,6 +13,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as MemoryRouteImport } from './routes/memory'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
+import { Route as SettingsModelsRouteImport } from './routes/settings/models'
 import { Route as SettingsMemoryRouteImport } from './routes/settings/memory'
 import { Route as SettingsAgentsRouteImport } from './routes/settings/agents'
 import { Route as SettingsToolsWebRouteImport } from './routes/settings/tools/web'
@@ -38,6 +39,11 @@ const IndexRoute = IndexRouteImport.update({
 const SettingsIndexRoute = SettingsIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsModelsRoute = SettingsModelsRouteImport.update({
+  id: '/models',
+  path: '/models',
   getParentRoute: () => SettingsRoute,
 } as any)
 const SettingsMemoryRoute = SettingsMemoryRouteImport.update({
@@ -77,6 +83,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRouteWithChildren
   '/settings/agents': typeof SettingsAgentsRoute
   '/settings/memory': typeof SettingsMemoryRoute
+  '/settings/models': typeof SettingsModelsRoute
   '/settings/': typeof SettingsIndexRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
   '/settings/system/providers': typeof SettingsSystemProvidersRoute
@@ -88,6 +95,7 @@ export interface FileRoutesByTo {
   '/memory': typeof MemoryRoute
   '/settings/agents': typeof SettingsAgentsRoute
   '/settings/memory': typeof SettingsMemoryRoute
+  '/settings/models': typeof SettingsModelsRoute
   '/settings': typeof SettingsIndexRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
   '/settings/system/providers': typeof SettingsSystemProvidersRoute
@@ -101,6 +109,7 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRouteWithChildren
   '/settings/agents': typeof SettingsAgentsRoute
   '/settings/memory': typeof SettingsMemoryRoute
+  '/settings/models': typeof SettingsModelsRoute
   '/settings/': typeof SettingsIndexRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
   '/settings/system/providers': typeof SettingsSystemProvidersRoute
@@ -115,6 +124,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/settings/agents'
     | '/settings/memory'
+    | '/settings/models'
     | '/settings/'
     | '/settings/safety/usage'
     | '/settings/system/providers'
@@ -126,6 +136,7 @@ export interface FileRouteTypes {
     | '/memory'
     | '/settings/agents'
     | '/settings/memory'
+    | '/settings/models'
     | '/settings'
     | '/settings/safety/usage'
     | '/settings/system/providers'
@@ -138,6 +149,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/settings/agents'
     | '/settings/memory'
+    | '/settings/models'
     | '/settings/'
     | '/settings/safety/usage'
     | '/settings/system/providers'
@@ -179,6 +191,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/settings/'
       preLoaderRoute: typeof SettingsIndexRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/models': {
+      id: '/settings/models'
+      path: '/models'
+      fullPath: '/settings/models'
+      preLoaderRoute: typeof SettingsModelsRouteImport
       parentRoute: typeof SettingsRoute
     }
     '/settings/memory': {
@@ -229,6 +248,7 @@ declare module '@tanstack/react-router' {
 interface SettingsRouteChildren {
   SettingsAgentsRoute: typeof SettingsAgentsRoute
   SettingsMemoryRoute: typeof SettingsMemoryRoute
+  SettingsModelsRoute: typeof SettingsModelsRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
   SettingsSafetyUsageRoute: typeof SettingsSafetyUsageRoute
   SettingsSystemProvidersRoute: typeof SettingsSystemProvidersRoute
@@ -239,6 +259,7 @@ interface SettingsRouteChildren {
 const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsAgentsRoute: SettingsAgentsRoute,
   SettingsMemoryRoute: SettingsMemoryRoute,
+  SettingsModelsRoute: SettingsModelsRoute,
   SettingsIndexRoute: SettingsIndexRoute,
   SettingsSafetyUsageRoute: SettingsSafetyUsageRoute,
   SettingsSystemProvidersRoute: SettingsSystemProvidersRoute,

@@ -1,5 +1,6 @@
 export type SettingsSection =
   | "agents"
+  | "models"
   | "memory"
   | "tools-web"
   | "tools-mcps"
@@ -17,6 +18,7 @@ export type AppPath =
   | "/"
   | "/memory"
   | "/settings/agents"
+  | "/settings/models"
   | "/settings/memory"
   | "/settings/tools/web"
   | "/settings/tools/mcps"
@@ -29,6 +31,9 @@ export function routeFromPathname(pathname: string): AppRoute {
   }
   if (pathname === "/settings/memory") {
     return { kind: "settings", section: "memory" };
+  }
+  if (pathname === "/settings/models") {
+    return { kind: "settings", section: "models" };
   }
   if (pathname === "/settings" || pathname === "/settings/agents") {
     return { kind: "settings", section: "agents" };
@@ -56,6 +61,8 @@ export function pathForRoute(route: AppRoute): AppPath {
     switch (route.section) {
       case "agents":
         return "/settings/agents";
+      case "models":
+        return "/settings/models";
       case "memory":
         return "/settings/memory";
       case "tools-web":

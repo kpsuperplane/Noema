@@ -6,6 +6,7 @@ use ts_rs::TS;
 use crate::{ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod};
 
 const PROVIDER_LOGIN_STEP_ID: &str = "connect_provider_account";
+const LOCAL_MODEL_STEP_ID: &str = "install_local_model";
 const DEFAULT_CODEX_PROVIDER_KIND: &str = "codex";
 const DEFAULT_CODEX_PROVIDER_ACCOUNT_ID: &str = "provider_account:codex:default";
 const DEFAULT_CODEX_ACCOUNT_KEY: &str = "default";
@@ -68,7 +69,11 @@ pub struct OnboardingStatus {
 #[must_use]
 pub fn onboarding_status_from_account(account: Option<ProviderAccountRecord>) -> OnboardingStatus {
     match account {
-        Some(account) if account.status == ProviderAccountStatus::Authenticated => {
+        Some(account)
+            if account.status == ProviderAccountStatus::Authenticated
+                || (account.auth_method == ProviderAuthMethod::None
+                    && account.status == ProviderAccountStatus::Unknown) =>
+        {
             OnboardingStatus {
                 is_user_onboarded: true,
                 steps: vec![provider_account_step(
@@ -88,6 +93,49 @@ pub fn onboarding_status_from_account(account: Option<ProviderAccountRecord>) ->
             is_user_onboarded: false,
             steps: vec![default_codex_provider_step()],
         },
+    }
+}
+
+/// Build onboarding status from the two supported first-run paths.
+///
+/// A ready local model and an authenticated provider account are alternatives:
+/// either one opens Noema. The ordered steps keep the local path first so the
+/// product can recommend private on-device inference without making cloud
+/// providers unavailable later.
+#[must_use]
+pub fn onboarding_status_from_options(
+    account: Option<ProviderAccountRecord>,
+    local_model_ready: bool,
+) -> OnboardingStatus {
+    let provider_status = onboarding_status_from_account(account);
+    let mut steps = Vec::with_capacity(provider_status.steps.len() + 1);
+    steps.push(local_model_step(local_model_ready));
+    steps.extend(provider_status.steps);
+
+    OnboardingStatus {
+        is_user_onboarded: local_model_ready || provider_status.is_user_onboarded,
+        steps,
+    }
+}
+
+fn local_model_step(ready: bool) -> OnboardingStep {
+    OnboardingStep {
+        id: LOCAL_MODEL_STEP_ID.to_string(),
+        status: if ready {
+            OnboardingStepStatus::Complete
+        } else {
+            OnboardingStepStatus::Blocked
+        },
+        provider_kind: Some("local_models".to_string()),
+        provider_account_id: Some("provider_account:local_models:default".to_string()),
+        account_key: Some("default".to_string()),
+        display_name: Some("Local models".to_string()),
+        provider_account_status: if ready {
+            Some(ProviderAccountStatus::Authenticated)
+        } else {
+            Some(ProviderAccountStatus::Unknown)
+        },
+        auth_method: Some(ProviderAuthMethod::None),
     }
 }
 
@@ -158,6 +206,23 @@ mod tests {
 
         assert!(status.is_user_onboarded);
         assert_eq!(status.steps[0].status, OnboardingStepStatus::Complete);
+    }
+
+    #[test]
+    fn local_model_and_cloud_are_alternative_onboarding_paths() {
+        let local = onboarding_status_from_options(None, true);
+        assert!(local.is_user_onboarded);
+        assert_eq!(local.steps[0].id, "install_local_model");
+        assert_eq!(local.steps[0].status, OnboardingStepStatus::Complete);
+
+        let cloud = onboarding_status_from_options(
+            Some(codex_default_account(ProviderAccountStatus::Authenticated)),
+            false,
+        );
+        assert!(cloud.is_user_onboarded);
+        assert_eq!(cloud.steps[0].status, OnboardingStepStatus::Blocked);
+        assert_eq!(cloud.steps[1].id, "connect_provider_account");
+        assert_eq!(cloud.steps[1].status, OnboardingStepStatus::Complete);
     }
 
     #[test]

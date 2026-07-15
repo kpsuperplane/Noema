@@ -1,5 +1,6 @@
 import { AgentsSettingsPane } from "@/components/settings/AgentsSettingsPane";
 import { MemorySettingsPane } from "@/components/settings/MemorySettingsPane";
+import { LocalModelsSettingsPane } from "@/components/settings/LocalModelsSettingsPane";
 import { McpSettingsPane } from "@/components/settings/McpSettingsPane";
 import { ProvidersSettingsPane } from "@/components/settings/ProvidersSettingsPane";
 import { UsageSettingsPane } from "@/components/settings/UsageSettingsPane";
@@ -15,6 +16,11 @@ const settingsSectionCopy: Record<SettingsSection, { title: string; description:
   agents: {
     title: "Agents",
     description: "Review the agents currently registered in Noema and choose their runtime models."
+  },
+  models: {
+    title: "Models",
+    description:
+      "Install and manage private local models, their llama.cpp runtime, and Noema's system model default."
   },
   memory: {
     title: "Memory",
@@ -67,6 +73,8 @@ function SettingsSectionPane({ section }: { section: SettingsSection }) {
   switch (section) {
     case "agents":
       return <AgentsSettingsPane />;
+    case "models":
+      return <LocalModelsSettingsPane />;
     case "memory":
       return <MemorySettingsPane />;
     case "tools-web":

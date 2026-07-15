@@ -2,6 +2,7 @@ import React from "react";
 import {
   useApolloClient,
   useMutation,
+  useQuery,
   useSubscription,
   useSuspenseQuery
 } from "@apollo/client/react";
@@ -11,6 +12,10 @@ import {
   ConversationEventsDocument,
   ConversationTranscriptPageDocument,
   EnsurePrimaryConversationDocument,
+  InstallLocalModelDocument,
+  LocalModelEventsDocument,
+  LocalModelSetupDocument,
+  CancelLocalModelInstallDocument,
   ProviderAuthAttemptDocument,
   SendMultipleChoiceSelectionDocument,
   SendConversationTurnDocument,
@@ -124,9 +129,15 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     fetchPolicy: "network-only"
   });
   const [startProviderAuthAttempt] = useMutation(StartProviderAuthAttemptDocument);
+  const localSetupResult = useQuery(LocalModelSetupDocument, {
+    fetchPolicy: "cache-and-network"
+  });
+  const [installLocalModel, installLocalModelResult] = useMutation(InstallLocalModelDocument);
+  const [cancelLocalModelInstall, cancelLocalModelInstallResult] = useMutation(CancelLocalModelInstallDocument);
   const onboarding = boot.data.onboardingStatus;
   const refetchOnboarding = boot.refetch;
-  const onboarded = onboarding.isUserOnboarded;
+  const localSetup = localSetupResult.data?.localModelSetup ?? null;
+  const onboarded = onboarding.isUserOnboarded || localSetup?.isReady === true;
   const chatRoute = route.kind === "chat";
   const [ensurePrimaryConversation] = useMutation(EnsurePrimaryConversationDocument);
   const [sendConversationTurn] = useMutation(SendConversationTurnDocument);
@@ -215,6 +226,17 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
       }),
     [refetchOnboarding]
   );
+
+  const refreshLocalSetup = React.useCallback(async () => {
+    const result = await localSetupResult.refetch();
+    if (result.data?.localModelSetup.isReady) {
+      await refetchOnboardingStatus();
+    }
+  }, [localSetupResult, refetchOnboardingStatus]);
+
+  useSubscription(LocalModelEventsDocument, {
+    onData: () => void refreshLocalSetup()
+  });
 
   const pushTranscriptWindowError = React.useCallback((message: string) => {
     setTranscriptWindow((current) =>
@@ -600,6 +622,24 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     }
   }
 
+  async function installRecommendedLocalModel(modelId: string, file?: string | null) {
+    try {
+      await installLocalModel({ variables: { input: { modelId, file } } });
+      await refreshLocalSetup();
+    } catch {
+      // Apollo exposes the mutation error in the onboarding surface.
+    }
+  }
+
+  async function cancelLocalModelDownload(installationId: string) {
+    try {
+      await cancelLocalModelInstall({ variables: { installationId } });
+      await refreshLocalSetup();
+    } catch {
+      // Apollo exposes the mutation error in the onboarding surface.
+    }
+  }
+
   const checkProviderAuthAttempt = React.useCallback(
     async (attemptId = authAttempt?.attemptId) => {
       if (!attemptId) {
@@ -767,9 +807,20 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
       <SetupFrame>
         <Onboarding
           onboarding={onboarding}
+          localSetup={localSetup}
+          localSetupLoading={localSetupResult.loading && !localSetupResult.data}
+          localSetupError={localSetupResult.error?.message ?? null}
+          localSaving={installLocalModelResult.loading || cancelLocalModelInstallResult.loading}
+          localSaveError={
+            installLocalModelResult.error?.message ??
+            cancelLocalModelInstallResult.error?.message ??
+            null
+          }
           attempt={authAttempt}
           error={displayedOnboardingError}
           onConnect={() => void connectProvider()}
+          onInstallLocal={(modelId, file) => void installRecommendedLocalModel(modelId, file)}
+          onCancelLocal={(installationId) => void cancelLocalModelDownload(installationId)}
           onRetry={() => {
             setAuthAttempt(null);
             setOnboardingError(null);

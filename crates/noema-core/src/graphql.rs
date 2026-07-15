@@ -8,6 +8,9 @@ mod agents;
 mod artifacts;
 mod chat;
 mod errors;
+mod local_models;
+#[cfg(test)]
+mod local_models_tests;
 mod local_status;
 mod mcp;
 mod memory;

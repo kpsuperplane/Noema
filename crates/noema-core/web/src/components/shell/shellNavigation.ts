@@ -2,6 +2,7 @@ import {
   ArrowLeft,
   Bot,
   Brain,
+  Cpu,
   Gauge,
   Globe,
   House,
@@ -19,6 +20,7 @@ export type ShellMenuItemId =
   | "memory"
   | "settings"
   | "settings.agents"
+  | "settings.models"
   | "settings.memory"
   | "settings.tools.web"
   | "settings.tools.mcps"
@@ -77,6 +79,10 @@ export const shellSettingsEntries: ShellSettingsEntry[] = [
   {
     kind: "section",
     item: { section: "agents", itemId: "settings.agents", label: "Agents", icon: Bot }
+  },
+  {
+    kind: "section",
+    item: { section: "models", itemId: "settings.models", label: "Models", icon: Cpu }
   },
   {
     kind: "section",

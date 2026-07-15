@@ -1,10 +1,12 @@
 use async_graphql::{Context, Object, Result, Schema, Subscription};
 use futures_util::Stream;
 #[cfg(test)]
+use std::collections::VecDeque;
 use std::{
-    collections::VecDeque,
-    sync::{Arc, Mutex},
+    collections::HashMap,
+    sync::{Arc, Mutex, PoisonError},
 };
+use tokio_util::sync::CancellationToken;
 
 use super::{
     ConversationSubscriptionRegistry, GraphqlRuntimeState, TaskLiveEvent,
@@ -17,6 +19,12 @@ use super::{
         GraphqlConversationTranscriptPageInput, GraphqlPrimaryConversation,
         GraphqlSendConversationTurnInput, GraphqlSendMultipleChoiceSelectionInput,
         GraphqlTurnAccepted,
+    },
+    local_models::{
+        self, GraphqlDefaultModelPreference, GraphqlImportLocalModelInput,
+        GraphqlInstallLocalModelInput, GraphqlLocalModelCatalogEntry, GraphqlLocalModelEvent,
+        GraphqlLocalModelInstallation, GraphqlLocalModelRuntimeStatus, GraphqlLocalModelSetup,
+        GraphqlSaveDefaultModelPreferenceInput,
     },
     local_status::{self, GraphqlLocalStatus, GraphqlMemoryStorageStatus},
     mcp::{
@@ -64,6 +72,7 @@ pub type GraphqlSchema = Schema<QueryRoot, MutationRoot, SubscriptionRoot>;
 #[derive(Clone)]
 pub struct GraphqlState {
     runtime_state: GraphqlRuntimeState,
+    local_model_cancellations: Arc<Mutex<HashMap<String, CancellationToken>>>,
     #[cfg(test)]
     mcp_setup_outcomes: Option<Arc<Mutex<VecDeque<TestMcpSetupOutcome>>>>,
     #[cfg(test)]
@@ -76,6 +85,7 @@ impl GraphqlState {
     pub fn for_tests() -> Self {
         Self {
             runtime_state: GraphqlRuntimeState::for_tests(),
+            local_model_cancellations: Arc::default(),
             #[cfg(test)]
             mcp_setup_outcomes: None,
             #[cfg(test)]
@@ -89,6 +99,7 @@ impl GraphqlState {
     pub fn for_tests_with_store(store: crate::NoemaStore) -> Self {
         Self {
             runtime_state: GraphqlRuntimeState::for_tests_with_store(store),
+            local_model_cancellations: Arc::default(),
             mcp_setup_outcomes: None,
             mcp_browser_oauth_supported: false,
         }
@@ -103,6 +114,7 @@ impl GraphqlState {
     ) -> Self {
         Self {
             runtime_state: GraphqlRuntimeState::for_tests_with_store_and_paths(store, paths),
+            local_model_cancellations: Arc::default(),
             mcp_setup_outcomes: None,
             mcp_browser_oauth_supported: false,
         }
@@ -117,6 +129,7 @@ impl GraphqlState {
     ) -> Self {
         Self {
             runtime_state: GraphqlRuntimeState::for_tests_with_store_and_runtime(store, runtime),
+            local_model_cancellations: Arc::default(),
             mcp_setup_outcomes: None,
             mcp_browser_oauth_supported: false,
         }
@@ -132,6 +145,7 @@ impl GraphqlState {
     ) -> Self {
         Self {
             runtime_state: GraphqlRuntimeState::for_tests_with_store_and_paths(store, paths),
+            local_model_cancellations: Arc::default(),
             mcp_setup_outcomes: Some(Arc::new(Mutex::new(VecDeque::from(outcomes)))),
             mcp_browser_oauth_supported: false,
         }
@@ -150,6 +164,7 @@ impl GraphqlState {
     pub fn from_runtime_host(host: &crate::NoemaRuntimeHost) -> Self {
         Self {
             runtime_state: GraphqlRuntimeState::from_host(host),
+            local_model_cancellations: Arc::default(),
             #[cfg(test)]
             mcp_setup_outcomes: None,
             #[cfg(test)]
@@ -159,6 +174,38 @@ impl GraphqlState {
 
     pub(crate) fn runtime(&self) -> Result<&crate::daemon::CodexRuntimeHandle> {
         self.runtime_state.runtime()
+    }
+
+    pub(crate) fn retain_local_model_cancellation(
+        &self,
+        installation_id: String,
+        cancellation: CancellationToken,
+    ) {
+        self.local_model_cancellations
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(installation_id, cancellation);
+    }
+
+    #[must_use]
+    pub(crate) fn cancel_local_model_operation(&self, installation_id: &str) -> bool {
+        let cancellation = self
+            .local_model_cancellations
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(installation_id)
+            .cloned();
+        cancellation.is_some_and(|cancellation| {
+            cancellation.cancel();
+            true
+        })
+    }
+
+    pub(crate) fn release_local_model_cancellation(&self, installation_id: &str) {
+        self.local_model_cancellations
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(installation_id);
     }
 
     pub(crate) fn store(&self) -> Result<&crate::NoemaStore> {
@@ -378,6 +425,38 @@ impl QueryRoot {
         local_status::local_status(state).await
     }
 
+    /// Return the first-run local-model recommendation and readiness state.
+    async fn local_model_setup(&self, _ctx: &Context<'_>) -> Result<GraphqlLocalModelSetup> {
+        let state = _ctx.data_unchecked::<GraphqlState>();
+        local_models::local_model_setup(state).await
+    }
+
+    /// List curated models and machine-selected builds.
+    async fn local_model_catalog(
+        &self,
+        _ctx: &Context<'_>,
+    ) -> Result<Vec<GraphqlLocalModelCatalogEntry>> {
+        local_models::local_model_catalog().await
+    }
+
+    /// List durable local-model installations and transfer state.
+    async fn local_model_installations(
+        &self,
+        _ctx: &Context<'_>,
+    ) -> Result<Vec<GraphqlLocalModelInstallation>> {
+        let state = _ctx.data_unchecked::<GraphqlState>();
+        local_models::local_model_installations(state).await
+    }
+
+    /// Return Noema's system model default.
+    async fn default_model_preference(
+        &self,
+        _ctx: &Context<'_>,
+    ) -> Result<Option<GraphqlDefaultModelPreference>> {
+        let state = _ctx.data_unchecked::<GraphqlState>();
+        local_models::default_model_preference(state).await
+    }
+
     /// Return onboarding status.
     async fn onboarding_status(&self, ctx: &Context<'_>) -> Result<GraphqlOnboardingStatus> {
         let state = ctx.data_unchecked::<GraphqlState>();
@@ -582,6 +661,71 @@ pub struct MutationRoot;
 
 #[Object]
 impl MutationRoot {
+    /// Install one curated local model using the selected machine build.
+    async fn install_local_model(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlInstallLocalModelInput,
+    ) -> Result<GraphqlLocalModelInstallation> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        local_models::install_local_model(state, input).await
+    }
+
+    /// Import a public or local GGUF into Noema's content-addressed store.
+    async fn import_local_model(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlImportLocalModelInput,
+    ) -> Result<GraphqlLocalModelInstallation> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        local_models::import_local_model(state, input).await
+    }
+
+    /// Cancel one queued or active local-model transfer.
+    async fn cancel_local_model_install(
+        &self,
+        ctx: &Context<'_>,
+        installation_id: String,
+    ) -> Result<GraphqlLocalModelInstallation> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        local_models::cancel_local_model_install(state, installation_id).await
+    }
+
+    /// Remove one local-model installation and unreferenced model bytes.
+    async fn remove_local_model(&self, ctx: &Context<'_>, installation_id: String) -> Result<bool> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        local_models::remove_local_model(state, installation_id).await
+    }
+
+    /// Make one installed local model active.
+    async fn activate_local_model(
+        &self,
+        ctx: &Context<'_>,
+        installation_id: String,
+    ) -> Result<GraphqlLocalModelInstallation> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        local_models::activate_local_model(state, installation_id).await
+    }
+
+    /// Save Noema's system model default.
+    async fn save_default_model_preference(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlSaveDefaultModelPreferenceInput,
+    ) -> Result<GraphqlDefaultModelPreference> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        local_models::save_default_model_preference(state, input).await
+    }
+
+    /// Retry the supervised local llama.cpp runtime.
+    async fn retry_local_model_runtime(
+        &self,
+        ctx: &Context<'_>,
+    ) -> Result<GraphqlLocalModelRuntimeStatus> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        local_models::retry_local_model_runtime(state).await
+    }
+
     /// Continue one failed or human-blocked task from its durable context.
     async fn resume_task(
         &self,
@@ -900,6 +1044,16 @@ pub struct GraphqlTaskEvent {
 
 #[Subscription]
 impl SubscriptionRoot {
+    /// Stream cursor-bearing local-model transfer, selection, and runtime events.
+    async fn local_model_events(
+        &self,
+        _ctx: &Context<'_>,
+        after: Option<String>,
+    ) -> Result<impl Stream<Item = Result<GraphqlLocalModelEvent>>> {
+        let state = _ctx.data_unchecked::<GraphqlState>();
+        local_models::local_model_events(state, after).await
+    }
+
     #[cfg(test)]
     async fn test_request_principal(&self, ctx: &Context<'_>) -> impl Stream<Item = String> {
         futures_util::stream::once(std::future::ready(
@@ -1084,9 +1238,20 @@ mod tests {
 
         assert!(sdl.contains("type Query"));
         assert!(sdl.contains("localStatus"));
+        assert!(sdl.contains("localModelSetup"));
+        assert!(sdl.contains("localModelCatalog"));
+        assert!(sdl.contains("localModelInstallations"));
+        assert!(sdl.contains("defaultModelPreference"));
         assert!(sdl.contains("onboardingStatus"));
         assert!(sdl.contains("type Mutation"));
         assert!(sdl.contains("startProviderAuthAttempt"));
+        assert!(sdl.contains("installLocalModel"));
+        assert!(sdl.contains("importLocalModel"));
+        assert!(sdl.contains("cancelLocalModelInstall"));
+        assert!(sdl.contains("removeLocalModel"));
+        assert!(sdl.contains("activateLocalModel"));
+        assert!(sdl.contains("saveDefaultModelPreference"));
+        assert!(sdl.contains("retryLocalModelRuntime"));
         assert!(sdl.contains("primaryConversation"));
         assert!(sdl.contains("conversationTranscriptPage"));
         assert!(sdl.contains("type TaskReference"));
@@ -1107,6 +1272,7 @@ mod tests {
         assert!(sdl.contains("type Subscription"));
         assert!(sdl.contains("conversationEvents"));
         assert!(sdl.contains("taskEvents"));
+        assert!(sdl.contains("localModelEvents"));
         assert!(sdl.contains("type TaskRunItem"));
         assert!(sdl.contains("taskRunItems"));
         assert!(sdl.contains("taskExecutionPolicy"));

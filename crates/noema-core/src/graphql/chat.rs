@@ -572,7 +572,7 @@ pub(super) async fn ensure_primary_conversation(
         .map_err(graphql_error)?;
     if !crate::graphql::is_user_onboarded_for_chat(account) {
         return Err(async_graphql::Error::new(
-            "Noema onboarding is incomplete. Connect a provider account before starting chat.",
+            "Noema onboarding is incomplete. Finish local model setup or connect a provider account before starting chat.",
         ));
     }
 

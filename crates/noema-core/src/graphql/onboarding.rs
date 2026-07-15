@@ -231,15 +231,41 @@ impl From<ProviderAuthAttemptView> for GraphqlProviderAuthAttempt {
 pub(super) async fn onboarding_status(state: &GraphqlState) -> Result<GraphqlOnboardingStatus> {
     let store = state.store()?;
     let paths = state.paths()?;
-    let account = store
-        .active_provider_account("codex")
+    let local_model_ready = store
+        .list_local_model_installations()
+        .await
+        .map_err(graphql_error)?
+        .into_iter()
+        .any(|installation| {
+            installation.is_active
+                && installation.status
+                    == crate::local_models::LocalModelInstallationStatus::Installed
+        });
+    let selected_preference = store
+        .get_agent_runtime_preference("agent:primary")
         .await
         .map_err(graphql_error)?;
+    let account = if let Some(preference) =
+        selected_preference.filter(|preference| preference.provider_kind != "local_models")
+    {
+        store
+            .get_provider_account(&preference.provider_account_id)
+            .await
+            .map_err(graphql_error)?
+    } else {
+        let fallback_provider = state
+            .runtime()
+            .map_or("codex", crate::daemon::CodexRuntimeHandle::provider_kind);
+        store
+            .active_provider_account(fallback_provider)
+            .await
+            .map_err(graphql_error)?
+    };
     let account = crate::graphql::reconcile_onboarding_provider_account(store, paths, account)
         .await
         .map_err(graphql_error)?;
 
-    Ok(crate::onboarding_status_from_account(account).into())
+    Ok(crate::onboarding_status_from_options(account, local_model_ready).into())
 }
 
 pub(super) async fn provider_auth_attempt(

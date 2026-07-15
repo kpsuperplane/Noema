@@ -672,6 +672,28 @@ input CreateProviderAccountInput {
 }
 
 """
+Noema-wide default model selection.
+"""
+type DefaultModelPreference {
+	"""
+	Provider family used for new workloads.
+	"""
+	providerKind: String!
+	"""
+	Provider account used for new workloads.
+	"""
+	providerAccountId: String!
+	"""
+	Provider-specific model profile.
+	"""
+	modelProfile: String!
+	"""
+	Optional provider-specific reasoning effort.
+	"""
+	reasoningEffort: String
+}
+
+"""
 Input for hard-deleting a user-managed provider account.
 """
 input DeleteProviderAccountInput {
@@ -693,9 +715,415 @@ type ErrorNotice {
 }
 
 """
+Import a public GGUF or a GGUF already on this machine.
+"""
+input ImportLocalModelInput {
+	"""
+	Product-facing name for the imported model.
+	"""
+	name: String!
+	"""
+	Import provenance.
+	"""
+	sourceKind: LocalModelSourceKind!
+	"""
+	Local file path for a local-file import.
+	"""
+	localPath: String
+	"""
+	Public Hugging Face repository for a public-GGUF import.
+	"""
+	repo: String
+	"""
+	Immutable Hugging Face revision for a public-GGUF import.
+	"""
+	revision: String
+	"""
+	GGUF filename in the public repository.
+	"""
+	file: String
+	"""
+	Required verified SHA-256 digest for a public-GGUF import.
+	"""
+	sha256: String
+	"""
+	License label shown in Settings when supplied by the user.
+	"""
+	license: String
+}
+
+"""
+Install one curated model/build.
+"""
+input InstallLocalModelInput {
+	"""
+	Stable model id from the bundled catalog.
+	"""
+	modelId: String!
+	"""
+	Optional artifact filename; the machine-selected build is used when omitted.
+	"""
+	file: String
+}
+
+"""
 A scalar that can represent any JSON value.
 """
 scalar JSON
+
+"""
+A backend available to the local llama.cpp runtime.
+"""
+enum LocalModelBackend {
+	"""
+	Apple Metal acceleration.
+	"""
+	METAL
+	"""
+	NVIDIA CUDA acceleration.
+	"""
+	CUDA
+	"""
+	Vulkan acceleration.
+	"""
+	VULKAN
+	"""
+	Portable CPU inference.
+	"""
+	CPU
+}
+
+"""
+One GGUF artifact offered for a curated local model.
+"""
+type LocalModelBuild {
+	"""
+	Artifact filename in the pinned source repository.
+	"""
+	file: String!
+	"""
+	Verified SHA-256 digest.
+	"""
+	sha256: String!
+	"""
+	Rounded UI-facing download size in decimal gigabytes.
+	"""
+	downloadGb: Float!
+	"""
+	Backends compatible with this artifact.
+	"""
+	backends: [LocalModelBackend!]!
+	"""
+	Minimum system or unified memory in whole gigabytes.
+	"""
+	minRamGb: Int!
+	"""
+	Minimum discrete or unified accelerator memory in whole gigabytes.
+	"""
+	minVramGb: Int
+}
+
+"""
+One curated local model and the build selected for this machine.
+"""
+type LocalModelCatalogEntry {
+	"""
+	Stable curated model identifier.
+	"""
+	modelId: String!
+	"""
+	Product-facing model name.
+	"""
+	name: String!
+	"""
+	License shown before download.
+	"""
+	license: String!
+	"""
+	Recommendation priority from the bundled catalog.
+	"""
+	priority: Int!
+	"""
+	Pinned Hugging Face repository.
+	"""
+	repo: String!
+	"""
+	Immutable source revision.
+	"""
+	revision: String!
+	"""
+	Every curated artifact for advanced inspection.
+	"""
+	builds: [LocalModelBuild!]!
+	"""
+	Best compatible artifact for this machine, when one fits.
+	"""
+	selectedBuild: LocalModelBuild
+	"""
+	Backend used by the selected artifact.
+	"""
+	compatibleBackend: LocalModelBackend
+	"""
+	Detected hardware values that satisfy the artifact thresholds.
+	"""
+	hardwareFit: LocalModelHardwareFit
+	"""
+	Whether this is the top recommendation for the current machine.
+	"""
+	isRecommended: Boolean!
+}
+
+"""
+One durable local-model event, suitable for reconnect backfill.
+"""
+type LocalModelEvent {
+	"""
+	Exclusive cursor for reconnect/backfill.
+	"""
+	cursor: String!
+	"""
+	Typed event category.
+	"""
+	kind: LocalModelEventKind!
+	"""
+	Installation affected by the event, when applicable.
+	"""
+	installationId: String
+	"""
+	Model affected by the event, when applicable.
+	"""
+	modelId: String
+	"""
+	Current installation projection, when applicable.
+	"""
+	installation: LocalModelInstallation
+	"""
+	Current runtime state, when applicable.
+	"""
+	runtimeStatus: LocalModelRuntimeStatus
+	"""
+	Durable event creation timestamp.
+	"""
+	createdAt: String!
+}
+
+"""
+Category for one cursor-bearing local-model event.
+"""
+enum LocalModelEventKind {
+	"""
+	An installation projection changed.
+	"""
+	INSTALLATION_UPDATED
+	"""
+	Download or copy progress advanced.
+	"""
+	TRANSFER_PROGRESS
+	"""
+	The active local model changed.
+	"""
+	ACTIVE_MODEL_CHANGED
+	"""
+	The supervised runtime state changed.
+	"""
+	RUNTIME_CHANGED
+	"""
+	The system default model preference changed.
+	"""
+	DEFAULT_PREFERENCE_CHANGED
+}
+
+"""
+Hardware values that caused a curated model build to match.
+"""
+type LocalModelHardwareFit {
+	"""
+	Backend selected for the build.
+	"""
+	backend: LocalModelBackend!
+	"""
+	Detected system or unified memory in whole gigabytes.
+	"""
+	ramGb: Int!
+	"""
+	Detected discrete accelerator memory in whole gigabytes.
+	"""
+	vramGb: Int
+	"""
+	Whether the accelerator shares system memory.
+	"""
+	unifiedMemory: Boolean!
+	"""
+	Product-facing explanation generated from the match.
+	"""
+	explanation: String!
+}
+
+"""
+One durable local-model installation projection.
+"""
+type LocalModelInstallation {
+	"""
+	Stable installation identifier.
+	"""
+	installationId: String!
+	"""
+	Catalog model id, or an import-specific stable id.
+	"""
+	modelId: String!
+	"""
+	Product-facing model name.
+	"""
+	name: String!
+	"""
+	Artifact filename.
+	"""
+	file: String!
+	"""
+	Model provenance.
+	"""
+	sourceKind: LocalModelSourceKind!
+	"""
+	Current operation state.
+	"""
+	status: LocalModelInstallationStatus!
+	"""
+	Verified content digest when known.
+	"""
+	sha256: String
+	"""
+	Downloaded or copied bytes.
+	"""
+	completedBytes: Int!
+	"""
+	Expected total bytes when known.
+	"""
+	totalBytes: Int
+	"""
+	Disk bytes owned by the installation after deduplication.
+	"""
+	diskBytes: Int!
+	"""
+	Runtime backend selected for this installation.
+	"""
+	backend: LocalModelBackend
+	"""
+	Whether this installation is Noema's active local model.
+	"""
+	isActive: Boolean!
+	"""
+	Stable non-secret error code.
+	"""
+	errorCode: String
+	"""
+	UI-safe operation failure message.
+	"""
+	errorMessage: String
+	"""
+	Durable creation timestamp.
+	"""
+	createdAt: String!
+	"""
+	Durable update timestamp.
+	"""
+	updatedAt: String!
+}
+
+"""
+Current local-model installation state.
+"""
+enum LocalModelInstallationStatus {
+	"""
+	The installation is queued.
+	"""
+	QUEUED
+	"""
+	Model bytes are being downloaded or copied.
+	"""
+	DOWNLOADING
+	"""
+	The artifact checksum is being verified.
+	"""
+	VERIFYING
+	"""
+	The model was installed atomically.
+	"""
+	INSTALLED
+	"""
+	The operation was cancelled.
+	"""
+	CANCELLED
+	"""
+	The operation failed and may be retried.
+	"""
+	FAILED
+}
+
+"""
+Current llama.cpp process state.
+"""
+enum LocalModelRuntimeStatus {
+	"""
+	No installed model is selected.
+	"""
+	INACTIVE
+	"""
+	The runtime is starting or loading weights.
+	"""
+	STARTING
+	"""
+	The runtime is ready for inference.
+	"""
+	RUNNING
+	"""
+	The runtime is stopping.
+	"""
+	STOPPING
+	"""
+	The runtime failed and may be retried.
+	"""
+	FAILED
+}
+
+"""
+First-run local-model recommendation and current readiness.
+"""
+type LocalModelSetup {
+	"""
+	Top curated recommendation for this machine.
+	"""
+	recommendedModel: LocalModelCatalogEntry
+	"""
+	Installation currently satisfying local setup, when present.
+	"""
+	installation: LocalModelInstallation
+	"""
+	Current supervised llama.cpp process state.
+	"""
+	runtimeStatus: LocalModelRuntimeStatus!
+	"""
+	Whether setup is complete and local inference is usable.
+	"""
+	isReady: Boolean!
+}
+
+"""
+Provenance for an installed local model.
+"""
+enum LocalModelSourceKind {
+	"""
+	Artifact from Noema's bundled curated catalog.
+	"""
+	CATALOG
+	"""
+	User-supplied public Hugging Face GGUF.
+	"""
+	PUBLIC_GGUF
+	"""
+	GGUF imported from the local filesystem.
+	"""
+	LOCAL_FILE
+}
 
 """
 Local service status shown by clients.
@@ -1371,6 +1799,34 @@ enum MultipleChoiceSelectionMode {
 
 type MutationRoot {
 	"""
+	Install one curated local model using the selected machine build.
+	"""
+	installLocalModel(input: InstallLocalModelInput!): LocalModelInstallation!
+	"""
+	Import a public or local GGUF into Noema's content-addressed store.
+	"""
+	importLocalModel(input: ImportLocalModelInput!): LocalModelInstallation!
+	"""
+	Cancel one queued or active local-model transfer.
+	"""
+	cancelLocalModelInstall(installationId: String!): LocalModelInstallation!
+	"""
+	Remove one local-model installation and unreferenced model bytes.
+	"""
+	removeLocalModel(installationId: String!): Boolean!
+	"""
+	Make one installed local model active.
+	"""
+	activateLocalModel(installationId: String!): LocalModelInstallation!
+	"""
+	Save Noema's system model default.
+	"""
+	saveDefaultModelPreference(input: SaveDefaultModelPreferenceInput!): DefaultModelPreference!
+	"""
+	Retry the supervised local llama.cpp runtime.
+	"""
+	retryLocalModelRuntime: LocalModelRuntimeStatus!
+	"""
 	Continue one failed or human-blocked task from its durable context.
 	"""
 	resumeTask(taskId: String!, message: String): TaskDetail!
@@ -1785,6 +2241,22 @@ type QueryRoot {
 	"""
 	localStatus: LocalStatus!
 	"""
+	Return the first-run local-model recommendation and readiness state.
+	"""
+	localModelSetup: LocalModelSetup!
+	"""
+	List curated models and machine-selected builds.
+	"""
+	localModelCatalog: [LocalModelCatalogEntry!]!
+	"""
+	List durable local-model installations and transfer state.
+	"""
+	localModelInstallations: [LocalModelInstallation!]!
+	"""
+	Return Noema's system model default.
+	"""
+	defaultModelPreference: DefaultModelPreference
+	"""
 	Return onboarding status.
 	"""
 	onboardingStatus: OnboardingStatus!
@@ -1907,6 +2379,28 @@ input SaveAgentModelPreferenceInput {
 	Optional explicit reasoning effort for reasoning-capable model profiles.
 	"""
 	reasoningEffort: ReasoningEffort
+}
+
+"""
+Save Noema's system model default without changing existing explicit selections.
+"""
+input SaveDefaultModelPreferenceInput {
+	"""
+	Provider family used for new workloads.
+	"""
+	providerKind: String!
+	"""
+	Provider account used for new workloads.
+	"""
+	providerAccountId: String!
+	"""
+	Provider-specific model profile.
+	"""
+	modelProfile: String!
+	"""
+	Optional provider-specific reasoning effort.
+	"""
+	reasoningEffort: String
 }
 
 """
@@ -2116,6 +2610,10 @@ type SubscriptionReadyEvent {
 }
 
 type SubscriptionRoot {
+	"""
+	Stream cursor-bearing local-model transfer, selection, and runtime events.
+	"""
+	localModelEvents(after: String): LocalModelEvent!
 	"""
 	Stream conversation events.
 	"""
