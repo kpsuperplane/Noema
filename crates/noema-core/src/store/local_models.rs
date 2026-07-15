@@ -211,6 +211,31 @@ impl NoemaStore {
         let message = update.error_message.clone();
         self.with_connection(|conn| {
             let transaction = conn.transaction()?;
+            let current_status = transaction
+                .query_row(
+                    "SELECT status FROM local_model_installations WHERE installation_id = ?1",
+                    [installation_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?
+                .ok_or_else(|| StoreError::InvariantViolation {
+                    message: format!("local-model installation not found: {installation_id}"),
+                })?;
+            let current_status = LocalModelInstallationStatus::from_str(&current_status)
+                .ok_or_else(|| StoreError::InvariantViolation {
+                    message: format!(
+                        "local-model installation has invalid status: {current_status}"
+                    ),
+                })?;
+            if !current_status.can_transition_to(update.status) {
+                return Err(StoreError::InvariantViolation {
+                    message: format!(
+                        "local-model installation cannot transition from {} to {}",
+                        current_status.as_str(),
+                        update.status.as_str()
+                    ),
+                });
+            }
             let changed = transaction.execute(
                 r#"
                 UPDATE local_model_installations

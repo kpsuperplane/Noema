@@ -20,8 +20,9 @@ use super::{
     progress_audit::ProgressAuditDecision,
     task_continuation::{
         add_usage, background_tool_instructions, build_task_finalization_prompt,
-        is_task_terminal_tool, is_valid_terminal_tool, render_tool_names,
-        task_tool_result_transcript_payload,
+        is_task_terminal_tool, is_valid_terminal_tool, render_continuation_tool_names,
+        render_tool_names, task_tool_result_transcript_payload, terminal_contract_tools,
+        terminal_tool_instructions,
     },
     task_transcript::sanitize_task_tool_payload,
     tool_lifecycle::local_tool_calls,
@@ -257,7 +258,7 @@ impl CodexRuntimeActor {
                 tool_capabilities: capabilities,
                 continuation_model_tools: model_tools.clone(),
                 rendered_tools: render_tool_names(&model_tools),
-                rendered_continuation_tools: render_tool_names(&model_tools),
+                rendered_continuation_tools: render_continuation_tool_names(&model_tools),
                 initial_provider_input: GenerateInput::Text(request.input.clone()),
             };
             let mut results = Vec::with_capacity(calls.len());
@@ -502,7 +503,7 @@ impl CodexRuntimeActor {
             let instructions = build_role_tool_result_continuation_system_prompt(
                 &request.instructions,
                 &request.input,
-                &render_tool_names(&model_tools),
+                &render_continuation_tool_names(&model_tools),
             );
             let continuation_request = GenerateRequest {
                 conversation_id: Some(conversation_id.clone()),
@@ -606,18 +607,17 @@ impl CodexRuntimeActor {
     ) -> Result<GenerateResponse, DaemonError> {
         let now = tokio::time::Instant::now();
         let deadline = task_finalization_deadline(deadline, now);
-        let terminal_tools = model_tools
-            .native
-            .iter()
-            .filter(|tool| is_task_terminal_tool(tool.name.as_str()))
-            .cloned()
-            .collect::<Vec<_>>();
+        let terminal_tools = terminal_contract_tools(model_tools);
         if terminal_tools.is_empty() {
             return Err(DaemonError::Protocol(
                 "task execution role has no terminal contract tool".to_string(),
             ));
         }
-        let instructions = build_task_finalization_prompt(request.role, reason, &request.input);
+        let instructions = terminal_tool_instructions(
+            &build_task_finalization_prompt(request.role, reason, &request.input),
+            model_tools,
+            &terminal_tools,
+        );
         let response_continuation = provider.response_continuation(request.model.as_deref());
         let continuation_input = context.next_provider_input(
             provider
@@ -640,7 +640,7 @@ impl CodexRuntimeActor {
                 ..GenerateOptions::default()
             },
             tools: terminal_tools.clone(),
-            tool_choice: Default::default(),
+            tool_choice: crate::provider::NoemaToolChoice::Required,
             parallel_tool_calls: false,
         };
         let mut finalization_result = self
@@ -677,7 +677,7 @@ impl CodexRuntimeActor {
                             ..GenerateOptions::default()
                         },
                         tools: terminal_tools.clone(),
-                        tool_choice: Default::default(),
+                        tool_choice: crate::provider::NoemaToolChoice::Required,
                         parallel_tool_calls: false,
                     },
                     &request.run_id,

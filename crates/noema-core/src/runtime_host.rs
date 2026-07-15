@@ -118,7 +118,7 @@ impl NoemaRuntimeHost {
             provider => provider,
         };
 
-        let (default_provider_kind, mut providers) =
+        let (default_provider_kind, mut providers, mut local_models_runtime) =
             CodexRuntimeHandle::provider_map_from_config(provider, system_errors.clone())
                 .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
         if !providers.contains_key(crate::ProviderKind::LocalModels.as_str())
@@ -152,12 +152,12 @@ impl NoemaRuntimeHost {
                 system_errors: Some(system_errors.clone()),
             })
             .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
+            local_models_runtime = Some(provider.runtime().clone());
             providers.insert(
                 crate::ProviderKind::LocalModels.as_str().to_string(),
                 std::sync::Arc::new(provider),
             );
         }
-
         let memory_settings = store
             .memory_service_settings()
             .await
@@ -170,6 +170,7 @@ impl NoemaRuntimeHost {
             crate::MemoryServiceMode::Managed => None,
         };
         let mut memory_startup_error = None;
+        let mut memory_model_route = None;
         let memory_model_proxy = match memory_settings.mode {
             crate::MemoryServiceMode::External => None,
             crate::MemoryServiceMode::Managed => {
@@ -181,7 +182,10 @@ impl NoemaRuntimeHost {
                     system_errors.clone(),
                 ) {
                     Ok(config) => match crate::MemoryModelProxy::start(config).await {
-                        Ok(proxy) => Some(proxy),
+                        Ok(proxy) => {
+                            memory_model_route = Some(proxy.route());
+                            Some(proxy)
+                        }
                         Err(error) => {
                             let error = error.to_string();
                             memory_startup_error = Some(error.clone());
@@ -258,7 +262,12 @@ impl NoemaRuntimeHost {
         runtime
             .set_local_models_runtime_root(local_model_runtime_root)
             .await;
-        if let Some(installation) = store
+        runtime.attach_memory_model_route(memory_model_route).await;
+        if let Some(local_models_runtime) = local_models_runtime {
+            runtime
+                .attach_local_models_runtime(local_models_runtime)
+                .await;
+        } else if let Some(installation) = store
             .list_local_model_installations()
             .await
             .map_err(|source| RuntimeHostError::Store(source.to_string()))?

@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-const MNEMOSYNE_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+const MNEMOSYNE_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
 
 /// Mnemosyne sidecar HTTP client.
 #[derive(Debug, Clone)]
@@ -11,20 +11,29 @@ pub struct MnemosyneClient {
     base_url: String,
     api_key: Option<String>,
     http: reqwest::Client,
+    request_timeout: std::time::Duration,
 }
 
 impl MnemosyneClient {
     /// Create a Mnemosyne sidecar client.
     #[must_use]
     pub fn new(base_url: String, api_key: Option<String>) -> Self {
+        Self::new_with_request_timeout(base_url, api_key, MNEMOSYNE_REQUEST_TIMEOUT)
+    }
+
+    pub(crate) fn new_with_request_timeout(
+        base_url: String,
+        api_key: Option<String>,
+        request_timeout: std::time::Duration,
+    ) -> Self {
         let http = reqwest::Client::builder()
-            .timeout(MNEMOSYNE_REQUEST_TIMEOUT)
             .build()
-            .expect("Mnemosyne HTTP client timeout configuration must be valid");
+            .expect("Mnemosyne HTTP client configuration must be valid");
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             api_key,
             http,
+            request_timeout,
         }
     }
 
@@ -41,6 +50,7 @@ impl MnemosyneClient {
         let mut builder = self
             .http
             .post(format!("{}/v1/memories/add", self.base_url))
+            .timeout(self.request_timeout)
             .json(&request);
         if let Some(api_key) = &self.api_key {
             builder = builder.bearer_auth(api_key);
@@ -67,6 +77,7 @@ impl MnemosyneClient {
         let mut builder = self
             .http
             .post(format!("{}/v1/memories/search", self.base_url))
+            .timeout(self.request_timeout)
             .json(&request);
         if let Some(api_key) = &self.api_key {
             builder = builder.bearer_auth(api_key);
@@ -99,7 +110,8 @@ impl MnemosyneClient {
             .finish();
         let mut builder = self
             .http
-            .get(format!("{}/v1/memories?{query}", self.base_url));
+            .get(format!("{}/v1/memories?{query}", self.base_url))
+            .timeout(self.request_timeout);
         if let Some(api_key) = &self.api_key {
             builder = builder.bearer_auth(api_key);
         }

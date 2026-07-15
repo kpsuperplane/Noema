@@ -19,6 +19,16 @@ use super::{TaskCompletionDeliveryRequest, actor::CodexRuntimeActor};
 use crate::daemon::protocol::{DaemonError, StartedConversation, TurnStreamEvent};
 
 pub(crate) type RuntimeProviderMap = HashMap<String, Arc<dyn RuntimeModelProvider>>;
+type ConfiguredRuntimeProvider = (
+    String,
+    Arc<dyn RuntimeModelProvider>,
+    Option<crate::LlamaServerSupervisor>,
+);
+type ConfiguredRuntimeProviderMap = (
+    String,
+    RuntimeProviderMap,
+    Option<crate::LlamaServerSupervisor>,
+);
 
 /// Model provider interface used by the daemon runtime and auxiliary tools.
 pub trait RuntimeModelProvider: std::fmt::Debug + Send + Sync {
@@ -107,6 +117,8 @@ pub(crate) struct CodexRuntimeHandle {
     tool_classification_model: Option<String>,
     local_models_runtime: Arc<tokio::sync::RwLock<Option<crate::LlamaServerSupervisor>>>,
     local_models_runtime_root: Arc<tokio::sync::RwLock<Option<PathBuf>>>,
+    memory_model_route:
+        Arc<tokio::sync::RwLock<Option<crate::memory_model_proxy::MemoryModelRoute>>>,
 }
 
 #[derive(Debug)]
@@ -122,8 +134,8 @@ impl CodexRuntimeHandle {
     pub(crate) fn provider_map_from_config(
         provider_config: ProviderConfig,
         system_errors: SystemErrorLogger,
-    ) -> Result<(String, RuntimeProviderMap), DaemonError> {
-        let (default_provider_kind, default_provider) =
+    ) -> Result<ConfiguredRuntimeProviderMap, DaemonError> {
+        let (default_provider_kind, default_provider, local_models_runtime) =
             provider_from_config(provider_config, system_errors.clone())?;
         let mut providers = HashMap::new();
         providers.insert(default_provider_kind.clone(), default_provider);
@@ -143,7 +155,7 @@ impl CodexRuntimeHandle {
                 )?),
             );
         }
-        Ok((default_provider_kind, providers))
+        Ok((default_provider_kind, providers, local_models_runtime))
     }
 
     pub(crate) async fn spawn_with_provider_map_and_memory(
@@ -245,6 +257,7 @@ impl CodexRuntimeHandle {
             tool_classification_model,
             local_models_runtime: Arc::new(tokio::sync::RwLock::new(None)),
             local_models_runtime_root: Arc::new(tokio::sync::RwLock::new(None)),
+            memory_model_route: Arc::new(tokio::sync::RwLock::new(None)),
         })
     }
 
@@ -284,6 +297,7 @@ impl CodexRuntimeHandle {
             tool_classification_model,
             local_models_runtime: Arc::new(tokio::sync::RwLock::new(None)),
             local_models_runtime_root: Arc::new(tokio::sync::RwLock::new(None)),
+            memory_model_route: Arc::new(tokio::sync::RwLock::new(None)),
         })
     }
 
@@ -342,6 +356,7 @@ impl CodexRuntimeHandle {
             tool_classification_model,
             local_models_runtime: Arc::new(tokio::sync::RwLock::new(None)),
             local_models_runtime_root: Arc::new(tokio::sync::RwLock::new(None)),
+            memory_model_route: Arc::new(tokio::sync::RwLock::new(None)),
         })
     }
 
@@ -352,6 +367,21 @@ impl CodexRuntimeHandle {
     /// Set the packaged llama.cpp resource root used for dynamic registrations.
     pub(crate) async fn set_local_models_runtime_root(&self, runtime_root: Option<PathBuf>) {
         *self.local_models_runtime_root.write().await = runtime_root;
+    }
+
+    pub(crate) async fn attach_memory_model_route(
+        &self,
+        route: Option<crate::memory_model_proxy::MemoryModelRoute>,
+    ) {
+        *self.memory_model_route.write().await = route;
+    }
+
+    /// Attach the supervisor owned by an already-registered local provider.
+    pub(crate) async fn attach_local_models_runtime(&self, runtime: crate::LlamaServerSupervisor) {
+        let previous = self.local_models_runtime.write().await.replace(runtime);
+        if let Some(previous) = previous {
+            previous.shutdown().await;
+        }
     }
 
     /// Register or replace the active installed local model without restarting Noema.
@@ -395,11 +425,18 @@ impl CodexRuntimeHandle {
         provider: LocalModelsProvider,
     ) -> Result<(), DaemonError> {
         let runtime = provider.runtime().clone();
+        let model_profile = ModelProvider::default_tool_classification_model(&provider)
+            .ok_or_else(|| {
+                DaemonError::Protocol(
+                    "local models provider has no default model profile".to_string(),
+                )
+            })?;
+        let provider: Arc<dyn RuntimeModelProvider> = Arc::new(provider);
         let (reply, reply_rx) = oneshot::channel();
         self.sender
             .send(CodexRuntimeCommand::RegisterProvider {
                 provider_kind: ProviderKind::LocalModels.as_str().to_string(),
-                provider: Arc::new(provider),
+                provider: provider.clone(),
                 reply,
             })
             .await
@@ -408,9 +445,9 @@ impl CodexRuntimeHandle {
             .await
             .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?;
 
-        let previous = self.local_models_runtime.write().await.replace(runtime);
-        if let Some(previous) = previous {
-            previous.shutdown().await;
+        self.attach_local_models_runtime(runtime).await;
+        if let Some(route) = self.memory_model_route.read().await.clone() {
+            route.update(provider, model_profile, None).await;
         }
         Ok(())
     }
@@ -622,7 +659,7 @@ impl CodexRuntimeHandle {
 fn provider_from_config(
     provider_config: ProviderConfig,
     system_errors: SystemErrorLogger,
-) -> Result<(String, Arc<dyn RuntimeModelProvider>), DaemonError> {
+) -> Result<ConfiguredRuntimeProvider, DaemonError> {
     match provider_config {
         ProviderConfig::Codex(codex_config) => Ok((
             ProviderKind::Codex.as_str().to_string(),
@@ -630,12 +667,14 @@ fn provider_from_config(
                 codex_config,
                 system_errors,
             )?)?),
+            None,
         )),
         ProviderConfig::OpenAi(mut openai_config) => {
             openai_config.system_errors = Some(system_errors);
             Ok((
                 ProviderKind::OpenAi.as_str().to_string(),
                 Arc::new(OpenAiProvider::new(openai_config)?),
+                None,
             ))
         }
         ProviderConfig::FoundationLocal(config) => Ok((
@@ -644,14 +683,17 @@ fn provider_from_config(
                 config,
                 system_errors,
             ))?),
+            None,
         )),
-        ProviderConfig::LocalModels(config) => Ok((
-            ProviderKind::LocalModels.as_str().to_string(),
-            Arc::new(LocalModelsProvider::new(local_models_config(
-                config,
-                system_errors,
-            ))?),
-        )),
+        ProviderConfig::LocalModels(config) => {
+            let provider = LocalModelsProvider::new(local_models_config(config, system_errors))?;
+            let runtime = provider.runtime().clone();
+            Ok((
+                ProviderKind::LocalModels.as_str().to_string(),
+                Arc::new(provider),
+                Some(runtime),
+            ))
+        }
     }
 }
 

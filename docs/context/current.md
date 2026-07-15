@@ -99,6 +99,21 @@ The next storage slice should stay small and concrete:
   the installed model to the primary agent, task executors/reviewer, all task
   tiers, memory, progress audits, and web summarization. Adding cloud accounts
   later does not rewrite those explicit selections.
+- Local-model onboarding keeps the recommended installation visible while it is
+  queued, downloading, or verifying, serializes each installation/import worker,
+  and reports ready only after the active llama.cpp supervisor is healthy.
+  Existing content-addressed blobs are rehashed before reuse, worker state
+  transitions cannot regress cancelled or installed records, and advanced local
+  imports must contain a GGUF header in addition to using a `.gguf` filename.
+- The local provider constrains llama.cpp Chat Completions with Noema's shared
+  strict response schema and request-specific tool payload schemas. Built-in
+  fallback tools retain their typed specs, while task executors and reviewers
+  must finish through their role-specific terminal contract; local task model
+  snapshots are valid first-class selections.
+- The daemon shares one local-model supervisor between provider dispatch and
+  runtime status. Activating a local model hot-swaps the managed Mnemosyne model
+  proxy route without restarting the sidecar, and memory requests use a
+  generation-sized timeout rather than the old three-second health-check bound.
 - Desktop builds package pinned llama.cpp release `b10015` at commit
   `12127defda4f41b7679cb2477a4b0d65ee6a0c8f`. The build preparation script
   downloads the platform archives, verifies the bundled manifest hashes, keeps

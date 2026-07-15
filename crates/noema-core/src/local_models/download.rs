@@ -161,6 +161,47 @@ impl LocalModelInstaller {
         )
     }
 
+    /// Returns the deterministic installation id for one pinned public GGUF.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the expected digest is malformed.
+    pub fn hugging_face_installation_id(sha256: &str) -> Result<String, LocalModelInstallError> {
+        validate_digest(sha256)?;
+        Ok(format!(
+            "local_model_installation:hugging_face:{}",
+            &sha256[..12]
+        ))
+    }
+
+    /// Returns the deterministic installation id for one local-file import.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the source is not a non-empty regular GGUF.
+    pub async fn local_file_installation_id(
+        input: &LocalFileModelImport,
+    ) -> Result<String, LocalModelInstallError> {
+        if !input.path.is_file()
+            || !input
+                .path
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("gguf"))
+        {
+            return Err(LocalModelInstallError::InvalidInput(
+                "local import must reference a regular .gguf file".to_string(),
+            ));
+        }
+        let metadata = fs::metadata(&input.path).await?;
+        if metadata.len() == 0 {
+            return Err(LocalModelInstallError::InvalidInput(
+                "local GGUF file is empty".to_string(),
+            ));
+        }
+        validate_gguf_magic(&input.path).await?;
+        Ok(local_file_installation_id(input, &metadata))
+    }
+
     /// Persists the queued projection for one catalog artifact without starting I/O.
     ///
     /// # Errors
@@ -263,14 +304,11 @@ impl LocalModelInstaller {
         &self,
         input: &HuggingFaceLocalModelImport,
     ) -> Result<LocalModelInstallationRecord, LocalModelInstallError> {
-        validate_digest(&input.sha256)?;
+        let installation_id = Self::hugging_face_installation_id(&input.sha256)?;
         validate_revision(&input.revision)?;
         hugging_face_url(&input.repo, &input.revision, &input.file)?;
         self.ensure_queued(NewLocalModelInstallation {
-            installation_id: format!(
-                "local_model_installation:hugging_face:{}",
-                &input.sha256[..12]
-            ),
+            installation_id,
             model_id: normalized_model_id(&input.model_id)?,
             display_name: required_text(&input.name, "name")?.to_string(),
             source_kind: LocalModelSourceKind::HuggingFace,
@@ -312,23 +350,8 @@ impl LocalModelInstaller {
         &self,
         input: &LocalFileModelImport,
     ) -> Result<LocalModelInstallationRecord, LocalModelInstallError> {
-        if !input.path.is_file()
-            || !input
-                .path
-                .extension()
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("gguf"))
-        {
-            return Err(LocalModelInstallError::InvalidInput(
-                "local import must reference a regular .gguf file".to_string(),
-            ));
-        }
+        let installation_id = Self::local_file_installation_id(input).await?;
         let metadata = fs::metadata(&input.path).await?;
-        if metadata.len() == 0 {
-            return Err(LocalModelInstallError::InvalidInput(
-                "local GGUF file is empty".to_string(),
-            ));
-        }
-        let installation_id = local_file_installation_id(input, &metadata);
         self.ensure_queued(NewLocalModelInstallation {
             installation_id,
             model_id: normalized_model_id(&input.model_id)?,
@@ -539,8 +562,15 @@ impl LocalModelInstaller {
                 actual,
             });
         }
-        self.install_verified(partial, actual, downloaded_bytes, expected_bytes)
-            .await
+        validate_gguf_magic(&partial).await?;
+        self.install_verified(
+            partial,
+            actual,
+            downloaded_bytes,
+            expected_bytes,
+            cancellation,
+        )
+        .await
     }
 
     async fn copy_local_file(
@@ -608,7 +638,7 @@ impl LocalModelInstaller {
         )
         .await?;
         let sha256 = hex_digest(digest.finish().as_ref());
-        self.install_verified(partial, sha256, copied, Some(expected_bytes))
+        self.install_verified(partial, sha256, copied, Some(expected_bytes), cancellation)
             .await
     }
 
@@ -618,10 +648,20 @@ impl LocalModelInstaller {
         sha256: String,
         downloaded_bytes: u64,
         expected_bytes: Option<u64>,
+        cancellation: &CancellationToken,
     ) -> Result<InstalledArtifact, LocalModelInstallError> {
+        if cancellation.is_cancelled() {
+            return Err(LocalModelInstallError::Cancelled);
+        }
         let blob = self.paths.local_model_blob_path(&sha256)?;
         if fs::try_exists(&blob).await? {
-            fs::remove_file(&partial).await?;
+            let existing_sha256 = hash_file(&blob, cancellation).await?;
+            if existing_sha256 == sha256 {
+                fs::remove_file(&partial).await?;
+            } else {
+                fs::remove_file(&blob).await?;
+                fs::rename(&partial, &blob).await?;
+            }
         } else {
             fs::rename(&partial, &blob).await?;
         }
@@ -745,4 +785,15 @@ impl LocalModelInstaller {
         }
         Ok(())
     }
+}
+
+async fn validate_gguf_magic(path: &std::path::Path) -> Result<(), LocalModelInstallError> {
+    let mut input = fs::File::open(path).await?;
+    let mut magic = [0_u8; 4];
+    if input.read_exact(&mut magic).await.is_err() || magic != *b"GGUF" {
+        return Err(LocalModelInstallError::InvalidInput(
+            "model artifact does not have a GGUF header".to_string(),
+        ));
+    }
+    Ok(())
 }

@@ -75,6 +75,23 @@ impl LocalModelInstallationStatus {
             _ => None,
         }
     }
+
+    pub(crate) fn can_transition_to(self, next: Self) -> bool {
+        self == next
+            || matches!(
+                (self, next),
+                (
+                    Self::Queued,
+                    Self::Downloading | Self::Verifying | Self::Failed | Self::Cancelled
+                ) | (
+                    Self::Downloading,
+                    Self::Verifying | Self::Failed | Self::Cancelled
+                ) | (
+                    Self::Verifying,
+                    Self::Installed | Self::Failed | Self::Cancelled
+                )
+            )
+    }
 }
 
 /// Cursor-bearing installation event kind.
@@ -263,4 +280,16 @@ pub struct RemovedLocalModelInstallation {
     pub installation: LocalModelInstallationRecord,
     /// Blob path that may be deleted after the transaction, when unreferenced.
     pub unreferenced_blob_relative_path: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LocalModelInstallationStatus as Status;
+
+    #[test]
+    fn cancelled_and_installed_installations_reject_worker_state_regression() {
+        assert!(Status::Downloading.can_transition_to(Status::Cancelled));
+        assert!(!Status::Cancelled.can_transition_to(Status::Installed));
+        assert!(!Status::Installed.can_transition_to(Status::Cancelled));
+    }
 }

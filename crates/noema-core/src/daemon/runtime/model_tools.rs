@@ -27,6 +27,7 @@ use crate::{
 pub(in crate::daemon) struct ModelTools {
     pub(in crate::daemon) native: Vec<NoemaToolSpec>,
     pub(in crate::daemon) legacy_builtin_envelope_tools: Vec<String>,
+    pub(in crate::daemon) legacy_builtin_envelope_specs: Vec<NoemaToolSpec>,
     pub(in crate::daemon) prompt_rows: Vec<String>,
     pub(in crate::daemon) unavailable_rows: Vec<String>,
     /// Exact names advertised for this role and safe to dispatch.
@@ -58,7 +59,17 @@ pub(super) async fn build_model_tools_for_role(
     include_agent_name_tool: bool,
     capabilities: ProviderToolCapabilities,
 ) -> Result<ModelTools, ToolContractError> {
-    let mut builtin_tools = builtin_tool_specs(include_agent_name_tool)?;
+    let mut builtin_tools = match role {
+        ExecutionRole::TaskExecutor => {
+            vec![
+                task_submit_result_tool_spec()?,
+                task_report_blocked_tool_spec()?,
+            ]
+        }
+        ExecutionRole::TaskReviewer => vec![task_submit_review_tool_spec()?],
+        ExecutionRole::PrimaryConversation => Vec::new(),
+    };
+    builtin_tools.extend(builtin_tool_specs(include_agent_name_tool)?);
     if role == ExecutionRole::PrimaryConversation {
         builtin_tools.push(task_resume_tool_spec()?);
         builtin_tools.push(task_cancel_tool_spec()?);
@@ -69,12 +80,8 @@ pub(super) async fn build_model_tools_for_role(
         if !pool_entries.is_empty() {
             builtin_tools.push(task_delegate_tool_spec(&pool_entries)?);
         }
-    } else if role == ExecutionRole::TaskExecutor {
-        builtin_tools.push(task_submit_result_tool_spec()?);
-        builtin_tools.push(task_report_blocked_tool_spec()?);
     } else if role == ExecutionRole::TaskReviewer {
         builtin_tools.push(task_read_artifact_tool_spec()?);
-        builtin_tools.push(task_submit_review_tool_spec()?);
     }
     let web_search_tool = web_search_tool_spec()?;
     let web_fetch_tool = web_fetch_tool_spec()?;
@@ -110,6 +117,7 @@ pub(super) async fn build_model_tools_for_role(
             prompt_rows,
             native,
             legacy_builtin_envelope_tools: Vec::new(),
+            legacy_builtin_envelope_specs: Vec::new(),
             unavailable_rows,
             tool_policy,
         });
@@ -126,7 +134,12 @@ pub(super) async fn build_model_tools_for_role(
         Vec::new()
     };
     let prompt_rows = if builtin_envelope_fallback {
-        prompt_rows(&declared_builtin_tools)
+        legacy_prompt_rows(&declared_builtin_tools)
+    } else {
+        Vec::new()
+    };
+    let legacy_builtin_envelope_specs = if builtin_envelope_fallback {
+        declared_builtin_tools
     } else {
         Vec::new()
     };
@@ -135,6 +148,7 @@ pub(super) async fn build_model_tools_for_role(
         native: Vec::new(),
         prompt_rows,
         legacy_builtin_envelope_tools,
+        legacy_builtin_envelope_specs,
         unavailable_rows,
         tool_policy,
     })
@@ -266,6 +280,20 @@ fn prompt_rows(native_tools: &[NoemaToolSpec]) -> Vec<String> {
         });
     }
     rows
+}
+
+fn legacy_prompt_rows(tools: &[NoemaToolSpec]) -> Vec<String> {
+    tools
+        .iter()
+        .map(|tool| {
+            format!(
+                "- builtin\t{}\t{}\tinput_schema={}",
+                tool.name,
+                tool.description,
+                tool.input_schema.as_value()
+            )
+        })
+        .collect()
 }
 
 fn store_tool_error(error: crate::StoreError) -> ToolContractError {
@@ -501,6 +529,45 @@ mod tests {
             }
             assert!(!tools.tool_policy.allows_tool("task.delegate"));
         }
+    }
+
+    #[tokio::test]
+    async fn fallback_background_roles_keep_typed_terminal_envelope_specs() {
+        let store = crate::store::tests::test_store().await;
+        let capabilities = ProviderToolCapabilities {
+            fallback_mode: ProviderToolFallbackMode::BuiltinOnlyEnvelope,
+            ..ProviderToolCapabilities::default()
+        };
+
+        let executor =
+            build_model_tools_for_role(&store, ExecutionRole::TaskExecutor, false, capabilities)
+                .await
+                .expect("executor tools");
+        assert!(executor.native.is_empty());
+        assert_eq!(
+            executor.legacy_builtin_envelope_specs[0].name.as_str(),
+            TASK_SUBMIT_RESULT_TOOL
+        );
+        assert_eq!(
+            executor.legacy_builtin_envelope_specs[1].name.as_str(),
+            TASK_REPORT_BLOCKED_TOOL
+        );
+        assert!(
+            executor
+                .prompt_rows
+                .iter()
+                .all(|row| row.contains("input_schema="))
+        );
+
+        let reviewer =
+            build_model_tools_for_role(&store, ExecutionRole::TaskReviewer, false, capabilities)
+                .await
+                .expect("reviewer tools");
+        assert!(reviewer.native.is_empty());
+        assert_eq!(
+            reviewer.legacy_builtin_envelope_specs[0].name.as_str(),
+            TASK_SUBMIT_REVIEW_TOOL
+        );
     }
 
     #[tokio::test]

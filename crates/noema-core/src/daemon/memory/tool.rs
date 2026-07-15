@@ -173,20 +173,36 @@ async fn execute_search_memory_inner(
         } else {
             None
         };
-        let response = client
-            .search_memories(crate::MnemosyneSearchRequest {
-                query: arguments.query.clone(),
-                user_id: HUMAN_MEMORY_SCOPE_ID.to_string(),
-                agent_id: None,
-                run_id,
-                limit: arguments.limit() as u16,
-            })
-            .await
-            .map_err(|error| MemoryToolError::Unavailable {
-                code: error.sanitized_code(),
-                message: error.sanitized_message(),
-            })?;
-        for result in response.results {
+        let results = if arguments.query.trim().is_empty() {
+            if scope_id != HUMAN_MEMORY_SCOPE_ID {
+                return Err(MemoryToolError::InvalidArguments(format!(
+                    "query is required for scope_id: {scope_id}"
+                )));
+            }
+            client
+                .list_memories(crate::MnemosyneListMemoriesRequest {
+                    user_id: HUMAN_MEMORY_SCOPE_ID.to_string(),
+                    limit: arguments.limit() as u16,
+                })
+                .await
+                .map(|response| response.results)
+        } else {
+            client
+                .search_memories(crate::MnemosyneSearchRequest {
+                    query: arguments.query.clone(),
+                    user_id: HUMAN_MEMORY_SCOPE_ID.to_string(),
+                    agent_id: None,
+                    run_id,
+                    limit: arguments.limit() as u16,
+                })
+                .await
+                .map(|response| response.results)
+        }
+        .map_err(|error| MemoryToolError::Unavailable {
+            code: error.sanitized_code(),
+            message: error.sanitized_message(),
+        })?;
+        for result in results {
             let Some(memory) = result.memory else {
                 continue;
             };

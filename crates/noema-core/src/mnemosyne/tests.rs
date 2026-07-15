@@ -87,7 +87,11 @@ async fn mnemosyne_client_times_out_when_server_never_responds() {
         let _ = stream.read(&mut buffer).await.expect("read request");
         tokio::time::sleep(std::time::Duration::from_secs(30)).await;
     });
-    let client = crate::MnemosyneClient::new(base_url, None);
+    let client = crate::MnemosyneClient::new_with_request_timeout(
+        base_url,
+        None,
+        std::time::Duration::from_millis(100),
+    );
 
     let error = client
         .search_memories(crate::MnemosyneSearchRequest {

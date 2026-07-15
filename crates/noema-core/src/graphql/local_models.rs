@@ -306,18 +306,26 @@ pub struct GraphqlLocalModelEvent {
 
 pub(super) async fn local_model_setup(state: &GraphqlState) -> Result<GraphqlLocalModelSetup> {
     let recommendations = load_catalog_views().await?;
+    let recommended_model = recommendations
+        .into_iter()
+        .find(|model| model.is_recommended);
     let installations = state
         .store()?
         .list_local_model_installations()
         .await
         .map_err(graphql_error)?;
     let installation = installations
-        .into_iter()
+        .iter()
         .find(|installation| installation.is_active)
+        .or_else(|| {
+            recommended_model.as_ref().and_then(|recommended| {
+                installations
+                    .iter()
+                    .find(|installation| installation.model_id == recommended.model_id)
+            })
+        })
+        .cloned()
         .map(installation_view);
-    let is_ready = installation.as_ref().is_some_and(|installation| {
-        installation.status == GraphqlLocalModelInstallationStatus::Installed
-    });
     let runtime_status = match state.runtime() {
         Ok(runtime) => runtime.local_model_runtime_status().await.map_or(
             GraphqlLocalModelRuntimeStatus::Inactive,
@@ -325,11 +333,14 @@ pub(super) async fn local_model_setup(state: &GraphqlState) -> Result<GraphqlLoc
         ),
         Err(_) => GraphqlLocalModelRuntimeStatus::Inactive,
     };
+    let is_ready = installation.as_ref().is_some_and(|installation| {
+        installation.status == GraphqlLocalModelInstallationStatus::Installed
+            && installation.is_active
+            && runtime_status == GraphqlLocalModelRuntimeStatus::Running
+    });
 
     Ok(GraphqlLocalModelSetup {
-        recommended_model: recommendations
-            .into_iter()
-            .find(|model| model.is_recommended),
+        recommended_model,
         installation,
         runtime_status,
         is_ready,
@@ -380,6 +391,17 @@ pub(super) async fn install_local_model(
     let backend = selection.hardware.backend;
     let installer = crate::LocalModelInstaller::new(state.store()?.clone(), state.paths()?.clone())
         .map_err(graphql_error)?;
+    let installation_id =
+        crate::LocalModelInstaller::catalog_installation_id(&model.id, &build.sha256);
+    if state.has_local_model_operation(&installation_id) {
+        return state
+            .store()?
+            .get_local_model_installation(&installation_id)
+            .await
+            .map_err(graphql_error)?
+            .map(installation_view)
+            .ok_or_else(|| async_graphql::Error::new("local-model installation is starting"));
+    }
     let queued = installer
         .queue_catalog_model(&model, &build, backend)
         .await
@@ -389,7 +411,11 @@ pub(super) async fn install_local_model(
     }
 
     let cancellation = tokio_util::sync::CancellationToken::new();
-    state.retain_local_model_cancellation(queued.installation_id.clone(), cancellation.clone());
+    if !state
+        .try_retain_local_model_cancellation(queued.installation_id.clone(), cancellation.clone())
+    {
+        return Ok(installation_view(queued));
+    }
     let task_state = state.clone();
     let installation_id = queued.installation_id.clone();
     tokio::spawn(async move {
@@ -404,10 +430,12 @@ pub(super) async fn install_local_model(
                 .await
                 .is_ok()
             && let Ok(store) = task_state.store()
-        {
-            let _ = store
+            && store
                 .activate_local_model_as_system_default(&installation_id)
-                .await;
+                .await
+                .is_ok()
+        {
+            let _ = runtime.retry_local_model_runtime().await;
         }
         task_state.release_local_model_cancellation(&installation_id);
     });
@@ -426,6 +454,10 @@ pub(super) async fn import_local_model(
         .map_err(graphql_error)?;
     let cancellation = tokio_util::sync::CancellationToken::new();
     let model_id = imported_model_id(&input.name);
+    enum ImportOperation {
+        LocalFile(crate::LocalFileModelImport),
+        HuggingFace(crate::HuggingFaceLocalModelImport),
+    }
 
     let (queued, operation) = match input.source_kind {
         GraphqlLocalModelSourceKind::LocalFile => {
@@ -436,17 +468,23 @@ pub(super) async fn import_local_model(
                 license: input.license,
                 backend,
             };
+            let installation_id = crate::LocalModelInstaller::local_file_installation_id(&import)
+                .await
+                .map_err(graphql_error)?;
+            if state.has_local_model_operation(&installation_id) {
+                return state
+                    .store()?
+                    .get_local_model_installation(&installation_id)
+                    .await
+                    .map_err(graphql_error)?
+                    .map(installation_view)
+                    .ok_or_else(|| async_graphql::Error::new("local-model import is starting"));
+            }
             let queued = installer
                 .queue_local_file(&import)
                 .await
                 .map_err(graphql_error)?;
-            let installer = installer.clone();
-            let cancellation = cancellation.clone();
-            let operation =
-                tokio::spawn(
-                    async move { installer.import_local_file(import, cancellation).await },
-                );
-            (queued, operation)
+            (queued, ImportOperation::LocalFile(import))
         }
         GraphqlLocalModelSourceKind::PublicGguf => {
             let import = crate::HuggingFaceLocalModelImport {
@@ -459,17 +497,23 @@ pub(super) async fn import_local_model(
                 license: input.license,
                 backend,
             };
+            let installation_id =
+                crate::LocalModelInstaller::hugging_face_installation_id(&import.sha256)
+                    .map_err(graphql_error)?;
+            if state.has_local_model_operation(&installation_id) {
+                return state
+                    .store()?
+                    .get_local_model_installation(&installation_id)
+                    .await
+                    .map_err(graphql_error)?
+                    .map(installation_view)
+                    .ok_or_else(|| async_graphql::Error::new("local-model import is starting"));
+            }
             let queued = installer
                 .queue_hugging_face(&import)
                 .await
                 .map_err(graphql_error)?;
-            let installer = installer.clone();
-            let cancellation = cancellation.clone();
-            let operation =
-                tokio::spawn(
-                    async move { installer.import_hugging_face(import, cancellation).await },
-                );
-            (queued, operation)
+            (queued, ImportOperation::HuggingFace(import))
         }
         GraphqlLocalModelSourceKind::Catalog => {
             return Err(async_graphql::Error::new(
@@ -477,11 +521,22 @@ pub(super) async fn import_local_model(
             ));
         }
     };
-    state.retain_local_model_cancellation(queued.installation_id.clone(), cancellation);
+    if !state
+        .try_retain_local_model_cancellation(queued.installation_id.clone(), cancellation.clone())
+    {
+        return Ok(installation_view(queued));
+    }
     let task_state = state.clone();
     let installation_id = queued.installation_id.clone();
     tokio::spawn(async move {
-        let _ = operation.await;
+        match operation {
+            ImportOperation::LocalFile(import) => {
+                let _ = installer.import_local_file(import, cancellation).await;
+            }
+            ImportOperation::HuggingFace(import) => {
+                let _ = installer.import_hugging_face(import, cancellation).await;
+            }
+        }
         task_state.release_local_model_cancellation(&installation_id);
     });
     Ok(installation_view(queued))
@@ -550,14 +605,18 @@ pub(super) async fn activate_local_model(
         .await
         .map_err(graphql_error)?
         .ok_or_else(|| async_graphql::Error::new("local-model installation is unavailable"))?;
-    state
-        .runtime()?
+    let runtime = state.runtime()?;
+    runtime
         .register_installed_local_model(&installation, state.paths()?)
         .await
         .map_err(graphql_error)?;
     state
         .store()?
         .activate_local_model_as_system_default(&installation_id)
+        .await
+        .map_err(graphql_error)?;
+    runtime
+        .retry_local_model_runtime()
         .await
         .map_err(graphql_error)?;
     let installation = state
@@ -694,4 +753,127 @@ fn runtime_event_time() -> String {
     time::OffsetDateTime::now_utc()
         .format(&time::format_description::well_known::Rfc3339)
         .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn setup_surfaces_recommended_installation_while_download_is_queued() {
+        let store = crate::store::tests::test_store().await;
+        store
+            .upsert_local_model_installation(crate::NewLocalModelInstallation {
+                installation_id: "local_model_installation:catalog:ternary-bonsai-8b:test"
+                    .to_string(),
+                model_id: "ternary-bonsai-8b".to_string(),
+                display_name: "Ternary Bonsai 8B".to_string(),
+                source_kind: crate::LocalModelSourceKind::Catalog,
+                source_repo: Some("vinpix/Bonsai-8B-llama.cpp".to_string()),
+                source_revision: Some("0".repeat(40)),
+                source_file: Some("Bonsai-8B-Q2_KT.gguf".to_string()),
+                sha256: Some("1".repeat(64)),
+                download_gb: 3.0,
+                expected_bytes: Some(3_000_000_000),
+                license: Some("Apache-2.0".to_string()),
+                backend: crate::LocalModelBackend::Metal,
+            })
+            .await
+            .expect("queued installation");
+        let state = GraphqlState::for_tests_with_store(store);
+
+        let setup = local_model_setup(&state).await.expect("setup");
+
+        let installation = setup.installation.expect("queued setup installation");
+        assert_eq!(installation.model_id, "ternary-bonsai-8b");
+        assert_eq!(
+            installation.status,
+            GraphqlLocalModelInstallationStatus::Queued
+        );
+        assert!(!setup.is_ready);
+    }
+
+    #[tokio::test]
+    async fn setup_is_not_ready_until_the_active_runtime_is_running() {
+        let store = crate::store::tests::test_store().await;
+        let installation_id = "local_model_installation:catalog:ternary-bonsai-8b:test";
+        let created = store
+            .upsert_local_model_installation(crate::NewLocalModelInstallation {
+                installation_id: installation_id.to_string(),
+                model_id: "ternary-bonsai-8b".to_string(),
+                display_name: "Ternary Bonsai 8B".to_string(),
+                source_kind: crate::LocalModelSourceKind::Catalog,
+                source_repo: Some("vinpix/Bonsai-8B-llama.cpp".to_string()),
+                source_revision: Some("0".repeat(40)),
+                source_file: Some("Bonsai-8B-Q2_KT.gguf".to_string()),
+                sha256: Some("1".repeat(64)),
+                download_gb: 3.0,
+                expected_bytes: Some(100),
+                license: Some("Apache-2.0".to_string()),
+                backend: crate::LocalModelBackend::Metal,
+            })
+            .await
+            .expect("queued installation");
+        for status in [
+            crate::LocalModelInstallationStatus::Downloading,
+            crate::LocalModelInstallationStatus::Verifying,
+            crate::LocalModelInstallationStatus::Installed,
+        ] {
+            store
+                .update_local_model_installation(
+                    &created.installation_id,
+                    crate::LocalModelInstallationUpdate {
+                        status,
+                        downloaded_bytes: 100,
+                        expected_bytes: Some(100),
+                        sha256: None,
+                        blob_relative_path: (status
+                            == crate::LocalModelInstallationStatus::Installed)
+                            .then(|| "models/blobs/test.gguf".to_string()),
+                        error_code: None,
+                        error_message: None,
+                    },
+                )
+                .await
+                .expect("installation transition");
+        }
+        store
+            .activate_local_model_as_system_default(installation_id)
+            .await
+            .expect("activate installation");
+        let state = GraphqlState::for_tests_with_store(store);
+
+        let setup = local_model_setup(&state).await.expect("setup");
+
+        assert_eq!(
+            setup.installation.expect("active installation").status,
+            GraphqlLocalModelInstallationStatus::Installed
+        );
+        assert_eq!(
+            setup.runtime_status,
+            GraphqlLocalModelRuntimeStatus::Inactive
+        );
+        assert!(!setup.is_ready);
+    }
+
+    #[test]
+    fn one_local_model_operation_is_retained_per_installation() {
+        let state = GraphqlState::for_tests();
+        let installation_id = "installation:one".to_string();
+
+        assert!(state.try_retain_local_model_cancellation(
+            installation_id.clone(),
+            tokio_util::sync::CancellationToken::new(),
+        ));
+        assert!(!state.try_retain_local_model_cancellation(
+            installation_id.clone(),
+            tokio_util::sync::CancellationToken::new(),
+        ));
+        assert!(state.cancel_local_model_operation(&installation_id));
+        state.release_local_model_cancellation(&installation_id);
+        assert!(state.try_retain_local_model_cancellation(
+            installation_id,
+            tokio_util::sync::CancellationToken::new(),
+        ));
+    }
 }

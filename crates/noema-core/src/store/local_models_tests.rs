@@ -20,6 +20,44 @@ fn installation() -> NewLocalModelInstallation {
     }
 }
 
+async fn mark_installed(
+    store: &crate::NoemaStore,
+    installation: &crate::LocalModelInstallationRecord,
+) {
+    for status in [
+        LocalModelInstallationStatus::Downloading,
+        LocalModelInstallationStatus::Verifying,
+        LocalModelInstallationStatus::Installed,
+    ] {
+        store
+            .update_local_model_installation(
+                &installation.installation_id,
+                LocalModelInstallationUpdate {
+                    status,
+                    downloaded_bytes: if status == LocalModelInstallationStatus::Downloading {
+                        50
+                    } else {
+                        100
+                    },
+                    expected_bytes: Some(100),
+                    sha256: None,
+                    blob_relative_path: (status == LocalModelInstallationStatus::Installed).then(
+                        || {
+                            format!(
+                                "models/blobs/{}.gguf",
+                                installation.sha256.as_deref().expect("catalog digest")
+                            )
+                        },
+                    ),
+                    error_code: None,
+                    error_message: None,
+                },
+            )
+            .await
+            .expect("installation transition");
+    }
+}
+
 #[tokio::test]
 async fn installation_updates_append_cursor_events() {
     let store = crate::store::tests::test_store().await;
@@ -61,24 +99,7 @@ async fn activation_assigns_every_current_model_workload_atomically() {
         .upsert_local_model_installation(installation())
         .await
         .expect("create installation");
-    store
-        .update_local_model_installation(
-            &created.installation_id,
-            LocalModelInstallationUpdate {
-                status: LocalModelInstallationStatus::Installed,
-                downloaded_bytes: 100,
-                expected_bytes: Some(100),
-                sha256: None,
-                blob_relative_path: Some(format!(
-                    "models/blobs/{}.gguf",
-                    created.sha256.as_deref().expect("catalog digest")
-                )),
-                error_code: None,
-                error_message: None,
-            },
-        )
-        .await
-        .expect("install");
+    mark_installed(&store, &created).await;
 
     let preference = store
         .activate_local_model_as_system_default(&created.installation_id)
@@ -132,24 +153,7 @@ async fn adding_other_providers_does_not_replace_local_workload_selections() {
         .upsert_local_model_installation(installation())
         .await
         .expect("create installation");
-    store
-        .update_local_model_installation(
-            &created.installation_id,
-            LocalModelInstallationUpdate {
-                status: LocalModelInstallationStatus::Installed,
-                downloaded_bytes: 100,
-                expected_bytes: Some(100),
-                sha256: None,
-                blob_relative_path: Some(format!(
-                    "models/blobs/{}.gguf",
-                    created.sha256.as_deref().expect("catalog digest")
-                )),
-                error_code: None,
-                error_message: None,
-            },
-        )
-        .await
-        .expect("install");
+    mark_installed(&store, &created).await;
     store
         .activate_local_model_as_system_default(&created.installation_id)
         .await
@@ -188,24 +192,7 @@ async fn saving_a_default_does_not_rewrite_explicit_workload_selections() {
         .upsert_local_model_installation(installation())
         .await
         .expect("create installation");
-    store
-        .update_local_model_installation(
-            &created.installation_id,
-            LocalModelInstallationUpdate {
-                status: LocalModelInstallationStatus::Installed,
-                downloaded_bytes: 100,
-                expected_bytes: Some(100),
-                sha256: None,
-                blob_relative_path: Some(format!(
-                    "models/blobs/{}.gguf",
-                    created.sha256.as_deref().expect("catalog digest")
-                )),
-                error_code: None,
-                error_message: None,
-            },
-        )
-        .await
-        .expect("install");
+    mark_installed(&store, &created).await;
     store
         .activate_local_model_as_system_default(&created.installation_id)
         .await
@@ -233,4 +220,53 @@ async fn saving_a_default_does_not_rewrite_explicit_workload_selections() {
         .expect("saved primary preference");
     assert_eq!(primary.provider_kind, "local_models");
     assert_eq!(primary.model_profile, "ternary-bonsai-8b");
+}
+
+#[tokio::test]
+async fn terminal_installation_state_cannot_be_regressed_by_a_worker() {
+    let store = crate::store::tests::test_store().await;
+    let created = store
+        .upsert_local_model_installation(installation())
+        .await
+        .expect("create installation");
+    store
+        .update_local_model_installation(
+            &created.installation_id,
+            LocalModelInstallationUpdate {
+                status: LocalModelInstallationStatus::Downloading,
+                downloaded_bytes: 50,
+                expected_bytes: Some(100),
+                sha256: None,
+                blob_relative_path: None,
+                error_code: None,
+                error_message: None,
+            },
+        )
+        .await
+        .expect("start download");
+    store
+        .cancel_local_model_installation(&created.installation_id)
+        .await
+        .expect("cancel installation");
+
+    let error = store
+        .update_local_model_installation(
+            &created.installation_id,
+            LocalModelInstallationUpdate {
+                status: LocalModelInstallationStatus::Installed,
+                downloaded_bytes: 100,
+                expected_bytes: Some(100),
+                sha256: None,
+                blob_relative_path: Some("models/blobs/cancelled.gguf".to_string()),
+                error_code: None,
+                error_message: None,
+            },
+        )
+        .await
+        .expect_err("cancelled installation must be terminal");
+    assert!(
+        error
+            .to_string()
+            .contains("cannot transition from cancelled")
+    );
 }

@@ -142,6 +142,16 @@ Native MCP tool names have the form `mcp.<server_id>.<tool_name>`, and you must 
             r#"Rows beginning with `unavailable_mcp` are not callable tools. They show connectors the user may ask about, but Noema cannot use them in this turn. If the user's request depends on an unavailable connector, do not claim you can perform that external action. Say which connector is unavailable or needs authentication, and ask for reconnection or another next step."#
                 .to_string(),
         );
+        if !tool_exposure.legacy_builtin_envelope_tools.is_empty() {
+            sections.push(
+                r#"Rows beginning with `builtin` are executable through the Noema JSON tool_calls envelope. Each row includes the exact tool name, description, and input_schema.
+Use this tool_calls item shape:
+{"id":"call_1","name":"exact.tool.name","payload":{"argument":"value"}}
+The payload must satisfy that tool's input_schema exactly. Do not add unknown fields, omit required fields, or invent tool names.
+Use response_status "needs_tools" whenever tool_calls is non-empty. After Noema sends a NOEMA_LOCAL_TOOL_RESULT message, use the result to continue or answer."#
+                    .to_string(),
+            );
+        }
     }
 
     if legacy_search_memory {

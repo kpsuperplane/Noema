@@ -3995,12 +3995,12 @@ async fn search_memory_profile_continuation_uses_scoped_empty_query() {
         }),
         "expected persisted successful scoped profile tool result, got {replay:?}"
     );
-    let request_bodies = server.request_bodies().await;
+    let request_paths = server.request_paths().await;
     assert!(
-        request_bodies.iter().any(|body| {
-            body["query"] == "" && body["user_id"] == "human:local" && body["limit"] == 8
-        }),
-        "expected scoped empty-query memory search, got {request_bodies:?}"
+        request_paths
+            .iter()
+            .any(|path| path == "/v1/memories?user_id=human%3Alocal&limit=8"),
+        "expected scoped empty-query memory list, got {request_paths:?}"
     );
 }
 
@@ -4519,15 +4519,18 @@ impl FakeMemoryServer {
                 };
                 let mut lines = head.lines();
                 let request_line = lines.next().expect("request line");
-                let path = request_line
-                    .strip_prefix("POST ")
-                    .and_then(|value| value.strip_suffix(" HTTP/1.1"))
-                    .expect("POST request line")
-                    .to_string();
-                assert!(matches!(
-                    path.as_str(),
-                    "/v1/memories/search" | "/v1/memories/add"
-                ));
+                let mut request_parts = request_line.split_whitespace();
+                let method = request_parts.next().expect("request method");
+                let path = request_parts.next().expect("request path").to_string();
+                assert!(
+                    matches!(
+                        (method, path.as_str()),
+                        ("POST", "/v1/memories/search" | "/v1/memories/add")
+                    ) || matches!(
+                        (method, path.as_str()),
+                        ("GET", path) if path.starts_with("/v1/memories?")
+                    )
+                );
 
                 let mut headers = HashMap::new();
                 for line in lines {
@@ -4547,7 +4550,11 @@ impl FakeMemoryServer {
                     }
                     body_bytes.extend_from_slice(&buffer[..read]);
                 }
-                let body_json = serde_json::from_slice(&body_bytes).expect("request body JSON");
+                let body_json = if body_bytes.is_empty() {
+                    serde_json::Value::Null
+                } else {
+                    serde_json::from_slice(&body_bytes).expect("request body JSON")
+                };
                 {
                     let mut state = server_state.lock().await;
                     state.paths.push(path.clone());
@@ -4583,6 +4590,10 @@ impl FakeMemoryServer {
 
     async fn request_bodies(&self) -> Vec<serde_json::Value> {
         self.state.lock().await.bodies.clone()
+    }
+
+    async fn request_paths(&self) -> Vec<String> {
+        self.state.lock().await.paths.clone()
     }
 }
 

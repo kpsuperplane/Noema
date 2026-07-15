@@ -181,12 +181,13 @@ pub(crate) fn task_submit_result_tool_spec()
                 },
                 "artifact_ids": {
                     "type": "array",
+                    "description": "Exact artifact IDs returned by artifact.create_local_file during this run. Omit this field or use an empty array when no artifact was created; never invent an artifact ID.",
                     "items": {"type": "string", "minLength": 1, "maxLength": 200},
                     "maxItems": 100,
                     "uniqueItems": true
                 }
             },
-            "required": ["summary", "result_markdown", "criteria", "artifact_ids"],
+            "required": ["summary", "result_markdown", "criteria"],
             "additionalProperties": false
         }),
         crate::provider::NoemaToolExecution::LocalBuiltin,
@@ -749,7 +750,7 @@ mod tests {
         assert_eq!(result.name.as_str(), TASK_SUBMIT_RESULT_TOOL);
         assert_eq!(
             result.input_schema.as_value()["required"],
-            json!(["summary", "result_markdown", "criteria", "artifact_ids"])
+            json!(["summary", "result_markdown", "criteria"])
         );
 
         let review = task_submit_review_tool_spec().expect("review spec");

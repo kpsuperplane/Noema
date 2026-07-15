@@ -440,7 +440,7 @@ impl FromStr for ModelSelectionMode {
 /// Immutable model-request provenance persisted on tasks and runs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelConfigSnapshot {
-    /// Provider family, such as `codex` or `openai`.
+    /// Provider family, such as `codex`, `openai`, or `local_models`.
     pub provider_kind: String,
     /// Concrete provider account selected for this request.
     pub provider_account_id: String,
@@ -502,7 +502,7 @@ impl ModelConfigSnapshot {
         let provider_kind = self.provider_kind.trim().to_ascii_lowercase();
         if !matches!(
             provider_kind.as_str(),
-            "codex" | "openai" | "foundation_local"
+            "codex" | "openai" | "foundation_local" | "local_models"
         ) {
             return Err(ModelConfigError::UnsupportedProvider { provider_kind });
         }
@@ -940,6 +940,17 @@ mod tests {
         .expect("explicit snapshot");
         assert_eq!(explicit.provider_kind, "codex");
         assert_eq!(explicit.model_profile.as_deref(), Some("gpt-5.5"));
+
+        let local = ModelConfigSnapshot::explicit(
+            "local_models",
+            "provider_account:local_models:default",
+            "ternary-bonsai-8b",
+            None,
+            Some("pool:simple".to_string()),
+        )
+        .normalized()
+        .expect("local model snapshot");
+        assert_eq!(local.provider_kind, "local_models");
 
         let inherited = ModelConfigSnapshot::provider_default(
             "openai",

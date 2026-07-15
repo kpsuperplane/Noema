@@ -176,15 +176,28 @@ impl GraphqlState {
         self.runtime_state.runtime()
     }
 
-    pub(crate) fn retain_local_model_cancellation(
+    pub(crate) fn try_retain_local_model_cancellation(
         &self,
         installation_id: String,
         cancellation: CancellationToken,
-    ) {
+    ) -> bool {
+        let mut operations = self
+            .local_model_cancellations
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if operations.contains_key(&installation_id) {
+            return false;
+        }
+        operations.insert(installation_id, cancellation);
+        true
+    }
+
+    #[must_use]
+    pub(crate) fn has_local_model_operation(&self, installation_id: &str) -> bool {
         self.local_model_cancellations
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .insert(installation_id, cancellation);
+            .contains_key(installation_id)
     }
 
     #[must_use]

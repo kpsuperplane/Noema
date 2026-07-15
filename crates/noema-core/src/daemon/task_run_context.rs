@@ -36,7 +36,7 @@ pub(super) fn format_executor_prompt(
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "Task ID: {}\nTask: {}\nRevision: {revision}\n\nRequest:\n{}\n\nValidation criteria:\n{criteria}\n\nUse artifact.create_local_file once per requested file and include every returned artifact_id in task.submit_result. Use each criterion_id exactly as shown, including any prefix, when calling task.submit_result. If you call task.inspect, use the exact Task ID above. Produce a complete, useful result. Address every criterion explicitly, then submit it through task.submit_result. Do not finish with ordinary assistant text.",
+        "Task ID: {}\nTask: {}\nRevision: {revision}\n\nRequest:\n{}\n\nValidation criteria:\n{criteria}\n\nUse artifact.create_local_file once per requested file and include every returned artifact_id in task.submit_result. When no file is requested, do not create an artifact and omit artifact_ids or use an empty array. Never invent an artifact_id. Use each criterion_id exactly as shown, including any prefix, when calling task.submit_result. If you call task.inspect, use the exact Task ID above. Produce a complete, useful result. Address every criterion explicitly, then submit it through task.submit_result. Do not finish with ordinary assistant text.",
         task.task_id, task.title, task.request_markdown
     )
 }

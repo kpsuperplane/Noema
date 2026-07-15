@@ -1000,6 +1000,7 @@ mod tests {
             continuation_model_tools: ModelTools {
                 native: Vec::new(),
                 legacy_builtin_envelope_tools: Vec::new(),
+                legacy_builtin_envelope_specs: Vec::new(),
                 prompt_rows: Vec::new(),
                 unavailable_rows: Vec::new(),
                 tool_policy: crate::agent_execution::ToolPolicy::default(),
