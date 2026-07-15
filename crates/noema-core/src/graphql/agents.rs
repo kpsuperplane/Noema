@@ -1,8 +1,11 @@
+use std::collections::HashSet;
+
 use async_graphql::{Enum, InputObject, Result, SimpleObject};
 use serde_json::Value;
 
 use crate::{
-    AgentRecord, AgentRuntimePreferenceRecord, NewAgentRuntimePreference, ProviderAccountRecord,
+    AgentRecord, AgentRuntimePreferenceRecord, LocalModelInstallationRecord,
+    LocalModelInstallationStatus, NewAgentRuntimePreference, ProviderAccountRecord,
     ProviderAccountStatus, TASK_EXECUTOR_AGENT_ID,
     config::DEFAULT_FOUNDATION_LOCAL_PROFILE,
     provider::{
@@ -134,7 +137,7 @@ impl GraphqlAgent {
     fn from_parts(
         agent: AgentRecord,
         preference: Option<AgentRuntimePreferenceRecord>,
-        accounts: &[ProviderAccountRecord],
+        model_options: &[GraphqlAgentModelProviderOption],
     ) -> Self {
         let is_primary = agent.agent_id == "agent:primary";
         Self {
@@ -149,7 +152,7 @@ impl GraphqlAgent {
                     .reasoning_effort
                     .map(GraphqlReasoningEffort::from),
             }),
-            model_options: accounts.iter().map(option_from_account).collect(),
+            model_options: model_options.to_vec(),
         }
     }
 }
@@ -167,13 +170,14 @@ pub(super) async fn agents(state: &GraphqlState) -> Result<Vec<GraphqlAgent>> {
         .active_default_provider_accounts()
         .await
         .map_err(graphql_error)?;
+    let model_options = model_options_from_accounts(store, &accounts).await?;
     let mut output = Vec::with_capacity(agents.len());
     for agent in agents {
         let preference = store
             .get_agent_runtime_preference(&agent.agent_id)
             .await
             .map_err(graphql_error)?;
-        output.push(GraphqlAgent::from_parts(agent, preference, &accounts));
+        output.push(GraphqlAgent::from_parts(agent, preference, &model_options));
     }
     Ok(output)
 }
@@ -214,15 +218,8 @@ pub(super) async fn save_agent_model_preference(
     if let Some(reason) = provider_disabled_reason(&account) {
         return Err(async_graphql::Error::new(reason));
     }
-    let profiles = profiles_from_account(&account, None);
-    let Some(profile) = profiles
-        .iter()
-        .find(|profile| profile.id == input.model_profile)
-    else {
-        return Err(async_graphql::Error::new(
-            "model profile is not available for provider",
-        ));
-    };
+    let profiles = selectable_profiles_from_account(store, &account).await?;
+    let profile = require_selectable_profile(&profiles, &input.model_profile)?;
     let reasoning_effort = validate_reasoning_effort_for_profile(profile, input.reasoning_effort)?;
     let saved = store
         .upsert_agent_runtime_preference(NewAgentRuntimePreference {
@@ -242,11 +239,12 @@ pub(super) async fn save_agent_model_preference(
     })
 }
 
-pub(super) fn option_from_account(
+fn option_from_account(
     account: &ProviderAccountRecord,
+    local_installations: &[LocalModelInstallationRecord],
 ) -> GraphqlAgentModelProviderOption {
     let disabled_reason = provider_disabled_reason(account);
-    let profiles = profiles_from_account(account, disabled_reason.as_deref());
+    let profiles = profiles_from_account(account, disabled_reason.as_deref(), local_installations);
     let default_model_profile = default_model_profile_for_provider(account, &profiles);
     GraphqlAgentModelProviderOption {
         provider_kind: account.provider_kind.clone(),
@@ -257,6 +255,42 @@ pub(super) fn option_from_account(
         default_model_profile,
         disabled_reason,
     }
+}
+
+pub(super) async fn model_options_from_accounts(
+    store: &crate::NoemaStore,
+    accounts: &[ProviderAccountRecord],
+) -> Result<Vec<GraphqlAgentModelProviderOption>> {
+    let local_installations = if accounts
+        .iter()
+        .any(|account| account.provider_kind == "local_models")
+    {
+        store
+            .list_local_model_installations()
+            .await
+            .map_err(graphql_error)?
+    } else {
+        Vec::new()
+    };
+    Ok(accounts
+        .iter()
+        .map(|account| option_from_account(account, &local_installations))
+        .collect())
+}
+
+pub(super) async fn selectable_profiles_from_account(
+    store: &crate::NoemaStore,
+    account: &ProviderAccountRecord,
+) -> Result<Vec<GraphqlAgentModelProfileOption>> {
+    let local_installations = if account.provider_kind == "local_models" {
+        store
+            .list_local_model_installations()
+            .await
+            .map_err(graphql_error)?
+    } else {
+        Vec::new()
+    };
+    Ok(profiles_from_account(account, None, &local_installations))
 }
 
 pub(super) fn provider_disabled_reason(account: &ProviderAccountRecord) -> Option<String> {
@@ -306,10 +340,15 @@ fn default_model_profile_for_provider(
     }
 }
 
-pub(super) fn profiles_from_account(
+fn profiles_from_account(
     account: &ProviderAccountRecord,
     disabled_reason: Option<&str>,
+    local_installations: &[LocalModelInstallationRecord],
 ) -> Vec<GraphqlAgentModelProfileOption> {
+    // Local GGUF availability is installation state, never duplicated provider metadata.
+    if account.provider_kind == "local_models" {
+        return local_model_profile_options(local_installations, disabled_reason);
+    }
     let metadata_profiles = metadata_profiles(
         &account.metadata,
         disabled_reason,
@@ -322,6 +361,46 @@ pub(super) fn profiles_from_account(
         "foundation_local" => profile_options(&[("default", "Default on-device")], disabled_reason),
         _ => Vec::new(),
     }
+}
+
+fn local_model_profile_options(
+    installations: &[LocalModelInstallationRecord],
+    provider_disabled_reason: Option<&str>,
+) -> Vec<GraphqlAgentModelProfileOption> {
+    let mut seen_model_ids = HashSet::new();
+    installations
+        .iter()
+        .filter(|installation| installation.status == LocalModelInstallationStatus::Installed)
+        .filter(|installation| seen_model_ids.insert(installation.model_id.as_str()))
+        .map(|installation| GraphqlAgentModelProfileOption {
+            id: installation.model_id.clone(),
+            label: installation.display_name.clone(),
+            reasoning_efforts: Vec::new(),
+            default_reasoning_effort: None,
+            disabled_reason: provider_disabled_reason
+                .map(ToString::to_string)
+                .or_else(|| {
+                    (!installation.is_active).then(|| {
+                        "Activate this model in Settings > Local models before assigning it."
+                            .to_string()
+                    })
+                }),
+        })
+        .collect()
+}
+
+pub(super) fn require_selectable_profile<'a>(
+    profiles: &'a [GraphqlAgentModelProfileOption],
+    model_profile: &str,
+) -> Result<&'a GraphqlAgentModelProfileOption> {
+    let profile = profiles
+        .iter()
+        .find(|profile| profile.id == model_profile)
+        .ok_or_else(|| async_graphql::Error::new("model profile is not available for provider"))?;
+    if let Some(reason) = &profile.disabled_reason {
+        return Err(async_graphql::Error::new(reason.clone()));
+    }
+    Ok(profile)
 }
 
 fn profile_options(
@@ -429,4 +508,98 @@ pub(super) fn validate_reasoning_effort_for_profile(
         ));
     }
     Ok(Some(reasoning_effort.into()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn installed_active_local_model_is_selectable_and_saveable() {
+        let store = crate::store::tests::test_store().await;
+        let installation_id = seed_installed_bonsai(&store).await;
+        store
+            .activate_local_model_as_system_default(&installation_id)
+            .await
+            .expect("activate Bonsai");
+        let state = GraphqlState::for_tests_with_store(store.clone());
+
+        let projected_agents = agents(&state).await.expect("agents");
+        let primary = projected_agents
+            .iter()
+            .find(|agent| agent.agent_id == "agent:primary")
+            .expect("primary agent");
+        let local_models = primary
+            .model_options
+            .iter()
+            .find(|option| option.provider_kind == "local_models")
+            .expect("local-model provider option");
+        assert_eq!(
+            local_models.default_model_profile.as_deref(),
+            Some("ternary-bonsai-8b")
+        );
+        assert_eq!(local_models.profiles.len(), 1);
+        assert_eq!(local_models.profiles[0].id, "ternary-bonsai-8b");
+        assert_eq!(local_models.profiles[0].label, "Ternary Bonsai 8B");
+        assert_eq!(local_models.profiles[0].disabled_reason, None);
+
+        let saved = save_agent_model_preference(
+            &state,
+            GraphqlSaveAgentModelPreferenceInput {
+                agent_id: "agent:primary".to_string(),
+                provider_account_id: crate::local_models::LOCAL_MODELS_PROVIDER_ACCOUNT_ID
+                    .to_string(),
+                model_profile: "ternary-bonsai-8b".to_string(),
+                reasoning_effort: None,
+            },
+        )
+        .await
+        .expect("save local-model preference");
+        assert_eq!(saved.provider_kind, "local_models");
+        assert_eq!(saved.model_profile, "ternary-bonsai-8b");
+    }
+
+    async fn seed_installed_bonsai(store: &crate::NoemaStore) -> String {
+        let installation_id = "local_model_installation:catalog:ternary-bonsai-8b:test".to_string();
+        let installation = store
+            .upsert_local_model_installation(crate::NewLocalModelInstallation {
+                installation_id: installation_id.clone(),
+                model_id: "ternary-bonsai-8b".to_string(),
+                display_name: "Ternary Bonsai 8B".to_string(),
+                source_kind: crate::LocalModelSourceKind::Catalog,
+                source_repo: Some("vinpix/Bonsai-8B-llama.cpp".to_string()),
+                source_revision: Some("0".repeat(40)),
+                source_file: Some("Bonsai-8B-Q2_KT.gguf".to_string()),
+                sha256: Some("1".repeat(64)),
+                download_gb: 3.0,
+                expected_bytes: Some(100),
+                license: Some("Apache-2.0".to_string()),
+                backend: crate::LocalModelBackend::Metal,
+            })
+            .await
+            .expect("queue Bonsai");
+        for status in [
+            LocalModelInstallationStatus::Downloading,
+            LocalModelInstallationStatus::Verifying,
+            LocalModelInstallationStatus::Installed,
+        ] {
+            store
+                .update_local_model_installation(
+                    &installation.installation_id,
+                    crate::LocalModelInstallationUpdate {
+                        status,
+                        downloaded_bytes: 100,
+                        expected_bytes: Some(100),
+                        sha256: None,
+                        blob_relative_path: (status == LocalModelInstallationStatus::Installed)
+                            .then(|| "models/blobs/test.gguf".to_string()),
+                        error_code: None,
+                        error_message: None,
+                    },
+                )
+                .await
+                .expect("installation transition");
+        }
+        installation_id
+    }
 }

@@ -19,8 +19,9 @@ const MEMORY_ARTICLE_FORMAT_VERSION: &str = "v2";
 use super::{
     agents::{
         GraphqlAgentModelPreference, GraphqlAgentModelProviderOption, GraphqlReasoningEffort,
-        option_from_account, profiles_from_account, provider_disabled_reason,
-        refresh_missing_model_profiles, validate_reasoning_effort_for_profile,
+        model_options_from_accounts, provider_disabled_reason, refresh_missing_model_profiles,
+        require_selectable_profile, selectable_profiles_from_account,
+        validate_reasoning_effort_for_profile,
     },
     errors::graphql_error,
     schema::GraphqlState,
@@ -413,13 +414,8 @@ pub(super) async fn save_memory_service_settings(
                 if let Some(reason) = provider_disabled_reason(&account) {
                     return Err(async_graphql::Error::new(reason));
                 }
-                let profiles = profiles_from_account(&account, None);
-                let Some(profile) = profiles.iter().find(|profile| profile.id == model_profile)
-                else {
-                    return Err(async_graphql::Error::new(
-                        "model profile is not available for provider",
-                    ));
-                };
+                let profiles = selectable_profiles_from_account(store, &account).await?;
+                let profile = require_selectable_profile(&profiles, &model_profile)?;
                 let reasoning_effort =
                     validate_reasoning_effort_for_profile(profile, input.reasoning_effort)?;
                 (
@@ -1073,13 +1069,14 @@ async fn memory_settings_from_store(state: &GraphqlState) -> Result<GraphqlMemor
         .await
         .map_err(graphql_error)?;
     let status = memory_service_status(state, &settings).await?;
-    Ok(memory_settings_from_parts(settings, status, &accounts))
+    let model_options = model_options_from_accounts(store, &accounts).await?;
+    Ok(memory_settings_from_parts(settings, status, model_options))
 }
 
 fn memory_settings_from_parts(
     settings: MemoryServiceSettingsRecord,
     status: GraphqlMemoryServiceStatus,
-    accounts: &[crate::ProviderAccountRecord],
+    model_options: Vec<GraphqlAgentModelProviderOption>,
 ) -> GraphqlMemorySettings {
     GraphqlMemorySettings {
         mode: settings.mode.into(),
@@ -1101,7 +1098,7 @@ fn memory_settings_from_parts(
             }
             _ => None,
         },
-        model_options: accounts.iter().map(option_from_account).collect(),
+        model_options,
     }
 }
 

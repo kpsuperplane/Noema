@@ -8,8 +8,9 @@ use crate::{
 use super::{
     agents::{
         GraphqlAgentModelPreference, GraphqlAgentModelProviderOption, GraphqlReasoningEffort,
-        option_from_account, profiles_from_account, provider_disabled_reason,
-        refresh_missing_model_profiles, validate_reasoning_effort_for_profile,
+        model_options_from_accounts, provider_disabled_reason, refresh_missing_model_profiles,
+        require_selectable_profile, selectable_profiles_from_account,
+        validate_reasoning_effort_for_profile,
     },
     errors::graphql_error,
     schema::GraphqlState,
@@ -63,6 +64,7 @@ pub(super) async fn web_fetch_settings(state: &GraphqlState) -> Result<GraphqlWe
         .get_auxiliary_model_preference(WEB_FETCH_SUMMARIZER_TASK_ID)
         .await
         .map_err(graphql_error)?;
+    let model_options = model_options_from_accounts(store, &accounts).await?;
     Ok(GraphqlWebFetchSettings {
         summarizer: GraphqlWebFetchSummarizerSettings {
             default_model_profile: DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string(),
@@ -74,7 +76,7 @@ pub(super) async fn web_fetch_settings(state: &GraphqlState) -> Result<GraphqlWe
                     .reasoning_effort
                     .map(GraphqlReasoningEffort::from),
             }),
-            model_options: accounts.iter().map(option_from_account).collect(),
+            model_options,
         },
     })
 }
@@ -97,15 +99,8 @@ pub(super) async fn save_web_fetch_summarizer_preference(
     if let Some(reason) = provider_disabled_reason(&account) {
         return Err(async_graphql::Error::new(reason));
     }
-    let profiles = profiles_from_account(&account, None);
-    let Some(profile) = profiles
-        .iter()
-        .find(|profile| profile.id == input.model_profile)
-    else {
-        return Err(async_graphql::Error::new(
-            "model profile is not available for provider",
-        ));
-    };
+    let profiles = selectable_profiles_from_account(store, &account).await?;
+    let profile = require_selectable_profile(&profiles, &input.model_profile)?;
     let reasoning_effort = validate_reasoning_effort_for_profile(profile, input.reasoning_effort)?;
     let saved = store
         .upsert_auxiliary_model_preference(NewAuxiliaryModelPreference {

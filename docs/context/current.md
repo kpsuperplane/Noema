@@ -105,6 +105,9 @@ The next storage slice should stay small and concrete:
   Existing content-addressed blobs are rehashed before reuse, worker state
   transitions cannot regress cancelled or installed records, and advanced local
   imports must contain a GGUF header in addition to using a `.gguf` filename.
+  Settings model selectors derive local profiles from these installation rows:
+  the active GGUF is assignable, while other installed GGUFs remain visible but
+  disabled until activated in Settings > Local models.
 - The local provider constrains llama.cpp Chat Completions with Noema's shared
   strict response schema and request-specific tool payload schemas. Built-in
   fallback tools retain their typed specs, while task executors and reviewers

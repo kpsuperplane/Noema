@@ -10,8 +10,9 @@ use crate::{
 
 use super::{
     agents::{
-        GraphqlReasoningEffort, profiles_from_account, provider_disabled_reason,
-        refresh_missing_model_profiles, validate_reasoning_effort_for_profile,
+        GraphqlReasoningEffort, provider_disabled_reason, refresh_missing_model_profiles,
+        require_selectable_profile, selectable_profiles_from_account,
+        validate_reasoning_effort_for_profile,
     },
     errors::graphql_error,
     schema::GraphqlState,
@@ -836,15 +837,8 @@ pub(super) async fn update_task_model_pool_entry(
             "provider kind does not match provider account",
         ));
     }
-    let profiles = profiles_from_account(&account, None);
-    let Some(profile) = profiles
-        .iter()
-        .find(|profile| profile.id == input.model_profile)
-    else {
-        return Err(async_graphql::Error::new(
-            "model profile is not available for provider",
-        ));
-    };
+    let profiles = selectable_profiles_from_account(store, &account).await?;
+    let profile = require_selectable_profile(&profiles, &input.model_profile)?;
     let reasoning_effort = validate_reasoning_effort_for_profile(profile, input.reasoning_effort)?;
     let normalized_pool_entry_id = pool_entry_id.trim().to_string();
     store
