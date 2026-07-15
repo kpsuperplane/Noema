@@ -14,6 +14,8 @@ The next storage slice should stay small and concrete:
 - Local Noema home and config.
 - Codex-backed chat through the daemon using Noema-owned OAuth tokens and direct
   Codex Responses API calls.
+- First-party local GGUF chat through a pinned, packaged llama.cpp runtime, with
+  local setup recommended before cloud-provider setup.
 - Core-hosted local React web chat as the first frontend shell.
 - SQLite-backed persisted conversations, transcript items, provider accounts,
   MCP setup, approvals, and memory service configuration.
@@ -79,8 +81,31 @@ The next storage slice should stay small and concrete:
 - Docker/Compose development infrastructure has been retired; local development
   uses host Rust, Bun, and web/desktop product surfaces. The old standalone
   Noema binary and local dev alias have been removed.
-- First-run web onboarding is derived from backend readiness checks and blocks
-  chat until an active provider account is authenticated.
+- First-run onboarding leads with a first-party local-model path and treats a
+  ready local model or an authenticated cloud provider as alternative ways to
+  enter chat.
+- First-party GGUF inference uses the built-in `local_models` provider over a
+  supervised loopback-only llama.cpp server. The bundled catalog lives in
+  `crates/noema-core/resources/local-models/catalog.toml`; it contains only
+  curated model/build data and generic RAM/VRAM/backend thresholds. Selection
+  orders fitting models by priority and catalog order, then chooses the best
+  available backend build for that model. Ternary Bonsai 8B has priority 100
+  and wins whenever either pinned build fits.
+- Local-model installation state, provenance, progress, errors, events, and
+  default references live in SQLite. Verified content-addressed GGUF files live
+  under `${NOEMA_HOME}/models/blobs/`, resumable transfers under
+  `${NOEMA_HOME}/models/downloads/`, and advanced public-Hugging-Face imports
+  require an immutable commit plus SHA-256. Initial activation atomically assigns
+  the installed model to the primary agent, task executors/reviewer, all task
+  tiers, memory, progress audits, and web summarization. Adding cloud accounts
+  later does not rewrite those explicit selections.
+- Desktop builds package pinned llama.cpp release `b10015` at commit
+  `12127defda4f41b7679cb2477a4b0d65ee6a0c8f`. The build preparation script
+  downloads the platform archives, verifies the bundled manifest hashes, keeps
+  `llama-server` with its required adjacent libraries, and bundles Metal for
+  macOS, CUDA/Vulkan/CPU for Windows, and Vulkan/CPU for Linux. Runtime lookup
+  never trusts ambient `PATH`; debug builds may use the explicit
+  `NOEMA_LLAMA_SERVER_PATH` override.
 - Provider credential/session material lives under
   `${NOEMA_HOME:-$HOME/.noema}/providers/<provider>/<account>/`; the structured
   store keeps only non-secret provider metadata.

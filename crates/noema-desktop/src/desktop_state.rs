@@ -1,6 +1,6 @@
 //! Managed desktop runtime state.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, path::PathBuf};
 
 use noema_core::{
     NoemaRuntimeHost, RuntimeHostError,
@@ -32,8 +32,13 @@ impl DesktopState {
     pub async fn initialize(
         &self,
         provider: noema_core::ProviderConfig,
+        local_model_runtime_root: Option<PathBuf>,
     ) -> Result<(), RuntimeHostError> {
-        let host = NoemaRuntimeHost::start(provider).await?;
+        let host = NoemaRuntimeHost::start_with_local_model_runtime_root(
+            provider,
+            local_model_runtime_root,
+        )
+        .await?;
         let graphql_state = graphql::GraphqlState::from_runtime_host(&host);
         let schema = graphql::build_schema(graphql_state.clone());
         let (mcp_oauth_callback_url, mcp_oauth_callback_server) =

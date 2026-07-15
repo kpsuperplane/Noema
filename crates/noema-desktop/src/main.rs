@@ -26,7 +26,16 @@ fn noema_desktop_main() {
             .unwrap_or_else(|_| {
                 noema_core::ProviderConfig::Codex(noema_core::CodexProviderConfig::default())
             });
-            tauri::async_runtime::block_on(state.initialize(provider)).map_err(|error| {
+            let local_model_runtime_root = app
+                .path()
+                .resource_dir()
+                .map_err(|error| std::io::Error::other(error.to_string()))?
+                .join("binaries")
+                .join("runtime");
+            tauri::async_runtime::block_on(
+                state.initialize(provider, Some(local_model_runtime_root)),
+            )
+            .map_err(|error| {
                 std::io::Error::other(format!(
                     "{} {}",
                     error.user_message(),

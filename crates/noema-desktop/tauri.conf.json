@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "identifier": "dev.noema.app",
   "build": {
-    "beforeDevCommand": "cd \"$(git rev-parse --show-toplevel)/crates/noema-core/web\" && bun run dev:tauri",
-    "beforeBuildCommand": "cd \"$(git rev-parse --show-toplevel)/crates/noema-core/web\" && bun run build:tauri",
+    "beforeDevCommand": "bun run scripts/desktop.ts dev",
+    "beforeBuildCommand": "bun run scripts/desktop.ts build",
     "devUrl": "http://127.0.0.1:5173",
     "frontendDist": "../noema-core/web/dist-tauri"
   },
@@ -18,30 +18,16 @@
         "height": 820,
         "minWidth": 860,
         "minHeight": 640,
-        "titleBarStyle": "Overlay",
-        "transparent": true,
-        "windowEffects": {
-          "effects": ["hudWindow"],
-          "state": "followsWindowActiveState"
-        },
-        "hiddenTitle": true,
-        "trafficLightPosition": {
-          "x": 20,
-          "y": 30
-        }
+        "transparent": false
       }
     ],
     "security": {
       "csp": null
-    },
-    "macOSPrivateApi": true
+    }
   },
   "bundle": {
     "active": true,
     "icon": ["icons/icon.png"],
-    "targets": ["app", "dmg"],
-    "macOS": {
-      "signingIdentity": null
-    }
+    "resources": ["binaries/runtime"]
   }
 }

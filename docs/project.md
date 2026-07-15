@@ -42,6 +42,11 @@ Noema at another directory with `NOEMA_HOME`.
     data/                 # Mnemosyne-owned memory state and indexes
     run/                  # Mnemosyne sidecar runtime state
 
+  models/
+    blobs/                # checksum-verified, content-addressed GGUF files
+    downloads/            # resumable partial model transfers
+    run/                  # local inference runtime state
+
   humans/
     [human_id]/
       docs/
@@ -88,8 +93,9 @@ tables.
 
 | Data | Source of truth |
 | --- | --- |
-| Structured state: humans, agents, tools, conversations, transcript items, provider accounts, MCP setup, tasks, permissions, approvals, and audit events | SQLite |
+| Structured state: humans, agents, tools, conversations, transcript items, provider accounts, local-model installations, MCP setup, tasks, permissions, approvals, and audit events | SQLite |
 | Memory truth, extraction, updates, inferred memories, and memory search indexes | Local Mnemosyne |
+| Verified local model weights | `${NOEMA_HOME}/models/blobs/` |
 | Human-authored docs, imported files, attachments, and durable artifacts | filesystem |
 | Indexes, caches, temporary files, and derived search/vector state | `system/` |
 | Introspection into database-backed state | chat/work drill-ins, advanced inspection, and explicit export tools |
