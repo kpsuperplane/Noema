@@ -115,6 +115,8 @@ The next storage slice should stay small and concrete:
   snapshots are valid first-class selections. Local chat-template thinking is
   disabled until Noema exposes an explicit reasoning policy, so reasoning-first
   GGUFs cannot consume the complete visible output budget internally. The
+  supervisor passes `--cache-ram 0` because llama.cpp's default 8 GiB checkpoint
+  cache can grow across distinct requests and erase 16 GB headroom. The
   llama.cpp schema lowering removes large string length bounds that otherwise
   expand task payload grammars beyond llama-server's parser; canonical runtime
   handlers still validate those tool payloads.
@@ -127,20 +129,26 @@ The next storage slice should stay small and concrete:
   deterministically checks strict chat, streaming, multiple choice, memory tool
   selection and continuation, executor/reviewer/blocked task terminals,
   progress audit JSON, web-summary injection resistance, and compaction. Runtime
-  compatibility, correctness, and latency remain separate results. Bonsai 27B
+  compatibility, correctness, and latency remain separate results. A separate
+  `soak` mode keeps those 11 correctness gates unchanged, then runs a calibrated
+  near-context request and 20 distinct turns while recording resident-set
+  stability. Bonsai 27B
   experiments must use the official `Q2_g64` artifact with stock b10015; its
   smaller g128 `Q2_0` artifact requires Prism's fork and fails the pinned
   upstream runtime.
-- The 2026-07-15 Apple M5/32 GB qualification snapshot is committed at
-  `evals/local-models/results/m5-air-2026-07-15.md`. Gemma 4 E4B Q4_K_M is the
-  recommended default-shaped candidate on that machine: it passed 10/10
-  critical contracts with a 4.8-second median and 5.3 GB download. Qwen3.6 35B
-  A3B was the only 11/11 candidate but needs a 16.8 GB download and had a
-  9.1-second median, so it is the quality-first advanced option. Gemma 4 26B
-  A4B matched E4B's critical score without improving its one noncritical miss,
-  while Bonsai 8B scored 8/10 critical and Bonsai 27B scored 7/10. The snapshot
-  is one repetition and informs, but does not automatically rewrite, the
-  bundled recommendation catalog.
+- The first 2026-07-15 Apple M5/32 GB qualification snapshot remains at
+  `evals/local-models/results/m5-air-2026-07-15.md`; the bounded-cache 16 GB tier
+  follow-up is at
+  `evals/local-models/results/m5-air-16gb-tier-2026-07-15.md`. NVIDIA Nemotron 3
+  Nano 4B Q4_K_M is the measured 16 GB default candidate: after a generic
+  reviewer-prompt restructure it passed all 11 contracts in three isolated
+  workers and again during a resource soak, with a 3.37 GiB peak server RSS,
+  0.61-0.62-second load, and 7.14-8.67-second qualification medians. The soak
+  processed 6,517 input tokens and 20 follow-up turns with flat post-turn RSS.
+  Gemma 4 12B also passed 11/11 but peaked at 9.08 GiB and belongs in an advanced
+  tier. These are projected 16 GB fits measured on the 32 GB Air; a physical
+  16 GB acceptance run and Nemotron license review remain catalog-promotion
+  gates, so the snapshot does not automatically replace Ternary Bonsai.
 - The daemon shares one local-model supervisor between provider dispatch and
   runtime status. Activating a local model hot-swaps the managed Mnemosyne model
   proxy route without restarting the sidecar, and memory requests use a
