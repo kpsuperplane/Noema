@@ -352,6 +352,11 @@ impl ChatCompletionRequest {
                 message: "local model request must contain model-visible input".to_string(),
             });
         }
+        let response_format = request
+            .options
+            .require_noema_response
+            .then(|| chat_noema_response_format(request))
+            .transpose()?;
         Ok(Self {
             model,
             messages,
@@ -365,10 +370,7 @@ impl ChatCompletionRequest {
             },
             max_tokens: request.options.max_output_tokens,
             temperature: request.options.temperature,
-            response_format: request
-                .options
-                .require_noema_response
-                .then(|| chat_noema_response_format(request)),
+            response_format,
         })
     }
 }
@@ -378,7 +380,7 @@ struct ChatTemplateKwargs {
     enable_thinking: bool,
 }
 
-fn chat_noema_response_format(request: &GenerateRequest) -> Value {
+fn chat_noema_response_format(request: &GenerateRequest) -> Result<Value, ProviderError> {
     let format = noema_response_text_format()
         .get("format")
         .cloned()
@@ -391,11 +393,12 @@ fn chat_noema_response_format(request: &GenerateRequest) -> Value {
             "schema": format["schema"]
         }
     });
+    let selected_tools = selected_local_tools(request)?;
+    let tools_allowed = !selected_tools.is_empty();
     let schema = &mut response_format["json_schema"]["schema"];
-    if !request.tools.is_empty() {
-        let tool_schemas = request
-            .tools
-            .iter()
+    if tools_allowed {
+        let tool_schemas = selected_tools
+            .into_iter()
             .map(|tool| {
                 let mut input_schema = tool.input_schema.as_value().clone();
                 normalize_llama_cpp_schema(&mut input_schema);
@@ -413,15 +416,70 @@ fn chat_noema_response_format(request: &GenerateRequest) -> Value {
             .collect::<Vec<_>>();
         schema["properties"]["tool_calls"]["items"] = serde_json::json!({"oneOf": tool_schemas});
     }
-    if request.tool_choice == crate::provider::NoemaToolChoice::Required {
+    if !tools_allowed {
+        schema["properties"]["response_status"]["enum"] = serde_json::json!(["final"]);
+        schema["properties"]["responses"]["minItems"] = serde_json::json!(1);
+        schema["properties"]["tool_calls"]["maxItems"] = serde_json::json!(0);
+    }
+    let tool_call_required = matches!(
+        &request.tool_choice,
+        crate::provider::NoemaToolChoice::Required
+            | crate::provider::NoemaToolChoice::Allowed(crate::provider::NoemaAllowedTools {
+                mode: crate::provider::NoemaAllowedToolsMode::Required,
+                ..
+            })
+    );
+    if tool_call_required {
         schema["properties"]["response_status"]["enum"] = serde_json::json!(["needs_tools"]);
         schema["properties"]["responses"]["maxItems"] = serde_json::json!(0);
         schema["properties"]["tool_calls"]["minItems"] = serde_json::json!(1);
-        if !request.parallel_tool_calls {
-            schema["properties"]["tool_calls"]["maxItems"] = serde_json::json!(1);
+    }
+    if tools_allowed && !request.parallel_tool_calls {
+        schema["properties"]["tool_calls"]["maxItems"] = serde_json::json!(1);
+    }
+    Ok(response_format)
+}
+
+fn selected_local_tools(
+    request: &GenerateRequest,
+) -> Result<Vec<&crate::provider::NoemaToolSpec>, ProviderError> {
+    match &request.tool_choice {
+        crate::provider::NoemaToolChoice::None => Ok(Vec::new()),
+        crate::provider::NoemaToolChoice::Required if request.tools.is_empty() => {
+            Err(ProviderError::InvalidRequest {
+                message: "required tool choice needs a non-empty tool catalog".to_string(),
+            })
+        }
+        crate::provider::NoemaToolChoice::Auto | crate::provider::NoemaToolChoice::Required => {
+            Ok(request.tools.iter().collect())
+        }
+        crate::provider::NoemaToolChoice::Allowed(allowed) => {
+            if allowed.tools.is_empty() {
+                return Err(ProviderError::InvalidRequest {
+                    message: "allowed tools cannot be empty".to_string(),
+                });
+            }
+            let mut seen = std::collections::HashSet::with_capacity(allowed.tools.len());
+            let mut selected = Vec::with_capacity(allowed.tools.len());
+            for allowed_name in &allowed.tools {
+                if !seen.insert(allowed_name.as_str()) {
+                    return Err(ProviderError::InvalidRequest {
+                        message: format!("allowed tool {allowed_name} is duplicated"),
+                    });
+                }
+                let Some(tool) = request.tools.iter().find(|tool| &tool.name == allowed_name)
+                else {
+                    return Err(ProviderError::InvalidRequest {
+                        message: format!(
+                            "allowed tool {allowed_name} is not present in the request tool catalog"
+                        ),
+                    });
+                };
+                selected.push(tool);
+            }
+            Ok(selected)
         }
     }
-    response_format
 }
 
 fn normalize_llama_cpp_schema(value: &mut Value) {
@@ -771,7 +829,7 @@ mod tests {
     }
 
     #[test]
-    fn required_noema_response_uses_llama_cpp_json_schema() {
+    fn required_noema_response_without_tools_forbids_tool_calls() {
         let request = GenerateRequest {
             options: crate::provider::GenerateOptions {
                 require_noema_response: true,
@@ -790,6 +848,47 @@ mod tests {
             response_format["json_schema"]["schema"]["required"],
             serde_json::json!(["response_status", "responses", "tool_calls"])
         );
+        assert_eq!(
+            response_format["json_schema"]["schema"]["properties"]["response_status"]["enum"],
+            serde_json::json!(["final"])
+        );
+        assert_eq!(
+            response_format["json_schema"]["schema"]["properties"]["tool_calls"]["maxItems"],
+            0
+        );
+    }
+
+    #[test]
+    fn none_tool_choice_forbids_calls_even_when_specs_are_present() {
+        let tool = crate::provider::NoemaToolSpec::new(
+            "search_memory",
+            "Search memory.",
+            serde_json::json!({"type": "object", "additionalProperties": false}),
+            crate::provider::NoemaToolExecution::LocalBuiltin,
+        )
+        .expect("tool");
+        let request = GenerateRequest {
+            options: crate::provider::GenerateOptions {
+                require_noema_response: true,
+                ..crate::provider::GenerateOptions::default()
+            },
+            tools: vec![tool],
+            tool_choice: crate::provider::NoemaToolChoice::None,
+            ..GenerateRequest::text("answer without tools")
+        };
+
+        let response_format =
+            ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
+                .expect("chat request")
+                .response_format
+                .expect("response format");
+        let schema = &response_format["json_schema"]["schema"];
+
+        assert_eq!(
+            schema["properties"]["response_status"]["enum"],
+            serde_json::json!(["final"])
+        );
+        assert_eq!(schema["properties"]["tool_calls"]["maxItems"], 0);
     }
 
     #[test]
@@ -837,6 +936,69 @@ mod tests {
         assert_eq!(
             schema["properties"]["tool_calls"]["items"]["oneOf"][0]["properties"]["payload"]["required"],
             serde_json::json!(["summary"])
+        );
+    }
+
+    #[test]
+    fn required_tool_choice_rejects_an_empty_catalog() {
+        let request = GenerateRequest {
+            options: crate::provider::GenerateOptions {
+                require_noema_response: true,
+                ..crate::provider::GenerateOptions::default()
+            },
+            tool_choice: crate::provider::NoemaToolChoice::Required,
+            ..GenerateRequest::text("finish")
+        };
+
+        let error = ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
+            .expect_err("empty required catalog should fail");
+
+        assert!(matches!(error, ProviderError::InvalidRequest { .. }));
+    }
+
+    #[test]
+    fn allowed_tool_choice_specializes_schema_to_the_selected_catalog_entry() {
+        let first = crate::provider::NoemaToolSpec::new(
+            "search_memory",
+            "Search memory.",
+            serde_json::json!({"type": "object", "additionalProperties": false}),
+            crate::provider::NoemaToolExecution::LocalBuiltin,
+        )
+        .expect("first tool");
+        let second = crate::provider::NoemaToolSpec::new(
+            "task.inspect",
+            "Inspect a task.",
+            serde_json::json!({"type": "object", "additionalProperties": false}),
+            crate::provider::NoemaToolExecution::LocalBuiltin,
+        )
+        .expect("second tool");
+        let request = GenerateRequest {
+            options: crate::provider::GenerateOptions {
+                require_noema_response: true,
+                ..crate::provider::GenerateOptions::default()
+            },
+            tools: vec![first.clone(), second],
+            tool_choice: crate::provider::NoemaToolChoice::Allowed(
+                crate::provider::NoemaAllowedTools {
+                    mode: crate::provider::NoemaAllowedToolsMode::Auto,
+                    tools: vec![first.name],
+                },
+            ),
+            ..GenerateRequest::text("search")
+        };
+
+        let response_format =
+            ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
+                .expect("chat request")
+                .response_format
+                .expect("response format");
+        let tool_variants =
+            &response_format["json_schema"]["schema"]["properties"]["tool_calls"]["items"]["oneOf"];
+
+        assert_eq!(tool_variants.as_array().map(Vec::len), Some(1));
+        assert_eq!(
+            tool_variants[0]["properties"]["name"]["enum"],
+            serde_json::json!(["search_memory"])
         );
     }
 

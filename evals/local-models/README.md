@@ -38,4 +38,10 @@ Committed machine snapshots live under `results/`. They record the exact hardwar
 runtime, artifacts, suite configuration, and raw-report locations used for a decision;
 they are evidence for catalog changes, not additional catalog policy.
 
-V1 deliberately scores model-sensitive behavior only. Catalog selection, downloads, SQLite mechanics, and UI rendering already have deterministic product tests and are not model quality. Web/MCP execution is also excluded because the current local provider exposes only Noema's builtin fallback envelope; that integration limit must not be counted as a model failure.
+V1 deliberately scores model-sensitive behavior only. Catalog selection,
+downloads, SQLite mechanics, and UI rendering already have deterministic product
+tests and are not model quality. Live web/MCP execution is excluded because the
+direct-provider runner does not start external MCP servers or depend on network
+state. Local built-ins and MCP tools use the same typed request catalog in
+production; memory selection exercises that catalog and transport without making
+external services part of the qualification result.

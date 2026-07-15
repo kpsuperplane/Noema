@@ -110,16 +110,21 @@ The next storage slice should stay small and concrete:
   disabled until activated in Settings > Local models.
 - The local provider constrains llama.cpp Chat Completions with Noema's shared
   strict response schema and request-specific tool payload schemas. Built-in
-  fallback tools retain their typed specs, while task executors and reviewers
-  must finish through their role-specific terminal contract; local task model
-  snapshots are valid first-class selections. Local chat-template thinking is
-  disabled until Noema exposes an explicit reasoning policy, so reasoning-first
-  GGUFs cannot consume the complete visible output budget internally. The
-  supervisor passes `--cache-ram 0` because llama.cpp's default 8 GiB checkpoint
-  cache can grow across distinct requests and erase 16 GB headroom. The
-  llama.cpp schema lowering removes large string length bounds that otherwise
-  expand task payload grammars beyond llama-server's parser; canonical runtime
-  handlers still validate those tool payloads.
+  and MCP tools now share one typed request catalog and one transport mode;
+  memory is an ordinary catalog entry rather than a separate fallback prompt
+  path. The local response grammar is derived from the exact request catalog,
+  and consecutive kernel/developer context is coalesced into one leading system
+  message before llama.cpp template rendering so later identity and tool updates
+  are not discarded. Task executors and reviewers must finish through their
+  role-specific terminal contract; local task model snapshots are valid
+  first-class selections. Local chat-template thinking is disabled until Noema
+  exposes an explicit reasoning policy, so reasoning-first GGUFs cannot consume
+  the complete visible output budget internally. The supervisor passes
+  `--cache-ram 0` because llama.cpp's default 8 GiB checkpoint cache can grow
+  across distinct requests and erase 16 GB headroom. The llama.cpp schema
+  lowering removes large string length bounds that otherwise expand task payload
+  grammars beyond llama-server's parser; canonical runtime handlers still
+  validate those tool payloads.
 - The opt-in `noema-model-evals` runner qualifies local GGUF candidates against
   production model-sensitive contracts without changing the user's installed
   models or preferences. Its pinned candidate and suite inputs live under
@@ -149,6 +154,14 @@ The next storage slice should stay small and concrete:
   tier. These are projected 16 GB fits measured on the 32 GB Air; a physical
   16 GB acceptance run and Nemotron license review remain catalog-promotion
   gates, so the snapshot does not automatically replace Ternary Bonsai.
+- The post-unification 32 GB follow-up is at
+  `evals/local-models/results/m5-air-32gb-unified-tools-2026-07-15.md`. Gemma 4
+  E4B IT Q4_K_M passed all 11 contracts in three isolated workers and again in a
+  resource soak. The soak processed 6,513 input tokens, completed 20 follow-up
+  turns, and held post-turn RSS within 16 KiB; peak server RSS was 5.51 GiB.
+  Gemma E4B is now the measured best-qualified 32 GB default. The bundled
+  catalog still recommends Ternary Bonsai until product promotion is made
+  explicitly.
 - The daemon shares one local-model supervisor between provider dispatch and
   runtime status. Activating a local model hot-swaps the managed Mnemosyne model
   proxy route without restarting the sidecar, and memory requests use a
