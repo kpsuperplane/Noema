@@ -185,8 +185,58 @@ impl LocalModelCatalog {
         &self,
         hardware: &[LocalHardwareProfile],
     ) -> Option<LocalModelRecommendation<'_>> {
-        hardware.iter().find_map(|profile| self.recommend(*profile))
+        self.models
+            .iter()
+            .enumerate()
+            .filter_map(|(catalog_index, model)| {
+                select_model_build(model, hardware, None)
+                    .map(|recommendation| (catalog_index, model.priority, recommendation))
+            })
+            .min_by_key(|(catalog_index, priority, _)| (u32::MAX - priority, *catalog_index))
+            .map(|(_, _, recommendation)| recommendation)
     }
+
+    /// Selects the first compatible build for one catalog model while trying
+    /// usable backends in preference order.
+    #[must_use]
+    pub fn select_build(
+        &self,
+        model_id: &str,
+        hardware: &[LocalHardwareProfile],
+    ) -> Option<LocalModelRecommendation<'_>> {
+        let model = self.models.iter().find(|model| model.id == model_id)?;
+        select_model_build(model, hardware, None)
+    }
+
+    /// Selects a named artifact when it fits one of the usable backends.
+    #[must_use]
+    pub fn select_named_build(
+        &self,
+        model_id: &str,
+        file: &str,
+        hardware: &[LocalHardwareProfile],
+    ) -> Option<LocalModelRecommendation<'_>> {
+        let model = self.models.iter().find(|model| model.id == model_id)?;
+        select_model_build(model, hardware, Some(file))
+    }
+}
+
+fn select_model_build<'a>(
+    model: &'a LocalModelCatalogEntry,
+    hardware: &[LocalHardwareProfile],
+    file: Option<&str>,
+) -> Option<LocalModelRecommendation<'a>> {
+    hardware.iter().find_map(|profile| {
+        model
+            .builds
+            .iter()
+            .find(|build| file.is_none_or(|file| build.file == file) && build.fits(*profile))
+            .map(|build| LocalModelRecommendation {
+                model,
+                build,
+                hardware: *profile,
+            })
+    })
 }
 
 /// A model/build recommendation together with the matched hardware values.

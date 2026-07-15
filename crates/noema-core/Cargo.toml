@@ -16,6 +16,7 @@ base64.workspace = true
 cap-std.workspace = true
 figment.workspace = true
 futures-util.workspace = true
+fs2.workspace = true
 http.workspace = true
 libc.workspace = true
 ring.workspace = true

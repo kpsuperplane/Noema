@@ -1,4 +1,5 @@
 use crate::SystemErrorLogger;
+use crate::local_models::LocalModelBackend;
 use crate::provider::adapters::{
     codex_oauth::DEFAULT_CODEX_BASE_URL, codex_responses::CodexProviderConfig,
     openai::OpenAiProviderConfig,
@@ -13,6 +14,14 @@ pub const DEFAULT_OPENAI_MODEL: &str = "gpt-5.5";
 pub const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 /// Default profile id for Apple Foundation Models.
 pub const DEFAULT_FOUNDATION_LOCAL_PROFILE: &str = "default";
+/// Default profile id for first-party local GGUF models.
+pub const DEFAULT_LOCAL_MODELS_PROFILE: &str = "default";
+/// Default context window exposed for local GGUF models.
+pub const DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS: u32 = 8_192;
+/// Default local generation request timeout.
+pub const DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS: u64 = 600;
+/// Default time allowed for `llama-server` to load a model.
+pub const DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS: u64 = 180;
 /// Environment variable used for `OpenAI` API credentials.
 pub const OPENAI_API_KEY_ENV: &str = "NOEMA_OPENAI__API_KEY";
 
@@ -25,6 +34,8 @@ pub enum ProviderKind {
     OpenAi,
     /// Local Apple Foundation Models provider.
     FoundationLocal,
+    /// First-party local GGUF model provider.
+    LocalModels,
 }
 
 impl ProviderKind {
@@ -35,6 +46,7 @@ impl ProviderKind {
             Self::Codex => "codex",
             Self::OpenAi => "openai",
             Self::FoundationLocal => "foundation_local",
+            Self::LocalModels => "local_models",
         }
     }
 }
@@ -47,6 +59,7 @@ impl FromStr for ProviderKind {
             "codex" => Ok(Self::Codex),
             "openai" => Ok(Self::OpenAi),
             "foundation_local" => Ok(Self::FoundationLocal),
+            "local_models" => Ok(Self::LocalModels),
             other => Err(other.to_string()),
         }
     }
@@ -63,6 +76,27 @@ pub struct FoundationLocalProviderConfig {
     pub system_errors: Option<SystemErrorLogger>,
 }
 
+/// First-party local GGUF provider configuration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalModelsProviderConfig {
+    /// Installed model id used when a request has no model override.
+    pub default_model: String,
+    /// Absolute path to the installed, checksum-verified GGUF blob.
+    pub model_path: Option<PathBuf>,
+    /// Preferred backend for this installed build; CPU is tried as a fallback.
+    pub preferred_backend: Option<LocalModelBackend>,
+    /// Packaged llama.cpp resource root supplied by the desktop shell.
+    pub runtime_root: Option<PathBuf>,
+    /// Context window exposed to Noema prompt planning.
+    pub context_window_tokens: u32,
+    /// Generation request timeout.
+    pub timeout_seconds: u64,
+    /// Time allowed for `llama-server` to load the model.
+    pub startup_timeout_seconds: u64,
+    /// Optional developer diagnostic logger for malformed provider output.
+    pub system_errors: Option<SystemErrorLogger>,
+}
+
 /// Concrete configuration for the selected provider.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProviderConfig {
@@ -72,6 +106,8 @@ pub enum ProviderConfig {
     OpenAi(OpenAiProviderConfig),
     /// Apple Foundation Models local provider configuration.
     FoundationLocal(FoundationLocalProviderConfig),
+    /// First-party local GGUF provider configuration.
+    LocalModels(LocalModelsProviderConfig),
 }
 
 impl ProviderConfig {
@@ -82,6 +118,7 @@ impl ProviderConfig {
             Self::Codex(_) => ProviderKind::Codex,
             Self::OpenAi(_) => ProviderKind::OpenAi,
             Self::FoundationLocal(_) => ProviderKind::FoundationLocal,
+            Self::LocalModels(_) => ProviderKind::LocalModels,
         }
     }
 
@@ -92,6 +129,7 @@ impl ProviderConfig {
             Self::Codex(config) => config.default_model.as_deref(),
             Self::OpenAi(config) => Some(config.default_model.as_str()),
             Self::FoundationLocal(config) => Some(config.default_profile.as_str()),
+            Self::LocalModels(config) => Some(config.default_model.as_str()),
         }
     }
 }

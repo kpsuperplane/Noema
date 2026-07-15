@@ -1,0 +1,62 @@
+{
+  "release_tag": "b10015",
+  "commit": "12127defda4f41b7679cb2477a4b0d65ee6a0c8f",
+  "assets": [
+    {
+      "target_triple": "aarch64-apple-darwin",
+      "backend": "metal",
+      "archive_name": "llama-b10015-bin-macos-arm64.tar.gz",
+      "sha256": "8d3144eb71a4b9b5b9ed50512f659d1cbcd5772e30aca75e6f9a0d7d68c311a7",
+      "role": "server_bundle"
+    },
+    {
+      "target_triple": "x86_64-apple-darwin",
+      "backend": "metal",
+      "archive_name": "llama-b10015-bin-macos-x64.tar.gz",
+      "sha256": "295a51dad3feafaafed8aa8fba9d9429fcaca8a2e7e66c73d839076fdf3fec6f",
+      "role": "server_bundle"
+    },
+    {
+      "target_triple": "x86_64-unknown-linux-gnu",
+      "backend": "vulkan",
+      "archive_name": "llama-b10015-bin-ubuntu-vulkan-x64.tar.gz",
+      "sha256": "cdd2fed8d96dcb584f6f7907df67c3787454e1f44e176580ae2da34fc79d63a0",
+      "role": "server_bundle"
+    },
+    {
+      "target_triple": "x86_64-unknown-linux-gnu",
+      "backend": "cpu",
+      "archive_name": "llama-b10015-bin-ubuntu-x64.tar.gz",
+      "sha256": "fc9c641c5ab5ce74b01d3a95123ff76ad488e1d46122d602f20604100ceae834",
+      "role": "server_bundle"
+    },
+    {
+      "target_triple": "x86_64-pc-windows-msvc",
+      "backend": "cuda",
+      "archive_name": "llama-b10015-bin-win-cuda-12.4-x64.zip",
+      "sha256": "336104b92b9b6a53a39eb7a373003d6256c1f20af3fc8213f65c2c3c11716469",
+      "role": "server_bundle"
+    },
+    {
+      "target_triple": "x86_64-pc-windows-msvc",
+      "backend": "cuda",
+      "archive_name": "cudart-llama-bin-win-cuda-12.4-x64.zip",
+      "sha256": "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6",
+      "role": "runtime_libraries"
+    },
+    {
+      "target_triple": "x86_64-pc-windows-msvc",
+      "backend": "vulkan",
+      "archive_name": "llama-b10015-bin-win-vulkan-x64.zip",
+      "sha256": "e2b63eba0fb124e51c93159540e11a861236f3701636d417b92504209a315210",
+      "role": "server_bundle"
+    },
+    {
+      "target_triple": "x86_64-pc-windows-msvc",
+      "backend": "cpu",
+      "archive_name": "llama-b10015-bin-win-cpu-x64.zip",
+      "sha256": "b850b461695b4c3e3811757fe20ae218bce06018a7f274c6c56485cf23adf980",
+      "role": "server_bundle"
+    }
+  ]
+}

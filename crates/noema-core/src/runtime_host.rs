@@ -11,6 +11,7 @@ use crate::{
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use ring::rand::{SecureRandom, SystemRandom};
+use std::path::PathBuf;
 use thiserror::Error;
 
 /// Shared host state for Noema client surfaces.
@@ -36,6 +37,19 @@ impl NoemaRuntimeHost {
     /// Returns [`RuntimeHostError`] when path setup, store startup, or runtime
     /// startup fails.
     pub async fn start(provider: ProviderConfig) -> Result<Self, RuntimeHostError> {
+        Self::start_with_local_model_runtime_root(provider, None).await
+    }
+
+    /// Start the shared host with an optional packaged llama.cpp resource root.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeHostError`] when path setup, store startup, or runtime
+    /// startup fails.
+    pub async fn start_with_local_model_runtime_root(
+        provider: ProviderConfig,
+        local_model_runtime_root: Option<PathBuf>,
+    ) -> Result<Self, RuntimeHostError> {
         let configured_provider_kind = provider.kind().as_str().to_string();
         let paths = NoemaPaths::from_process_env()
             .map_err(|source| RuntimeHostError::DataFolder(source.to_string()))?;
@@ -61,13 +75,88 @@ impl NoemaRuntimeHost {
             .await
             .map_err(|source| RuntimeHostError::Store(source.to_string()))?;
         store
+            .ensure_default_local_models_provider_account()
+            .await
+            .map_err(|source| RuntimeHostError::Store(source.to_string()))?;
+        store
             .ensure_default_task_model_pool_settings(&configured_provider_kind)
             .await
             .map_err(|source| RuntimeHostError::Store(source.to_string()))?;
 
-        let (default_provider_kind, providers) =
+        let provider = match provider {
+            ProviderConfig::LocalModels(mut config) => {
+                if config.runtime_root.is_none() {
+                    config.runtime_root = local_model_runtime_root.clone();
+                }
+                if config.model_path.is_none() {
+                    let installation = store
+                        .get_installed_local_model(&config.default_model)
+                        .await
+                        .map_err(|source| RuntimeHostError::Store(source.to_string()))?
+                        .ok_or_else(|| {
+                            RuntimeHostError::Runtime(format!(
+                                "local model `{}` is not installed",
+                                config.default_model
+                            ))
+                        })?;
+                    config.model_path = Some(
+                        paths
+                            .local_model_blob_path(installation.sha256.as_deref().ok_or_else(
+                                || {
+                                    RuntimeHostError::Runtime(format!(
+                                        "installed local model `{}` has no verified digest",
+                                        installation.model_id
+                                    ))
+                                },
+                            )?)
+                            .map_err(|source| RuntimeHostError::DataFolder(source.to_string()))?,
+                    );
+                    config.preferred_backend = Some(installation.backend);
+                }
+                ProviderConfig::LocalModels(config)
+            }
+            provider => provider,
+        };
+
+        let (default_provider_kind, mut providers) =
             CodexRuntimeHandle::provider_map_from_config(provider, system_errors.clone())
                 .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
+        if !providers.contains_key(crate::ProviderKind::LocalModels.as_str())
+            && let Some(installation) = store
+                .list_local_model_installations()
+                .await
+                .map_err(|source| RuntimeHostError::Store(source.to_string()))?
+                .into_iter()
+                .find(|installation| {
+                    installation.is_active
+                        && installation.status == crate::LocalModelInstallationStatus::Installed
+                })
+        {
+            let model_path = paths
+                .local_model_blob_path(installation.sha256.as_deref().ok_or_else(|| {
+                    RuntimeHostError::Runtime(format!(
+                        "installed local model `{}` has no verified digest",
+                        installation.model_id
+                    ))
+                })?)
+                .map_err(|source| RuntimeHostError::DataFolder(source.to_string()))?;
+            let provider = crate::LocalModelsProvider::new(crate::LocalModelsProviderConfig {
+                default_model: installation.model_id,
+                model_path: Some(model_path),
+                preferred_backend: Some(installation.backend),
+                runtime_root: local_model_runtime_root.clone(),
+                context_window_tokens: crate::config::DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS,
+                timeout_seconds: crate::config::DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS,
+                startup_timeout_seconds:
+                    crate::config::DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
+                system_errors: Some(system_errors.clone()),
+            })
+            .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
+            providers.insert(
+                crate::ProviderKind::LocalModels.as_str().to_string(),
+                std::sync::Arc::new(provider),
+            );
+        }
 
         let memory_settings = store
             .memory_service_settings()
@@ -166,6 +255,24 @@ impl NoemaRuntimeHost {
         )
         .await
         .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
+        runtime
+            .set_local_models_runtime_root(local_model_runtime_root)
+            .await;
+        if let Some(installation) = store
+            .list_local_model_installations()
+            .await
+            .map_err(|source| RuntimeHostError::Store(source.to_string()))?
+            .into_iter()
+            .find(|installation| {
+                installation.is_active
+                    && installation.status == crate::LocalModelInstallationStatus::Installed
+            })
+        {
+            runtime
+                .register_installed_local_model(&installation, &paths)
+                .await
+                .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
+        }
         let task_runtime = TaskRuntimeHandle::start(
             store.clone(),
             runtime.clone(),

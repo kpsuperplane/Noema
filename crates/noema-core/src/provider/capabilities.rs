@@ -89,6 +89,8 @@ impl ReliabilityContract {
 pub enum DataFlowClass {
     /// Prompt data flows to a model provider.
     ModelProviderPrompt,
+    /// Prompt data remains on-device for local inference.
+    LocalInference,
     /// Query data flows to a trusted search backend.
     TrustedExternalSearchQuery,
     /// A remote web page is fetched directly.
@@ -101,6 +103,7 @@ impl DataFlowClass {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::ModelProviderPrompt => "model_provider_prompt",
+            Self::LocalInference => "local_inference",
             Self::TrustedExternalSearchQuery => "trusted_external_search_query",
             Self::ExternalWebFetch => "external_web_fetch",
         }
@@ -204,6 +207,20 @@ pub fn capabilities_for_provider_account(
                 status,
             ),
         ],
+        "local_models" => vec![
+            local_model_capability(
+                provider_kind,
+                account_key,
+                CapabilityId::ModelGenerate,
+                status,
+            ),
+            local_model_capability(
+                provider_kind,
+                account_key,
+                CapabilityId::ModelClassify,
+                status,
+            ),
+        ],
         "duckduckgo_public" => vec![ProviderCapability {
             provider_kind: provider_kind.to_string(),
             account_key: account_key.to_string(),
@@ -293,6 +310,29 @@ fn model_capability(
     }
 }
 
+fn local_model_capability(
+    provider_kind: &str,
+    account_key: &str,
+    capability_id: CapabilityId,
+    status: ProviderCapabilityStatus,
+) -> ProviderCapability {
+    ProviderCapability {
+        provider_kind: provider_kind.to_string(),
+        account_key: account_key.to_string(),
+        capability_id,
+        status,
+        reliability_contract: ReliabilityContract::FirstParty,
+        data_flow_class: DataFlowClass::LocalInference,
+        features: CapabilityFeatures {
+            citations: false,
+            direct_url_fetch: false,
+            js_rendering: false,
+            authenticated_context: false,
+            result_persistence: ResultPersistencePolicy::CompactMetadata,
+        },
+    }
+}
+
 const fn capability_status_for_account(
     account_status: ProviderAccountStatus,
 ) -> ProviderCapabilityStatus {
@@ -345,6 +385,21 @@ mod tests {
                 .iter()
                 .any(|capability| capability.capability_id == CapabilityId::WebSearch)
         );
+    }
+
+    #[test]
+    fn local_models_account_declares_first_party_local_inference() {
+        let capabilities = capabilities_for_provider_account(
+            "local_models",
+            "default",
+            ProviderAccountStatus::Authenticated,
+        );
+
+        assert_eq!(capabilities.len(), 2);
+        assert!(capabilities.iter().all(|capability| {
+            capability.reliability_contract == ReliabilityContract::FirstParty
+                && capability.data_flow_class == DataFlowClass::LocalInference
+        }));
     }
 
     #[test]

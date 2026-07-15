@@ -1,8 +1,9 @@
-use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
+use std::{collections::HashMap, future::Future, path::PathBuf, pin::Pin, sync::Arc};
 
 use crate::{
-    FoundationLocalProvider, FoundationLocalProviderConfig, NoemaStore, OpenAiProvider,
-    ProviderConfig, ProviderKind, SystemErrorLogger,
+    FoundationLocalProvider, FoundationLocalProviderConfig, LocalModelsProvider,
+    LocalModelsProviderConfig, NoemaStore, OpenAiProvider, ProviderConfig, ProviderKind,
+    SystemErrorLogger,
     config::DEFAULT_FOUNDATION_LOCAL_PROFILE,
     provider::adapters::codex_responses::{CodexProviderConfig, CodexResponsesProvider},
     provider::{
@@ -104,6 +105,8 @@ pub(crate) struct CodexRuntimeHandle {
     cancellation: Arc<RuntimeCancellation>,
     default_provider_kind: String,
     tool_classification_model: Option<String>,
+    local_models_runtime: Arc<tokio::sync::RwLock<Option<crate::LlamaServerSupervisor>>>,
+    local_models_runtime_root: Arc<tokio::sync::RwLock<Option<PathBuf>>>,
 }
 
 #[derive(Debug)]
@@ -240,6 +243,8 @@ impl CodexRuntimeHandle {
             cancellation,
             default_provider_kind: provider_kind,
             tool_classification_model,
+            local_models_runtime: Arc::new(tokio::sync::RwLock::new(None)),
+            local_models_runtime_root: Arc::new(tokio::sync::RwLock::new(None)),
         })
     }
 
@@ -277,6 +282,8 @@ impl CodexRuntimeHandle {
             cancellation,
             default_provider_kind: provider_kind,
             tool_classification_model,
+            local_models_runtime: Arc::new(tokio::sync::RwLock::new(None)),
+            local_models_runtime_root: Arc::new(tokio::sync::RwLock::new(None)),
         })
     }
 
@@ -333,11 +340,125 @@ impl CodexRuntimeHandle {
             cancellation,
             default_provider_kind,
             tool_classification_model,
+            local_models_runtime: Arc::new(tokio::sync::RwLock::new(None)),
+            local_models_runtime_root: Arc::new(tokio::sync::RwLock::new(None)),
         })
     }
 
     pub(crate) fn tool_classification_model(&self) -> Option<&str> {
         self.tool_classification_model.as_deref()
+    }
+
+    /// Set the packaged llama.cpp resource root used for dynamic registrations.
+    pub(crate) async fn set_local_models_runtime_root(&self, runtime_root: Option<PathBuf>) {
+        *self.local_models_runtime_root.write().await = runtime_root;
+    }
+
+    /// Register or replace the active installed local model without restarting Noema.
+    pub(crate) async fn register_installed_local_model(
+        &self,
+        installation: &crate::LocalModelInstallationRecord,
+        paths: &crate::NoemaPaths,
+    ) -> Result<(), DaemonError> {
+        if installation.status != crate::LocalModelInstallationStatus::Installed {
+            return Err(DaemonError::Provider(ProviderError::ProviderUnavailable {
+                provider: ProviderKind::LocalModels.as_str().to_string(),
+                message: format!("local model `{}` is not installed", installation.model_id),
+            }));
+        }
+        let sha256 = installation.sha256.as_deref().ok_or_else(|| {
+            DaemonError::Provider(ProviderError::ProviderUnavailable {
+                provider: ProviderKind::LocalModels.as_str().to_string(),
+                message: format!(
+                    "installed local model `{}` has no verified digest",
+                    installation.model_id
+                ),
+            })
+        })?;
+        let model_path = paths.local_model_blob_path(sha256)?;
+        let runtime_root = self.local_models_runtime_root.read().await.clone();
+        let provider = LocalModelsProvider::new(LocalModelsProviderConfig {
+            default_model: installation.model_id.clone(),
+            model_path: Some(model_path),
+            preferred_backend: Some(installation.backend),
+            runtime_root,
+            context_window_tokens: crate::config::DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS,
+            timeout_seconds: crate::config::DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS,
+            startup_timeout_seconds: crate::config::DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
+            system_errors: Some(SystemErrorLogger::from_paths(paths)),
+        })?;
+        self.register_local_models_provider(provider).await
+    }
+
+    async fn register_local_models_provider(
+        &self,
+        provider: LocalModelsProvider,
+    ) -> Result<(), DaemonError> {
+        let runtime = provider.runtime().clone();
+        let (reply, reply_rx) = oneshot::channel();
+        self.sender
+            .send(CodexRuntimeCommand::RegisterProvider {
+                provider_kind: ProviderKind::LocalModels.as_str().to_string(),
+                provider: Arc::new(provider),
+                reply,
+            })
+            .await
+            .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?;
+        reply_rx
+            .await
+            .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?;
+
+        let previous = self.local_models_runtime.write().await.replace(runtime);
+        if let Some(previous) = previous {
+            previous.shutdown().await;
+        }
+        Ok(())
+    }
+
+    /// Return the current local inference process status, when a model is registered.
+    pub(crate) async fn local_model_runtime_status(
+        &self,
+    ) -> Option<crate::LocalModelRuntimeStatus> {
+        self.local_models_runtime
+            .read()
+            .await
+            .as_ref()
+            .map(crate::LlamaServerSupervisor::status)
+    }
+
+    /// Subscribe to local inference process transitions, when a model is registered.
+    pub(crate) async fn subscribe_local_model_runtime_status(
+        &self,
+    ) -> Option<tokio::sync::watch::Receiver<crate::LocalModelRuntimeStatus>> {
+        self.local_models_runtime
+            .read()
+            .await
+            .as_ref()
+            .map(crate::LlamaServerSupervisor::subscribe_status)
+    }
+
+    /// Retry the registered local inference runtime from its first backend candidate.
+    pub(crate) async fn retry_local_model_runtime(
+        &self,
+    ) -> Result<crate::LocalModelRuntimeStatus, DaemonError> {
+        let runtime = self
+            .local_models_runtime
+            .read()
+            .await
+            .clone()
+            .ok_or_else(|| {
+                DaemonError::Provider(ProviderError::ProviderUnavailable {
+                    provider: ProviderKind::LocalModels.as_str().to_string(),
+                    message: "no installed local model is registered".to_string(),
+                })
+            })?;
+        runtime.retry().await.map_err(|error| {
+            DaemonError::Provider(ProviderError::ProviderUnavailable {
+                provider: ProviderKind::LocalModels.as_str().to_string(),
+                message: error.to_string(),
+            })
+        })?;
+        Ok(runtime.status())
     }
 
     #[cfg(test)]
@@ -486,6 +607,9 @@ impl CodexRuntimeHandle {
 
     pub(crate) async fn shutdown(&self) {
         self.cancellation.0.cancel();
+        if let Some(runtime) = self.local_models_runtime.write().await.take() {
+            runtime.shutdown().await;
+        }
         let (reply, reply_rx) = oneshot::channel();
         let _ = self
             .sender
@@ -517,6 +641,13 @@ fn provider_from_config(
         ProviderConfig::FoundationLocal(config) => Ok((
             ProviderKind::FoundationLocal.as_str().to_string(),
             Arc::new(FoundationLocalProvider::new(foundation_local_config(
+                config,
+                system_errors,
+            ))?),
+        )),
+        ProviderConfig::LocalModels(config) => Ok((
+            ProviderKind::LocalModels.as_str().to_string(),
+            Arc::new(LocalModelsProvider::new(local_models_config(
                 config,
                 system_errors,
             ))?),
@@ -556,6 +687,14 @@ fn foundation_local_config(
     mut config: FoundationLocalProviderConfig,
     system_errors: SystemErrorLogger,
 ) -> FoundationLocalProviderConfig {
+    config.system_errors = Some(system_errors);
+    config
+}
+
+fn local_models_config(
+    mut config: LocalModelsProviderConfig,
+    system_errors: SystemErrorLogger,
+) -> LocalModelsProviderConfig {
     config.system_errors = Some(system_errors);
     config
 }
@@ -601,6 +740,11 @@ pub(super) enum CodexRuntimeCommand {
     BackgroundTask {
         request: super::BackgroundTaskGenerateRequest,
         reply: oneshot::Sender<Result<GenerateResponse, DaemonError>>,
+    },
+    RegisterProvider {
+        provider_kind: String,
+        provider: Arc<dyn RuntimeModelProvider>,
+        reply: oneshot::Sender<()>,
     },
     TaskCompletionDelivery {
         request: TaskCompletionDeliveryRequest,

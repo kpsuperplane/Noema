@@ -17,6 +17,7 @@ struct FileConfig {
     openai: FileOpenAiConfig,
     codex: FileCodexConfig,
     foundation_local: FileFoundationLocalConfig,
+    local_models: FileLocalModelsConfig,
     web: FileWebConfig,
 }
 
@@ -45,6 +46,16 @@ struct FileCodexConfig {
 struct FileFoundationLocalConfig {
     default_profile: Option<String>,
     bridge_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct FileLocalModelsConfig {
+    default_model: Option<String>,
+    preferred_backend: Option<String>,
+    context_window_tokens: Option<u32>,
+    timeout_seconds: Option<u64>,
+    startup_timeout_seconds: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]

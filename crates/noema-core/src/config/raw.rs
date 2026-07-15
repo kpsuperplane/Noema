@@ -1,9 +1,11 @@
 use super::{
     error::ConfigError,
     provider::{
-        DEFAULT_FOUNDATION_LOCAL_PROFILE, DEFAULT_OPENAI_BASE_URL, DEFAULT_OPENAI_MODEL,
-        DEFAULT_PROVIDER, FoundationLocalProviderConfig, OPENAI_API_KEY_ENV, ProviderConfig,
-        ProviderKind, codex_base_url_default,
+        DEFAULT_FOUNDATION_LOCAL_PROFILE, DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS,
+        DEFAULT_LOCAL_MODELS_PROFILE, DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
+        DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS, DEFAULT_OPENAI_BASE_URL, DEFAULT_OPENAI_MODEL,
+        DEFAULT_PROVIDER, FoundationLocalProviderConfig, LocalModelsProviderConfig,
+        OPENAI_API_KEY_ENV, ProviderConfig, ProviderKind, codex_base_url_default,
     },
     web::WebConfig,
 };
@@ -44,6 +46,7 @@ pub(super) struct RawConfig {
     openai: RawOpenAiConfig,
     codex: RawCodexConfig,
     foundation_local: RawFoundationLocalConfig,
+    local_models: RawLocalModelsConfig,
     web: WebConfig,
 }
 
@@ -57,6 +60,7 @@ impl Default for RawConfig {
             openai: RawOpenAiConfig::default(),
             codex: RawCodexConfig::default(),
             foundation_local: RawFoundationLocalConfig::default(),
+            local_models: RawLocalModelsConfig::default(),
             web: WebConfig::default(),
         }
     }
@@ -76,6 +80,10 @@ impl RawConfig {
             ProviderKind::FoundationLocal => {
                 validate_reasoning_config(None, self.reasoning_effort, "foundation_local")?;
                 ProviderConfig::FoundationLocal(self.resolve_foundation_local_config())
+            }
+            ProviderKind::LocalModels => {
+                validate_reasoning_config(None, self.reasoning_effort, "local_models")?;
+                ProviderConfig::LocalModels(self.resolve_local_models_config()?)
             }
         };
 
@@ -169,6 +177,39 @@ impl RawConfig {
             system_errors: None,
         }
     }
+
+    fn resolve_local_models_config(&self) -> Result<LocalModelsProviderConfig, ConfigError> {
+        let default_model = non_empty_option(self.model.as_deref())
+            .or_else(|| non_empty_option(Some(self.local_models.default_model.as_str())))
+            .unwrap_or(DEFAULT_LOCAL_MODELS_PROFILE)
+            .to_string();
+        let preferred_backend = self
+            .local_models
+            .preferred_backend
+            .as_deref()
+            .map(parse_local_model_backend)
+            .transpose()?;
+
+        Ok(LocalModelsProviderConfig {
+            default_model,
+            model_path: None,
+            preferred_backend,
+            runtime_root: None,
+            context_window_tokens: require_positive_u32(
+                self.local_models.context_window_tokens,
+                "NOEMA_LOCAL_MODELS__CONTEXT_WINDOW_TOKENS",
+            )?,
+            timeout_seconds: require_positive(
+                self.local_models.timeout_seconds,
+                "NOEMA_LOCAL_MODELS__TIMEOUT_SECONDS",
+            )?,
+            startup_timeout_seconds: require_positive(
+                self.local_models.startup_timeout_seconds,
+                "NOEMA_LOCAL_MODELS__STARTUP_TIMEOUT_SECONDS",
+            )?,
+            system_errors: None,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -233,6 +274,28 @@ impl Default for RawFoundationLocalConfig {
     }
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+struct RawLocalModelsConfig {
+    default_model: String,
+    preferred_backend: Option<String>,
+    context_window_tokens: u32,
+    timeout_seconds: u64,
+    startup_timeout_seconds: u64,
+}
+
+impl Default for RawLocalModelsConfig {
+    fn default() -> Self {
+        Self {
+            default_model: DEFAULT_LOCAL_MODELS_PROFILE.to_string(),
+            preferred_backend: None,
+            context_window_tokens: DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS,
+            timeout_seconds: DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS,
+            startup_timeout_seconds: DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
+        }
+    }
+}
+
 fn non_empty_option(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
 }
@@ -245,6 +308,31 @@ fn require_positive(value: u64, name: &str) -> Result<u64, ConfigError> {
         })
     } else {
         Ok(value)
+    }
+}
+
+fn require_positive_u32(value: u32, name: &str) -> Result<u32, ConfigError> {
+    if value == 0 {
+        Err(ConfigError::InvalidInteger {
+            name: name.to_string(),
+            value: value.to_string(),
+        })
+    } else {
+        Ok(value)
+    }
+}
+
+fn parse_local_model_backend(
+    value: &str,
+) -> Result<crate::local_models::LocalModelBackend, ConfigError> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "metal" => Ok(crate::local_models::LocalModelBackend::Metal),
+        "cuda" => Ok(crate::local_models::LocalModelBackend::Cuda),
+        "vulkan" => Ok(crate::local_models::LocalModelBackend::Vulkan),
+        "cpu" => Ok(crate::local_models::LocalModelBackend::Cpu),
+        _ => Err(ConfigError::InvalidConfig {
+            message: format!("unsupported local_models preferred_backend `{value}`"),
+        }),
     }
 }
 

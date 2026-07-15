@@ -27,6 +27,11 @@ pub(super) const CONFIG_ENV_KEYS: &[&str] = &[
     "codex.timeout_seconds",
     "foundation_local.default_profile",
     "foundation_local.bridge_path",
+    "local_models.default_model",
+    "local_models.preferred_backend",
+    "local_models.context_window_tokens",
+    "local_models.timeout_seconds",
+    "local_models.startup_timeout_seconds",
     "web.host",
     "web.port",
 ];

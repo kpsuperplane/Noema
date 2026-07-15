@@ -408,6 +408,63 @@ foundation_local:
 }
 
 #[test]
+fn local_models_config_resolves_without_cloud_credentials() {
+    let file = write_config(
+        r"
+provider: local_models
+model: ternary-bonsai-8b
+local_models:
+  preferred_backend: metal
+  context_window_tokens: 16384
+  timeout_seconds: 900
+  startup_timeout_seconds: 240
+",
+    );
+
+    let resolved = load_resolved(
+        Some(file.path().to_path_buf()),
+        ConfigOverrides::default(),
+        None,
+        &[],
+    )
+    .expect("local models config should resolve");
+
+    let ProviderConfig::LocalModels(config) = resolved.provider else {
+        panic!("expected local models config");
+    };
+    assert_eq!(config.default_model, "ternary-bonsai-8b");
+    assert_eq!(config.model_path, None);
+    assert_eq!(
+        config.preferred_backend,
+        Some(crate::LocalModelBackend::Metal)
+    );
+    assert_eq!(config.context_window_tokens, 16_384);
+    assert_eq!(config.timeout_seconds, 900);
+    assert_eq!(config.startup_timeout_seconds, 240);
+}
+
+#[test]
+fn local_models_config_rejects_unknown_backend() {
+    let file = write_config(
+        r"
+provider: local_models
+local_models:
+  preferred_backend: neural_engine
+",
+    );
+
+    let error = load_resolved(
+        Some(file.path().to_path_buf()),
+        ConfigOverrides::default(),
+        None,
+        &[],
+    )
+    .expect_err("unknown local backend should fail");
+
+    assert!(error.to_string().contains("preferred_backend"));
+}
+
+#[test]
 fn provider_config_does_not_require_database_url() {
     let resolved = load_resolved(
         None,

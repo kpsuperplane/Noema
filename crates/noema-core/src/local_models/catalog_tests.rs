@@ -76,6 +76,23 @@ fn backend_preference_falls_back_to_cpu() {
 }
 
 #[test]
+fn selecting_one_model_reuses_backend_fit_and_fallback() {
+    let catalog = LocalModelCatalog::bundled().expect("bundled catalog must remain valid");
+    let profiles = [
+        LocalHardwareProfile::new(LocalModelBackend::Vulkan, 12, Some(5), false),
+        LocalHardwareProfile::new(LocalModelBackend::Cpu, 12, None, false),
+    ];
+
+    let selection = catalog
+        .select_build("ternary-bonsai-8b", &profiles)
+        .expect("the CPU artifact should fit this specific model");
+
+    assert_eq!(selection.hardware.backend, LocalModelBackend::Cpu);
+    assert_eq!(selection.build.file, "Bonsai-8B-TQ2_0.gguf");
+    assert!(catalog.select_build("missing", &profiles).is_none());
+}
+
+#[test]
 fn recommendation_order_is_priority_then_catalog_order() {
     let source = format!(
         r#"
@@ -134,6 +151,54 @@ min_ram_gb = 1
         .expect("one model should fit");
 
     assert_eq!(recommendation.model.id, "second");
+}
+
+#[test]
+fn model_priority_wins_before_backend_preference() {
+    let source = format!(
+        r#"
+[[models]]
+id = "accelerated-low-priority"
+name = "Accelerated low priority"
+license = "MIT"
+priority = 10
+repo = "owner/accelerated"
+revision = "{REVISION}"
+[[models.builds]]
+file = "accelerated.gguf"
+sha256 = "{HASH}"
+download_gb = 1.0
+backends = ["vulkan"]
+min_ram_gb = 1
+min_vram_gb = 1
+
+[[models]]
+id = "cpu-high-priority"
+name = "CPU high priority"
+license = "MIT"
+priority = 100
+repo = "owner/cpu"
+revision = "{REVISION}"
+[[models.builds]]
+file = "cpu.gguf"
+sha256 = "{HASH}"
+download_gb = 1.0
+backends = ["cpu"]
+min_ram_gb = 1
+"#
+    );
+    let catalog = LocalModelCatalog::parse(&source).expect("catalog");
+    let profiles = [
+        LocalHardwareProfile::new(LocalModelBackend::Vulkan, 8, Some(8), false),
+        LocalHardwareProfile::new(LocalModelBackend::Cpu, 8, None, false),
+    ];
+
+    let recommendation = catalog
+        .recommend_with_fallback(&profiles)
+        .expect("recommendation");
+
+    assert_eq!(recommendation.model.id, "cpu-high-priority");
+    assert_eq!(recommendation.hardware.backend, LocalModelBackend::Cpu);
 }
 
 #[test]

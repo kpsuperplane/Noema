@@ -9,6 +9,11 @@ mod context_summaries;
 mod conversations;
 mod error;
 mod ids;
+mod local_model_activation;
+mod local_model_rows;
+mod local_models;
+#[cfg(test)]
+mod local_models_tests;
 mod mcp;
 mod memory_service;
 mod provider_accounts;

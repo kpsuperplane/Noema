@@ -62,7 +62,7 @@ pub use artifacts::{
 pub use capability::{CapabilityGateway, GatewayToolProposal, GatewayToolResult};
 pub use config::{
     Config, ConfigError, ConfigOverrides, DaemonResolvedConfig, FoundationLocalProviderConfig,
-    ProviderConfig, ProviderKind, ResolvedConfig, WebConfig,
+    LocalModelsProviderConfig, ProviderConfig, ProviderKind, ResolvedConfig, WebConfig,
 };
 pub use conversation::{
     AgentStatus as PersistedAgentStatus, ConversationContextSummaryStatus, ConversationItemKind,
@@ -83,8 +83,17 @@ pub use ids::{
     TaskEventId, TaskId, TaskReviewId, TaskSubmissionId,
 };
 pub use local_models::{
-    LocalHardwareProfile, LocalModelBackend, LocalModelBuild, LocalModelCatalog,
-    LocalModelCatalogEntry, LocalModelCatalogError, LocalModelRecommendation,
+    HuggingFaceLocalModelImport, LLAMA_CPP_COMMIT, LLAMA_CPP_RELEASE_TAG, LLAMA_CPP_RUNTIME_ASSETS,
+    LLAMA_SERVER_SIDECAR_BASENAME, LlamaCppRuntimeAsset, LlamaCppRuntimeAssetRole,
+    LlamaServerCandidate, LlamaServerConfig, LlamaServerEndpoint, LlamaServerError,
+    LlamaServerSupervisor, LocalFileModelImport, LocalHardwareProbeError, LocalHardwareProfile,
+    LocalModelBackend, LocalModelBuild, LocalModelCatalog, LocalModelCatalogEntry,
+    LocalModelCatalogError, LocalModelEventKind, LocalModelEventRecord, LocalModelInstallError,
+    LocalModelInstallationRecord, LocalModelInstallationStatus, LocalModelInstallationUpdate,
+    LocalModelInstaller, LocalModelRecommendation, LocalModelRuntimeStatus, LocalModelSourceKind,
+    NOEMA_LLAMA_SERVER_PATH_ENV, NewLocalModelInstallation, RemovedLocalModelInstallation,
+    bundled_llama_server_candidates, bundled_llama_server_candidates_in,
+    detect_local_hardware_profiles, tauri_sidecar_input_name,
 };
 pub use mcp::{McpCalibrationStatus, McpTransportKind, McpTrustClassification};
 pub use memory::error::MemoryPersistenceError;
@@ -98,12 +107,14 @@ pub use mnemosyne::{
 pub use objects::{ActorKind, ActorRef, ObjectRef, ObjectType};
 pub use onboarding::{
     OnboardingStatus, OnboardingStep, OnboardingStepStatus, onboarding_status_from_account,
+    onboarding_status_from_options,
 };
 pub use paths::{NOEMA_HOME_ENV, NoemaPathError, NoemaPaths};
 pub use provider::accounts::{ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod};
 pub use provider::adapters::{
     codex_responses::{CodexProviderConfig, CodexResponsesProvider},
     foundation_local::FoundationLocalProvider,
+    local_models::LocalModelsProvider,
     openai::{OpenAiProvider, OpenAiProviderConfig},
 };
 pub use provider::{

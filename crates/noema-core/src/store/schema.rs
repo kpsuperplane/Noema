@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS agents (
 
 CREATE TABLE IF NOT EXISTS agent_runtime_preferences (
   agent_id TEXT PRIMARY KEY NOT NULL,
-  provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local')),
+  provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models')),
   provider_account_id TEXT NOT NULL,
   model_profile TEXT NOT NULL CHECK (model_profile <> ''),
   reasoning_effort TEXT CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS agent_runtime_preferences (
 
 CREATE TABLE IF NOT EXISTS auxiliary_model_preferences (
   task_id TEXT PRIMARY KEY NOT NULL CHECK (task_id IN ('web_fetch_summarizer', 'tool_progress_audit', 'memory_extraction')),
-  provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local')),
+  provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models')),
   provider_account_id TEXT NOT NULL,
   model_profile TEXT NOT NULL CHECK (model_profile <> ''),
   reasoning_effort TEXT CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS auxiliary_model_preferences (
 
 CREATE TABLE IF NOT EXISTS provider_accounts (
   provider_account_id TEXT PRIMARY KEY NOT NULL,
-  provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local', 'exa')),
+  provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models', 'exa')),
   account_key TEXT NOT NULL,
   display_name TEXT NOT NULL,
   auth_method TEXT NOT NULL CHECK (auth_method IN ('oauth_device_code', 'secret_input', 'external_manual', 'none')),
@@ -84,6 +84,61 @@ CREATE TABLE IF NOT EXISTS provider_capability_bindings (
   UNIQUE(tool_name, capability_id)
 );
 
+CREATE TABLE IF NOT EXISTS local_model_installations (
+  installation_id TEXT PRIMARY KEY NOT NULL,
+  model_id TEXT NOT NULL CHECK (model_id <> ''),
+  display_name TEXT NOT NULL CHECK (display_name <> ''),
+  source_kind TEXT NOT NULL CHECK (source_kind IN ('catalog', 'hugging_face', 'local_file')),
+  source_repo TEXT,
+  source_revision TEXT,
+  source_file TEXT,
+  sha256 TEXT CHECK (sha256 IS NULL OR (length(sha256) = 64 AND sha256 = lower(sha256))),
+  download_gb REAL NOT NULL CHECK (download_gb > 0),
+  expected_bytes INTEGER CHECK (expected_bytes IS NULL OR expected_bytes > 0),
+  downloaded_bytes INTEGER NOT NULL DEFAULT 0 CHECK (downloaded_bytes >= 0),
+  license TEXT,
+  backend TEXT NOT NULL CHECK (backend IN ('metal', 'cuda', 'vulkan', 'cpu')),
+  status TEXT NOT NULL CHECK (status IN ('queued', 'downloading', 'verifying', 'installed', 'failed', 'cancelled')),
+  blob_relative_path TEXT,
+  is_active INTEGER NOT NULL DEFAULT 0 CHECK (is_active IN (0, 1)),
+  error_code TEXT,
+  error_message TEXT,
+  installed_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  CHECK (downloaded_bytes <= COALESCE(expected_bytes, downloaded_bytes)),
+  CHECK (status <> 'installed' OR (sha256 IS NOT NULL AND blob_relative_path IS NOT NULL AND installed_at IS NOT NULL)),
+  CHECK (source_kind <> 'catalog' OR (source_repo IS NOT NULL AND source_revision IS NOT NULL AND source_file IS NOT NULL))
+);
+
+CREATE INDEX IF NOT EXISTS local_model_installations_model
+ON local_model_installations(model_id, status, updated_at);
+CREATE UNIQUE INDEX IF NOT EXISTS local_model_installations_one_active
+ON local_model_installations(is_active) WHERE is_active = 1;
+
+CREATE TABLE IF NOT EXISTS local_model_events (
+  cursor INTEGER PRIMARY KEY AUTOINCREMENT,
+  installation_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('queued', 'progress', 'verifying', 'installed', 'failed', 'cancelled', 'removed', 'activated')),
+  downloaded_bytes INTEGER CHECK (downloaded_bytes IS NULL OR downloaded_bytes >= 0),
+  expected_bytes INTEGER CHECK (expected_bytes IS NULL OR expected_bytes > 0),
+  message TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS local_model_events_installation_cursor
+ON local_model_events(installation_id, cursor);
+
+CREATE TABLE IF NOT EXISTS default_model_preference (
+  preference_id TEXT PRIMARY KEY NOT NULL CHECK (preference_id = 'default'),
+  provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models')),
+  provider_account_id TEXT NOT NULL,
+  model_profile TEXT NOT NULL CHECK (model_profile <> ''),
+  reasoning_effort TEXT CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
 CREATE TABLE IF NOT EXISTS conversations (
   conversation_id TEXT PRIMARY KEY NOT NULL,
   title TEXT,
@@ -91,7 +146,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   owner_object_id TEXT NOT NULL,
   primary_human_id TEXT,
   primary_agent_id TEXT,
-  provider TEXT NOT NULL CHECK (provider IN ('codex', 'openai', 'foundation_local')),
+  provider TEXT NOT NULL CHECK (provider IN ('codex', 'openai', 'foundation_local', 'local_models')),
   model TEXT,
   cwd TEXT,
   lifecycle_status TEXT NOT NULL DEFAULT 'active' CHECK (lifecycle_status IN ('active', 'archived')),
@@ -141,7 +196,7 @@ ON conversation_items(conversation_id, sequence_index);
 CREATE TABLE IF NOT EXISTS conversation_context_summaries (
   summary_id TEXT PRIMARY KEY NOT NULL,
   conversation_id TEXT NOT NULL,
-  provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local')),
+  provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models')),
   model_profile TEXT,
   summary_text TEXT NOT NULL,
   covered_item_start_sequence INTEGER NOT NULL CHECK (covered_item_start_sequence >= 1),
@@ -149,7 +204,7 @@ CREATE TABLE IF NOT EXISTS conversation_context_summaries (
   source_item_ids_json TEXT NOT NULL DEFAULT '[]',
   input_token_estimate INTEGER NOT NULL CHECK (input_token_estimate >= 0),
   summary_token_estimate INTEGER NOT NULL CHECK (summary_token_estimate >= 0),
-  compaction_provider_kind TEXT NOT NULL CHECK (compaction_provider_kind IN ('codex', 'openai', 'foundation_local')),
+  compaction_provider_kind TEXT NOT NULL CHECK (compaction_provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models')),
   compaction_model_profile TEXT,
   status TEXT NOT NULL CHECK (status IN ('pending', 'active', 'failed', 'superseded')),
   error_code TEXT,
@@ -257,7 +312,7 @@ CREATE TABLE IF NOT EXISTS memory_service_settings (
   base_url TEXT,
   port INTEGER CHECK (port IS NULL OR (port > 0 AND port <= 65535)),
   provider_account_id TEXT,
-  provider_kind TEXT CHECK (provider_kind IS NULL OR provider_kind IN ('codex', 'openai', 'foundation_local')),
+  provider_kind TEXT CHECK (provider_kind IS NULL OR provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models')),
   model_profile TEXT,
   reasoning_effort TEXT CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
@@ -285,7 +340,7 @@ CREATE TABLE IF NOT EXISTS task_model_pool_entries (
   pool_entry_id TEXT PRIMARY KEY NOT NULL,
   complexity TEXT NOT NULL CHECK (complexity IN ('simple', 'medium', 'difficult')),
   label TEXT,
-  provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local')),
+  provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models')),
   provider_account_id TEXT NOT NULL,
   model_profile TEXT NOT NULL CHECK (model_profile <> ''),
   reasoning_effort TEXT CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
@@ -338,13 +393,13 @@ CREATE TABLE IF NOT EXISTS tasks (
   created_by_agent_id TEXT NOT NULL,
   creation_tool_call_id TEXT,
   pool_entry_id TEXT NOT NULL,
-  executor_provider_kind TEXT NOT NULL CHECK (executor_provider_kind IN ('codex', 'openai', 'foundation_local')),
+  executor_provider_kind TEXT NOT NULL CHECK (executor_provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models')),
   executor_provider_account_id TEXT NOT NULL,
   executor_selection_mode TEXT NOT NULL CHECK (executor_selection_mode IN ('explicit_profile', 'provider_default')),
   executor_model_profile TEXT,
   executor_reasoning_effort TEXT CHECK (executor_reasoning_effort IS NULL OR executor_reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
   executor_selection_source TEXT,
-  reviewer_provider_kind TEXT NOT NULL CHECK (reviewer_provider_kind IN ('codex', 'openai', 'foundation_local')),
+  reviewer_provider_kind TEXT NOT NULL CHECK (reviewer_provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models')),
   reviewer_provider_account_id TEXT NOT NULL,
   reviewer_selection_mode TEXT NOT NULL CHECK (reviewer_selection_mode IN ('explicit_profile', 'provider_default')),
   reviewer_model_profile TEXT,
@@ -397,7 +452,7 @@ CREATE TABLE IF NOT EXISTS agent_runs (
   triggering_submission_id TEXT,
   triggering_review_id TEXT,
   resume_message TEXT,
-  provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local')),
+  provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models')),
   provider_account_id TEXT NOT NULL,
   selection_mode TEXT NOT NULL CHECK (selection_mode IN ('explicit_profile', 'provider_default')),
   model_profile TEXT,

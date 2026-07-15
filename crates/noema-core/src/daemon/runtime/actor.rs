@@ -243,6 +243,14 @@ impl CodexRuntimeActor {
                         let _ = reply.send(result);
                     });
                 }
+                CodexRuntimeCommand::RegisterProvider {
+                    provider_kind,
+                    provider,
+                    reply,
+                } => {
+                    self.providers.insert(provider_kind, provider);
+                    let _ = reply.send(());
+                }
                 CodexRuntimeCommand::TaskCompletionDelivery { request, reply } => {
                     let result = self.deliver_task_completion(request).await;
                     let _ = reply.send(result);

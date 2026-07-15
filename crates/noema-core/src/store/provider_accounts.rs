@@ -139,6 +139,57 @@ impl NoemaStore {
         })
     }
 
+    /// Create or return the built-in local-model provider account metadata.
+    ///
+    /// The account itself requires no authentication. Its effective
+    /// availability is derived from installed model state by the local runtime.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store write or read fails.
+    pub async fn ensure_default_local_models_provider_account(
+        &self,
+    ) -> Result<ProviderAccountRecord, StoreError> {
+        const ACCOUNT_ID: &str = "provider_account:local_models:default";
+        self.with_connection(|conn| {
+            conn.execute(
+                r#"
+                INSERT INTO provider_accounts (
+                  provider_account_id, provider_kind, account_key, display_name,
+                  auth_method, is_active, is_default, status, metadata_json
+                )
+                VALUES (
+                  'provider_account:local_models:default',
+                  'local_models',
+                  'default',
+                  'Local models',
+                  'none',
+                  1,
+                  1,
+                  'unknown',
+                  '{}'
+                )
+                ON CONFLICT(provider_account_id) DO UPDATE SET
+                  provider_kind = excluded.provider_kind,
+                  account_key = excluded.account_key,
+                  display_name = excluded.display_name,
+                  auth_method = excluded.auth_method,
+                  is_active = 1,
+                  is_default = 1,
+                  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                "#,
+                [],
+            )?;
+            Ok(())
+        })
+        .await?;
+        self.get_provider_account(ACCOUNT_ID).await?.ok_or_else(|| {
+            StoreError::ProviderAccountNotFound {
+                provider_account_id: ACCOUNT_ID.to_string(),
+            }
+        })
+    }
+
     /// Return the active default account for one provider.
     ///
     /// # Errors

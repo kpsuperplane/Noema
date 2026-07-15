@@ -97,7 +97,7 @@ fn rebuild_agent_runs(conn: &Connection, columns: &HashSet<String>) -> Result<()
           triggering_submission_id TEXT,
           triggering_review_id TEXT,
           resume_message TEXT,
-          provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local')),
+          provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models')),
           provider_account_id TEXT NOT NULL,
           selection_mode TEXT NOT NULL CHECK (selection_mode IN ('explicit_profile', 'provider_default')),
           model_profile TEXT,

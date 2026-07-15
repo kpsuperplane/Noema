@@ -109,6 +109,63 @@ impl NoemaPaths {
         self.db_dir().join("noema.sqlite3")
     }
 
+    /// Root directory for downloaded local-model state.
+    #[must_use]
+    pub fn local_models_dir(&self) -> PathBuf {
+        self.root.join("models")
+    }
+
+    /// Content-addressed GGUF blob directory.
+    #[must_use]
+    pub fn local_model_blobs_dir(&self) -> PathBuf {
+        self.local_models_dir().join("blobs")
+    }
+
+    /// Directory for resumable, incomplete model downloads.
+    #[must_use]
+    pub fn local_model_downloads_dir(&self) -> PathBuf {
+        self.local_models_dir().join("downloads")
+    }
+
+    /// Directory for local inference runtime state such as sockets and logs.
+    #[must_use]
+    pub fn local_model_runtime_dir(&self) -> PathBuf {
+        self.local_models_dir().join("run")
+    }
+
+    /// Path to one verified content-addressed GGUF blob.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NoemaPathError::InvalidModelDigest`] unless `sha256` is a
+    /// lowercase 64-character hexadecimal digest.
+    pub fn local_model_blob_path(&self, sha256: &str) -> Result<PathBuf, NoemaPathError> {
+        validate_model_digest(sha256)?;
+        Ok(self.local_model_blobs_dir().join(format!("{sha256}.gguf")))
+    }
+
+    /// Path to one resumable model download.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NoemaPathError::InvalidModelDigest`] unless `sha256` is a
+    /// lowercase 64-character hexadecimal digest.
+    pub fn local_model_partial_path(&self, sha256: &str) -> Result<PathBuf, NoemaPathError> {
+        validate_model_digest(sha256)?;
+        Ok(self
+            .local_model_downloads_dir()
+            .join(format!("{sha256}.part")))
+    }
+
+    /// Path to an advanced import whose digest is not known yet.
+    #[must_use]
+    pub fn local_model_import_partial_path(&self, installation_id: &str) -> PathBuf {
+        self.local_model_downloads_dir().join(format!(
+            "import-{}.part",
+            sanitize_path_segment(installation_id)
+        ))
+    }
+
     /// Path to Mnemosyne-owned state.
     #[must_use]
     pub fn mnemosyne_dir(&self) -> PathBuf {
@@ -243,6 +300,27 @@ pub enum NoemaPathError {
         /// Rejected raw filename value.
         value: String,
     },
+
+    /// A content-addressed model digest was malformed.
+    #[error("model SHA-256 digest must be 64 lowercase hexadecimal characters: {value}")]
+    InvalidModelDigest {
+        /// Rejected digest value.
+        value: String,
+    },
+}
+
+fn validate_model_digest(value: &str) -> Result<(), NoemaPathError> {
+    if value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+    {
+        Ok(())
+    } else {
+        Err(NoemaPathError::InvalidModelDigest {
+            value: value.to_string(),
+        })
+    }
 }
 
 pub(crate) fn sanitize_path_segment(value: &str) -> String {
@@ -301,6 +379,10 @@ mod tests {
             paths.config_path(),
             PathBuf::from("/tmp/custom-noema/config.yaml")
         );
+        assert_eq!(
+            paths.local_model_import_partial_path("install:public/model"),
+            PathBuf::from("/tmp/custom-noema/models/downloads/import-install_public_model.part")
+        );
     }
 
     #[test]
@@ -328,6 +410,36 @@ mod tests {
             paths.errors_log_path(),
             PathBuf::from("/tmp/noema/errors.log")
         );
+    }
+
+    #[test]
+    fn local_model_paths_are_content_addressed() {
+        let paths = NoemaPaths::from_noema_home("/tmp/noema").expect("paths");
+        let digest = "a".repeat(64);
+
+        assert_eq!(
+            paths.local_model_blob_path(&digest).expect("blob path"),
+            PathBuf::from(format!("/tmp/noema/models/blobs/{digest}.gguf"))
+        );
+        assert_eq!(
+            paths
+                .local_model_partial_path(&digest)
+                .expect("partial path"),
+            PathBuf::from(format!("/tmp/noema/models/downloads/{digest}.part"))
+        );
+        assert_eq!(
+            paths.local_model_runtime_dir(),
+            PathBuf::from("/tmp/noema/models/run")
+        );
+    }
+
+    #[test]
+    fn local_model_paths_reject_noncanonical_digests() {
+        let paths = NoemaPaths::from_noema_home("/tmp/noema").expect("paths");
+
+        assert!(paths.local_model_blob_path("../model").is_err());
+        assert!(paths.local_model_blob_path(&"A".repeat(64)).is_err());
+        assert!(paths.local_model_blob_path(&"g".repeat(64)).is_err());
     }
 
     #[test]
