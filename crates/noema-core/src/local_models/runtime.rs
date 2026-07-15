@@ -268,6 +268,13 @@ impl LlamaServerSupervisor {
         self.inner.status_tx.borrow().clone()
     }
 
+    /// Returns the active llama-server process id when the runtime is ready.
+    #[must_use]
+    pub fn process_id(&self) -> Option<u32> {
+        let state = self.inner.state.try_lock().ok()?;
+        state.running.as_ref()?.child.id()
+    }
+
     /// Acquires the process-wide single-generation permit.
     ///
     /// # Errors
@@ -484,6 +491,8 @@ fn server_args(config: &LlamaServerConfig, backend: LocalModelBackend, port: u16
         config.context_window_tokens.to_string(),
         "--parallel".to_string(),
         "1".to_string(),
+        "--cache-ram".to_string(),
+        "0".to_string(),
         "--n-gpu-layers".to_string(),
         if backend == LocalModelBackend::Cpu {
             "0".to_string()
@@ -537,6 +546,7 @@ mod tests {
 
         assert!(args.windows(2).any(|pair| pair == ["--host", "127.0.0.1"]));
         assert!(args.windows(2).any(|pair| pair == ["--parallel", "1"]));
+        assert!(args.windows(2).any(|pair| pair == ["--cache-ram", "0"]));
         assert!(args.windows(2).any(|pair| pair == ["--n-gpu-layers", "0"]));
     }
 

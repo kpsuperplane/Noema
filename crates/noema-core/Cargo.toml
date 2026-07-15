@@ -10,7 +10,7 @@ rust-version.workspace = true
 workspace = true
 
 [features]
-local-model-evals = []
+local-model-evals = ["dep:sysinfo"]
 
 [dependencies]
 async-graphql.workspace = true
@@ -30,6 +30,7 @@ rusqlite.workspace = true
 scraper.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sysinfo = { workspace = true, optional = true }
 thiserror.workspace = true
 time.workspace = true
 tokio.workspace = true

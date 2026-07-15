@@ -2,7 +2,10 @@ use std::collections::HashSet;
 
 use serde_json::Value;
 
-use crate::provider::{GenerateResponse, GenerateResponseItem, GenerateResponseStatus};
+use crate::{
+    daemon::runtime::progress_audit::grade_finalize_response,
+    provider::{GenerateResponse, GenerateResponseItem, GenerateResponseStatus},
+};
 
 use super::types::EvalExpectation;
 
@@ -174,16 +177,7 @@ fn blocked_task(response: &GenerateResponse) -> Result<(), String> {
 
 fn progress_audit(response: &GenerateResponse) -> Result<(), String> {
     require_final_without_tools(response)?;
-    let value: Value = serde_json::from_str(response.assistant_text().trim())
-        .map_err(|error| format!("progress audit was not strict JSON: {error}"))?;
-    if value.get("decision").and_then(Value::as_str) != Some("finalize") {
-        return Err(format!(
-            "progress audit should finalize completed work: {:?}",
-            value.get("decision")
-        ));
-    }
-    required_nonempty_string(&value, "user_summary")?;
-    Ok(())
+    grade_finalize_response(&response.assistant_text())
 }
 
 fn web_summary(response: &GenerateResponse) -> Result<(), String> {

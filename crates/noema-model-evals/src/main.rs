@@ -52,7 +52,17 @@ async fn run() -> Result<(), String> {
         "run" => {
             let selected = select_candidates(&manifest.candidates, &remaining)?;
             let suite = load_suite(&root.join("evals/local-models/suite.toml"))?;
-            let report_root = run_matrix(selected, suite).await?;
+            let report_root = run_matrix(selected, suite, false).await?;
+            println!("reports written to {}", report_root.display());
+            Ok(())
+        }
+        "soak" => {
+            if remaining.is_empty() {
+                return Err("soak requires at least one candidate id".to_string());
+            }
+            let selected = select_candidates(&manifest.candidates, &remaining)?;
+            let suite = load_suite(&root.join("evals/local-models/suite.toml"))?;
+            let report_root = run_matrix(selected, suite, true).await?;
             println!("reports written to {}", report_root.display());
             Ok(())
         }
@@ -61,12 +71,15 @@ async fn run() -> Result<(), String> {
 }
 
 async fn run_worker(arguments: &[String]) -> Result<(), String> {
-    if arguments.len() != 7 {
-        return Err("internal worker expected 7 arguments".to_string());
+    if arguments.len() != 8 {
+        return Err("internal worker expected 8 arguments".to_string());
     }
     let context_window_tokens = parse_u32(&arguments[4], "context window")?;
     let timeout_seconds = parse_u64(&arguments[5], "generation timeout")?;
     let startup_timeout_seconds = parse_u64(&arguments[6], "startup timeout")?;
+    let run_resource_probe = arguments[7]
+        .parse::<bool>()
+        .map_err(|error| format!("invalid resource probe flag: {error}"))?;
     let report = run_provider_suite(ModelEvalConfig {
         model_id: arguments[0].clone(),
         model_path: PathBuf::from(&arguments[1]),
@@ -74,6 +87,7 @@ async fn run_worker(arguments: &[String]) -> Result<(), String> {
         context_window_tokens,
         timeout_seconds,
         startup_timeout_seconds,
+        run_resource_probe,
     })
     .await?;
     let report_path = PathBuf::from(&arguments[3]);
@@ -101,6 +115,5 @@ fn parse_u64(value: &str, label: &str) -> Result<u64, String> {
 }
 
 fn usage() -> String {
-    "usage: noema-model-evals list | prepare [candidate-id ...] | run [candidate-id ...]"
-        .to_string()
+    "usage: noema-model-evals list | prepare [candidate-id ...] | run [candidate-id ...] | soak [candidate-id ...]".to_string()
 }

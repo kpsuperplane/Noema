@@ -135,3 +135,148 @@ context_tokens = 202752
 source = "https://huggingface.co/zai-org/GLM-4.7-Flash"
 artifact_source = "https://huggingface.co/ggml-org/GLM-4.7-Flash-GGUF"
 notes = "30B-total/3B-active agentic MoE and the heaviest candidate in this matrix."
+
+[[candidates]]
+id = "nemotron-3-nano-4b-q4-k-m"
+name = "NVIDIA Nemotron 3 Nano 4B"
+repo = "nvidia/NVIDIA-Nemotron-3-Nano-4B-GGUF"
+revision = "ba223d14e45525f7fae81db77ea8cabeb2fc6c25"
+file = "NVIDIA-Nemotron3-Nano-4B-Q4_K_M.gguf"
+sha256 = "be5d9a656a51922f24f1f09a759cebb694e1f5d9728bf0ef9f8c972c5a0b5ef2"
+bytes = 2837072864
+license = "NVIDIA-Nemotron-Open-Model-License"
+context_tokens = 262144
+source = "https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Nano-4B-GGUF"
+notes = "Compact hybrid agentic candidate with standard tools and an explicit thinking toggle; first 16 GB tier probe."
+
+[[candidates]]
+id = "gemma-4-e2b-it-q8-0"
+name = "Gemma 4 E2B IT"
+repo = "ggml-org/gemma-4-E2B-it-GGUF"
+revision = "a1dac71d3ab220618f5a7573a52acdc4baf3ae3b"
+file = "gemma-4-E2B-it-Q8_0.gguf"
+sha256 = "e049411c01fb7a81161768c52e38828970e55a64e22738957adcbe51d20f1c8e"
+bytes = 4967494592
+license = "Apache-2.0"
+context_tokens = 131072
+source = "https://huggingface.co/google/gemma-4-E2B-it"
+artifact_source = "https://huggingface.co/ggml-org/gemma-4-E2B-it-GGUF"
+notes = "High-precision compact Gemma sibling; tests whether E2B can retain exact Noema contracts below the 12B footprint."
+
+[[candidates]]
+id = "granite-4-1-8b-q4-k-m"
+name = "Granite 4.1 8B"
+repo = "ibm-granite/granite-4.1-8b-GGUF"
+revision = "865b82c2e7970d82e3731278c88c57ae7138359c"
+file = "granite-4.1-8b-Q4_K_M.gguf"
+sha256 = "ed902ac9eb6adce5a90c6a08c8ea201b50e23fdc5976d1cd0362006afac5309e"
+bytes = 5347914400
+license = "Apache-2.0"
+context_tokens = 131072
+source = "https://huggingface.co/ibm-granite/granite-4.1-8b-GGUF"
+notes = "Dense tool-use candidate with an OpenAI-schema tool template and comfortable 16 GB artifact size."
+
+[[candidates]]
+id = "granite-4-1-3b-q4-k-m"
+name = "Granite 4.1 3B"
+repo = "ibm-granite/granite-4.1-3b-GGUF"
+revision = "ab4701481089b58a082ef63cc1cee738887293ff"
+file = "granite-4.1-3b-Q4_K_M.gguf"
+sha256 = "662b0626cd58f443baea23559b469df6576a81d349649c59413b36a9fb32eb29"
+bytes = 2099501664
+license = "Apache-2.0"
+context_tokens = 131072
+source = "https://huggingface.co/ibm-granite/granite-4.1-3b-GGUF"
+notes = "Low-memory Granite 4.1 anchor using the same OpenAI-schema tool template as the 8B model."
+
+[[candidates]]
+id = "granite-4-h-tiny-q4-k-m"
+name = "Granite 4.0 H-Tiny"
+repo = "ibm-granite/granite-4.0-h-tiny-GGUF"
+revision = "08d5a8a9741dd5c1a95d2d39e25253226aa1464e"
+file = "granite-4.0-h-tiny-Q4_K_M.gguf"
+sha256 = "5a38b08c441ae1adbafb1d2b8a7167e0d48734d83af68b268cefea1eec553dcd"
+bytes = 4230976352
+license = "Apache-2.0"
+context_tokens = 131072
+source = "https://huggingface.co/ibm-granite/granite-4.0-h-tiny-GGUF"
+notes = "Seven-billion-total/one-billion-active Mamba2-MoE candidate with documented tool use."
+
+[[candidates]]
+id = "smollm3-3b-q4-k-m"
+name = "SmolLM3 3B"
+repo = "ggml-org/SmolLM3-3B-GGUF"
+revision = "4965cb60b150737b68a0408c36aeefb65078f894"
+file = "SmolLM3-Q4_K_M.gguf"
+sha256 = "8334b850b7bd46238c16b0c550df2138f0889bf433809008cc17a8b05761863e"
+bytes = 1915305312
+license = "Apache-2.0"
+context_tokens = 65536
+source = "https://huggingface.co/HuggingFaceTB/SmolLM3-3B"
+artifact_source = "https://huggingface.co/ggml-org/SmolLM3-3B-GGUF"
+notes = "llama.cpp-maintained compact tool-use candidate with thinking disabled for qualification."
+
+[[candidates]]
+id = "lfm2-5-8b-a1b-q4-k-m"
+name = "LFM2.5 8B-A1B"
+repo = "LiquidAI/LFM2.5-8B-A1B-GGUF"
+revision = "dfd5fdcad7a1c0d31473fb4ca443b8befbacddf0"
+file = "LFM2.5-8B-A1B-Q4_K_M.gguf"
+sha256 = "4923ec14f06b968b74d663e5949867d2d9c3bf13a20b8be1a9f9af39989b2bb0"
+bytes = 5155564768
+license = "LFM-Open-License-1.0"
+context_tokens = 128000
+source = "https://huggingface.co/LiquidAI/LFM2.5-8B-A1B-GGUF"
+notes = "Eight-billion-total/1.5-billion-active on-device agent candidate; Pythonic tool syntax is an adapter risk."
+
+[[candidates]]
+id = "lfm2-1-2b-tool-q4-k-m"
+name = "LFM2 1.2B Tool"
+repo = "LiquidAI/LFM2-1.2B-Tool-GGUF"
+revision = "09fabc952ac728ce0917b9a592e67e6521e1305e"
+file = "LFM2-1.2B-Tool-Q4_K_M.gguf"
+sha256 = "3a942f51f9f3088c0b502b61ee49480a3d8c54de369f9c53ee5668419caf67a7"
+bytes = 730894048
+license = "LFM-Open-License-1.0"
+context_tokens = 128000
+source = "https://huggingface.co/LiquidAI/LFM2-1.2B-Tool-GGUF"
+notes = "Purpose-trained non-thinking tool caller and absolute low-memory quality floor."
+
+[[candidates]]
+id = "qwen3-8b-q4-k-m"
+name = "Qwen3 8B"
+repo = "Qwen/Qwen3-8B-GGUF"
+revision = "7c41481f57cb95916b40956ab2f0b139b296d974"
+file = "Qwen3-8B-Q4_K_M.gguf"
+sha256 = "d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785"
+bytes = 5027783488
+license = "Apache-2.0"
+context_tokens = 32768
+source = "https://huggingface.co/Qwen/Qwen3-8B-GGUF"
+notes = "Mature dense agentic baseline at native 32K context; thinking remains disabled."
+
+[[candidates]]
+id = "ministral-3-8b-instruct-q4-k-m"
+name = "Ministral 3 8B Instruct 2512"
+repo = "mistralai/Ministral-3-8B-Instruct-2512-GGUF"
+revision = "0102285ad796bd99af90f58de616092e5630e970"
+file = "Ministral-3-8B-Instruct-2512-Q4_K_M.gguf"
+sha256 = "33e7a72cf5e6e2cfc2f2847075acc013d68bba023e35310cef86b5cf8fdca761"
+bytes = 5198911904
+license = "Apache-2.0"
+context_tokens = 262144
+source = "https://huggingface.co/mistralai/Ministral-3-8B-Instruct-2512-GGUF"
+notes = "Official edge-focused dense model with native function calling and JSON output."
+
+[[candidates]]
+id = "granite-3-3-8b-instruct-q4-k-m"
+name = "Granite 3.3 8B Instruct"
+repo = "ibm-granite/granite-3.3-8b-instruct-GGUF"
+revision = "e40e9dd739c7be00fa965c16ce167088190ce114"
+file = "granite-3.3-8b-instruct-Q4_K_M.gguf"
+sha256 = "77bcee066a76dcdd10d0d123c87e32c8ec2c74e31b6ffd87ebee49c9ac215dca"
+bytes = 4942873344
+license = "Apache-2.0"
+context_tokens = 131072
+source = "https://huggingface.co/ibm-granite/granite-3.3-8b-instruct-GGUF"
+notes = "Dense function-calling control for the newer Granite 4 hybrid and dense candidates."

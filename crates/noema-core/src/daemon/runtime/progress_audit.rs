@@ -148,9 +148,12 @@ Return strict Noema response JSON with response_status "final", at least one fin
 }
 
 fn parse_progress_audit_response(text: &str) -> Result<ProgressAuditOutcome, ProgressAuditError> {
-    let parsed: RawProgressAuditResponse = serde_json::from_str(text).map_err(|error| {
-        ProgressAuditError::ExecutionFailed(format!("progress audit JSON parse failed: {error}"))
-    })?;
+    let parsed: RawProgressAuditResponse = serde_json::from_str(strip_single_json_code_fence(text))
+        .map_err(|error| {
+            ProgressAuditError::ExecutionFailed(format!(
+                "progress audit JSON parse failed: {error}"
+            ))
+        })?;
     let decision = match parsed.decision.as_str() {
         "continue" => ProgressAuditDecision::Continue,
         "finalize" => ProgressAuditDecision::Finalize,
@@ -172,6 +175,40 @@ fn parse_progress_audit_response(text: &str) -> Result<ProgressAuditOutcome, Pro
         user_summary: parsed.user_summary,
         next_goal: parsed.next_goal.filter(|goal| !goal.trim().is_empty()),
     })
+}
+
+#[cfg(feature = "local-model-evals")]
+pub(crate) fn grade_finalize_response(text: &str) -> Result<(), String> {
+    let outcome = parse_progress_audit_response(text).map_err(|error| match error {
+        ProgressAuditError::Unavailable(message) | ProgressAuditError::ExecutionFailed(message) => {
+            message
+        }
+    })?;
+    if outcome.decision != ProgressAuditDecision::Finalize {
+        return Err(format!(
+            "progress audit should finalize completed work: {:?}",
+            outcome.decision
+        ));
+    }
+    Ok(())
+}
+
+fn strip_single_json_code_fence(text: &str) -> &str {
+    let text = text.trim();
+    let Some(fenced) = text.strip_prefix("```") else {
+        return text;
+    };
+    let Some(header_end) = fenced.find('\n') else {
+        return text;
+    };
+    let language = fenced[..header_end].trim();
+    if !language.is_empty() && !language.eq_ignore_ascii_case("json") {
+        return text;
+    }
+    fenced[header_end + 1..]
+        .strip_suffix("```")
+        .map(str::trim)
+        .unwrap_or(text)
 }
 
 #[derive(Debug, Deserialize)]
@@ -294,6 +331,17 @@ mod tests {
             outcome.next_goal.as_deref(),
             Some("Create the selected pages.")
         );
+    }
+
+    #[test]
+    fn parses_one_fenced_json_object_without_relaxing_the_payload() {
+        let outcome = parse_progress_audit_response(
+            "```json\n{\"decision\":\"finalize\",\"confidence\":\"high\",\"user_summary\":\"Done.\",\"reason\":\"complete\",\"next_goal\":null}\n```",
+        )
+        .expect("parse");
+
+        assert_eq!(outcome.decision, ProgressAuditDecision::Finalize);
+        assert_eq!(outcome.user_summary, "Done.");
     }
 
     #[test]

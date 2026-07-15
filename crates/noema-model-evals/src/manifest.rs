@@ -138,7 +138,7 @@ mod tests {
         let path =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../evals/local-models/candidates.toml");
         let manifest = load_candidates(&path).expect("candidate manifest");
-        assert_eq!(manifest.candidates.len(), 10);
+        assert_eq!(manifest.candidates.len(), 21);
     }
 
     #[test]

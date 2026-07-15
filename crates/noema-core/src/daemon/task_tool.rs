@@ -202,7 +202,11 @@ pub(crate) fn task_submit_review_tool_spec()
         json!({
             "type": "object",
             "properties": {
-                "overall_verdict": {"type": "string", "enum": ["approve", "request_changes", "needs_human"]},
+                "overall_verdict": {
+                    "type": "string",
+                    "description": "Use approve when every criterion passes; request_changes when any criterion fails; needs_human only when a criterion cannot be decided without human input and is marked uncertain.",
+                    "enum": ["approve", "request_changes", "needs_human"]
+                },
                 "overall_feedback": {"type": "string", "minLength": 1, "maxLength": 20000},
                 "criteria": {
                     "type": "array",
@@ -210,7 +214,11 @@ pub(crate) fn task_submit_review_tool_spec()
                         "type": "object",
                         "properties": {
                             "criterion_id": {"type": "string", "minLength": 1, "maxLength": 200},
-                            "outcome": {"type": "string", "enum": ["pass", "fail", "uncertain"]},
+                            "outcome": {
+                                "type": "string",
+                                "description": "Use pass for demonstrated satisfaction, fail for demonstrated non-satisfaction, and uncertain only when evidence is unavailable or contradictory.",
+                                "enum": ["pass", "fail", "uncertain"]
+                            },
                             "evidence_markdown": {"type": "string", "maxLength": 20000},
                             "feedback": {"type": "string", "maxLength": 20000}
                         },

@@ -20,6 +20,8 @@ pub struct ModelEvalConfig {
     pub timeout_seconds: u64,
     /// Model startup timeout.
     pub startup_timeout_seconds: u64,
+    /// Whether to run the unscored near-context and repeated-turn resource probe.
+    pub run_resource_probe: bool,
 }
 
 /// One sanitized tool call retained in an evaluation result.
@@ -60,6 +62,38 @@ pub struct ModelEvalCaseResult {
     pub failure: Option<String>,
 }
 
+/// Runtime memory observed while the isolated llama-server executes the suite.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelEvalRuntimeMemory {
+    /// Platform-specific physical-memory metric used for the observation.
+    pub metric: String,
+    /// Runtime memory immediately after llama-server became healthy.
+    pub ready_bytes: u64,
+    /// Highest sampled runtime memory across all evaluation cases.
+    pub peak_bytes: u64,
+}
+
+/// Unscored resource probe used after correctness qualification.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelEvalResourceProbe {
+    /// Raw input-token target used for the near-context request.
+    pub target_input_tokens: u32,
+    /// Input tokens reported by llama.cpp for the near-context request.
+    pub observed_input_tokens: Option<u64>,
+    /// End-to-end latency of the near-context request.
+    pub near_context_latency_ms: Option<u64>,
+    /// Number of distinct short turns requested after the near-context request.
+    pub steady_turns_requested: u32,
+    /// Number of distinct short turns that completed successfully.
+    pub steady_turns_completed: u32,
+    /// Lowest post-turn resident set observed during the steady-turn sequence.
+    pub post_turn_min_bytes: Option<u64>,
+    /// Highest post-turn resident set observed during the steady-turn sequence.
+    pub post_turn_max_bytes: Option<u64>,
+    /// First tokenizer, generation, or memory-sampling failure, when present.
+    pub failure: Option<String>,
+}
+
 /// Complete direct-provider qualification report for one GGUF candidate.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ModelEvalReport {
@@ -73,6 +107,10 @@ pub struct ModelEvalReport {
     pub backend: Option<String>,
     /// Time for the supervised runtime to become healthy.
     pub runtime_load_ms: u64,
+    /// Resident-set memory observed after load and during generation.
+    pub runtime_memory: Option<ModelEvalRuntimeMemory>,
+    /// Optional unscored near-context and repeated-turn resource probe.
+    pub resource_probe: Option<ModelEvalResourceProbe>,
     /// Runtime compatibility failure, distinct from model-quality failures.
     pub runtime_error: Option<String>,
     /// Ordered scenario results.

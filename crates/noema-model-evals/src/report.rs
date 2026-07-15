@@ -19,6 +19,7 @@ pub(crate) struct MatrixSuiteMetadata {
     pub generation_timeout_seconds: u64,
     pub startup_timeout_seconds: u64,
     pub repetitions: u32,
+    pub resource_probe: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -34,6 +35,7 @@ impl MatrixReport {
         run_id: String,
         suite: &SuiteConfig,
         candidates: Vec<ModelCandidate>,
+        resource_probe: bool,
     ) -> Self {
         Self {
             run_id,
@@ -42,6 +44,7 @@ impl MatrixReport {
                 generation_timeout_seconds: suite.generation_timeout_seconds,
                 startup_timeout_seconds: suite.startup_timeout_seconds,
                 repetitions: suite.repetitions,
+                resource_probe,
             },
             candidates,
             entries: Vec::new(),
@@ -62,11 +65,18 @@ impl MatrixReport {
 
     fn markdown(&self) -> String {
         let mut output = format!(
-            "# Noema local-model evaluation {}\n\nPinned context: {} tokens. Repetitions: {}.\n\n",
-            self.run_id, self.suite.context_window_tokens, self.suite.repetitions
+            "# Noema local-model evaluation {}\n\nPinned context: {} tokens. Repetitions: {}. Resource probe: {}.\n\n",
+            self.run_id,
+            self.suite.context_window_tokens,
+            self.suite.repetitions,
+            if self.suite.resource_probe {
+                "yes"
+            } else {
+                "no"
+            }
         );
         output.push_str(
-            "| Candidate | Runtime | Critical | All cases | Load | Median case |\n|---|---:|---:|---:|---:|---:|\n",
+            "| Candidate | Runtime | Critical | All cases | Load | Peak memory | Median case | Resource probe |\n|---|---:|---:|---:|---:|---:|---:|---|\n",
         );
         for candidate in &self.candidates {
             for entry in self
@@ -88,7 +98,7 @@ impl MatrixReport {
                             .unwrap_or(0);
                         let _ = writeln!(
                             output,
-                            "| {} (run {}) | {} | {}/{} | {}/{} | {:.2}s | {:.2}s |",
+                            "| {} (run {}) | {} | {}/{} | {}/{} | {:.2}s | {} | {:.2}s | {} |",
                             candidate.name,
                             entry.repetition,
                             report.backend.as_deref().unwrap_or("unknown"),
@@ -97,7 +107,15 @@ impl MatrixReport {
                             report.passed_cases,
                             report.total_cases,
                             report.runtime_load_ms as f64 / 1_000.0,
+                            report.runtime_memory.as_ref().map_or_else(
+                                || "-".to_string(),
+                                |memory| format!(
+                                    "{:.2} GiB",
+                                    memory.peak_bytes as f64 / 1_073_741_824.0
+                                )
+                            ),
                             median as f64 / 1_000.0,
+                            resource_probe_label(report),
                         );
                     }
                     Some(report) => {
@@ -108,7 +126,7 @@ impl MatrixReport {
                             .replace('|', "\\|");
                         let _ = writeln!(
                             output,
-                            "| {} (run {}) | incompatible: {} | 0/0 | 0/0 | {:.2}s | - |",
+                            "| {} (run {}) | incompatible: {} | 0/0 | 0/0 | {:.2}s | - | - | - |",
                             candidate.name,
                             entry.repetition,
                             error,
@@ -123,7 +141,7 @@ impl MatrixReport {
                             .replace('|', "\\|");
                         let _ = writeln!(
                             output,
-                            "| {} (run {}) | worker error: {} | 0/0 | 0/0 | - | - |",
+                            "| {} (run {}) | worker error: {} | 0/0 | 0/0 | - | - | - | - |",
                             candidate.name, entry.repetition, error,
                         );
                     }
@@ -133,4 +151,19 @@ impl MatrixReport {
         output.push_str("\nCorrectness gates are deterministic typed/sentinel predicates. Speed is reported separately and does not raise a model's correctness score.\n");
         output
     }
+}
+
+fn resource_probe_label(report: &ModelEvalReport) -> String {
+    let Some(probe) = report.resource_probe.as_ref() else {
+        return "-".to_string();
+    };
+    if let Some(failure) = probe.failure.as_deref() {
+        return format!("failed: {}", failure.replace('|', "\\|"));
+    }
+    format!(
+        "{} tokens; {}/{} turns",
+        probe.observed_input_tokens.unwrap_or_default(),
+        probe.steady_turns_completed,
+        probe.steady_turns_requested,
+    )
 }

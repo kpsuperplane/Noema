@@ -54,6 +54,7 @@ pub(crate) async fn prepare_candidates(candidates: &[ModelCandidate]) -> Result<
 pub(crate) async fn run_matrix(
     candidates: Vec<ModelCandidate>,
     suite: SuiteConfig,
+    run_resource_probe: bool,
 ) -> Result<PathBuf, String> {
     let workspace = workspace_root();
     let runtime_root = workspace.join("crates/noema-desktop/binaries/runtime");
@@ -70,7 +71,7 @@ pub(crate) async fn run_matrix(
         .join(&run_id);
     fs::create_dir_all(&run_root)
         .map_err(|error| format!("failed to create {}: {error}", run_root.display()))?;
-    let mut matrix = MatrixReport::new(run_id, &suite, candidates.clone());
+    let mut matrix = MatrixReport::new(run_id, &suite, candidates.clone(), run_resource_probe);
 
     for candidate in &candidates {
         let model_path = match resolve_candidate(candidate, &eval_home).await {
@@ -100,6 +101,7 @@ pub(crate) async fn run_matrix(
                 &runtime_root,
                 &run_root,
                 &suite,
+                run_resource_probe,
             )
             .await;
             if let Some(report) = &entry.report {
@@ -128,6 +130,7 @@ async fn run_worker(
     runtime_root: &Path,
     run_root: &Path,
     suite: &SuiteConfig,
+    run_resource_probe: bool,
 ) -> MatrixEntry {
     let report_path = run_root.join(format!("{}-{repetition}.json", candidate.id));
     let worker_home = run_root
@@ -148,6 +151,7 @@ async fn run_worker(
         .arg(suite.context_window_tokens.to_string())
         .arg(suite.generation_timeout_seconds.to_string())
         .arg(suite.startup_timeout_seconds.to_string())
+        .arg(run_resource_probe.to_string())
         .env("NOEMA_HOME", worker_home)
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())

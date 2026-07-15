@@ -8,6 +8,8 @@ use crate::{
 use super::{
     cases::evaluation_cases,
     grade::grade_response,
+    memory::RuntimeMemorySampler,
+    resource_probe::run_resource_probe,
     types::{ModelEvalCaseResult, ModelEvalConfig, ModelEvalReport, ModelEvalToolCall},
 };
 
@@ -43,6 +45,8 @@ pub async fn run_provider_suite(config: ModelEvalConfig) -> Result<ModelEvalRepo
                 llama_cpp_commit: LLAMA_CPP_COMMIT.to_string(),
                 backend: None,
                 runtime_load_ms,
+                runtime_memory: None,
+                resource_probe: None,
                 runtime_error: Some(error.to_string()),
                 cases: Vec::new(),
                 passed_cases: 0,
@@ -52,6 +56,9 @@ pub async fn run_provider_suite(config: ModelEvalConfig) -> Result<ModelEvalRepo
             });
         }
     };
+
+    let process_id = provider.runtime().process_id();
+    let memory_sampler = process_id.map(RuntimeMemorySampler::start);
 
     let cases = evaluation_cases(&config.model_id)?;
     let mut results = Vec::with_capacity(cases.len());
@@ -115,6 +122,23 @@ pub async fn run_provider_suite(config: ModelEvalConfig) -> Result<ModelEvalRepo
         };
         results.push(result);
     }
+    let resource_probe = if config.run_resource_probe {
+        Some(
+            run_resource_probe(
+                &provider,
+                &config.model_id,
+                process_id,
+                config.context_window_tokens,
+            )
+            .await,
+        )
+    } else {
+        None
+    };
+    let runtime_memory = match memory_sampler {
+        Some(sampler) => sampler.finish().await,
+        None => None,
+    };
     provider.runtime().shutdown().await;
 
     let total_cases = results.len();
@@ -130,6 +154,8 @@ pub async fn run_provider_suite(config: ModelEvalConfig) -> Result<ModelEvalRepo
         llama_cpp_commit: LLAMA_CPP_COMMIT.to_string(),
         backend: Some(endpoint.backend.display_name().to_string()),
         runtime_load_ms,
+        runtime_memory,
+        resource_probe,
         runtime_error: None,
         cases: results,
         passed_cases,
@@ -139,7 +165,7 @@ pub async fn run_provider_suite(config: ModelEvalConfig) -> Result<ModelEvalRepo
     })
 }
 
-fn duration_ms(duration: Duration) -> u64 {
+pub(super) fn duration_ms(duration: Duration) -> u64 {
     u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }
 
