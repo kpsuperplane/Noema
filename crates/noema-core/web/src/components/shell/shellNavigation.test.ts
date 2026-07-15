@@ -7,16 +7,19 @@ import {
 } from "./shellNavigation";
 
 describe("settings shell navigation", () => {
-  test("settings entries are grouped with agents top-level and live pages only", () => {
+  test("settings entries use current groups and live pages only", () => {
     assert.deepEqual(
       shellSettingsEntries.map((entry) => entry.kind === "group" ? entry.label : entry.item.label),
       [
         "Agents",
+        "Memory",
         "Tools",
         "Web",
         "MCPs",
         "Safety",
+        "Usage",
         "System",
+        "Local Models",
         "Providers"
       ]
     );
@@ -60,6 +63,14 @@ describe("settings shell navigation", () => {
             route: { kind: "settings", section: "agents" }
           }
         },
+        {
+          kind: "item",
+          item: {
+            itemId: "settings.memory",
+            label: "Memory",
+            route: { kind: "settings", section: "memory" }
+          }
+        },
         { kind: "group", label: "Tools" },
         {
           kind: "item",
@@ -78,7 +89,23 @@ describe("settings shell navigation", () => {
           }
         },
         { kind: "group", label: "Safety" },
+        {
+          kind: "item",
+          item: {
+            itemId: "settings.safety.usage",
+            label: "Usage",
+            route: { kind: "settings", section: "safety-usage" }
+          }
+        },
         { kind: "group", label: "System" },
+        {
+          kind: "item",
+          item: {
+            itemId: "settings.models",
+            label: "Local Models",
+            route: { kind: "settings", section: "models" }
+          }
+        },
         {
           kind: "item",
           item: {
@@ -93,6 +120,7 @@ describe("settings shell navigation", () => {
 
   test("settingsItemIdForSection maps canonical section ids", () => {
     assert.equal(settingsItemIdForSection("agents"), "settings.agents");
+    assert.equal(settingsItemIdForSection("models"), "settings.models");
     assert.equal(settingsItemIdForSection("tools-web"), "settings.tools.web");
     assert.equal(settingsItemIdForSection("tools-mcps"), "settings.tools.mcps");
     assert.equal(settingsItemIdForSection("system-providers"), "settings.system.providers");

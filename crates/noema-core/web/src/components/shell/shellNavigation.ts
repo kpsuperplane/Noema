@@ -82,10 +82,6 @@ export const shellSettingsEntries: ShellSettingsEntry[] = [
   },
   {
     kind: "section",
-    item: { section: "models", itemId: "settings.models", label: "Models", icon: Cpu }
-  },
-  {
-    kind: "section",
     item: { section: "memory", itemId: "settings.memory", label: "Memory", icon: Brain }
   },
   { kind: "group", label: "Tools" },
@@ -108,6 +104,15 @@ export const shellSettingsEntries: ShellSettingsEntry[] = [
     }
   },
   { kind: "group", label: "System" },
+  {
+    kind: "section",
+    item: {
+      section: "models",
+      itemId: "settings.models",
+      label: "Local Models",
+      icon: Cpu
+    }
+  },
   {
     kind: "section",
     item: {

@@ -18,7 +18,7 @@ const settingsSectionCopy: Record<SettingsSection, { title: string; description:
     description: "Review the agents currently registered in Noema and choose their runtime models."
   },
   models: {
-    title: "Models",
+    title: "Local Models",
     description:
       "Install and manage private local models, their llama.cpp runtime, and Noema's system model default."
   },

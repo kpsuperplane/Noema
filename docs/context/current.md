@@ -457,17 +457,18 @@ The next storage slice should stay small and concrete:
 - The web shell exposes Settings as a bottom-anchored L0 sidebar item that
   opens a route-derived L1 Settings submenu inside the same shell. `/settings`
   and `/settings/agents` default to Agents. Settings now uses grouped live
-  sections: Agents; Tools with Web and MCPs; Safety with Approvals and
-  Identities; and System with Providers. The Web page owns first-party
+  sections: Agents; Memory; Tools with Web and MCPs; Safety with Usage; and
+  System with Local Models and Providers. The Local Models page remains at
+  `/settings/models`. The Web page owns first-party
   `web.search` and `web.fetch` status plus the fetch summarizer model
   preference. Settings routes are canonical nested paths such as
-  `/settings/tools/web`, `/settings/safety/approvals`, and
+  `/settings/tools/web`, `/settings/safety/usage`, and
   `/settings/system/providers`; old flat settings paths are not supported.
   The placeholder Audit settings surface has been removed until audit event
   persistence lands. Agent management actions are not exposed yet.
 - Frontend docs now distinguish currently addressable routes from target
   surfaces: TanStack Router owns `/`, `/settings`, and
-  `/settings/{agents,tools/web,tools/mcps,safety/approvals,safety/identities,safety/usage,system/providers,memory}`.
+  `/settings/{agents,models,memory,tools/web,tools/mcps,safety/usage,system/providers}`.
   `/memory` redirects to `/settings/memory`; `/memory/graph` is not a current
   route.
   `routes.ts` remains a shell route mapping helper for breadcrumbs, sidebar
