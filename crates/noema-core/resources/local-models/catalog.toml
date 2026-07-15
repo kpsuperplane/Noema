@@ -1,0 +1,22 @@
+[[models]]
+id = "ternary-bonsai-8b"
+name = "Ternary Bonsai 8B"
+license = "Apache-2.0"
+priority = 100
+repo = "vinpix/Bonsai-8B-llama.cpp"
+revision = "82bd8278ce2cc17f0b0aa745adf507acb3c670c0"
+
+[[models.builds]]
+file = "Bonsai-8B-Q2_KT.gguf"
+sha256 = "4997b5e1b477531ee0e4506f3bb2cbff2a6dceba080c704caacfc018994a89ae"
+download_gb = 3.0
+backends = ["metal", "cuda", "vulkan"]
+min_ram_gb = 12
+min_vram_gb = 6
+
+[[models.builds]]
+file = "Bonsai-8B-TQ2_0.gguf"
+sha256 = "54d5e55454c93f545a4bbaf91fc8552c56c98cbdc7885a6d19103f8728fa40b0"
+download_gb = 2.4
+backends = ["cpu"]
+min_ram_gb = 12

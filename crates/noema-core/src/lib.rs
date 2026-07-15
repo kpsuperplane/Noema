@@ -22,6 +22,8 @@ pub mod graphql;
 pub mod home;
 /// Neutral typed object ids.
 pub mod ids;
+/// Curated local-model catalog and hardware-fit recommendation.
+pub mod local_models;
 /// Third-party MCP control-plane types.
 pub mod mcp;
 /// Shared memory persistence error types.
@@ -79,6 +81,10 @@ pub use home::{
 pub use ids::{
     ActorId, AgentRunId, ContextPacketId, ConversationId, ConversationItemId, ObjectId,
     TaskEventId, TaskId, TaskReviewId, TaskSubmissionId,
+};
+pub use local_models::{
+    LocalHardwareProfile, LocalModelBackend, LocalModelBuild, LocalModelCatalog,
+    LocalModelCatalogEntry, LocalModelCatalogError, LocalModelRecommendation,
 };
 pub use mcp::{McpCalibrationStatus, McpTransportKind, McpTrustClassification};
 pub use memory::error::MemoryPersistenceError;
