@@ -34,6 +34,7 @@ pub(super) struct ContinuationContext {
     checkpoint: Option<String>,
     items: Vec<GenerateInputItem>,
     previous_response_id: Option<String>,
+    continuation_delta_start: Option<usize>,
     round_ends: Vec<usize>,
     pending_call_ids: VecDeque<String>,
     next_synthetic_call: usize,
@@ -70,6 +71,7 @@ impl ContinuationContext {
             checkpoint: None,
             items,
             previous_response_id: None,
+            continuation_delta_start: None,
             round_ends: Vec::new(),
             pending_call_ids: VecDeque::new(),
             next_synthetic_call: 0,
@@ -110,6 +112,7 @@ impl ContinuationContext {
                     arguments: call.payload.clone(),
                 }));
         }
+        self.continuation_delta_start = Some(self.items.len());
     }
 
     /// Append tool results in the same order as their preceding provider calls.
@@ -137,6 +140,19 @@ impl ContinuationContext {
         }
     }
 
+    /// Append trusted application context after a local state change. The
+    /// next chained request carries this message explicitly alongside any tool
+    /// outputs produced after the latest response.
+    pub(super) fn append_developer_message(&mut self, content: String) {
+        if content.trim().is_empty() {
+            return;
+        }
+        self.items.push(GenerateInputItem::Message(GenerateMessage {
+            role: GenerateMessageRole::Developer,
+            content,
+        }));
+    }
+
     pub(super) fn finish_round(&mut self) {
         self.round_ends.push(self.items.len());
         self.pending_call_ids.clear();
@@ -147,26 +163,32 @@ impl ContinuationContext {
         if native_history {
             GenerateInput::Items(items)
         } else {
-            GenerateInput::Text(render_items(&items))
+            GenerateInput::Messages(messages_for_non_native_history(&items))
         }
     }
 
-    /// Return only the tool outputs added since the most recent provider
-    /// response. Providers that retain response state already have the calls
-    /// and earlier history, so replaying them would duplicate context.
+    /// Return only inputs added since the most recent provider response.
+    /// Providers that retain response state already have the calls and earlier
+    /// history, so replaying them would duplicate context.
     pub(super) fn provider_continuation_delta(&self) -> GenerateInput {
-        let mut results = self
-            .items
+        let Some(start) = self.continuation_delta_start else {
+            return GenerateInput::NativeToolResults(Vec::new());
+        };
+        let items = self.items[start..].to_vec();
+        let results = items
             .iter()
-            .rev()
-            .take_while(|item| matches!(item, GenerateInputItem::ToolResult(_)))
             .filter_map(|item| match item {
                 GenerateInputItem::ToolResult(result) => Some(result.clone()),
-                _ => None,
+                GenerateInputItem::Message(_)
+                | GenerateInputItem::Reasoning(_)
+                | GenerateInputItem::ToolCall(_) => None,
             })
             .collect::<Vec<_>>();
-        results.reverse();
-        GenerateInput::NativeToolResults(results)
+        if results.len() == items.len() {
+            GenerateInput::NativeToolResults(results)
+        } else {
+            GenerateInput::Items(items)
+        }
     }
 
     /// Prefer a provider-side response chain when both the provider and the
@@ -264,6 +286,13 @@ impl ContinuationContext {
         }
 
         self.items.drain(..retained_round_start);
+        self.continuation_delta_start = self
+            .continuation_delta_start
+            .and_then(|start| start.checked_sub(retained_round_start));
+        // Provider-side response chains retain the un-compacted prefix. Break
+        // the chain so the next request transmits the checkpoint and retained
+        // local history before a fresh chain is established.
+        self.previous_response_id = None;
         for round_end in &mut self.round_ends {
             *round_end = round_end.saturating_sub(retained_round_start);
         }
@@ -352,12 +381,25 @@ fn compaction_instructions(target_tokens: u32, execution_goal: &str) -> String {
     )
 }
 
-fn render_items(items: &[GenerateInputItem]) -> String {
+fn messages_for_non_native_history(items: &[GenerateInputItem]) -> Vec<GenerateMessage> {
     items
         .iter()
-        .map(GenerateInputItem::render_for_token_count)
-        .collect::<Vec<_>>()
-        .join("\n")
+        .filter_map(|item| match item {
+            GenerateInputItem::Message(message) => Some(message.clone()),
+            GenerateInputItem::Reasoning(_) => None,
+            GenerateInputItem::ToolCall(call) => Some(GenerateMessage {
+                role: GenerateMessageRole::Assistant,
+                content: GenerateInputItem::ToolCall(call.clone()).render_for_token_count(),
+            }),
+            GenerateInputItem::ToolResult(result) => Some(GenerateMessage {
+                role: GenerateMessageRole::User,
+                content: format!(
+                    "NOEMA_LOCAL_TOOL_RESULT\n{}",
+                    GenerateInputItem::ToolResult(result.clone()).render_for_token_count()
+                ),
+            }),
+        })
+        .collect()
 }
 
 async fn count_tokens(
@@ -515,6 +557,41 @@ mod tests {
         assert_eq!(results[0].payload["content"], "450,000 black bears");
     }
 
+    #[test]
+    fn response_chaining_carries_developer_updates_with_tool_outputs() {
+        let mut context = ContinuationContext::new("Rename yourself");
+        let mut response = GenerateResponse::final_text("Updating.", "test", "test");
+        response.response_id = Some("resp_1".to_string());
+        context.append_response(&response);
+        context.append_results(&[gateway_result(
+            "call_1",
+            "https://example.test/official",
+            "renamed",
+        )]);
+        context.append_developer_message("NOEMA_MODEL_CONTEXT_UPDATE\n{}".to_string());
+        context.finish_round();
+
+        let continuation = context.next_provider_input(
+            true,
+            ProviderResponseContinuation::PreviousResponseId {
+                store_response: true,
+            },
+        );
+
+        assert_eq!(continuation.previous_response_id.as_deref(), Some("resp_1"));
+        let GenerateInput::Items(items) = continuation.input else {
+            panic!("expected mixed continuation delta");
+        };
+        assert!(matches!(items[0], GenerateInputItem::ToolResult(_)));
+        assert!(matches!(
+            items[1],
+            GenerateInputItem::Message(GenerateMessage {
+                role: GenerateMessageRole::Developer,
+                ..
+            })
+        ));
+    }
+
     #[tokio::test]
     async fn semantic_compaction_preserves_facts_and_recent_rounds() {
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -549,6 +626,57 @@ mod tests {
         assert!(!rendered.contains("round 1:"));
         assert!(rendered.contains("round 2:"));
         assert!(rendered.contains("round 3:"));
+    }
+
+    #[tokio::test]
+    async fn semantic_compaction_rebases_chained_continuation_delta() {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = CompactionProvider {
+            requests: Arc::clone(&requests),
+        };
+        let mut context = ContinuationContext::new("Research Canadian bear populations");
+        for round in 1..=3 {
+            let mut response = GenerateResponse::final_text(
+                format!("round {round}: {}", "research detail ".repeat(90)),
+                "test",
+                "test",
+            );
+            response.response_id = Some(format!("resp_{round}"));
+            context.append_response(&response);
+            context.finish_round();
+        }
+
+        assert!(
+            context
+                .compact_if_needed(
+                    &provider,
+                    Some("test"),
+                    None,
+                    "Research Canadian bear populations with cited figures",
+                )
+                .await
+                .expect("compaction")
+        );
+        context.append_results(&[gateway_result(
+            "call_after_compaction",
+            "https://example.com",
+            "new result",
+        )]);
+
+        let continuation = context.next_provider_input(
+            true,
+            ProviderResponseContinuation::PreviousResponseId {
+                store_response: true,
+            },
+        );
+
+        assert_eq!(continuation.previous_response_id, None);
+        let rendered = continuation.input.render_for_token_count();
+        assert!(rendered.contains("Noema execution context checkpoint"));
+        assert!(rendered.contains("450,000"));
+        assert!(rendered.contains("round 2:"));
+        assert!(rendered.contains("round 3:"));
+        assert!(rendered.contains("new result"));
     }
 
     fn gateway_result(call_id: &str, url: &str, content: &str) -> LocalToolResult {

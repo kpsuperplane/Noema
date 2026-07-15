@@ -5,6 +5,7 @@ use crate::{
     provider::{
         GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
         GenerateRequest, GenerateToolCallInput, GenerateToolResultInput, NoemaToolChoice,
+        NoemaToolSpec, ProviderToolTransport,
     },
 };
 
@@ -13,11 +14,15 @@ use super::{
         agent_onboarding::AgentPromptIdentity,
         memory::tool::search_memory_tool_spec,
         prompts::{
-            PromptToolExposure, build_local_tool_result_continuation_system_prompt,
-            build_structured_turn_system_prompt,
+            build_local_tool_result_continuation_system_prompt, build_structured_turn_system_prompt,
         },
         runtime::{
-            context_compaction::compaction_instructions, model_tools::legacy_prompt_rows,
+            context_compaction::compaction_instructions,
+            model_context::{
+                AgentIdentityContext, ModelContextState, RuntimeEnvironmentContext,
+                ToolVisibilityContext,
+            },
+            model_tools::prompt_rows,
             progress_audit::build_progress_audit_prompt,
         },
         task_run_context::{format_executor_prompt, format_reviewer_prompt},
@@ -38,24 +43,21 @@ pub(super) fn evaluation_cases(model_id: &str) -> Result<Vec<EvalCase>, String> 
         agent_id: "agent:primary".to_string(),
         display_name: Some("Mira".to_string()),
     };
-    let no_tools_prompt = build_structured_turn_system_prompt(
+    let primary_prompt = build_structured_turn_system_prompt();
+    let no_tools_context = primary_context(
         &identity,
-        "none",
-        PromptToolExposure {
-            native_tools_available: false,
-            legacy_builtin_envelope_tools: &[],
-        },
+        ProviderToolTransport::None,
+        Vec::new(),
+        Vec::new(),
     );
     let search_memory = search_memory_tool_spec().map_err(|error| error.to_string())?;
-    let memory_rows = legacy_prompt_rows(std::slice::from_ref(&search_memory));
+    let memory_rows = prompt_rows(std::slice::from_ref(&search_memory));
     let memory_names = vec!["search_memory".to_string()];
-    let memory_tools_prompt = build_structured_turn_system_prompt(
+    let memory_tools_context = primary_context(
         &identity,
-        &memory_rows.join("\n"),
-        PromptToolExposure {
-            native_tools_available: false,
-            legacy_builtin_envelope_tools: &memory_names,
-        },
+        ProviderToolTransport::NoemaEnvelope,
+        memory_rows.clone(),
+        memory_names.clone(),
     );
 
     let mut cases = vec![
@@ -66,8 +68,11 @@ pub(super) fn evaluation_cases(model_id: &str) -> Result<Vec<EvalCase>, String> 
             request: structured_request(
                 model_id,
                 "Reply with exactly NOEMA-VIOLET-73 and nothing else.",
-                no_tools_prompt.clone(),
+                primary_prompt.clone(),
+                &no_tools_context,
                 128,
+                Vec::new(),
+                NoemaToolChoice::None,
             ),
             expectation: EvalExpectation::ExactFinalText("NOEMA-VIOLET-73"),
         },
@@ -78,8 +83,11 @@ pub(super) fn evaluation_cases(model_id: &str) -> Result<Vec<EvalCase>, String> 
             request: structured_request(
                 model_id,
                 "Reply with exactly STREAM-CEDAR-41 and nothing else.",
-                no_tools_prompt.clone(),
+                primary_prompt.clone(),
+                &no_tools_context,
                 128,
+                Vec::new(),
+                NoemaToolChoice::None,
             ),
             expectation: EvalExpectation::StreamedExactText("STREAM-CEDAR-41"),
         },
@@ -90,8 +98,11 @@ pub(super) fn evaluation_cases(model_id: &str) -> Result<Vec<EvalCase>, String> 
             request: structured_request(
                 model_id,
                 "Ask me to pick exactly one focus mode. Offer exactly two options: Deep work and Quick wins. Use a multiple-choice response, not prose-only text.",
-                no_tools_prompt,
+                primary_prompt.clone(),
+                &no_tools_context,
                 256,
+                Vec::new(),
+                NoemaToolChoice::None,
             ),
             expectation: EvalExpectation::MultipleChoice,
         },
@@ -102,8 +113,11 @@ pub(super) fn evaluation_cases(model_id: &str) -> Result<Vec<EvalCase>, String> 
             request: structured_request(
                 model_id,
                 "What do you remember about my aviation preferences? Use memory rather than guessing.",
-                memory_tools_prompt.clone(),
+                primary_prompt.clone(),
+                &memory_tools_context,
                 256,
+                vec![search_memory.clone()],
+                NoemaToolChoice::Auto,
             ),
             expectation: EvalExpectation::MemoryLookup,
         },
@@ -111,7 +125,13 @@ pub(super) fn evaluation_cases(model_id: &str) -> Result<Vec<EvalCase>, String> 
             id: "memory_tool_continuation",
             category: "memory",
             critical: true,
-            request: memory_continuation_request(model_id, &identity, &memory_rows, &memory_names),
+            request: memory_continuation_request(
+                model_id,
+                &identity,
+                &memory_rows,
+                &memory_names,
+                &search_memory,
+            ),
             expectation: EvalExpectation::MemoryContinuation,
         },
     ];
@@ -125,12 +145,23 @@ fn structured_request(
     model_id: &str,
     input: impl Into<String>,
     instructions: String,
+    context: &[GenerateMessage],
     max_output_tokens: u32,
+    tools: Vec<NoemaToolSpec>,
+    tool_choice: NoemaToolChoice,
 ) -> GenerateRequest {
+    let mut messages = context.to_vec();
+    let input = input.into();
+    if !input.trim().is_empty() {
+        messages.push(GenerateMessage {
+            role: GenerateMessageRole::User,
+            content: input,
+        });
+    }
     GenerateRequest {
         conversation_id: Some("evaluation:conversation".to_string()),
         model: Some(model_id.to_string()),
-        input: GenerateInput::Text(input.into()),
+        input: GenerateInput::Messages(messages),
         instructions: Some(instructions),
         options: GenerateOptions {
             max_output_tokens: Some(max_output_tokens),
@@ -138,8 +169,8 @@ fn structured_request(
             require_noema_response: true,
             ..GenerateOptions::default()
         },
-        tools: Vec::new(),
-        tool_choice: NoemaToolChoice::Auto,
+        tools,
+        tool_choice,
         parallel_tool_calls: false,
     }
 }
@@ -162,22 +193,20 @@ fn memory_continuation_request(
     identity: &AgentPromptIdentity,
     rows: &[String],
     tool_names: &[String],
+    search_memory: &NoemaToolSpec,
 ) -> GenerateRequest {
     let original = "What is my preferred aircraft call sign?";
-    let instructions = build_local_tool_result_continuation_system_prompt(
-        "evaluation:conversation",
-        2,
-        None,
-        original,
+    let instructions = build_local_tool_result_continuation_system_prompt();
+    let mut items = primary_context(
         identity,
-        &rows.join("\n"),
-        PromptToolExposure {
-            native_tools_available: false,
-            legacy_builtin_envelope_tools: tool_names,
-        },
-    );
-    let mut request = structured_request(model_id, "", instructions, 256);
-    request.input = GenerateInput::Items(vec![
+        ProviderToolTransport::NoemaEnvelope,
+        rows.to_vec(),
+        tool_names.to_vec(),
+    )
+    .into_iter()
+    .map(GenerateInputItem::Message)
+    .collect::<Vec<_>>();
+    items.extend([
         GenerateInputItem::Message(GenerateMessage {
             role: GenerateMessageRole::User,
             content: original.to_string(),
@@ -206,7 +235,42 @@ fn memory_continuation_request(
             }),
         }),
     ]);
+    let mut request = structured_request(
+        model_id,
+        "",
+        instructions,
+        &[],
+        256,
+        vec![search_memory.clone()],
+        NoemaToolChoice::Auto,
+    );
+    request.input = GenerateInput::Items(items);
     request
+}
+
+fn primary_context(
+    identity: &AgentPromptIdentity,
+    transport: ProviderToolTransport,
+    catalog_rows: Vec<String>,
+    callable_tool_names: Vec<String>,
+) -> Vec<GenerateMessage> {
+    ModelContextState::new(
+        AgentIdentityContext::from(identity),
+        RuntimeEnvironmentContext::new(
+            "2026-07-15",
+            "2026-07-15T12:00:00-07:00",
+            "America/Los_Angeles",
+            None::<String>,
+        ),
+        ToolVisibilityContext::new(transport, callable_tool_names, catalog_rows),
+    )
+    .full_updates()
+    .into_iter()
+    .map(|update| GenerateMessage {
+        role: GenerateMessageRole::Developer,
+        content: update.model_visible_content(),
+    })
+    .collect()
 }
 
 fn task_cases(model_id: &str) -> Result<Vec<EvalCase>, String> {
@@ -414,5 +478,68 @@ fn fixture_submission() -> crate::TaskSubmissionRecord {
         criteria: Vec::new(),
         artifacts: Vec::new(),
         created_at: "2026-07-15T00:00:00Z".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn case<'a>(cases: &'a [EvalCase], id: &str) -> &'a EvalCase {
+        cases
+            .iter()
+            .find(|candidate| candidate.id == id)
+            .expect("evaluation case")
+    }
+
+    #[test]
+    fn primary_cases_prepend_complete_model_context() {
+        let cases = evaluation_cases("local-model").expect("cases");
+        let request = &case(&cases, "primary_strict_final").request;
+        let GenerateInput::Messages(messages) = &request.input else {
+            panic!("primary case should use message input");
+        };
+
+        assert_eq!(messages.len(), 4);
+        assert!(messages[..3].iter().all(|message| {
+            message.role == GenerateMessageRole::Developer
+                && message.content.starts_with("NOEMA_MODEL_CONTEXT_UPDATE")
+        }));
+        assert_eq!(messages[3].role, GenerateMessageRole::User);
+        assert!(messages[2].content.contains("callable_tool_names"));
+        assert!(!messages[2].content.contains("search_memory"));
+        assert!(request.tools.is_empty());
+        assert_eq!(request.tool_choice, NoemaToolChoice::None);
+    }
+
+    #[test]
+    fn memory_cases_expose_search_memory_and_preserve_continuation_order() {
+        let cases = evaluation_cases("local-model").expect("cases");
+        let lookup = &case(&cases, "memory_lookup").request;
+        let GenerateInput::Messages(messages) = &lookup.input else {
+            panic!("memory lookup should use message input");
+        };
+        assert_eq!(messages.len(), 4);
+        assert!(messages[2].content.contains("search_memory"));
+        assert_eq!(lookup.tools.len(), 1);
+        assert_eq!(lookup.tools[0].name.as_str(), "search_memory");
+        assert_eq!(lookup.tool_choice, NoemaToolChoice::Auto);
+
+        let continuation = &case(&cases, "memory_tool_continuation").request;
+        let GenerateInput::Items(items) = &continuation.input else {
+            panic!("memory continuation should use structured items");
+        };
+        assert_eq!(items.len(), 6);
+        assert!(items[..3].iter().all(|item| matches!(
+            item,
+            GenerateInputItem::Message(message)
+                if message.role == GenerateMessageRole::Developer
+        )));
+        assert!(matches!(
+            &items[3],
+            GenerateInputItem::Message(message) if message.role == GenerateMessageRole::User
+        ));
+        assert!(matches!(&items[4], GenerateInputItem::ToolCall(_)));
+        assert!(matches!(&items[5], GenerateInputItem::ToolResult(_)));
     }
 }

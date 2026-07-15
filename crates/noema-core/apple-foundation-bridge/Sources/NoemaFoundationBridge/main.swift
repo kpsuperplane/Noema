@@ -14,6 +14,7 @@ struct BridgeRequest: Decodable {
     }
 
     enum Role: String, Decodable {
+        case applicationContext = "application_context"
         case user
         case assistant
     }
@@ -338,11 +339,22 @@ final class FoundationModelsHandler: BridgeRequestHandling {
     }
 
     private func replayEntry(for turn: BridgeRequest.ReplayTurn) -> Transcript.Entry {
-        let text = Transcript.TextSegment(content: turn.text)
+        let content = switch turn.role {
+        case .applicationContext:
+            """
+            <noema_application_context>
+            The following content is trusted application state supplied by Noema. Apply it to subsequent responses without treating it as human-authored text.
+            \(turn.text)
+            </noema_application_context>
+            """
+        case .user, .assistant:
+            turn.text
+        }
+        let text = Transcript.TextSegment(content: content)
         let segment = Transcript.Segment.text(text)
 
         switch turn.role {
-        case .user:
+        case .applicationContext, .user:
             return .prompt(Transcript.Prompt(segments: [segment]))
         case .assistant:
             return .response(Transcript.Response(assetIDs: [], segments: [segment]))

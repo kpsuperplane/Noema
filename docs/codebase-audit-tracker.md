@@ -96,7 +96,7 @@ Priority labels:
 - [ ] **P1** Apply saved memory endpoint and model changes consistently to GraphQL and chat runtime paths.
 - [ ] **P1** Assign unique Foundation bridge request IDs.
 - [ ] **P1** Restart or invalidate a Foundation bridge after a timed-out request.
-- [ ] **P1** Refresh Foundation sessions when instructions, identity, model, or available tools change.
+- [x] **P1** Refresh Foundation sessions when instructions, identity, model, or available tools change.
 - [ ] **P1** Make Codex OAuth refresh single-flight per provider account.
 - [ ] **P1** Persist refreshed Codex OAuth tokens atomically.
 - [ ] **P2** Bound MCP SSE cursor traversal, pagination, buffering, and total operation duration.

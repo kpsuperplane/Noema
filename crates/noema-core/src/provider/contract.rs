@@ -354,6 +354,8 @@ pub struct GenerateMessage {
 pub enum GenerateMessageRole {
     /// Runtime/system state that is neither human- nor assistant-authored.
     System,
+    /// Application-authored instructions and mutable runtime context.
+    Developer,
     /// Human/user message.
     User,
     /// Assistant/model message.
@@ -366,10 +368,41 @@ impl GenerateMessageRole {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::System => "system",
+            Self::Developer => "developer",
             Self::User => "user",
             Self::Assistant => "assistant",
         }
     }
+}
+
+/// Request-wide prompt-cache breakpoint placement policy.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PromptCacheMode {
+    /// Let the provider place its default implicit breakpoint in addition to
+    /// any explicit breakpoints supplied by Noema.
+    #[default]
+    Implicit,
+    /// Use only the explicit breakpoints supplied by Noema.
+    Explicit,
+}
+
+/// Minimum lifetime requested for provider prompt-cache entries.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PromptCacheTtl {
+    /// Keep eligible prompt prefixes cached for at least thirty minutes.
+    #[default]
+    #[serde(rename = "30m")]
+    ThirtyMinutes,
+}
+
+/// Provider-neutral request-wide prompt-cache controls.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PromptCacheOptions {
+    /// Whether implicit provider breakpoints remain enabled.
+    pub mode: PromptCacheMode,
+    /// Minimum lifetime for cache entries written by this request.
+    pub ttl: PromptCacheTtl,
 }
 
 /// Prompt-cache retention request for providers that support configurable caching.
@@ -444,6 +477,11 @@ pub struct GenerateOptions {
     pub require_noema_response: bool,
     /// Provider prompt-cache retention request when supported.
     pub prompt_cache_retention: Option<PromptCacheRetention>,
+    /// Request-wide prompt-cache controls when supported.
+    pub prompt_cache_options: Option<PromptCacheOptions>,
+    /// Zero-based indices into the final filtered Responses message list that
+    /// should carry explicit cache breakpoints.
+    pub prompt_cache_breakpoints: Vec<usize>,
     /// Opaque provider response id to continue from without replaying history.
     pub previous_response_id: Option<String>,
     /// Whether the provider should retain this response for later continuation.
@@ -847,12 +885,12 @@ pub fn required_noema_response_from_text(
 /// provider-native channel.
 ///
 /// Native calls satisfy the `needs_tools` requirement, so the JSON envelope
-/// must not also include legacy JSON `tool_calls`.
+/// must not also include Noema response-envelope `tool_calls`.
 ///
 /// # Errors
 ///
 /// Returns [`ProviderError::MalformedResponse`] when the text is not a Noema
-/// structured response object, includes legacy JSON tool calls, or includes
+/// structured response object, includes Noema response-envelope tool calls, or includes
 /// final-answer text alongside native tool calls.
 pub fn required_noema_response_from_text_with_native_tool_calls(
     text: String,
@@ -865,7 +903,8 @@ pub fn required_noema_response_from_text_with_native_tool_calls(
     let mut parsed = noema_response_from_text_without_required_validation(text)?;
     if !parsed.tool_calls.is_empty() {
         return Err(ProviderError::MalformedResponse {
-            message: "native tool response cannot include legacy JSON tool_calls".to_string(),
+            message: "native tool response cannot include Noema response-envelope tool_calls"
+                .to_string(),
         });
     }
     if parsed.responses.iter().any(is_final_answer_text_response) {

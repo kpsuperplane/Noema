@@ -4092,9 +4092,15 @@ mod tests {
                     && matches!(
                         &request.input,
                         crate::provider::GenerateInput::Messages(messages)
-                            if messages.len() == 1
-                                && messages[0].role == crate::provider::GenerateMessageRole::User
-                                && messages[0].content == "hello from durable chat"
+                            if messages.len() == 4
+                                && messages[..3].iter().all(|message| {
+                                    message.role == crate::provider::GenerateMessageRole::Developer
+                                        && message
+                                            .content
+                                            .starts_with("NOEMA_MODEL_CONTEXT_UPDATE")
+                                })
+                                && messages[3].role == crate::provider::GenerateMessageRole::User
+                                && messages[3].content == "hello from durable chat"
                     )
             }),
             "captured requests: {requests:?}"

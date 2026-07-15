@@ -6,9 +6,12 @@ use crate::{
     provider::{
         GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
         GenerateStreamEvent, GenerateToolCall, MultipleChoiceOption, MultipleChoiceSelectionMode,
-        PromptCacheRetention, ProviderError, ProviderToolCapabilities, TokenUsage,
+        NoemaAllowedToolsMode, NoemaToolChoice, PromptCacheMode, PromptCacheOptions,
+        PromptCacheRetention, ProviderError, ProviderToolCapabilities, ProviderToolTransport,
+        TokenUsage,
     },
 };
+use chrono::{Local, SecondsFormat};
 use serde::Deserialize;
 use serde_json::json;
 use std::{
@@ -28,6 +31,10 @@ use super::{
         local_tool_result_action_item, local_tool_result_continuation_input,
         local_tool_task_reference_item,
     },
+    model_context::{
+        AgentIdentityContext, ModelContextState, RuntimeEnvironmentContext, ToolVisibilityContext,
+    },
+    model_context_ledger::{ModelContextSyncRequest, sync_model_context},
     model_tools::{ModelTools, build_model_tools},
     progress::{
         ContinuationProgressTracker, DeterministicProgressStop, MAX_PROVIDER_TOOL_CONTINUATIONS,
@@ -47,8 +54,8 @@ use crate::daemon::{
     agent_onboarding::AgentPromptIdentity,
     memory::{HUMAN_MEMORY_SCOPE_ID, context::ConversationMemoryContext},
     prompts::{
-        PromptToolExposure, build_initial_name_onboarding_system_prompt,
-        build_local_tool_result_continuation_system_prompt, build_model_available_tools_prompt,
+        build_initial_name_onboarding_system_prompt,
+        build_local_tool_result_continuation_system_prompt,
     },
     protocol::{
         AgentStatus, DaemonError, StartedConversation, TurnStreamEvent, TurnTranscriptItem,
@@ -111,6 +118,99 @@ fn prompt_cache_retention_for(
     tool_capabilities
         .prompt_cache_retention
         .then_some(PromptCacheRetention::TwentyFourHours)
+}
+
+fn prompt_cache_options_for(
+    tool_capabilities: ProviderToolCapabilities,
+) -> Option<PromptCacheOptions> {
+    tool_capabilities
+        .prompt_cache_options
+        .then_some(PromptCacheOptions {
+            mode: PromptCacheMode::Explicit,
+            ..PromptCacheOptions::default()
+        })
+}
+
+fn prompt_cache_breakpoints_for(
+    input: &GenerateInput,
+    tool_capabilities: ProviderToolCapabilities,
+) -> Vec<usize> {
+    if !tool_capabilities.prompt_cache_breakpoints {
+        return Vec::new();
+    }
+    let messages = match input {
+        GenerateInput::Messages(messages) => messages.iter().collect::<Vec<_>>(),
+        GenerateInput::Items(items) => items
+            .iter()
+            .filter_map(|item| match item {
+                crate::provider::GenerateInputItem::Message(message) => Some(message),
+                crate::provider::GenerateInputItem::Reasoning(_)
+                | crate::provider::GenerateInputItem::ToolCall(_)
+                | crate::provider::GenerateInputItem::ToolResult(_) => None,
+            })
+            .collect(),
+        GenerateInput::Text(_) | GenerateInput::NativeToolResults(_) => Vec::new(),
+    };
+    let mut breakpoints = messages
+        .iter()
+        .enumerate()
+        .filter_map(|(index, message)| {
+            (message.role == crate::GenerateMessageRole::Developer).then_some(index)
+        })
+        .rev()
+        .take(4)
+        .collect::<Vec<_>>();
+    breakpoints.reverse();
+    breakpoints
+}
+
+pub(super) fn current_runtime_environment(cwd: Option<&str>) -> RuntimeEnvironmentContext {
+    let now = Local::now();
+    let timezone = std::env::var("TZ")
+        .ok()
+        .filter(|timezone| !timezone.trim().is_empty())
+        .unwrap_or_else(|| format!("UTC{}", now.offset()));
+    RuntimeEnvironmentContext::new(
+        now.format("%Y-%m-%d").to_string(),
+        now.to_rfc3339_opts(SecondsFormat::Secs, false),
+        timezone,
+        cwd.map(str::to_string),
+    )
+}
+
+fn model_context_state(
+    agent_identity: &AgentPromptIdentity,
+    runtime_environment: RuntimeEnvironmentContext,
+    model_tools: &ModelTools,
+    tools_enabled: bool,
+) -> ModelContextState {
+    let mut catalog_rows = if tools_enabled {
+        model_tools.prompt_rows.clone()
+    } else {
+        Vec::new()
+    };
+    catalog_rows.extend(model_tools.unavailable_rows.iter().cloned());
+    ModelContextState::new(
+        AgentIdentityContext::from(agent_identity),
+        runtime_environment,
+        ToolVisibilityContext::new(
+            if tools_enabled {
+                model_tools.transport
+            } else {
+                ProviderToolTransport::None
+            },
+            if tools_enabled {
+                model_tools
+                    .callable_tool_names()
+                    .into_iter()
+                    .map(|name| name.as_str().to_string())
+                    .collect()
+            } else {
+                Vec::new()
+            },
+            catalog_rows,
+        ),
+    )
 }
 
 pub(super) fn mcp_health_status_label(status: crate::McpServerHealthStatus) -> &'static str {
@@ -581,15 +681,13 @@ impl CodexRuntimeActor {
         let tools_started_at = std::time::Instant::now();
         let model_tools = self.model_tools(true, tool_capabilities).await?;
         let continuation_model_tools = self.model_tools(false, tool_capabilities).await?;
-        let rendered_tools = render_available_tools(&model_tools);
-        let rendered_continuation_tools = render_available_tools(&continuation_model_tools);
         timing.mark(
             "runtime_model_tools_ready",
             json!({
                 "duration_ms": tools_started_at.elapsed().as_millis(),
-                "native_tool_count": model_tools.native.len(),
-                "legacy_builtin_tool_count": model_tools.legacy_builtin_envelope_tools.len(),
-                "continuation_native_tool_count": continuation_model_tools.native.len(),
+                "tool_catalog_count": model_tools.tools.len(),
+                "callable_tool_count": model_tools.callable_tool_names().len(),
+                "continuation_callable_tool_count": continuation_model_tools.callable_tool_names().len(),
             }),
         );
         self.update_conversation_agent_status(
@@ -605,6 +703,26 @@ impl CodexRuntimeActor {
         )
         .await?;
         timing.mark("runtime_status_thinking", json!({}));
+        let runtime_environment = current_runtime_environment(conversation.cwd.as_deref());
+        let model_context_state = model_context_state(
+            &agent_identity,
+            runtime_environment.clone(),
+            &model_tools,
+            true,
+        );
+        let model_context_updates = sync_model_context(ModelContextSyncRequest {
+            store: &self.store,
+            conversation_id: &conversation_id,
+            turn_id: &turn.turn_id,
+            provider_kind: &conversation.provider_kind,
+            model_profile: conversation.model.as_deref(),
+            state: &model_context_state,
+        })
+        .await?;
+        timing.mark(
+            "runtime_model_context_synced",
+            json!({ "update_count": model_context_updates.len() }),
+        );
         let prompt_started_at = std::time::Instant::now();
         let mut planned_context =
             super::prompt_context::plan_prompt_context(super::prompt_context::PromptPlanRequest {
@@ -613,12 +731,20 @@ impl CodexRuntimeActor {
                 conversation_id: &conversation_id,
                 provider_kind: &conversation.provider_kind,
                 model_profile: conversation.model.as_deref(),
-                agent_identity: &agent_identity,
-                rendered_tools: &rendered_tools,
-                native_tools_available: !model_tools.native.is_empty(),
-                legacy_builtin_envelope_tools: &model_tools.legacy_builtin_envelope_tools,
                 current_input: &input,
             })
+            .await?;
+        let reconciled_model_context_updates = self
+            .reconcile_model_context_plan(
+                provider.as_ref(),
+                &conversation_id,
+                &turn.turn_id,
+                &conversation.provider_kind,
+                conversation.model.as_deref(),
+                &model_context_state,
+                &input,
+                &mut planned_context,
+            )
             .await?;
         timing.mark(
             "runtime_prompt_context_planned",
@@ -628,6 +754,7 @@ impl CodexRuntimeActor {
                 "estimated_prompt_tokens": planned_context.estimated_input_tokens,
                 "budget_input_tokens": planned_context.budget.available_input_tokens(),
                 "budget_output_reserve_tokens": planned_context.budget.output_reserve_tokens(),
+                "reconciled_model_context_updates": reconciled_model_context_updates,
             }),
         );
         let user_metadata = json!({
@@ -734,6 +861,15 @@ impl CodexRuntimeActor {
                     "duration_ms": compaction_started_at.elapsed().as_millis(),
                 }),
             );
+            sync_model_context(ModelContextSyncRequest {
+                store: &self.store,
+                conversation_id: &conversation_id,
+                turn_id: &turn.turn_id,
+                provider_kind: &conversation.provider_kind,
+                model_profile: conversation.model.as_deref(),
+                state: &model_context_state,
+            })
+            .await?;
             let prompt_replan_started_at = std::time::Instant::now();
             planned_context = super::prompt_context::plan_prompt_context(
                 super::prompt_context::PromptPlanRequest {
@@ -742,12 +878,19 @@ impl CodexRuntimeActor {
                     conversation_id: &conversation_id,
                     provider_kind: &conversation.provider_kind,
                     model_profile: conversation.model.as_deref(),
-                    agent_identity: &agent_identity,
-                    rendered_tools: &rendered_tools,
-                    native_tools_available: !model_tools.native.is_empty(),
-                    legacy_builtin_envelope_tools: &model_tools.legacy_builtin_envelope_tools,
                     current_input: &input,
                 },
+            )
+            .await?;
+            self.reconcile_model_context_plan(
+                provider.as_ref(),
+                &conversation_id,
+                &turn.turn_id,
+                &conversation.provider_kind,
+                conversation.model.as_deref(),
+                &model_context_state,
+                &input,
+                &mut planned_context,
             )
             .await?;
             timing.mark(
@@ -798,6 +941,15 @@ impl CodexRuntimeActor {
                         "duration_ms": smaller_compaction_started_at.elapsed().as_millis(),
                     }),
                 );
+                sync_model_context(ModelContextSyncRequest {
+                    store: &self.store,
+                    conversation_id: &conversation_id,
+                    turn_id: &turn.turn_id,
+                    provider_kind: &conversation.provider_kind,
+                    model_profile: conversation.model.as_deref(),
+                    state: &model_context_state,
+                })
+                .await?;
                 let prompt_replan_started_at = std::time::Instant::now();
                 planned_context = super::prompt_context::plan_prompt_context(
                     super::prompt_context::PromptPlanRequest {
@@ -806,12 +958,19 @@ impl CodexRuntimeActor {
                         conversation_id: &conversation_id,
                         provider_kind: &conversation.provider_kind,
                         model_profile: conversation.model.as_deref(),
-                        agent_identity: &agent_identity,
-                        rendered_tools: &rendered_tools,
-                        native_tools_available: !model_tools.native.is_empty(),
-                        legacy_builtin_envelope_tools: &model_tools.legacy_builtin_envelope_tools,
                         current_input: &input,
                     },
+                )
+                .await?;
+                self.reconcile_model_context_plan(
+                    provider.as_ref(),
+                    &conversation_id,
+                    &turn.turn_id,
+                    &conversation.provider_kind,
+                    conversation.model.as_deref(),
+                    &model_context_state,
+                    &input,
+                    &mut planned_context,
                 )
                 .await?;
                 timing.mark(
@@ -841,8 +1000,6 @@ impl CodexRuntimeActor {
                 return Err(error.into());
             }
         }
-        let agent_identity_for_background = agent_identity.clone();
-
         let initial_stream_id = assistant_stream_id(&turn.turn_id, "initial");
         let mut initial_stream_seen = false;
         let mut initial_assistant_delta_seen = false;
@@ -894,13 +1051,27 @@ impl CodexRuntimeActor {
         timing.mark(
             "provider_initial_request_started",
             json!({
-                "native_tool_count": model_tools.native.len(),
-                "parallel_tool_calls": !model_tools.native.is_empty()
+                "provider_tool_count": model_tools.provider_tools().len(),
+                "parallel_tool_calls": model_tools.transport == ProviderToolTransport::Native
+                    && model_tools.has_callable_tools()
                     && tool_capabilities.parallel_tool_calls,
             }),
         );
         let initial_provider_started_at = std::time::Instant::now();
         let initial_provider_input = planned_context.input.clone();
+        let initial_prompt_cache_breakpoints =
+            prompt_cache_breakpoints_for(&planned_context.input, tool_capabilities);
+        let initial_provider_tools = model_tools.provider_tools();
+        let (initial_tools, initial_tool_choice) = if tool_capabilities.allowed_tools
+            && model_tools.transport == ProviderToolTransport::Native
+        {
+            (
+                initial_provider_tools,
+                model_tools.allowed_tool_choice(NoemaAllowedToolsMode::Auto),
+            )
+        } else {
+            (initial_provider_tools, NoemaToolChoice::Auto)
+        };
         match provider
             .generate_streaming(
                 GenerateRequest {
@@ -913,12 +1084,15 @@ impl CodexRuntimeActor {
                         reasoning_effort: conversation.reasoning_effort,
                         require_noema_response: true,
                         prompt_cache_retention: prompt_cache_retention_for(tool_capabilities),
+                        prompt_cache_options: prompt_cache_options_for(tool_capabilities),
+                        prompt_cache_breakpoints: initial_prompt_cache_breakpoints,
                         store_response: response_continuation.store_response(),
                         ..GenerateOptions::default()
                     },
-                    tools: model_tools.native.clone(),
-                    tool_choice: Default::default(),
-                    parallel_tool_calls: !model_tools.native.is_empty()
+                    tools: initial_tools,
+                    tool_choice: initial_tool_choice,
+                    parallel_tool_calls: model_tools.transport == ProviderToolTransport::Native
+                        && model_tools.has_callable_tools()
                         && tool_capabilities.parallel_tool_calls,
                 },
                 &mut on_initial_event,
@@ -972,10 +1146,10 @@ impl CodexRuntimeActor {
                             initial_stream_id: initial_stream_id.clone(),
                             response,
                             agent_identity,
+                            runtime_environment,
                             tool_capabilities,
+                            provider_tool_catalog: model_tools.provider_tools(),
                             continuation_model_tools,
-                            rendered_tools: rendered_tools.clone(),
-                            rendered_continuation_tools,
                             initial_provider_input,
                         },
                         &item_tx,
@@ -1001,8 +1175,6 @@ impl CodexRuntimeActor {
                     model_profile: conversation.model.clone(),
                     reasoning_effort: conversation.reasoning_effort,
                     next_turn_index: turn_index.saturating_add(1),
-                    agent_identity: agent_identity_for_background,
-                    rendered_tools: rendered_tools.clone(),
                 });
 
                 timing.mark("runtime_turn_ok", json!({}));
@@ -1370,31 +1542,29 @@ impl CodexRuntimeActor {
             let continuation_result_count = continuation_tool_results.len();
             let provider = self.provider_for_kind(&turn.provider_kind)?;
             let response_continuation = provider.response_continuation(turn.model.as_deref());
+            let continuation_context_state = model_context_state(
+                &continuation_agent_identity,
+                turn.runtime_environment.clone(),
+                &turn.continuation_model_tools,
+                !task_handoff,
+            );
+            let context_updates = sync_model_context(ModelContextSyncRequest {
+                store: &self.store,
+                conversation_id: &turn.conversation_id,
+                turn_id: &turn.turn_id,
+                provider_kind: &turn.provider_kind,
+                model_profile: turn.model.as_deref(),
+                state: &continuation_context_state,
+            })
+            .await?;
+            for update in context_updates {
+                continuation_context.append_developer_message(update.model_visible_content());
+            }
             let continuation_input = continuation_context.next_provider_input(
                 turn.tool_capabilities.native_tool_results,
                 response_continuation,
             );
-            let continuation_instructions = build_local_tool_result_continuation_system_prompt(
-                &turn.conversation_id,
-                turn.turn_index,
-                turn.cwd.as_deref(),
-                &turn.user_input,
-                &continuation_agent_identity,
-                if task_handoff {
-                    ""
-                } else {
-                    &turn.rendered_continuation_tools
-                },
-                PromptToolExposure {
-                    native_tools_available: !task_handoff
-                        && !turn.continuation_model_tools.native.is_empty(),
-                    legacy_builtin_envelope_tools: if task_handoff {
-                        &[]
-                    } else {
-                        &turn.continuation_model_tools.legacy_builtin_envelope_tools
-                    },
-                },
-            );
+            let continuation_instructions = build_local_tool_result_continuation_system_prompt();
             let continuation_stream_suffix = if continuation_step == 0 {
                 "continuation".to_string()
             } else {
@@ -1463,15 +1633,42 @@ impl CodexRuntimeActor {
                 json!({
                     "continuation_step": continuation_step,
                     "tool_result_count": continuation_result_count,
-                    "native_tool_count": if task_handoff {
+                    "provider_tool_count": if task_handoff
+                        || turn.continuation_model_tools.transport != ProviderToolTransport::Native
+                    {
                         0
                     } else {
-                        turn.continuation_model_tools.native.len()
+                        turn.continuation_model_tools.tools.len()
                     },
                 }),
             );
             let continuation_provider_started_at = std::time::Instant::now();
             let chained = continuation_input.previous_response_id.is_some();
+            let continuation_prompt_cache_breakpoints =
+                prompt_cache_breakpoints_for(&continuation_input.input, turn.tool_capabilities);
+            let (continuation_tools, continuation_tool_choice) =
+                if turn.tool_capabilities.allowed_tools
+                    && turn.continuation_model_tools.transport == ProviderToolTransport::Native
+                {
+                    (
+                        turn.provider_tool_catalog.clone(),
+                        if task_handoff {
+                            NoemaToolChoice::None
+                        } else {
+                            turn.continuation_model_tools
+                                .allowed_tool_choice(NoemaAllowedToolsMode::Auto)
+                        },
+                    )
+                } else {
+                    (
+                        if task_handoff {
+                            Vec::new()
+                        } else {
+                            turn.continuation_model_tools.provider_tools()
+                        },
+                        NoemaToolChoice::Auto,
+                    )
+                };
             let continuation_request = GenerateRequest {
                 conversation_id: Some(turn.conversation_id.clone()),
                 model: turn.model.clone(),
@@ -1480,19 +1677,18 @@ impl CodexRuntimeActor {
                 options: GenerateOptions {
                     require_noema_response: true,
                     prompt_cache_retention: prompt_cache_retention_for(turn.tool_capabilities),
+                    prompt_cache_options: prompt_cache_options_for(turn.tool_capabilities),
+                    prompt_cache_breakpoints: continuation_prompt_cache_breakpoints,
                     reasoning_effort: turn.reasoning_effort,
                     previous_response_id: continuation_input.previous_response_id,
                     store_response: response_continuation.store_response(),
                     ..GenerateOptions::default()
                 },
-                tools: if task_handoff {
-                    Vec::new()
-                } else {
-                    turn.continuation_model_tools.native.clone()
-                },
-                tool_choice: Default::default(),
+                tools: continuation_tools.clone(),
+                tool_choice: continuation_tool_choice.clone(),
                 parallel_tool_calls: !task_handoff
-                    && !turn.continuation_model_tools.native.is_empty()
+                    && turn.continuation_model_tools.transport == ProviderToolTransport::Native
+                    && turn.continuation_model_tools.has_callable_tools()
                     && turn.tool_capabilities.parallel_tool_calls,
             };
             let mut continuation_result = provider
@@ -1506,31 +1702,36 @@ impl CodexRuntimeActor {
                     "provider_continuation_chain_fallback",
                     json!({"continuation_step": continuation_step}),
                 );
+                let fallback_input =
+                    continuation_context.provider_input(turn.tool_capabilities.native_tool_results);
+                let fallback_prompt_cache_breakpoints =
+                    prompt_cache_breakpoints_for(&fallback_input, turn.tool_capabilities);
                 continuation_result = provider
                     .generate_streaming(
                         GenerateRequest {
                             conversation_id: Some(turn.conversation_id.clone()),
                             model: turn.model.clone(),
-                            input: continuation_context
-                                .provider_input(turn.tool_capabilities.native_tool_results),
+                            input: fallback_input,
                             instructions: Some(continuation_instructions),
                             options: GenerateOptions {
                                 require_noema_response: true,
                                 prompt_cache_retention: prompt_cache_retention_for(
                                     turn.tool_capabilities,
                                 ),
+                                prompt_cache_options: prompt_cache_options_for(
+                                    turn.tool_capabilities,
+                                ),
+                                prompt_cache_breakpoints: fallback_prompt_cache_breakpoints,
                                 reasoning_effort: turn.reasoning_effort,
                                 store_response: response_continuation.store_response(),
                                 ..GenerateOptions::default()
                             },
-                            tools: if task_handoff {
-                                Vec::new()
-                            } else {
-                                turn.continuation_model_tools.native.clone()
-                            },
-                            tool_choice: Default::default(),
+                            tools: continuation_tools,
+                            tool_choice: continuation_tool_choice,
                             parallel_tool_calls: !task_handoff
-                                && !turn.continuation_model_tools.native.is_empty()
+                                && turn.continuation_model_tools.transport
+                                    == ProviderToolTransport::Native
+                                && turn.continuation_model_tools.has_callable_tools()
                                 && turn.tool_capabilities.parallel_tool_calls,
                         },
                         &mut on_continuation_event,
@@ -1685,10 +1886,10 @@ impl CodexRuntimeActor {
                     usage: continuation_response.usage.clone(),
                 },
                 agent_identity: continuation_agent_identity,
+                runtime_environment: turn.runtime_environment.clone(),
                 tool_capabilities: turn.tool_capabilities,
+                provider_tool_catalog: turn.provider_tool_catalog.clone(),
                 continuation_model_tools: turn.continuation_model_tools.clone(),
-                rendered_tools: turn.rendered_tools.clone(),
-                rendered_continuation_tools: turn.rendered_continuation_tools.clone(),
                 initial_provider_input: turn.initial_provider_input.clone(),
             };
             let mut local_tool_results = Vec::new();
@@ -2165,6 +2366,47 @@ impl CodexRuntimeActor {
             .map_err(|error| DaemonError::Protocol(error.to_string()))
     }
 
+    #[allow(clippy::too_many_arguments)]
+    async fn reconcile_model_context_plan(
+        &self,
+        provider: &dyn super::handle::RuntimeModelProvider,
+        conversation_id: &str,
+        turn_id: &str,
+        provider_kind: &str,
+        model_profile: Option<&str>,
+        state: &ModelContextState,
+        current_input: &str,
+        planned_context: &mut super::prompt_context::PlannedPromptContext,
+    ) -> Result<usize, DaemonError> {
+        let mut appended_update_count = 0usize;
+        loop {
+            let updates = sync_model_context(ModelContextSyncRequest {
+                store: &self.store,
+                conversation_id,
+                turn_id,
+                provider_kind,
+                model_profile,
+                state,
+            })
+            .await?;
+            if updates.is_empty() {
+                return Ok(appended_update_count);
+            }
+            appended_update_count = appended_update_count.saturating_add(updates.len());
+            *planned_context = super::prompt_context::plan_prompt_context(
+                super::prompt_context::PromptPlanRequest {
+                    store: &self.store,
+                    provider,
+                    conversation_id,
+                    provider_kind,
+                    model_profile,
+                    current_input,
+                },
+            )
+            .await?;
+        }
+    }
+
     fn schedule_background_context_compaction(
         &self,
         schedule: BackgroundContextCompactionSchedule,
@@ -2180,8 +2422,6 @@ impl CodexRuntimeActor {
                 model_profile,
                 reasoning_effort,
                 next_turn_index,
-                agent_identity,
-                rendered_tools,
             } = schedule;
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             match store.next_conversation_turn_index(&conversation_id).await {
@@ -2195,10 +2435,6 @@ impl CodexRuntimeActor {
                     conversation_id: &conversation_id,
                     provider_kind: &provider_kind,
                     model_profile: model_profile.as_deref(),
-                    agent_identity: &agent_identity,
-                    rendered_tools: &rendered_tools,
-                    native_tools_available: false,
-                    legacy_builtin_envelope_tools: &[],
                     current_input: "",
                 },
             )
@@ -2236,14 +2472,6 @@ impl CodexRuntimeActor {
     }
 }
 
-fn render_available_tools(model_tools: &ModelTools) -> String {
-    let mut rows =
-        Vec::with_capacity(model_tools.prompt_rows.len() + model_tools.unavailable_rows.len());
-    rows.extend(model_tools.prompt_rows.iter().cloned());
-    rows.extend(model_tools.unavailable_rows.iter().cloned());
-    build_model_available_tools_prompt(&rows)
-}
-
 fn provider_stream_event_fields(event: &GenerateStreamEvent) -> serde_json::Value {
     match event {
         GenerateStreamEvent::AssistantTextDelta {
@@ -2278,8 +2506,6 @@ struct BackgroundContextCompactionSchedule {
     model_profile: Option<String>,
     reasoning_effort: Option<crate::provider::ReasoningEffort>,
     next_turn_index: u64,
-    agent_identity: AgentPromptIdentity,
-    rendered_tools: String,
 }
 
 #[derive(Debug)]
@@ -2298,10 +2524,10 @@ pub(in crate::daemon) struct SuccessfulProviderTurn {
     pub(in crate::daemon) initial_stream_id: String,
     pub(in crate::daemon) response: GenerateResponse,
     pub(in crate::daemon) agent_identity: AgentPromptIdentity,
+    pub(in crate::daemon) runtime_environment: RuntimeEnvironmentContext,
     pub(in crate::daemon) tool_capabilities: ProviderToolCapabilities,
+    pub(in crate::daemon) provider_tool_catalog: Vec<crate::provider::NoemaToolSpec>,
     pub(in crate::daemon) continuation_model_tools: ModelTools,
-    pub(in crate::daemon) rendered_tools: String,
-    pub(in crate::daemon) rendered_continuation_tools: String,
     pub(in crate::daemon) initial_provider_input: GenerateInput,
 }
 

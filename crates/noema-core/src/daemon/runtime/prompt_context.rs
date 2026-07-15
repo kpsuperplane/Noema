@@ -1,11 +1,7 @@
 use crate::{
     ConversationContextSummaryRecord, ConversationItemKind, ConversationItemRecord, GenerateInput,
     GenerateMessage, GenerateMessageRole, NoemaStore,
-    daemon::{
-        agent_onboarding::AgentPromptIdentity,
-        prompts::{PromptToolExposure, build_structured_turn_system_prompt},
-        protocol::DaemonError,
-    },
+    daemon::{prompts::build_structured_turn_system_prompt, protocol::DaemonError},
     provider::{
         GenerateInputItem, GenerateReasoningInput, GenerateToolCallInput, GenerateToolResultInput,
     },
@@ -42,20 +38,12 @@ pub(super) struct PromptPlanRequest<'a> {
     pub(super) conversation_id: &'a str,
     pub(super) provider_kind: &'a str,
     pub(super) model_profile: Option<&'a str>,
-    pub(super) agent_identity: &'a AgentPromptIdentity,
-    pub(super) rendered_tools: &'a str,
-    pub(super) native_tools_available: bool,
-    pub(super) legacy_builtin_envelope_tools: &'a [String],
     pub(super) current_input: &'a str,
 }
 
 struct LoadedPromptPlanRequest<'a> {
     provider: &'a dyn RuntimeModelProvider,
     model_profile: Option<&'a str>,
-    agent_identity: &'a AgentPromptIdentity,
-    rendered_tools: &'a str,
-    native_tools_available: bool,
-    legacy_builtin_envelope_tools: &'a [String],
     current_input: &'a str,
     context: PromptContext,
 }
@@ -96,10 +84,6 @@ pub(super) async fn plan_prompt_context(
     plan_loaded_prompt_context(LoadedPromptPlanRequest {
         provider: request.provider,
         model_profile: request.model_profile,
-        agent_identity: request.agent_identity,
-        rendered_tools: request.rendered_tools,
-        native_tools_available: request.native_tools_available,
-        legacy_builtin_envelope_tools: request.legacy_builtin_envelope_tools,
         current_input: request.current_input,
         context,
     })
@@ -109,14 +93,7 @@ pub(super) async fn plan_prompt_context(
 async fn plan_loaded_prompt_context(
     request: LoadedPromptPlanRequest<'_>,
 ) -> Result<PlannedPromptContext, DaemonError> {
-    let instructions = build_structured_turn_system_prompt(
-        request.agent_identity,
-        request.rendered_tools,
-        PromptToolExposure {
-            native_tools_available: request.native_tools_available,
-            legacy_builtin_envelope_tools: request.legacy_builtin_envelope_tools,
-        },
-    );
+    let instructions = build_structured_turn_system_prompt();
     let input = build_turn_input(
         request.context.rendered_context.as_deref(),
         &request.context.transcript_items,
@@ -224,6 +201,9 @@ pub(super) fn input_item_from_transcript_item(
         ConversationItemKind::ToolCall => tool_call_input_item(item),
         ConversationItemKind::ToolResult => tool_result_input_item(item),
         ConversationItemKind::Reasoning => reasoning_input_item(item),
+        ConversationItemKind::ModelContextUpdate => {
+            text_message_item(item, GenerateMessageRole::Developer)
+        }
         ConversationItemKind::TaskReference => task_status_message_item(item),
         ConversationItemKind::Activity
         | ConversationItemKind::A2uiCard
@@ -253,7 +233,7 @@ fn task_status_message_item(item: &ConversationItemRecord) -> Option<GenerateInp
         content.push_str(&error);
     }
     Some(GenerateInputItem::Message(GenerateMessage {
-        role: GenerateMessageRole::System,
+        role: GenerateMessageRole::Developer,
         content,
     }))
 }
@@ -439,8 +419,34 @@ mod tests {
         else {
             panic!("expected task status message");
         };
-        assert_eq!(message.role, GenerateMessageRole::System);
+        assert_eq!(message.role, GenerateMessageRole::Developer);
         assert!(message.content.contains("task:1"));
         assert!(message.content.contains("Which region?"));
+    }
+
+    #[test]
+    fn model_context_updates_replay_as_developer_messages() {
+        let item = ConversationItemRecord {
+            item_id: "item:model-context".to_string(),
+            conversation_id: "conversation:1".to_string(),
+            turn_id: None,
+            sequence_index: 3,
+            cursor: "conversation_item:3".to_string(),
+            kind: ConversationItemKind::ModelContextUpdate,
+            status: ConversationItemStatus::Completed,
+            content_text: Some(
+                "NOEMA_MODEL_CONTEXT_UPDATE\n{\"section_id\":\"runtime.environment\"}".to_string(),
+            ),
+            payload_json: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+        };
+
+        let Some(GenerateInputItem::Message(message)) = input_item_from_transcript_item(&item)
+        else {
+            panic!("expected model context message");
+        };
+
+        assert_eq!(message.role, GenerateMessageRole::Developer);
+        assert!(message.content.starts_with("NOEMA_MODEL_CONTEXT_UPDATE"));
     }
 }

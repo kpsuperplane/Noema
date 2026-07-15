@@ -27,10 +27,11 @@ pub use contract::{
     GenerateReasoningInput, GenerateReasoningItem, GenerateRequest, GenerateResponse,
     GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall,
     GenerateToolCallInput, GenerateToolResultInput, ModelProvider, MultipleChoiceOption,
-    MultipleChoiceSelectionMode, ParsedNoemaResponse, PromptCacheRetention,
-    ProviderContextMetadata, ProviderError, ProviderResponseContinuation, ReasoningEffort,
-    TokenUsage, noema_response_from_text, output_items_from_text,
-    required_noema_response_from_text, required_noema_response_from_text_with_native_tool_calls,
+    MultipleChoiceSelectionMode, ParsedNoemaResponse, PromptCacheMode, PromptCacheOptions,
+    PromptCacheRetention, PromptCacheTtl, ProviderContextMetadata, ProviderError,
+    ProviderResponseContinuation, ReasoningEffort, TokenUsage, noema_response_from_text,
+    output_items_from_text, required_noema_response_from_text,
+    required_noema_response_from_text_with_native_tool_calls,
 };
 
 pub use capabilities::{
@@ -39,7 +40,7 @@ pub use capabilities::{
 };
 
 pub use tools::{
-    NoemaToolCall, NoemaToolChoice, NoemaToolExecution, NoemaToolResult, NoemaToolSchema,
-    NoemaToolSpec, ProviderToolCapabilities, ProviderToolFallbackMode, ProviderToolSchemaDialect,
-    ToolContractError, ToolExposurePolicy, ToolName,
+    NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolCall, NoemaToolChoice, NoemaToolExecution,
+    NoemaToolResult, NoemaToolSchema, NoemaToolSpec, ProviderToolCapabilities,
+    ProviderToolSchemaDialect, ProviderToolTransport, ToolContractError, ToolName,
 };

@@ -7,7 +7,7 @@ use crate::{
     agent_execution::ExecutionRole,
     daemon::{agent_onboarding::AgentPromptIdentity, protocol::DaemonError},
     graphql::ConversationSubscriptionRegistry,
-    provider::TokenUsage,
+    provider::{NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, TokenUsage},
     store::NewAgentRunItem,
 };
 
@@ -21,12 +21,11 @@ use super::{
     task_continuation::{
         add_usage, background_tool_instructions, build_task_finalization_prompt,
         is_task_terminal_tool, is_valid_terminal_tool, render_continuation_tool_names,
-        render_tool_names, task_tool_result_transcript_payload, terminal_contract_tools,
-        terminal_tool_instructions,
+        task_tool_result_transcript_payload, terminal_contract_tools, terminal_tool_instructions,
     },
     task_transcript::sanitize_task_tool_payload,
     tool_lifecycle::local_tool_calls,
-    turn::SuccessfulProviderTurn,
+    turn::{SuccessfulProviderTurn, current_runtime_environment},
 };
 use crate::daemon::prompts::build_role_tool_result_continuation_system_prompt;
 use tokio_util::sync::CancellationToken;
@@ -117,9 +116,15 @@ impl CodexRuntimeActor {
                         store_response: response_continuation.store_response(),
                         ..GenerateOptions::default()
                     },
-                    tools: model_tools.native.clone(),
-                    tool_choice: Default::default(),
-                    parallel_tool_calls: !model_tools.native.is_empty()
+                    tools: model_tools.provider_tools(),
+                    tool_choice: if capabilities.allowed_tools {
+                        model_tools.allowed_tool_choice(NoemaAllowedToolsMode::Auto)
+                    } else {
+                        NoemaToolChoice::Auto
+                    },
+                    parallel_tool_calls: model_tools.transport
+                        == crate::provider::ProviderToolTransport::Native
+                        && model_tools.has_callable_tools()
                         && capabilities.parallel_tool_calls,
                 },
                 &request.run_id,
@@ -255,10 +260,10 @@ impl CodexRuntimeActor {
                 initial_stream_id: format!("task_stream:{}:{continuation_index}", request.run_id),
                 response: response.clone(),
                 agent_identity: agent_identity.clone(),
+                runtime_environment: current_runtime_environment(None),
                 tool_capabilities: capabilities,
+                provider_tool_catalog: model_tools.provider_tools(),
                 continuation_model_tools: model_tools.clone(),
-                rendered_tools: render_tool_names(&model_tools),
-                rendered_continuation_tools: render_continuation_tool_names(&model_tools),
                 initial_provider_input: GenerateInput::Text(request.input.clone()),
             };
             let mut results = Vec::with_capacity(calls.len());
@@ -518,9 +523,15 @@ impl CodexRuntimeActor {
                     store_response: response_continuation.store_response(),
                     ..GenerateOptions::default()
                 },
-                tools: model_tools.native.clone(),
-                tool_choice: Default::default(),
-                parallel_tool_calls: !model_tools.native.is_empty()
+                tools: model_tools.provider_tools(),
+                tool_choice: if capabilities.allowed_tools {
+                    model_tools.allowed_tool_choice(NoemaAllowedToolsMode::Auto)
+                } else {
+                    NoemaToolChoice::Auto
+                },
+                parallel_tool_calls: model_tools.transport
+                    == crate::provider::ProviderToolTransport::Native
+                    && model_tools.has_callable_tools()
                     && capabilities.parallel_tool_calls,
             };
             let mut continuation_response = self
@@ -554,9 +565,15 @@ impl CodexRuntimeActor {
                                 store_response: response_continuation.store_response(),
                                 ..GenerateOptions::default()
                             },
-                            tools: model_tools.native.clone(),
-                            tool_choice: Default::default(),
-                            parallel_tool_calls: !model_tools.native.is_empty()
+                            tools: model_tools.provider_tools(),
+                            tool_choice: if capabilities.allowed_tools {
+                                model_tools.allowed_tool_choice(NoemaAllowedToolsMode::Auto)
+                            } else {
+                                NoemaToolChoice::Auto
+                            },
+                            parallel_tool_calls: model_tools.transport
+                                == crate::provider::ProviderToolTransport::Native
+                                && model_tools.has_callable_tools()
                                 && capabilities.parallel_tool_calls,
                         },
                         &request.run_id,
@@ -618,13 +635,24 @@ impl CodexRuntimeActor {
             model_tools,
             &terminal_tools,
         );
+        let capabilities = provider.tool_capabilities(request.model.as_deref());
         let response_continuation = provider.response_continuation(request.model.as_deref());
-        let continuation_input = context.next_provider_input(
-            provider
-                .tool_capabilities(request.model.as_deref())
-                .native_tool_results,
-            response_continuation,
-        );
+        let continuation_input =
+            context.next_provider_input(capabilities.native_tool_results, response_continuation);
+        let (finalization_tools, finalization_tool_choice) = if capabilities.allowed_tools {
+            (
+                model_tools.provider_tools(),
+                NoemaToolChoice::Allowed(NoemaAllowedTools {
+                    mode: NoemaAllowedToolsMode::Required,
+                    tools: terminal_tools
+                        .iter()
+                        .map(|tool| tool.name.clone())
+                        .collect(),
+                }),
+            )
+        } else {
+            (terminal_tools.clone(), NoemaToolChoice::Required)
+        };
         let chained = continuation_input.previous_response_id.is_some();
         let finalization_request = GenerateRequest {
             conversation_id: Some(conversation_id.to_string()),
@@ -639,8 +667,8 @@ impl CodexRuntimeActor {
                 store_response: response_continuation.store_response(),
                 ..GenerateOptions::default()
             },
-            tools: terminal_tools.clone(),
-            tool_choice: crate::provider::NoemaToolChoice::Required,
+            tools: finalization_tools.clone(),
+            tool_choice: finalization_tool_choice.clone(),
             parallel_tool_calls: false,
         };
         let mut finalization_result = self
@@ -676,8 +704,8 @@ impl CodexRuntimeActor {
                             store_response: response_continuation.store_response(),
                             ..GenerateOptions::default()
                         },
-                        tools: terminal_tools.clone(),
-                        tool_choice: crate::provider::NoemaToolChoice::Required,
+                        tools: finalization_tools,
+                        tool_choice: finalization_tool_choice,
                         parallel_tool_calls: false,
                     },
                     &request.run_id,

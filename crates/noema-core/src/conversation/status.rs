@@ -134,6 +134,8 @@ pub enum ConversationItemKind {
     ToolResult,
     /// Provider-encrypted reasoning state used only for stateless provider replay.
     Reasoning,
+    /// Hidden keyed application context used for exact model replay.
+    ModelContextUpdate,
     /// A request for human approval.
     ApprovalRequest,
     /// A recorded approval decision.
@@ -160,6 +162,7 @@ impl ConversationItemKind {
             Self::ToolCall => "tool_call",
             Self::ToolResult => "tool_result",
             Self::Reasoning => "reasoning",
+            Self::ModelContextUpdate => "model_context_update",
             Self::ApprovalRequest => "approval_request",
             Self::ApprovalResult => "approval_result",
             Self::ArtifactReference => "artifact_reference",
@@ -184,6 +187,7 @@ impl ConversationItemKind {
             "tool_call" => Ok(Self::ToolCall),
             "tool_result" => Ok(Self::ToolResult),
             "reasoning" => Ok(Self::Reasoning),
+            "model_context_update" => Ok(Self::ModelContextUpdate),
             "approval_request" => Ok(Self::ApprovalRequest),
             "approval_result" => Ok(Self::ApprovalResult),
             "artifact_reference" => Ok(Self::ArtifactReference),
@@ -302,5 +306,13 @@ mod tests {
 
         assert_eq!(kind, ConversationItemKind::TaskReference);
         assert_eq!(kind.as_str(), "task_reference");
+    }
+
+    #[test]
+    fn conversation_item_kind_parse_round_trips_model_context_update() {
+        let kind = ConversationItemKind::parse("model_context_update").expect("valid kind");
+
+        assert_eq!(kind, ConversationItemKind::ModelContextUpdate);
+        assert_eq!(kind.as_str(), "model_context_update");
     }
 }

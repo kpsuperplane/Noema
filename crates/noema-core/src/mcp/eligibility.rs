@@ -5,7 +5,10 @@ use crate::{
     McpToolRecord, McpTrustClassification, ToolCalibrationRecord,
 };
 
-/// Reason a discovered MCP tool must not be exposed to or executed for the model.
+/// Reason a discovered MCP tool is not currently callable by the model.
+///
+/// Catalog-approved definitions may remain inert in a stable native catalog
+/// when the provider enforces a separate allowed-tools subset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum McpToolIneligibility {
     /// The owning server is disabled.
@@ -34,7 +37,7 @@ impl McpToolIneligibility {
     }
 }
 
-/// Return why a tool is not eligible for model exposure or gateway execution.
+/// Return why a tool is not eligible for current model calls or gateway execution.
 #[must_use]
 pub fn mcp_tool_ineligibility(
     server: &McpServerRecord,
@@ -54,6 +57,18 @@ pub fn mcp_tool_ineligibility(
         return Some(McpToolIneligibility::ServerAuthRequired);
     }
 
+    mcp_tool_catalog_ineligibility(tool, calibration)
+}
+
+/// Return why a tool cannot belong to a stable, provider-restricted schema catalog.
+///
+/// Transient server availability is intentionally excluded. A catalog-approved
+/// definition may remain declared only when the provider enforces a separate
+/// allowed-tools subset; dispatch still uses [`mcp_tool_ineligibility`].
+pub(crate) fn mcp_tool_catalog_ineligibility(
+    tool: &McpToolRecord,
+    calibration: Option<&ToolCalibrationRecord>,
+) -> Option<McpToolIneligibility> {
     let Some(calibration) = calibration else {
         return Some(McpToolIneligibility::ToolNotCalibrated);
     };

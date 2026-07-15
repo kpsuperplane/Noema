@@ -7,7 +7,7 @@ use crate::{
         GenerateReasoningItem, GenerateRequest, GenerateResponse, GenerateResponseItem,
         GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall, MultipleChoiceOption,
         MultipleChoiceSelectionMode, ProviderError, ProviderResponseContinuation,
-        ProviderToolCapabilities, ProviderToolFallbackMode, ProviderToolSchemaDialect,
+        ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport,
     },
     {ConversationItemKind, ConversationItemStatus, ReplayMode},
 };
@@ -845,17 +845,19 @@ async fn native_provider_turn_request_includes_builtin_tools() {
     store.ensure_default_actors().await.expect("actors");
     let provider = Arc::new(CapturingProvider {
         capabilities: ProviderToolCapabilities {
-            native_tools: true,
+            tool_transport: ProviderToolTransport::Native,
             parallel_tool_calls: true,
             tool_choice: true,
+            allowed_tools: false,
             schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
             strict_schema: false,
             custom_tools: false,
             native_tool_results: true,
             prompt_cache_retention: true,
             prompt_cache_key: false,
+            prompt_cache_options: false,
+            prompt_cache_breakpoints: false,
             encrypted_reasoning: false,
-            fallback_mode: ProviderToolFallbackMode::NativeRequired,
         },
         requests: Mutex::new(Vec::new()),
     });
@@ -893,7 +895,10 @@ async fn native_provider_turn_request_includes_builtin_tools() {
     assert!(tool_names.contains(&"search_memory"));
     assert!(request.parallel_tool_calls);
     let instructions = request.instructions.as_deref().expect("instructions");
-    assert!(instructions.contains("Executable tools are provided through the native tool channel"));
+    assert!(
+        latest_model_context_section(&request.input, "tools.visibility")
+            .is_some_and(|context| context.contains("provided through the native tool channel"))
+    );
     assert!(!instructions.contains("emit the relevant tool_calls item in this response"));
 }
 
@@ -961,6 +966,81 @@ async fn normal_turn_instructions_are_stable_across_turns() {
     assert!(!first_instructions.contains("Recent durable transcript"));
     assert!(!first_instructions.contains("first durable question"));
     assert!(!second_instructions.contains("second durable question"));
+}
+
+#[tokio::test]
+async fn normal_turn_appends_only_changed_keyed_context_sections() {
+    let store = crate::store::tests::test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let provider = Arc::new(MetadataCapturingProvider {
+        context_window_tokens: 20_000,
+        fail_compaction: false,
+        fail_token_count: false,
+        enforce_context_window: false,
+        requests: Mutex::new(Vec::new()),
+    });
+    let runtime = CodexRuntimeHandle::spawn_with_provider(provider.clone(), store.clone())
+        .await
+        .expect("runtime");
+    let started = runtime
+        .start_conversation(None)
+        .await
+        .expect("conversation");
+
+    let (first_tx, mut first_rx) = tokio::sync::mpsc::unbounded_channel();
+    runtime
+        .turn(
+            started.conversation_id.clone(),
+            "first question".to_string(),
+            first_tx,
+        )
+        .await
+        .expect("first turn");
+    while first_rx.recv().await.is_some() {}
+
+    store
+        .update_agent_display_name("agent:primary", "Mira")
+        .await
+        .expect("rename agent");
+    let (second_tx, mut second_rx) = tokio::sync::mpsc::unbounded_channel();
+    runtime
+        .turn(
+            started.conversation_id,
+            "second question".to_string(),
+            second_tx,
+        )
+        .await
+        .expect("second turn");
+    while second_rx.recv().await.is_some() {}
+    runtime.shutdown().await;
+
+    let requests = provider.requests.lock().expect("requests");
+    let agent_requests = requests
+        .iter()
+        .filter(|request| request.options.require_noema_response)
+        .collect::<Vec<_>>();
+    assert_eq!(agent_requests.len(), 2);
+    assert_eq!(
+        agent_requests[0].instructions,
+        agent_requests[1].instructions
+    );
+    assert_eq!(
+        model_context_section_update_count(&agent_requests[0].input, "agent.identity"),
+        1
+    );
+    assert_eq!(
+        model_context_section_update_count(&agent_requests[1].input, "agent.identity"),
+        2
+    );
+    assert_eq!(
+        model_context_section_update_count(&agent_requests[1].input, "tools.visibility"),
+        1,
+        "unchanged tool visibility should stay in the cached prefix"
+    );
+    assert!(
+        latest_model_context_section(&agent_requests[1].input, "agent.identity")
+            .is_some_and(|content| content.contains(r#"display_name: "Mira""#))
+    );
 }
 
 #[tokio::test]
@@ -1113,7 +1193,6 @@ async fn prompt_context_uses_active_summary_and_post_checkpoint_items() {
     let instructions = request.instructions.as_deref().expect("instructions");
     assert!(!instructions.contains("Compacted conversation context:"));
     assert!(!instructions.contains("rolling durable compaction"));
-    assert!(!instructions.contains("current turn"));
     assert!(!instructions.contains("covered user"));
     assert!(!instructions.contains("post checkpoint user"));
     let input = request.input.render_for_token_count();
@@ -1298,8 +1377,19 @@ async fn prompt_context_sends_prior_transcript_as_provider_messages() {
     let GenerateInput::Messages(messages) = &request.input else {
         panic!("expected transcript messages, got {:?}", request.input);
     };
+    let context_updates = messages
+        .iter()
+        .filter(|message| message.role == crate::provider::GenerateMessageRole::Developer)
+        .collect::<Vec<_>>();
+    assert_eq!(context_updates.len(), 3);
+    assert!(
+        context_updates
+            .iter()
+            .all(|message| message.content.starts_with("NOEMA_MODEL_CONTEXT_UPDATE"))
+    );
     let observed = messages
         .iter()
+        .filter(|message| message.role != crate::provider::GenerateMessageRole::Developer)
         .map(|message| (message.role, message.content.as_str()))
         .collect::<Vec<_>>();
     assert_eq!(
@@ -3151,17 +3241,19 @@ async fn native_capable_provider_continuation_uses_native_tool_result_input() {
     let provider = Arc::new(
         RecordingFakeProvider::new("codex", FakeCodexScenario::NativeSearchMemoryContinuation)
             .with_tool_capabilities(ProviderToolCapabilities {
-                native_tools: true,
+                tool_transport: ProviderToolTransport::Native,
                 parallel_tool_calls: true,
                 tool_choice: true,
+                allowed_tools: false,
                 schema_dialect: crate::provider::ProviderToolSchemaDialect::OpenAiResponses,
                 strict_schema: false,
                 custom_tools: false,
                 native_tool_results: true,
                 prompt_cache_retention: true,
                 prompt_cache_key: false,
+                prompt_cache_options: false,
+                prompt_cache_breakpoints: false,
                 encrypted_reasoning: false,
-                fallback_mode: ProviderToolFallbackMode::NativeRequired,
             })
             .with_response_continuation(ProviderResponseContinuation::PreviousResponseId {
                 store_response: false,
@@ -3233,21 +3325,96 @@ async fn native_capable_provider_continuation_uses_native_tool_result_input() {
 }
 
 #[tokio::test]
+async fn allowed_tools_keep_native_catalog_stable_across_continuation() {
+    let provider = Arc::new(
+        RecordingFakeProvider::new("codex", FakeCodexScenario::NativeSearchMemoryContinuation)
+            .with_tool_capabilities(ProviderToolCapabilities {
+                tool_transport: ProviderToolTransport::Native,
+                parallel_tool_calls: true,
+                tool_choice: true,
+                allowed_tools: true,
+                schema_dialect: crate::provider::ProviderToolSchemaDialect::OpenAiResponses,
+                strict_schema: false,
+                custom_tools: false,
+                native_tool_results: true,
+                prompt_cache_retention: true,
+                prompt_cache_key: true,
+                prompt_cache_options: false,
+                prompt_cache_breakpoints: false,
+                encrypted_reasoning: false,
+            })
+            .with_response_continuation(ProviderResponseContinuation::PreviousResponseId {
+                store_response: true,
+            }),
+    );
+    let (handle, _store, _server) = spawn_runtime_with_memory_provider(
+        provider.clone(),
+        json!({"results": [{"memory": "Kevin likes trains."}]}),
+    )
+    .await;
+    let conversation_id = handle
+        .start_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+
+    collect_turn(
+        &handle,
+        conversation_id,
+        "What do you remember about trains?".to_string(),
+    )
+    .await
+    .expect("turn");
+    handle.shutdown().await;
+
+    let requests = provider.requests();
+    assert_eq!(requests.len(), 2);
+    let initial_catalog = requests[0]
+        .tools
+        .iter()
+        .map(|tool| tool.name.clone())
+        .collect::<Vec<_>>();
+    let continuation_catalog = requests[1]
+        .tools
+        .iter()
+        .map(|tool| tool.name.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(initial_catalog, continuation_catalog);
+    let crate::provider::NoemaToolChoice::Allowed(allowed) = &requests[1].tool_choice else {
+        panic!("expected an allowed-tools restriction");
+    };
+    assert!(
+        allowed
+            .tools
+            .iter()
+            .any(|tool| tool.as_str() == "search_memory")
+    );
+    assert!(
+        allowed
+            .tools
+            .iter()
+            .all(|tool| tool.as_str() != "update_own_name")
+    );
+}
+
+#[tokio::test]
 async fn rejected_response_chain_falls_back_to_complete_local_replay() {
     let provider = Arc::new(
         RecordingFakeProvider::new("codex", FakeCodexScenario::NativeSearchMemoryContinuation)
             .with_tool_capabilities(ProviderToolCapabilities {
-                native_tools: true,
+                tool_transport: ProviderToolTransport::Native,
                 parallel_tool_calls: true,
                 tool_choice: true,
+                allowed_tools: false,
                 schema_dialect: crate::provider::ProviderToolSchemaDialect::OpenAiResponses,
                 strict_schema: false,
                 custom_tools: false,
                 native_tool_results: true,
                 prompt_cache_retention: true,
                 prompt_cache_key: false,
+                prompt_cache_options: false,
+                prompt_cache_breakpoints: false,
                 encrypted_reasoning: false,
-                fallback_mode: ProviderToolFallbackMode::NativeRequired,
             })
             .with_response_continuation(ProviderResponseContinuation::PreviousResponseId {
                 store_response: false,
@@ -3284,10 +3451,8 @@ async fn rejected_response_chain_falls_back_to_complete_local_replay() {
         requests[1].options.previous_response_id.as_deref(),
         Some("resp_1")
     );
-    assert!(matches!(
-        requests[1].input,
-        GenerateInput::NativeToolResults(_)
-    ));
+    assert!(matches!(requests[1].input, GenerateInput::Items(_)));
+    assert_eq!(input_tool_results(&requests[1].input).len(), 1);
     assert!(requests[2].options.previous_response_id.is_none());
     assert!(matches!(requests[2].input, GenerateInput::Items(_)));
     assert_eq!(input_tool_results(&requests[2].input).len(), 1);
@@ -3312,11 +3477,10 @@ async fn web_search_result_is_sent_as_native_tool_result_input() {
     let provider = Arc::new(
         RecordingFakeProvider::new("codex", FakeCodexScenario::NativeWebSearchContinuation)
             .with_tool_capabilities(ProviderToolCapabilities {
-                native_tools: true,
+                tool_transport: ProviderToolTransport::Native,
                 parallel_tool_calls: true,
                 native_tool_results: true,
                 schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
-                fallback_mode: ProviderToolFallbackMode::NativeRequired,
                 ..ProviderToolCapabilities::default()
             }),
     );
@@ -3373,11 +3537,10 @@ async fn native_provider_can_call_web_fetch_and_continue() {
     let provider = Arc::new(
         RecordingFakeProvider::new("codex", FakeCodexScenario::NativeWebFetchContinuation)
             .with_tool_capabilities(ProviderToolCapabilities {
-                native_tools: true,
+                tool_transport: ProviderToolTransport::Native,
                 parallel_tool_calls: true,
                 native_tool_results: true,
                 schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
-                fallback_mode: ProviderToolFallbackMode::NativeRequired,
                 ..ProviderToolCapabilities::default()
             }),
     );
@@ -3419,11 +3582,10 @@ async fn native_provider_can_create_local_artifact_with_two_versions_and_continu
             FakeCodexScenario::NativeArtifactCreateLocalFileContinuation,
         )
         .with_tool_capabilities(ProviderToolCapabilities {
-            native_tools: true,
+            tool_transport: ProviderToolTransport::Native,
             parallel_tool_calls: true,
             native_tool_results: true,
             schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
-            fallback_mode: ProviderToolFallbackMode::NativeRequired,
             ..ProviderToolCapabilities::default()
         }),
     );
@@ -3495,11 +3657,10 @@ async fn runtime_actor_continues_after_continuation_tool_call() {
     let provider = Arc::new(
         RecordingFakeProvider::new("codex", FakeCodexScenario::ChainedSearchMemoryContinuation)
             .with_tool_capabilities(ProviderToolCapabilities {
-                native_tools: true,
+                tool_transport: ProviderToolTransport::Native,
                 parallel_tool_calls: true,
                 native_tool_results: true,
                 schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
-                fallback_mode: ProviderToolFallbackMode::NativeRequired,
                 ..ProviderToolCapabilities::default()
             }),
     );
@@ -3769,11 +3930,14 @@ async fn update_own_name_tool_updates_agent_and_continues_turn() {
             && metadata["action"]["success"] == true
             && metadata["action"]["payload"]["display_name"] == "Fred"
     )));
-    assert!(items.iter().any(|item| matches!(
-        item,
-        TurnTranscriptItem::AssistantText { text }
-            if text == "Fred it is. what would you like help with first?"
-    )));
+    assert!(
+        items.iter().any(|item| matches!(
+            item,
+            TurnTranscriptItem::AssistantText { text }
+                if text == "Fred it is. what would you like help with first?"
+        )),
+        "unexpected continuation transcript: {items:?}"
+    );
 }
 
 #[tokio::test]
@@ -4663,6 +4827,7 @@ async fn append_test_text_item_with_kind(
         | ConversationItemKind::ToolCall
         | ConversationItemKind::ToolResult
         | ConversationItemKind::Reasoning
+        | ConversationItemKind::ModelContextUpdate
         | ConversationItemKind::ApprovalRequest
         | ConversationItemKind::ApprovalResult
         | ConversationItemKind::ArtifactReference
@@ -4758,7 +4923,7 @@ impl RecordingFakeProvider {
             inner: FakeCodexProvider::new(scenario),
             requests: Mutex::new(Vec::new()),
             tool_capabilities: ProviderToolCapabilities {
-                fallback_mode: ProviderToolFallbackMode::BuiltinOnlyEnvelope,
+                tool_transport: ProviderToolTransport::NoemaEnvelope,
                 ..ProviderToolCapabilities::default()
             },
             response_continuation: ProviderResponseContinuation::Unsupported,
@@ -4894,6 +5059,8 @@ impl FakeCodexProvider {
         let rendered_input = request.input.render_for_token_count();
         let input = current_user_input(&request.input);
         let instructions = request.instructions.unwrap_or_default();
+        let identity_context =
+            latest_model_context_section(&request.input, "agent.identity").unwrap_or_default();
         let output = match self.scenario {
             FakeCodexScenario::Simple => assistant_with_no_memories("fake answer"),
             FakeCodexScenario::MultipleChoice => vec![GenerateOutputItem::MultipleChoice {
@@ -4956,11 +5123,11 @@ impl FakeCodexProvider {
                 })
             }
             FakeCodexScenario::IdentityPromptCheck => {
-                let saw_identity = instructions.contains("Agent identity:")
-                    && instructions.contains(r#"agent_id: "agent:primary""#)
-                    && instructions.contains("display_name: null")
-                    && instructions.contains("Onboarding prompt:")
-                    && instructions.contains("update_own_name");
+                let saw_identity = identity_context.contains("Agent identity:")
+                    && identity_context.contains(r#"agent_id: "agent:primary""#)
+                    && identity_context.contains("display_name: null")
+                    && identity_context.contains("Onboarding prompt:")
+                    && identity_context.contains("update_own_name");
                 assistant_with_no_memories(if saw_identity {
                     "saw unnamed identity"
                 } else {
@@ -5159,7 +5326,7 @@ impl FakeCodexProvider {
                 }) {
                     assistant_with_no_memories("native tool result received")
                 } else if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
-                    assistant_with_no_memories("legacy tool result received")
+                    assistant_with_no_memories("tool result received")
                 } else if input.contains("What do you remember about trains?") {
                     vec![
                         GenerateOutputItem::AssistantText {
@@ -5368,18 +5535,18 @@ impl FakeCodexProvider {
             }
             FakeCodexScenario::UpdateOwnNameContinuation => {
                 if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
-                    let expected_name = if instructions.contains(r#"display_name: "Fred""#) {
+                    let expected_name = if identity_context.contains(r#"display_name: "Fred""#) {
                         "Fred"
                     } else {
                         "Mira"
                     };
                     let display_name_marker = format!(r#"display_name: "{expected_name}""#);
-                    let saw_updated_identity = instructions.contains("Agent identity:")
-                        && instructions.contains(&display_name_marker)
-                        && !instructions.contains("You do not have a name yet.");
-                    let saw_onboarding_tasks = instructions
+                    let saw_updated_identity = identity_context.contains("Agent identity:")
+                        && identity_context.contains(&display_name_marker)
+                        && !identity_context.contains("You do not have a name yet.");
+                    let saw_onboarding_tasks = identity_context
                         .contains("Onboarding tasks, in priority order:")
-                        && instructions.contains("what the user wants help with first");
+                        && identity_context.contains("what the user wants help with first");
                     if saw_updated_identity && saw_onboarding_tasks {
                         let reply =
                             format!("{expected_name} it is. what would you like help with first?");
@@ -5452,9 +5619,9 @@ impl FakeCodexProvider {
                         json!({"name": "Mira"}),
                     )]
                 } else {
-                    let saw_identity = instructions.contains("Agent identity:")
-                        && instructions.contains(r#"display_name: "Mira""#)
-                        && !instructions.contains("You do not have a name yet.");
+                    let saw_identity = identity_context.contains("Agent identity:")
+                        && identity_context.contains(r#"display_name: "Mira""#)
+                        && !identity_context.contains("You do not have a name yet.");
                     assistant_with_no_memories(if saw_identity {
                         "saw stored identity"
                     } else {
@@ -5533,12 +5700,18 @@ fn input_message_texts(input: &GenerateInput) -> Vec<String> {
         GenerateInput::Text(text) => vec![text.clone()],
         GenerateInput::Messages(messages) => messages
             .iter()
+            .filter(|message| message.role != crate::provider::GenerateMessageRole::Developer)
             .map(|message| message.content.clone())
             .collect(),
         GenerateInput::Items(items) => items
             .iter()
             .filter_map(|item| match item {
-                GenerateInputItem::Message(message) => Some(message.content.clone()),
+                GenerateInputItem::Message(message)
+                    if message.role != crate::provider::GenerateMessageRole::Developer =>
+                {
+                    Some(message.content.clone())
+                }
+                GenerateInputItem::Message(_) => None,
                 GenerateInputItem::Reasoning(_)
                 | GenerateInputItem::ToolCall(_)
                 | GenerateInputItem::ToolResult(_) => None,
@@ -5546,6 +5719,67 @@ fn input_message_texts(input: &GenerateInput) -> Vec<String> {
             .collect(),
         GenerateInput::NativeToolResults(_) => Vec::new(),
     }
+}
+
+fn latest_model_context_section(input: &GenerateInput, section_id: &str) -> Option<String> {
+    let messages = match input {
+        GenerateInput::Messages(messages) => messages.iter().collect::<Vec<_>>(),
+        GenerateInput::Items(items) => items
+            .iter()
+            .filter_map(|item| match item {
+                GenerateInputItem::Message(message) => Some(message),
+                GenerateInputItem::Reasoning(_)
+                | GenerateInputItem::ToolCall(_)
+                | GenerateInputItem::ToolResult(_) => None,
+            })
+            .collect(),
+        GenerateInput::Text(_) | GenerateInput::NativeToolResults(_) => Vec::new(),
+    };
+    let mut latest = None;
+    for message in messages {
+        if message.role != crate::provider::GenerateMessageRole::Developer {
+            continue;
+        }
+        let Some(envelope) = message
+            .content
+            .strip_prefix("NOEMA_MODEL_CONTEXT_UPDATE\n")
+            .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+        else {
+            continue;
+        };
+        if envelope["section_id"].as_str() != Some(section_id) {
+            continue;
+        }
+        latest = envelope["content"].as_str().map(str::to_string);
+    }
+    latest
+}
+
+fn model_context_section_update_count(input: &GenerateInput, section_id: &str) -> usize {
+    let messages = match input {
+        GenerateInput::Messages(messages) => messages.iter().collect::<Vec<_>>(),
+        GenerateInput::Items(items) => items
+            .iter()
+            .filter_map(|item| match item {
+                GenerateInputItem::Message(message) => Some(message),
+                GenerateInputItem::Reasoning(_)
+                | GenerateInputItem::ToolCall(_)
+                | GenerateInputItem::ToolResult(_) => None,
+            })
+            .collect(),
+        GenerateInput::Text(_) | GenerateInput::NativeToolResults(_) => Vec::new(),
+    };
+    messages
+        .into_iter()
+        .filter(|message| message.role == crate::provider::GenerateMessageRole::Developer)
+        .filter_map(|message| {
+            message
+                .content
+                .strip_prefix("NOEMA_MODEL_CONTEXT_UPDATE\n")
+                .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+        })
+        .filter(|envelope| envelope["section_id"].as_str() == Some(section_id))
+        .count()
 }
 
 fn input_tool_results(input: &GenerateInput) -> Vec<&crate::provider::GenerateToolResultInput> {
@@ -5587,7 +5821,7 @@ async fn insert_authenticated_provider_account(
 impl super::runtime::RuntimeModelProvider for FakeCodexProvider {
     fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
         ProviderToolCapabilities {
-            fallback_mode: ProviderToolFallbackMode::BuiltinOnlyEnvelope,
+            tool_transport: ProviderToolTransport::NoemaEnvelope,
             ..ProviderToolCapabilities::default()
         }
     }

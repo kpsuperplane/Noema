@@ -248,6 +248,27 @@ impl FoundationBridgeProcess {
         }
     }
 
+    /// Close a bridge session that is no longer valid for its conversation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FoundationBridgeError`] when the bridge rejects the close or
+    /// returns an unexpected response.
+    pub async fn close_session(&mut self, session_id: String) -> Result<(), FoundationBridgeError> {
+        let response = self
+            .send_request(BridgeRequest {
+                id: "close_session".to_string(),
+                payload: BridgeRequestPayload::CloseSession { session_id },
+            })
+            .await?;
+        match response.payload {
+            BridgeResponsePayload::ReplayComplete => Ok(()),
+            payload => Err(FoundationBridgeError::BridgeProtocol(format!(
+                "unexpected close_session response {payload:?}"
+            ))),
+        }
+    }
+
     /// Ask the bridge to cancel an in-flight request.
     ///
     /// # Errors

@@ -105,8 +105,6 @@ pub struct NoemaToolSpec {
     pub output_schema: Option<NoemaToolSchema>,
     /// Execution target that owns the tool call.
     pub execution: NoemaToolExecution,
-    /// Policy for exposing this tool to provider requests.
-    pub exposure: ToolExposurePolicy,
 }
 
 impl NoemaToolSpec {
@@ -136,7 +134,6 @@ impl NoemaToolSpec {
             input_schema,
             output_schema: None,
             execution,
-            exposure: ToolExposurePolicy::default(),
         })
     }
 
@@ -249,33 +246,16 @@ pub enum NoemaToolExecution {
     },
 }
 
-/// Provider exposure policy for a canonical tool.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ToolExposurePolicy {
-    /// Fallback behavior when native provider tools are unavailable.
-    pub fallback_mode: ProviderToolFallbackMode,
-}
-
-impl Default for ToolExposurePolicy {
-    fn default() -> Self {
-        Self {
-            fallback_mode: ProviderToolFallbackMode::NativeRequired,
-        }
-    }
-}
-
-/// Provider fallback behavior for tool exposure.
+/// Provider transport used to expose the canonical Noema tool catalog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ProviderToolFallbackMode {
-    /// Do not expose tools.
-    NoTools,
-    /// Expose only local builtin tools through the legacy response envelope.
-    BuiltinOnlyEnvelope,
-    /// Expose tools through the legacy response envelope.
-    LegacyEnvelope,
-    /// Require provider-native tool support.
-    NativeRequired,
+pub enum ProviderToolTransport {
+    /// This provider does not expose model-visible tools.
+    None,
+    /// Tools are exposed through the provider's native tool channel.
+    Native,
+    /// Tools are exposed through Noema's structured response envelope.
+    NoemaEnvelope,
 }
 
 /// Provider-native tool schema dialect.
@@ -293,7 +273,7 @@ pub enum ProviderToolSchemaDialect {
 }
 
 /// Tool selection policy requested by Noema.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NoemaToolChoice {
     /// Let the provider choose whether to call a tool.
@@ -303,17 +283,41 @@ pub enum NoemaToolChoice {
     None,
     /// Require at least one tool call.
     Required,
+    /// Restrict the callable set without changing the provider tool catalog.
+    Allowed(NoemaAllowedTools),
 }
 
-/// Provider/model native tool-calling capabilities.
+/// Whether a provider may decline to call one of the allowed tools.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NoemaAllowedToolsMode {
+    /// Let the provider choose whether to call an allowed tool.
+    #[default]
+    Auto,
+    /// Require at least one call to an allowed tool.
+    Required,
+}
+
+/// Provider-neutral restriction to a subset of the declared tool catalog.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NoemaAllowedTools {
+    /// Whether a tool call is optional or required.
+    pub mode: NoemaAllowedToolsMode,
+    /// Canonical Noema tool names that remain callable.
+    pub tools: Vec<ToolName>,
+}
+
+/// Provider/model tool-calling capabilities.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProviderToolCapabilities {
-    /// Whether native model-visible tools are supported.
-    pub native_tools: bool,
+    /// Transport used to expose the request's canonical tool catalog.
+    pub tool_transport: ProviderToolTransport,
     /// Whether independent parallel tool calls are supported.
     pub parallel_tool_calls: bool,
     /// Whether explicit tool choice is supported.
     pub tool_choice: bool,
+    /// Whether the provider can restrict calls to a subset of a stable catalog.
+    pub allowed_tools: bool,
     /// Provider schema dialect for native tools.
     pub schema_dialect: ProviderToolSchemaDialect,
     /// Whether strict JSON schema enforcement is supported.
@@ -326,26 +330,30 @@ pub struct ProviderToolCapabilities {
     pub prompt_cache_retention: bool,
     /// Whether provider requests support a stable prompt cache key.
     pub prompt_cache_key: bool,
+    /// Whether request-wide prompt-cache options are supported.
+    pub prompt_cache_options: bool,
+    /// Whether explicit prompt-cache breakpoints are supported on input content.
+    pub prompt_cache_breakpoints: bool,
     /// Whether provider requests support encrypted reasoning include/replay.
     pub encrypted_reasoning: bool,
-    /// Default fallback behavior for unavailable native tools.
-    pub fallback_mode: ProviderToolFallbackMode,
 }
 
 impl Default for ProviderToolCapabilities {
     fn default() -> Self {
         Self {
-            native_tools: false,
+            tool_transport: ProviderToolTransport::None,
             parallel_tool_calls: false,
             tool_choice: false,
+            allowed_tools: false,
             schema_dialect: ProviderToolSchemaDialect::None,
             strict_schema: false,
             custom_tools: false,
             native_tool_results: false,
             prompt_cache_retention: false,
             prompt_cache_key: false,
+            prompt_cache_options: false,
+            prompt_cache_breakpoints: false,
             encrypted_reasoning: false,
-            fallback_mode: ProviderToolFallbackMode::NoTools,
         }
     }
 }
@@ -589,14 +597,13 @@ mod tests {
     }
 
     #[test]
-    fn default_tool_capabilities_do_not_expose_native_tools() {
+    fn default_tool_capabilities_do_not_expose_tools() {
         let capabilities = ProviderToolCapabilities::default();
 
-        assert!(!capabilities.native_tools);
+        assert_eq!(capabilities.tool_transport, ProviderToolTransport::None);
         assert!(!capabilities.parallel_tool_calls);
-        assert_eq!(
-            capabilities.fallback_mode,
-            ProviderToolFallbackMode::NoTools
-        );
+        assert!(!capabilities.allowed_tools);
+        assert!(!capabilities.prompt_cache_options);
+        assert!(!capabilities.prompt_cache_breakpoints);
     }
 }

@@ -83,6 +83,8 @@ pub struct BridgeReplayTurn {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BridgeRole {
+    /// Trusted application/runtime context appended to the model transcript.
+    ApplicationContext,
     /// User turn.
     User,
     /// Assistant turn.
@@ -214,6 +216,24 @@ mod tests {
 
         assert_eq!(value["payload"]["type"], "generate");
         assert_eq!(value["payload"]["max_output_tokens"], 256);
+    }
+
+    #[test]
+    fn application_context_replay_role_serializes_distinctly() {
+        let message = BridgeRequest {
+            id: "request-replay".to_string(),
+            payload: BridgeRequestPayload::ReplayTurns {
+                session_id: "session:1".to_string(),
+                turns: vec![BridgeReplayTurn {
+                    role: BridgeRole::ApplicationContext,
+                    text: "runtime date: 2026-07-15".to_string(),
+                }],
+            },
+        };
+
+        let value = serde_json::to_value(&message).expect("json");
+
+        assert_eq!(value["payload"]["turns"][0]["role"], "application_context");
     }
 
     #[test]

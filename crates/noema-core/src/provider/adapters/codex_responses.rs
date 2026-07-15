@@ -18,7 +18,7 @@ use crate::{
     provider::{
         DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, GenerateStreamEvent,
         ModelProvider, ProviderError, ProviderResponseContinuation, ProviderToolCapabilities,
-        ProviderToolFallbackMode, ProviderToolSchemaDialect,
+        ProviderToolSchemaDialect, ProviderToolTransport,
         model_catalog::latest_codex_client_version,
     },
 };
@@ -316,17 +316,19 @@ impl ModelProvider for CodexResponsesProvider {
 
     fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
         ProviderToolCapabilities {
-            native_tools: true,
+            tool_transport: ProviderToolTransport::Native,
             parallel_tool_calls: true,
             tool_choice: true,
+            allowed_tools: false,
             schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
             strict_schema: false,
             custom_tools: false,
             native_tool_results: true,
             prompt_cache_retention: false,
             prompt_cache_key: true,
+            prompt_cache_options: false,
+            prompt_cache_breakpoints: false,
             encrypted_reasoning: codex_encrypted_reasoning_supported(),
-            fallback_mode: ProviderToolFallbackMode::NativeRequired,
         }
     }
 
@@ -357,7 +359,7 @@ mod tests {
     use crate::provider::adapters::test_support::spawn_server;
     use crate::provider::{
         GenerateInput, GenerateOptions, GenerateResponseStatus, NoemaToolChoice,
-        NoemaToolExecution, NoemaToolSpec, ProviderToolFallbackMode, ProviderToolSchemaDialect,
+        NoemaToolExecution, NoemaToolSpec, ProviderToolSchemaDialect, ProviderToolTransport,
     };
     use serde_json::Value;
     use tempfile::TempDir;
@@ -441,7 +443,7 @@ mod tests {
         let capabilities = provider.tool_capabilities(Some("gpt-test"));
         let continuation = provider.response_continuation(Some("gpt-test"));
 
-        assert!(capabilities.native_tools);
+        assert_eq!(capabilities.tool_transport, ProviderToolTransport::Native);
         assert!(capabilities.parallel_tool_calls);
         assert!(capabilities.tool_choice);
         assert!(capabilities.native_tool_results);
@@ -460,10 +462,6 @@ mod tests {
             ProviderResponseContinuation::PreviousResponseId {
                 store_response: false
             }
-        );
-        assert_eq!(
-            capabilities.fallback_mode,
-            ProviderToolFallbackMode::NativeRequired
         );
     }
 

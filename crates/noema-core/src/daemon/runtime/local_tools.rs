@@ -996,17 +996,16 @@ mod tests {
                 agent_id: "agent:primary".to_string(),
                 display_name: None,
             },
+            runtime_environment: crate::daemon::runtime::turn::current_runtime_environment(None),
             tool_capabilities: ProviderToolCapabilities::default(),
+            provider_tool_catalog: Vec::new(),
             continuation_model_tools: ModelTools {
-                native: Vec::new(),
-                legacy_builtin_envelope_tools: Vec::new(),
-                legacy_builtin_envelope_specs: Vec::new(),
+                transport: crate::provider::ProviderToolTransport::None,
+                tools: Vec::new(),
                 prompt_rows: Vec::new(),
                 unavailable_rows: Vec::new(),
                 tool_policy: crate::agent_execution::ToolPolicy::default(),
             },
-            rendered_tools: String::new(),
-            rendered_continuation_tools: String::new(),
             initial_provider_input: GenerateInput::Text("test".to_string()),
         }
     }

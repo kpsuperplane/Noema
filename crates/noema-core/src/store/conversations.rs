@@ -501,6 +501,7 @@ impl NoemaStore {
                     r#"
                     WHERE conversation_id = ?1
                       AND deleted_at IS NULL
+                      AND kind <> 'model_context_update'
                       AND sequence_index < ?2
                     ORDER BY sequence_index DESC
                     LIMIT ?3
@@ -516,6 +517,7 @@ impl NoemaStore {
                     r#"
                     WHERE conversation_id = ?1
                       AND deleted_at IS NULL
+                      AND kind <> 'model_context_update'
                     ORDER BY sequence_index DESC
                     LIMIT ?2
                     "#,
@@ -630,7 +632,7 @@ impl NoemaStore {
                     WHERE conversation_id = ?1
                       AND deleted_at IS NULL
                       AND sequence_index > ?2
-                      AND kind IN ('user_text', 'assistant_text', 'tool_call', 'tool_result', 'reasoning')
+                      AND kind IN ('user_text', 'assistant_text', 'tool_call', 'tool_result', 'reasoning', 'model_context_update')
                     ORDER BY sequence_index ASC
                     "#,
                     params![conversation_id, after_sequence_index],

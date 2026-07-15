@@ -19,7 +19,9 @@ pub use client::{DiscoveredMcpTool, McpClientError, McpClientRuntime, McpTranspo
 pub use eligibility::{
     McpToolIneligibility, mcp_tool_ineligibility, prompt_safe_mcp_tool_description,
 };
-pub(crate) use eligibility::{sanitize_prompt_line, truncate_chars};
+pub(crate) use eligibility::{
+    mcp_tool_catalog_ineligibility, sanitize_prompt_line, truncate_chars,
+};
 pub use http::StreamableHttpMcpTransport;
 pub use oauth::{
     McpOAuthSetupAttemptStatus, McpOAuthSetupAttemptView, McpOAuthSetupManager,

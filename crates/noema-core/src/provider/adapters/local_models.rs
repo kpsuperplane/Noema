@@ -15,7 +15,7 @@ use crate::{
     provider::{
         GenerateInput, GenerateInputItem, GenerateMessageRole, GenerateRequest, GenerateResponse,
         GenerateResponseStatus, GenerateStreamEvent, ModelProvider, ParsedNoemaResponse,
-        ProviderContextMetadata, ProviderError, ProviderToolCapabilities, ProviderToolFallbackMode,
+        ProviderContextMetadata, ProviderError, ProviderToolCapabilities, ProviderToolTransport,
         TokenUsage, output_items_from_text, required_noema_response_from_text,
     },
 };
@@ -213,7 +213,7 @@ impl ModelProvider for LocalModelsProvider {
 
     fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
         ProviderToolCapabilities {
-            fallback_mode: ProviderToolFallbackMode::BuiltinOnlyEnvelope,
+            tool_transport: ProviderToolTransport::NoemaEnvelope,
             ..ProviderToolCapabilities::default()
         }
     }
@@ -344,7 +344,7 @@ impl ChatCompletionRequest {
             .as_deref()
             .filter(|instructions| !instructions.trim().is_empty())
         {
-            messages.push(ChatMessage::new("system", instructions));
+            push_chat_message(&mut messages, "system", instructions);
         }
         append_generate_input(&mut messages, &request.input);
         if messages.is_empty() {
@@ -477,39 +477,64 @@ impl ChatMessage {
 
 fn append_generate_input(messages: &mut Vec<ChatMessage>, input: &GenerateInput) {
     match input {
-        GenerateInput::Text(text) => messages.push(ChatMessage::new("user", text)),
+        GenerateInput::Text(text) => push_chat_message(messages, "user", text),
         GenerateInput::Messages(input_messages) => {
-            messages.extend(input_messages.iter().map(|message| {
-                ChatMessage::new(
+            for message in input_messages {
+                push_chat_message(
+                    messages,
                     match message.role {
-                        GenerateMessageRole::System => "system",
+                        GenerateMessageRole::System | GenerateMessageRole::Developer => "system",
                         GenerateMessageRole::User => "user",
                         GenerateMessageRole::Assistant => "assistant",
                     },
                     &message.content,
-                )
-            }))
+                );
+            }
         }
-        GenerateInput::Items(items) => messages.extend(items.iter().map(|item| match item {
-            GenerateInputItem::Message(message) => ChatMessage::new(
-                match message.role {
-                    GenerateMessageRole::System => "system",
-                    GenerateMessageRole::User => "user",
-                    GenerateMessageRole::Assistant => "assistant",
-                },
-                &message.content,
-            ),
-            GenerateInputItem::Reasoning(_) | GenerateInputItem::ToolCall(_) => {
-                ChatMessage::new("assistant", item.render_for_token_count())
+        GenerateInput::Items(items) => {
+            for item in items {
+                match item {
+                    GenerateInputItem::Message(message) => push_chat_message(
+                        messages,
+                        match message.role {
+                            GenerateMessageRole::System | GenerateMessageRole::Developer => {
+                                "system"
+                            }
+                            GenerateMessageRole::User => "user",
+                            GenerateMessageRole::Assistant => "assistant",
+                        },
+                        &message.content,
+                    ),
+                    GenerateInputItem::Reasoning(_) | GenerateInputItem::ToolCall(_) => {
+                        push_chat_message(messages, "assistant", item.render_for_token_count());
+                    }
+                    GenerateInputItem::ToolResult(_) => {
+                        push_chat_message(messages, "user", item.render_for_token_count());
+                    }
+                }
             }
-            GenerateInputItem::ToolResult(_) => {
-                ChatMessage::new("user", item.render_for_token_count())
-            }
-        })),
+        }
         GenerateInput::NativeToolResults(_) => {
-            messages.push(ChatMessage::new("user", input.render_for_token_count()));
+            push_chat_message(messages, "user", input.render_for_token_count());
         }
     }
+}
+
+fn push_chat_message(
+    messages: &mut Vec<ChatMessage>,
+    role: &'static str,
+    content: impl Into<String>,
+) {
+    let content = content.into();
+    if role == "system"
+        && let Some(previous) = messages.last_mut()
+        && previous.role == "system"
+    {
+        previous.content.push_str("\n\n");
+        previous.content.push_str(&content);
+        return;
+    }
+    messages.push(ChatMessage::new(role, content));
 }
 
 #[derive(Debug, Default)]
@@ -711,6 +736,38 @@ mod tests {
         assert!(body.cache_prompt);
         assert!(!body.chat_template_kwargs.enable_thinking);
         assert!(body.response_format.is_none());
+    }
+
+    #[test]
+    fn chat_request_coalesces_developer_context_into_the_leading_system_message() {
+        let mut request = GenerateRequest::text("ignored");
+        request.instructions = Some("system rules".to_string());
+        request.input = GenerateInput::Messages(vec![
+            GenerateMessage {
+                role: GenerateMessageRole::Developer,
+                content: "identity update".to_string(),
+            },
+            GenerateMessage {
+                role: GenerateMessageRole::Developer,
+                content: "memory tool catalog".to_string(),
+            },
+            GenerateMessage {
+                role: GenerateMessageRole::User,
+                content: "question".to_string(),
+            },
+        ]);
+
+        let body = ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
+            .expect("chat request");
+
+        assert_eq!(body.messages.len(), 2);
+        assert_eq!(body.messages[0].role, "system");
+        assert_eq!(
+            body.messages[0].content,
+            "system rules\n\nidentity update\n\nmemory tool catalog"
+        );
+        assert_eq!(body.messages[1].role, "user");
+        assert_eq!(body.messages[1].content, "question");
     }
 
     #[test]

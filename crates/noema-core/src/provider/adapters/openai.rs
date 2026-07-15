@@ -9,7 +9,7 @@ use crate::{
     provider::{
         DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, ModelProvider,
         ProviderError, ProviderResponseContinuation, ProviderToolCapabilities,
-        ProviderToolFallbackMode, ProviderToolSchemaDialect,
+        ProviderToolSchemaDialect, ProviderToolTransport,
     },
 };
 use reqwest::header::{HeaderMap, HeaderName};
@@ -160,19 +160,23 @@ impl ModelProvider for OpenAiProvider {
         )
     }
 
-    fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
+    fn tool_capabilities(&self, model: Option<&str>) -> ProviderToolCapabilities {
+        let model = model.unwrap_or(&self.config.default_model);
+        let explicit_prompt_cache = model == "gpt-5.6" || model.starts_with("gpt-5.6-");
         ProviderToolCapabilities {
-            native_tools: true,
+            tool_transport: ProviderToolTransport::Native,
             parallel_tool_calls: true,
             tool_choice: true,
+            allowed_tools: true,
             schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
             strict_schema: false,
             custom_tools: false,
             native_tool_results: true,
-            prompt_cache_retention: true,
+            prompt_cache_retention: !explicit_prompt_cache,
             prompt_cache_key: true,
+            prompt_cache_options: explicit_prompt_cache,
+            prompt_cache_breakpoints: explicit_prompt_cache,
             encrypted_reasoning: true,
-            fallback_mode: ProviderToolFallbackMode::NativeRequired,
         }
     }
 
@@ -236,7 +240,7 @@ mod tests {
     use crate::provider::adapters::test_support::spawn_server;
     use crate::provider::{
         GenerateResponseStatus, NoemaToolChoice, NoemaToolExecution, NoemaToolSpec,
-        ProviderToolFallbackMode, ProviderToolSchemaDialect, TokenUsage,
+        ProviderToolSchemaDialect, ProviderToolTransport, TokenUsage,
     };
     use crate::{GenerateInput, PromptCacheRetention};
     use serde_json::Value;
@@ -588,7 +592,7 @@ mod tests {
         let capabilities = provider.tool_capabilities(Some("gpt-test"));
         let continuation = provider.response_continuation(Some("gpt-test"));
 
-        assert!(capabilities.native_tools);
+        assert_eq!(capabilities.tool_transport, ProviderToolTransport::Native);
         assert!(capabilities.parallel_tool_calls);
         assert!(capabilities.tool_choice);
         assert!(capabilities.native_tool_results);
@@ -600,15 +604,23 @@ mod tests {
             ProviderToolSchemaDialect::OpenAiResponses
         );
         assert_eq!(
-            capabilities.fallback_mode,
-            ProviderToolFallbackMode::NativeRequired
-        );
-        assert_eq!(
             continuation,
             ProviderResponseContinuation::PreviousResponseId {
                 store_response: true
             }
         );
+    }
+
+    #[test]
+    fn gpt_5_6_uses_explicit_prompt_cache_controls_without_legacy_retention() {
+        let provider = test_provider("http://127.0.0.1:1".to_string());
+
+        let capabilities = provider.tool_capabilities(Some("gpt-5.6"));
+
+        assert!(!capabilities.prompt_cache_retention);
+        assert!(capabilities.prompt_cache_key);
+        assert!(capabilities.prompt_cache_options);
+        assert!(capabilities.prompt_cache_breakpoints);
     }
 
     #[test]

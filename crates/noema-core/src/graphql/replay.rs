@@ -104,7 +104,7 @@ fn turn_transcript_item_from_record(
                 recoverable: payload.recoverable,
             }))
         }
-        ConversationItemKind::Reasoning => Ok(None),
+        ConversationItemKind::Reasoning | ConversationItemKind::ModelContextUpdate => Ok(None),
         ConversationItemKind::ArtifactReference => {
             let payload: ReplayArtifactReferencePayload = replay_payload(record)?;
             Ok(Some(TurnTranscriptItem::ArtifactReference {

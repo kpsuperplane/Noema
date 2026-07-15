@@ -1,13 +1,17 @@
 //! Shared transport and parser for OpenAI-compatible Responses API calls.
 
 use super::sse::SseAccumulator;
+use crate::provider::{
+    contract::PromptCacheOptions,
+    tools::{NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice},
+};
 use crate::{
     SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger,
     provider::{
-        GenerateInput, GenerateInputItem, GenerateMessageRole, GenerateReasoningInput,
-        GenerateReasoningItem, GenerateRequest, GenerateResponse, GenerateResponseStatus,
-        GenerateStreamEvent, GenerateToolCallInput, GenerateToolResultInput, ParsedNoemaResponse,
-        PromptCacheRetention, ProviderError, ReasoningEffort, TokenUsage, output_items_from_text,
+        GenerateInput, GenerateInputItem, GenerateReasoningInput, GenerateReasoningItem,
+        GenerateRequest, GenerateResponse, GenerateResponseStatus, GenerateStreamEvent,
+        GenerateToolCallInput, GenerateToolResultInput, ParsedNoemaResponse, PromptCacheRetention,
+        ProviderError, ReasoningEffort, TokenUsage, output_items_from_text,
         required_noema_response_from_text_with_native_tool_calls,
     },
 };
@@ -50,7 +54,7 @@ pub struct ResponsesRequest {
     pub tools: Vec<ResponsesTool>,
     /// Responses API tool-choice policy.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_choice: Option<&'static str>,
+    pub tool_choice: Option<ResponsesToolChoice>,
     /// Whether parallel independent tool calls are allowed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parallel_tool_calls: Option<bool>,
@@ -60,6 +64,9 @@ pub struct ResponsesRequest {
     /// Provider prompt-cache key used to bind reusable prefixes to a conversation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_cache_key: Option<String>,
+    /// Request-wide prompt-cache controls when supported by the profile.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_options: Option<PromptCacheOptions>,
     /// Whether the upstream should store this response.
     pub store: bool,
     /// Provider prompt-cache retention request when supported.
@@ -76,6 +83,9 @@ pub(crate) struct ResponsesRequestProfile {
     input_shape: ResponsesInputShape,
     forward_max_output_tokens: bool,
     forward_prompt_cache_retention: bool,
+    forward_prompt_cache_options: bool,
+    forward_prompt_cache_breakpoints: bool,
+    allowed_tools: bool,
     include_encrypted_reasoning: bool,
     stream: bool,
 }
@@ -84,6 +94,9 @@ pub(crate) const OPENAI_RESPONSES_PROFILE: ResponsesRequestProfile = ResponsesRe
     input_shape: ResponsesInputShape::String,
     forward_max_output_tokens: true,
     forward_prompt_cache_retention: true,
+    forward_prompt_cache_options: true,
+    forward_prompt_cache_breakpoints: true,
+    allowed_tools: true,
     include_encrypted_reasoning: true,
     stream: false,
 };
@@ -92,6 +105,9 @@ pub(crate) const CODEX_RESPONSES_PROFILE: ResponsesRequestProfile = ResponsesReq
     input_shape: ResponsesInputShape::MessageArray,
     forward_max_output_tokens: false,
     forward_prompt_cache_retention: false,
+    forward_prompt_cache_options: false,
+    forward_prompt_cache_breakpoints: false,
+    allowed_tools: false,
     include_encrypted_reasoning: false,
     stream: true,
 };
@@ -118,7 +134,12 @@ impl ResponsesRequest {
                 &request.input,
                 profile.input_shape,
                 request.options.previous_response_id.is_some(),
-            ),
+                if profile.forward_prompt_cache_breakpoints {
+                    &request.options.prompt_cache_breakpoints
+                } else {
+                    &[]
+                },
+            )?,
             instructions: request
                 .instructions
                 .as_deref()
@@ -140,7 +161,11 @@ impl ResponsesRequest {
                 .or(default_reasoning_effort)
                 .map(|effort| ResponsesReasoning { effort }),
             tools: tool_names.tools.clone(),
-            tool_choice: responses_tool_choice(request.tool_choice, has_tools),
+            tool_choice: responses_tool_choice(
+                &request.tool_choice,
+                &tool_names,
+                profile.allowed_tools,
+            )?,
             parallel_tool_calls: has_tools.then_some(request.parallel_tool_calls),
             include: if profile.include_encrypted_reasoning {
                 vec!["reasoning.encrypted_content"]
@@ -150,6 +175,10 @@ impl ResponsesRequest {
             prompt_cache_key: prompt_cache_key_from_conversation_id(
                 request.conversation_id.as_deref(),
             ),
+            prompt_cache_options: profile
+                .forward_prompt_cache_options
+                .then_some(request.options.prompt_cache_options)
+                .flatten(),
             store: request.options.store_response,
             prompt_cache_retention: profile
                 .forward_prompt_cache_retention
@@ -185,6 +214,33 @@ pub struct ResponsesTool {
     parameters: Value,
 }
 
+/// Responses API tool selection policy.
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub enum ResponsesToolChoice {
+    /// Provider-native string mode.
+    Mode(&'static str),
+    /// Restrict calls to a stable subset of the declared catalog.
+    Allowed(ResponsesAllowedTools),
+}
+
+/// Responses API allowed-tools object.
+#[derive(Debug, Clone, Serialize)]
+pub struct ResponsesAllowedTools {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    mode: NoemaAllowedToolsMode,
+    tools: Vec<ResponsesAllowedTool>,
+}
+
+/// One function reference inside an allowed-tools choice.
+#[derive(Debug, Clone, Serialize)]
+pub struct ResponsesAllowedTool {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    name: String,
+}
+
 impl ResponsesTool {
     /// Build a native function tool definition.
     #[must_use]
@@ -207,6 +263,7 @@ impl ResponsesTool {
 pub(crate) struct ResponsesToolNameMap {
     pub(crate) tools: Vec<ResponsesTool>,
     provider_to_canonical: HashMap<String, String>,
+    canonical_to_provider: HashMap<String, String>,
 }
 
 impl ResponsesToolNameMap {
@@ -221,6 +278,7 @@ impl ResponsesToolNameMap {
     ) -> Result<Self, ProviderError> {
         let mut responses_tools = Vec::with_capacity(tools.len());
         let mut provider_to_canonical = HashMap::with_capacity(tools.len());
+        let mut canonical_to_provider = HashMap::with_capacity(tools.len());
 
         for tool in tools {
             let canonical = tool.name.as_str();
@@ -237,6 +295,7 @@ impl ResponsesToolNameMap {
             }
 
             provider_to_canonical.insert(provider_safe.clone(), canonical.to_string());
+            canonical_to_provider.insert(canonical.to_string(), provider_safe.clone());
             responses_tools.push(ResponsesTool::function(
                 provider_safe,
                 tool.description.clone(),
@@ -247,6 +306,7 @@ impl ResponsesToolNameMap {
         Ok(Self {
             tools: responses_tools,
             provider_to_canonical,
+            canonical_to_provider,
         })
     }
 
@@ -256,16 +316,82 @@ impl ResponsesToolNameMap {
             .map(String::as_str)
             .unwrap_or(provider_name)
     }
+
+    fn provider_name(&self, canonical_name: &str) -> Option<&str> {
+        self.canonical_to_provider
+            .get(canonical_name)
+            .map(String::as_str)
+    }
 }
 
 pub(crate) fn responses_tool_choice(
-    tool_choice: crate::provider::NoemaToolChoice,
-    has_tools: bool,
-) -> Option<&'static str> {
-    has_tools.then_some(match tool_choice {
-        crate::provider::NoemaToolChoice::Auto => "auto",
-        crate::provider::NoemaToolChoice::None => "none",
-        crate::provider::NoemaToolChoice::Required => "required",
+    tool_choice: &NoemaToolChoice,
+    tool_names: &ResponsesToolNameMap,
+    allowed_tools_supported: bool,
+) -> Result<Option<ResponsesToolChoice>, ProviderError> {
+    if tool_names.tools.is_empty() {
+        return match tool_choice {
+            NoemaToolChoice::Allowed(_) => Err(ProviderError::InvalidRequest {
+                message: "allowed tools require a non-empty tool catalog".to_string(),
+            }),
+            _ => Ok(None),
+        };
+    }
+
+    match tool_choice {
+        NoemaToolChoice::Auto => Ok(Some(ResponsesToolChoice::Mode("auto"))),
+        NoemaToolChoice::None => Ok(Some(ResponsesToolChoice::Mode("none"))),
+        NoemaToolChoice::Required => Ok(Some(ResponsesToolChoice::Mode("required"))),
+        NoemaToolChoice::Allowed(allowed) => {
+            responses_allowed_tools(allowed, tool_names, allowed_tools_supported)
+                .map(ResponsesToolChoice::Allowed)
+                .map(Some)
+        }
+    }
+}
+
+fn responses_allowed_tools(
+    allowed: &NoemaAllowedTools,
+    tool_names: &ResponsesToolNameMap,
+    supported: bool,
+) -> Result<ResponsesAllowedTools, ProviderError> {
+    if !supported {
+        return Err(ProviderError::InvalidRequest {
+            message: "allowed tools are not supported by this provider request profile".to_string(),
+        });
+    }
+    if allowed.tools.is_empty() {
+        return Err(ProviderError::InvalidRequest {
+            message: "allowed tools cannot be empty".to_string(),
+        });
+    }
+
+    let mut seen = std::collections::HashSet::with_capacity(allowed.tools.len());
+    let mut tools = Vec::with_capacity(allowed.tools.len());
+    for tool in &allowed.tools {
+        if !seen.insert(tool.as_str()) {
+            return Err(ProviderError::InvalidRequest {
+                message: format!("allowed tool {} is duplicated", tool.as_str()),
+            });
+        }
+        let Some(provider_name) = tool_names.provider_name(tool.as_str()) else {
+            return Err(ProviderError::InvalidRequest {
+                message: format!(
+                    "allowed tool {} is not present in the request tool catalog",
+                    tool.as_str()
+                ),
+            });
+        };
+        tools.push(ResponsesAllowedTool {
+            kind: "function",
+            name: provider_name.to_string(),
+        });
+    }
+
+    Ok(ResponsesAllowedTools {
+        kind: "allowed_tools",
+        mode: allowed.mode,
+        tools,
     })
 }
 
@@ -431,22 +557,103 @@ pub enum ResponsesInputShape {
 
 impl ResponsesInput {
     /// Lower provider-neutral input to the requested Responses wire shape.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProviderError::InvalidRequest`] when explicit prompt-cache
+    /// breakpoint indices are duplicated, exceed provider limits, or do not
+    /// identify a message in the final filtered input.
     pub fn from_generate(
         value: &GenerateInput,
         shape: ResponsesInputShape,
         continuing_response: bool,
-    ) -> Self {
+        prompt_cache_breakpoints: &[usize],
+    ) -> Result<Self, ProviderError> {
         if let (GenerateInput::Text(text), ResponsesInputShape::MessageArray) = (value, shape) {
-            return Self::Items(vec![ResponsesInputItem::Message(ResponsesInputMessage {
+            let mut input = Self::Items(vec![ResponsesInputItem::Message(ResponsesInputMessage {
                 role: "user",
-                content: text.clone(),
+                content: text.clone().into(),
             })]);
+            input.apply_prompt_cache_breakpoints(prompt_cache_breakpoints)?;
+            return Ok(input);
         }
         if let (GenerateInput::NativeToolResults(results), true) = (value, continuing_response) {
-            return Self::Items(results.iter().map(ResponsesInputItem::from).collect());
+            let mut input = Self::Items(results.iter().map(ResponsesInputItem::from).collect());
+            input.apply_prompt_cache_breakpoints(prompt_cache_breakpoints)?;
+            return Ok(input);
         }
-        Self::from(value)
+        let mut input = Self::from(value);
+        input.apply_prompt_cache_breakpoints(prompt_cache_breakpoints)?;
+        Ok(input)
+    }
+
+    fn apply_prompt_cache_breakpoints(
+        &mut self,
+        prompt_cache_breakpoints: &[usize],
+    ) -> Result<(), ProviderError> {
+        if prompt_cache_breakpoints.is_empty() {
+            return Ok(());
+        }
+        if prompt_cache_breakpoints.len() > 4 {
+            return Err(ProviderError::InvalidRequest {
+                message: "Responses requests support at most four prompt-cache breakpoints"
+                    .to_string(),
+            });
+        }
+
+        let mut requested =
+            std::collections::HashSet::with_capacity(prompt_cache_breakpoints.len());
+        for index in prompt_cache_breakpoints {
+            if !requested.insert(*index) {
+                return Err(ProviderError::InvalidRequest {
+                    message: format!("prompt-cache breakpoint message index {index} is duplicated"),
+                });
+            }
+        }
+
+        match self {
+            Self::Text(text) => {
+                if requested.len() != 1 || !requested.contains(&0) {
+                    return Err(prompt_cache_breakpoint_index_error(
+                        prompt_cache_breakpoints,
+                        1,
+                    ));
+                }
+                let mut message = ResponsesInputMessage {
+                    role: "user",
+                    content: std::mem::take(text).into(),
+                };
+                message.add_prompt_cache_breakpoint();
+                *self = Self::Items(vec![ResponsesInputItem::Message(message)]);
+            }
+            Self::Items(items) => {
+                let mut message_index = 0;
+                for item in items {
+                    let ResponsesInputItem::Message(message) = item else {
+                        continue;
+                    };
+                    if requested.contains(&message_index) {
+                        message.add_prompt_cache_breakpoint();
+                    }
+                    message_index += 1;
+                }
+                if requested.iter().any(|index| *index >= message_index) {
+                    return Err(prompt_cache_breakpoint_index_error(
+                        prompt_cache_breakpoints,
+                        message_index,
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+fn prompt_cache_breakpoint_index_error(indices: &[usize], message_count: usize) -> ProviderError {
+    ProviderError::InvalidRequest {
+        message: format!(
+            "prompt-cache breakpoint message indices {indices:?} are out of range for {message_count} filtered messages"
+        ),
     }
 }
 
@@ -460,12 +667,8 @@ impl From<&GenerateInput> for ResponsesInput {
                     .filter(|message| !message.content.trim().is_empty())
                     .map(|message| {
                         ResponsesInputItem::Message(ResponsesInputMessage {
-                            role: match message.role {
-                                GenerateMessageRole::System => "system",
-                                GenerateMessageRole::User => "user",
-                                GenerateMessageRole::Assistant => "assistant",
-                            },
-                            content: message.content.clone(),
+                            role: message.role.as_str(),
+                            content: message.content.clone().into(),
                         })
                     })
                     .collect(),
@@ -517,12 +720,8 @@ impl From<&GenerateInputItem> for ResponsesInputItem {
     fn from(value: &GenerateInputItem) -> Self {
         match value {
             GenerateInputItem::Message(message) => Self::Message(ResponsesInputMessage {
-                role: match message.role {
-                    GenerateMessageRole::System => "system",
-                    GenerateMessageRole::User => "user",
-                    GenerateMessageRole::Assistant => "assistant",
-                },
-                content: message.content.clone(),
+                role: message.role.as_str(),
+                content: message.content.clone().into(),
             }),
             GenerateInputItem::Reasoning(reasoning) => {
                 Self::Reasoning(ResponsesReasoningItem::from(reasoning))
@@ -562,8 +761,64 @@ impl From<&GenerateReasoningInput> for ResponsesReasoningItem {
 pub struct ResponsesInputMessage {
     /// Provider role.
     pub role: &'static str,
-    /// Message text.
-    pub content: String,
+    /// Message text or content blocks carrying provider controls.
+    pub content: ResponsesInputMessageContent,
+}
+
+impl ResponsesInputMessage {
+    fn add_prompt_cache_breakpoint(&mut self) {
+        let text = match std::mem::replace(
+            &mut self.content,
+            ResponsesInputMessageContent::Blocks(Vec::new()),
+        ) {
+            ResponsesInputMessageContent::Text(text) => text,
+            ResponsesInputMessageContent::Blocks(mut blocks) => {
+                if let Some(block) = blocks.last_mut() {
+                    block.prompt_cache_breakpoint =
+                        Some(ResponsesPromptCacheBreakpoint { mode: "explicit" });
+                }
+                self.content = ResponsesInputMessageContent::Blocks(blocks);
+                return;
+            }
+        };
+        self.content = ResponsesInputMessageContent::Blocks(vec![ResponsesInputText {
+            kind: "input_text",
+            text,
+            prompt_cache_breakpoint: Some(ResponsesPromptCacheBreakpoint { mode: "explicit" }),
+        }]);
+    }
+}
+
+/// Responses message content, retaining the string shorthand unless metadata is required.
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub enum ResponsesInputMessageContent {
+    /// Plain message text.
+    Text(String),
+    /// Structured input content blocks.
+    Blocks(Vec<ResponsesInputText>),
+}
+
+impl From<String> for ResponsesInputMessageContent {
+    fn from(value: String) -> Self {
+        Self::Text(value)
+    }
+}
+
+/// Responses API input-text block.
+#[derive(Debug, Clone, Serialize)]
+pub struct ResponsesInputText {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    prompt_cache_breakpoint: Option<ResponsesPromptCacheBreakpoint>,
+}
+
+/// Explicit cache marker attached to a supported Responses content block.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct ResponsesPromptCacheBreakpoint {
+    mode: &'static str,
 }
 
 /// One Responses API native function-call context input item.
@@ -1331,6 +1586,172 @@ mod tests {
     }
 
     #[test]
+    fn openai_profile_serializes_allowed_tools_with_provider_safe_names() {
+        let request = GenerateRequest {
+            tools: vec![test_tool(), test_tool_named("mcp.docs:read")],
+            tool_choice: NoemaToolChoice::Allowed(NoemaAllowedTools {
+                mode: NoemaAllowedToolsMode::Required,
+                tools: vec![
+                    crate::provider::tools::ToolName::new("mcp.docs:read").expect("tool name"),
+                ],
+            }),
+            ..GenerateRequest::text("hi")
+        };
+
+        let (body, _) = ResponsesRequest::from_generate(
+            &request,
+            "gpt-openai".to_string(),
+            None,
+            OPENAI_RESPONSES_PROFILE,
+        )
+        .expect("allowed tools request");
+        let value = serde_json::to_value(body).expect("OpenAI JSON");
+
+        assert_eq!(value["tools"].as_array().map(Vec::len), Some(2));
+        assert_eq!(value["tool_choice"]["type"], "allowed_tools");
+        assert_eq!(value["tool_choice"]["mode"], "required");
+        assert_eq!(value["tool_choice"]["tools"][0]["type"], "function");
+        assert_eq!(
+            value["tool_choice"]["tools"][0]["name"],
+            "mcp_x2e_docs_x3a_read"
+        );
+    }
+
+    #[test]
+    fn allowed_tools_are_profile_gated_and_must_reference_the_catalog() {
+        let mut request = GenerateRequest {
+            tools: vec![test_tool()],
+            tool_choice: NoemaToolChoice::Allowed(NoemaAllowedTools {
+                mode: NoemaAllowedToolsMode::Auto,
+                tools: vec![
+                    crate::provider::tools::ToolName::new("search_memory").expect("tool name"),
+                ],
+            }),
+            ..GenerateRequest::text("hi")
+        };
+
+        let unsupported = ResponsesRequest::from_generate(
+            &request,
+            "gpt-codex".to_string(),
+            None,
+            CODEX_RESPONSES_PROFILE,
+        )
+        .expect_err("Codex profile rejects allowed tools");
+        assert!(
+            unsupported
+                .to_string()
+                .contains("not supported by this provider request profile")
+        );
+
+        request.tool_choice = NoemaToolChoice::Allowed(NoemaAllowedTools {
+            mode: NoemaAllowedToolsMode::Auto,
+            tools: vec![
+                crate::provider::tools::ToolName::new("update_own_name").expect("tool name"),
+            ],
+        });
+        let missing = ResponsesRequest::from_generate(
+            &request,
+            "gpt-openai".to_string(),
+            None,
+            OPENAI_RESPONSES_PROFILE,
+        )
+        .expect_err("unknown allowed tool rejected");
+        assert!(
+            missing
+                .to_string()
+                .contains("not present in the request tool catalog")
+        );
+    }
+
+    #[test]
+    fn openai_profile_serializes_cache_options_and_developer_message_breakpoints() {
+        let request = GenerateRequest {
+            input: GenerateInput::Messages(vec![
+                crate::GenerateMessage {
+                    role: crate::provider::contract::GenerateMessageRole::System,
+                    content: "   ".to_string(),
+                },
+                crate::GenerateMessage {
+                    role: crate::provider::contract::GenerateMessageRole::Developer,
+                    content: "Environment revision 8".to_string(),
+                },
+                crate::GenerateMessage {
+                    role: crate::provider::contract::GenerateMessageRole::User,
+                    content: "What changed?".to_string(),
+                },
+            ]),
+            options: crate::provider::GenerateOptions {
+                prompt_cache_options: Some(crate::provider::contract::PromptCacheOptions {
+                    mode: crate::provider::contract::PromptCacheMode::Explicit,
+                    ttl: crate::provider::contract::PromptCacheTtl::ThirtyMinutes,
+                }),
+                prompt_cache_breakpoints: vec![0],
+                ..crate::provider::GenerateOptions::default()
+            },
+            ..GenerateRequest::text("unused")
+        };
+
+        let (openai, _) = ResponsesRequest::from_generate(
+            &request,
+            "gpt-openai".to_string(),
+            None,
+            OPENAI_RESPONSES_PROFILE,
+        )
+        .expect("OpenAI request");
+        let (codex, _) = ResponsesRequest::from_generate(
+            &request,
+            "gpt-codex".to_string(),
+            None,
+            CODEX_RESPONSES_PROFILE,
+        )
+        .expect("Codex request");
+        let openai = serde_json::to_value(openai).expect("OpenAI JSON");
+        let codex = serde_json::to_value(codex).expect("Codex JSON");
+
+        assert_eq!(openai["prompt_cache_options"]["mode"], "explicit");
+        assert_eq!(openai["prompt_cache_options"]["ttl"], "30m");
+        assert_eq!(openai["input"][0]["role"], "developer");
+        assert_eq!(openai["input"][0]["content"][0]["type"], "input_text");
+        assert_eq!(
+            openai["input"][0]["content"][0]["prompt_cache_breakpoint"]["mode"],
+            "explicit"
+        );
+        assert_eq!(openai["input"][1]["content"], "What changed?");
+
+        assert!(codex.get("prompt_cache_options").is_none());
+        assert_eq!(codex["input"][0]["role"], "developer");
+        assert_eq!(codex["input"][0]["content"], "Environment revision 8");
+    }
+
+    #[test]
+    fn prompt_cache_breakpoints_reject_invalid_filtered_message_indices() {
+        let request = GenerateRequest {
+            input: GenerateInput::Messages(vec![crate::GenerateMessage {
+                role: crate::provider::contract::GenerateMessageRole::Developer,
+                content: "Environment revision 8".to_string(),
+            }]),
+            options: crate::provider::GenerateOptions {
+                prompt_cache_breakpoints: vec![1],
+                ..crate::provider::GenerateOptions::default()
+            },
+            ..GenerateRequest::text("unused")
+        };
+
+        let error = ResponsesRequest::from_generate(
+            &request,
+            "gpt-openai".to_string(),
+            None,
+            OPENAI_RESPONSES_PROFILE,
+        )
+        .expect_err("out-of-range breakpoint rejected");
+        assert!(
+            error
+                .to_string()
+                .contains("out of range for 1 filtered messages")
+        );
+    }
+
+    #[test]
     fn responses_request_reasoning_precedence_and_input_validation_are_shared() {
         let mut request = GenerateRequest::text("hi");
         request.options.reasoning_effort = Some(ReasoningEffort::Medium);
@@ -1359,8 +1780,12 @@ mod tests {
     }
 
     fn test_tool() -> crate::provider::NoemaToolSpec {
+        test_tool_named("search_memory")
+    }
+
+    fn test_tool_named(name: &str) -> crate::provider::NoemaToolSpec {
         crate::provider::NoemaToolSpec::new(
-            "search_memory",
+            name,
             "Search governed Noema memory.",
             serde_json::json!({
                 "type": "object",

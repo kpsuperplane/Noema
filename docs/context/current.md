@@ -715,6 +715,21 @@ The next storage slice should stay small and concrete:
   exposes Rust replay/cancel request methods, and the Swift bridge decodes
   replay/cancel, replays prior turns by rebuilding the session transcript when
   supported, and returns an explicit unsupported-cancellation error for now.
+- Normal chat now keeps its instruction kernel immutable and persists mutable
+  model context as hidden append-only `model_context_update` items. Stable keys
+  currently cover `agent.identity`, `runtime.environment`, and
+  `tools.visibility`; each developer message replaces only its named section,
+  and compaction checkpoints are followed by a full keyed snapshot. Prompt
+  planning reconciles against any summary activated concurrently so a turn
+  cannot lose identity or tool authority. OpenAI GPT-5.6 profiles attach
+  explicit cache options and up to four developer-message breakpoints. Native
+  tool requests keep a stable catalog of calibrated, read-only, prompt-safe MCP
+  definitions across transient health/auth changes and use provider-enforced
+  `allowed_tools` for the currently callable subset; calibration, schema, and
+  installation changes remain intentional catalog invalidations. Foundation
+  Local keys sessions by the exact immutable instructions, appends keyed
+  application-context suffixes, and recreates a session whenever durable
+  user/assistant replay diverges from its tracked transcript.
 
 ## Open Loops
 
@@ -780,9 +795,10 @@ The next storage slice should stay small and concrete:
 - Treat raw `~/.codex/sessions` as private memory source material. Summarize, do not quote, unless asked.
 - The user is a big fan of trains; train or rail references are welcome when they fit the context.
 - Stable prompt-cache work treats OpenAI and Codex Responses as separate dialects:
-  OpenAI can request `reasoning.encrypted_content` once adapter tests cover it,
-  while Codex must keep encrypted-reasoning include gated off until live/provider
-  verification confirms the request field and replay shape.
+  OpenAI supports the explicit cache controls and provider-enforced tool subsets
+  described above, while Codex keeps unsupported cache fields and encrypted
+  reasoning gated off until live/provider verification confirms their request
+  and replay shapes.
 
 ## Task Modes
 
