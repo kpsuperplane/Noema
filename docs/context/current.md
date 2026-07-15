@@ -89,8 +89,10 @@ The next storage slice should stay small and concrete:
   `crates/noema-core/resources/local-models/catalog.toml`; it contains only
   curated model/build data and generic RAM/VRAM/backend thresholds. Selection
   orders fitting models by priority and catalog order, then chooses the best
-  available backend build for that model. Ternary Bonsai 8B has priority 100
-  and wins whenever either pinned build fits.
+  available backend build for that model. Gemma 4 E4B IT is the only current
+  11/11-qualified model (priority 100) and is recommended on Metal machines with
+  at least 16 GB of unified memory. Smaller or non-Metal machines receive no
+  curated recommendation until another model passes the same qualification bar.
 - Local-model installation state, provenance, progress, errors, events, and
   default references live in SQLite. Verified content-addressed GGUF files live
   under `${NOEMA_HOME}/models/blobs/`, resumable transfers under
@@ -159,9 +161,17 @@ The next storage slice should stay small and concrete:
   E4B IT Q4_K_M passed all 11 contracts in three isolated workers and again in a
   resource soak. The soak processed 6,513 input tokens, completed 20 follow-up
   turns, and held post-turn RSS within 16 KiB; peak server RSS was 5.51 GiB.
-  Gemma E4B is now the measured best-qualified 32 GB default. The bundled
-  catalog still recommends Ternary Bonsai until product promotion is made
-  explicitly.
+  Gemma E4B is the measured best-qualified 16 GB and 32 GB default and is ranked
+  first in the bundled catalog. A final installed-blob rerun in real `~/.noema`
+  kept E4B at 11/11, while Gemma 26B and 12B scored 10/11 and Ternary Bonsai 8B
+  scored 9/11. Those three are excluded together with Nemotron and Qwen, whose
+  historical 11/11 reports copied the hostile web instruction that the corrected
+  grader rejects. The final installation/runtime validation is at
+  `evals/local-models/results/m5-air-live-noema-2026-07-15.md`.
+- Runtime-host startup now eagerly starts an active installed local model before
+  serving clients. A failed llama-server launch leaves Noema available, exposes
+  the existing failed/retry state, and records a `local_model_runtime_unavailable`
+  system error instead of presenting every healthy restart as inactive.
 - The daemon shares one local-model supervisor between provider dispatch and
   runtime status. Activating a local model hot-swaps the managed Mnemosyne model
   proxy route without restarting the sidecar, and memory requests use a

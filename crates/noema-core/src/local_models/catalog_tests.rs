@@ -4,48 +4,65 @@ const HASH: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 const REVISION: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
 #[test]
-fn bundled_catalog_loads_and_contains_pinned_bonsai_builds() {
+fn bundled_catalog_loads_ranked_pinned_models() {
     let catalog = LocalModelCatalog::bundled().expect("bundled catalog must remain valid");
 
     assert_eq!(catalog.models().len(), 1);
-    let bonsai = &catalog.models()[0];
-    assert_eq!(bonsai.id, "ternary-bonsai-8b");
-    assert_eq!(bonsai.priority, 100);
-    assert_eq!(bonsai.builds.len(), 2);
-    assert_eq!(bonsai.revision.len(), 40);
-    assert!(bonsai.builds.iter().all(|build| build.sha256.len() == 64));
+    assert_eq!(
+        catalog
+            .models()
+            .iter()
+            .map(|model| (model.id.as_str(), model.priority))
+            .collect::<Vec<_>>(),
+        vec![("gemma-4-e4b-it", 100)]
+    );
+    let model = &catalog.models()[0];
+    assert_eq!(model.revision, "2714b5519c6c3516b1000e7c5e1eba998dfe1fe8");
+    assert_eq!(model.builds.len(), 1);
+    assert_eq!(model.builds[0].file, "gemma-4-E4B-it-Q4_K_M.gguf");
+    assert_eq!(
+        model.builds[0].sha256,
+        "90ce98129eb3e8cc57e62433d500c97c624b1e3af1fcc85dd3b55ad7e0313e9f"
+    );
+    assert!(catalog.models().iter().all(|model| {
+        model.revision.len() == 40 && model.builds.iter().all(|build| build.sha256.len() == 64)
+    }));
 }
 
 #[test]
-fn bonsai_fits_each_boundary_and_wins_only_when_it_fits() {
+fn qualified_model_wins_only_at_its_memory_boundary() {
     let catalog = LocalModelCatalog::bundled().expect("bundled catalog must remain valid");
     let cases = [
         (
             LocalHardwareProfile::new(LocalModelBackend::Metal, 12, None, true),
-            Some("Bonsai-8B-Q2_KT.gguf"),
+            None,
         ),
         (
-            LocalHardwareProfile::new(LocalModelBackend::Cuda, 12, Some(6), false),
-            Some("Bonsai-8B-Q2_KT.gguf"),
+            LocalHardwareProfile::new(LocalModelBackend::Metal, 15, None, true),
+            None,
         ),
         (
-            LocalHardwareProfile::new(LocalModelBackend::Vulkan, 12, Some(6), false),
-            Some("Bonsai-8B-Q2_KT.gguf"),
+            LocalHardwareProfile::new(LocalModelBackend::Metal, 16, None, true),
+            Some("gemma-4-E4B-it-Q4_K_M.gguf"),
         ),
         (
-            LocalHardwareProfile::new(LocalModelBackend::Cpu, 12, None, false),
-            Some("Bonsai-8B-TQ2_0.gguf"),
+            LocalHardwareProfile::new(LocalModelBackend::Metal, 32, None, true),
+            Some("gemma-4-E4B-it-Q4_K_M.gguf"),
+        ),
+        (
+            LocalHardwareProfile::new(LocalModelBackend::Cuda, 32, Some(24), false),
+            None,
+        ),
+        (
+            LocalHardwareProfile::new(LocalModelBackend::Vulkan, 32, Some(24), false),
+            None,
+        ),
+        (
+            LocalHardwareProfile::new(LocalModelBackend::Cpu, 32, None, false),
+            None,
         ),
         (
             LocalHardwareProfile::new(LocalModelBackend::Metal, 11, None, true),
-            None,
-        ),
-        (
-            LocalHardwareProfile::new(LocalModelBackend::Cuda, 12, Some(5), false),
-            None,
-        ),
-        (
-            LocalHardwareProfile::new(LocalModelBackend::Cpu, 11, None, false),
             None,
         ),
     ];
@@ -60,35 +77,82 @@ fn bonsai_fits_each_boundary_and_wins_only_when_it_fits() {
 }
 
 #[test]
-fn backend_preference_falls_back_to_cpu() {
+fn qualified_model_enforces_its_measured_ram_boundary() {
+    let catalog = LocalModelCatalog::bundled().expect("bundled catalog must remain valid");
+    let cases = [
+        ("gemma-4-e4b-it", 15, None),
+        ("gemma-4-e4b-it", 16, Some("gemma-4-E4B-it-Q4_K_M.gguf")),
+    ];
+
+    for (model_id, ram_gb, expected_file) in cases {
+        let profiles = [LocalHardwareProfile::new(
+            LocalModelBackend::Metal,
+            ram_gb,
+            None,
+            true,
+        )];
+        let selection = catalog.select_build(model_id, &profiles);
+        assert_eq!(
+            selection.map(|selected| selected.build.file.as_str()),
+            expected_file
+        );
+    }
+}
+
+#[test]
+fn qualified_model_enforces_its_accelerator_memory_boundary() {
+    let catalog = LocalModelCatalog::bundled().expect("bundled catalog must remain valid");
+    let cases = [
+        ("gemma-4-e4b-it", 5, None),
+        ("gemma-4-e4b-it", 6, Some("gemma-4-E4B-it-Q4_K_M.gguf")),
+    ];
+
+    for (model_id, vram_gb, expected_file) in cases {
+        let profiles = [LocalHardwareProfile::new(
+            LocalModelBackend::Metal,
+            32,
+            Some(vram_gb),
+            false,
+        )];
+        let selection = catalog.select_build(model_id, &profiles);
+        assert_eq!(
+            selection.map(|selected| selected.build.file.as_str()),
+            expected_file
+        );
+    }
+}
+
+#[test]
+fn backend_preference_skips_unqualified_backends() {
     let catalog = LocalModelCatalog::bundled().expect("bundled catalog must remain valid");
     let profiles = [
-        LocalHardwareProfile::new(LocalModelBackend::Vulkan, 12, Some(5), false),
-        LocalHardwareProfile::new(LocalModelBackend::Cpu, 12, None, false),
+        LocalHardwareProfile::new(LocalModelBackend::Vulkan, 32, Some(24), false),
+        LocalHardwareProfile::new(LocalModelBackend::Cpu, 32, None, false),
+        LocalHardwareProfile::new(LocalModelBackend::Metal, 32, None, true),
     ];
 
     let recommendation = catalog
         .recommend_with_fallback(&profiles)
-        .expect("CPU build should provide a fallback");
+        .expect("the qualified Metal build should provide a fallback");
 
-    assert_eq!(recommendation.hardware.backend, LocalModelBackend::Cpu);
-    assert_eq!(recommendation.build.file, "Bonsai-8B-TQ2_0.gguf");
+    assert_eq!(recommendation.hardware.backend, LocalModelBackend::Metal);
+    assert_eq!(recommendation.build.file, "gemma-4-E4B-it-Q4_K_M.gguf");
 }
 
 #[test]
 fn selecting_one_model_reuses_backend_fit_and_fallback() {
     let catalog = LocalModelCatalog::bundled().expect("bundled catalog must remain valid");
     let profiles = [
-        LocalHardwareProfile::new(LocalModelBackend::Vulkan, 12, Some(5), false),
-        LocalHardwareProfile::new(LocalModelBackend::Cpu, 12, None, false),
+        LocalHardwareProfile::new(LocalModelBackend::Vulkan, 32, Some(24), false),
+        LocalHardwareProfile::new(LocalModelBackend::Metal, 32, None, true),
     ];
 
     let selection = catalog
-        .select_build("ternary-bonsai-8b", &profiles)
-        .expect("the CPU artifact should fit this specific model");
+        .select_build("gemma-4-e4b-it", &profiles)
+        .expect("the Metal artifact should fit this specific model");
 
-    assert_eq!(selection.hardware.backend, LocalModelBackend::Cpu);
-    assert_eq!(selection.build.file, "Bonsai-8B-TQ2_0.gguf");
+    assert_eq!(selection.hardware.backend, LocalModelBackend::Metal);
+    assert_eq!(selection.build.file, "gemma-4-E4B-it-Q4_K_M.gguf");
     assert!(catalog.select_build("missing", &profiles).is_none());
 }
 
@@ -211,11 +275,11 @@ fn recommendation_copy_comes_from_matched_data() {
             None,
             true,
         ))
-        .expect("Bonsai should fit");
+        .expect("Gemma E4B should fit");
 
     assert_eq!(
         recommendation.explanation(),
-        "Recommended because Ternary Bonsai 8B fits your Metal backend and 16 GB of unified memory."
+        "Recommended because Gemma 4 E4B IT fits your Metal backend and 16 GB of unified memory."
     );
 }
 

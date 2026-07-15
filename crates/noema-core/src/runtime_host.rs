@@ -263,10 +263,11 @@ impl NoemaRuntimeHost {
             .set_local_models_runtime_root(local_model_runtime_root)
             .await;
         runtime.attach_memory_model_route(memory_model_route).await;
-        if let Some(local_models_runtime) = local_models_runtime {
+        let has_local_models_runtime = if let Some(local_models_runtime) = local_models_runtime {
             runtime
                 .attach_local_models_runtime(local_models_runtime)
                 .await;
+            true
         } else if let Some(installation) = store
             .list_local_model_installations()
             .await
@@ -281,6 +282,18 @@ impl NoemaRuntimeHost {
                 .register_installed_local_model(&installation, &paths)
                 .await
                 .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
+            true
+        } else {
+            false
+        };
+        if has_local_models_runtime && let Err(error) = runtime.retry_local_model_runtime().await {
+            system_errors.try_append(
+                crate::SystemErrorEvent::new(
+                    "local_model_runtime_unavailable",
+                    "The local model runtime could not start",
+                )
+                .with_error_chain([error.to_string()]),
+            );
         }
         let task_runtime = TaskRuntimeHandle::start(
             store.clone(),

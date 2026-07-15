@@ -764,17 +764,16 @@ mod tests {
         let store = crate::store::tests::test_store().await;
         store
             .upsert_local_model_installation(crate::NewLocalModelInstallation {
-                installation_id: "local_model_installation:catalog:ternary-bonsai-8b:test"
-                    .to_string(),
-                model_id: "ternary-bonsai-8b".to_string(),
-                display_name: "Ternary Bonsai 8B".to_string(),
+                installation_id: "local_model_installation:catalog:gemma-4-e4b-it:test".to_string(),
+                model_id: "gemma-4-e4b-it".to_string(),
+                display_name: "Gemma 4 E4B IT".to_string(),
                 source_kind: crate::LocalModelSourceKind::Catalog,
-                source_repo: Some("vinpix/Bonsai-8B-llama.cpp".to_string()),
+                source_repo: Some("ggml-org/gemma-4-E4B-it-GGUF".to_string()),
                 source_revision: Some("0".repeat(40)),
-                source_file: Some("Bonsai-8B-Q2_KT.gguf".to_string()),
+                source_file: Some("gemma-4-E4B-it-Q4_K_M.gguf".to_string()),
                 sha256: Some("1".repeat(64)),
-                download_gb: 3.0,
-                expected_bytes: Some(3_000_000_000),
+                download_gb: 5.3,
+                expected_bytes: Some(5_300_000_000),
                 license: Some("Apache-2.0".to_string()),
                 backend: crate::LocalModelBackend::Metal,
             })
@@ -785,7 +784,7 @@ mod tests {
         let setup = local_model_setup(&state).await.expect("setup");
 
         let installation = setup.installation.expect("queued setup installation");
-        assert_eq!(installation.model_id, "ternary-bonsai-8b");
+        assert_eq!(installation.model_id, "gemma-4-e4b-it");
         assert_eq!(
             installation.status,
             GraphqlLocalModelInstallationStatus::Queued

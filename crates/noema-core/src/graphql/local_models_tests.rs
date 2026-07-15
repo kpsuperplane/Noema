@@ -32,16 +32,28 @@ async fn catalog_query_exposes_bundled_model_and_machine_fit() {
     let catalog = data["localModelCatalog"].as_array().expect("catalog");
 
     assert_eq!(catalog.len(), 1);
-    assert_eq!(catalog[0]["modelId"], "ternary-bonsai-8b");
-    assert_eq!(catalog[0]["name"], "Ternary Bonsai 8B");
+    assert_eq!(
+        catalog
+            .iter()
+            .map(|model| model["modelId"].as_str().expect("model id"))
+            .collect::<Vec<_>>(),
+        vec!["gemma-4-e4b-it"]
+    );
+    assert_eq!(catalog[0]["name"], "Gemma 4 E4B IT");
     assert_eq!(catalog[0]["license"], "Apache-2.0");
     assert_eq!(catalog[0]["priority"], 100);
-    if catalog[0]["isRecommended"] == true {
-        assert!(catalog[0]["selectedBuild"].is_object());
+
+    let recommended = catalog
+        .iter()
+        .filter(|model| model["isRecommended"] == true)
+        .collect::<Vec<_>>();
+    assert!(recommended.len() <= 1);
+    if let Some(model) = recommended.first() {
+        assert!(model["selectedBuild"].is_object());
         assert!(
-            catalog[0]["hardwareFit"]["explanation"]
+            model["hardwareFit"]["explanation"]
                 .as_str()
-                .is_some_and(|explanation| explanation.contains("Ternary Bonsai"))
+                .is_some_and(|explanation| explanation.contains("Recommended because"))
         );
     }
 }
