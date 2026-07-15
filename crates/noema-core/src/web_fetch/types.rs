@@ -30,6 +30,7 @@ pub struct FetchRuntimeContext {
     pub summarizer_provider: Arc<dyn RuntimeModelProvider>,
     pub summarizer_model: String,
     pub summarizer_reasoning_effort: Option<crate::provider::ReasoningEffort>,
+    pub generation_priority: crate::provider::GenerationPriority,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

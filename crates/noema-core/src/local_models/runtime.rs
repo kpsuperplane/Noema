@@ -15,18 +15,26 @@ use tokio::{
     io::{AsyncBufReadExt, BufReader},
     net::TcpListener,
     process::{Child, Command},
-    sync::{Mutex, OwnedSemaphorePermit, Semaphore, watch},
+    sync::{Mutex, watch},
     task::JoinHandle,
     time::{Instant, sleep},
 };
 use url::Url;
 
-use super::LocalModelBackend;
+use crate::provider::GenerationPriority;
+
+use super::{LocalModelBackend, hardware::detect_ram_gb};
+use generation_arbiter::{GenerationArbiter, GenerationPermit};
+
+mod generation_arbiter;
 
 const LOOPBACK_HOST: &str = "127.0.0.1";
 const HEALTH_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const HEALTH_REQUEST_TIMEOUT: Duration = Duration::from_secs(1);
 const STDERR_HISTORY_LINES: usize = 32;
+const MIB_PER_GIB: u64 = 1024;
+const CHECKPOINT_CACHE_RAM_DIVISOR: u64 = 32;
+const MAX_CHECKPOINT_CACHE_MIB: u64 = 2 * MIB_PER_GIB;
 
 /// One backend-specific `llama-server` launch candidate.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -185,10 +193,11 @@ pub struct LlamaServerSupervisor {
 #[derive(Debug)]
 struct SupervisorInner {
     config: LlamaServerConfig,
+    checkpoint_cache_mib: u64,
     health_client: reqwest::Client,
     state: Mutex<SupervisorState>,
     startup_gate: Mutex<()>,
-    generation_gate: Arc<Semaphore>,
+    generation_arbiter: GenerationArbiter,
     status_tx: watch::Sender<LocalModelRuntimeStatus>,
 }
 
@@ -239,6 +248,7 @@ impl LlamaServerSupervisor {
     /// Returns [`LlamaServerError`] when configuration or the health client is invalid.
     pub fn new(config: LlamaServerConfig) -> Result<Self, LlamaServerError> {
         config.validate()?;
+        let checkpoint_cache_mib = detect_ram_gb().map_or(0, checkpoint_cache_mib);
         let health_client = reqwest::Client::builder()
             .timeout(HEALTH_REQUEST_TIMEOUT)
             .build()
@@ -247,10 +257,11 @@ impl LlamaServerSupervisor {
         Ok(Self {
             inner: Arc::new(SupervisorInner {
                 config,
+                checkpoint_cache_mib,
                 health_client,
                 state: Mutex::new(SupervisorState::default()),
                 startup_gate: Mutex::new(()),
-                generation_gate: Arc::new(Semaphore::new(1)),
+                generation_arbiter: GenerationArbiter::default(),
                 status_tx,
             }),
         })
@@ -281,9 +292,13 @@ impl LlamaServerSupervisor {
     ///
     /// Returns [`LlamaServerError::GenerationGateClosed`] only when the
     /// supervisor is being torn down.
-    pub async fn acquire_generation(&self) -> Result<OwnedSemaphorePermit, LlamaServerError> {
-        Arc::clone(&self.inner.generation_gate)
-            .acquire_owned()
+    pub(crate) async fn acquire_generation(
+        &self,
+        priority: GenerationPriority,
+    ) -> Result<GenerationPermit, LlamaServerError> {
+        self.inner
+            .generation_arbiter
+            .acquire(priority)
             .await
             .map_err(|_| LlamaServerError::GenerationGateClosed)
     }
@@ -292,9 +307,13 @@ impl LlamaServerSupervisor {
     ///
     /// # Errors
     ///
-    /// Returns [`LlamaServerError::Unavailable`] when all candidates fail.
+    /// Returns [`LlamaServerError::Unavailable`] when all candidates fail, or
+    /// [`LlamaServerError::GenerationGateClosed`] after permanent shutdown.
     pub async fn ensure_ready(&self) -> Result<LlamaServerEndpoint, LlamaServerError> {
         let _startup_guard = self.inner.startup_gate.lock().await;
+        if self.inner.generation_arbiter.is_closed() {
+            return Err(LlamaServerError::GenerationGateClosed);
+        }
         if let Some(endpoint) = self.ready_endpoint() {
             return Ok(endpoint);
         }
@@ -339,14 +358,23 @@ impl LlamaServerSupervisor {
     ///
     /// # Errors
     ///
-    /// Returns [`LlamaServerError::Unavailable`] when all retry candidates fail.
+    /// Returns [`LlamaServerError::Unavailable`] when all retry candidates fail,
+    /// or [`LlamaServerError::GenerationGateClosed`] after permanent shutdown.
     pub async fn retry(&self) -> Result<LlamaServerEndpoint, LlamaServerError> {
-        self.shutdown().await;
+        if self.inner.generation_arbiter.is_closed() {
+            return Err(LlamaServerError::GenerationGateClosed);
+        }
+        self.stop_runtime().await;
         self.ensure_ready().await
     }
 
-    /// Stops the active server process, if any.
+    /// Permanently closes generation and stops the active server process, if any.
     pub async fn shutdown(&self) {
+        self.inner.generation_arbiter.close();
+        self.stop_runtime().await;
+    }
+
+    async fn stop_runtime(&self) {
         let _startup_guard = self.inner.startup_gate.lock().await;
         let running = self.inner.state.lock().await.running.take();
         if let Some(running) = running {
@@ -382,7 +410,12 @@ impl LlamaServerSupervisor {
             .map_err(|error| error.to_string())?;
         let mut command = Command::new(&candidate.executable_path);
         command
-            .args(server_args(&self.inner.config, candidate.backend, port))
+            .args(server_args(
+                &self.inner.config,
+                candidate.backend,
+                port,
+                self.inner.checkpoint_cache_mib,
+            ))
             .args(&candidate.extra_args)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -477,7 +510,12 @@ async fn reserve_loopback_port() -> Result<u16, LlamaServerError> {
         .map_err(LlamaServerError::PortReservation)
 }
 
-fn server_args(config: &LlamaServerConfig, backend: LocalModelBackend, port: u16) -> Vec<String> {
+fn server_args(
+    config: &LlamaServerConfig,
+    backend: LocalModelBackend,
+    port: u16,
+    checkpoint_cache_mib: u64,
+) -> Vec<String> {
     vec![
         "--model".to_string(),
         config.model_path.display().to_string(),
@@ -492,7 +530,7 @@ fn server_args(config: &LlamaServerConfig, backend: LocalModelBackend, port: u16
         "--parallel".to_string(),
         "1".to_string(),
         "--cache-ram".to_string(),
-        "0".to_string(),
+        checkpoint_cache_mib.to_string(),
         "--n-gpu-layers".to_string(),
         if backend == LocalModelBackend::Cpu {
             "0".to_string()
@@ -501,6 +539,14 @@ fn server_args(config: &LlamaServerConfig, backend: LocalModelBackend, port: u16
         },
         "--no-webui".to_string(),
     ]
+}
+
+fn checkpoint_cache_mib(ram_gb: u64) -> u64 {
+    ram_gb
+        .saturating_mul(MIB_PER_GIB)
+        .checked_div(CHECKPOINT_CACHE_RAM_DIVISOR)
+        .unwrap_or_default()
+        .min(MAX_CHECKPOINT_CACHE_MIB)
 }
 
 fn capture_stderr(
@@ -542,11 +588,12 @@ mod tests {
             )]),
             LocalModelBackend::Cpu,
             43123,
+            512,
         );
 
         assert!(args.windows(2).any(|pair| pair == ["--host", "127.0.0.1"]));
         assert!(args.windows(2).any(|pair| pair == ["--parallel", "1"]));
-        assert!(args.windows(2).any(|pair| pair == ["--cache-ram", "0"]));
+        assert!(args.windows(2).any(|pair| pair == ["--cache-ram", "512"]));
         assert!(args.windows(2).any(|pair| pair == ["--n-gpu-layers", "0"]));
     }
 
@@ -559,12 +606,25 @@ mod tests {
             )]),
             LocalModelBackend::Metal,
             43123,
+            1024,
         );
 
         assert!(
             args.windows(2)
                 .any(|pair| pair == ["--n-gpu-layers", "999"])
         );
+    }
+
+    #[test]
+    fn checkpoint_cache_scales_with_system_memory_and_stays_bounded() {
+        assert_eq!(checkpoint_cache_mib(16), 512);
+        assert_eq!(checkpoint_cache_mib(32), 1024);
+        assert_eq!(checkpoint_cache_mib(128), MAX_CHECKPOINT_CACHE_MIB);
+    }
+
+    #[test]
+    fn checkpoint_cache_disables_without_detected_ram() {
+        assert_eq!(checkpoint_cache_mib(0), 0);
     }
 
     #[test]
@@ -575,17 +635,61 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn generation_gate_allows_only_one_active_generation() {
+    async fn shutdown_drains_queued_generation_and_permanently_closes_runtime() {
         let supervisor = LlamaServerSupervisor::new(config(vec![LlamaServerCandidate::new(
             LocalModelBackend::Cpu,
             "llama-server",
         )]))
         .expect("supervisor");
-        let permit = supervisor.acquire_generation().await.expect("first permit");
+        let active = supervisor
+            .acquire_generation(GenerationPriority::Foreground)
+            .await
+            .expect("active permit");
+        let queued_supervisor = supervisor.clone();
+        let queued = tokio::spawn(async move {
+            queued_supervisor
+                .acquire_generation(GenerationPriority::Background)
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while supervisor
+                .inner
+                .generation_arbiter
+                .queued(GenerationPriority::Background)
+                != 1
+            {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("background generation should queue");
 
-        assert!(supervisor.inner.generation_gate.try_acquire().is_err());
-        drop(permit);
-        assert!(supervisor.inner.generation_gate.try_acquire().is_ok());
+        supervisor.shutdown().await;
+
+        let queued_error = tokio::time::timeout(Duration::from_secs(1), queued)
+            .await
+            .expect("queued generation should drain")
+            .expect("queued task")
+            .expect_err("queued generation should fail");
+        assert!(matches!(
+            queued_error,
+            LlamaServerError::GenerationGateClosed
+        ));
+        assert!(matches!(
+            supervisor
+                .acquire_generation(GenerationPriority::Foreground)
+                .await,
+            Err(LlamaServerError::GenerationGateClosed)
+        ));
+        assert!(matches!(
+            supervisor.ensure_ready().await,
+            Err(LlamaServerError::GenerationGateClosed)
+        ));
+        assert!(matches!(
+            supervisor.retry().await,
+            Err(LlamaServerError::GenerationGateClosed)
+        ));
+        drop(active);
     }
 
     #[tokio::test]
@@ -603,5 +707,13 @@ mod tests {
             supervisor.status(),
             LocalModelRuntimeStatus::Failed { .. }
         ));
+
+        let retry_error = supervisor.retry().await.expect_err("retry failure");
+        assert!(matches!(retry_error, LlamaServerError::Unavailable(_)));
+        let permit = supervisor
+            .acquire_generation(GenerationPriority::Background)
+            .await
+            .expect("failed startup should not permanently close generation");
+        drop(permit);
     }
 }

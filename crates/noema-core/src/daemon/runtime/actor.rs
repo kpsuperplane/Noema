@@ -1,11 +1,20 @@
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{NoemaStore, SystemErrorLogger};
-use tokio::sync::mpsc;
+use futures_util::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
+use tokio::sync::{mpsc, oneshot};
 
 use super::handle::{CodexRuntimeCommand, RuntimeModelProvider};
 use super::tasks::RuntimeTaskGroup;
 use crate::daemon::protocol::DaemonError;
+
+type PendingTaskCompletion = BoxFuture<
+    'static,
+    (
+        super::task_completion::GeneratedTaskCompletion,
+        oneshot::Sender<Result<(), DaemonError>>,
+    ),
+>;
 
 #[derive(Debug)]
 pub(in crate::daemon) struct CodexRuntimeActor {
@@ -151,7 +160,23 @@ impl CodexRuntimeActor {
 
     pub(super) async fn run(mut self, mut receiver: mpsc::Receiver<CodexRuntimeCommand>) {
         let mut shutdown_reply = None;
-        while let Some(command) = receiver.recv().await {
+        let mut task_completions: FuturesUnordered<PendingTaskCompletion> = FuturesUnordered::new();
+        loop {
+            let command = if task_completions.is_empty() {
+                receiver.recv().await
+            } else {
+                tokio::select! {
+                    command = receiver.recv() => command,
+                    Some((completion, reply)) = task_completions.next() => {
+                        let result = self.finish_task_completion_delivery(completion).await;
+                        let _ = reply.send(result);
+                        continue;
+                    }
+                }
+            };
+            let Some(command) = command else {
+                break;
+            };
             match command {
                 #[cfg(test)]
                 CodexRuntimeCommand::StartConversation { cwd, reply } => {
@@ -252,8 +277,20 @@ impl CodexRuntimeActor {
                     let _ = reply.send(());
                 }
                 CodexRuntimeCommand::TaskCompletionDelivery { request, reply } => {
-                    let result = self.deliver_task_completion(request).await;
-                    let _ = reply.send(result);
+                    match self.start_task_completion_delivery(request).await {
+                        Ok(super::task_completion::TaskCompletionDeliveryStart::Delivered) => {
+                            let _ = reply.send(Ok(()));
+                        }
+                        Ok(super::task_completion::TaskCompletionDeliveryStart::Generate(
+                            generation,
+                        )) => {
+                            task_completions
+                                .push(async move { (generation.generate().await, reply) }.boxed());
+                        }
+                        Err(error) => {
+                            let _ = reply.send(Err(error));
+                        }
+                    }
                 }
                 CodexRuntimeCommand::Shutdown { reply } => {
                     shutdown_reply = Some(reply);

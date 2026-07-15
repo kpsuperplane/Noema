@@ -4,7 +4,7 @@ use crate::{
     daemon::protocol::DaemonError,
     provider::{
         GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseItem,
-        GenerateStreamEvent, ProviderError,
+        GenerateStreamEvent, GenerationPriority, ProviderError,
     },
 };
 
@@ -135,6 +135,7 @@ pub(super) async fn compact_active_summary_smaller(
         input,
         target_tokens,
         request.reasoning_effort,
+        request.mode,
     )
     .await?;
     let summary_text = parse_compaction_summary(response)?;
@@ -238,6 +239,7 @@ async fn compact_context_with_target(
         input,
         target_tokens,
         request.reasoning_effort,
+        request.mode,
     )
     .await?;
     let summary_text = parse_compaction_summary(response)?;
@@ -274,6 +276,7 @@ async fn generate_compaction_summary(
     input: String,
     target_tokens: u32,
     reasoning_effort: Option<crate::provider::ReasoningEffort>,
+    mode: CompactionMode,
 ) -> Result<GenerateResponse, ProviderError> {
     let mut ignore_event = |_: GenerateStreamEvent| {};
     provider
@@ -284,6 +287,10 @@ async fn generate_compaction_summary(
                 input: GenerateInput::Text(input),
                 instructions: Some(instructions),
                 options: GenerateOptions {
+                    generation_priority: match mode {
+                        CompactionMode::Foreground => GenerationPriority::Foreground,
+                        CompactionMode::Background => GenerationPriority::Background,
+                    },
                     max_output_tokens: Some(target_tokens),
                     reasoning_effort,
                     require_noema_response: false,

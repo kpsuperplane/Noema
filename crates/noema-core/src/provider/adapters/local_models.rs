@@ -109,7 +109,7 @@ impl LocalModelsProvider {
     ) -> Result<ChatStreamOutput, ProviderError> {
         let _generation_permit = self
             .supervisor
-            .acquire_generation()
+            .acquire_generation(request.options.generation_priority)
             .await
             .map_err(runtime_unavailable)?;
         let endpoint = self
@@ -719,9 +719,17 @@ struct ChatUsage {
     #[serde(default)]
     prompt_tokens: u64,
     #[serde(default)]
+    prompt_tokens_details: Option<ChatPromptTokensDetails>,
+    #[serde(default)]
     completion_tokens: u64,
     #[serde(default)]
     total_tokens: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct ChatPromptTokensDetails {
+    #[serde(default)]
+    cached_tokens: Option<u64>,
 }
 
 impl From<ChatUsage> for TokenUsage {
@@ -730,7 +738,9 @@ impl From<ChatUsage> for TokenUsage {
             input_tokens: usage.prompt_tokens,
             output_tokens: usage.completion_tokens,
             total_tokens: usage.total_tokens,
-            cached_input_tokens: None,
+            cached_input_tokens: usage
+                .prompt_tokens_details
+                .and_then(|details| details.cached_tokens),
         }
     }
 }
@@ -1101,7 +1111,7 @@ mod tests {
             .expect("first event");
         accumulator
             .push_bytes(
-                b"data: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2,\"total_tokens\":5}}\n\ndata: [DONE]\n\n",
+                b"data: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}],\"usage\":{\"prompt_tokens\":3,\"prompt_tokens_details\":{\"cached_tokens\":2},\"completion_tokens\":2,\"total_tokens\":5}}\n\ndata: [DONE]\n\n",
                 |delta| deltas.push(delta),
             )
             .expect("remaining events");
@@ -1118,8 +1128,28 @@ mod tests {
                 input_tokens: 3,
                 output_tokens: 2,
                 total_tokens: 5,
-                cached_input_tokens: None,
+                cached_input_tokens: Some(2),
             })
+        );
+    }
+
+    #[test]
+    fn chat_usage_without_prompt_token_details_leaves_cache_usage_unknown() {
+        let usage = serde_json::from_value::<ChatUsage>(serde_json::json!({
+            "prompt_tokens": 3,
+            "completion_tokens": 2,
+            "total_tokens": 5
+        }))
+        .expect("usage");
+
+        assert_eq!(
+            TokenUsage::from(usage),
+            TokenUsage {
+                input_tokens: 3,
+                output_tokens: 2,
+                total_tokens: 5,
+                cached_input_tokens: None,
+            }
         );
     }
 

@@ -94,7 +94,7 @@ pub fn detect_local_hardware_profiles() -> Result<Vec<LocalHardwareProfile>, Loc
 }
 
 #[cfg(target_os = "linux")]
-fn detect_ram_gb() -> Result<u64, LocalHardwareProbeError> {
+pub(super) fn detect_ram_gb() -> Result<u64, LocalHardwareProbeError> {
     let meminfo =
         fs::read_to_string("/proc/meminfo").map_err(LocalHardwareProbeError::MemoryProbe)?;
     parse_linux_mem_total_gb(&meminfo)
@@ -102,7 +102,7 @@ fn detect_ram_gb() -> Result<u64, LocalHardwareProbeError> {
 }
 
 #[cfg(target_os = "macos")]
-fn detect_ram_gb() -> Result<u64, LocalHardwareProbeError> {
+pub(super) fn detect_ram_gb() -> Result<u64, LocalHardwareProbeError> {
     let output = command_stdout("sysctl", &["-n", "hw.memsize"])
         .map_err(LocalHardwareProbeError::MemoryProbe)?;
     parse_bytes_gb(&output)
@@ -110,7 +110,7 @@ fn detect_ram_gb() -> Result<u64, LocalHardwareProbeError> {
 }
 
 #[cfg(target_os = "windows")]
-fn detect_ram_gb() -> Result<u64, LocalHardwareProbeError> {
+pub(super) fn detect_ram_gb() -> Result<u64, LocalHardwareProbeError> {
     let output = command_stdout(
         "powershell.exe",
         &[
@@ -129,7 +129,7 @@ fn detect_ram_gb() -> Result<u64, LocalHardwareProbeError> {
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-fn detect_ram_gb() -> Result<u64, LocalHardwareProbeError> {
+pub(super) fn detect_ram_gb() -> Result<u64, LocalHardwareProbeError> {
     Err(LocalHardwareProbeError::InvalidMemory(
         "unsupported operating system".to_string(),
     ))

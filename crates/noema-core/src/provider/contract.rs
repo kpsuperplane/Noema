@@ -117,6 +117,16 @@ impl ProviderResponseContinuation {
     }
 }
 
+/// Scheduling priority for generation on providers with constrained local capacity.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum GenerationPriority {
+    /// User-facing work that directly gates an interactive response.
+    #[default]
+    Foreground,
+    /// Deferred or autonomous work that may wait behind interactive responses.
+    Background,
+}
+
 /// Input and options for a provider generation call.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GenerateRequest {
@@ -467,6 +477,8 @@ impl ReasoningEffort {
 /// Provider-neutral optional generation controls.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct GenerateOptions {
+    /// Scheduling priority for providers that serialize generation requests.
+    pub generation_priority: GenerationPriority,
     /// Optional maximum number of output tokens.
     pub max_output_tokens: Option<u32>,
     /// Optional sampling temperature.

@@ -7,7 +7,8 @@ use crate::{
     GenerateResponse, GenerateResponseItem,
     provider::{
         GenerateInputItem, GenerateReasoningInput, GenerateStreamEvent, GenerateToolCallInput,
-        GenerateToolResultInput, ProviderError, ProviderResponseContinuation, ReasoningEffort,
+        GenerateToolResultInput, GenerationPriority, ProviderError, ProviderResponseContinuation,
+        ReasoningEffort,
     },
 };
 
@@ -226,6 +227,7 @@ impl ContinuationContext {
         provider: &dyn RuntimeModelProvider,
         model: Option<&str>,
         reasoning_effort: Option<ReasoningEffort>,
+        generation_priority: GenerationPriority,
         execution_goal: &str,
     ) -> Result<bool, ProviderError> {
         let budget = ContextBudget::from_metadata(provider.context_metadata(model));
@@ -266,6 +268,7 @@ impl ContinuationContext {
                     input: GenerateInput::Text(summary_input),
                     instructions: Some(instructions),
                     options: GenerateOptions {
+                        generation_priority,
                         max_output_tokens: Some(target_tokens),
                         reasoning_effort,
                         require_noema_response: false,
@@ -613,13 +616,20 @@ mod tests {
                 &provider,
                 Some("test"),
                 None,
+                GenerationPriority::Foreground,
                 "Research Canadian bear populations with cited figures",
             )
             .await
             .expect("compaction");
 
         assert!(compacted);
-        assert_eq!(requests.lock().expect("requests").len(), 1);
+        let requests = requests.lock().expect("requests");
+        assert_eq!(requests.len(), 1);
+        assert_eq!(
+            requests[0].options.generation_priority,
+            GenerationPriority::Foreground
+        );
+        drop(requests);
         let rendered = context.provider_input(true).render_for_token_count();
         assert!(rendered.contains("Noema execution context checkpoint"));
         assert!(rendered.contains("450,000"));
@@ -652,11 +662,19 @@ mod tests {
                     &provider,
                     Some("test"),
                     None,
+                    GenerationPriority::Background,
                     "Research Canadian bear populations with cited figures",
                 )
                 .await
                 .expect("compaction")
         );
+        let requests = requests.lock().expect("requests");
+        assert_eq!(requests.len(), 1);
+        assert_eq!(
+            requests[0].options.generation_priority,
+            GenerationPriority::Background
+        );
+        drop(requests);
         context.append_results(&[gateway_result(
             "call_after_compaction",
             "https://example.com",

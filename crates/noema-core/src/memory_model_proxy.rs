@@ -18,8 +18,8 @@ use crate::{
     provider::{
         GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
         GenerateRequest, GenerateResponse, GenerateResponseStatus, GenerateStreamEvent,
-        GenerateToolCall, GenerateToolCallInput, GenerateToolResultInput, NoemaToolChoice,
-        NoemaToolExecution, NoemaToolSpec, ProviderError, ReasoningEffort,
+        GenerateToolCall, GenerateToolCallInput, GenerateToolResultInput, GenerationPriority,
+        NoemaToolChoice, NoemaToolExecution, NoemaToolSpec, ProviderError, ReasoningEffort,
     },
 };
 
@@ -549,6 +549,7 @@ impl OpenAiChatCompletionRequest {
             input: GenerateInput::Items(items),
             instructions: nonempty_join(instructions, "\n\n"),
             options: GenerateOptions {
+                generation_priority: GenerationPriority::Background,
                 max_output_tokens: self.max_completion_tokens.or(self.max_tokens),
                 // OpenAI-compatible memory clients often send sampling knobs that
                 // are not valid for every configured Noema provider/model.
@@ -820,8 +821,8 @@ mod tests {
         daemon::RuntimeModelProvider,
         provider::{
             GenerateInput, GenerateInputItem, GenerateRequest, GenerateResponse,
-            GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall, NoemaToolChoice,
-            ProviderError,
+            GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall, GenerationPriority,
+            NoemaToolChoice, ProviderError,
         },
     };
     use serde_json::{Value, json};
@@ -920,6 +921,10 @@ mod tests {
         );
         assert_eq!(request.options.max_output_tokens, Some(123));
         assert_eq!(request.options.temperature, None);
+        assert_eq!(
+            request.options.generation_priority,
+            GenerationPriority::Background
+        );
         assert!(matches!(request.tool_choice, NoemaToolChoice::Required));
         assert_eq!(request.tools[0].name.as_str(), "CreateMemory");
         assert_eq!(request.tools[0].description, "Create a memory");

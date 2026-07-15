@@ -1,5 +1,7 @@
 //! Primary-agent delivery of durable background-task outcomes.
 
+use std::sync::Arc;
+
 use crate::{
     ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
     NewConversationTurn, PersistedAgentStatus,
@@ -9,7 +11,9 @@ use crate::{
 };
 use serde_json::json;
 
-use super::{TaskCompletionDeliveryRequest, actor::CodexRuntimeActor};
+use super::{
+    TaskCompletionDeliveryRequest, actor::CodexRuntimeActor, handle::RuntimeModelProvider,
+};
 use crate::daemon::{
     AgentStatus,
     protocol::{DaemonError, TurnStreamEvent, TurnTranscriptItem},
@@ -19,17 +23,126 @@ use crate::graphql::ConversationLiveEvent;
 const MAX_COMPLETION_CONTEXT_CHARS: usize = 60_000;
 const MAX_COMPLETION_RESULT_CHARS: usize = 40_000;
 
+pub(super) enum TaskCompletionDeliveryStart {
+    Delivered,
+    Generate(Box<TaskCompletionGeneration>),
+}
+
+pub(super) struct TaskCompletionGeneration {
+    request: TaskCompletionDeliveryRequest,
+    turn_id: String,
+    turn_index: u64,
+    provider: Option<Arc<dyn RuntimeModelProvider>>,
+    model: Option<String>,
+    reasoning_effort: Option<crate::provider::ReasoningEffort>,
+    subscriptions: crate::graphql::ConversationSubscriptionRegistry,
+    system_errors: crate::SystemErrorLogger,
+}
+
+pub(super) struct GeneratedTaskCompletion {
+    request: TaskCompletionDeliveryRequest,
+    turn_id: String,
+    turn_index: u64,
+    generated_text: Option<String>,
+}
+
+impl TaskCompletionGeneration {
+    pub(super) async fn generate(self: Box<Self>) -> GeneratedTaskCompletion {
+        let Self {
+            request,
+            turn_id,
+            turn_index,
+            provider,
+            model,
+            reasoning_effort,
+            subscriptions,
+            system_errors,
+        } = *self;
+        let generated_text = match provider {
+            Some(provider) => {
+                let conversation_id = request.conversation_id.clone();
+                let streamed_turn_id = turn_id.clone();
+                let stream_id = format!("task_completion:{}", request.delivery_id);
+                let mut on_event = move |event: GenerateStreamEvent| {
+                    if let GenerateStreamEvent::AssistantTextDelta {
+                        response_index,
+                        delta,
+                    } = event
+                    {
+                        subscriptions.publish(ConversationLiveEvent::Turn {
+                            client_message_id: None,
+                            event: Box::new(TurnStreamEvent::AssistantTextDelta {
+                                conversation_id: conversation_id.clone(),
+                                turn_id: streamed_turn_id.clone(),
+                                stream_id: stream_id.clone(),
+                                response_index,
+                                delta,
+                            }),
+                        });
+                    }
+                };
+                match provider
+                    .generate_streaming(
+                        GenerateRequest {
+                            conversation_id: Some(request.conversation_id.clone()),
+                            model,
+                            input: GenerateInput::Text(completion_context(&request)),
+                            instructions: Some(completion_instructions()),
+                            options: GenerateOptions {
+                                generation_priority:
+                                    crate::provider::GenerationPriority::Background,
+                                reasoning_effort,
+                                require_noema_response: true,
+                                ..GenerateOptions::default()
+                            },
+                            tools: Vec::new(),
+                            tool_choice: Default::default(),
+                            parallel_tool_calls: false,
+                        },
+                        &mut on_event,
+                    )
+                    .await
+                {
+                    Ok(response) => response_text(response.responses),
+                    Err(error) => {
+                        system_errors.try_append(
+                            crate::SystemErrorEvent::new(
+                                "task_completion_provider_failed",
+                                "Primary-agent task completion report generation failed; using fallback",
+                            )
+                            .with_context(json!({
+                                "task_id": request.task_id,
+                                "delivery_id": request.delivery_id,
+                                "conversation_id": request.conversation_id,
+                            }))
+                            .with_error_chain([error.to_string()]),
+                        );
+                        None
+                    }
+                }
+            }
+            None => None,
+        };
+        GeneratedTaskCompletion {
+            request,
+            turn_id,
+            turn_index,
+            generated_text,
+        }
+    }
+}
+
 impl CodexRuntimeActor {
-    /// Deliver one task outcome as a normal primary-agent assistant item.
+    /// Reserve a durable turn before generating one task outcome.
     ///
     /// The item id is derived from the terminal task event, so the operation is
     /// safe to retry after a worker or provider interruption. A provider error
     /// falls back to a deterministic report rather than hiding the approved
     /// task outcome from the originating conversation.
-    pub(super) async fn deliver_task_completion(
+    pub(super) async fn start_task_completion_delivery(
         &mut self,
         request: TaskCompletionDeliveryRequest,
-    ) -> Result<(), DaemonError> {
+    ) -> Result<TaskCompletionDeliveryStart, DaemonError> {
         let item_id = format!("item:task_completion:{}", request.delivery_id);
         if let Some(existing) = self.store.get_visible_conversation_item(&item_id).await? {
             if let Some(turn_id) = existing.turn_id {
@@ -38,7 +151,7 @@ impl CodexRuntimeActor {
                 let _ = self.store.complete_conversation_turn(&turn_id).await;
             }
             self.publish_completed(&request.conversation_id);
-            return Ok(());
+            return Ok(TaskCompletionDeliveryStart::Delivered);
         }
 
         let conversation = self
@@ -62,71 +175,14 @@ impl CodexRuntimeActor {
                 },
             )
             .await?;
+        if let Some(active) = self.conversations.get_mut(&request.conversation_id) {
+            active.next_turn_index = active.next_turn_index.max(turn_index.saturating_add(1));
+        }
 
         self.publish_status(&request.conversation_id, PersistedAgentStatus::Thinking)
             .await;
-        let generated_text = match self.provider_for_kind(&conversation.provider_kind) {
-            Ok(provider) => {
-                let conversation_id = request.conversation_id.clone();
-                let turn_id = turn.turn_id.clone();
-                let stream_id = format!("task_completion:{}", request.delivery_id);
-                let subscriptions = self.task_subscriptions.clone();
-                let mut on_event = move |event: GenerateStreamEvent| {
-                    if let GenerateStreamEvent::AssistantTextDelta {
-                        response_index,
-                        delta,
-                    } = event
-                    {
-                        subscriptions.publish(ConversationLiveEvent::Turn {
-                            client_message_id: None,
-                            event: Box::new(TurnStreamEvent::AssistantTextDelta {
-                                conversation_id: conversation_id.clone(),
-                                turn_id: turn_id.clone(),
-                                stream_id: stream_id.clone(),
-                                response_index,
-                                delta,
-                            }),
-                        });
-                    }
-                };
-                match provider
-                    .generate_streaming(
-                        GenerateRequest {
-                            conversation_id: Some(request.conversation_id.clone()),
-                            model: conversation.model.clone(),
-                            input: GenerateInput::Text(completion_context(&request)),
-                            instructions: Some(completion_instructions()),
-                            options: GenerateOptions {
-                                reasoning_effort: conversation.reasoning_effort,
-                                require_noema_response: true,
-                                ..GenerateOptions::default()
-                            },
-                            tools: Vec::new(),
-                            tool_choice: Default::default(),
-                            parallel_tool_calls: false,
-                        },
-                        &mut on_event,
-                    )
-                    .await
-                {
-                    Ok(response) => response_text(response.responses),
-                    Err(error) => {
-                        self.system_errors.try_append(
-                            crate::SystemErrorEvent::new(
-                                "task_completion_provider_failed",
-                                "Primary-agent task completion report generation failed; using fallback",
-                            )
-                            .with_context(json!({
-                                "task_id": request.task_id,
-                                "delivery_id": request.delivery_id,
-                                "conversation_id": request.conversation_id,
-                            }))
-                            .with_error_chain([error.to_string()]),
-                        );
-                        None
-                    }
-                }
-            }
+        let provider = match self.provider_for_kind(&conversation.provider_kind) {
+            Ok(provider) => Some(provider),
             Err(error) => {
                 self.system_errors.try_append(
                     crate::SystemErrorEvent::new(
@@ -143,6 +199,32 @@ impl CodexRuntimeActor {
                 None
             }
         };
+        Ok(TaskCompletionDeliveryStart::Generate(Box::new(
+            TaskCompletionGeneration {
+                request,
+                turn_id: turn.turn_id,
+                turn_index,
+                provider,
+                model: conversation.model,
+                reasoning_effort: conversation.reasoning_effort,
+                subscriptions: self.task_subscriptions.clone(),
+                system_errors: self.system_errors.clone(),
+            },
+        )))
+    }
+
+    /// Commit one generated task outcome through the actor-owned conversation state.
+    pub(super) async fn finish_task_completion_delivery(
+        &mut self,
+        completion: GeneratedTaskCompletion,
+    ) -> Result<(), DaemonError> {
+        let GeneratedTaskCompletion {
+            request,
+            turn_id,
+            turn_index,
+            generated_text,
+        } = completion;
+        let item_id = format!("item:task_completion:{}", request.delivery_id);
         let content_text = generated_text
             .filter(|text| !text.trim().is_empty())
             .unwrap_or_else(|| fallback_text(&request));
@@ -160,7 +242,7 @@ impl CodexRuntimeActor {
                 item_id,
                 NewConversationItem {
                     conversation_id: request.conversation_id.clone(),
-                    turn_id: Some(turn.turn_id.clone()),
+                    turn_id: Some(turn_id.clone()),
                     parent_item_id: None,
                     kind: ConversationItemKind::AssistantText,
                     status: ConversationItemStatus::Completed,
@@ -189,9 +271,9 @@ impl CodexRuntimeActor {
                     }),
                 });
         }
-        self.persist_task_completion_artifacts(&request, &turn.turn_id)
+        self.persist_task_completion_artifacts(&request, &turn_id)
             .await?;
-        self.store.complete_conversation_turn(&turn.turn_id).await?;
+        self.store.complete_conversation_turn(&turn_id).await?;
         if let Some(active) = self.conversations.get_mut(&request.conversation_id) {
             active.next_turn_index = active.next_turn_index.max(turn_index.saturating_add(1));
         }

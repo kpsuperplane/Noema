@@ -394,6 +394,7 @@ impl CodexRuntimeActor {
                     provider.as_ref(),
                     request.model.as_deref(),
                     request.reasoning_effort,
+                    crate::provider::GenerationPriority::Background,
                     &request.input,
                 ) => result,
             };

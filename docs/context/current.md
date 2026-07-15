@@ -122,12 +122,18 @@ The next storage slice should stay small and concrete:
   role-specific terminal contract; local task model snapshots are valid
   first-class selections. Local chat-template thinking is disabled until Noema
   exposes an explicit reasoning policy, so reasoning-first GGUFs cannot consume
-  the complete visible output budget internally. The supervisor passes
-  `--cache-ram 0` because llama.cpp's default 8 GiB checkpoint cache can grow
-  across distinct requests and erase 16 GB headroom. The llama.cpp schema
-  lowering removes large string length bounds that otherwise expand task payload
-  grammars beyond llama-server's parser; canonical runtime handlers still
-  validate those tool payloads.
+  the complete visible output budget internally. The adapter requests prompt
+  reuse and the supervisor gives llama.cpp a bounded checkpoint cache equal to
+  one thirty-second of detected system RAM, capped at 2 GiB; that is 512 MiB on
+  16 GB machines and 1 GiB on 32 GB machines, with caching disabled only when
+  hardware detection fails. One priority-aware generation arbiter still keeps a
+  single active request, but queued primary-conversation work runs before queued
+  memory, task, audit, background-compaction, and task-originated web-summary
+  work. A turn's memory observation also waits until that foreground turn ends,
+  avoiding deterministic cache eviction and latency contention. The llama.cpp
+  schema lowering removes large string length bounds that otherwise expand task
+  payload grammars beyond llama-server's parser; canonical runtime handlers
+  still validate those tool payloads.
 - The opt-in `noema-model-evals` runner qualifies local GGUF candidates against
   production model-sensitive contracts without changing the user's installed
   models or preferences. Its pinned candidate and suite inputs live under

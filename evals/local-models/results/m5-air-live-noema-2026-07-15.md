@@ -38,8 +38,10 @@ follow-up turns. E4B's post-turn RSS stayed between 5,864,833,024 and
 - Production resumable installation accepted a complete partial transfer,
   independently verified SHA-256 and GGUF structure, atomically installed the
   content-addressed blob, activated it, and started the supervised runtime.
-- The active llama-server binds only to loopback, uses Metal offload, runs with
-  `--parallel 1` and `--cache-ram 0`, and reports `RUNNING` through GraphQL.
+- At the original qualification, the active llama-server bound only to loopback,
+  used Metal offload, ran with `--parallel 1` and `--cache-ram 0`, and reported
+  `RUNNING` through GraphQL. The prompt-cache follow-up below supersedes that
+  cache setting.
 - Activation assigned E4B to the system default, primary agent, task executor,
   task reviewer, progress audit, web summarizer, and all three task-model pool
   tiers. A final database check found zero preference mismatches and
@@ -67,6 +69,26 @@ E4B passed 12/12, including an `update_own_name` call with `{"name":"Momo"}`.
 The naming case took 36.34 seconds and 573 output tokens on the concurrently
 running development machine. The complete follow-up report is at
 `target/noema-grammar-fix-eval-2/report.json`.
+
+## Prompt-cache latency follow-up
+
+The production supervisor now sizes llama.cpp's checkpoint cache to one
+thirty-second of system RAM, capped at 2 GiB. The rebuilt live runtime on this
+32 GB machine launched with `--cache-ram 1024`; GraphQL reported the active E4B
+installation as `RUNNING` and ready, and the live SQLite database still passed
+`PRAGMA quick_check`.
+
+A direct live-runtime A/B/A probe used two completely different 4,221-token
+prompts. Prompt A was warm in 0.130 seconds with 4,216 cached tokens, prompt B
+was cold in 10.251 seconds with one cached token, and returning to A took 0.164
+seconds with 4,216 cached tokens restored. Under the previous `--cache-ram 0`
+configuration, an intervening request left only one token cached and the same
+class of prompt had to be evaluated again.
+
+Noema also schedules queued foreground generations before queued background
+memory, task, audit, compaction, and task-originated web-summary generations.
+Memory observation waits for its foreground turn to terminate before submitting,
+which removes the deterministic same-turn cache eviction race.
 
 ## Winning artifact
 

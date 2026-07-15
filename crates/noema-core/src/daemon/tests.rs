@@ -24,7 +24,7 @@ use std::{
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
-    sync::{Mutex as AsyncMutex, mpsc, oneshot},
+    sync::{Mutex as AsyncMutex, Notify, mpsc, oneshot},
 };
 
 const RESTART_CONTEXT_TEST_PHASE_ENV: &str = "NOEMA_RESTART_CONTEXT_TEST_PHASE";
@@ -164,6 +164,90 @@ async fn task_completion_delivery_writes_primary_assistant_item_without_human_in
 }
 
 #[tokio::test]
+async fn blocked_task_completion_generation_does_not_block_a_primary_turn() {
+    let (completion_started_tx, completion_started_rx) = oneshot::channel();
+    let (primary_started_tx, primary_started_rx) = oneshot::channel();
+    let (release_completion_tx, release_completion_rx) = oneshot::channel();
+    let provider = BlockingTaskCompletionProvider {
+        completion_started: Mutex::new(Some(completion_started_tx)),
+        primary_started: Mutex::new(Some(primary_started_tx)),
+        release_completion: Mutex::new(Some(release_completion_rx)),
+    };
+    let store = crate::store::tests::test_store().await;
+    let handle = CodexRuntimeHandle::spawn_with_provider(Arc::new(provider), store.clone())
+        .await
+        .expect("runtime");
+    let conversation_id = handle
+        .start_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+    let completion_handle = handle.clone();
+    let completion_conversation_id = conversation_id.clone();
+    let pending_completion = tokio::spawn(async move {
+        completion_handle
+            .deliver_task_completion(super::runtime::TaskCompletionDeliveryRequest {
+                delivery_id: "event:blocked-completion".to_string(),
+                task_id: "task:blocked-completion".to_string(),
+                conversation_id: completion_conversation_id,
+                source_item_id: None,
+                title: "Blocked completion".to_string(),
+                status: "completed".to_string(),
+                request_markdown: "Complete in the background".to_string(),
+                summary: Some("Background work finished".to_string()),
+                result_markdown: None,
+                artifacts: Vec::new(),
+                review_feedback: None,
+                criteria: Vec::new(),
+                detail: None,
+            })
+            .await
+    });
+
+    completion_started_rx
+        .await
+        .expect("completion provider started");
+    let turn_handle = handle.clone();
+    let turn_conversation_id = conversation_id.clone();
+    let pending_turn = tokio::spawn(async move {
+        collect_turn(
+            &turn_handle,
+            turn_conversation_id,
+            "foreground question".to_string(),
+        )
+        .await
+    });
+
+    tokio::time::timeout(Duration::from_secs(1), primary_started_rx)
+        .await
+        .expect("primary turn should reach the provider while completion generation is blocked")
+        .expect("primary provider started");
+    release_completion_tx
+        .send(())
+        .expect("release completion provider");
+
+    let turn_items = pending_turn
+        .await
+        .expect("turn task")
+        .expect("primary turn");
+    pending_completion
+        .await
+        .expect("completion task")
+        .expect("completion delivery");
+    let transcript = store
+        .list_conversation_items(&conversation_id, ReplayMode::Audit)
+        .await
+        .expect("conversation items");
+    handle.shutdown().await;
+
+    assert_eq!(assistant_text(&turn_items), "foreground answer");
+    assert!(transcript.iter().any(|item| {
+        item.item_id == "item:task_completion:event:blocked-completion"
+            && item.content_text.as_deref() == Some("completion answer")
+    }));
+}
+
+#[tokio::test]
 async fn runtime_handle_generate_once_does_not_block_subsequent_commands() {
     let (started_tx, started_rx) = oneshot::channel();
     let (release_tx, release_rx) = oneshot::channel();
@@ -243,6 +327,65 @@ async fn task_supervisor_starts_distinct_tasks_concurrently() {
 #[tokio::test]
 async fn runtime_shutdown_cancels_and_drains_generate_once() {
     assert_shutdown_cancels_blocked_operation(false).await;
+}
+
+#[tokio::test]
+async fn runtime_shutdown_cancels_blocked_task_completion_generation() {
+    let (completion_started_tx, completion_started_rx) = oneshot::channel();
+    let (primary_started_tx, _primary_started_rx) = oneshot::channel();
+    let (release_completion_tx, release_completion_rx) = oneshot::channel();
+    let provider = BlockingTaskCompletionProvider {
+        completion_started: Mutex::new(Some(completion_started_tx)),
+        primary_started: Mutex::new(Some(primary_started_tx)),
+        release_completion: Mutex::new(Some(release_completion_rx)),
+    };
+    let store = crate::store::tests::test_store().await;
+    let handle = CodexRuntimeHandle::spawn_with_provider(Arc::new(provider), store)
+        .await
+        .expect("runtime");
+    let conversation_id = handle
+        .start_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+    let completion_handle = handle.clone();
+    let pending_completion = tokio::spawn(async move {
+        completion_handle
+            .deliver_task_completion(super::runtime::TaskCompletionDeliveryRequest {
+                delivery_id: "event:shutdown-completion".to_string(),
+                task_id: "task:shutdown-completion".to_string(),
+                conversation_id,
+                source_item_id: None,
+                title: "Shutdown completion".to_string(),
+                status: "completed".to_string(),
+                request_markdown: "Complete before shutdown".to_string(),
+                summary: None,
+                result_markdown: None,
+                artifacts: Vec::new(),
+                review_feedback: None,
+                criteria: Vec::new(),
+                detail: None,
+            })
+            .await
+    });
+
+    completion_started_rx
+        .await
+        .expect("completion provider started");
+    tokio::time::timeout(Duration::from_secs(1), handle.shutdown())
+        .await
+        .expect("shutdown should cancel completion generation");
+    let error = tokio::time::timeout(Duration::from_secs(1), pending_completion)
+        .await
+        .expect("completion delivery reply should resolve")
+        .expect("completion task")
+        .expect_err("cancelled completion should fail");
+
+    assert!(error.to_string().contains("daemon runtime stopped"));
+    assert!(
+        release_completion_tx.send(()).is_err(),
+        "completion provider future was not dropped"
+    );
 }
 
 #[tokio::test]
@@ -1631,6 +1774,10 @@ async fn background_context_compaction_creates_checkpoint_after_large_turn() {
             .position(|request| !request.options.require_noema_response)
             .expect("background compaction request");
         assert!(agent_index < compaction_index);
+        assert_eq!(
+            requests[compaction_index].options.generation_priority,
+            crate::provider::GenerationPriority::Background
+        );
     }
     let active = store
         .latest_active_context_summary(&started.conversation_id, "foundation_local", None)
@@ -2856,6 +3003,57 @@ async fn provider_failure_after_user_message_still_submits_memory_observation() 
         body["messages"]
             == json!([{"role": "user", "content": "remember even if generation fails"}])
     }));
+}
+
+#[tokio::test]
+async fn memory_observation_waits_for_the_foreground_turn_to_finish() {
+    let (started_tx, started_rx) = oneshot::channel();
+    let (release_tx, release_rx) = oneshot::channel();
+    let provider = BlockingOnceProvider {
+        started: Mutex::new(Some(started_tx)),
+        release: Mutex::new(Some(release_rx)),
+    };
+    let store = crate::store::tests::test_store().await;
+    let server = FakeMemoryServer::start(json!({"results": []}), 1).await;
+    let connection = crate::MnemosyneConnection::new(server.base_url(), None);
+    let handle = CodexRuntimeHandle::spawn_with_provider_and_memory(
+        Arc::new(provider),
+        store,
+        Some(connection),
+    )
+    .await
+    .expect("runtime");
+    let conversation_id = handle
+        .start_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+    let turn_handle = handle.clone();
+    let pending_turn = tokio::spawn(async move {
+        collect_turn_events(
+            &turn_handle,
+            conversation_id,
+            "remember after replying".to_string(),
+        )
+        .await
+    });
+
+    started_rx.await.expect("foreground provider started");
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), server.wait_for_request())
+            .await
+            .is_err(),
+        "memory observation should remain blocked while the foreground provider is active"
+    );
+
+    release_tx.send(()).expect("release foreground provider");
+    pending_turn
+        .await
+        .expect("turn task")
+        .0
+        .expect("foreground turn");
+    wait_for_memory_observation_requests(&server, 1).await;
+    handle.shutdown().await;
 }
 
 #[tokio::test]
@@ -4647,6 +4845,7 @@ async fn test_runtime_handle_with_search_provider(
 struct FakeMemoryServer {
     base_url: String,
     state: Arc<AsyncMutex<FakeMemoryState>>,
+    request_received: Arc<Notify>,
 }
 
 #[derive(Default)]
@@ -4669,6 +4868,8 @@ impl FakeMemoryServer {
         let base_url = format!("http://{}", listener.local_addr().expect("local addr"));
         let state = Arc::new(AsyncMutex::new(FakeMemoryState::default()));
         let server_state = Arc::clone(&state);
+        let request_received = Arc::new(Notify::new());
+        let server_request_received = Arc::clone(&request_received);
 
         tokio::spawn(async move {
             for _ in 0..max_requests {
@@ -4724,6 +4925,7 @@ impl FakeMemoryServer {
                     state.paths.push(path.clone());
                     state.bodies.push(body_json);
                 }
+                server_request_received.notify_one();
 
                 let response_body = if path == "/v1/memories/add" {
                     if let Some(delay) = conversation_delay {
@@ -4745,7 +4947,11 @@ impl FakeMemoryServer {
             }
         });
 
-        Self { base_url, state }
+        Self {
+            base_url,
+            state,
+            request_received,
+        }
     }
 
     fn base_url(&self) -> String {
@@ -4758,6 +4964,10 @@ impl FakeMemoryServer {
 
     async fn request_paths(&self) -> Vec<String> {
         self.state.lock().await.paths.clone()
+    }
+
+    async fn wait_for_request(&self) {
+        self.request_received.notified().await;
     }
 }
 
@@ -4994,6 +5204,13 @@ impl Default for MetadataCapturingProvider {
 struct BlockingOnceProvider {
     started: Mutex<Option<oneshot::Sender<()>>>,
     release: Mutex<Option<oneshot::Receiver<()>>>,
+}
+
+#[derive(Debug)]
+struct BlockingTaskCompletionProvider {
+    completion_started: Mutex<Option<oneshot::Sender<()>>>,
+    primary_started: Mutex<Option<oneshot::Sender<()>>>,
+    release_completion: Mutex<Option<oneshot::Receiver<()>>>,
 }
 
 #[derive(Debug)]
@@ -6044,6 +6261,57 @@ impl super::runtime::RuntimeModelProvider for BlockingOnceProvider {
                 assistant_with_no_memories("slow answer"),
                 "test",
                 "blocking-once".to_string(),
+            ))
+        })
+    }
+}
+
+impl super::runtime::RuntimeModelProvider for BlockingTaskCompletionProvider {
+    fn generate_streaming<'a>(
+        &'a self,
+        request: GenerateRequest,
+        _on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
+        Box::pin(async move {
+            let answer = if request.options.generation_priority
+                == crate::provider::GenerationPriority::Background
+            {
+                if let Some(started) = self
+                    .completion_started
+                    .lock()
+                    .expect("completion started lock")
+                    .take()
+                {
+                    let _ = started.send(());
+                }
+                let release = self
+                    .release_completion
+                    .lock()
+                    .expect("completion release lock")
+                    .take()
+                    .expect("completion release receiver");
+                release
+                    .await
+                    .map_err(|_| ProviderError::ProviderUnavailable {
+                        provider: "test".to_string(),
+                        message: "completion release signal dropped".to_string(),
+                    })?;
+                "completion answer"
+            } else {
+                if let Some(started) = self
+                    .primary_started
+                    .lock()
+                    .expect("primary started lock")
+                    .take()
+                {
+                    let _ = started.send(());
+                }
+                "foreground answer"
+            };
+            Ok(fake_generate_response(
+                assistant_with_no_memories(answer),
+                "test",
+                "blocking-task-completion".to_string(),
             ))
         })
     }

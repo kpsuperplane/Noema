@@ -2,7 +2,9 @@ use serde::Deserialize;
 
 use std::sync::Arc;
 
-use crate::provider::{GenerateInput, GenerateOptions, GenerateRequest, GenerateResponseItem};
+use crate::provider::{
+    GenerateInput, GenerateOptions, GenerateRequest, GenerateResponseItem, GenerationPriority,
+};
 
 use super::actor::CodexRuntimeActor;
 use super::handle::RuntimeModelProvider;
@@ -56,6 +58,7 @@ impl CodexRuntimeActor {
                     input: GenerateInput::Text(input),
                     instructions: Some(build_progress_audit_prompt()),
                     options: GenerateOptions {
+                        generation_priority: GenerationPriority::Background,
                         require_noema_response: false,
                         reasoning_effort: audit_model.reasoning_effort,
                         ..GenerateOptions::default()
@@ -377,6 +380,10 @@ mod tests {
         let requests = provider.requests.lock().expect("requests");
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].model.as_deref(), Some("gpt-5.4-mini"));
+        assert_eq!(
+            requests[0].options.generation_priority,
+            GenerationPriority::Background
+        );
         assert!(requests[0].tools.is_empty());
         assert!(!requests[0].parallel_tool_calls);
     }

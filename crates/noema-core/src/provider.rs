@@ -26,11 +26,11 @@ pub use contract::{
     GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
     GenerateReasoningInput, GenerateReasoningItem, GenerateRequest, GenerateResponse,
     GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall,
-    GenerateToolCallInput, GenerateToolResultInput, ModelProvider, MultipleChoiceOption,
-    MultipleChoiceSelectionMode, ParsedNoemaResponse, PromptCacheMode, PromptCacheOptions,
-    PromptCacheRetention, PromptCacheTtl, ProviderContextMetadata, ProviderError,
-    ProviderResponseContinuation, ReasoningEffort, TokenUsage, noema_response_from_text,
-    output_items_from_text, required_noema_response_from_text,
+    GenerateToolCallInput, GenerateToolResultInput, GenerationPriority, ModelProvider,
+    MultipleChoiceOption, MultipleChoiceSelectionMode, ParsedNoemaResponse, PromptCacheMode,
+    PromptCacheOptions, PromptCacheRetention, PromptCacheTtl, ProviderContextMetadata,
+    ProviderError, ProviderResponseContinuation, ReasoningEffort, TokenUsage,
+    noema_response_from_text, output_items_from_text, required_noema_response_from_text,
     required_noema_response_from_text_with_native_tool_calls,
 };
 

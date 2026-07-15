@@ -16,7 +16,7 @@ use crate::{
     capability::gateway::is_mcp_shaped_tool_name,
     daemon::protocol::DaemonError,
     graphql::{ConversationSubscriptionRegistry, TaskLiveEvent},
-    provider::GenerateStreamEvent,
+    provider::{GenerateStreamEvent, GenerationPriority},
     store::NewAgentRunItem,
     web_fetch::tool::{WEB_FETCH_TOOL, sanitize_web_fetch_payload_for_storage},
 };
@@ -31,7 +31,7 @@ impl CodexRuntimeActor {
     pub(super) async fn generate_task_provider_round(
         &self,
         provider: &Arc<dyn RuntimeModelProvider>,
-        request: GenerateRequest,
+        mut request: GenerateRequest,
         run_id: &str,
         task_id: &str,
         lease_token: &str,
@@ -40,6 +40,7 @@ impl CodexRuntimeActor {
         cancellation: &CancellationToken,
         subscriptions: &ConversationSubscriptionRegistry,
     ) -> Result<GenerateResponse, DaemonError> {
+        request.options.generation_priority = GenerationPriority::Background;
         let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
         let store = self.store.clone();
         let run_id_for_writer = run_id.to_string();

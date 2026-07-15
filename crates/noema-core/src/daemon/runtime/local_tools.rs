@@ -321,7 +321,18 @@ impl CodexRuntimeActor {
                 result,
             }
         } else if is_web_fetch_tool(&call.name) {
-            let result = match self.web_fetch_runtime_execution_context().await {
+            let generation_priority = match policy.role() {
+                ExecutionRole::PrimaryConversation => {
+                    crate::provider::GenerationPriority::Foreground
+                }
+                ExecutionRole::TaskExecutor | ExecutionRole::TaskReviewer => {
+                    crate::provider::GenerationPriority::Background
+                }
+            };
+            let result = match self
+                .web_fetch_runtime_execution_context(generation_priority)
+                .await
+            {
                 Ok((
                     provider,
                     context,
@@ -377,7 +388,10 @@ impl CodexRuntimeActor {
         }
     }
 
-    async fn web_fetch_runtime_context(&self) -> Result<FetchRuntimeContext, String> {
+    async fn web_fetch_runtime_context(
+        &self,
+        generation_priority: crate::provider::GenerationPriority,
+    ) -> Result<FetchRuntimeContext, String> {
         if let Some(preference) = self
             .store
             .get_auxiliary_model_preference(crate::WEB_FETCH_SUMMARIZER_TASK_ID)
@@ -397,6 +411,7 @@ impl CodexRuntimeActor {
                 summarizer_provider,
                 summarizer_model: preference.model_profile,
                 summarizer_reasoning_effort: preference.reasoning_effort,
+                generation_priority,
             });
         }
 
@@ -408,11 +423,13 @@ impl CodexRuntimeActor {
             summarizer_provider,
             summarizer_model: DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string(),
             summarizer_reasoning_effort: None,
+            generation_priority,
         })
     }
 
     async fn web_fetch_runtime_execution_context(
         &self,
+        generation_priority: crate::provider::GenerationPriority,
     ) -> Result<
         (
             WebFetchRuntimeProvider,
@@ -427,7 +444,7 @@ impl CodexRuntimeActor {
             .resolved_web_fetch_provider()
             .await
             .map_err(|_| "web.fetch provider binding could not be resolved".to_string())?;
-        let context = self.web_fetch_runtime_context().await?;
+        let context = self.web_fetch_runtime_context(generation_priority).await?;
         match resolved.provider_kind.as_str() {
             crate::web_fetch::types::DIRECT_HTTP_PROVIDER_ID => Ok((
                 self.web_fetch_provider.clone(),
@@ -1130,12 +1147,16 @@ mod tests {
         .expect("actor");
 
         let context = actor
-            .web_fetch_runtime_context()
+            .web_fetch_runtime_context(crate::provider::GenerationPriority::Foreground)
             .await
             .expect("web fetch context");
 
         assert_eq!(context.summarizer_provider_kind, "foundation_local");
         assert_eq!(context.summarizer_model, "custom-fetch-summary");
+        assert_eq!(
+            context.generation_priority,
+            crate::provider::GenerationPriority::Foreground
+        );
     }
 
     #[tokio::test]
@@ -1169,13 +1190,17 @@ mod tests {
         .expect("actor");
 
         let context = actor
-            .web_fetch_runtime_context()
+            .web_fetch_runtime_context(crate::provider::GenerationPriority::Background)
             .await
             .expect("web fetch context");
 
         assert_eq!(
             context.summarizer_reasoning_effort,
             Some(crate::provider::ReasoningEffort::Low)
+        );
+        assert_eq!(
+            context.generation_priority,
+            crate::provider::GenerationPriority::Background
         );
     }
 
@@ -1210,7 +1235,7 @@ mod tests {
         .expect("actor");
 
         let message = actor
-            .web_fetch_runtime_context()
+            .web_fetch_runtime_context(crate::provider::GenerationPriority::Foreground)
             .await
             .expect_err("missing provider should fail");
 
@@ -1240,7 +1265,7 @@ mod tests {
         .expect("actor");
 
         let context = actor
-            .web_fetch_runtime_context()
+            .web_fetch_runtime_context(crate::provider::GenerationPriority::Foreground)
             .await
             .expect("web fetch context");
         let markdown = format!("{}\n", "Long page paragraph.".repeat(600));
@@ -1345,7 +1370,7 @@ mod tests {
         .expect("actor");
 
         let (provider, context, fallback_from, fallback_reason, auth_failure_account_id) = actor
-            .web_fetch_runtime_execution_context()
+            .web_fetch_runtime_execution_context(crate::provider::GenerationPriority::Foreground)
             .await
             .expect("context");
 
@@ -1363,6 +1388,10 @@ mod tests {
         );
         assert!(auth_failure_account_id.is_none());
         assert_eq!(context.summarizer_model, DEFAULT_TOOL_CLASSIFICATION_MODEL);
+        assert_eq!(
+            context.generation_priority,
+            crate::provider::GenerationPriority::Foreground
+        );
     }
 
     #[tokio::test]

@@ -21,7 +21,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use super::{
     actor::CodexRuntimeActor,
@@ -65,6 +65,24 @@ use crate::daemon::{
 
 const MEMORY_OBSERVATION_CONTEXT_ITEM_LIMIT: usize = 4;
 const MEMORY_OBSERVATION_CONTEXT_CHAR_LIMIT: usize = 2_000;
+
+#[derive(Debug)]
+struct TurnCompletionSignal(Option<oneshot::Sender<()>>);
+
+impl TurnCompletionSignal {
+    fn new() -> (Self, oneshot::Receiver<()>) {
+        let (sender, receiver) = oneshot::channel();
+        (Self(Some(sender)), receiver)
+    }
+}
+
+impl Drop for TurnCompletionSignal {
+    fn drop(&mut self) {
+        if let Some(sender) = self.0.take() {
+            let _ = sender.send(());
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub(in crate::daemon::runtime) struct MultipleChoiceSelectionInput {
@@ -811,16 +829,21 @@ impl CodexRuntimeActor {
         let user_sequence_index = user_item.sequence_index;
         send_conversation_item(&item_tx, user_item, user_metadata, transcript_item);
         timing.mark("runtime_user_item_persisted", json!({}));
-        if let UserTurnInput::Text(text) = &user_input {
+        let _memory_observation_turn_guard = if let UserTurnInput::Text(text) = &user_input {
+            let (turn_finished, await_turn_finished) = TurnCompletionSignal::new();
             self.enqueue_user_message_memory_observation(
                 &conversation_id,
                 &turn.turn_id,
                 &user_item_id,
                 user_sequence_index,
                 text,
+                await_turn_finished,
             )
             .await;
-        }
+            Some(turn_finished)
+        } else {
+            None
+        };
         if super::context_compaction::should_compact_foreground(&planned_context) {
             let compaction_started_at = std::time::Instant::now();
             timing.mark("runtime_foreground_compaction_started", json!({}));
@@ -2060,6 +2083,7 @@ impl CodexRuntimeActor {
         user_item_id: &str,
         user_sequence_index: i64,
         user_text: &str,
+        await_turn_finished: oneshot::Receiver<()>,
     ) {
         let assistant_context = self
             .memory_observation_assistant_context(
@@ -2099,6 +2123,7 @@ impl CodexRuntimeActor {
             "source_item_id": user_item_id,
         });
         self.tasks.spawn(async move {
+            let _ = await_turn_finished.await;
             if let Err(error) = client.add_memory(request).await {
                 let message = "memory observation submit failed".to_string();
                 system_errors.try_append(

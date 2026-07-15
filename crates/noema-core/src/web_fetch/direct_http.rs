@@ -496,6 +496,7 @@ mod tests {
             summarizer_provider: Arc::new(StaticSummaryProvider),
             summarizer_model: "gpt-5.4-mini".to_string(),
             summarizer_reasoning_effort: None,
+            generation_priority: crate::provider::GenerationPriority::Foreground,
         }
     }
 

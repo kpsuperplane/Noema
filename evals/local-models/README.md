@@ -4,10 +4,12 @@ This suite qualifies GGUF candidates against the model-sensitive behavior Noema 
 
 The current direct-provider suite covers strict final responses, visible streaming, multiple choice, onboarding name persistence, memory selection and continuation, task executor/reviewer/blocked terminal contracts, progress-audit JSON, prompt-injection-resistant web summarization, and context compaction. Every case uses deterministic typed or sentinel predicates. Runtime compatibility, correctness, and latency remain separate results.
 
-The production runtime disables llama.cpp's checkpoint prompt cache explicitly.
-The upstream 8 GiB default can grow a seemingly compatible model into unified-memory
-pressure over repeated requests, while Noema already serializes local generations
-and needs predictable headroom more than cross-request checkpoint retention.
+The production runtime enables prompt reuse with a bounded llama.cpp checkpoint
+cache. The budget is one thirty-second of detected system RAM, capped at 2 GiB,
+so 16 GB and 32 GB machines use 512 MiB and 1 GiB respectively instead of the
+upstream 8 GiB default. Noema keeps one active local generation and prioritizes
+queued interactive work over background memory, task, audit, compaction, and
+task-originated summarization requests.
 
 Candidates live in `candidates.toml`; suite-wide resource limits live in `suite.toml`. Candidate entries pin the Hugging Face repository, immutable revision, exact file, SHA-256, size, license, and provenance. These candidates are experimental and do not alter Noema's curated recommendation catalog.
 
