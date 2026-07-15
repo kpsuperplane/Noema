@@ -20,4 +20,8 @@ cargo run -p noema-model-evals -- run ternary-bonsai-8b-q2kt ternary-bonsai-27b-
 
 Reports are written incrementally under `target/noema-model-evals/runs/<run-id>/` as `matrix.json`, `summary.md`, and one raw JSON report per candidate/repetition. Downloads are resumable and content-addressed through Noema's installer. The runner checks Noema's existing verified blob store before downloading a duplicate artifact.
 
+Committed machine snapshots live under `results/`. They record the exact hardware,
+runtime, artifacts, suite configuration, and raw-report locations used for a decision;
+they are evidence for catalog changes, not additional catalog policy.
+
 V1 deliberately scores model-sensitive behavior only. Catalog selection, downloads, SQLite mechanics, and UI rendering already have deterministic product tests and are not model quality. Web/MCP execution is also excluded because the current local provider exposes only Noema's builtin fallback envelope; that integration limit must not be counted as a model failure.

@@ -131,6 +131,16 @@ The next storage slice should stay small and concrete:
   experiments must use the official `Q2_g64` artifact with stock b10015; its
   smaller g128 `Q2_0` artifact requires Prism's fork and fails the pinned
   upstream runtime.
+- The 2026-07-15 Apple M5/32 GB qualification snapshot is committed at
+  `evals/local-models/results/m5-air-2026-07-15.md`. Gemma 4 E4B Q4_K_M is the
+  recommended default-shaped candidate on that machine: it passed 10/10
+  critical contracts with a 4.8-second median and 5.3 GB download. Qwen3.6 35B
+  A3B was the only 11/11 candidate but needs a 16.8 GB download and had a
+  9.1-second median, so it is the quality-first advanced option. Gemma 4 26B
+  A4B matched E4B's critical score without improving its one noncritical miss,
+  while Bonsai 8B scored 8/10 critical and Bonsai 27B scored 7/10. The snapshot
+  is one repetition and informs, but does not automatically rewrite, the
+  bundled recommendation catalog.
 - The daemon shares one local-model supervisor between provider dispatch and
   runtime status. Activating a local model hot-swaps the managed Mnemosyne model
   proxy route without restarting the sidecar, and memory requests use a
