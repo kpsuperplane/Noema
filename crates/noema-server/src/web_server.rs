@@ -1,4 +1,5 @@
 use noema_core::{DaemonError, NoemaRuntimeHost, ProviderConfig, WebConfig};
+use std::path::PathBuf;
 
 use super::web::{self, WebState};
 
@@ -12,6 +13,7 @@ use super::web::{self, WebState};
 pub async fn run_daemon_web(
     provider: ProviderConfig,
     web_config: WebConfig,
+    local_model_runtime_root: Option<PathBuf>,
 ) -> Result<(), DaemonError> {
     let web_listener = web::bind_listener(&web_config).await?;
     let listener_address = web_listener.local_addr()?;
@@ -20,9 +22,10 @@ pub async fn run_daemon_web(
         DaemonError::Protocol("failed to generate the browser bootstrap capability".to_string())
     })?;
     let auth_mode = web::WebAuthMode::from_build();
-    let host = NoemaRuntimeHost::start(provider)
-        .await
-        .map_err(|source| DaemonError::Protocol(source.to_string()))?;
+    let host =
+        NoemaRuntimeHost::start_with_local_model_runtime_root(provider, local_model_runtime_root)
+            .await
+            .map_err(|source| DaemonError::Protocol(source.to_string()))?;
     let graphql_state = noema_core::graphql::GraphqlState::from_runtime_host(&host);
     let web_state = WebState::new(
         graphql_state,

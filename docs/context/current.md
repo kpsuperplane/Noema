@@ -117,6 +117,10 @@ The next storage slice should stay small and concrete:
   runtime status. Activating a local model hot-swaps the managed Mnemosyne model
   proxy route without restarting the sidecar, and memory requests use a
   generation-sized timeout rather than the old three-second health-check bound.
+- The standalone debug web shell passes the prepared
+  `crates/noema-desktop/binaries/runtime` resource root into the shared runtime
+  host, matching the desktop shell instead of looking beside the dev server
+  executable for `llama-server`.
 - Desktop builds package pinned llama.cpp release `b10015` at commit
   `12127defda4f41b7679cb2477a4b0d65ee6a0c8f`. The build preparation script
   downloads the platform archives, verifies the bundled manifest hashes, keeps
