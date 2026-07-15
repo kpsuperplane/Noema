@@ -1,14 +1,14 @@
 pub(in crate::daemon) mod actor;
 mod background_task;
-mod context_compaction;
+pub(crate) mod context_compaction;
 mod context_window;
 mod continuation_context;
 mod conversation_state;
 pub(in crate::daemon) mod handle;
 pub(in crate::daemon) mod local_tools;
-mod model_tools;
+pub(crate) mod model_tools;
 mod progress;
-mod progress_audit;
+pub(crate) mod progress_audit;
 mod prompt_context;
 mod task_completion;
 mod task_continuation;

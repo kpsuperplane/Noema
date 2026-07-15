@@ -112,7 +112,25 @@ The next storage slice should stay small and concrete:
   strict response schema and request-specific tool payload schemas. Built-in
   fallback tools retain their typed specs, while task executors and reviewers
   must finish through their role-specific terminal contract; local task model
-  snapshots are valid first-class selections.
+  snapshots are valid first-class selections. Local chat-template thinking is
+  disabled until Noema exposes an explicit reasoning policy, so reasoning-first
+  GGUFs cannot consume the complete visible output budget internally. The
+  llama.cpp schema lowering removes large string length bounds that otherwise
+  expand task payload grammars beyond llama-server's parser; canonical runtime
+  handlers still validate those tool payloads.
+- The opt-in `noema-model-evals` runner qualifies local GGUF candidates against
+  production model-sensitive contracts without changing the user's installed
+  models or preferences. Its pinned candidate and suite inputs live under
+  `evals/local-models/`; downloads are resumable, checksum-verified, and shared
+  under `target/noema-model-evals/cache`, while every model runs sequentially in
+  an isolated worker and emits incremental JSON/Markdown reports. The suite
+  deterministically checks strict chat, streaming, multiple choice, memory tool
+  selection and continuation, executor/reviewer/blocked task terminals,
+  progress audit JSON, web-summary injection resistance, and compaction. Runtime
+  compatibility, correctness, and latency remain separate results. Bonsai 27B
+  experiments must use the official `Q2_g64` artifact with stock b10015; its
+  smaller g128 `Q2_0` artifact requires Prism's fork and fails the pinned
+  upstream runtime.
 - The daemon shares one local-model supervisor between provider dispatch and
   runtime status. Activating a local model hot-swaps the managed Mnemosyne model
   proxy route without restarting the sidecar, and memory requests use a

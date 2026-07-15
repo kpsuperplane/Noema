@@ -1,0 +1,137 @@
+[[candidates]]
+id = "ternary-bonsai-8b-q2kt"
+name = "Ternary Bonsai 8B"
+repo = "vinpix/Bonsai-8B-llama.cpp"
+revision = "82bd8278ce2cc17f0b0aa745adf507acb3c670c0"
+file = "Bonsai-8B-Q2_KT.gguf"
+sha256 = "4997b5e1b477531ee0e4506f3bb2cbff2a6dceba080c704caacfc018994a89ae"
+bytes = 2985154240
+license = "Apache-2.0"
+context_tokens = 65536
+source = "https://huggingface.co/vinpix/Bonsai-8B-llama.cpp"
+notes = "Existing low-footprint baseline; already proven with Noema's stock b10015 runtime."
+
+[[candidates]]
+id = "ternary-bonsai-27b-q2-g64"
+name = "Ternary Bonsai 27B"
+repo = "prism-ml/Ternary-Bonsai-27B-gguf"
+revision = "20e435f518bd5b882795954aba81e80a91894321"
+file = "Ternary-Bonsai-27B-Q2_g64.gguf"
+sha256 = "59a45d1ecef702b14531b06d22949f33b25c1897da31a8c0b298e01e4d9138eb"
+bytes = 7585330240
+license = "Apache-2.0"
+context_tokens = 262144
+source = "https://huggingface.co/prism-ml/Ternary-Bonsai-27B-gguf"
+notes = "Stock-compatible g64 artifact. Never substitute Q2_0 g128, which requires Prism's llama.cpp fork and fails b10015."
+
+[[candidates]]
+id = "gemma-4-e4b-it-q4-k-m"
+name = "Gemma 4 E4B IT"
+repo = "ggml-org/gemma-4-E4B-it-GGUF"
+revision = "2714b5519c6c3516b1000e7c5e1eba998dfe1fe8"
+file = "gemma-4-E4B-it-Q4_K_M.gguf"
+sha256 = "90ce98129eb3e8cc57e62433d500c97c624b1e3af1fcc85dd3b55ad7e0313e9f"
+bytes = 5335289824
+license = "Apache-2.0"
+context_tokens = 131072
+source = "https://huggingface.co/google/gemma-4-E4B-it-qat-q4_0-gguf"
+artifact_source = "https://huggingface.co/ggml-org/gemma-4-E4B-it-GGUF"
+notes = "llama.cpp-official Q4_K_M conversion and compact Gemma speed/quality anchor. Google's QAT Q4_0 artifact aborts b10015 during vocabulary loading."
+
+[[candidates]]
+id = "gemma-4-12b-it-q4-k-m"
+name = "Gemma 4 12B IT"
+repo = "ggml-org/gemma-4-12B-it-GGUF"
+revision = "44ee90c4b61e888ac5b318a54ec7a94df61e9cd7"
+file = "gemma-4-12B-it-Q4_K_M.gguf"
+sha256 = "1278394b693672ac2799eadc9a83fd98259a6a88a40acfb1dcaa6c6fc895a606"
+bytes = 7381382048
+license = "Apache-2.0"
+context_tokens = 262144
+source = "https://huggingface.co/google/gemma-4-12B-it-qat-q4_0-gguf"
+artifact_source = "https://huggingface.co/ggml-org/gemma-4-12B-it-GGUF"
+notes = "llama.cpp-official dense Q4_K_M conversion and compact quality candidate."
+
+[[candidates]]
+id = "gemma-4-26b-a4b-it-q4-k-m"
+name = "Gemma 4 26B A4B IT"
+repo = "ggml-org/gemma-4-26B-A4B-it-GGUF"
+revision = "ae4d537a6345467d1c86bb5cc0d4505ff3ebe0f3"
+file = "gemma-4-26B-A4B-it-Q4_K_M.gguf"
+sha256 = "88f4a13b0bb95f031a7fad973e10854122fb67ebc34d214d39a2f65053046abc"
+bytes = 16796015136
+license = "Apache-2.0"
+context_tokens = 262144
+source = "https://huggingface.co/google/gemma-4-26B-A4B-it-qat-q4_0-gguf"
+artifact_source = "https://huggingface.co/ggml-org/gemma-4-26B-A4B-it-GGUF"
+notes = "llama.cpp-official 25B-total/4B-active MoE conversion; the leading expected Gemma fit for this Air."
+
+[[candidates]]
+id = "gemma-4-31b-it-q4-k-m"
+name = "Gemma 4 31B IT"
+repo = "ggml-org/gemma-4-31B-it-GGUF"
+revision = "fb5801c702a472691c6eba168f28af79a076fbe9"
+file = "gemma-4-31B-it-Q4_K_M.gguf"
+sha256 = "4f369f8fe0e1bedc5caee9abb89316887f548f80f3035398a5d222a737e699e6"
+bytes = 18687061792
+license = "Apache-2.0"
+context_tokens = 262144
+source = "https://huggingface.co/google/gemma-4-31B-it-qat-q4_0-gguf"
+artifact_source = "https://huggingface.co/ggml-org/gemma-4-31B-it-GGUF"
+notes = "llama.cpp-official dense Gemma quality ceiling; expected to be the slowest Gemma on a fanless Air."
+
+[[candidates]]
+id = "gpt-oss-20b-mxfp4"
+name = "GPT-OSS 20B"
+repo = "ggml-org/gpt-oss-20b-GGUF"
+revision = "e1dc459feff949ff451ce107337a2026daa80df8"
+file = "gpt-oss-20b-mxfp4.gguf"
+sha256 = "be37a636aca0fc1aae0d32325f82f6b4d21495f06823b5fbc1898ae0303e9935"
+bytes = 12109566560
+license = "Apache-2.0"
+context_tokens = 131072
+source = "https://huggingface.co/openai/gpt-oss-20b"
+artifact_source = "https://huggingface.co/ggml-org/gpt-oss-20b-GGUF"
+notes = "MoE tool-use control; Harmony requirements may conflict with Noema's response envelope."
+
+[[candidates]]
+id = "qwen3-6-35b-a3b-ud-q3-k-xl"
+name = "Qwen3.6 35B A3B"
+repo = "unsloth/Qwen3.6-35B-A3B-GGUF"
+revision = "a483e9e6cbd595906af30beda3187c2663a1118c"
+file = "Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf"
+sha256 = "a832b9689925f1bd335bbe985cdfb06c36bf2cf268f4f8f6eceafa3ceb515617"
+bytes = 16845511648
+license = "Apache-2.0"
+context_tokens = 262144
+source = "https://huggingface.co/Qwen/Qwen3.6-35B-A3B"
+artifact_source = "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF"
+notes = "35B-total/3B-active MoE; third-party Q3 artifact selected to fit 32 GB comfortably."
+
+[[candidates]]
+id = "ministral-3-14b-instruct-q4-k-m"
+name = "Ministral 3 14B Instruct 2512"
+repo = "mistralai/Ministral-3-14B-Instruct-2512-GGUF"
+revision = "74fac473c43357d7fb2671713608183cc72496d0"
+file = "Ministral-3-14B-Instruct-2512-Q4_K_M.gguf"
+sha256 = "824e0f3373e69b84f2cae46fdcb9bd1ebc6ab3bfc7acc125d818b7b8178cc613"
+bytes = 8239593024
+license = "Apache-2.0"
+context_tokens = 262144
+source = "https://huggingface.co/mistralai/Ministral-3-14B-Instruct-2512"
+artifact_source = "https://huggingface.co/mistralai/Ministral-3-14B-Instruct-2512-GGUF"
+notes = "Mistral-official compact generalist with documented function calling and JSON output."
+
+[[candidates]]
+id = "glm-4-7-flash-q4-k"
+name = "GLM-4.7-Flash"
+repo = "ggml-org/GLM-4.7-Flash-GGUF"
+revision = "7559e96b7e324ab405897dc2b91492b0f376ad4a"
+file = "GLM-4.7-Flash-Q4_K.gguf"
+sha256 = "b6019edc5fbe37d3660d2e994d16c839a7855a6f03362c5dcf8142ba479cd0d2"
+bytes = 18244193920
+license = "MIT"
+context_tokens = 202752
+source = "https://huggingface.co/zai-org/GLM-4.7-Flash"
+artifact_source = "https://huggingface.co/ggml-org/GLM-4.7-Flash-GGUF"
+notes = "30B-total/3B-active agentic MoE and the heaviest candidate in this matrix."

@@ -1,0 +1,6 @@
+# Qualification runs use Noema's production provider adapter and pinned runtime.
+context_window_tokens = 8192
+generation_timeout_seconds = 300
+startup_timeout_seconds = 180
+worker_timeout_seconds = 3600
+repetitions = 1

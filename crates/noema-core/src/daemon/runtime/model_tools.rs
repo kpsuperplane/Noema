@@ -282,7 +282,7 @@ fn prompt_rows(native_tools: &[NoemaToolSpec]) -> Vec<String> {
     rows
 }
 
-fn legacy_prompt_rows(tools: &[NoemaToolSpec]) -> Vec<String> {
+pub(crate) fn legacy_prompt_rows(tools: &[NoemaToolSpec]) -> Vec<String> {
     tools
         .iter()
         .map(|tool| {

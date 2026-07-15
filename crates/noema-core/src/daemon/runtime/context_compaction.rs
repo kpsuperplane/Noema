@@ -404,7 +404,7 @@ fn render_compaction_transcript(items: &[ConversationItemRecord]) -> String {
         .join("\n")
 }
 
-fn compaction_instructions(target_tokens: u32) -> String {
+pub(crate) fn compaction_instructions(target_tokens: u32) -> String {
     format!(
         "Compact Noema conversation context into a durable rolling summary.\n\
          Write plain assistant text only. Target at most {target_tokens} tokens.\n\

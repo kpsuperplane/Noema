@@ -2720,6 +2720,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "noema-model-evals"
+version = "0.1.0"
+dependencies = [
+ "noema-core",
+ "ring",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "toml 1.1.2+spec-1.1.0",
+]
+
+[[package]]
 name = "noema-server"
 version = "0.1.0"
 dependencies = [

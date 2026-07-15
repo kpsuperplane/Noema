@@ -1,0 +1,148 @@
+use std::time::{Duration, Instant};
+
+use crate::{
+    LLAMA_CPP_COMMIT, LLAMA_CPP_RELEASE_TAG, LocalModelsProvider, LocalModelsProviderConfig,
+    ModelProvider, provider::GenerateStreamEvent,
+};
+
+use super::{
+    cases::evaluation_cases,
+    grade::grade_response,
+    types::{ModelEvalCaseResult, ModelEvalConfig, ModelEvalReport, ModelEvalToolCall},
+};
+
+/// Run all deterministic direct-provider scenarios against one verified GGUF.
+///
+/// # Errors
+///
+/// Returns an error only when the evaluation configuration or production case
+/// fixtures cannot be constructed. Runtime and per-case failures are retained
+/// in the returned report so an incompatible model cannot abort a matrix run.
+pub async fn run_provider_suite(config: ModelEvalConfig) -> Result<ModelEvalReport, String> {
+    let provider = LocalModelsProvider::new(LocalModelsProviderConfig {
+        default_model: config.model_id.clone(),
+        model_path: Some(config.model_path),
+        preferred_backend: None,
+        runtime_root: Some(config.runtime_root),
+        context_window_tokens: config.context_window_tokens,
+        timeout_seconds: config.timeout_seconds,
+        startup_timeout_seconds: config.startup_timeout_seconds,
+        system_errors: None,
+    })
+    .map_err(|error| error.to_string())?;
+
+    let load_started = Instant::now();
+    let endpoint = provider.runtime().ensure_ready().await;
+    let runtime_load_ms = duration_ms(load_started.elapsed());
+    let endpoint = match endpoint {
+        Ok(endpoint) => endpoint,
+        Err(error) => {
+            return Ok(ModelEvalReport {
+                model_id: config.model_id,
+                llama_cpp_release: LLAMA_CPP_RELEASE_TAG.to_string(),
+                llama_cpp_commit: LLAMA_CPP_COMMIT.to_string(),
+                backend: None,
+                runtime_load_ms,
+                runtime_error: Some(error.to_string()),
+                cases: Vec::new(),
+                passed_cases: 0,
+                total_cases: 0,
+                passed_critical_cases: 0,
+                total_critical_cases: 0,
+            });
+        }
+    };
+
+    let cases = evaluation_cases(&config.model_id)?;
+    let mut results = Vec::with_capacity(cases.len());
+    for case in cases {
+        let started = Instant::now();
+        let mut first_visible_delta = None;
+        let mut streamed_text = String::new();
+        let response = provider
+            .generate_streaming(case.request, &mut |event| {
+                if let GenerateStreamEvent::AssistantTextDelta { delta, .. } = event {
+                    first_visible_delta.get_or_insert_with(Instant::now);
+                    streamed_text.push_str(&delta);
+                }
+            })
+            .await;
+        let elapsed = started.elapsed();
+        let first_visible_delta_ms = first_visible_delta
+            .map(|first_visible| duration_ms(first_visible.duration_since(started)));
+        let streamed_chars = streamed_text.chars().count();
+
+        let result = match response {
+            Ok(response) => {
+                let failure = grade_response(&case.expectation, &response, &streamed_text).err();
+                let usage = response.usage.as_ref();
+                ModelEvalCaseResult {
+                    case_id: case.id.to_string(),
+                    category: case.category.to_string(),
+                    critical: case.critical,
+                    passed: failure.is_none(),
+                    latency_ms: duration_ms(elapsed),
+                    first_visible_delta_ms,
+                    streamed_chars,
+                    input_tokens: usage.map(|usage| usage.input_tokens),
+                    output_tokens: usage.map(|usage| usage.output_tokens),
+                    assistant_text: bounded_text(&response.assistant_text(), 12_000),
+                    tool_calls: response
+                        .tool_calls
+                        .into_iter()
+                        .map(|call| ModelEvalToolCall {
+                            name: call.name,
+                            payload: call.payload,
+                        })
+                        .collect(),
+                    failure,
+                }
+            }
+            Err(error) => ModelEvalCaseResult {
+                case_id: case.id.to_string(),
+                category: case.category.to_string(),
+                critical: case.critical,
+                passed: false,
+                latency_ms: duration_ms(elapsed),
+                first_visible_delta_ms,
+                streamed_chars,
+                input_tokens: None,
+                output_tokens: None,
+                assistant_text: String::new(),
+                tool_calls: Vec::new(),
+                failure: Some(error.to_string()),
+            },
+        };
+        results.push(result);
+    }
+    provider.runtime().shutdown().await;
+
+    let total_cases = results.len();
+    let passed_cases = results.iter().filter(|result| result.passed).count();
+    let total_critical_cases = results.iter().filter(|result| result.critical).count();
+    let passed_critical_cases = results
+        .iter()
+        .filter(|result| result.critical && result.passed)
+        .count();
+    Ok(ModelEvalReport {
+        model_id: config.model_id,
+        llama_cpp_release: LLAMA_CPP_RELEASE_TAG.to_string(),
+        llama_cpp_commit: LLAMA_CPP_COMMIT.to_string(),
+        backend: Some(endpoint.backend.display_name().to_string()),
+        runtime_load_ms,
+        runtime_error: None,
+        cases: results,
+        passed_cases,
+        total_cases,
+        passed_critical_cases,
+        total_critical_cases,
+    })
+}
+
+fn duration_ms(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+}
+
+fn bounded_text(text: &str, max_chars: usize) -> String {
+    text.chars().take(max_chars).collect()
+}

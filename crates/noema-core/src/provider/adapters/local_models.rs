@@ -327,6 +327,7 @@ struct ChatCompletionRequest {
     stream: bool,
     stream_options: ChatStreamOptions,
     cache_prompt: bool,
+    chat_template_kwargs: ChatTemplateKwargs,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -359,6 +360,9 @@ impl ChatCompletionRequest {
                 include_usage: true,
             },
             cache_prompt: true,
+            chat_template_kwargs: ChatTemplateKwargs {
+                enable_thinking: false,
+            },
             max_tokens: request.options.max_output_tokens,
             temperature: request.options.temperature,
             response_format: request
@@ -367,6 +371,11 @@ impl ChatCompletionRequest {
                 .then(|| chat_noema_response_format(request)),
         })
     }
+}
+
+#[derive(Debug, Serialize)]
+struct ChatTemplateKwargs {
+    enable_thinking: bool,
 }
 
 fn chat_noema_response_format(request: &GenerateRequest) -> Value {
@@ -418,6 +427,13 @@ fn chat_noema_response_format(request: &GenerateRequest) -> Value {
 fn normalize_llama_cpp_schema(value: &mut Value) {
     match value {
         Value::Object(object) => {
+            // llama.cpp expands JSON Schema string lengths into grammar
+            // productions. Noema's task contracts allow long Markdown fields,
+            // and bounds in the tens of thousands make the generated grammar
+            // too large for llama-server to parse before inference begins.
+            // Runtime tool handlers still enforce the canonical contract.
+            object.remove("minLength");
+            object.remove("maxLength");
             if let Some(Value::String(pattern)) = object.get_mut("pattern") {
                 if !pattern.starts_with('^') {
                     pattern.insert(0, '^');
@@ -693,6 +709,7 @@ mod tests {
         assert_eq!(body.max_tokens, Some(321));
         assert_eq!(body.temperature, Some(0.2));
         assert!(body.cache_prompt);
+        assert!(!body.chat_template_kwargs.enable_thinking);
         assert!(body.response_format.is_none());
     }
 
@@ -799,6 +816,44 @@ mod tests {
                 [0]["properties"]["payload"]["properties"]["title"]["pattern"],
             "^.*\\S.*$"
         );
+    }
+
+    #[test]
+    fn local_tool_schema_drops_expansive_string_length_grammar() {
+        let tool = crate::provider::NoemaToolSpec::new(
+            "task.submit_result",
+            "Submit a result.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "summary": {"type": "string", "minLength": 1, "maxLength": 4000}
+                },
+                "required": ["summary"],
+                "additionalProperties": false
+            }),
+            crate::provider::NoemaToolExecution::LocalBuiltin,
+        )
+        .expect("tool");
+        let request = GenerateRequest {
+            options: crate::provider::GenerateOptions {
+                require_noema_response: true,
+                ..crate::provider::GenerateOptions::default()
+            },
+            tools: vec![tool],
+            ..GenerateRequest::text("finish")
+        };
+
+        let response_format =
+            ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
+                .expect("chat request")
+                .response_format
+                .expect("response format");
+        let summary = &response_format["json_schema"]["schema"]["properties"]["tool_calls"]["items"]
+            ["oneOf"][0]["properties"]["payload"]["properties"]["summary"];
+
+        assert_eq!(summary["type"], "string");
+        assert!(summary.get("minLength").is_none());
+        assert!(summary.get("maxLength").is_none());
     }
 
     #[test]

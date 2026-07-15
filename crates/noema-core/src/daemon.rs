@@ -3,6 +3,9 @@
 mod agent_name_tool;
 mod agent_onboarding;
 mod artifact_tool;
+#[cfg(feature = "local-model-evals")]
+#[doc(hidden)]
+pub mod eval_support;
 mod memory;
 mod prompts;
 mod protocol;

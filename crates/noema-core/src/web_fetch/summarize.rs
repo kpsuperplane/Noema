@@ -94,7 +94,12 @@ async fn summarize_chunked(
     summarize_single_pass(context, url, title, &combined, max_chars).await
 }
 
-fn summarizer_prompt(url: &str, title: Option<&str>, markdown: &str, max_chars: usize) -> String {
+pub(crate) fn summarizer_prompt(
+    url: &str,
+    title: Option<&str>,
+    markdown: &str,
+    max_chars: usize,
+) -> String {
     format!(
         "You are compressing untrusted web page text for a later assistant response.\n\
          Source URL: {url}\n\
