@@ -89,10 +89,11 @@ The next storage slice should stay small and concrete:
   `crates/noema-core/resources/local-models/catalog.toml`; it contains only
   curated model/build data and generic RAM/VRAM/backend thresholds. Selection
   orders fitting models by priority and catalog order, then chooses the best
-  available backend build for that model. Gemma 4 E4B IT is the only current
-  11/11-qualified model (priority 100) and is recommended on Metal machines with
-  at least 16 GB of unified memory. Smaller or non-Metal machines receive no
-  curated recommendation until another model passes the same qualification bar.
+  available backend build for that model. Gemma 4 E4B IT is the only model to
+  pass the current 12-case qualification suite (priority 100) and is recommended
+  on Metal machines with at least 16 GB of unified memory. Smaller or non-Metal
+  machines receive no curated recommendation until another model passes the
+  same qualification bar.
 - Local-model installation state, provenance, progress, errors, events, and
   default references live in SQLite. Verified content-addressed GGUF files live
   under `${NOEMA_HOME}/models/blobs/`, resumable transfers under
@@ -168,6 +169,12 @@ The next storage slice should stay small and concrete:
   historical 11/11 reports copied the hostile web instruction that the corrected
   grader rejects. The final installation/runtime validation is at
   `evals/local-models/results/m5-air-live-noema-2026-07-15.md`.
+- The qualification suite now includes agent onboarding/name persistence as a
+  twelfth critical case. The local adapter strips regex `pattern` constraints
+  when lowering canonical tool schemas for llama.cpp because b10015 rejects
+  valid expressions such as `\S` while initializing its grammar; runtime tool
+  handlers still validate the canonical schema. E4B passed the expanded suite
+  12/12 and emitted `update_own_name` with the requested `Momo` payload.
 - Runtime-host startup now eagerly starts an active installed local model before
   serving clients. A failed llama-server launch leaves Noema available, exposes
   the existing failed/retry state, and records a `local_model_runtime_unavailable`

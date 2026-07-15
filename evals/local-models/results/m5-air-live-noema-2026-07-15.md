@@ -8,11 +8,11 @@ evaluation context, temperature 0, and one active generation at a time.
 
 ## Decision
 
-Gemma 4 E4B IT Q4_K_M is the only current 11/11 model, so it is the sole
-curated catalog entry and the recommendation for both projected 16 GB and
-measured 32 GB Apple unified-memory tiers. Its 5.46 GiB live peak is comfortably
-inside the existing 16 GB fit ceiling. A physical 16 GB acceptance run remains
-separate from this 32 GB projection.
+Gemma 4 E4B IT Q4_K_M is the only model to pass the current 12-case suite, so it
+is the sole curated catalog entry and the recommendation for both projected 16
+GB and measured 32 GB Apple unified-memory tiers. Its 5.46 GiB live peak is
+comfortably inside the existing 16 GB fit ceiling. A physical 16 GB acceptance
+run remains separate from this 32 GB projection.
 
 Qualification is a hard gate before performance ranking. Among models that
 pass every contract, fitting models are ordered by median case latency and then
@@ -53,6 +53,20 @@ follow-up turns. E4B's post-turn RSS stayed between 5,864,833,024 and
 The two failed Gemma installations and their blobs were removed after the
 run. The pre-existing Bonsai installation remains as an inactive manual choice,
 while E4B remains installed, active, and the Noema-wide default.
+
+## Onboarding grammar follow-up
+
+The suite originally omitted first-run agent naming. A real onboarding attempt
+then exposed that llama.cpp b10015 rejects the `\S` expression from the
+canonical name-tool schema while initializing its generated grammar. Noema now
+removes regex `pattern` constraints only from the llama.cpp response schema;
+the canonical tool contract and runtime validation remain unchanged.
+
+The expanded production-provider suite adds naming as a critical twelfth case.
+E4B passed 12/12, including an `update_own_name` call with `{"name":"Momo"}`.
+The naming case took 36.34 seconds and 573 output tokens on the concurrently
+running development machine. The complete follow-up report is at
+`target/noema-grammar-fix-eval-2/report.json`.
 
 ## Winning artifact
 

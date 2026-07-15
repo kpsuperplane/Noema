@@ -11,6 +11,7 @@ use crate::{
 
 use super::{
     super::{
+        agent_name_tool::update_own_name_tool_spec,
         agent_onboarding::AgentPromptIdentity,
         memory::tool::search_memory_tool_spec,
         prompts::{
@@ -59,6 +60,17 @@ pub(super) fn evaluation_cases(model_id: &str) -> Result<Vec<EvalCase>, String> 
         memory_rows.clone(),
         memory_names.clone(),
     );
+    let update_own_name = update_own_name_tool_spec().map_err(|error| error.to_string())?;
+    let naming_identity = AgentPromptIdentity {
+        agent_id: "agent:primary".to_string(),
+        display_name: None,
+    };
+    let naming_context = primary_context(
+        &naming_identity,
+        ProviderToolTransport::NoemaEnvelope,
+        prompt_rows(std::slice::from_ref(&update_own_name)),
+        vec!["update_own_name".to_string()],
+    );
 
     let mut cases = vec![
         EvalCase {
@@ -105,6 +117,21 @@ pub(super) fn evaluation_cases(model_id: &str) -> Result<Vec<EvalCase>, String> 
                 NoemaToolChoice::None,
             ),
             expectation: EvalExpectation::MultipleChoice,
+        },
+        EvalCase {
+            id: "agent_onboarding_name",
+            category: "agent_onboarding",
+            critical: true,
+            request: structured_request(
+                model_id,
+                "Momo!",
+                primary_prompt.clone(),
+                &naming_context,
+                768,
+                vec![update_own_name],
+                NoemaToolChoice::Required,
+            ),
+            expectation: EvalExpectation::AgentNameUpdate,
         },
         EvalCase {
             id: "memory_lookup",
@@ -541,5 +568,25 @@ mod tests {
         ));
         assert!(matches!(&items[4], GenerateInputItem::ToolCall(_)));
         assert!(matches!(&items[5], GenerateInputItem::ToolResult(_)));
+    }
+
+    #[test]
+    fn onboarding_case_requires_the_name_tool_for_an_unnamed_agent() {
+        let cases = evaluation_cases("local-model").expect("cases");
+        let request = &case(&cases, "agent_onboarding_name").request;
+        let GenerateInput::Messages(messages) = &request.input else {
+            panic!("onboarding case should use message input");
+        };
+
+        assert_eq!(
+            messages.last().map(|message| message.content.as_str()),
+            Some("Momo!")
+        );
+        assert!(messages[0].content.contains("display_name"));
+        assert!(messages[0].content.contains("null"));
+        assert!(messages[2].content.contains("update_own_name"));
+        assert_eq!(request.tools.len(), 1);
+        assert_eq!(request.tools[0].name.as_str(), "update_own_name");
+        assert_eq!(request.tool_choice, NoemaToolChoice::Required);
     }
 }

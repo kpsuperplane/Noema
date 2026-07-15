@@ -485,21 +485,14 @@ fn selected_local_tools(
 fn normalize_llama_cpp_schema(value: &mut Value) {
     match value {
         Value::Object(object) => {
-            // llama.cpp expands JSON Schema string lengths into grammar
-            // productions. Noema's task contracts allow long Markdown fields,
-            // and bounds in the tens of thousands make the generated grammar
-            // too large for llama-server to parse before inference begins.
-            // Runtime tool handlers still enforce the canonical contract.
+            // llama.cpp lowers JSON Schema string constraints into grammar
+            // productions. Large length bounds make the generated grammar too
+            // large, while otherwise-valid expressions such as `\S` can make
+            // b10015 reject the grammar entirely. Runtime tool handlers still
+            // enforce the canonical schema after generation.
             object.remove("minLength");
             object.remove("maxLength");
-            if let Some(Value::String(pattern)) = object.get_mut("pattern") {
-                if !pattern.starts_with('^') {
-                    pattern.insert(0, '^');
-                }
-                if !pattern.ends_with('$') {
-                    pattern.push('$');
-                }
-            }
+            object.remove("pattern");
             for child in object.values_mut() {
                 normalize_llama_cpp_schema(child);
             }
@@ -1003,7 +996,7 @@ mod tests {
     }
 
     #[test]
-    fn local_tool_schema_anchors_patterns_for_llama_cpp() {
+    fn local_tool_schema_drops_patterns_unsupported_by_llama_cpp() {
         let tool = crate::provider::NoemaToolSpec::new(
             "artifact.create_local_file",
             "Create a file.",
@@ -1030,10 +1023,14 @@ mod tests {
                 .expect("chat request")
                 .response_format
                 .expect("response format");
+        let title = &response_format["json_schema"]["schema"]["properties"]["tool_calls"]["items"]
+            ["oneOf"][0]["properties"]["payload"]["properties"]["title"];
+
+        assert_eq!(title["type"], "string");
+        assert!(title.get("pattern").is_none());
         assert_eq!(
-            response_format["json_schema"]["schema"]["properties"]["tool_calls"]["items"]["oneOf"]
-                [0]["properties"]["payload"]["properties"]["title"]["pattern"],
-            "^.*\\S.*$"
+            request.tools[0].input_schema.as_value()["properties"]["title"]["pattern"],
+            ".*\\S.*"
         );
     }
 

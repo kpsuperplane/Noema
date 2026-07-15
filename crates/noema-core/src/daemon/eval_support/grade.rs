@@ -27,6 +27,7 @@ pub(super) fn grade_response(
             Ok(())
         }
         EvalExpectation::MultipleChoice => multiple_choice(response),
+        EvalExpectation::AgentNameUpdate => agent_name_update(response),
         EvalExpectation::MemoryLookup => memory_lookup(response),
         EvalExpectation::MemoryContinuation => memory_continuation(response),
         EvalExpectation::ExecutorSubmission => executor_submission(response),
@@ -93,6 +94,16 @@ fn multiple_choice(response: &GenerateResponse) -> Result<(), String> {
         return Err("multiple-choice option ids were empty or duplicated".to_string());
     }
     Ok(())
+}
+
+fn agent_name_update(response: &GenerateResponse) -> Result<(), String> {
+    let payload = only_tool_payload(response, "update_own_name")?;
+    let name = required_nonempty_string(payload, "name")?;
+    if name.eq_ignore_ascii_case("momo") {
+        Ok(())
+    } else {
+        Err(format!("agent name did not match Momo: {name:?}"))
+    }
 }
 
 fn memory_lookup(response: &GenerateResponse) -> Result<(), String> {
@@ -295,13 +306,17 @@ mod tests {
     }
 
     fn memory_response(payload: Value) -> GenerateResponse {
+        tool_response("search_memory", payload)
+    }
+
+    fn tool_response(name: &str, payload: Value) -> GenerateResponse {
         GenerateResponse {
             responses: Vec::new(),
             tool_calls: vec![crate::provider::GenerateToolCall {
                 id: None,
                 provider_call_id: None,
                 provider_name: None,
-                name: "search_memory".to_string(),
+                name: name.to_string(),
                 payload,
             }],
             reasoning_items: Vec::new(),
@@ -311,6 +326,18 @@ mod tests {
             response_id: None,
             usage: None,
         }
+    }
+
+    #[test]
+    fn agent_name_update_requires_the_requested_name() {
+        let accepted = tool_response("update_own_name", serde_json::json!({"name": "Momo"}));
+        let rejected = tool_response("update_own_name", serde_json::json!({"name": "Mira"}));
+
+        assert_eq!(agent_name_update(&accepted), Ok(()));
+        assert_eq!(
+            agent_name_update(&rejected),
+            Err("agent name did not match Momo: \"Mira\"".to_string())
+        );
     }
 
     #[test]

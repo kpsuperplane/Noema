@@ -137,6 +137,7 @@ pub(super) enum EvalExpectation {
     ExactFinalText(&'static str),
     StreamedExactText(&'static str),
     MultipleChoice,
+    AgentNameUpdate,
     MemoryLookup,
     MemoryContinuation,
     ExecutorSubmission,
