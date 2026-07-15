@@ -103,10 +103,11 @@ The next storage slice should stay small and concrete:
   implemented by concrete objects rather than universal parent tables.
 - Durable chat history is reconstructed from `conversation_items`; the daemon
   WebSocket and `agent_status` are live coordination state for current turns.
-- Browser GraphQL subscriptions retry indefinitely with capped backoff. A
-  disconnected chat becomes read-only while reconnecting; once the WebSocket is
-  acknowledged again, the web client refetches active queries and backfills the
-  latest durable transcript page so server restarts do not require a reload.
+- Browser GraphQL connections and terminally failed subscription operations
+  retry indefinitely with capped backoff. A disconnected chat becomes read-only
+  while reconnecting; once a fresh subscription is acknowledged, the web client
+  refetches active queries and backfills the latest durable transcript page so
+  server restarts do not require a reload.
 - Filesystem storage is for durable object-owned documents, attachments, and artifacts.
 - `system/` state is derived and rebuildable.
 - Governed artifacts are durable, versioned outputs owned by the same concrete
