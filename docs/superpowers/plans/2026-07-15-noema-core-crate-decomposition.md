@@ -1085,9 +1085,9 @@ tasks, memory, store, and runtime depend on it.
 
 **Steps:**
 
-- [ ] Move provider contracts, request/response vocabulary, usage, reasoning
+- [x] Move provider contracts, request/response vocabulary, usage, reasoning
   effort, account/auth models, model catalogs, and capability bindings.
-- [ ] Replace the task-owned `ModelSelectionMode`, `ModelConfigSnapshot`, and
+- [x] Replace the task-owned `ModelSelectionMode`, `ModelConfigSnapshot`, and
   `ModelConfigError` with the single provider-owned durable selection snapshot
   vocabulary used by the registry/resolver. Preserve explicit versus
   provider-default wire semantics and move their stable leaf test to providers;
@@ -1097,53 +1097,53 @@ tasks, memory, store, and runtime depend on it.
   exact `Some(key)`; the temporary core resolver may attach the currently active
   key only to the returned in-memory route and must neither persist it nor claim
   restart durability.
-- [ ] Keep raw Figment/YAML/environment loading in the current config module
+- [x] Keep raw Figment/YAML/environment loading in the current config module
   until Phase 12, but move all resolved provider construction inputs and
   defaults now. Raw config resolves into provider-owned types; adapters never
   import host configuration.
-- [ ] Put `ProviderConfig`, `ProviderKind`, and every hosted/local adapter
+- [x] Put `ProviderConfig`, `ProviderKind`, and every hosted/local adapter
   configuration record and default in the always-compiled provider
   contract/config modules, including OpenAI, Codex, and OAuth endpoint records.
   Feature-gated adapter implementations consume those records; the records must
   not import a feature-gated implementation module.
-- [ ] Make the always-compiled provider error surface transport-neutral.
+- [x] Make the always-compiled provider error surface transport-neutral.
   `ProviderError` must not embed `reqwest::Error` or another concrete adapter
   error; hosted adapters translate transport failures into provider-owned
   structured kind/message/context fields at the boundary.
-- [ ] Give every secret-bearing provider configuration, token, client, account
+- [x] Give every secret-bearing provider configuration, token, client, account
   service, and erased operations handle a custom redacted `Debug`
   implementation. `OpenAiProviderConfig`, containing provider config enums,
   Codex OAuth tokens, and Exa client values must never print credentials; add
   explicit tests which format each public/debug-reachable value and assert that
   secret bytes are absent.
-- [ ] Make provider adapters depend on canonical tool contracts from
+- [x] Make provider adapters depend on canonical tool contracts from
   `noema-capabilities`.
-- [ ] Move provider account status/auth/read models out of store code while
+- [x] Move provider account status/auth/read models out of store code while
   leaving persistence SQL in place.
-- [ ] Introduce a typed `ProviderModelProfile` for model-catalog metadata and
+- [x] Introduce a typed `ProviderModelProfile` for model-catalog metadata and
   GraphQL consumers. Its serde representation must preserve the current account
   metadata JSON shape byte-for-byte so this ownership move does not create a
   schema or wire-format change.
-- [ ] Rename the durable store concept currently called
+- [x] Rename the durable store concept currently called
   `ProviderCapabilityBindingRecord` to `ProviderCapabilityAssignment` (or an
   equally explicit provider-account assignment name). It is configuration
   which selects capabilities for a provider account, not the Phase-4
   non-serializable `CapabilityBinding` that carries execution authority.
-- [ ] Define provider-owned persistence ports for accounts, capability
+- [x] Define provider-owned persistence ports for accounts, capability
   bindings, model profiles, and local-model installation/activation state.
   Keep every SQL implementation in the store. Every port used behind `dyn`
   uses the repository's boxed-future convention, has a clonable `Arc<dyn ...>`
   handle, and returns a provider-persistence error rather than either
   `StoreError` or the model-call `ProviderError`.
-- [ ] Make model-catalog refresh one coarse atomic port operation which stores
+- [x] Make model-catalog refresh one coarse atomic port operation which stores
   the refreshed profiles/metadata and resulting account status together. The
   current two-write sequence must not permit a new catalog with a stale status
   (or the reverse) after a failure.
-- [ ] Promote the local-model status/backend/source/event storage codecs and
+- [x] Promote the local-model status/backend/source/event storage codecs and
   transition checks needed by store row adapters to deliberate public
   `Display`/`FromStr`/transition APIs; store must not reach into `pub(crate)`
   provider internals.
-- [ ] Implement those ports for the still-core-owned `NoemaStore` in this
+- [x] Implement those ports for the still-core-owned `NoemaStore` in this
   integration window and convert model-catalog/account call sites before moved
   provider code loses access to core. Phase 9 moves the implementations with
   the store; it does not introduce them for the first time.

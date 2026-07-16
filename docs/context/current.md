@@ -830,11 +830,20 @@ The next storage slice should stay small and concrete:
   GraphQL/frontend/local-model/SQLite decomposition baselines are unchanged.
   Until Phase 10C, exact provider instance keys remain optional in snapshots and
   legacy durable task/run writes reject `Some(key)` instead of discarding it.
-  Checkpoint 5A is not complete: the next unit must add provider-owned boxed-
-  future persistence ports plus `ProviderPersistenceError`, implement them for
-  `NoemaStore`, and replace the model-catalog metadata/status two-write sequence
-  with one atomic port operation. The `local-models` provider feature remains
-  transitional shared response support until the concrete implementation moves.
+  Checkpoint 5A completed at `c20bcbe2f`. Provider-owned boxed-future
+  persistence ports now cover accounts, capability assignments, model catalogs,
+  and local-model installation/activation state, while SQLite remains behind
+  `NoemaStore`. Account and catalog mutations commit related status and metadata
+  atomically, local-model lifecycle writes return their committed projections,
+  and corrupt durable rows map to typed invariants rather than repository
+  outages. Runtime, GraphQL, provider auth, and web-tool consumers use the new
+  ports. Three adversarial reviewers found no remaining blocking issue, and the
+  full workspace, dependency, inventory, boundary, and preservation-baseline
+  gates are green. Checkpoint 5B is next: establish provider-owned erased call
+  handles, the generation-safe registry and leases, the bound route resolver,
+  and a temporary core legacy route adapter without claiming durable local
+  identity. The `local-models` provider feature remains transitional shared
+  response support until the concrete implementation moves.
 
 - The bounded remediation program completed Phase 2 at `92,157` maintained
   source lines (`-1,767` from its baseline). Axum/tower-sessions now own the
