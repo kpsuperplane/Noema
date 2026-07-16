@@ -13,6 +13,7 @@ use noema_providers::{
     GenerateStreamEvent, GenerateToolCallInput, ModelProvider, ParsedNoemaResponse,
     ProviderContextMetadata, ProviderError, ProviderToolCapabilities, ProviderToolTransport,
     output_items_from_text, required_noema_response_from_text,
+    response_support::NoemaAssistantTextDeltaExtractor,
 };
 
 use super::foundation_bridge_process::{
@@ -20,7 +21,6 @@ use super::foundation_bridge_process::{
     FoundationBridgeProcess,
 };
 use super::foundation_bridge_protocol::{BridgeReplayTurn, BridgeRole};
-use super::noema_response_stream::NoemaAssistantTextDeltaExtractor;
 use super::responses::ResponsesDiagnosticContext;
 use tokio::sync::Mutex;
 

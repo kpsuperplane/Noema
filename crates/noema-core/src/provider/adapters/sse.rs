@@ -1,8 +1,6 @@
 //! Server-Sent Events parser for Responses-compatible streams.
 
 use super::responses::{ResponsesDiagnosticContext, ResponsesResponse, ResponsesUsage};
-use crate::provider::SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE;
-use noema_home::SystemErrorEvent;
 use noema_providers::{GenerateStreamEvent, ProviderError};
 use serde_json::Value;
 
@@ -204,16 +202,8 @@ impl SseAccumulator {
     }
 
     fn log_malformed(&self, message: impl Into<String>, raw: serde_json::Value) {
-        let Some(logger) = &self.diagnostics.logger else {
-            return;
-        };
-        let message = message.into();
-        logger.try_append(
-            SystemErrorEvent::new(SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, message.clone())
-                .with_context(self.diagnostics.context_json(self.response_id.as_deref()))
-                .with_error_chain([message])
-                .with_raw(raw),
-        );
+        self.diagnostics
+            .log_malformed_with_request_id(message, self.response_id.as_deref(), raw);
     }
 }
 

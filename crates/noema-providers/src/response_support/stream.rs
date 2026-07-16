@@ -1,9 +1,10 @@
 //! Incremental parser for structured Noema JSON response streams.
 
-use noema_providers::GenerateStreamEvent;
+use crate::GenerateStreamEvent;
 
+/// Incrementally extracts model-visible deltas from a structured response stream.
 #[derive(Debug, Default)]
-pub(crate) struct NoemaAssistantTextDeltaExtractor {
+pub struct NoemaAssistantTextDeltaExtractor {
     stack: Vec<JsonContext>,
     string: Option<JsonStringReader>,
     response_count: usize,
@@ -11,7 +12,8 @@ pub(crate) struct NoemaAssistantTextDeltaExtractor {
 }
 
 impl NoemaAssistantTextDeltaExtractor {
-    pub(crate) fn push_delta(
+    /// Consume one JSON text delta and emit any newly completed visible events.
+    pub fn push_delta(
         &mut self,
         delta: &str,
         on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),

@@ -54,7 +54,7 @@ pub use local_models::{
     LlamaServerSupervisor, LocalFileModelImport, LocalHardwareProbeError, LocalHardwareProfile,
     LocalModelBuild, LocalModelCatalog, LocalModelCatalogEntry, LocalModelCatalogError,
     LocalModelInstallError, LocalModelInstaller, LocalModelRecommendation, LocalModelRuntimeStatus,
-    NOEMA_LLAMA_SERVER_PATH_ENV, bundled_llama_server_candidates,
+    LocalModelsProvider, NOEMA_LLAMA_SERVER_PATH_ENV, bundled_llama_server_candidates,
     bundled_llama_server_candidates_in, detect_local_hardware_profiles, tauri_sidecar_input_name,
 };
 pub use mcp::{McpCalibrationStatus, McpTransportKind, McpTrustClassification};
@@ -71,7 +71,7 @@ pub use onboarding::{
 };
 pub use provider::adapters::{
     codex_responses::CodexResponsesProvider, foundation_local::FoundationLocalProvider,
-    local_models::LocalModelsProvider, openai::OpenAiProvider,
+    openai::OpenAiProvider,
 };
 pub use runtime_host::{NoemaRuntimeHost, RuntimeHostError};
 pub use store::{

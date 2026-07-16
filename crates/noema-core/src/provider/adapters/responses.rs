@@ -1,9 +1,7 @@
 //! Shared transport and parser for OpenAI-compatible Responses API calls.
 
 use super::{reqwest_transport_error, sse::SseAccumulator};
-use crate::provider::SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE;
 use futures_util::StreamExt;
-use noema_home::{SystemErrorEvent, SystemErrorLogger};
 use noema_providers::{
     GenerateRequest, GenerateStreamEvent, PromptCacheOptions, PromptCacheRetention, ProviderError,
     ReasoningEffort,
@@ -196,13 +194,14 @@ pub(crate) fn prompt_cache_key_from_conversation_id(
     (!conversation_id.is_empty()).then(|| conversation_id.to_string())
 }
 
-pub(super) use super::responses_format::noema_response_text_format;
 pub use super::responses_input::*;
 pub use super::responses_output::{ResponsesResponse, ResponsesUsage};
 pub use super::responses_tools::{
     ResponsesAllowedTool, ResponsesAllowedTools, ResponsesTool, ResponsesToolChoice,
 };
 pub(crate) use super::responses_tools::{ResponsesToolNameMap, responses_tool_choice};
+pub use noema_providers::response_support::StructuredResponseDiagnosticContext as ResponsesDiagnosticContext;
+pub(super) use noema_providers::response_support::noema_response_text_format;
 /// HTTP transport for a Responses-compatible endpoint.
 #[derive(Clone)]
 pub struct ResponsesTransport {
@@ -217,74 +216,6 @@ impl fmt::Debug for ResponsesTransport {
             .field("client", &"[CONFIGURED]")
             .field("responses_url", &"[REDACTED URL]")
             .finish()
-    }
-}
-
-/// Diagnostic context for Responses-compatible provider calls.
-#[derive(Debug, Clone)]
-pub struct ResponsesDiagnosticContext {
-    /// Developer diagnostic logger.
-    pub logger: Option<SystemErrorLogger>,
-    /// Provider kind.
-    pub provider_kind: String,
-    /// Model requested by Noema.
-    pub model: String,
-    /// Noema conversation id, when available.
-    pub conversation_id: Option<String>,
-}
-
-impl ResponsesDiagnosticContext {
-    /// Build a provider diagnostic context.
-    #[must_use]
-    pub fn new(
-        logger: Option<SystemErrorLogger>,
-        provider_kind: impl Into<String>,
-        model: impl Into<String>,
-        conversation_id: Option<String>,
-    ) -> Self {
-        Self {
-            logger,
-            provider_kind: provider_kind.into(),
-            model: model.into(),
-            conversation_id,
-        }
-    }
-
-    pub(crate) fn context_json(&self, request_id: Option<&str>) -> Value {
-        serde_json::json!({
-            "provider_kind": self.provider_kind,
-            "model": self.model,
-            "conversation_id": self.conversation_id,
-            "request_id": request_id,
-        })
-    }
-
-    pub(crate) fn log_malformed(&self, message: impl Into<String>, raw: Value) {
-        if let Some(logger) = &self.logger {
-            let message = message.into();
-            logger.try_append(
-                SystemErrorEvent::new(SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, message.clone())
-                    .with_context(self.context_json(None))
-                    .with_error_chain([message])
-                    .with_raw(raw),
-            );
-        }
-    }
-
-    pub(crate) fn log_malformed_error(
-        &self,
-        error: &ProviderError,
-        request_id: Option<&str>,
-        raw: Value,
-    ) {
-        if let Some(logger) = &self.logger {
-            logger.try_append(
-                SystemErrorEvent::new(SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, error.to_string())
-                    .with_context(self.context_json(request_id))
-                    .with_error_chain([error.to_string()])
-                    .with_raw(raw),
-            );
-        }
     }
 }
 

@@ -858,7 +858,16 @@ The next storage slice should stay small and concrete:
   adapters, provider-account orchestration, concrete web backends, and the
   Foundation Swift bridge into `noema-providers`. The `local-models` provider
   feature remains transitional shared response support until the concrete
-  implementation moves.
+  implementation moves. The preparatory 5C slice is now in place:
+  `noema-providers::response_support` owns the structured envelope schema,
+  streaming delta extractor, diagnostic context, and malformed-response
+  category under either `adapters` or `local-models`; the concrete llama.cpp
+  provider moved beside core's local-model subsystem and imports only that
+  narrow support. Contract-only and `local-models` dependency graphs remain
+  reqwest-free. The 5C adversarial review also made account mutation
+  compensation, OAuth token/status publication, shared per-account credential
+  serialization, object-safe web backend handles, Exa's remote-resolution
+  policy, and the Foundation packaging claim explicit implementation gates.
 
 - The bounded remediation program completed Phase 2 at `92,157` maintained
   source lines (`-1,767` from its baseline). Axum/tower-sessions now own the

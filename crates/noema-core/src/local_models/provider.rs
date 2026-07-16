@@ -14,13 +14,13 @@ use noema_providers::{
     GenerateResponseStatus, GenerateStreamEvent, LocalModelsProviderConfig, ModelProvider,
     ParsedNoemaResponse, ProviderContextMetadata, ProviderError, ProviderToolCapabilities,
     ProviderToolTransport, TokenUsage, output_items_from_text, required_noema_response_from_text,
+    response_support::{
+        NoemaAssistantTextDeltaExtractor, StructuredResponseDiagnosticContext,
+        noema_response_text_format,
+    },
 };
 
-use super::{
-    noema_response_stream::NoemaAssistantTextDeltaExtractor,
-    reqwest_transport_error,
-    responses::{ResponsesDiagnosticContext, noema_response_text_format},
-};
+use crate::provider::adapters::reqwest_transport_error;
 
 /// Stable provider identifier for first-party local GGUF inference.
 pub const LOCAL_MODELS_PROVIDER: &str = "local_models";
@@ -286,7 +286,7 @@ impl ModelProvider for LocalModelsProvider {
         on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
     ) -> Result<GenerateResponse, ProviderError> {
         let model = self.selected_model(request.model.as_deref())?;
-        let diagnostics = ResponsesDiagnosticContext::new(
+        let diagnostics = StructuredResponseDiagnosticContext::new(
             self.config.system_errors.clone(),
             LOCAL_MODELS_PROVIDER,
             model.clone(),

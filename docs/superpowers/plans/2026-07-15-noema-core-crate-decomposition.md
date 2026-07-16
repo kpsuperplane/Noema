@@ -1233,18 +1233,28 @@ deferred to Phase 10C.
   diagnostics through the provider ports. Replace current core GraphQL's
   account/auth filesystem and multi-write orchestration with this handle in
   Phase 5C, even though the GraphQL source moves in Phase 13; GraphQL receives
-  no `NoemaPaths`, `SystemErrorLogger`, or concrete provider service.
+  no `NoemaPaths`, `SystemErrorLogger`, or concrete provider service. Public
+  requests are pathless and credential-bearing inputs have redacted `Debug`.
+  OAuth completion is owned by this service: it publishes token files and the
+  terminal durable account status as one compensation-safe operation instead
+  of relying on a detached GraphQL watcher.
 - [ ] Make cross-resource account changes compensation-safe. Delete renames the
   account home atomically into a quarantine path, deletes the durable row, and
   restores the directory if persistence fails before cleaning quarantine after
   success. Create/save/clear operations restore the previous secret or remove a
-  newly written secret when the durable update fails. Catalog metadata plus
-  account status commits through one atomic repository operation.
+  newly written secret when the durable update fails; failed create also deletes
+  the newly created durable row. OAuth completion restores the previous token
+  file, or removes a newly published one, when the terminal status commit fails.
+  Catalog metadata plus account status commits through one atomic repository
+  operation. Serialize credential reads and account mutations through a shared
+  per-account gate so runtime provider calls cannot observe the transient side
+  of a compensated change; do not hold that gate during remote polling or
+  catalog HTTP.
 - [ ] Move diagnostic categories with providers and use the logger from
   `noema-home`.
 - [ ] Move OpenAI, Codex, Responses-dialect, Foundation Local, and secret-input
   adapters.
-- [ ] Before moving the hosted Responses modules, extract a narrow
+- [x] Before moving the hosted Responses modules, extract a narrow
   provider-owned shared response-support surface for the structured response
   schema, stream decoder, and diagnostic context used by both hosted adapters
   and the transitional core-owned local-model adapter. Relocate that local
@@ -1256,11 +1266,16 @@ deferred to Phase 10C.
   that `noema-providers` already owns the concrete llama.cpp implementation.
 - [ ] Move provider-backed web search/fetch implementations while leaving the
   stable model-visible operations in capabilities. Keep concrete
-  `SearchRuntimeProvider`, `WebFetchRuntimeProvider`, summarizer runtime context,
-  DNS resolution, checked socket addresses, and direct-HTTP policy enforcement
-  with provider adapters; only pure request/decision/limit contracts belong in
-  `noema-capabilities`.
-- [ ] Keep the existing local-model provider implementation temporarily beside
+  adapters, summarizer runtime context, DNS resolution, checked socket
+  addresses, and direct-HTTP policy enforcement with provider adapters; pure
+  request/decision/limit contracts, including fetch summary thresholds and the
+  summary-strategy decision, belong in `noema-capabilities`. Replace the closed
+  `SearchRuntimeProvider` and `WebFetchRuntimeProvider` enums with always-compiled
+  object-safe backend handles so core tests can supply local fakes without a
+  product `test-support` feature. Direct HTTP alone performs local DNS
+  resolution, address pinning, and redirect revalidation; Exa applies the pure
+  public-URL policy because the remote service performs its own resolution.
+- [x] Keep the existing local-model provider implementation temporarily beside
   the current local-model subsystem in core, implementing the external
   `noema-providers` contract.
 - [ ] Define the provider registry/factory API now, but keep its transitional
@@ -1277,6 +1292,10 @@ deferred to Phase 10C.
 - [ ] Move `apple-foundation-bridge/` and update the `noema_dev` Swift watcher,
   source builder, hard-coded path tests, CI paths, and ignores in this same
   integration window.
+- [ ] Treat packaged Foundation Local availability as a separate distribution
+  claim: either bundle and validate the bridge from the macOS app layout in this
+  checkpoint, or record the existing packaging gap as deferred and limit 5C's
+  claim to source-tree development discovery plus Swift package compilation.
 - [ ] On macOS, run
   `swift build --package-path crates/noema-providers/apple-foundation-bridge`;
   add the command to the macOS CI lane so the real moved `Package.swift` and

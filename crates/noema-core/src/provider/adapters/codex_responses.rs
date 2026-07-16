@@ -4,7 +4,6 @@ use std::{sync::Arc, time::Duration};
 
 use super::{
     codex_oauth::{CodexOAuthClient, CodexTokenStore, chatgpt_account_id_from_access_token},
-    noema_response_stream::NoemaAssistantTextDeltaExtractor,
     reqwest_transport_error,
     responses::{
         CODEX_RESPONSES_PROFILE, ResponsesDiagnosticContext, ResponsesRequest, ResponsesTransport,
@@ -18,6 +17,7 @@ use noema_providers::{
     DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, GenerateStreamEvent,
     ModelProvider, ProviderError, ProviderResponseContinuation, ProviderToolCapabilities,
     ProviderToolSchemaDialect, ProviderToolTransport,
+    response_support::NoemaAssistantTextDeltaExtractor,
 };
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue, USER_AGENT};
 use tokio::sync::OnceCell;
@@ -307,12 +307,12 @@ impl ModelProvider for CodexResponsesProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE;
     use crate::provider::adapters::test_support::spawn_server;
     use noema_capabilities::ToolSpec;
     use noema_providers::{
         CodexOAuthTokens, GenerateInput, GenerateOptions, GenerateResponseStatus, NoemaToolChoice,
         ProviderToolSchemaDialect, ProviderToolTransport,
+        response_support::SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE,
     };
     use serde_json::Value;
     use tempfile::TempDir;

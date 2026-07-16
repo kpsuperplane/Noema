@@ -2791,13 +2791,20 @@ dependencies = [
 name = "noema-providers"
 version = "0.1.0"
 dependencies = [
+ "async-stream",
+ "base64 0.22.1",
+ "futures-util",
  "noema-capabilities",
  "noema-home",
+ "reqwest",
+ "ring",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "ts-rs",
+ "url",
 ]
 
 [[package]]

@@ -2,7 +2,9 @@
 
 use serde_json::Value;
 
-pub(super) fn noema_response_text_format() -> Value {
+/// Build the strict JSON schema used for Noema's structured response envelope.
+#[must_use]
+pub fn noema_response_text_format() -> Value {
     serde_json::json!({
         "format": {
             "type": "json_schema",

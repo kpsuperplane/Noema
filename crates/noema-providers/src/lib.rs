@@ -21,6 +21,9 @@ pub mod operations;
 pub mod persistence;
 /// Generation-safe provider instance registry.
 pub mod registry;
+/// Structured response support shared by hosted and local provider adapters.
+#[cfg(any(feature = "adapters", feature = "local-models"))]
+pub mod response_support;
 /// Provider selection-to-instance route resolution.
 pub mod routing;
 /// Immutable provider selection provenance.

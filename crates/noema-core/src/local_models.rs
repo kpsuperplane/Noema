@@ -8,6 +8,7 @@ mod download_support;
 #[cfg(test)]
 mod download_tests;
 mod hardware;
+mod provider;
 mod runtime;
 mod runtime_assets;
 
@@ -19,6 +20,7 @@ pub use download::{
     HuggingFaceLocalModelImport, LocalFileModelImport, LocalModelInstallError, LocalModelInstaller,
 };
 pub use hardware::{LocalHardwareProbeError, detect_local_hardware_profiles};
+pub use provider::LocalModelsProvider;
 pub use runtime::{
     LlamaServerCandidate, LlamaServerConfig, LlamaServerEndpoint, LlamaServerError,
     LlamaServerSupervisor, LocalModelRuntimeStatus,

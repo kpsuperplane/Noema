@@ -10,15 +10,10 @@ pub mod foundation_bridge_process;
 pub mod foundation_bridge_protocol;
 /// Apple Foundation Models local provider adapter.
 pub mod foundation_local;
-/// First-party local GGUF provider adapter.
-pub mod local_models;
-/// Parser for structured Noema JSON response deltas.
-pub(crate) mod noema_response_stream;
 /// Provider adapter for the OpenAI Responses API.
 pub mod openai;
 /// Shared transport and parser for Responses API providers.
 pub mod responses;
-mod responses_format;
 mod responses_input;
 mod responses_output;
 mod responses_tools;
