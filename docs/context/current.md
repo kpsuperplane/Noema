@@ -807,6 +807,24 @@ The next storage slice should stay small and concrete:
   scaffolding so one service can never invalidate another service's verified
   handle. Artifact download diagnostics remain redacted through a separately
   injected narrow reporter rather than resolver-owned path/logger construction.
+  Phase 4 extracted `noema-capabilities` at commit `0883c45e1`. Provider-visible
+  `ToolSpec` values now contain no execution authority; runtime retains one
+  immutable request-local `CapabilityBinding` snapshot and continuation policy
+  can only shrink. Foreground and background dispatch reject unadvertised or
+  role-denied names without parsing authority from model output. MCP bindings
+  carry opaque captured authority with generation-safe server identity,
+  canonical SHA-256 metadata fingerprints, exact calibration revalidation, and
+  binding-owned persistence omission. Web search/fetch schemas, parsers,
+  redaction, and pure URL policy live in the leaf crate, while provider dialect
+  lowering and concrete network backends remain outside it. The old gateway
+  parser/fallback facades and provider tool aliases are deleted. The Phase-4
+  workspace, inventory, dependency, boundary, and preservation gates are green.
+  Phase 5 begins with provider vocabulary and persistence ports. Until Phase
+  10C, exact provider instance keys are optional in durable selection snapshots
+  and may be attached only to an in-memory legacy route; provider errors are
+  transport-neutral, credential-reachable `Debug` output must be redacted,
+  model profiles become typed without changing metadata JSON, and the
+  `local-models` provider feature is only transitional shared response support.
 
 - The bounded remediation program completed Phase 2 at `92,157` maintained
   source lines (`-1,767` from its baseline). Axum/tower-sessions now own the

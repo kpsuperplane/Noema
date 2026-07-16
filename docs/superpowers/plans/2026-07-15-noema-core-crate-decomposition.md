@@ -954,28 +954,28 @@ MCP all share, without pulling MCP or persistence into the parent crate.
 
 **Steps:**
 
-- [ ] Split the current `NoemaToolSpec` before moving it. The serializable,
+- [x] Split the current `NoemaToolSpec` before moving it. The serializable,
   provider-visible `ToolSpec` contains only name, description, input schema, and
   optional output schema. Remove `NoemaToolExecution` wholesale. Keep opaque,
   non-serializable `InvokerKey` and `OperationToken` in a server-only
   `CapabilityTarget`, and combine target, spec, neutral access, and persistence
   metadata in `CapabilityBinding`.
-- [ ] Delete the unused provider-correlated `NoemaToolCall` and
+- [x] Delete the unused provider-correlated `NoemaToolCall` and
   `NoemaToolResult`; define fresh `CapabilityInvocation` and
   `CapabilityOutput` without provider call IDs. Provider correlation and
   continuation stay in providers/runtime.
-- [ ] Define object-safe `CapabilityInvoker` and router contracts using boxed
+- [x] Define object-safe `CapabilityInvoker` and router contracts using boxed
   futures, with clonable `Arc<dyn ...>` handles. Typed, sanitized errors cover
   unknown invoker, unknown operation, invalid arguments, denied, unavailable,
   and failed; raw MCP/store/provider errors and diagnostic strings stay inside
   adapters. Tool-declared failure is a failed `CapabilityOutput`, while
   transport/control-plane failure is `Err`.
-- [ ] Define an object-safe boxed-future `CapabilityBindingSource` plus clonable
+- [x] Define an object-safe boxed-future `CapabilityBindingSource` plus clonable
   handle. A source returns one immutable catalog snapshot of bindings and safe
   availability notices for a provider request; runtime can compose built-in and
   adapter sources without importing MCP. Source errors are typed/sanitized and
   never expose repository or transport errors.
-- [ ] Route only through the immutable binding catalog advertised for that
+- [x] Route only through the immutable binding catalog advertised for that
   provider request: map a provider-safe name back to its canonical name, look
   up the binding, apply runtime role policy, and dispatch the stored target.
   Never parse authority from a provider-returned name or deserialize invoker or
@@ -984,53 +984,53 @@ MCP all share, without pulling MCP or persistence into the parent crate.
   and task/background calls: remove the current foreground fallback that allows
   an unlisted name, and reject provider-returned names that do not resolve in
   the advertised snapshot.
-- [ ] Replace `ModelTools`' spec-only catalog with the immutable binding
+- [x] Replace `ModelTools`' spec-only catalog with the immutable binding
   snapshot and derive provider-visible specs from it. Carry that exact snapshot
   through provider continuations which reuse the original advertised tools;
   never reconstruct execution authority from a later name lookup.
-- [ ] Keep `ExecutionRole`, terminal-contract classification, allowlists,
+- [x] Keep `ExecutionRole`, terminal-contract classification, allowlists,
   provider-loop continuation flags, and `ToolPolicy` in runtime. Move only
   neutral effect/scope metadata such as read-only versus mutating/internal and
   execution-owned versus conversation-owned versus global.
-- [ ] Give each binding a synchronous object-safe payload sanitizer (or an
+- [x] Give each binding a synchronous object-safe payload sanitizer (or an
   equivalent binding-owned policy) that produces explicit persisted argument
   and output views. Carry those views with the dispatch result so generic task
   persistence never branches on tool names or prefixes. Preserve recursive
   secret redaction, web-fetch URL redaction, artifact-content omission, and
   whole-MCP-payload omission; prove that both arguments and outputs remain
   omitted when an MCP capability is exposed under a renamed provider-safe name.
-- [ ] Do not add a generic runtime-context property bag to
+- [x] Do not add a generic runtime-context property bag to
   `CapabilityInvocation`. Built-in operations which require turn,
   conversation, task, identity, or provider context are exposed through a
   runtime-owned invoker captured/registered for that execution; the capability
   crate sees only the opaque target/token, canonical operation name, and JSON
   arguments. The temporary MCP invoker similarly owns its MCP/store context.
-- [ ] Move canonical capability IDs/data-flow/persistence/reliability vocabulary
+- [x] Move canonical capability IDs/data-flow/persistence/reliability vocabulary
   and stable `web.search`/`web.fetch` request/result/schema contracts here.
-- [ ] Split URL safety at the implementation boundary: capabilities owns pure
+- [x] Split URL safety at the implementation boundary: capabilities owns pure
   URL parsing, scheme/credential/fragment/hostname/IP-literal policy and public
   IP classification; provider direct HTTP owns DNS resolution, checked socket
   addresses, connection pinning, and redirect enforcement while consuming the
   same pure policy. Security decisions must not be duplicated per adapter.
-- [ ] Leave DuckDuckGo, Exa, direct HTTP, readability extraction, and model
+- [x] Leave DuckDuckGo, Exa, direct HTTP, readability extraction, and model
   summarization implementations outside this crate.
-- [ ] Leave provider request lowering, provider-safe function-name mapping,
+- [x] Leave provider request lowering, provider-safe function-name mapping,
   JSON-schema dialect conversion, and provider continuation payloads in
   `noema-providers`; these are transport dialects rather than capability
   semantics.
-- [ ] Adapt the current core MCP gateway through the generic invoker interface
+- [x] Adapt the current core MCP gateway through the generic invoker interface
   as a temporary implementation.
-- [ ] Before replacing the current builders, add exact serialized `ToolSpec`
+- [x] Before replacing the current builders, add exact serialized `ToolSpec`
   snapshots for `web.search` and `web.fetch` plus exact provider-lowered request
   fixtures, including provider-safe MCP naming. Fragment-only schema assertions
   are insufficient evidence that canonical schemas stayed unchanged.
-- [ ] Move contract/schema/parser/redaction/pure-URL-policy tests. Add router
+- [x] Move contract/schema/parser/redaction/pure-URL-policy tests. Add router
   tests for object-safe dispatch, duplicate registration, unknown target,
   exact payload forwarding, sanitized error mapping, forged target fields,
   catalog-name resolution, persistence redaction, and forged/unknown foreground
   calls. Run the same strict-resolution cases for background calls and across a
   provider continuation using the original snapshot.
-- [ ] Assert that `noema-capabilities` has no dependency on
+- [x] Assert that `noema-capabilities` has no dependency on
   `noema-capabilities-mcp`; `noema-core` necessarily retains `rmcp` until Phase
   7 and is not the parent named by this dependency rule.
 
@@ -1091,7 +1091,12 @@ tasks, memory, store, and runtime depend on it.
   `ModelConfigError` with the single provider-owned durable selection snapshot
   vocabulary used by the registry/resolver. Preserve explicit versus
   provider-default wire semantics and move their stable leaf test to providers;
-  Phase 6 must not introduce a competing task snapshot type.
+  Phase 6 must not introduce a competing task snapshot type. Until Phase 10C
+  adds exact instance identity to persisted owner records, represent
+  `provider_instance_key` as optional. Generic registry resolution requires an
+  exact `Some(key)`; the temporary core resolver may attach the currently active
+  key only to the returned in-memory route and must neither persist it nor claim
+  restart durability.
 - [ ] Keep raw Figment/YAML/environment loading in the current config module
   until Phase 12, but move all resolved provider construction inputs and
   defaults now. Raw config resolves into provider-owned types; adapters never
@@ -1105,10 +1110,20 @@ tasks, memory, store, and runtime depend on it.
   `ProviderError` must not embed `reqwest::Error` or another concrete adapter
   error; hosted adapters translate transport failures into provider-owned
   structured kind/message/context fields at the boundary.
+- [ ] Give every secret-bearing provider configuration, token, client, account
+  service, and erased operations handle a custom redacted `Debug`
+  implementation. `OpenAiProviderConfig`, containing provider config enums,
+  Codex OAuth tokens, and Exa client values must never print credentials; add
+  explicit tests which format each public/debug-reachable value and assert that
+  secret bytes are absent.
 - [ ] Make provider adapters depend on canonical tool contracts from
   `noema-capabilities`.
 - [ ] Move provider account status/auth/read models out of store code while
   leaving persistence SQL in place.
+- [ ] Introduce a typed `ProviderModelProfile` for model-catalog metadata and
+  GraphQL consumers. Its serde representation must preserve the current account
+  metadata JSON shape byte-for-byte so this ownership move does not create a
+  schema or wire-format change.
 - [ ] Rename the durable store concept currently called
   `ProviderCapabilityBindingRecord` to `ProviderCapabilityAssignment` (or an
   equally explicit provider-account assignment name). It is configuration
@@ -1163,8 +1178,10 @@ no concrete adapter or runtime erasure boundary has moved in this commit.
   `ProviderRouteLease` in the provider contract surface, capable of carrying an
   exact immutable key. Hosted keys are stable per provider account and final
   local keys include `installation_id`. Do not yet claim that current
-  owner-specific records contain that key: Phase 10C adds it to SQLite and then
-  adopts exact repository adapters atomically.
+  owner-specific records contain that key: the snapshot field remains optional
+  until Phase 10C adds it to SQLite and then adopts exact repository adapters
+  atomically. No Phase-5 code may synthesize a durable local identity from a
+  provider kind, profile, or whichever process happens to be active.
 - [ ] Define an always-compiled, object-safe `ProviderRouteResolver` with
   `fn resolve_route(&self) -> BoxFuture<'_, Result<ProviderRouteLease,
   ProviderRouteError>>` and the clonable
@@ -1217,6 +1234,12 @@ deferred to Phase 10C.
   account/auth filesystem and multi-write orchestration with this handle in
   Phase 5C, even though the GraphQL source moves in Phase 13; GraphQL receives
   no `NoemaPaths`, `SystemErrorLogger`, or concrete provider service.
+- [ ] Make cross-resource account changes compensation-safe. Delete renames the
+  account home atomically into a quarantine path, deletes the durable row, and
+  restores the directory if persistence fails before cleaning quarantine after
+  success. Create/save/clear operations restore the previous secret or remove a
+  newly written secret when the durable update fails. Catalog metadata plus
+  account status commits through one atomic repository operation.
 - [ ] Move diagnostic categories with providers and use the logger from
   `noema-home`.
 - [ ] Move OpenAI, Codex, Responses-dialect, Foundation Local, and secret-input
@@ -1228,7 +1251,9 @@ deferred to Phase 10C.
   adapter beneath core's local-model tree for the transition; do not copy the
   helpers or expose all hosted internals. The support compiles under either
   `adapters` or `local-models`, and `local-models` must not imply all hosted
-  adapters.
+  adapters. During Phase 5, `local-models` is only a transitional shared
+  response-support feature for the core-owned local adapter; it does not claim
+  that `noema-providers` already owns the concrete llama.cpp implementation.
 - [ ] Move provider-backed web search/fetch implementations while leaving the
   stable model-visible operations in capabilities. Keep concrete
   `SearchRuntimeProvider`, `WebFetchRuntimeProvider`, summarizer runtime context,
@@ -1277,6 +1302,9 @@ deferred to Phase 10C.
   compile independently.
 - Provider persistence ports are narrow enough for `NoemaStore` to implement
   without exposing a raw SQLite connection.
+- Provider model profiles are typed in provider code while preserving the exact
+  existing metadata JSON representation, and debug formatting of every
+  credential-reachable provider value is proven redacted.
 - `RuntimeModelProvider` is deleted; provider registry, runtime, memory proxy,
   and provider test doubles all use the provider-owned handle.
 - Registry tests prove generation-safe instance registration, lease retention
@@ -1302,11 +1330,14 @@ deferred to Phase 10C.
   provider-returned authority.
 - Provider-account service tests cover secret permissions and compensation when
   filesystem and durable-account updates fail on opposite sides of the
-  cross-resource operation.
+  cross-resource operation, including quarantine restore on delete and prior
+  secret restoration/removal on create, save, and clear failures.
 - Foundation Local still compiles on non-macOS targets without requiring Swift.
 - The contract-only provider graph contains no `reqwest`; `local-models` does
   not enable hosted `adapters`, and each feature combination compiles in the
-  focused dependency-tree gate.
+  focused dependency-tree gate. The Phase-5 `local-models` slice exposes only
+  the response support needed by the still-core-owned local adapter; concrete
+  local inference moves in Phase 10.
 
 **Suggested commits:**
 
