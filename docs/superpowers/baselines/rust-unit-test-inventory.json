@@ -858,14 +858,32 @@
     "zero_codex_timeout_is_an_error": 1
   },
   "acceptedAliases": {
+    "auth_terminal_watcher_persists_completed_attempt_without_http_poll": [
+      "service_uses_selected_codex_oauth_endpoints_and_client_id"
+    ],
     "canonical_tool_spec_accepts_web_search_execution_kind": [
       "serialized_spec_contains_no_execution_authority"
+    ],
+    "codex_catalog_refresh_with_tokens_marks_unknown_account_authenticated": [
+      "codex_catalog_refresh_with_credentials_marks_unknown_account_authenticated"
+    ],
+    "codex_config_for_provider_account_uses_account_home": [
+      "codex_factory_builds_with_pathless_credentials"
+    ],
+    "ensure_provider_account_home_creates_private_directory": [
+      "credentials_use_private_unix_permissions"
+    ],
+    "ensure_provider_account_home_sets_private_unix_permissions": [
+      "credentials_use_private_unix_permissions"
     ],
     "gateway_reports_unknown_tool_with_provider_continuation": [
       "uncalibrated_mcp_tool_call_is_rejected_as_unadvertised_and_continues"
     ],
     "mcp_tool_arguments_accept_nested_or_raw_payloads": [
       "invocation_forwards_a_legitimate_arguments_property_exactly"
+    ],
+    "onboarding_reconciles_existing_noema_codex_tokens": [
+      "reconcile_account_marks_existing_codex_tokens_authenticated"
     ],
     "parses_mcp_tool_name_with_colon_server_id": [
       "authority_round_trips_colon_server_id"
@@ -875,6 +893,19 @@
     ],
     "primary_compatibility_can_be_made_strict": [
       "primary_dispatch_is_strict_by_default"
+    ],
+    "provider_auth_account_validation_checks_active_kind_and_method": [
+      "start_auth_validates_active_provider_kind_and_method"
+    ],
+    "provider_auth_attempt_status_maps_to_safe_account_status": [
+      "service_uses_selected_codex_oauth_endpoints_and_client_id",
+      "failed_attempt_persists_safe_terminal_account_state"
+    ],
+    "start_auth_preserves_provider_start_error_message": [
+      "device_auth_failure_does_not_expose_remote_response_text"
+    ],
+    "start_auth_returned_completed_attempt_persists_authenticated_status": [
+      "service_uses_selected_codex_oauth_endpoints_and_client_id"
     ],
     "task_transcript_does_not_persist_mcp_payloads": [
       "task_transcript_uses_binding_policy_after_mcp_rename"

@@ -76,16 +76,19 @@ pub(crate) async fn begin_codex_device_auth(
         error_code: None,
         error_message: None,
     };
-    manager.upsert_attempt(attempt.clone()).await;
-
-    let attempt_id = attempt.attempt_id.clone();
     let (cancel_sender, cancel_receiver) = oneshot::channel();
-    manager
-        .upsert_attempt_runtime(
-            attempt_id.clone(),
+    if !manager
+        .register_attempt(
+            attempt.clone(),
             ProviderAuthAttemptRuntime::new(cancel_sender),
         )
-        .await;
+        .await
+    {
+        return Err(ProviderError::ProviderUnavailable {
+            provider: CODEX_PROVIDER.to_string(),
+            message: "provider authentication service is shutting down".to_string(),
+        });
+    }
 
     Ok(CodexDeviceAuthSession {
         attempt,
@@ -115,10 +118,14 @@ async fn run_device_auth_polling(
             () = time::sleep(Duration::from_secs(sleep_seconds)) => {}
         }
 
-        let authorization = match oauth_client
-            .poll_device_authorization(&device_code.device_auth_id, &device_code.user_code)
-            .await
-        {
+        let authorization = match tokio::select! {
+            _ = &mut cancel_receiver => return CodexDeviceAuthOutcome::Cancelled,
+            () = &mut deadline => return CodexDeviceAuthOutcome::Expired,
+            result = oauth_client.poll_device_authorization(
+                &device_code.device_auth_id,
+                &device_code.user_code,
+            ) => result,
+        } {
             Ok(Some(authorization)) => authorization,
             Ok(None) => continue,
             Err(error) => return failed_outcome(error),
@@ -133,13 +140,14 @@ async fn run_device_auth_polling(
             };
         }
 
-        return match oauth_client
-            .exchange_authorization_code(
+        return match tokio::select! {
+            _ = &mut cancel_receiver => return CodexDeviceAuthOutcome::Cancelled,
+            () = &mut deadline => return CodexDeviceAuthOutcome::Expired,
+            result = oauth_client.exchange_authorization_code(
                 &authorization.authorization_code,
                 &authorization.code_verifier,
-            )
-            .await
-        {
+            ) => result,
+        } {
             Ok(tokens) => CodexDeviceAuthOutcome::Completed(tokens),
             Err(error) => failed_outcome(error),
         };
@@ -162,20 +170,25 @@ fn next_attempt_id() -> String {
 
 fn safe_auth_failure_message(error: ProviderError) -> String {
     match error {
-        ProviderError::RateLimit { message, .. }
-        | ProviderError::AuthenticationFailure { message, .. }
-        | ProviderError::ApiError { message, .. }
-        | ProviderError::MalformedResponse { message }
-        | ProviderError::InvalidRequest { message }
-        | ProviderError::ProviderUnavailable { message, .. } => message,
+        ProviderError::RateLimit { .. } => "Codex login is temporarily rate-limited".to_string(),
+        ProviderError::AuthenticationFailure { .. } => {
+            "Codex rejected the login request".to_string()
+        }
+        ProviderError::ApiError { .. } => "Codex login request failed".to_string(),
+        ProviderError::MalformedResponse { .. } => {
+            "Codex returned an invalid login response".to_string()
+        }
+        ProviderError::InvalidRequest { .. } => "Codex login configuration is invalid".to_string(),
+        ProviderError::ProviderUnavailable { .. } => {
+            "Codex login is currently unavailable".to_string()
+        }
         ProviderError::MissingCredentials { credential, .. } => {
             format!("Codex auth is missing {credential}")
         }
         ProviderError::TransportFailure { .. } => "Codex auth network request failed".to_string(),
-        ProviderError::Timeout { operation, .. } => {
-            format!("Codex auth timed out during {operation}")
+        ProviderError::Timeout { .. } => "Codex auth request timed out".to_string(),
+        ProviderError::ProtocolError { .. } | ProviderError::PartialResponse { .. } => {
+            "Codex login response could not be processed".to_string()
         }
-        ProviderError::ProtocolError { message, .. }
-        | ProviderError::PartialResponse { message, .. } => message,
     }
 }

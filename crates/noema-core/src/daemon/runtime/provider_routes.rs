@@ -16,6 +16,7 @@ use noema_providers::{
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 
 const LEGACY_INSTANCE_KEY_PREFIX: &str = "legacy-process:";
+const SUPPORTED_CODEX_PROVIDER_ACCOUNT_ID: &str = "provider_account:codex:default";
 
 /// Core-private bridge from legacy kind-based selection to exact provider leases.
 #[derive(Clone)]
@@ -81,6 +82,7 @@ impl LegacyProviderRoutes {
                 .map_err(|error| ProviderRouteError::InvalidSelection {
                     message: error.to_string(),
                 })?;
+        validate_supported_legacy_account(&selection)?;
         let key = Self::key_for_kind(&selection.provider_kind)?;
         let instance = self.registry.lease(&key).map_err(route_registry_error)?;
         selection.provider_instance_key = Some(key);
@@ -206,6 +208,21 @@ fn normalized_provider_kind(provider_kind: &str) -> Result<&'static str, Provide
         })
 }
 
+fn validate_supported_legacy_account(
+    selection: &ProviderSelectionSnapshot,
+) -> Result<(), ProviderRouteError> {
+    if selection.provider_kind == ProviderKind::Codex.as_str()
+        && selection.provider_account_id != SUPPORTED_CODEX_PROVIDER_ACCOUNT_ID
+    {
+        return Err(ProviderRouteError::InvalidSelection {
+            message: format!(
+                "legacy Codex routing supports only {SUPPORTED_CODEX_PROVIDER_ACCOUNT_ID}"
+            ),
+        });
+    }
+    Ok(())
+}
+
 fn route_registry_error(error: ProviderRegistryError) -> ProviderRouteError {
     match error {
         ProviderRegistryError::Missing { key } => ProviderRouteError::InstanceMissing { key },
@@ -254,9 +271,14 @@ mod tests {
     }
 
     fn full_selection(provider_kind: &str) -> ProviderSelectionSnapshot {
+        let provider_account_id = if provider_kind.eq_ignore_ascii_case("codex") {
+            SUPPORTED_CODEX_PROVIDER_ACCOUNT_ID.to_string()
+        } else {
+            format!("provider_account:{provider_kind}:account-7")
+        };
         ProviderSelectionSnapshot::explicit(
             provider_kind,
-            format!("provider_account:{provider_kind}:account-7"),
+            provider_account_id,
             "model-profile-9",
             Some(ReasoningEffort::High),
             Some("task:task-11".to_string()),
@@ -333,6 +355,29 @@ mod tests {
         );
     }
 
+    #[test]
+    fn non_default_codex_account_fails_closed() {
+        let routes = LegacyProviderRoutes::new([("codex", provider("codex"))]).expect("routes");
+        let selection = ProviderSelectionSnapshot::explicit(
+            "codex",
+            "provider_account:codex:secondary",
+            "model-profile-9",
+            Some(ReasoningEffort::High),
+            Some("agent:primary".to_string()),
+        );
+
+        assert_eq!(
+            routes
+                .resolve_snapshot(selection)
+                .expect_err("unsupported Codex account must not use default credentials"),
+            ProviderRouteError::InvalidSelection {
+                message: format!(
+                    "legacy Codex routing supports only {SUPPORTED_CODEX_PROVIDER_ACCOUNT_ID}"
+                ),
+            }
+        );
+    }
+
     #[tokio::test]
     async fn bound_resolver_loads_the_complete_snapshot_before_routing() {
         let routes = LegacyProviderRoutes::new([("openai", provider("openai"))]).expect("routes");
@@ -394,7 +439,7 @@ mod tests {
         let publication = routes.begin_publication().await;
         *current_selection.lock().await = ProviderSelectionSnapshot::explicit(
             "codex",
-            "provider_account:codex:account-7",
+            SUPPORTED_CODEX_PROVIDER_ACCOUNT_ID,
             "replacement-profile",
             Some(ReasoningEffort::Low),
             Some("replacement-commit".to_string()),

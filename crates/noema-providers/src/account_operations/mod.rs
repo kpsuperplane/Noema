@@ -66,6 +66,14 @@ pub trait ProviderAccountOperations: Send + Sync {
         attempt_id: &'a str,
     ) -> ProviderAccountOperationFuture<'a, Option<ProviderAuthAttemptView>>;
 
+    /// Record a provider-reported authentication failure for the exact
+    /// credential revision used by a runtime request.
+    fn record_auth_failure<'a>(
+        &'a self,
+        provider_account_id: &'a str,
+        expected_credential_revision: u64,
+    ) -> ProviderAccountOperationFuture<'a, ProviderAccountRecord>;
+
     /// Reconcile provider-owned credentials and durable account status.
     fn reconcile_account<'a>(
         &'a self,
@@ -162,6 +170,14 @@ mod tests {
             _attempt_id: &'a str,
         ) -> ProviderAccountOperationFuture<'a, Option<ProviderAuthAttemptView>> {
             Box::pin(async { Ok(None) })
+        }
+
+        fn record_auth_failure<'a>(
+            &'a self,
+            _provider_account_id: &'a str,
+            _expected_credential_revision: u64,
+        ) -> ProviderAccountOperationFuture<'a, ProviderAccountRecord> {
+            Box::pin(async { Ok(account()) })
         }
 
         fn reconcile_account<'a>(

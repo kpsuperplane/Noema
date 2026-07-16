@@ -5,7 +5,7 @@
 
 /// Concrete provider adapters and provider-owned integration services.
 #[cfg(feature = "adapters")]
-pub mod adapters;
+mod adapters;
 
 /// Object-safe provider account orchestration contracts.
 pub mod account_operations;
@@ -51,16 +51,11 @@ pub use accounts::{
 };
 #[cfg(feature = "adapters")]
 pub use adapters::{
-    CodexOAuthClient, CodexResponsesProvider, CodexTokenStore, DirectHttpClient,
-    DuckDuckGoSearchBackend, EXA_EXTRACTION, EXA_FETCH_PROVIDER_ID, EXA_SEARCH_CONTRACT,
-    EXA_SEARCH_PROVIDER_ID, ExaFetchClient, ExaSearchClient,
-    FOUNDATION_LOCAL_COMPACT_SUMMARY_TARGET_TOKENS, FOUNDATION_LOCAL_CONTEXT_WINDOW_TOKENS,
-    FOUNDATION_LOCAL_DEFAULT_OUTPUT_RESERVE_TOKENS, FOUNDATION_LOCAL_PROVIDER,
-    FoundationBridgeError, FoundationLocalProvider, OpenAiProvider, ProviderAccountService,
-    ProviderAuthManager, ProviderCredential, ProviderCredentialAccess,
-    ProviderCredentialAccessHandle, ProviderCredentialFuture, SecretInputStore,
-    default_web_fetch_backend, default_web_search_backend, ensure_provider_account_home,
-    refresh_provider_model_profiles, summarize_markdown, web_fetch_summarizer_prompt,
+    EXA_FETCH_PROVIDER_ID, EXA_SEARCH_PROVIDER_ID, ExaFetchClient, ExaSearchClient,
+    ProviderAccountService, ProviderCredential, ProviderCredentialAccess,
+    ProviderCredentialAccessHandle, ProviderCredentialFuture, default_web_fetch_backend,
+    default_web_search_backend, hosted_provider_from_config, summarize_markdown,
+    web_fetch_summarizer_prompt,
 };
 pub use capabilities::{
     ProviderCapability, ProviderCapabilityAssignment, ProviderCapabilityStatus,

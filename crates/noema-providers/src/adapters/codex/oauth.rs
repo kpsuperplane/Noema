@@ -5,8 +5,8 @@ mod client;
 mod device_auth;
 mod token_store;
 
-pub use client::CodexOAuthClient;
-pub use token_store::CodexTokenStore;
+pub(crate) use client::CodexOAuthClient;
+pub(crate) use token_store::CodexTokenStore;
 
 pub(crate) use claims::chatgpt_account_id_from_access_token;
 pub(crate) use device_auth::{

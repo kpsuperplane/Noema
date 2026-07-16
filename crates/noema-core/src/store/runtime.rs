@@ -89,15 +89,6 @@ impl NoemaStore {
             .join(sanitize_path_segment(mcp_server_id))
     }
 
-    /// Return the private home directory for one provider account.
-    #[must_use]
-    pub(crate) fn provider_account_home(&self, provider_kind: &str, account_key: &str) -> PathBuf {
-        self.noema_home
-            .join("providers")
-            .join(sanitize_path_segment(provider_kind))
-            .join(sanitize_path_segment(account_key))
-    }
-
     /// Reconstruct the resolved Noema paths for this store's home directory.
     ///
     /// # Errors

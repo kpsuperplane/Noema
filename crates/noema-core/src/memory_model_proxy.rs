@@ -887,7 +887,7 @@ mod tests {
             route_resolver: crate::test_support::provider_route_resolver(
                 noema_providers::ProviderSelectionSnapshot::explicit(
                     "codex",
-                    "provider_account:codex:memory-test",
+                    "provider_account:codex:default",
                     model_profile,
                     None,
                     Some("memory_proxy_test".to_string()),
@@ -993,7 +993,7 @@ mod tests {
         .expect("routes");
         let selection = noema_providers::ProviderSelectionSnapshot::explicit(
             "codex",
-            "provider_account:codex:memory-test",
+            "provider_account:codex:default",
             "initial-model",
             None,
             Some("memory_proxy_test".to_string()),
@@ -1058,7 +1058,7 @@ mod tests {
         .expect("routes");
         let selection = noema_providers::ProviderSelectionSnapshot::explicit(
             "codex",
-            "provider_account:codex:memory-test",
+            "provider_account:codex:default",
             "memory-model",
             None,
             Some("memory_proxy_test".to_string()),

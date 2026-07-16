@@ -34,6 +34,8 @@ struct ProviderAccountServiceInner {
     catalogs: ProviderModelCatalogPersistenceHandle,
     system_errors: SystemErrorLogger,
     auth: ProviderAuthManager,
+    auth_tasks: tokio::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>,
+    codex_oauth: CodexOAuthConfig,
     gates: AccountGateRegistry,
     credentials: ProviderCredentialAccessHandle,
 }
@@ -59,25 +61,49 @@ impl ProviderAccountService {
         catalogs: ProviderModelCatalogPersistenceHandle,
         system_errors: SystemErrorLogger,
     ) -> Result<Self, crate::ProviderError> {
+        Self::new_with_codex_oauth(
+            paths,
+            accounts,
+            catalogs,
+            system_errors,
+            CodexOAuthConfig::default(),
+        )
+    }
+
+    /// Build provider account services with the selected Codex OAuth endpoints.
+    ///
+    /// # Errors
+    ///
+    /// Returns a provider configuration error when the Codex OAuth client
+    /// cannot be constructed.
+    pub fn new_with_codex_oauth(
+        paths: NoemaPaths,
+        accounts: ProviderAccountPersistenceHandle,
+        catalogs: ProviderModelCatalogPersistenceHandle,
+        system_errors: SystemErrorLogger,
+        codex_oauth: CodexOAuthConfig,
+    ) -> Result<Self, crate::ProviderError> {
         let gates = AccountGateRegistry::new();
-        let codex_oauth = CodexOAuthClient::new(CodexOAuthConfig::default())?;
+        let codex_oauth_client = CodexOAuthClient::new(codex_oauth.clone())?;
         let credentials: ProviderCredentialAccessHandle =
             Arc::new(ProviderCredentialAccessService::new(
                 paths.clone(),
                 accounts.clone(),
                 gates.clone(),
-                codex_oauth,
+                codex_oauth_client,
             ));
-        Ok(Self::from_parts(
+        Ok(Self::from_parts_with_codex_oauth(
             paths,
             accounts,
             catalogs,
             system_errors,
             gates,
             credentials,
+            codex_oauth,
         ))
     }
 
+    #[cfg(test)]
     pub(crate) fn from_parts(
         paths: NoemaPaths,
         accounts: ProviderAccountPersistenceHandle,
@@ -86,6 +112,26 @@ impl ProviderAccountService {
         gates: AccountGateRegistry,
         credentials: ProviderCredentialAccessHandle,
     ) -> Self {
+        Self::from_parts_with_codex_oauth(
+            paths,
+            accounts,
+            catalogs,
+            system_errors,
+            gates,
+            credentials,
+            CodexOAuthConfig::default(),
+        )
+    }
+
+    fn from_parts_with_codex_oauth(
+        paths: NoemaPaths,
+        accounts: ProviderAccountPersistenceHandle,
+        catalogs: ProviderModelCatalogPersistenceHandle,
+        system_errors: SystemErrorLogger,
+        gates: AccountGateRegistry,
+        credentials: ProviderCredentialAccessHandle,
+        codex_oauth: CodexOAuthConfig,
+    ) -> Self {
         Self {
             inner: Arc::new(ProviderAccountServiceInner {
                 paths,
@@ -93,6 +139,8 @@ impl ProviderAccountService {
                 catalogs,
                 system_errors,
                 auth: ProviderAuthManager::new(),
+                auth_tasks: tokio::sync::Mutex::new(Vec::new()),
+                codex_oauth,
                 gates,
                 credentials,
             }),
@@ -109,6 +157,22 @@ impl ProviderAccountService {
     #[must_use]
     pub fn credentials(&self) -> ProviderCredentialAccessHandle {
         self.inner.credentials.clone()
+    }
+
+    /// Close provider authentication and drain every active completion task.
+    ///
+    /// Unclaimed attempts are cancelled. Attempts that already own completion
+    /// finish before shutdown returns, preserving the same atomic
+    /// cancellation-versus-publication rule used by individual cancellation.
+    pub async fn shutdown(&self) {
+        let tasks = {
+            let mut tasks = self.inner.auth_tasks.lock().await;
+            self.inner.auth.cancel_all_attempts().await;
+            std::mem::take(&mut *tasks)
+        };
+        for task in tasks {
+            let _ = task.await;
+        }
     }
 }
 
@@ -180,6 +244,14 @@ impl ProviderAccountOperations for ProviderAccountService {
                 .await
                 .map_err(|_| ProviderAccountOperationError::ProviderUnavailable)
         })
+    }
+
+    fn record_auth_failure<'a>(
+        &'a self,
+        provider_account_id: &'a str,
+        expected_credential_revision: u64,
+    ) -> ProviderAccountOperationFuture<'a, ProviderAccountRecord> {
+        Box::pin(self.record_auth_failure_impl(provider_account_id, expected_credential_revision))
     }
 
     fn reconcile_account<'a>(

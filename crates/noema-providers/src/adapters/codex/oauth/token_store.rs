@@ -5,7 +5,9 @@ use crate::adapters::account_service::filesystem::{
 };
 use crate::{CODEX_PROVIDER, CodexOAuthTokens, ProviderError};
 
-use super::{claims::token_needs_refresh, client::CodexOAuthClient};
+use super::claims::token_needs_refresh;
+#[cfg(test)]
+use super::client::CodexOAuthClient;
 
 const TOKEN_FILE_NAME: &str = "codex_tokens.json";
 
@@ -125,7 +127,8 @@ impl CodexTokenStore {
     ///
     /// Returns provider/auth errors when credentials are missing or refresh
     /// fails.
-    pub async fn access_token(
+    #[cfg(test)]
+    pub(crate) async fn access_token(
         &self,
         client: &CodexOAuthClient,
         refresh_skew_seconds: u64,
@@ -145,7 +148,8 @@ impl CodexTokenStore {
     ///
     /// Returns provider/auth errors when credentials are missing or refresh
     /// fails.
-    pub async fn refresh_access_token(
+    #[cfg(test)]
+    pub(crate) async fn refresh_access_token(
         &self,
         client: &CodexOAuthClient,
     ) -> Result<String, ProviderError> {

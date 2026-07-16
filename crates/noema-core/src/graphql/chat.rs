@@ -566,10 +566,13 @@ pub(super) async fn ensure_primary_conversation(
     let store = state.store()?;
     let runtime = state.runtime()?;
     let provider_kind = primary_agent_provider_kind(store, runtime.provider_kind()).await?;
-    let account = store
-        .active_provider_account(&provider_kind)
+    let account = state
+        .provider_account_operations()?
+        .active_accounts()
         .await
-        .map_err(graphql_error)?;
+        .map_err(graphql_error)?
+        .into_iter()
+        .find(|account| account.provider_kind == provider_kind && account.is_default);
     if !crate::graphql::is_user_onboarded_for_chat(account) {
         return Err(async_graphql::Error::new(
             "Noema onboarding is incomplete. Finish local model setup or connect a provider account before starting chat.",

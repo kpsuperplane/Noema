@@ -1,9 +1,7 @@
 use async_graphql::{InputObject, Result, SimpleObject};
 use noema_providers::{
-    DEFAULT_FOUNDATION_LOCAL_PROFILE, FoundationBridgeError, FoundationLocalProvider,
-    FoundationLocalProviderConfig, NewProviderAccount, ProviderAccountPersistence,
-    ProviderAccountRecord, ProviderAccountStatus, ProviderAccountStatusUpdate, ProviderAuthMethod,
-    ProviderCapability, SecretInputStore, UpdateProviderAccountRequest,
+    CreateSecretProviderAccountRequest, ProviderAccountRecord, ProviderAuthMethod,
+    ProviderCapability, SaveProviderAccountSecretRequest,
 };
 
 use noema_capabilities::ResultPersistencePolicy;
@@ -156,10 +154,9 @@ const fn result_persistence_label(policy: ResultPersistencePolicy) -> &'static s
 }
 
 pub(super) async fn provider_accounts(state: &GraphqlState) -> Result<Vec<GraphqlProviderAccount>> {
-    refresh_foundation_local_availability(state).await;
-    let store = state.store()?;
-    let accounts = store
-        .active_provider_accounts()
+    let accounts = state
+        .provider_account_operations()?
+        .active_accounts()
         .await
         .map_err(graphql_error)?;
     Ok(accounts.into_iter().map(Into::into).collect())
@@ -168,8 +165,9 @@ pub(super) async fn provider_accounts(state: &GraphqlState) -> Result<Vec<Graphq
 pub(super) async fn provider_account_catalog(
     state: &GraphqlState,
 ) -> Result<Vec<GraphqlProviderAccountCatalogEntry>> {
-    state.store()?;
-    Ok(noema_providers::provider_account_catalog()
+    Ok(state
+        .provider_account_operations()?
+        .account_catalog()
         .into_iter()
         .map(|entry| GraphqlProviderAccountCatalogEntry {
             provider_kind: entry.provider_kind,
@@ -184,227 +182,55 @@ pub(super) async fn create_provider_account(
     state: &GraphqlState,
     input: GraphqlCreateProviderAccountInput,
 ) -> Result<GraphqlProviderAccount> {
-    if input.provider_kind != "exa" {
-        return Err(async_graphql::Error::new("unsupported provider kind"));
-    }
-    reject_blank_secret(&input.secret)?;
-    let store = state.store()?;
-    let account = ProviderAccountPersistence::create_provider_account(
-        store,
-        NewProviderAccount {
-            provider_kind: input.provider_kind,
-            display_name: input.display_name,
-            auth_method: ProviderAuthMethod::SecretInput,
-            status: ProviderAccountStatus::Unauthenticated,
-            metadata: serde_json::json!({"secretConfigured": false}),
-        },
+    let request = CreateSecretProviderAccountRequest::new(
+        input.provider_kind,
+        input.display_name,
+        input.secret,
     )
-    .await
     .map_err(graphql_error)?;
-    save_secret_for_account(state, account, &input.secret).await
+    state
+        .provider_account_operations()?
+        .create_secret_account(request)
+        .await
+        .map(Into::into)
+        .map_err(graphql_error)
 }
 
 pub(super) async fn save_provider_secret_input(
     state: &GraphqlState,
     input: GraphqlProviderSecretInput,
 ) -> Result<GraphqlProviderAccount> {
-    reject_blank_secret(&input.secret)?;
-    let account = secret_input_account(state, &input.provider_account_id).await?;
-    save_secret_for_account(state, account, &input.secret).await
+    let request = SaveProviderAccountSecretRequest::new(input.provider_account_id, input.secret)
+        .map_err(graphql_error)?;
+    state
+        .provider_account_operations()?
+        .save_secret(request)
+        .await
+        .map(Into::into)
+        .map_err(graphql_error)
 }
 
 pub(super) async fn clear_provider_secret(
     state: &GraphqlState,
     input: GraphqlClearProviderSecretInput,
 ) -> Result<GraphqlProviderAccount> {
-    let store = state.store()?;
-    let account = secret_input_account(state, &input.provider_account_id).await?;
-    let paths = state.paths()?;
-    let secret_store = SecretInputStore::new(
-        paths.provider_account_home(&account.provider_kind, &account.account_key),
-    );
-    secret_store
-        .clear_api_key()
-        .map_err(|error| async_graphql::Error::new(error.to_string()))?;
-    ProviderAccountPersistence::update_provider_account(
-        store,
-        UpdateProviderAccountRequest {
-            provider_account_id: account.provider_account_id.clone(),
-            status: Some(ProviderAccountStatusUpdate {
-                status: ProviderAccountStatus::Unauthenticated,
-                error_code: None,
-                error_message: None,
-            }),
-            metadata: Some(serde_json::json!({"secretConfigured": false})),
-        },
-    )
-    .await
-    .map_err(graphql_error)?;
-    refreshed_provider_account(store, &account.provider_account_id).await
+    state
+        .provider_account_operations()?
+        .clear_secret(&input.provider_account_id)
+        .await
+        .map(Into::into)
+        .map_err(graphql_error)
 }
 
 pub(super) async fn delete_provider_account(
     state: &GraphqlState,
     input: GraphqlDeleteProviderAccountInput,
 ) -> Result<bool> {
-    let store = state.store()?;
-    let Some(account) =
-        ProviderAccountPersistence::provider_account(store, &input.provider_account_id)
-            .await
-            .map_err(graphql_error)?
-    else {
-        return Ok(false);
-    };
-    if account.is_default {
-        return Err(async_graphql::Error::new(
-            "default provider accounts cannot be deleted",
-        ));
-    }
-
-    let paths = state.paths()?;
-    let account_home = paths.provider_account_home(&account.provider_kind, &account.account_key);
-    match std::fs::remove_dir_all(&account_home) {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(async_graphql::Error::new(error.to_string())),
-    }
-
-    ProviderAccountPersistence::delete_provider_account(store, &input.provider_account_id)
+    state
+        .provider_account_operations()?
+        .delete_account(&input.provider_account_id)
         .await
         .map_err(graphql_error)
-}
-
-async fn save_secret_for_account(
-    state: &GraphqlState,
-    account: ProviderAccountRecord,
-    secret: &str,
-) -> Result<GraphqlProviderAccount> {
-    let store = state.store()?;
-    let paths = state.paths()?;
-    let secret_store = SecretInputStore::new(
-        paths.provider_account_home(&account.provider_kind, &account.account_key),
-    );
-    secret_store
-        .save_api_key(secret)
-        .map_err(|error| async_graphql::Error::new(error.to_string()))?;
-    ProviderAccountPersistence::update_provider_account(
-        store,
-        UpdateProviderAccountRequest {
-            provider_account_id: account.provider_account_id.clone(),
-            status: Some(ProviderAccountStatusUpdate {
-                status: ProviderAccountStatus::Authenticated,
-                error_code: None,
-                error_message: None,
-            }),
-            metadata: Some(serde_json::json!({"secretConfigured": true})),
-        },
-    )
-    .await
-    .map_err(graphql_error)?;
-    refreshed_provider_account(store, &account.provider_account_id).await
-}
-
-async fn secret_input_account(
-    state: &GraphqlState,
-    provider_account_id: &str,
-) -> Result<ProviderAccountRecord> {
-    let store = state.store()?;
-    let account = ProviderAccountPersistence::provider_account(store, provider_account_id)
-        .await
-        .map_err(graphql_error)?
-        .ok_or_else(|| async_graphql::Error::new("provider account not found"))?;
-    if !account.is_active {
-        return Err(async_graphql::Error::new("provider account not found"));
-    }
-    if account.provider_kind != "exa" {
-        return Err(async_graphql::Error::new("unsupported provider kind"));
-    }
-    if account.auth_method != ProviderAuthMethod::SecretInput {
-        return Err(async_graphql::Error::new(
-            "provider account auth method mismatch",
-        ));
-    }
-    Ok(account)
-}
-
-async fn refreshed_provider_account(
-    store: &crate::NoemaStore,
-    provider_account_id: &str,
-) -> Result<GraphqlProviderAccount> {
-    ProviderAccountPersistence::provider_account(store, provider_account_id)
-        .await
-        .map_err(graphql_error)?
-        .map(Into::into)
-        .ok_or_else(|| async_graphql::Error::new("provider account not found"))
-}
-
-fn reject_blank_secret(secret: &str) -> Result<()> {
-    if secret.trim().is_empty() {
-        return Err(async_graphql::Error::new("api key is required"));
-    }
-    Ok(())
-}
-
-pub(super) async fn refresh_foundation_local_availability(state: &GraphqlState) {
-    if state.paths().is_err() {
-        return;
-    }
-    let Ok(store) = state.store() else {
-        return;
-    };
-    let Ok(accounts) = store.active_default_provider_accounts().await else {
-        return;
-    };
-    for account in accounts {
-        if account.provider_kind != "foundation_local"
-            || !account.is_active
-            || !account.is_default
-            || account.status == ProviderAccountStatus::Authenticated
-        {
-            continue;
-        }
-        let provider = match FoundationLocalProvider::new(FoundationLocalProviderConfig {
-            default_profile: DEFAULT_FOUNDATION_LOCAL_PROFILE.to_string(),
-            bridge_path: None,
-            system_errors: None,
-        }) {
-            Ok(provider) => provider,
-            Err(error) => {
-                let _ = store
-                    .update_provider_account_status(
-                        &account.provider_account_id,
-                        ProviderAccountStatus::Unavailable,
-                        Some("invalid_foundation_config"),
-                        Some(&error.to_string()),
-                    )
-                    .await;
-                continue;
-            }
-        };
-        let update = match provider.check_availability().await {
-            Ok(()) => (ProviderAccountStatus::Authenticated, None, None),
-            Err(error) => (
-                ProviderAccountStatus::Unavailable,
-                Some(foundation_availability_error_code(&error).to_string()),
-                Some(error.to_string()),
-            ),
-        };
-        let _ = store
-            .update_provider_account_status(
-                &account.provider_account_id,
-                update.0,
-                update.1.as_deref(),
-                update.2.as_deref(),
-            )
-            .await;
-    }
-}
-
-fn foundation_availability_error_code(error: &FoundationBridgeError) -> &'static str {
-    match error.code() {
-        "foundation_unavailable" => "foundation_models_unavailable",
-        code => code,
-    }
 }
 
 #[cfg(test)]

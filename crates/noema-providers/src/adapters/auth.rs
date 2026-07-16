@@ -1,13 +1,13 @@
 //! Provider authentication support.
 
-use std::{collections::HashMap, fs, io, path::Path, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use crate::{
     CodexDeviceAuthRequest, ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderError,
 };
 use tokio::sync::{Mutex, oneshot};
 
-use super::codex::oauth::{self, CodexDeviceAuthOutcome, CodexDeviceAuthSession};
+use super::codex::oauth::{self, CodexDeviceAuthSession};
 
 /// Default maximum lifetime for a provider auth attempt.
 pub const DEFAULT_PROVIDER_AUTH_ATTEMPT_TIMEOUT: std::time::Duration =
@@ -15,9 +15,21 @@ pub const DEFAULT_PROVIDER_AUTH_ATTEMPT_TIMEOUT: std::time::Duration =
 
 /// In-memory manager for short-lived provider authentication attempts.
 #[derive(Clone, Default)]
-pub struct ProviderAuthManager {
-    attempts: Arc<Mutex<HashMap<String, ProviderAuthAttemptView>>>,
-    runtimes: Arc<Mutex<HashMap<String, ProviderAuthAttemptRuntime>>>,
+pub(crate) struct ProviderAuthManager {
+    state: Arc<Mutex<ProviderAuthState>>,
+}
+
+#[derive(Default)]
+struct ProviderAuthState {
+    attempts: HashMap<String, ProviderAuthAttempt>,
+    latest_attempt_by_account: HashMap<String, String>,
+    shutting_down: bool,
+}
+
+struct ProviderAuthAttempt {
+    view: ProviderAuthAttemptView,
+    runtime: Option<ProviderAuthAttemptRuntime>,
+    completion_claimed: bool,
 }
 
 pub(crate) struct ProviderAuthAttemptRuntime {
@@ -37,60 +49,17 @@ impl ProviderAuthAttemptRuntime {
 impl ProviderAuthManager {
     /// Build an empty auth attempt manager.
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
-    }
-
-    /// Start a Codex device-code auth attempt.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ProviderError`] when OAuth client setup or the initial
-    /// device-code request fails.
-    pub async fn start_codex_device_code(
-        &self,
-        request: CodexDeviceAuthRequest,
-    ) -> Result<ProviderAuthAttemptView, ProviderError> {
-        let session = self.begin_codex_device_code(request).await?;
-        let attempt = session.attempt.clone();
-        let attempt_id = attempt.attempt_id.clone();
-        let manager = self.clone();
-        tokio::spawn(async move {
-            let (status, error_code, error_message) = match session.completion.await {
-                CodexDeviceAuthOutcome::Completed(tokens) => {
-                    drop(tokens);
-                    (ProviderAuthAttemptStatus::Completed, None, None)
-                }
-                CodexDeviceAuthOutcome::Cancelled => {
-                    (ProviderAuthAttemptStatus::Cancelled, None, None)
-                }
-                CodexDeviceAuthOutcome::Expired => (
-                    ProviderAuthAttemptStatus::Expired,
-                    Some("provider_auth_expired".to_string()),
-                    Some("provider auth expired".to_string()),
-                ),
-                CodexDeviceAuthOutcome::Failed {
-                    error_code,
-                    error_message,
-                } => (
-                    ProviderAuthAttemptStatus::Failed,
-                    Some(error_code),
-                    Some(error_message),
-                ),
-            };
-            manager
-                .mark_attempt_terminal(&attempt_id, status, error_code, error_message)
-                .await;
-            manager.remove_attempt_runtime(&attempt_id).await;
-        });
-
-        Ok(attempt)
     }
 
     pub(crate) async fn begin_codex_device_code(
         &self,
         request: CodexDeviceAuthRequest,
     ) -> Result<CodexDeviceAuthSession, ProviderError> {
+        if self.is_shutting_down().await {
+            return Err(auth_service_shutting_down());
+        }
         oauth::begin_codex_device_auth(self.clone(), request).await
     }
 
@@ -98,79 +67,147 @@ impl ProviderAuthManager {
     ///
     /// # Errors
     ///
-    /// This currently has no fallible backing store, but returns a result to
-    /// keep the public manager API compatible with future persistence.
-    pub async fn poll_attempt(
+    /// This currently has no fallible backing store; the result keeps the
+    /// service boundary ready for future persistence.
+    pub(crate) async fn poll_attempt(
         &self,
         attempt_id: &str,
     ) -> Result<Option<ProviderAuthAttemptView>, ProviderError> {
-        let attempts = self.attempts.lock().await;
-        Ok(attempts.get(attempt_id).cloned())
+        let state = self.state.lock().await;
+        Ok(state
+            .attempts
+            .get(attempt_id)
+            .map(|attempt| attempt.view.clone()))
     }
 
     /// Mark an auth attempt as cancelled, if it is still known.
     ///
     /// # Errors
     ///
-    /// This currently has no fallible backing store, but returns a result to
-    /// keep the public manager API compatible with future cancellation hooks.
-    pub async fn cancel_attempt(
+    /// This currently has no fallible backing store; the result keeps the
+    /// service boundary ready for future cancellation hooks.
+    pub(crate) async fn cancel_attempt(
         &self,
         attempt_id: &str,
     ) -> Result<Option<ProviderAuthAttemptView>, ProviderError> {
-        let status = self
-            .update_attempt(attempt_id, |view| {
-                if !is_terminal_status(view.status) {
-                    view.status = ProviderAuthAttemptStatus::Cancelled;
-                    view.error_code = None;
-                    view.error_message = None;
-                }
-            })
-            .await;
-
-        if status.is_some()
-            && let Some(runtime) = self.remove_attempt_runtime(attempt_id).await
-        {
+        let (view, runtime) = {
+            let mut state = self.state.lock().await;
+            let Some(attempt) = state.attempts.get_mut(attempt_id) else {
+                return Ok(None);
+            };
+            if !is_terminal_status(attempt.view.status) && !attempt.completion_claimed {
+                attempt.view.status = ProviderAuthAttemptStatus::Cancelled;
+                attempt.view.error_code = None;
+                attempt.view.error_message = None;
+                (attempt.view.clone(), attempt.runtime.take())
+            } else {
+                (attempt.view.clone(), None)
+            }
+        };
+        if let Some(runtime) = runtime {
             runtime.cancel();
         }
-
-        Ok(status)
+        Ok(Some(view))
     }
 
-    pub(crate) async fn upsert_attempt(&self, attempt: ProviderAuthAttemptView) {
-        let mut attempts = self.attempts.lock().await;
-        attempts.insert(attempt.attempt_id.clone(), attempt);
+    pub(crate) async fn cancel_all_attempts(&self) -> Vec<ProviderAuthAttemptView> {
+        let (views, runtimes) = {
+            let mut state = self.state.lock().await;
+            state.shutting_down = true;
+            let mut views = Vec::new();
+            let mut runtimes = Vec::new();
+            for attempt in state.attempts.values_mut() {
+                if is_terminal_status(attempt.view.status) || attempt.completion_claimed {
+                    continue;
+                }
+                attempt.view.status = ProviderAuthAttemptStatus::Cancelled;
+                attempt.view.error_code = None;
+                attempt.view.error_message = None;
+                views.push(attempt.view.clone());
+                if let Some(runtime) = attempt.runtime.take() {
+                    runtimes.push(runtime);
+                }
+            }
+            (views, runtimes)
+        };
+        for runtime in runtimes {
+            runtime.cancel();
+        }
+        views
     }
 
-    pub(crate) async fn upsert_attempt_runtime(
+    pub(crate) async fn register_attempt(
         &self,
-        attempt_id: String,
+        attempt: ProviderAuthAttemptView,
         runtime: ProviderAuthAttemptRuntime,
-    ) {
-        let mut runtimes = self.runtimes.lock().await;
-        runtimes.insert(attempt_id, runtime);
+    ) -> bool {
+        let previous_runtime = {
+            let mut state = self.state.lock().await;
+            if state.shutting_down {
+                drop(state);
+                runtime.cancel();
+                return false;
+            }
+            let account_id = attempt.provider_account_id.clone();
+            let previous_runtime = state
+                .latest_attempt_by_account
+                .get(&account_id)
+                .cloned()
+                .and_then(|previous_id| state.attempts.get_mut(&previous_id))
+                .and_then(|previous| {
+                    if is_terminal_status(previous.view.status) || previous.completion_claimed {
+                        return None;
+                    }
+                    previous.view.status = ProviderAuthAttemptStatus::Cancelled;
+                    previous.view.error_code = None;
+                    previous.view.error_message = None;
+                    previous.runtime.take()
+                });
+            state
+                .latest_attempt_by_account
+                .insert(account_id, attempt.attempt_id.clone());
+            state.attempts.insert(
+                attempt.attempt_id.clone(),
+                ProviderAuthAttempt {
+                    view: attempt,
+                    runtime: Some(runtime),
+                    completion_claimed: false,
+                },
+            );
+            previous_runtime
+        };
+        if let Some(runtime) = previous_runtime {
+            runtime.cancel();
+        }
+        true
     }
 
-    pub(crate) async fn remove_attempt_runtime(
-        &self,
-        attempt_id: &str,
-    ) -> Option<ProviderAuthAttemptRuntime> {
-        let mut runtimes = self.runtimes.lock().await;
-        runtimes.remove(attempt_id)
+    /// Claim the right to publish and finish an attempt.
+    ///
+    /// Cancellation, supersession, and completion all compete under the same
+    /// lock, so a cancelled or superseded attempt can never claim publication.
+    pub(crate) async fn claim_attempt_completion(&self, attempt_id: &str) -> bool {
+        let mut state = self.state.lock().await;
+        let Some(attempt) = state.attempts.get(attempt_id) else {
+            return false;
+        };
+        let is_latest = state
+            .latest_attempt_by_account
+            .get(&attempt.view.provider_account_id)
+            .is_some_and(|latest_id| latest_id == attempt_id);
+        if !is_latest || is_terminal_status(attempt.view.status) || attempt.completion_claimed {
+            return false;
+        }
+        let attempt = state
+            .attempts
+            .get_mut(attempt_id)
+            .expect("attempt checked above");
+        attempt.completion_claimed = true;
+        attempt.runtime.take();
+        true
     }
 
-    pub(crate) async fn update_attempt(
-        &self,
-        attempt_id: &str,
-        update: impl FnOnce(&mut ProviderAuthAttemptView),
-    ) -> Option<ProviderAuthAttemptView> {
-        let mut attempts = self.attempts.lock().await;
-        let attempt = attempts.get_mut(attempt_id)?;
-        update(attempt);
-        Some(attempt.clone())
-    }
-
-    pub(crate) async fn mark_attempt_terminal(
+    pub(crate) async fn finish_claimed_attempt(
         &self,
         attempt_id: &str,
         status: ProviderAuthAttemptStatus,
@@ -178,14 +215,37 @@ impl ProviderAuthManager {
         error_message: Option<String>,
     ) -> Option<ProviderAuthAttemptView> {
         debug_assert!(is_terminal_status(status));
-        self.update_attempt(attempt_id, |view| {
-            if !is_terminal_status(view.status) {
-                view.status = status;
-                view.error_code = error_code;
-                view.error_message = error_message;
-            }
-        })
-        .await
+        let mut state = self.state.lock().await;
+        let attempt = state.attempts.get_mut(attempt_id)?;
+        if !attempt.completion_claimed || is_terminal_status(attempt.view.status) {
+            return Some(attempt.view.clone());
+        }
+        attempt.view.status = status;
+        attempt.view.error_code = error_code;
+        attempt.view.error_message = error_message;
+        Some(attempt.view.clone())
+    }
+
+    pub(crate) async fn is_latest_attempt(&self, attempt_id: &str) -> bool {
+        let state = self.state.lock().await;
+        let Some(attempt) = state.attempts.get(attempt_id) else {
+            return false;
+        };
+        state
+            .latest_attempt_by_account
+            .get(&attempt.view.provider_account_id)
+            .is_some_and(|latest_id| latest_id == attempt_id)
+    }
+
+    pub(crate) async fn is_shutting_down(&self) -> bool {
+        self.state.lock().await.shutting_down
+    }
+}
+
+fn auth_service_shutting_down() -> ProviderError {
+    ProviderError::ProviderUnavailable {
+        provider: crate::CODEX_PROVIDER.to_string(),
+        message: "provider authentication service is shutting down".to_string(),
     }
 }
 
@@ -199,77 +259,9 @@ pub(crate) fn is_terminal_status(status: ProviderAuthAttemptStatus) -> bool {
     )
 }
 
-/// Prepare a provider account home for Noema-owned credentials.
-///
-/// # Errors
-///
-/// Returns an error when the account directory cannot be written.
-pub fn ensure_provider_account_home(account_home: &Path) -> io::Result<()> {
-    create_private_account_dir_all(account_home)
-}
-
-#[cfg(unix)]
-fn create_private_account_dir_all(account_home: &Path) -> io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-
-    let mut missing_dirs = Vec::new();
-    let mut current = Some(account_home);
-    while let Some(path) = current {
-        if path.exists() {
-            break;
-        }
-        missing_dirs.push(path.to_path_buf());
-        current = path.parent();
-    }
-
-    fs::create_dir_all(account_home)?;
-    for path in missing_dirs.iter().rev() {
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
-    }
-    fs::set_permissions(account_home, fs::Permissions::from_mode(0o700))
-}
-
-#[cfg(not(unix))]
-fn create_private_account_dir_all(account_home: &Path) -> io::Result<()> {
-    fs::create_dir_all(account_home)
-}
-
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
-    use tempfile::TempDir;
-
     use super::*;
-
-    #[test]
-    fn ensure_provider_account_home_creates_private_directory() {
-        let dir = TempDir::new().expect("temp dir");
-        let account_home = dir.path().join("providers/codex/default");
-
-        ensure_provider_account_home(&account_home).expect("account home");
-
-        assert!(account_home.is_dir());
-        assert!(!account_home.join("config.toml").exists());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn ensure_provider_account_home_sets_private_unix_permissions() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let dir = TempDir::new().expect("temp dir");
-        let account_home = dir.path().join("providers/codex/default");
-
-        ensure_provider_account_home(&account_home).expect("account home");
-
-        let mode = fs::metadata(&account_home)
-            .expect("metadata")
-            .permissions()
-            .mode()
-            & 0o777;
-        assert_eq!(mode, 0o700);
-    }
 
     #[tokio::test]
     async fn auth_manager_cancel_marks_attempt_cancelled() {
@@ -286,7 +278,12 @@ mod tests {
             error_code: None,
             error_message: None,
         };
-        manager.upsert_attempt(attempt).await;
+        let (cancel, _cancelled) = oneshot::channel();
+        assert!(
+            manager
+                .register_attempt(attempt, ProviderAuthAttemptRuntime::new(cancel))
+                .await
+        );
 
         let status = manager
             .cancel_attempt("attempt-test")
@@ -295,5 +292,121 @@ mod tests {
             .expect("attempt exists");
 
         assert_eq!(status.status, ProviderAuthAttemptStatus::Cancelled);
+        assert!(!manager.claim_attempt_completion("attempt-test").await);
+    }
+
+    #[tokio::test]
+    async fn auth_manager_completion_claim_prevents_late_cancellation() {
+        let manager = ProviderAuthManager::new();
+        let attempt = ProviderAuthAttemptView {
+            attempt_id: "attempt-test".to_string(),
+            provider_kind: "codex".to_string(),
+            provider_account_id: "provider_account:codex:default".to_string(),
+            method: crate::ProviderAuthMethod::OauthDeviceCode,
+            status: ProviderAuthAttemptStatus::WaitingForUser,
+            verification_url: Some("https://example.com/device".to_string()),
+            user_code: Some("ABD-EFGH".to_string()),
+            instructions: Some("Complete the login in your browser.".to_string()),
+            error_code: None,
+            error_message: None,
+        };
+        let (cancel, _cancelled) = oneshot::channel();
+        assert!(
+            manager
+                .register_attempt(attempt, ProviderAuthAttemptRuntime::new(cancel))
+                .await
+        );
+
+        assert!(manager.claim_attempt_completion("attempt-test").await);
+        let status = manager
+            .cancel_attempt("attempt-test")
+            .await
+            .expect("cancel")
+            .expect("attempt exists");
+
+        assert_eq!(
+            status.status,
+            ProviderAuthAttemptStatus::WaitingForUser,
+            "completion owns the transition once claimed"
+        );
+        let completed = manager
+            .finish_claimed_attempt(
+                "attempt-test",
+                ProviderAuthAttemptStatus::Completed,
+                None,
+                None,
+            )
+            .await
+            .expect("attempt");
+        assert_eq!(completed.status, ProviderAuthAttemptStatus::Completed);
+    }
+
+    #[tokio::test]
+    async fn auth_manager_cancel_all_is_atomic_with_completion_claims() {
+        let manager = ProviderAuthManager::new();
+        for attempt_id in ["cancel-me", "completion-owned"] {
+            let attempt = ProviderAuthAttemptView {
+                attempt_id: attempt_id.to_string(),
+                provider_kind: "codex".to_string(),
+                provider_account_id: format!("provider_account:codex:{attempt_id}"),
+                method: crate::ProviderAuthMethod::OauthDeviceCode,
+                status: ProviderAuthAttemptStatus::WaitingForUser,
+                verification_url: Some("https://example.com/device".to_string()),
+                user_code: Some("ABD-EFGH".to_string()),
+                instructions: Some("Complete the login in your browser.".to_string()),
+                error_code: None,
+                error_message: None,
+            };
+            let (cancel, _cancelled) = oneshot::channel();
+            assert!(
+                manager
+                    .register_attempt(attempt, ProviderAuthAttemptRuntime::new(cancel))
+                    .await
+            );
+        }
+        assert!(manager.claim_attempt_completion("completion-owned").await);
+
+        let cancelled = manager.cancel_all_attempts().await;
+
+        assert_eq!(cancelled.len(), 1);
+        assert_eq!(cancelled[0].attempt_id, "cancel-me");
+        assert_eq!(
+            manager
+                .poll_attempt("cancel-me")
+                .await
+                .expect("poll")
+                .expect("attempt")
+                .status,
+            ProviderAuthAttemptStatus::Cancelled
+        );
+        assert_eq!(
+            manager
+                .poll_attempt("completion-owned")
+                .await
+                .expect("poll")
+                .expect("attempt")
+                .status,
+            ProviderAuthAttemptStatus::WaitingForUser
+        );
+
+        let replacement = ProviderAuthAttemptView {
+            attempt_id: "after-shutdown".to_string(),
+            provider_kind: "codex".to_string(),
+            provider_account_id: "provider_account:codex:after-shutdown".to_string(),
+            method: crate::ProviderAuthMethod::OauthDeviceCode,
+            status: ProviderAuthAttemptStatus::WaitingForUser,
+            verification_url: None,
+            user_code: None,
+            instructions: None,
+            error_code: None,
+            error_message: None,
+        };
+        let (cancel, cancelled) = oneshot::channel();
+        assert!(
+            !manager
+                .register_attempt(replacement, ProviderAuthAttemptRuntime::new(cancel))
+                .await
+        );
+        assert!(cancelled.await.is_ok());
     }
 }

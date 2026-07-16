@@ -25,9 +25,21 @@ pub(in crate::daemon) mod turn;
 pub(crate) mod turn_timing;
 mod web_tools;
 
+pub(crate) use actor::ProviderAccountRuntimeAccess;
 pub(crate) use background_task::BackgroundTaskGenerateRequest;
 pub(crate) use handle::{CodexRuntimeHandle, RuntimeProviderMap};
 pub(crate) use provider_routes::LegacyProviderRoutes;
+
+pub(crate) struct CodexRuntimeSpawnConfig {
+    pub(crate) default_provider_kind: String,
+    pub(crate) provider_routes: LegacyProviderRoutes,
+    pub(crate) store: crate::NoemaStore,
+    pub(crate) artifact_operations: noema_artifacts::ArtifactOperationsHandle,
+    pub(crate) system_errors: noema_home::SystemErrorLogger,
+    pub(crate) memory_connection: Option<crate::MnemosyneConnection>,
+    pub(crate) task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
+    pub(crate) provider_accounts: ProviderAccountRuntimeAccess,
+}
 
 /// Structured context for one primary-agent completion report.
 #[derive(Debug, Clone)]

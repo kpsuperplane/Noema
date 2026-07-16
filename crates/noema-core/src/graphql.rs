@@ -16,7 +16,6 @@ mod mcp;
 mod memory;
 mod onboarding;
 mod provider_accounts;
-mod provider_auth;
 mod replay;
 mod resolvers;
 mod runtime_state;
@@ -33,11 +32,7 @@ pub use artifacts::{
     AuthorizedArtifactDownload, AuthorizedArtifactDownloadError, authorized_artifact_download,
 };
 pub use mcp::complete_mcp_server_oauth_setup;
-pub(crate) use provider_auth::{
-    ProviderAuthStartRequest, is_user_onboarded_for_chat,
-    persist_provider_account_status_from_attempt, reconcile_onboarding_provider_account,
-    start_provider_auth_attempt_view_from_parts,
-};
+pub(crate) use onboarding::is_user_onboarded_for_chat;
 pub(crate) use replay::{ConversationReplayItem, web_conversation_item_from_record};
 pub(crate) use runtime_state::GraphqlRuntimeState;
 pub use schema::{GraphqlSchema, GraphqlState, build_schema};

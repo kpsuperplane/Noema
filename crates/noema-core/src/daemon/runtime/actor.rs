@@ -1,13 +1,19 @@
 use std::collections::HashMap;
+#[cfg(test)]
+use std::sync::Arc;
 
 use crate::NoemaStore;
 use futures_util::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use noema_home::SystemErrorLogger;
+use noema_providers::{
+    ProviderAccountOperationsHandle, ProviderCredentialAccessHandle, ProviderRouteLease,
+    ProviderSelectionSnapshot,
+};
 #[cfg(test)]
-use noema_providers::ProviderHandle;
-use noema_providers::{ProviderRouteLease, ProviderSelectionSnapshot};
+use noema_providers::{ProviderAccountService, ProviderHandle};
 use tokio::sync::{mpsc, oneshot};
 
+use super::CodexRuntimeSpawnConfig;
 use super::handle::{CodexRuntimeCommand, GenerateOnceModelPolicy};
 use super::provider_routes::LegacyProviderRoutes;
 use super::tasks::RuntimeTaskGroup;
@@ -21,7 +27,42 @@ type PendingTaskCompletion = BoxFuture<
     ),
 >;
 
-#[derive(Debug)]
+#[derive(Clone)]
+pub(crate) struct ProviderAccountRuntimeAccess {
+    operations: ProviderAccountOperationsHandle,
+    credentials: ProviderCredentialAccessHandle,
+}
+
+impl ProviderAccountRuntimeAccess {
+    pub(crate) fn new(
+        operations: ProviderAccountOperationsHandle,
+        credentials: ProviderCredentialAccessHandle,
+    ) -> Self {
+        Self {
+            operations,
+            credentials,
+        }
+    }
+
+    pub(in crate::daemon) fn operations(&self) -> &ProviderAccountOperationsHandle {
+        &self.operations
+    }
+
+    pub(in crate::daemon) fn credentials(&self) -> &ProviderCredentialAccessHandle {
+        &self.credentials
+    }
+}
+
+impl std::fmt::Debug for ProviderAccountRuntimeAccess {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ProviderAccountRuntimeAccess")
+            .field("operations", &"[CONFIGURED]")
+            .field("credentials", &"[REDACTED]")
+            .finish()
+    }
+}
+
 pub(in crate::daemon) struct CodexRuntimeActor {
     pub(in crate::daemon) default_provider_kind: String,
     pub(in crate::daemon) provider_routes: LegacyProviderRoutes,
@@ -31,9 +72,31 @@ pub(in crate::daemon) struct CodexRuntimeActor {
     pub(in crate::daemon) memory_connection: Option<crate::MnemosyneConnection>,
     pub(in crate::daemon) search_provider: crate::search::types::SearchRuntimeProvider,
     pub(in crate::daemon) web_fetch_provider: crate::web_fetch::types::WebFetchRuntimeProvider,
+    pub(in crate::daemon) provider_accounts: ProviderAccountRuntimeAccess,
     pub(in crate::daemon) conversations: HashMap<String, ActiveConversation>,
     pub(super) tasks: RuntimeTaskGroup,
     pub(super) task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
+}
+
+impl std::fmt::Debug for CodexRuntimeActor {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CodexRuntimeActor")
+            .field("default_provider_kind", &self.default_provider_kind)
+            .field("provider_routes", &self.provider_routes)
+            .field("store", &self.store)
+            .field("artifact_operations", &"[CONFIGURED]")
+            .field("system_errors", &self.system_errors)
+            .field(
+                "memory_connection_configured",
+                &self.memory_connection.is_some(),
+            )
+            .field("search_provider", &self.search_provider)
+            .field("web_fetch_provider", &self.web_fetch_provider)
+            .field("provider_accounts", &self.provider_accounts)
+            .field("conversation_count", &self.conversations.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl CodexRuntimeActor {
@@ -69,7 +132,8 @@ impl CodexRuntimeActor {
         task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
     ) -> Result<Self, DaemonError> {
         let provider_routes = LegacyProviderRoutes::new(providers)?;
-        Self::new_with_provider_routes(
+        let provider_accounts = test_provider_account_access(&store)?;
+        Self::from_spawn_config(CodexRuntimeSpawnConfig {
             default_provider_kind,
             provider_routes,
             store,
@@ -77,31 +141,27 @@ impl CodexRuntimeActor {
             system_errors,
             memory_connection,
             task_subscriptions,
-        )
+            provider_accounts,
+        })
         .await
     }
 
-    pub(in crate::daemon) async fn new_with_provider_routes(
-        default_provider_kind: String,
-        provider_routes: LegacyProviderRoutes,
-        store: NoemaStore,
-        artifact_operations: noema_artifacts::ArtifactOperationsHandle,
-        system_errors: SystemErrorLogger,
-        memory_connection: Option<crate::MnemosyneConnection>,
-        task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
+    pub(in crate::daemon) async fn from_spawn_config(
+        config: CodexRuntimeSpawnConfig,
     ) -> Result<Self, DaemonError> {
         Ok(Self {
-            default_provider_kind,
-            provider_routes,
-            store,
-            artifact_operations,
-            system_errors,
-            memory_connection,
+            default_provider_kind: config.default_provider_kind,
+            provider_routes: config.provider_routes,
+            store: config.store,
+            artifact_operations: config.artifact_operations,
+            system_errors: config.system_errors,
+            memory_connection: config.memory_connection,
             search_provider: noema_providers::default_web_search_backend(),
             web_fetch_provider: noema_providers::default_web_fetch_backend(),
+            provider_accounts: config.provider_accounts,
             conversations: HashMap::new(),
             tasks: RuntimeTaskGroup::default(),
-            task_subscriptions,
+            task_subscriptions: config.task_subscriptions,
         })
     }
 
@@ -179,6 +239,7 @@ impl CodexRuntimeActor {
             memory_connection: self.memory_connection.clone(),
             search_provider: self.search_provider.clone(),
             web_fetch_provider: self.web_fetch_provider.clone(),
+            provider_accounts: self.provider_accounts.clone(),
             conversations: HashMap::new(),
             tasks: RuntimeTaskGroup::default(),
             task_subscriptions: self.task_subscriptions.clone(),
@@ -363,6 +424,26 @@ impl CodexRuntimeActor {
             let _ = reply.send(());
         }
     }
+}
+
+#[cfg(test)]
+pub(super) fn test_provider_account_access(
+    store: &NoemaStore,
+) -> Result<ProviderAccountRuntimeAccess, DaemonError> {
+    let paths = store
+        .noema_paths()
+        .map_err(|source| DaemonError::Protocol(source.to_string()))?;
+    let service = ProviderAccountService::new(
+        paths,
+        Arc::new(store.clone()),
+        Arc::new(store.clone()),
+        store.system_error_logger(),
+    )
+    .map_err(DaemonError::from)?;
+    Ok(ProviderAccountRuntimeAccess::new(
+        service.operations(),
+        service.credentials(),
+    ))
 }
 
 fn runtime_stopped() -> DaemonError {

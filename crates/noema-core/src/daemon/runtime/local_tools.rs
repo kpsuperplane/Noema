@@ -9,7 +9,7 @@ use noema_capabilities::{
 };
 use noema_providers::{
     DEFAULT_TOOL_CLASSIFICATION_MODEL, EXA_FETCH_PROVIDER_ID, EXA_SEARCH_PROVIDER_ID,
-    ExaFetchClient, ExaSearchClient, ProviderAccountStatus, SecretInputStore,
+    ExaFetchClient, ExaSearchClient, ProviderCredential,
 };
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
@@ -45,6 +45,11 @@ use crate::web_fetch::{
 use noema_capabilities::web::fetch::WEB_FETCH_TOOL;
 
 const PROVIDER_ACCOUNT_UNAUTHENTICATED: &str = "provider account unauthenticated";
+
+struct ProviderAuthFailureTarget {
+    provider_account_id: String,
+    credential_revision: u64,
+}
 
 impl CodexRuntimeActor {
     /// Execute a foreground tool through the exact initial advertised binding
@@ -310,18 +315,7 @@ impl CodexRuntimeActor {
                 },
             }
         } else if is_task_delegate_tool(&call.name) {
-            let provider_account_id = self
-                .store
-                .active_default_provider_accounts()
-                .await
-                .ok()
-                .and_then(|accounts| {
-                    accounts
-                        .into_iter()
-                        .find(|account| account.provider_kind == turn.provider_kind)
-                })
-                .map(|account| account.provider_account_id)
-                .unwrap_or_else(|| format!("provider_account:{}:default", turn.provider_kind));
+            let provider_selection = turn.provider_route.selection();
             let result = execute_task_delegate(
                 &self.store,
                 &TaskDelegateRuntimeContext {
@@ -329,10 +323,10 @@ impl CodexRuntimeActor {
                     turn_id: turn.turn_id.clone(),
                     user_item_id: turn.user_item_id.clone(),
                     agent_id: agent_identity.agent_id.clone(),
-                    provider_kind: turn.provider_kind.clone(),
-                    provider_account_id,
-                    model_profile: turn.model.clone(),
-                    reasoning_effort: turn.reasoning_effort,
+                    provider_kind: provider_selection.provider_kind.clone(),
+                    provider_account_id: provider_selection.provider_account_id.clone(),
+                    model_profile: provider_selection.model_profile.clone(),
+                    reasoning_effort: provider_selection.reasoning_effort,
                 },
                 call.call_id.clone(),
                 &call.payload,
@@ -353,14 +347,13 @@ impl CodexRuntimeActor {
             }
         } else if is_web_search_tool(&call.name) {
             let result = match self.web_search_runtime_provider_resolution().await {
-                Ok((provider, fallback_from, fallback_reason, auth_failure_account_id)) => {
+                Ok((provider, fallback_from, fallback_reason, auth_failure_target)) => {
                     let mut result =
                         execute_web_search(&provider, call.call_id.clone(), &call.payload).await;
-                    if let Some(provider_account_id) = auth_failure_account_id
+                    if let Some(target) = auth_failure_target
                         && is_provider_account_unauthenticated_payload(&result.payload)
                     {
-                        self.mark_provider_account_unauthenticated(&provider_account_id)
-                            .await;
+                        self.mark_provider_account_unauthenticated(&target).await;
                     }
                     insert_web_tool_fallback_metadata(
                         &mut result.payload,
@@ -397,21 +390,14 @@ impl CodexRuntimeActor {
                 .web_fetch_runtime_execution_context(generation_priority)
                 .await
             {
-                Ok((
-                    provider,
-                    context,
-                    fallback_from,
-                    fallback_reason,
-                    auth_failure_account_id,
-                )) => {
+                Ok((provider, context, fallback_from, fallback_reason, auth_failure_target)) => {
                     let mut result =
                         execute_web_fetch(&provider, &context, call.call_id.clone(), &call.payload)
                             .await;
-                    if let Some(provider_account_id) = auth_failure_account_id
+                    if let Some(target) = auth_failure_target
                         && is_provider_account_unauthenticated_payload(&result.payload)
                     {
-                        self.mark_provider_account_unauthenticated(&provider_account_id)
-                            .await;
+                        self.mark_provider_account_unauthenticated(&target).await;
                     }
                     insert_web_tool_fallback_metadata(
                         &mut result.payload,
@@ -505,7 +491,7 @@ impl CodexRuntimeActor {
             FetchRuntimeContext,
             Option<String>,
             Option<String>,
-            Option<String>,
+            Option<ProviderAuthFailureTarget>,
         ),
         String,
     > {
@@ -524,13 +510,17 @@ impl CodexRuntimeActor {
             )),
             EXA_FETCH_PROVIDER_ID => {
                 let provider_account_id = resolved.provider_account_id.clone();
+                let auth_failure_target = ProviderAuthFailureTarget {
+                    provider_account_id: provider_account_id.clone(),
+                    credential_revision: resolved.credential_revision,
+                };
                 let api_key = match self
-                    .load_provider_secret_api_key(&resolved.provider_kind, &resolved.account_key)
+                    .load_provider_secret_api_key(&provider_account_id)
                     .await
                 {
                     Ok(api_key) => api_key,
                     Err(()) => {
-                        self.mark_provider_account_unauthenticated(&provider_account_id)
+                        self.mark_provider_account_unauthenticated(&auth_failure_target)
                             .await;
                         return Ok((
                             self.web_fetch_provider.clone(),
@@ -548,7 +538,7 @@ impl CodexRuntimeActor {
                     context,
                     resolved.fallback_from,
                     resolved.fallback_reason,
-                    Some(provider_account_id),
+                    Some(auth_failure_target),
                 ))
             }
             provider_kind => Err(format!(
@@ -564,7 +554,7 @@ impl CodexRuntimeActor {
             SearchRuntimeProvider,
             Option<String>,
             Option<String>,
-            Option<String>,
+            Option<ProviderAuthFailureTarget>,
         ),
         String,
     > {
@@ -582,13 +572,17 @@ impl CodexRuntimeActor {
             )),
             EXA_SEARCH_PROVIDER_ID => {
                 let provider_account_id = resolved.provider_account_id.clone();
+                let auth_failure_target = ProviderAuthFailureTarget {
+                    provider_account_id: provider_account_id.clone(),
+                    credential_revision: resolved.credential_revision,
+                };
                 let api_key = match self
-                    .load_provider_secret_api_key(&resolved.provider_kind, &resolved.account_key)
+                    .load_provider_secret_api_key(&provider_account_id)
                     .await
                 {
                     Ok(api_key) => api_key,
                     Err(()) => {
-                        self.mark_provider_account_unauthenticated(&provider_account_id)
+                        self.mark_provider_account_unauthenticated(&auth_failure_target)
                             .await;
                         return Ok((
                             self.search_provider.clone(),
@@ -604,7 +598,7 @@ impl CodexRuntimeActor {
                     })?),
                     resolved.fallback_from,
                     resolved.fallback_reason,
-                    Some(provider_account_id),
+                    Some(auth_failure_target),
                 ))
             }
             provider_kind => Err(format!(
@@ -613,25 +607,20 @@ impl CodexRuntimeActor {
         }
     }
 
-    async fn load_provider_secret_api_key(
-        &self,
-        provider_kind: &str,
-        account_key: &str,
-    ) -> Result<String, ()> {
-        SecretInputStore::new(self.store.provider_account_home(provider_kind, account_key))
-            .load_api_key()
+    async fn load_provider_secret_api_key(&self, provider_account_id: &str) -> Result<String, ()> {
+        self.provider_accounts
+            .credentials()
+            .exa_api_key(provider_account_id)
+            .await
+            .map(ProviderCredential::into_secret)
             .map_err(|_| ())
     }
 
-    async fn mark_provider_account_unauthenticated(&self, provider_account_id: &str) {
+    async fn mark_provider_account_unauthenticated(&self, target: &ProviderAuthFailureTarget) {
         let _ = self
-            .store
-            .update_provider_account_status(
-                provider_account_id,
-                ProviderAccountStatus::Unauthenticated,
-                Some("auth_failed"),
-                Some(PROVIDER_ACCOUNT_UNAUTHENTICATED),
-            )
+            .provider_accounts
+            .operations()
+            .record_auth_failure(&target.provider_account_id, target.credential_revision)
             .await;
     }
 }
@@ -858,7 +847,22 @@ mod tests {
     }
 
     fn test_turn() -> SuccessfulProviderTurn {
+        test_turn_with_selection(noema_providers::ProviderSelectionSnapshot::explicit(
+            "codex",
+            "provider_account:codex:default",
+            "gpt-test",
+            None,
+            Some("test".to_string()),
+        ))
+    }
+
+    fn test_turn_with_selection(
+        selection: noema_providers::ProviderSelectionSnapshot,
+    ) -> SuccessfulProviderTurn {
         let initial_model_tools = test_web_model_tools();
+        let provider_kind = selection.provider_kind.clone();
+        let model = selection.model_profile.clone();
+        let reasoning_effort = selection.reasoning_effort;
         SuccessfulProviderTurn {
             conversation_id: "conversation:test".to_string(),
             turn_id: "turn:test".to_string(),
@@ -868,17 +872,11 @@ mod tests {
             task_id: None,
             task_run_id: None,
             cwd: None,
-            provider_kind: "codex".to_string(),
-            model: Some("gpt-test".to_string()),
-            reasoning_effort: None,
+            provider_kind: provider_kind.clone(),
+            model: model.clone(),
+            reasoning_effort,
             provider_route: crate::test_support::provider_route(
-                noema_providers::ProviderSelectionSnapshot::explicit(
-                    "codex",
-                    "provider_account:codex:test",
-                    "gpt-test",
-                    None,
-                    Some("test".to_string()),
-                ),
+                selection,
                 Arc::new(LocalToolTestProvider::new(Some("codex-tool-default"))),
             ),
             initial_stream_id: "stream:test".to_string(),
@@ -887,8 +885,8 @@ mod tests {
                 tool_calls: Vec::new(),
                 reasoning_items: Vec::new(),
                 response_status: GenerateResponseStatus::Final,
-                provider: "codex".to_string(),
-                model: "gpt-test".to_string(),
+                provider: provider_kind,
+                model: model.unwrap_or_else(|| "provider-default".to_string()),
                 response_id: None,
                 usage: None,
             },
@@ -1000,6 +998,111 @@ mod tests {
         );
         assert_eq!(result.persisted().arguments, None);
         assert_eq!(result.persisted().output, None);
+    }
+
+    #[tokio::test]
+    async fn task_delegate_preserves_the_executing_route_account() {
+        let store = crate::store::tests::test_store().await;
+        store.ensure_default_actors().await.expect("actors");
+        store
+            .ensure_default_provider_account()
+            .await
+            .expect("default account");
+        store
+            .update_provider_account_status(
+                "provider_account:codex:default",
+                noema_providers::ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .expect("authenticate default account");
+        insert_provider_account(
+            &store,
+            "provider_account:openai:team",
+            "openai",
+            "team",
+            noema_providers::ProviderAccountStatus::Authenticated,
+        )
+        .await;
+        let pool = store
+            .ensure_default_task_model_pool_settings("codex")
+            .await
+            .expect("task model settings")
+            .into_iter()
+            .find(|entry| entry.complexity == crate::TaskComplexity::Simple)
+            .expect("simple task model");
+        let actor = CodexRuntimeActor::new(
+            "codex".to_string(),
+            HashMap::from([(
+                "codex".to_string(),
+                Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
+                    as noema_providers::ProviderHandle,
+            )]),
+            store.clone(),
+            store.system_error_logger(),
+        )
+        .await
+        .expect("actor");
+        let turn = test_turn_with_selection(noema_providers::ProviderSelectionSnapshot::explicit(
+            "openai",
+            "provider_account:openai:team",
+            "gpt-explicit",
+            Some(noema_providers::ReasoningEffort::Low),
+            Some("agent:primary".to_string()),
+        ));
+
+        let result = actor
+            .execute_bound_runtime_tool(
+                &turn,
+                &AgentPromptIdentity {
+                    agent_id: "agent:primary".to_string(),
+                    display_name: None,
+                },
+                &test_tool_call(
+                    crate::daemon::task_tool::TASK_DELEGATE_TOOL,
+                    json!({
+                        "title": "Preserve the source account",
+                        "request": "Verify exact task delegation provenance.",
+                        "complexity": "simple",
+                        "executor_model_pool_entry_id": pool.pool_entry_id,
+                        "validation_criteria": [{
+                            "description": "The reviewer retains the source provider account."
+                        }]
+                    }),
+                ),
+            )
+            .await
+            .expect("runtime task delegate");
+
+        assert!(
+            result.success(),
+            "task delegation failed: {}",
+            result.payload()
+        );
+        let task_id = result.payload()["task_id"].as_str().expect("task id");
+        let task = store
+            .get_task(task_id)
+            .await
+            .expect("read task")
+            .expect("created task");
+        assert_eq!(task.reviewer_model.provider_kind, "openai");
+        assert_eq!(
+            task.reviewer_model.provider_account_id,
+            "provider_account:openai:team"
+        );
+        assert_eq!(
+            task.reviewer_model.model_profile.as_deref(),
+            Some("gpt-explicit")
+        );
+        assert_eq!(
+            task.reviewer_model.reasoning_effort,
+            Some(noema_providers::ReasoningEffort::Low)
+        );
+        assert_eq!(
+            task.reviewer_model.selection_source.as_deref(),
+            Some("primary:effective")
+        );
     }
 
     #[tokio::test]
@@ -1346,6 +1449,16 @@ mod tests {
             Some("provider account unauthenticated")
         );
         assert!(auth_failure_account_id.is_none());
+        let account = store
+            .get_provider_account("provider_account:exa:acct_research")
+            .await
+            .expect("provider account")
+            .expect("Exa account");
+        assert_eq!(
+            account.status,
+            noema_providers::ProviderAccountStatus::Unauthenticated
+        );
+        assert_eq!(account.last_error_code.as_deref(), Some("auth_failed"));
     }
 
     #[tokio::test]

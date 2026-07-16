@@ -5,6 +5,7 @@ use tempfile::TempDir;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
+    sync::oneshot,
 };
 
 use super::*;
@@ -249,6 +250,99 @@ async fn device_auth_completion_preserves_attempt_expiry() {
     assert!(!account_home.join("codex_tokens.json").exists());
 }
 
+#[tokio::test]
+async fn device_auth_cancels_an_inflight_token_exchange() {
+    let (base_url, exchange_started, release_exchange) =
+        spawn_blocking_token_exchange_server().await;
+    let dir = TempDir::new().expect("temp dir");
+    let account_home = dir.path().join("providers/codex/default");
+    let manager = ProviderAuthManager::new();
+    let session = manager
+        .begin_codex_device_code(device_auth_request(&base_url, &account_home, None))
+        .await
+        .expect("begin auth");
+    let attempt_id = session.attempt.attempt_id.clone();
+    let completion = tokio::spawn(session.completion);
+
+    exchange_started.await.expect("exchange started");
+    manager
+        .cancel_attempt(&attempt_id)
+        .await
+        .expect("cancel attempt");
+    let outcome = completion.await.expect("completion task");
+    release_exchange.send(()).expect("release exchange");
+
+    assert!(matches!(outcome, CodexDeviceAuthOutcome::Cancelled));
+    assert_eq!(
+        manager
+            .poll_attempt(&attempt_id)
+            .await
+            .expect("poll")
+            .expect("attempt")
+            .status,
+        ProviderAuthAttemptStatus::Cancelled
+    );
+}
+
+#[tokio::test]
+async fn device_auth_failure_does_not_expose_remote_response_text() {
+    let base_url = spawn_oauth_server_with_status(vec![
+        (
+            200,
+            r#"{"device_auth_id":"device-secret","user_code":"ABCD-EFGH","interval":0}"#,
+        ),
+        (
+            500,
+            r#"{"error":{"message":"echoed ABCD-EFGH device-secret authorization-secret"}}"#,
+        ),
+    ])
+    .await;
+    let dir = TempDir::new().expect("temp dir");
+    let manager = ProviderAuthManager::new();
+    let session = manager
+        .begin_codex_device_code(device_auth_request(&base_url, dir.path(), None))
+        .await
+        .expect("begin auth");
+
+    let outcome = session.completion.await;
+    let CodexDeviceAuthOutcome::Failed { error_message, .. } = outcome else {
+        panic!("expected failed auth");
+    };
+    assert_eq!(error_message, "Codex login request failed");
+    for secret in ["ABCD-EFGH", "device-secret", "authorization-secret"] {
+        assert!(!error_message.contains(secret));
+    }
+}
+
+#[tokio::test]
+async fn token_endpoint_failure_does_not_expose_remote_response_text() {
+    let base_url = spawn_oauth_server_with_status(vec![(
+        400,
+        r#"{"error":{"code":"invalid_grant","message":"echoed refresh-secret"}}"#,
+    )])
+    .await;
+    let client = CodexOAuthClient::new(CodexOAuthConfig {
+        issuer: base_url.clone(),
+        client_id: "test-client".to_string(),
+        token_url: format!("{base_url}/oauth/token"),
+        timeout_seconds: 10,
+    })
+    .expect("OAuth client");
+
+    let error = client
+        .refresh_tokens("refresh-secret")
+        .await
+        .expect_err("refresh must fail");
+    let message = error.to_string();
+
+    assert!(matches!(
+        error,
+        crate::ProviderError::AuthenticationFailure { .. }
+    ));
+    assert!(!message.contains("refresh-secret"));
+    assert!(!message.contains("echoed"));
+}
+
 fn device_auth_request(
     base_url: &str,
     account_home: &Path,
@@ -268,14 +362,24 @@ fn device_auth_request(
 }
 
 async fn spawn_oauth_server(response_bodies: Vec<&'static str>) -> String {
+    spawn_oauth_server_with_status(
+        response_bodies
+            .into_iter()
+            .map(|body| (200, body))
+            .collect(),
+    )
+    .await
+}
+
+async fn spawn_oauth_server_with_status(responses: Vec<(u16, &'static str)>) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr = listener.local_addr().expect("local addr");
     tokio::spawn(async move {
-        for response_body in response_bodies {
+        for (status, response_body) in responses {
             let (mut socket, _) = listener.accept().await.expect("accept");
             read_http_request(&mut socket).await;
             let response = format!(
-                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                "HTTP/1.1 {status} Test\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
                 response_body.len(),
                 response_body
             );
@@ -286,6 +390,51 @@ async fn spawn_oauth_server(response_bodies: Vec<&'static str>) -> String {
         }
     });
     format!("http://{addr}")
+}
+
+async fn spawn_blocking_token_exchange_server()
+-> (String, oneshot::Receiver<()>, oneshot::Sender<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let address = listener.local_addr().expect("address");
+    let (exchange_started_tx, exchange_started_rx) = oneshot::channel();
+    let (release_exchange_tx, release_exchange_rx) = oneshot::channel();
+    tokio::spawn(async move {
+        for body in [
+            r#"{"device_auth_id":"device-secret","user_code":"ABCD-EFGH","interval":0}"#,
+            r#"{"authorization_code":"authorization-secret","code_verifier":"verifier-secret"}"#,
+        ] {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            read_http_request(&mut socket).await;
+            write_json_response(&mut socket, body).await;
+        }
+        let (mut socket, _) = listener.accept().await.expect("accept exchange");
+        read_http_request(&mut socket).await;
+        exchange_started_tx.send(()).expect("signal exchange");
+        release_exchange_rx.await.expect("release exchange");
+        let _ = socket
+            .write_all(
+                b"HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 67\r\nconnection: close\r\n\r\n{\"access_token\":\"late-access\",\"refresh_token\":\"late-refresh\"}",
+            )
+            .await;
+    });
+    (
+        format!("http://{address}"),
+        exchange_started_rx,
+        release_exchange_tx,
+    )
+}
+
+async fn write_json_response(socket: &mut TcpStream, body: &str) {
+    socket
+        .write_all(
+            format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("write response");
 }
 
 async fn read_http_request(socket: &mut TcpStream) {

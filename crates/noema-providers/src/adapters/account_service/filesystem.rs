@@ -9,6 +9,14 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+#[cfg(any(windows, test))]
+use std::ffi::OsStr;
+#[cfg(windows)]
+use std::{
+    env,
+    process::{Command, Stdio},
+};
+
 static NEXT_TEMP_FILE_ID: AtomicU64 = AtomicU64::new(1);
 const TEMP_FILE_ATTEMPTS: usize = 32;
 
@@ -151,15 +159,18 @@ fn set_private_file_permissions(path: &Path) -> io::Result<()> {
     fs::set_permissions(path, fs::Permissions::from_mode(0o600))
 }
 
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn set_private_file_permissions(_path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-#[cfg(unix)]
-fn create_private_dir_all(path: &Path) -> io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
+#[cfg(windows)]
+fn set_private_file_permissions(path: &Path) -> io::Result<()> {
+    set_private_windows_acl(path, false)
+}
 
+#[cfg(any(unix, windows))]
+fn missing_private_directories(path: &Path) -> io::Result<Vec<PathBuf>> {
     let mut missing = Vec::new();
     let mut current = Some(path);
     while let Some(candidate) = current {
@@ -178,7 +189,14 @@ fn create_private_dir_all(path: &Path) -> io::Result<()> {
             Err(source) => return Err(source),
         }
     }
+    Ok(missing)
+}
 
+#[cfg(unix)]
+fn create_private_dir_all(path: &Path) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let missing = missing_private_directories(path)?;
     fs::create_dir_all(path)?;
     for directory in missing.iter().rev() {
         fs::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
@@ -186,9 +204,85 @@ fn create_private_dir_all(path: &Path) -> io::Result<()> {
     fs::set_permissions(path, fs::Permissions::from_mode(0o700))
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn create_private_dir_all(path: &Path) -> io::Result<()> {
+    let missing = missing_private_directories(path)?;
+    fs::create_dir_all(path)?;
+    for directory in missing.iter().rev() {
+        set_private_windows_acl(directory, true)?;
+    }
+    set_private_windows_acl(path, true)
+}
+
+#[cfg(not(any(unix, windows)))]
 fn create_private_dir_all(path: &Path) -> io::Result<()> {
     fs::create_dir_all(path)
+}
+
+#[cfg(windows)]
+fn set_private_windows_acl(path: &Path, directory: bool) -> io::Result<()> {
+    let icacls = windows_system_executable("icacls.exe")?;
+    let account = current_windows_account()?;
+    let account_grant = windows_acl_grant(&account, directory);
+    let system_grant = windows_acl_grant(OsStr::new("*S-1-5-18"), directory);
+    let status = Command::new(icacls)
+        .arg(path)
+        .arg("/inheritance:r")
+        .arg("/grant:r")
+        .arg(account_grant)
+        .arg(system_grant)
+        .arg("/q")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!(
+            "icacls failed with status {status}"
+        )))
+    }
+}
+
+#[cfg(windows)]
+fn windows_system_executable(file_name: &str) -> io::Result<PathBuf> {
+    let system_root = required_windows_environment("SystemRoot")?;
+    let system_root = PathBuf::from(system_root);
+    if !system_root.is_absolute() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "SystemRoot must be an absolute path",
+        ));
+    }
+    Ok(system_root.join("System32").join(file_name))
+}
+
+#[cfg(windows)]
+fn current_windows_account() -> io::Result<OsString> {
+    let mut account = required_windows_environment("USERDOMAIN")?;
+    account.push("\\");
+    account.push(required_windows_environment("USERNAME")?);
+    Ok(account)
+}
+
+#[cfg(windows)]
+fn required_windows_environment(name: &str) -> io::Result<OsString> {
+    env::var_os(name)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("required Windows environment variable {name} is unavailable"),
+            )
+        })
+}
+
+#[cfg(any(windows, test))]
+fn windows_acl_grant(account: &OsStr, directory: bool) -> OsString {
+    let mut grant = account.to_os_string();
+    grant.push(if directory { ":(OI)(CI)F" } else { ":F" });
+    grant
 }
 
 fn sync_parent(path: &Path) -> io::Result<()> {
@@ -203,52 +297,8 @@ fn sync_parent(path: &Path) -> io::Result<()> {
     }
 }
 
-#[cfg(not(windows))]
 fn replace_file(source: &Path, destination: &Path) -> io::Result<()> {
     fs::rename(source, destination)
-}
-
-#[cfg(windows)]
-fn replace_file(source: &Path, destination: &Path) -> io::Result<()> {
-    use std::{iter, os::windows::ffi::OsStrExt};
-
-    const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
-    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
-
-    #[link(name = "Kernel32")]
-    unsafe extern "system" {
-        fn MoveFileExW(
-            existing_file_name: *const u16,
-            new_file_name: *const u16,
-            flags: u32,
-        ) -> i32;
-    }
-
-    let source = source
-        .as_os_str()
-        .encode_wide()
-        .chain(iter::once(0))
-        .collect::<Vec<_>>();
-    let destination = destination
-        .as_os_str()
-        .encode_wide()
-        .chain(iter::once(0))
-        .collect::<Vec<_>>();
-    // SAFETY: both buffers are live, immutable, NUL-terminated UTF-16 paths
-    // for the duration of the call, and the flags contain no pointer-bearing
-    // options.
-    let replaced = unsafe {
-        MoveFileExW(
-            source.as_ptr(),
-            destination.as_ptr(),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-        )
-    };
-    if replaced == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -304,6 +354,14 @@ mod tests {
 
         assert!(!debug.contains("credential-secret"));
         assert!(debug.contains("[REDACTED"));
+    }
+
+    #[test]
+    fn windows_acl_grants_distinguish_files_and_directories() {
+        let account = OsStr::new("DOMAIN\\user");
+
+        assert_eq!(windows_acl_grant(account, false), "DOMAIN\\user:F");
+        assert_eq!(windows_acl_grant(account, true), "DOMAIN\\user:(OI)(CI)F");
     }
 
     #[cfg(unix)]

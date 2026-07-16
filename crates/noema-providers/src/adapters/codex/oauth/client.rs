@@ -87,7 +87,7 @@ impl CodexOAuthClient {
         if !status.is_success() {
             return Err(ProviderError::ApiError {
                 status: status.as_u16(),
-                message: text,
+                message: "Codex device-code request failed".to_string(),
                 request_id: None,
             });
         }
@@ -130,7 +130,7 @@ impl CodexOAuthClient {
         if !status.is_success() {
             return Err(ProviderError::ApiError {
                 status: status.as_u16(),
-                message: text,
+                message: "Codex device authorization request failed".to_string(),
                 request_id: None,
             });
         }
@@ -216,22 +216,23 @@ impl CodexOAuthClient {
         }
         if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
             return Err(ProviderError::AuthenticationFailure {
-                message: oauth_error_message(&text)
-                    .unwrap_or_else(|| "Codex OAuth credentials were rejected".to_string()),
+                message: "Codex OAuth credentials were rejected".to_string(),
                 request_id: None,
             });
         }
         if !status.is_success() {
-            let message = oauth_error_message(&text).unwrap_or(text);
-            if oauth_error_requires_relogin(&message) {
+            if oauth_error_code(&text)
+                .as_deref()
+                .is_some_and(oauth_error_requires_relogin)
+            {
                 return Err(ProviderError::AuthenticationFailure {
-                    message,
+                    message: "Codex OAuth credentials were rejected".to_string(),
                     request_id: None,
                 });
             }
             return Err(ProviderError::ApiError {
                 status: status.as_u16(),
-                message,
+                message: "Codex OAuth token request failed".to_string(),
                 request_id: None,
             });
         }
@@ -265,22 +266,17 @@ impl CodexOAuthClient {
     }
 }
 
-fn oauth_error_message(text: &str) -> Option<String> {
+fn oauth_error_code(text: &str) -> Option<String> {
     let value = serde_json::from_str::<serde_json::Value>(text).ok()?;
     let error = value.get("error")?;
     if let Some(object) = error.as_object() {
         return object
-            .get("message")
+            .get("code")
             .and_then(serde_json::Value::as_str)
-            .or_else(|| object.get("code").and_then(serde_json::Value::as_str))
+            .or_else(|| object.get("message").and_then(serde_json::Value::as_str))
             .map(ToString::to_string);
     }
-    error.as_str().map(ToString::to_string).or_else(|| {
-        value
-            .get("error_description")?
-            .as_str()
-            .map(ToString::to_string)
-    })
+    error.as_str().map(ToString::to_string)
 }
 
 fn oauth_error_requires_relogin(message: &str) -> bool {

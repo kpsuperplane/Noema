@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, future::Future};
 
 use serde_json::json;
 
@@ -15,6 +15,28 @@ use crate::{
     ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod,
     SaveProviderAccountSecretRequest, UpdateProviderAccountRequest, provider_account_catalog,
 };
+
+async fn compensate_failed_create_transaction<
+    Rollback,
+    Delete,
+    DeleteFuture,
+    RollbackError,
+    DeleteError,
+>(
+    rollback_credentials: Rollback,
+    delete_durable_account: Delete,
+) -> bool
+where
+    Rollback: FnOnce() -> Result<(), RollbackError>,
+    Delete: FnOnce() -> DeleteFuture,
+    DeleteFuture: Future<Output = Result<bool, DeleteError>>,
+{
+    if rollback_credentials().is_err() {
+        return false;
+    }
+
+    matches!(delete_durable_account().await, Ok(true))
+}
 
 impl ProviderAccountService {
     pub(super) async fn create_secret_account_impl(
@@ -105,16 +127,21 @@ impl ProviderAccountService {
         snapshot: Option<&FileSnapshot>,
         primary: ProviderAccountOperationError,
     ) -> Result<ProviderAccountRecord, ProviderAccountOperationError> {
-        let restore_result = snapshot.map_or_else(
-            || secret_store.clear_api_key().map_err(|_| ()),
-            |snapshot| secret_store.restore(snapshot).map_err(|_| ()),
-        );
-        let delete_result = self
-            .inner
-            .accounts
-            .delete_provider_account(provider_account_id)
-            .await;
-        if restore_result.is_err() || !matches!(delete_result, Ok(true)) {
+        let compensated = compensate_failed_create_transaction(
+            || {
+                snapshot.map_or_else(
+                    || secret_store.clear_api_key().map_err(|_| ()),
+                    |snapshot| secret_store.restore(snapshot).map_err(|_| ()),
+                )
+            },
+            || {
+                self.inner
+                    .accounts
+                    .delete_provider_account(provider_account_id)
+            },
+        )
+        .await;
+        if !compensated {
             self.log_compensation_failure("create_secret_account", provider_account_id);
             return Err(ProviderAccountOperationError::CompensationFailed);
         }
@@ -265,5 +292,29 @@ impl ProviderAccountService {
                 Err(map_persistence_error(error))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use super::compensate_failed_create_transaction;
+
+    #[tokio::test]
+    async fn failed_credential_rollback_preserves_durable_account_evidence() {
+        let durable_delete_called = AtomicBool::new(false);
+
+        let compensated = compensate_failed_create_transaction(
+            || Err::<(), ()>(()),
+            || {
+                durable_delete_called.store(true, Ordering::SeqCst);
+                async { Ok::<bool, ()>(true) }
+            },
+        )
+        .await;
+
+        assert!(!compensated);
+        assert!(!durable_delete_called.load(Ordering::SeqCst));
     }
 }

@@ -1,220 +1,98 @@
-//! Provider-auth and replay unit tests retained with GraphQL product support.
+//! Provider-account adapter and replay tests retained with GraphQL product support.
 
 use super::*;
-use crate::DaemonError;
 use noema_conversations::{ConversationItemKind, ConversationItemRecord, ConversationItemStatus};
-use std::{future::Future, pin::Pin, time::Duration};
+use std::sync::{Arc, Mutex};
 
 use crate::TurnTranscriptItem;
 use noema_providers::{
-    CodexDeviceAuthRequest, CodexOAuthTokens, CodexTokenStore, NewProviderAccount,
-    ProviderAccountPersistence, ProviderAccountRecord, ProviderAccountStatusUpdate,
-    ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderPersistenceFuture,
-    UpdateProviderAccountRequest,
+    CreateSecretProviderAccountRequest, ProviderAccountCatalogEntry, ProviderAccountOperationError,
+    ProviderAccountOperationFuture, ProviderAccountOperations, ProviderAccountOperationsHandle,
+    ProviderAccountRecord, ProviderAuthAttemptStatus, ProviderAuthAttemptView,
+    SaveProviderAccountSecretRequest, StartProviderAuthRequest,
 };
 use serde_json::json;
 
-use super::provider_auth::{
-    CodexDeviceAuthStarter, ProviderAuthAttemptPoller, StartProviderAuthAttemptError,
-    persist_provider_auth_attempt_terminal_status, provider_account_status_update_from_attempt,
-    start_codex_provider_auth_attempt, validate_provider_auth_account,
-};
-
-#[test]
-fn provider_auth_account_validation_checks_active_kind_and_method() {
-    let mut account = test_provider_account();
-    assert!(
-        validate_provider_auth_account(
-            &account,
-            "codex",
-            noema_providers::ProviderAuthMethod::OauthDeviceCode
-        )
-        .is_ok()
-    );
-
-    account.provider_kind = "other".to_string();
-    assert_eq!(
-        validate_provider_auth_account(
-            &account,
-            "codex",
-            noema_providers::ProviderAuthMethod::OauthDeviceCode
-        )
-        .unwrap_err()
-        .message(),
-        "provider account mismatch"
-    );
-
-    account = test_provider_account();
-    account.is_active = false;
-    assert_eq!(
-        validate_provider_auth_account(
-            &account,
-            "codex",
-            noema_providers::ProviderAuthMethod::OauthDeviceCode
-        )
-        .unwrap_err()
-        .message(),
-        "provider account not found"
-    );
-
-    account = test_provider_account();
-    account.auth_method = noema_providers::ProviderAuthMethod::ExternalManual;
-    assert_eq!(
-        validate_provider_auth_account(
-            &account,
-            "codex",
-            noema_providers::ProviderAuthMethod::OauthDeviceCode
-        )
-        .unwrap_err()
-        .message(),
-        "provider account auth method mismatch"
-    );
-}
-
-#[test]
-fn provider_auth_attempt_status_maps_to_safe_account_status() {
-    let mut attempt = test_provider_auth_attempt();
-    attempt.status = ProviderAuthAttemptStatus::Completed;
-    assert_eq!(
-        provider_account_status_update_from_attempt(&attempt),
-        Some(ProviderAccountStatusUpdate {
-            status: noema_providers::ProviderAccountStatus::Authenticated,
-            error_code: None,
-            error_message: None,
-        })
-    );
-
-    attempt.status = ProviderAuthAttemptStatus::Failed;
-    attempt.error_code = Some("codex_login_failed".to_string());
-    attempt.error_message = Some("codex auth failed".to_string());
-    assert_eq!(
-        provider_account_status_update_from_attempt(&attempt),
-        Some(ProviderAccountStatusUpdate {
-            status: noema_providers::ProviderAccountStatus::Unauthenticated,
-            error_code: Some("codex_login_failed".to_string()),
-            error_message: Some("codex auth failed".to_string()),
-        })
-    );
-
-    attempt.status = ProviderAuthAttemptStatus::WaitingForUser;
-    assert_eq!(provider_account_status_update_from_attempt(&attempt), None);
-}
-
 #[tokio::test]
-async fn start_auth_returned_completed_attempt_persists_authenticated_status() {
-    let store = RecordingProviderAccountStatusStore::default();
-    let mut attempt = test_provider_auth_attempt();
-    attempt.status = ProviderAuthAttemptStatus::Completed;
-    let starter = RecordingCodexDeviceAuthStarter { attempt };
-    let paths =
-        noema_home::NoemaPaths::from_noema_home(tempfile::tempdir().expect("temp dir").path())
-            .expect("paths");
+async fn start_provider_auth_attempt_uses_account_operations_handle() {
+    let operations = Arc::new(RecordingProviderAccountOperations::default());
+    let handle: ProviderAccountOperationsHandle = operations.clone();
+    let state = GraphqlState::for_tests_with_provider_account_operations(handle);
 
-    start_codex_provider_auth_attempt(&starter, &store, &paths, &test_provider_account())
-        .await
-        .expect("start provider auth");
-
-    let updates = store.updates.lock().expect("updates lock");
-    assert_eq!(
-        updates.as_slice(),
-        [RecordedProviderAccountStatusUpdate {
+    let attempt = onboarding::start_provider_auth_attempt(
+        &state,
+        onboarding::GraphqlStartProviderAuthAttemptInput {
+            provider_kind: "codex".to_string(),
             provider_account_id: "provider_account:codex:default".to_string(),
-            status: noema_providers::ProviderAccountStatus::Authenticated,
-            error_code: None,
-            error_message: None,
-        }]
-    );
-}
-
-#[tokio::test]
-async fn start_auth_preserves_provider_start_error_message() {
-    let store = RecordingProviderAccountStatusStore::default();
-    let starter = FailingCodexDeviceAuthStarter {
-        message: "device code request returned status 403",
-    };
-    let paths =
-        noema_home::NoemaPaths::from_noema_home(tempfile::tempdir().expect("temp dir").path())
-            .expect("paths");
-
-    let error =
-        start_codex_provider_auth_attempt(&starter, &store, &paths, &test_provider_account())
-            .await
-            .expect_err("auth start should fail");
-
-    assert_eq!(
-        error,
-        StartProviderAuthAttemptError::ProviderUnavailable(
-            "codex provider is unavailable: device code request returned status 403".to_string()
-        )
-    );
-    assert!(store.updates.lock().expect("updates lock").is_empty());
-}
-
-#[tokio::test]
-async fn auth_terminal_watcher_persists_completed_attempt_without_http_poll() {
-    let store = RecordingProviderAccountStatusStore::default();
-    let mut waiting = test_provider_auth_attempt();
-    waiting.status = ProviderAuthAttemptStatus::WaitingForUser;
-    let mut completed = waiting.clone();
-    completed.status = ProviderAuthAttemptStatus::Completed;
-    let poller = RecordingProviderAuthAttemptPoller::new(vec![waiting, completed]);
-
-    persist_provider_auth_attempt_terminal_status(
-        &poller,
-        &store,
-        "provider_auth_attempt_test",
-        Duration::from_millis(1),
+            method: onboarding::GraphqlProviderAuthMethod::OauthDeviceCode,
+        },
     )
     .await
-    .expect("persist terminal status");
+    .expect("start provider auth");
 
-    let updates = store.updates.lock().expect("updates lock");
     assert_eq!(
-        updates.as_slice(),
-        [RecordedProviderAccountStatusUpdate {
+        attempt.status,
+        onboarding::GraphqlProviderAuthAttemptStatus::WaitingForUser
+    );
+    assert_eq!(
+        operations
+            .start_requests
+            .lock()
+            .expect("start requests")
+            .as_slice(),
+        [StartProviderAuthRequest {
+            provider_kind: "codex".to_string(),
             provider_account_id: "provider_account:codex:default".to_string(),
-            status: noema_providers::ProviderAccountStatus::Authenticated,
-            error_code: None,
-            error_message: None,
+            method: noema_providers::ProviderAuthMethod::OauthDeviceCode,
         }]
     );
 }
 
 #[tokio::test]
-async fn onboarding_reconciles_existing_noema_codex_tokens() {
-    let store = RecordingProviderAccountStatusStore::default();
-    let temp_dir = tempfile::tempdir().expect("temp dir");
-    let paths = noema_home::NoemaPaths::from_noema_home(temp_dir.path()).expect("paths");
-    let mut account = test_provider_account();
-    account.status = noema_providers::ProviderAccountStatus::Unauthenticated;
-    let account_home = paths.provider_account_home(&account.provider_kind, &account.account_key);
-    CodexTokenStore::new(account_home)
-        .write(&CodexOAuthTokens {
-            access_token: "access".to_string(),
-            refresh_token: "refresh".to_string(),
-            last_refresh: 123,
-        })
-        .expect("credential marker");
+async fn provider_auth_attempt_uses_account_operations_without_store() {
+    let operations = Arc::new(RecordingProviderAccountOperations::default());
+    let handle: ProviderAccountOperationsHandle = operations.clone();
+    let state = GraphqlState::for_tests_with_provider_account_operations(handle);
 
-    let reconciled = reconcile_onboarding_provider_account(&store, &paths, Some(account))
-        .await
-        .expect("reconcile account")
-        .expect("account");
-
+    let attempt =
+        onboarding::provider_auth_attempt(&state, "provider_auth_attempt_test".to_string())
+            .await
+            .expect("provider auth attempt")
+            .expect("attempt");
     assert_eq!(
-        reconciled.status,
-        noema_providers::ProviderAccountStatus::Authenticated
+        attempt.status,
+        onboarding::GraphqlProviderAuthAttemptStatus::WaitingForUser
     );
-    let updates = store.updates.lock().expect("updates lock");
     assert_eq!(
-        updates.as_slice(),
-        [RecordedProviderAccountStatusUpdate {
+        operations
+            .attempt_requests
+            .lock()
+            .expect("attempt requests")
+            .as_slice(),
+        ["provider_auth_attempt_test"]
+    );
+}
+
+#[tokio::test]
+async fn provider_auth_operation_errors_use_safe_messages() {
+    let operations = Arc::new(RecordingProviderAccountOperations {
+        start_error: Some(ProviderAccountOperationError::ProviderUnavailable),
+        ..RecordingProviderAccountOperations::default()
+    });
+    let state = GraphqlState::for_tests_with_provider_account_operations(operations);
+
+    let error = onboarding::start_provider_auth_attempt(
+        &state,
+        onboarding::GraphqlStartProviderAuthAttemptInput {
+            provider_kind: "codex".to_string(),
             provider_account_id: "provider_account:codex:default".to_string(),
-            status: noema_providers::ProviderAccountStatus::Authenticated,
-            error_code: None,
-            error_message: None,
-        }]
-    );
+            method: onboarding::GraphqlProviderAuthMethod::OauthDeviceCode,
+        },
+    )
+    .await
+    .expect_err("provider auth should fail");
+
+    assert_eq!(error.message, "provider unavailable");
 }
 
 fn test_provider_account() -> noema_providers::ProviderAccountRecord {
@@ -245,168 +123,112 @@ fn test_provider_auth_attempt() -> ProviderAuthAttemptView {
         provider_kind: "codex".to_string(),
         provider_account_id: "provider_account:codex:default".to_string(),
         method: noema_providers::ProviderAuthMethod::OauthDeviceCode,
-        status: ProviderAuthAttemptStatus::Starting,
-        verification_url: None,
-        user_code: None,
-        instructions: None,
+        status: ProviderAuthAttemptStatus::WaitingForUser,
+        verification_url: Some("https://example.com/device".to_string()),
+        user_code: Some("ABCD-EFGH".to_string()),
+        instructions: Some("Complete provider authentication.".to_string()),
         error_code: None,
         error_message: None,
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RecordedProviderAccountStatusUpdate {
-    provider_account_id: String,
-    status: noema_providers::ProviderAccountStatus,
-    error_code: Option<String>,
-    error_message: Option<String>,
-}
-
 #[derive(Default)]
-struct RecordingProviderAccountStatusStore {
-    updates: std::sync::Mutex<Vec<RecordedProviderAccountStatusUpdate>>,
+struct RecordingProviderAccountOperations {
+    start_requests: Mutex<Vec<StartProviderAuthRequest>>,
+    attempt_requests: Mutex<Vec<String>>,
+    start_error: Option<ProviderAccountOperationError>,
 }
 
-struct RecordingCodexDeviceAuthStarter {
-    attempt: ProviderAuthAttemptView,
-}
-
-struct FailingCodexDeviceAuthStarter {
-    message: &'static str,
-}
-
-struct RecordingProviderAuthAttemptPoller {
-    attempts: std::sync::Mutex<Vec<ProviderAuthAttemptView>>,
-}
-
-impl RecordingProviderAuthAttemptPoller {
-    fn new(attempts: Vec<ProviderAuthAttemptView>) -> Self {
-        Self {
-            attempts: std::sync::Mutex::new(attempts),
-        }
+impl ProviderAccountOperations for RecordingProviderAccountOperations {
+    fn account_catalog(&self) -> Vec<ProviderAccountCatalogEntry> {
+        Vec::new()
     }
-}
 
-impl CodexDeviceAuthStarter for RecordingCodexDeviceAuthStarter {
-    fn start_codex_device_code<'a>(
+    fn active_accounts(&self) -> ProviderAccountOperationFuture<'_, Vec<ProviderAccountRecord>> {
+        Box::pin(async { Ok(vec![test_provider_account()]) })
+    }
+
+    fn create_secret_account(
+        &self,
+        _request: CreateSecretProviderAccountRequest,
+    ) -> ProviderAccountOperationFuture<'_, ProviderAccountRecord> {
+        Box::pin(async { Err(ProviderAccountOperationError::UnsupportedProvider) })
+    }
+
+    fn save_secret(
+        &self,
+        _request: SaveProviderAccountSecretRequest,
+    ) -> ProviderAccountOperationFuture<'_, ProviderAccountRecord> {
+        Box::pin(async { Err(ProviderAccountOperationError::UnsupportedProvider) })
+    }
+
+    fn clear_secret<'a>(
         &'a self,
-        _request: CodexDeviceAuthRequest,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<ProviderAuthAttemptView, noema_providers::ProviderError>>
-                + Send
-                + 'a,
-        >,
-    > {
-        let attempt = self.attempt.clone();
-        Box::pin(async move { Ok(attempt) })
+        _provider_account_id: &'a str,
+    ) -> ProviderAccountOperationFuture<'a, ProviderAccountRecord> {
+        Box::pin(async { Err(ProviderAccountOperationError::UnsupportedProvider) })
     }
-}
 
-impl CodexDeviceAuthStarter for FailingCodexDeviceAuthStarter {
-    fn start_codex_device_code<'a>(
+    fn delete_account<'a>(
         &'a self,
-        _request: CodexDeviceAuthRequest,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<ProviderAuthAttemptView, noema_providers::ProviderError>>
-                + Send
-                + 'a,
-        >,
-    > {
-        let message = self.message.to_string();
-        Box::pin(async move {
-            Err(noema_providers::ProviderError::ProviderUnavailable {
-                provider: "codex".to_string(),
-                message,
-            })
-        })
+        _provider_account_id: &'a str,
+    ) -> ProviderAccountOperationFuture<'a, bool> {
+        Box::pin(async { Err(ProviderAccountOperationError::UnsupportedProvider) })
     }
-}
 
-impl ProviderAuthAttemptPoller for RecordingProviderAuthAttemptPoller {
-    fn poll_provider_auth_attempt<'a>(
+    fn start_auth(
+        &self,
+        request: StartProviderAuthRequest,
+    ) -> ProviderAccountOperationFuture<'_, ProviderAuthAttemptView> {
+        self.start_requests
+            .lock()
+            .expect("start requests")
+            .push(request);
+        let result = self
+            .start_error
+            .clone()
+            .map_or_else(|| Ok(test_provider_auth_attempt()), Err);
+        Box::pin(async move { result })
+    }
+
+    fn auth_attempt<'a>(
+        &'a self,
+        attempt_id: &'a str,
+    ) -> ProviderAccountOperationFuture<'a, Option<ProviderAuthAttemptView>> {
+        self.attempt_requests
+            .lock()
+            .expect("attempt requests")
+            .push(attempt_id.to_string());
+        Box::pin(async { Ok(Some(test_provider_auth_attempt())) })
+    }
+
+    fn cancel_auth_attempt<'a>(
         &'a self,
         _attempt_id: &'a str,
-    ) -> Pin<
-        Box<dyn Future<Output = Result<Option<ProviderAuthAttemptView>, DaemonError>> + Send + 'a>,
-    > {
-        let attempt = {
-            let mut attempts = self.attempts.lock().expect("attempts lock");
-            if attempts.len() > 1 {
-                Some(attempts.remove(0))
-            } else {
-                attempts.first().cloned()
-            }
-        };
-        Box::pin(async move { Ok(attempt) })
+    ) -> ProviderAccountOperationFuture<'a, Option<ProviderAuthAttemptView>> {
+        Box::pin(async { Ok(None) })
     }
-}
 
-impl ProviderAccountPersistence for RecordingProviderAccountStatusStore {
-    fn provider_account<'a>(
+    fn record_auth_failure<'a>(
         &'a self,
         _provider_account_id: &'a str,
-    ) -> ProviderPersistenceFuture<'a, Option<ProviderAccountRecord>> {
-        Box::pin(async { panic!("unexpected provider account read") })
+        _expected_credential_revision: u64,
+    ) -> ProviderAccountOperationFuture<'a, ProviderAccountRecord> {
+        Box::pin(async { Ok(test_provider_account()) })
     }
 
-    fn active_provider_account<'a>(
-        &'a self,
-        _provider_kind: &'a str,
-    ) -> ProviderPersistenceFuture<'a, Option<ProviderAccountRecord>> {
-        Box::pin(async { panic!("unexpected active provider account read") })
-    }
-
-    fn active_default_provider_accounts(
-        &self,
-    ) -> ProviderPersistenceFuture<'_, Vec<ProviderAccountRecord>> {
-        Box::pin(async { panic!("unexpected default provider account read") })
-    }
-
-    fn active_provider_accounts(
-        &self,
-    ) -> ProviderPersistenceFuture<'_, Vec<ProviderAccountRecord>> {
-        Box::pin(async { panic!("unexpected active provider account list") })
-    }
-
-    fn provider_accounts(&self) -> ProviderPersistenceFuture<'_, Vec<ProviderAccountRecord>> {
-        Box::pin(async { panic!("unexpected provider account list") })
-    }
-
-    fn create_provider_account(
-        &self,
-        _request: NewProviderAccount,
-    ) -> ProviderPersistenceFuture<'_, ProviderAccountRecord> {
-        Box::pin(async { panic!("unexpected provider account create") })
-    }
-
-    fn update_provider_account(
-        &self,
-        request: UpdateProviderAccountRequest,
-    ) -> ProviderPersistenceFuture<'_, ProviderAccountRecord> {
-        Box::pin(async move {
-            let status = request.status.expect("status update");
-            self.updates
-                .lock()
-                .expect("updates lock")
-                .push(RecordedProviderAccountStatusUpdate {
-                    provider_account_id: request.provider_account_id,
-                    status: status.status,
-                    error_code: status.error_code,
-                    error_message: status.error_message,
-                });
-            let mut account = test_provider_account();
-            account.status = status.status;
-            Ok(account)
-        })
-    }
-
-    fn delete_provider_account<'a>(
+    fn reconcile_account<'a>(
         &'a self,
         _provider_account_id: &'a str,
-    ) -> ProviderPersistenceFuture<'a, bool> {
-        Box::pin(async { panic!("unexpected provider account delete") })
+    ) -> ProviderAccountOperationFuture<'a, ProviderAccountRecord> {
+        Box::pin(async { Ok(test_provider_account()) })
+    }
+
+    fn refresh_model_catalog<'a>(
+        &'a self,
+        _provider_account_id: &'a str,
+    ) -> ProviderAccountOperationFuture<'a, ProviderAccountRecord> {
+        Box::pin(async { Ok(test_provider_account()) })
     }
 }
 

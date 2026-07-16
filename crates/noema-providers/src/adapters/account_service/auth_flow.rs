@@ -13,11 +13,11 @@ use crate::adapters::{
     foundation::FoundationLocalProvider,
 };
 use crate::{
-    CODEX_PROVIDER, CodexDeviceAuthRequest, CodexOAuthConfig, CodexOAuthTokens,
-    DEFAULT_FOUNDATION_LOCAL_PROFILE, FoundationLocalProviderConfig, ProviderAccountOperationError,
-    ProviderAccountRecord, ProviderAccountStatus, ProviderAccountStatusUpdate,
-    ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderAuthMethod,
-    StartProviderAuthRequest, UpdateProviderAccountRequest,
+    CODEX_PROVIDER, CodexDeviceAuthRequest, CodexOAuthTokens, DEFAULT_FOUNDATION_LOCAL_PROFILE,
+    FoundationLocalProviderConfig, ProviderAccountOperationError, ProviderAccountRecord,
+    ProviderAccountStatus, ProviderAccountStatusUpdate, ProviderAuthAttemptStatus,
+    ProviderAuthAttemptView, ProviderAuthMethod, StartProviderAuthRequest,
+    UpdateProviderAccountRequest,
 };
 
 impl ProviderAccountService {
@@ -70,44 +70,77 @@ impl ProviderAccountService {
             .begin_codex_device_code(CodexDeviceAuthRequest {
                 provider_account_id: account.provider_account_id.clone(),
                 account_home: self.account_home(&account),
-                oauth: CodexOAuthConfig::default(),
+                oauth: self.inner.codex_oauth.clone(),
                 attempt_timeout: None,
             })
             .await
             .map_err(|_| ProviderAccountOperationError::ProviderUnavailable)?;
         let attempt = session.attempt.clone();
         let attempt_id = attempt.attempt_id.clone();
+        let expected_credential_revision = credential_revision(&account);
+        let mut auth_tasks = self.inner.auth_tasks.lock().await;
+        if self.inner.auth.is_shutting_down().await {
+            return Err(ProviderAccountOperationError::ProviderUnavailable);
+        }
         let service = self.clone();
-        tokio::spawn(async move {
+        auth_tasks.push(tokio::spawn(async move {
             service
-                .complete_auth_attempt(attempt_id, account, session.completion.await)
+                .complete_auth_attempt(
+                    attempt_id,
+                    account,
+                    expected_credential_revision,
+                    session.completion.await,
+                )
                 .await;
-        });
+        }));
         Ok(attempt)
     }
 
-    async fn complete_auth_attempt(
+    pub(super) async fn complete_auth_attempt(
         &self,
         attempt_id: String,
         account: ProviderAccountRecord,
+        expected_credential_revision: u64,
         outcome: CodexDeviceAuthOutcome,
     ) {
+        if matches!(outcome, CodexDeviceAuthOutcome::Cancelled) {
+            self.persist_cancelled_attempt_if_current(
+                &attempt_id,
+                &account,
+                expected_credential_revision,
+            )
+            .await;
+            return;
+        }
+        if !self.inner.auth.claim_attempt_completion(&attempt_id).await {
+            self.persist_cancelled_attempt_if_current(
+                &attempt_id,
+                &account,
+                expected_credential_revision,
+            )
+            .await;
+            return;
+        }
+
         let (status, error_code, error_message) = match outcome {
             CodexDeviceAuthOutcome::Completed(tokens) => {
-                match self.publish_codex_tokens(&account, &tokens).await {
+                match self
+                    .publish_codex_tokens(&account, expected_credential_revision, &tokens)
+                    .await
+                {
                     Ok(()) => (ProviderAuthAttemptStatus::Completed, None, None),
                     Err(error) => (
                         ProviderAuthAttemptStatus::Failed,
                         Some("provider_auth_publication_failed".to_string()),
-                        Some(error.to_string()),
+                        Some(auth_publication_failure_message(&error).to_string()),
                     ),
                 }
             }
-            CodexDeviceAuthOutcome::Cancelled => (ProviderAuthAttemptStatus::Cancelled, None, None),
+            CodexDeviceAuthOutcome::Cancelled => unreachable!("cancelled outcomes return above"),
             CodexDeviceAuthOutcome::Expired => (
                 ProviderAuthAttemptStatus::Expired,
                 Some("provider_auth_expired".to_string()),
-                Some("provider auth expired".to_string()),
+                Some("Provider authentication expired".to_string()),
             ),
             CodexDeviceAuthOutcome::Failed {
                 error_code,
@@ -118,16 +151,52 @@ impl ProviderAccountService {
                 Some(error_message),
             ),
         };
+        if status != ProviderAuthAttemptStatus::Completed {
+            let _ = self
+                .persist_auth_terminal(
+                    &attempt_id,
+                    &account,
+                    expected_credential_revision,
+                    status,
+                    error_code.clone(),
+                    error_message.clone(),
+                )
+                .await;
+        }
         self.inner
             .auth
-            .mark_attempt_terminal(&attempt_id, status, error_code, error_message)
+            .finish_claimed_attempt(&attempt_id, status, error_code, error_message)
             .await;
-        self.inner.auth.remove_attempt_runtime(&attempt_id).await;
+    }
+
+    async fn persist_cancelled_attempt_if_current(
+        &self,
+        attempt_id: &str,
+        account: &ProviderAccountRecord,
+        expected_credential_revision: u64,
+    ) {
+        let Ok(Some(attempt)) = self.inner.auth.poll_attempt(attempt_id).await else {
+            return;
+        };
+        if attempt.status != ProviderAuthAttemptStatus::Cancelled {
+            return;
+        }
+        let _ = self
+            .persist_auth_terminal(
+                attempt_id,
+                account,
+                expected_credential_revision,
+                ProviderAuthAttemptStatus::Cancelled,
+                Some("provider_auth_cancelled".to_string()),
+                Some("Provider authentication was cancelled".to_string()),
+            )
+            .await;
     }
 
     pub(super) async fn publish_codex_tokens(
         &self,
         expected_account: &ProviderAccountRecord,
+        expected_credential_revision: u64,
         tokens: &CodexOAuthTokens,
     ) -> Result<(), ProviderAccountOperationError> {
         let gate = self.inner.gates.gate(&expected_account.provider_account_id);
@@ -140,7 +209,9 @@ impl ProviderAccountService {
             CODEX_PROVIDER,
             ProviderAuthMethod::OauthDeviceCode,
         )?;
-        if current.account_key != expected_account.account_key {
+        if current.account_key != expected_account.account_key
+            || credential_revision(&current) != expected_credential_revision
+        {
             return Err(ProviderAccountOperationError::Conflict);
         }
         let token_store = CodexTokenStore::new(self.account_home(&current));
@@ -178,6 +249,59 @@ impl ProviderAccountService {
             }
             return Err(map_persistence_error(error));
         }
+        Ok(())
+    }
+
+    pub(super) async fn persist_auth_terminal(
+        &self,
+        attempt_id: &str,
+        expected_account: &ProviderAccountRecord,
+        expected_credential_revision: u64,
+        attempt_status: ProviderAuthAttemptStatus,
+        error_code: Option<String>,
+        error_message: Option<String>,
+    ) -> Result<(), ProviderAccountOperationError> {
+        debug_assert!(matches!(
+            attempt_status,
+            ProviderAuthAttemptStatus::Failed
+                | ProviderAuthAttemptStatus::Expired
+                | ProviderAuthAttemptStatus::Cancelled
+        ));
+        let gate = self.inner.gates.gate(&expected_account.provider_account_id);
+        let _guard = gate.lock().await;
+        if !self.inner.auth.is_latest_attempt(attempt_id).await {
+            return Err(ProviderAccountOperationError::Conflict);
+        }
+        let current = self
+            .require_active_account(&expected_account.provider_account_id)
+            .await?;
+        validate_account_identity(
+            &current,
+            CODEX_PROVIDER,
+            ProviderAuthMethod::OauthDeviceCode,
+        )?;
+        if current.account_key != expected_account.account_key
+            || credential_revision(&current) != expected_credential_revision
+            || current.status != expected_account.status
+            || current.last_checked_at != expected_account.last_checked_at
+            || current.last_error_code != expected_account.last_error_code
+            || current.last_error_message != expected_account.last_error_message
+        {
+            return Err(ProviderAccountOperationError::Conflict);
+        }
+        self.inner
+            .accounts
+            .update_provider_account(UpdateProviderAccountRequest {
+                provider_account_id: current.provider_account_id,
+                status: Some(ProviderAccountStatusUpdate {
+                    status: ProviderAccountStatus::Unauthenticated,
+                    error_code,
+                    error_message,
+                }),
+                metadata: None,
+            })
+            .await
+            .map_err(map_persistence_error)?;
         Ok(())
     }
 
@@ -224,6 +348,32 @@ impl ProviderAccountService {
                     status: desired,
                     error_code: None,
                     error_message: None,
+                }),
+                metadata: None,
+            })
+            .await
+            .map_err(map_persistence_error)
+    }
+
+    pub(super) async fn record_auth_failure_impl(
+        &self,
+        provider_account_id: &str,
+        expected_credential_revision: u64,
+    ) -> Result<ProviderAccountRecord, ProviderAccountOperationError> {
+        let gate = self.inner.gates.gate(provider_account_id);
+        let _guard = gate.lock().await;
+        let current = self.secret_input_account(provider_account_id).await?;
+        if credential_revision(&current) != expected_credential_revision {
+            return Err(ProviderAccountOperationError::Conflict);
+        }
+        self.inner
+            .accounts
+            .update_provider_account(UpdateProviderAccountRequest {
+                provider_account_id: current.provider_account_id,
+                status: Some(ProviderAccountStatusUpdate {
+                    status: ProviderAccountStatus::Unauthenticated,
+                    error_code: Some("auth_failed".to_string()),
+                    error_message: Some("Provider rejected the configured credentials".to_string()),
                 }),
                 metadata: None,
             })
@@ -297,5 +447,15 @@ impl ProviderAccountService {
         persist_model_catalog_refresh(self.inner.catalogs.as_ref(), &current, catalog)
             .await
             .map_err(|_| ProviderAccountOperationError::ProviderUnavailable)
+    }
+}
+
+fn auth_publication_failure_message(error: &ProviderAccountOperationError) -> &'static str {
+    match error {
+        ProviderAccountOperationError::Conflict => {
+            "Provider account credentials changed during authentication"
+        }
+        ProviderAccountOperationError::CompensationFailed => "Provider credential recovery failed",
+        _ => "Provider credentials could not be saved",
     }
 }

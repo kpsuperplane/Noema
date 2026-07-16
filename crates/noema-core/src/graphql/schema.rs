@@ -118,6 +118,22 @@ impl GraphqlState {
         }
     }
 
+    /// Build test state with explicit provider account operations.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn for_tests_with_provider_account_operations(
+        provider_account_operations: noema_providers::ProviderAccountOperationsHandle,
+    ) -> Self {
+        Self {
+            runtime_state: GraphqlRuntimeState::for_tests_with_provider_account_operations(
+                provider_account_operations,
+            ),
+            local_model_cancellations: Arc::default(),
+            mcp_setup_outcomes: None,
+            mcp_browser_oauth_supported: false,
+        }
+    }
+
     /// Build test state backed by a store and runtime handle.
     #[cfg(test)]
     #[must_use]
@@ -236,8 +252,10 @@ impl GraphqlState {
             .record_artifact_download_failure(operation);
     }
 
-    pub(crate) fn provider_auth(&self) -> Result<&noema_providers::ProviderAuthManager> {
-        self.runtime_state.provider_auth()
+    pub(crate) fn provider_account_operations(
+        &self,
+    ) -> Result<&noema_providers::ProviderAccountOperationsHandle> {
+        self.runtime_state.provider_account_operations()
     }
 
     pub(crate) fn mcp_oauth(&self) -> Result<&crate::mcp::McpOAuthSetupManager> {
@@ -1953,7 +1971,7 @@ mod tests {
                 mode: crate::MemoryServiceMode::External,
                 base_url: Some(server_base_url),
                 port: None,
-                provider_account_id: Some("provider_account:codex:memory".to_string()),
+                provider_account_id: Some("provider_account:codex:default".to_string()),
                 provider_kind: Some("codex".to_string()),
                 model_profile: Some("memory-writer".to_string()),
                 reasoning_effort: Some(noema_providers::ReasoningEffort::High),

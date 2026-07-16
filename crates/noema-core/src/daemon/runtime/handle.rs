@@ -1,20 +1,23 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
-use crate::{LocalModelsProvider, NoemaStore};
-use noema_home::{NoemaPaths, SystemErrorLogger};
+use crate::LocalModelsProvider;
+#[cfg(test)]
+use crate::NoemaStore;
+use noema_home::SystemErrorLogger;
 #[cfg(test)]
 use noema_providers::ProviderError;
 use noema_providers::{
-    CodexProviderConfig, CodexResponsesProvider, DEFAULT_FOUNDATION_LOCAL_PROFILE,
-    FoundationLocalProvider, FoundationLocalProviderConfig, GenerateRequest, GenerateResponse,
-    LocalModelsProviderConfig, OpenAiProvider, ProviderConfig, ProviderHandle, ProviderKind,
-    ProviderSelectionSnapshot, erase_model_provider,
+    CodexProviderConfig, DEFAULT_FOUNDATION_LOCAL_PROFILE, FoundationLocalProviderConfig,
+    GenerateRequest, GenerateResponse, LocalModelsProviderConfig, ProviderConfig,
+    ProviderCredentialAccessHandle, ProviderHandle, ProviderKind, ProviderSelectionSnapshot,
+    erase_model_provider, hosted_provider_from_config,
 };
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
 use super::{
-    TaskCompletionDeliveryRequest, actor::CodexRuntimeActor, provider_routes::LegacyProviderRoutes,
+    CodexRuntimeSpawnConfig, TaskCompletionDeliveryRequest, actor::CodexRuntimeActor,
+    provider_routes::LegacyProviderRoutes,
 };
 use crate::daemon::protocol::{DaemonError, StartedConversation, TurnStreamEvent};
 
@@ -51,30 +54,35 @@ impl CodexRuntimeHandle {
     pub(crate) fn provider_map_from_config(
         provider_config: ProviderConfig,
         system_errors: SystemErrorLogger,
+        provider_credentials: ProviderCredentialAccessHandle,
     ) -> Result<ConfiguredRuntimeProviderMap, DaemonError> {
-        let (default_provider_kind, default_provider, local_models_runtime) =
-            provider_from_config(provider_config, system_errors.clone())?;
+        let (default_provider_kind, default_provider, local_models_runtime) = provider_from_config(
+            provider_config,
+            system_errors.clone(),
+            provider_credentials.clone(),
+        )?;
         let mut providers = HashMap::new();
         providers.insert(default_provider_kind.clone(), default_provider);
         if !providers.contains_key("codex") {
-            providers.insert(
-                "codex".to_string(),
-                erase_model_provider(CodexResponsesProvider::new(default_codex_provider_config(
-                    system_errors.clone(),
-                )?)?),
-            );
+            let (provider_kind, provider) = hosted_provider_from_config(
+                ProviderConfig::Codex(CodexProviderConfig::default()),
+                provider_credentials.clone(),
+                system_errors.clone(),
+            )?;
+            providers.insert(provider_kind, provider);
         }
         if !providers.contains_key("foundation_local") {
-            providers.insert(
-                "foundation_local".to_string(),
-                erase_model_provider(FoundationLocalProvider::new(
-                    default_foundation_local_config(system_errors),
-                )?),
-            );
+            let (provider_kind, provider) = hosted_provider_from_config(
+                ProviderConfig::FoundationLocal(default_foundation_local_config()),
+                provider_credentials,
+                system_errors,
+            )?;
+            providers.insert(provider_kind, provider);
         }
         Ok((default_provider_kind, providers, local_models_runtime))
     }
 
+    #[cfg(test)]
     pub(crate) async fn spawn_with_provider_routes_and_memory(
         default_provider_kind: String,
         provider_routes: LegacyProviderRoutes,
@@ -84,7 +92,8 @@ impl CodexRuntimeHandle {
         memory_connection: Option<crate::MnemosyneConnection>,
         task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
     ) -> Result<Self, DaemonError> {
-        Self::spawn_with_provider_routes_inner(
+        let provider_accounts = super::actor::test_provider_account_access(&store)?;
+        Self::spawn(CodexRuntimeSpawnConfig {
             default_provider_kind,
             provider_routes,
             store,
@@ -92,8 +101,26 @@ impl CodexRuntimeHandle {
             system_errors,
             memory_connection,
             task_subscriptions,
-        )
+            provider_accounts,
+        })
         .await
+    }
+
+    pub(crate) async fn spawn(config: CodexRuntimeSpawnConfig) -> Result<Self, DaemonError> {
+        let (sender, receiver) = mpsc::channel(16);
+        let actor = CodexRuntimeActor::from_spawn_config(config).await?;
+        let cancellation = Arc::new(RuntimeCancellation(actor.tasks.cancellation_token()));
+        let default_provider_kind = actor.default_provider_kind.clone();
+        let provider_routes = actor.provider_routes.clone();
+        tokio::spawn(actor.run(receiver));
+        Ok(Self {
+            sender,
+            cancellation,
+            default_provider_kind,
+            provider_routes,
+            local_models_runtime: Arc::new(tokio::sync::RwLock::new(None)),
+            local_models_runtime_root: Arc::new(tokio::sync::RwLock::new(None)),
+        })
     }
 
     pub(crate) fn provider_kind(&self) -> &str {
@@ -262,7 +289,8 @@ impl CodexRuntimeHandle {
             }));
         }
         let provider_routes = LegacyProviderRoutes::new(providers)?;
-        Self::spawn_with_provider_routes_inner(
+        let provider_accounts = super::actor::test_provider_account_access(&store)?;
+        Self::spawn(CodexRuntimeSpawnConfig {
             default_provider_kind,
             provider_routes,
             store,
@@ -270,41 +298,9 @@ impl CodexRuntimeHandle {
             system_errors,
             memory_connection,
             task_subscriptions,
-        )
-        .await
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn spawn_with_provider_routes_inner(
-        default_provider_kind: String,
-        provider_routes: LegacyProviderRoutes,
-        store: NoemaStore,
-        artifact_operations: noema_artifacts::ArtifactOperationsHandle,
-        system_errors: SystemErrorLogger,
-        memory_connection: Option<crate::MnemosyneConnection>,
-        task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
-    ) -> Result<Self, DaemonError> {
-        let (sender, receiver) = mpsc::channel(16);
-        let actor = CodexRuntimeActor::new_with_provider_routes(
-            default_provider_kind.clone(),
-            provider_routes.clone(),
-            store,
-            artifact_operations,
-            system_errors,
-            memory_connection,
-            task_subscriptions,
-        )
-        .await?;
-        let cancellation = Arc::new(RuntimeCancellation(actor.tasks.cancellation_token()));
-        tokio::spawn(actor.run(receiver));
-        Ok(Self {
-            sender,
-            cancellation,
-            default_provider_kind,
-            provider_routes,
-            local_models_runtime: Arc::new(tokio::sync::RwLock::new(None)),
-            local_models_runtime_root: Arc::new(tokio::sync::RwLock::new(None)),
+            provider_accounts,
         })
+        .await
     }
 
     #[cfg(test)]
@@ -504,32 +500,9 @@ impl CodexRuntimeHandle {
 fn provider_from_config(
     provider_config: ProviderConfig,
     system_errors: SystemErrorLogger,
+    provider_credentials: ProviderCredentialAccessHandle,
 ) -> Result<ConfiguredRuntimeProvider, DaemonError> {
     match provider_config {
-        ProviderConfig::Codex(codex_config) => Ok((
-            ProviderKind::Codex.as_str().to_string(),
-            erase_model_provider(CodexResponsesProvider::new(codex_provider_config(
-                codex_config,
-                system_errors,
-            )?)?),
-            None,
-        )),
-        ProviderConfig::OpenAi(mut openai_config) => {
-            openai_config.system_errors = Some(system_errors);
-            Ok((
-                ProviderKind::OpenAi.as_str().to_string(),
-                erase_model_provider(OpenAiProvider::new(openai_config)?),
-                None,
-            ))
-        }
-        ProviderConfig::FoundationLocal(config) => Ok((
-            ProviderKind::FoundationLocal.as_str().to_string(),
-            erase_model_provider(FoundationLocalProvider::new(foundation_local_config(
-                config,
-                system_errors,
-            ))?),
-            None,
-        )),
         ProviderConfig::LocalModels(config) => {
             let provider = LocalModelsProvider::new(local_models_config(config, system_errors))?;
             let runtime = provider.runtime().clone();
@@ -539,43 +512,20 @@ fn provider_from_config(
                 Some(runtime),
             ))
         }
+        hosted => {
+            let (provider_kind, provider) =
+                hosted_provider_from_config(hosted, provider_credentials, system_errors)?;
+            Ok((provider_kind, provider, None))
+        }
     }
 }
 
-fn default_codex_provider_config(
-    system_errors: SystemErrorLogger,
-) -> Result<CodexProviderConfig, DaemonError> {
-    codex_provider_config(CodexProviderConfig::default(), system_errors)
-}
-
-fn codex_provider_config(
-    mut codex_config: CodexProviderConfig,
-    system_errors: SystemErrorLogger,
-) -> Result<CodexProviderConfig, DaemonError> {
-    let paths = NoemaPaths::from_process_env()?;
-    let account_home = paths.provider_account_home("codex", "default");
-    noema_providers::ensure_provider_account_home(&account_home)?;
-    apply_provider_account_home(&mut codex_config, &account_home);
-    codex_config.system_errors = Some(system_errors);
-    Ok(codex_config)
-}
-
-fn default_foundation_local_config(
-    system_errors: SystemErrorLogger,
-) -> FoundationLocalProviderConfig {
+fn default_foundation_local_config() -> FoundationLocalProviderConfig {
     FoundationLocalProviderConfig {
         default_profile: DEFAULT_FOUNDATION_LOCAL_PROFILE.to_string(),
         bridge_path: None,
-        system_errors: Some(system_errors),
+        system_errors: None,
     }
-}
-
-fn foundation_local_config(
-    mut config: FoundationLocalProviderConfig,
-    system_errors: SystemErrorLogger,
-) -> FoundationLocalProviderConfig {
-    config.system_errors = Some(system_errors);
-    config
 }
 
 fn local_models_config(
@@ -584,13 +534,6 @@ fn local_models_config(
 ) -> LocalModelsProviderConfig {
     config.system_errors = Some(system_errors);
     config
-}
-
-fn apply_provider_account_home(
-    config: &mut noema_providers::CodexProviderConfig,
-    account_home: &std::path::Path,
-) {
-    config.account_home = Some(account_home.to_path_buf());
 }
 
 #[cfg(test)]
@@ -667,7 +610,3 @@ pub(super) enum CodexRuntimeCommand {
         reply: oneshot::Sender<()>,
     },
 }
-
-#[cfg(test)]
-#[path = "handle_tests.rs"]
-mod tests;

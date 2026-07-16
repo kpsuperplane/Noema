@@ -2,24 +2,39 @@ use std::{
     collections::BTreeMap,
     fs,
     sync::{Arc, Mutex},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use noema_home::{NoemaPaths, SystemErrorLogger};
 use serde_json::json;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpListener,
+    sync::oneshot,
+    time::timeout,
+};
 
 use super::ProviderAccountService;
 use crate::adapters::{
-    account_service::filesystem::atomic_write_private, codex::oauth::CodexTokenStore,
+    account_service::{filesystem::atomic_write_private, gates::AccountGateRegistry},
+    codex::oauth::CodexTokenStore,
 };
 use crate::{
     CodexOAuthTokens, CreateSecretProviderAccountRequest, NewProviderAccount,
     PersistProviderModelCatalogRequest, ProviderAccountOperationError, ProviderAccountOperations,
     ProviderAccountPersistence, ProviderAccountPersistenceHandle, ProviderAccountRecord,
-    ProviderAccountStatus, ProviderAuthMethod, ProviderModelCatalogPersistence,
+    ProviderAccountStatus, ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderAuthMethod,
+    ProviderCredential, ProviderCredentialAccess, ProviderCredentialAccessHandle,
+    ProviderCredentialFuture, ProviderError, ProviderModelCatalogPersistence,
     ProviderModelCatalogPersistenceHandle, ProviderPersistenceError, ProviderPersistenceFuture,
     SaveProviderAccountSecretRequest, UpdateProviderAccountRequest,
     capabilities_for_provider_account,
 };
+
+#[path = "tests/auth_failure.rs"]
+mod auth_failure;
+#[path = "tests/oauth.rs"]
+mod oauth;
 
 #[derive(Default)]
 struct FakePersistence {
@@ -31,6 +46,7 @@ struct FakePersistenceState {
     accounts: BTreeMap<String, ProviderAccountRecord>,
     fail_next_update: bool,
     fail_next_delete: bool,
+    catalog_persist_count: usize,
 }
 
 impl FakePersistence {
@@ -58,6 +74,20 @@ impl FakePersistence {
             .accounts
             .get(provider_account_id)
             .cloned()
+    }
+
+    fn set_credential_revision(&self, provider_account_id: &str, revision: u64) {
+        self.state
+            .lock()
+            .expect("fake state")
+            .accounts
+            .get_mut(provider_account_id)
+            .expect("provider account")
+            .metadata["credentialRevision"] = json!(revision);
+    }
+
+    fn catalog_persist_count(&self) -> usize {
+        self.state.lock().expect("fake state").catalog_persist_count
     }
 }
 
@@ -220,12 +250,46 @@ impl ProviderModelCatalogPersistence for FakePersistence {
         &self,
         request: PersistProviderModelCatalogRequest,
     ) -> ProviderPersistenceFuture<'_, ProviderAccountRecord> {
-        let result = self.account(&request.provider_account_id).ok_or({
-            ProviderPersistenceError::AccountNotFound {
-                provider_account_id: request.provider_account_id,
-            }
-        });
+        let result = {
+            let mut state = self.state.lock().expect("fake state");
+            state.catalog_persist_count += 1;
+            state
+                .accounts
+                .get(&request.provider_account_id)
+                .cloned()
+                .ok_or(ProviderPersistenceError::AccountNotFound {
+                    provider_account_id: request.provider_account_id,
+                })
+        };
         Box::pin(async move { result })
+    }
+}
+
+#[derive(Debug)]
+struct StaticCodexCredentials;
+
+impl ProviderCredentialAccess for StaticCodexCredentials {
+    fn exa_api_key<'a>(&'a self, _provider_account_id: &'a str) -> ProviderCredentialFuture<'a> {
+        Box::pin(async {
+            Err(ProviderError::MissingCredentials {
+                provider: "exa".to_string(),
+                credential: "provider account".to_string(),
+            })
+        })
+    }
+
+    fn codex_access_token<'a>(
+        &'a self,
+        _provider_account_id: &'a str,
+    ) -> ProviderCredentialFuture<'a> {
+        Box::pin(async { Ok(ProviderCredential::from("catalog-token".to_string())) })
+    }
+
+    fn refresh_codex_access_token<'a>(
+        &'a self,
+        _provider_account_id: &'a str,
+    ) -> ProviderCredentialFuture<'a> {
+        Box::pin(async { Ok(ProviderCredential::from("refreshed-token".to_string())) })
     }
 }
 
@@ -441,29 +505,6 @@ async fn delete_persistence_failure_restores_quarantined_account_home() {
 }
 
 #[tokio::test]
-async fn oauth_update_failure_restores_previous_token_bytes() {
-    let account = codex_account();
-    let fixture = ServiceFixture::with_account(account.clone());
-    let token_store = CodexTokenStore::new(fixture.paths.provider_account_home("codex", "default"));
-    let old_tokens = tokens("old-access", "old-refresh");
-    token_store.write(&old_tokens).expect("old tokens");
-    let old_bytes = fs::read(token_store.token_path()).expect("old token bytes");
-    fixture.persistence.fail_next_update();
-
-    let error = fixture
-        .service
-        .publish_codex_tokens(&account, &tokens("new-access", "new-refresh"))
-        .await
-        .expect_err("status update must fail");
-
-    assert_eq!(error, ProviderAccountOperationError::Persistence);
-    assert_eq!(
-        fs::read(token_store.token_path()).expect("restored tokens"),
-        old_bytes
-    );
-}
-
-#[tokio::test]
 async fn credential_reads_share_the_account_service_gate() {
     let account = exa_account("team", false);
     let fixture = ServiceFixture::with_account(account.clone());
@@ -490,6 +531,81 @@ async fn credential_reads_share_the_account_service_gate() {
             .expect("credential")
             .expose_secret(),
         "exa-secret"
+    );
+}
+
+#[tokio::test]
+async fn catalog_refresh_rejects_a_credential_change_during_http() {
+    let home = tempfile::tempdir().expect("temp home");
+    let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let (base_url, request_started, release_response) = spawn_blocking_model_catalog_server().await;
+    let mut account = codex_account();
+    account.metadata = json!({
+        "base_url": base_url,
+        "credentialRevision": 1,
+        "models_client_version": "0.144.0",
+        "models_client_version_refreshed_at": current_timestamp_string(),
+    });
+    let account_id = account.provider_account_id.clone();
+    let persistence = Arc::new(FakePersistence::with_account(account));
+    let accounts: ProviderAccountPersistenceHandle = persistence.clone();
+    let catalogs: ProviderModelCatalogPersistenceHandle = persistence.clone();
+    let gates = AccountGateRegistry::new();
+    let credentials: ProviderCredentialAccessHandle = Arc::new(StaticCodexCredentials);
+    let service = ProviderAccountService::from_parts(
+        paths.clone(),
+        accounts,
+        catalogs,
+        SystemErrorLogger::from_paths(&paths),
+        gates.clone(),
+        credentials,
+    );
+    let refresh = tokio::spawn({
+        let service = service.clone();
+        let account_id = account_id.clone();
+        async move { service.refresh_model_catalog(&account_id).await }
+    });
+
+    request_started.await.expect("catalog request started");
+    let gate = gates.gate(&account_id);
+    let guard = timeout(Duration::from_secs(1), gate.lock())
+        .await
+        .expect("catalog HTTP must not hold the account gate");
+    persistence.set_credential_revision(&account_id, 2);
+    drop(guard);
+    release_response.send(()).expect("release catalog response");
+
+    let error = refresh
+        .await
+        .expect("refresh task")
+        .expect_err("stale catalog must not persist");
+    assert_eq!(error, ProviderAccountOperationError::Conflict);
+    assert_eq!(persistence.catalog_persist_count(), 0);
+}
+
+#[tokio::test]
+async fn reconcile_account_marks_existing_codex_tokens_authenticated() {
+    let mut account = codex_account();
+    account.status = ProviderAccountStatus::Unauthenticated;
+    let fixture = ServiceFixture::with_account(account.clone());
+    CodexTokenStore::new(fixture.paths.provider_account_home("codex", "default"))
+        .write(&tokens("existing-access", "existing-refresh"))
+        .expect("write existing tokens");
+
+    let reconciled = fixture
+        .service
+        .reconcile_account(&account.provider_account_id)
+        .await
+        .expect("reconcile account");
+
+    assert_eq!(reconciled.status, ProviderAccountStatus::Authenticated);
+    assert_eq!(
+        fixture
+            .persistence
+            .account(&account.provider_account_id)
+            .expect("durable account")
+            .status,
+        ProviderAccountStatus::Authenticated
     );
 }
 
@@ -550,4 +666,66 @@ fn tokens(access_token: &str, refresh_token: &str) -> CodexOAuthTokens {
         refresh_token: refresh_token.to_string(),
         last_refresh: 123,
     }
+}
+
+fn auth_attempt(account: &ProviderAccountRecord, attempt_id: &str) -> ProviderAuthAttemptView {
+    ProviderAuthAttemptView {
+        attempt_id: attempt_id.to_string(),
+        provider_kind: account.provider_kind.clone(),
+        provider_account_id: account.provider_account_id.clone(),
+        method: ProviderAuthMethod::OauthDeviceCode,
+        status: ProviderAuthAttemptStatus::WaitingForUser,
+        verification_url: Some("https://example.test/device".to_string()),
+        user_code: Some("SAFE-TEST-CODE".to_string()),
+        instructions: Some("Complete the login in your browser.".to_string()),
+        error_code: None,
+        error_message: None,
+    }
+}
+
+fn current_timestamp_string() -> String {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time")
+        .as_secs()
+        .to_string()
+}
+
+async fn spawn_blocking_model_catalog_server()
+-> (String, oneshot::Receiver<()>, oneshot::Sender<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let address = listener.local_addr().expect("address");
+    let (request_started_tx, request_started_rx) = oneshot::channel();
+    let (release_response_tx, release_response_rx) = oneshot::channel();
+    tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.expect("accept");
+        let mut request = [0_u8; 4096];
+        let request_bytes = stream.read(&mut request).await.expect("read request");
+        assert!(request_bytes > 0);
+        request_started_tx.send(()).expect("signal request");
+        release_response_rx.await.expect("release response");
+        let body = json!({
+            "models": [{
+                "slug": "gpt-live",
+                "display_name": "GPT Live",
+                "visibility": "list",
+            }],
+        })
+        .to_string();
+        stream
+            .write_all(
+                format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .as_bytes(),
+            )
+            .await
+            .expect("write response");
+    });
+    (
+        format!("http://{address}"),
+        request_started_rx,
+        release_response_tx,
+    )
 }

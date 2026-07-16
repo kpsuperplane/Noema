@@ -4,7 +4,7 @@ use async_graphql::{Enum, InputObject, Result, SimpleObject};
 use noema_providers::{
     DEFAULT_FOUNDATION_LOCAL_PROFILE, DEFAULT_TOOL_CLASSIFICATION_MODEL,
     LocalModelInstallationRecord, LocalModelInstallationStatus, ProviderAccountRecord,
-    ProviderAccountStatus, ProviderModelProfile, ReasoningEffort, refresh_provider_model_profiles,
+    ProviderAccountStatus, ProviderModelProfile, ReasoningEffort,
 };
 use serde_json::Value;
 
@@ -158,16 +158,7 @@ impl GraphqlAgent {
 pub(super) async fn agents(state: &GraphqlState) -> Result<Vec<GraphqlAgent>> {
     let store = state.store()?;
     let agents = store.list_agents().await.map_err(graphql_error)?;
-    super::provider_accounts::refresh_foundation_local_availability(state).await;
-    let mut accounts = store
-        .active_default_provider_accounts()
-        .await
-        .map_err(graphql_error)?;
-    refresh_missing_model_profiles(state, store, &accounts).await;
-    accounts = store
-        .active_default_provider_accounts()
-        .await
-        .map_err(graphql_error)?;
+    let accounts = active_default_model_accounts(state).await?;
     let model_options = model_options_from_accounts(store, &accounts).await?;
     let mut output = Vec::with_capacity(agents.len());
     for agent in agents {
@@ -180,17 +171,55 @@ pub(super) async fn agents(state: &GraphqlState) -> Result<Vec<GraphqlAgent>> {
     Ok(output)
 }
 
-pub(super) async fn refresh_missing_model_profiles(
+pub(super) async fn active_default_model_accounts(
     state: &GraphqlState,
-    store: &crate::NoemaStore,
-    accounts: &[ProviderAccountRecord],
-) {
-    let Ok(paths) = state.paths() else {
-        return;
-    };
-    for account in accounts {
-        let _ = refresh_provider_model_profiles(store, paths, account).await;
+) -> Result<Vec<ProviderAccountRecord>> {
+    let operations = state.provider_account_operations()?;
+    let accounts = operations.active_accounts().await.map_err(graphql_error)?;
+    for account in accounts.iter().filter(|account| account.is_default) {
+        let _ = operations
+            .refresh_model_catalog(&account.provider_account_id)
+            .await;
     }
+    Ok(operations
+        .active_accounts()
+        .await
+        .map_err(graphql_error)?
+        .into_iter()
+        .filter(|account| account.is_default)
+        .collect())
+}
+
+pub(super) async fn selectable_model_account(
+    state: &GraphqlState,
+    provider_account_id: &str,
+) -> Result<ProviderAccountRecord> {
+    let operations = state.provider_account_operations()?;
+    require_default_account(
+        operations.active_accounts().await.map_err(graphql_error)?,
+        provider_account_id,
+    )?;
+    let _ = operations.refresh_model_catalog(provider_account_id).await;
+    require_default_account(
+        operations.active_accounts().await.map_err(graphql_error)?,
+        provider_account_id,
+    )
+}
+
+fn require_default_account(
+    accounts: Vec<ProviderAccountRecord>,
+    provider_account_id: &str,
+) -> Result<ProviderAccountRecord> {
+    let account = accounts
+        .into_iter()
+        .find(|account| account.provider_account_id == provider_account_id)
+        .ok_or_else(|| async_graphql::Error::new("provider account not found"))?;
+    if !account.is_default {
+        return Err(async_graphql::Error::new(
+            "provider account is not selectable",
+        ));
+    }
+    Ok(account)
 }
 
 pub(super) async fn save_agent_model_preference(
@@ -203,16 +232,7 @@ pub(super) async fn save_agent_model_preference(
         ));
     }
     let store = state.store()?;
-    let account = store
-        .get_provider_account(&input.provider_account_id)
-        .await
-        .map_err(graphql_error)?
-        .ok_or_else(|| async_graphql::Error::new("provider account not found"))?;
-    if !account.is_active || !account.is_default {
-        return Err(async_graphql::Error::new(
-            "provider account is not selectable",
-        ));
-    }
+    let account = selectable_model_account(state, &input.provider_account_id).await?;
     if let Some(reason) = provider_disabled_reason(&account) {
         return Err(async_graphql::Error::new(reason));
     }

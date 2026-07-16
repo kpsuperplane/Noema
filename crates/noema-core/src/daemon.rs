@@ -26,5 +26,8 @@ pub use protocol::{
     AgentStatus, DaemonError, StartedConversation, TurnActivityStatus, TurnTranscriptItem,
 };
 pub(crate) use runtime::turn_timing::mark_graphql_turn_event;
-pub(crate) use runtime::{CodexRuntimeHandle, LegacyProviderRoutes, RuntimeProviderMap};
+pub(crate) use runtime::{
+    CodexRuntimeHandle, CodexRuntimeSpawnConfig, LegacyProviderRoutes,
+    ProviderAccountRuntimeAccess, RuntimeProviderMap,
+};
 pub(crate) use task_runtime::TaskRuntimeHandle;

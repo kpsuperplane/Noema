@@ -6,8 +6,8 @@ use crate::{NewAuxiliaryModelPreference, WEB_FETCH_SUMMARIZER_TASK_ID};
 use super::{
     agents::{
         GraphqlAgentModelPreference, GraphqlAgentModelProviderOption, GraphqlReasoningEffort,
-        model_options_from_accounts, provider_disabled_reason, refresh_missing_model_profiles,
-        require_selectable_profile, selectable_profiles_from_account,
+        active_default_model_accounts, model_options_from_accounts, provider_disabled_reason,
+        require_selectable_profile, selectable_model_account, selectable_profiles_from_account,
         validate_reasoning_effort_for_profile,
     },
     errors::graphql_error,
@@ -48,16 +48,7 @@ pub struct GraphqlSaveWebFetchSummarizerPreferenceInput {
 
 pub(super) async fn web_fetch_settings(state: &GraphqlState) -> Result<GraphqlWebFetchSettings> {
     let store = state.store()?;
-    super::provider_accounts::refresh_foundation_local_availability(state).await;
-    let mut accounts = store
-        .active_default_provider_accounts()
-        .await
-        .map_err(graphql_error)?;
-    refresh_missing_model_profiles(state, store, &accounts).await;
-    accounts = store
-        .active_default_provider_accounts()
-        .await
-        .map_err(graphql_error)?;
+    let accounts = active_default_model_accounts(state).await?;
     let preference = store
         .get_auxiliary_model_preference(WEB_FETCH_SUMMARIZER_TASK_ID)
         .await
@@ -84,16 +75,7 @@ pub(super) async fn save_web_fetch_summarizer_preference(
     input: GraphqlSaveWebFetchSummarizerPreferenceInput,
 ) -> Result<GraphqlAgentModelPreference> {
     let store = state.store()?;
-    let account = store
-        .get_provider_account(&input.provider_account_id)
-        .await
-        .map_err(graphql_error)?
-        .ok_or_else(|| async_graphql::Error::new("provider account not found"))?;
-    if !account.is_active || !account.is_default {
-        return Err(async_graphql::Error::new(
-            "provider account is not selectable",
-        ));
-    }
+    let account = selectable_model_account(state, &input.provider_account_id).await?;
     if let Some(reason) = provider_disabled_reason(&account) {
         return Err(async_graphql::Error::new(reason));
     }

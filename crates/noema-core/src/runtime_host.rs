@@ -2,7 +2,10 @@
 
 use crate::{
     DEFAULT_NOEMA_CONFIG_YAML, DaemonError, NoemaStore, StoreConfig,
-    daemon::{CodexRuntimeHandle, LegacyProviderRoutes, TaskRuntimeHandle},
+    daemon::{
+        CodexRuntimeHandle, CodexRuntimeSpawnConfig, LegacyProviderRoutes,
+        ProviderAccountRuntimeAccess, TaskRuntimeHandle,
+    },
     mcp::McpOAuthSetupManager,
 };
 
@@ -13,12 +16,12 @@ use noema_home::{
 };
 use noema_providers::{
     DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS, DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
-    DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS, DEFAULT_TOOL_CLASSIFICATION_MODEL, ProviderAuthManager,
-    ProviderConfig, ProviderRouteError, ProviderSelectionSnapshot, erase_model_provider,
-    provider_selection_loader,
+    DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS, DEFAULT_TOOL_CLASSIFICATION_MODEL,
+    ProviderAccountOperationsHandle, ProviderAccountService, ProviderConfig, ProviderRouteError,
+    ProviderSelectionSnapshot, erase_model_provider, provider_selection_loader,
 };
 use ring::rand::{SecureRandom, SystemRandom};
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 use thiserror::Error;
 
 /// Shared host state for Noema client surfaces.
@@ -27,7 +30,8 @@ pub struct NoemaRuntimeHost {
     task_runtime: TaskRuntimeHandle,
     store: NoemaStore,
     artifact_operations: noema_artifacts::ArtifactOperationsHandle,
-    provider_auth: ProviderAuthManager,
+    provider_account_service: ProviderAccountService,
+    provider_account_operations: ProviderAccountOperationsHandle,
     mcp_oauth: McpOAuthSetupManager,
     mnemosyne: Option<crate::MnemosyneLifecycle>,
     memory_startup_error: Option<String>,
@@ -88,6 +92,20 @@ impl NoemaRuntimeHost {
             .ensure_default_task_model_pool_settings(&configured_provider_kind)
             .await
             .map_err(|source| RuntimeHostError::Store(source.to_string()))?;
+        let codex_oauth = match &provider {
+            ProviderConfig::Codex(config) => config.oauth.clone(),
+            _ => noema_providers::CodexOAuthConfig::default(),
+        };
+        let provider_account_service = ProviderAccountService::new_with_codex_oauth(
+            paths.clone(),
+            Arc::new(store.clone()),
+            Arc::new(store.clone()),
+            system_errors.clone(),
+            codex_oauth,
+        )
+        .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
+        let provider_account_operations = provider_account_service.operations();
+        let provider_credentials = provider_account_service.credentials();
 
         let provider = match provider {
             ProviderConfig::LocalModels(mut config) => {
@@ -125,8 +143,12 @@ impl NoemaRuntimeHost {
         };
 
         let (default_provider_kind, mut providers, mut local_models_runtime) =
-            CodexRuntimeHandle::provider_map_from_config(provider, system_errors.clone())
-                .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
+            CodexRuntimeHandle::provider_map_from_config(
+                provider,
+                system_errors.clone(),
+                provider_credentials.clone(),
+            )
+            .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
         if !providers.contains_key(noema_providers::ProviderKind::LocalModels.as_str())
             && let Some(installation) = store
                 .list_local_model_installations()
@@ -275,15 +297,20 @@ impl NoemaRuntimeHost {
             noema_artifacts::LocalArtifactService::new(paths.root(), artifact_metadata)
                 .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?,
         );
-        let runtime = CodexRuntimeHandle::spawn_with_provider_routes_and_memory(
+        let provider_accounts = ProviderAccountRuntimeAccess::new(
+            provider_account_operations.clone(),
+            provider_credentials,
+        );
+        let runtime = CodexRuntimeHandle::spawn(CodexRuntimeSpawnConfig {
             default_provider_kind,
             provider_routes,
-            store.clone(),
-            artifact_operations.clone(),
-            system_errors.clone(),
-            mnemosyne_connection,
-            subscriptions.clone(),
-        )
+            store: store.clone(),
+            artifact_operations: artifact_operations.clone(),
+            system_errors: system_errors.clone(),
+            memory_connection: mnemosyne_connection,
+            task_subscriptions: subscriptions.clone(),
+            provider_accounts,
+        })
         .await
         .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
         runtime
@@ -306,7 +333,8 @@ impl NoemaRuntimeHost {
             task_runtime,
             store,
             artifact_operations,
-            provider_auth: ProviderAuthManager::new(),
+            provider_account_service,
+            provider_account_operations,
             mcp_oauth: McpOAuthSetupManager::new(),
             mnemosyne,
             memory_startup_error,
@@ -332,10 +360,10 @@ impl NoemaRuntimeHost {
         &self.artifact_operations
     }
 
-    /// Provider auth manager.
+    /// Provider-owned account and authentication orchestration.
     #[must_use]
-    pub fn provider_auth(&self) -> &ProviderAuthManager {
-        &self.provider_auth
+    pub(crate) fn provider_account_operations(&self) -> &ProviderAccountOperationsHandle {
+        &self.provider_account_operations
     }
 
     /// MCP OAuth setup manager.
@@ -378,6 +406,7 @@ impl NoemaRuntimeHost {
 
     /// Shut down runtime-owned work.
     pub async fn shutdown(self) {
+        self.provider_account_service.shutdown().await;
         self.task_runtime.shutdown().await;
         if let Some(mnemosyne) = self.mnemosyne {
             mnemosyne.shutdown().await;

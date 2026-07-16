@@ -2,10 +2,11 @@
 
 use std::{sync::Arc, time::Duration};
 
-use super::{
-    catalog::latest_codex_client_version,
-    oauth::{CodexOAuthClient, CodexTokenStore, chatgpt_account_id_from_access_token},
-};
+#[cfg(test)]
+use super::oauth::{CodexOAuthClient, CodexTokenStore};
+use super::{catalog::latest_codex_client_version, oauth::chatgpt_account_id_from_access_token};
+#[cfg(test)]
+use crate::CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS;
 use crate::adapters::{
     account_service::{ProviderCredential, ProviderCredentialAccessHandle},
     reqwest_transport_error,
@@ -15,11 +16,10 @@ use crate::adapters::{
     },
 };
 use crate::{
-    CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS, CodexProviderConfig, DEFAULT_CODEX_MODEL,
-    DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, GenerateStreamEvent,
-    ModelProvider, ProviderError, ProviderResponseContinuation, ProviderToolCapabilities,
-    ProviderToolSchemaDialect, ProviderToolTransport,
-    response_support::NoemaAssistantTextDeltaExtractor,
+    CodexProviderConfig, DEFAULT_CODEX_MODEL, DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest,
+    GenerateResponse, GenerateStreamEvent, ModelProvider, ProviderError,
+    ProviderResponseContinuation, ProviderToolCapabilities, ProviderToolSchemaDialect,
+    ProviderToolTransport, response_support::NoemaAssistantTextDeltaExtractor,
 };
 use noema_home::SystemErrorLogger;
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue, USER_AGENT};
@@ -40,6 +40,7 @@ pub struct CodexResponsesProvider {
 
 #[derive(Clone)]
 enum CodexCredentialSource {
+    #[cfg(test)]
     File {
         token_store: CodexTokenStore,
         oauth_client: CodexOAuthClient,
@@ -53,6 +54,7 @@ enum CodexCredentialSource {
 impl std::fmt::Debug for CodexCredentialSource {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            #[cfg(test)]
             Self::File { .. } => formatter.write_str("CodexCredentialSource::File([REDACTED])"),
             Self::Service {
                 provider_account_id,
@@ -84,7 +86,8 @@ impl CodexResponsesProvider {
     ///
     /// Returns [`ProviderError`] when configuration is invalid or the HTTP
     /// client cannot be built.
-    pub fn new(config: CodexProviderConfig) -> Result<Self, ProviderError> {
+    #[cfg(test)]
+    pub(crate) fn new(config: CodexProviderConfig) -> Result<Self, ProviderError> {
         let config = normalize_config(config)?;
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.timeout_seconds))
@@ -98,7 +101,8 @@ impl CodexResponsesProvider {
     /// # Errors
     ///
     /// Returns [`ProviderError`] when configuration is invalid.
-    pub fn with_client(
+    #[cfg(test)]
+    pub(crate) fn with_client(
         client: reqwest::Client,
         config: CodexProviderConfig,
     ) -> Result<Self, ProviderError> {
@@ -179,7 +183,8 @@ impl CodexResponsesProvider {
 
     /// Return the configured token store.
     #[must_use]
-    pub fn token_store(&self) -> Option<&CodexTokenStore> {
+    #[cfg(test)]
+    pub(crate) fn token_store(&self) -> Option<&CodexTokenStore> {
         match &self.credentials {
             CodexCredentialSource::File { token_store, .. } => Some(token_store),
             CodexCredentialSource::Service { .. } => None,
@@ -246,6 +251,7 @@ impl CodexResponsesProvider {
 
     async fn access_token(&self) -> Result<String, ProviderError> {
         match &self.credentials {
+            #[cfg(test)]
             CodexCredentialSource::File {
                 token_store,
                 oauth_client,
@@ -266,6 +272,7 @@ impl CodexResponsesProvider {
 
     async fn refresh_access_token(&self) -> Result<String, ProviderError> {
         match &self.credentials {
+            #[cfg(test)]
             CodexCredentialSource::File {
                 token_store,
                 oauth_client,

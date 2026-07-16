@@ -1,6 +1,7 @@
 use async_graphql::{Enum, InputObject, Result, SimpleObject};
 use noema_providers::{
     ProviderAccountStatus, ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderAuthMethod,
+    StartProviderAuthRequest,
 };
 
 use crate::OnboardingStatus;
@@ -230,7 +231,7 @@ impl From<ProviderAuthAttemptView> for GraphqlProviderAuthAttempt {
 
 pub(super) async fn onboarding_status(state: &GraphqlState) -> Result<GraphqlOnboardingStatus> {
     let store = state.store()?;
-    let paths = state.paths()?;
+    let provider_account_operations = state.provider_account_operations()?;
     let local_model_ready = store
         .list_local_model_installations()
         .await
@@ -244,25 +245,33 @@ pub(super) async fn onboarding_status(state: &GraphqlState) -> Result<GraphqlOnb
         .get_agent_runtime_preference("agent:primary")
         .await
         .map_err(graphql_error)?;
+    let accounts = provider_account_operations
+        .active_accounts()
+        .await
+        .map_err(graphql_error)?;
     let account = if let Some(preference) =
         selected_preference.filter(|preference| preference.provider_kind != "local_models")
     {
-        store
-            .get_provider_account(&preference.provider_account_id)
-            .await
-            .map_err(graphql_error)?
+        accounts
+            .iter()
+            .find(|account| account.provider_account_id == preference.provider_account_id)
     } else {
         let fallback_provider = state
             .runtime()
             .map_or("codex", crate::daemon::CodexRuntimeHandle::provider_kind);
-        store
-            .active_provider_account(fallback_provider)
-            .await
-            .map_err(graphql_error)?
+        accounts
+            .iter()
+            .find(|account| account.provider_kind == fallback_provider && account.is_default)
     };
-    let account = crate::graphql::reconcile_onboarding_provider_account(store, paths, account)
-        .await
-        .map_err(graphql_error)?;
+    let account = match account {
+        Some(account) => Some(
+            provider_account_operations
+                .reconcile_account(&account.provider_account_id)
+                .await
+                .map_err(graphql_error)?,
+        ),
+        None => None,
+    };
 
     Ok(crate::onboarding_status_from_options(account, local_model_ready).into())
 }
@@ -271,39 +280,39 @@ pub(super) async fn provider_auth_attempt(
     state: &GraphqlState,
     attempt_id: String,
 ) -> Result<Option<GraphqlProviderAuthAttempt>> {
-    let store = state.store()?;
-    let provider_auth = state.provider_auth()?;
-    let attempt = provider_auth
-        .poll_attempt(&attempt_id)
+    state
+        .provider_account_operations()?
+        .auth_attempt(&attempt_id)
         .await
-        .map_err(graphql_error)?;
-    if let Some(attempt) = &attempt {
-        crate::graphql::persist_provider_account_status_from_attempt(store, attempt)
-            .await
-            .map_err(graphql_error)?;
-    }
-    Ok(attempt.map(Into::into))
+        .map(|attempt| attempt.map(Into::into))
+        .map_err(graphql_error)
 }
 
 pub(super) async fn start_provider_auth_attempt(
     state: &GraphqlState,
     input: GraphqlStartProviderAuthAttemptInput,
 ) -> Result<GraphqlProviderAuthAttempt> {
-    let store = state.store()?;
-    let paths = state.paths()?;
-    let provider_auth = state.provider_auth()?;
-    let request = crate::graphql::ProviderAuthStartRequest {
+    let request = StartProviderAuthRequest {
         provider_kind: input.provider_kind,
         provider_account_id: input.provider_account_id,
         method: input.method.into(),
     };
-    let attempt = crate::graphql::start_provider_auth_attempt_view_from_parts(
-        provider_auth,
-        store,
-        paths,
-        request,
-    )
-    .await
-    .map_err(|error| async_graphql::Error::new(error.message()))?;
-    Ok(attempt.into())
+    state
+        .provider_account_operations()?
+        .start_auth(request)
+        .await
+        .map(Into::into)
+        .map_err(graphql_error)
+}
+
+pub(crate) fn is_user_onboarded_for_chat(
+    account: Option<noema_providers::ProviderAccountRecord>,
+) -> bool {
+    account.is_some_and(|account| {
+        account.is_active
+            && account.is_default
+            && (account.status == ProviderAccountStatus::Authenticated
+                || (account.auth_method == ProviderAuthMethod::None
+                    && account.status == ProviderAccountStatus::Unknown))
+    })
 }

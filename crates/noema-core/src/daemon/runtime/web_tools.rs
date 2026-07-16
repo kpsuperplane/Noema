@@ -16,6 +16,7 @@ pub(in crate::daemon) struct ResolvedWebProvider {
     pub provider_account_id: String,
     pub provider_kind: String,
     pub account_key: String,
+    pub credential_revision: u64,
     pub fallback_from: Option<String>,
     pub fallback_reason: Option<String>,
 }
@@ -81,6 +82,7 @@ async fn resolve_bound_provider(
             }
 
             Ok(ResolvedWebProvider {
+                credential_revision: credential_revision(&account),
                 provider_account_id: account.provider_account_id,
                 provider_kind: account.provider_kind,
                 account_key: account.account_key,
@@ -120,6 +122,7 @@ fn default_provider(tool_name: &str) -> ResolvedWebProvider {
             ),
             provider_kind: crate::search::types::DUCKDUCKGO_PUBLIC_PROVIDER_ID.to_string(),
             account_key: SYSTEM_ACCOUNT_KEY.to_string(),
+            credential_revision: 0,
             fallback_from: None,
             fallback_reason: None,
         },
@@ -130,6 +133,7 @@ fn default_provider(tool_name: &str) -> ResolvedWebProvider {
             ),
             provider_kind: crate::web_fetch::types::DIRECT_HTTP_PROVIDER_ID.to_string(),
             account_key: SYSTEM_ACCOUNT_KEY.to_string(),
+            credential_revision: 0,
             fallback_from: None,
             fallback_reason: None,
         },
@@ -146,6 +150,14 @@ fn fallback_provider(
     fallback.fallback_from = Some(provider_account_id);
     fallback.fallback_reason = Some(fallback_reason);
     fallback
+}
+
+fn credential_revision(account: &noema_providers::ProviderAccountRecord) -> u64 {
+    account
+        .metadata
+        .get("credentialRevision")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0)
 }
 
 #[cfg(test)]

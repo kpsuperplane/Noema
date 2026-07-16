@@ -11,8 +11,8 @@ use crate::{
 
 use super::{
     agents::{
-        GraphqlReasoningEffort, provider_disabled_reason, refresh_missing_model_profiles,
-        require_selectable_profile, selectable_profiles_from_account,
+        GraphqlReasoningEffort, provider_disabled_reason, require_selectable_profile,
+        selectable_model_account, selectable_profiles_from_account,
         validate_reasoning_effort_for_profile,
     },
     errors::graphql_error,
@@ -815,23 +815,7 @@ pub(super) async fn update_task_model_pool_entry(
 ) -> Result<GraphqlTaskModelPoolEntry> {
     require_local_principal(principal_subject)?;
     let store = state.store()?;
-    super::provider_accounts::refresh_foundation_local_availability(state).await;
-    let account = store
-        .get_provider_account(&input.provider_account_id)
-        .await
-        .map_err(graphql_error)?
-        .ok_or_else(|| async_graphql::Error::new("provider account not found"))?;
-    refresh_missing_model_profiles(state, store, std::slice::from_ref(&account)).await;
-    let account = store
-        .get_provider_account(&input.provider_account_id)
-        .await
-        .map_err(graphql_error)?
-        .ok_or_else(|| async_graphql::Error::new("provider account not found"))?;
-    if !account.is_active || !account.is_default {
-        return Err(async_graphql::Error::new(
-            "provider account is not selectable",
-        ));
-    }
+    let account = selectable_model_account(state, &input.provider_account_id).await?;
     if let Some(reason) = provider_disabled_reason(&account) {
         return Err(async_graphql::Error::new(reason));
     }

@@ -1,19 +1,48 @@
 use serde_json::json;
-use std::sync::Mutex;
-use tempfile::TempDir;
+use std::sync::{Arc, Mutex};
 
 use super::*;
 use crate::{
-    CodexOAuthTokens, ProviderAccountRecord, ProviderAuthMethod, ProviderPersistenceError,
+    ProviderAccountRecord, ProviderAuthMethod, ProviderCredential, ProviderCredentialAccess,
+    ProviderCredentialAccessHandle, ProviderCredentialFuture, ProviderPersistenceError,
     ProviderPersistenceFuture, ReasoningEffort, adapters::test_support::spawn_server,
 };
-use noema_home::NoemaPaths;
 
 const TEST_CODEX_CLIENT_VERSION: &str = "0.144.1";
 
 struct RecordingCatalogPersistence {
     requests: Mutex<Vec<PersistProviderModelCatalogRequest>>,
     result: Result<ProviderAccountRecord, ProviderPersistenceError>,
+}
+
+struct StaticCredentials;
+
+impl ProviderCredentialAccess for StaticCredentials {
+    fn exa_api_key<'a>(&'a self, _provider_account_id: &'a str) -> ProviderCredentialFuture<'a> {
+        static_credential()
+    }
+
+    fn codex_access_token<'a>(
+        &'a self,
+        _provider_account_id: &'a str,
+    ) -> ProviderCredentialFuture<'a> {
+        static_credential()
+    }
+
+    fn refresh_codex_access_token<'a>(
+        &'a self,
+        _provider_account_id: &'a str,
+    ) -> ProviderCredentialFuture<'a> {
+        static_credential()
+    }
+}
+
+fn static_credential() -> ProviderCredentialFuture<'static> {
+    Box::pin(async { Ok(ProviderCredential::from("access-token".to_string())) })
+}
+
+fn credential_access() -> ProviderCredentialAccessHandle {
+    Arc::new(StaticCredentials)
 }
 
 impl ProviderModelCatalogPersistence for RecordingCatalogPersistence {
@@ -107,9 +136,7 @@ async fn fetches_latest_codex_client_version_from_registry_shape() {
 }
 
 #[tokio::test]
-async fn codex_catalog_refresh_with_tokens_marks_unknown_account_authenticated() {
-    let home = TempDir::new().expect("temp noema home");
-    let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+async fn codex_catalog_refresh_with_credentials_marks_unknown_account_authenticated() {
     let (base_url, request_rx) = spawn_server(
         200,
         json!({
@@ -124,13 +151,6 @@ async fn codex_catalog_refresh_with_tokens_marks_unknown_account_authenticated()
         .to_string(),
     )
     .await;
-    CodexTokenStore::new(paths.provider_account_home("codex", "default"))
-        .write(&CodexOAuthTokens {
-            access_token: "access-token".to_string(),
-            refresh_token: "refresh-token".to_string(),
-            last_refresh: 123,
-        })
-        .expect("write tokens");
     let account = codex_account(json!({
         "base_url": base_url,
         "models_client_version": TEST_CODEX_CLIENT_VERSION,
@@ -141,9 +161,13 @@ async fn codex_catalog_refresh_with_tokens_marks_unknown_account_authenticated()
         result: Ok(account.clone()),
     };
 
-    refresh_provider_model_profiles(&persistence, &paths, &account)
+    let catalog = fetch_provider_model_catalog(&credential_access(), &account)
         .await
-        .expect("refresh profiles");
+        .expect("fetch profiles")
+        .expect("catalog needed");
+    persist_model_catalog_refresh(&persistence, &account, catalog)
+        .await
+        .expect("persist profiles");
     {
         let requests = persistence.requests.lock().expect("requests lock");
         assert_eq!(requests.len(), 1);
@@ -168,8 +192,6 @@ async fn codex_catalog_refresh_with_tokens_marks_unknown_account_authenticated()
 
 #[tokio::test]
 async fn codex_catalog_refreshes_expired_profiles_with_latest_client_version() {
-    let home = TempDir::new().expect("temp noema home");
-    let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
     let (version_url, version_request_rx) = spawn_server(
         200,
         json!({"version": TEST_CODEX_CLIENT_VERSION}).to_string(),
@@ -191,13 +213,6 @@ async fn codex_catalog_refreshes_expired_profiles_with_latest_client_version() {
         .to_string(),
     )
     .await;
-    CodexTokenStore::new(paths.provider_account_home("codex", "default"))
-        .write(&CodexOAuthTokens {
-            access_token: "access-token".to_string(),
-            refresh_token: "refresh-token".to_string(),
-            last_refresh: 123,
-        })
-        .expect("write tokens");
     let account = codex_account(json!({
         "base_url": base_url,
         "profiles": [{
@@ -215,14 +230,17 @@ async fn codex_catalog_refreshes_expired_profiles_with_latest_client_version() {
         result: Ok(account.clone()),
     };
 
-    refresh_provider_model_profiles_at_version_endpoint(
-        &persistence,
-        &paths,
+    let catalog = fetch_provider_model_catalog_at_version_endpoint(
+        &credential_access(),
         &account,
         &format!("{version_url}/latest"),
     )
     .await
-    .expect("refresh profiles");
+    .expect("fetch profiles")
+    .expect("catalog needed");
+    persist_model_catalog_refresh(&persistence, &account, catalog)
+        .await
+        .expect("persist profiles");
 
     let version_request = version_request_rx.await.expect("captured version request");
     assert_eq!(version_request.path, "/latest");

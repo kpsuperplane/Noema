@@ -54,7 +54,7 @@ pub struct GraphqlSaveWebToolProviderBindingInput {
 
 pub(super) async fn web_tool_settings(state: &GraphqlState) -> Result<GraphqlWebToolSettings> {
     let store = state.store()?;
-    let accounts = selectable_accounts(store).await?;
+    let accounts = selectable_accounts(state).await?;
 
     Ok(GraphqlWebToolSettings {
         search: binding_settings(store, &accounts, CapabilityId::WebSearch).await?,
@@ -75,7 +75,7 @@ pub(super) async fn save_web_tool_provider_binding(
         ));
     }
 
-    let accounts = selectable_accounts(store).await?;
+    let accounts = selectable_accounts(state).await?;
     let provider_options = provider_options(&accounts, capability_id);
     if !provider_options
         .iter()
@@ -101,11 +101,12 @@ pub(super) async fn save_web_tool_provider_binding(
     binding_settings(store, &accounts, capability_id).await
 }
 
-async fn selectable_accounts(store: &NoemaStore) -> Result<Vec<ProviderAccountRecord>> {
+async fn selectable_accounts(state: &GraphqlState) -> Result<Vec<ProviderAccountRecord>> {
     let mut accounts = system_provider_accounts();
     accounts.extend(
-        store
-            .active_provider_accounts()
+        state
+            .provider_account_operations()?
+            .active_accounts()
             .await
             .map_err(graphql_error)?,
     );

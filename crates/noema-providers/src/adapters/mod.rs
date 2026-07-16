@@ -2,32 +2,23 @@
 
 mod account_files;
 mod account_service;
-pub mod auth;
-pub mod codex;
-pub mod foundation;
-pub mod openai;
+pub(crate) mod auth;
+pub(crate) mod codex;
+pub(crate) mod foundation;
+mod hosted;
+pub(crate) mod openai;
 pub(crate) mod responses;
 mod transport_error;
-pub mod web;
+pub(crate) mod web;
 
-pub use account_files::SecretInputStore;
+pub(crate) use account_files::SecretInputStore;
 pub use account_service::{
     ProviderAccountService, ProviderCredential, ProviderCredentialAccess,
     ProviderCredentialAccessHandle, ProviderCredentialFuture,
 };
-pub use auth::{ProviderAuthManager, ensure_provider_account_home};
-pub use codex::{
-    CodexOAuthClient, CodexResponsesProvider, CodexTokenStore, refresh_provider_model_profiles,
-};
-pub use foundation::{
-    FOUNDATION_LOCAL_COMPACT_SUMMARY_TARGET_TOKENS, FOUNDATION_LOCAL_CONTEXT_WINDOW_TOKENS,
-    FOUNDATION_LOCAL_DEFAULT_OUTPUT_RESERVE_TOKENS, FOUNDATION_LOCAL_PROVIDER,
-    FoundationBridgeError, FoundationLocalProvider,
-};
-pub use openai::OpenAiProvider;
+pub use hosted::hosted_provider_from_config;
 pub use web::{
-    DirectHttpClient, DuckDuckGoSearchBackend, EXA_EXTRACTION, EXA_FETCH_PROVIDER_ID,
-    EXA_SEARCH_CONTRACT, EXA_SEARCH_PROVIDER_ID, ExaFetchClient, ExaSearchClient,
+    EXA_FETCH_PROVIDER_ID, EXA_SEARCH_PROVIDER_ID, ExaFetchClient, ExaSearchClient,
     default_web_fetch_backend, default_web_search_backend, summarize_markdown,
     web_fetch_summarizer_prompt,
 };
