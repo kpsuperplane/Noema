@@ -18,6 +18,14 @@ pub const HARD_MAX_CHARS: usize = 20_000;
 pub const MAX_URL_CHARS: usize = 2048;
 /// Hard reason length ceiling.
 pub const MAX_REASON_CHARS: usize = 500;
+/// Largest page returned without model summarization.
+pub const RAW_MARKDOWN_LIMIT_CHARS: usize = 8_000;
+/// Largest page summarized in one model call.
+pub const SINGLE_PASS_SUMMARY_LIMIT_CHARS: usize = 250_000;
+/// Largest page summarized through bounded chunks.
+pub const CHUNKED_SUMMARY_LIMIT_CHARS: usize = 1_000_000;
+/// Bounded raw excerpt retained beside summarized content.
+pub const RAW_EXCERPT_CHARS: usize = 2_000;
 
 /// Normalized fetch request.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,6 +58,37 @@ pub enum FetchSummaryStrategy {
     SinglePass,
     /// Chunked summary.
     Chunked,
+}
+
+/// Pure size-policy decision for extracted page content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FetchSummaryDecision {
+    /// Return bounded raw Markdown.
+    Raw,
+    /// Summarize using the selected strategy.
+    Summarize(FetchSummaryStrategy),
+    /// Refuse content above the responsible summarization ceiling.
+    Refuse,
+}
+
+/// Select the stable fetch summary policy for an extracted character count.
+#[must_use]
+pub const fn summary_strategy_for_chars(chars: usize) -> FetchSummaryDecision {
+    if chars <= RAW_MARKDOWN_LIMIT_CHARS {
+        FetchSummaryDecision::Raw
+    } else if chars <= SINGLE_PASS_SUMMARY_LIMIT_CHARS {
+        FetchSummaryDecision::Summarize(FetchSummaryStrategy::SinglePass)
+    } else if chars <= CHUNKED_SUMMARY_LIMIT_CHARS {
+        FetchSummaryDecision::Summarize(FetchSummaryStrategy::Chunked)
+    } else {
+        FetchSummaryDecision::Refuse
+    }
+}
+
+/// Return the bounded raw excerpt retained with summarized content.
+#[must_use]
+pub fn raw_excerpt(markdown: &str) -> String {
+    markdown.chars().take(RAW_EXCERPT_CHARS).collect()
 }
 
 /// Normalized successful fetch response.
@@ -351,5 +390,29 @@ mod tests {
             "arguments do not match the web.fetch schema"
         );
         assert!(!error.to_string().contains("secret-value"));
+    }
+
+    #[test]
+    fn summary_size_policy_is_stable() {
+        assert_eq!(
+            summary_strategy_for_chars(RAW_MARKDOWN_LIMIT_CHARS),
+            FetchSummaryDecision::Raw,
+        );
+        assert_eq!(
+            summary_strategy_for_chars(RAW_MARKDOWN_LIMIT_CHARS + 1),
+            FetchSummaryDecision::Summarize(FetchSummaryStrategy::SinglePass,),
+        );
+        assert_eq!(
+            summary_strategy_for_chars(SINGLE_PASS_SUMMARY_LIMIT_CHARS + 1),
+            FetchSummaryDecision::Summarize(FetchSummaryStrategy::Chunked),
+        );
+        assert_eq!(
+            summary_strategy_for_chars(CHUNKED_SUMMARY_LIMIT_CHARS + 1),
+            FetchSummaryDecision::Refuse,
+        );
+        assert_eq!(
+            raw_excerpt(&"x".repeat(RAW_EXCERPT_CHARS + 1)).len(),
+            RAW_EXCERPT_CHARS,
+        );
     }
 }

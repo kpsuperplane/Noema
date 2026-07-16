@@ -873,6 +873,12 @@ The next storage slice should stay small and concrete:
   secret-backed CRUD, auth lifecycle, reconciliation, and catalog refresh.
   Its public requests are pathless, credential-bearing request `Debug` output
   is redacted, and its typed errors expose no filesystem or transport details.
+  Provider-owned object-safe web search/fetch backend handles and typed backend
+  errors are also established without transport dependencies. Fetch
+  summarization context now has a provider-owned contract, while the pure size
+  thresholds, strategy decision, and raw-excerpt limit live with the stable
+  `noema-capabilities` fetch contract. Core's closed backend enums are the next
+  5C seam to remove.
 
 - The bounded remediation program completed Phase 2 at `92,157` maintained
   source lines (`-1,767` from its baseline). Axum/tower-sessions now own the

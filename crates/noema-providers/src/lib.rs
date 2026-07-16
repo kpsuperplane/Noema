@@ -32,6 +32,8 @@ pub mod routing;
 pub mod selection;
 /// Provider-neutral tool transport and selection policy.
 pub mod tools;
+/// Provider-owned web backend contracts.
+pub mod web;
 
 pub use account_operations::{
     CreateSecretProviderAccountRequest, ProviderAccountOperationError,
@@ -105,4 +107,9 @@ pub use selection::{
 pub use tools::{
     NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderToolCapabilities,
     ProviderToolSchemaDialect, ProviderToolTransport,
+};
+pub use web::{
+    BEST_EFFORT_PUBLIC_CONTRACT, DIRECT_HTTP_PROVIDER_ID, DUCKDUCKGO_PUBLIC_PROVIDER_ID,
+    EXTRACTION_READABILITYRS, WebFetchBackend, WebFetchBackendHandle, WebFetchContext,
+    WebFetchError, WebOperationFuture, WebSearchBackend, WebSearchBackendHandle, WebSearchError,
 };
