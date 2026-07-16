@@ -6,11 +6,10 @@ use noema_providers::{
     LocalModelInstallationRecord, LocalModelInstallationStatus, ProviderAccountRecord,
     ProviderAccountStatus, ProviderModelProfile, ReasoningEffort,
 };
+use noema_tasks::TASK_EXECUTOR_AGENT_ID;
 use serde_json::Value;
 
-use crate::{
-    AgentRecord, AgentRuntimePreferenceRecord, NewAgentRuntimePreference, TASK_EXECUTOR_AGENT_ID,
-};
+use crate::{AgentRecord, AgentRuntimePreferenceRecord, NewAgentRuntimePreference};
 
 use super::{errors::graphql_error, schema::GraphqlState};
 

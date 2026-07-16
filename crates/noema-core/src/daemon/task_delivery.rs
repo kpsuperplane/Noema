@@ -3,9 +3,10 @@
 use noema_conversations::{
     ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
 };
+use noema_tasks::TaskStatus;
 
 use crate::{
-    NoemaStore, TaskStatus,
+    NoemaStore,
     daemon::{
         CodexRuntimeHandle,
         runtime::{TaskCompletionArtifact, TaskCompletionCriterion, TaskCompletionDeliveryRequest},
@@ -210,7 +211,7 @@ pub(crate) async fn deliver_task_status_event(
         .map_err(|error| error.to_string())?
         .into_iter()
         .rev()
-        .find(|event| event.event_kind == event_kind)
+        .find(|event| event.event_kind.as_str() == event_kind)
         .ok_or_else(|| format!("task status event missing for {event_kind}"))?;
     let item_id = format!("item:task_status:{}", event.event_id);
     let (record, inserted) = store

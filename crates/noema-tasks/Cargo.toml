@@ -1,0 +1,20 @@
+[package]
+name = "noema-tasks"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+
+[dependencies]
+noema-artifacts = { path = "../noema-artifacts", default-features = false }
+noema-providers = { path = "../noema-providers", default-features = false }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

@@ -2,8 +2,9 @@
 
 #![allow(clippy::missing_errors_doc)]
 
+use noema_tasks::{TaskReviewCriterion, TaskReviewRecord, TaskReviewVerdict};
+
 use super::{NoemaStore, StoreError};
-use crate::{TaskReviewCriterion, TaskReviewRecord, TaskReviewVerdict};
 
 impl NoemaStore {
     /// Return every immutable executor submission for one task in revision
@@ -12,7 +13,7 @@ impl NoemaStore {
     pub async fn list_task_submissions(
         &self,
         task_id: &str,
-    ) -> Result<Vec<crate::TaskSubmissionRecord>, StoreError> {
+    ) -> Result<Vec<noema_tasks::TaskSubmissionRecord>, StoreError> {
         let submission_ids = self
             .with_connection(|conn| {
                 let mut statement = conn.prepare(
@@ -92,7 +93,7 @@ impl NoemaStore {
                     let rows = statement.query_map([review_id.as_str()], |row| {
                         let outcome = row
                             .get::<_, String>(1)?
-                            .parse::<crate::CriterionOutcome>()
+                            .parse::<noema_tasks::CriterionOutcome>()
                             .map_err(|error| {
                                 rusqlite::Error::FromSqlConversionFailure(
                                     1,

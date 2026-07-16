@@ -2,8 +2,7 @@
 
 use async_graphql::{Enum, InputObject, Json, Result, SimpleObject};
 use noema_providers::ProviderSelectionSnapshot;
-
-use crate::{
+use noema_tasks::{
     AgentRunItemRecord, AgentRunRecord, TaskComplexity, TaskExecutionPolicy, TaskModelPoolEntry,
     TaskRecord, TaskReviewCriterion, TaskReviewRecord, TaskSubmissionRecord,
     TaskValidationCriterion,
@@ -413,7 +412,7 @@ impl From<AgentRunItemRecord> for GraphqlTaskRunItem {
             cursor: value.sequence_index.to_string(),
             sequence_index: i32::try_from(value.sequence_index).unwrap_or(i32::MAX),
             round_index: i32::try_from(value.round_index).unwrap_or(i32::MAX),
-            kind: value.kind,
+            kind: value.kind.as_str().to_string(),
             status: value.status.as_str().to_string(),
             correlation_id: value.correlation_id,
             parent_item_id: value.parent_item_id,
@@ -831,7 +830,7 @@ pub(super) async fn update_task_model_pool_entry(
     store
         .update_task_model_pool_entry(
             &normalized_pool_entry_id,
-            crate::NewTaskModelPoolEntry {
+            noema_tasks::NewTaskModelPoolEntry {
                 pool_entry_id: Some(normalized_pool_entry_id.clone()),
                 complexity: input.complexity.into(),
                 label: input.label,
@@ -880,15 +879,15 @@ async fn detail_from_task(
         .map_err(graphql_error)?;
     let resumable = matches!(
         task.status,
-        crate::TaskStatus::Failed | crate::TaskStatus::WaitingForHuman
+        noema_tasks::TaskStatus::Failed | noema_tasks::TaskStatus::WaitingForHuman
     );
     let cancellable = matches!(
         task.status,
-        crate::TaskStatus::Queued
-            | crate::TaskStatus::Executing
-            | crate::TaskStatus::Reviewing
-            | crate::TaskStatus::RevisionRequested
-            | crate::TaskStatus::WaitingForHuman
+        noema_tasks::TaskStatus::Queued
+            | noema_tasks::TaskStatus::Executing
+            | noema_tasks::TaskStatus::Reviewing
+            | noema_tasks::TaskStatus::RevisionRequested
+            | noema_tasks::TaskStatus::WaitingForHuman
     );
     let blocking_question = task.blocked_question.clone();
     Ok(GraphqlTaskDetail {
@@ -1175,7 +1174,7 @@ mod tests {
         store
             .transition_agent_run(
                 &run.run_id,
-                crate::RunStatus::Running,
+                noema_tasks::RunStatus::Running,
                 Some("lease:test"),
                 None,
             )
@@ -1184,12 +1183,12 @@ mod tests {
         for index in 1..=3 {
             store
                 .append_agent_run_item(
-                    crate::NewAgentRunItem {
+                    noema_tasks::NewAgentRunItem {
                         item_id: Some(format!("run_item:page-{index}")),
                         run_id: run.run_id.clone(),
                         round_index: 0,
-                        kind: "assistant_output".to_string(),
-                        status: crate::AgentRunItemStatus::Completed,
+                        kind: noema_tasks::AgentRunItemKind::AssistantOutput,
+                        status: noema_tasks::AgentRunItemStatus::Completed,
                         correlation_id: None,
                         parent_item_id: None,
                         content_text: Some(format!("item {index}")),
@@ -1203,7 +1202,7 @@ mod tests {
         store
             .transition_agent_run(
                 &run.run_id,
-                crate::RunStatus::Failed,
+                noema_tasks::RunStatus::Failed,
                 Some("lease:test"),
                 Some(("provider_error".to_string(), "model missing".to_string())),
             )
@@ -1272,13 +1271,13 @@ mod tests {
             .find(|entry| entry.complexity == TaskComplexity::Simple)
             .expect("simple model");
         let (task, _) = store
-            .create_task_with_executor(crate::NewTask {
+            .create_task_with_executor(noema_tasks::NewTask {
                 task_id: None,
                 title: "Cancellable task".to_string(),
                 request_markdown: "Stop when asked".to_string(),
                 complexity: TaskComplexity::Simple,
                 owner_human_id: "human:local".to_string(),
-                source: crate::TaskSource {
+                source: noema_tasks::TaskSource {
                     conversation_id: Some(conversation.conversation_id.clone()),
                     turn_id: None,
                     item_id: None,
@@ -1289,7 +1288,7 @@ mod tests {
                 executor_model: pool.model.clone(),
                 reviewer_model: pool.model,
                 max_review_rounds: None,
-                criteria: vec![crate::NewTaskValidationCriterion {
+                criteria: vec![noema_tasks::NewTaskValidationCriterion {
                     criterion_id: None,
                     ordinal: 1,
                     description: "Stops".to_string(),

@@ -3,11 +3,13 @@
 #![allow(clippy::missing_errors_doc)]
 
 use noema_providers::ReasoningEffort;
+use noema_tasks::{
+    AgentRunRecord, ManualContinuationInput, RunKind, TASK_EXECUTOR_AGENT_ID,
+    TASK_REVIEWER_AGENT_ID, TaskRecord, TaskStatus, plan_manual_continuation,
+};
 use rusqlite::{OptionalExtension, params};
 
-use crate::{RunKind, RunStatus, TASK_EXECUTOR_AGENT_ID, TASK_REVIEWER_AGENT_ID, TaskStatus};
-
-use super::{AgentRunRecord, NoemaStore, StoreError, TaskRecord, ids::allocate_id};
+use super::{NoemaStore, StoreError, ids::allocate_id};
 
 impl NoemaStore {
     /// Continue a failed or human-blocked task with its existing lineage and evidence.
@@ -25,23 +27,6 @@ impl NoemaStore {
         if task.owner_human_id != owner_human_id {
             return Err(task_unavailable());
         }
-        if !matches!(
-            task.status,
-            TaskStatus::Failed | TaskStatus::WaitingForHuman
-        ) {
-            return Err(StoreError::InvariantViolation {
-                message: "only failed or human-blocked tasks can be continued".to_string(),
-            });
-        }
-        let message = message
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(ToOwned::to_owned);
-        if task.status == TaskStatus::WaitingForHuman && message.is_none() {
-            return Err(StoreError::InvariantViolation {
-                message: "human-blocked task continuation requires a message".to_string(),
-            });
-        }
         let parent_run_id =
             task.latest_run_id
                 .as_deref()
@@ -53,17 +38,6 @@ impl NoemaStore {
                 message: "task continuation parent run is unavailable".to_string(),
             }
         })?;
-        if !matches!(
-            parent.status,
-            RunStatus::Failed
-                | RunStatus::WaitingForApproval
-                | RunStatus::Interrupted
-                | RunStatus::Completed
-        ) {
-            return Err(StoreError::InvariantViolation {
-                message: "latest task run cannot be continued".to_string(),
-            });
-        }
         let committed_review = if parent.run_kind == RunKind::Reviewer {
             let submission_id = parent.triggering_submission_id.as_deref();
             self.list_task_reviews(task_id)
@@ -73,11 +47,21 @@ impl NoemaStore {
         } else {
             None
         };
-        let resume_kind = if committed_review.is_some() {
-            RunKind::Executor
-        } else {
-            parent.run_kind
-        };
+        let continuation_plan = plan_manual_continuation(ManualContinuationInput {
+            task_status: task.status,
+            task_revision_index: task.revision_index,
+            parent_run_kind: parent.run_kind,
+            parent_run_status: parent.status,
+            parent_attempt_index: parent.attempt_index,
+            parent_revision_index: parent.revision_index,
+            committed_review: committed_review.is_some(),
+            message: message.map(ToOwned::to_owned),
+        })
+        .map_err(|error| StoreError::InvariantViolation {
+            message: error.to_string(),
+        })?;
+        let resume_kind = continuation_plan.run_kind;
+        let message = continuation_plan.message.clone();
         let model = if resume_kind == RunKind::Executor {
             self.select_task_model_pool_entry(task.complexity, &task.pool_entry_id)
                 .await?
@@ -103,30 +87,9 @@ impl NoemaStore {
         self.validate_task_model_snapshot(&model).await?;
         let execution_policy = self.get_task_execution_policy().await?;
         let new_run_id = allocate_id("run");
-        let next_attempt_index = if resume_kind == parent.run_kind {
-            parent
-                .attempt_index
-                .checked_add(1)
-                .ok_or_else(|| StoreError::InvariantViolation {
-                    message: "task continuation attempt index is exhausted".to_string(),
-                })?
-        } else {
-            0
-        };
-        let next_revision_index = if committed_review.is_some() {
-            task.revision_index
-                .checked_add(1)
-                .ok_or_else(|| StoreError::InvariantViolation {
-                    message: "task revision index is exhausted".to_string(),
-                })?
-        } else {
-            parent.revision_index
-        };
-        let next_status = if resume_kind == RunKind::Reviewer {
-            TaskStatus::Reviewing
-        } else {
-            TaskStatus::Queued
-        };
+        let next_attempt_index = continuation_plan.attempt_index;
+        let next_revision_index = continuation_plan.revision_index;
+        let next_status = continuation_plan.task_status;
         let next_agent_id = if resume_kind == RunKind::Executor {
             TASK_EXECUTOR_AGENT_ID
         } else {
@@ -145,21 +108,66 @@ impl NoemaStore {
             let tx = conn.transaction()?;
             let current = tx
                 .query_row(
-                    "SELECT status, owner_human_id, latest_run_id FROM tasks WHERE task_id = ?1",
+                    "SELECT status, owner_human_id, latest_run_id, revision_index FROM tasks WHERE task_id = ?1",
                     [task_id],
                     |row| {
                         Ok((
                             row.get::<_, String>(0)?,
                             row.get::<_, String>(1)?,
                             row.get::<_, Option<String>>(2)?,
+                            row.get::<_, i64>(3)?,
                         ))
                     },
                 )
                 .optional()?
                 .ok_or_else(task_unavailable)?;
+            let current_status =
+                current
+                    .0
+                    .parse::<TaskStatus>()
+                    .map_err(|error| StoreError::InvalidEnum {
+                        kind: "task_status",
+                        value: error.to_string(),
+                    })?;
+            let parent_status = tx
+                .query_row(
+                    "SELECT status FROM agent_runs WHERE run_id = ?1",
+                    [&parent.run_id],
+                    |row| row.get::<_, String>(0),
+                )?
+                .parse()
+                .map_err(|error: noema_tasks::TaskDomainError| StoreError::InvalidEnum {
+                    kind: "run_status",
+                    value: error.to_string(),
+                })?;
+            let committed_review_now = if parent.run_kind == RunKind::Reviewer {
+                tx.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM task_reviews WHERE task_id = ?1 AND reviewed_submission_id = ?2)",
+                    params![
+                        task_id,
+                        parent.triggering_submission_id.as_deref().unwrap_or_default()
+                    ],
+                    |row| row.get::<_, bool>(0),
+                )?
+            } else {
+                false
+            };
+            let persisted_plan = plan_manual_continuation(ManualContinuationInput {
+                task_status: current_status,
+                task_revision_index: current.3,
+                parent_run_kind: parent.run_kind,
+                parent_run_status: parent_status,
+                parent_attempt_index: parent.attempt_index,
+                parent_revision_index: parent.revision_index,
+                committed_review: committed_review_now,
+                message: continuation_plan.message.clone(),
+            })
+            .map_err(|error| StoreError::InvariantViolation {
+                message: error.to_string(),
+            })?;
             if current.1 != owner_human_id
-                || !matches!(current.0.as_str(), "failed" | "waiting_for_human")
                 || current.2.as_deref() != Some(parent.run_id.as_str())
+                || persisted_plan != continuation_plan
             {
                 return Err(StoreError::InvariantViolation {
                     message: "task changed while continuing".to_string(),

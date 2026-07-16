@@ -1030,7 +1030,7 @@ mod tests {
             .await
             .expect("task model settings")
             .into_iter()
-            .find(|entry| entry.complexity == crate::TaskComplexity::Simple)
+            .find(|entry| entry.complexity == noema_tasks::TaskComplexity::Simple)
             .expect("simple task model");
         let actor = CodexRuntimeActor::new(
             "codex".to_string(),

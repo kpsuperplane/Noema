@@ -2725,6 +2725,7 @@ dependencies = [
  "noema-conversations",
  "noema-home",
  "noema-providers",
+ "noema-tasks",
  "reqwest",
  "ring",
  "rmcp",
@@ -2832,6 +2833,17 @@ dependencies = [
  "tower-http",
  "tower-sessions",
  "url",
+]
+
+[[package]]
+name = "noema-tasks"
+version = "0.1.0"
+dependencies = [
+ "noema-artifacts",
+ "noema-providers",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

@@ -14,8 +14,8 @@ pub(super) struct TaskHumanContinuationContext {
 }
 
 pub(super) fn format_executor_prompt(
-    task: &crate::TaskRecord,
-    criteria: &[crate::TaskValidationCriterion],
+    task: &noema_tasks::TaskRecord,
+    criteria: &[noema_tasks::TaskValidationCriterion],
     revision: i64,
 ) -> String {
     let criteria = criteria
@@ -42,9 +42,9 @@ pub(super) fn format_executor_prompt(
 }
 
 pub(super) fn format_reviewer_prompt(
-    task: &crate::TaskRecord,
-    submission: &crate::TaskSubmissionRecord,
-    criteria: &[crate::TaskValidationCriterion],
+    task: &noema_tasks::TaskRecord,
+    submission: &noema_tasks::TaskSubmissionRecord,
+    criteria: &[noema_tasks::TaskValidationCriterion],
     human_context: &[TaskHumanContinuationContext],
 ) -> String {
     let criteria = criteria
@@ -146,7 +146,7 @@ Review the evidence now. Be adversarial and submit the typed verdict through tas
 
 pub(super) async fn human_continuation_context_for_submission(
     store: &NoemaStore,
-    submission: &crate::TaskSubmissionRecord,
+    submission: &noema_tasks::TaskSubmissionRecord,
 ) -> Result<Vec<TaskHumanContinuationContext>, String> {
     let runs = store
         .list_agent_runs_for_task(&submission.task_id)
@@ -181,7 +181,7 @@ pub(super) async fn human_continuation_context_for_submission(
 
 pub(super) async fn with_resume_context(
     store: &NoemaStore,
-    run: &crate::AgentRunRecord,
+    run: &noema_tasks::AgentRunRecord,
     mut prompt: String,
 ) -> Result<String, String> {
     let lineage = load_run_lineage(store, run).await?;
@@ -196,7 +196,7 @@ pub(super) async fn with_resume_context(
             .await
             .map_err(|error| error.to_string())?;
         for item in items {
-            use crate::store::AgentRunItemStatus;
+            use noema_tasks::AgentRunItemStatus;
             if !matches!(
                 item.status,
                 AgentRunItemStatus::Completed
@@ -255,7 +255,7 @@ pub(super) async fn with_resume_context(
 
 async fn load_revision_context(
     store: &NoemaStore,
-    run: &crate::AgentRunRecord,
+    run: &noema_tasks::AgentRunRecord,
 ) -> Result<Option<String>, String> {
     let Some(triggering_review_id) = run.triggering_review_id.as_deref() else {
         return Ok(None);
@@ -277,8 +277,8 @@ async fn load_revision_context(
 }
 
 fn render_revision_context(
-    submission: &crate::TaskSubmissionRecord,
-    review: &crate::TaskReviewRecord,
+    submission: &noema_tasks::TaskSubmissionRecord,
+    review: &noema_tasks::TaskReviewRecord,
 ) -> String {
     let criteria = review
         .criteria
@@ -317,8 +317,8 @@ fn render_revision_context(
 
 async fn load_run_lineage(
     store: &NoemaStore,
-    run: &crate::AgentRunRecord,
-) -> Result<Vec<crate::AgentRunRecord>, String> {
+    run: &noema_tasks::AgentRunRecord,
+) -> Result<Vec<noema_tasks::AgentRunRecord>, String> {
     let mut lineage = Vec::new();
     let mut parent_id = run.parent_run_id.clone();
     while let Some(run_id) = parent_id {
@@ -398,7 +398,7 @@ mod tests {
         human_continuation_context_for_submission, render_revision_context,
     };
 
-    fn task() -> crate::TaskRecord {
+    fn task() -> noema_tasks::TaskRecord {
         let model = noema_providers::ProviderSelectionSnapshot::explicit(
             "codex",
             "provider_account:codex:default",
@@ -406,14 +406,14 @@ mod tests {
             None,
             Some("test".to_string()),
         );
-        crate::TaskRecord {
+        noema_tasks::TaskRecord {
             task_id: "task:test".to_string(),
             title: "Test task".to_string(),
             request_markdown: "Return a result".to_string(),
-            complexity: crate::TaskComplexity::Simple,
-            status: crate::TaskStatus::Queued,
+            complexity: noema_tasks::TaskComplexity::Simple,
+            status: noema_tasks::TaskStatus::Queued,
             owner_human_id: "human:local".to_string(),
-            source: crate::TaskSource::default(),
+            source: noema_tasks::TaskSource::default(),
             created_by_agent_id: "agent:primary".to_string(),
             creation_tool_call_id: None,
             pool_entry_id: "pool:test".to_string(),
@@ -438,7 +438,7 @@ mod tests {
     fn executor_prompt_preserves_task_and_criterion_ids() {
         let prompt = format_executor_prompt(
             &task(),
-            &[crate::TaskValidationCriterion {
+            &[noema_tasks::TaskValidationCriterion {
                 criterion_id: "criterion:abc".to_string(),
                 ordinal: 1,
                 description: "The result is present".to_string(),
@@ -456,7 +456,7 @@ mod tests {
     fn reviewer_prompt_preserves_task_and_criterion_ids() {
         let prompt = format_reviewer_prompt(
             &task(),
-            &crate::TaskSubmissionRecord {
+            &noema_tasks::TaskSubmissionRecord {
                 submission_id: "submission:test".to_string(),
                 task_id: "task:test".to_string(),
                 executor_run_id: "run:test".to_string(),
@@ -467,7 +467,7 @@ mod tests {
                 artifacts: Vec::new(),
                 created_at: "now".to_string(),
             },
-            &[crate::TaskValidationCriterion {
+            &[noema_tasks::TaskValidationCriterion {
                 criterion_id: "criterion:abc".to_string(),
                 ordinal: 1,
                 description: "The result is present".to_string(),
@@ -494,7 +494,7 @@ mod tests {
 
     #[test]
     fn revision_context_preserves_submission_and_review_feedback() {
-        let submission = crate::TaskSubmissionRecord {
+        let submission = noema_tasks::TaskSubmissionRecord {
             submission_id: "submission:test".to_string(),
             task_id: "task:test".to_string(),
             executor_run_id: "run:executor".to_string(),
@@ -505,16 +505,16 @@ mod tests {
             artifacts: Vec::new(),
             created_at: "now".to_string(),
         };
-        let review = crate::TaskReviewRecord {
+        let review = noema_tasks::TaskReviewRecord {
             review_id: "review:test".to_string(),
             task_id: "task:test".to_string(),
             reviewer_run_id: "run:reviewer".to_string(),
             reviewed_submission_id: submission.submission_id.clone(),
-            overall_verdict: crate::TaskReviewVerdict::RequestChanges,
+            overall_verdict: noema_tasks::TaskReviewVerdict::RequestChanges,
             overall_feedback: "Do not treat the page update date as the estimate year.".to_string(),
-            criteria: vec![crate::TaskReviewCriterion {
+            criteria: vec![noema_tasks::TaskReviewCriterion {
                 criterion_id: "criterion:year".to_string(),
-                outcome: crate::CriterionOutcome::Fail,
+                outcome: noema_tasks::CriterionOutcome::Fail,
                 evidence_markdown: Some("The source does not date the estimate.".to_string()),
                 feedback: Some("State that the estimate year is unknown.".to_string()),
             }],
@@ -541,14 +541,14 @@ mod tests {
         store
             .transition_agent_run(
                 &run.run_id,
-                crate::RunStatus::Running,
+                noema_tasks::RunStatus::Running,
                 Some("lease:blocked"),
                 None,
             )
             .await
             .expect("running");
         store
-            .transition_task(&task.task_id, crate::TaskStatus::Executing, None)
+            .transition_task(&task.task_id, noema_tasks::TaskStatus::Executing, None)
             .await
             .expect("executing");
         store
@@ -571,7 +571,7 @@ mod tests {
             .await
             .expect("resumed");
 
-        let submission = crate::TaskSubmissionRecord {
+        let submission = noema_tasks::TaskSubmissionRecord {
             submission_id: "submission:test".to_string(),
             task_id: task.task_id,
             executor_run_id: resumed_run.run_id,

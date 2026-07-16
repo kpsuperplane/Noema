@@ -301,7 +301,7 @@ pub(super) fn local_tool_task_reference_item(
     let status = payload
         .get("status")
         .and_then(Value::as_str)
-        .and_then(|value| value.parse::<crate::TaskStatus>().ok())?;
+        .and_then(|value| value.parse::<noema_tasks::TaskStatus>().ok())?;
     Some(TurnTranscriptItem::TaskReference {
         task_id: payload.get("task_id")?.as_str()?.to_string(),
         title: payload.get("title")?.as_str()?.to_string(),

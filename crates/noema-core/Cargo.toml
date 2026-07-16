@@ -28,6 +28,7 @@ noema-capabilities = { path = "../noema-capabilities" }
 noema-conversations = { path = "../noema-conversations" }
 noema-home = { path = "../noema-home" }
 noema-providers = { path = "../noema-providers", default-features = false, features = ["adapters", "local-models"] }
+noema-tasks = { path = "../noema-tasks", default-features = false }
 ring.workspace = true
 reqwest = { workspace = true, features = ["stream"] }
 rmcp.workspace = true

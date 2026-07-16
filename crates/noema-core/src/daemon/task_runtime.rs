@@ -5,10 +5,14 @@ use std::{sync::Arc, time::Duration};
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
+use noema_tasks::{
+    CriterionOutcome, NewTaskReview, NewTaskSubmission, RunKind, RunStatus,
+    SubmissionCriterionEvidence, TaskReviewCriterion, TaskReviewVerdict, TaskStatus,
+};
+
 use crate::graphql::{ConversationSubscriptionRegistry, TaskLiveEvent};
 use crate::{
-    CriterionOutcome, NewTaskReview, NewTaskSubmission, NoemaStore, RunKind, RunStatus,
-    SubmissionCriterionEvidence, TaskReviewCriterion, TaskReviewVerdict, TaskStatus,
+    NoemaStore,
     agent_execution::ExecutionRole,
     daemon::{
         CodexRuntimeHandle,
@@ -162,7 +166,7 @@ async fn supervise_claimed_run(
     runtime: CodexRuntimeHandle,
     subscriptions: ConversationSubscriptionRegistry,
     system_errors: SystemErrorLogger,
-    run: crate::AgentRunRecord,
+    run: noema_tasks::AgentRunRecord,
     lease_token: String,
     shutdown: CancellationToken,
 ) {
@@ -244,7 +248,7 @@ async fn supervise_run(
     store: &NoemaStore,
     runtime: &CodexRuntimeHandle,
     subscriptions: &ConversationSubscriptionRegistry,
-    run: &crate::AgentRunRecord,
+    run: &noema_tasks::AgentRunRecord,
     lease_token: &str,
     run_cancellation: &CancellationToken,
     shutdown: &CancellationToken,
@@ -281,7 +285,7 @@ async fn supervise_run(
             },
             _ = shutdown.cancelled() => {
                 run_cancellation.cancel();
-                persist_terminal_run_notice(store, run, lease_token, "cancellation", crate::AgentRunItemStatus::Cancelled, "Task worker stopped; the run will continue after restart.").await;
+                persist_terminal_run_notice(store, run, lease_token, noema_tasks::AgentRunItemKind::Cancellation, noema_tasks::AgentRunItemStatus::Cancelled, "Task worker stopped; the run will continue after restart.").await;
                 let _ = store
                     .transition_agent_run(&run.run_id, RunStatus::Interrupted, Some(lease_token), None)
                     .await;
@@ -291,7 +295,7 @@ async fn supervise_run(
                 match store.heartbeat_agent_run(&run.run_id, lease_token, LEASE_SECONDS).await {
                     Ok(heartbeat) if heartbeat.cancellation_requested => {
                         run_cancellation.cancel();
-                        persist_terminal_run_notice(store, run, lease_token, "cancellation", crate::AgentRunItemStatus::Cancelled, "Task cancelled by its owner.").await;
+                        persist_terminal_run_notice(store, run, lease_token, noema_tasks::AgentRunItemKind::Cancellation, noema_tasks::AgentRunItemStatus::Cancelled, "Task cancelled by its owner.").await;
                         let _ = store
                             .transition_agent_run(&run.run_id, RunStatus::Cancelled, Some(lease_token), None)
                             .await;
@@ -317,7 +321,7 @@ async fn supervise_run(
 async fn fail_run(
     store: &NoemaStore,
     subscriptions: &ConversationSubscriptionRegistry,
-    run: &crate::AgentRunRecord,
+    run: &noema_tasks::AgentRunRecord,
     lease_token: &str,
     error: &str,
 ) {
@@ -332,8 +336,8 @@ async fn fail_run(
             store,
             run,
             lease_token,
-            "cancellation",
-            crate::AgentRunItemStatus::Cancelled,
+            noema_tasks::AgentRunItemKind::Cancellation,
+            noema_tasks::AgentRunItemStatus::Cancelled,
             "Task cancelled by its owner.",
         )
         .await;
@@ -353,8 +357,8 @@ async fn fail_run(
         store,
         run,
         lease_token,
-        "failure",
-        crate::AgentRunItemStatus::Failed,
+        noema_tasks::AgentRunItemKind::Failure,
+        noema_tasks::AgentRunItemStatus::Failed,
         error,
     )
     .await;
@@ -383,10 +387,10 @@ async fn fail_run(
 
 async fn persist_terminal_run_notice(
     store: &NoemaStore,
-    run: &crate::AgentRunRecord,
+    run: &noema_tasks::AgentRunRecord,
     lease_token: &str,
-    kind: &str,
-    status: crate::AgentRunItemStatus,
+    kind: noema_tasks::AgentRunItemKind,
+    status: noema_tasks::AgentRunItemStatus,
     message: &str,
 ) {
     let round_index = store
@@ -399,11 +403,11 @@ async fn persist_terminal_run_notice(
         });
     let _ = store
         .append_agent_run_item(
-            crate::NewAgentRunItem {
+            noema_tasks::NewAgentRunItem {
                 item_id: Some(format!("run_item:{kind}:{}", run.run_id)),
                 run_id: run.run_id.clone(),
                 round_index,
-                kind: kind.to_string(),
+                kind,
                 status,
                 correlation_id: None,
                 parent_item_id: None,
@@ -433,7 +437,7 @@ async fn execute_run(
     store: &NoemaStore,
     runtime: &CodexRuntimeHandle,
     subscriptions: &ConversationSubscriptionRegistry,
-    run: &crate::AgentRunRecord,
+    run: &noema_tasks::AgentRunRecord,
     lease_token: &str,
     cancellation: &CancellationToken,
 ) -> Result<(), String> {
@@ -472,7 +476,7 @@ async fn execute_executor(
     store: &NoemaStore,
     runtime: &CodexRuntimeHandle,
     subscriptions: &ConversationSubscriptionRegistry,
-    run: &crate::AgentRunRecord,
+    run: &noema_tasks::AgentRunRecord,
     lease_token: &str,
     cancellation: &CancellationToken,
 ) -> Result<(), String> {
@@ -591,7 +595,7 @@ async fn execute_reviewer(
     store: &NoemaStore,
     runtime: &CodexRuntimeHandle,
     subscriptions: &ConversationSubscriptionRegistry,
-    run: &crate::AgentRunRecord,
+    run: &noema_tasks::AgentRunRecord,
     lease_token: &str,
     cancellation: &CancellationToken,
 ) -> Result<(), String> {
@@ -683,7 +687,7 @@ async fn execute_reviewer(
 
 async fn generate_once(
     runtime: &CodexRuntimeHandle,
-    run: &crate::AgentRunRecord,
+    run: &noema_tasks::AgentRunRecord,
     lease_token: &str,
     cancellation: &CancellationToken,
     input: String,
@@ -705,7 +709,7 @@ async fn generate_once(
 }
 
 fn background_task_generate_request(
-    run: &crate::AgentRunRecord,
+    run: &noema_tasks::AgentRunRecord,
     lease_token: &str,
     cancellation: &CancellationToken,
     input: String,

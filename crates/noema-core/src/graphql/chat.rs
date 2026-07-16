@@ -1118,7 +1118,7 @@ mod tests {
         let item = GraphqlTranscriptItem::from(TurnTranscriptItem::TaskReference {
             task_id: "task_1".to_string(),
             title: "Research providers".to_string(),
-            status: crate::TaskStatus::Reviewing.as_str().to_string(),
+            status: noema_tasks::TaskStatus::Reviewing.as_str().to_string(),
             revision: 2,
         });
 

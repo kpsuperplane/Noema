@@ -4,7 +4,7 @@
 
 use rusqlite::params;
 
-use crate::TaskExecutionPolicy;
+use noema_tasks::TaskExecutionPolicy;
 
 use super::{NoemaStore, StoreError};
 

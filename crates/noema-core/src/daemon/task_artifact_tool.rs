@@ -56,8 +56,8 @@ pub(crate) async fn execute_task_read_artifact(
         .map_err(|error| error.to_string())?
         .filter(|run| {
             run.task_id == context.task_id
-                && run.run_kind == crate::RunKind::Reviewer
-                && run.status == crate::RunStatus::Running
+                && run.run_kind == noema_tasks::RunKind::Reviewer
+                && run.status == noema_tasks::RunStatus::Running
                 && !run.cancellation_requested
         })
         .ok_or_else(|| "reviewer task context is unavailable".to_string())?;
@@ -122,14 +122,14 @@ mod tests {
         store
             .transition_agent_run(
                 &executor.run_id,
-                crate::RunStatus::Running,
+                noema_tasks::RunStatus::Running,
                 Some("lease:executor"),
                 None,
             )
             .await
             .expect("running");
         store
-            .transition_task(&task.task_id, crate::TaskStatus::Executing, None)
+            .transition_task(&task.task_id, noema_tasks::TaskStatus::Executing, None)
             .await
             .expect("executing");
         let artifact = artifact_operations
@@ -141,7 +141,7 @@ mod tests {
                 filename: "evidence.txt".to_string(),
                 bytes: b"reviewable evidence".to_vec(),
                 media_type: Some("text/plain".to_string()),
-                created_by_actor_id: crate::TASK_EXECUTOR_AGENT_ID.to_string(),
+                created_by_actor_id: noema_tasks::TASK_EXECUTOR_AGENT_ID.to_string(),
                 source: noema_artifacts::ArtifactSource::default(),
                 metadata: json!({}),
             })
@@ -165,14 +165,14 @@ mod tests {
             .clone();
         let (_, reviewer) = store
             .create_task_submission(
-                crate::NewTaskSubmission {
+                noema_tasks::NewTaskSubmission {
                     submission_id: None,
                     task_id: task.task_id.clone(),
                     executor_run_id: executor.run_id,
                     revision_index: 0,
                     summary: "Done".to_string(),
                     result_markdown: "See the artifact.".to_string(),
-                    criteria: vec![crate::SubmissionCriterionEvidence {
+                    criteria: vec![noema_tasks::SubmissionCriterionEvidence {
                         criterion_id,
                         evidence_markdown: "Artifact contains evidence".to_string(),
                     }],
@@ -190,7 +190,7 @@ mod tests {
         store
             .transition_agent_run(
                 &reviewer.run_id,
-                crate::RunStatus::Running,
+                noema_tasks::RunStatus::Running,
                 Some("lease:reviewer"),
                 None,
             )
@@ -220,7 +220,7 @@ mod tests {
                 filename: "unlinked.txt".to_string(),
                 bytes: b"not submitted".to_vec(),
                 media_type: Some("text/plain".to_string()),
-                created_by_actor_id: crate::TASK_EXECUTOR_AGENT_ID.to_string(),
+                created_by_actor_id: noema_tasks::TASK_EXECUTOR_AGENT_ID.to_string(),
                 source: noema_artifacts::ArtifactSource::default(),
                 metadata: json!({}),
             })

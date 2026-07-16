@@ -4,9 +4,8 @@ use noema_providers::{
     GenerateRequest, GenerateToolCallInput, GenerateToolResultInput, NoemaToolChoice,
     ProviderSelectionSnapshot, ProviderToolTransport,
 };
+use noema_tasks::{TaskComplexity, TaskSource, TaskStatus, TaskValidationCriterion};
 use serde_json::json;
-
-use crate::{TaskComplexity, TaskSource, TaskStatus, TaskValidationCriterion};
 
 use super::{
     super::{
@@ -456,7 +455,7 @@ fn auxiliary_cases(model_id: &str) -> Vec<EvalCase> {
     ]
 }
 
-fn fixture_task() -> crate::TaskRecord {
+fn fixture_task() -> noema_tasks::TaskRecord {
     let model = ProviderSelectionSnapshot::explicit(
         "local_models",
         "provider_account:local_models",
@@ -464,7 +463,7 @@ fn fixture_task() -> crate::TaskRecord {
         None,
         Some("evaluation".to_string()),
     );
-    crate::TaskRecord {
+    noema_tasks::TaskRecord {
         task_id: "task:evaluation".to_string(),
         title: "Return the launch code".to_string(),
         request_markdown: "State that the launch code is **ORBIT-52** using that exact Markdown bold syntax. All required information is present; do not ask a question."
@@ -493,8 +492,8 @@ fn fixture_task() -> crate::TaskRecord {
     }
 }
 
-fn fixture_submission() -> crate::TaskSubmissionRecord {
-    crate::TaskSubmissionRecord {
+fn fixture_submission() -> noema_tasks::TaskSubmissionRecord {
+    noema_tasks::TaskSubmissionRecord {
         submission_id: "submission:evaluation".to_string(),
         task_id: "task:evaluation".to_string(),
         executor_run_id: "run:evaluation".to_string(),

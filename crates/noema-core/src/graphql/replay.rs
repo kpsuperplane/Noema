@@ -121,7 +121,7 @@ fn turn_transcript_item_from_record(
             let payload: ReplayTaskReferencePayload = replay_payload(record)?;
             let status = payload
                 .status
-                .parse::<crate::TaskStatus>()
+                .parse::<noema_tasks::TaskStatus>()
                 .map_err(|error| {
                     DaemonError::Protocol(format!(
                         "invalid task reference status for {}: {error}",

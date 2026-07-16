@@ -3,123 +3,16 @@
 #![allow(clippy::missing_errors_doc)]
 
 use noema_providers::{ProviderSelectionSnapshot, ReasoningEffort};
+use noema_tasks::{
+    AgentRunRecord, DEFAULT_TASK_MAX_REVIEW_ROUNDS, NewTask, NewTaskReview, NewTaskSubmission,
+    RunKind, SubmissionCriterionEvidence, SubmissionState, TASK_EXECUTOR_AGENT_ID,
+    TASK_REVIEWER_AGENT_ID, TaskComplexity, TaskDomainError, TaskRecord, TaskReviewCriterion,
+    TaskReviewVerdict, TaskSource, TaskStatus, TaskSubmissionArtifactRecord, TaskSubmissionRecord,
+    TaskValidationCriterion, plan_review, plan_submission,
+};
 use rusqlite::{OptionalExtension, params};
 
-use crate::{
-    DEFAULT_TASK_MAX_REVIEW_ROUNDS, NewTask, NewTaskReview, NewTaskSubmission, RunKind,
-    TASK_EXECUTOR_AGENT_ID, TaskComplexity, TaskDomainError, TaskReviewCriterion,
-    TaskReviewVerdict, TaskSource, TaskStatus, TaskValidationCriterion,
-};
-
-use super::{NoemaStore, StoreError, agent_runs::AgentRunRecord, ids::allocate_id};
-
-/// Persisted task projection.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TaskRecord {
-    /// Stable task id.
-    pub task_id: String,
-    /// Human-visible title.
-    pub title: String,
-    /// Immutable normalized request.
-    pub request_markdown: String,
-    /// Complexity tier.
-    pub complexity: TaskComplexity,
-    /// Current workflow state.
-    pub status: TaskStatus,
-    /// Owning human.
-    pub owner_human_id: String,
-    /// Source conversation/turn/item provenance.
-    pub source: TaskSource,
-    /// Creating agent.
-    pub created_by_agent_id: String,
-    /// Delegation tool call id.
-    pub creation_tool_call_id: Option<String>,
-    /// Selected pool entry.
-    pub pool_entry_id: String,
-    /// Executor model snapshot.
-    pub executor_model: ProviderSelectionSnapshot,
-    /// Reviewer model snapshot.
-    pub reviewer_model: ProviderSelectionSnapshot,
-    /// Current revision index.
-    pub revision_index: i64,
-    /// Maximum reviewed submissions.
-    pub max_review_rounds: i64,
-    /// Approved submission id.
-    pub final_submission_id: Option<String>,
-    /// Latest run id.
-    pub latest_run_id: Option<String>,
-    /// Human-facing question that must be answered before resuming.
-    pub blocked_question: Option<String>,
-    /// Executor summary retained while waiting for human input.
-    pub blocked_context: Option<String>,
-    /// Terminal reason.
-    pub terminal_reason: Option<String>,
-    /// Safe error code.
-    pub error_code: Option<String>,
-    /// Safe error message.
-    pub error_message: Option<String>,
-    /// Creation timestamp.
-    pub created_at: String,
-    /// Last update timestamp.
-    pub updated_at: String,
-    /// Completion timestamp.
-    pub completed_at: Option<String>,
-}
-
-/// Persisted executor submission with criterion evidence.
-#[derive(Debug, Clone, PartialEq)]
-pub struct TaskSubmissionRecord {
-    /// Stable submission id.
-    pub submission_id: String,
-    /// Owning task id.
-    pub task_id: String,
-    /// Executor run id.
-    pub executor_run_id: String,
-    /// Revision index.
-    pub revision_index: i64,
-    /// Short summary.
-    pub summary: String,
-    /// Complete result Markdown.
-    pub result_markdown: String,
-    /// Criterion evidence.
-    pub criteria: Vec<crate::SubmissionCriterionEvidence>,
-    /// Ordered governed artifact snapshots linked by this submission.
-    pub artifacts: Vec<TaskSubmissionArtifactRecord>,
-    /// Creation timestamp.
-    pub created_at: String,
-}
-
-/// One governed artifact snapshot linked to an executor submission.
-#[derive(Debug, Clone, PartialEq)]
-pub struct TaskSubmissionArtifactRecord {
-    /// One-based order supplied by the executor.
-    pub ordinal: i64,
-    /// Durable artifact metadata.
-    pub artifact: noema_artifacts::ArtifactRecord,
-    /// Immutable version captured when the submission was committed.
-    pub version: noema_artifacts::ArtifactVersionRecord,
-}
-
-/// Persisted adversarial review with per-criterion outcomes.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TaskReviewRecord {
-    /// Stable review id.
-    pub review_id: String,
-    /// Owning task id.
-    pub task_id: String,
-    /// Reviewer run id.
-    pub reviewer_run_id: String,
-    /// Submission under review.
-    pub reviewed_submission_id: String,
-    /// Overall verdict.
-    pub overall_verdict: TaskReviewVerdict,
-    /// Safe overall feedback.
-    pub overall_feedback: String,
-    /// Criterion outcomes.
-    pub criteria: Vec<TaskReviewCriterion>,
-    /// Creation timestamp.
-    pub created_at: String,
-}
+use super::{NoemaStore, StoreError, ids::allocate_id};
 
 impl NoemaStore {
     /// Create a task, criteria, initial executor run, and creation event in one
@@ -336,13 +229,15 @@ impl NoemaStore {
         reason: Option<&str>,
     ) -> Result<TaskRecord, StoreError> {
         self.with_connection(|conn| {
-            let current = conn.query_row("SELECT status FROM tasks WHERE task_id = ?1", [task_id], |row| row.get::<_, String>(0)).optional()?.ok_or_else(|| StoreError::InvariantViolation { message: format!("task not found: {task_id}") })?;
+            let tx = conn.transaction()?;
+            let current = tx.query_row("SELECT status FROM tasks WHERE task_id = ?1", [task_id], |row| row.get::<_, String>(0)).optional()?.ok_or_else(|| StoreError::InvariantViolation { message: format!("task not found: {task_id}") })?;
             let current = current.parse::<TaskStatus>().map_err(|error| StoreError::InvalidEnum { kind: "task_status", value: error.to_string() })?;
             if !current.can_transition_to(next) { return Err(StoreError::InvariantViolation { message: format!("invalid task transition {current} -> {next}") }); }
-            let changed = conn.execute("UPDATE tasks SET status = ?2, terminal_reason = CASE WHEN ?2 IN ('failed', 'cancelled') THEN COALESCE(?3, terminal_reason) ELSE NULL END, completed_at = CASE WHEN ?2 = 'completed' THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE completed_at END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1", params![task_id, next.as_str(), reason])?;
+            let changed = tx.execute("UPDATE tasks SET status = ?2, terminal_reason = CASE WHEN ?2 IN ('failed', 'cancelled') THEN COALESCE(?3, terminal_reason) ELSE NULL END, completed_at = CASE WHEN ?2 = 'completed' THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE completed_at END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND status = ?4", params![task_id, next.as_str(), reason, current.as_str()])?;
             if changed != 1 { return Err(StoreError::InvariantViolation { message: format!("task transition lost race: {task_id}") }); }
-            let next_sequence: i64 = conn.query_row("SELECT COALESCE(MAX(sequence_number), 0) + 1 FROM task_events WHERE task_id = ?1", [task_id], |row| row.get(0))?;
-            conn.execute("INSERT INTO task_events (event_id, task_id, sequence_number, event_kind, actor_id, payload_json) VALUES (?1, ?2, ?3, ?4, 'system:task-runtime', ?5)", params![allocate_id("event"), task_id, next_sequence, format!("task.{}", next.as_str()), serde_json::json!({"from": current.as_str(), "to": next.as_str(), "reason": reason}).to_string()])?;
+            let next_sequence: i64 = tx.query_row("SELECT COALESCE(MAX(sequence_number), 0) + 1 FROM task_events WHERE task_id = ?1", [task_id], |row| row.get(0))?;
+            tx.execute("INSERT INTO task_events (event_id, task_id, sequence_number, event_kind, actor_id, payload_json) VALUES (?1, ?2, ?3, ?4, 'system:task-runtime', ?5)", params![allocate_id("event"), task_id, next_sequence, format!("task.{}", next.as_str()), serde_json::json!({"from": current.as_str(), "to": next.as_str(), "reason": reason}).to_string()])?;
+            tx.commit()?;
             Ok(())
         }).await?;
         self.get_task(task_id)
@@ -369,57 +264,127 @@ impl NoemaStore {
                 .ok_or_else(|| StoreError::InvariantViolation {
                     message: format!("task not found: {}", input.task_id),
                 })?;
-        if task.status != TaskStatus::Executing && task.status != TaskStatus::RevisionRequested {
-            return Err(StoreError::InvariantViolation {
-                message: format!("task is not executable: {}", task.status),
-            });
-        }
-        self.validate_task_model_snapshot(&task.reviewer_model)
-            .await?;
-        validate_submission_criteria(self, &input.task_id, &input.criteria).await?;
-        let artifacts =
-            validate_submission_artifacts(self, &input.task_id, &input.artifact_ids).await?;
-        let execution_policy = self.get_task_execution_policy().await?;
-        if let Some(existing_submission_id) = self
+        let expected_criterion_ids = self
+            .list_task_validation_criteria(&input.task_id)
+            .await?
+            .into_iter()
+            .map(|criterion| criterion.criterion_id)
+            .collect::<Vec<_>>();
+        let input = input
+            .normalized(&expected_criterion_ids)
+            .map_err(task_domain_error)?;
+        if let Some((submission_id, reviewer_run_id)) = self
             .with_connection(|conn| {
-                conn.query_row(
-                    "SELECT submission_id FROM task_submissions WHERE task_id = ?1 AND revision_index = ?2 LIMIT 1",
-                    rusqlite::params![input.task_id, input.revision_index],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()
-                .map_err(StoreError::Sqlite)
+                let tx = conn.transaction()?;
+                let replay = existing_submission_replay(&tx, &input)?;
+                tx.commit()?;
+                Ok(replay)
             })
             .await?
         {
-            let submission = self
-                .get_task_submission(&existing_submission_id)
-                .await?
-                .ok_or_else(|| StoreError::InvariantViolation {
-                    message: format!("existing submission disappeared: {existing_submission_id}"),
-                })?;
-            let reviewer_run = self
-                .list_agent_runs_for_task(&input.task_id)
-                .await?
-                .into_iter()
-                .find(|run| {
-                    run.run_kind == RunKind::Reviewer
-                        && run.triggering_submission_id.as_deref()
-                            == Some(existing_submission_id.as_str())
-                })
-                .ok_or_else(|| StoreError::InvariantViolation {
-                    message: format!(
-                        "existing submission has no reviewer run: {existing_submission_id}"
-                    ),
-                })?;
-            return Ok((submission, reviewer_run));
+            return load_submission_replay(self, &submission_id, &reviewer_run_id).await;
         }
+        let executor_run = self
+            .get_agent_run(&input.executor_run_id)
+            .await?
+            .ok_or_else(|| StoreError::InvariantViolation {
+                message: format!("executor run not found: {}", input.executor_run_id),
+            })?;
+        self.validate_task_model_snapshot(&task.reviewer_model)
+            .await?;
+        let submission_plan = plan_submission(
+            input.clone(),
+            &expected_criterion_ids,
+            SubmissionState {
+                task_id: task.task_id.clone(),
+                task_status: task.status,
+                task_revision_index: task.revision_index,
+                latest_run_id: task.latest_run_id.clone(),
+                run_id: executor_run.run_id.clone(),
+                run_task_id: executor_run.task_id.clone(),
+                run_kind: executor_run.run_kind,
+                run_status: executor_run.status,
+                run_revision_index: executor_run.revision_index,
+            },
+        )
+        .map_err(task_domain_error)?;
+        let input = submission_plan.submission.clone();
+        let artifacts =
+            validate_submission_artifacts(self, &input.task_id, &input.artifact_ids).await?;
+        let execution_policy = self.get_task_execution_policy().await?;
         let submission_id = input
             .submission_id
+            .clone()
             .unwrap_or_else(|| allocate_id("submission"));
         let reviewer_run_id = allocate_id("run");
-        self.with_connection(|conn| {
+        let replay = self.with_connection(|conn| {
             let tx = conn.transaction()?;
+            if let Some(replay) = existing_submission_replay(&tx, &input)? {
+                tx.commit()?;
+                return Ok(Some(replay));
+            }
+            let persisted_criterion_ids = {
+                let mut statement = tx.prepare(
+                    "SELECT criterion_id FROM task_validation_criteria WHERE task_id = ?1 ORDER BY criterion_id",
+                )?;
+                statement
+                    .query_map([input.task_id.as_str()], |row| row.get::<_, String>(0))?
+                    .collect::<Result<Vec<_>, _>>()?
+            };
+            let persisted_task_state = tx
+                .query_row(
+                    "SELECT status, revision_index, latest_run_id FROM tasks WHERE task_id = ?1",
+                    [&input.task_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, Option<String>>(2)?,
+                        ))
+                    },
+                )
+                .optional()?
+                .ok_or_else(|| StoreError::InvariantViolation {
+                    message: format!("task not found: {}", input.task_id),
+                })?;
+            let persisted_run_state = tx
+                .query_row(
+                    "SELECT task_id, run_kind, status, revision_index FROM agent_runs WHERE run_id = ?1",
+                    [&input.executor_run_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, i64>(3)?,
+                        ))
+                    },
+                )
+                .optional()?
+                .ok_or_else(|| StoreError::InvariantViolation {
+                    message: format!("executor run not found: {}", input.executor_run_id),
+                })?;
+            let persisted_plan = plan_submission(
+                input.clone(),
+                &persisted_criterion_ids,
+                SubmissionState {
+                    task_id: input.task_id.clone(),
+                    task_status: persisted_task_state.0.parse().map_err(task_domain_error)?,
+                    task_revision_index: persisted_task_state.1,
+                    latest_run_id: persisted_task_state.2,
+                    run_id: input.executor_run_id.clone(),
+                    run_task_id: persisted_run_state.0,
+                    run_kind: persisted_run_state.1.parse().map_err(task_domain_error)?,
+                    run_status: persisted_run_state.2.parse().map_err(task_domain_error)?,
+                    run_revision_index: persisted_run_state.3,
+                },
+            )
+            .map_err(task_domain_error)?;
+            if persisted_plan != submission_plan {
+                return Err(StoreError::InvariantViolation {
+                    message: format!("task changed while submitting: {}", input.task_id),
+                });
+            }
             let fenced = tx.execute(
                 "UPDATE agent_runs SET status = 'completed', ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, heartbeat_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND task_id = ?2 AND run_kind = 'executor' AND revision_index = ?3 AND lease_token = ?4 AND status = 'running' AND cancellation_requested = 0 AND EXISTS (SELECT 1 FROM tasks WHERE task_id = ?2 AND latest_run_id = ?1 AND status IN ('executing', 'revision_requested'))",
                 rusqlite::params![input.executor_run_id, input.task_id, input.revision_index, lease_token],
@@ -453,7 +418,7 @@ impl NoemaStore {
                 rusqlite::params![
                     reviewer_run_id,
                     task.task_id,
-                    crate::TASK_REVIEWER_AGENT_ID,
+                    TASK_REVIEWER_AGENT_ID,
                     input.revision_index,
                     submission_id,
                     task.reviewer_model.provider_kind,
@@ -495,8 +460,11 @@ impl NoemaStore {
             )?;
             append_task_event_tx(&tx, &task.task_id, "task.submission_created", &input.executor_run_id, serde_json::json!({"submission_id": submission_id, "reviewer_run_id": reviewer_run_id}))?;
             tx.commit()?;
-            Ok(())
+            Ok(None)
         }).await?;
+        if let Some((submission_id, reviewer_run_id)) = replay {
+            return load_submission_replay(self, &submission_id, &reviewer_run_id).await;
+        }
         let submission = self
             .get_task_submission(&submission_id)
             .await?
@@ -529,46 +497,36 @@ impl NoemaStore {
                     message: format!("task not found: {}", input.task_id),
                 })?;
         let criteria = self.list_task_validation_criteria(&task.task_id).await?;
-        validate_review_criteria(&criteria, &input.criteria)?;
-        let all_pass = input
-            .criteria
+        let expected_criterion_ids = criteria
             .iter()
-            .all(|criterion| criterion.outcome == crate::CriterionOutcome::Pass);
-        if input.overall_verdict == TaskReviewVerdict::Approve && !all_pass {
-            return Err(StoreError::InvariantViolation {
-                message: "review approval requires every criterion to pass".to_string(),
+            .map(|criterion| criterion.criterion_id.clone())
+            .collect::<Vec<_>>();
+        let input = input
+            .normalized(&expected_criterion_ids)
+            .map_err(task_domain_error)?;
+        if existing_review_replay_for_store(self, &input)
+            .await?
+            .is_some()
+        {
+            return self.get_task(&input.task_id).await?.ok_or_else(|| {
+                StoreError::InvariantViolation {
+                    message: format!("reviewed task disappeared: {}", input.task_id),
+                }
             });
         }
-        if let Some(existing_reviewer_run_id) = self
-            .with_connection(|conn| {
-                conn.query_row(
-                    "SELECT reviewer_run_id FROM task_reviews WHERE task_id = ?1 AND reviewed_submission_id = ?2 LIMIT 1",
-                    rusqlite::params![input.task_id, input.reviewed_submission_id],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()
-                .map_err(StoreError::Sqlite)
-            })
-            .await?
-        {
-            if existing_reviewer_run_id != input.reviewer_run_id {
-                return Err(StoreError::InvariantViolation {
-                    message: format!(
-                        "submission already has a completed review; continue with a new executor revision instead: {}",
-                        input.reviewed_submission_id
-                    ),
-                });
-            }
-            return self
-                .get_task(&input.task_id)
-                .await?
-                .ok_or_else(|| StoreError::InvariantViolation {
-                    message: format!("reviewed task disappeared: {}", input.task_id),
-                });
-        }
-        let review_id = input.review_id.unwrap_or_else(|| allocate_id("review"));
+        let review_plan = plan_review(
+            task.revision_index,
+            task.max_review_rounds,
+            input.overall_verdict,
+            &input.criteria,
+        )
+        .map_err(task_domain_error)?;
+        let review_id = input
+            .review_id
+            .clone()
+            .unwrap_or_else(|| allocate_id("review"));
         let execution_policy = self.get_task_execution_policy().await?;
-        let current_executor_model = if input.overall_verdict == TaskReviewVerdict::RequestChanges {
+        let current_executor_model = if review_plan.queue_executor {
             Some(
                 self.select_task_model_pool_entry(task.complexity, &task.pool_entry_id)
                     .await?
@@ -577,39 +535,56 @@ impl NoemaStore {
         } else {
             None
         };
-        let (next_status, next_revision, next_run_id, next_run_kind, next_run_model) =
-            match input.overall_verdict {
-                TaskReviewVerdict::Approve => {
-                    (TaskStatus::Completed, task.revision_index, None, None, None)
-                }
-                TaskReviewVerdict::NeedsHuman => (
-                    TaskStatus::WaitingForHuman,
-                    task.revision_index,
-                    None,
-                    None,
-                    None,
-                ),
-                TaskReviewVerdict::RequestChanges
-                    if task.revision_index + 1 < task.max_review_rounds =>
-                {
-                    (
-                        TaskStatus::RevisionRequested,
-                        task.revision_index + 1,
-                        Some(allocate_id("run")),
-                        Some(RunKind::Executor),
-                        current_executor_model,
-                    )
-                }
-                TaskReviewVerdict::RequestChanges => (
-                    TaskStatus::WaitingForHuman,
-                    task.revision_index,
-                    None,
-                    None,
-                    None,
-                ),
-            };
+        let next_status = review_plan.task_status;
+        let next_revision = review_plan.revision_index;
+        let next_run_id = review_plan.queue_executor.then(|| allocate_id("run"));
+        let next_run_kind = review_plan.queue_executor.then_some(RunKind::Executor);
+        let next_run_model = current_executor_model;
         self.with_connection(|conn| {
             let tx = conn.transaction()?;
+            if existing_review_replay(&tx, &input)?.is_some() {
+                tx.commit()?;
+                return Ok(());
+            }
+            let persisted_task_state = tx
+                .query_row(
+                    "SELECT status, revision_index, max_review_rounds, latest_run_id FROM tasks WHERE task_id = ?1",
+                    [&task.task_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, Option<String>>(3)?,
+                        ))
+                    },
+                )
+                .optional()?
+                .ok_or_else(|| StoreError::InvariantViolation {
+                    message: format!("task not found: {}", task.task_id),
+                })?;
+            let persisted_status = persisted_task_state
+                .0
+                .parse::<TaskStatus>()
+                .map_err(|error| StoreError::InvalidEnum {
+                    kind: "task_status",
+                    value: error.to_string(),
+                })?;
+            let persisted_plan = plan_review(
+                persisted_task_state.1,
+                persisted_task_state.2,
+                input.overall_verdict,
+                &input.criteria,
+            )
+            .map_err(task_domain_error)?;
+            if persisted_status != TaskStatus::Reviewing
+                || persisted_task_state.3.as_deref() != Some(input.reviewer_run_id.as_str())
+                || persisted_plan != review_plan
+            {
+                return Err(StoreError::InvariantViolation {
+                    message: format!("task changed while reviewing: {}", task.task_id),
+                });
+            }
             let fenced = tx.execute(
                 "UPDATE agent_runs SET status = 'completed', ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, heartbeat_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND task_id = ?2 AND run_kind = 'reviewer' AND triggering_submission_id = ?3 AND lease_token = ?4 AND status = 'running' AND cancellation_requested = 0 AND EXISTS (SELECT 1 FROM tasks WHERE task_id = ?2 AND latest_run_id = ?1 AND status = 'reviewing')",
                 rusqlite::params![input.reviewer_run_id, input.task_id, input.reviewed_submission_id, lease_token],
@@ -705,7 +680,7 @@ impl NoemaStore {
         else {
             return Ok(None);
         };
-        let criteria = self.with_connection(|conn| { let mut statement = conn.prepare("SELECT criterion_id, evidence_markdown FROM task_submission_criteria WHERE submission_id = ?1 ORDER BY criterion_id")?; let rows = statement.query_map([submission_id.as_str()], |row| Ok(crate::SubmissionCriterionEvidence { criterion_id: row.get(0)?, evidence_markdown: row.get(1)? }))?; rows.collect::<Result<Vec<_>, _>>().map_err(StoreError::Sqlite) }).await?;
+        let criteria = self.with_connection(|conn| { let mut statement = conn.prepare("SELECT criterion_id, evidence_markdown FROM task_submission_criteria WHERE submission_id = ?1 ORDER BY criterion_id")?; let rows = statement.query_map([submission_id.as_str()], |row| Ok(SubmissionCriterionEvidence { criterion_id: row.get(0)?, evidence_markdown: row.get(1)? }))?; rows.collect::<Result<Vec<_>, _>>().map_err(StoreError::Sqlite) }).await?;
         let artifact_links = self.with_connection(|conn| { let mut statement = conn.prepare("SELECT artifact_id, artifact_version_id FROM task_submission_artifacts WHERE submission_id = ?1 ORDER BY rowid")?; let rows = statement.query_map([submission_id.as_str()], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?; rows.collect::<Result<Vec<_>, _>>().map_err(StoreError::Sqlite) }).await?;
         let mut artifacts = Vec::with_capacity(artifact_links.len());
         for (index, (artifact_id, artifact_version_id)) in artifact_links.into_iter().enumerate() {
@@ -740,6 +715,213 @@ impl NoemaStore {
             created_at,
         }))
     }
+}
+
+async fn load_submission_replay(
+    store: &NoemaStore,
+    submission_id: &str,
+    reviewer_run_id: &str,
+) -> Result<(TaskSubmissionRecord, AgentRunRecord), StoreError> {
+    let submission = store
+        .get_task_submission(submission_id)
+        .await?
+        .ok_or_else(|| StoreError::InvariantViolation {
+            message: format!("existing submission disappeared: {submission_id}"),
+        })?;
+    let reviewer_run = store.get_agent_run(reviewer_run_id).await?.ok_or_else(|| {
+        StoreError::InvariantViolation {
+            message: format!("existing reviewer run disappeared: {reviewer_run_id}"),
+        }
+    })?;
+    Ok((submission, reviewer_run))
+}
+
+fn existing_submission_replay(
+    conn: &rusqlite::Connection,
+    input: &NewTaskSubmission,
+) -> Result<Option<(String, String)>, StoreError> {
+    let existing = conn
+        .query_row(
+            "SELECT submission_id, executor_run_id, summary, result_markdown
+             FROM task_submissions
+             WHERE task_id = ?1 AND revision_index = ?2
+             LIMIT 1",
+            params![input.task_id, input.revision_index],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((submission_id, executor_run_id, summary, result_markdown)) = existing else {
+        return Ok(None);
+    };
+
+    let criteria = {
+        let mut statement = conn.prepare(
+            "SELECT criterion_id, evidence_markdown
+             FROM task_submission_criteria
+             WHERE submission_id = ?1
+             ORDER BY criterion_id",
+        )?;
+        statement
+            .query_map([submission_id.as_str()], |row| {
+                Ok(SubmissionCriterionEvidence {
+                    criterion_id: row.get(0)?,
+                    evidence_markdown: row.get(1)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    let artifact_ids = {
+        let mut statement = conn.prepare(
+            "SELECT artifact_id
+             FROM task_submission_artifacts
+             WHERE submission_id = ?1
+             ORDER BY rowid",
+        )?;
+        statement
+            .query_map([submission_id.as_str()], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    let reviewer_run_ids = {
+        let mut statement = conn.prepare(
+            "SELECT run_id
+             FROM agent_runs
+             WHERE task_id = ?1
+               AND run_kind = 'reviewer'
+               AND triggering_submission_id = ?2
+             ORDER BY run_id",
+        )?;
+        statement
+            .query_map(params![input.task_id, submission_id], |row| {
+                row.get::<_, String>(0)
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+
+    let supplied_id_matches = input
+        .submission_id
+        .as_ref()
+        .is_none_or(|supplied| supplied == &submission_id);
+    let exact = supplied_id_matches
+        && executor_run_id == input.executor_run_id
+        && summary == input.summary
+        && result_markdown == input.result_markdown
+        && criteria == input.criteria
+        && artifact_ids == input.artifact_ids;
+    if !exact {
+        return Err(StoreError::InvariantViolation {
+            message: format!(
+                "task revision already has a different submission: {} revision {}",
+                input.task_id, input.revision_index
+            ),
+        });
+    }
+    let [reviewer_run_id] = reviewer_run_ids.as_slice() else {
+        return Err(StoreError::InvariantViolation {
+            message: format!(
+                "existing submission must have exactly one reviewer run: {submission_id}"
+            ),
+        });
+    };
+    Ok(Some((submission_id, reviewer_run_id.clone())))
+}
+
+async fn existing_review_replay_for_store(
+    store: &NoemaStore,
+    input: &NewTaskReview,
+) -> Result<Option<String>, StoreError> {
+    store
+        .with_connection(|conn| {
+            let tx = conn.transaction()?;
+            let replay = existing_review_replay(&tx, input)?;
+            tx.commit()?;
+            Ok(replay)
+        })
+        .await
+}
+
+fn existing_review_replay(
+    conn: &rusqlite::Connection,
+    input: &NewTaskReview,
+) -> Result<Option<String>, StoreError> {
+    let existing = conn
+        .query_row(
+            "SELECT review_id, reviewer_run_id, overall_verdict, overall_feedback
+             FROM task_reviews
+             WHERE task_id = ?1 AND reviewed_submission_id = ?2
+             LIMIT 1",
+            params![input.task_id, input.reviewed_submission_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((review_id, reviewer_run_id, verdict, feedback)) = existing else {
+        return Ok(None);
+    };
+    let verdict = verdict
+        .parse::<TaskReviewVerdict>()
+        .map_err(task_domain_error)?;
+    let criteria = {
+        let mut statement = conn.prepare(
+            "SELECT criterion_id, outcome, evidence_markdown, feedback
+             FROM task_review_criteria
+             WHERE review_id = ?1
+             ORDER BY criterion_id",
+        )?;
+        let rows = statement
+            .query_map([review_id.as_str()], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows.into_iter()
+            .map(|(criterion_id, outcome, evidence_markdown, feedback)| {
+                Ok(TaskReviewCriterion {
+                    criterion_id,
+                    outcome: outcome
+                        .parse::<noema_tasks::CriterionOutcome>()
+                        .map_err(task_domain_error)?,
+                    evidence_markdown,
+                    feedback,
+                })
+            })
+            .collect::<Result<Vec<_>, StoreError>>()?
+    };
+
+    let supplied_id_matches = input
+        .review_id
+        .as_ref()
+        .is_none_or(|supplied| supplied == &review_id);
+    let exact = supplied_id_matches
+        && reviewer_run_id == input.reviewer_run_id
+        && verdict == input.overall_verdict
+        && feedback == input.overall_feedback
+        && criteria == input.criteria;
+    if !exact {
+        return Err(StoreError::InvariantViolation {
+            message: format!(
+                "submission already has a different completed review; continue with a new executor revision instead: {}",
+                input.reviewed_submission_id
+            ),
+        });
+    }
+    Ok(Some(review_id))
 }
 
 async fn validate_submission_artifacts(
@@ -777,61 +959,6 @@ async fn validate_submission_artifacts(
         });
     }
     Ok(artifacts)
-}
-
-async fn validate_submission_criteria(
-    store: &NoemaStore,
-    task_id: &str,
-    submitted: &[crate::SubmissionCriterionEvidence],
-) -> Result<(), StoreError> {
-    let expected = store.list_task_validation_criteria(task_id).await?;
-    let mut ids = submitted
-        .iter()
-        .map(|criterion| criterion.criterion_id.as_str())
-        .collect::<Vec<_>>();
-    ids.sort_unstable();
-    ids.dedup();
-    let mut expected_ids = expected
-        .iter()
-        .map(|criterion| criterion.criterion_id.as_str())
-        .collect::<Vec<_>>();
-    expected_ids.sort_unstable();
-    if submitted.len() != expected.len()
-        || ids != expected_ids
-        || submitted
-            .iter()
-            .any(|criterion| criterion.evidence_markdown.trim().is_empty())
-    {
-        return Err(StoreError::InvariantViolation {
-            message:
-                "submission must include non-empty evidence for every task criterion exactly once"
-                    .to_string(),
-        });
-    }
-    Ok(())
-}
-
-fn validate_review_criteria(
-    expected: &[TaskValidationCriterion],
-    submitted: &[TaskReviewCriterion],
-) -> Result<(), StoreError> {
-    let mut ids = submitted
-        .iter()
-        .map(|criterion| criterion.criterion_id.as_str())
-        .collect::<Vec<_>>();
-    ids.sort_unstable();
-    ids.dedup();
-    let mut expected_ids = expected
-        .iter()
-        .map(|criterion| criterion.criterion_id.as_str())
-        .collect::<Vec<_>>();
-    expected_ids.sort_unstable();
-    if submitted.len() != expected.len() || ids != expected_ids {
-        return Err(StoreError::InvariantViolation {
-            message: "review must include exactly one result for every task criterion".to_string(),
-        });
-    }
-    Ok(())
 }
 
 fn append_task_event_tx(

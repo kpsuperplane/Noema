@@ -836,7 +836,7 @@ impl CodexRuntimeActor {
                     revision,
                 } => {
                     let status = status
-                        .parse::<crate::TaskStatus>()
+                        .parse::<noema_tasks::TaskStatus>()
                         .map_err(|error| {
                             DaemonError::Protocol(format!(
                                 "invalid task reference status for {task_id}: {error}"

@@ -1179,11 +1179,11 @@ fn parse_task_event_cursor(cursor: &str) -> Result<i64> {
 
 async fn project_task_event(
     store: &crate::NoemaStore,
-    event: crate::TaskEventRecord,
+    event: noema_tasks::TaskEventRecord,
 ) -> Result<GraphqlTaskEvent> {
-    let kind = if event.event_kind == "run.item_upserted" {
+    let kind = if event.event_kind.as_str() == "run.item_upserted" {
         GraphqlTaskEventKind::RunItemUpserted
-    } else if event.event_kind.starts_with("run.") {
+    } else if event.event_kind.as_str().starts_with("run.") {
         GraphqlTaskEventKind::RunUpdated
     } else {
         GraphqlTaskEventKind::TaskUpdated
@@ -3554,7 +3554,7 @@ mod tests {
         assert!(response.errors[0].message.contains("complexity tier"));
         assert!(
             store
-                .get_agent_runtime_preference(crate::TASK_EXECUTOR_AGENT_ID)
+                .get_agent_runtime_preference(noema_tasks::TASK_EXECUTOR_AGENT_ID)
                 .await
                 .expect("preference read")
                 .is_none()
@@ -6133,23 +6133,23 @@ mod tests {
             .await
             .expect("task models")
             .into_iter()
-            .find(|entry| entry.complexity == crate::TaskComplexity::Simple)
+            .find(|entry| entry.complexity == noema_tasks::TaskComplexity::Simple)
             .expect("simple task model");
         let (task, run) = store
-            .create_task_with_executor(crate::NewTask {
+            .create_task_with_executor(noema_tasks::NewTask {
                 task_id: None,
                 title: "Subscription task".to_string(),
                 request_markdown: "Stream updates".to_string(),
-                complexity: crate::TaskComplexity::Simple,
+                complexity: noema_tasks::TaskComplexity::Simple,
                 owner_human_id: "human:local".to_string(),
-                source: crate::TaskSource::default(),
+                source: noema_tasks::TaskSource::default(),
                 created_by_agent_id: "agent:primary".to_string(),
                 creation_tool_call_id: None,
                 pool_entry_id: pool.pool_entry_id,
                 executor_model: pool.model.clone(),
                 reviewer_model: pool.model,
                 max_review_rounds: None,
-                criteria: vec![crate::NewTaskValidationCriterion {
+                criteria: vec![noema_tasks::NewTaskValidationCriterion {
                     criterion_id: None,
                     ordinal: 1,
                     description: "Completes".to_string(),

@@ -4,6 +4,11 @@
 //! runtime support and the memory retrieval model. Filesystem layout and
 //! developer diagnostics live in `noema-home`.
 
+// Resolve legacy GraphQL/protocol documentation links without forwarding the
+// task type as part of noema-core's public API.
+#[allow(unused_imports)]
+use noema_tasks::TaskStatus;
+
 /// Shared execution roles and role-aware tool dispatch policy.
 pub mod agent_execution;
 /// Capability Gateway runtime entrypoint.
@@ -30,8 +35,6 @@ pub mod runtime_host;
 pub mod search;
 /// Embedded canonical structured store.
 pub mod store;
-/// Durable one-off task vocabulary and workflow contracts.
-pub mod task;
 #[cfg(test)]
 mod test_support;
 #[doc(hidden)]
@@ -69,22 +72,10 @@ pub use onboarding::{
 };
 pub use runtime_host::{NoemaRuntimeHost, RuntimeHostError};
 pub use store::{
-    AgentRecord, AgentRunHeartbeat, AgentRunItemRecord, AgentRunItemStatus, AgentRunRecord,
-    AgentRuntimePreferenceRecord, AgentSystemRole, AuxiliaryModelPreferenceRecord,
+    AgentRecord, AgentRuntimePreferenceRecord, AgentSystemRole, AuxiliaryModelPreferenceRecord,
     McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolRecord,
     MemoryArticleCacheRecord, MemoryServiceMode, MemoryServiceSettingsRecord, NewAgent,
-    NewAgentRun, NewAgentRunItem, NewAgentRuntimePreference, NewAuxiliaryModelPreference,
-    NewMcpServer, NewMcpTool, NewTaskModelPoolEntry, NewToolCalibration, NoemaStore,
-    SaveMemoryArticleCache, SaveMemoryServiceSettings, StoreConfig, StoreError, TaskEventRecord,
-    TaskModelPoolEntry, TaskRecord, TaskReviewRecord, TaskSubmissionArtifactRecord,
-    TaskSubmissionRecord, ToolCalibrationRecord, WEB_FETCH_SUMMARIZER_TASK_ID,
-};
-pub use task::{
-    CriterionOutcome, DEFAULT_TASK_MAX_ACTIVE_MINUTES, DEFAULT_TASK_MAX_PROVIDER_CONTINUATIONS,
-    DEFAULT_TASK_MAX_REVIEW_ROUNDS, DEFAULT_TASK_MAX_TOOL_CALLS,
-    DEFAULT_TASK_PROGRESS_AUDIT_INTERVAL, MAX_TASK_ACTIVE_MINUTES, MAX_TASK_PROVIDER_CONTINUATIONS,
-    MAX_TASK_TOOL_CALLS, NewTask, NewTaskReview, NewTaskSubmission, NewTaskValidationCriterion,
-    RunKind, RunStatus, SubmissionCriterionEvidence, TASK_EXECUTOR_AGENT_ID,
-    TASK_REVIEWER_AGENT_ID, TaskComplexity, TaskDomainError, TaskExecutionPolicy,
-    TaskReviewCriterion, TaskReviewVerdict, TaskSource, TaskStatus, TaskValidationCriterion,
+    NewAgentRuntimePreference, NewAuxiliaryModelPreference, NewMcpServer, NewMcpTool,
+    NewToolCalibration, NoemaStore, SaveMemoryArticleCache, SaveMemoryServiceSettings, StoreConfig,
+    StoreError, ToolCalibrationRecord, WEB_FETCH_SUMMARIZER_TASK_ID,
 };

@@ -95,7 +95,10 @@ async fn opening_pre_v1_task_runtime_tables_rebuilds_and_preserves_history() {
         .await
         .expect("read run")
         .expect("legacy run");
-    assert_eq!(run.execution_policy, crate::TaskExecutionPolicy::default());
+    assert_eq!(
+        run.execution_policy,
+        noema_tasks::TaskExecutionPolicy::default()
+    );
     assert_eq!(run.input_tokens, 0);
     assert_eq!(run.output_tokens, 0);
     let items = reopened
@@ -103,7 +106,7 @@ async fn opening_pre_v1_task_runtime_tables_rebuilds_and_preserves_history() {
         .await
         .expect("legacy items");
     assert_eq!(items[0].content_text.as_deref(), Some("preserved"));
-    assert_eq!(items[0].status, crate::AgentRunItemStatus::Completed);
+    assert_eq!(items[0].status, noema_tasks::AgentRunItemStatus::Completed);
 }
 
 #[tokio::test]
@@ -562,23 +565,23 @@ async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
         .await
         .expect("task model settings")
         .into_iter()
-        .find(|entry| entry.complexity == crate::TaskComplexity::Simple)
+        .find(|entry| entry.complexity == noema_tasks::TaskComplexity::Simple)
         .expect("simple task model");
     let (task, executor_run) = store
-        .create_task_with_executor(crate::NewTask {
+        .create_task_with_executor(noema_tasks::NewTask {
             task_id: None,
             title: "Lifecycle task".to_string(),
             request_markdown: "Produce a short result".to_string(),
-            complexity: crate::TaskComplexity::Simple,
+            complexity: noema_tasks::TaskComplexity::Simple,
             owner_human_id: "human:local".to_string(),
-            source: crate::TaskSource::default(),
+            source: noema_tasks::TaskSource::default(),
             created_by_agent_id: "agent:primary".to_string(),
             creation_tool_call_id: None,
             pool_entry_id: pool.pool_entry_id,
             executor_model: pool.model.clone(),
             reviewer_model: model,
             max_review_rounds: None,
-            criteria: vec![crate::NewTaskValidationCriterion {
+            criteria: vec![noema_tasks::NewTaskValidationCriterion {
                 criterion_id: None,
                 ordinal: 1,
                 description: "Result is present".to_string(),
@@ -587,9 +590,13 @@ async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
         })
         .await
         .expect("task");
-    assert_eq!(executor_run.run_kind, crate::RunKind::Executor);
+    assert_eq!(executor_run.run_kind, noema_tasks::RunKind::Executor);
     let executing_task = store
-        .transition_task(&task.task_id, crate::TaskStatus::Executing, Some("test"))
+        .transition_task(
+            &task.task_id,
+            noema_tasks::TaskStatus::Executing,
+            Some("test"),
+        )
         .await
         .expect("executing");
     assert_eq!(executing_task.terminal_reason, None);
@@ -601,7 +608,7 @@ async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
     store
         .transition_agent_run(
             &executor_run.run_id,
-            crate::RunStatus::Running,
+            noema_tasks::RunStatus::Running,
             Some("lease:executor"),
             None,
         )
@@ -618,7 +625,7 @@ async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
             filename: "report.md".to_string(),
             bytes: b"# Task report".to_vec(),
             media_type: Some("text/markdown".to_string()),
-            created_by_actor_id: crate::TASK_EXECUTOR_AGENT_ID.to_string(),
+            created_by_actor_id: noema_tasks::TASK_EXECUTOR_AGENT_ID.to_string(),
             source: noema_artifacts::ArtifactSource::default(),
             metadata: serde_json::json!({}),
         })
@@ -633,7 +640,7 @@ async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
             filename: "data.csv".to_string(),
             bytes: b"value\n42\n".to_vec(),
             media_type: Some("text/csv".to_string()),
-            created_by_actor_id: crate::TASK_EXECUTOR_AGENT_ID.to_string(),
+            created_by_actor_id: noema_tasks::TASK_EXECUTOR_AGENT_ID.to_string(),
             source: noema_artifacts::ArtifactSource::default(),
             metadata: serde_json::json!({}),
         })
@@ -667,14 +674,14 @@ async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
     assert!(
         store
             .create_task_submission(
-                crate::NewTaskSubmission {
+                noema_tasks::NewTaskSubmission {
                     submission_id: None,
                     task_id: task.task_id.clone(),
                     executor_run_id: executor_run.run_id.clone(),
                     revision_index: 0,
                     summary: "Invalid".to_string(),
                     result_markdown: "Invalid".to_string(),
-                    criteria: vec![crate::SubmissionCriterionEvidence {
+                    criteria: vec![noema_tasks::SubmissionCriterionEvidence {
                         criterion_id: criterion_id.clone(),
                         evidence_markdown: "Invalid".to_string(),
                     }],
@@ -685,28 +692,33 @@ async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
             .await
             .is_err()
     );
-    let (submission, reviewer_run) = store
-        .create_task_submission(
-            crate::NewTaskSubmission {
-                submission_id: None,
-                task_id: task.task_id.clone(),
-                executor_run_id: executor_run.run_id,
-                revision_index: 0,
-                summary: "Done".to_string(),
-                result_markdown: "# Result\n\nDone".to_string(),
-                criteria: vec![crate::SubmissionCriterionEvidence {
-                    criterion_id,
-                    evidence_markdown: "The result is present".to_string(),
-                }],
-                artifact_ids: vec![
-                    task_artifact.artifact.artifact_id.clone(),
-                    data_artifact.artifact.artifact_id.clone(),
-                ],
-            },
-            "lease:executor",
-        )
-        .await
-        .expect("submission");
+    let submission_input = noema_tasks::NewTaskSubmission {
+        submission_id: None,
+        task_id: task.task_id.clone(),
+        executor_run_id: executor_run.run_id.clone(),
+        revision_index: 0,
+        summary: "Done".to_string(),
+        result_markdown: "# Result\n\nDone".to_string(),
+        criteria: vec![noema_tasks::SubmissionCriterionEvidence {
+            criterion_id: criterion_id.clone(),
+            evidence_markdown: "The result is present".to_string(),
+        }],
+        artifact_ids: vec![
+            task_artifact.artifact.artifact_id.clone(),
+            data_artifact.artifact.artifact_id.clone(),
+        ],
+    };
+    let first_submission = submission_input.clone();
+    let concurrent_submission = submission_input.clone();
+    let (first_result, concurrent_result) = tokio::join!(
+        store.create_task_submission(first_submission, "lease:executor"),
+        store.create_task_submission(concurrent_submission, "lease:executor"),
+    );
+    let (submission, reviewer_run) = first_result.expect("submission");
+    let (concurrent_submission, concurrent_reviewer) =
+        concurrent_result.expect("concurrent exact submission");
+    assert_eq!(concurrent_submission, submission);
+    assert_eq!(concurrent_reviewer.run_id, reviewer_run.run_id);
     assert_eq!(submission.artifacts.len(), 2);
     assert_eq!(
         submission.artifacts[0].artifact.artifact_id,
@@ -720,6 +732,27 @@ async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
         submission.artifacts[1].artifact.artifact_id,
         data_artifact.artifact.artifact_id
     );
+    let (replayed_submission, replayed_reviewer) = store
+        .create_task_submission(submission_input.clone(), "lease:executor")
+        .await
+        .expect("exact submission replay");
+    assert_eq!(replayed_submission, submission);
+    assert_eq!(replayed_reviewer.run_id, reviewer_run.run_id);
+    let conflicting_submission = store
+        .create_task_submission(
+            noema_tasks::NewTaskSubmission {
+                summary: "Different summary".to_string(),
+                ..submission_input
+            },
+            "lease:executor",
+        )
+        .await
+        .expect_err("conflicting submission replay");
+    assert!(
+        conflicting_submission
+            .to_string()
+            .contains("different submission")
+    );
     store
         .claim_next_agent_run("worker:reviewer", "lease:reviewer", 120)
         .await
@@ -728,41 +761,64 @@ async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
     store
         .transition_agent_run(
             &reviewer_run.run_id,
-            crate::RunStatus::Running,
+            noema_tasks::RunStatus::Running,
             Some("lease:reviewer"),
             None,
         )
         .await
         .expect("run reviewer");
-    let completed = store
+    let review_input = noema_tasks::NewTaskReview {
+        review_id: None,
+        task_id: task.task_id.clone(),
+        reviewer_run_id: reviewer_run.run_id.clone(),
+        reviewed_submission_id: submission.submission_id.clone(),
+        overall_verdict: noema_tasks::TaskReviewVerdict::Approve,
+        overall_feedback: "All criteria pass".to_string(),
+        criteria: vec![noema_tasks::TaskReviewCriterion {
+            criterion_id: store
+                .list_task_validation_criteria(&task.task_id)
+                .await
+                .expect("criteria")[0]
+                .criterion_id
+                .clone(),
+            outcome: noema_tasks::CriterionOutcome::Pass,
+            evidence_markdown: Some("Verified".to_string()),
+            feedback: None,
+        }],
+    };
+    let first_review = review_input.clone();
+    let concurrent_review = review_input.clone();
+    let (first_result, concurrent_result) = tokio::join!(
+        store.create_task_review(first_review, "lease:reviewer"),
+        store.create_task_review(concurrent_review, "lease:reviewer"),
+    );
+    let completed = first_result.expect("review");
+    let concurrent_completed = concurrent_result.expect("concurrent exact review");
+    assert_eq!(concurrent_completed, completed);
+    assert_eq!(completed.status, noema_tasks::TaskStatus::Completed);
+    assert_eq!(
+        completed.latest_run_id.as_deref(),
+        Some(reviewer_run.run_id.as_str())
+    );
+    let replayed_completed = store
+        .create_task_review(review_input.clone(), "lease:reviewer")
+        .await
+        .expect("exact review replay");
+    assert_eq!(replayed_completed, completed);
+    let conflicting_review = store
         .create_task_review(
-            crate::NewTaskReview {
-                review_id: None,
-                task_id: task.task_id.clone(),
-                reviewer_run_id: reviewer_run.run_id.clone(),
-                reviewed_submission_id: submission.submission_id,
-                overall_verdict: crate::TaskReviewVerdict::Approve,
-                overall_feedback: "All criteria pass".to_string(),
-                criteria: vec![crate::TaskReviewCriterion {
-                    criterion_id: store
-                        .list_task_validation_criteria(&task.task_id)
-                        .await
-                        .expect("criteria")[0]
-                        .criterion_id
-                        .clone(),
-                    outcome: crate::CriterionOutcome::Pass,
-                    evidence_markdown: Some("Verified".to_string()),
-                    feedback: None,
-                }],
+            noema_tasks::NewTaskReview {
+                overall_feedback: "Different feedback".to_string(),
+                ..review_input
             },
             "lease:reviewer",
         )
         .await
-        .expect("review");
-    assert_eq!(completed.status, crate::TaskStatus::Completed);
-    assert_eq!(
-        completed.latest_run_id.as_deref(),
-        Some(reviewer_run.run_id.as_str())
+        .expect_err("conflicting review replay");
+    assert!(
+        conflicting_review
+            .to_string()
+            .contains("different completed review")
     );
 }
 
@@ -788,23 +844,23 @@ async fn failed_task_resume_queues_a_linked_attempt_with_current_snapshots() {
         .await
         .expect("task model settings")
         .into_iter()
-        .find(|entry| entry.complexity == crate::TaskComplexity::Simple)
+        .find(|entry| entry.complexity == noema_tasks::TaskComplexity::Simple)
         .expect("simple task model");
     let (task, failed_run) = store
-        .create_task_with_executor(crate::NewTask {
+        .create_task_with_executor(noema_tasks::NewTask {
             task_id: None,
             title: "Retry task".to_string(),
             request_markdown: "Try once more".to_string(),
-            complexity: crate::TaskComplexity::Simple,
+            complexity: noema_tasks::TaskComplexity::Simple,
             owner_human_id: "human:local".to_string(),
-            source: crate::TaskSource::default(),
+            source: noema_tasks::TaskSource::default(),
             created_by_agent_id: "agent:primary".to_string(),
             creation_tool_call_id: None,
             pool_entry_id: pool.pool_entry_id,
             executor_model: pool.model.clone(),
             reviewer_model: pool.model,
             max_review_rounds: None,
-            criteria: vec![crate::NewTaskValidationCriterion {
+            criteria: vec![noema_tasks::NewTaskValidationCriterion {
                 criterion_id: None,
                 ordinal: 1,
                 description: "Completes".to_string(),
@@ -816,7 +872,7 @@ async fn failed_task_resume_queues_a_linked_attempt_with_current_snapshots() {
     store
         .transition_agent_run(
             &failed_run.run_id,
-            crate::RunStatus::Failed,
+            noema_tasks::RunStatus::Failed,
             None,
             Some((
                 "provider_error".to_string(),
@@ -835,7 +891,7 @@ async fn failed_task_resume_queues_a_linked_attempt_with_current_snapshots() {
         .await
         .expect("retry task");
 
-    assert_eq!(retried_task.status, crate::TaskStatus::Queued);
+    assert_eq!(retried_task.status, noema_tasks::TaskStatus::Queued);
     assert_eq!(
         retried_task.latest_run_id.as_deref(),
         Some(retried_run.run_id.as_str())
@@ -850,7 +906,7 @@ async fn failed_task_resume_queues_a_linked_attempt_with_current_snapshots() {
     assert_eq!(retried_run.model, failed_run.model);
     assert_eq!(
         retried_run.execution_policy,
-        crate::TaskExecutionPolicy::default()
+        noema_tasks::TaskExecutionPolicy::default()
     );
     assert_eq!(
         retried_run.resume_message.as_deref(),
@@ -887,14 +943,14 @@ async fn human_continuation_after_a_completed_review_queues_a_new_executor_revis
     store
         .transition_agent_run(
             &executor_run.run_id,
-            crate::RunStatus::Running,
+            noema_tasks::RunStatus::Running,
             Some("lease:executor"),
             None,
         )
         .await
         .expect("run executor");
     store
-        .transition_task(&task.task_id, crate::TaskStatus::Executing, None)
+        .transition_task(&task.task_id, noema_tasks::TaskStatus::Executing, None)
         .await
         .expect("execute task");
     let criterion_id = store
@@ -905,14 +961,14 @@ async fn human_continuation_after_a_completed_review_queues_a_new_executor_revis
         .clone();
     let (submission, reviewer_run) = store
         .create_task_submission(
-            crate::NewTaskSubmission {
+            noema_tasks::NewTaskSubmission {
                 submission_id: None,
                 task_id: task.task_id.clone(),
                 executor_run_id: executor_run.run_id,
                 revision_index: 0,
                 summary: "First attempt".to_string(),
                 result_markdown: "Needs one human-guided revision".to_string(),
-                criteria: vec![crate::SubmissionCriterionEvidence {
+                criteria: vec![noema_tasks::SubmissionCriterionEvidence {
                     criterion_id: criterion_id.clone(),
                     evidence_markdown: "Incomplete evidence".to_string(),
                 }],
@@ -931,22 +987,22 @@ async fn human_continuation_after_a_completed_review_queues_a_new_executor_revis
     store
         .transition_agent_run(
             &reviewer_run.run_id,
-            crate::RunStatus::Running,
+            noema_tasks::RunStatus::Running,
             Some("lease:reviewer"),
             None,
         )
         .await
         .expect("run reviewer");
-    let review_input = crate::NewTaskReview {
+    let review_input = noema_tasks::NewTaskReview {
         review_id: None,
         task_id: task.task_id.clone(),
         reviewer_run_id: reviewer_run.run_id.clone(),
         reviewed_submission_id: submission.submission_id.clone(),
-        overall_verdict: crate::TaskReviewVerdict::RequestChanges,
+        overall_verdict: noema_tasks::TaskReviewVerdict::RequestChanges,
         overall_feedback: "Ask the human before another revision".to_string(),
-        criteria: vec![crate::TaskReviewCriterion {
+        criteria: vec![noema_tasks::TaskReviewCriterion {
             criterion_id,
-            outcome: crate::CriterionOutcome::Fail,
+            outcome: noema_tasks::CriterionOutcome::Fail,
             evidence_markdown: Some("The evidence is incomplete".to_string()),
             feedback: Some("Apply the human clarification".to_string()),
         }],
@@ -955,7 +1011,7 @@ async fn human_continuation_after_a_completed_review_queues_a_new_executor_revis
         .create_task_review(review_input.clone(), "lease:reviewer")
         .await
         .expect("review");
-    assert_eq!(waiting.status, crate::TaskStatus::WaitingForHuman);
+    assert_eq!(waiting.status, noema_tasks::TaskStatus::WaitingForHuman);
     let committed_review = store
         .list_task_reviews(&task.task_id)
         .await
@@ -965,7 +1021,7 @@ async fn human_continuation_after_a_completed_review_queues_a_new_executor_revis
 
     let duplicate_error = store
         .create_task_review(
-            crate::NewTaskReview {
+            noema_tasks::NewTaskReview {
                 reviewer_run_id: "run:redundant-reviewer".to_string(),
                 ..review_input
             },
@@ -988,13 +1044,13 @@ async fn human_continuation_after_a_completed_review_queues_a_new_executor_revis
         )
         .await
         .expect("resume with human guidance");
-    assert_eq!(resumed_task.status, crate::TaskStatus::Queued);
+    assert_eq!(resumed_task.status, noema_tasks::TaskStatus::Queued);
     assert_eq!(
         resumed_task.latest_run_id.as_deref(),
         Some(child.run_id.as_str())
     );
-    assert_eq!(child.run_kind, crate::RunKind::Executor);
-    assert_eq!(child.agent_id, crate::TASK_EXECUTOR_AGENT_ID);
+    assert_eq!(child.run_kind, noema_tasks::RunKind::Executor);
+    assert_eq!(child.agent_id, noema_tasks::TASK_EXECUTOR_AGENT_ID);
     assert_eq!(child.revision_index, 1);
     assert_eq!(child.attempt_index, 0);
     assert_eq!(
@@ -1017,11 +1073,11 @@ async fn agent_run_items_round_trip_in_sequence_order() {
     let store = test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let run = store
-        .create_agent_run(crate::NewAgentRun {
+        .create_agent_run(noema_tasks::NewAgentRun {
             run_id: Some("run:test".to_string()),
             task_id: "task:test".to_string(),
-            run_kind: crate::RunKind::Executor,
-            agent_id: crate::TASK_EXECUTOR_AGENT_ID.to_string(),
+            run_kind: noema_tasks::RunKind::Executor,
+            agent_id: noema_tasks::TASK_EXECUTOR_AGENT_ID.to_string(),
             revision_index: 0,
             attempt_index: 0,
             parent_run_id: None,
@@ -1034,7 +1090,7 @@ async fn agent_run_items_round_trip_in_sequence_order() {
                 None,
                 Some("test".to_string()),
             ),
-            execution_policy: crate::TaskExecutionPolicy::default(),
+            execution_policy: noema_tasks::TaskExecutionPolicy::default(),
             priority: 0,
         })
         .await
@@ -1048,7 +1104,7 @@ async fn agent_run_items_round_trip_in_sequence_order() {
     store
         .transition_agent_run(
             &run.run_id,
-            crate::RunStatus::Running,
+            noema_tasks::RunStatus::Running,
             Some("lease:test"),
             None,
         )
@@ -1056,12 +1112,12 @@ async fn agent_run_items_round_trip_in_sequence_order() {
         .expect("running");
     store
         .append_agent_run_item(
-            crate::NewAgentRunItem {
+            noema_tasks::NewAgentRunItem {
                 item_id: Some("run_item:1".to_string()),
                 run_id: "run:test".to_string(),
                 round_index: 0,
-                kind: "assistant_output".to_string(),
-                status: crate::AgentRunItemStatus::Completed,
+                kind: noema_tasks::AgentRunItemKind::AssistantOutput,
+                status: noema_tasks::AgentRunItemStatus::Completed,
                 correlation_id: None,
                 parent_item_id: None,
                 content_text: Some("first".to_string()),
@@ -1073,12 +1129,12 @@ async fn agent_run_items_round_trip_in_sequence_order() {
         .expect("first item");
     store
         .append_agent_run_item(
-            crate::NewAgentRunItem {
+            noema_tasks::NewAgentRunItem {
                 item_id: Some("run_item:2".to_string()),
                 run_id: "run:test".to_string(),
                 round_index: 0,
-                kind: "tool_call".to_string(),
-                status: crate::AgentRunItemStatus::Completed,
+                kind: noema_tasks::AgentRunItemKind::ToolCall,
+                status: noema_tasks::AgentRunItemStatus::Completed,
                 correlation_id: Some("call:1".to_string()),
                 parent_item_id: None,
                 content_text: Some("web.fetch".to_string()),
@@ -1091,12 +1147,12 @@ async fn agent_run_items_round_trip_in_sequence_order() {
     for index in 3..=5 {
         store
             .append_agent_run_item(
-                crate::NewAgentRunItem {
+                noema_tasks::NewAgentRunItem {
                     item_id: Some(format!("run_item:{index}")),
                     run_id: "run:test".to_string(),
                     round_index: 1,
-                    kind: "assistant_output".to_string(),
-                    status: crate::AgentRunItemStatus::Completed,
+                    kind: noema_tasks::AgentRunItemKind::AssistantOutput,
+                    status: noema_tasks::AgentRunItemStatus::Completed,
                     correlation_id: None,
                     parent_item_id: None,
                     content_text: Some(format!("item {index}")),
@@ -1112,7 +1168,7 @@ async fn agent_run_items_round_trip_in_sequence_order() {
     assert_eq!(items.len(), 5);
     assert_eq!(items[0].sequence_index, 1);
     assert_eq!(items[0].content_text.as_deref(), Some("first"));
-    assert_eq!(items[1].kind, "tool_call");
+    assert_eq!(items[1].kind, noema_tasks::AgentRunItemKind::ToolCall);
 
     let newest = store
         .list_agent_run_items_before_page("run:test", None, 2)
@@ -1152,18 +1208,18 @@ async fn create_agent_run_rejects_unpersistable_provider_instance_identity() {
         Some(noema_providers::ProviderInstanceKey::new("openai:default:1").unwrap());
 
     let error = store
-        .create_agent_run(crate::NewAgentRun {
+        .create_agent_run(noema_tasks::NewAgentRun {
             run_id: Some("run:instance-key".to_string()),
             task_id: "task:instance-key".to_string(),
-            run_kind: crate::RunKind::Executor,
-            agent_id: crate::TASK_EXECUTOR_AGENT_ID.to_string(),
+            run_kind: noema_tasks::RunKind::Executor,
+            agent_id: noema_tasks::TASK_EXECUTOR_AGENT_ID.to_string(),
             revision_index: 0,
             attempt_index: 0,
             parent_run_id: None,
             triggering_submission_id: None,
             triggering_review_id: None,
             model,
-            execution_policy: crate::TaskExecutionPolicy::default(),
+            execution_policy: noema_tasks::TaskExecutionPolicy::default(),
             priority: 0,
         })
         .await
@@ -1190,8 +1246,8 @@ async fn task_execution_policy_is_global_and_snapshotted_on_new_runs() {
         .get_task_execution_policy()
         .await
         .expect("default policy");
-    assert_eq!(defaults, crate::TaskExecutionPolicy::default());
-    let updated = crate::TaskExecutionPolicy {
+    assert_eq!(defaults, noema_tasks::TaskExecutionPolicy::default());
+    let updated = noema_tasks::TaskExecutionPolicy {
         max_provider_continuations: 42,
         max_tool_calls: 210,
         max_active_minutes: 90,
@@ -1221,14 +1277,14 @@ async fn blocked_task_persists_context_and_resumes_as_a_child_run() {
     store
         .transition_agent_run(
             &run.run_id,
-            crate::RunStatus::Running,
+            noema_tasks::RunStatus::Running,
             Some("lease:blocked"),
             None,
         )
         .await
         .expect("running");
     store
-        .transition_task(&task.task_id, crate::TaskStatus::Executing, None)
+        .transition_task(&task.task_id, noema_tasks::TaskStatus::Executing, None)
         .await
         .expect("executing");
     let blocked = store
@@ -1241,7 +1297,7 @@ async fn blocked_task_persists_context_and_resumes_as_a_child_run() {
         )
         .await
         .expect("blocked");
-    assert_eq!(blocked.status, crate::TaskStatus::WaitingForHuman);
+    assert_eq!(blocked.status, noema_tasks::TaskStatus::WaitingForHuman);
     assert_eq!(
         blocked.blocked_question.as_deref(),
         Some("Which account should I use?")
@@ -1255,7 +1311,7 @@ async fn blocked_task_persists_context_and_resumes_as_a_child_run() {
         )
         .await
         .expect("resume");
-    assert_eq!(resumed.status, crate::TaskStatus::Queued);
+    assert_eq!(resumed.status, noema_tasks::TaskStatus::Queued);
     assert_eq!(resumed.blocked_question, None);
     assert_eq!(child.parent_run_id.as_deref(), Some(run.run_id.as_str()));
     assert_eq!(
@@ -1270,11 +1326,11 @@ async fn queue_leases_distinct_tasks_concurrently_without_overlapping_one_task()
     let (first_task, first_run) = seed_task(&store, "First concurrent task").await;
     let (second_task, _) = seed_task(&store, "Second concurrent task").await;
     store
-        .create_agent_run(crate::NewAgentRun {
+        .create_agent_run(noema_tasks::NewAgentRun {
             run_id: None,
             task_id: first_task.task_id.clone(),
-            run_kind: crate::RunKind::Executor,
-            agent_id: crate::TASK_EXECUTOR_AGENT_ID.to_string(),
+            run_kind: noema_tasks::RunKind::Executor,
+            agent_id: noema_tasks::TASK_EXECUTOR_AGENT_ID.to_string(),
             revision_index: first_run.revision_index,
             attempt_index: first_run.attempt_index + 1,
             parent_run_id: Some(first_run.run_id.clone()),
@@ -1326,7 +1382,7 @@ async fn expired_lease_interrupts_parent_and_claims_automatic_child() {
         .expect("initial claim")
         .expect("leased");
     store
-        .transition_task(&task.task_id, crate::TaskStatus::Executing, None)
+        .transition_task(&task.task_id, noema_tasks::TaskStatus::Executing, None)
         .await
         .expect("executing");
     store
@@ -1354,7 +1410,7 @@ async fn expired_lease_interrupts_parent_and_claims_automatic_child() {
             .expect("parent")
             .expect("parent run")
             .status,
-        crate::RunStatus::Interrupted
+        noema_tasks::RunStatus::Interrupted
     );
 }
 
@@ -1370,20 +1426,20 @@ async fn shutdown_interruption_is_recovered_as_a_linked_child() {
     store
         .transition_agent_run(
             &run.run_id,
-            crate::RunStatus::Running,
+            noema_tasks::RunStatus::Running,
             Some("lease:old"),
             None,
         )
         .await
         .expect("running");
     store
-        .transition_task(&task.task_id, crate::TaskStatus::Executing, None)
+        .transition_task(&task.task_id, noema_tasks::TaskStatus::Executing, None)
         .await
         .expect("executing");
     store
         .transition_agent_run(
             &run.run_id,
-            crate::RunStatus::Interrupted,
+            noema_tasks::RunStatus::Interrupted,
             Some("lease:old"),
             None,
         )
@@ -1412,14 +1468,14 @@ async fn cancellation_fences_failure_and_terminal_submission() {
     store
         .transition_agent_run(
             &run.run_id,
-            crate::RunStatus::Running,
+            noema_tasks::RunStatus::Running,
             Some("lease:cancel"),
             None,
         )
         .await
         .expect("running");
     store
-        .transition_task(&task.task_id, crate::TaskStatus::Executing, None)
+        .transition_task(&task.task_id, noema_tasks::TaskStatus::Executing, None)
         .await
         .expect("executing");
     store
@@ -1431,7 +1487,7 @@ async fn cancellation_fences_failure_and_terminal_submission() {
         store
             .transition_agent_run(
                 &run.run_id,
-                crate::RunStatus::Failed,
+                noema_tasks::RunStatus::Failed,
                 Some("lease:cancel"),
                 Some(("provider_error".to_string(), "late failure".to_string())),
             )
@@ -1447,14 +1503,14 @@ async fn cancellation_fences_failure_and_terminal_submission() {
     assert!(
         store
             .create_task_submission(
-                crate::NewTaskSubmission {
+                noema_tasks::NewTaskSubmission {
                     submission_id: None,
                     task_id: task.task_id.clone(),
                     executor_run_id: run.run_id.clone(),
                     revision_index: 0,
                     summary: "Late result".to_string(),
                     result_markdown: "Late result".to_string(),
-                    criteria: vec![crate::SubmissionCriterionEvidence {
+                    criteria: vec![noema_tasks::SubmissionCriterionEvidence {
                         criterion_id,
                         evidence_markdown: "Late evidence".to_string(),
                     }],
@@ -1470,14 +1526,55 @@ async fn cancellation_fences_failure_and_terminal_submission() {
         .await
         .expect("task")
         .expect("cancelled task");
-    assert_eq!(cancelled.status, crate::TaskStatus::Cancelled);
+    assert_eq!(cancelled.status, noema_tasks::TaskStatus::Cancelled);
     assert!(
         store
             .list_agent_runs_for_task(&task.task_id)
             .await
             .expect("runs")
             .iter()
-            .all(|candidate| candidate.run_kind != crate::RunKind::Reviewer)
+            .all(|candidate| candidate.run_kind != noema_tasks::RunKind::Reviewer)
+    );
+}
+
+#[tokio::test]
+async fn leased_agent_run_rejects_tokenless_transition() {
+    let store = test_store().await;
+    let (_task, run) = seed_task(&store, "Lease fencing").await;
+    store
+        .claim_next_agent_run("worker:fenced", "lease:fenced", 120)
+        .await
+        .expect("claim")
+        .expect("leased run");
+    store
+        .transition_agent_run(
+            &run.run_id,
+            noema_tasks::RunStatus::Running,
+            Some("lease:fenced"),
+            None,
+        )
+        .await
+        .expect("running");
+
+    assert!(
+        store
+            .transition_agent_run(
+                &run.run_id,
+                noema_tasks::RunStatus::Failed,
+                None,
+                Some(("stale_worker".to_string(), "stale".to_string())),
+            )
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        store
+            .get_agent_run(&run.run_id)
+            .await
+            .expect("read run")
+            .expect("run")
+            .status,
+        noema_tasks::RunStatus::Running
     );
 }
 
@@ -1493,7 +1590,7 @@ async fn run_usage_and_progress_accumulate_across_provider_calls() {
     store
         .transition_agent_run(
             &run.run_id,
-            crate::RunStatus::Running,
+            noema_tasks::RunStatus::Running,
             Some("lease:usage"),
             None,
         )
@@ -1549,7 +1646,7 @@ async fn run_usage_and_progress_accumulate_across_provider_calls() {
 pub(crate) async fn seed_task(
     store: &crate::NoemaStore,
     title: &str,
-) -> (crate::TaskRecord, crate::AgentRunRecord) {
+) -> (noema_tasks::TaskRecord, noema_tasks::AgentRunRecord) {
     store.ensure_default_actors().await.expect("actors");
     store
         .ensure_default_provider_account()
@@ -1569,23 +1666,23 @@ pub(crate) async fn seed_task(
         .await
         .expect("task model settings")
         .into_iter()
-        .find(|entry| entry.complexity == crate::TaskComplexity::Simple)
+        .find(|entry| entry.complexity == noema_tasks::TaskComplexity::Simple)
         .expect("simple task model");
     store
-        .create_task_with_executor(crate::NewTask {
+        .create_task_with_executor(noema_tasks::NewTask {
             task_id: None,
             title: title.to_string(),
             request_markdown: "Complete the task".to_string(),
-            complexity: crate::TaskComplexity::Simple,
+            complexity: noema_tasks::TaskComplexity::Simple,
             owner_human_id: "human:local".to_string(),
-            source: crate::TaskSource::default(),
+            source: noema_tasks::TaskSource::default(),
             created_by_agent_id: "agent:primary".to_string(),
             creation_tool_call_id: None,
             pool_entry_id: pool.pool_entry_id,
             executor_model: pool.model.clone(),
             reviewer_model: pool.model,
             max_review_rounds: None,
-            criteria: vec![crate::NewTaskValidationCriterion {
+            criteria: vec![noema_tasks::NewTaskValidationCriterion {
                 criterion_id: None,
                 ordinal: 1,
                 description: "Task is complete".to_string(),
@@ -2009,10 +2106,10 @@ async fn durable_task_events_expose_pending_status_deliveries_until_materialized
         .await
         .expect("terminal task");
     let event_id = store
-        .append_task_event(super::task_events::NewTaskEvent {
+        .append_task_event(noema_tasks::NewTaskEvent {
             event_id: Some("event:pending-delivery".to_string()),
             task_id: task.task_id.clone(),
-            event_kind: "task.failed".to_string(),
+            event_kind: noema_tasks::TaskEventKind::new("task.failed").expect("valid event kind"),
             actor_id: "system:task-runtime".to_string(),
             causation_id: None,
             correlation_id: None,

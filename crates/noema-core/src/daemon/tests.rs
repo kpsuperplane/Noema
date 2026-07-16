@@ -411,7 +411,7 @@ async fn background_task_pins_local_provider_generation_across_replacement() {
     store
         .transition_agent_run(
             &run.run_id,
-            crate::RunStatus::Running,
+            noema_tasks::RunStatus::Running,
             Some(lease_token),
             None,
         )

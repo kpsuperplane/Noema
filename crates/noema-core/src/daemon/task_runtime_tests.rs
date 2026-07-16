@@ -35,8 +35,8 @@ fn background_generation_request_preserves_complete_provider_selection() {
     assert_eq!(request.provider_selection, provider_selection);
 }
 
-fn agent_run(model: ProviderSelectionSnapshot) -> crate::AgentRunRecord {
-    crate::AgentRunRecord {
+fn agent_run(model: ProviderSelectionSnapshot) -> noema_tasks::AgentRunRecord {
+    noema_tasks::AgentRunRecord {
         run_id: "run:test".to_string(),
         task_id: "task:test".to_string(),
         run_kind: RunKind::Reviewer,
@@ -50,8 +50,8 @@ fn agent_run(model: ProviderSelectionSnapshot) -> crate::AgentRunRecord {
         model,
         actual_provider_kind: None,
         actual_model_profile: None,
-        execution_policy: crate::TaskExecutionPolicy::default(),
-        status: crate::RunStatus::Running,
+        execution_policy: noema_tasks::TaskExecutionPolicy::default(),
+        status: noema_tasks::RunStatus::Running,
         priority: 10,
         queued_at: "2026-07-16T00:00:00Z".to_string(),
         lease_owner: Some("task-worker:test".to_string()),

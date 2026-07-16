@@ -2,71 +2,11 @@
 
 #![allow(clippy::missing_errors_doc, clippy::too_many_arguments)]
 
+use noema_tasks::{NewRunEvent, NewTaskEvent, TaskEventKind, TaskEventRecord};
 use rusqlite::OptionalExtension;
 use serde_json::Value;
 
 use super::{NoemaStore, StoreError, ids::allocate_id};
-
-/// Persisted task lifecycle event used as a durable subscription cursor.
-#[derive(Debug, Clone, PartialEq)]
-pub struct TaskEventRecord {
-    /// Stable event id.
-    pub event_id: String,
-    /// Owning task id.
-    pub task_id: String,
-    /// Durable monotonic cursor within the task.
-    pub sequence_number: i64,
-    /// Event vocabulary name.
-    pub event_kind: String,
-    /// Actor or component that emitted the event.
-    pub actor_id: String,
-    /// Direct causation id, when present.
-    pub causation_id: Option<String>,
-    /// Cross-run correlation id, when present.
-    pub correlation_id: Option<String>,
-    /// Safe structured payload.
-    pub payload: Value,
-    /// Creation timestamp.
-    pub created_at: String,
-}
-
-/// One append-only task lifecycle event.
-#[derive(Debug, Clone, PartialEq)]
-pub struct NewTaskEvent {
-    /// Optional stable event id.
-    pub event_id: Option<String>,
-    /// Task owning the event.
-    pub task_id: String,
-    /// Event name.
-    pub event_kind: String,
-    /// Actor/component responsible.
-    pub actor_id: String,
-    /// Direct cause, when present.
-    pub causation_id: Option<String>,
-    /// Cross-run correlation id, when present.
-    pub correlation_id: Option<String>,
-    /// Safe structured payload.
-    pub payload: Value,
-}
-
-/// One append-only run event.
-#[derive(Debug, Clone, PartialEq)]
-pub struct NewRunEvent {
-    /// Optional stable event id.
-    pub event_id: Option<String>,
-    /// Run owning the event.
-    pub run_id: String,
-    /// Event name.
-    pub event_kind: String,
-    /// Actor/component responsible.
-    pub actor_id: String,
-    /// Direct cause, when present.
-    pub causation_id: Option<String>,
-    /// Cross-run correlation id, when present.
-    pub correlation_id: Option<String>,
-    /// Safe structured payload.
-    pub payload: Value,
-}
 
 impl NoemaStore {
     /// Return the blocking question recorded for one task run, when present.
@@ -170,7 +110,16 @@ impl NoemaStore {
                         event_id: row.get(0)?,
                         task_id: row.get(1)?,
                         sequence_number: row.get(2)?,
-                        event_kind: row.get(3)?,
+                        event_kind: row
+                            .get::<_, String>(3)?
+                            .parse::<TaskEventKind>()
+                            .map_err(|error| {
+                                rusqlite::Error::FromSqlConversionFailure(
+                                    3,
+                                    rusqlite::types::Type::Text,
+                                    Box::new(error),
+                                )
+                            })?,
                         actor_id: row.get(4)?,
                         causation_id: row.get(5)?,
                         correlation_id: row.get(6)?,
@@ -289,13 +238,13 @@ async fn append_event(
     owner_column: &str,
     owner_id: &str,
     event_id: Option<String>,
-    event_kind: String,
+    event_kind: TaskEventKind,
     actor_id: String,
     causation_id: Option<String>,
     correlation_id: Option<String>,
     payload: Value,
 ) -> Result<String, StoreError> {
-    if owner_id.trim().is_empty() || event_kind.trim().is_empty() || actor_id.trim().is_empty() {
+    if owner_id.trim().is_empty() || actor_id.trim().is_empty() {
         return Err(StoreError::InvariantViolation {
             message: "event owner, kind, and actor are required".to_string(),
         });
@@ -303,15 +252,17 @@ async fn append_event(
     let event_id = event_id.unwrap_or_else(|| allocate_id("event"));
     let payload = serde_json::to_string(&payload)?;
     store.with_connection(|conn| {
-        let sequence: i64 = conn.query_row(
+        let transaction = conn.transaction()?;
+        let sequence: i64 = transaction.query_row(
             &format!("SELECT COALESCE(MAX(sequence_number), 0) + 1 FROM {table} WHERE {owner_column} = ?1"),
             [owner_id],
             |row| row.get(0),
         )?;
-        conn.execute(
+        transaction.execute(
             &format!("INSERT INTO {table} (event_id, {owner_column}, sequence_number, event_kind, actor_id, causation_id, correlation_id, payload_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"),
-            rusqlite::params![event_id, owner_id, sequence, event_kind.trim(), actor_id.trim(), causation_id, correlation_id, payload],
+            rusqlite::params![event_id, owner_id, sequence, event_kind.as_str(), actor_id.trim(), causation_id, correlation_id, payload],
         )?;
+        transaction.commit()?;
         Ok(())
     }).await?;
     Ok(event_id)

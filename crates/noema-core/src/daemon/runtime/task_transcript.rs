@@ -11,10 +11,11 @@ use std::{
 
 use tokio_util::sync::CancellationToken;
 
+use noema_tasks::NewAgentRunItem;
+
 use crate::{
     daemon::protocol::DaemonError,
     graphql::{ConversationSubscriptionRegistry, TaskLiveEvent},
-    store::NewAgentRunItem,
 };
 use noema_capabilities::CapabilityCatalogSnapshot;
 use noema_providers::{
@@ -76,7 +77,7 @@ impl CodexRuntimeActor {
                                 round_index,
                                 response_index,
                                 text.clone(),
-                                crate::store::AgentRunItemStatus::Running,
+                                noema_tasks::AgentRunItemStatus::Running,
                             );
                             if store
                                 .upsert_agent_run_item(item, &lease_token_for_writer)
@@ -97,7 +98,7 @@ impl CodexRuntimeActor {
                     round_index,
                     response_index,
                     text,
-                    crate::store::AgentRunItemStatus::Completed,
+                    noema_tasks::AgentRunItemStatus::Completed,
                 );
                 if store
                     .upsert_agent_run_item(item, &lease_token_for_writer)
@@ -152,8 +153,8 @@ impl CodexRuntimeActor {
                             item_id: None,
                             run_id: run_id.to_string(),
                             round_index,
-                            kind: "assistant_output".to_string(),
-                            status: crate::store::AgentRunItemStatus::Completed,
+                            kind: noema_tasks::AgentRunItemKind::AssistantOutput,
+                            status: noema_tasks::AgentRunItemStatus::Completed,
                             correlation_id: Some(format!("assistant:{round_index}")),
                             parent_item_id: None,
                             content_text: Some(assistant_text),
@@ -179,8 +180,8 @@ impl CodexRuntimeActor {
                         )),
                         run_id: run_id.to_string(),
                         round_index,
-                        kind: "tool_call".to_string(),
-                        status: crate::store::AgentRunItemStatus::Running,
+                        kind: noema_tasks::AgentRunItemKind::ToolCall,
+                        status: noema_tasks::AgentRunItemStatus::Running,
                         correlation_id: call.provider_call_id.clone().or(call.id.clone()),
                         parent_item_id: None,
                         content_text: Some(call.name.clone()),
@@ -242,8 +243,8 @@ impl CodexRuntimeActor {
                     )),
                     run_id: request.run_id.clone(),
                     round_index,
-                    kind: "tool_call".to_string(),
-                    status: crate::store::AgentRunItemStatus::Skipped,
+                    kind: noema_tasks::AgentRunItemKind::ToolCall,
+                    status: noema_tasks::AgentRunItemStatus::Skipped,
                     correlation_id: Some(correlation_id),
                     parent_item_id: None,
                     content_text: Some(call.name.clone()),
@@ -264,7 +265,7 @@ fn assistant_run_item(
     round_index: i64,
     response_index: usize,
     text: String,
-    status: crate::store::AgentRunItemStatus,
+    status: noema_tasks::AgentRunItemStatus,
 ) -> NewAgentRunItem {
     NewAgentRunItem {
         item_id: Some(format!(
@@ -272,7 +273,7 @@ fn assistant_run_item(
         )),
         run_id: run_id.to_string(),
         round_index,
-        kind: "assistant_output".to_string(),
+        kind: noema_tasks::AgentRunItemKind::AssistantOutput,
         status,
         correlation_id: Some(format!("assistant:{round_index}:{response_index}")),
         parent_item_id: None,

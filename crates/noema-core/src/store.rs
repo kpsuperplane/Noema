@@ -3,6 +3,7 @@
 /// Store-backed state violated a closed Noema schema assumption.
 pub const SYSTEM_ERROR_STORE_INVARIANT: &str = "store_invariant_violation";
 
+mod agent_run_rows;
 mod agent_runs;
 mod agent_runtime_preferences;
 mod agents;
@@ -48,7 +49,6 @@ mod tasks;
 #[cfg(test)]
 pub(crate) mod tests;
 
-pub use agent_runs::{AgentRunHeartbeat, AgentRunRecord, NewAgentRun};
 pub use agent_runtime_preferences::{AgentRuntimePreferenceRecord, NewAgentRuntimePreference};
 pub use agents::{AgentRecord, AgentSystemRole, HumanRecord, NewAgent};
 pub use auxiliary_model_preferences::{
@@ -64,8 +64,4 @@ pub use memory_service::{
     MemoryArticleCacheRecord, MemoryServiceMode, MemoryServiceSettingsRecord,
     SaveMemoryArticleCache, SaveMemoryServiceSettings,
 };
-pub use run_items::{AgentRunItemRecord, AgentRunItemStatus, NewAgentRunItem};
 pub use runtime::{NoemaStore, StoreConfig};
-pub use task_events::TaskEventRecord;
-pub use task_model_pools::{NewTaskModelPoolEntry, TaskModelPoolEntry};
-pub use tasks::{TaskRecord, TaskReviewRecord, TaskSubmissionArtifactRecord, TaskSubmissionRecord};

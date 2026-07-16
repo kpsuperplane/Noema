@@ -9,6 +9,7 @@ members = [
     "crates/noema-model-evals",
     "crates/noema-providers",
     "crates/noema-server",
+    "crates/noema-tasks",
 ]
 default-members = ["crates/noema-core"]
 resolver = "3"

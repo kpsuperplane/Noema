@@ -2,124 +2,11 @@
 
 #![allow(clippy::missing_errors_doc)]
 
-use std::{fmt, str::FromStr};
-
+use noema_tasks::{AgentRunItemKind, AgentRunItemRecord, AgentRunItemStatus, NewAgentRunItem};
 use rusqlite::{OptionalExtension, params};
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{NoemaStore, StoreError, ids::allocate_id};
-
-/// Lifecycle state for one correlated transcript item.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AgentRunItemStatus {
-    /// Work has been declared but has not started.
-    Pending,
-    /// Work is currently in progress.
-    Running,
-    /// Work completed successfully.
-    #[default]
-    Completed,
-    /// Work ended with an error.
-    Failed,
-    /// Work was cancelled.
-    Cancelled,
-    /// Work was intentionally not executed.
-    Skipped,
-}
-
-impl AgentRunItemStatus {
-    /// Return the stable persistence representation.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Pending => "pending",
-            Self::Running => "running",
-            Self::Completed => "completed",
-            Self::Failed => "failed",
-            Self::Cancelled => "cancelled",
-            Self::Skipped => "skipped",
-        }
-    }
-}
-
-impl fmt::Display for AgentRunItemStatus {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.as_str())
-    }
-}
-
-impl FromStr for AgentRunItemStatus {
-    type Err = StoreError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "pending" => Ok(Self::Pending),
-            "running" => Ok(Self::Running),
-            "completed" => Ok(Self::Completed),
-            "failed" => Ok(Self::Failed),
-            "cancelled" => Ok(Self::Cancelled),
-            "skipped" => Ok(Self::Skipped),
-            _ => Err(StoreError::InvalidEnum {
-                kind: "agent_run_item_status",
-                value: value.to_string(),
-            }),
-        }
-    }
-}
-
-/// Input for appending or upserting one run transcript item.
-#[derive(Debug, Clone, PartialEq)]
-pub struct NewAgentRunItem {
-    /// Optional stable id used to coalesce streaming updates.
-    pub item_id: Option<String>,
-    /// Owning run id.
-    pub run_id: String,
-    /// Zero-based provider round.
-    pub round_index: i64,
-    /// Transcript item kind.
-    pub kind: String,
-    /// Current lifecycle state.
-    pub status: AgentRunItemStatus,
-    /// Tool/provider correlation id.
-    pub correlation_id: Option<String>,
-    /// Optional parent transcript item.
-    pub parent_item_id: Option<String>,
-    /// Human-readable content.
-    pub content_text: Option<String>,
-    /// Safe structured payload.
-    pub payload: Value,
-}
-
-/// Persisted transcript item for one background run.
-#[derive(Debug, Clone, PartialEq)]
-pub struct AgentRunItemRecord {
-    /// Stable item id.
-    pub item_id: String,
-    /// Owning run id.
-    pub run_id: String,
-    /// Monotonic sequence within the run.
-    pub sequence_index: i64,
-    /// Zero-based provider round.
-    pub round_index: i64,
-    /// Transcript item kind.
-    pub kind: String,
-    /// Current lifecycle state.
-    pub status: AgentRunItemStatus,
-    /// Tool/provider correlation id.
-    pub correlation_id: Option<String>,
-    /// Optional parent transcript item.
-    pub parent_item_id: Option<String>,
-    /// Human-readable content.
-    pub content_text: Option<String>,
-    /// Safe structured payload.
-    pub payload: Value,
-    /// Creation timestamp.
-    pub created_at: String,
-    /// Last update timestamp.
-    pub updated_at: String,
-}
 
 impl NoemaStore {
     /// Append one transcript item while the caller owns the active run lease.
@@ -138,8 +25,8 @@ impl NoemaStore {
         lease_token: &str,
     ) -> Result<AgentRunItemRecord, StoreError> {
         let run_id = input.run_id.trim().to_string();
-        let kind = input.kind.trim().to_string();
-        if run_id.is_empty() || kind.is_empty() || lease_token.trim().is_empty() {
+        let kind = input.kind;
+        if run_id.is_empty() || lease_token.trim().is_empty() {
             return Err(StoreError::InvariantViolation {
                 message: "run item requires run, kind, and lease token".to_string(),
             });
@@ -170,7 +57,7 @@ impl NoemaStore {
                 }
                 tx.execute(
                     "UPDATE agent_run_items SET round_index = ?3, kind = ?4, status = ?5, correlation_id = ?6, parent_item_id = ?7, content_text = ?8, payload_json = ?9, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE item_id = ?1 AND run_id = ?2",
-                    params![item_id, run_id, input.round_index, kind, input.status.as_str(), input.correlation_id, input.parent_item_id, content_text, payload],
+                    params![item_id, run_id, input.round_index, kind.as_str(), input.status.as_str(), input.correlation_id, input.parent_item_id, content_text, payload],
                 )?;
             } else {
                 let sequence_index: i64 = tx.query_row(
@@ -180,7 +67,7 @@ impl NoemaStore {
                 )?;
                 tx.execute(
                     "INSERT INTO agent_run_items (item_id, run_id, sequence_index, round_index, kind, status, correlation_id, parent_item_id, content_text, payload_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-                    params![item_id, run_id, sequence_index, input.round_index, kind, input.status.as_str(), input.correlation_id, input.parent_item_id, content_text, payload],
+                    params![item_id, run_id, sequence_index, input.round_index, kind.as_str(), input.status.as_str(), input.correlation_id, input.parent_item_id, content_text, payload],
                 )?;
             }
             let sequence_index: i64 = tx.query_row(
@@ -204,7 +91,7 @@ impl NoemaStore {
                         "item_id": item_id,
                         "sequence_index": sequence_index,
                         "round_index": input.round_index,
-                        "kind": kind,
+                        "kind": kind.as_str(),
                         "status": input.status.as_str(),
                     })
                     .to_string(),
@@ -340,6 +227,16 @@ fn require_active_lease(
 }
 
 fn run_item_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRunItemRecord> {
+    let kind = row
+        .get::<_, String>(4)?
+        .parse::<AgentRunItemKind>()
+        .map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                4,
+                rusqlite::types::Type::Text,
+                Box::new(error),
+            )
+        })?;
     let status = row
         .get::<_, String>(5)?
         .parse::<AgentRunItemStatus>()
@@ -358,7 +255,7 @@ fn run_item_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRunItemRe
         run_id: row.get(1)?,
         sequence_index: row.get(2)?,
         round_index: row.get(3)?,
-        kind: row.get(4)?,
+        kind,
         status,
         correlation_id: row.get(6)?,
         parent_item_id: row.get(7)?,

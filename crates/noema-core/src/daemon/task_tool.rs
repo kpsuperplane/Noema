@@ -3,12 +3,13 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::{
-    NewTask, NewTaskValidationCriterion, NoemaStore, TASK_REVIEWER_AGENT_ID, TaskComplexity,
-    TaskModelPoolEntry, TaskSource, TaskStatus,
-};
+use crate::NoemaStore;
 use noema_capabilities::ToolSpec;
 use noema_providers::ProviderSelectionSnapshot;
+use noema_tasks::{
+    NewTask, NewTaskValidationCriterion, TASK_REVIEWER_AGENT_ID, TaskComplexity,
+    TaskModelPoolEntry, TaskSource, TaskStatus,
+};
 
 pub(crate) const TASK_DELEGATE_TOOL: &str = "task.delegate";
 pub(crate) const TASK_INSPECT_TOOL: &str = "task.inspect";
@@ -834,7 +835,7 @@ mod tests {
         store
             .transition_agent_run(
                 &run.run_id,
-                crate::RunStatus::Failed,
+                noema_tasks::RunStatus::Failed,
                 None,
                 Some(("provider_error".to_string(), "model missing".to_string())),
             )
@@ -871,14 +872,14 @@ mod tests {
         store
             .transition_agent_run(
                 &executor_run.run_id,
-                crate::RunStatus::Running,
+                noema_tasks::RunStatus::Running,
                 Some("lease:executor"),
                 None,
             )
             .await
             .expect("run executor");
         store
-            .transition_task(&task.task_id, crate::TaskStatus::Executing, None)
+            .transition_task(&task.task_id, noema_tasks::TaskStatus::Executing, None)
             .await
             .expect("execute task");
         store
@@ -893,14 +894,14 @@ mod tests {
             .clone();
         let (_, reviewer_run) = store
             .create_task_submission(
-                crate::NewTaskSubmission {
+                noema_tasks::NewTaskSubmission {
                     submission_id: None,
                     task_id: task.task_id.clone(),
                     executor_run_id: executor_run.run_id.clone(),
                     revision_index: 0,
                     summary: "Done".to_string(),
                     result_markdown: "Done".to_string(),
-                    criteria: vec![crate::SubmissionCriterionEvidence {
+                    criteria: vec![noema_tasks::SubmissionCriterionEvidence {
                         criterion_id,
                         evidence_markdown: "Verified".to_string(),
                     }],
@@ -918,7 +919,7 @@ mod tests {
         store
             .transition_agent_run(
                 &reviewer_run.run_id,
-                crate::RunStatus::Running,
+                noema_tasks::RunStatus::Running,
                 Some("lease:reviewer"),
                 None,
             )

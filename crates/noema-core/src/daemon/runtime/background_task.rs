@@ -5,11 +5,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+use noema_tasks::NewAgentRunItem;
+
 use crate::{
     agent_execution::ExecutionRole,
     daemon::{agent_onboarding::AgentPromptIdentity, protocol::DaemonError},
     graphql::ConversationSubscriptionRegistry,
-    store::NewAgentRunItem,
 };
 use noema_providers::{
     GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
@@ -54,7 +55,7 @@ pub(crate) struct BackgroundTaskGenerateRequest {
     /// Complete immutable provider selection retained from the durable run.
     pub provider_selection: ProviderSelectionSnapshot,
     /// Immutable provider-independent execution-policy snapshot.
-    pub execution_policy: crate::TaskExecutionPolicy,
+    pub execution_policy: noema_tasks::TaskExecutionPolicy,
     /// User/task prompt supplied to the provider.
     pub input: String,
     /// System instructions for the executor or reviewer contract.
@@ -337,11 +338,11 @@ impl CodexRuntimeActor {
                         )),
                         run_id: request.run_id.clone(),
                         round_index: continuation_index as i64,
-                        kind: "tool_result".to_string(),
+                        kind: noema_tasks::AgentRunItemKind::ToolResult,
                         status: if result.success() {
-                            crate::store::AgentRunItemStatus::Completed
+                            noema_tasks::AgentRunItemStatus::Completed
                         } else {
-                            crate::store::AgentRunItemStatus::Failed
+                            noema_tasks::AgentRunItemStatus::Failed
                         },
                         correlation_id: Some(correlation_id.clone()),
                         parent_item_id: Some(tool_call_item_id.clone()),
@@ -358,11 +359,11 @@ impl CodexRuntimeActor {
                         item_id: Some(tool_call_item_id),
                         run_id: request.run_id.clone(),
                         round_index: continuation_index as i64,
-                        kind: "tool_call".to_string(),
+                        kind: noema_tasks::AgentRunItemKind::ToolCall,
                         status: if result.success() {
-                            crate::store::AgentRunItemStatus::Completed
+                            noema_tasks::AgentRunItemStatus::Completed
                         } else {
-                            crate::store::AgentRunItemStatus::Failed
+                            noema_tasks::AgentRunItemStatus::Failed
                         },
                         correlation_id: Some(correlation_id),
                         parent_item_id: None,
@@ -772,8 +773,8 @@ impl CodexRuntimeActor {
                 item_id: Some(tool_call_item_id.clone()),
                 run_id: request.run_id.clone(),
                 round_index,
-                kind: "tool_call".to_string(),
-                status: crate::store::AgentRunItemStatus::Completed,
+                kind: noema_tasks::AgentRunItemKind::ToolCall,
+                status: noema_tasks::AgentRunItemStatus::Completed,
                 correlation_id: Some(correlation_id.clone()),
                 parent_item_id: None,
                 content_text: Some(terminal_call.name.clone()),
@@ -797,8 +798,8 @@ impl CodexRuntimeActor {
                 )),
                 run_id: request.run_id.clone(),
                 round_index,
-                kind: "tool_result".to_string(),
-                status: crate::store::AgentRunItemStatus::Completed,
+                kind: noema_tasks::AgentRunItemKind::ToolResult,
+                status: noema_tasks::AgentRunItemStatus::Completed,
                 correlation_id: Some(correlation_id),
                 parent_item_id: Some(tool_call_item_id),
                 content_text: Some(terminal_call.name.clone()),
@@ -822,8 +823,8 @@ impl CodexRuntimeActor {
                 item_id: None,
                 run_id: request.run_id.clone(),
                 round_index: 0,
-                kind: "progress_notice".to_string(),
-                status: crate::store::AgentRunItemStatus::Completed,
+                kind: noema_tasks::AgentRunItemKind::ProgressNotice,
+                status: noema_tasks::AgentRunItemStatus::Completed,
                 correlation_id: None,
                 parent_item_id: None,
                 content_text: Some(message.to_string()),

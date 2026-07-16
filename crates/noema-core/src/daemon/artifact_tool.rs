@@ -182,12 +182,12 @@ async fn execute_artifact_create_local_file_inner(
             })?;
             if run.task_id != task.task_id
                 || run.agent_id != context.created_by_actor_id
-                || run.run_kind != crate::RunKind::Executor
-                || run.status != crate::RunStatus::Running
+                || run.run_kind != noema_tasks::RunKind::Executor
+                || run.status != noema_tasks::RunStatus::Running
                 || run.cancellation_requested
                 || !matches!(
                     task.status,
-                    crate::TaskStatus::Executing | crate::TaskStatus::RevisionRequested
+                    noema_tasks::TaskStatus::Executing | noema_tasks::TaskStatus::RevisionRequested
                 )
             {
                 return Err(ArtifactToolError::InvalidArguments(

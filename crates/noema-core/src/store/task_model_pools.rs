@@ -3,118 +3,16 @@
 #![allow(clippy::missing_errors_doc)]
 
 use noema_providers::{ProviderAccountStatus, ProviderSelectionSnapshot, ReasoningEffort};
+use noema_tasks::{
+    NewTaskModelPoolEntry, TaskComplexity, TaskModelPoolEntry,
+    is_global_task_model_pool_setting_id, provider_default_task_models,
+};
 use rusqlite::{OptionalExtension, params};
-
-use crate::{TaskComplexity, task::provider_defaults::provider_default_task_models};
 
 use super::{NoemaStore, StoreError};
 
 const TASK_MODEL_POOL_SETTING_PREFIX: &str = "task_pool:setting:";
 const LEGACY_PROVIDER_DEFAULT_POOL_PREFIX: &str = "task_pool:provider_default:";
-
-/// Input for creating or updating one executor pool entry.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NewTaskModelPoolEntry {
-    /// Optional stable id; one is allocated when absent.
-    pub pool_entry_id: Option<String>,
-    /// Complexity tier exposed to the primary agent.
-    pub complexity: TaskComplexity,
-    /// Optional human-facing label.
-    pub label: Option<String>,
-    /// Provider family for the exact model profile.
-    pub provider_kind: String,
-    /// Active provider account that owns the model profile.
-    pub provider_account_id: String,
-    /// Exact provider model/profile.
-    pub model_profile: String,
-    /// Optional explicit reasoning effort.
-    pub reasoning_effort: Option<ReasoningEffort>,
-    /// Whether the entry can be selected for new tasks.
-    pub enabled: bool,
-    /// Human-controlled ordering within a complexity tier.
-    pub sort_order: i64,
-}
-
-/// Persisted executor model pool entry.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TaskModelPoolEntry {
-    /// Stable pool-entry id.
-    pub pool_entry_id: String,
-    /// Complexity tier exposed to the primary agent.
-    pub complexity: TaskComplexity,
-    /// Optional human-facing label.
-    pub label: Option<String>,
-    /// Immutable model snapshot selected by this entry.
-    pub model: ProviderSelectionSnapshot,
-    /// Whether the entry can be selected for new tasks.
-    pub enabled: bool,
-    /// Human-controlled ordering within a complexity tier.
-    pub sort_order: i64,
-    /// Creation timestamp.
-    pub created_at: String,
-    /// Last update timestamp.
-    pub updated_at: String,
-}
-
-impl TaskModelPoolEntry {
-    /// Return whether this row is one of Noema's three global settings.
-    #[must_use]
-    pub fn is_global_setting(&self) -> bool {
-        is_global_task_model_pool_setting_id(&self.pool_entry_id)
-    }
-}
-
-/// Return whether an id belongs to one of the three global executor settings.
-#[must_use]
-pub fn is_global_task_model_pool_setting_id(pool_entry_id: &str) -> bool {
-    pool_entry_id.starts_with(TASK_MODEL_POOL_SETTING_PREFIX)
-}
-
-impl NewTaskModelPoolEntry {
-    fn normalized(&self) -> Result<Self, StoreError> {
-        let provider_kind = self.provider_kind.trim().to_ascii_lowercase();
-        let provider_account_id = self.provider_account_id.trim().to_string();
-        let model_profile = self.model_profile.trim().to_string();
-        let model = ProviderSelectionSnapshot::explicit(
-            provider_kind.clone(),
-            provider_account_id.clone(),
-            model_profile.clone(),
-            self.reasoning_effort,
-            Some("task_model_pool".to_string()),
-        )
-        .normalized()
-        .map_err(|error| StoreError::InvariantViolation {
-            message: error.to_string(),
-        })?;
-        if provider_account_id.is_empty() || model_profile.is_empty() {
-            return Err(StoreError::InvariantViolation {
-                message: "task model pool provider account and model profile are required"
-                    .to_string(),
-            });
-        }
-        Ok(Self {
-            pool_entry_id: self
-                .pool_entry_id
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned),
-            complexity: self.complexity,
-            label: self
-                .label
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned),
-            provider_kind,
-            provider_account_id,
-            model_profile,
-            reasoning_effort: model.reasoning_effort,
-            enabled: self.enabled,
-            sort_order: self.sort_order,
-        })
-    }
-}
 
 impl NoemaStore {
     /// Ensure exactly one global executor model setting exists per tier.
@@ -235,7 +133,11 @@ impl NoemaStore {
         pool_entry_id: &str,
         input: NewTaskModelPoolEntry,
     ) -> Result<TaskModelPoolEntry, StoreError> {
-        let input = input.normalized()?;
+        let input = input
+            .normalized()
+            .map_err(|error| StoreError::InvariantViolation {
+                message: error.to_string(),
+            })?;
         self.validate_pool_account(&input.provider_kind, &input.provider_account_id)
             .await?;
         let existing = self
