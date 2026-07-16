@@ -13,6 +13,8 @@ pub(crate) mod model_tools;
 mod progress;
 pub(crate) mod progress_audit;
 mod prompt_context;
+#[allow(dead_code)]
+pub(crate) mod provider_routes;
 mod task_completion;
 mod task_continuation;
 mod task_transcript;
