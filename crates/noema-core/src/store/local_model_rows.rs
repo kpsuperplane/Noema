@@ -1,9 +1,6 @@
 //! SQLite row decoding and numeric conversion for local-model persistence.
 
-use crate::local_models::{
-    LocalModelBackend, LocalModelEventKind, LocalModelEventRecord, LocalModelInstallationRecord,
-    LocalModelInstallationStatus, LocalModelSourceKind,
-};
+use noema_providers::{LocalModelBackend, LocalModelEventRecord, LocalModelInstallationRecord};
 
 use super::StoreError;
 
@@ -16,25 +13,14 @@ FROM local_model_installations
 "#;
 
 pub(super) const fn backend_str(backend: LocalModelBackend) -> &'static str {
-    match backend {
-        LocalModelBackend::Metal => "metal",
-        LocalModelBackend::Cuda => "cuda",
-        LocalModelBackend::Vulkan => "vulkan",
-        LocalModelBackend::Cpu => "cpu",
-    }
+    backend.as_persistence_str()
 }
 
 fn parse_backend(value: &str) -> Result<LocalModelBackend, StoreError> {
-    match value {
-        "metal" => Ok(LocalModelBackend::Metal),
-        "cuda" => Ok(LocalModelBackend::Cuda),
-        "vulkan" => Ok(LocalModelBackend::Vulkan),
-        "cpu" => Ok(LocalModelBackend::Cpu),
-        _ => Err(StoreError::InvalidEnum {
-            kind: "local model backend",
-            value: value.to_string(),
-        }),
-    }
+    value.parse().map_err(|_| StoreError::InvalidEnum {
+        kind: "local model backend",
+        value: value.to_string(),
+    })
 }
 
 pub(super) type RawInstallation = (
@@ -96,11 +82,9 @@ pub(super) fn installation_from_raw(
         installation_id: raw.0,
         model_id: raw.1,
         display_name: raw.2,
-        source_kind: LocalModelSourceKind::from_str(&raw.3).ok_or_else(|| {
-            StoreError::InvalidEnum {
-                kind: "local model source kind",
-                value: raw.3,
-            }
+        source_kind: raw.3.parse().map_err(|_| StoreError::InvalidEnum {
+            kind: "local model source kind",
+            value: raw.3.clone(),
         })?,
         source_repo: raw.4,
         source_revision: raw.5,
@@ -111,11 +95,9 @@ pub(super) fn installation_from_raw(
         downloaded_bytes: i64_to_u64(raw.10, "downloaded bytes")?,
         license: raw.11,
         backend: parse_backend(&raw.12)?,
-        status: LocalModelInstallationStatus::from_str(&raw.13).ok_or_else(|| {
-            StoreError::InvalidEnum {
-                kind: "local model installation status",
-                value: raw.13,
-            }
+        status: raw.13.parse().map_err(|_| StoreError::InvalidEnum {
+            kind: "local model installation status",
+            value: raw.13.clone(),
         })?,
         blob_relative_path: raw.14,
         is_active: raw.15,
@@ -153,9 +135,9 @@ pub(super) fn event_from_raw(raw: RawEvent) -> Result<LocalModelEventRecord, Sto
     Ok(LocalModelEventRecord {
         cursor: i64_to_u64(raw.0, "event cursor")?,
         installation_id: raw.1,
-        kind: LocalModelEventKind::from_str(&raw.2).ok_or_else(|| StoreError::InvalidEnum {
+        kind: raw.2.parse().map_err(|_| StoreError::InvalidEnum {
             kind: "local model event kind",
-            value: raw.2,
+            value: raw.2.clone(),
         })?,
         downloaded_bytes: optional_i64_to_u64(raw.3, "downloaded bytes")?,
         expected_bytes: optional_i64_to_u64(raw.4, "expected bytes")?,

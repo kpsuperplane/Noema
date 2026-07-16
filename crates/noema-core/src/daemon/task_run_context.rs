@@ -399,7 +399,7 @@ mod tests {
     };
 
     fn task() -> crate::TaskRecord {
-        let model = crate::ModelConfigSnapshot::explicit(
+        let model = noema_providers::ProviderSelectionSnapshot::explicit(
             "codex",
             "provider_account:codex:default",
             "gpt-5.6-luna",

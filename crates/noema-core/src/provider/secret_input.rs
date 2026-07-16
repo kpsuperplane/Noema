@@ -1,18 +1,28 @@
 //! Write-only secret-input provider account storage.
 
-use crate::{ProviderError, provider::auth::ensure_provider_account_home};
+use crate::provider::auth::ensure_provider_account_home;
+use noema_providers::ProviderError;
 use serde::{Deserialize, Serialize};
-use std::{fs, path::PathBuf};
+use std::{fmt, fs, path::PathBuf};
 
 const API_KEY_FILE_NAME: &str = "api_key.json";
 
 /// File-backed API key store for a single provider account.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SecretInputStore {
     account_home: PathBuf,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+impl fmt::Debug for SecretInputStore {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SecretInputStore")
+            .field("account_home", &"[REDACTED]")
+            .finish()
+    }
+}
+
+#[derive(Serialize, Deserialize)]
 struct ApiKeyFile {
     api_key: String,
 }
@@ -125,7 +135,7 @@ mod tests {
         store.clear_api_key().expect("clear");
         assert!(matches!(
             store.load_api_key(),
-            Err(crate::ProviderError::MissingCredentials { .. })
+            Err(noema_providers::ProviderError::MissingCredentials { .. })
         ));
     }
 
@@ -136,7 +146,19 @@ mod tests {
 
         let error = store.save_api_key("  ").expect_err("blank rejected");
 
-        assert!(matches!(error, crate::ProviderError::InvalidRequest { .. }));
+        assert!(matches!(
+            error,
+            noema_providers::ProviderError::InvalidRequest { .. }
+        ));
         assert!(!store.secret_path().exists());
+    }
+
+    #[test]
+    fn secret_input_store_debug_redacts_account_path() {
+        let store = SecretInputStore::new("/private/provider-secret-path");
+        let debug = format!("{store:?}");
+
+        assert!(!debug.contains("provider-secret-path"));
+        assert!(debug.contains("[REDACTED]"));
     }
 }

@@ -1,8 +1,6 @@
-use crate::{
-    StoreError,
-    provider::{MultipleChoiceOption, MultipleChoiceSelectionMode, ProviderError},
-};
+use crate::StoreError;
 use noema_home::NoemaPathError;
+use noema_providers::{MultipleChoiceOption, MultipleChoiceSelectionMode, ProviderError};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use ts_rs::TS;

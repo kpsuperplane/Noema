@@ -1,7 +1,7 @@
 //! Codex OAuth token storage and device-code login.
 
 use std::{
-    fs, io,
+    fmt, fs, io,
     path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -9,32 +9,18 @@ use std::{
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use reqwest::StatusCode;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tokio::{sync::oneshot, time};
 
-use crate::{
-    ProviderAuthMethod, ProviderError,
-    provider::auth::{
-        CodexDeviceAuthRequest, DEFAULT_PROVIDER_AUTH_ATTEMPT_TIMEOUT, ProviderAuthAttemptRuntime,
-        ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderAuthManager,
-        ensure_provider_account_home, is_terminal_status,
-    },
+use super::{reqwest_transport_error, responses::normalize_base_url};
+use crate::provider::auth::{
+    DEFAULT_PROVIDER_AUTH_ATTEMPT_TIMEOUT, ProviderAuthAttemptRuntime, ProviderAuthManager,
+    ensure_provider_account_home, is_terminal_status,
 };
-
-/// Codex provider id used in user-facing auth state.
-pub const CODEX_PROVIDER: &str = "codex";
-/// Default Codex Responses API base URL.
-pub const DEFAULT_CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
-/// Default Codex OAuth issuer.
-pub const DEFAULT_CODEX_OAUTH_ISSUER: &str = "https://auth.openai.com";
-/// Default Codex OAuth client id used by Codex/Hermes device auth.
-pub const DEFAULT_CODEX_OAUTH_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
-/// Default Codex token endpoint.
-pub const DEFAULT_CODEX_OAUTH_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
-/// Refresh access tokens when JWT expiry is within this many seconds.
-pub const CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS: u64 = 120;
-/// Default request timeout for Codex OAuth calls.
-pub const DEFAULT_CODEX_OAUTH_TIMEOUT_SECONDS: u64 = 20;
+use noema_providers::{
+    CODEX_PROVIDER, CodexDeviceAuthRequest, CodexOAuthConfig, CodexOAuthTokens,
+    ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderAuthMethod, ProviderError,
+};
 
 const TOKEN_FILE_NAME: &str = "codex_tokens.json";
 const LOGIN_INSTRUCTIONS: &str = "Complete the login in your browser.";
@@ -43,27 +29,19 @@ const AUTH_EXPIRED_MESSAGE: &str = "provider auth expired";
 
 static NEXT_ATTEMPT_ID: AtomicU64 = AtomicU64::new(1);
 
-/// Noema-owned Codex OAuth token file.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CodexOAuthTokens {
-    /// Access token used as Responses API bearer token.
-    pub access_token: String,
-    /// Refresh token used to rotate access tokens.
-    pub refresh_token: String,
-    /// Unix seconds when the token file was last written.
-    pub last_refresh: u64,
-}
-
-impl CodexOAuthTokens {
-    fn has_required_fields(&self) -> bool {
-        !self.access_token.trim().is_empty() && !self.refresh_token.trim().is_empty()
-    }
-}
-
 /// Filesystem store for Noema-owned Codex OAuth tokens.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct CodexTokenStore {
     account_home: PathBuf,
+}
+
+impl fmt::Debug for CodexTokenStore {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CodexTokenStore")
+            .field("account_home", &"[REDACTED]")
+            .finish()
+    }
 }
 
 impl CodexTokenStore {
@@ -179,35 +157,21 @@ impl CodexTokenStore {
     }
 }
 
-/// Codex OAuth HTTP endpoints.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CodexOAuthConfig {
-    /// OAuth issuer base URL.
-    pub issuer: String,
-    /// OAuth client id.
-    pub client_id: String,
-    /// OAuth token URL.
-    pub token_url: String,
-    /// HTTP timeout in seconds.
-    pub timeout_seconds: u64,
-}
-
-impl Default for CodexOAuthConfig {
-    fn default() -> Self {
-        Self {
-            issuer: DEFAULT_CODEX_OAUTH_ISSUER.to_string(),
-            client_id: DEFAULT_CODEX_OAUTH_CLIENT_ID.to_string(),
-            token_url: DEFAULT_CODEX_OAUTH_TOKEN_URL.to_string(),
-            timeout_seconds: DEFAULT_CODEX_OAUTH_TIMEOUT_SECONDS,
-        }
-    }
-}
-
 /// Codex OAuth HTTP client.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CodexOAuthClient {
     client: reqwest::Client,
     config: CodexOAuthConfig,
+}
+
+impl fmt::Debug for CodexOAuthClient {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CodexOAuthClient")
+            .field("client", &"[CONFIGURED]")
+            .field("config", &self.config)
+            .finish()
+    }
 }
 
 impl CodexOAuthClient {
@@ -216,10 +180,10 @@ impl CodexOAuthClient {
     /// # Errors
     ///
     /// Returns [`ProviderError::InvalidRequest`] for invalid endpoint config or
-    /// [`ProviderError::HttpFailure`] when the HTTP client cannot be built.
+    /// [`ProviderError::TransportFailure`] when the HTTP client cannot be built.
     pub fn new(mut config: CodexOAuthConfig) -> Result<Self, ProviderError> {
-        config.issuer = normalize_url(config.issuer, "codex OAuth issuer")?;
-        config.token_url = normalize_url(config.token_url, "codex OAuth token URL")?;
+        config.issuer = normalize_base_url(config.issuer, "codex OAuth issuer")?;
+        config.token_url = normalize_base_url(config.token_url, "codex OAuth token URL")?;
         config.client_id = config.client_id.trim().to_string();
         if config.client_id.is_empty() {
             return Err(ProviderError::InvalidRequest {
@@ -234,7 +198,9 @@ impl CodexOAuthClient {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.timeout_seconds))
             .build()
-            .map_err(|source| ProviderError::HttpFailure { source })?;
+            .map_err(|source| {
+                reqwest_transport_error(CODEX_PROVIDER, "build_oauth_client", &source)
+            })?;
         Ok(Self { client, config })
     }
 
@@ -254,12 +220,13 @@ impl CodexOAuthClient {
             .json(&serde_json::json!({ "client_id": self.config.client_id }))
             .send()
             .await
-            .map_err(|source| ProviderError::HttpFailure { source })?;
+            .map_err(|source| {
+                reqwest_transport_error(CODEX_PROVIDER, "request_device_code", &source)
+            })?;
         let status = response.status();
-        let text = response
-            .text()
-            .await
-            .map_err(|source| ProviderError::HttpFailure { source })?;
+        let text = response.text().await.map_err(|source| {
+            reqwest_transport_error(CODEX_PROVIDER, "read_device_code_response", &source)
+        })?;
         if status == StatusCode::TOO_MANY_REQUESTS {
             return Err(ProviderError::RateLimit {
                 message: "OpenAI is rate-limiting Codex login requests".to_string(),
@@ -295,12 +262,17 @@ impl CodexOAuthClient {
             }))
             .send()
             .await
-            .map_err(|source| ProviderError::HttpFailure { source })?;
+            .map_err(|source| {
+                reqwest_transport_error(CODEX_PROVIDER, "poll_device_authorization", &source)
+            })?;
         let status = response.status();
-        let text = response
-            .text()
-            .await
-            .map_err(|source| ProviderError::HttpFailure { source })?;
+        let text = response.text().await.map_err(|source| {
+            reqwest_transport_error(
+                CODEX_PROVIDER,
+                "read_device_authorization_response",
+                &source,
+            )
+        })?;
         if status == StatusCode::FORBIDDEN || status == StatusCode::NOT_FOUND {
             return Ok(None);
         }
@@ -336,7 +308,9 @@ impl CodexOAuthClient {
             ])
             .send()
             .await
-            .map_err(|source| ProviderError::HttpFailure { source })?;
+            .map_err(|source| {
+                reqwest_transport_error(CODEX_PROVIDER, "exchange_authorization_code", &source)
+            })?;
         self.tokens_from_response(response, None).await
     }
 
@@ -367,7 +341,9 @@ impl CodexOAuthClient {
             ])
             .send()
             .await
-            .map_err(|source| ProviderError::HttpFailure { source })?;
+            .map_err(|source| {
+                reqwest_transport_error(CODEX_PROVIDER, "refresh_oauth_tokens", &source)
+            })?;
         self.tokens_from_response(response, Some(refresh_token))
             .await
     }
@@ -378,10 +354,9 @@ impl CodexOAuthClient {
         fallback_refresh_token: Option<&str>,
     ) -> Result<CodexOAuthTokens, ProviderError> {
         let status = response.status();
-        let text = response
-            .text()
-            .await
-            .map_err(|source| ProviderError::HttpFailure { source })?;
+        let text = response.text().await.map_err(|source| {
+            reqwest_transport_error(CODEX_PROVIDER, "read_oauth_token_response", &source)
+        })?;
         if status == StatusCode::TOO_MANY_REQUESTS {
             return Err(ProviderError::RateLimit {
                 message: "Codex OAuth token endpoint is rate-limited".to_string(),
@@ -678,21 +653,6 @@ fn now_unix_seconds() -> u64 {
         .as_secs()
 }
 
-fn normalize_url(value: String, label: &str) -> Result<String, ProviderError> {
-    let value = value.trim().trim_end_matches('/').to_string();
-    if value.is_empty() {
-        return Err(ProviderError::InvalidRequest {
-            message: format!("{label} cannot be empty"),
-        });
-    }
-    if reqwest::Url::parse(&value).is_err() {
-        return Err(ProviderError::InvalidRequest {
-            message: format!("{label} must be an absolute URL"),
-        });
-    }
-    Ok(value)
-}
-
 fn oauth_error_message(text: &str) -> Option<String> {
     let value = serde_json::from_str::<serde_json::Value>(text).ok()?;
     let error = value.get("error")?;
@@ -729,7 +689,7 @@ fn safe_auth_failure_message(error: ProviderError) -> String {
         ProviderError::MissingCredentials { credential, .. } => {
             format!("Codex auth is missing {credential}")
         }
-        ProviderError::HttpFailure { .. } => "Codex auth network request failed".to_string(),
+        ProviderError::TransportFailure { .. } => "Codex auth network request failed".to_string(),
         ProviderError::Timeout { operation, .. } => {
             format!("Codex auth timed out during {operation}")
         }
@@ -738,7 +698,7 @@ fn safe_auth_failure_message(error: ProviderError) -> String {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct DeviceCodeResponse {
     user_code: String,
     device_auth_id: String,
@@ -747,6 +707,17 @@ struct DeviceCodeResponse {
         deserialize_with = "deserialize_optional_u64_from_string_or_number"
     )]
     interval: Option<u64>,
+}
+
+impl fmt::Debug for DeviceCodeResponse {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("DeviceCodeResponse")
+            .field("user_code", &"[REDACTED]")
+            .field("device_auth_id", &"[REDACTED]")
+            .field("interval", &self.interval)
+            .finish()
+    }
 }
 
 fn deserialize_optional_u64_from_string_or_number<'de, D>(
@@ -775,22 +746,85 @@ where
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct DeviceAuthorizationResponse {
     authorization_code: String,
     code_verifier: String,
 }
 
-#[derive(Debug, Deserialize)]
+impl fmt::Debug for DeviceAuthorizationResponse {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("DeviceAuthorizationResponse")
+            .field("authorization_code", &"[REDACTED]")
+            .field("code_verifier", &"[REDACTED]")
+            .finish()
+    }
+}
+
+#[derive(Deserialize)]
 struct TokenResponse {
     access_token: String,
     refresh_token: Option<String>,
 }
 
+impl fmt::Debug for TokenResponse {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("TokenResponse")
+            .field("access_token", &"[REDACTED]")
+            .field(
+                "refresh_token",
+                &self.refresh_token.as_ref().map(|_| "[REDACTED]"),
+            )
+            .finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use noema_providers::CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS;
     use tempfile::TempDir;
+
+    #[test]
+    fn oauth_debug_redacts_credentials_and_account_paths() {
+        let token_store = CodexTokenStore::new("/private/codex-account-secret");
+        let oauth_client = CodexOAuthClient::new(CodexOAuthConfig {
+            client_id: "oauth-client-secret".to_string(),
+            ..CodexOAuthConfig::default()
+        })
+        .expect("oauth client");
+        let device = DeviceCodeResponse {
+            user_code: "user-code-secret".to_string(),
+            device_auth_id: "device-auth-secret".to_string(),
+            interval: Some(5),
+        };
+        let authorization = DeviceAuthorizationResponse {
+            authorization_code: "authorization-secret".to_string(),
+            code_verifier: "verifier-secret".to_string(),
+        };
+        let tokens = TokenResponse {
+            access_token: "access-secret".to_string(),
+            refresh_token: Some("refresh-secret".to_string()),
+        };
+        let debug =
+            format!("{token_store:?} {oauth_client:?} {device:?} {authorization:?} {tokens:?}");
+
+        for secret in [
+            "codex-account-secret",
+            "oauth-client-secret",
+            "user-code-secret",
+            "device-auth-secret",
+            "authorization-secret",
+            "verifier-secret",
+            "access-secret",
+            "refresh-secret",
+        ] {
+            assert!(!debug.contains(secret));
+        }
+        assert!(debug.contains("[REDACTED]"));
+    }
 
     #[test]
     fn token_store_does_not_treat_cli_auth_json_as_usable() {

@@ -1,9 +1,9 @@
 use async_graphql::{Enum, InputObject, Result, SimpleObject};
-
-use crate::{
-    OnboardingStatus, ProviderAccountStatus, ProviderAuthMethod,
-    provider::auth::{ProviderAuthAttemptStatus, ProviderAuthAttemptView},
+use noema_providers::{
+    ProviderAccountStatus, ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderAuthMethod,
 };
+
+use crate::OnboardingStatus;
 
 use super::{errors::graphql_error, schema::GraphqlState};
 
@@ -238,8 +238,7 @@ pub(super) async fn onboarding_status(state: &GraphqlState) -> Result<GraphqlOnb
         .into_iter()
         .any(|installation| {
             installation.is_active
-                && installation.status
-                    == crate::local_models::LocalModelInstallationStatus::Installed
+                && installation.status == noema_providers::LocalModelInstallationStatus::Installed
         });
     let selected_preference = store
         .get_agent_runtime_preference("agent:primary")

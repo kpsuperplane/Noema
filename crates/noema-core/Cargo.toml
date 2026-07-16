@@ -27,6 +27,7 @@ noema-artifacts = { path = "../noema-artifacts", default-features = false, featu
 noema-capabilities = { path = "../noema-capabilities" }
 noema-conversations = { path = "../noema-conversations" }
 noema-home = { path = "../noema-home" }
+noema-providers = { path = "../noema-providers", default-features = false, features = ["adapters", "local-models"] }
 ring.workspace = true
 reqwest = { workspace = true, features = ["stream"] }
 readabilityrs.workspace = true

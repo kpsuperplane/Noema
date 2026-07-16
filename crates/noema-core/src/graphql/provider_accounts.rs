@@ -1,11 +1,11 @@
 use async_graphql::{InputObject, Result, SimpleObject};
+use noema_providers::{
+    DEFAULT_FOUNDATION_LOCAL_PROFILE, FoundationLocalProviderConfig, NewProviderAccount,
+    ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod, ProviderCapability,
+};
 
 use crate::{
-    FoundationLocalProvider, FoundationLocalProviderConfig, ProviderAccountRecord,
-    ProviderAccountStatus, ProviderAuthMethod,
-    config::DEFAULT_FOUNDATION_LOCAL_PROFILE,
-    provider::{ProviderCapability, adapters::foundation_bridge_process::FoundationBridgeError},
-    store::NewProviderAccount,
+    FoundationLocalProvider, provider::adapters::foundation_bridge_process::FoundationBridgeError,
 };
 use noema_capabilities::ResultPersistencePolicy;
 
@@ -417,9 +417,9 @@ fn foundation_availability_error_code(error: &FoundationBridgeError) -> &'static
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
+    use noema_providers::{
         ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod,
-        provider::capabilities_for_provider_account,
+        capabilities_for_provider_account,
     };
     use serde_json::json;
 

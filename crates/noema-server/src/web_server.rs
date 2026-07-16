@@ -1,4 +1,5 @@
-use noema_core::{DaemonError, NoemaRuntimeHost, ProviderConfig, WebConfig};
+use noema_core::{DaemonError, NoemaRuntimeHost, WebConfig};
+use noema_providers::ProviderConfig;
 use std::path::PathBuf;
 
 use super::web::{self, WebState};

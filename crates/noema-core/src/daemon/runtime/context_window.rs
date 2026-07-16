@@ -1,4 +1,4 @@
-use crate::provider::ProviderContextMetadata;
+use noema_providers::ProviderContextMetadata;
 
 const DEFAULT_CONTEXT_SAFETY_TOKENS: u32 = 128;
 const FALLBACK_CHARS_PER_TOKEN: usize = 3;

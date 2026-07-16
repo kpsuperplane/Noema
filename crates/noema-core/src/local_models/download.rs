@@ -14,17 +14,18 @@ use url::Url;
 
 use crate::{NoemaStore, StoreError};
 use noema_home::{NoemaPathError, NoemaPaths};
+use noema_providers::{
+    LocalModelBackend, LocalModelInstallationRecord, LocalModelInstallationStatus,
+    LocalModelInstallationUpdate, LocalModelSourceKind, NewLocalModelInstallation,
+    RemovedLocalModelInstallation,
+};
 
 use super::download_support::{
     InstalledArtifact, hash_file, hex_digest, hugging_face_url, local_file_installation_id,
     normalized_model_id, normalized_optional, remove_file_if_present, required_text,
     validate_digest, validate_revision,
 };
-use super::{
-    LocalModelBackend, LocalModelBuild, LocalModelCatalogEntry, LocalModelInstallationRecord,
-    LocalModelInstallationStatus, LocalModelInstallationUpdate, LocalModelSourceKind,
-    NewLocalModelInstallation, RemovedLocalModelInstallation,
-};
+use super::{LocalModelBuild, LocalModelCatalogEntry};
 
 const BYTES_PER_DECIMAL_GB: f64 = 1_000_000_000.0;
 const PROGRESS_INTERVAL_BYTES: u64 = 8 * 1024 * 1024;

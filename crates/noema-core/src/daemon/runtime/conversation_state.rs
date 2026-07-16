@@ -54,5 +54,5 @@ pub(super) async fn provider_selection_for_conversation(
 pub(super) struct ConversationProviderSelection {
     pub(super) provider_kind: String,
     pub(super) model: Option<String>,
-    pub(super) reasoning_effort: Option<crate::provider::ReasoningEffort>,
+    pub(super) reasoning_effort: Option<noema_providers::ReasoningEffort>,
 }

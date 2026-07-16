@@ -7,7 +7,7 @@ use noema_conversations::{
     NewConversationItem, NewConversationTurn,
 };
 
-use crate::provider::{
+use noema_providers::{
     GenerateInput, GenerateOptions, GenerateRequest, GenerateResponseItem, GenerateStreamEvent,
 };
 use serde_json::json;
@@ -36,7 +36,7 @@ pub(super) struct TaskCompletionGeneration {
     turn_index: u64,
     provider: Option<Arc<dyn RuntimeModelProvider>>,
     model: Option<String>,
-    reasoning_effort: Option<crate::provider::ReasoningEffort>,
+    reasoning_effort: Option<noema_providers::ReasoningEffort>,
     subscriptions: crate::graphql::ConversationSubscriptionRegistry,
     system_errors: SystemErrorLogger,
 }
@@ -92,7 +92,7 @@ impl TaskCompletionGeneration {
                             instructions: Some(completion_instructions()),
                             options: GenerateOptions {
                                 generation_priority:
-                                    crate::provider::GenerationPriority::Background,
+                                    noema_providers::GenerationPriority::Background,
                                 reasoning_effort,
                                 require_noema_response: true,
                                 ..GenerateOptions::default()

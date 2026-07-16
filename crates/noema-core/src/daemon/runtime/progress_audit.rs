@@ -2,7 +2,7 @@ use serde::Deserialize;
 
 use std::sync::Arc;
 
-use crate::provider::{
+use noema_providers::{
     GenerateInput, GenerateOptions, GenerateRequest, GenerateResponseItem, GenerationPriority,
 };
 
@@ -34,7 +34,7 @@ pub(super) enum ProgressAuditError {
 struct ProgressAuditModel {
     provider: Arc<dyn RuntimeModelProvider>,
     model_profile: String,
-    reasoning_effort: Option<crate::provider::ReasoningEffort>,
+    reasoning_effort: Option<noema_providers::ReasoningEffort>,
 }
 
 impl CodexRuntimeActor {
@@ -229,7 +229,7 @@ struct RawProgressAuditResponse {
 mod tests {
     use super::*;
     use crate::daemon::runtime::handle::RuntimeModelProvider;
-    use crate::provider::{GenerateRequest, GenerateResponse, GenerateStreamEvent, ProviderError};
+    use noema_providers::{GenerateRequest, GenerateResponse, GenerateStreamEvent, ProviderError};
     use std::{
         collections::HashMap,
         future::Future,
@@ -415,7 +415,7 @@ mod tests {
                 provider_kind: "codex".to_string(),
                 provider_account_id: account.provider_account_id,
                 model_profile: "gpt-5.5".to_string(),
-                reasoning_effort: Some(crate::provider::ReasoningEffort::Medium),
+                reasoning_effort: Some(noema_providers::ReasoningEffort::Medium),
             })
             .await
             .expect("preference");
@@ -440,7 +440,7 @@ mod tests {
 
         assert_eq!(
             provider.last_request().options.reasoning_effort,
-            Some(crate::provider::ReasoningEffort::Medium)
+            Some(noema_providers::ReasoningEffort::Medium)
         );
     }
 }

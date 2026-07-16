@@ -1,9 +1,7 @@
 use async_graphql::{InputObject, Result, SimpleObject};
+use noema_providers::{ProviderAccountRecord, ProviderCapability, ProviderCapabilityStatus};
 
-use crate::{
-    NoemaStore, ProviderAccountRecord,
-    provider::{ProviderCapability, ProviderCapabilityStatus},
-};
+use crate::NoemaStore;
 use noema_capabilities::CapabilityId;
 
 use super::{errors::graphql_error, schema::GraphqlState};
@@ -201,10 +199,8 @@ const fn default_provider_account_id(capability_id: CapabilityId) -> &'static st
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        ProviderAccountStatus, ProviderAuthMethod, graphql::schema::GraphqlState,
-        store::tests::test_store,
-    };
+    use crate::{graphql::schema::GraphqlState, store::tests::test_store};
+    use noema_providers::{ProviderAccountStatus, ProviderAuthMethod};
 
     #[tokio::test]
     async fn web_tool_settings_lists_only_matching_available_capabilities() {

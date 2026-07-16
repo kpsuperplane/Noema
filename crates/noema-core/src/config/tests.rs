@@ -1,10 +1,9 @@
 use super::*;
-use crate::provider::adapters::{
-    codex_oauth::DEFAULT_CODEX_BASE_URL,
-    codex_responses::{CodexProviderConfig, DEFAULT_CODEX_TIMEOUT_SECONDS},
-};
 use figment::{Figment, providers::Serialized};
 use noema_home::NOEMA_HOME_ENV;
+use noema_providers::{
+    CodexProviderConfig, DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_TIMEOUT_SECONDS, LocalModelBackend,
+};
 use serde_json::{Number, Value};
 use std::path::PathBuf;
 use tempfile::NamedTempFile;
@@ -126,13 +125,13 @@ codex:
   reasoning_effort: medium
 "#;
     let resolved = load_config_from_yaml(yaml, ConfigOverrides::default()).expect("config");
-    let crate::ProviderConfig::Codex(config) = resolved.provider else {
+    let ProviderConfig::Codex(config) = resolved.provider else {
         panic!("expected codex provider");
     };
     assert_eq!(config.default_model.as_deref(), Some("gpt-5.5"));
     assert_eq!(
         config.reasoning_effort,
-        Some(crate::provider::ReasoningEffort::Medium)
+        Some(noema_providers::ReasoningEffort::Medium)
     );
 }
 
@@ -191,12 +190,28 @@ openai:
     assert_eq!(openai.default_model, "override-model");
     assert_eq!(
         openai.reasoning_effort,
-        Some(crate::provider::ReasoningEffort::High)
+        Some(noema_providers::ReasoningEffort::High)
     );
     assert_eq!(openai.base_url, "https://override.example/v1");
     assert_eq!(openai.organization_id.as_deref(), Some("env-org"));
     assert_eq!(openai.project_id.as_deref(), Some("env-project"));
     assert_eq!(openai.timeout_seconds, 33);
+}
+
+#[test]
+fn resolved_config_debug_redacts_openai_env_credential() {
+    const SENTINEL: &str = "noema-debug-secret-sentinel";
+    let resolved = load_resolved(
+        None,
+        ConfigOverrides::default(),
+        None,
+        &[(OPENAI_API_KEY_ENV, SENTINEL)],
+    )
+    .expect("OpenAI config should resolve");
+
+    let debug = format!("{resolved:?}");
+    assert!(!debug.contains(SENTINEL));
+    assert!(debug.contains("[REDACTED]"));
 }
 
 #[test]
@@ -230,7 +245,7 @@ openai:
     assert_eq!(openai.default_model, "yaml-model");
     assert_eq!(
         openai.reasoning_effort,
-        Some(crate::provider::ReasoningEffort::Medium)
+        Some(noema_providers::ReasoningEffort::Medium)
     );
     assert_eq!(
         openai.tool_classification_model.as_deref(),
@@ -432,10 +447,7 @@ local_models:
     };
     assert_eq!(config.default_model, "ternary-bonsai-8b");
     assert_eq!(config.model_path, None);
-    assert_eq!(
-        config.preferred_backend,
-        Some(crate::LocalModelBackend::Metal)
-    );
+    assert_eq!(config.preferred_backend, Some(LocalModelBackend::Metal));
     assert_eq!(config.context_window_tokens, 16_384);
     assert_eq!(config.timeout_seconds, 900);
     assert_eq!(config.startup_timeout_seconds, 240);
@@ -615,7 +627,7 @@ codex:
     assert_eq!(codex.default_model.as_deref(), Some("env-model"));
     assert_eq!(
         codex.reasoning_effort,
-        Some(crate::provider::ReasoningEffort::High)
+        Some(noema_providers::ReasoningEffort::High)
     );
     assert_eq!(
         codex.tool_classification_model.as_deref(),

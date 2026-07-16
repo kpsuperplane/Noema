@@ -1,19 +1,12 @@
-use super::{
-    error::ConfigError,
-    provider::{
-        DEFAULT_FOUNDATION_LOCAL_PROFILE, DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS,
-        DEFAULT_LOCAL_MODELS_PROFILE, DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
-        DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS, DEFAULT_OPENAI_BASE_URL, DEFAULT_OPENAI_MODEL,
-        DEFAULT_PROVIDER, FoundationLocalProviderConfig, LocalModelsProviderConfig,
-        OPENAI_API_KEY_ENV, ProviderConfig, ProviderKind, codex_base_url_default,
-    },
-    web::WebConfig,
-};
-use crate::provider::ReasoningEffort;
-use crate::provider::adapters::{
-    codex_oauth::DEFAULT_CODEX_BASE_URL,
-    codex_responses::{CodexProviderConfig, DEFAULT_CODEX_TIMEOUT_SECONDS},
-    openai::{DEFAULT_OPENAI_TIMEOUT_SECONDS, OpenAiProviderConfig},
+use super::{error::ConfigError, web::WebConfig};
+use noema_providers::{
+    CodexProviderConfig, DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_TIMEOUT_SECONDS,
+    DEFAULT_FOUNDATION_LOCAL_PROFILE, DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS,
+    DEFAULT_LOCAL_MODELS_PROFILE, DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
+    DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS, DEFAULT_OPENAI_BASE_URL, DEFAULT_OPENAI_MODEL,
+    DEFAULT_OPENAI_TIMEOUT_SECONDS, DEFAULT_PROVIDER, FoundationLocalProviderConfig,
+    LocalModelBackend, LocalModelsProviderConfig, OPENAI_API_KEY_ENV, OpenAiProviderConfig,
+    ProviderConfig, ProviderKind, ReasoningEffort,
 };
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, str::FromStr};
@@ -36,7 +29,7 @@ pub struct DaemonResolvedConfig {
     pub web: WebConfig,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub(super) struct RawConfig {
     provider: String,
@@ -212,7 +205,7 @@ impl RawConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 struct RawOpenAiConfig {
     api_key: Option<String>,
@@ -249,7 +242,7 @@ struct RawCodexConfig {
 impl Default for RawCodexConfig {
     fn default() -> Self {
         Self {
-            base_url: codex_base_url_default(),
+            base_url: DEFAULT_CODEX_BASE_URL.to_string(),
             model: None,
             reasoning_effort: None,
             tool_classification_model: None,
@@ -322,18 +315,14 @@ fn require_positive_u32(value: u32, name: &str) -> Result<u32, ConfigError> {
     }
 }
 
-fn parse_local_model_backend(
-    value: &str,
-) -> Result<crate::local_models::LocalModelBackend, ConfigError> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "metal" => Ok(crate::local_models::LocalModelBackend::Metal),
-        "cuda" => Ok(crate::local_models::LocalModelBackend::Cuda),
-        "vulkan" => Ok(crate::local_models::LocalModelBackend::Vulkan),
-        "cpu" => Ok(crate::local_models::LocalModelBackend::Cpu),
-        _ => Err(ConfigError::InvalidConfig {
+fn parse_local_model_backend(value: &str) -> Result<LocalModelBackend, ConfigError> {
+    value
+        .trim()
+        .to_ascii_lowercase()
+        .parse()
+        .map_err(|_| ConfigError::InvalidConfig {
             message: format!("unsupported local_models preferred_backend `{value}`"),
-        }),
-    }
+        })
 }
 
 fn validate_reasoning_config(

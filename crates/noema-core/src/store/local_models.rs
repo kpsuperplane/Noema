@@ -2,7 +2,7 @@
 
 use rusqlite::{OptionalExtension, Transaction, params};
 
-use crate::local_models::{
+use noema_providers::{
     DefaultModelPreferenceRecord, LocalModelEventKind, LocalModelEventRecord,
     LocalModelInstallationRecord, LocalModelInstallationStatus, LocalModelInstallationUpdate,
     LocalModelSourceKind, NewLocalModelInstallation, RemovedLocalModelInstallation,
@@ -221,8 +221,9 @@ impl NoemaStore {
                 .ok_or_else(|| StoreError::InvariantViolation {
                     message: format!("local-model installation not found: {installation_id}"),
                 })?;
-            let current_status = LocalModelInstallationStatus::from_str(&current_status)
-                .ok_or_else(|| StoreError::InvariantViolation {
+            let current_status = current_status
+                .parse::<LocalModelInstallationStatus>()
+                .map_err(|_| StoreError::InvariantViolation {
                     message: format!(
                         "local-model installation has invalid status: {current_status}"
                     ),

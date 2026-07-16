@@ -5,10 +5,10 @@ use crate::DaemonError;
 use noema_conversations::{ConversationItemKind, ConversationItemRecord, ConversationItemStatus};
 use std::{future::Future, pin::Pin, time::Duration};
 
-use crate::provider::adapters::codex_oauth::{CodexOAuthTokens, CodexTokenStore};
-use crate::{
-    TurnTranscriptItem,
-    provider::auth::{CodexDeviceAuthRequest, ProviderAuthAttemptView},
+use crate::TurnTranscriptItem;
+use crate::provider::adapters::codex_oauth::CodexTokenStore;
+use noema_providers::{
+    CodexDeviceAuthRequest, CodexOAuthTokens, ProviderAuthAttemptStatus, ProviderAuthAttemptView,
 };
 use serde_json::json;
 
@@ -26,7 +26,7 @@ fn provider_auth_account_validation_checks_active_kind_and_method() {
         validate_provider_auth_account(
             &account,
             "codex",
-            crate::ProviderAuthMethod::OauthDeviceCode
+            noema_providers::ProviderAuthMethod::OauthDeviceCode
         )
         .is_ok()
     );
@@ -36,7 +36,7 @@ fn provider_auth_account_validation_checks_active_kind_and_method() {
         validate_provider_auth_account(
             &account,
             "codex",
-            crate::ProviderAuthMethod::OauthDeviceCode
+            noema_providers::ProviderAuthMethod::OauthDeviceCode
         )
         .unwrap_err()
         .message(),
@@ -49,7 +49,7 @@ fn provider_auth_account_validation_checks_active_kind_and_method() {
         validate_provider_auth_account(
             &account,
             "codex",
-            crate::ProviderAuthMethod::OauthDeviceCode
+            noema_providers::ProviderAuthMethod::OauthDeviceCode
         )
         .unwrap_err()
         .message(),
@@ -57,12 +57,12 @@ fn provider_auth_account_validation_checks_active_kind_and_method() {
     );
 
     account = test_provider_account();
-    account.auth_method = crate::ProviderAuthMethod::ExternalManual;
+    account.auth_method = noema_providers::ProviderAuthMethod::ExternalManual;
     assert_eq!(
         validate_provider_auth_account(
             &account,
             "codex",
-            crate::ProviderAuthMethod::OauthDeviceCode
+            noema_providers::ProviderAuthMethod::OauthDeviceCode
         )
         .unwrap_err()
         .message(),
@@ -73,29 +73,29 @@ fn provider_auth_account_validation_checks_active_kind_and_method() {
 #[test]
 fn provider_auth_attempt_status_maps_to_safe_account_status() {
     let mut attempt = test_provider_auth_attempt();
-    attempt.status = crate::provider::auth::ProviderAuthAttemptStatus::Completed;
+    attempt.status = ProviderAuthAttemptStatus::Completed;
     assert_eq!(
         provider_account_status_update_from_attempt(&attempt),
         Some(ProviderAccountStatusUpdate {
-            status: crate::ProviderAccountStatus::Authenticated,
+            status: noema_providers::ProviderAccountStatus::Authenticated,
             error_code: None,
             error_message: None,
         })
     );
 
-    attempt.status = crate::provider::auth::ProviderAuthAttemptStatus::Failed;
+    attempt.status = ProviderAuthAttemptStatus::Failed;
     attempt.error_code = Some("codex_login_failed".to_string());
     attempt.error_message = Some("codex auth failed".to_string());
     assert_eq!(
         provider_account_status_update_from_attempt(&attempt),
         Some(ProviderAccountStatusUpdate {
-            status: crate::ProviderAccountStatus::Unauthenticated,
+            status: noema_providers::ProviderAccountStatus::Unauthenticated,
             error_code: Some("codex_login_failed".to_string()),
             error_message: Some("codex auth failed".to_string()),
         })
     );
 
-    attempt.status = crate::provider::auth::ProviderAuthAttemptStatus::WaitingForUser;
+    attempt.status = ProviderAuthAttemptStatus::WaitingForUser;
     assert_eq!(provider_account_status_update_from_attempt(&attempt), None);
 }
 
@@ -103,7 +103,7 @@ fn provider_auth_attempt_status_maps_to_safe_account_status() {
 async fn start_auth_returned_completed_attempt_persists_authenticated_status() {
     let store = RecordingProviderAccountStatusStore::default();
     let mut attempt = test_provider_auth_attempt();
-    attempt.status = crate::provider::auth::ProviderAuthAttemptStatus::Completed;
+    attempt.status = ProviderAuthAttemptStatus::Completed;
     let starter = RecordingCodexDeviceAuthStarter { attempt };
     let paths =
         noema_home::NoemaPaths::from_noema_home(tempfile::tempdir().expect("temp dir").path())
@@ -118,7 +118,7 @@ async fn start_auth_returned_completed_attempt_persists_authenticated_status() {
         updates.as_slice(),
         [RecordedProviderAccountStatusUpdate {
             provider_account_id: "provider_account:codex:default".to_string(),
-            status: crate::ProviderAccountStatus::Authenticated,
+            status: noema_providers::ProviderAccountStatus::Authenticated,
             error_code: None,
             error_message: None,
         }]
@@ -153,9 +153,9 @@ async fn start_auth_preserves_provider_start_error_message() {
 async fn auth_terminal_watcher_persists_completed_attempt_without_http_poll() {
     let store = RecordingProviderAccountStatusStore::default();
     let mut waiting = test_provider_auth_attempt();
-    waiting.status = crate::provider::auth::ProviderAuthAttemptStatus::WaitingForUser;
+    waiting.status = ProviderAuthAttemptStatus::WaitingForUser;
     let mut completed = waiting.clone();
-    completed.status = crate::provider::auth::ProviderAuthAttemptStatus::Completed;
+    completed.status = ProviderAuthAttemptStatus::Completed;
     let poller = RecordingProviderAuthAttemptPoller::new(vec![waiting, completed]);
 
     persist_provider_auth_attempt_terminal_status(
@@ -172,7 +172,7 @@ async fn auth_terminal_watcher_persists_completed_attempt_without_http_poll() {
         updates.as_slice(),
         [RecordedProviderAccountStatusUpdate {
             provider_account_id: "provider_account:codex:default".to_string(),
-            status: crate::ProviderAccountStatus::Authenticated,
+            status: noema_providers::ProviderAccountStatus::Authenticated,
             error_code: None,
             error_message: None,
         }]
@@ -185,7 +185,7 @@ async fn onboarding_reconciles_existing_noema_codex_tokens() {
     let temp_dir = tempfile::tempdir().expect("temp dir");
     let paths = noema_home::NoemaPaths::from_noema_home(temp_dir.path()).expect("paths");
     let mut account = test_provider_account();
-    account.status = crate::ProviderAccountStatus::Unauthenticated;
+    account.status = noema_providers::ProviderAccountStatus::Unauthenticated;
     let account_home = paths.provider_account_home(&account.provider_kind, &account.account_key);
     CodexTokenStore::new(account_home)
         .write(&CodexOAuthTokens {
@@ -202,28 +202,28 @@ async fn onboarding_reconciles_existing_noema_codex_tokens() {
 
     assert_eq!(
         reconciled.status,
-        crate::ProviderAccountStatus::Authenticated
+        noema_providers::ProviderAccountStatus::Authenticated
     );
     let updates = store.updates.lock().expect("updates lock");
     assert_eq!(
         updates.as_slice(),
         [RecordedProviderAccountStatusUpdate {
             provider_account_id: "provider_account:codex:default".to_string(),
-            status: crate::ProviderAccountStatus::Authenticated,
+            status: noema_providers::ProviderAccountStatus::Authenticated,
             error_code: None,
             error_message: None,
         }]
     );
 }
 
-fn test_provider_account() -> crate::ProviderAccountRecord {
-    let status = crate::ProviderAccountStatus::Unknown;
-    crate::ProviderAccountRecord {
+fn test_provider_account() -> noema_providers::ProviderAccountRecord {
+    let status = noema_providers::ProviderAccountStatus::Unknown;
+    noema_providers::ProviderAccountRecord {
         provider_account_id: "provider_account:codex:default".to_string(),
         provider_kind: "codex".to_string(),
         account_key: "default".to_string(),
         display_name: "Codex".to_string(),
-        auth_method: crate::ProviderAuthMethod::OauthDeviceCode,
+        auth_method: noema_providers::ProviderAuthMethod::OauthDeviceCode,
         is_active: true,
         is_default: true,
         status,
@@ -232,7 +232,7 @@ fn test_provider_account() -> crate::ProviderAccountRecord {
         last_error_code: None,
         last_error_message: None,
         metadata: json!({}),
-        capabilities: crate::provider::capabilities_for_provider_account(
+        capabilities: noema_providers::capabilities_for_provider_account(
             "codex", "default", status,
         ),
     }
@@ -243,8 +243,8 @@ fn test_provider_auth_attempt() -> ProviderAuthAttemptView {
         attempt_id: "provider_auth_attempt_test".to_string(),
         provider_kind: "codex".to_string(),
         provider_account_id: "provider_account:codex:default".to_string(),
-        method: crate::ProviderAuthMethod::OauthDeviceCode,
-        status: crate::provider::auth::ProviderAuthAttemptStatus::Starting,
+        method: noema_providers::ProviderAuthMethod::OauthDeviceCode,
+        status: ProviderAuthAttemptStatus::Starting,
         verification_url: None,
         user_code: None,
         instructions: None,
@@ -256,7 +256,7 @@ fn test_provider_auth_attempt() -> ProviderAuthAttemptView {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RecordedProviderAccountStatusUpdate {
     provider_account_id: String,
-    status: crate::ProviderAccountStatus,
+    status: noema_providers::ProviderAccountStatus,
     error_code: Option<String>,
     error_message: Option<String>,
 }
@@ -291,7 +291,11 @@ impl CodexDeviceAuthStarter for RecordingCodexDeviceAuthStarter {
         &'a self,
         _request: CodexDeviceAuthRequest,
     ) -> Pin<
-        Box<dyn Future<Output = Result<ProviderAuthAttemptView, crate::ProviderError>> + Send + 'a>,
+        Box<
+            dyn Future<Output = Result<ProviderAuthAttemptView, noema_providers::ProviderError>>
+                + Send
+                + 'a,
+        >,
     > {
         let attempt = self.attempt.clone();
         Box::pin(async move { Ok(attempt) })
@@ -303,11 +307,15 @@ impl CodexDeviceAuthStarter for FailingCodexDeviceAuthStarter {
         &'a self,
         _request: CodexDeviceAuthRequest,
     ) -> Pin<
-        Box<dyn Future<Output = Result<ProviderAuthAttemptView, crate::ProviderError>> + Send + 'a>,
+        Box<
+            dyn Future<Output = Result<ProviderAuthAttemptView, noema_providers::ProviderError>>
+                + Send
+                + 'a,
+        >,
     > {
         let message = self.message.to_string();
         Box::pin(async move {
-            Err(crate::ProviderError::ProviderUnavailable {
+            Err(noema_providers::ProviderError::ProviderUnavailable {
                 provider: "codex".to_string(),
                 message,
             })
@@ -338,7 +346,7 @@ impl ProviderAccountStatusStore for RecordingProviderAccountStatusStore {
     fn update_provider_account_status<'a>(
         &'a self,
         provider_account_id: &'a str,
-        status: crate::ProviderAccountStatus,
+        status: noema_providers::ProviderAccountStatus,
         error_code: Option<&'a str>,
         error_message: Option<&'a str>,
     ) -> Pin<Box<dyn Future<Output = Result<(), DaemonError>> + Send + 'a>> {
@@ -362,15 +370,15 @@ fn chat_onboarding_gate_requires_authenticated_provider_account() {
     assert!(!is_user_onboarded_for_chat(None));
 
     let mut account = test_provider_account();
-    account.status = crate::ProviderAccountStatus::Unknown;
+    account.status = noema_providers::ProviderAccountStatus::Unknown;
     assert!(!is_user_onboarded_for_chat(Some(account)));
 
     let mut account = test_provider_account();
-    account.status = crate::ProviderAccountStatus::Unauthenticated;
+    account.status = noema_providers::ProviderAccountStatus::Unauthenticated;
     assert!(!is_user_onboarded_for_chat(Some(account)));
 
     let mut account = test_provider_account();
-    account.status = crate::ProviderAccountStatus::Authenticated;
+    account.status = noema_providers::ProviderAccountStatus::Authenticated;
     assert!(is_user_onboarded_for_chat(Some(account)));
 }
 
@@ -442,13 +450,13 @@ fn conversation_replay_maps_multiple_choice_prompt() {
         item.item,
         TurnTranscriptItem::MultipleChoicePrompt {
             prompt: "Pick a direction".to_string(),
-            selection_mode: crate::provider::MultipleChoiceSelectionMode::PickOne,
+            selection_mode: noema_providers::MultipleChoiceSelectionMode::PickOne,
             options: vec![
-                crate::provider::MultipleChoiceOption {
+                noema_providers::MultipleChoiceOption {
                     id: "ship".to_string(),
                     label: "Ship it".to_string(),
                 },
-                crate::provider::MultipleChoiceOption {
+                noema_providers::MultipleChoiceOption {
                     id: "polish".to_string(),
                     label: "Polish first".to_string(),
                 },

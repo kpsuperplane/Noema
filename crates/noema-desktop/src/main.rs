@@ -18,14 +18,14 @@ fn noema_desktop_main() {
         .manage(desktop_state::DesktopState::new())
         .setup(|app| {
             let state = app.state::<desktop_state::DesktopState>();
-            let provider = noema_core::Config::load_daemon(
-                None,
-                noema_core::ConfigOverrides::default(),
-            )
-            .map(|config| config.provider)
-            .unwrap_or_else(|_| {
-                noema_core::ProviderConfig::Codex(noema_core::CodexProviderConfig::default())
-            });
+            let provider =
+                noema_core::Config::load_daemon(None, noema_core::ConfigOverrides::default())
+                    .map(|config| config.provider)
+                    .unwrap_or_else(|_| {
+                        noema_providers::ProviderConfig::Codex(
+                            noema_providers::CodexProviderConfig::default(),
+                        )
+                    });
             let local_model_runtime_root = app
                 .path()
                 .resource_dir()

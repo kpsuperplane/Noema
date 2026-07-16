@@ -2,14 +2,11 @@
 
 use std::collections::VecDeque;
 
-use crate::{
-    GenerateInput, GenerateMessage, GenerateMessageRole, GenerateOptions, GenerateRequest,
-    GenerateResponse, GenerateResponseItem,
-    provider::{
-        GenerateInputItem, GenerateReasoningInput, GenerateStreamEvent, GenerateToolCallInput,
-        GenerateToolResultInput, GenerationPriority, ProviderError, ProviderResponseContinuation,
-        ReasoningEffort,
-    },
+use noema_providers::{
+    GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
+    GenerateReasoningInput, GenerateRequest, GenerateResponse, GenerateResponseItem,
+    GenerateStreamEvent, GenerateToolCallInput, GenerateToolResultInput, GenerationPriority,
+    ProviderError, ProviderResponseContinuation, ReasoningEffort,
 };
 
 use super::{
@@ -423,13 +420,12 @@ async fn count_tokens(
 mod tests {
     use super::*;
     use crate::{
-        GenerateResponseStatus,
         daemon::runtime::local_tools::LocalToolResult,
         daemon::runtime::local_tools::RuntimeCapabilityResult,
-        provider::{
-            GenerateReasoningItem, GenerateToolCall, ProviderContextMetadata,
-            ProviderResponseContinuation, ProviderToolCapabilities,
-        },
+    };
+    use noema_providers::{
+        GenerateReasoningItem, GenerateResponseStatus, GenerateToolCall, ProviderContextMetadata,
+        ProviderResponseContinuation, ProviderToolCapabilities,
     };
     use serde_json::json;
     use std::{

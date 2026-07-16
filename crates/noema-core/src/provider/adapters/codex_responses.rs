@@ -1,72 +1,28 @@
 //! Provider adapter for Codex direct Responses API calls.
 
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use super::{
-    codex_oauth::{
-        CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS, CodexOAuthClient, CodexOAuthConfig,
-        CodexTokenStore, DEFAULT_CODEX_BASE_URL, chatgpt_account_id_from_access_token,
-    },
+    codex_oauth::{CodexOAuthClient, CodexTokenStore, chatgpt_account_id_from_access_token},
     noema_response_stream::NoemaAssistantTextDeltaExtractor,
+    reqwest_transport_error,
     responses::{
         CODEX_RESPONSES_PROFILE, ResponsesDiagnosticContext, ResponsesRequest, ResponsesTransport,
         normalize_base_url,
     },
 };
-use crate::provider::{
+use crate::provider::model_catalog::latest_codex_client_version;
+use noema_home::SystemErrorLogger;
+use noema_providers::{
+    CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS, CodexProviderConfig, DEFAULT_CODEX_MODEL,
     DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, GenerateStreamEvent,
     ModelProvider, ProviderError, ProviderResponseContinuation, ProviderToolCapabilities,
-    ProviderToolSchemaDialect, ProviderToolTransport, model_catalog::latest_codex_client_version,
+    ProviderToolSchemaDialect, ProviderToolTransport,
 };
-use noema_home::SystemErrorLogger;
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue, USER_AGENT};
 use tokio::sync::OnceCell;
 
 const CODEX_ORIGINATOR: &str = "codex_cli_rs";
-
-/// Default Codex Responses model used when no override is supplied.
-pub const DEFAULT_CODEX_MODEL: &str = "gpt-5.5";
-/// Default request timeout for Codex Responses calls.
-pub const DEFAULT_CODEX_TIMEOUT_SECONDS: u64 = 300;
-
-/// Configuration for the Codex direct Responses provider.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CodexProviderConfig {
-    /// Base URL for the Codex Responses API.
-    pub base_url: String,
-    /// Optional default model.
-    pub default_model: Option<String>,
-    /// Optional model override for metadata-only tool classification.
-    pub tool_classification_model: Option<String>,
-    /// Optional explicit reasoning effort used only when config supplies an explicit model.
-    pub reasoning_effort: Option<crate::provider::ReasoningEffort>,
-    /// Request timeout in seconds.
-    pub timeout_seconds: u64,
-    /// Codex client version advertised to the subscription backend.
-    pub client_version: Option<String>,
-    /// Provider account home containing Noema-owned token state.
-    pub account_home: Option<PathBuf>,
-    /// OAuth endpoint configuration used for token refresh and login.
-    pub oauth: CodexOAuthConfig,
-    /// Developer diagnostic system error logger.
-    pub system_errors: Option<SystemErrorLogger>,
-}
-
-impl Default for CodexProviderConfig {
-    fn default() -> Self {
-        Self {
-            base_url: DEFAULT_CODEX_BASE_URL.to_string(),
-            default_model: Some(DEFAULT_CODEX_MODEL.to_string()),
-            tool_classification_model: None,
-            reasoning_effort: None,
-            timeout_seconds: DEFAULT_CODEX_TIMEOUT_SECONDS,
-            client_version: None,
-            account_home: None,
-            oauth: CodexOAuthConfig::default(),
-            system_errors: None,
-        }
-    }
-}
 
 /// Provider implementation backed by Codex OAuth and direct Responses calls.
 #[derive(Debug, Clone)]
@@ -92,7 +48,7 @@ impl CodexResponsesProvider {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.timeout_seconds))
             .build()
-            .map_err(|source| ProviderError::HttpFailure { source })?;
+            .map_err(|source| reqwest_transport_error("codex", "build_client", &source))?;
         Self::with_client(client, config)
     }
 
@@ -352,13 +308,12 @@ impl ModelProvider for CodexResponsesProvider {
 mod tests {
     use super::*;
     use crate::provider::SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE;
-    use crate::provider::adapters::codex_oauth::CodexOAuthTokens;
     use crate::provider::adapters::test_support::spawn_server;
-    use crate::provider::{
-        GenerateInput, GenerateOptions, GenerateResponseStatus, NoemaToolChoice,
+    use noema_capabilities::ToolSpec;
+    use noema_providers::{
+        CodexOAuthTokens, GenerateInput, GenerateOptions, GenerateResponseStatus, NoemaToolChoice,
         ProviderToolSchemaDialect, ProviderToolTransport,
     };
-    use noema_capabilities::ToolSpec;
     use serde_json::Value;
     use tempfile::TempDir;
 
@@ -382,6 +337,21 @@ mod tests {
     }
 
     #[test]
+    fn rejects_credential_bearing_base_url() {
+        let dir = TempDir::new().expect("temp dir");
+        let error = CodexResponsesProvider::new(CodexProviderConfig {
+            base_url: "https://user:password@example.test/codex?token=secret".to_string(),
+            account_home: Some(dir.path().join("providers/codex/default")),
+            ..CodexProviderConfig::default()
+        })
+        .unwrap_err();
+
+        assert!(matches!(error, ProviderError::InvalidRequest { .. }));
+        assert!(!error.to_string().contains("password"));
+        assert!(!error.to_string().contains("token=secret"));
+    }
+
+    #[test]
     fn accepts_noema_owned_token_store() {
         let dir = TempDir::new().expect("temp dir");
         let account_home = dir.path().join("providers/codex/default");
@@ -401,6 +371,26 @@ mod tests {
             .expect("write token");
 
         assert!(provider.token_store().has_usable_tokens());
+    }
+
+    #[test]
+    fn provider_debug_redacts_account_and_oauth_configuration() {
+        let dir = TempDir::new().expect("temp dir");
+        let provider = CodexResponsesProvider::new(CodexProviderConfig {
+            account_home: Some(dir.path().join("private-codex-account")),
+            oauth: noema_providers::CodexOAuthConfig {
+                client_id: "codex-oauth-client-secret".to_string(),
+                ..noema_providers::CodexOAuthConfig::default()
+            },
+            ..CodexProviderConfig::default()
+        })
+        .expect("provider");
+
+        let debug = format!("{provider:?}");
+        assert!(!debug.contains("private-codex-account"));
+        assert!(!debug.contains("codex-oauth-client-secret"));
+        assert!(debug.contains("[REDACTED]"));
+        assert!(debug.contains("[REDACTED URL]"));
     }
 
     #[test]

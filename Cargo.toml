@@ -7,6 +7,7 @@ members = [
     "crates/noema-desktop",
     "crates/noema-home",
     "crates/noema-model-evals",
+    "crates/noema-providers",
     "crates/noema-server",
 ]
 default-members = ["crates/noema-core"]

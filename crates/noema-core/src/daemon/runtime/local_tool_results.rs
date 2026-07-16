@@ -6,10 +6,10 @@ use crate::{
         artifact_tool::ArtifactToolResult, memory::tool::MemoryToolResult,
         protocol::TurnTranscriptItem,
     },
-    provider::GenerateActionItem,
     search::tool::WebSearchToolResult,
     web_fetch::tool::WebFetchToolResult,
 };
+use noema_providers::GenerateActionItem;
 use serde_json::{Value, json};
 
 #[derive(Debug, Clone)]

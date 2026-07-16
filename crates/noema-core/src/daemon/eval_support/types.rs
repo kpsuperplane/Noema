@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::provider::GenerateRequest;
+use noema_providers::GenerateRequest;
 
 /// Configuration for one isolated local-model qualification worker.
 #[derive(Clone, Debug, PartialEq, Eq)]

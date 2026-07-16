@@ -1,43 +1,18 @@
 //! Provider adapter for the OpenAI Responses API.
 
+use super::reqwest_transport_error;
 use super::responses::{
     OPENAI_RESPONSES_PROFILE, ResponsesDiagnosticContext, ResponsesRequest, ResponsesTransport,
     header_value, normalize_base_url,
 };
-use crate::provider::{
+use noema_home::SystemErrorLogger;
+use noema_providers::{
     DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, ModelProvider,
-    ProviderError, ProviderResponseContinuation, ProviderToolCapabilities,
+    OpenAiProviderConfig, ProviderError, ProviderResponseContinuation, ProviderToolCapabilities,
     ProviderToolSchemaDialect, ProviderToolTransport,
 };
-use noema_home::SystemErrorLogger;
 use reqwest::header::{HeaderMap, HeaderName};
 use std::time::Duration;
-
-/// Default request timeout for `OpenAI` calls.
-pub const DEFAULT_OPENAI_TIMEOUT_SECONDS: u64 = 120;
-
-/// Configuration for the `OpenAI` provider.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OpenAiProviderConfig {
-    /// API key sent as a bearer token.
-    pub api_key: String,
-    /// Base URL for an OpenAI-compatible Responses API.
-    pub base_url: String,
-    /// Optional `OpenAI` organization id.
-    pub organization_id: Option<String>,
-    /// Optional `OpenAI` project id.
-    pub project_id: Option<String>,
-    /// Default model used when a request does not override it.
-    pub default_model: String,
-    /// Optional model override for metadata-only tool classification.
-    pub tool_classification_model: Option<String>,
-    /// Optional explicit reasoning effort used only when config supplies an explicit model.
-    pub reasoning_effort: Option<crate::provider::ReasoningEffort>,
-    /// Request timeout in seconds.
-    pub timeout_seconds: u64,
-    /// Developer diagnostic system error logger.
-    pub system_errors: Option<SystemErrorLogger>,
-}
 
 /// Provider implementation backed by the `OpenAI` Responses API.
 #[derive(Debug)]
@@ -59,7 +34,7 @@ impl OpenAiProvider {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.timeout_seconds))
             .build()
-            .map_err(|source| ProviderError::HttpFailure { source })?;
+            .map_err(|source| reqwest_transport_error("openai", "build_client", &source))?;
 
         Self::with_client(client, config)
     }
@@ -236,12 +211,12 @@ impl ModelProvider for OpenAiProvider {
 mod tests {
     use super::*;
     use crate::provider::adapters::test_support::spawn_server;
-    use crate::provider::{
+    use noema_capabilities::ToolSpec;
+    use noema_providers::{DEFAULT_OPENAI_TIMEOUT_SECONDS, GenerateInput, PromptCacheRetention};
+    use noema_providers::{
         GenerateResponseStatus, NoemaToolChoice, ProviderToolSchemaDialect, ProviderToolTransport,
         TokenUsage,
     };
-    use crate::{GenerateInput, PromptCacheRetention};
-    use noema_capabilities::ToolSpec;
     use serde_json::Value;
 
     #[tokio::test]
@@ -289,11 +264,11 @@ mod tests {
                 model: Some("gpt-test".to_string()),
                 input: GenerateInput::Text("Hello?".to_string()),
                 instructions: Some("Be brief.".to_string()),
-                options: crate::provider::GenerateOptions {
+                options: noema_providers::GenerateOptions {
                     max_output_tokens: Some(32),
                     temperature: Some(0.4),
                     prompt_cache_retention: Some(PromptCacheRetention::TwentyFourHours),
-                    ..crate::provider::GenerateOptions::default()
+                    ..noema_providers::GenerateOptions::default()
                 },
                 tools: Vec::new(),
                 tool_choice: Default::default(),
@@ -425,9 +400,9 @@ mod tests {
                 model: Some("gpt-test".to_string()),
                 input: GenerateInput::Text("Read it".to_string()),
                 instructions: None,
-                options: crate::provider::GenerateOptions {
+                options: noema_providers::GenerateOptions {
                     require_noema_response: true,
-                    ..crate::provider::GenerateOptions::default()
+                    ..noema_providers::GenerateOptions::default()
                 },
                 tools: vec![mcp_docs_read_tool()],
                 tool_choice: NoemaToolChoice::Required,
@@ -575,6 +550,26 @@ mod tests {
     }
 
     #[test]
+    fn rejects_credential_bearing_base_url() {
+        let error = OpenAiProvider::new(OpenAiProviderConfig {
+            api_key: "secret".to_string(),
+            base_url: "https://user:password@example.test/v1?token=secret".to_string(),
+            organization_id: None,
+            project_id: None,
+            default_model: "default-model".to_string(),
+            tool_classification_model: None,
+            reasoning_effort: None,
+            timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
+            system_errors: None,
+        })
+        .unwrap_err();
+
+        assert!(matches!(error, ProviderError::InvalidRequest { .. }));
+        assert!(!error.to_string().contains("password"));
+        assert!(!error.to_string().contains("token=secret"));
+    }
+
+    #[test]
     fn default_tool_classification_model_is_gpt_5_4_mini() {
         let provider = test_provider("http://127.0.0.1:1".to_string());
 
@@ -641,6 +636,26 @@ mod tests {
             provider.default_tool_classification_model().as_deref(),
             Some("custom-tool-classifier")
         );
+    }
+
+    #[test]
+    fn provider_debug_redacts_api_key() {
+        let provider = OpenAiProvider::new(OpenAiProviderConfig {
+            api_key: "openai-provider-secret".to_string(),
+            base_url: "http://127.0.0.1:1".to_string(),
+            organization_id: None,
+            project_id: None,
+            default_model: "default-model".to_string(),
+            tool_classification_model: None,
+            reasoning_effort: None,
+            timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
+            system_errors: None,
+        })
+        .expect("provider");
+
+        let debug = format!("{provider:?}");
+        assert!(!debug.contains("openai-provider-secret"));
+        assert!(debug.contains("[REDACTED]"));
     }
 
     fn test_provider(base_url: String) -> OpenAiProvider {

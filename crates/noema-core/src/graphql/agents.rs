@@ -1,17 +1,16 @@
 use std::collections::HashSet;
 
 use async_graphql::{Enum, InputObject, Result, SimpleObject};
+use noema_providers::{
+    DEFAULT_FOUNDATION_LOCAL_PROFILE, DEFAULT_TOOL_CLASSIFICATION_MODEL,
+    LocalModelInstallationRecord, LocalModelInstallationStatus, ProviderAccountRecord,
+    ProviderAccountStatus, ProviderModelProfile, ReasoningEffort,
+};
 use serde_json::Value;
 
 use crate::{
-    AgentRecord, AgentRuntimePreferenceRecord, LocalModelInstallationRecord,
-    LocalModelInstallationStatus, NewAgentRuntimePreference, ProviderAccountRecord,
-    ProviderAccountStatus, TASK_EXECUTOR_AGENT_ID,
-    config::DEFAULT_FOUNDATION_LOCAL_PROFILE,
-    provider::{
-        DEFAULT_TOOL_CLASSIFICATION_MODEL, ReasoningEffort,
-        model_catalog::refresh_provider_model_profiles,
-    },
+    AgentRecord, AgentRuntimePreferenceRecord, NewAgentRuntimePreference, TASK_EXECUTOR_AGENT_ID,
+    provider::model_catalog::refresh_provider_model_profiles,
 };
 
 use super::{errors::graphql_error, schema::GraphqlState};
@@ -424,65 +423,32 @@ fn metadata_profiles(
     disabled_reason: Option<&str>,
     supports_reasoning_effort: bool,
 ) -> Vec<GraphqlAgentModelProfileOption> {
-    metadata
-        .get("profiles")
-        .and_then(Value::as_array)
+    ProviderModelProfile::from_account_metadata(metadata)
         .into_iter()
-        .flatten()
-        .filter_map(|profile| {
-            let id = profile.get("id")?.as_str()?.trim();
-            if id.is_empty() {
-                return None;
-            }
-            let label = profile
-                .get("label")
-                .and_then(Value::as_str)
-                .filter(|label| !label.trim().is_empty())
-                .unwrap_or(id);
+        .map(|profile| {
             let reasoning_efforts = if supports_reasoning_effort {
                 profile
-                    .get("reasoning_efforts")
-                    .and_then(Value::as_array)
+                    .reasoning_efforts
                     .into_iter()
-                    .flatten()
-                    .filter_map(Value::as_str)
-                    .filter_map(reasoning_effort_from_metadata)
                     .map(GraphqlReasoningEffort::from)
                     .collect::<Vec<_>>()
             } else {
                 Vec::new()
             };
             let default_reasoning_effort = supports_reasoning_effort
-                .then(|| {
-                    profile
-                        .get("default_reasoning_effort")
-                        .and_then(Value::as_str)
-                        .and_then(reasoning_effort_from_metadata)
-                        .map(GraphqlReasoningEffort::from)
-                        .filter(|effort| reasoning_efforts.contains(effort))
-                })
-                .flatten();
-            Some(GraphqlAgentModelProfileOption {
-                id: id.to_string(),
-                label: label.to_string(),
+                .then_some(profile.default_reasoning_effort)
+                .flatten()
+                .map(GraphqlReasoningEffort::from)
+                .filter(|effort| reasoning_efforts.contains(effort));
+            GraphqlAgentModelProfileOption {
+                id: profile.id,
+                label: profile.label,
                 reasoning_efforts,
                 default_reasoning_effort,
                 disabled_reason: disabled_reason.map(ToString::to_string),
-            })
+            }
         })
         .collect()
-}
-
-fn reasoning_effort_from_metadata(value: &str) -> Option<ReasoningEffort> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "none" => Some(ReasoningEffort::None),
-        "minimal" => Some(ReasoningEffort::Minimal),
-        "low" => Some(ReasoningEffort::Low),
-        "medium" => Some(ReasoningEffort::Medium),
-        "high" => Some(ReasoningEffort::High),
-        "xhigh" => Some(ReasoningEffort::XHigh),
-        _ => None,
-    }
 }
 
 pub(super) fn validate_reasoning_effort_for_profile(
@@ -547,8 +513,7 @@ mod tests {
             &state,
             GraphqlSaveAgentModelPreferenceInput {
                 agent_id: "agent:primary".to_string(),
-                provider_account_id: crate::local_models::LOCAL_MODELS_PROVIDER_ACCOUNT_ID
-                    .to_string(),
+                provider_account_id: noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID.to_string(),
                 model_profile: "ternary-bonsai-8b".to_string(),
                 reasoning_effort: None,
             },
@@ -562,11 +527,11 @@ mod tests {
     async fn seed_installed_bonsai(store: &crate::NoemaStore) -> String {
         let installation_id = "local_model_installation:catalog:ternary-bonsai-8b:test".to_string();
         let installation = store
-            .upsert_local_model_installation(crate::NewLocalModelInstallation {
+            .upsert_local_model_installation(noema_providers::NewLocalModelInstallation {
                 installation_id: installation_id.clone(),
                 model_id: "ternary-bonsai-8b".to_string(),
                 display_name: "Ternary Bonsai 8B".to_string(),
-                source_kind: crate::LocalModelSourceKind::Catalog,
+                source_kind: noema_providers::LocalModelSourceKind::Catalog,
                 source_repo: Some("vinpix/Bonsai-8B-llama.cpp".to_string()),
                 source_revision: Some("0".repeat(40)),
                 source_file: Some("Bonsai-8B-Q2_KT.gguf".to_string()),
@@ -574,7 +539,7 @@ mod tests {
                 download_gb: 3.0,
                 expected_bytes: Some(100),
                 license: Some("Apache-2.0".to_string()),
-                backend: crate::LocalModelBackend::Metal,
+                backend: noema_providers::LocalModelBackend::Metal,
             })
             .await
             .expect("queue Bonsai");
@@ -586,7 +551,7 @@ mod tests {
             store
                 .update_local_model_installation(
                     &installation.installation_id,
-                    crate::LocalModelInstallationUpdate {
+                    noema_providers::LocalModelInstallationUpdate {
                         status,
                         downloaded_bytes: 100,
                         expected_bytes: Some(100),

@@ -1,9 +1,7 @@
 use tokio_util::sync::CancellationToken;
 
-use super::{
-    LocalFileModelImport, LocalModelBackend, LocalModelEventKind, LocalModelInstallationStatus,
-    LocalModelInstaller,
-};
+use super::{LocalFileModelImport, LocalModelInstaller};
+use noema_providers::{LocalModelBackend, LocalModelEventKind, LocalModelInstallationStatus};
 
 #[tokio::test]
 async fn local_file_import_is_verified_content_addressed_and_removable() {

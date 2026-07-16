@@ -2,12 +2,10 @@
 
 #![allow(clippy::missing_errors_doc)]
 
+use noema_providers::ReasoningEffort;
 use rusqlite::{OptionalExtension, params};
 
-use crate::{
-    RunKind, RunStatus, TASK_EXECUTOR_AGENT_ID, TASK_REVIEWER_AGENT_ID, TaskStatus,
-    provider::ReasoningEffort,
-};
+use crate::{RunKind, RunStatus, TASK_EXECUTOR_AGENT_ID, TASK_REVIEWER_AGENT_ID, TaskStatus};
 
 use super::{AgentRunRecord, NoemaStore, StoreError, TaskRecord, ids::allocate_id};
 
@@ -88,7 +86,7 @@ impl NoemaStore {
             .get_agent_runtime_preference(TASK_REVIEWER_AGENT_ID)
             .await?
         {
-            crate::ModelConfigSnapshot::explicit(
+            noema_providers::ProviderSelectionSnapshot::explicit(
                 preference.provider_kind,
                 preference.provider_account_id,
                 preference.model_profile,
@@ -98,7 +96,7 @@ impl NoemaStore {
         } else {
             task.reviewer_model.clone()
         }
-        .normalized()
+        .normalized_for_persistence()
         .map_err(|error| StoreError::InvariantViolation {
             message: error.to_string(),
         })?;

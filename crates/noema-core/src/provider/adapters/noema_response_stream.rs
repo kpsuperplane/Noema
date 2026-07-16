@@ -1,6 +1,6 @@
 //! Incremental parser for structured Noema JSON response streams.
 
-use crate::provider::GenerateStreamEvent;
+use noema_providers::GenerateStreamEvent;
 
 #[derive(Debug, Default)]
 pub(crate) struct NoemaAssistantTextDeltaExtractor {

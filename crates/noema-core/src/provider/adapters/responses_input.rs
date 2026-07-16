@@ -1,7 +1,7 @@
 //! Responses-compatible request input wire types.
 
 use super::responses_tools::provider_safe_tool_name;
-use crate::provider::{
+use noema_providers::{
     GenerateInput, GenerateInputItem, GenerateReasoningInput, GenerateToolCallInput,
     GenerateToolResultInput, ProviderError,
 };

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::provider::{NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderError};
+use noema_providers::{NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderError};
 
 /// Native Responses API tool definition.
 #[derive(Debug, Clone, Serialize)]

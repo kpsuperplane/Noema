@@ -7,8 +7,9 @@ use tokio::{
 };
 
 use super::*;
-use crate::{provider::adapters::codex_oauth::CodexOAuthTokens, store::StoreConfig};
+use crate::store::StoreConfig;
 use noema_home::NoemaPaths;
+use noema_providers::CodexOAuthTokens;
 
 const TEST_CODEX_CLIENT_VERSION: &str = "0.144.1";
 
@@ -35,13 +36,21 @@ fn extracts_visible_profiles_from_codex_model_list() {
     let profiles = profile_values_from_model_list(&value);
 
     assert_eq!(profiles.len(), 1);
-    assert_eq!(profiles[0]["id"], "gpt-5.5");
-    assert_eq!(profiles[0]["label"], "GPT-5.5");
+    assert_eq!(profiles[0].id, "gpt-5.5");
+    assert_eq!(profiles[0].label, "GPT-5.5");
     assert_eq!(
-        profiles[0]["reasoning_efforts"],
-        json!(["low", "medium", "high", "xhigh"])
+        profiles[0].reasoning_efforts,
+        vec![
+            ReasoningEffort::Low,
+            ReasoningEffort::Medium,
+            ReasoningEffort::High,
+            ReasoningEffort::XHigh
+        ]
     );
-    assert_eq!(profiles[0]["default_reasoning_effort"], "medium");
+    assert_eq!(
+        profiles[0].default_reasoning_effort,
+        Some(ReasoningEffort::Medium)
+    );
 }
 
 #[test]

@@ -1,14 +1,12 @@
 use noema_capabilities::ToolSpec;
+use noema_providers::{
+    GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
+    GenerateRequest, GenerateToolCallInput, GenerateToolResultInput, NoemaToolChoice,
+    ProviderSelectionSnapshot, ProviderToolTransport,
+};
 use serde_json::json;
 
-use crate::{
-    ModelConfigSnapshot, TaskComplexity, TaskSource, TaskStatus, TaskValidationCriterion,
-    provider::{
-        GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
-        GenerateRequest, GenerateToolCallInput, GenerateToolResultInput, NoemaToolChoice,
-        ProviderToolTransport,
-    },
-};
+use crate::{TaskComplexity, TaskSource, TaskStatus, TaskValidationCriterion};
 
 use super::{
     super::{
@@ -459,7 +457,7 @@ fn auxiliary_cases(model_id: &str) -> Vec<EvalCase> {
 }
 
 fn fixture_task() -> crate::TaskRecord {
-    let model = ModelConfigSnapshot::explicit(
+    let model = ProviderSelectionSnapshot::explicit(
         "local_models",
         "provider_account:local_models",
         MODEL_ID,

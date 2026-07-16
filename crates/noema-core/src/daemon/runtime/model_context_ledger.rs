@@ -124,7 +124,7 @@ mod tests {
             },
             RuntimeEnvironmentContext::new(date, "12:00:00+00:00", "UTC", Some("/workspace")),
             ToolVisibilityContext::new(
-                crate::provider::ProviderToolTransport::Native,
+                noema_providers::ProviderToolTransport::Native,
                 Vec::new(),
                 vec!["- builtin\tread".to_string()],
             ),

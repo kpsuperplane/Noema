@@ -2,12 +2,13 @@
 
 #![allow(clippy::missing_errors_doc)]
 
+use noema_providers::{ProviderSelectionSnapshot, ReasoningEffort};
 use rusqlite::{OptionalExtension, params};
 
 use crate::{
-    DEFAULT_TASK_MAX_REVIEW_ROUNDS, ModelConfigSnapshot, NewTask, NewTaskReview, NewTaskSubmission,
-    RunKind, TASK_EXECUTOR_AGENT_ID, TaskComplexity, TaskDomainError, TaskReviewCriterion,
-    TaskReviewVerdict, TaskSource, TaskStatus, TaskValidationCriterion, provider::ReasoningEffort,
+    DEFAULT_TASK_MAX_REVIEW_ROUNDS, NewTask, NewTaskReview, NewTaskSubmission, RunKind,
+    TASK_EXECUTOR_AGENT_ID, TaskComplexity, TaskDomainError, TaskReviewCriterion,
+    TaskReviewVerdict, TaskSource, TaskStatus, TaskValidationCriterion,
 };
 
 use super::{NoemaStore, StoreError, agent_runs::AgentRunRecord, ids::allocate_id};
@@ -36,9 +37,9 @@ pub struct TaskRecord {
     /// Selected pool entry.
     pub pool_entry_id: String,
     /// Executor model snapshot.
-    pub executor_model: ModelConfigSnapshot,
+    pub executor_model: ProviderSelectionSnapshot,
     /// Reviewer model snapshot.
-    pub reviewer_model: ModelConfigSnapshot,
+    pub reviewer_model: ProviderSelectionSnapshot,
     /// Current revision index.
     pub revision_index: i64,
     /// Maximum reviewed submissions.
@@ -174,20 +175,18 @@ impl NoemaStore {
         let max_review_rounds = input
             .max_review_rounds
             .unwrap_or(DEFAULT_TASK_MAX_REVIEW_ROUNDS);
-        let executor =
-            input
-                .executor_model
-                .normalized()
-                .map_err(|error| StoreError::InvariantViolation {
-                    message: error.to_string(),
-                })?;
-        let reviewer =
-            input
-                .reviewer_model
-                .normalized()
-                .map_err(|error| StoreError::InvariantViolation {
-                    message: error.to_string(),
-                })?;
+        let executor = input
+            .executor_model
+            .normalized_for_persistence()
+            .map_err(|error| StoreError::InvariantViolation {
+                message: error.to_string(),
+            })?;
+        let reviewer = input
+            .reviewer_model
+            .normalized_for_persistence()
+            .map_err(|error| StoreError::InvariantViolation {
+                message: error.to_string(),
+            })?;
         self.with_connection(|conn| {
             let tx = conn.transaction()?;
             tx.execute(
@@ -461,7 +460,7 @@ impl NoemaStore {
                     task.reviewer_model.provider_account_id,
                     task.reviewer_model.selection_mode.as_str(),
                     task.reviewer_model.model_profile,
-                    task.reviewer_model.reasoning_effort.map(crate::provider::ReasoningEffort::as_persistence_str),
+                    task.reviewer_model.reasoning_effort.map(noema_providers::ReasoningEffort::as_persistence_str),
                     task.reviewer_model.selection_source,
                     execution_policy.max_provider_continuations,
                     execution_policy.max_tool_calls,
@@ -638,7 +637,7 @@ impl NoemaStore {
             {
                 tx.execute(
                     "INSERT INTO agent_runs (run_id, task_id, run_kind, agent_id, attempt_index, revision_index, triggering_review_id, provider_kind, provider_account_id, selection_mode, model_profile, reasoning_effort, selection_source, max_provider_continuations, max_tool_calls, max_active_minutes, progress_audit_interval, status) VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, 'queued')",
-                    rusqlite::params![run_id, task.task_id, run_kind.as_str(), TASK_EXECUTOR_AGENT_ID, next_revision, review_id, run_model.provider_kind, run_model.provider_account_id, run_model.selection_mode.as_str(), run_model.model_profile, run_model.reasoning_effort.map(crate::provider::ReasoningEffort::as_persistence_str), run_model.selection_source, execution_policy.max_provider_continuations, execution_policy.max_tool_calls, execution_policy.max_active_minutes, execution_policy.progress_audit_interval],
+                    rusqlite::params![run_id, task.task_id, run_kind.as_str(), TASK_EXECUTOR_AGENT_ID, next_revision, review_id, run_model.provider_kind, run_model.provider_account_id, run_model.selection_mode.as_str(), run_model.model_profile, run_model.reasoning_effort.map(noema_providers::ReasoningEffort::as_persistence_str), run_model.selection_source, execution_policy.max_provider_continuations, execution_policy.max_tool_calls, execution_policy.max_active_minutes, execution_policy.progress_audit_interval],
                 )?;
                 tx.execute(
                     "INSERT INTO run_events (event_id, run_id, sequence_number, event_kind, actor_id, payload_json) VALUES (?1, ?2, 1, 'run.queued', ?3, ?4)",
@@ -906,7 +905,7 @@ fn task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRecord> {
         })?;
     let executor_selection_mode = row
         .get::<_, String>(14)?
-        .parse::<crate::ModelSelectionMode>()
+        .parse::<noema_providers::ProviderSelectionMode>()
         .map_err(|error| {
             rusqlite::Error::FromSqlConversionFailure(
                 14,
@@ -916,7 +915,7 @@ fn task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRecord> {
         })?;
     let reviewer_selection_mode = row
         .get::<_, String>(20)?
-        .parse::<crate::ModelSelectionMode>()
+        .parse::<noema_providers::ProviderSelectionMode>()
         .map_err(|error| {
             rusqlite::Error::FromSqlConversionFailure(
                 20,
@@ -941,7 +940,8 @@ fn task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRecord> {
         created_by_agent_id: row.get(9)?,
         creation_tool_call_id: row.get(10)?,
         pool_entry_id: row.get(11)?,
-        executor_model: ModelConfigSnapshot {
+        executor_model: ProviderSelectionSnapshot {
+            provider_instance_key: None,
             provider_kind: row.get(12)?,
             provider_account_id: row.get(13)?,
             selection_mode: executor_selection_mode,
@@ -949,7 +949,8 @@ fn task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRecord> {
             reasoning_effort: executor_reasoning_effort,
             selection_source: row.get(17)?,
         },
-        reviewer_model: ModelConfigSnapshot {
+        reviewer_model: ProviderSelectionSnapshot {
+            provider_instance_key: None,
             provider_kind: row.get(18)?,
             provider_account_id: row.get(19)?,
             selection_mode: reviewer_selection_mode,

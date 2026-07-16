@@ -24,7 +24,7 @@ pub mod memory_model_proxy;
 pub mod mnemosyne;
 /// Onboarding status derived from provider account readiness.
 pub mod onboarding;
-/// Provider contracts, account/auth support, and concrete adapters.
+/// Concrete provider adapters, authentication support, and catalog refresh.
 pub mod provider;
 /// Shared runtime host for daemon and desktop client surfaces.
 pub mod runtime_host;
@@ -41,7 +41,6 @@ pub mod web_fetch;
 
 pub use config::{
     Config, ConfigError, ConfigOverrides, DEFAULT_NOEMA_CONFIG_YAML, DaemonResolvedConfig,
-    FoundationLocalProviderConfig, LocalModelsProviderConfig, ProviderConfig, ProviderKind,
     ResolvedConfig, WebConfig,
 };
 pub use daemon::{
@@ -53,13 +52,10 @@ pub use local_models::{
     LLAMA_SERVER_SIDECAR_BASENAME, LlamaCppRuntimeAsset, LlamaCppRuntimeAssetRole,
     LlamaServerCandidate, LlamaServerConfig, LlamaServerEndpoint, LlamaServerError,
     LlamaServerSupervisor, LocalFileModelImport, LocalHardwareProbeError, LocalHardwareProfile,
-    LocalModelBackend, LocalModelBuild, LocalModelCatalog, LocalModelCatalogEntry,
-    LocalModelCatalogError, LocalModelEventKind, LocalModelEventRecord, LocalModelInstallError,
-    LocalModelInstallationRecord, LocalModelInstallationStatus, LocalModelInstallationUpdate,
-    LocalModelInstaller, LocalModelRecommendation, LocalModelRuntimeStatus, LocalModelSourceKind,
-    NOEMA_LLAMA_SERVER_PATH_ENV, NewLocalModelInstallation, RemovedLocalModelInstallation,
-    bundled_llama_server_candidates, bundled_llama_server_candidates_in,
-    detect_local_hardware_profiles, tauri_sidecar_input_name,
+    LocalModelBuild, LocalModelCatalog, LocalModelCatalogEntry, LocalModelCatalogError,
+    LocalModelInstallError, LocalModelInstaller, LocalModelRecommendation, LocalModelRuntimeStatus,
+    NOEMA_LLAMA_SERVER_PATH_ENV, bundled_llama_server_candidates,
+    bundled_llama_server_candidates_in, detect_local_hardware_profiles, tauri_sidecar_input_name,
 };
 pub use mcp::{McpCalibrationStatus, McpTransportKind, McpTrustClassification};
 pub use memory_model_proxy::{MemoryModelProxy, MemoryModelProxyConfig, MemoryModelProxyError};
@@ -73,18 +69,9 @@ pub use onboarding::{
     OnboardingStatus, OnboardingStep, OnboardingStepStatus, onboarding_status_from_account,
     onboarding_status_from_options,
 };
-pub use provider::accounts::{ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod};
 pub use provider::adapters::{
-    codex_responses::{CodexProviderConfig, CodexResponsesProvider},
-    foundation_local::FoundationLocalProvider,
-    local_models::LocalModelsProvider,
-    openai::{OpenAiProvider, OpenAiProviderConfig},
-};
-pub use provider::{
-    GenerateActionItem, GenerateInput, GenerateMessage, GenerateMessageRole, GenerateOptions,
-    GenerateRequest, GenerateResponse, GenerateResponseItem, GenerateResponseStatus,
-    GenerateToolCall, ModelProvider, PromptCacheRetention, ProviderContextMetadata, ProviderError,
-    TokenUsage,
+    codex_responses::CodexResponsesProvider, foundation_local::FoundationLocalProvider,
+    local_models::LocalModelsProvider, openai::OpenAiProvider,
 };
 pub use runtime_host::{NoemaRuntimeHost, RuntimeHostError};
 pub use store::{
@@ -102,9 +89,8 @@ pub use task::{
     CriterionOutcome, DEFAULT_TASK_MAX_ACTIVE_MINUTES, DEFAULT_TASK_MAX_PROVIDER_CONTINUATIONS,
     DEFAULT_TASK_MAX_REVIEW_ROUNDS, DEFAULT_TASK_MAX_TOOL_CALLS,
     DEFAULT_TASK_PROGRESS_AUDIT_INTERVAL, MAX_TASK_ACTIVE_MINUTES, MAX_TASK_PROVIDER_CONTINUATIONS,
-    MAX_TASK_TOOL_CALLS, ModelConfigError, ModelConfigSnapshot, ModelSelectionMode, NewTask,
-    NewTaskReview, NewTaskSubmission, NewTaskValidationCriterion, RunKind, RunStatus,
-    SubmissionCriterionEvidence, TASK_EXECUTOR_AGENT_ID, TASK_REVIEWER_AGENT_ID, TaskComplexity,
-    TaskDomainError, TaskExecutionPolicy, TaskReviewCriterion, TaskReviewVerdict, TaskSource,
-    TaskStatus, TaskValidationCriterion,
+    MAX_TASK_TOOL_CALLS, NewTask, NewTaskReview, NewTaskSubmission, NewTaskValidationCriterion,
+    RunKind, RunStatus, SubmissionCriterionEvidence, TASK_EXECUTOR_AGENT_ID,
+    TASK_REVIEWER_AGENT_ID, TaskComplexity, TaskDomainError, TaskExecutionPolicy,
+    TaskReviewCriterion, TaskReviewVerdict, TaskSource, TaskStatus, TaskValidationCriterion,
 };

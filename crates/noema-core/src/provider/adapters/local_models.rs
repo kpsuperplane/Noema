@@ -1,27 +1,24 @@
 //! First-party local GGUF provider backed by a supervised llama.cpp server.
 
-use std::time::Duration;
+use std::{fmt, time::Duration};
 
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{
-    LocalModelsProviderConfig,
-    local_models::{
-        LlamaServerConfig, LlamaServerError, LlamaServerSupervisor,
-        bundled_llama_server_candidates_in,
-    },
-    provider::{
-        GenerateInput, GenerateInputItem, GenerateMessageRole, GenerateRequest, GenerateResponse,
-        GenerateResponseStatus, GenerateStreamEvent, ModelProvider, ParsedNoemaResponse,
-        ProviderContextMetadata, ProviderError, ProviderToolCapabilities, ProviderToolTransport,
-        TokenUsage, output_items_from_text, required_noema_response_from_text,
-    },
+use crate::local_models::{
+    LlamaServerConfig, LlamaServerError, LlamaServerSupervisor, bundled_llama_server_candidates_in,
+};
+use noema_providers::{
+    GenerateInput, GenerateInputItem, GenerateMessageRole, GenerateRequest, GenerateResponse,
+    GenerateResponseStatus, GenerateStreamEvent, LocalModelsProviderConfig, ModelProvider,
+    ParsedNoemaResponse, ProviderContextMetadata, ProviderError, ProviderToolCapabilities,
+    ProviderToolTransport, TokenUsage, output_items_from_text, required_noema_response_from_text,
 };
 
 use super::{
     noema_response_stream::NoemaAssistantTextDeltaExtractor,
+    reqwest_transport_error,
     responses::{ResponsesDiagnosticContext, noema_response_text_format},
 };
 
@@ -33,11 +30,22 @@ pub const LOCAL_MODELS_DEFAULT_OUTPUT_RESERVE_TOKENS: u32 = 1_024;
 pub const LOCAL_MODELS_COMPACT_SUMMARY_TARGET_TOKENS: u32 = 768;
 
 /// Local model provider facade that preserves Noema's provider-neutral contracts.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct LocalModelsProvider {
     config: LocalModelsProviderConfig,
     supervisor: LlamaServerSupervisor,
     client: reqwest::Client,
+}
+
+impl fmt::Debug for LocalModelsProvider {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("LocalModelsProvider")
+            .field("config", &self.config)
+            .field("supervisor", &"[CONFIGURED]")
+            .field("client", &"[CONFIGURED]")
+            .finish()
+    }
 }
 
 impl LocalModelsProvider {
@@ -71,7 +79,9 @@ impl LocalModelsProvider {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.timeout_seconds))
             .build()
-            .map_err(|source| ProviderError::HttpFailure { source })?;
+            .map_err(|source| {
+                reqwest_transport_error(LOCAL_MODELS_PROVIDER, "build_client", &source)
+            })?;
         Ok(Self {
             config,
             supervisor,
@@ -130,7 +140,9 @@ impl LocalModelsProvider {
             .json(&body)
             .send()
             .await
-            .map_err(|source| ProviderError::HttpFailure { source })?;
+            .map_err(|source| {
+                reqwest_transport_error(LOCAL_MODELS_PROVIDER, "send_generation", &source)
+            })?;
         if !response.status().is_success() {
             let status = response.status().as_u16();
             let message = response
@@ -148,7 +160,9 @@ impl LocalModelsProvider {
         let mut accumulator = ChatSseAccumulator::default();
         let mut structured_extractor = NoemaAssistantTextDeltaExtractor::default();
         while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|source| ProviderError::HttpFailure { source })?;
+            let chunk = chunk.map_err(|source| {
+                reqwest_transport_error(LOCAL_MODELS_PROVIDER, "read_generation_stream", &source)
+            })?;
             accumulator.push_bytes(&chunk, |delta| {
                 if request.options.require_noema_response {
                     structured_extractor.push_delta(&delta, on_event);
@@ -247,14 +261,18 @@ impl ModelProvider for LocalModelsProvider {
             .json(&serde_json::json!({ "content": content }))
             .send()
             .await
-            .map_err(|source| ProviderError::HttpFailure { source })?;
+            .map_err(|source| {
+                reqwest_transport_error(LOCAL_MODELS_PROVIDER, "send_tokenize", &source)
+            })?;
         if !response.status().is_success() {
             return Ok(None);
         }
         let body = response
             .json::<TokenizeResponse>()
             .await
-            .map_err(|source| ProviderError::HttpFailure { source })?;
+            .map_err(|source| {
+                reqwest_transport_error(LOCAL_MODELS_PROVIDER, "read_tokenize_response", &source)
+            })?;
         let count = body
             .count
             .or_else(|| body.tokens.map(|tokens| tokens.len()))
@@ -423,9 +441,9 @@ fn chat_noema_response_format(request: &GenerateRequest) -> Result<Value, Provid
     }
     let tool_call_required = matches!(
         &request.tool_choice,
-        crate::provider::NoemaToolChoice::Required
-            | crate::provider::NoemaToolChoice::Allowed(crate::provider::NoemaAllowedTools {
-                mode: crate::provider::NoemaAllowedToolsMode::Required,
+        noema_providers::NoemaToolChoice::Required
+            | noema_providers::NoemaToolChoice::Allowed(noema_providers::NoemaAllowedTools {
+                mode: noema_providers::NoemaAllowedToolsMode::Required,
                 ..
             })
     );
@@ -444,16 +462,16 @@ fn selected_local_tools(
     request: &GenerateRequest,
 ) -> Result<Vec<&noema_capabilities::ToolSpec>, ProviderError> {
     match &request.tool_choice {
-        crate::provider::NoemaToolChoice::None => Ok(Vec::new()),
-        crate::provider::NoemaToolChoice::Required if request.tools.is_empty() => {
+        noema_providers::NoemaToolChoice::None => Ok(Vec::new()),
+        noema_providers::NoemaToolChoice::Required if request.tools.is_empty() => {
             Err(ProviderError::InvalidRequest {
                 message: "required tool choice needs a non-empty tool catalog".to_string(),
             })
         }
-        crate::provider::NoemaToolChoice::Auto | crate::provider::NoemaToolChoice::Required => {
+        noema_providers::NoemaToolChoice::Auto | noema_providers::NoemaToolChoice::Required => {
             Ok(request.tools.iter().collect())
         }
-        crate::provider::NoemaToolChoice::Allowed(allowed) => {
+        noema_providers::NoemaToolChoice::Allowed(allowed) => {
             if allowed.tools.is_empty() {
                 return Err(ProviderError::InvalidRequest {
                     message: "allowed tools cannot be empty".to_string(),
@@ -756,7 +774,27 @@ struct TokenizeResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::{GenerateInputItem, GenerateMessage, GenerateToolResultInput};
+    use noema_providers::{GenerateInputItem, GenerateMessage, GenerateToolResultInput};
+
+    #[test]
+    fn provider_debug_redacts_local_model_paths() {
+        let provider = LocalModelsProvider::new(LocalModelsProviderConfig {
+            default_model: "local-8b".to_string(),
+            model_path: Some(std::path::PathBuf::from("/private/model-secret.gguf")),
+            preferred_backend: Some(noema_providers::LocalModelBackend::Cpu),
+            runtime_root: Some(std::path::PathBuf::from("/private/runtime-secret")),
+            context_window_tokens: 8_192,
+            timeout_seconds: 600,
+            startup_timeout_seconds: 180,
+            system_errors: None,
+        })
+        .expect("provider");
+
+        let debug = format!("{provider:?}");
+        assert!(!debug.contains("model-secret.gguf"));
+        assert!(!debug.contains("runtime-secret"));
+        assert!(debug.contains("[REDACTED PATH]"));
+    }
 
     #[test]
     fn chat_request_preserves_replay_items_and_generation_controls() {
@@ -834,9 +872,9 @@ mod tests {
     #[test]
     fn required_noema_response_without_tools_forbids_tool_calls() {
         let request = GenerateRequest {
-            options: crate::provider::GenerateOptions {
+            options: noema_providers::GenerateOptions {
                 require_noema_response: true,
-                ..crate::provider::GenerateOptions::default()
+                ..noema_providers::GenerateOptions::default()
             },
             ..GenerateRequest::text("hello")
         };
@@ -870,12 +908,12 @@ mod tests {
         )
         .expect("tool");
         let request = GenerateRequest {
-            options: crate::provider::GenerateOptions {
+            options: noema_providers::GenerateOptions {
                 require_noema_response: true,
-                ..crate::provider::GenerateOptions::default()
+                ..noema_providers::GenerateOptions::default()
             },
             tools: vec![tool],
-            tool_choice: crate::provider::NoemaToolChoice::None,
+            tool_choice: noema_providers::NoemaToolChoice::None,
             ..GenerateRequest::text("answer without tools")
         };
 
@@ -907,12 +945,12 @@ mod tests {
         )
         .expect("tool");
         let request = GenerateRequest {
-            options: crate::provider::GenerateOptions {
+            options: noema_providers::GenerateOptions {
                 require_noema_response: true,
-                ..crate::provider::GenerateOptions::default()
+                ..noema_providers::GenerateOptions::default()
             },
             tools: vec![tool],
-            tool_choice: crate::provider::NoemaToolChoice::Required,
+            tool_choice: noema_providers::NoemaToolChoice::Required,
             ..GenerateRequest::text("finish")
         };
 
@@ -943,11 +981,11 @@ mod tests {
     #[test]
     fn required_tool_choice_rejects_an_empty_catalog() {
         let request = GenerateRequest {
-            options: crate::provider::GenerateOptions {
+            options: noema_providers::GenerateOptions {
                 require_noema_response: true,
-                ..crate::provider::GenerateOptions::default()
+                ..noema_providers::GenerateOptions::default()
             },
-            tool_choice: crate::provider::NoemaToolChoice::Required,
+            tool_choice: noema_providers::NoemaToolChoice::Required,
             ..GenerateRequest::text("finish")
         };
 
@@ -972,14 +1010,14 @@ mod tests {
         )
         .expect("second tool");
         let request = GenerateRequest {
-            options: crate::provider::GenerateOptions {
+            options: noema_providers::GenerateOptions {
                 require_noema_response: true,
-                ..crate::provider::GenerateOptions::default()
+                ..noema_providers::GenerateOptions::default()
             },
             tools: vec![first.clone(), second],
-            tool_choice: crate::provider::NoemaToolChoice::Allowed(
-                crate::provider::NoemaAllowedTools {
-                    mode: crate::provider::NoemaAllowedToolsMode::Auto,
+            tool_choice: noema_providers::NoemaToolChoice::Allowed(
+                noema_providers::NoemaAllowedTools {
+                    mode: noema_providers::NoemaAllowedToolsMode::Auto,
                     tools: vec![first.name],
                 },
             ),
@@ -1015,9 +1053,9 @@ mod tests {
         )
         .expect("tool");
         let request = GenerateRequest {
-            options: crate::provider::GenerateOptions {
+            options: noema_providers::GenerateOptions {
                 require_noema_response: true,
-                ..crate::provider::GenerateOptions::default()
+                ..noema_providers::GenerateOptions::default()
             },
             tools: vec![tool],
             ..GenerateRequest::text("create")
@@ -1055,9 +1093,9 @@ mod tests {
         )
         .expect("tool");
         let request = GenerateRequest {
-            options: crate::provider::GenerateOptions {
+            options: noema_providers::GenerateOptions {
                 require_noema_response: true,
-                ..crate::provider::GenerateOptions::default()
+                ..noema_providers::GenerateOptions::default()
             },
             tools: vec![tool],
             ..GenerateRequest::text("finish")

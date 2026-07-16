@@ -2,10 +2,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    daemon::agent_onboarding::{AgentPromptIdentity, agent_identity_prompt},
-    provider::ProviderToolTransport,
-};
+use crate::daemon::agent_onboarding::{AgentPromptIdentity, agent_identity_prompt};
+use noema_providers::ProviderToolTransport;
 
 /// Stable identity for one independently replaceable piece of model context.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]

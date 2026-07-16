@@ -3,15 +3,15 @@ use noema_conversations::{
     NewConversationItem, NewConversationTurn, ReplayMode,
 };
 
-use crate::provider::{
+use chrono::{Local, SecondsFormat};
+use noema_home::SystemErrorEvent;
+use noema_providers::{
     GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
     GenerateStreamEvent, GenerateToolCall, MultipleChoiceOption, MultipleChoiceSelectionMode,
     NoemaAllowedToolsMode, NoemaToolChoice, PromptCacheMode, PromptCacheOptions,
     PromptCacheRetention, ProviderError, ProviderToolCapabilities, ProviderToolTransport,
     TokenUsage,
 };
-use chrono::{Local, SecondsFormat};
-use noema_home::SystemErrorEvent;
 use serde::Deserialize;
 use serde_json::json;
 use std::{
@@ -162,10 +162,10 @@ fn prompt_cache_breakpoints_for(
         GenerateInput::Items(items) => items
             .iter()
             .filter_map(|item| match item {
-                crate::provider::GenerateInputItem::Message(message) => Some(message),
-                crate::provider::GenerateInputItem::Reasoning(_)
-                | crate::provider::GenerateInputItem::ToolCall(_)
-                | crate::provider::GenerateInputItem::ToolResult(_) => None,
+                noema_providers::GenerateInputItem::Message(message) => Some(message),
+                noema_providers::GenerateInputItem::Reasoning(_)
+                | noema_providers::GenerateInputItem::ToolCall(_)
+                | noema_providers::GenerateInputItem::ToolResult(_) => None,
             })
             .collect(),
         GenerateInput::Text(_) | GenerateInput::NativeToolResults(_) => Vec::new(),
@@ -174,7 +174,7 @@ fn prompt_cache_breakpoints_for(
         .iter()
         .enumerate()
         .filter_map(|(index, message)| {
-            (message.role == crate::GenerateMessageRole::Developer).then_some(index)
+            (message.role == noema_providers::GenerateMessageRole::Developer).then_some(index)
         })
         .rev()
         .take(4)
@@ -1202,7 +1202,7 @@ impl CodexRuntimeActor {
                     } => Some((provider.clone(), output.clone())),
                     ProviderError::MissingCredentials { .. }
                     | ProviderError::InvalidRequest { .. }
-                    | ProviderError::HttpFailure { .. }
+                    | ProviderError::TransportFailure { .. }
                     | ProviderError::ApiError { .. }
                     | ProviderError::RateLimit { .. }
                     | ProviderError::AuthenticationFailure { .. }
@@ -2527,7 +2527,7 @@ struct BackgroundContextCompactionSchedule {
     conversation_id: String,
     provider_kind: String,
     model_profile: Option<String>,
-    reasoning_effort: Option<crate::provider::ReasoningEffort>,
+    reasoning_effort: Option<noema_providers::ReasoningEffort>,
     next_turn_index: u64,
 }
 
@@ -2543,7 +2543,7 @@ pub(in crate::daemon) struct SuccessfulProviderTurn {
     pub(in crate::daemon) cwd: Option<String>,
     pub(in crate::daemon) provider_kind: String,
     pub(in crate::daemon) model: Option<String>,
-    pub(in crate::daemon) reasoning_effort: Option<crate::provider::ReasoningEffort>,
+    pub(in crate::daemon) reasoning_effort: Option<noema_providers::ReasoningEffort>,
     pub(in crate::daemon) initial_stream_id: String,
     pub(in crate::daemon) response: GenerateResponse,
     pub(in crate::daemon) agent_identity: AgentPromptIdentity,

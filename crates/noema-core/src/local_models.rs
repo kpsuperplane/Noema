@@ -8,24 +8,17 @@ mod download_support;
 #[cfg(test)]
 mod download_tests;
 mod hardware;
-mod installation;
 mod runtime;
 mod runtime_assets;
 
 pub use catalog::{
-    LocalHardwareProfile, LocalModelBackend, LocalModelBuild, LocalModelCatalog,
-    LocalModelCatalogEntry, LocalModelCatalogError, LocalModelRecommendation,
+    LocalHardwareProfile, LocalModelBuild, LocalModelCatalog, LocalModelCatalogEntry,
+    LocalModelCatalogError, LocalModelRecommendation,
 };
 pub use download::{
     HuggingFaceLocalModelImport, LocalFileModelImport, LocalModelInstallError, LocalModelInstaller,
 };
 pub use hardware::{LocalHardwareProbeError, detect_local_hardware_profiles};
-pub use installation::{
-    DefaultModelPreferenceRecord, LOCAL_MODELS_PROVIDER_ACCOUNT_ID, LocalModelEventKind,
-    LocalModelEventRecord, LocalModelInstallationRecord, LocalModelInstallationStatus,
-    LocalModelInstallationUpdate, LocalModelSourceKind, NewLocalModelInstallation,
-    RemovedLocalModelInstallation,
-};
 pub use runtime::{
     LlamaServerCandidate, LlamaServerConfig, LlamaServerEndpoint, LlamaServerError,
     LlamaServerSupervisor, LocalModelRuntimeStatus,

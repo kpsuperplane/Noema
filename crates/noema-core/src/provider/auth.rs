@@ -1,96 +1,17 @@
 //! Provider authentication support.
 
-use std::{
-    collections::HashMap,
-    fs, io,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{collections::HashMap, fs, io, path::Path, sync::Arc};
 
-use serde::{Deserialize, Serialize};
+use noema_providers::{
+    CodexDeviceAuthRequest, ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderError,
+};
 use tokio::sync::{Mutex, oneshot};
-use ts_rs::TS;
 
-use super::{
-    accounts::ProviderAuthMethod,
-    adapters::codex_oauth::{self, CodexOAuthConfig},
-};
-use crate::ProviderError;
+use super::adapters::codex_oauth;
 
 /// Default maximum lifetime for a provider auth attempt.
 pub const DEFAULT_PROVIDER_AUTH_ATTEMPT_TIMEOUT: std::time::Duration =
     std::time::Duration::from_secs(5 * 60);
-
-/// Short-lived provider auth attempt status.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(rename_all = "snake_case")]
-pub enum ProviderAuthAttemptStatus {
-    /// Attempt process is starting.
-    Starting,
-    /// Waiting for the user to complete an external auth step.
-    WaitingForUser,
-    /// Auth attempt completed successfully.
-    Completed,
-    /// Auth attempt failed.
-    Failed,
-    /// Auth attempt expired.
-    Expired,
-    /// Auth attempt was cancelled.
-    Cancelled,
-}
-
-/// Request to start Codex device-code login.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CodexDeviceAuthRequest {
-    /// Stable provider account id.
-    pub provider_account_id: String,
-    /// Account-specific directory for Noema-owned Codex credentials.
-    pub account_home: PathBuf,
-    /// OAuth endpoint configuration.
-    pub oauth: CodexOAuthConfig,
-    /// Optional attempt timeout override. Defaults to 5 minutes.
-    pub attempt_timeout: Option<std::time::Duration>,
-}
-
-/// Safe provider auth attempt state returned to the UI.
-///
-/// This type intentionally contains only typed state suitable for display. It
-/// must not store raw provider stdout, stderr, credential paths, or redacted
-/// provider output.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-pub struct ProviderAuthAttemptView {
-    /// Short-lived auth attempt id.
-    pub attempt_id: String,
-    /// Provider family, such as `codex`.
-    pub provider_kind: String,
-    /// Stable provider account id.
-    pub provider_account_id: String,
-    /// Provider account auth method.
-    pub method: ProviderAuthMethod,
-    /// Current attempt status.
-    pub status: ProviderAuthAttemptStatus,
-    /// Typed verification URL parsed from provider output.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub verification_url: Option<String>,
-    /// Typed user code parsed from provider output.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub user_code: Option<String>,
-    /// Static UI-safe instruction text.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub instructions: Option<String>,
-    /// Stable non-secret error code.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub error_code: Option<String>,
-    /// Fixed non-secret error message.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub error_message: Option<String>,
-}
 
 /// In-memory manager for short-lived provider authentication attempts.
 #[derive(Clone, Default)]
@@ -299,7 +220,7 @@ mod tests {
             attempt_id: "attempt-test".to_string(),
             provider_kind: "codex".to_string(),
             provider_account_id: "provider_account:codex:default".to_string(),
-            method: crate::ProviderAuthMethod::OauthDeviceCode,
+            method: noema_providers::ProviderAuthMethod::OauthDeviceCode,
             status: ProviderAuthAttemptStatus::WaitingForUser,
             verification_url: Some("https://example.com/device".to_string()),
             user_code: Some("ABD-EFGH".to_string()),

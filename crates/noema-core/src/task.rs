@@ -10,7 +10,7 @@ use std::{fmt, str::FromStr};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::provider::ReasoningEffort;
+use noema_providers::{ProviderSelectionError, ProviderSelectionSnapshot};
 
 pub(crate) mod provider_defaults;
 
@@ -395,171 +395,6 @@ impl FromStr for RunStatus {
     }
 }
 
-/// Whether a model profile is explicit or is delegated to the provider.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ModelSelectionMode {
-    /// A concrete provider profile is pinned in the snapshot.
-    ExplicitProfile,
-    /// The provider chooses its current default model/profile.
-    ProviderDefault,
-}
-
-impl ModelSelectionMode {
-    /// Return the stable SQLite/API representation.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::ExplicitProfile => "explicit_profile",
-            Self::ProviderDefault => "provider_default",
-        }
-    }
-}
-
-impl fmt::Display for ModelSelectionMode {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.as_str())
-    }
-}
-
-impl FromStr for ModelSelectionMode {
-    type Err = TaskDomainError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "explicit_profile" => Ok(Self::ExplicitProfile),
-            "provider_default" => Ok(Self::ProviderDefault),
-            other => Err(TaskDomainError::InvalidEnum {
-                kind: "model_selection_mode",
-                value: other.to_string(),
-            }),
-        }
-    }
-}
-
-/// Immutable model-request provenance persisted on tasks and runs.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ModelConfigSnapshot {
-    /// Provider family, such as `codex`, `openai`, or `local_models`.
-    pub provider_kind: String,
-    /// Concrete provider account selected for this request.
-    pub provider_account_id: String,
-    /// Explicit profile versus provider-owned default semantics.
-    pub selection_mode: ModelSelectionMode,
-    /// Provider-specific model/profile, when explicitly selected.
-    pub model_profile: Option<String>,
-    /// Explicit reasoning effort, when requested.
-    pub reasoning_effort: Option<ReasoningEffort>,
-    /// Human/system source of the selection, retained for auditability.
-    pub selection_source: Option<String>,
-}
-
-impl ModelConfigSnapshot {
-    /// Construct an explicit model-profile snapshot.
-    #[must_use]
-    pub fn explicit(
-        provider_kind: impl Into<String>,
-        provider_account_id: impl Into<String>,
-        model_profile: impl Into<String>,
-        reasoning_effort: Option<ReasoningEffort>,
-        selection_source: Option<String>,
-    ) -> Self {
-        Self {
-            provider_kind: provider_kind.into(),
-            provider_account_id: provider_account_id.into(),
-            selection_mode: ModelSelectionMode::ExplicitProfile,
-            model_profile: Some(model_profile.into()),
-            reasoning_effort,
-            selection_source,
-        }
-    }
-
-    /// Construct a snapshot that preserves provider-default model semantics.
-    #[must_use]
-    pub fn provider_default(
-        provider_kind: impl Into<String>,
-        provider_account_id: impl Into<String>,
-        reasoning_effort: Option<ReasoningEffort>,
-        selection_source: Option<String>,
-    ) -> Self {
-        Self {
-            provider_kind: provider_kind.into(),
-            provider_account_id: provider_account_id.into(),
-            selection_mode: ModelSelectionMode::ProviderDefault,
-            model_profile: None,
-            reasoning_effort,
-            selection_source,
-        }
-    }
-
-    /// Validate and normalize user/model input at the persistence boundary.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ModelConfigError`] when the provider, account, or selection
-    /// mode is malformed.
-    pub fn normalized(&self) -> Result<Self, ModelConfigError> {
-        let provider_kind = self.provider_kind.trim().to_ascii_lowercase();
-        if !matches!(
-            provider_kind.as_str(),
-            "codex" | "openai" | "foundation_local" | "local_models"
-        ) {
-            return Err(ModelConfigError::UnsupportedProvider { provider_kind });
-        }
-        let provider_account_id = self.provider_account_id.trim();
-        if provider_account_id.is_empty() {
-            return Err(ModelConfigError::EmptyField("provider_account_id"));
-        }
-        let selection_source = self
-            .selection_source
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(ToOwned::to_owned);
-        let model_profile = self
-            .model_profile
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(ToOwned::to_owned);
-
-        match (self.selection_mode, model_profile.as_deref()) {
-            (ModelSelectionMode::ExplicitProfile, None) => Err(ModelConfigError::ProfileRequired),
-            (ModelSelectionMode::ProviderDefault, Some(_)) => {
-                Err(ModelConfigError::ProfileForbidden)
-            }
-            _ => Ok(Self {
-                provider_kind,
-                provider_account_id: provider_account_id.to_string(),
-                selection_mode: self.selection_mode,
-                model_profile,
-                reasoning_effort: self.reasoning_effort,
-                selection_source,
-            }),
-        }
-    }
-}
-
-/// Validation failure for a model snapshot.
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub enum ModelConfigError {
-    /// A provider family is not supported by Noema's model plane.
-    #[error("unsupported model provider: {provider_kind}")]
-    UnsupportedProvider {
-        /// Provider family that was rejected.
-        provider_kind: String,
-    },
-    /// A required snapshot field was blank.
-    #[error("model snapshot field cannot be empty: {0}")]
-    EmptyField(&'static str),
-    /// Explicit profile selection omitted its profile.
-    #[error("explicit model selection requires a model profile")]
-    ProfileRequired,
-    /// Provider-default selection must not pin a profile.
-    #[error("provider-default model selection cannot include a model profile")]
-    ProfileForbidden,
-}
-
 /// Immutable validation criterion supplied when a task is created.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskValidationCriterion {
@@ -619,9 +454,9 @@ pub struct NewTask {
     /// Exact pool entry chosen by the primary agent.
     pub pool_entry_id: String,
     /// Immutable executor model snapshot.
-    pub executor_model: ModelConfigSnapshot,
+    pub executor_model: ProviderSelectionSnapshot,
     /// Immutable reviewer model-request snapshot.
-    pub reviewer_model: ModelConfigSnapshot,
+    pub reviewer_model: ProviderSelectionSnapshot,
     /// Initial review-round bound; defaults to three when omitted.
     pub max_review_rounds: Option<i64>,
     /// Immutable criteria checked by the reviewer.
@@ -714,11 +549,11 @@ impl NewTask {
             pool_entry_id: self.pool_entry_id.trim().to_string(),
             executor_model: self
                 .executor_model
-                .normalized()
+                .normalized_for_persistence()
                 .map_err(TaskDomainError::Model)?,
             reviewer_model: self
                 .reviewer_model
-                .normalized()
+                .normalized_for_persistence()
                 .map_err(TaskDomainError::Model)?,
             max_review_rounds: Some(max_review_rounds),
             criteria,
@@ -912,7 +747,7 @@ pub enum TaskDomainError {
     },
     /// A model snapshot was malformed.
     #[error("invalid task model snapshot: {0}")]
-    Model(#[from] ModelConfigError),
+    Model(#[from] ProviderSelectionError),
 }
 
 #[cfg(test)]
@@ -928,46 +763,6 @@ mod tests {
     }
 
     #[test]
-    fn snapshots_preserve_explicit_and_provider_default_semantics() {
-        let explicit = ModelConfigSnapshot::explicit(
-            "Codex",
-            "provider_account:codex:default",
-            " gpt-5.5 ",
-            Some(ReasoningEffort::High),
-            Some("pool:simple".to_string()),
-        )
-        .normalized()
-        .expect("explicit snapshot");
-        assert_eq!(explicit.provider_kind, "codex");
-        assert_eq!(explicit.model_profile.as_deref(), Some("gpt-5.5"));
-
-        let local = ModelConfigSnapshot::explicit(
-            "local_models",
-            "provider_account:local_models:default",
-            "ternary-bonsai-8b",
-            None,
-            Some("pool:simple".to_string()),
-        )
-        .normalized()
-        .expect("local model snapshot");
-        assert_eq!(local.provider_kind, "local_models");
-
-        let inherited = ModelConfigSnapshot::provider_default(
-            "openai",
-            "provider_account:openai:default",
-            None,
-            Some("primary:effective".to_string()),
-        );
-        assert_eq!(
-            inherited
-                .normalized()
-                .expect("default snapshot")
-                .model_profile,
-            None
-        );
-    }
-
-    #[test]
     fn task_normalization_rejects_duplicate_criteria() {
         let task = NewTask {
             task_id: None,
@@ -979,14 +774,14 @@ mod tests {
             created_by_agent_id: "agent:primary".to_string(),
             creation_tool_call_id: None,
             pool_entry_id: "pool:1".to_string(),
-            executor_model: ModelConfigSnapshot::explicit(
+            executor_model: ProviderSelectionSnapshot::explicit(
                 "codex",
                 "provider_account:codex:default",
                 "gpt-5.5",
                 None,
                 None,
             ),
-            reviewer_model: ModelConfigSnapshot::provider_default(
+            reviewer_model: ProviderSelectionSnapshot::provider_default(
                 "codex",
                 "provider_account:codex:default",
                 None,
@@ -1011,6 +806,51 @@ mod tests {
         assert!(matches!(
             task.normalized(),
             Err(TaskDomainError::DuplicateCriterionDescription(_))
+        ));
+    }
+
+    #[test]
+    fn task_normalization_rejects_unpersistable_provider_instance_identity() {
+        let mut executor_model = ProviderSelectionSnapshot::explicit(
+            "openai",
+            "provider_account:openai:default",
+            "gpt-5.5",
+            None,
+            None,
+        );
+        executor_model.provider_instance_key =
+            Some(noema_providers::ProviderInstanceKey::new("openai:default:1").unwrap());
+        let task = NewTask {
+            task_id: None,
+            title: "Example".to_string(),
+            request_markdown: "Do the thing".to_string(),
+            complexity: TaskComplexity::Simple,
+            owner_human_id: "human:local".to_string(),
+            source: TaskSource::default(),
+            created_by_agent_id: "agent:primary".to_string(),
+            creation_tool_call_id: None,
+            pool_entry_id: "pool:1".to_string(),
+            executor_model,
+            reviewer_model: ProviderSelectionSnapshot::provider_default(
+                "codex",
+                "provider_account:codex:default",
+                None,
+                None,
+            ),
+            max_review_rounds: None,
+            criteria: vec![NewTaskValidationCriterion {
+                criterion_id: None,
+                ordinal: 1,
+                description: "Result exists".to_string(),
+                expected_evidence: None,
+            }],
+        };
+
+        assert!(matches!(
+            task.normalized(),
+            Err(TaskDomainError::Model(
+                noema_providers::ProviderSelectionError::DurableInstanceKeyUnsupported
+            ))
         ));
     }
 }

@@ -1,9 +1,8 @@
 //! Onboarding status derived from configured provider accounts.
 
+use noema_providers::{ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
-
-use crate::{ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod};
 
 const PROVIDER_LOGIN_STEP_ID: &str = "connect_provider_account";
 const LOCAL_MODEL_STEP_ID: &str = "install_local_model";
@@ -175,7 +174,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::{ProviderAccountStatus, ProviderAuthMethod};
+    use noema_providers::{ProviderAccountStatus, ProviderAuthMethod};
 
     fn codex_default_account(status: ProviderAccountStatus) -> ProviderAccountRecord {
         ProviderAccountRecord {
@@ -192,7 +191,7 @@ mod tests {
             last_error_code: None,
             last_error_message: None,
             metadata: json!({}),
-            capabilities: crate::provider::capabilities_for_provider_account(
+            capabilities: noema_providers::capabilities_for_provider_account(
                 "codex", "default", status,
             ),
         }

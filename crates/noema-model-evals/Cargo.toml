@@ -12,6 +12,7 @@ workspace = true
 [dependencies]
 noema-core = { path = "../noema-core", features = ["local-model-evals"] }
 noema-home = { path = "../noema-home" }
+noema-providers = { path = "../noema-providers", default-features = false }
 ring.workspace = true
 serde.workspace = true
 serde_json.workspace = true

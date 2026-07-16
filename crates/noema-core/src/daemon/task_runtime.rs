@@ -689,7 +689,7 @@ async fn generate_once(
     input: String,
     instructions: &str,
     subscriptions: &ConversationSubscriptionRegistry,
-) -> Result<crate::GenerateResponse, String> {
+) -> Result<noema_providers::GenerateResponse, String> {
     runtime
         .generate_background_task(BackgroundTaskGenerateRequest {
             run_id: run.run_id.clone(),

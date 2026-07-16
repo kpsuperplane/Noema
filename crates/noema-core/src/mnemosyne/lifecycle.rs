@@ -316,21 +316,21 @@ sleep 5
     impl crate::daemon::RuntimeModelProvider for StaticProvider {
         fn generate_streaming<'a>(
             &'a self,
-            _request: crate::provider::GenerateRequest,
-            _on_event: &'a mut (dyn FnMut(crate::provider::GenerateStreamEvent) + Send),
+            _request: noema_providers::GenerateRequest,
+            _on_event: &'a mut (dyn FnMut(noema_providers::GenerateStreamEvent) + Send),
         ) -> std::pin::Pin<
             Box<
                 dyn std::future::Future<
                         Output = Result<
-                            crate::provider::GenerateResponse,
-                            crate::provider::ProviderError,
+                            noema_providers::GenerateResponse,
+                            noema_providers::ProviderError,
                         >,
                     > + Send
                     + 'a,
             >,
         > {
             Box::pin(async {
-                Ok(crate::provider::GenerateResponse::final_text(
+                Ok(noema_providers::GenerateResponse::final_text(
                     "ok",
                     "test",
                     "memory-model",

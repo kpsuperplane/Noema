@@ -2,13 +2,10 @@
 
 #![allow(clippy::missing_errors_doc)]
 
+use noema_providers::{ProviderAccountStatus, ProviderSelectionSnapshot, ReasoningEffort};
 use rusqlite::{OptionalExtension, params};
 
-use crate::{
-    ProviderAccountStatus,
-    provider::ReasoningEffort,
-    task::{ModelConfigSnapshot, TaskComplexity, provider_defaults::provider_default_task_models},
-};
+use crate::{TaskComplexity, task::provider_defaults::provider_default_task_models};
 
 use super::{NoemaStore, StoreError};
 
@@ -48,7 +45,7 @@ pub struct TaskModelPoolEntry {
     /// Optional human-facing label.
     pub label: Option<String>,
     /// Immutable model snapshot selected by this entry.
-    pub model: ModelConfigSnapshot,
+    pub model: ProviderSelectionSnapshot,
     /// Whether the entry can be selected for new tasks.
     pub enabled: bool,
     /// Human-controlled ordering within a complexity tier.
@@ -78,7 +75,7 @@ impl NewTaskModelPoolEntry {
         let provider_kind = self.provider_kind.trim().to_ascii_lowercase();
         let provider_account_id = self.provider_account_id.trim().to_string();
         let model_profile = self.model_profile.trim().to_string();
-        let model = ModelConfigSnapshot::explicit(
+        let model = ProviderSelectionSnapshot::explicit(
             provider_kind.clone(),
             provider_account_id.clone(),
             model_profile.clone(),
@@ -405,7 +402,7 @@ impl NoemaStore {
     /// when a catalog is available, that the exact profile is advertised.
     pub async fn validate_task_model_snapshot(
         &self,
-        model: &ModelConfigSnapshot,
+        model: &ProviderSelectionSnapshot,
     ) -> Result<(), StoreError> {
         self.validate_usable_pool_account(
             &model.provider_kind,
@@ -499,7 +496,7 @@ fn pool_entry_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskModelPoo
         pool_entry_id: pool_entry_id.clone(),
         complexity,
         label: row.get(2)?,
-        model: ModelConfigSnapshot::explicit(
+        model: ProviderSelectionSnapshot::explicit(
             provider_kind,
             provider_account_id,
             model_profile,

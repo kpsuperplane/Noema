@@ -1,11 +1,12 @@
 //! Static provider capability vocabulary and declarations.
 
-use crate::ProviderAccountStatus;
 use noema_capabilities::{
     CapabilityFeatures, CapabilityId, DataFlowClass, ReliabilityContract, ResultPersistencePolicy,
 };
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
+
+use crate::ProviderAccountStatus;
 
 /// Availability state for a capability on a concrete provider account.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -53,6 +54,19 @@ pub struct ProviderCapability {
     pub features: CapabilityFeatures,
 }
 
+/// Persisted assignment from a model-visible tool to a provider capability.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderCapabilityAssignment {
+    /// Stable assignment id derived from tool and capability.
+    pub assignment_id: String,
+    /// Model-visible tool name.
+    pub tool_name: String,
+    /// Bound provider capability id.
+    pub capability_id: String,
+    /// Provider account selected for this assignment.
+    pub provider_account_id: String,
+}
+
 /// Return the static capabilities declared for a provider account.
 #[must_use]
 pub fn capabilities_for_provider_account(
@@ -62,21 +76,7 @@ pub fn capabilities_for_provider_account(
 ) -> Vec<ProviderCapability> {
     let status = capability_status_for_account(account_status);
     match provider_kind {
-        "openai" => vec![
-            model_capability(
-                provider_kind,
-                account_key,
-                CapabilityId::ModelGenerate,
-                status,
-            ),
-            model_capability(
-                provider_kind,
-                account_key,
-                CapabilityId::ModelClassify,
-                status,
-            ),
-        ],
-        "codex" | "foundation_local" => vec![
+        "openai" | "codex" | "foundation_local" => vec![
             model_capability(
                 provider_kind,
                 account_key,
@@ -233,7 +233,6 @@ const fn capability_status_for_account(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ProviderAccountStatus;
 
     #[test]
     fn openai_account_declares_model_capabilities_only() {
@@ -325,17 +324,6 @@ mod tests {
                 && capability.account_key == "research"
                 && capability.reliability_contract == ReliabilityContract::HostedProvider
         }));
-        assert!(capabilities.iter().any(|capability| {
-            capability.capability_id == CapabilityId::WebSearch
-                && capability.data_flow_class == DataFlowClass::TrustedExternalSearchQuery
-                && capability.features.citations
-                && !capability.features.direct_url_fetch
-        }));
-        assert!(capabilities.iter().any(|capability| {
-            capability.capability_id == CapabilityId::WebFetch
-                && capability.data_flow_class == DataFlowClass::ExternalWebFetch
-                && capability.features.direct_url_fetch
-        }));
     }
 
     #[test]
@@ -348,12 +336,9 @@ mod tests {
                 capabilities_for_provider_account("openai", "default", account_status);
 
             assert!(!capabilities.is_empty());
-            assert!(
-                capabilities
-                    .iter()
-                    .all(|capability| capability.status
-                        == ProviderCapabilityStatus::AccountDependent)
-            );
+            assert!(capabilities.iter().all(|capability| {
+                capability.status == ProviderCapabilityStatus::AccountDependent
+            }));
         }
     }
 
@@ -368,10 +353,48 @@ mod tests {
 
             assert!(!capabilities.is_empty());
             assert!(
-                capabilities
-                    .iter()
-                    .all(|capability| capability.status == ProviderCapabilityStatus::Unavailable)
+                capabilities.iter().all(|capability| {
+                    capability.status == ProviderCapabilityStatus::Unavailable
+                })
             );
         }
+    }
+
+    #[test]
+    fn hosted_and_local_accounts_expose_distinct_reliability_contracts() {
+        let hosted = capabilities_for_provider_account(
+            "openai",
+            "default",
+            ProviderAccountStatus::Authenticated,
+        );
+        let local = capabilities_for_provider_account(
+            "local_models",
+            "default",
+            ProviderAccountStatus::Authenticated,
+        );
+
+        assert!(hosted.iter().all(|capability| {
+            capability.reliability_contract == ReliabilityContract::HostedProvider
+        }));
+        assert!(local.iter().all(|capability| {
+            capability.reliability_contract == ReliabilityContract::FirstParty
+                && capability.data_flow_class == DataFlowClass::LocalInference
+        }));
+    }
+
+    #[test]
+    fn account_readiness_controls_model_capability_status() {
+        let capabilities = capabilities_for_provider_account(
+            "codex",
+            "default",
+            ProviderAccountStatus::Unauthenticated,
+        );
+
+        assert!(!capabilities.is_empty());
+        assert!(
+            capabilities
+                .iter()
+                .all(|capability| { capability.status == ProviderCapabilityStatus::Unavailable })
+        );
     }
 }

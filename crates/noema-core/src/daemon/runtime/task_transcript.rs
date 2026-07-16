@@ -12,13 +12,12 @@ use std::{
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    GenerateRequest, GenerateResponse,
     daemon::protocol::DaemonError,
     graphql::{ConversationSubscriptionRegistry, TaskLiveEvent},
-    provider::{GenerateStreamEvent, GenerationPriority},
     store::NewAgentRunItem,
 };
 use noema_capabilities::CapabilityCatalogSnapshot;
+use noema_providers::{GenerateRequest, GenerateResponse, GenerateStreamEvent, GenerationPriority};
 
 use super::{
     actor::CodexRuntimeActor, background_task::BackgroundTaskGenerateRequest,

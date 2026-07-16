@@ -1,44 +1,16 @@
 use rusqlite::{OptionalExtension, params};
 use serde_json::Value;
 
-use crate::{
-    ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod,
-    provider::capabilities_for_provider_account,
-    store::{
-        ids::{allocate_id, invalid_enum, now_string},
-        sqlite::{json_from_string, json_to_string},
-    },
+use crate::store::{
+    ids::{allocate_id, invalid_enum, now_string},
+    sqlite::{json_from_string, json_to_string},
+};
+use noema_providers::{
+    NewProviderAccount, ProviderAccountCatalogEntry, ProviderAccountRecord, ProviderAccountStatus,
+    ProviderAuthMethod, capabilities_for_provider_account,
 };
 
 use super::{NoemaStore, StoreError};
-
-/// Provider type shown in the Settings add-account catalog.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ProviderAccountCatalogEntry {
-    /// Stable provider family identifier.
-    pub provider_kind: String,
-    /// Human-readable provider type name.
-    pub display_name: String,
-    /// Authentication method used for newly created accounts.
-    pub auth_method: ProviderAuthMethod,
-    /// Capabilities this provider type can supply after account creation.
-    pub capabilities: Vec<crate::provider::ProviderCapability>,
-}
-
-/// New user-created provider account metadata.
-#[derive(Debug, Clone, PartialEq)]
-pub struct NewProviderAccount {
-    /// Stable provider family identifier.
-    pub provider_kind: String,
-    /// Optional user-facing account name.
-    pub display_name: Option<String>,
-    /// Authentication method for this account.
-    pub auth_method: ProviderAuthMethod,
-    /// Initial safe account status.
-    pub status: ProviderAccountStatus,
-    /// Non-secret provider account metadata.
-    pub metadata: Value,
-}
 
 impl NoemaStore {
     /// Return built-in system provider accounts exposed without durable rows.

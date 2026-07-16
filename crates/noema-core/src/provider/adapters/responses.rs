@@ -1,18 +1,20 @@
 //! Shared transport and parser for OpenAI-compatible Responses API calls.
 
-use super::sse::SseAccumulator;
-use crate::provider::{
-    GenerateRequest, GenerateStreamEvent, PromptCacheOptions, PromptCacheRetention, ProviderError,
-    ReasoningEffort, SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE,
-};
+use super::{reqwest_transport_error, sse::SseAccumulator};
+use crate::provider::SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE;
 use futures_util::StreamExt;
 use noema_home::{SystemErrorEvent, SystemErrorLogger};
+use noema_providers::{
+    GenerateRequest, GenerateStreamEvent, PromptCacheOptions, PromptCacheRetention, ProviderError,
+    ReasoningEffort,
+};
 use reqwest::{
     StatusCode,
     header::{HeaderMap, HeaderValue},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::fmt;
 
 /// JSON request body sent to a Responses-compatible endpoint.
 #[derive(Debug, Clone, Serialize)]
@@ -202,10 +204,20 @@ pub use super::responses_tools::{
 };
 pub(crate) use super::responses_tools::{ResponsesToolNameMap, responses_tool_choice};
 /// HTTP transport for a Responses-compatible endpoint.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ResponsesTransport {
     client: reqwest::Client,
     responses_url: String,
+}
+
+impl fmt::Debug for ResponsesTransport {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ResponsesTransport")
+            .field("client", &"[CONFIGURED]")
+            .field("responses_url", &"[REDACTED URL]")
+            .finish()
+    }
 }
 
 /// Diagnostic context for Responses-compatible provider calls.
@@ -327,17 +339,14 @@ impl ResponsesTransport {
             builder = builder.header(name, value);
         }
 
-        let response = builder
-            .json(&body)
-            .send()
-            .await
-            .map_err(|source| ProviderError::HttpFailure { source })?;
+        let response = builder.json(&body).send().await.map_err(|source| {
+            reqwest_transport_error(&diagnostics.provider_kind, "send_generation", &source)
+        })?;
         let status = response.status();
         let request_id = request_id(response.headers());
-        let body_text = response
-            .text()
-            .await
-            .map_err(|source| ProviderError::HttpFailure { source })?;
+        let body_text = response.text().await.map_err(|source| {
+            reqwest_transport_error(&diagnostics.provider_kind, "read_generation_body", &source)
+        })?;
 
         if !status.is_success() {
             return Err(error_from_status(status, request_id, &body_text));
@@ -403,26 +412,34 @@ impl ResponsesTransport {
             builder = builder.header(name, value);
         }
 
-        let response = builder
-            .json(&body)
-            .send()
-            .await
-            .map_err(|source| ProviderError::HttpFailure { source })?;
+        let response = builder.json(&body).send().await.map_err(|source| {
+            reqwest_transport_error(
+                &diagnostics.provider_kind,
+                "send_streaming_generation",
+                &source,
+            )
+        })?;
         let status = response.status();
         let request_id = request_id(response.headers());
 
         if !status.is_success() {
-            let body_text = response
-                .text()
-                .await
-                .map_err(|source| ProviderError::HttpFailure { source })?;
+            let body_text = response.text().await.map_err(|source| {
+                reqwest_transport_error(
+                    &diagnostics.provider_kind,
+                    "read_generation_error_body",
+                    &source,
+                )
+            })?;
             return Err(error_from_status(status, request_id, &body_text));
         }
 
+        let transport_provider = diagnostics.provider_kind.clone();
         let mut accumulator = SseAccumulator::new(diagnostics);
         let mut stream = response.bytes_stream();
         while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|source| ProviderError::HttpFailure { source })?;
+            let chunk = chunk.map_err(|source| {
+                reqwest_transport_error(&transport_provider, "read_generation_stream", &source)
+            })?;
             accumulator.push_bytes(&chunk, on_event)?;
         }
 
@@ -434,7 +451,8 @@ impl ResponsesTransport {
 ///
 /// # Errors
 ///
-/// Returns [`ProviderError::InvalidRequest`] when the URL is empty or invalid.
+/// Returns [`ProviderError::InvalidRequest`] when the URL is empty, invalid,
+/// non-HTTP, or contains credential-bearing URL components.
 pub fn normalize_base_url(value: String, label: &str) -> Result<String, ProviderError> {
     let base_url = value.trim().trim_end_matches('/').to_string();
     if base_url.is_empty() {
@@ -443,9 +461,21 @@ pub fn normalize_base_url(value: String, label: &str) -> Result<String, Provider
         });
     }
 
-    if reqwest::Url::parse(&base_url).is_err() {
+    let parsed = reqwest::Url::parse(&base_url).map_err(|_| ProviderError::InvalidRequest {
+        message: format!("{label} must be an absolute URL"),
+    })?;
+    if !matches!(parsed.scheme(), "http" | "https") {
         return Err(ProviderError::InvalidRequest {
-            message: format!("{label} must be an absolute URL"),
+            message: format!("{label} must use HTTP or HTTPS"),
+        });
+    }
+    if !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err(ProviderError::InvalidRequest {
+            message: format!("{label} cannot contain credentials, a query, or a fragment"),
         });
     }
 
@@ -524,7 +554,7 @@ impl EmptyStringExt for String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::{
+    use noema_providers::{
         GenerateInput, GenerateInputItem, GenerateReasoningInput, NoemaAllowedTools,
         NoemaAllowedToolsMode, NoemaToolChoice,
     };
@@ -534,14 +564,14 @@ mod tests {
         let request = GenerateRequest {
             conversation_id: Some(" conversation:cacheable ".to_string()),
             instructions: Some("Be brief.".to_string()),
-            options: crate::provider::GenerateOptions {
+            options: noema_providers::GenerateOptions {
                 max_output_tokens: Some(32),
                 prompt_cache_retention: Some(PromptCacheRetention::TwentyFourHours),
                 require_noema_response: true,
-                ..crate::provider::GenerateOptions::default()
+                ..noema_providers::GenerateOptions::default()
             },
             tools: vec![test_tool()],
-            tool_choice: crate::provider::NoemaToolChoice::Required,
+            tool_choice: noema_providers::NoemaToolChoice::Required,
             parallel_tool_calls: true,
             ..GenerateRequest::text("hi")
         };
@@ -665,26 +695,26 @@ mod tests {
     fn openai_profile_serializes_cache_options_and_developer_message_breakpoints() {
         let request = GenerateRequest {
             input: GenerateInput::Messages(vec![
-                crate::GenerateMessage {
-                    role: crate::provider::contract::GenerateMessageRole::System,
+                noema_providers::GenerateMessage {
+                    role: noema_providers::GenerateMessageRole::System,
                     content: "   ".to_string(),
                 },
-                crate::GenerateMessage {
-                    role: crate::provider::contract::GenerateMessageRole::Developer,
+                noema_providers::GenerateMessage {
+                    role: noema_providers::GenerateMessageRole::Developer,
                     content: "Environment revision 8".to_string(),
                 },
-                crate::GenerateMessage {
-                    role: crate::provider::contract::GenerateMessageRole::User,
+                noema_providers::GenerateMessage {
+                    role: noema_providers::GenerateMessageRole::User,
                     content: "What changed?".to_string(),
                 },
             ]),
-            options: crate::provider::GenerateOptions {
-                prompt_cache_options: Some(crate::provider::contract::PromptCacheOptions {
-                    mode: crate::provider::contract::PromptCacheMode::Explicit,
-                    ttl: crate::provider::contract::PromptCacheTtl::ThirtyMinutes,
+            options: noema_providers::GenerateOptions {
+                prompt_cache_options: Some(noema_providers::PromptCacheOptions {
+                    mode: noema_providers::PromptCacheMode::Explicit,
+                    ttl: noema_providers::PromptCacheTtl::ThirtyMinutes,
                 }),
                 prompt_cache_breakpoints: vec![0],
-                ..crate::provider::GenerateOptions::default()
+                ..noema_providers::GenerateOptions::default()
             },
             ..GenerateRequest::text("unused")
         };
@@ -724,13 +754,13 @@ mod tests {
     #[test]
     fn prompt_cache_breakpoints_reject_invalid_filtered_message_indices() {
         let request = GenerateRequest {
-            input: GenerateInput::Messages(vec![crate::GenerateMessage {
-                role: crate::provider::contract::GenerateMessageRole::Developer,
+            input: GenerateInput::Messages(vec![noema_providers::GenerateMessage {
+                role: noema_providers::GenerateMessageRole::Developer,
                 content: "Environment revision 8".to_string(),
             }]),
-            options: crate::provider::GenerateOptions {
+            options: noema_providers::GenerateOptions {
                 prompt_cache_breakpoints: vec![1],
-                ..crate::provider::GenerateOptions::default()
+                ..noema_providers::GenerateOptions::default()
             },
             ..GenerateRequest::text("unused")
         };
@@ -1156,7 +1186,7 @@ mod tests {
     #[test]
     fn responses_input_serializes_native_tool_results() {
         let input =
-            GenerateInput::NativeToolResults(vec![crate::provider::GenerateToolResultInput {
+            GenerateInput::NativeToolResults(vec![noema_providers::GenerateToolResultInput {
                 id: Some("item_1".to_string()),
                 call_id: "call_1".to_string(),
                 name: "mcp.docs:read".to_string(),
@@ -1192,7 +1222,7 @@ mod tests {
     fn chained_response_sends_only_new_tool_outputs() {
         let mut request = GenerateRequest {
             input: GenerateInput::NativeToolResults(vec![
-                crate::provider::GenerateToolResultInput {
+                noema_providers::GenerateToolResultInput {
                     id: Some("item_1".to_string()),
                     call_id: "call_1".to_string(),
                     name: "search_memory".to_string(),
@@ -1226,19 +1256,19 @@ mod tests {
     #[test]
     fn responses_input_serializes_typed_history_items() {
         let input = GenerateInput::Items(vec![
-            crate::provider::GenerateInputItem::Message(crate::GenerateMessage {
-                role: crate::GenerateMessageRole::User,
+            noema_providers::GenerateInputItem::Message(noema_providers::GenerateMessage {
+                role: noema_providers::GenerateMessageRole::User,
                 content: "Rename yourself to Momo".to_string(),
             }),
-            crate::provider::GenerateInputItem::ToolCall(crate::provider::GenerateToolCallInput {
+            noema_providers::GenerateInputItem::ToolCall(noema_providers::GenerateToolCallInput {
                 id: Some("item_1".to_string()),
                 call_id: "call_1".to_string(),
                 name: "update_own_name".to_string(),
                 provider_name: None,
                 arguments: serde_json::json!({"name": "Momo"}),
             }),
-            crate::provider::GenerateInputItem::ToolResult(
-                crate::provider::GenerateToolResultInput {
+            noema_providers::GenerateInputItem::ToolResult(
+                noema_providers::GenerateToolResultInput {
                     id: Some("item_1".to_string()),
                     call_id: "call_1".to_string(),
                     name: "update_own_name".to_string(),
@@ -1284,8 +1314,8 @@ mod tests {
 
     #[test]
     fn responses_input_encodes_unsafe_typed_history_tool_names() {
-        let input = GenerateInput::Items(vec![crate::provider::GenerateInputItem::ToolCall(
-            crate::provider::GenerateToolCallInput {
+        let input = GenerateInput::Items(vec![noema_providers::GenerateInputItem::ToolCall(
+            noema_providers::GenerateToolCallInput {
                 id: None,
                 call_id: "call_1".to_string(),
                 name: "mcp.dex:search contacts".to_string(),

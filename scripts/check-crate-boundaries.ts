@@ -227,6 +227,14 @@ function isAllowedTransition(
     return true;
   }
 
+  if (
+    (source === "noema-server" || source === "noema-desktop") &&
+    destination === "noema-providers" &&
+    !packageNames.has("noema-host")
+  ) {
+    return true;
+  }
+
   return (
     source === "noema-model-evals" &&
     destination === "noema-home" &&

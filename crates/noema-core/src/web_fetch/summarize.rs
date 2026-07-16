@@ -1,11 +1,10 @@
 //! Size policy and auxiliary-model summarization for web fetch.
 
-use crate::{
-    provider::GenerateRequest,
-    web_fetch::types::{
-        CHUNKED_SUMMARY_LIMIT_CHARS, FetchError, FetchRuntimeContext, RAW_EXCERPT_CHARS,
-        RAW_MARKDOWN_LIMIT_CHARS, SINGLE_PASS_SUMMARY_LIMIT_CHARS,
-    },
+use noema_providers::GenerateRequest;
+
+use crate::web_fetch::types::{
+    CHUNKED_SUMMARY_LIMIT_CHARS, FetchError, FetchRuntimeContext, RAW_EXCERPT_CHARS,
+    RAW_MARKDOWN_LIMIT_CHARS, SINGLE_PASS_SUMMARY_LIMIT_CHARS,
 };
 use noema_capabilities::web::fetch::FetchSummaryStrategy;
 
@@ -154,12 +153,10 @@ fn chunk_markdown(markdown: &str, chunk_chars: usize) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        daemon::RuntimeModelProvider,
-        provider::{
-            GenerateResponse, GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent,
-            ProviderError,
-        },
+    use crate::daemon::RuntimeModelProvider;
+    use noema_providers::{
+        GenerateResponse, GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent,
+        ProviderError,
     };
     use std::{
         future::Future,
@@ -222,8 +219,8 @@ mod tests {
                 requests: requests.clone(),
             }),
             summarizer_model: "gpt-5.5-mini".to_string(),
-            summarizer_reasoning_effort: Some(crate::provider::ReasoningEffort::Low),
-            generation_priority: crate::provider::GenerationPriority::Background,
+            summarizer_reasoning_effort: Some(noema_providers::ReasoningEffort::Low),
+            generation_priority: noema_providers::GenerationPriority::Background,
         };
         let markdown = "Long page text. ".repeat(600);
 
@@ -242,11 +239,11 @@ mod tests {
         assert_eq!(requests.len(), 1);
         assert_eq!(
             requests[0].options.reasoning_effort,
-            Some(crate::provider::ReasoningEffort::Low)
+            Some(noema_providers::ReasoningEffort::Low)
         );
         assert_eq!(
             requests[0].options.generation_priority,
-            crate::provider::GenerationPriority::Background
+            noema_providers::GenerationPriority::Background
         );
     }
 

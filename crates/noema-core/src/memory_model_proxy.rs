@@ -2,6 +2,12 @@
 
 use std::{sync::Arc, time::SystemTime};
 
+use noema_providers::{
+    GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
+    GenerateRequest, GenerateResponse, GenerateResponseStatus, GenerateStreamEvent,
+    GenerateToolCall, GenerateToolCallInput, GenerateToolResultInput, GenerationPriority,
+    NoemaToolChoice, ProviderError, ReasoningEffort,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use thiserror::Error;
@@ -12,15 +18,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-use crate::{
-    daemon::RuntimeModelProvider,
-    provider::{
-        GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
-        GenerateRequest, GenerateResponse, GenerateResponseStatus, GenerateStreamEvent,
-        GenerateToolCall, GenerateToolCallInput, GenerateToolResultInput, GenerationPriority,
-        NoemaToolChoice, ProviderError, ReasoningEffort,
-    },
-};
+use crate::daemon::RuntimeModelProvider;
 use noema_capabilities::ToolSpec;
 use noema_home::{SystemErrorEvent, SystemErrorLogger};
 
@@ -817,13 +815,11 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
-    use crate::{
-        daemon::RuntimeModelProvider,
-        provider::{
-            GenerateInput, GenerateInputItem, GenerateRequest, GenerateResponse,
-            GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall, GenerationPriority,
-            NoemaToolChoice, ProviderError,
-        },
+    use crate::daemon::RuntimeModelProvider;
+    use noema_providers::{
+        GenerateInput, GenerateInputItem, GenerateRequest, GenerateResponse,
+        GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall, GenerationPriority,
+        NoemaToolChoice, ProviderError,
     };
     use serde_json::{Value, json};
 

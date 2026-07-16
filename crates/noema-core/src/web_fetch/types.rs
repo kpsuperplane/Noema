@@ -18,8 +18,8 @@ pub struct FetchRuntimeContext {
     pub summarizer_provider_kind: String,
     pub summarizer_provider: Arc<dyn RuntimeModelProvider>,
     pub summarizer_model: String,
-    pub summarizer_reasoning_effort: Option<crate::provider::ReasoningEffort>,
-    pub generation_priority: crate::provider::GenerationPriority,
+    pub summarizer_reasoning_effort: Option<noema_providers::ReasoningEffort>,
+    pub generation_priority: noema_providers::GenerationPriority,
 }
 
 #[derive(Debug, Error)]

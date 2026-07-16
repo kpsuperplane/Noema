@@ -1,5 +1,5 @@
-use crate::provider::{GenerateActionItem, GenerateToolCall};
 use noema_capabilities::web::fetch::{WEB_FETCH_TOOL, sanitize_payload_for_storage};
+use noema_providers::{GenerateActionItem, GenerateToolCall};
 use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -44,7 +44,7 @@ pub(super) fn tool_call_action_item(call: &LocalToolCall) -> GenerateActionItem 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::GenerateToolCall;
+    use noema_providers::GenerateToolCall;
     use serde_json::json;
 
     #[test]

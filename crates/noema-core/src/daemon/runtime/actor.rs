@@ -117,7 +117,7 @@ impl CodexRuntimeActor {
         provider_kind: &str,
     ) -> Result<Arc<dyn RuntimeModelProvider>, DaemonError> {
         self.providers.get(provider_kind).cloned().ok_or_else(|| {
-            DaemonError::Provider(crate::ProviderError::ProviderUnavailable {
+            DaemonError::Provider(noema_providers::ProviderError::ProviderUnavailable {
                 provider: provider_kind.to_string(),
                 message: "provider is not available in this daemon".to_string(),
             })
@@ -321,7 +321,7 @@ fn runtime_stopped() -> DaemonError {
 pub(in crate::daemon) struct ActiveConversation {
     pub(in crate::daemon) provider_kind: String,
     pub(in crate::daemon) model: Option<String>,
-    pub(in crate::daemon) reasoning_effort: Option<crate::provider::ReasoningEffort>,
+    pub(in crate::daemon) reasoning_effort: Option<noema_providers::ReasoningEffort>,
     pub(in crate::daemon) cwd: Option<String>,
     pub(in crate::daemon) next_turn_index: u64,
 }

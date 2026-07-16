@@ -6,15 +6,27 @@ use noema_capabilities::web::fetch::{
 };
 use serde::Serialize;
 use serde_json::Value;
+use std::fmt;
 
 pub const EXA_FETCH_PROVIDER_ID: &str = "exa";
 pub const EXA_EXTRACTION: &str = "exa_contents";
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ExaFetchClient {
     pub base_url: String,
     pub api_key: String,
     pub http: reqwest::Client,
+}
+
+impl fmt::Debug for ExaFetchClient {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ExaFetchClient")
+            .field("base_url", &self.base_url)
+            .field("api_key", &"[REDACTED]")
+            .field("http", &"[CONFIGURED]")
+            .finish()
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -157,6 +169,20 @@ mod tests {
             response.final_url,
             noema_capabilities::web::fetch::REDACTED_SENSITIVE_URL
         );
+    }
+
+    #[test]
+    fn exa_fetch_debug_redacts_api_key() {
+        let client = ExaFetchClient {
+            base_url: "https://example.test".to_string(),
+            api_key: "exa-fetch-secret".to_string(),
+            http: reqwest::Client::new(),
+        };
+        let runtime = crate::web_fetch::types::WebFetchRuntimeProvider::Exa { client };
+        let debug = format!("{runtime:?}");
+
+        assert!(!debug.contains("exa-fetch-secret"));
+        assert!(debug.contains("[REDACTED]"));
     }
 
     #[tokio::test]

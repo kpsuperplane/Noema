@@ -2,20 +2,23 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use noema_home::NoemaPaths;
+use noema_providers::{
+    CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS, CodexOAuthConfig, DEFAULT_CODEX_BASE_URL,
+    ProviderAccountRecord, ProviderAccountStatus, ProviderError, ProviderModelProfile,
+    ReasoningEffort,
+};
 use reqwest::StatusCode;
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use crate::{
-    NoemaStore, ProviderAccountRecord, ProviderAccountStatus, ProviderError,
+    NoemaStore,
     provider::adapters::{
-        codex_oauth::{
-            CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS, CodexOAuthClient, CodexOAuthConfig,
-            CodexTokenStore, DEFAULT_CODEX_BASE_URL,
-        },
+        codex_oauth::{CodexOAuthClient, CodexTokenStore},
+        reqwest_transport_error,
         responses::normalize_base_url,
     },
 };
-use noema_home::NoemaPaths;
 
 const MODEL_CATALOG_TIMEOUT_SECONDS: u64 = 20;
 const CODEX_CLIENT_VERSION_ENDPOINT: &str = "https://registry.npmjs.org/@openai%2fcodex/latest";
@@ -67,33 +70,40 @@ async fn refresh_provider_model_profiles_at_version_endpoint(
         return Ok(());
     }
 
-    let mut metadata = account.metadata.as_object().cloned().unwrap_or_default();
-    metadata.insert("profiles".to_string(), Value::Array(catalog.profiles));
-    metadata.insert(
+    let mut metadata = account.metadata.clone();
+    ProviderModelProfile::write_account_metadata(&mut metadata, &catalog.profiles).map_err(
+        |source| ProviderError::MalformedResponse {
+            message: format!("failed to serialize model catalog profiles: {source}"),
+        },
+    )?;
+    let metadata_object = metadata
+        .as_object_mut()
+        .expect("provider profile metadata was normalized to an object");
+    metadata_object.insert(
         "models_refreshed_at".to_string(),
         Value::String(now_string()),
     );
-    metadata.insert(
+    metadata_object.insert(
         "models_source".to_string(),
         Value::String(format!("{}_models_endpoint", account.provider_kind)),
     );
-    metadata.insert(
+    metadata_object.insert(
         "models_metadata_version".to_string(),
         Value::from(MODEL_METADATA_VERSION),
     );
-    metadata.insert(
+    metadata_object.insert(
         "models_client_version".to_string(),
         Value::String(catalog.client_version),
     );
     if let Some(refreshed_at) = catalog.client_version_refreshed_at {
-        metadata.insert(
+        metadata_object.insert(
             "models_client_version_refreshed_at".to_string(),
             Value::String(refreshed_at),
         );
     }
 
     store
-        .update_provider_account_metadata(&account.provider_account_id, Value::Object(metadata))
+        .update_provider_account_metadata(&account.provider_account_id, metadata)
         .await
         .map_err(|source| ProviderError::ProviderUnavailable {
             provider: account.provider_kind.clone(),
@@ -169,7 +179,13 @@ async fn fetch_codex_model_profiles(
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(MODEL_CATALOG_TIMEOUT_SECONDS))
         .build()
-        .map_err(|source| ProviderError::HttpFailure { source })?;
+        .map_err(|source| {
+            reqwest_transport_error(
+                &account.provider_kind,
+                "build_model_catalog_client",
+                &source,
+            )
+        })?;
     let token_store = CodexTokenStore::new(
         paths.provider_account_home(&account.provider_kind, &account.account_key),
     );
@@ -198,7 +214,7 @@ async fn fetch_codex_model_profiles(
 
 #[derive(Debug)]
 struct CodexModelCatalog {
-    profiles: Vec<Value>,
+    profiles: Vec<ProviderModelProfile>,
     client_version: String,
     client_version_refreshed_at: Option<String>,
 }
@@ -254,12 +270,11 @@ async fn fetch_latest_codex_client_version(
         .header(reqwest::header::USER_AGENT, CODEX_VERSION_USER_AGENT)
         .send()
         .await
-        .map_err(|source| ProviderError::HttpFailure { source })?;
+        .map_err(|source| reqwest_transport_error("codex", "fetch_client_version", &source))?;
     let status = response.status();
-    let text = response
-        .text()
-        .await
-        .map_err(|source| ProviderError::HttpFailure { source })?;
+    let text = response.text().await.map_err(|source| {
+        reqwest_transport_error("codex", "read_client_version_response", &source)
+    })?;
     if !status.is_success() {
         return Err(ProviderError::ApiError {
             status: status.as_u16(),
@@ -298,7 +313,7 @@ async fn fetch_model_list(
         .bearer_auth(bearer_token)
         .send()
         .await
-        .map_err(|source| ProviderError::HttpFailure { source })?;
+        .map_err(|source| reqwest_transport_error("codex", "fetch_model_catalog", &source))?;
     let status = response.status();
     let request_id = response
         .headers()
@@ -306,10 +321,9 @@ async fn fetch_model_list(
         .or_else(|| response.headers().get("x-oai-request-id"))
         .and_then(|value| value.to_str().ok())
         .map(ToString::to_string);
-    let text = response
-        .text()
-        .await
-        .map_err(|source| ProviderError::HttpFailure { source })?;
+    let text = response.text().await.map_err(|source| {
+        reqwest_transport_error("codex", "read_model_catalog_response", &source)
+    })?;
 
     if !status.is_success() {
         if matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) {
@@ -330,7 +344,7 @@ async fn fetch_model_list(
     })
 }
 
-fn profile_values_from_model_list(value: &Value) -> Vec<Value> {
+fn profile_values_from_model_list(value: &Value) -> Vec<ProviderModelProfile> {
     value
         .get("models")
         .and_then(Value::as_array)
@@ -348,30 +362,22 @@ fn model_is_visible(model: &Value) -> bool {
         .is_some_and(|visibility| visibility == "list")
 }
 
-fn profile_value_from_model(model: &Value) -> Option<Value> {
+fn profile_value_from_model(model: &Value) -> Option<ProviderModelProfile> {
     let id = string_field(model, &["slug"])?.trim();
     if id.is_empty() {
         return None;
     }
     let label = string_field(model, &["display_name"]).unwrap_or(id);
-    let mut object = Map::new();
-    object.insert("id".to_string(), Value::String(id.to_string()));
-    object.insert("label".to_string(), Value::String(label.to_string()));
-    if let Some(reasoning_efforts) = reasoning_efforts_from_model(model) {
-        object.insert("reasoning_efforts".to_string(), reasoning_efforts);
-    }
-    if let Some(default_reasoning_effort) = string_field(
-        model,
-        &["default_reasoning_level", "default_reasoning_effort"],
-    )
-    .and_then(normalize_reasoning_effort)
-    {
-        object.insert(
-            "default_reasoning_effort".to_string(),
-            Value::String(default_reasoning_effort.to_string()),
-        );
-    }
-    Some(Value::Object(object))
+    Some(ProviderModelProfile {
+        id: id.to_string(),
+        label: label.to_string(),
+        reasoning_efforts: reasoning_efforts_from_model(model),
+        default_reasoning_effort: string_field(
+            model,
+            &["default_reasoning_level", "default_reasoning_effort"],
+        )
+        .and_then(normalize_reasoning_effort),
+    })
 }
 
 fn string_field<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
@@ -379,7 +385,7 @@ fn string_field<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
         .find_map(|key| value.get(*key).and_then(Value::as_str))
 }
 
-fn reasoning_efforts_from_model(model: &Value) -> Option<Value> {
+fn reasoning_efforts_from_model(model: &Value) -> Vec<ReasoningEffort> {
     let explicit = [
         "supported_reasoning_levels",
         "reasoning_levels",
@@ -392,38 +398,29 @@ fn reasoning_efforts_from_model(model: &Value) -> Option<Value> {
             .iter()
             .filter_map(Value::as_str)
             .filter_map(normalize_reasoning_effort)
-            .map(|effort| Value::String(effort.to_string()))
             .collect::<Vec<_>>()
     })
     .filter(|values| !values.is_empty());
-    if explicit.is_some() {
-        return explicit.map(Value::Array);
+    if let Some(explicit) = explicit {
+        return explicit;
     }
     string_field(
         model,
         &["default_reasoning_level", "default_reasoning_effort"],
     )
     .and_then(normalize_reasoning_effort)
-    .map(|_| {
-        Value::Array(
-            ["low", "medium", "high", "xhigh"]
-                .into_iter()
-                .map(|effort| Value::String(effort.to_string()))
-                .collect(),
-        )
+    .map_or_else(Vec::new, |_| {
+        vec![
+            ReasoningEffort::Low,
+            ReasoningEffort::Medium,
+            ReasoningEffort::High,
+            ReasoningEffort::XHigh,
+        ]
     })
 }
 
-fn normalize_reasoning_effort(value: &str) -> Option<&'static str> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "none" => Some("none"),
-        "minimal" => Some("minimal"),
-        "low" => Some("low"),
-        "medium" => Some("medium"),
-        "high" => Some("high"),
-        "xhigh" => Some("xhigh"),
-        _ => None,
-    }
+fn normalize_reasoning_effort(value: &str) -> Option<ReasoningEffort> {
+    ReasoningEffort::from_persistence_str(&value.trim().to_ascii_lowercase())
 }
 
 fn is_valid_codex_client_version(value: &str) -> bool {

@@ -319,6 +319,64 @@ describe("crate boundary metadata policy", () => {
     );
   });
 
+  test("allows and expires shell provider-contract transitions", () => {
+    for (const shell of ["noema-server", "noema-desktop"]) {
+      const transitional = metadata([
+        {
+          name: "noema-core",
+          dependencies: [
+            {
+              name: "noema-providers",
+              features: ["adapters", "local-models"],
+              usesDefaultFeatures: false,
+            },
+          ],
+        },
+        {
+          name: "noema-providers",
+          features: { default: [], adapters: [], "local-models": [] },
+        },
+        {
+          name: shell,
+          dependencies: [
+            { name: "noema-providers", usesDefaultFeatures: false },
+          ],
+        },
+      ]);
+      expect(validateMetadata(transitional)).toEqual([]);
+
+      const expired = metadata([
+        { name: "noema-core" },
+        {
+          name: "noema-providers",
+          features: { default: [], adapters: [], "local-models": [] },
+        },
+        {
+          name: "noema-host",
+          dependencies: [
+            { name: "noema-providers", usesDefaultFeatures: false },
+          ],
+          features: {
+            default: [],
+            composition: [
+              "noema-providers/adapters",
+              "noema-providers/local-models",
+            ],
+          },
+        },
+        {
+          name: shell,
+          dependencies: [
+            { name: "noema-providers", usesDefaultFeatures: false },
+          ],
+        },
+      ]);
+      expect(validateMetadata(expired)).toContain(
+        `${shell} -> noema-providers is not an allowed direct edge`,
+      );
+    }
+  });
+
   test("allows and expires the eval home transition", () => {
     const transitional = metadata([
       { name: "noema-core" },

@@ -1,36 +1,10 @@
 use std::collections::HashSet;
 
+use noema_providers::LocalModelBackend;
 use serde::Deserialize;
 use thiserror::Error;
 
 const BUNDLED_CATALOG: &str = include_str!("../../resources/local-models/catalog.toml");
-
-/// A backend supported by the bundled local inference runtime.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum LocalModelBackend {
-    /// Apple Metal acceleration.
-    Metal,
-    /// NVIDIA CUDA acceleration.
-    Cuda,
-    /// Vulkan acceleration.
-    Vulkan,
-    /// Portable CPU inference.
-    Cpu,
-}
-
-impl LocalModelBackend {
-    /// Returns the product-facing backend name.
-    #[must_use]
-    pub const fn display_name(self) -> &'static str {
-        match self {
-            Self::Metal => "Metal",
-            Self::Cuda => "CUDA",
-            Self::Vulkan => "Vulkan",
-            Self::Cpu => "CPU",
-        }
-    }
-}
 
 /// Hardware values used to decide whether a catalog build fits.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

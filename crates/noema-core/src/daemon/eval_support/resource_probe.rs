@@ -1,11 +1,9 @@
 use std::time::{Duration, Instant};
 
+use noema_providers::{GenerateOptions, GenerateRequest, ModelProvider};
 use tokio::time::sleep;
 
-use crate::{
-    LocalModelsProvider, ModelProvider,
-    provider::{GenerateOptions, GenerateRequest},
-};
+use crate::LocalModelsProvider;
 
 use super::{memory::resident_bytes, runner::duration_ms, types::ModelEvalResourceProbe};
 

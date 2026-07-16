@@ -243,11 +243,9 @@ fn map_reqwest_error(error: reqwest::Error) -> FetchError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        provider::{GenerateRequest, GenerateResponse, GenerateStreamEvent, ProviderError},
-        web_fetch::types::FetchRuntimeContext,
-    };
+    use crate::web_fetch::types::FetchRuntimeContext;
     use noema_capabilities::web::fetch::{FetchContentKind, FetchSummaryStrategy};
+    use noema_providers::{GenerateRequest, GenerateResponse, GenerateStreamEvent, ProviderError};
     use std::{future::Future, pin::Pin, sync::Arc};
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
@@ -497,7 +495,7 @@ mod tests {
             summarizer_provider: Arc::new(StaticSummaryProvider),
             summarizer_model: "gpt-5.4-mini".to_string(),
             summarizer_reasoning_effort: None,
-            generation_priority: crate::provider::GenerationPriority::Foreground,
+            generation_priority: noema_providers::GenerationPriority::Foreground,
         }
     }
 

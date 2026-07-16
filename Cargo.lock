@@ -2724,6 +2724,7 @@ dependencies = [
  "noema-capabilities",
  "noema-conversations",
  "noema-home",
+ "noema-providers",
  "readabilityrs",
  "reqwest",
  "ring",
@@ -2750,6 +2751,7 @@ dependencies = [
  "async-graphql",
  "futures-util",
  "noema-core",
+ "noema-providers",
  "open",
  "serde",
  "serde_json",
@@ -2776,12 +2778,26 @@ version = "0.1.0"
 dependencies = [
  "noema-core",
  "noema-home",
+ "noema-providers",
  "ring",
  "serde",
  "serde_json",
  "tokio",
  "tokio-util",
  "toml 1.1.2+spec-1.1.0",
+]
+
+[[package]]
+name = "noema-providers"
+version = "0.1.0"
+dependencies = [
+ "noema-capabilities",
+ "noema-home",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "ts-rs",
 ]
 
 [[package]]
@@ -2797,6 +2813,7 @@ dependencies = [
  "noema-artifacts",
  "noema-core",
  "noema-home",
+ "noema-providers",
  "reqwest",
  "ring",
  "serde",

@@ -5,8 +5,8 @@ use crate::{
     daemon::task_tool::{
         is_task_report_blocked_tool, is_task_submit_result_tool, is_task_submit_review_tool,
     },
-    provider::{ProviderToolTransport, TokenUsage},
 };
+use noema_providers::{ProviderToolTransport, TokenUsage};
 
 use super::{
     local_tools::LocalToolResult, model_tools::ModelTools,

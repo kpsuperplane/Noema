@@ -3,7 +3,7 @@ use noema_conversations::{
     ConversationItemStatus, NewConversationItem,
 };
 
-use crate::provider::{
+use noema_providers::{
     AssistantTextPhase, GenerateActionItem, GenerateReasoningItem, GenerateResponse,
     GenerateResponseItem, GenerateStreamEvent,
 };
@@ -28,7 +28,7 @@ pub(in crate::daemon::runtime) fn provider_usage_metadata(
     model: &str,
     phase: &'static str,
     position: ProviderResponsePosition,
-    usage: Option<&crate::provider::TokenUsage>,
+    usage: Option<&noema_providers::TokenUsage>,
 ) -> Value {
     let Some(usage) = usage else {
         return json!({});
@@ -1651,7 +1651,7 @@ mod tests {
                 response_index: 0,
                 output_index: Some(0),
             },
-            Some(&crate::provider::TokenUsage {
+            Some(&noema_providers::TokenUsage {
                 input_tokens: 12000,
                 output_tokens: 900,
                 total_tokens: 12900,
@@ -1679,7 +1679,7 @@ mod tests {
                 response_index: 1,
                 output_index: Some(12),
             },
-            Some(&crate::provider::TokenUsage {
+            Some(&noema_providers::TokenUsage {
                 input_tokens: 2048,
                 output_tokens: 12,
                 total_tokens: 2060,
@@ -1704,7 +1704,7 @@ mod tests {
                 response_index: 0,
                 output_index: None,
             },
-            Some(&crate::provider::TokenUsage {
+            Some(&noema_providers::TokenUsage {
                 input_tokens: 100,
                 output_tokens: 5,
                 total_tokens: 105,

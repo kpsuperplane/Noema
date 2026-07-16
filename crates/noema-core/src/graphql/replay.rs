@@ -203,15 +203,15 @@ struct ReplayA2uiCardPayload {
 #[derive(Debug, Deserialize)]
 struct ReplayMultipleChoicePromptPayload {
     prompt: String,
-    selection_mode: crate::provider::MultipleChoiceSelectionMode,
-    options: Vec<crate::provider::MultipleChoiceOption>,
+    selection_mode: noema_providers::MultipleChoiceSelectionMode,
+    options: Vec<noema_providers::MultipleChoiceOption>,
 }
 
 #[derive(Debug, Deserialize)]
 struct ReplayMultipleChoiceSelectionPayload {
     prompt_item_id: String,
-    selection_mode: crate::provider::MultipleChoiceSelectionMode,
-    selected_options: Vec<crate::provider::MultipleChoiceOption>,
+    selection_mode: noema_providers::MultipleChoiceSelectionMode,
+    selected_options: Vec<noema_providers::MultipleChoiceOption>,
 }
 
 #[derive(Debug, Deserialize)]

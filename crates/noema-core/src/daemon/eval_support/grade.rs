@@ -1,11 +1,9 @@
 use std::collections::HashSet;
 
+use noema_providers::{GenerateResponse, GenerateResponseItem, GenerateResponseStatus};
 use serde_json::Value;
 
-use crate::{
-    daemon::runtime::progress_audit::grade_finalize_response,
-    provider::{GenerateResponse, GenerateResponseItem, GenerateResponseStatus},
-};
+use crate::daemon::runtime::progress_audit::grade_finalize_response;
 
 use super::types::EvalExpectation;
 
@@ -73,7 +71,7 @@ fn multiple_choice(response: &GenerateResponse) -> Result<(), String> {
         ));
     }
     let (mode, options) = choices[0];
-    if *mode != crate::provider::MultipleChoiceSelectionMode::PickOne {
+    if *mode != noema_providers::MultipleChoiceSelectionMode::PickOne {
         return Err("multiple-choice response did not use pick_one".to_string());
     }
     if options.len() != 2 {
@@ -312,7 +310,7 @@ mod tests {
     fn tool_response(name: &str, payload: Value) -> GenerateResponse {
         GenerateResponse {
             responses: Vec::new(),
-            tool_calls: vec![crate::provider::GenerateToolCall {
+            tool_calls: vec![noema_providers::GenerateToolCall {
                 id: None,
                 provider_call_id: None,
                 provider_name: None,

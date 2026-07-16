@@ -4,15 +4,27 @@ use crate::search::types::SearchError;
 use noema_capabilities::web::search::{SearchRequest, SearchResponse, SearchResult};
 use serde::Serialize;
 use serde_json::Value;
+use std::fmt;
 
 pub(crate) const EXA_SEARCH_PROVIDER_ID: &str = "exa";
 pub(crate) const EXA_SEARCH_CONTRACT: &str = "hosted_provider";
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ExaSearchClient {
     pub base_url: String,
     pub api_key: String,
     pub http: reqwest::Client,
+}
+
+impl fmt::Debug for ExaSearchClient {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ExaSearchClient")
+            .field("base_url", &self.base_url)
+            .field("api_key", &"[REDACTED]")
+            .field("http", &"[CONFIGURED]")
+            .finish()
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -151,6 +163,20 @@ mod tests {
             response.results[0].snippet,
             "A language empowering everyone"
         );
+    }
+
+    #[test]
+    fn exa_search_debug_redacts_api_key() {
+        let client = ExaSearchClient {
+            base_url: "https://example.test".to_string(),
+            api_key: "exa-search-secret".to_string(),
+            http: reqwest::Client::new(),
+        };
+        let runtime = crate::search::types::SearchRuntimeProvider::Exa { client };
+        let debug = format!("{runtime:?}");
+
+        assert!(!debug.contains("exa-search-secret"));
+        assert!(debug.contains("[REDACTED]"));
     }
 
     #[tokio::test]

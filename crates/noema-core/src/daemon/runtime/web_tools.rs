@@ -1,8 +1,8 @@
 #![cfg_attr(not(test), allow(dead_code))]
 
-use crate::provider::ProviderCapabilityStatus;
 use crate::{NoemaStore, StoreError};
 use noema_capabilities::CapabilityId;
+use noema_providers::ProviderCapabilityStatus;
 
 const WEB_SEARCH_TOOL: &str = "web.search";
 const WEB_FETCH_TOOL: &str = "web.fetch";
@@ -88,7 +88,7 @@ async fn resolve_bound_provider(
 async fn load_provider_account(
     store: &NoemaStore,
     provider_account_id: &str,
-) -> Result<Option<crate::ProviderAccountRecord>, StoreError> {
+) -> Result<Option<noema_providers::ProviderAccountRecord>, StoreError> {
     if let Some(account) = store.get_provider_account(provider_account_id).await? {
         return Ok(Some(account));
     }
@@ -147,12 +147,10 @@ fn capability_enum(capability_id: &str) -> Option<CapabilityId> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::daemon::runtime::actor::CodexRuntimeActor;
     use crate::store::tests::test_store;
-    use crate::{
-        ProviderAccountStatus, ProviderAuthMethod, daemon::runtime::actor::CodexRuntimeActor,
-        provider::ProviderCapabilityStatus,
-    };
     use noema_capabilities::CapabilityId;
+    use noema_providers::{ProviderAccountStatus, ProviderAuthMethod, ProviderCapabilityStatus};
     use std::collections::HashMap;
 
     #[tokio::test]

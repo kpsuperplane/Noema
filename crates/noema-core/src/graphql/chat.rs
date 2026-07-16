@@ -124,11 +124,11 @@ pub enum GraphqlMultipleChoiceSelectionMode {
     PickMany,
 }
 
-impl From<crate::provider::MultipleChoiceSelectionMode> for GraphqlMultipleChoiceSelectionMode {
-    fn from(mode: crate::provider::MultipleChoiceSelectionMode) -> Self {
+impl From<noema_providers::MultipleChoiceSelectionMode> for GraphqlMultipleChoiceSelectionMode {
+    fn from(mode: noema_providers::MultipleChoiceSelectionMode) -> Self {
         match mode {
-            crate::provider::MultipleChoiceSelectionMode::PickOne => Self::PickOne,
-            crate::provider::MultipleChoiceSelectionMode::PickMany => Self::PickMany,
+            noema_providers::MultipleChoiceSelectionMode::PickOne => Self::PickOne,
+            noema_providers::MultipleChoiceSelectionMode::PickMany => Self::PickMany,
         }
     }
 }
@@ -143,8 +143,8 @@ pub struct GraphqlMultipleChoiceOption {
     pub label: String,
 }
 
-impl From<crate::provider::MultipleChoiceOption> for GraphqlMultipleChoiceOption {
-    fn from(option: crate::provider::MultipleChoiceOption) -> Self {
+impl From<noema_providers::MultipleChoiceOption> for GraphqlMultipleChoiceOption {
+    fn from(option: noema_providers::MultipleChoiceOption) -> Self {
         Self {
             id: option.id,
             label: option.label,

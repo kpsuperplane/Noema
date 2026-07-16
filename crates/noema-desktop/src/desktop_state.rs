@@ -6,6 +6,7 @@ use noema_core::{
     NoemaRuntimeHost, RuntimeHostError,
     graphql::{self, GraphqlSchema},
 };
+use noema_providers::ProviderConfig;
 use tauri::async_runtime::JoinHandle;
 use tokio::sync::Mutex;
 
@@ -31,7 +32,7 @@ impl DesktopState {
     /// or runtime provider.
     pub async fn initialize(
         &self,
-        provider: noema_core::ProviderConfig,
+        provider: ProviderConfig,
         local_model_runtime_root: Option<PathBuf>,
     ) -> Result<(), RuntimeHostError> {
         let host = NoemaRuntimeHost::start_with_local_model_runtime_root(

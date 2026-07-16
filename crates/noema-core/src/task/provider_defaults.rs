@@ -1,6 +1,8 @@
 //! Provider-owned default executor model choices.
 
-use crate::{config::DEFAULT_OPENAI_MODEL, provider::ReasoningEffort, task::TaskComplexity};
+use noema_providers::{DEFAULT_OPENAI_MODEL, ReasoningEffort};
+
+use crate::task::TaskComplexity;
 
 /// One built-in executor choice supplied by a model provider.
 #[derive(Debug, Clone, Copy)]

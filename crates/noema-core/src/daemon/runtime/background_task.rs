@@ -3,12 +3,14 @@
 use std::time::{Duration, Instant};
 
 use crate::{
-    GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
     agent_execution::ExecutionRole,
     daemon::{agent_onboarding::AgentPromptIdentity, protocol::DaemonError},
     graphql::ConversationSubscriptionRegistry,
-    provider::{NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, TokenUsage},
     store::NewAgentRunItem,
+};
+use noema_providers::{
+    GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
+    NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, TokenUsage,
 };
 
 use super::{
@@ -50,7 +52,7 @@ pub(crate) struct BackgroundTaskGenerateRequest {
     /// Provider model/profile selected by the persisted model snapshot.
     pub model: Option<String>,
     /// Explicit reasoning effort from the persisted model snapshot.
-    pub reasoning_effort: Option<crate::provider::ReasoningEffort>,
+    pub reasoning_effort: Option<noema_providers::ReasoningEffort>,
     /// Immutable provider-independent execution-policy snapshot.
     pub execution_policy: crate::TaskExecutionPolicy,
     /// User/task prompt supplied to the provider.
@@ -123,7 +125,7 @@ impl CodexRuntimeActor {
                         NoemaToolChoice::Auto
                     },
                     parallel_tool_calls: model_tools.transport
-                        == crate::provider::ProviderToolTransport::Native
+                        == noema_providers::ProviderToolTransport::Native
                         && model_tools.has_callable_tools()
                         && capabilities.parallel_tool_calls,
                 },
@@ -395,7 +397,7 @@ impl CodexRuntimeActor {
                     provider.as_ref(),
                     request.model.as_deref(),
                     request.reasoning_effort,
-                    crate::provider::GenerationPriority::Background,
+                    noema_providers::GenerationPriority::Background,
                     &request.input,
                 ) => result,
             };
@@ -532,7 +534,7 @@ impl CodexRuntimeActor {
                     NoemaToolChoice::Auto
                 },
                 parallel_tool_calls: model_tools.transport
-                    == crate::provider::ProviderToolTransport::Native
+                    == noema_providers::ProviderToolTransport::Native
                     && model_tools.has_callable_tools()
                     && capabilities.parallel_tool_calls,
             };
@@ -575,7 +577,7 @@ impl CodexRuntimeActor {
                                 NoemaToolChoice::Auto
                             },
                             parallel_tool_calls: model_tools.transport
-                                == crate::provider::ProviderToolTransport::Native
+                                == noema_providers::ProviderToolTransport::Native
                                 && model_tools.has_callable_tools()
                                 && capabilities.parallel_tool_calls,
                         },

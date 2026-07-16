@@ -1,7 +1,7 @@
 //! Responses-compatible provider output parsing and normalization.
 
 use super::{responses::ResponsesDiagnosticContext, responses_tools::ResponsesToolNameMap};
-use crate::provider::{
+use noema_providers::{
     GenerateReasoningItem, GenerateResponse, GenerateResponseStatus, ParsedNoemaResponse,
     ProviderError, TokenUsage, output_items_from_text,
     required_noema_response_from_text_with_native_tool_calls,
@@ -156,7 +156,7 @@ impl ResponsesResponse {
     pub(crate) fn native_tool_calls_with_names(
         &self,
         tool_names: &ResponsesToolNameMap,
-    ) -> Result<Vec<crate::provider::GenerateToolCall>, ProviderError> {
+    ) -> Result<Vec<noema_providers::GenerateToolCall>, ProviderError> {
         let mut calls = Vec::new();
         for item in &self.output {
             let ResponsesOutputItem::FunctionCall {
@@ -192,7 +192,7 @@ impl ResponsesResponse {
                     ),
                 });
             }
-            calls.push(crate::provider::GenerateToolCall {
+            calls.push(noema_providers::GenerateToolCall {
                 id: id.clone(),
                 provider_call_id: Some(call_id.clone()),
                 provider_name: Some(name.clone()),

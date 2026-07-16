@@ -1,9 +1,9 @@
 use super::error::ConfigError;
-use crate::provider::ReasoningEffort;
 use figment::{
     Figment,
     providers::{Format, Yaml},
 };
+use noema_providers::ReasoningEffort;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 

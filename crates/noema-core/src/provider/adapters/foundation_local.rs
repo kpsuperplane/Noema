@@ -7,15 +7,12 @@ use std::{
     },
 };
 
-use crate::{
-    FoundationLocalProviderConfig,
-    provider::{
-        GenerateInput, GenerateInputItem, GenerateMessageRole, GenerateRequest, GenerateResponse,
-        GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent, GenerateToolCallInput,
-        ModelProvider, ParsedNoemaResponse, ProviderContextMetadata, ProviderError,
-        ProviderToolCapabilities, ProviderToolTransport, output_items_from_text,
-        required_noema_response_from_text,
-    },
+use noema_providers::{
+    FoundationLocalProviderConfig, GenerateInput, GenerateInputItem, GenerateMessageRole,
+    GenerateRequest, GenerateResponse, GenerateResponseItem, GenerateResponseStatus,
+    GenerateStreamEvent, GenerateToolCallInput, ModelProvider, ParsedNoemaResponse,
+    ProviderContextMetadata, ProviderError, ProviderToolCapabilities, ProviderToolTransport,
+    output_items_from_text, required_noema_response_from_text,
 };
 
 use super::foundation_bridge_process::{
@@ -543,7 +540,7 @@ fn bridge_replay_input_items(items: &[GenerateInputItem]) -> Vec<BridgeReplayTur
         .collect()
 }
 
-fn bridge_replay_turns(messages: &[crate::GenerateMessage]) -> Vec<BridgeReplayTurn> {
+fn bridge_replay_turns(messages: &[noema_providers::GenerateMessage]) -> Vec<BridgeReplayTurn> {
     messages
         .iter()
         .filter(|message| !message.content.trim().is_empty())
@@ -628,11 +625,11 @@ fn bridge_replay_parsed_response(response: &ParsedNoemaResponse) -> Vec<BridgeRe
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::GenerateInput;
-    use crate::provider::{
+    use noema_providers::GenerateInput;
+    use noema_providers::{
         AssistantTextPhase, GenerateStreamEvent, ProviderToolSchemaDialect, ProviderToolTransport,
     };
-    use crate::{
+    use noema_providers::{
         FoundationLocalProviderConfig, GenerateRequest, GenerateResponseItem,
         GenerateResponseStatus, ModelProvider, ProviderError,
     };
@@ -756,15 +753,15 @@ mod tests {
     #[test]
     fn message_prompt_replays_prior_turns_and_generates_from_latest_user_message() {
         let prompt = foundation_prompt_parts(&GenerateInput::Messages(vec![
-            crate::GenerateMessage {
+            noema_providers::GenerateMessage {
                 role: GenerateMessageRole::User,
                 content: "first question".to_string(),
             },
-            crate::GenerateMessage {
+            noema_providers::GenerateMessage {
                 role: GenerateMessageRole::Assistant,
                 content: "first answer".to_string(),
             },
-            crate::GenerateMessage {
+            noema_providers::GenerateMessage {
                 role: GenerateMessageRole::User,
                 content: "second question".to_string(),
             },
@@ -789,11 +786,11 @@ mod tests {
     #[test]
     fn developer_context_replays_as_application_context() {
         let prompt = foundation_prompt_parts(&GenerateInput::Messages(vec![
-            crate::GenerateMessage {
+            noema_providers::GenerateMessage {
                 role: GenerateMessageRole::User,
                 content: "what day is it?".to_string(),
             },
-            crate::GenerateMessage {
+            noema_providers::GenerateMessage {
                 role: GenerateMessageRole::Developer,
                 content: "runtime date: 2026-07-15".to_string(),
             },
@@ -822,7 +819,7 @@ mod tests {
                     payload: serde_json::json!({ "value": 1 }),
                 },
             ],
-            tool_calls: vec![crate::provider::GenerateToolCall {
+            tool_calls: vec![noema_providers::GenerateToolCall {
                 id: None,
                 provider_call_id: None,
                 provider_name: None,
@@ -933,9 +930,9 @@ done
                 model: None,
                 input: GenerateInput::Text("prompt text".to_string()),
                 instructions: None,
-                options: crate::GenerateOptions {
+                options: noema_providers::GenerateOptions {
                     require_noema_response: true,
-                    ..crate::GenerateOptions::default()
+                    ..noema_providers::GenerateOptions::default()
                 },
                 tools: Vec::new(),
                 tool_choice: Default::default(),
@@ -985,9 +982,9 @@ done
                     model: None,
                     input: GenerateInput::Text("prompt text".to_string()),
                     instructions: None,
-                    options: crate::GenerateOptions {
+                    options: noema_providers::GenerateOptions {
                         require_noema_response: true,
-                        ..crate::GenerateOptions::default()
+                        ..noema_providers::GenerateOptions::default()
                     },
                     tools: Vec::new(),
                     tool_choice: Default::default(),
@@ -1044,15 +1041,15 @@ done
         for input in [
             GenerateInput::Text("first".to_string()),
             GenerateInput::Messages(vec![
-                crate::GenerateMessage {
+                noema_providers::GenerateMessage {
                     role: GenerateMessageRole::User,
                     content: "first".to_string(),
                 },
-                crate::GenerateMessage {
+                noema_providers::GenerateMessage {
                     role: GenerateMessageRole::Assistant,
                     content: "bridge answer".to_string(),
                 },
-                crate::GenerateMessage {
+                noema_providers::GenerateMessage {
                     role: GenerateMessageRole::User,
                     content: "second".to_string(),
                 },
@@ -1064,9 +1061,9 @@ done
                     model: Some("default".to_string()),
                     input,
                     instructions: Some("be concise".to_string()),
-                    options: crate::GenerateOptions {
+                    options: noema_providers::GenerateOptions {
                         require_noema_response: true,
-                        ..crate::GenerateOptions::default()
+                        ..noema_providers::GenerateOptions::default()
                     },
                     tools: Vec::new(),
                     tool_choice: Default::default(),
@@ -1119,7 +1116,7 @@ done
                     model: Some("default".to_string()),
                     input: GenerateInput::Text("hello".to_string()),
                     instructions: Some(instructions.to_string()),
-                    options: crate::GenerateOptions::default(),
+                    options: noema_providers::GenerateOptions::default(),
                     tools: Vec::new(),
                     tool_choice: Default::default(),
                     parallel_tool_calls: false,
@@ -1168,17 +1165,17 @@ done
                 conversation_id: Some("conversation:stable".to_string()),
                 model: Some("default".to_string()),
                 input: GenerateInput::Messages(vec![
-                    crate::GenerateMessage {
+                    noema_providers::GenerateMessage {
                         role: GenerateMessageRole::Developer,
                         content: "environment@1".to_string(),
                     },
-                    crate::GenerateMessage {
+                    noema_providers::GenerateMessage {
                         role: GenerateMessageRole::User,
                         content: "first".to_string(),
                     },
                 ]),
                 instructions: Some("stable kernel".to_string()),
-                options: crate::GenerateOptions::default(),
+                options: noema_providers::GenerateOptions::default(),
                 tools: Vec::new(),
                 tool_choice: Default::default(),
                 parallel_tool_calls: false,
@@ -1190,29 +1187,29 @@ done
                 conversation_id: Some("conversation:stable".to_string()),
                 model: Some("default".to_string()),
                 input: GenerateInput::Messages(vec![
-                    crate::GenerateMessage {
+                    noema_providers::GenerateMessage {
                         role: GenerateMessageRole::Developer,
                         content: "environment@1".to_string(),
                     },
-                    crate::GenerateMessage {
+                    noema_providers::GenerateMessage {
                         role: GenerateMessageRole::User,
                         content: "first".to_string(),
                     },
-                    crate::GenerateMessage {
+                    noema_providers::GenerateMessage {
                         role: GenerateMessageRole::Assistant,
                         content: "bridge answer".to_string(),
                     },
-                    crate::GenerateMessage {
+                    noema_providers::GenerateMessage {
                         role: GenerateMessageRole::Developer,
                         content: "environment@2".to_string(),
                     },
-                    crate::GenerateMessage {
+                    noema_providers::GenerateMessage {
                         role: GenerateMessageRole::User,
                         content: "second".to_string(),
                     },
                 ]),
                 instructions: Some("stable kernel".to_string()),
-                options: crate::GenerateOptions::default(),
+                options: noema_providers::GenerateOptions::default(),
                 tools: Vec::new(),
                 tool_choice: Default::default(),
                 parallel_tool_calls: false,
@@ -1224,37 +1221,37 @@ done
                 conversation_id: Some("conversation:stable".to_string()),
                 model: Some("default".to_string()),
                 input: GenerateInput::Messages(vec![
-                    crate::GenerateMessage {
+                    noema_providers::GenerateMessage {
                         role: GenerateMessageRole::Developer,
                         content: "environment@1".to_string(),
                     },
-                    crate::GenerateMessage {
+                    noema_providers::GenerateMessage {
                         role: GenerateMessageRole::User,
                         content: "first".to_string(),
                     },
-                    crate::GenerateMessage {
+                    noema_providers::GenerateMessage {
                         role: GenerateMessageRole::Assistant,
                         content: "divergent answer".to_string(),
                     },
-                    crate::GenerateMessage {
+                    noema_providers::GenerateMessage {
                         role: GenerateMessageRole::Developer,
                         content: "environment@2".to_string(),
                     },
-                    crate::GenerateMessage {
+                    noema_providers::GenerateMessage {
                         role: GenerateMessageRole::User,
                         content: "second".to_string(),
                     },
-                    crate::GenerateMessage {
+                    noema_providers::GenerateMessage {
                         role: GenerateMessageRole::Assistant,
                         content: "bridge answer".to_string(),
                     },
-                    crate::GenerateMessage {
+                    noema_providers::GenerateMessage {
                         role: GenerateMessageRole::User,
                         content: "third".to_string(),
                     },
                 ]),
                 instructions: Some("stable kernel".to_string()),
-                options: crate::GenerateOptions::default(),
+                options: noema_providers::GenerateOptions::default(),
                 tools: Vec::new(),
                 tool_choice: Default::default(),
                 parallel_tool_calls: false,

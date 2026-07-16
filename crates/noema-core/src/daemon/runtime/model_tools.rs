@@ -17,10 +17,6 @@ use crate::{
     mcp::{
         mcp_tool_catalog_ineligibility, mcp_tool_ineligibility, prompt_safe_mcp_tool_description,
     },
-    provider::{
-        NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderToolCapabilities,
-        ProviderToolTransport,
-    },
     search::tool::web_search_tool_spec,
     web_fetch::tool::web_fetch_tool_spec,
 };
@@ -31,6 +27,10 @@ use noema_capabilities::{
     CapabilityCatalogSnapshot, CapabilityEffect, CapabilityFuture, CapabilityScope,
     CapabilityTarget, InvokerKey, OmitPayloadSanitizer, RedactingPayloadSanitizer,
     ToolContractError, ToolName, ToolSpec, WebFetchPayloadSanitizer,
+};
+use noema_providers::{
+    NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderToolCapabilities,
+    ProviderToolTransport,
 };
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -548,7 +548,9 @@ mod tests {
     use crate::{
         McpCalibrationStatus, McpServerAuthStatus, McpServerHealthStatus, McpTransportKind,
         McpTrustClassification, NewMcpServer, NewMcpTool, NewToolCalibration,
-        provider::{ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport},
+    };
+    use noema_providers::{
+        ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport,
     };
     use serde_json::json;
 
@@ -940,7 +942,7 @@ mod tests {
         store
             .update_provider_account_status(
                 "provider_account:codex:default",
-                crate::ProviderAccountStatus::Authenticated,
+                noema_providers::ProviderAccountStatus::Authenticated,
                 None,
                 None,
             )

@@ -21,9 +21,9 @@ use tokio::{
 };
 use url::Url;
 
-use crate::provider::GenerationPriority;
+use noema_providers::{GenerationPriority, LocalModelBackend};
 
-use super::{LocalModelBackend, hardware::detect_ram_gb};
+use super::hardware::detect_ram_gb;
 use generation_arbiter::{GenerationArbiter, GenerationPermit};
 
 mod generation_arbiter;

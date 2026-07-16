@@ -447,7 +447,7 @@ pub(super) async fn autofill_tool_calibrations(
         .map_err(graphql_error)?;
     let prompt = crate::mcp::autofill::build_autofill_prompt(&server.display_name, &tools);
     let runtime = state.runtime()?;
-    let mut request = crate::GenerateRequest::text(prompt);
+    let mut request = noema_providers::GenerateRequest::text(prompt);
     if let Some(model) = runtime.tool_classification_model() {
         request.model = Some(model.to_string());
     }

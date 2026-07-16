@@ -1,9 +1,7 @@
 use async_graphql::{InputObject, Result, SimpleObject};
+use noema_providers::DEFAULT_TOOL_CLASSIFICATION_MODEL;
 
-use crate::{
-    NewAuxiliaryModelPreference, provider::DEFAULT_TOOL_CLASSIFICATION_MODEL,
-    store::TOOL_PROGRESS_AUDIT_TASK_ID,
-};
+use crate::{NewAuxiliaryModelPreference, store::TOOL_PROGRESS_AUDIT_TASK_ID};
 
 use super::{
     agents::{

@@ -1,10 +1,9 @@
 //! Shared Noema runtime host used by daemon and desktop shells.
 
 use crate::{
-    DEFAULT_NOEMA_CONFIG_YAML, DaemonError, NoemaStore, ProviderConfig, StoreConfig,
+    DEFAULT_NOEMA_CONFIG_YAML, DaemonError, NoemaStore, StoreConfig,
     daemon::{CodexRuntimeHandle, TaskRuntimeHandle},
     mcp::McpOAuthSetupManager,
-    provider::DEFAULT_TOOL_CLASSIFICATION_MODEL,
     provider::auth::ProviderAuthManager,
 };
 
@@ -12,6 +11,10 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use noema_home::{
     NoemaHomeInitOptions, NoemaPathError, NoemaPaths, SystemErrorEvent, SystemErrorLogger,
     init_noema_home,
+};
+use noema_providers::{
+    DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS, DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
+    DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS, DEFAULT_TOOL_CLASSIFICATION_MODEL, ProviderConfig,
 };
 use ring::rand::{SecureRandom, SystemRandom};
 use std::path::PathBuf;
@@ -123,7 +126,7 @@ impl NoemaRuntimeHost {
         let (default_provider_kind, mut providers, mut local_models_runtime) =
             CodexRuntimeHandle::provider_map_from_config(provider, system_errors.clone())
                 .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
-        if !providers.contains_key(crate::ProviderKind::LocalModels.as_str())
+        if !providers.contains_key(noema_providers::ProviderKind::LocalModels.as_str())
             && let Some(installation) = store
                 .list_local_model_installations()
                 .await
@@ -131,7 +134,8 @@ impl NoemaRuntimeHost {
                 .into_iter()
                 .find(|installation| {
                     installation.is_active
-                        && installation.status == crate::LocalModelInstallationStatus::Installed
+                        && installation.status
+                            == noema_providers::LocalModelInstallationStatus::Installed
                 })
         {
             let model_path = paths
@@ -142,21 +146,23 @@ impl NoemaRuntimeHost {
                     ))
                 })?)
                 .map_err(|source| RuntimeHostError::DataFolder(source.to_string()))?;
-            let provider = crate::LocalModelsProvider::new(crate::LocalModelsProviderConfig {
-                default_model: installation.model_id,
-                model_path: Some(model_path),
-                preferred_backend: Some(installation.backend),
-                runtime_root: local_model_runtime_root.clone(),
-                context_window_tokens: crate::config::DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS,
-                timeout_seconds: crate::config::DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS,
-                startup_timeout_seconds:
-                    crate::config::DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
-                system_errors: Some(system_errors.clone()),
-            })
-            .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
+            let provider =
+                crate::LocalModelsProvider::new(noema_providers::LocalModelsProviderConfig {
+                    default_model: installation.model_id,
+                    model_path: Some(model_path),
+                    preferred_backend: Some(installation.backend),
+                    runtime_root: local_model_runtime_root.clone(),
+                    context_window_tokens: DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS,
+                    timeout_seconds: DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS,
+                    startup_timeout_seconds: DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
+                    system_errors: Some(system_errors.clone()),
+                })
+                .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
             local_models_runtime = Some(provider.runtime().clone());
             providers.insert(
-                crate::ProviderKind::LocalModels.as_str().to_string(),
+                noema_providers::ProviderKind::LocalModels
+                    .as_str()
+                    .to_string(),
                 std::sync::Arc::new(provider),
             );
         }
@@ -284,7 +290,8 @@ impl NoemaRuntimeHost {
             .into_iter()
             .find(|installation| {
                 installation.is_active
-                    && installation.status == crate::LocalModelInstallationStatus::Installed
+                    && installation.status
+                        == noema_providers::LocalModelInstallationStatus::Installed
             })
         {
             runtime
@@ -520,7 +527,7 @@ mod tests {
             provider_account_id: Some("foundation_local:default".to_string()),
             provider_kind: Some("foundation_local".to_string()),
             model_profile: Some("memory-profile".to_string()),
-            reasoning_effort: Some(crate::provider::ReasoningEffort::Low),
+            reasoning_effort: Some(noema_providers::ReasoningEffort::Low),
         };
 
         let config = memory_model_proxy_config_from_settings(
@@ -535,7 +542,7 @@ mod tests {
         assert_eq!(config.model_profile, "memory-profile");
         assert_eq!(
             config.reasoning_effort,
-            Some(crate::provider::ReasoningEffort::Low)
+            Some(noema_providers::ReasoningEffort::Low)
         );
         assert_eq!(
             config
@@ -592,21 +599,21 @@ mod tests {
 
         fn generate_streaming<'a>(
             &'a self,
-            _request: crate::provider::GenerateRequest,
-            _on_event: &'a mut (dyn FnMut(crate::provider::GenerateStreamEvent) + Send),
+            _request: noema_providers::GenerateRequest,
+            _on_event: &'a mut (dyn FnMut(noema_providers::GenerateStreamEvent) + Send),
         ) -> Pin<
             Box<
                 dyn Future<
                         Output = Result<
-                            crate::provider::GenerateResponse,
-                            crate::provider::ProviderError,
+                            noema_providers::GenerateResponse,
+                            noema_providers::ProviderError,
                         >,
                     > + Send
                     + 'a,
             >,
         > {
             Box::pin(async {
-                Ok(crate::provider::GenerateResponse::final_text(
+                Ok(noema_providers::GenerateResponse::final_text(
                     "ok", "test", "model",
                 ))
             })

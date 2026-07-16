@@ -675,7 +675,7 @@ async fn generate_memory_article(
         .memory_service_settings()
         .await
         .map_err(graphql_error)?;
-    let mut request = crate::GenerateRequest::text(memory_article_prompt(memories));
+    let mut request = noema_providers::GenerateRequest::text(memory_article_prompt(memories));
     request.model = settings.model_profile.clone();
     request.options.reasoning_effort = settings.reasoning_effort;
     request.instructions = Some(

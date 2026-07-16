@@ -1,10 +1,11 @@
 //! GraphQL projections and owner-authorized controls for background tasks.
 
 use async_graphql::{Enum, InputObject, Json, Result, SimpleObject};
+use noema_providers::ProviderSelectionSnapshot;
 
 use crate::{
-    AgentRunItemRecord, AgentRunRecord, ModelConfigSnapshot, TaskComplexity, TaskExecutionPolicy,
-    TaskModelPoolEntry, TaskRecord, TaskReviewCriterion, TaskReviewRecord, TaskSubmissionRecord,
+    AgentRunItemRecord, AgentRunRecord, TaskComplexity, TaskExecutionPolicy, TaskModelPoolEntry,
+    TaskRecord, TaskReviewCriterion, TaskReviewRecord, TaskSubmissionRecord,
     TaskValidationCriterion,
 };
 
@@ -69,8 +70,8 @@ pub struct GraphqlTaskModelSnapshot {
     pub selection_source: Option<String>,
 }
 
-impl From<ModelConfigSnapshot> for GraphqlTaskModelSnapshot {
-    fn from(value: ModelConfigSnapshot) -> Self {
+impl From<ProviderSelectionSnapshot> for GraphqlTaskModelSnapshot {
+    fn from(value: ProviderSelectionSnapshot) -> Self {
         Self {
             provider_kind: value.provider_kind,
             provider_account_id: value.provider_account_id,
@@ -958,7 +959,7 @@ mod tests {
         store
             .update_provider_account_status(
                 "provider_account:codex:default",
-                crate::ProviderAccountStatus::Authenticated,
+                noema_providers::ProviderAccountStatus::Authenticated,
                 None,
                 None,
             )
@@ -991,7 +992,7 @@ mod tests {
         store
             .update_provider_account_status(
                 "provider_account:codex:default",
-                crate::ProviderAccountStatus::Authenticated,
+                noema_providers::ProviderAccountStatus::Authenticated,
                 None,
                 None,
             )
@@ -1137,7 +1138,7 @@ mod tests {
         store
             .update_provider_account_status(
                 "provider_account:codex:default",
-                crate::ProviderAccountStatus::Authenticated,
+                noema_providers::ProviderAccountStatus::Authenticated,
                 None,
                 None,
             )
@@ -1157,7 +1158,7 @@ mod tests {
                 provider_kind: "codex".to_string(),
                 provider_account_id: "provider_account:codex:default".to_string(),
                 model_profile: Some("gpt-5.6-luna".to_string()),
-                reasoning_effort: Some(crate::provider::ReasoningEffort::Medium),
+                reasoning_effort: Some(noema_providers::ReasoningEffort::Medium),
             },
             Some("call:test".to_string()),
             &serde_json::json!({
@@ -1269,7 +1270,7 @@ mod tests {
         store
             .update_provider_account_status(
                 "provider_account:codex:default",
-                crate::ProviderAccountStatus::Authenticated,
+                noema_providers::ProviderAccountStatus::Authenticated,
                 None,
                 None,
             )

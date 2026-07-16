@@ -4,10 +4,11 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::{
-    ModelConfigSnapshot, NewTask, NewTaskValidationCriterion, NoemaStore, TASK_REVIEWER_AGENT_ID,
-    TaskComplexity, TaskModelPoolEntry, TaskSource, TaskStatus,
+    NewTask, NewTaskValidationCriterion, NoemaStore, TASK_REVIEWER_AGENT_ID, TaskComplexity,
+    TaskModelPoolEntry, TaskSource, TaskStatus,
 };
 use noema_capabilities::ToolSpec;
+use noema_providers::ProviderSelectionSnapshot;
 
 pub(crate) const TASK_DELEGATE_TOOL: &str = "task.delegate";
 pub(crate) const TASK_INSPECT_TOOL: &str = "task.inspect";
@@ -42,7 +43,7 @@ pub(crate) struct TaskDelegateRuntimeContext {
     /// Effective source model profile, when explicit.
     pub model_profile: Option<String>,
     /// Effective source reasoning effort.
-    pub reasoning_effort: Option<crate::provider::ReasoningEffort>,
+    pub reasoning_effort: Option<noema_providers::ReasoningEffort>,
 }
 
 /// Result returned from the task delegation tool.
@@ -711,13 +712,13 @@ fn call_id_from_payload(payload: &Value) -> Option<String> {
 async fn reviewer_model_snapshot(
     store: &NoemaStore,
     context: &TaskDelegateRuntimeContext,
-) -> Result<ModelConfigSnapshot, String> {
+) -> Result<ProviderSelectionSnapshot, String> {
     if let Some(preference) = store
         .get_agent_runtime_preference(TASK_REVIEWER_AGENT_ID)
         .await
         .map_err(|error| error.to_string())?
     {
-        return Ok(ModelConfigSnapshot::explicit(
+        return Ok(ProviderSelectionSnapshot::explicit(
             preference.provider_kind,
             preference.provider_account_id,
             preference.model_profile,
@@ -726,7 +727,7 @@ async fn reviewer_model_snapshot(
         ));
     }
     if let Some(model) = context.model_profile.clone() {
-        return Ok(ModelConfigSnapshot::explicit(
+        return Ok(ProviderSelectionSnapshot::explicit(
             context.provider_kind.clone(),
             context.provider_account_id.clone(),
             model,
@@ -734,7 +735,7 @@ async fn reviewer_model_snapshot(
             Some("primary:effective".to_string()),
         ));
     }
-    Ok(ModelConfigSnapshot::provider_default(
+    Ok(ProviderSelectionSnapshot::provider_default(
         context.provider_kind.clone(),
         context.provider_account_id.clone(),
         context.reasoning_effort,
@@ -781,7 +782,7 @@ mod tests {
         store
             .update_provider_account_status(
                 "provider_account:codex:default",
-                crate::ProviderAccountStatus::Authenticated,
+                noema_providers::ProviderAccountStatus::Authenticated,
                 None,
                 None,
             )

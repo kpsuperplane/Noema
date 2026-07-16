@@ -3,11 +3,12 @@ use noema_conversations::{
 };
 
 use crate::{
-    GenerateInput, GenerateMessage, GenerateMessageRole, NoemaStore,
+    NoemaStore,
     daemon::{prompts::build_structured_turn_system_prompt, protocol::DaemonError},
-    provider::{
-        GenerateInputItem, GenerateReasoningInput, GenerateToolCallInput, GenerateToolResultInput,
-    },
+};
+use noema_providers::{
+    GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateReasoningInput,
+    GenerateToolCallInput, GenerateToolResultInput,
 };
 use serde_json::Value;
 
@@ -360,10 +361,10 @@ fn render_prompt_context(summary: Option<&ConversationContextSummaryRecord>) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::GenerateInputItem;
     use noema_conversations::{
         ConversationItemKind, ConversationItemRecord, ConversationItemStatus,
     };
+    use noema_providers::GenerateInputItem;
 
     #[test]
     fn persisted_local_tool_call_id_is_not_replayed_as_provider_item_id() {

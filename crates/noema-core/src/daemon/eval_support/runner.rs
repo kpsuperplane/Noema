@@ -1,9 +1,7 @@
 use std::time::{Duration, Instant};
 
-use crate::{
-    LLAMA_CPP_COMMIT, LLAMA_CPP_RELEASE_TAG, LocalModelsProvider, LocalModelsProviderConfig,
-    ModelProvider, provider::GenerateStreamEvent,
-};
+use crate::{LLAMA_CPP_COMMIT, LLAMA_CPP_RELEASE_TAG, LocalModelsProvider};
+use noema_providers::{GenerateStreamEvent, LocalModelsProviderConfig, ModelProvider};
 
 use super::{
     cases::evaluation_cases,

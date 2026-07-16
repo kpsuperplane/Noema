@@ -50,10 +50,9 @@ fn catalog_views() -> Result<Vec<GraphqlLocalModelCatalogEntry>> {
 }
 
 pub(super) fn installation_view(
-    installation: crate::local_models::LocalModelInstallationRecord,
+    installation: noema_providers::LocalModelInstallationRecord,
 ) -> GraphqlLocalModelInstallation {
-    let installed =
-        installation.status == crate::local_models::LocalModelInstallationStatus::Installed;
+    let installed = installation.status == noema_providers::LocalModelInstallationStatus::Installed;
     GraphqlLocalModelInstallation {
         installation_id: installation.installation_id,
         model_id: installation.model_id,
@@ -62,33 +61,31 @@ pub(super) fn installation_view(
             .source_file
             .unwrap_or_else(|| "imported-model.gguf".to_string()),
         source_kind: match installation.source_kind {
-            crate::local_models::LocalModelSourceKind::Catalog => {
-                GraphqlLocalModelSourceKind::Catalog
-            }
-            crate::local_models::LocalModelSourceKind::HuggingFace => {
+            noema_providers::LocalModelSourceKind::Catalog => GraphqlLocalModelSourceKind::Catalog,
+            noema_providers::LocalModelSourceKind::HuggingFace => {
                 GraphqlLocalModelSourceKind::PublicGguf
             }
-            crate::local_models::LocalModelSourceKind::LocalFile => {
+            noema_providers::LocalModelSourceKind::LocalFile => {
                 GraphqlLocalModelSourceKind::LocalFile
             }
         },
         status: match installation.status {
-            crate::local_models::LocalModelInstallationStatus::Queued => {
+            noema_providers::LocalModelInstallationStatus::Queued => {
                 GraphqlLocalModelInstallationStatus::Queued
             }
-            crate::local_models::LocalModelInstallationStatus::Downloading => {
+            noema_providers::LocalModelInstallationStatus::Downloading => {
                 GraphqlLocalModelInstallationStatus::Downloading
             }
-            crate::local_models::LocalModelInstallationStatus::Verifying => {
+            noema_providers::LocalModelInstallationStatus::Verifying => {
                 GraphqlLocalModelInstallationStatus::Verifying
             }
-            crate::local_models::LocalModelInstallationStatus::Installed => {
+            noema_providers::LocalModelInstallationStatus::Installed => {
                 GraphqlLocalModelInstallationStatus::Installed
             }
-            crate::local_models::LocalModelInstallationStatus::Cancelled => {
+            noema_providers::LocalModelInstallationStatus::Cancelled => {
                 GraphqlLocalModelInstallationStatus::Cancelled
             }
-            crate::local_models::LocalModelInstallationStatus::Failed => {
+            noema_providers::LocalModelInstallationStatus::Failed => {
                 GraphqlLocalModelInstallationStatus::Failed
             }
         },
@@ -114,7 +111,7 @@ pub(super) fn installation_view(
 }
 
 pub(super) fn default_preference_view(
-    preference: crate::local_models::DefaultModelPreferenceRecord,
+    preference: noema_providers::DefaultModelPreferenceRecord,
 ) -> GraphqlDefaultModelPreference {
     GraphqlDefaultModelPreference {
         provider_kind: preference.provider_kind,
@@ -125,22 +122,22 @@ pub(super) fn default_preference_view(
 }
 
 pub(super) fn event_view(
-    event: crate::local_models::LocalModelEventRecord,
+    event: noema_providers::LocalModelEventRecord,
     installation: Option<GraphqlLocalModelInstallation>,
 ) -> GraphqlLocalModelEvent {
     let kind = match event.kind {
-        crate::local_models::LocalModelEventKind::Progress => {
+        noema_providers::LocalModelEventKind::Progress => {
             GraphqlLocalModelEventKind::TransferProgress
         }
-        crate::local_models::LocalModelEventKind::Activated => {
+        noema_providers::LocalModelEventKind::Activated => {
             GraphqlLocalModelEventKind::ActiveModelChanged
         }
-        crate::local_models::LocalModelEventKind::Queued
-        | crate::local_models::LocalModelEventKind::Verifying
-        | crate::local_models::LocalModelEventKind::Installed
-        | crate::local_models::LocalModelEventKind::Failed
-        | crate::local_models::LocalModelEventKind::Cancelled
-        | crate::local_models::LocalModelEventKind::Removed => {
+        noema_providers::LocalModelEventKind::Queued
+        | noema_providers::LocalModelEventKind::Verifying
+        | noema_providers::LocalModelEventKind::Installed
+        | noema_providers::LocalModelEventKind::Failed
+        | noema_providers::LocalModelEventKind::Cancelled
+        | noema_providers::LocalModelEventKind::Removed => {
             GraphqlLocalModelEventKind::InstallationUpdated
         }
     };

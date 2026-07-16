@@ -1,17 +1,18 @@
 use std::{collections::HashMap, future::Future, path::PathBuf, pin::Pin, sync::Arc};
 
 use crate::{
-    FoundationLocalProvider, FoundationLocalProviderConfig, LocalModelsProvider,
-    LocalModelsProviderConfig, NoemaStore, OpenAiProvider, ProviderConfig, ProviderKind,
-    config::DEFAULT_FOUNDATION_LOCAL_PROFILE,
-    provider::adapters::codex_responses::{CodexProviderConfig, CodexResponsesProvider},
-    provider::{
-        GenerateRequest, GenerateResponse, GenerateStreamEvent, ModelProvider,
-        ProviderContextMetadata, ProviderError, ProviderResponseContinuation,
-        ProviderToolCapabilities,
-    },
+    FoundationLocalProvider, LocalModelsProvider, NoemaStore, OpenAiProvider,
+    provider::adapters::codex_responses::CodexResponsesProvider,
 };
 use noema_home::{NoemaPaths, SystemErrorLogger};
+use noema_providers::{
+    CodexProviderConfig, DEFAULT_FOUNDATION_LOCAL_PROFILE,
+    DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS, DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
+    DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS, FoundationLocalProviderConfig, GenerateRequest,
+    GenerateResponse, GenerateStreamEvent, LocalModelsProviderConfig, ModelProvider,
+    ProviderConfig, ProviderContextMetadata, ProviderError, ProviderKind,
+    ProviderResponseContinuation, ProviderToolCapabilities,
+};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
@@ -397,10 +398,10 @@ impl CodexRuntimeHandle {
     /// Register or replace the active installed local model without restarting Noema.
     pub(crate) async fn register_installed_local_model(
         &self,
-        installation: &crate::LocalModelInstallationRecord,
+        installation: &noema_providers::LocalModelInstallationRecord,
         paths: &NoemaPaths,
     ) -> Result<(), DaemonError> {
-        if installation.status != crate::LocalModelInstallationStatus::Installed {
+        if installation.status != noema_providers::LocalModelInstallationStatus::Installed {
             return Err(DaemonError::Provider(ProviderError::ProviderUnavailable {
                 provider: ProviderKind::LocalModels.as_str().to_string(),
                 message: format!("local model `{}` is not installed", installation.model_id),
@@ -422,9 +423,9 @@ impl CodexRuntimeHandle {
             model_path: Some(model_path),
             preferred_backend: Some(installation.backend),
             runtime_root,
-            context_window_tokens: crate::config::DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS,
-            timeout_seconds: crate::config::DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS,
-            startup_timeout_seconds: crate::config::DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
+            context_window_tokens: DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS,
+            timeout_seconds: DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS,
+            startup_timeout_seconds: DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
             system_errors: Some(SystemErrorLogger::from_paths(paths)),
         })?;
         self.register_local_models_provider(provider).await
@@ -752,7 +753,7 @@ fn local_models_config(
 }
 
 fn apply_provider_account_home(
-    config: &mut crate::CodexProviderConfig,
+    config: &mut noema_providers::CodexProviderConfig,
     account_home: &std::path::Path,
 ) {
     config.account_home = Some(account_home.to_path_buf());

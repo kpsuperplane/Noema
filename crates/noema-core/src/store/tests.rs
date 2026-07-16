@@ -544,13 +544,13 @@ async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
     store
         .update_provider_account_status(
             "provider_account:codex:default",
-            crate::ProviderAccountStatus::Authenticated,
+            noema_providers::ProviderAccountStatus::Authenticated,
             None,
             None,
         )
         .await
         .expect("authenticated provider account");
-    let model = crate::ModelConfigSnapshot::explicit(
+    let model = noema_providers::ProviderSelectionSnapshot::explicit(
         "codex",
         "provider_account:codex:default",
         "gpt-5.6",
@@ -777,7 +777,7 @@ async fn failed_task_resume_queues_a_linked_attempt_with_current_snapshots() {
     store
         .update_provider_account_status(
             "provider_account:codex:default",
-            crate::ProviderAccountStatus::Authenticated,
+            noema_providers::ProviderAccountStatus::Authenticated,
             None,
             None,
         )
@@ -1027,7 +1027,7 @@ async fn agent_run_items_round_trip_in_sequence_order() {
             parent_run_id: None,
             triggering_submission_id: None,
             triggering_review_id: None,
-            model: crate::ModelConfigSnapshot::explicit(
+            model: noema_providers::ProviderSelectionSnapshot::explicit(
                 "codex",
                 "provider_account:codex:default",
                 "gpt-test",
@@ -1135,6 +1135,51 @@ async fn agent_run_items_round_trip_in_sequence_order() {
             .map(|item| item.sequence_index)
             .collect::<Vec<_>>(),
         vec![2, 3]
+    );
+}
+
+#[tokio::test]
+async fn create_agent_run_rejects_unpersistable_provider_instance_identity() {
+    let store = test_store().await;
+    let mut model = noema_providers::ProviderSelectionSnapshot::explicit(
+        "openai",
+        "provider_account:openai:default",
+        "gpt-5.5",
+        None,
+        None,
+    );
+    model.provider_instance_key =
+        Some(noema_providers::ProviderInstanceKey::new("openai:default:1").unwrap());
+
+    let error = store
+        .create_agent_run(crate::NewAgentRun {
+            run_id: Some("run:instance-key".to_string()),
+            task_id: "task:instance-key".to_string(),
+            run_kind: crate::RunKind::Executor,
+            agent_id: crate::TASK_EXECUTOR_AGENT_ID.to_string(),
+            revision_index: 0,
+            attempt_index: 0,
+            parent_run_id: None,
+            triggering_submission_id: None,
+            triggering_review_id: None,
+            model,
+            execution_policy: crate::TaskExecutionPolicy::default(),
+            priority: 0,
+        })
+        .await
+        .expect_err("legacy storage must reject exact instance identity");
+
+    assert!(matches!(
+        error,
+        crate::StoreError::InvariantViolation { message }
+            if message.contains("cannot store an instance key")
+    ));
+    assert!(
+        store
+            .get_agent_run("run:instance-key")
+            .await
+            .expect("read rejected run")
+            .is_none()
     );
 }
 
@@ -1455,13 +1500,13 @@ async fn run_usage_and_progress_accumulate_across_provider_calls() {
         .await
         .expect("running");
     for usage in [
-        crate::TokenUsage {
+        noema_providers::TokenUsage {
             input_tokens: 100,
             output_tokens: 20,
             total_tokens: 120,
             cached_input_tokens: Some(40),
         },
-        crate::TokenUsage {
+        noema_providers::TokenUsage {
             input_tokens: 70,
             output_tokens: 10,
             total_tokens: 80,
@@ -1513,7 +1558,7 @@ pub(crate) async fn seed_task(
     store
         .update_provider_account_status(
             "provider_account:codex:default",
-            crate::ProviderAccountStatus::Authenticated,
+            noema_providers::ProviderAccountStatus::Authenticated,
             None,
             None,
         )
@@ -1601,9 +1646,9 @@ pub(crate) async fn insert_provider_account_for_tests(
     provider_kind: &str,
     account_key: &str,
     display_name: &str,
-    auth_method: crate::ProviderAuthMethod,
+    auth_method: noema_providers::ProviderAuthMethod,
     is_default: bool,
-    status: crate::ProviderAccountStatus,
+    status: noema_providers::ProviderAccountStatus,
     metadata: serde_json::Value,
 ) {
     let metadata_json = serde_json::to_string(&metadata).expect("serialize provider metadata");
@@ -1779,7 +1824,7 @@ async fn sqlite_agent_model_preference_round_trip() {
             provider_kind: "codex".to_string(),
             provider_account_id: "provider_account:codex:default".to_string(),
             model_profile: "gpt-5.5".to_string(),
-            reasoning_effort: Some(crate::provider::ReasoningEffort::Medium),
+            reasoning_effort: Some(noema_providers::ReasoningEffort::Medium),
         })
         .await
         .expect("save preference");
@@ -1792,7 +1837,7 @@ async fn sqlite_agent_model_preference_round_trip() {
     assert_eq!(preference.model_profile, "gpt-5.5");
     assert_eq!(
         preference.reasoning_effort,
-        Some(crate::provider::ReasoningEffort::Medium)
+        Some(noema_providers::ReasoningEffort::Medium)
     );
 }
 
@@ -1819,7 +1864,7 @@ async fn sqlite_memory_service_settings_round_trip_external() {
             provider_account_id: Some("provider_account:openai:default".to_string()),
             provider_kind: Some("openai".to_string()),
             model_profile: Some("gpt-5.1".to_string()),
-            reasoning_effort: Some(crate::provider::ReasoningEffort::Low),
+            reasoning_effort: Some(noema_providers::ReasoningEffort::Low),
         })
         .await
         .expect("save settings");
@@ -1829,7 +1874,7 @@ async fn sqlite_memory_service_settings_round_trip_external() {
     assert_eq!(settings.base_url.as_deref(), Some("http://127.0.0.1:7777"));
     assert_eq!(
         settings.reasoning_effort,
-        Some(crate::provider::ReasoningEffort::Low)
+        Some(noema_providers::ReasoningEffort::Low)
     );
 }
 

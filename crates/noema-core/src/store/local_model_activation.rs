@@ -2,7 +2,7 @@
 
 use rusqlite::{OptionalExtension, Transaction, params};
 
-use crate::local_models::{
+use noema_providers::{
     DefaultModelPreferenceRecord, LOCAL_MODELS_PROVIDER_ACCOUNT_ID, LocalModelEventKind,
     LocalModelInstallationStatus,
 };

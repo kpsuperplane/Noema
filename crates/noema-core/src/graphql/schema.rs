@@ -1359,9 +1359,9 @@ mod tests {
             "openai",
             "reasoning",
             "OpenAI reasoning",
-            crate::ProviderAuthMethod::SecretInput,
+            noema_providers::ProviderAuthMethod::SecretInput,
             true,
-            crate::ProviderAccountStatus::Authenticated,
+            noema_providers::ProviderAccountStatus::Authenticated,
             json!({}),
         )
         .await;
@@ -1872,7 +1872,7 @@ mod tests {
             assert_eq!(requests.len(), 1);
             assert_eq!(requests[0].model.as_deref(), None);
             match &requests[0].input {
-                crate::provider::GenerateInput::Text(prompt) => {
+                noema_providers::GenerateInput::Text(prompt) => {
                     assert!(prompt.contains("Kevin prefers local-first tools"));
                     assert!(prompt.contains("User-authored source observation"));
                     assert!(prompt.contains("do not turn a preference about another speaker"));
@@ -1956,7 +1956,7 @@ mod tests {
                 provider_account_id: Some("provider_account:codex:memory".to_string()),
                 provider_kind: Some("codex".to_string()),
                 model_profile: Some("memory-writer".to_string()),
-                reasoning_effort: Some(crate::provider::ReasoningEffort::High),
+                reasoning_effort: Some(noema_providers::ReasoningEffort::High),
             })
             .await
             .expect("settings");
@@ -1986,7 +1986,7 @@ mod tests {
         assert_eq!(requests[0].model.as_deref(), Some("memory-writer"));
         assert_eq!(
             requests[0].options.reasoning_effort,
-            Some(crate::provider::ReasoningEffort::High)
+            Some(noema_providers::ReasoningEffort::High)
         );
     }
 
@@ -2179,7 +2179,8 @@ mod tests {
 
     #[tokio::test]
     async fn provider_accounts_query_returns_safe_metadata() {
-        use crate::{ProviderAccountStatus, store::tests::test_store};
+        use crate::store::tests::test_store;
+        use noema_providers::ProviderAccountStatus;
 
         let store = test_store().await;
         let account = store
@@ -2734,7 +2735,7 @@ mod tests {
         store
             .update_provider_account_status(
                 &account.provider_account_id,
-                crate::ProviderAccountStatus::Authenticated,
+                noema_providers::ProviderAccountStatus::Authenticated,
                 None,
                 None,
             )
@@ -3010,7 +3011,8 @@ mod tests {
 
     #[tokio::test]
     async fn save_web_tool_provider_binding_mutation_returns_saved_binding() {
-        use crate::{ProviderAccountStatus, store::tests::test_store};
+        use crate::store::tests::test_store;
+        use noema_providers::ProviderAccountStatus;
 
         let store = test_store().await;
         crate::store::tests::insert_provider_account_for_tests(
@@ -3019,7 +3021,7 @@ mod tests {
             "exa",
             "research",
             "Exa research",
-            crate::ProviderAuthMethod::SecretInput,
+            noema_providers::ProviderAuthMethod::SecretInput,
             true,
             ProviderAccountStatus::Authenticated,
             json!({}),
@@ -3066,7 +3068,7 @@ mod tests {
         store
             .update_provider_account_status(
                 &codex.provider_account_id,
-                crate::ProviderAccountStatus::Authenticated,
+                noema_providers::ProviderAccountStatus::Authenticated,
                 None,
                 None,
             )
@@ -3267,7 +3269,7 @@ mod tests {
         store
             .update_provider_account_status(
                 &codex.provider_account_id,
-                crate::ProviderAccountStatus::Authenticated,
+                noema_providers::ProviderAccountStatus::Authenticated,
                 None,
                 None,
             )
@@ -3354,7 +3356,7 @@ mod tests {
         store
             .update_provider_account_status(
                 &foundation.provider_account_id,
-                crate::ProviderAccountStatus::Unavailable,
+                noema_providers::ProviderAccountStatus::Unavailable,
                 Some("unsupported_platform"),
                 Some("/Users/alice/.secret/token.txt failed with token abc123"),
             )
@@ -3404,7 +3406,7 @@ mod tests {
         store
             .update_provider_account_status(
                 &codex.provider_account_id,
-                crate::ProviderAccountStatus::Authenticated,
+                noema_providers::ProviderAccountStatus::Authenticated,
                 None,
                 None,
             )
@@ -3455,7 +3457,7 @@ mod tests {
         store
             .update_provider_account_status(
                 &foundation.provider_account_id,
-                crate::ProviderAccountStatus::Authenticated,
+                noema_providers::ProviderAccountStatus::Authenticated,
                 None,
                 None,
             )
@@ -3505,7 +3507,7 @@ mod tests {
         store
             .update_provider_account_status(
                 &foundation.provider_account_id,
-                crate::ProviderAccountStatus::Authenticated,
+                noema_providers::ProviderAccountStatus::Authenticated,
                 None,
                 None,
             )
@@ -4105,15 +4107,15 @@ mod tests {
                 request.conversation_id.as_deref() == Some(started.conversation_id.as_str())
                     && matches!(
                         &request.input,
-                        crate::provider::GenerateInput::Messages(messages)
+                        noema_providers::GenerateInput::Messages(messages)
                             if messages.len() == 4
                                 && messages[..3].iter().all(|message| {
-                                    message.role == crate::provider::GenerateMessageRole::Developer
+                                    message.role == noema_providers::GenerateMessageRole::Developer
                                         && message
                                             .content
                                             .starts_with("NOEMA_MODEL_CONTEXT_UPDATE")
                                 })
-                                && messages[3].role == crate::provider::GenerateMessageRole::User
+                                && messages[3].role == noema_providers::GenerateMessageRole::User
                                 && messages[3].content == "hello from durable chat"
                     )
             }),
@@ -4134,7 +4136,7 @@ mod tests {
         store
             .update_provider_account_status(
                 &foundation.provider_account_id,
-                crate::ProviderAccountStatus::Unavailable,
+                noema_providers::ProviderAccountStatus::Unavailable,
                 Some("bridge_missing"),
                 Some("/Users/alice/.secret/token.txt failed with token abc123"),
             )
@@ -4291,7 +4293,7 @@ mod tests {
         store
             .update_provider_account_status(
                 &foundation.provider_account_id,
-                crate::ProviderAccountStatus::Unavailable,
+                noema_providers::ProviderAccountStatus::Unavailable,
                 Some("unsupported_platform"),
                 Some("/Users/alice/.secret/token.txt failed with token abc123"),
             )
@@ -5243,23 +5245,23 @@ mod tests {
     struct AutofillTestProvider {
         text: String,
         tool_classification_model: Option<String>,
-        requests: Arc<Mutex<Vec<crate::provider::GenerateRequest>>>,
+        requests: Arc<Mutex<Vec<noema_providers::GenerateRequest>>>,
     }
 
-    impl crate::provider::ModelProvider for AutofillTestProvider {
+    impl noema_providers::ModelProvider for AutofillTestProvider {
         async fn generate(
             &self,
-            request: crate::provider::GenerateRequest,
-        ) -> Result<crate::provider::GenerateResponse, crate::provider::ProviderError> {
+            request: noema_providers::GenerateRequest,
+        ) -> Result<noema_providers::GenerateResponse, noema_providers::ProviderError> {
             self.requests.lock().expect("requests").push(request);
-            Ok(crate::provider::GenerateResponse {
-                responses: vec![crate::provider::GenerateResponseItem::Text {
+            Ok(noema_providers::GenerateResponse {
+                responses: vec![noema_providers::GenerateResponseItem::Text {
                     phase: None,
                     text: self.text.clone(),
                 }],
                 tool_calls: Vec::new(),
                 reasoning_items: Vec::new(),
-                response_status: crate::provider::GenerateResponseStatus::Final,
+                response_status: noema_providers::GenerateResponseStatus::Final,
                 provider: "test".to_string(),
                 model: "test-autofill".to_string(),
                 response_id: None,
@@ -5286,7 +5288,7 @@ mod tests {
         text: &str,
         tool_classification_model: Option<&str>,
     ) -> (
-        Arc<Mutex<Vec<crate::provider::GenerateRequest>>>,
+        Arc<Mutex<Vec<noema_providers::GenerateRequest>>>,
         crate::daemon::CodexRuntimeHandle,
     ) {
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -6045,7 +6047,7 @@ mod tests {
         store
             .update_provider_account_status(
                 "provider_account:codex:default",
-                crate::ProviderAccountStatus::Authenticated,
+                noema_providers::ProviderAccountStatus::Authenticated,
                 None,
                 None,
             )

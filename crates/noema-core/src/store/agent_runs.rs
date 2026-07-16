@@ -2,12 +2,10 @@
 
 #![allow(clippy::missing_errors_doc)]
 
+use noema_providers::{ProviderSelectionSnapshot, ReasoningEffort};
 use rusqlite::{OptionalExtension, params};
 
-use crate::{
-    ModelConfigSnapshot, RunKind, RunStatus, TaskExecutionPolicy, TaskStatus,
-    provider::ReasoningEffort,
-};
+use crate::{RunKind, RunStatus, TaskExecutionPolicy, TaskStatus};
 
 use super::{
     NoemaStore, StoreError,
@@ -38,7 +36,7 @@ pub struct NewAgentRun {
     /// Optional review this run follows.
     pub triggering_review_id: Option<String>,
     /// Immutable model request snapshot.
-    pub model: ModelConfigSnapshot,
+    pub model: ProviderSelectionSnapshot,
     /// Immutable execution-policy snapshot.
     pub execution_policy: TaskExecutionPolicy,
     /// Queue priority; larger values run first.
@@ -69,7 +67,7 @@ pub struct AgentRunRecord {
     /// Optional human guidance that resumed this run.
     pub resume_message: Option<String>,
     /// Requested model snapshot.
-    pub model: ModelConfigSnapshot,
+    pub model: ProviderSelectionSnapshot,
     /// Provider-reported actual model, when available.
     pub actual_provider_kind: Option<String>,
     /// Provider-reported actual profile, when available.
@@ -123,12 +121,11 @@ pub struct AgentRunRecord {
 impl NoemaStore {
     /// Queue a new background run.
     pub async fn create_agent_run(&self, input: NewAgentRun) -> Result<AgentRunRecord, StoreError> {
-        let model = input
-            .model
-            .normalized()
-            .map_err(|error| StoreError::InvariantViolation {
+        let model = input.model.normalized_for_persistence().map_err(|error| {
+            StoreError::InvariantViolation {
                 message: error.to_string(),
-            })?;
+            }
+        })?;
         let execution_policy =
             input
                 .execution_policy
@@ -341,7 +338,7 @@ impl NoemaStore {
         lease_token: &str,
         actual_provider_kind: &str,
         actual_model_profile: &str,
-        usage: Option<&crate::TokenUsage>,
+        usage: Option<&noema_providers::TokenUsage>,
     ) -> Result<(), StoreError> {
         let changed = self
             .with_connection(|conn| {
@@ -747,7 +744,7 @@ fn run_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRunRecord> {
         })?;
     let selection_mode = row
         .get::<_, String>(12)?
-        .parse::<crate::ModelSelectionMode>()
+        .parse::<noema_providers::ProviderSelectionMode>()
         .map_err(|error| {
             rusqlite::Error::FromSqlConversionFailure(
                 12,
@@ -792,7 +789,8 @@ fn run_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRunRecord> {
         triggering_submission_id: row.get(7)?,
         triggering_review_id: row.get(8)?,
         resume_message: row.get(9)?,
-        model: ModelConfigSnapshot {
+        model: ProviderSelectionSnapshot {
+            provider_instance_key: None,
             provider_kind: row.get(10)?,
             provider_account_id: row.get(11)?,
             selection_mode,

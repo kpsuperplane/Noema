@@ -1,14 +1,14 @@
 use super::*;
 use super::{protocol::TurnStreamEvent, runtime::CodexRuntimeHandle};
-use crate::provider::{
+use noema_conversations::{ActorRef, ConversationItemKind, ConversationItemStatus, ReplayMode};
+use noema_home::NoemaPaths;
+use noema_providers::{
     AssistantTextPhase, GenerateActionItem, GenerateInput, GenerateInputItem,
     GenerateReasoningItem, GenerateRequest, GenerateResponse, GenerateResponseItem,
     GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall, MultipleChoiceOption,
     MultipleChoiceSelectionMode, ProviderError, ProviderResponseContinuation,
     ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport,
 };
-use noema_conversations::{ActorRef, ConversationItemKind, ConversationItemStatus, ReplayMode};
-use noema_home::NoemaPaths;
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
@@ -793,7 +793,7 @@ async fn primary_agent_runtime_preference_supplies_reasoning_effort() {
             provider_kind: "codex".to_string(),
             provider_account_id: account.provider_account_id,
             model_profile: "gpt-5.5".to_string(),
-            reasoning_effort: Some(crate::provider::ReasoningEffort::High),
+            reasoning_effort: Some(noema_providers::ReasoningEffort::High),
         })
         .await
         .expect("preference");
@@ -823,7 +823,7 @@ async fn primary_agent_runtime_preference_supplies_reasoning_effort() {
         requests
             .last()
             .and_then(|request| request.options.reasoning_effort),
-        Some(crate::provider::ReasoningEffort::High)
+        Some(noema_providers::ReasoningEffort::High)
     );
 }
 
@@ -841,7 +841,7 @@ async fn primary_agent_codex_preference_sends_reasoning_effort_to_codex_provider
             provider_kind: "codex".to_string(),
             provider_account_id: account.provider_account_id,
             model_profile: "gpt-5.5".to_string(),
-            reasoning_effort: Some(crate::provider::ReasoningEffort::High),
+            reasoning_effort: Some(noema_providers::ReasoningEffort::High),
         })
         .await
         .expect("preference");
@@ -885,7 +885,7 @@ async fn primary_agent_codex_preference_sends_reasoning_effort_to_codex_provider
         codex_requests
             .last()
             .and_then(|request| request.options.reasoning_effort),
-        Some(crate::provider::ReasoningEffort::High)
+        Some(noema_providers::ReasoningEffort::High)
     );
 }
 
@@ -907,7 +907,7 @@ async fn primary_agent_openai_preference_sends_reasoning_effort_to_openai_provid
             provider_kind: "openai".to_string(),
             provider_account_id: provider_account_id.to_string(),
             model_profile: "gpt-5.5".to_string(),
-            reasoning_effort: Some(crate::provider::ReasoningEffort::Medium),
+            reasoning_effort: Some(noema_providers::ReasoningEffort::Medium),
         })
         .await
         .expect("preference");
@@ -951,7 +951,7 @@ async fn primary_agent_openai_preference_sends_reasoning_effort_to_openai_provid
         openai_requests
             .last()
             .and_then(|request| request.options.reasoning_effort),
-        Some(crate::provider::ReasoningEffort::Medium)
+        Some(noema_providers::ReasoningEffort::Medium)
     );
 }
 
@@ -1034,7 +1034,7 @@ async fn native_provider_turn_request_includes_builtin_tools() {
         .expect("agent request");
     assert_eq!(
         request.options.prompt_cache_retention,
-        Some(crate::PromptCacheRetention::TwentyFourHours)
+        Some(noema_providers::PromptCacheRetention::TwentyFourHours)
     );
     let tool_names = request
         .tools
@@ -1528,7 +1528,7 @@ async fn prompt_context_sends_prior_transcript_as_provider_messages() {
     };
     let context_updates = messages
         .iter()
-        .filter(|message| message.role == crate::provider::GenerateMessageRole::Developer)
+        .filter(|message| message.role == noema_providers::GenerateMessageRole::Developer)
         .collect::<Vec<_>>();
     assert_eq!(context_updates.len(), 3);
     assert!(
@@ -1538,22 +1538,22 @@ async fn prompt_context_sends_prior_transcript_as_provider_messages() {
     );
     let observed = messages
         .iter()
-        .filter(|message| message.role != crate::provider::GenerateMessageRole::Developer)
+        .filter(|message| message.role != noema_providers::GenerateMessageRole::Developer)
         .map(|message| (message.role, message.content.as_str()))
         .collect::<Vec<_>>();
     assert_eq!(
         observed,
         vec![
             (
-                crate::provider::GenerateMessageRole::User,
+                noema_providers::GenerateMessageRole::User,
                 "first durable question"
             ),
             (
-                crate::provider::GenerateMessageRole::Assistant,
+                noema_providers::GenerateMessageRole::Assistant,
                 "first durable answer"
             ),
             (
-                crate::provider::GenerateMessageRole::User,
+                noema_providers::GenerateMessageRole::User,
                 "second durable question"
             ),
         ]
@@ -1782,7 +1782,7 @@ async fn background_context_compaction_creates_checkpoint_after_large_turn() {
         assert!(agent_index < compaction_index);
         assert_eq!(
             requests[compaction_index].options.generation_priority,
-            crate::provider::GenerationPriority::Background
+            noema_providers::GenerationPriority::Background
         );
     }
     let active = store
@@ -3449,7 +3449,7 @@ async fn native_capable_provider_continuation_uses_native_tool_result_input() {
                 parallel_tool_calls: true,
                 tool_choice: true,
                 allowed_tools: false,
-                schema_dialect: crate::provider::ProviderToolSchemaDialect::OpenAiResponses,
+                schema_dialect: noema_providers::ProviderToolSchemaDialect::OpenAiResponses,
                 strict_schema: false,
                 custom_tools: false,
                 native_tool_results: true,
@@ -3537,7 +3537,7 @@ async fn allowed_tools_keep_native_catalog_stable_across_continuation() {
                 parallel_tool_calls: true,
                 tool_choice: true,
                 allowed_tools: true,
-                schema_dialect: crate::provider::ProviderToolSchemaDialect::OpenAiResponses,
+                schema_dialect: noema_providers::ProviderToolSchemaDialect::OpenAiResponses,
                 strict_schema: false,
                 custom_tools: false,
                 native_tool_results: true,
@@ -3584,7 +3584,7 @@ async fn allowed_tools_keep_native_catalog_stable_across_continuation() {
         .map(|tool| tool.name.clone())
         .collect::<Vec<_>>();
     assert_eq!(initial_catalog, continuation_catalog);
-    let crate::provider::NoemaToolChoice::Allowed(allowed) = &requests[1].tool_choice else {
+    let noema_providers::NoemaToolChoice::Allowed(allowed) = &requests[1].tool_choice else {
         panic!("expected an allowed-tools restriction");
     };
     assert!(
@@ -3610,7 +3610,7 @@ async fn rejected_response_chain_falls_back_to_complete_local_replay() {
                 parallel_tool_calls: true,
                 tool_choice: true,
                 allowed_tools: false,
-                schema_dialect: crate::provider::ProviderToolSchemaDialect::OpenAiResponses,
+                schema_dialect: noema_providers::ProviderToolSchemaDialect::OpenAiResponses,
                 strict_schema: false,
                 custom_tools: false,
                 native_tool_results: true,
@@ -3998,7 +3998,7 @@ async fn hard_ceiling_gets_one_no_tools_finalization_attempt() {
             provider_kind: "codex".to_string(),
             provider_account_id: codex.provider_account_id,
             model_profile: "gpt-5.5".to_string(),
-            reasoning_effort: Some(crate::provider::ReasoningEffort::High),
+            reasoning_effort: Some(noema_providers::ReasoningEffort::High),
         })
         .await
         .expect("runtime preference");
@@ -4028,7 +4028,7 @@ async fn hard_ceiling_gets_one_no_tools_finalization_attempt() {
     assert_eq!(finalization_requests.len(), 1);
     assert_eq!(
         finalization_requests[0].options.reasoning_effort,
-        Some(crate::provider::ReasoningEffort::High)
+        Some(noema_providers::ReasoningEffort::High)
     );
 }
 
@@ -4825,7 +4825,7 @@ async fn test_runtime_handle_with_task_delegation(
     store
         .update_provider_account_status(
             "provider_account:codex:default",
-            crate::ProviderAccountStatus::Authenticated,
+            noema_providers::ProviderAccountStatus::Authenticated,
             None,
             None,
         )
@@ -5571,7 +5571,7 @@ impl FakeCodexProvider {
                             json!({"arguments": {"query": "trains"}}),
                         ),
                         GenerateOutputItem::AssistantText {
-                            phase: Some(crate::provider::AssistantTextPhase::Commentary),
+                            phase: Some(noema_providers::AssistantTextPhase::Commentary),
                             text: "Checking memory.".to_string(),
                         },
                     ]
@@ -5819,7 +5819,7 @@ impl FakeCodexProvider {
                         "You are auditing whether a Noema tool-continuation loop is making progress.",
                     )
                 {
-                    return Err(crate::provider::ProviderError::ProtocolError {
+                    return Err(noema_providers::ProviderError::ProtocolError {
                         provider: "codex".to_string(),
                         message: "audit failed".to_string(),
                     });
@@ -5972,7 +5972,7 @@ fn current_user_input(input: &GenerateInput) -> String {
         GenerateInput::Messages(messages) => messages
             .iter()
             .rev()
-            .find(|message| message.role == crate::provider::GenerateMessageRole::User)
+            .find(|message| message.role == noema_providers::GenerateMessageRole::User)
             .map_or_else(
                 || input.render_for_token_count(),
                 |message| message.content.clone(),
@@ -5987,15 +5987,15 @@ fn current_user_input(input: &GenerateInput) -> String {
             .iter()
             .rev()
             .find_map(|item| match item {
-                crate::provider::GenerateInputItem::Message(message)
-                    if message.role == crate::provider::GenerateMessageRole::User =>
+                noema_providers::GenerateInputItem::Message(message)
+                    if message.role == noema_providers::GenerateMessageRole::User =>
                 {
                     Some(message.content.clone())
                 }
-                crate::provider::GenerateInputItem::Message(_)
-                | crate::provider::GenerateInputItem::Reasoning(_)
-                | crate::provider::GenerateInputItem::ToolCall(_)
-                | crate::provider::GenerateInputItem::ToolResult(_) => None,
+                noema_providers::GenerateInputItem::Message(_)
+                | noema_providers::GenerateInputItem::Reasoning(_)
+                | noema_providers::GenerateInputItem::ToolCall(_)
+                | noema_providers::GenerateInputItem::ToolResult(_) => None,
             })
             .unwrap_or_else(|| input.render_for_token_count()),
         GenerateInput::NativeToolResults(_) => input.render_for_token_count(),
@@ -6007,7 +6007,7 @@ fn has_tool_result_after_last_user(items: &[GenerateInputItem]) -> bool {
         matches!(
             item,
             GenerateInputItem::Message(message)
-                if message.role == crate::provider::GenerateMessageRole::User
+                if message.role == noema_providers::GenerateMessageRole::User
         )
     });
     items.iter().enumerate().any(|(index, item)| {
@@ -6028,14 +6028,14 @@ fn input_message_texts(input: &GenerateInput) -> Vec<String> {
         GenerateInput::Text(text) => vec![text.clone()],
         GenerateInput::Messages(messages) => messages
             .iter()
-            .filter(|message| message.role != crate::provider::GenerateMessageRole::Developer)
+            .filter(|message| message.role != noema_providers::GenerateMessageRole::Developer)
             .map(|message| message.content.clone())
             .collect(),
         GenerateInput::Items(items) => items
             .iter()
             .filter_map(|item| match item {
                 GenerateInputItem::Message(message)
-                    if message.role != crate::provider::GenerateMessageRole::Developer =>
+                    if message.role != noema_providers::GenerateMessageRole::Developer =>
                 {
                     Some(message.content.clone())
                 }
@@ -6065,7 +6065,7 @@ fn latest_model_context_section(input: &GenerateInput, section_id: &str) -> Opti
     };
     let mut latest = None;
     for message in messages {
-        if message.role != crate::provider::GenerateMessageRole::Developer {
+        if message.role != noema_providers::GenerateMessageRole::Developer {
             continue;
         }
         let Some(envelope) = message
@@ -6099,7 +6099,7 @@ fn model_context_section_update_count(input: &GenerateInput, section_id: &str) -
     };
     messages
         .into_iter()
-        .filter(|message| message.role == crate::provider::GenerateMessageRole::Developer)
+        .filter(|message| message.role == noema_providers::GenerateMessageRole::Developer)
         .filter_map(|message| {
             message
                 .content
@@ -6110,7 +6110,7 @@ fn model_context_section_update_count(input: &GenerateInput, section_id: &str) -
         .count()
 }
 
-fn input_tool_results(input: &GenerateInput) -> Vec<&crate::provider::GenerateToolResultInput> {
+fn input_tool_results(input: &GenerateInput) -> Vec<&noema_providers::GenerateToolResultInput> {
     match input {
         GenerateInput::Items(items) => items
             .iter()
@@ -6138,9 +6138,9 @@ async fn insert_authenticated_provider_account(
         provider_kind,
         account_key,
         &format!("{provider_kind} {account_key}"),
-        crate::ProviderAuthMethod::SecretInput,
+        noema_providers::ProviderAuthMethod::SecretInput,
         false,
-        crate::ProviderAccountStatus::Authenticated,
+        noema_providers::ProviderAccountStatus::Authenticated,
         json!({}),
     )
     .await;
@@ -6273,8 +6273,8 @@ impl super::runtime::RuntimeModelProvider for CapturingProvider {
 }
 
 impl super::runtime::RuntimeModelProvider for MetadataCapturingProvider {
-    fn context_metadata(&self, _model: Option<&str>) -> crate::ProviderContextMetadata {
-        crate::ProviderContextMetadata {
+    fn context_metadata(&self, _model: Option<&str>) -> noema_providers::ProviderContextMetadata {
+        noema_providers::ProviderContextMetadata {
             context_window_tokens: Some(self.context_window_tokens),
             default_output_reserve_tokens: Some(512),
             compact_summary_target_tokens: Some(512),
@@ -6385,7 +6385,7 @@ impl super::runtime::RuntimeModelProvider for BlockingTaskCompletionProvider {
     ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
         Box::pin(async move {
             let answer = if request.options.generation_priority
-                == crate::provider::GenerationPriority::Background
+                == noema_providers::GenerationPriority::Background
             {
                 if let Some(started) = self
                     .completion_started

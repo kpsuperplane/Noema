@@ -1,14 +1,13 @@
 use crate::{
-    ProviderAccountStatus,
     agent_execution::{ExecutionRole, ToolPolicy},
     capability::CapabilityGateway,
-    provider::DEFAULT_TOOL_CLASSIFICATION_MODEL,
     search::types::{DUCKDUCKGO_PUBLIC_PROVIDER_ID, SearchRuntimeProvider},
 };
 use noema_capabilities::{
     CapabilityDispatchFailure, CapabilityError, CapabilityFuture, CapabilityInvocation,
     CapabilityInvoker, CapabilityOutput, CapabilityRegistryRouter, CapabilityRouter, InvokerKey,
 };
+use noema_providers::{DEFAULT_TOOL_CLASSIFICATION_MODEL, ProviderAccountStatus};
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 
@@ -386,10 +385,10 @@ impl CodexRuntimeActor {
         } else if is_web_fetch_tool(&call.name) {
             let generation_priority = match turn.initial_model_tools.tool_policy.role() {
                 ExecutionRole::PrimaryConversation => {
-                    crate::provider::GenerationPriority::Foreground
+                    noema_providers::GenerationPriority::Foreground
                 }
                 ExecutionRole::TaskExecutor | ExecutionRole::TaskReviewer => {
-                    crate::provider::GenerationPriority::Background
+                    noema_providers::GenerationPriority::Background
                 }
             };
             let result = match self
@@ -442,7 +441,7 @@ impl CodexRuntimeActor {
 
     async fn web_fetch_runtime_context(
         &self,
-        generation_priority: crate::provider::GenerationPriority,
+        generation_priority: noema_providers::GenerationPriority,
     ) -> Result<FetchRuntimeContext, String> {
         if let Some(preference) = self
             .store
@@ -481,7 +480,7 @@ impl CodexRuntimeActor {
 
     async fn web_fetch_runtime_execution_context(
         &self,
-        generation_priority: crate::provider::GenerationPriority,
+        generation_priority: noema_providers::GenerationPriority,
     ) -> Result<
         (
             WebFetchRuntimeProvider,
@@ -754,7 +753,7 @@ mod tests {
     };
 
     use crate::{
-        NewAuxiliaryModelPreference, ProviderError, WEB_FETCH_SUMMARIZER_TASK_ID,
+        NewAuxiliaryModelPreference, WEB_FETCH_SUMMARIZER_TASK_ID,
         daemon::{
             agent_onboarding::AgentPromptIdentity,
             runtime::{
@@ -762,11 +761,11 @@ mod tests {
                 tool_lifecycle::LocalToolCall, turn::SuccessfulProviderTurn,
             },
         },
-        provider::{
-            DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateActionItem, GenerateInput, GenerateRequest,
-            GenerateResponse, GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent,
-            ProviderToolCapabilities,
-        },
+    };
+    use noema_providers::{
+        DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateActionItem, GenerateInput, GenerateRequest,
+        GenerateResponse, GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent,
+        ProviderError, ProviderToolCapabilities,
     };
     use serde_json::{Value, json};
 
@@ -923,7 +922,7 @@ mod tests {
             );
         }
         ModelTools {
-            transport: crate::provider::ProviderToolTransport::Native,
+            transport: noema_providers::ProviderToolTransport::Native,
             bindings: builder.build(),
             prompt_rows: Vec::new(),
             unavailable_rows: Vec::new(),
@@ -1055,9 +1054,9 @@ mod tests {
             "codex",
             "runtime-test",
             "codex runtime test",
-            crate::ProviderAuthMethod::SecretInput,
+            noema_providers::ProviderAuthMethod::SecretInput,
             false,
-            crate::ProviderAccountStatus::Authenticated,
+            noema_providers::ProviderAccountStatus::Authenticated,
             json!({}),
         )
         .await;
@@ -1068,7 +1067,7 @@ mod tests {
         provider_account_id: &str,
         provider_kind: &str,
         account_key: &str,
-        status: crate::ProviderAccountStatus,
+        status: noema_providers::ProviderAccountStatus,
     ) {
         crate::store::tests::insert_provider_account_for_tests(
             store,
@@ -1076,7 +1075,7 @@ mod tests {
             provider_kind,
             account_key,
             &format!("{provider_kind} {account_key}"),
-            crate::ProviderAuthMethod::SecretInput,
+            noema_providers::ProviderAuthMethod::SecretInput,
             false,
             status,
             json!({}),
@@ -1136,7 +1135,7 @@ mod tests {
         .expect("actor");
 
         let context = actor
-            .web_fetch_runtime_context(crate::provider::GenerationPriority::Foreground)
+            .web_fetch_runtime_context(noema_providers::GenerationPriority::Foreground)
             .await
             .expect("web fetch context");
 
@@ -1144,7 +1143,7 @@ mod tests {
         assert_eq!(context.summarizer_model, "custom-fetch-summary");
         assert_eq!(
             context.generation_priority,
-            crate::provider::GenerationPriority::Foreground
+            noema_providers::GenerationPriority::Foreground
         );
     }
 
@@ -1161,7 +1160,7 @@ mod tests {
                 provider_kind: "codex".to_string(),
                 provider_account_id: account.provider_account_id,
                 model_profile: "gpt-5.5".to_string(),
-                reasoning_effort: Some(crate::provider::ReasoningEffort::Low),
+                reasoning_effort: Some(noema_providers::ReasoningEffort::Low),
             })
             .await
             .expect("preference");
@@ -1179,17 +1178,17 @@ mod tests {
         .expect("actor");
 
         let context = actor
-            .web_fetch_runtime_context(crate::provider::GenerationPriority::Background)
+            .web_fetch_runtime_context(noema_providers::GenerationPriority::Background)
             .await
             .expect("web fetch context");
 
         assert_eq!(
             context.summarizer_reasoning_effort,
-            Some(crate::provider::ReasoningEffort::Low)
+            Some(noema_providers::ReasoningEffort::Low)
         );
         assert_eq!(
             context.generation_priority,
-            crate::provider::GenerationPriority::Background
+            noema_providers::GenerationPriority::Background
         );
     }
 
@@ -1224,7 +1223,7 @@ mod tests {
         .expect("actor");
 
         let message = actor
-            .web_fetch_runtime_context(crate::provider::GenerationPriority::Foreground)
+            .web_fetch_runtime_context(noema_providers::GenerationPriority::Foreground)
             .await
             .expect_err("missing provider should fail");
 
@@ -1254,7 +1253,7 @@ mod tests {
         .expect("actor");
 
         let context = actor
-            .web_fetch_runtime_context(crate::provider::GenerationPriority::Foreground)
+            .web_fetch_runtime_context(noema_providers::GenerationPriority::Foreground)
             .await
             .expect("web fetch context");
         let markdown = format!("{}\n", "Long page paragraph.".repeat(600));
@@ -1286,7 +1285,7 @@ mod tests {
             "provider_account:exa:acct_research",
             "exa",
             "acct_research",
-            crate::ProviderAccountStatus::Authenticated,
+            noema_providers::ProviderAccountStatus::Authenticated,
         )
         .await;
         insert_provider_capability_binding(
@@ -1336,7 +1335,7 @@ mod tests {
             "provider_account:exa:acct_research",
             "exa",
             "acct_research",
-            crate::ProviderAccountStatus::Authenticated,
+            noema_providers::ProviderAccountStatus::Authenticated,
         )
         .await;
         insert_provider_capability_binding(
@@ -1359,7 +1358,7 @@ mod tests {
         .expect("actor");
 
         let (provider, context, fallback_from, fallback_reason, auth_failure_account_id) = actor
-            .web_fetch_runtime_execution_context(crate::provider::GenerationPriority::Foreground)
+            .web_fetch_runtime_execution_context(noema_providers::GenerationPriority::Foreground)
             .await
             .expect("context");
 
@@ -1379,7 +1378,7 @@ mod tests {
         assert_eq!(context.summarizer_model, DEFAULT_TOOL_CLASSIFICATION_MODEL);
         assert_eq!(
             context.generation_priority,
-            crate::provider::GenerationPriority::Foreground
+            noema_providers::GenerationPriority::Foreground
         );
     }
 

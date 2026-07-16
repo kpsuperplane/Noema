@@ -24,13 +24,13 @@ pub enum GraphqlLocalModelBackend {
     Cpu,
 }
 
-impl From<crate::LocalModelBackend> for GraphqlLocalModelBackend {
-    fn from(value: crate::LocalModelBackend) -> Self {
+impl From<noema_providers::LocalModelBackend> for GraphqlLocalModelBackend {
+    fn from(value: noema_providers::LocalModelBackend) -> Self {
         match value {
-            crate::LocalModelBackend::Metal => Self::Metal,
-            crate::LocalModelBackend::Cuda => Self::Cuda,
-            crate::LocalModelBackend::Vulkan => Self::Vulkan,
-            crate::LocalModelBackend::Cpu => Self::Cpu,
+            noema_providers::LocalModelBackend::Metal => Self::Metal,
+            noema_providers::LocalModelBackend::Cuda => Self::Cuda,
+            noema_providers::LocalModelBackend::Vulkan => Self::Vulkan,
+            noema_providers::LocalModelBackend::Cpu => Self::Cpu,
         }
     }
 }
@@ -406,7 +406,7 @@ pub(super) async fn install_local_model(
         .queue_catalog_model(&model, &build, backend)
         .await
         .map_err(graphql_error)?;
-    if queued.status == crate::LocalModelInstallationStatus::Installed {
+    if queued.status == noema_providers::LocalModelInstallationStatus::Installed {
         return activate_local_model(state, queued.installation_id).await;
     }
 
@@ -449,7 +449,9 @@ pub(super) async fn import_local_model(
     let backend = crate::detect_local_hardware_profiles()
         .map_err(graphql_error)?
         .first()
-        .map_or(crate::LocalModelBackend::Cpu, |profile| profile.backend);
+        .map_or(noema_providers::LocalModelBackend::Cpu, |profile| {
+            profile.backend
+        });
     let installer = crate::LocalModelInstaller::new(state.store()?.clone(), state.paths()?.clone())
         .map_err(graphql_error)?;
     let cancellation = tokio_util::sync::CancellationToken::new();
@@ -716,7 +718,7 @@ pub(super) async fn local_model_events(
             };
             for event in events {
                 cursor = event.cursor;
-                let activated = event.kind == crate::local_models::LocalModelEventKind::Activated;
+                let activated = event.kind == noema_providers::LocalModelEventKind::Activated;
                 let installation = match store
                     .get_local_model_installation(&event.installation_id)
                     .await
@@ -763,11 +765,11 @@ mod tests {
     async fn setup_surfaces_recommended_installation_while_download_is_queued() {
         let store = crate::store::tests::test_store().await;
         store
-            .upsert_local_model_installation(crate::NewLocalModelInstallation {
+            .upsert_local_model_installation(noema_providers::NewLocalModelInstallation {
                 installation_id: "local_model_installation:catalog:gemma-4-e4b-it:test".to_string(),
                 model_id: "gemma-4-e4b-it".to_string(),
                 display_name: "Gemma 4 E4B IT".to_string(),
-                source_kind: crate::LocalModelSourceKind::Catalog,
+                source_kind: noema_providers::LocalModelSourceKind::Catalog,
                 source_repo: Some("ggml-org/gemma-4-E4B-it-GGUF".to_string()),
                 source_revision: Some("0".repeat(40)),
                 source_file: Some("gemma-4-E4B-it-Q4_K_M.gguf".to_string()),
@@ -775,7 +777,7 @@ mod tests {
                 download_gb: 5.3,
                 expected_bytes: Some(5_300_000_000),
                 license: Some("Apache-2.0".to_string()),
-                backend: crate::LocalModelBackend::Metal,
+                backend: noema_providers::LocalModelBackend::Metal,
             })
             .await
             .expect("queued installation");
@@ -797,11 +799,11 @@ mod tests {
         let store = crate::store::tests::test_store().await;
         let installation_id = "local_model_installation:catalog:ternary-bonsai-8b:test";
         let created = store
-            .upsert_local_model_installation(crate::NewLocalModelInstallation {
+            .upsert_local_model_installation(noema_providers::NewLocalModelInstallation {
                 installation_id: installation_id.to_string(),
                 model_id: "ternary-bonsai-8b".to_string(),
                 display_name: "Ternary Bonsai 8B".to_string(),
-                source_kind: crate::LocalModelSourceKind::Catalog,
+                source_kind: noema_providers::LocalModelSourceKind::Catalog,
                 source_repo: Some("vinpix/Bonsai-8B-llama.cpp".to_string()),
                 source_revision: Some("0".repeat(40)),
                 source_file: Some("Bonsai-8B-Q2_KT.gguf".to_string()),
@@ -809,25 +811,25 @@ mod tests {
                 download_gb: 3.0,
                 expected_bytes: Some(100),
                 license: Some("Apache-2.0".to_string()),
-                backend: crate::LocalModelBackend::Metal,
+                backend: noema_providers::LocalModelBackend::Metal,
             })
             .await
             .expect("queued installation");
         for status in [
-            crate::LocalModelInstallationStatus::Downloading,
-            crate::LocalModelInstallationStatus::Verifying,
-            crate::LocalModelInstallationStatus::Installed,
+            noema_providers::LocalModelInstallationStatus::Downloading,
+            noema_providers::LocalModelInstallationStatus::Verifying,
+            noema_providers::LocalModelInstallationStatus::Installed,
         ] {
             store
                 .update_local_model_installation(
                     &created.installation_id,
-                    crate::LocalModelInstallationUpdate {
+                    noema_providers::LocalModelInstallationUpdate {
                         status,
                         downloaded_bytes: 100,
                         expected_bytes: Some(100),
                         sha256: None,
                         blob_relative_path: (status
-                            == crate::LocalModelInstallationStatus::Installed)
+                            == noema_providers::LocalModelInstallationStatus::Installed)
                             .then(|| "models/blobs/test.gguf".to_string()),
                         error_code: None,
                         error_message: None,

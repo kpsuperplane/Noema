@@ -2,7 +2,7 @@
 
 use rusqlite::{OptionalExtension, params};
 
-use crate::provider::ReasoningEffort;
+use noema_providers::ReasoningEffort;
 
 use super::{NoemaStore, StoreError, sqlite};
 

@@ -5,7 +5,7 @@ use std::{
 
 use tokio::sync::oneshot;
 
-use crate::provider::GenerationPriority;
+use noema_providers::GenerationPriority;
 
 #[derive(Clone, Debug, Default)]
 pub(super) struct GenerationArbiter {

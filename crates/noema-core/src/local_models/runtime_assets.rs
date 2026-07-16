@@ -2,7 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
-use super::{LlamaServerCandidate, LocalModelBackend};
+use super::LlamaServerCandidate;
+use noema_providers::LocalModelBackend;
 
 /// Immutable upstream llama.cpp release bundled with this Noema runtime.
 pub const LLAMA_CPP_RELEASE_TAG: &str = "b10015";

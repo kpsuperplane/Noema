@@ -1,20 +1,8 @@
 use rusqlite::{OptionalExtension, params};
 
-use super::{NoemaStore, StoreError};
-use crate::ProviderAccountRecord;
+use noema_providers::{ProviderAccountRecord, ProviderCapabilityAssignment};
 
-/// Persisted binding from a model-visible tool to a concrete provider capability/account.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProviderCapabilityBindingRecord {
-    /// Stable binding id derived from tool and capability.
-    pub binding_id: String,
-    /// Model-visible tool name.
-    pub tool_name: String,
-    /// Bound provider capability id.
-    pub capability_id: String,
-    /// Provider account selected for this binding.
-    pub provider_account_id: String,
-}
+use super::{NoemaStore, StoreError};
 
 impl NoemaStore {
     /// Create or update one provider capability binding.
@@ -27,7 +15,7 @@ impl NoemaStore {
         tool_name: &str,
         capability_id: &str,
         provider_account_id: &str,
-    ) -> Result<ProviderCapabilityBindingRecord, StoreError> {
+    ) -> Result<ProviderCapabilityAssignment, StoreError> {
         let account = self
             .validate_provider_capability_binding(tool_name, capability_id, provider_account_id)
             .await?;
@@ -70,7 +58,7 @@ impl NoemaStore {
         &self,
         tool_name: &str,
         capability_id: &str,
-    ) -> Result<Option<ProviderCapabilityBindingRecord>, StoreError> {
+    ) -> Result<Option<ProviderCapabilityAssignment>, StoreError> {
         self.with_connection(|conn| {
             conn.query_row(
                 r#"
@@ -123,9 +111,9 @@ impl NoemaStore {
 
 fn provider_capability_binding_from_row(
     row: &rusqlite::Row<'_>,
-) -> rusqlite::Result<ProviderCapabilityBindingRecord> {
-    Ok(ProviderCapabilityBindingRecord {
-        binding_id: row.get(0)?,
+) -> rusqlite::Result<ProviderCapabilityAssignment> {
+    Ok(ProviderCapabilityAssignment {
+        assignment_id: row.get(0)?,
         tool_name: row.get(1)?,
         capability_id: row.get(2)?,
         provider_account_id: row.get(3)?,

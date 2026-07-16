@@ -1,4 +1,4 @@
-use crate::local_models::{
+use noema_providers::{
     LocalModelBackend, LocalModelEventKind, LocalModelInstallationStatus,
     LocalModelInstallationUpdate, LocalModelSourceKind, NewLocalModelInstallation,
 };
@@ -22,7 +22,7 @@ fn installation() -> NewLocalModelInstallation {
 
 async fn mark_installed(
     store: &crate::NoemaStore,
-    installation: &crate::LocalModelInstallationRecord,
+    installation: &noema_providers::LocalModelInstallationRecord,
 ) {
     for status in [
         LocalModelInstallationStatus::Downloading,

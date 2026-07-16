@@ -3,13 +3,10 @@ use noema_conversations::{
     NewConversationContextSummary,
 };
 
-use crate::{
-    NoemaStore,
-    daemon::protocol::DaemonError,
-    provider::{
-        GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseItem,
-        GenerateStreamEvent, GenerationPriority, ProviderError,
-    },
+use crate::{NoemaStore, daemon::protocol::DaemonError};
+use noema_providers::{
+    GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseItem,
+    GenerateStreamEvent, GenerationPriority, ProviderError,
 };
 
 use super::{
@@ -35,7 +32,7 @@ pub(super) struct CompactionRequest<'a> {
     pub(super) conversation_id: &'a str,
     pub(super) provider_kind: &'a str,
     pub(super) model_profile: Option<&'a str>,
-    pub(super) reasoning_effort: Option<crate::provider::ReasoningEffort>,
+    pub(super) reasoning_effort: Option<noema_providers::ReasoningEffort>,
     pub(super) budget: ContextBudget,
     pub(super) mode: CompactionMode,
 }
@@ -279,7 +276,7 @@ async fn generate_compaction_summary(
     instructions: String,
     input: String,
     target_tokens: u32,
-    reasoning_effort: Option<crate::provider::ReasoningEffort>,
+    reasoning_effort: Option<noema_providers::ReasoningEffort>,
     mode: CompactionMode,
 ) -> Result<GenerateResponse, ProviderError> {
     let mut ignore_event = |_: GenerateStreamEvent| {};
@@ -391,23 +388,23 @@ fn render_compaction_transcript(items: &[ConversationItemRecord]) -> String {
         .filter_map(|item| {
             let input_item = input_item_from_transcript_item(item)?;
             let (role, text) = match input_item {
-                crate::provider::GenerateInputItem::Message(message) => {
+                noema_providers::GenerateInputItem::Message(message) => {
                     let role = match message.role {
-                        crate::GenerateMessageRole::System => "System",
-                        crate::GenerateMessageRole::Developer => return None,
-                        crate::GenerateMessageRole::User => "User",
-                        crate::GenerateMessageRole::Assistant => "Noema",
+                        noema_providers::GenerateMessageRole::System => "System",
+                        noema_providers::GenerateMessageRole::Developer => return None,
+                        noema_providers::GenerateMessageRole::User => "User",
+                        noema_providers::GenerateMessageRole::Assistant => "Noema",
                     };
                     (role, message.content)
                 }
-                crate::provider::GenerateInputItem::Reasoning(_) => return None,
-                crate::provider::GenerateInputItem::ToolCall(call) => (
+                noema_providers::GenerateInputItem::Reasoning(_) => return None,
+                noema_providers::GenerateInputItem::ToolCall(call) => (
                     "Noema tool call",
-                    crate::provider::GenerateInputItem::ToolCall(call).render_for_token_count(),
+                    noema_providers::GenerateInputItem::ToolCall(call).render_for_token_count(),
                 ),
-                crate::provider::GenerateInputItem::ToolResult(result) => (
+                noema_providers::GenerateInputItem::ToolResult(result) => (
                     "Noema tool result",
-                    crate::provider::GenerateInputItem::ToolResult(result).render_for_token_count(),
+                    noema_providers::GenerateInputItem::ToolResult(result).render_for_token_count(),
                 ),
             };
             Some(format!("[{}] {role}: {text}", item.sequence_index))
@@ -579,7 +576,7 @@ mod tests {
 
     #[test]
     fn background_threshold_uses_context_budget() {
-        let budget = ContextBudget::from_metadata(crate::ProviderContextMetadata {
+        let budget = ContextBudget::from_metadata(noema_providers::ProviderContextMetadata {
             context_window_tokens: Some(1_000),
             default_output_reserve_tokens: Some(100),
             compact_summary_target_tokens: Some(100),
@@ -591,7 +588,7 @@ mod tests {
                 rendered_context: None,
             },
             instructions: String::new(),
-            input: crate::GenerateInput::Text(String::new()),
+            input: noema_providers::GenerateInput::Text(String::new()),
             estimated_input_tokens: 611,
             budget,
             fits: true,

@@ -56,8 +56,6 @@ pub use memory_service::{
     MemoryArticleCacheRecord, MemoryServiceMode, MemoryServiceSettingsRecord,
     SaveMemoryArticleCache, SaveMemoryServiceSettings,
 };
-pub use provider_accounts::{NewProviderAccount, ProviderAccountCatalogEntry};
-pub use provider_capability_bindings::ProviderCapabilityBindingRecord;
 pub use run_items::{AgentRunItemRecord, AgentRunItemStatus, NewAgentRunItem};
 pub use runtime::{NoemaStore, StoreConfig};
 pub use task_events::TaskEventRecord;
