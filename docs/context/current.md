@@ -915,8 +915,22 @@ The next storage slice should stay small and concrete:
   provider feature slices, Swift bridge compilation, crate/dependency policies,
   preservation baselines, the Rust test inventory, the complete Rust workspace,
   frontend tests/lint/web and desktop builds, the release server build, and the
-  Mnemosyne sidecar unit suite. Decomposition Phase 6 is next: extract the task
-  domain and persistence ports without moving execution loops out of core yet.
+  Mnemosyne sidecar unit suite. Decomposition Phase 6 completed at `9b925d597`.
+  `noema-tasks` now owns task/run state, wire vocabularies, execution policy,
+  criteria, immutable submissions and reviews, transcript records, events,
+  model-pool policy, and pure submission/review/continuation/recovery planners.
+  Core store code retains every SQLite transaction, lease fence, row adapter,
+  event sequence, idempotency fence, delivery projection, and provider
+  validation; runtime retains the single executor/reviewer model-and-tool loop.
+  Submission and review retries compare the complete normalized payload inside
+  the committing transaction, including concurrent callers, while divergent
+  replays fail closed. Failed tasks resume only through a planner that creates
+  valid child-run lineage, and leased runs reject tokenless transitions. Three
+  adversarial reviewers' findings are resolved, core exports no task forwarding
+  facade, and the crate/dependency/preservation/inventory, rustdoc, complete
+  workspace, frontend, release-server, and model-eval unit gates are green.
+  Decomposition Phase 7 is next: extract MCP as the transport-bearing child of
+  `noema-capabilities` while keeping SQLite behind an injected repository port.
 
 - The bounded remediation program completed Phase 2 at `92,157` maintained
   source lines (`-1,767` from its baseline). Axum/tower-sessions now own the

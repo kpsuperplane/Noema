@@ -1385,42 +1385,44 @@ runtime for foreground and background work.
 
 **Steps:**
 
-- [ ] Move task status and transition validation, complexity, execution policy,
+- [x] Move task status and transition validation, complexity, execution policy,
   run kind/status, run-item vocabulary, submissions, reviews, criteria,
   continuation lineage, task events, controls, and model-pool records.
-- [ ] Add a closed `AgentRunItemKind` matching the SQLite vocabulary. Keep task
+- [x] Add a closed `AgentRunItemKind` matching the SQLite vocabulary. Keep task
   event kinds as validated nonempty extension strings because the durable stream
   intentionally mixes task and run event families.
-- [ ] Keep every repository method, leasing/event-sequence SQL, row adapter,
+- [x] Keep every repository method, leasing/event-sequence SQL, row adapter,
   transition transaction, idempotency fence, delivery projection, provider
   validation, and recovery transaction in store modules. Do not introduce a
   broad task persistence port in this phase: the current workflows are
   multi-table atomic commands, and a CRUD-shaped trait would weaken that
   boundary. If a later consumer needs a port, it must expose coarse atomic
   boxed-future operations with task-owned errors.
-- [ ] Keep executor/reviewer prompts, provider loops, progress auditing, tool
+- [x] Keep executor/reviewer prompts, provider loops, progress auditing, tool
   dispatch, and delivery execution in runtime.
-- [ ] Depend on `noema-providers` for model/reasoning snapshots rather than
+- [x] Depend on `noema-providers` for model/reasoning snapshots rather than
   duplicating provider enums. The mapping from `TaskComplexity` to a default
   model tier remains task policy and consumes provider-owned kinds/constants;
   providers must never depend back on tasks.
-- [ ] Depend on `noema-artifacts` only for artifact references that are actual
+- [x] Depend on `noema-artifacts` only for artifact references that are actual
   task-domain semantics.
-- [ ] Do not add a conversations dependency merely for `TaskSource` string IDs.
+- [x] Do not add a conversations dependency merely for `TaskSource` string IDs.
   Conversation delivery and transcript-item creation remain runtime behavior;
   add the edge only if a concrete conversation-domain type is introduced.
-- [ ] Extract pure normalization and operation-specific planners for submission,
+- [x] Extract pure normalization and operation-specific planners for submission,
   review, manual continuation, and automatic recovery. Store rechecks and
   applies each plan inside its existing transaction. `TaskStatus::can_transition_to`
   is not universal authority: reviewer continuation permits
   `waiting_for_human -> reviewing`, recovery may plan `reviewing -> reviewing`,
-  and `failed` is delivery-terminal but deliberately resumable to queued or
-  reviewing. Completed and cancelled remain permanently closed.
-- [ ] Move pure state/planner/validation tests to `noema-tasks`; retain lease,
+  and `failed` is delivery-terminal but deliberately resumable through the
+  continuation planner. Ordinary transitions cannot reopen a failed task
+  without creating the required child run. Completed and cancelled remain
+  permanently closed.
+- [x] Move pure state/planner/validation tests to `noema-tasks`; retain lease,
   cancellation, recovery, submission/review, event cursor/outbox, model-pool,
   and durable lifecycle transaction tests with store.
-- [ ] Update runtime and GraphQL imports directly.
-- [ ] Split the current task monolith into state, policy, run, transcript,
+- [x] Update runtime and GraphQL imports directly.
+- [x] Split the current task monolith into state, policy, run, transcript,
   criteria, submission, review, event, model-pool/defaults, lineage, and error
   modules. Store's transactional `tasks.rs` split remains Phase 9 work rather
   than moving SQL prematurely.
@@ -1437,6 +1439,13 @@ runtime for foreground and background work.
   forwarding export remains, and no duplicate provider selection snapshot
   exists.
 - No second model/tool execution loop appears in tasks.
+
+Completed at `9b925d597`. The adversarial review tightened the original
+boundary in four places: leased runs reject tokenless state mutation, failed
+tasks can resume only through a lineage-producing planner, review verdicts
+must match their exact criterion-outcome matrix, and concurrent
+submission/review retries are accepted only when their complete normalized
+payload matches the committed record.
 
 **Suggested commit:** `refactor(tasks): extract task domain crate`
 
