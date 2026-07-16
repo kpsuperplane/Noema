@@ -1105,11 +1105,21 @@ tasks, memory, store, and runtime depend on it.
   `noema-capabilities`.
 - [ ] Move provider account status/auth/read models out of store code while
   leaving persistence SQL in place.
+- [ ] Rename the durable store concept currently called
+  `ProviderCapabilityBindingRecord` to `ProviderCapabilityAssignment` (or an
+  equally explicit provider-account assignment name). It is configuration
+  which selects capabilities for a provider account, not the Phase-4
+  non-serializable `CapabilityBinding` that carries execution authority.
 - [ ] Define provider-owned persistence ports for accounts, capability
   bindings, model profiles, and local-model installation/activation state.
   Keep every SQL implementation in the store. Every port used behind `dyn`
   uses the repository's boxed-future convention, has a clonable `Arc<dyn ...>`
-  handle, and returns provider-owned errors rather than `StoreError`.
+  handle, and returns a provider-persistence error rather than either
+  `StoreError` or the model-call `ProviderError`.
+- [ ] Make model-catalog refresh one coarse atomic port operation which stores
+  the refreshed profiles/metadata and resulting account status together. The
+  current two-write sequence must not permit a new catalog with a stale status
+  (or the reverse) after a failure.
 - [ ] Promote the local-model status/backend/source/event storage codecs and
   transition checks needed by store row adapters to deliberate public
   `Display`/`FromStr`/transition APIs; store must not reach into `pub(crate)`
@@ -1199,8 +1209,10 @@ deferred to Phase 10C.
   and clonable handle. Behind `adapters`, expose the root-bound
   `ProviderAccountService` implementation that owns provider account homes,
   secret deletion, authentication files, catalog refresh/cache, and provider
-  diagnostics through the provider ports. GraphQL later receives only the
-  handle, never `NoemaPaths`, `SystemErrorLogger`, or the concrete service.
+  diagnostics through the provider ports. Replace current core GraphQL's
+  account/auth filesystem and multi-write orchestration with this handle in
+  Phase 5C, even though the GraphQL source moves in Phase 13; GraphQL receives
+  no `NoemaPaths`, `SystemErrorLogger`, or concrete provider service.
 - [ ] Move diagnostic categories with providers and use the logger from
   `noema-home`.
 - [ ] Move OpenAI, Codex, Responses-dialect, Foundation Local, and secret-input
@@ -1227,6 +1239,10 @@ deferred to Phase 10C.
 - [ ] Move provider tests without copying shared fakes back into core. Rewrite
   model-catalog tests that currently instantiate `NoemaStore` against a fake
   provider persistence port, while retaining separate store adapter tests.
+  Replace dependency-local `#[cfg(test)]` static search/fetch enum variants
+  with always-compiled object-safe backend handles or Phase-4 capability
+  invoker fakes; test-only variants in a dependency are not available to core's
+  tests, and a product `test-support` feature is not an acceptable workaround.
 - [ ] Update current config, store, runtime, and API modules to import provider
   types directly.
 - [ ] Move `apple-foundation-bridge/` and update the `noema_dev` Swift watcher,
@@ -1249,8 +1265,12 @@ deferred to Phase 10C.
 - `noema-providers` does not depend on store, runtime, host, API, server, or
   desktop.
 - `cargo test -p noema-providers --features adapters --no-fail-fast`
-  exercises the concrete adapters; the contract-only default build also
-  compiles independently.
+  exercises the concrete adapters;
+  `cargo test -p noema-providers --no-default-features`,
+  `cargo check -p noema-providers --no-default-features --features adapters
+  --all-targets`, and `cargo check -p noema-providers --no-default-features
+  --features local-models --all-targets` prove the contract and feature slices
+  compile independently.
 - Provider persistence ports are narrow enough for `NoemaStore` to implement
   without exposing a raw SQLite connection.
 - `RuntimeModelProvider` is deleted; provider registry, runtime, memory proxy,
@@ -1272,7 +1292,13 @@ deferred to Phase 10C.
 - Store local-model row adapters can compile against provider-owned semantic
   types before the local-model implementation moves in Phase 10.
 - OpenAI/Codex request shapes, structured response parsing, tool lowering,
-  streaming behavior, and catalog tests remain green.
+  streaming behavior, and catalog tests remain green. Exact Phase-4
+  `ToolSpec`-to-OpenAI/Codex lowering snapshots remain byte-equivalent, and an
+  unknown provider-safe returned name is rejected instead of falling back to
+  provider-returned authority.
+- Provider-account service tests cover secret permissions and compensation when
+  filesystem and durable-account updates fail on opposite sides of the
+  cross-resource operation.
 - Foundation Local still compiles on non-macOS targets without requiring Swift.
 - The contract-only provider graph contains no `reqwest`; `local-models` does
   not enable hosted `adapters`, and each feature combination compiles in the
