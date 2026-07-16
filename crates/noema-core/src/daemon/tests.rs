@@ -331,6 +331,121 @@ async fn task_supervisor_starts_distinct_tasks_concurrently() {
 }
 
 #[tokio::test]
+async fn background_task_pins_local_provider_generation_across_replacement() {
+    let store = crate::store::tests::test_store().await;
+    let (task, run) = crate::store::tests::seed_task(&store, "Pinned provider generation").await;
+    let lease_token = "lease:provider-generation";
+    let claimed = store
+        .claim_next_agent_run("worker:provider-generation", lease_token, 120)
+        .await
+        .expect("claim run")
+        .expect("leased run");
+    assert_eq!(claimed.run_id, run.run_id);
+    store
+        .transition_agent_run(
+            &run.run_id,
+            crate::RunStatus::Running,
+            Some(lease_token),
+            None,
+        )
+        .await
+        .expect("running run");
+
+    let (started_tx, started_rx) = oneshot::channel();
+    let (release_tx, release_rx) = oneshot::channel();
+    let old_provider = Arc::new(BlockingBackgroundGenerationProvider {
+        started: Mutex::new(Some(started_tx)),
+        release: Mutex::new(Some(release_rx)),
+        requests: Mutex::new(Vec::new()),
+    });
+    let replacement = Arc::new(CapturingProvider::default());
+    let routes = super::LegacyProviderRoutes::new([(
+        "local_models",
+        old_provider.clone() as noema_providers::ProviderHandle,
+    )])
+    .expect("provider routes");
+    let runtime = CodexRuntimeHandle::spawn_with_provider_routes_and_memory(
+        "local_models".to_string(),
+        routes.clone(),
+        store.clone(),
+        crate::test_support::artifact_operations(&store).expect("artifact operations"),
+        store.system_error_logger(),
+        None,
+        crate::graphql::ConversationSubscriptionRegistry::default(),
+    )
+    .await
+    .expect("runtime");
+    let generation_runtime = runtime.clone();
+    let generation = tokio::spawn(async move {
+        generation_runtime
+            .generate_background_task(super::runtime::BackgroundTaskGenerateRequest {
+                run_id: run.run_id.clone(),
+                task_id: task.task_id.clone(),
+                lease_token: lease_token.to_string(),
+                cancellation: tokio_util::sync::CancellationToken::new(),
+                agent_id: run.agent_id.clone(),
+                role: crate::agent_execution::ExecutionRole::TaskExecutor,
+                provider_selection: noema_providers::ProviderSelectionSnapshot::explicit(
+                    "local_models",
+                    "provider_account:local_models:default",
+                    "old-model",
+                    None,
+                    Some("provider_generation_test".to_string()),
+                ),
+                execution_policy: run.execution_policy,
+                input: task.request_markdown.clone(),
+                instructions: "Complete the task and submit the result.".to_string(),
+                task_subscriptions: crate::graphql::ConversationSubscriptionRegistry::default(),
+            })
+            .await
+    });
+
+    started_rx.await.expect("old provider started");
+    let publication = routes.begin_publication().await;
+    publication
+        .register(
+            "local_models",
+            replacement.clone() as noema_providers::ProviderHandle,
+        )
+        .expect("publish replacement");
+    drop(publication);
+    release_tx.send(()).expect("release old provider");
+
+    let response = generation
+        .await
+        .expect("background generation task")
+        .expect("background generation");
+    let updated_run = store
+        .get_agent_run(&claimed.run_id)
+        .await
+        .expect("load run")
+        .expect("run");
+    runtime.shutdown().await;
+
+    assert_eq!(response.provider, "old-local");
+    assert_eq!(response.model, "old-model");
+    assert_eq!(response.tool_calls.len(), 1);
+    assert_eq!(response.tool_calls[0].name, "task.submit_result");
+    assert_eq!(old_provider.requests.lock().expect("old requests").len(), 2);
+    assert!(
+        replacement
+            .requests
+            .lock()
+            .expect("replacement requests")
+            .is_empty()
+    );
+    assert_eq!(updated_run.provider_call_count, 2);
+    assert_eq!(
+        updated_run.actual_provider_kind.as_deref(),
+        Some("old-local")
+    );
+    assert_eq!(
+        updated_run.actual_model_profile.as_deref(),
+        Some("old-model")
+    );
+}
+
+#[tokio::test]
 async fn runtime_shutdown_cancels_and_drains_generate_once() {
     assert_shutdown_cancels_blocked_operation(false).await;
 }
@@ -5327,6 +5442,13 @@ struct ConcurrentTaskProvider {
     started: mpsc::UnboundedSender<String>,
 }
 
+#[derive(Debug)]
+struct BlockingBackgroundGenerationProvider {
+    started: Mutex<Option<oneshot::Sender<()>>>,
+    release: Mutex<Option<oneshot::Receiver<()>>>,
+    requests: Mutex<Vec<GenerateRequest>>,
+}
+
 #[derive(Debug, Clone, Copy)]
 enum FakeCodexScenario {
     Simple,
@@ -6441,6 +6563,68 @@ impl noema_providers::ProviderOperations for ConcurrentTaskProvider {
                 .unwrap_or_else(|| "unknown".to_string());
             let _ = self.started.send(run_id);
             std::future::pending::<Result<GenerateResponse, ProviderError>>().await
+        })
+    }
+}
+
+impl noema_providers::ProviderOperations for BlockingBackgroundGenerationProvider {
+    fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
+        ProviderToolCapabilities {
+            tool_transport: ProviderToolTransport::NoemaEnvelope,
+            ..ProviderToolCapabilities::default()
+        }
+    }
+
+    fn generate_streaming<'a>(
+        &'a self,
+        request: GenerateRequest,
+        _on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
+        Box::pin(async move {
+            let call_index = {
+                let mut requests = self.requests.lock().expect("requests");
+                requests.push(request.clone());
+                requests.len()
+            };
+            match call_index {
+                1 => {
+                    self.started
+                        .lock()
+                        .expect("started")
+                        .take()
+                        .expect("first call")
+                        .send(())
+                        .expect("signal first call");
+                    let release = self
+                        .release
+                        .lock()
+                        .expect("release")
+                        .take()
+                        .expect("first release");
+                    release.await.expect("release old generation");
+                    Ok(fake_generate_response(
+                        assistant_with_no_memories("working"),
+                        "old-local",
+                        request.model.unwrap_or_else(|| "old-model".to_string()),
+                    ))
+                }
+                2 => Ok(fake_generate_response(
+                    vec![GenerateOutputItem::ToolCall {
+                        id: Some("call_submit_result".to_string()),
+                        provider_call_id: None,
+                        provider_name: None,
+                        name: "task.submit_result".to_string(),
+                        payload: json!({
+                            "summary": "old generation result",
+                            "result_markdown": "done",
+                            "criteria": [],
+                        }),
+                    }],
+                    "old-local",
+                    request.model.unwrap_or_else(|| "old-model".to_string()),
+                )),
+                _ => panic!("unexpected provider call {call_index}"),
+            }
         })
     }
 }

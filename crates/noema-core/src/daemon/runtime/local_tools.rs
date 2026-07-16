@@ -449,29 +449,47 @@ impl CodexRuntimeActor {
             .await
             .map_err(|_| "web.fetch summarizer preference could not be read".to_string())?
         {
-            let summarizer_provider =
-                self.provider_for_kind(&preference.provider_kind)
-                    .map_err(|_| {
-                        format!(
-                            "web.fetch summarizer provider '{}' is not available in this daemon",
-                            preference.provider_kind
-                        )
-                    })?;
+            let summarizer_route = Arc::new(
+                self.resolve_provider_route(noema_providers::ProviderSelectionSnapshot::explicit(
+                    preference.provider_kind.clone(),
+                    preference.provider_account_id,
+                    preference.model_profile.clone(),
+                    preference.reasoning_effort,
+                    Some("web_fetch_summarizer_preference".to_string()),
+                ))
+                .await
+                .map_err(|_| {
+                    format!(
+                        "web.fetch summarizer provider '{}' is not available in this daemon",
+                        preference.provider_kind
+                    )
+                })?,
+            );
             return Ok(FetchRuntimeContext {
                 summarizer_provider_kind: preference.provider_kind,
-                summarizer_provider,
+                summarizer_route,
                 summarizer_model: preference.model_profile,
                 summarizer_reasoning_effort: preference.reasoning_effort,
                 generation_priority,
             });
         }
 
-        let summarizer_provider = self.default_provider().map_err(|_| {
-            "web.fetch summarizer provider is not available in this daemon".to_string()
-        })?;
+        let summarizer_route = Arc::new(
+            self.resolve_provider_route(noema_providers::ProviderSelectionSnapshot::explicit(
+                self.default_provider_kind.clone(),
+                format!("provider_account:{}:default", self.default_provider_kind),
+                DEFAULT_TOOL_CLASSIFICATION_MODEL,
+                None,
+                Some("web_fetch_summarizer_default".to_string()),
+            ))
+            .await
+            .map_err(|_| {
+                "web.fetch summarizer provider is not available in this daemon".to_string()
+            })?,
+        );
         Ok(FetchRuntimeContext {
             summarizer_provider_kind: self.default_provider_kind.clone(),
-            summarizer_provider,
+            summarizer_route,
             summarizer_model: DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string(),
             summarizer_reasoning_effort: None,
             generation_priority,
@@ -863,6 +881,16 @@ mod tests {
             provider_kind: "codex".to_string(),
             model: Some("gpt-test".to_string()),
             reasoning_effort: None,
+            provider_route: crate::test_support::provider_route(
+                noema_providers::ProviderSelectionSnapshot::explicit(
+                    "codex",
+                    "provider_account:codex:test",
+                    "gpt-test",
+                    None,
+                    Some("test".to_string()),
+                ),
+                Arc::new(LocalToolTestProvider::new(Some("codex-tool-default"))),
+            ),
             initial_stream_id: "stream:test".to_string(),
             response: GenerateResponse {
                 responses: Vec::new(),

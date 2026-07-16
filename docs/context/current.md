@@ -839,11 +839,26 @@ The next storage slice should stay small and concrete:
   outages. Runtime, GraphQL, provider auth, and web-tool consumers use the new
   ports. Three adversarial reviewers found no remaining blocking issue, and the
   full workspace, dependency, inventory, boundary, and preservation-baseline
-  gates are green. Checkpoint 5B is next: establish provider-owned erased call
-  handles, the generation-safe registry and leases, the bound route resolver,
-  and a temporary core legacy route adapter without claiming durable local
-  identity. The `local-models` provider feature remains transitional shared
-  response support until the concrete implementation moves.
+  gates are green. Checkpoint 5B is complete. `noema-providers` owns the
+  object-safe provider call surface, erased handle, generation-safe registry,
+  retirement leases, strict selection resolver, and typed route failures.
+  Core's temporary `LegacyProviderRoutes` bridge preserves complete selection
+  provenance while attaching process-local identity only in memory. Foreground
+  turns, background task continuations/finalization, task completion, progress
+  audits, web summarization, memory generation, and one-shot API calls retain
+  one exact route lease for each execution chain. Provider replacement keeps
+  old generations alive through their final in-flight call, MCP classification
+  reads the replacement provider's current model instead of a startup cache,
+  and managed-memory proxy shutdown drains active requests before the local
+  supervisor stops. Local-model activation starts the replacement first, then
+  gates the SQLite preference commit, registry publication, and supervisor
+  swap so readers cannot observe the middle state. Exact durable instance keys
+  and multi-instance local-model retirement remain Phase 10C work rather than
+  being implied by this legacy bridge. Checkpoint 5C is next: move hosted
+  adapters, provider-account orchestration, concrete web backends, and the
+  Foundation Swift bridge into `noema-providers`. The `local-models` provider
+  feature remains transitional shared response support until the concrete
+  implementation moves.
 
 - The bounded remediation program completed Phase 2 at `92,157` maintained
   source lines (`-1,767` from its baseline). Axum/tower-sessions now own the

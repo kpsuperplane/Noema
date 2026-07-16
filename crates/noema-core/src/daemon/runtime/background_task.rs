@@ -1,6 +1,9 @@
 //! Provider/tool continuation loop for supervised task runs.
 
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use crate::{
     agent_execution::ExecutionRole,
@@ -77,7 +80,11 @@ impl CodexRuntimeActor {
                 .saturating_mul(60),
         );
         let deadline = tokio::time::Instant::now() + max_active_duration;
-        let provider = self.provider_for_kind(&request.provider_selection.provider_kind)?;
+        let provider_route = Arc::new(
+            self.resolve_provider_route(request.provider_selection.clone())
+                .await?,
+        );
+        let provider = provider_route.operations();
         let capabilities =
             provider.tool_capabilities(request.provider_selection.model_profile.as_deref());
         let response_continuation =
@@ -104,7 +111,7 @@ impl CodexRuntimeActor {
         let mut context = ContinuationContext::new(&request.input);
         let initial_response = self
             .generate_task_provider_round(
-                &provider,
+                provider,
                 GenerateRequest {
                     conversation_id: Some(conversation_id.clone()),
                     model: request.provider_selection.model_profile.clone(),
@@ -144,7 +151,7 @@ impl CodexRuntimeActor {
                 return self
                     .finalize_background_task(
                         &request,
-                        &provider,
+                        provider,
                         &conversation_id,
                         &model_tools,
                         &context,
@@ -176,7 +183,7 @@ impl CodexRuntimeActor {
                 return self
                     .finalize_background_task(
                         &request,
-                        &provider,
+                        provider,
                         &conversation_id,
                         &model_tools,
                         &context,
@@ -211,7 +218,7 @@ impl CodexRuntimeActor {
                 return self
                     .finalize_background_task(
                         &request,
-                        &provider,
+                        provider,
                         &conversation_id,
                         &model_tools,
                         &context,
@@ -237,7 +244,7 @@ impl CodexRuntimeActor {
                 return self
                     .finalize_background_task(
                         &request,
-                        &provider,
+                        provider,
                         &conversation_id,
                         &model_tools,
                         &context,
@@ -259,6 +266,7 @@ impl CodexRuntimeActor {
                 provider_kind: request.provider_selection.provider_kind.clone(),
                 model: request.provider_selection.model_profile.clone(),
                 reasoning_effort: request.provider_selection.reasoning_effort,
+                provider_route: Arc::clone(&provider_route),
                 initial_stream_id: format!("task_stream:{}:{continuation_index}", request.run_id),
                 response: response.clone(),
                 agent_identity: agent_identity.clone(),
@@ -295,7 +303,7 @@ impl CodexRuntimeActor {
                         context.finish_round();
                         return self.finalize_background_task(
                             &request,
-                            &provider,
+                            provider,
                             &conversation_id,
                             &model_tools,
                             &context,
@@ -383,7 +391,7 @@ impl CodexRuntimeActor {
                 _ = tokio::time::sleep_until(deadline) => {
                     return self.finalize_background_task(
                         &request,
-                        &provider,
+                        provider,
                         &conversation_id,
                         &model_tools,
                         &context,
@@ -393,7 +401,7 @@ impl CodexRuntimeActor {
                     ).await;
                 }
                 result = context.compact_if_needed(
-                    provider.as_ref(),
+                    provider,
                     request.provider_selection.model_profile.as_deref(),
                     request.provider_selection.reasoning_effort,
                     noema_providers::GenerationPriority::Background,
@@ -422,7 +430,7 @@ impl CodexRuntimeActor {
                 return self
                     .finalize_background_task(
                         &request,
-                        &provider,
+                        provider,
                         &conversation_id,
                         &model_tools,
                         &context,
@@ -443,7 +451,7 @@ impl CodexRuntimeActor {
                     _ = tokio::time::sleep_until(deadline) => {
                         return self.finalize_background_task(
                             &request,
-                            &provider,
+                            provider,
                             &conversation_id,
                             &model_tools,
                             &context,
@@ -475,7 +483,7 @@ impl CodexRuntimeActor {
                         return self
                             .finalize_background_task(
                                 &request,
-                                &provider,
+                                provider,
                                 &conversation_id,
                                 &model_tools,
                                 &context,
@@ -496,7 +504,7 @@ impl CodexRuntimeActor {
                 return self
                     .finalize_background_task(
                         &request,
-                        &provider,
+                        provider,
                         &conversation_id,
                         &model_tools,
                         &context,
@@ -539,7 +547,7 @@ impl CodexRuntimeActor {
             };
             let mut continuation_response = self
                 .generate_task_provider_round(
-                    &provider,
+                    provider,
                     continuation_request,
                     &model_tools.bindings,
                     &request.run_id,
@@ -556,7 +564,7 @@ impl CodexRuntimeActor {
             {
                 continuation_response = self
                     .generate_task_provider_round(
-                        &provider,
+                        provider,
                         GenerateRequest {
                             conversation_id: Some(conversation_id.clone()),
                             model: request.provider_selection.model_profile.clone(),
@@ -597,7 +605,7 @@ impl CodexRuntimeActor {
                     return self
                         .finalize_background_task(
                             &request,
-                            &provider,
+                            provider,
                             &conversation_id,
                             &model_tools,
                             &context,
@@ -619,7 +627,7 @@ impl CodexRuntimeActor {
     async fn finalize_background_task(
         &self,
         request: &BackgroundTaskGenerateRequest,
-        provider: &noema_providers::ProviderHandle,
+        provider: &dyn noema_providers::ProviderOperations,
         conversation_id: &str,
         model_tools: &ModelTools,
         context: &ContinuationContext,

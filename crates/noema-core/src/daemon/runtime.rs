@@ -27,6 +27,7 @@ mod web_tools;
 
 pub(crate) use background_task::BackgroundTaskGenerateRequest;
 pub(crate) use handle::{CodexRuntimeHandle, RuntimeProviderMap};
+pub(crate) use provider_routes::LegacyProviderRoutes;
 
 /// Structured context for one primary-agent completion report.
 #[derive(Debug, Clone)]

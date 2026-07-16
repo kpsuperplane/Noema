@@ -5,18 +5,22 @@ use crate::{
     provider::adapters::codex_responses::CodexResponsesProvider,
 };
 use noema_home::{NoemaPaths, SystemErrorLogger};
+#[cfg(test)]
+use noema_providers::ProviderError;
 use noema_providers::{
-    CodexProviderConfig, DEFAULT_FOUNDATION_LOCAL_PROFILE,
-    DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS, DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
-    DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS, FoundationLocalProviderConfig, GenerateRequest,
-    GenerateResponse, LocalModelsProviderConfig, ModelProvider, ProviderConfig, ProviderError,
-    ProviderHandle, ProviderKind, erase_model_provider,
+    CodexProviderConfig, DEFAULT_FOUNDATION_LOCAL_PROFILE, FoundationLocalProviderConfig,
+    GenerateRequest, GenerateResponse, LocalModelsProviderConfig, ProviderConfig, ProviderHandle,
+    ProviderKind, ProviderSelectionSnapshot, erase_model_provider,
 };
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
-use super::{TaskCompletionDeliveryRequest, actor::CodexRuntimeActor};
+use super::{
+    TaskCompletionDeliveryRequest, actor::CodexRuntimeActor, provider_routes::LegacyProviderRoutes,
+};
 use crate::daemon::protocol::{DaemonError, StartedConversation, TurnStreamEvent};
+
+mod local_models;
 
 pub(crate) type RuntimeProviderMap = HashMap<String, ProviderHandle>;
 type ConfiguredRuntimeProvider = (String, ProviderHandle, Option<crate::LlamaServerSupervisor>);
@@ -31,11 +35,9 @@ pub(crate) struct CodexRuntimeHandle {
     sender: mpsc::Sender<CodexRuntimeCommand>,
     cancellation: Arc<RuntimeCancellation>,
     default_provider_kind: String,
-    tool_classification_model: Option<String>,
+    provider_routes: LegacyProviderRoutes,
     local_models_runtime: Arc<tokio::sync::RwLock<Option<crate::LlamaServerSupervisor>>>,
     local_models_runtime_root: Arc<tokio::sync::RwLock<Option<PathBuf>>>,
-    memory_model_route:
-        Arc<tokio::sync::RwLock<Option<crate::memory_model_proxy::MemoryModelRoute>>>,
 }
 
 #[derive(Debug)]
@@ -75,18 +77,18 @@ impl CodexRuntimeHandle {
         Ok((default_provider_kind, providers, local_models_runtime))
     }
 
-    pub(crate) async fn spawn_with_provider_map_and_memory(
+    pub(crate) async fn spawn_with_provider_routes_and_memory(
         default_provider_kind: String,
-        providers: RuntimeProviderMap,
+        provider_routes: LegacyProviderRoutes,
         store: NoemaStore,
         artifact_operations: noema_artifacts::ArtifactOperationsHandle,
         system_errors: SystemErrorLogger,
         memory_connection: Option<crate::MnemosyneConnection>,
         task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
     ) -> Result<Self, DaemonError> {
-        Self::spawn_with_provider_map_inner(
+        Self::spawn_with_provider_routes_inner(
             default_provider_kind,
-            providers,
+            provider_routes,
             store,
             artifact_operations,
             system_errors,
@@ -154,13 +156,12 @@ impl CodexRuntimeHandle {
         let provider_kind = "codex".to_string();
         let system_errors = store.system_error_logger();
         let providers = HashMap::from([(provider_kind.clone(), provider)]);
-        let Some(default_provider) = providers.get(&provider_kind) else {
+        if !providers.contains_key(&provider_kind) {
             return Err(DaemonError::Provider(ProviderError::ProviderUnavailable {
                 provider: provider_kind,
                 message: "default provider is not available in this daemon".to_string(),
             }));
-        };
-        let tool_classification_model = default_provider.default_tool_classification_model();
+        }
         let (sender, receiver) = mpsc::channel(16);
         let actor = CodexRuntimeActor::new_with_search_provider(
             provider_kind.clone(),
@@ -171,15 +172,15 @@ impl CodexRuntimeHandle {
         )
         .await?;
         let cancellation = Arc::new(RuntimeCancellation(actor.tasks.cancellation_token()));
+        let provider_routes = actor.provider_routes.clone();
         tokio::spawn(actor.run(receiver));
         Ok(Self {
             sender,
             cancellation,
             default_provider_kind: provider_kind,
-            tool_classification_model,
+            provider_routes,
             local_models_runtime: Arc::new(tokio::sync::RwLock::new(None)),
             local_models_runtime_root: Arc::new(tokio::sync::RwLock::new(None)),
-            memory_model_route: Arc::new(tokio::sync::RwLock::new(None)),
         })
     }
 
@@ -193,13 +194,12 @@ impl CodexRuntimeHandle {
         let provider_kind = "codex".to_string();
         let system_errors = store.system_error_logger();
         let providers = HashMap::from([(provider_kind.clone(), provider)]);
-        let Some(default_provider) = providers.get(&provider_kind) else {
+        if !providers.contains_key(&provider_kind) {
             return Err(DaemonError::Provider(ProviderError::ProviderUnavailable {
                 provider: provider_kind,
                 message: "default provider is not available in this daemon".to_string(),
             }));
-        };
-        let tool_classification_model = default_provider.default_tool_classification_model();
+        }
         let (sender, receiver) = mpsc::channel(16);
         let actor = CodexRuntimeActor::new_with_search_and_fetch_provider(
             provider_kind.clone(),
@@ -211,15 +211,15 @@ impl CodexRuntimeHandle {
         )
         .await?;
         let cancellation = Arc::new(RuntimeCancellation(actor.tasks.cancellation_token()));
+        let provider_routes = actor.provider_routes.clone();
         tokio::spawn(actor.run(receiver));
         Ok(Self {
             sender,
             cancellation,
             default_provider_kind: provider_kind,
-            tool_classification_model,
+            provider_routes,
             local_models_runtime: Arc::new(tokio::sync::RwLock::new(None)),
             local_models_runtime_root: Arc::new(tokio::sync::RwLock::new(None)),
-            memory_model_route: Arc::new(tokio::sync::RwLock::new(None)),
         })
     }
 
@@ -247,6 +247,7 @@ impl CodexRuntimeHandle {
         .await
     }
 
+    #[cfg(test)]
     async fn spawn_with_provider_map_inner(
         default_provider_kind: String,
         providers: RuntimeProviderMap,
@@ -256,17 +257,39 @@ impl CodexRuntimeHandle {
         memory_connection: Option<crate::MnemosyneConnection>,
         task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
     ) -> Result<Self, DaemonError> {
-        let Some(default_provider) = providers.get(&default_provider_kind) else {
+        if !providers.contains_key(&default_provider_kind) {
             return Err(DaemonError::Provider(ProviderError::ProviderUnavailable {
                 provider: default_provider_kind,
                 message: "default provider is not available in this daemon".to_string(),
             }));
-        };
-        let tool_classification_model = default_provider.default_tool_classification_model();
+        }
+        let provider_routes = LegacyProviderRoutes::new(providers)?;
+        Self::spawn_with_provider_routes_inner(
+            default_provider_kind,
+            provider_routes,
+            store,
+            artifact_operations,
+            system_errors,
+            memory_connection,
+            task_subscriptions,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn spawn_with_provider_routes_inner(
+        default_provider_kind: String,
+        provider_routes: LegacyProviderRoutes,
+        store: NoemaStore,
+        artifact_operations: noema_artifacts::ArtifactOperationsHandle,
+        system_errors: SystemErrorLogger,
+        memory_connection: Option<crate::MnemosyneConnection>,
+        task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
+    ) -> Result<Self, DaemonError> {
         let (sender, receiver) = mpsc::channel(16);
-        let actor = CodexRuntimeActor::new_with_memory(
+        let actor = CodexRuntimeActor::new_with_provider_routes(
             default_provider_kind.clone(),
-            providers,
+            provider_routes.clone(),
             store,
             artifact_operations,
             system_errors,
@@ -280,149 +303,10 @@ impl CodexRuntimeHandle {
             sender,
             cancellation,
             default_provider_kind,
-            tool_classification_model,
+            provider_routes,
             local_models_runtime: Arc::new(tokio::sync::RwLock::new(None)),
             local_models_runtime_root: Arc::new(tokio::sync::RwLock::new(None)),
-            memory_model_route: Arc::new(tokio::sync::RwLock::new(None)),
         })
-    }
-
-    pub(crate) fn tool_classification_model(&self) -> Option<&str> {
-        self.tool_classification_model.as_deref()
-    }
-
-    /// Set the packaged llama.cpp resource root used for dynamic registrations.
-    pub(crate) async fn set_local_models_runtime_root(&self, runtime_root: Option<PathBuf>) {
-        *self.local_models_runtime_root.write().await = runtime_root;
-    }
-
-    pub(crate) async fn attach_memory_model_route(
-        &self,
-        route: Option<crate::memory_model_proxy::MemoryModelRoute>,
-    ) {
-        *self.memory_model_route.write().await = route;
-    }
-
-    /// Attach the supervisor owned by an already-registered local provider.
-    pub(crate) async fn attach_local_models_runtime(&self, runtime: crate::LlamaServerSupervisor) {
-        let previous = self.local_models_runtime.write().await.replace(runtime);
-        if let Some(previous) = previous {
-            previous.shutdown().await;
-        }
-    }
-
-    /// Register or replace the active installed local model without restarting Noema.
-    pub(crate) async fn register_installed_local_model(
-        &self,
-        installation: &noema_providers::LocalModelInstallationRecord,
-        paths: &NoemaPaths,
-    ) -> Result<(), DaemonError> {
-        if installation.status != noema_providers::LocalModelInstallationStatus::Installed {
-            return Err(DaemonError::Provider(ProviderError::ProviderUnavailable {
-                provider: ProviderKind::LocalModels.as_str().to_string(),
-                message: format!("local model `{}` is not installed", installation.model_id),
-            }));
-        }
-        let sha256 = installation.sha256.as_deref().ok_or_else(|| {
-            DaemonError::Provider(ProviderError::ProviderUnavailable {
-                provider: ProviderKind::LocalModels.as_str().to_string(),
-                message: format!(
-                    "installed local model `{}` has no verified digest",
-                    installation.model_id
-                ),
-            })
-        })?;
-        let model_path = paths.local_model_blob_path(sha256)?;
-        let runtime_root = self.local_models_runtime_root.read().await.clone();
-        let provider = LocalModelsProvider::new(LocalModelsProviderConfig {
-            default_model: installation.model_id.clone(),
-            model_path: Some(model_path),
-            preferred_backend: Some(installation.backend),
-            runtime_root,
-            context_window_tokens: DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS,
-            timeout_seconds: DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS,
-            startup_timeout_seconds: DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
-            system_errors: Some(SystemErrorLogger::from_paths(paths)),
-        })?;
-        self.register_local_models_provider(provider).await
-    }
-
-    async fn register_local_models_provider(
-        &self,
-        provider: LocalModelsProvider,
-    ) -> Result<(), DaemonError> {
-        let runtime = provider.runtime().clone();
-        let model_profile = ModelProvider::default_tool_classification_model(&provider)
-            .ok_or_else(|| {
-                DaemonError::Protocol(
-                    "local models provider has no default model profile".to_string(),
-                )
-            })?;
-        let provider = erase_model_provider(provider);
-        let (reply, reply_rx) = oneshot::channel();
-        self.sender
-            .send(CodexRuntimeCommand::RegisterProvider {
-                provider_kind: ProviderKind::LocalModels.as_str().to_string(),
-                provider: provider.clone(),
-                reply,
-            })
-            .await
-            .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?;
-        reply_rx
-            .await
-            .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?;
-
-        self.attach_local_models_runtime(runtime).await;
-        if let Some(route) = self.memory_model_route.read().await.clone() {
-            route.update(provider, model_profile, None).await;
-        }
-        Ok(())
-    }
-
-    /// Return the current local inference process status, when a model is registered.
-    pub(crate) async fn local_model_runtime_status(
-        &self,
-    ) -> Option<crate::LocalModelRuntimeStatus> {
-        self.local_models_runtime
-            .read()
-            .await
-            .as_ref()
-            .map(crate::LlamaServerSupervisor::status)
-    }
-
-    /// Subscribe to local inference process transitions, when a model is registered.
-    pub(crate) async fn subscribe_local_model_runtime_status(
-        &self,
-    ) -> Option<tokio::sync::watch::Receiver<crate::LocalModelRuntimeStatus>> {
-        self.local_models_runtime
-            .read()
-            .await
-            .as_ref()
-            .map(crate::LlamaServerSupervisor::subscribe_status)
-    }
-
-    /// Retry the registered local inference runtime from its first backend candidate.
-    pub(crate) async fn retry_local_model_runtime(
-        &self,
-    ) -> Result<crate::LocalModelRuntimeStatus, DaemonError> {
-        let runtime = self
-            .local_models_runtime
-            .read()
-            .await
-            .clone()
-            .ok_or_else(|| {
-                DaemonError::Provider(ProviderError::ProviderUnavailable {
-                    provider: ProviderKind::LocalModels.as_str().to_string(),
-                    message: "no installed local model is registered".to_string(),
-                })
-            })?;
-        runtime.retry().await.map_err(|error| {
-            DaemonError::Provider(ProviderError::ProviderUnavailable {
-                provider: ProviderKind::LocalModels.as_str().to_string(),
-                message: error.to_string(),
-            })
-        })?;
-        Ok(runtime.status())
     }
 
     #[cfg(test)]
@@ -513,23 +397,59 @@ impl CodexRuntimeHandle {
             .map_err(|_| DaemonError::Protocol("daemon runtime stopped".to_string()))?
     }
 
+    #[cfg(test)]
     pub(crate) async fn generate_once(
         &self,
         request: GenerateRequest,
     ) -> Result<GenerateResponse, DaemonError> {
-        self.generate_once_with_provider_kind(None, request).await
+        let selection = provider_selection_for_generate_request(
+            &self.default_provider_kind,
+            &request,
+            "runtime_generate_once",
+        );
+        self.generate_once_with_provider_selection(selection, request)
+            .await
     }
 
-    pub(crate) async fn generate_once_with_provider_kind(
+    pub(crate) async fn generate_once_with_provider_selection(
         &self,
-        provider_kind: Option<String>,
+        selection: ProviderSelectionSnapshot,
         request: GenerateRequest,
+    ) -> Result<GenerateResponse, DaemonError> {
+        self.send_generate_once(selection, request, GenerateOnceModelPolicy::Selection)
+            .await
+    }
+
+    pub(crate) async fn generate_once_with_tool_classification_model(
+        &self,
+        request: GenerateRequest,
+    ) -> Result<GenerateResponse, DaemonError> {
+        let selection = ProviderSelectionSnapshot::provider_default(
+            self.default_provider_kind.clone(),
+            format!("provider_account:{}:default", self.default_provider_kind),
+            request.options.reasoning_effort,
+            Some("tool_classification_model".to_string()),
+        );
+        self.send_generate_once(
+            selection,
+            request,
+            GenerateOnceModelPolicy::ProviderToolClassification,
+        )
+        .await
+    }
+
+    async fn send_generate_once(
+        &self,
+        selection: ProviderSelectionSnapshot,
+        request: GenerateRequest,
+        model_policy: GenerateOnceModelPolicy,
     ) -> Result<GenerateResponse, DaemonError> {
         let (reply, reply_rx) = oneshot::channel();
         self.sender
             .send(CodexRuntimeCommand::GenerateOnce {
-                provider_kind,
+                selection,
                 request,
+                model_policy,
                 reply,
             })
             .await
@@ -571,15 +491,15 @@ impl CodexRuntimeHandle {
 
     pub(crate) async fn shutdown(&self) {
         self.cancellation.0.cancel();
-        if let Some(runtime) = self.local_models_runtime.write().await.take() {
-            runtime.shutdown().await;
-        }
         let (reply, reply_rx) = oneshot::channel();
         let _ = self
             .sender
             .send(CodexRuntimeCommand::Shutdown { reply })
             .await;
         let _ = reply_rx.await;
+        if let Some(runtime) = self.local_models_runtime.write().await.take() {
+            runtime.shutdown().await;
+        }
     }
 }
 
@@ -675,6 +595,36 @@ fn apply_provider_account_home(
     config.account_home = Some(account_home.to_path_buf());
 }
 
+#[cfg(test)]
+fn provider_selection_for_generate_request(
+    provider_kind: &str,
+    request: &GenerateRequest,
+    selection_source: &str,
+) -> ProviderSelectionSnapshot {
+    let provider_account_id = format!("provider_account:{provider_kind}:default");
+    match request.model.clone() {
+        Some(model_profile) => ProviderSelectionSnapshot::explicit(
+            provider_kind,
+            provider_account_id,
+            model_profile,
+            request.options.reasoning_effort,
+            Some(selection_source.to_string()),
+        ),
+        None => ProviderSelectionSnapshot::provider_default(
+            provider_kind,
+            provider_account_id,
+            request.options.reasoning_effort,
+            Some(selection_source.to_string()),
+        ),
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) enum GenerateOnceModelPolicy {
+    Selection,
+    ProviderToolClassification,
+}
+
 #[derive(Debug)]
 pub(super) enum CodexRuntimeCommand {
     #[cfg(test)]
@@ -702,18 +652,14 @@ pub(super) enum CodexRuntimeCommand {
         reply: oneshot::Sender<Result<(), DaemonError>>,
     },
     GenerateOnce {
-        provider_kind: Option<String>,
+        selection: ProviderSelectionSnapshot,
         request: GenerateRequest,
+        model_policy: GenerateOnceModelPolicy,
         reply: oneshot::Sender<Result<GenerateResponse, DaemonError>>,
     },
     BackgroundTask {
         request: super::BackgroundTaskGenerateRequest,
         reply: oneshot::Sender<Result<GenerateResponse, DaemonError>>,
-    },
-    RegisterProvider {
-        provider_kind: String,
-        provider: ProviderHandle,
-        reply: oneshot::Sender<()>,
     },
     TaskCompletionDelivery {
         request: TaskCompletionDeliveryRequest,
@@ -725,16 +671,5 @@ pub(super) enum CodexRuntimeCommand {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn codex_config_for_provider_account_uses_account_home() {
-        let account_home = std::path::PathBuf::from("/noema/providers/codex/default");
-        let mut config = CodexProviderConfig::default();
-
-        apply_provider_account_home(&mut config, &account_home);
-
-        assert_eq!(config.account_home.as_deref(), Some(account_home.as_path()));
-    }
-}
+#[path = "handle_tests.rs"]
+mod tests;

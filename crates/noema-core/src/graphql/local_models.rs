@@ -425,17 +425,11 @@ pub(super) async fn install_local_model(
         if let Ok(installed) = result
             && let Ok(runtime) = task_state.runtime()
             && let Ok(paths) = task_state.paths()
-            && runtime
-                .register_installed_local_model(&installed, paths)
-                .await
-                .is_ok()
             && let Ok(store) = task_state.store()
-            && store
-                .activate_local_model_as_system_default(&installation_id)
-                .await
-                .is_ok()
         {
-            let _ = runtime.retry_local_model_runtime().await;
+            let _ = runtime
+                .activate_installed_local_model(&installed, paths, store)
+                .await;
         }
         task_state.release_local_model_cancellation(&installation_id);
     });
@@ -609,16 +603,7 @@ pub(super) async fn activate_local_model(
         .ok_or_else(|| async_graphql::Error::new("local-model installation is unavailable"))?;
     let runtime = state.runtime()?;
     runtime
-        .register_installed_local_model(&installation, state.paths()?)
-        .await
-        .map_err(graphql_error)?;
-    state
-        .store()?
-        .activate_local_model_as_system_default(&installation_id)
-        .await
-        .map_err(graphql_error)?;
-    runtime
-        .retry_local_model_runtime()
+        .activate_installed_local_model(&installation, state.paths()?, state.store()?)
         .await
         .map_err(graphql_error)?;
     let installation = state
@@ -650,12 +635,27 @@ pub(super) async fn save_default_model_preference(
 pub(super) async fn retry_local_model_runtime(
     state: &GraphqlState,
 ) -> Result<GraphqlLocalModelRuntimeStatus> {
-    state
-        .runtime()?
-        .retry_local_model_runtime()
+    let installation = state
+        .store()?
+        .list_local_model_installations()
+        .await
+        .map_err(graphql_error)?
+        .into_iter()
+        .find(|installation| {
+            installation.is_active
+                && installation.status == noema_providers::LocalModelInstallationStatus::Installed
+        })
+        .ok_or_else(|| async_graphql::Error::new("no installed local model is active"))?;
+    let runtime = state.runtime()?;
+    runtime
+        .register_installed_local_model(&installation, state.paths()?)
+        .await
+        .map_err(graphql_error)?;
+    runtime
+        .local_model_runtime_status()
         .await
         .map(runtime_status_view)
-        .map_err(graphql_error)
+        .ok_or_else(|| async_graphql::Error::new("local model runtime is unavailable"))
 }
 
 pub(super) async fn local_model_events(

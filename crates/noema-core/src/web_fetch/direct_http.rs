@@ -492,7 +492,16 @@ mod tests {
     fn test_context() -> FetchRuntimeContext {
         FetchRuntimeContext {
             summarizer_provider_kind: "codex".to_string(),
-            summarizer_provider: Arc::new(StaticSummaryProvider),
+            summarizer_route: crate::test_support::provider_route(
+                noema_providers::ProviderSelectionSnapshot::explicit(
+                    "codex",
+                    "provider_account:codex:web-fetch-test",
+                    "gpt-5.4-mini",
+                    None,
+                    Some("web_fetch_test".to_string()),
+                ),
+                Arc::new(StaticSummaryProvider),
+            ),
             summarizer_model: "gpt-5.4-mini".to_string(),
             summarizer_reasoning_effort: None,
             generation_priority: noema_providers::GenerationPriority::Foreground,

@@ -2,7 +2,7 @@ use serde::Deserialize;
 
 use noema_providers::{
     GenerateInput, GenerateOptions, GenerateRequest, GenerateResponseItem, GenerationPriority,
-    ProviderHandle,
+    ProviderRouteLease, ProviderSelectionSnapshot,
 };
 
 use super::actor::CodexRuntimeActor;
@@ -30,7 +30,7 @@ pub(super) enum ProgressAuditError {
 }
 
 struct ProgressAuditModel {
-    provider: ProviderHandle,
+    route: ProviderRouteLease,
     model_profile: String,
     reasoning_effort: Option<noema_providers::ReasoningEffort>,
 }
@@ -48,7 +48,8 @@ impl CodexRuntimeActor {
         })?;
         let mut ignore_event = |_| {};
         let response = audit_model
-            .provider
+            .route
+            .operations()
             .generate_streaming(
                 GenerateRequest {
                     conversation_id: None,
@@ -93,8 +94,15 @@ impl CodexRuntimeActor {
                 )
             })?
         {
-            let provider = self
-                .provider_for_kind(&preference.provider_kind)
+            let route = self
+                .resolve_provider_route(ProviderSelectionSnapshot::explicit(
+                    preference.provider_kind.clone(),
+                    preference.provider_account_id,
+                    preference.model_profile.clone(),
+                    preference.reasoning_effort,
+                    Some("tool_progress_audit_preference".to_string()),
+                ))
+                .await
                 .map_err(|_| {
                     ProgressAuditError::Unavailable(format!(
                         "progress audit provider '{}' is not available",
@@ -102,25 +110,28 @@ impl CodexRuntimeActor {
                     ))
                 })?;
             return Ok(ProgressAuditModel {
-                provider,
+                route,
                 model_profile: preference.model_profile,
                 reasoning_effort: preference.reasoning_effort,
             });
         }
 
         let provider_kind = self.default_provider_kind.clone();
-        let provider = self.provider_for_kind(&provider_kind).map_err(|_| {
+        let route = self.default_provider().await.map_err(|_| {
             ProgressAuditError::Unavailable(format!(
                 "progress audit default provider '{provider_kind}' is not available"
             ))
         })?;
-        let model_profile = provider.default_tool_classification_model().ok_or_else(|| {
-            ProgressAuditError::Unavailable(format!(
-                "progress audit default provider '{provider_kind}' has no tool-classification model"
-            ))
-        })?;
+        let model_profile = route
+            .operations()
+            .default_tool_classification_model()
+            .ok_or_else(|| {
+                ProgressAuditError::Unavailable(format!(
+                    "progress audit default provider '{provider_kind}' has no tool-classification model"
+                ))
+            })?;
         Ok(ProgressAuditModel {
-            provider,
+            route,
             model_profile,
             reasoning_effort: None,
         })

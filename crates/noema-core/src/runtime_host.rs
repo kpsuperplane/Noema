@@ -2,7 +2,7 @@
 
 use crate::{
     DEFAULT_NOEMA_CONFIG_YAML, DaemonError, NoemaStore, StoreConfig,
-    daemon::{CodexRuntimeHandle, TaskRuntimeHandle},
+    daemon::{CodexRuntimeHandle, LegacyProviderRoutes, TaskRuntimeHandle},
     mcp::McpOAuthSetupManager,
     provider::auth::ProviderAuthManager,
 };
@@ -15,7 +15,7 @@ use noema_home::{
 use noema_providers::{
     DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS, DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
     DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS, DEFAULT_TOOL_CLASSIFICATION_MODEL, ProviderConfig,
-    erase_model_provider,
+    ProviderRouteError, ProviderSelectionSnapshot, erase_model_provider, provider_selection_loader,
 };
 use ring::rand::{SecureRandom, SystemRandom};
 use std::path::PathBuf;
@@ -167,6 +167,19 @@ impl NoemaRuntimeHost {
                 erase_model_provider(provider),
             );
         }
+        if let Some(runtime) = &local_models_runtime
+            && let Err(error) = runtime.retry().await
+        {
+            system_errors.try_append(
+                SystemErrorEvent::new(
+                    "local_model_runtime_unavailable",
+                    "The local model runtime could not start",
+                )
+                .with_error_chain([error.to_string()]),
+            );
+        }
+        let provider_routes = LegacyProviderRoutes::new(providers.clone())
+            .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
         let memory_settings = store
             .memory_service_settings()
             .await
@@ -179,7 +192,6 @@ impl NoemaRuntimeHost {
             crate::MemoryServiceMode::Managed => None,
         };
         let mut memory_startup_error = None;
-        let mut memory_model_route = None;
         let memory_model_proxy = match memory_settings.mode {
             crate::MemoryServiceMode::External => None,
             crate::MemoryServiceMode::Managed => {
@@ -187,14 +199,13 @@ impl NoemaRuntimeHost {
                     &memory_settings,
                     &default_provider_kind,
                     &providers,
+                    provider_routes.clone(),
+                    store.clone(),
                     generate_memory_model_proxy_api_key().map_err(RuntimeHostError::Runtime)?,
                     system_errors.clone(),
                 ) {
                     Ok(config) => match crate::MemoryModelProxy::start(config).await {
-                        Ok(proxy) => {
-                            memory_model_route = Some(proxy.route());
-                            Some(proxy)
-                        }
+                        Ok(proxy) => Some(proxy),
                         Err(error) => {
                             let error = error.to_string();
                             memory_startup_error = Some(error.clone());
@@ -264,9 +275,9 @@ impl NoemaRuntimeHost {
             noema_artifacts::LocalArtifactService::new(paths.root(), artifact_metadata)
                 .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?,
         );
-        let runtime = CodexRuntimeHandle::spawn_with_provider_map_and_memory(
+        let runtime = CodexRuntimeHandle::spawn_with_provider_routes_and_memory(
             default_provider_kind,
-            providers,
+            provider_routes,
             store.clone(),
             artifact_operations.clone(),
             system_errors.clone(),
@@ -278,39 +289,10 @@ impl NoemaRuntimeHost {
         runtime
             .set_local_models_runtime_root(local_model_runtime_root)
             .await;
-        runtime.attach_memory_model_route(memory_model_route).await;
-        let has_local_models_runtime = if let Some(local_models_runtime) = local_models_runtime {
+        if let Some(local_models_runtime) = local_models_runtime {
             runtime
                 .attach_local_models_runtime(local_models_runtime)
                 .await;
-            true
-        } else if let Some(installation) = store
-            .list_local_model_installations()
-            .await
-            .map_err(|source| RuntimeHostError::Store(source.to_string()))?
-            .into_iter()
-            .find(|installation| {
-                installation.is_active
-                    && installation.status
-                        == noema_providers::LocalModelInstallationStatus::Installed
-            })
-        {
-            runtime
-                .register_installed_local_model(&installation, &paths)
-                .await
-                .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
-            true
-        } else {
-            false
-        };
-        if has_local_models_runtime && let Err(error) = runtime.retry_local_model_runtime().await {
-            system_errors.try_append(
-                SystemErrorEvent::new(
-                    "local_model_runtime_unavailable",
-                    "The local model runtime could not start",
-                )
-                .with_error_chain([error.to_string()]),
-            );
         }
         let task_runtime = TaskRuntimeHandle::start(
             store.clone(),
@@ -397,10 +379,10 @@ impl NoemaRuntimeHost {
     /// Shut down runtime-owned work.
     pub async fn shutdown(self) {
         self.task_runtime.shutdown().await;
-        self.runtime.shutdown().await;
         if let Some(mnemosyne) = self.mnemosyne {
             mnemosyne.shutdown().await;
         }
+        self.runtime.shutdown().await;
     }
 }
 
@@ -408,6 +390,8 @@ fn memory_model_proxy_config_from_settings(
     settings: &crate::MemoryServiceSettingsRecord,
     default_provider_kind: &str,
     providers: &crate::daemon::RuntimeProviderMap,
+    provider_routes: LegacyProviderRoutes,
+    store: NoemaStore,
     api_key: String,
     system_errors: SystemErrorLogger,
 ) -> Result<crate::MemoryModelProxyConfig, String> {
@@ -424,13 +408,54 @@ fn memory_model_proxy_config_from_settings(
         .clone()
         .or_else(|| provider.default_tool_classification_model())
         .unwrap_or_else(|| DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string());
+    let default_provider_kind = default_provider_kind.to_string();
+    let route_resolver = provider_routes.bind(provider_selection_loader(move || {
+        let store = store.clone();
+        let default_provider_kind = default_provider_kind.clone();
+        Box::pin(async move {
+            let settings = store.memory_service_settings().await.map_err(|_| {
+                ProviderRouteError::SelectionLoad {
+                    operation: "load_memory_model_selection",
+                }
+            })?;
+            Ok(memory_provider_selection(&settings, &default_provider_kind))
+        })
+    }));
     Ok(crate::MemoryModelProxyConfig {
-        provider,
+        route_resolver,
         api_key,
         model_profile,
-        reasoning_effort: settings.reasoning_effort,
         system_errors: Some(system_errors),
     })
+}
+
+fn memory_provider_selection(
+    settings: &crate::MemoryServiceSettingsRecord,
+    default_provider_kind: &str,
+) -> ProviderSelectionSnapshot {
+    let provider_kind = settings
+        .provider_kind
+        .as_deref()
+        .unwrap_or(default_provider_kind);
+    let provider_account_id = settings
+        .provider_account_id
+        .clone()
+        .unwrap_or_else(|| format!("provider_account:{provider_kind}:default"));
+    match settings.model_profile.clone() {
+        Some(model_profile) => ProviderSelectionSnapshot::explicit(
+            provider_kind,
+            provider_account_id,
+            model_profile,
+            settings.reasoning_effort,
+            Some("memory_service_settings".to_string()),
+        ),
+        None => ProviderSelectionSnapshot::provider_default(
+            provider_kind,
+            provider_account_id,
+            settings.reasoning_effort,
+            Some("memory_service_settings".to_string()),
+        ),
+    }
 }
 
 fn generate_memory_model_proxy_api_key() -> Result<String, String> {
@@ -507,8 +532,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn memory_proxy_config_prefers_memory_model_provider() {
+    #[tokio::test]
+    async fn memory_proxy_config_prefers_memory_model_provider() {
         let providers = crate::daemon::RuntimeProviderMap::from([
             (
                 "codex".to_string(),
@@ -525,37 +550,96 @@ mod tests {
             mode: crate::MemoryServiceMode::Managed,
             base_url: None,
             port: None,
-            provider_account_id: Some("foundation_local:default".to_string()),
+            provider_account_id: Some("provider_account:foundation_local:default".to_string()),
             provider_kind: Some("foundation_local".to_string()),
             model_profile: Some("memory-profile".to_string()),
             reasoning_effort: Some(noema_providers::ReasoningEffort::Low),
         };
+        let store = crate::store::tests::test_store().await;
+        store
+            .ensure_default_foundation_local_provider_account()
+            .await
+            .expect("foundation account");
+        store
+            .save_memory_service_settings(crate::SaveMemoryServiceSettings {
+                mode: settings.mode,
+                base_url: settings.base_url.clone(),
+                port: settings.port,
+                provider_account_id: settings.provider_account_id.clone(),
+                provider_kind: settings.provider_kind.clone(),
+                model_profile: settings.model_profile.clone(),
+                reasoning_effort: settings.reasoning_effort,
+            })
+            .await
+            .expect("memory settings");
+        let routes = LegacyProviderRoutes::new(providers.clone()).expect("provider routes");
 
         let config = memory_model_proxy_config_from_settings(
             &settings,
             "codex",
             &providers,
+            routes,
+            store.clone(),
             "secret".to_string(),
             test_system_error_logger(),
         )
         .expect("proxy config");
+        let route = config
+            .route_resolver
+            .resolve_route()
+            .await
+            .expect("memory route");
 
         assert_eq!(config.model_profile, "memory-profile");
         assert_eq!(
-            config.reasoning_effort,
+            route.selection().reasoning_effort,
             Some(noema_providers::ReasoningEffort::Low)
         );
         assert_eq!(
-            config
-                .provider
+            route
+                .operations()
                 .default_tool_classification_model()
                 .as_deref(),
             Some("foundation-default")
         );
+
+        store
+            .ensure_default_provider_account()
+            .await
+            .expect("codex account");
+        store
+            .save_memory_service_settings(crate::SaveMemoryServiceSettings {
+                mode: crate::MemoryServiceMode::Managed,
+                base_url: None,
+                port: None,
+                provider_account_id: Some("provider_account:codex:default".to_string()),
+                provider_kind: Some("codex".to_string()),
+                model_profile: Some("codex-memory".to_string()),
+                reasoning_effort: None,
+            })
+            .await
+            .expect("updated memory settings");
+        let refreshed = config
+            .route_resolver
+            .resolve_route()
+            .await
+            .expect("refreshed memory route");
+        assert_eq!(refreshed.selection().provider_kind, "codex");
+        assert_eq!(
+            refreshed.selection().model_profile.as_deref(),
+            Some("codex-memory")
+        );
+        assert_eq!(
+            refreshed
+                .operations()
+                .default_tool_classification_model()
+                .as_deref(),
+            Some("codex-default")
+        );
     }
 
-    #[test]
-    fn memory_proxy_config_falls_back_to_default_provider_when_unset() {
+    #[tokio::test]
+    async fn memory_proxy_config_falls_back_to_default_provider_when_unset() {
         let providers = crate::daemon::RuntimeProviderMap::from([(
             "codex".to_string(),
             Arc::new(DefaultModelProvider("codex-default")) as noema_providers::ProviderHandle,
@@ -570,20 +654,29 @@ mod tests {
             model_profile: None,
             reasoning_effort: None,
         };
+        let store = crate::store::tests::test_store().await;
+        let routes = LegacyProviderRoutes::new(providers.clone()).expect("provider routes");
 
         let config = memory_model_proxy_config_from_settings(
             &settings,
             "codex",
             &providers,
+            routes,
+            store,
             "secret".to_string(),
             test_system_error_logger(),
         )
         .expect("proxy config");
+        let route = config
+            .route_resolver
+            .resolve_route()
+            .await
+            .expect("memory route");
 
         assert_eq!(config.model_profile, "codex-default");
         assert_eq!(
-            config
-                .provider
+            route
+                .operations()
                 .default_tool_classification_model()
                 .as_deref(),
             Some("codex-default")

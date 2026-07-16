@@ -3,10 +3,13 @@ use std::collections::HashMap;
 use crate::NoemaStore;
 use futures_util::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use noema_home::SystemErrorLogger;
+#[cfg(test)]
 use noema_providers::ProviderHandle;
+use noema_providers::{ProviderRouteLease, ProviderSelectionSnapshot};
 use tokio::sync::{mpsc, oneshot};
 
-use super::handle::CodexRuntimeCommand;
+use super::handle::{CodexRuntimeCommand, GenerateOnceModelPolicy};
+use super::provider_routes::LegacyProviderRoutes;
 use super::tasks::RuntimeTaskGroup;
 use crate::daemon::protocol::DaemonError;
 
@@ -21,7 +24,7 @@ type PendingTaskCompletion = BoxFuture<
 #[derive(Debug)]
 pub(in crate::daemon) struct CodexRuntimeActor {
     pub(in crate::daemon) default_provider_kind: String,
-    pub(in crate::daemon) providers: HashMap<String, ProviderHandle>,
+    pub(in crate::daemon) provider_routes: LegacyProviderRoutes,
     pub(in crate::daemon) store: NoemaStore,
     pub(in crate::daemon) artifact_operations: noema_artifacts::ArtifactOperationsHandle,
     pub(in crate::daemon) system_errors: SystemErrorLogger,
@@ -55,6 +58,7 @@ impl CodexRuntimeActor {
         .await
     }
 
+    #[cfg(test)]
     pub(in crate::daemon) async fn new_with_memory(
         default_provider_kind: String,
         providers: HashMap<String, ProviderHandle>,
@@ -64,9 +68,31 @@ impl CodexRuntimeActor {
         memory_connection: Option<crate::MnemosyneConnection>,
         task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
     ) -> Result<Self, DaemonError> {
+        let provider_routes = LegacyProviderRoutes::new(providers)?;
+        Self::new_with_provider_routes(
+            default_provider_kind,
+            provider_routes,
+            store,
+            artifact_operations,
+            system_errors,
+            memory_connection,
+            task_subscriptions,
+        )
+        .await
+    }
+
+    pub(in crate::daemon) async fn new_with_provider_routes(
+        default_provider_kind: String,
+        provider_routes: LegacyProviderRoutes,
+        store: NoemaStore,
+        artifact_operations: noema_artifacts::ArtifactOperationsHandle,
+        system_errors: SystemErrorLogger,
+        memory_connection: Option<crate::MnemosyneConnection>,
+        task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
+    ) -> Result<Self, DaemonError> {
         Ok(Self {
             default_provider_kind,
-            providers,
+            provider_routes,
             store,
             artifact_operations,
             system_errors,
@@ -113,26 +139,40 @@ impl CodexRuntimeActor {
         Ok(actor)
     }
 
-    pub(in crate::daemon) fn provider_for_kind(
+    pub(in crate::daemon) async fn resolve_provider_route(
         &self,
-        provider_kind: &str,
-    ) -> Result<ProviderHandle, DaemonError> {
-        self.providers.get(provider_kind).cloned().ok_or_else(|| {
-            DaemonError::Provider(noema_providers::ProviderError::ProviderUnavailable {
-                provider: provider_kind.to_string(),
-                message: "provider is not available in this daemon".to_string(),
-            })
-        })
+        selection: ProviderSelectionSnapshot,
+    ) -> Result<ProviderRouteLease, DaemonError> {
+        self.provider_routes
+            .read()
+            .await
+            .resolve_snapshot(selection)
+            .map_err(DaemonError::from)
     }
 
-    pub(in crate::daemon) fn default_provider(&self) -> Result<ProviderHandle, DaemonError> {
-        self.provider_for_kind(&self.default_provider_kind)
+    pub(in crate::daemon) async fn provider_for_kind(
+        &self,
+        provider_kind: &str,
+    ) -> Result<ProviderRouteLease, DaemonError> {
+        self.resolve_provider_route(ProviderSelectionSnapshot::provider_default(
+            provider_kind,
+            format!("provider_account:{provider_kind}:default"),
+            None,
+            Some("legacy_runtime_route".to_string()),
+        ))
+        .await
+    }
+
+    pub(in crate::daemon) async fn default_provider(
+        &self,
+    ) -> Result<ProviderRouteLease, DaemonError> {
+        self.provider_for_kind(&self.default_provider_kind).await
     }
 
     pub(super) fn clone_for_background(&self) -> Self {
         Self {
             default_provider_kind: self.default_provider_kind.clone(),
-            providers: self.providers.clone(),
+            provider_routes: self.provider_routes.clone(),
             store: self.store.clone(),
             artifact_operations: self.artifact_operations.clone(),
             system_errors: self.system_errors.clone(),
@@ -246,24 +286,43 @@ impl CodexRuntimeActor {
                     let _ = reply.send(result);
                 }
                 CodexRuntimeCommand::GenerateOnce {
-                    provider_kind,
-                    request,
+                    selection,
+                    mut request,
+                    model_policy,
                     reply,
                 } => {
-                    let provider = match provider_kind {
-                        Some(provider_kind) => self.provider_for_kind(&provider_kind),
-                        None => self.default_provider(),
-                    };
-                    let provider = match provider {
+                    let provider = match self.resolve_provider_route(selection.clone()).await {
                         Ok(provider) => provider,
                         Err(error) => {
                             let _ = reply.send(Err(error));
                             continue;
                         }
                     };
+                    match model_policy {
+                        GenerateOnceModelPolicy::Selection => {
+                            request.model = selection.model_profile;
+                        }
+                        GenerateOnceModelPolicy::ProviderToolClassification => {
+                            let Some(model) =
+                                provider.operations().default_tool_classification_model()
+                            else {
+                                let _ = reply.send(Err(DaemonError::Provider(
+                                    noema_providers::ProviderError::ProviderUnavailable {
+                                        provider: selection.provider_kind,
+                                        message: "provider has no tool-classification model"
+                                            .to_string(),
+                                    },
+                                )));
+                                continue;
+                            };
+                            request.model = Some(model);
+                        }
+                    }
+                    request.options.reasoning_effort = selection.reasoning_effort;
                     self.tasks.spawn(async move {
                         let mut ignore_event = |_| {};
                         let result = provider
+                            .operations()
                             .generate_streaming(request, &mut ignore_event)
                             .await
                             .map_err(DaemonError::Provider);
@@ -276,14 +335,6 @@ impl CodexRuntimeActor {
                         let result = actor.generate_background_task(request).await;
                         let _ = reply.send(result);
                     });
-                }
-                CodexRuntimeCommand::RegisterProvider {
-                    provider_kind,
-                    provider,
-                    reply,
-                } => {
-                    self.providers.insert(provider_kind, provider);
-                    let _ = reply.send(());
                 }
                 CodexRuntimeCommand::TaskCompletionDelivery { request, reply } => {
                     match self.start_task_completion_delivery(request).await {
@@ -320,9 +371,21 @@ fn runtime_stopped() -> DaemonError {
 
 #[derive(Debug, Clone)]
 pub(in crate::daemon) struct ActiveConversation {
-    pub(in crate::daemon) provider_kind: String,
-    pub(in crate::daemon) model: Option<String>,
-    pub(in crate::daemon) reasoning_effort: Option<noema_providers::ReasoningEffort>,
+    pub(in crate::daemon) provider_selection: noema_providers::ProviderSelectionSnapshot,
     pub(in crate::daemon) cwd: Option<String>,
     pub(in crate::daemon) next_turn_index: u64,
+}
+
+impl ActiveConversation {
+    pub(in crate::daemon) fn provider_kind(&self) -> &str {
+        &self.provider_selection.provider_kind
+    }
+
+    pub(in crate::daemon) fn model(&self) -> Option<&str> {
+        self.provider_selection.model_profile.as_deref()
+    }
+
+    pub(in crate::daemon) fn reasoning_effort(&self) -> Option<noema_providers::ReasoningEffort> {
+        self.provider_selection.reasoning_effort
+    }
 }

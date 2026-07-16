@@ -1,4 +1,5 @@
 use crate::daemon::protocol::DaemonError;
+use noema_providers::ProviderSelectionSnapshot;
 
 use super::actor::{ActiveConversation, CodexRuntimeActor};
 
@@ -20,9 +21,7 @@ impl CodexRuntimeActor {
                 .and_then(|conversation| conversation.cwd.clone())
         });
         let conversation = ActiveConversation {
-            provider_kind: selection.provider_kind,
-            model: selection.model,
-            reasoning_effort: selection.reasoning_effort,
+            provider_selection: selection,
             cwd,
             next_turn_index,
         };
@@ -35,24 +34,20 @@ impl CodexRuntimeActor {
 pub(super) async fn provider_selection_for_conversation(
     store: &crate::NoemaStore,
     default_provider_kind: &str,
-) -> Result<ConversationProviderSelection, DaemonError> {
+) -> Result<ProviderSelectionSnapshot, DaemonError> {
     let Some(preference) = store.get_agent_runtime_preference("agent:primary").await? else {
-        return Ok(ConversationProviderSelection {
-            provider_kind: default_provider_kind.to_string(),
-            model: None,
-            reasoning_effort: None,
-        });
+        return Ok(ProviderSelectionSnapshot::provider_default(
+            default_provider_kind,
+            format!("provider_account:{default_provider_kind}:default"),
+            None,
+            Some("runtime_default".to_string()),
+        ));
     };
-    Ok(ConversationProviderSelection {
-        provider_kind: preference.provider_kind,
-        model: Some(preference.model_profile),
-        reasoning_effort: preference.reasoning_effort,
-    })
-}
-
-#[derive(Debug, Clone)]
-pub(super) struct ConversationProviderSelection {
-    pub(super) provider_kind: String,
-    pub(super) model: Option<String>,
-    pub(super) reasoning_effort: Option<noema_providers::ReasoningEffort>,
+    Ok(ProviderSelectionSnapshot::explicit(
+        preference.provider_kind,
+        preference.provider_account_id,
+        preference.model_profile,
+        preference.reasoning_effort,
+        Some("agent_runtime_preference".to_string()),
+    ))
 }

@@ -68,7 +68,8 @@ async fn summarize_single_pass(
     request.options.reasoning_effort = context.summarizer_reasoning_effort;
     request.options.generation_priority = context.generation_priority;
     let response = context
-        .summarizer_provider
+        .summarizer_route
+        .operations()
         .generate_streaming(request, &mut ignored_events)
         .await
         .map_err(|_| FetchError::Summarization)?;
@@ -215,9 +216,18 @@ mod tests {
         let requests = Arc::new(Mutex::new(Vec::new()));
         let context = FetchRuntimeContext {
             summarizer_provider_kind: "codex".to_string(),
-            summarizer_provider: Arc::new(CapturingSummaryProvider {
-                requests: requests.clone(),
-            }),
+            summarizer_route: crate::test_support::provider_route(
+                noema_providers::ProviderSelectionSnapshot::explicit(
+                    "codex",
+                    "provider_account:codex:web-summary-test",
+                    "gpt-5.5-mini",
+                    Some(noema_providers::ReasoningEffort::Low),
+                    Some("web_summary_test".to_string()),
+                ),
+                Arc::new(CapturingSummaryProvider {
+                    requests: requests.clone(),
+                }),
+            ),
             summarizer_model: "gpt-5.5-mini".to_string(),
             summarizer_reasoning_effort: Some(noema_providers::ReasoningEffort::Low),
             generation_priority: noema_providers::GenerationPriority::Background,

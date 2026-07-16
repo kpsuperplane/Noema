@@ -1154,7 +1154,7 @@ no concrete adapter or runtime erasure boundary has moved in this commit.
 
 ### Checkpoint 5B — Provider Handle, Registry, And Resolver Contracts
 
-- [ ] Define the provider-owned object-safe `ProviderOperations` trait,
+- [x] Define the provider-owned object-safe `ProviderOperations` trait,
   `ProviderHandle = Arc<dyn ProviderOperations>`, and one
   `erase_model_provider<T: ModelProvider + Debug + 'static>` adapter. Preserve
   generation, streaming callback/lifetimes, token counting, context metadata,
@@ -1163,7 +1163,7 @@ no concrete adapter or runtime erasure boundary has moved in this commit.
   and availability remains registry/account construction state unless a new
   operation with explicit semantics is deliberately added. Test fakes implement
   this contract without enabling concrete adapters.
-- [ ] Define `ProviderRegistryHandle` as the stable shared indirection used by
+- [x] Define `ProviderRegistryHandle` as the stable shared indirection used by
   runtime and memory. It registers ready provider instances under immutable
   `ProviderInstanceKey`s, returns a `ProviderInstanceLease` with a retirement
   guard, marks an instance retiring, and removes it after leases drain.
@@ -1174,7 +1174,7 @@ no concrete adapter or runtime erasure boundary has moved in this commit.
   default/agent/task/memory/audit/web-summary selections. A
   `ProviderRouteLease` combines the repository-read
   `ProviderSelectionSnapshot` with the matching instance lease.
-- [ ] Keep `ProviderSelectionSnapshot`, `ProviderInstanceKey`, and
+- [x] Keep `ProviderSelectionSnapshot`, `ProviderInstanceKey`, and
   `ProviderRouteLease` in the provider contract surface, capable of carrying an
   exact immutable key. Hosted keys are stable per provider account and final
   local keys include `installation_id`. Do not yet claim that current
@@ -1182,7 +1182,7 @@ no concrete adapter or runtime erasure boundary has moved in this commit.
   until Phase 10C adds it to SQLite and then adopts exact repository adapters
   atomically. No Phase-5 code may synthesize a durable local identity from a
   provider kind, profile, or whichever process happens to be active.
-- [ ] Define an always-compiled, object-safe `ProviderRouteResolver` with
+- [x] Define an always-compiled, object-safe `ProviderRouteResolver` with
   `fn resolve_route(&self) -> BoxFuture<'_, Result<ProviderRouteLease,
   ProviderRouteError>>` and the clonable
   `ProviderRouteResolverHandle = Arc<dyn ProviderRouteResolver>`. Use the
@@ -1195,7 +1195,7 @@ no concrete adapter or runtime erasure boundary has moved in this commit.
   keeps repository identity and IDs out of providers while giving runtime and
   memory one concrete injectable contract rather than an unnamed helper or a
   runtime-owned callback type.
-- [ ] Implement the provider-owned resolver handle so each call reads a fresh
+- [x] Implement the provider-owned resolver handle so each call reads a fresh
   snapshot, attempts the lease before any provider-sensitive work, and on
   `Retiring` or `Missing` re-reads and retries when the snapshot changed. Bound
   retries under continuous mutation; never substitute a default. If an
@@ -1205,7 +1205,7 @@ no concrete adapter or runtime erasure boundary has moved in this commit.
   error. Provide a constructor that accepts only the loader and registry, so
   owner crates can bind repository methods without implementing provider
   internals.
-- [ ] Delete `RuntimeModelProvider` and convert runtime/memory call mechanics and
+- [x] Delete `RuntimeModelProvider` and convert runtime/memory call mechanics and
   test doubles to `ProviderHandle`, but keep current selection semantics behind
   an explicitly temporary core-owned legacy route adapter until Phase 10C. That
   adapter may select the single currently active local process exactly as the
@@ -1214,7 +1214,7 @@ no concrete adapter or runtime erasure boundary has moved in this commit.
   snapshot. It implements `ProviderRouteResolver`, so Phase 8 can inject the
   stable handle unchanged; Phase 10C deletes the legacy implementation when
   production consumers adopt exact SQLite-backed resolver handles.
-- [ ] Run a no-residual-symbol scan for `RuntimeModelProvider` and a focused
+- [x] Run a no-residual-symbol scan for `RuntimeModelProvider` and a focused
   `noema-core` test build after conversion; memory proxy, web-fetch
   summarization, runtime turn/compaction/audit/task paths, eval support, and
   daemon fakes all currently consume that symbol.

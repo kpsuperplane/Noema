@@ -5336,6 +5336,69 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn autofill_tool_calibrations_reads_classification_model_from_replacement_route() {
+        use crate::store::tests::test_store;
+
+        let store = test_store().await;
+        seed_autofill_server(&store).await;
+        let old_requests = Arc::new(Mutex::new(Vec::new()));
+        let old_provider = noema_providers::erase_model_provider(AutofillTestProvider {
+            text: r#"{"suggestions":[]}"#.to_string(),
+            tool_classification_model: Some("old-classifier".to_string()),
+            requests: old_requests.clone(),
+        });
+        let routes = crate::daemon::LegacyProviderRoutes::new([("codex", old_provider)])
+            .expect("provider routes");
+        let runtime = crate::daemon::CodexRuntimeHandle::spawn_with_provider_routes_and_memory(
+            "codex".to_string(),
+            routes.clone(),
+            store.clone(),
+            crate::test_support::artifact_operations(&store).expect("artifact operations"),
+            store.system_error_logger(),
+            None,
+            crate::graphql::ConversationSubscriptionRegistry::default(),
+        )
+        .await
+        .expect("runtime");
+        let replacement_requests = Arc::new(Mutex::new(Vec::new()));
+        let replacement =
+            noema_providers::erase_model_provider(AutofillTestProvider {
+                text: r#"{"suggestions":[{"tool":"read_doc","read":"m","write":"n","export":"n","d":false}]}"#.to_string(),
+                tool_classification_model: Some("replacement-classifier".to_string()),
+                requests: replacement_requests.clone(),
+            });
+        let publication = routes.begin_publication().await;
+        publication
+            .register("codex", replacement)
+            .expect("publish replacement");
+        drop(publication);
+        let schema = build_schema(GraphqlState::for_tests_with_store_and_runtime(
+            store, runtime,
+        ));
+
+        let response = schema
+            .execute(async_graphql::Request::new(
+                r#"
+                mutation {
+                  autofillToolCalibrations(mcpServerId: "mcp_server:docs") {
+                    suggestions { mcpToolId }
+                  }
+                }
+                "#,
+            ))
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        assert!(old_requests.lock().expect("old requests").is_empty());
+        let replacement_requests = replacement_requests.lock().expect("replacement requests");
+        assert_eq!(replacement_requests.len(), 1);
+        assert_eq!(
+            replacement_requests[0].model.as_deref(),
+            Some("replacement-classifier")
+        );
+    }
+
+    #[tokio::test]
     async fn create_conversation_external_artifact_mutation_round_trips() {
         let store = crate::store::tests::test_store().await;
         let conversation = store

@@ -248,10 +248,18 @@ mod tests {
         let home = TempDir::new().expect("temp noema home");
         let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
         let proxy = crate::MemoryModelProxy::start(crate::MemoryModelProxyConfig {
-            provider: std::sync::Arc::new(StaticProvider),
+            route_resolver: crate::test_support::provider_route_resolver(
+                noema_providers::ProviderSelectionSnapshot::explicit(
+                    "codex",
+                    "provider_account:codex:memory-test",
+                    "memory-model",
+                    None,
+                    Some("mnemosyne_test".to_string()),
+                ),
+                std::sync::Arc::new(StaticProvider),
+            ),
             api_key: "proxy-secret".to_string(),
             model_profile: "memory-model".to_string(),
-            reasoning_effort: None,
             system_errors: None,
         })
         .await

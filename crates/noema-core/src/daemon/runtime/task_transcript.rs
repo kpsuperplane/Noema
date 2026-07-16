@@ -18,7 +18,7 @@ use crate::{
 };
 use noema_capabilities::CapabilityCatalogSnapshot;
 use noema_providers::{
-    GenerateRequest, GenerateResponse, GenerateStreamEvent, GenerationPriority, ProviderHandle,
+    GenerateRequest, GenerateResponse, GenerateStreamEvent, GenerationPriority, ProviderOperations,
 };
 
 use super::{
@@ -30,7 +30,7 @@ impl CodexRuntimeActor {
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn generate_task_provider_round(
         &self,
-        provider: &ProviderHandle,
+        provider: &dyn ProviderOperations,
         mut request: GenerateRequest,
         bindings: &CapabilityCatalogSnapshot,
         run_id: &str,

@@ -7,7 +7,7 @@ use noema_conversations::{
 
 use noema_providers::{
     GenerateInput, GenerateOptions, GenerateRequest, GenerateResponseItem, GenerateStreamEvent,
-    ProviderHandle,
+    ProviderRouteLease,
 };
 use serde_json::json;
 
@@ -31,7 +31,7 @@ pub(super) struct TaskCompletionGeneration {
     request: TaskCompletionDeliveryRequest,
     turn_id: String,
     turn_index: u64,
-    provider: Option<ProviderHandle>,
+    provider: Option<ProviderRouteLease>,
     model: Option<String>,
     reasoning_effort: Option<noema_providers::ReasoningEffort>,
     subscriptions: crate::graphql::ConversationSubscriptionRegistry,
@@ -81,6 +81,7 @@ impl TaskCompletionGeneration {
                     }
                 };
                 match provider
+                    .operations()
                     .generate_streaming(
                         GenerateRequest {
                             conversation_id: Some(request.conversation_id.clone()),
@@ -180,7 +181,10 @@ impl CodexRuntimeActor {
 
         self.publish_status(&request.conversation_id, PersistedAgentStatus::Thinking)
             .await;
-        let provider = match self.provider_for_kind(&conversation.provider_kind) {
+        let provider = match self
+            .resolve_provider_route(conversation.provider_selection.clone())
+            .await
+        {
             Ok(provider) => Some(provider),
             Err(error) => {
                 self.system_errors.try_append(
@@ -191,7 +195,7 @@ impl CodexRuntimeActor {
                     .with_context(json!({
                         "task_id": request.task_id,
                         "delivery_id": request.delivery_id,
-                        "provider_kind": conversation.provider_kind,
+                        "provider_kind": conversation.provider_kind(),
                     }))
                     .with_error_chain([error.to_string()]),
                 );
@@ -204,8 +208,8 @@ impl CodexRuntimeActor {
                 turn_id: turn.turn_id,
                 turn_index,
                 provider,
-                model: conversation.model,
-                reasoning_effort: conversation.reasoning_effort,
+                model: conversation.model().map(str::to_string),
+                reasoning_effort: conversation.reasoning_effort(),
                 subscriptions: self.task_subscriptions.clone(),
                 system_errors: self.system_errors.clone(),
             },

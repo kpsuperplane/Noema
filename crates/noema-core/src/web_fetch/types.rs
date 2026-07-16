@@ -2,7 +2,8 @@
 
 use crate::web_fetch::direct_http::DirectHttpClient;
 use noema_capabilities::web::fetch::{FetchRequest, FetchResponse};
-use noema_providers::ProviderHandle;
+use noema_providers::ProviderRouteLease;
+use std::sync::Arc;
 use thiserror::Error;
 
 pub const DIRECT_HTTP_PROVIDER_ID: &str = "direct_http";
@@ -15,7 +16,7 @@ pub const RAW_EXCERPT_CHARS: usize = 2_000;
 #[derive(Debug, Clone)]
 pub struct FetchRuntimeContext {
     pub summarizer_provider_kind: String,
-    pub summarizer_provider: ProviderHandle,
+    pub summarizer_route: Arc<ProviderRouteLease>,
     pub summarizer_model: String,
     pub summarizer_reasoning_effort: Option<noema_providers::ReasoningEffort>,
     pub generation_priority: noema_providers::GenerationPriority,

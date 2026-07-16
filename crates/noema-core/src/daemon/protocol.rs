@@ -1,6 +1,8 @@
 use crate::StoreError;
 use noema_home::NoemaPathError;
-use noema_providers::{MultipleChoiceOption, MultipleChoiceSelectionMode, ProviderError};
+use noema_providers::{
+    MultipleChoiceOption, MultipleChoiceSelectionMode, ProviderError, ProviderRouteError,
+};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use ts_rs::TS;
@@ -181,6 +183,10 @@ pub enum DaemonError {
     /// Provider operation failed.
     #[error(transparent)]
     Provider(#[from] ProviderError),
+
+    /// Provider selection could not be leased to an exact runtime instance.
+    #[error(transparent)]
+    ProviderRoute(#[from] ProviderRouteError),
 
     /// Embedded store operation failed.
     #[error(transparent)]

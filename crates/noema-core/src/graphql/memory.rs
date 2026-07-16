@@ -682,9 +682,30 @@ async fn generate_memory_article(
         "Return Markdown only. Write a compact Wikipedia-style biographical article from the supplied memory facts. Do not invent facts. Preserve the supplied inline footnote markers exactly."
             .to_string(),
     );
+    let provider_kind = settings
+        .provider_kind
+        .unwrap_or_else(|| runtime.provider_kind().to_string());
+    let provider_account_id = settings
+        .provider_account_id
+        .unwrap_or_else(|| format!("provider_account:{provider_kind}:default"));
+    let selection = match settings.model_profile {
+        Some(model_profile) => noema_providers::ProviderSelectionSnapshot::explicit(
+            &provider_kind,
+            provider_account_id,
+            model_profile,
+            request.options.reasoning_effort,
+            Some("memory_article_settings".to_string()),
+        ),
+        None => noema_providers::ProviderSelectionSnapshot::provider_default(
+            &provider_kind,
+            provider_account_id,
+            request.options.reasoning_effort,
+            Some("memory_article_settings".to_string()),
+        ),
+    };
 
     let response = runtime
-        .generate_once_with_provider_kind(settings.provider_kind.clone(), request)
+        .generate_once_with_provider_selection(selection, request)
         .await
         .map_err(graphql_error)?;
     let markdown = response.assistant_text();
