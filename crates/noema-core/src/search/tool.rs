@@ -1,27 +1,11 @@
 //! Model-visible `web.search` tool contract and runtime executor.
 
-use crate::{
-    provider::{NoemaToolExecution, NoemaToolSpec, ToolContractError},
-    search::types::{SearchError, SearchRequest, SearchResponse, SearchRuntimeProvider},
+use crate::search::types::{SearchError, SearchRuntimeProvider};
+use noema_capabilities::{
+    ToolContractError, ToolSpec,
+    web::search::{SearchRequest, SearchResponse, WEB_SEARCH_TOOL},
 };
-use serde::Deserialize;
 use serde_json::{Value, json};
-
-pub(crate) const WEB_SEARCH_TOOL: &str = "web.search";
-pub(crate) const DEFAULT_RESULTS: usize = 5;
-pub(crate) const MAX_RESULTS: usize = 10;
-pub(crate) const MAX_QUERY_CHARS: usize = 500;
-const MAX_REASON_CHARS: usize = 500;
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct WebSearchArguments {
-    query: String,
-    #[serde(default)]
-    reason: Option<String>,
-    #[serde(default)]
-    max_results: Option<usize>,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WebSearchToolResult {
@@ -35,36 +19,8 @@ pub(crate) fn is_web_search_tool(name: &str) -> bool {
     name == WEB_SEARCH_TOOL
 }
 
-pub(crate) fn web_search_tool_spec() -> Result<NoemaToolSpec, ToolContractError> {
-    NoemaToolSpec::new(
-        WEB_SEARCH_TOOL,
-        "Search the public web using Noema's configured search provider.",
-        json!({
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": MAX_QUERY_CHARS,
-                    "description": "The exact internet search query to send to the configured search provider."
-                },
-                "reason": {
-                    "type": "string",
-                    "maxLength": MAX_REASON_CHARS,
-                    "description": "Brief reason this search is useful for the current response."
-                },
-                "max_results": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": MAX_RESULTS,
-                    "description": "Maximum number of search results to return."
-                }
-            },
-            "required": ["query"],
-            "additionalProperties": false
-        }),
-        NoemaToolExecution::WebSearch,
-    )
+pub(crate) fn web_search_tool_spec() -> Result<ToolSpec, ToolContractError> {
+    noema_capabilities::web::search::tool_spec()
 }
 
 pub(crate) async fn execute_web_search(
@@ -100,60 +56,8 @@ async fn execute_web_search_inner(
 }
 
 pub(crate) fn parse_web_search_arguments(payload: &Value) -> Result<SearchRequest, SearchError> {
-    let argument_value = if let Some(arguments) = payload.get("arguments") {
-        reject_nested_outer_fields(payload)?;
-        arguments.clone()
-    } else {
-        payload.clone()
-    };
-    let mut arguments: WebSearchArguments = serde_json::from_value(argument_value)
-        .map_err(|error| SearchError::InvalidArguments(format!("invalid arguments: {error}")))?;
-
-    arguments.query = arguments.query.trim().to_string();
-    if arguments.query.is_empty() {
-        return Err(SearchError::InvalidArguments(
-            "query is required".to_string(),
-        ));
-    }
-    if arguments.query.chars().count() > MAX_QUERY_CHARS {
-        return Err(SearchError::InvalidArguments(format!(
-            "query must be {MAX_QUERY_CHARS} characters or fewer"
-        )));
-    }
-    let reason = arguments
-        .reason
-        .map(|reason| reason.trim().to_string())
-        .filter(|reason| !reason.is_empty());
-    if reason
-        .as_deref()
-        .is_some_and(|value| value.chars().count() > MAX_REASON_CHARS)
-    {
-        return Err(SearchError::InvalidArguments(format!(
-            "reason must be {MAX_REASON_CHARS} characters or fewer"
-        )));
-    }
-
-    Ok(SearchRequest {
-        query: arguments.query,
-        reason,
-        max_results: arguments
-            .max_results
-            .unwrap_or(DEFAULT_RESULTS)
-            .clamp(1, MAX_RESULTS),
-    })
-}
-
-fn reject_nested_outer_fields(payload: &Value) -> Result<(), SearchError> {
-    let Some(object) = payload.as_object() else {
-        return Ok(());
-    };
-    if object.keys().all(|key| key == "arguments") {
-        Ok(())
-    } else {
-        Err(SearchError::InvalidArguments(
-            "nested arguments payload cannot include outer fields".to_string(),
-        ))
-    }
+    noema_capabilities::web::search::parse_arguments(payload)
+        .map_err(|error| SearchError::InvalidArguments(error.message().to_string()))
 }
 
 pub(crate) fn safe_error_message(error: &SearchError) -> String {
@@ -179,15 +83,14 @@ mod tests {
         let spec = web_search_tool_spec().expect("tool spec");
 
         assert_eq!(spec.name.as_str(), WEB_SEARCH_TOOL);
-        assert!(matches!(spec.execution, NoemaToolExecution::WebSearch));
         assert_eq!(spec.input_schema.as_value()["required"], json!(["query"]));
         assert_eq!(
             spec.input_schema.as_value()["properties"]["query"]["maxLength"],
-            MAX_QUERY_CHARS
+            noema_capabilities::web::search::MAX_QUERY_CHARS
         );
         assert_eq!(
             spec.input_schema.as_value()["properties"]["max_results"]["maximum"],
-            MAX_RESULTS
+            noema_capabilities::web::search::MAX_RESULTS
         );
     }
 
@@ -218,7 +121,10 @@ mod tests {
         }))
         .expect("arguments");
 
-        assert_eq!(arguments.max_results, MAX_RESULTS);
+        assert_eq!(
+            arguments.max_results,
+            noema_capabilities::web::search::MAX_RESULTS
+        );
     }
 
     #[test]

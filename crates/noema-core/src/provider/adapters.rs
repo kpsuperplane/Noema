@@ -18,6 +18,10 @@ pub(crate) mod noema_response_stream;
 pub mod openai;
 /// Shared transport and parser for Responses API providers.
 pub mod responses;
+mod responses_format;
+mod responses_input;
+mod responses_output;
+mod responses_tools;
 /// Shared Server-Sent Events parser for Responses API streams.
 pub(crate) mod sse;
 /// Shared one-shot HTTP server helpers for provider and integration tests.

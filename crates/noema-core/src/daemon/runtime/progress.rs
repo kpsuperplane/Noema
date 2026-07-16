@@ -256,6 +256,7 @@ mod tests {
             provider_call_id: Some(call_id.to_string()),
             provider_name: Some("web.search".to_string()),
             arguments: json!({ "query": "healthy restaurants" }),
+            persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
             result: WebSearchToolResult {
                 call_id: Some(call_id.to_string()),
                 name: "web.search".to_string(),

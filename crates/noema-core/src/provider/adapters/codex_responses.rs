@@ -356,8 +356,9 @@ mod tests {
     use crate::provider::adapters::test_support::spawn_server;
     use crate::provider::{
         GenerateInput, GenerateOptions, GenerateResponseStatus, NoemaToolChoice,
-        NoemaToolExecution, NoemaToolSpec, ProviderToolSchemaDialect, ProviderToolTransport,
+        ProviderToolSchemaDialect, ProviderToolTransport,
     };
+    use noema_capabilities::ToolSpec;
     use serde_json::Value;
     use tempfile::TempDir;
 
@@ -827,8 +828,8 @@ mod tests {
         .to_string()
     }
 
-    fn mcp_docs_read_tool() -> NoemaToolSpec {
-        NoemaToolSpec::new(
+    fn mcp_docs_read_tool() -> ToolSpec {
+        ToolSpec::new(
             "mcp.docs:read",
             "Read docs.",
             serde_json::json!({
@@ -837,13 +838,12 @@ mod tests {
                 "required": ["document_id"],
                 "additionalProperties": false
             }),
-            NoemaToolExecution::LocalBuiltin,
         )
         .expect("tool")
     }
 
-    fn search_memory_tool() -> NoemaToolSpec {
-        NoemaToolSpec::new(
+    fn search_memory_tool() -> ToolSpec {
+        ToolSpec::new(
             "search_memory",
             "Search memory.",
             serde_json::json!({
@@ -852,7 +852,6 @@ mod tests {
                 "required": ["query"],
                 "additionalProperties": false
             }),
-            NoemaToolExecution::LocalBuiltin,
         )
         .expect("tool")
     }

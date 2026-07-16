@@ -407,7 +407,17 @@ mod tests {
             response.output_text().expect("output text"),
             "{\"response_status\":\"needs_tools\",\"responses\":[{\"kind\":\"text\",\"phase\":\"commentary\",\"text\":\"Checking.\"}],\"tool_calls\":[]}"
         );
-        let calls = response.native_tool_calls().expect("native calls");
+        let tools = [noema_capabilities::ToolSpec::new(
+            "search_memory",
+            "Search memory.",
+            serde_json::json!({"type": "object"}),
+        )
+        .expect("tool")];
+        let names =
+            super::super::responses::ResponsesToolNameMap::from_tools(&tools).expect("tool names");
+        let calls = response
+            .native_tool_calls_with_names(&names)
+            .expect("native calls");
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].id.as_deref(), Some("item_1"));
         assert_eq!(calls[0].provider_call_id.as_deref(), Some("call_1"));

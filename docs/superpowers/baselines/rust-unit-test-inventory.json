@@ -857,5 +857,33 @@
     "yaml_openai_api_key_is_rejected": 1,
     "zero_codex_timeout_is_an_error": 1
   },
-  "acceptedAliases": {}
+  "acceptedAliases": {
+    "canonical_tool_spec_accepts_web_search_execution_kind": [
+      "serialized_spec_contains_no_execution_authority"
+    ],
+    "gateway_reports_unknown_tool_with_provider_continuation": [
+      "uncalibrated_mcp_tool_call_is_rejected_as_unadvertised_and_continues"
+    ],
+    "mcp_tool_arguments_accept_nested_or_raw_payloads": [
+      "invocation_forwards_a_legitimate_arguments_property_exactly"
+    ],
+    "parses_mcp_tool_name_with_colon_server_id": [
+      "authority_round_trips_colon_server_id"
+    ],
+    "policy_aware_gateway_rejects_hidden_tool_before_mcp_lookup": [
+      "known_background_call_denied_by_role_policy_uses_binding_persistence"
+    ],
+    "primary_compatibility_can_be_made_strict": [
+      "primary_dispatch_is_strict_by_default"
+    ],
+    "task_transcript_does_not_persist_mcp_payloads": [
+      "task_transcript_uses_binding_policy_after_mcp_rename"
+    ],
+    "tool_result_preserves_provider_call_id": [
+      "generate_tool_call_preserves_provider_call_id_separately"
+    ],
+    "uncalibrated_mcp_tool_call_returns_disabled_server_result": [
+      "uncalibrated_mcp_tool_call_is_rejected_as_unadvertised_and_continues"
+    ]
+  }
 }

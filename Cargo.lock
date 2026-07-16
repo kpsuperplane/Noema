@@ -2688,6 +2688,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "noema-capabilities"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "ts-rs",
+ "url",
+]
+
+[[package]]
 name = "noema-conversations"
 version = "0.1.0"
 dependencies = [
@@ -2710,6 +2721,7 @@ dependencies = [
  "http",
  "libc",
  "noema-artifacts",
+ "noema-capabilities",
  "noema-conversations",
  "noema-home",
  "readabilityrs",

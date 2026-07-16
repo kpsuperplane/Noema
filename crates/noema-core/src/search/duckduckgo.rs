@@ -1,10 +1,10 @@
 //! DuckDuckGo public search provider.
 
 use crate::search::types::{
-    BEST_EFFORT_PUBLIC_CONTRACT, DUCKDUCKGO_PUBLIC_PROVIDER_ID, SearchError, SearchRequest,
-    SearchResponse, SearchResult,
+    BEST_EFFORT_PUBLIC_CONTRACT, DUCKDUCKGO_PUBLIC_PROVIDER_ID, SearchError,
 };
 use futures_util::StreamExt;
+use noema_capabilities::web::search::{SearchRequest, SearchResponse, SearchResult};
 use reqwest::Client;
 use scraper::{Html, Selector};
 use std::time::Duration;

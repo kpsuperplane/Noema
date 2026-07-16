@@ -3393,12 +3393,12 @@ async fn search_memory_returns_sanitized_mnemosyne_failure() {
 #[tokio::test]
 async fn runtime_actor_executes_web_search_as_local_tool_result() {
     let search_provider = crate::search::types::SearchRuntimeProvider::Static {
-        response: crate::search::types::SearchResponse {
+        response: noema_capabilities::web::search::SearchResponse {
             provider: "duckduckgo_public".to_string(),
             provider_contract: "best_effort_public".to_string(),
             query: String::new(),
             summary: "Found 1 web result".to_string(),
-            results: vec![crate::search::types::SearchResult {
+            results: vec![noema_capabilities::web::search::SearchResult {
                 rank: 1,
                 title: "Rust Programming Language".to_string(),
                 url: "https://www.rust-lang.org/".to_string(),
@@ -3665,12 +3665,12 @@ async fn rejected_response_chain_falls_back_to_complete_local_replay() {
 #[tokio::test]
 async fn web_search_result_is_sent_as_native_tool_result_input() {
     let search_provider = crate::search::types::SearchRuntimeProvider::Static {
-        response: crate::search::types::SearchResponse {
+        response: noema_capabilities::web::search::SearchResponse {
             provider: "duckduckgo_public".to_string(),
             provider_contract: "best_effort_public".to_string(),
             query: String::new(),
             summary: "Found 1 web result".to_string(),
-            results: vec![crate::search::types::SearchResult {
+            results: vec![noema_capabilities::web::search::SearchResult {
                 rank: 1,
                 title: "Rust Programming Language".to_string(),
                 url: "https://www.rust-lang.org/".to_string(),
@@ -3719,20 +3719,20 @@ async fn web_search_result_is_sent_as_native_tool_result_input() {
 
 #[tokio::test]
 async fn native_provider_can_call_web_fetch_and_continue() {
-    let fetch_response = crate::web_fetch::types::FetchResponse {
+    let fetch_response = noema_capabilities::web::fetch::FetchResponse {
         provider: crate::web_fetch::types::DIRECT_HTTP_PROVIDER_ID.to_string(),
         url: String::new(),
         final_url: "https://example.com/page".to_string(),
         title: Some("Example Page".to_string()),
         format: "markdown".to_string(),
         extraction: crate::web_fetch::types::EXTRACTION_READABILITYRS.to_string(),
-        content_kind: crate::web_fetch::types::FetchContentKind::RawMarkdown,
+        content_kind: noema_capabilities::web::fetch::FetchContentKind::RawMarkdown,
         content: "Example fetched page content.".to_string(),
         raw_excerpt: None,
         raw_chars: 29,
         returned_chars: 29,
         summary_model: None,
-        summary_strategy: crate::web_fetch::types::FetchSummaryStrategy::NotSummarized,
+        summary_strategy: noema_capabilities::web::fetch::FetchSummaryStrategy::NotSummarized,
         truncated: false,
     };
     let web_fetch_provider = crate::web_fetch::types::WebFetchRuntimeProvider::Static {
@@ -3977,7 +3977,7 @@ async fn hard_ceiling_gets_one_no_tools_finalization_attempt() {
     let (handle, store) = test_runtime_handle_with_search_provider(
         provider.clone(),
         crate::search::types::SearchRuntimeProvider::Static {
-            response: crate::search::types::SearchResponse {
+            response: noema_capabilities::web::search::SearchResponse {
                 provider: "test".to_string(),
                 provider_contract: "test".to_string(),
                 query: "restaurants".to_string(),
@@ -4041,7 +4041,7 @@ async fn audit_execution_failure_gets_one_no_tools_finalization_attempt() {
     let (handle, store) = test_runtime_handle_with_search_provider(
         provider.clone(),
         crate::search::types::SearchRuntimeProvider::Static {
-            response: crate::search::types::SearchResponse {
+            response: noema_capabilities::web::search::SearchResponse {
                 provider: "test".to_string(),
                 provider_contract: "test".to_string(),
                 query: "restaurants".to_string(),
@@ -4505,10 +4505,9 @@ async fn search_memory_tool_invalid_arguments_are_failed_tool_result() {
 }
 
 #[tokio::test]
-async fn uncalibrated_mcp_tool_call_returns_disabled_server_result() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::UncalibratedMcpToolCall))
-            .await;
+async fn uncalibrated_mcp_tool_call_is_rejected_as_unadvertised_and_continues() {
+    let (handle, store, provider) =
+        recording_test_runtime_handle_with_store(FakeCodexScenario::UncalibratedMcpToolCall).await;
     seed_enabled_uncalibrated_mcp_tool(&store).await;
 
     let conversation_id = handle
@@ -4516,33 +4515,47 @@ async fn uncalibrated_mcp_tool_call_returns_disabled_server_result() {
         .await
         .expect("conversation")
         .conversation_id;
-    collect_turn(&handle, conversation_id.clone(), "read my doc".to_string())
+    let items = collect_turn(&handle, conversation_id.clone(), "read my doc".to_string())
         .await
         .expect("turn");
     handle.shutdown().await;
 
-    let items = store
-        .list_conversation_items(&conversation_id, ReplayMode::Visible)
-        .await
-        .expect("conversation items");
+    let requests = provider.requests();
+    let visibility = latest_model_context_section(&requests[0].input, "tools.visibility")
+        .expect("initial tools visibility");
+    assert!(!visibility.contains("mcp.docs.read"));
     assert!(
         items.iter().any(|item| {
-            item.kind == ConversationItemKind::ToolResult
-                && item.status == ConversationItemStatus::Failed
-                && item.payload_json["metadata"]["action"]["name"] == "mcp.docs.read"
-                && item.payload_json["metadata"]["action"]["payload"]["error"]
-                    == "mcp_server_disabled"
+            matches!(
+                item,
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    status: TurnActivityStatus::Failed,
+                    metadata,
+                    ..
+                } if activity_kind == "tool_result"
+                    && metadata["action"]["name"] == "mcp.docs.read"
+                    && metadata["action"]["payload"]["error"]
+                        == "capability operation is unavailable"
+            )
         }),
-        "expected disabled MCP server result, got {items:?}"
+        "expected strict unadvertised capability result, got {items:?}"
     );
+    assert!(!format!("{items:?}").contains("mcp_server_disabled"));
+    assert!(items.iter().any(|item| matches!(
+        item,
+        TurnTranscriptItem::AssistantText { text }
+            if text == "uncalibrated MCP tool failed"
+    )));
 }
 
 #[tokio::test]
 async fn failed_mcp_tool_result_continues_to_provider() {
-    let handle = test_runtime_handle(fake_provider(
+    let (handle, store, provider) = recording_test_runtime_handle_with_store(
         FakeCodexScenario::FailedMcpToolResultContinuation,
-    ))
+    )
     .await;
+    seed_ready_unreachable_notion_mcp_tool(&store).await;
 
     let conversation_id = handle
         .start_conversation(None)
@@ -4558,21 +4571,84 @@ async fn failed_mcp_tool_result_continues_to_provider() {
     .expect("turn");
     handle.shutdown().await;
 
-    assert!(items.iter().any(|item| matches!(
-        item,
-        TurnTranscriptItem::Activity {
-            activity_kind,
-            status: TurnActivityStatus::Failed,
-            title,
-            ..
-        } if activity_kind == "tool_result"
-            && title == "Tool result: mcp.mcp:notion.notion-create-pages"
-    )));
+    let requests = provider.requests();
+    let visibility = latest_model_context_section(&requests[0].input, "tools.visibility")
+        .expect("initial tools visibility");
+    assert!(visibility.contains("mcp.mcp:notion.notion-create-pages"));
+    assert!(
+        items.iter().any(|item| matches!(
+            item,
+            TurnTranscriptItem::Activity {
+                activity_kind,
+                status: TurnActivityStatus::Failed,
+                title,
+                metadata,
+                ..
+            } if activity_kind == "tool_result"
+                && title == "Tool result: mcp.mcp:notion.notion-create-pages"
+                && metadata["action"]["payload"]["error"] == "capability invocation failed"
+        )),
+        "expected sanitized advertised MCP transport failure, got {items:?}"
+    );
     assert!(items.iter().any(|item| matches!(
         item,
         TurnTranscriptItem::AssistantText { text }
             if text == "I saw the Notion tool failure and can explain it."
     )));
+}
+
+async fn seed_ready_unreachable_notion_mcp_tool(store: &crate::NoemaStore) {
+    store
+        .create_mcp_server(crate::NewMcpServer {
+            mcp_server_id: "mcp:notion".to_string(),
+            display_name: "Notion".to_string(),
+            transport_kind: crate::McpTransportKind::Stdio,
+            safe_config: json!({
+                "command": "/definitely/not/a/real/noema-mcp-server",
+                "args": []
+            }),
+        })
+        .await
+        .expect("create MCP server");
+    crate::mcp::secrets::write_mcp_secrets(
+        &store.mcp_server_home("mcp:notion"),
+        &crate::mcp::secrets::McpSecretMaterial::default(),
+    )
+    .expect("write empty MCP secrets");
+    store
+        .update_mcp_server_setup_status(
+            "mcp:notion",
+            crate::McpServerHealthStatus::Healthy,
+            crate::McpServerAuthStatus::None,
+        )
+        .await
+        .expect("mark MCP healthy");
+    store
+        .upsert_discovered_mcp_tool(crate::NewMcpTool {
+            mcp_tool_id: "mcp_tool:notion:create-pages".to_string(),
+            mcp_server_id: "mcp:notion".to_string(),
+            name: "notion-create-pages".to_string(),
+            description: Some("Create Notion pages.".to_string()),
+            input_schema: json!({"type": "object"}),
+            output_schema: Some(json!({"type": "object"})),
+            annotations: json!({}),
+            metadata_fingerprint: "fingerprint:notion:create-pages:v1".to_string(),
+        })
+        .await
+        .expect("upsert MCP tool");
+    store
+        .save_tool_calibration(crate::NewToolCalibration {
+            calibration_id: "calibration:notion:create-pages".to_string(),
+            mcp_tool_id: "mcp_tool:notion:create-pages".to_string(),
+            read_classification: crate::McpTrustClassification::Trusted,
+            write_classification: crate::McpTrustClassification::None,
+            export_classification: crate::McpTrustClassification::None,
+            status: crate::McpCalibrationStatus::Ready,
+            reviewed_by: Some("human:test-reviewer".to_string()),
+            reviewed_metadata_fingerprint: Some("fingerprint:notion:create-pages:v1".to_string()),
+        })
+        .await
+        .expect("save calibration");
 }
 
 async fn seed_enabled_uncalibrated_mcp_tool(store: &crate::NoemaStore) {
@@ -4707,6 +4783,26 @@ async fn test_runtime_handle_with_store(
         .await
         .expect("runtime");
     (handle, store)
+}
+
+async fn recording_test_runtime_handle_with_store(
+    scenario: FakeCodexScenario,
+) -> (
+    CodexRuntimeHandle,
+    crate::NoemaStore,
+    Arc<RecordingFakeProvider>,
+) {
+    let home = tempfile::tempdir().expect("temp noema home");
+    let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
+        .await
+        .expect("store");
+    std::mem::forget(home);
+    let provider = Arc::new(RecordingFakeProvider::new("codex", scenario));
+    let handle = CodexRuntimeHandle::spawn_with_provider(provider.clone(), store.clone())
+        .await
+        .expect("runtime");
+    (handle, store, provider)
 }
 
 async fn test_runtime_handle_with_task_delegation(
@@ -4997,7 +5093,7 @@ async fn test_runtime_handle_with_search_and_fetch_providers(
     web_fetch_provider: crate::web_fetch::types::WebFetchRuntimeProvider,
 ) -> (CodexRuntimeHandle, crate::NoemaStore) {
     let search_provider = crate::search::types::SearchRuntimeProvider::Static {
-        response: crate::search::types::SearchResponse {
+        response: noema_capabilities::web::search::SearchResponse {
             provider: "duckduckgo_public".to_string(),
             provider_contract: "best_effort_public".to_string(),
             query: String::new(),
@@ -5505,7 +5601,7 @@ impl FakeCodexProvider {
             }
             FakeCodexScenario::FailedMcpToolResultContinuation => {
                 if input.contains("NOEMA_LOCAL_TOOL_RESULT")
-                    && input.contains("mcp_server_not_found")
+                    && input.contains("capability invocation failed")
                 {
                     assistant_with_no_memories("I saw the Notion tool failure and can explain it.")
                 } else {

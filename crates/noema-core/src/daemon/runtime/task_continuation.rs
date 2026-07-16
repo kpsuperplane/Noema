@@ -10,7 +10,7 @@ use crate::{
 
 use super::{
     local_tools::LocalToolResult, model_tools::ModelTools,
-    task_transcript::sanitize_task_tool_payload,
+    task_transcript::omitted_capability_payload,
 };
 
 pub(super) fn is_valid_terminal_tool(role: ExecutionRole, name: &str) -> bool {
@@ -38,11 +38,12 @@ pub(super) fn render_tool_names(tools: &ModelTools) -> String {
     tools.prompt_rows.join("\n")
 }
 
-pub(super) fn terminal_contract_tools(tools: &ModelTools) -> Vec<crate::provider::NoemaToolSpec> {
+pub(super) fn terminal_contract_tools(tools: &ModelTools) -> Vec<noema_capabilities::ToolSpec> {
     let strict_policy = tools.tool_policy.strict_for_dispatch();
     tools
-        .tools
+        .bindings
         .iter()
+        .map(noema_capabilities::CapabilityBinding::spec)
         .filter(|tool| {
             strict_policy.allows_tool(tool.name.as_str())
                 && is_task_terminal_tool(tool.name.as_str())
@@ -62,14 +63,14 @@ pub(super) fn render_continuation_tool_names(tools: &ModelTools) -> String {
 pub(super) fn terminal_tool_instructions(
     instructions: &str,
     tools: &ModelTools,
-    terminal_tools: &[crate::provider::NoemaToolSpec],
+    terminal_tools: &[noema_capabilities::ToolSpec],
 ) -> String {
     let rendered = render_specs(terminal_tools, true);
     let envelope = noema_envelope_instructions(tools.transport);
     format!("{instructions}\n\nRequired terminal tool contract:\n{rendered}{envelope}")
 }
 
-fn render_specs(tools: &[crate::provider::NoemaToolSpec], include_schema: bool) -> String {
+fn render_specs(tools: &[noema_capabilities::ToolSpec], include_schema: bool) -> String {
     tools
         .iter()
         .map(|tool| {
@@ -106,11 +107,19 @@ pub(super) fn task_tool_result_transcript_payload(result: &LocalToolResult) -> s
     if let Some(object) = payload.as_object_mut() {
         object.insert(
             "arguments".to_string(),
-            sanitize_task_tool_payload(result.name(), result.arguments()),
+            result
+                .persisted()
+                .arguments
+                .clone()
+                .unwrap_or_else(omitted_capability_payload),
         );
         object.insert(
             "payload".to_string(),
-            sanitize_task_tool_payload(result.name(), result.payload()),
+            result
+                .persisted()
+                .output
+                .clone()
+                .unwrap_or_else(omitted_capability_payload),
         );
     }
     payload

@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/noema-artifacts",
+    "crates/noema-capabilities",
     "crates/noema-conversations",
     "crates/noema-core",
     "crates/noema-desktop",

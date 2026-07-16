@@ -1,29 +1,30 @@
 use crate::{
     ProviderAccountStatus,
     agent_execution::{ExecutionRole, ToolPolicy},
-    capability::{CapabilityGateway, GatewayToolProposal, GatewayToolResult},
-    provider::{DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateActionItem},
+    capability::CapabilityGateway,
+    provider::DEFAULT_TOOL_CLASSIFICATION_MODEL,
     search::types::{DUCKDUCKGO_PUBLIC_PROVIDER_ID, SearchRuntimeProvider},
 };
+use noema_capabilities::{
+    CapabilityDispatchFailure, CapabilityError, CapabilityFuture, CapabilityInvocation,
+    CapabilityInvoker, CapabilityOutput, CapabilityRegistryRouter, CapabilityRouter, InvokerKey,
+};
 use serde_json::{Value, json};
+use std::sync::{Arc, Mutex};
 
 use super::{
     actor::CodexRuntimeActor, tool_lifecycle::LocalToolCall, turn::SuccessfulProviderTurn,
 };
-use crate::daemon::TurnTranscriptItem;
 use crate::daemon::{
     agent_name_tool::{
-        AgentNameToolResult, AgentNameToolRuntimeContext, execute_update_own_name,
-        is_update_own_name_tool,
+        AgentNameToolRuntimeContext, execute_update_own_name, is_update_own_name_tool,
     },
     agent_onboarding::AgentPromptIdentity,
     artifact_tool::{
-        ArtifactToolResult, ArtifactToolRuntimeContext, execute_artifact_create_local_file,
+        ArtifactToolRuntimeContext, execute_artifact_create_local_file,
         is_artifact_create_local_file_tool,
     },
-    memory::tool::{
-        MemoryToolResult, MemoryToolRuntimeContext, execute_search_memory, is_search_memory_tool,
-    },
+    memory::tool::{MemoryToolRuntimeContext, execute_search_memory, is_search_memory_tool},
     task_artifact_tool::{
         TaskArtifactReadContext, execute_task_read_artifact, is_task_read_artifact_tool,
     },
@@ -36,28 +37,30 @@ use crate::daemon::{
 };
 use crate::search::tool::{WebSearchToolResult, execute_web_search, is_web_search_tool};
 use crate::web_fetch::{
-    tool::{WEB_FETCH_TOOL, WebFetchToolResult, execute_web_fetch, is_web_fetch_tool},
+    tool::{WebFetchToolResult, execute_web_fetch, is_web_fetch_tool},
     types::{FetchRuntimeContext, WebFetchRuntimeProvider},
 };
+use noema_capabilities::web::fetch::WEB_FETCH_TOOL;
 
 const EXA_API_BASE_URL: &str = "https://api.exa.ai";
 const PROVIDER_ACCOUNT_UNAUTHENTICATED: &str = "provider account unauthenticated";
 
 impl CodexRuntimeActor {
-    /// Execute a foreground tool with the legacy primary-agent policy.
-    ///
-    /// Background execution should call [`Self::execute_local_tool_with_policy`]
-    /// so the same allowlist used to build provider-visible tools is enforced
-    /// again at dispatch.
+    /// Execute a foreground tool through the exact initial advertised binding
+    /// snapshot and its strict role policy.
     pub(super) async fn execute_local_tool(
         &self,
         turn: &SuccessfulProviderTurn,
         agent_identity: &AgentPromptIdentity,
         call: &LocalToolCall,
     ) -> LocalToolResult {
-        let policy = ToolPolicy::for_role(ExecutionRole::PrimaryConversation);
-        self.execute_local_tool_with_policy(turn, agent_identity, call, &policy)
-            .await
+        self.execute_local_tool_with_policy(
+            turn,
+            agent_identity,
+            call,
+            &turn.initial_model_tools.tool_policy,
+        )
+        .await
     }
 
     /// Execute one local/MCP tool under an explicit role policy.
@@ -68,25 +71,75 @@ impl CodexRuntimeActor {
         call: &LocalToolCall,
         policy: &ToolPolicy,
     ) -> LocalToolResult {
-        let gateway = CapabilityGateway {
-            store: &self.store,
-            system_errors: &self.system_errors,
-        };
-        if !policy.allows_tool(&call.name) {
-            return LocalToolResult::Gateway {
-                call_id: call.call_id.clone(),
-                provider_call_id: call.provider_call_id.clone(),
-                provider_name: call.provider_name.clone(),
-                name: call.name.clone(),
-                arguments: call.payload.clone(),
-                result: GatewayToolResult {
-                    success: false,
-                    payload: json!({"error": "tool_not_allowed_for_execution_role"}),
-                    requires_provider_continuation: true,
-                },
-            };
+        let snapshot = &turn.initial_model_tools.bindings;
+        if snapshot.resolve(&call.name).is_none()
+            || !policy.strict_for_dispatch().allows_tool(&call.name)
+        {
+            let failure = CapabilityDispatchFailure::from_snapshot(
+                snapshot,
+                &call.name,
+                &call.payload,
+                CapabilityError::Denied,
+            );
+            return gateway_failure_result(call, failure);
         }
-        if is_search_memory_tool(&call.name) {
+
+        let runtime_invoker = Arc::new(RuntimeExecutionInvoker::new(
+            self,
+            turn,
+            agent_identity,
+            call,
+        ));
+        let mcp_invoker = Arc::new(CapabilityGateway {
+            store: self.store.clone(),
+            system_errors: self.system_errors.clone(),
+        });
+        let router = CapabilityRegistryRouter::new(vec![
+            (
+                InvokerKey::new("runtime-execution"),
+                runtime_invoker.clone() as Arc<dyn CapabilityInvoker + '_>,
+            ),
+            (
+                InvokerKey::new("mcp"),
+                mcp_invoker as Arc<dyn CapabilityInvoker + '_>,
+            ),
+        ])
+        .expect("runtime capability invoker keys are unique");
+        match router
+            .dispatch(snapshot.clone(), call.name.clone(), call.payload.clone())
+            .await
+        {
+            Ok(dispatch) => {
+                if let Some(mut result) = runtime_invoker.take_result() {
+                    result.set_persisted(dispatch.persisted);
+                    result
+                } else {
+                    LocalToolResult::Gateway {
+                        call_id: call.call_id.clone(),
+                        provider_call_id: call.provider_call_id.clone(),
+                        provider_name: call.provider_name.clone(),
+                        name: call.name.clone(),
+                        arguments: call.payload.clone(),
+                        persisted: dispatch.persisted,
+                        result: RuntimeCapabilityResult {
+                            success: dispatch.output.success,
+                            payload: dispatch.output.payload,
+                            requires_provider_continuation: true,
+                        },
+                    }
+                }
+            }
+            Err(failure) => gateway_failure_result(call, failure),
+        }
+    }
+
+    async fn execute_bound_runtime_tool(
+        &self,
+        turn: &SuccessfulProviderTurn,
+        agent_identity: &AgentPromptIdentity,
+        call: &LocalToolCall,
+    ) -> Result<LocalToolResult, CapabilityError> {
+        let result = if is_search_memory_tool(&call.name) {
             let context = MemoryToolRuntimeContext {
                 conversation_id: turn.conversation_id.clone(),
                 turn_id: turn.turn_id.clone(),
@@ -100,6 +153,7 @@ impl CodexRuntimeActor {
                 provider_call_id: call.provider_call_id.clone(),
                 provider_name: call.provider_name.clone(),
                 arguments: call.payload.clone(),
+                persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
                 result: execute_search_memory(
                     &self.store,
                     self.memory_client(),
@@ -118,6 +172,7 @@ impl CodexRuntimeActor {
                 provider_call_id: call.provider_call_id.clone(),
                 provider_name: call.provider_name.clone(),
                 arguments: call.payload.clone(),
+                persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
                 result: execute_update_own_name(
                     &self.store,
                     &context,
@@ -140,6 +195,7 @@ impl CodexRuntimeActor {
                 provider_call_id: call.provider_call_id.clone(),
                 provider_name: call.provider_name.clone(),
                 arguments: call.payload.clone(),
+                persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
                 result: execute_artifact_create_local_file(
                     &self.store,
                     &self.artifact_operations,
@@ -171,13 +227,14 @@ impl CodexRuntimeActor {
                 provider_name: call.provider_name.clone(),
                 name: call.name.clone(),
                 arguments: call.payload.clone(),
+                persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
                 result: match result {
-                    Ok(payload) => GatewayToolResult {
+                    Ok(payload) => RuntimeCapabilityResult {
                         success: true,
                         payload,
                         requires_provider_continuation: true,
                     },
-                    Err(error) => GatewayToolResult {
+                    Err(error) => RuntimeCapabilityResult {
                         success: false,
                         payload: json!({"error": error}),
                         requires_provider_continuation: true,
@@ -227,7 +284,8 @@ impl CodexRuntimeActor {
                 provider_name: call.provider_name.clone(),
                 name: result.name,
                 arguments: call.payload.clone(),
-                result: GatewayToolResult {
+                persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
+                result: RuntimeCapabilityResult {
                     success: result.success,
                     payload: result.payload,
                     requires_provider_continuation: true,
@@ -243,7 +301,8 @@ impl CodexRuntimeActor {
                 provider_name: call.provider_name.clone(),
                 name: call.name.clone(),
                 arguments: call.payload.clone(),
-                result: GatewayToolResult {
+                persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
+                result: RuntimeCapabilityResult {
                     success: true,
                     payload: call.payload.clone(),
                     requires_provider_continuation: false,
@@ -284,7 +343,8 @@ impl CodexRuntimeActor {
                 provider_name: call.provider_name.clone(),
                 name: result.name,
                 arguments: call.payload.clone(),
-                result: GatewayToolResult {
+                persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
+                result: RuntimeCapabilityResult {
                     success: result.success,
                     payload: result.payload,
                     requires_provider_continuation: true,
@@ -310,7 +370,7 @@ impl CodexRuntimeActor {
                 }
                 Err(message) => WebSearchToolResult {
                     call_id: call.call_id.clone(),
-                    name: crate::search::tool::WEB_SEARCH_TOOL.to_string(),
+                    name: noema_capabilities::web::search::WEB_SEARCH_TOOL.to_string(),
                     success: false,
                     payload: json!({ "error": message }),
                 },
@@ -320,10 +380,11 @@ impl CodexRuntimeActor {
                 provider_call_id: call.provider_call_id.clone(),
                 provider_name: call.provider_name.clone(),
                 arguments: call.payload.clone(),
+                persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
                 result,
             }
         } else if is_web_fetch_tool(&call.name) {
-            let generation_priority = match policy.role() {
+            let generation_priority = match turn.initial_model_tools.tool_policy.role() {
                 ExecutionRole::PrimaryConversation => {
                     crate::provider::GenerationPriority::Foreground
                 }
@@ -370,24 +431,13 @@ impl CodexRuntimeActor {
                 provider_call_id: call.provider_call_id.clone(),
                 provider_name: call.provider_name.clone(),
                 arguments: call.payload.clone(),
+                persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
                 result,
             }
         } else {
-            let proposal = GatewayToolProposal {
-                name: &call.name,
-                payload: &call.payload,
-            };
-            LocalToolResult::Gateway {
-                call_id: call.call_id.clone(),
-                provider_call_id: call.provider_call_id.clone(),
-                provider_name: call.provider_name.clone(),
-                name: call.name.clone(),
-                arguments: call.payload.clone(),
-                result: gateway
-                    .execute_tool_proposal_with_policy(proposal, policy)
-                    .await,
-            }
-        }
+            return Err(CapabilityError::UnknownOperation);
+        };
+        Ok(result)
     }
 
     async fn web_fetch_runtime_context(
@@ -579,6 +629,81 @@ impl CodexRuntimeActor {
     }
 }
 
+struct RuntimeExecutionInvoker<'a> {
+    actor: &'a CodexRuntimeActor,
+    turn: &'a SuccessfulProviderTurn,
+    agent_identity: &'a AgentPromptIdentity,
+    call: &'a LocalToolCall,
+    result: Mutex<Option<LocalToolResult>>,
+}
+
+impl<'a> RuntimeExecutionInvoker<'a> {
+    fn new(
+        actor: &'a CodexRuntimeActor,
+        turn: &'a SuccessfulProviderTurn,
+        agent_identity: &'a AgentPromptIdentity,
+        call: &'a LocalToolCall,
+    ) -> Self {
+        Self {
+            actor,
+            turn,
+            agent_identity,
+            call,
+            result: Mutex::new(None),
+        }
+    }
+
+    fn take_result(&self) -> Option<LocalToolResult> {
+        self.result.lock().expect("runtime result lock").take()
+    }
+}
+
+impl CapabilityInvoker for RuntimeExecutionInvoker<'_> {
+    fn invoke(
+        &self,
+        invocation: CapabilityInvocation,
+    ) -> CapabilityFuture<'_, Result<CapabilityOutput, CapabilityError>> {
+        Box::pin(async move {
+            if invocation.operation_token.as_str() != invocation.operation.as_str()
+                || invocation.operation.as_str() != self.call.name
+                || invocation.arguments != self.call.payload
+            {
+                return Err(CapabilityError::UnknownOperation);
+            }
+            let result = self
+                .actor
+                .execute_bound_runtime_tool(self.turn, self.agent_identity, self.call)
+                .await?;
+            let output = if result.success() {
+                CapabilityOutput::success(result.payload().clone())
+            } else {
+                CapabilityOutput::failed(result.payload().clone())
+            };
+            *self.result.lock().expect("runtime result lock") = Some(result);
+            Ok(output)
+        })
+    }
+}
+
+fn gateway_failure_result(
+    call: &LocalToolCall,
+    failure: CapabilityDispatchFailure,
+) -> LocalToolResult {
+    LocalToolResult::Gateway {
+        call_id: call.call_id.clone(),
+        provider_call_id: call.provider_call_id.clone(),
+        provider_name: call.provider_name.clone(),
+        name: call.name.clone(),
+        arguments: call.payload.clone(),
+        persisted: failure.persisted,
+        result: RuntimeCapabilityResult {
+            success: false,
+            payload: json!({"error": failure.error.to_string()}),
+            requires_provider_continuation: true,
+        },
+    }
+}
+
 fn insert_web_tool_fallback_metadata(
     payload: &mut Value,
     fallback_from: Option<&str>,
@@ -614,289 +739,11 @@ fn is_provider_account_unauthenticated_payload(payload: &Value) -> bool {
         .is_some_and(|message| message == PROVIDER_ACCOUNT_UNAUTHENTICATED)
 }
 
-#[derive(Debug, Clone)]
-pub(super) enum LocalToolResult {
-    Memory {
-        call_id: Option<String>,
-        provider_call_id: Option<String>,
-        provider_name: Option<String>,
-        arguments: Value,
-        result: MemoryToolResult,
-    },
-    AgentName {
-        call_id: Option<String>,
-        provider_call_id: Option<String>,
-        provider_name: Option<String>,
-        arguments: Value,
-        result: AgentNameToolResult,
-    },
-    Artifact {
-        call_id: Option<String>,
-        provider_call_id: Option<String>,
-        provider_name: Option<String>,
-        arguments: Value,
-        result: ArtifactToolResult,
-    },
-    WebSearch {
-        call_id: Option<String>,
-        provider_call_id: Option<String>,
-        provider_name: Option<String>,
-        arguments: Value,
-        result: WebSearchToolResult,
-    },
-    WebFetch {
-        call_id: Option<String>,
-        provider_call_id: Option<String>,
-        provider_name: Option<String>,
-        arguments: Value,
-        result: WebFetchToolResult,
-    },
-    Gateway {
-        call_id: Option<String>,
-        provider_call_id: Option<String>,
-        provider_name: Option<String>,
-        name: String,
-        arguments: Value,
-        result: GatewayToolResult,
-    },
-}
-
-impl LocalToolResult {
-    pub(super) fn call_id(&self) -> Option<&String> {
-        match self {
-            Self::Memory { call_id, .. }
-            | Self::AgentName { call_id, .. }
-            | Self::Artifact { call_id, .. }
-            | Self::WebSearch { call_id, .. }
-            | Self::WebFetch { call_id, .. } => call_id.as_ref(),
-            Self::Gateway { call_id, .. } => call_id.as_ref(),
-        }
-    }
-
-    pub(super) fn provider_call_id(&self) -> Option<&String> {
-        match self {
-            Self::Memory {
-                provider_call_id, ..
-            }
-            | Self::AgentName {
-                provider_call_id, ..
-            }
-            | Self::Artifact {
-                provider_call_id, ..
-            }
-            | Self::WebSearch {
-                provider_call_id, ..
-            }
-            | Self::WebFetch {
-                provider_call_id, ..
-            }
-            | Self::Gateway {
-                provider_call_id, ..
-            } => provider_call_id.as_ref(),
-        }
-    }
-
-    pub(super) fn provider_name(&self) -> Option<&String> {
-        match self {
-            Self::Memory { provider_name, .. }
-            | Self::AgentName { provider_name, .. }
-            | Self::Artifact { provider_name, .. }
-            | Self::WebSearch { provider_name, .. }
-            | Self::WebFetch { provider_name, .. }
-            | Self::Gateway { provider_name, .. } => provider_name.as_ref(),
-        }
-    }
-
-    pub(super) fn arguments(&self) -> &Value {
-        match self {
-            Self::Memory { arguments, .. }
-            | Self::AgentName { arguments, .. }
-            | Self::Artifact { arguments, .. }
-            | Self::WebSearch { arguments, .. }
-            | Self::WebFetch { arguments, .. }
-            | Self::Gateway { arguments, .. } => arguments,
-        }
-    }
-
-    pub(super) fn name(&self) -> &str {
-        match self {
-            Self::Memory { result, .. } => &result.name,
-            Self::AgentName { result, .. } => &result.name,
-            Self::Artifact { result, .. } => &result.name,
-            Self::WebSearch { result, .. } => &result.name,
-            Self::WebFetch { result, .. } => &result.name,
-            Self::Gateway { name, .. } => name,
-        }
-    }
-
-    pub(super) fn success(&self) -> bool {
-        match self {
-            Self::Memory { result, .. } => result.success,
-            Self::AgentName { result, .. } => result.success,
-            Self::Artifact { result, .. } => result.success,
-            Self::WebSearch { result, .. } => result.success,
-            Self::WebFetch { result, .. } => result.success,
-            Self::Gateway { result, .. } => result.success,
-        }
-    }
-
-    pub(super) fn payload(&self) -> &Value {
-        match self {
-            Self::Memory { result, .. } => &result.payload,
-            Self::AgentName { result, .. } => &result.payload,
-            Self::Artifact { result, .. } => &result.payload,
-            Self::WebSearch { result, .. } => &result.payload,
-            Self::WebFetch { result, .. } => &result.payload,
-            Self::Gateway { result, .. } => &result.payload,
-        }
-    }
-
-    pub(super) fn transcript_payload(&self) -> Value {
-        json!({
-            "call_id": self.call_id(),
-            "provider_call_id": self.provider_call_id(),
-            "provider_name": self.provider_name(),
-            "name": self.name(),
-            "arguments": self.arguments(),
-            "success": self.success(),
-            "payload": self.payload(),
-        })
-    }
-
-    pub(super) fn requires_provider_continuation(&self) -> bool {
-        match self {
-            Self::Memory { .. }
-            | Self::Artifact { .. }
-            | Self::WebSearch { .. }
-            | Self::WebFetch { .. } => true,
-            Self::AgentName { .. } => true,
-            Self::Gateway { result, .. } => result.requires_provider_continuation,
-        }
-    }
-}
-
-pub(super) fn agent_identity_after_local_tools(
-    current: &AgentPromptIdentity,
-    results: &[LocalToolResult],
-) -> AgentPromptIdentity {
-    let mut agent_identity = current.clone();
-    for result in results {
-        let LocalToolResult::AgentName { result, .. } = result else {
-            continue;
-        };
-        if result.success {
-            agent_identity.display_name = result
-                .payload
-                .get("display_name")
-                .and_then(Value::as_str)
-                .map(str::to_string);
-        }
-    }
-    agent_identity
-}
-
-pub(super) fn local_tool_result_continuation_input(results: &[&LocalToolResult]) -> Value {
-    json!({
-        "type": "NOEMA_LOCAL_TOOL_RESULT",
-        "results": results
-            .iter()
-            .map(|result| local_tool_result_payload(result))
-            .collect::<Vec<_>>(),
-    })
-}
-
-fn local_tool_result_payload(result: &LocalToolResult) -> Value {
-    json!({
-        "call_id": result.call_id(),
-        "provider_call_id": result.provider_call_id(),
-        "provider_name": result.provider_name(),
-        "name": result.name(),
-        "success": result.success(),
-        "payload": result.payload(),
-    })
-}
-
-pub(super) fn local_tool_result_action_item(result: &LocalToolResult) -> GenerateActionItem {
-    GenerateActionItem::ToolResult {
-        call_id: result.call_id().cloned(),
-        provider_call_id: result.provider_call_id().cloned(),
-        provider_name: result.provider_name().cloned(),
-        name: Some(result.name().to_string()),
-        success: Some(result.success()),
-        payload: result.payload().clone(),
-    }
-}
-
-pub(super) fn local_tool_artifact_reference_item(
-    result: &LocalToolResult,
-) -> Option<TurnTranscriptItem> {
-    if !matches!(result, LocalToolResult::Artifact { .. }) || !result.success() {
-        return None;
-    }
-    let payload = result.payload();
-    let artifact_id = payload.get("artifact_id")?.as_str()?.to_string();
-    let title = payload.get("title")?.as_str()?.to_string();
-    let artifact_kind = payload.get("artifact_kind")?.as_str()?.to_string();
-    let storage_kind = payload.get("storage_kind")?.as_str()?.to_string();
-    let artifact_version_id = payload
-        .get("current_version_id")
-        .and_then(Value::as_str)
-        .map(str::to_string);
-    let download_url = payload
-        .get("download_url")
-        .and_then(Value::as_str)
-        .map(str::to_string);
-    let media_type = payload
-        .get("media_type")
-        .and_then(Value::as_str)
-        .map(str::to_string);
-
-    Some(TurnTranscriptItem::ArtifactReference {
-        artifact_id,
-        artifact_version_id,
-        title,
-        artifact_kind,
-        storage_kind,
-        external_url: None,
-        download_url,
-        media_type,
-    })
-}
-
-/// Build a durable task marker after successful primary task creation or
-/// control so agent-issued resume/cancel actions update the source transcript
-/// through the normal conversation sink.
-pub(super) fn local_tool_task_reference_item(
-    result: &LocalToolResult,
-) -> Option<TurnTranscriptItem> {
-    if !matches!(
-        result.name(),
-        crate::daemon::task_tool::TASK_DELEGATE_TOOL
-            | crate::daemon::task_tool::TASK_RESUME_TOOL
-            | crate::daemon::task_tool::TASK_CANCEL_TOOL
-    ) || !result.success()
-    {
-        return None;
-    }
-    let payload = result.payload();
-    let task_id = payload.get("task_id")?.as_str()?.to_string();
-    let title = payload.get("title")?.as_str()?.to_string();
-    let status = payload
-        .get("status")
-        .and_then(Value::as_str)
-        .and_then(|value| value.parse::<crate::TaskStatus>().ok())?;
-    let revision = payload
-        .get("revision")
-        .and_then(Value::as_i64)
-        .unwrap_or_default();
-    Some(TurnTranscriptItem::TaskReference {
-        task_id,
-        title,
-        status: status.as_str().to_string(),
-        revision,
-    })
-}
-
+pub(super) use super::local_tool_results::{
+    LocalToolResult, RuntimeCapabilityResult, agent_identity_after_local_tools,
+    local_tool_artifact_reference_item, local_tool_result_action_item,
+    local_tool_result_continuation_input, local_tool_task_reference_item,
+};
 #[cfg(test)]
 mod tests {
     use std::{
@@ -968,6 +815,22 @@ mod tests {
         }
     }
 
+    async fn test_actor() -> CodexRuntimeActor {
+        let store = crate::store::tests::test_store().await;
+        CodexRuntimeActor::new(
+            "codex".to_string(),
+            HashMap::from([(
+                "codex".to_string(),
+                Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
+                    as Arc<dyn RuntimeModelProvider>,
+            )]),
+            store.clone(),
+            store.system_error_logger(),
+        )
+        .await
+        .expect("actor")
+    }
+
     impl LocalToolTestProvider {
         fn new(default_tool_model: Option<&str>) -> Self {
             Self {
@@ -988,6 +851,7 @@ mod tests {
     }
 
     fn test_turn() -> SuccessfulProviderTurn {
+        let initial_model_tools = test_web_model_tools();
         SuccessfulProviderTurn {
             conversation_id: "conversation:test".to_string(),
             turn_id: "turn:test".to_string(),
@@ -1017,15 +881,54 @@ mod tests {
             },
             runtime_environment: crate::daemon::runtime::turn::current_runtime_environment(None),
             tool_capabilities: ProviderToolCapabilities::default(),
-            provider_tool_catalog: Vec::new(),
-            continuation_model_tools: ModelTools {
-                transport: crate::provider::ProviderToolTransport::None,
-                tools: Vec::new(),
-                prompt_rows: Vec::new(),
-                unavailable_rows: Vec::new(),
-                tool_policy: crate::agent_execution::ToolPolicy::default(),
-            },
+            initial_model_tools: initial_model_tools.clone(),
+            continuation_model_tools: initial_model_tools,
             initial_provider_input: GenerateInput::Text("test".to_string()),
+        }
+    }
+
+    fn test_web_model_tools() -> ModelTools {
+        let mut builder = noema_capabilities::CapabilityCatalogBuilder::new();
+        let mut policy = crate::agent_execution::ToolPolicy::default();
+        let mut prompt_kinds = std::collections::BTreeMap::new();
+        for spec in [
+            noema_capabilities::web::search::tool_spec().expect("search spec"),
+            noema_capabilities::web::fetch::tool_spec().expect("fetch spec"),
+        ] {
+            let name = spec.name.as_str().to_string();
+            let sanitizer: Arc<dyn noema_capabilities::PayloadSanitizer> =
+                if name == noema_capabilities::web::fetch::WEB_FETCH_TOOL {
+                    Arc::new(noema_capabilities::WebFetchPayloadSanitizer)
+                } else {
+                    Arc::new(noema_capabilities::RedactingPayloadSanitizer)
+                };
+            builder
+                .add(noema_capabilities::CapabilityBinding::new(
+                    spec,
+                    noema_capabilities::CapabilityTarget::new(
+                        noema_capabilities::InvokerKey::new("runtime-execution"),
+                        noema_capabilities::OperationToken::new(name.clone()),
+                    ),
+                    noema_capabilities::CapabilityAccess {
+                        effect: noema_capabilities::CapabilityEffect::ReadOnly,
+                        scope: noema_capabilities::CapabilityScope::Global,
+                    },
+                    sanitizer,
+                ))
+                .expect("unique binding");
+            policy.allow_tool_name(name.clone());
+            prompt_kinds.insert(
+                name,
+                crate::daemon::runtime::model_tools::ModelToolPromptKind::Web,
+            );
+        }
+        ModelTools {
+            transport: crate::provider::ProviderToolTransport::Native,
+            bindings: builder.build(),
+            prompt_rows: Vec::new(),
+            unavailable_rows: Vec::new(),
+            prompt_kinds,
+            tool_policy: policy,
         }
     }
 
@@ -1047,7 +950,8 @@ mod tests {
             provider_call_id: Some("provider_call:name".to_string()),
             provider_name: Some("update_own_name".to_string()),
             arguments: json!({"name": ""}),
-            result: super::AgentNameToolResult {
+            persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
+            result: crate::daemon::agent_name_tool::AgentNameToolResult {
                 call_id: Some("call:name".to_string()),
                 name: "update_own_name".to_string(),
                 success: false,
@@ -1056,6 +960,89 @@ mod tests {
         };
 
         assert!(result.requires_provider_continuation());
+    }
+
+    #[tokio::test]
+    async fn forged_foreground_call_is_unknown_and_omits_persistence() {
+        let result = test_actor()
+            .await
+            .execute_local_tool(
+                &test_turn(),
+                &AgentPromptIdentity {
+                    agent_id: "agent:primary".to_string(),
+                    display_name: None,
+                },
+                &test_tool_call("forged.operation", json!({"secret": "do not persist"})),
+            )
+            .await;
+
+        assert!(!result.success());
+        assert_eq!(
+            result.payload()["error"],
+            "capability operation is unavailable"
+        );
+        assert_eq!(result.persisted().arguments, None);
+        assert_eq!(result.persisted().output, None);
+    }
+
+    #[tokio::test]
+    async fn forged_background_call_is_unknown_and_omits_persistence() {
+        let actor = test_actor().await;
+        let policy = crate::agent_execution::ToolPolicy::for_role(
+            crate::agent_execution::ExecutionRole::TaskReviewer,
+        );
+        let result = actor
+            .execute_local_tool_with_policy(
+                &test_turn(),
+                &AgentPromptIdentity {
+                    agent_id: "agent:reviewer".to_string(),
+                    display_name: None,
+                },
+                &test_tool_call("forged.operation", json!({"secret": "do not persist"})),
+                &policy,
+            )
+            .await;
+
+        assert!(!result.success());
+        assert_eq!(
+            result.payload()["error"],
+            "capability operation is unavailable"
+        );
+        assert_eq!(result.persisted().arguments, None);
+        assert_eq!(result.persisted().output, None);
+    }
+
+    #[tokio::test]
+    async fn known_background_call_denied_by_role_policy_uses_binding_persistence() {
+        let actor = test_actor().await;
+        let policy = crate::agent_execution::ToolPolicy::for_role(
+            crate::agent_execution::ExecutionRole::TaskReviewer,
+        );
+        let result = actor
+            .execute_local_tool_with_policy(
+                &test_turn(),
+                &AgentPromptIdentity {
+                    agent_id: "agent:reviewer".to_string(),
+                    display_name: None,
+                },
+                &test_tool_call(
+                    noema_capabilities::web::search::WEB_SEARCH_TOOL,
+                    json!({"query": "safe", "api_key": "do not persist"}),
+                ),
+                &policy,
+            )
+            .await;
+
+        assert!(!result.success());
+        assert_eq!(
+            result.payload()["error"],
+            "capability invocation was denied"
+        );
+        assert_eq!(
+            result.persisted().arguments,
+            Some(json!({"query": "safe", "api_key": "[REDACTED]"}))
+        );
+        assert_eq!(result.persisted().output, Some(json!({"error": "denied"})));
     }
 
     async fn insert_provider_account_without_web_capabilities(

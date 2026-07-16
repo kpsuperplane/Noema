@@ -1,3 +1,4 @@
+use ring::rand::{SecureRandom, SystemRandom};
 use rusqlite::{OptionalExtension, params};
 
 use super::{
@@ -20,20 +21,22 @@ impl NoemaStore {
         server: NewMcpServer,
     ) -> Result<McpServerRecord, StoreError> {
         let safe_config_json = json_to_string(&server.safe_config)?;
+        let authority_generation = random_authority_generation()?;
         self.with_connection(|conn| {
             conn.execute(
                 r#"
                 INSERT INTO mcp_servers (
                   mcp_server_id, display_name, transport_kind, safe_config_json,
-                  auth_status, health_status, enabled, updated_at
+                  auth_status, health_status, enabled, metadata_fingerprint, updated_at
                 )
-                VALUES (?1, ?2, ?3, ?4, 'none', 'unknown', 0, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                VALUES (?1, ?2, ?3, ?4, 'none', 'unknown', 0, ?5, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
                 "#,
                 params![
                     server.mcp_server_id,
                     server.display_name,
                     server.transport_kind.as_str(),
                     safe_config_json,
+                    authority_generation,
                 ],
             )?;
             Ok(())
@@ -93,7 +96,8 @@ impl NoemaStore {
                       AND c.export_classification = 'none'
                       AND c.reviewed_metadata_fingerprint = eligible_t.metadata_fingerprint
                   ) AS enabled,
-                  m.health_status, m.auth_status, COUNT(t.mcp_tool_id) AS tool_count
+                  m.health_status, m.auth_status, COUNT(t.mcp_tool_id) AS tool_count,
+                  COALESCE(m.metadata_fingerprint, '') AS authority_generation
                 FROM mcp_servers m
                 LEFT JOIN mcp_tools t ON t.mcp_server_id = m.mcp_server_id
                 GROUP BY m.mcp_server_id
@@ -180,6 +184,50 @@ impl NoemaStore {
             ))
         })
     }
+
+    /// Replace connection-defining metadata and rotate invocation authority
+    /// when either the transport or safe configuration changes.
+    pub(crate) async fn update_mcp_server_connection_identity(
+        &self,
+        mcp_server_id: &str,
+        transport_kind: crate::McpTransportKind,
+        safe_config: serde_json::Value,
+    ) -> Result<McpServerRecord, StoreError> {
+        let safe_config_json = json_to_string(&safe_config)?;
+        let authority_generation = random_authority_generation()?;
+        self.with_connection(|conn| {
+            conn.execute(
+                format!(
+                    r#"
+                    UPDATE mcp_servers SET
+                      transport_kind = ?2,
+                      safe_config_json = ?3,
+                      metadata_fingerprint = CASE
+                        WHEN transport_kind <> ?2 OR safe_config_json <> ?3 THEN ?4
+                        ELSE metadata_fingerprint
+                      END,
+                      updated_at = {}
+                    WHERE mcp_server_id = ?1
+                    "#,
+                    now_timestamp_sql()
+                )
+                .as_str(),
+                params![
+                    mcp_server_id,
+                    transport_kind.as_str(),
+                    safe_config_json,
+                    authority_generation,
+                ],
+            )?;
+            Ok(())
+        })
+        .await?;
+        self.get_mcp_server(mcp_server_id).await?.ok_or_else(|| {
+            StoreError::Schema(format!(
+                "missing MCP server after connection identity update: {mcp_server_id}"
+            ))
+        })
+    }
 }
 
 const MCP_SERVER_SELECT_WITH_TOOL_COUNT: &str = r#"
@@ -195,10 +243,25 @@ SELECT m.mcp_server_id, m.display_name, m.transport_kind, m.safe_config_json,
       AND c.export_classification = 'none'
       AND c.reviewed_metadata_fingerprint = eligible_t.metadata_fingerprint
   ) AS enabled,
-  m.health_status, m.auth_status, COUNT(t.mcp_tool_id) AS tool_count
+  m.health_status, m.auth_status, COUNT(t.mcp_tool_id) AS tool_count,
+  COALESCE(m.metadata_fingerprint, '') AS authority_generation
 FROM mcp_servers m
 LEFT JOIN mcp_tools t ON t.mcp_server_id = m.mcp_server_id
 WHERE m.mcp_server_id = ?1
 GROUP BY m.mcp_server_id
 LIMIT 1
 "#;
+
+fn random_authority_generation() -> Result<String, StoreError> {
+    let mut bytes = [0_u8; 16];
+    SystemRandom::new()
+        .fill(&mut bytes)
+        .map_err(|_| StoreError::Schema("failed to create MCP authority generation".to_string()))?;
+    let mut generation = String::with_capacity("mcp_generation:".len() + bytes.len() * 2);
+    generation.push_str("mcp_generation:");
+    for byte in bytes {
+        use std::fmt::Write as _;
+        let _ = write!(generation, "{byte:02x}");
+    }
+    Ok(generation)
+}

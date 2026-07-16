@@ -2,27 +2,16 @@
 
 use crate::daemon::RuntimeModelProvider;
 use crate::web_fetch::direct_http::DirectHttpClient;
-use serde::{Deserialize, Serialize};
+use noema_capabilities::web::fetch::{FetchRequest, FetchResponse};
 use std::sync::Arc;
 use thiserror::Error;
 
 pub const DIRECT_HTTP_PROVIDER_ID: &str = "direct_http";
 pub const EXTRACTION_READABILITYRS: &str = "readability_rs";
-pub const DEFAULT_MAX_CHARS: usize = 20_000;
-pub const HARD_MAX_CHARS: usize = 20_000;
-pub const MAX_URL_CHARS: usize = 2048;
-pub const MAX_REASON_CHARS: usize = 500;
 pub const RAW_MARKDOWN_LIMIT_CHARS: usize = 8_000;
 pub const SINGLE_PASS_SUMMARY_LIMIT_CHARS: usize = 250_000;
 pub const CHUNKED_SUMMARY_LIMIT_CHARS: usize = 1_000_000;
 pub const RAW_EXCERPT_CHARS: usize = 2_000;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FetchRequest {
-    pub url: String,
-    pub reason: Option<String>,
-    pub max_chars: usize,
-}
 
 #[derive(Debug, Clone)]
 pub struct FetchRuntimeContext {
@@ -31,39 +20,6 @@ pub struct FetchRuntimeContext {
     pub summarizer_model: String,
     pub summarizer_reasoning_effort: Option<crate::provider::ReasoningEffort>,
     pub generation_priority: crate::provider::GenerationPriority,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum FetchContentKind {
-    RawMarkdown,
-    Summary,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum FetchSummaryStrategy {
-    NotSummarized,
-    SinglePass,
-    Chunked,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FetchResponse {
-    pub provider: String,
-    pub url: String,
-    pub final_url: String,
-    pub title: Option<String>,
-    pub format: String,
-    pub extraction: String,
-    pub content_kind: FetchContentKind,
-    pub content: String,
-    pub raw_excerpt: Option<String>,
-    pub raw_chars: usize,
-    pub returned_chars: usize,
-    pub summary_model: Option<String>,
-    pub summary_strategy: FetchSummaryStrategy,
-    pub truncated: bool,
 }
 
 #[derive(Debug, Error)]

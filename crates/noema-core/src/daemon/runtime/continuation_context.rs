@@ -424,8 +424,8 @@ mod tests {
     use super::*;
     use crate::{
         GenerateResponseStatus,
-        capability::GatewayToolResult,
         daemon::runtime::local_tools::LocalToolResult,
+        daemon::runtime::local_tools::RuntimeCapabilityResult,
         provider::{
             GenerateReasoningItem, GenerateToolCall, ProviderContextMetadata,
             ProviderResponseContinuation, ProviderToolCapabilities,
@@ -704,7 +704,8 @@ mod tests {
             provider_name: Some("web_fetch".to_string()),
             name: "web.fetch".to_string(),
             arguments: json!({"url": url}),
-            result: GatewayToolResult {
+            persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
+            result: RuntimeCapabilityResult {
                 success: true,
                 payload: json!({"url": url, "content": content}),
                 requires_provider_continuation: true,

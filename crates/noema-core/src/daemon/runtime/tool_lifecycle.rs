@@ -1,5 +1,5 @@
 use crate::provider::{GenerateActionItem, GenerateToolCall};
-use crate::web_fetch::tool::{WEB_FETCH_TOOL, sanitize_web_fetch_payload_for_storage};
+use noema_capabilities::web::fetch::{WEB_FETCH_TOOL, sanitize_payload_for_storage};
 use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -23,7 +23,7 @@ pub(super) fn local_tool_calls(tool_calls: &[GenerateToolCall]) -> Vec<LocalTool
             provider_name: call.provider_name.clone(),
             name: call.name.clone(),
             payload: if call.name == WEB_FETCH_TOOL {
-                sanitize_web_fetch_payload_for_storage(&call.payload)
+                sanitize_payload_for_storage(&call.payload)
             } else {
                 call.payload.clone()
             },
@@ -104,7 +104,7 @@ mod tests {
 
         assert_eq!(
             calls[0].payload["url"],
-            crate::web_fetch::tool::REDACTED_SENSITIVE_WEB_FETCH_URL
+            noema_capabilities::web::fetch::REDACTED_SENSITIVE_URL
         );
         assert_eq!(calls[0].payload["__noema_rejected_sensitive_url"], true);
     }

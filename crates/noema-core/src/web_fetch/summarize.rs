@@ -3,10 +3,11 @@
 use crate::{
     provider::GenerateRequest,
     web_fetch::types::{
-        CHUNKED_SUMMARY_LIMIT_CHARS, FetchError, FetchRuntimeContext, FetchSummaryStrategy,
-        RAW_EXCERPT_CHARS, RAW_MARKDOWN_LIMIT_CHARS, SINGLE_PASS_SUMMARY_LIMIT_CHARS,
+        CHUNKED_SUMMARY_LIMIT_CHARS, FetchError, FetchRuntimeContext, RAW_EXCERPT_CHARS,
+        RAW_MARKDOWN_LIMIT_CHARS, SINGLE_PASS_SUMMARY_LIMIT_CHARS,
     },
 };
+use noema_capabilities::web::fetch::FetchSummaryStrategy;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SummaryDecision {

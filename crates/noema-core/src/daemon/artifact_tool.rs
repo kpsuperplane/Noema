@@ -1,7 +1,5 @@
-use crate::{
-    NoemaStore,
-    provider::{NoemaToolExecution, NoemaToolSpec, ToolContractError},
-};
+use crate::NoemaStore;
+use noema_capabilities::{ToolContractError, ToolSpec};
 
 use noema_artifacts::{
     AppendLocalArtifactVersionRequest, ArtifactDomainError, ArtifactOperationError,
@@ -73,8 +71,8 @@ pub(super) fn is_artifact_create_local_file_tool(name: &str) -> bool {
     name == ARTIFACT_CREATE_LOCAL_FILE_TOOL
 }
 
-pub(super) fn artifact_create_local_file_tool_spec() -> Result<NoemaToolSpec, ToolContractError> {
-    NoemaToolSpec::new(
+pub(super) fn artifact_create_local_file_tool_spec() -> Result<ToolSpec, ToolContractError> {
+    ToolSpec::new(
         ARTIFACT_CREATE_LOCAL_FILE_TOOL,
         "Create a durable local file artifact owned by the current conversation or task execution scope, optionally with multiple immutable text versions.",
         json!({
@@ -137,7 +135,6 @@ pub(super) fn artifact_create_local_file_tool_spec() -> Result<NoemaToolSpec, To
             "required": ["title", "artifact_kind", "filename", "versions"],
             "additionalProperties": false
         }),
-        NoemaToolExecution::LocalBuiltin,
     )
 }
 

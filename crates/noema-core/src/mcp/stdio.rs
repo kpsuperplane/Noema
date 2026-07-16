@@ -227,6 +227,7 @@ done
             health_status: crate::McpServerHealthStatus::Unknown,
             auth_status: crate::McpServerAuthStatus::None,
             tool_count: 0,
+            authority_generation: "test-generation".to_string(),
         };
         let secrets = McpSecretMaterial {
             env: BTreeMap::from([("TOKEN".to_string(), "secret".to_string())]),

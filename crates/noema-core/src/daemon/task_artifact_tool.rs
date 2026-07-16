@@ -3,7 +3,8 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::{NoemaStore, provider::NoemaToolSpec};
+use crate::NoemaStore;
+use noema_capabilities::ToolSpec;
 
 pub(crate) const TASK_READ_ARTIFACT_TOOL: &str = "task.read_artifact";
 const MAX_ARTIFACT_TEXT_CHARS: usize = 120_000;
@@ -26,8 +27,8 @@ pub(crate) fn is_task_read_artifact_tool(name: &str) -> bool {
 }
 
 pub(crate) fn task_read_artifact_tool_spec()
--> Result<NoemaToolSpec, crate::provider::ToolContractError> {
-    NoemaToolSpec::new(
+-> Result<ToolSpec, noema_capabilities::ToolContractError> {
+    ToolSpec::new(
         TASK_READ_ARTIFACT_TOOL,
         "Read bounded UTF-8 content from an artifact linked to the submission under review. Binary, oversized, external, foreign, and unlinked artifacts fail closed.",
         json!({
@@ -38,7 +39,6 @@ pub(crate) fn task_read_artifact_tool_spec()
             "required": ["artifact_id"],
             "additionalProperties": false
         }),
-        crate::provider::NoemaToolExecution::LocalBuiltin,
     )
 }
 

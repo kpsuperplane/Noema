@@ -1,3 +1,4 @@
+use noema_capabilities::ToolSpec;
 use serde_json::json;
 
 use crate::{
@@ -5,7 +6,7 @@ use crate::{
     provider::{
         GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
         GenerateRequest, GenerateToolCallInput, GenerateToolResultInput, NoemaToolChoice,
-        NoemaToolSpec, ProviderToolTransport,
+        ProviderToolTransport,
     },
 };
 
@@ -174,7 +175,7 @@ fn structured_request(
     instructions: String,
     context: &[GenerateMessage],
     max_output_tokens: u32,
-    tools: Vec<NoemaToolSpec>,
+    tools: Vec<ToolSpec>,
     tool_choice: NoemaToolChoice,
 ) -> GenerateRequest {
     let mut messages = context.to_vec();
@@ -220,7 +221,7 @@ fn memory_continuation_request(
     identity: &AgentPromptIdentity,
     rows: &[String],
     tool_names: &[String],
-    search_memory: &NoemaToolSpec,
+    search_memory: &ToolSpec,
 ) -> GenerateRequest {
     let original = "What is my preferred aircraft call sign?";
     let instructions = build_local_tool_result_continuation_system_prompt();
@@ -379,7 +380,7 @@ fn terminal_tool_request(
     model_id: &str,
     input: String,
     instructions: &str,
-    tools: Vec<crate::provider::NoemaToolSpec>,
+    tools: Vec<noema_capabilities::ToolSpec>,
 ) -> GenerateRequest {
     GenerateRequest {
         conversation_id: None,

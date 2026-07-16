@@ -1,8 +1,5 @@
-use crate::{
-    NoemaStore,
-    provider::{NoemaToolExecution, NoemaToolSpec, ToolContractError},
-    store::StoreError,
-};
+use crate::{NoemaStore, store::StoreError};
+use noema_capabilities::{ToolContractError, ToolSpec};
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -41,8 +38,8 @@ pub(super) fn is_update_own_name_tool(name: &str) -> bool {
     name == UPDATE_OWN_NAME_TOOL
 }
 
-pub(super) fn update_own_name_tool_spec() -> Result<NoemaToolSpec, ToolContractError> {
-    NoemaToolSpec::new(
+pub(super) fn update_own_name_tool_spec() -> Result<ToolSpec, ToolContractError> {
+    ToolSpec::new(
         UPDATE_OWN_NAME_TOOL,
         "Persist the primary agent display name when the current user explicitly asks to name or rename the agent.",
         json!({
@@ -59,7 +56,6 @@ pub(super) fn update_own_name_tool_spec() -> Result<NoemaToolSpec, ToolContractE
             "required": ["name"],
             "additionalProperties": false
         }),
-        NoemaToolExecution::LocalBuiltin,
     )
 }
 

@@ -1,7 +1,8 @@
 #![cfg_attr(not(test), allow(dead_code))]
 
-use crate::provider::{CapabilityId, ProviderCapabilityStatus};
+use crate::provider::ProviderCapabilityStatus;
 use crate::{NoemaStore, StoreError};
+use noema_capabilities::CapabilityId;
 
 const WEB_SEARCH_TOOL: &str = "web.search";
 const WEB_FETCH_TOOL: &str = "web.fetch";
@@ -148,10 +149,10 @@ mod tests {
     use super::*;
     use crate::store::tests::test_store;
     use crate::{
-        ProviderAccountStatus, ProviderAuthMethod,
-        daemon::runtime::actor::CodexRuntimeActor,
-        provider::{CapabilityId, ProviderCapabilityStatus},
+        ProviderAccountStatus, ProviderAuthMethod, daemon::runtime::actor::CodexRuntimeActor,
+        provider::ProviderCapabilityStatus,
     };
+    use noema_capabilities::CapabilityId;
     use std::collections::HashMap;
 
     #[tokio::test]

@@ -18,9 +18,10 @@ use crate::{
         GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
         GenerateRequest, GenerateResponse, GenerateResponseStatus, GenerateStreamEvent,
         GenerateToolCall, GenerateToolCallInput, GenerateToolResultInput, GenerationPriority,
-        NoemaToolChoice, NoemaToolExecution, NoemaToolSpec, ProviderError, ReasoningEffort,
+        NoemaToolChoice, ProviderError, ReasoningEffort,
     },
 };
+use noema_capabilities::ToolSpec;
 use noema_home::{SystemErrorEvent, SystemErrorLogger};
 
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;
@@ -618,18 +619,17 @@ struct OpenAiChatTool {
 }
 
 impl OpenAiChatTool {
-    fn into_noema_tool(self) -> Result<NoemaToolSpec, MemoryModelProxyError> {
+    fn into_noema_tool(self) -> Result<ToolSpec, MemoryModelProxyError> {
         if self.kind != "function" {
             return Err(MemoryModelProxyError::Protocol(format!(
                 "unsupported tool type: {}",
                 self.kind
             )));
         }
-        NoemaToolSpec::new(
+        ToolSpec::new(
             self.function.name,
             self.function.description,
             self.function.parameters,
-            NoemaToolExecution::LocalBuiltin,
         )
         .map_err(|error| MemoryModelProxyError::Protocol(error.to_string()))
     }

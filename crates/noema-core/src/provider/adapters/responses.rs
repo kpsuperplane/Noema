@@ -2,15 +2,8 @@
 
 use super::sse::SseAccumulator;
 use crate::provider::{
-    GenerateInput, GenerateInputItem, GenerateReasoningInput, GenerateReasoningItem,
-    GenerateRequest, GenerateResponse, GenerateResponseStatus, GenerateStreamEvent,
-    GenerateToolCallInput, GenerateToolResultInput, ParsedNoemaResponse, PromptCacheRetention,
-    ProviderError, ReasoningEffort, SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, TokenUsage,
-    output_items_from_text, required_noema_response_from_text_with_native_tool_calls,
-};
-use crate::provider::{
-    contract::PromptCacheOptions,
-    tools::{NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice},
+    GenerateRequest, GenerateStreamEvent, PromptCacheOptions, PromptCacheRetention, ProviderError,
+    ReasoningEffort, SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE,
 };
 use futures_util::StreamExt;
 use noema_home::{SystemErrorEvent, SystemErrorLogger};
@@ -20,7 +13,6 @@ use reqwest::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
 
 /// JSON request body sent to a Responses-compatible endpoint.
 #[derive(Debug, Clone, Serialize)]
@@ -202,1003 +194,13 @@ pub(crate) fn prompt_cache_key_from_conversation_id(
     (!conversation_id.is_empty()).then(|| conversation_id.to_string())
 }
 
-/// Native Responses API tool definition.
-#[derive(Debug, Clone, Serialize)]
-pub struct ResponsesTool {
-    #[serde(rename = "type")]
-    kind: &'static str,
-    name: String,
-    description: String,
-    parameters: Value,
-}
-
-/// Responses API tool selection policy.
-#[derive(Debug, Clone, Serialize)]
-#[serde(untagged)]
-pub enum ResponsesToolChoice {
-    /// Provider-native string mode.
-    Mode(&'static str),
-    /// Restrict calls to a stable subset of the declared catalog.
-    Allowed(ResponsesAllowedTools),
-}
-
-/// Responses API allowed-tools object.
-#[derive(Debug, Clone, Serialize)]
-pub struct ResponsesAllowedTools {
-    #[serde(rename = "type")]
-    kind: &'static str,
-    mode: NoemaAllowedToolsMode,
-    tools: Vec<ResponsesAllowedTool>,
-}
-
-/// One function reference inside an allowed-tools choice.
-#[derive(Debug, Clone, Serialize)]
-pub struct ResponsesAllowedTool {
-    #[serde(rename = "type")]
-    kind: &'static str,
-    name: String,
-}
-
-impl ResponsesTool {
-    /// Build a native function tool definition.
-    #[must_use]
-    pub fn function(
-        name: impl Into<String>,
-        description: impl Into<String>,
-        parameters: Value,
-    ) -> Self {
-        Self {
-            kind: "function",
-            name: name.into(),
-            description: description.into(),
-            parameters,
-        }
-    }
-}
-
-/// Request-local provider-safe tool names for OpenAI-compatible adapters.
-#[derive(Debug, Clone, Default)]
-pub(crate) struct ResponsesToolNameMap {
-    pub(crate) tools: Vec<ResponsesTool>,
-    provider_to_canonical: HashMap<String, String>,
-    canonical_to_provider: HashMap<String, String>,
-}
-
-impl ResponsesToolNameMap {
-    /// Lower canonical Noema tool names into provider-safe Responses tools.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ProviderError::InvalidRequest`] when two canonical names map
-    /// to the same provider-safe name.
-    pub(crate) fn from_tools(
-        tools: &[crate::provider::NoemaToolSpec],
-    ) -> Result<Self, ProviderError> {
-        let mut responses_tools = Vec::with_capacity(tools.len());
-        let mut provider_to_canonical = HashMap::with_capacity(tools.len());
-        let mut canonical_to_provider = HashMap::with_capacity(tools.len());
-
-        for tool in tools {
-            let canonical = tool.name.as_str();
-            let provider_safe = provider_safe_tool_name(canonical);
-            if let Some(existing) = provider_to_canonical.get(&provider_safe) {
-                let message = if existing == canonical {
-                    format!("duplicate tool name {canonical}")
-                } else {
-                    format!(
-                        "provider-safe tool name collision: {existing} and {canonical} both map to {provider_safe}"
-                    )
-                };
-                return Err(ProviderError::InvalidRequest { message });
-            }
-
-            provider_to_canonical.insert(provider_safe.clone(), canonical.to_string());
-            canonical_to_provider.insert(canonical.to_string(), provider_safe.clone());
-            responses_tools.push(ResponsesTool::function(
-                provider_safe,
-                tool.description.clone(),
-                tool.input_schema.as_value().clone(),
-            ));
-        }
-
-        Ok(Self {
-            tools: responses_tools,
-            provider_to_canonical,
-            canonical_to_provider,
-        })
-    }
-
-    fn canonical_name<'a>(&'a self, provider_name: &'a str) -> &'a str {
-        self.provider_to_canonical
-            .get(provider_name)
-            .map(String::as_str)
-            .unwrap_or(provider_name)
-    }
-
-    fn provider_name(&self, canonical_name: &str) -> Option<&str> {
-        self.canonical_to_provider
-            .get(canonical_name)
-            .map(String::as_str)
-    }
-}
-
-pub(crate) fn responses_tool_choice(
-    tool_choice: &NoemaToolChoice,
-    tool_names: &ResponsesToolNameMap,
-    allowed_tools_supported: bool,
-) -> Result<Option<ResponsesToolChoice>, ProviderError> {
-    if tool_names.tools.is_empty() {
-        return match tool_choice {
-            NoemaToolChoice::Allowed(_) => Err(ProviderError::InvalidRequest {
-                message: "allowed tools require a non-empty tool catalog".to_string(),
-            }),
-            _ => Ok(None),
-        };
-    }
-
-    match tool_choice {
-        NoemaToolChoice::Auto => Ok(Some(ResponsesToolChoice::Mode("auto"))),
-        NoemaToolChoice::None => Ok(Some(ResponsesToolChoice::Mode("none"))),
-        NoemaToolChoice::Required => Ok(Some(ResponsesToolChoice::Mode("required"))),
-        NoemaToolChoice::Allowed(allowed) => {
-            responses_allowed_tools(allowed, tool_names, allowed_tools_supported)
-                .map(ResponsesToolChoice::Allowed)
-                .map(Some)
-        }
-    }
-}
-
-fn responses_allowed_tools(
-    allowed: &NoemaAllowedTools,
-    tool_names: &ResponsesToolNameMap,
-    supported: bool,
-) -> Result<ResponsesAllowedTools, ProviderError> {
-    if !supported {
-        return Err(ProviderError::InvalidRequest {
-            message: "allowed tools are not supported by this provider request profile".to_string(),
-        });
-    }
-    if allowed.tools.is_empty() {
-        return Err(ProviderError::InvalidRequest {
-            message: "allowed tools cannot be empty".to_string(),
-        });
-    }
-
-    let mut seen = std::collections::HashSet::with_capacity(allowed.tools.len());
-    let mut tools = Vec::with_capacity(allowed.tools.len());
-    for tool in &allowed.tools {
-        if !seen.insert(tool.as_str()) {
-            return Err(ProviderError::InvalidRequest {
-                message: format!("allowed tool {} is duplicated", tool.as_str()),
-            });
-        }
-        let Some(provider_name) = tool_names.provider_name(tool.as_str()) else {
-            return Err(ProviderError::InvalidRequest {
-                message: format!(
-                    "allowed tool {} is not present in the request tool catalog",
-                    tool.as_str()
-                ),
-            });
-        };
-        tools.push(ResponsesAllowedTool {
-            kind: "function",
-            name: provider_name.to_string(),
-        });
-    }
-
-    Ok(ResponsesAllowedTools {
-        kind: "allowed_tools",
-        mode: allowed.mode,
-        tools,
-    })
-}
-
-pub(crate) fn provider_safe_tool_name(canonical: &str) -> String {
-    let mut encoded = String::with_capacity(canonical.len());
-    for byte in canonical.bytes() {
-        let character = byte as char;
-        if character.is_ascii_alphanumeric() || matches!(character, '_' | '-') {
-            encoded.push(character);
-        } else {
-            encoded.push_str(&format!("_x{byte:02x}_"));
-        }
-    }
-
-    const OPENAI_FUNCTION_NAME_MAX: usize = 64;
-    if encoded.len() <= OPENAI_FUNCTION_NAME_MAX {
-        return encoded;
-    }
-
-    const HASH_SUFFIX_LEN: usize = 18;
-    let mut prefix = encoded;
-    prefix.truncate(OPENAI_FUNCTION_NAME_MAX - HASH_SUFFIX_LEN);
-    format!("{prefix}_h{:016x}", fnv1a64(canonical.as_bytes()))
-}
-
-fn fnv1a64(bytes: &[u8]) -> u64 {
-    let mut hash = 0xcbf2_9ce4_8422_2325;
-    for byte in bytes {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    hash
-}
-
-pub(super) fn noema_response_text_format() -> Value {
-    serde_json::json!({
-        "format": {
-            "type": "json_schema",
-            "name": "noema_response",
-            "strict": false,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "response_status": {
-                        "type": "string",
-                        "enum": ["needs_tools", "final"]
-                    },
-                    "responses": {
-                        "type": "array",
-                        "items": {
-                            "oneOf": [
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "kind": {
-                                            "type": "string",
-                                            "enum": ["text"]
-                                        },
-                                        "phase": {
-                                            "type": "string",
-                                            "enum": ["commentary", "final_answer"]
-                                        },
-                                        "text": {
-                                            "type": "string"
-                                        }
-                                    },
-                                    "required": ["kind", "phase", "text"],
-                                    "additionalProperties": false
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "kind": {
-                                            "type": "string",
-                                            "enum": ["multiple_choice"]
-                                        },
-                                        "phase": {
-                                            "type": "string",
-                                            "enum": ["commentary", "final_answer"]
-                                        },
-                                        "prompt": {
-                                            "type": "string"
-                                        },
-                                        "selection_mode": {
-                                            "type": "string",
-                                            "enum": ["pick_one", "pick_many"]
-                                        },
-                                        "options": {
-                                            "type": "array",
-                                            "items": {
-                                                "type": "object",
-                                                "properties": {
-                                                    "id": {"type": "string"},
-                                                    "label": {"type": "string"}
-                                                },
-                                                "required": ["id", "label"],
-                                                "additionalProperties": false
-                                            }
-                                        }
-                                    },
-                                    "required": ["kind", "phase", "prompt", "selection_mode", "options"],
-                                    "additionalProperties": false
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "kind": {
-                                            "type": "string",
-                                            "enum": ["structured"]
-                                        },
-                                        "schema": {
-                                            "type": "string"
-                                        },
-                                        "payload": {
-                                            "type": "object"
-                                        }
-                                    },
-                                    "required": ["kind", "schema", "payload"],
-                                    "additionalProperties": false
-                                }
-                            ]
-                        }
-                    },
-                    "tool_calls": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "id": {"type": ["string", "null"]},
-                                "name": {"type": "string"},
-                                "payload": {"type": "object"}
-                            },
-                            "required": ["name", "payload"],
-                            "additionalProperties": false
-                        }
-                    }
-                },
-                "required": ["response_status", "responses", "tool_calls"],
-                "additionalProperties": false
-            }
-        }
-    })
-}
-
-/// Responses API input shape.
-#[derive(Debug, Clone, Serialize)]
-#[serde(untagged)]
-pub enum ResponsesInput {
-    /// Plain text input.
-    Text(String),
-    /// Structured Responses input items.
-    Items(Vec<ResponsesInputItem>),
-}
-
-/// Provider-specific wire shape for otherwise shared Responses input items.
-#[derive(Debug, Clone, Copy)]
-pub enum ResponsesInputShape {
-    /// Keep plain text as the Responses API string shorthand.
-    String,
-    /// Lower plain text to a user message in the structured item array.
-    MessageArray,
-}
-
-impl ResponsesInput {
-    /// Lower provider-neutral input to the requested Responses wire shape.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ProviderError::InvalidRequest`] when explicit prompt-cache
-    /// breakpoint indices are duplicated, exceed provider limits, or do not
-    /// identify a message in the final filtered input.
-    pub fn from_generate(
-        value: &GenerateInput,
-        shape: ResponsesInputShape,
-        continuing_response: bool,
-        prompt_cache_breakpoints: &[usize],
-    ) -> Result<Self, ProviderError> {
-        if let (GenerateInput::Text(text), ResponsesInputShape::MessageArray) = (value, shape) {
-            let mut input = Self::Items(vec![ResponsesInputItem::Message(ResponsesInputMessage {
-                role: "user",
-                content: text.clone().into(),
-            })]);
-            input.apply_prompt_cache_breakpoints(prompt_cache_breakpoints)?;
-            return Ok(input);
-        }
-        if let (GenerateInput::NativeToolResults(results), true) = (value, continuing_response) {
-            let mut input = Self::Items(results.iter().map(ResponsesInputItem::from).collect());
-            input.apply_prompt_cache_breakpoints(prompt_cache_breakpoints)?;
-            return Ok(input);
-        }
-        let mut input = Self::from(value);
-        input.apply_prompt_cache_breakpoints(prompt_cache_breakpoints)?;
-        Ok(input)
-    }
-
-    fn apply_prompt_cache_breakpoints(
-        &mut self,
-        prompt_cache_breakpoints: &[usize],
-    ) -> Result<(), ProviderError> {
-        if prompt_cache_breakpoints.is_empty() {
-            return Ok(());
-        }
-        if prompt_cache_breakpoints.len() > 4 {
-            return Err(ProviderError::InvalidRequest {
-                message: "Responses requests support at most four prompt-cache breakpoints"
-                    .to_string(),
-            });
-        }
-
-        let mut requested =
-            std::collections::HashSet::with_capacity(prompt_cache_breakpoints.len());
-        for index in prompt_cache_breakpoints {
-            if !requested.insert(*index) {
-                return Err(ProviderError::InvalidRequest {
-                    message: format!("prompt-cache breakpoint message index {index} is duplicated"),
-                });
-            }
-        }
-
-        match self {
-            Self::Text(text) => {
-                if requested.len() != 1 || !requested.contains(&0) {
-                    return Err(prompt_cache_breakpoint_index_error(
-                        prompt_cache_breakpoints,
-                        1,
-                    ));
-                }
-                let mut message = ResponsesInputMessage {
-                    role: "user",
-                    content: std::mem::take(text).into(),
-                };
-                message.add_prompt_cache_breakpoint();
-                *self = Self::Items(vec![ResponsesInputItem::Message(message)]);
-            }
-            Self::Items(items) => {
-                let mut message_index = 0;
-                for item in items {
-                    let ResponsesInputItem::Message(message) = item else {
-                        continue;
-                    };
-                    if requested.contains(&message_index) {
-                        message.add_prompt_cache_breakpoint();
-                    }
-                    message_index += 1;
-                }
-                if requested.iter().any(|index| *index >= message_index) {
-                    return Err(prompt_cache_breakpoint_index_error(
-                        prompt_cache_breakpoints,
-                        message_index,
-                    ));
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
-fn prompt_cache_breakpoint_index_error(indices: &[usize], message_count: usize) -> ProviderError {
-    ProviderError::InvalidRequest {
-        message: format!(
-            "prompt-cache breakpoint message indices {indices:?} are out of range for {message_count} filtered messages"
-        ),
-    }
-}
-
-impl From<&GenerateInput> for ResponsesInput {
-    fn from(value: &GenerateInput) -> Self {
-        match value {
-            GenerateInput::Text(text) => Self::Text(text.clone()),
-            GenerateInput::Messages(messages) => Self::Items(
-                messages
-                    .iter()
-                    .filter(|message| !message.content.trim().is_empty())
-                    .map(|message| {
-                        ResponsesInputItem::Message(ResponsesInputMessage {
-                            role: message.role.as_str(),
-                            content: message.content.clone().into(),
-                        })
-                    })
-                    .collect(),
-            ),
-            GenerateInput::Items(items) => Self::Items(
-                items
-                    .iter()
-                    .filter(|item| !item.is_empty())
-                    .map(ResponsesInputItem::from)
-                    .collect(),
-            ),
-            GenerateInput::NativeToolResults(results) => {
-                let mut items = Vec::with_capacity(results.len().saturating_mul(2));
-                for result in results {
-                    items.push(ResponsesInputItem::FunctionCall(
-                        ResponsesFunctionCall::from(result),
-                    ));
-                    items.push(ResponsesInputItem::FunctionCallOutput(
-                        ResponsesFunctionCallOutput::from(result),
-                    ));
-                }
-                Self::Items(items)
-            }
-        }
-    }
-}
-
-/// One Responses API input item.
-#[derive(Debug, Clone, Serialize)]
-#[serde(untagged)]
-pub enum ResponsesInputItem {
-    /// Provider role message.
-    Message(ResponsesInputMessage),
-    /// Provider-encrypted reasoning context.
-    Reasoning(ResponsesReasoningItem),
-    /// Prior native function call context.
-    FunctionCall(ResponsesFunctionCall),
-    /// Native function-call output.
-    FunctionCallOutput(ResponsesFunctionCallOutput),
-}
-
-impl From<&GenerateToolResultInput> for ResponsesInputItem {
-    fn from(value: &GenerateToolResultInput) -> Self {
-        Self::FunctionCallOutput(ResponsesFunctionCallOutput::from(value))
-    }
-}
-
-impl From<&GenerateInputItem> for ResponsesInputItem {
-    fn from(value: &GenerateInputItem) -> Self {
-        match value {
-            GenerateInputItem::Message(message) => Self::Message(ResponsesInputMessage {
-                role: message.role.as_str(),
-                content: message.content.clone().into(),
-            }),
-            GenerateInputItem::Reasoning(reasoning) => {
-                Self::Reasoning(ResponsesReasoningItem::from(reasoning))
-            }
-            GenerateInputItem::ToolCall(call) => {
-                Self::FunctionCall(ResponsesFunctionCall::from(call))
-            }
-            GenerateInputItem::ToolResult(result) => {
-                Self::FunctionCallOutput(ResponsesFunctionCallOutput::from(result))
-            }
-        }
-    }
-}
-
-/// One Responses API encrypted reasoning input item.
-#[derive(Debug, Clone, Serialize)]
-pub struct ResponsesReasoningItem {
-    #[serde(rename = "type")]
-    kind: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    id: Option<String>,
-    encrypted_content: String,
-}
-
-impl From<&GenerateReasoningInput> for ResponsesReasoningItem {
-    fn from(reasoning: &GenerateReasoningInput) -> Self {
-        Self {
-            kind: "reasoning",
-            id: reasoning.id.clone(),
-            encrypted_content: reasoning.encrypted_content.clone(),
-        }
-    }
-}
-
-/// One Responses API input message.
-#[derive(Debug, Clone, Serialize)]
-pub struct ResponsesInputMessage {
-    /// Provider role.
-    pub role: &'static str,
-    /// Message text or content blocks carrying provider controls.
-    pub content: ResponsesInputMessageContent,
-}
-
-impl ResponsesInputMessage {
-    fn add_prompt_cache_breakpoint(&mut self) {
-        let text = match std::mem::replace(
-            &mut self.content,
-            ResponsesInputMessageContent::Blocks(Vec::new()),
-        ) {
-            ResponsesInputMessageContent::Text(text) => text,
-            ResponsesInputMessageContent::Blocks(mut blocks) => {
-                if let Some(block) = blocks.last_mut() {
-                    block.prompt_cache_breakpoint =
-                        Some(ResponsesPromptCacheBreakpoint { mode: "explicit" });
-                }
-                self.content = ResponsesInputMessageContent::Blocks(blocks);
-                return;
-            }
-        };
-        self.content = ResponsesInputMessageContent::Blocks(vec![ResponsesInputText {
-            kind: "input_text",
-            text,
-            prompt_cache_breakpoint: Some(ResponsesPromptCacheBreakpoint { mode: "explicit" }),
-        }]);
-    }
-}
-
-/// Responses message content, retaining the string shorthand unless metadata is required.
-#[derive(Debug, Clone, Serialize)]
-#[serde(untagged)]
-pub enum ResponsesInputMessageContent {
-    /// Plain message text.
-    Text(String),
-    /// Structured input content blocks.
-    Blocks(Vec<ResponsesInputText>),
-}
-
-impl From<String> for ResponsesInputMessageContent {
-    fn from(value: String) -> Self {
-        Self::Text(value)
-    }
-}
-
-/// Responses API input-text block.
-#[derive(Debug, Clone, Serialize)]
-pub struct ResponsesInputText {
-    #[serde(rename = "type")]
-    kind: &'static str,
-    text: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    prompt_cache_breakpoint: Option<ResponsesPromptCacheBreakpoint>,
-}
-
-/// Explicit cache marker attached to a supported Responses content block.
-#[derive(Debug, Clone, Copy, Serialize)]
-pub struct ResponsesPromptCacheBreakpoint {
-    mode: &'static str,
-}
-
-/// One Responses API native function-call context input item.
-#[derive(Debug, Clone, Serialize)]
-pub struct ResponsesFunctionCall {
-    #[serde(rename = "type")]
-    kind: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    id: Option<String>,
-    call_id: String,
-    name: String,
-    arguments: String,
-}
-
-impl From<&GenerateToolResultInput> for ResponsesFunctionCall {
-    fn from(result: &GenerateToolResultInput) -> Self {
-        Self {
-            kind: "function_call",
-            id: result.id.clone(),
-            call_id: result.call_id.clone(),
-            name: result
-                .provider_name
-                .clone()
-                .unwrap_or_else(|| provider_safe_tool_name(&result.name)),
-            arguments: result.arguments.to_string(),
-        }
-    }
-}
-
-impl From<&GenerateToolCallInput> for ResponsesFunctionCall {
-    fn from(call: &GenerateToolCallInput) -> Self {
-        Self {
-            kind: "function_call",
-            id: call.id.clone(),
-            call_id: call.call_id.clone(),
-            name: call
-                .provider_name
-                .clone()
-                .unwrap_or_else(|| provider_safe_tool_name(&call.name)),
-            arguments: call.arguments.to_string(),
-        }
-    }
-}
-
-/// One Responses API native function-call output input item.
-#[derive(Debug, Clone, Serialize)]
-pub struct ResponsesFunctionCallOutput {
-    #[serde(rename = "type")]
-    kind: &'static str,
-    call_id: String,
-    output: String,
-}
-
-impl ResponsesFunctionCallOutput {
-    fn new(result: &GenerateToolResultInput) -> Self {
-        Self {
-            kind: "function_call_output",
-            call_id: result.call_id.clone(),
-            output: result.output_json_string(),
-        }
-    }
-}
-
-impl From<&GenerateToolResultInput> for ResponsesFunctionCallOutput {
-    fn from(result: &GenerateToolResultInput) -> Self {
-        Self::new(result)
-    }
-}
-
-/// Parsed Responses-compatible API response.
-#[derive(Debug, Deserialize, Serialize)]
-pub struct ResponsesResponse {
-    /// Provider response id.
-    pub id: Option<String>,
-    /// Model reported by the provider.
-    pub model: Option<String>,
-    #[serde(default)]
-    output: Vec<ResponsesOutputItem>,
-    /// Token usage reported by the provider.
-    pub usage: Option<ResponsesUsage>,
-    #[serde(default, skip)]
-    raw: Option<Value>,
-}
-
-impl ResponsesResponse {
-    /// Finalize one shared Responses result into Noema's provider-neutral response.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ProviderError`] when native tool calls or assistant output are malformed.
-    pub(crate) fn finalize(
-        self,
-        tool_names: &ResponsesToolNameMap,
-        require_noema_response: bool,
-        diagnostics: &ResponsesDiagnosticContext,
-    ) -> Result<GenerateResponse, ProviderError> {
-        let native_tool_calls = self.native_tool_calls_with_names(tool_names)?;
-        let text = match self.output_text() {
-            Ok(text) => text,
-            Err(ProviderError::MalformedResponse { .. }) if !native_tool_calls.is_empty() => {
-                let parsed = ParsedNoemaResponse {
-                    responses: Vec::new(),
-                    tool_calls: native_tool_calls,
-                    response_status: GenerateResponseStatus::NeedsTools,
-                };
-                return Ok(self.generate_response(parsed, diagnostics));
-            }
-            Err(error @ ProviderError::MalformedResponse { .. }) => {
-                diagnostics.log_malformed_error(&error, self.id.as_deref(), self.raw_payload());
-                return Err(error);
-            }
-            Err(error) => return Err(error),
-        };
-
-        let parsed = if require_noema_response {
-            required_noema_response_from_text_with_native_tool_calls(
-                text.clone(),
-                native_tool_calls,
-            )
-            .inspect_err(|error| {
-                diagnostics.log_malformed_error(
-                    error,
-                    self.id.as_deref(),
-                    serde_json::json!({ "provider_text": text }),
-                );
-            })?
-        } else {
-            let response_status = if native_tool_calls.is_empty() {
-                GenerateResponseStatus::Final
-            } else {
-                GenerateResponseStatus::NeedsTools
-            };
-            ParsedNoemaResponse {
-                responses: output_items_from_text(text)?,
-                tool_calls: native_tool_calls,
-                response_status,
-            }
-        };
-
-        Ok(self.generate_response(parsed, diagnostics))
-    }
-
-    fn generate_response(
-        self,
-        parsed: ParsedNoemaResponse,
-        diagnostics: &ResponsesDiagnosticContext,
-    ) -> GenerateResponse {
-        let reasoning_items = self.reasoning_items();
-        GenerateResponse::from_parsed(
-            parsed,
-            diagnostics.provider_kind.clone(),
-            self.model.unwrap_or_else(|| diagnostics.model.clone()),
-            self.id,
-            self.usage.map(Into::into),
-        )
-        .with_reasoning_items(reasoning_items)
-    }
-
-    /// Return the raw provider payload preserved for developer diagnostics.
-    #[must_use]
-    pub fn raw_payload(&self) -> Value {
-        self.raw.clone().unwrap_or_else(|| {
-            serde_json::json!({
-                "id": self.id.clone(),
-                "model": self.model.clone(),
-                "output": self.output.clone(),
-                "usage": self.usage.clone(),
-            })
-        })
-    }
-
-    /// Collect assistant output text in provider order.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ProviderError::MalformedResponse`] when the response contains
-    /// no text, or [`ProviderError::ApiError`] when the only textual payload is
-    /// a refusal.
-    pub fn output_text(&self) -> Result<String, ProviderError> {
-        let mut output = String::new();
-        let mut refusals = Vec::new();
-
-        for item in &self.output {
-            let ResponsesOutputItem::Message { content } = item else {
-                continue;
-            };
-
-            for content_item in content {
-                match content_item {
-                    ResponsesContent::OutputText { text } => output.push_str(text),
-                    ResponsesContent::Refusal { refusal } => refusals.push(refusal.as_str()),
-                    ResponsesContent::Other => {}
-                }
-            }
-        }
-
-        if !output.is_empty() {
-            return Ok(output);
-        }
-
-        if !refusals.is_empty() {
-            return Err(ProviderError::ApiError {
-                status: 200,
-                message: refusals.join("\n"),
-                request_id: self.id.clone(),
-            });
-        }
-
-        Err(ProviderError::MalformedResponse {
-            message: "response did not contain output_text".to_string(),
-        })
-    }
-
-    /// Collect provider-native function-call output items.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ProviderError::MalformedResponse`] when a function-call item
-    /// contains invalid JSON arguments.
-    pub fn native_tool_calls(
-        &self,
-    ) -> Result<Vec<crate::provider::GenerateToolCall>, ProviderError> {
-        self.native_tool_calls_with_names(&ResponsesToolNameMap::default())
-    }
-
-    pub(crate) fn native_tool_calls_with_names(
-        &self,
-        tool_names: &ResponsesToolNameMap,
-    ) -> Result<Vec<crate::provider::GenerateToolCall>, ProviderError> {
-        let mut calls = Vec::new();
-        for item in &self.output {
-            let ResponsesOutputItem::FunctionCall {
-                id,
-                call_id,
-                name,
-                arguments,
-            } = item
-            else {
-                continue;
-            };
-            let Some(call_id) = call_id.as_ref().filter(|value| !value.trim().is_empty()) else {
-                return Err(ProviderError::MalformedResponse {
-                    message: format!("native tool call {name} is missing call_id"),
-                });
-            };
-            let payload: Value = serde_json::from_str(arguments).map_err(|source| {
-                ProviderError::MalformedResponse {
-                    message: format!(
-                        "failed to parse native tool call arguments for {name}: {source}"
-                    ),
-                }
-            })?;
-            if !payload.is_object() {
-                return Err(ProviderError::MalformedResponse {
-                    message: format!("native tool call arguments for {name} must be a JSON object"),
-                });
-            }
-            calls.push(crate::provider::GenerateToolCall {
-                id: id.clone(),
-                provider_call_id: Some(call_id.clone()),
-                provider_name: Some(name.clone()),
-                name: tool_names.canonical_name(name).to_string(),
-                payload,
-            });
-        }
-        Ok(calls)
-    }
-
-    /// Collect encrypted reasoning output items for stateless replay.
-    #[must_use]
-    pub fn reasoning_items(&self) -> Vec<GenerateReasoningItem> {
-        self.output
-            .iter()
-            .filter_map(|item| match item {
-                ResponsesOutputItem::Reasoning {
-                    id,
-                    encrypted_content,
-                } => encrypted_content
-                    .as_ref()
-                    .map(|encrypted_content| GenerateReasoningItem {
-                        id: id.clone(),
-                        encrypted_content: Some(encrypted_content.clone()),
-                    }),
-                _ => None,
-            })
-            .collect()
-    }
-
-    pub(super) fn from_stream_parts(
-        id: Option<String>,
-        model: Option<String>,
-        output_values: Vec<Value>,
-        usage: Option<ResponsesUsage>,
-    ) -> Result<Self, ProviderError> {
-        let raw_output_values = output_values.clone();
-        let output = output_values
-            .into_iter()
-            .map(|value| {
-                serde_json::from_value(value).map_err(|source| ProviderError::MalformedResponse {
-                    message: format!("failed to parse SSE output item: {source}"),
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let raw = serde_json::json!({
-            "id": id.clone(),
-            "model": model.clone(),
-            "output": raw_output_values,
-            "usage": usage.clone(),
-        });
-        Ok(Self {
-            id,
-            model,
-            output,
-            usage,
-            raw: Some(raw),
-        })
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(tag = "type")]
-enum ResponsesOutputItem {
-    #[serde(rename = "message")]
-    Message { content: Vec<ResponsesContent> },
-    #[serde(rename = "function_call")]
-    FunctionCall {
-        id: Option<String>,
-        call_id: Option<String>,
-        name: String,
-        arguments: String,
-    },
-    #[serde(rename = "reasoning")]
-    Reasoning {
-        id: Option<String>,
-        encrypted_content: Option<String>,
-    },
-    #[serde(other)]
-    Other,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(tag = "type")]
-enum ResponsesContent {
-    #[serde(rename = "output_text")]
-    OutputText { text: String },
-    #[serde(rename = "refusal")]
-    Refusal { refusal: String },
-    #[serde(other)]
-    Other,
-}
-
-/// Token usage reported by a Responses-compatible API.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct ResponsesUsage {
-    #[serde(default, rename = "input_tokens")]
-    input: u64,
-    #[serde(default, rename = "output_tokens")]
-    output: u64,
-    #[serde(default, rename = "total_tokens")]
-    total: u64,
-    #[serde(default, rename = "input_tokens_details")]
-    input_details: Option<ResponsesInputTokenDetails>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-struct ResponsesInputTokenDetails {
-    #[serde(default)]
-    cached_tokens: u64,
-}
-
-impl From<ResponsesUsage> for TokenUsage {
-    fn from(value: ResponsesUsage) -> Self {
-        Self {
-            input_tokens: value.input,
-            output_tokens: value.output,
-            total_tokens: value.total,
-            cached_input_tokens: value.input_details.map(|details| details.cached_tokens),
-        }
-    }
-}
-
+pub(super) use super::responses_format::noema_response_text_format;
+pub use super::responses_input::*;
+pub use super::responses_output::{ResponsesResponse, ResponsesUsage};
+pub use super::responses_tools::{
+    ResponsesAllowedTool, ResponsesAllowedTools, ResponsesTool, ResponsesToolChoice,
+};
+pub(crate) use super::responses_tools::{ResponsesToolNameMap, responses_tool_choice};
 /// HTTP transport for a Responses-compatible endpoint.
 #[derive(Debug, Clone)]
 pub struct ResponsesTransport {
@@ -1522,6 +524,10 @@ impl EmptyStringExt for String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider::{
+        GenerateInput, GenerateInputItem, GenerateReasoningInput, NoemaAllowedTools,
+        NoemaAllowedToolsMode, NoemaToolChoice,
+    };
 
     #[test]
     fn responses_request_profiles_preserve_provider_wire_differences() {
@@ -1589,9 +595,7 @@ mod tests {
             tools: vec![test_tool(), test_tool_named("mcp.docs:read")],
             tool_choice: NoemaToolChoice::Allowed(NoemaAllowedTools {
                 mode: NoemaAllowedToolsMode::Required,
-                tools: vec![
-                    crate::provider::tools::ToolName::new("mcp.docs:read").expect("tool name"),
-                ],
+                tools: vec![noema_capabilities::ToolName::new("mcp.docs:read").expect("tool name")],
             }),
             ..GenerateRequest::text("hi")
         };
@@ -1621,9 +625,7 @@ mod tests {
             tools: vec![test_tool()],
             tool_choice: NoemaToolChoice::Allowed(NoemaAllowedTools {
                 mode: NoemaAllowedToolsMode::Auto,
-                tools: vec![
-                    crate::provider::tools::ToolName::new("search_memory").expect("tool name"),
-                ],
+                tools: vec![noema_capabilities::ToolName::new("search_memory").expect("tool name")],
             }),
             ..GenerateRequest::text("hi")
         };
@@ -1643,9 +645,7 @@ mod tests {
 
         request.tool_choice = NoemaToolChoice::Allowed(NoemaAllowedTools {
             mode: NoemaAllowedToolsMode::Auto,
-            tools: vec![
-                crate::provider::tools::ToolName::new("update_own_name").expect("tool name"),
-            ],
+            tools: vec![noema_capabilities::ToolName::new("update_own_name").expect("tool name")],
         });
         let missing = ResponsesRequest::from_generate(
             &request,
@@ -1777,12 +777,12 @@ mod tests {
         assert!(matches!(error, ProviderError::InvalidRequest { .. }));
     }
 
-    fn test_tool() -> crate::provider::NoemaToolSpec {
+    fn test_tool() -> noema_capabilities::ToolSpec {
         test_tool_named("search_memory")
     }
 
-    fn test_tool_named(name: &str) -> crate::provider::NoemaToolSpec {
-        crate::provider::NoemaToolSpec::new(
+    fn test_tool_named(name: &str) -> noema_capabilities::ToolSpec {
+        noema_capabilities::ToolSpec::new(
             name,
             "Search governed Noema memory.",
             serde_json::json!({
@@ -1791,9 +791,176 @@ mod tests {
                 "required": ["query"],
                 "additionalProperties": false
             }),
-            crate::provider::NoemaToolExecution::LocalBuiltin,
         )
         .expect("tool")
+    }
+
+    #[test]
+    fn whole_capability_catalog_lowering_fixture_is_stable() {
+        let tools = vec![
+            noema_capabilities::web::search::tool_spec().expect("search spec"),
+            noema_capabilities::web::fetch::tool_spec().expect("fetch spec"),
+            noema_capabilities::ToolSpec::new(
+                "mcp.mcp:docs.read",
+                "Read a document.",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": {"document_id": {"type": "string"}},
+                    "required": ["document_id"],
+                    "additionalProperties": false
+                }),
+            )
+            .expect("MCP spec"),
+        ];
+        let request = GenerateRequest {
+            tools,
+            tool_choice: NoemaToolChoice::Allowed(NoemaAllowedTools {
+                mode: NoemaAllowedToolsMode::Required,
+                tools: vec![
+                    noema_capabilities::ToolName::new("mcp.mcp:docs.read").expect("tool name"),
+                ],
+            }),
+            parallel_tool_calls: true,
+            ..GenerateRequest::text("fixture input")
+        };
+        let (body, _) = ResponsesRequest::from_generate(
+            &request,
+            "gpt-fixture".to_string(),
+            None,
+            OPENAI_RESPONSES_PROFILE,
+        )
+        .expect("lowering");
+
+        let expected_tools = serde_json::json!([
+            {
+                "type": "function",
+                "name": "web_x2e_search",
+                "description": "Search the public web using Noema's configured search provider.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "minLength": 1, "maxLength": 500, "description": "The exact internet search query to send to the configured search provider."},
+                        "reason": {"type": "string", "maxLength": 500, "description": "Brief reason this search is useful for the current response."},
+                        "max_results": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Maximum number of search results to return."}
+                    },
+                    "required": ["query"],
+                    "additionalProperties": false
+                }
+            },
+            {
+                "type": "function",
+                "name": "web_x2e_fetch",
+                "description": "Fetch and read a public web page using Noema's configured web fetch provider.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string", "minLength": 1, "maxLength": 2048, "description": "The public http(s) URL to fetch and read."},
+                        "reason": {"type": "string", "maxLength": 500, "description": "Brief reason this page is useful for the current response."},
+                        "max_chars": {"type": "integer", "minimum": 1000, "maximum": 20000, "description": "Maximum characters to return after extraction and optional summarization."}
+                    },
+                    "required": ["url"],
+                    "additionalProperties": false
+                }
+            },
+            {
+                "type": "function",
+                "name": "mcp_x2e_mcp_x3a_docs_x2e_read",
+                "description": "Read a document.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"document_id": {"type": "string"}},
+                    "required": ["document_id"],
+                    "additionalProperties": false
+                }
+            }
+        ]);
+        assert_eq!(
+            serde_json::to_value(body).expect("serialize"),
+            serde_json::json!({
+                "model": "gpt-fixture",
+                "input": "fixture input",
+                "tools": expected_tools,
+                "tool_choice": {
+                    "type": "allowed_tools",
+                    "mode": "required",
+                    "tools": [{
+                        "type": "function",
+                        "name": "mcp_x2e_mcp_x3a_docs_x2e_read"
+                    }]
+                },
+                "parallel_tool_calls": true,
+                "include": ["reasoning.encrypted_content"],
+                "store": false
+            })
+        );
+    }
+
+    #[test]
+    fn valid_unknown_provider_tool_name_is_rejected_without_fallback() {
+        let tool_names = ResponsesToolNameMap::from_tools(&[test_tool()]).expect("tool names");
+        let response: ResponsesResponse = serde_json::from_value(serde_json::json!({
+            "id": "resp_1",
+            "model": "gpt-test",
+            "output": [{
+                "type": "function_call",
+                "id": "item_1",
+                "call_id": "call_1",
+                "name": "unadvertised_valid_name",
+                "arguments": "{}"
+            }]
+        }))
+        .expect("response");
+
+        let error = response
+            .native_tool_calls_with_names(&tool_names)
+            .expect_err("unknown provider name rejected");
+        assert!(matches!(
+            error,
+            ProviderError::MalformedResponse { ref message }
+                if message == "provider returned an unadvertised tool name"
+        ));
+    }
+
+    #[test]
+    fn unknown_provider_tool_name_is_rejected_before_missing_call_id_validation() {
+        assert_unknown_provider_tool_error(None, "{}");
+    }
+
+    #[test]
+    fn unknown_provider_tool_name_is_rejected_before_malformed_arguments_validation() {
+        assert_unknown_provider_tool_error(Some("call_1"), "{\"query\":");
+    }
+
+    #[test]
+    fn unknown_provider_tool_name_is_rejected_before_non_object_arguments_validation() {
+        assert_unknown_provider_tool_error(Some("call_1"), "[]");
+    }
+
+    fn assert_unknown_provider_tool_error(call_id: Option<&str>, arguments: &str) {
+        let tool_names = ResponsesToolNameMap::from_tools(&[test_tool()]).expect("tool names");
+        let response: ResponsesResponse = serde_json::from_value(serde_json::json!({
+            "id": "resp_1",
+            "model": "gpt-test",
+            "output": [{
+                "type": "function_call",
+                "id": "item_1",
+                "call_id": call_id,
+                "name": "sensitive_x2e_provider_x3a_value",
+                "arguments": arguments
+            }]
+        }))
+        .expect("response");
+
+        let error = response
+            .native_tool_calls_with_names(&tool_names)
+            .expect_err("unknown provider name rejected first");
+
+        assert!(matches!(
+            error,
+            ProviderError::MalformedResponse { ref message }
+                if message == "provider returned an unadvertised tool name"
+        ));
+        assert!(!error.to_string().contains("sensitive"));
     }
 
     #[test]
@@ -1851,7 +1018,7 @@ mod tests {
     #[test]
     fn responses_response_parses_function_call_output_items() {
         let tools = vec![
-            crate::provider::NoemaToolSpec::new(
+            noema_capabilities::ToolSpec::new(
                 "mcp.docs:read",
                 "Read docs.",
                 serde_json::json!({
@@ -1860,7 +1027,6 @@ mod tests {
                     "required": ["document_id"],
                     "additionalProperties": false
                 }),
-                crate::provider::NoemaToolExecution::LocalBuiltin,
             )
             .expect("tool"),
         ];
@@ -1913,7 +1079,9 @@ mod tests {
         .expect("response");
 
         let error = response
-            .native_tool_calls()
+            .native_tool_calls_with_names(
+                &ResponsesToolNameMap::from_tools(&[test_tool()]).expect("tool names"),
+            )
             .expect_err("invalid arguments rejected");
 
         assert!(matches!(error, ProviderError::MalformedResponse { .. }));
@@ -1942,7 +1110,9 @@ mod tests {
         .expect("response");
 
         let error = response
-            .native_tool_calls()
+            .native_tool_calls_with_names(
+                &ResponsesToolNameMap::from_tools(&[test_tool()]).expect("tool names"),
+            )
             .expect_err("non-object arguments rejected");
 
         assert!(matches!(error, ProviderError::MalformedResponse { .. }));
@@ -1970,7 +1140,9 @@ mod tests {
         .expect("response");
 
         let error = response
-            .native_tool_calls()
+            .native_tool_calls_with_names(
+                &ResponsesToolNameMap::from_tools(&[test_tool()]).expect("tool names"),
+            )
             .expect_err("missing call_id rejected");
 
         assert!(matches!(error, ProviderError::MalformedResponse { .. }));
@@ -2131,7 +1303,7 @@ mod tests {
     #[test]
     fn responses_tool_name_map_uses_provider_safe_names_and_maps_back() {
         let tools = vec![
-            crate::provider::NoemaToolSpec::new(
+            noema_capabilities::ToolSpec::new(
                 "mcp.docs:read",
                 "Read docs.",
                 serde_json::json!({
@@ -2140,7 +1312,6 @@ mod tests {
                     "required": ["document_id"],
                     "additionalProperties": false
                 }),
-                crate::provider::NoemaToolExecution::LocalBuiltin,
             )
             .expect("tool"),
         ];
@@ -2172,7 +1343,7 @@ mod tests {
 
     #[test]
     fn responses_tool_name_map_rejects_provider_safe_name_collisions() {
-        let first = crate::provider::NoemaToolSpec::new(
+        let first = noema_capabilities::ToolSpec::new(
             "mcp.docs",
             "Read docs.",
             serde_json::json!({
@@ -2180,10 +1351,9 @@ mod tests {
                 "properties": {},
                 "additionalProperties": false
             }),
-            crate::provider::NoemaToolExecution::LocalBuiltin,
         )
         .expect("first tool");
-        let second = crate::provider::NoemaToolSpec::new(
+        let second = noema_capabilities::ToolSpec::new(
             "mcp_x2e_docs",
             "Read docs.",
             serde_json::json!({
@@ -2191,7 +1361,6 @@ mod tests {
                 "properties": {},
                 "additionalProperties": false
             }),
-            crate::provider::NoemaToolExecution::LocalBuiltin,
         )
         .expect("second tool");
 

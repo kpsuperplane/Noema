@@ -3,13 +3,13 @@
 use crate::web_fetch::{
     extraction::{extract_readable_content, normalize_plain_text},
     summarize::{SummaryDecision, raw_excerpt, summarize_markdown, summary_strategy_for_chars},
-    types::{
-        DIRECT_HTTP_PROVIDER_ID, EXTRACTION_READABILITYRS, FetchContentKind, FetchError,
-        FetchRequest, FetchResponse, FetchRuntimeContext, FetchSummaryStrategy,
-    },
+    types::{DIRECT_HTTP_PROVIDER_ID, EXTRACTION_READABILITYRS, FetchError, FetchRuntimeContext},
     url_policy::{CheckedUrl, validate_public_web_fetch_url, validate_public_web_fetch_url_parsed},
 };
 use futures_util::StreamExt;
+use noema_capabilities::web::fetch::{
+    FetchContentKind, FetchRequest, FetchResponse, FetchSummaryStrategy,
+};
 use reqwest::{Client, StatusCode, header};
 #[cfg(test)]
 use std::net::SocketAddr;
@@ -245,8 +245,9 @@ mod tests {
     use super::*;
     use crate::{
         provider::{GenerateRequest, GenerateResponse, GenerateStreamEvent, ProviderError},
-        web_fetch::types::{FetchContentKind, FetchRuntimeContext, FetchSummaryStrategy},
+        web_fetch::types::FetchRuntimeContext,
     };
+    use noema_capabilities::web::fetch::{FetchContentKind, FetchSummaryStrategy};
     use std::{future::Future, pin::Pin, sync::Arc};
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},

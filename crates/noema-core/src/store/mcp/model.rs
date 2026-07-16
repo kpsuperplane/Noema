@@ -34,6 +34,11 @@ pub struct McpServerRecord {
     pub auth_status: McpServerAuthStatus,
     /// Number of discovered tools for this server.
     pub tool_count: usize,
+    /// Random generation for the connection identity represented by this row.
+    ///
+    /// A delete/recreate cycle receives a different generation even when the
+    /// durable id and safe configuration are byte-for-byte identical.
+    pub authority_generation: String,
 }
 
 /// Last known MCP server health state.

@@ -38,12 +38,10 @@ pub use contract::{
 };
 
 pub use capabilities::{
-    CapabilityFeatures, CapabilityId, DataFlowClass, ProviderCapability, ProviderCapabilityStatus,
-    ReliabilityContract, ResultPersistencePolicy, capabilities_for_provider_account,
+    ProviderCapability, ProviderCapabilityStatus, capabilities_for_provider_account,
 };
 
 pub use tools::{
-    NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolCall, NoemaToolChoice, NoemaToolExecution,
-    NoemaToolResult, NoemaToolSchema, NoemaToolSpec, ProviderToolCapabilities,
-    ProviderToolSchemaDialect, ProviderToolTransport, ToolContractError, ToolName,
+    NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderToolCapabilities,
+    ProviderToolSchemaDialect, ProviderToolTransport,
 };

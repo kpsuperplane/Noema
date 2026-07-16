@@ -47,7 +47,6 @@ pub enum ToolAccessClass {
 pub struct ToolPolicy {
     role: ExecutionRole,
     allowed_tool_names: BTreeSet<String>,
-    allow_unlisted_primary_tools: bool,
 }
 
 impl ToolPolicy {
@@ -57,9 +56,6 @@ impl ToolPolicy {
         Self {
             role,
             allowed_tool_names: BTreeSet::new(),
-            // Preserve the foreground gateway's existing behavior until the
-            // foreground path opts into a model-derived strict allowlist.
-            allow_unlisted_primary_tools: role == ExecutionRole::PrimaryConversation,
         }
     }
 
@@ -92,8 +88,6 @@ impl ToolPolicy {
     #[must_use]
     pub fn allows_tool(&self, name: &str) -> bool {
         self.allowed_tool_names.contains(name)
-            || (self.allow_unlisted_primary_tools
-                && self.role == ExecutionRole::PrimaryConversation)
     }
 
     /// Record a declared tool when its builder has classified its access.
@@ -128,15 +122,28 @@ impl ToolPolicy {
         }
     }
 
-    /// Make a strict copy suitable for dispatch from the names advertised by
-    /// a model-tool builder.  Primary executions retain the existing
-    /// permissive behavior unless callers explicitly construct a strict
-    /// policy; task roles are always strict.
+    /// Make a strict copy suitable for dispatch. Every role is already strict;
+    /// this method preserves the explicit call-site signal.
     #[must_use]
     pub fn strict_for_dispatch(&self) -> Self {
-        let mut strict = self.clone();
-        strict.allow_unlisted_primary_tools = false;
-        strict
+        self.clone()
+    }
+
+    /// Intersect exact allowed names without permitting a later catalog to
+    /// grow authority retained from an earlier provider request.
+    #[must_use]
+    pub fn intersect_allowed_names(&self, later: &Self) -> Self {
+        if self.role != later.role {
+            return Self::for_role(self.role);
+        }
+        Self {
+            role: self.role,
+            allowed_tool_names: self
+                .allowed_tool_names
+                .intersection(&later.allowed_tool_names)
+                .cloned()
+                .collect(),
+        }
     }
 }
 
@@ -177,13 +184,26 @@ mod tests {
     }
 
     #[test]
-    fn primary_compatibility_can_be_made_strict() {
+    fn primary_dispatch_is_strict_by_default() {
         let mut policy = ToolPolicy::for_role(ExecutionRole::PrimaryConversation);
-        assert!(policy.allows_tool("legacy.existing.tool"));
+        assert!(!policy.allows_tool("legacy.existing.tool"));
 
         let strict = policy.strict_for_dispatch();
         assert!(!strict.allows_tool("legacy.existing.tool"));
         policy.declare_tool("search_memory", ToolAccessClass::ReadOnly);
         assert!(policy.allows_tool("search_memory"));
+    }
+
+    #[test]
+    fn retained_policy_can_only_shrink() {
+        let mut initial = ToolPolicy::for_role(ExecutionRole::PrimaryConversation);
+        initial.allow_tool_names(["stable", "initial-only"]);
+        let mut later = ToolPolicy::for_role(ExecutionRole::PrimaryConversation);
+        later.allow_tool_names(["stable", "newly-available"]);
+
+        let retained = initial.intersect_allowed_names(&later);
+        assert!(retained.allows_tool("stable"));
+        assert!(!retained.allows_tool("initial-only"));
+        assert!(!retained.allows_tool("newly-available"));
     }
 }

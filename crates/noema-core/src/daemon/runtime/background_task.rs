@@ -23,7 +23,7 @@ use super::{
         is_task_terminal_tool, is_valid_terminal_tool, render_continuation_tool_names,
         task_tool_result_transcript_payload, terminal_contract_tools, terminal_tool_instructions,
     },
-    task_transcript::sanitize_task_tool_payload,
+    task_transcript::persisted_capability_arguments,
     tool_lifecycle::local_tool_calls,
     turn::{SuccessfulProviderTurn, current_runtime_environment},
 };
@@ -127,6 +127,7 @@ impl CodexRuntimeActor {
                         && model_tools.has_callable_tools()
                         && capabilities.parallel_tool_calls,
                 },
+                &model_tools.bindings,
                 &request.run_id,
                 &request.task_id,
                 &request.lease_token,
@@ -262,7 +263,7 @@ impl CodexRuntimeActor {
                 agent_identity: agent_identity.clone(),
                 runtime_environment: current_runtime_environment(None),
                 tool_capabilities: capabilities,
-                provider_tool_catalog: model_tools.provider_tools(),
+                initial_model_tools: model_tools.clone(),
                 continuation_model_tools: model_tools.clone(),
                 initial_provider_input: GenerateInput::Text(request.input.clone()),
             };
@@ -362,7 +363,7 @@ impl CodexRuntimeActor {
                             "call_id": call.call_id,
                             "provider_call_id": call.provider_call_id,
                             "provider_name": call.provider_name,
-                            "arguments": sanitize_task_tool_payload(&call.name, &call.payload),
+                            "arguments": result.persisted().arguments.clone().unwrap_or_else(super::task_transcript::omitted_capability_payload),
                         }),
                     },
                     &request.lease_token,
@@ -539,6 +540,7 @@ impl CodexRuntimeActor {
                 .generate_task_provider_round(
                     &provider,
                     continuation_request,
+                    &model_tools.bindings,
                     &request.run_id,
                     &request.task_id,
                     &request.lease_token,
@@ -577,6 +579,7 @@ impl CodexRuntimeActor {
                                 && model_tools.has_callable_tools()
                                 && capabilities.parallel_tool_calls,
                         },
+                        &model_tools.bindings,
                         &request.run_id,
                         &request.task_id,
                         &request.lease_token,
@@ -631,6 +634,7 @@ impl CodexRuntimeActor {
                 "task execution role has no terminal contract tool".to_string(),
             ));
         }
+        let terminal_bindings = binding_snapshot_for_specs(model_tools, &terminal_tools)?;
         let instructions = terminal_tool_instructions(
             &build_task_finalization_prompt(request.role, reason, &request.input),
             model_tools,
@@ -676,6 +680,7 @@ impl CodexRuntimeActor {
             .generate_task_provider_round(
                 provider,
                 finalization_request,
+                &terminal_bindings,
                 &request.run_id,
                 &request.task_id,
                 &request.lease_token,
@@ -709,6 +714,7 @@ impl CodexRuntimeActor {
                         tool_choice: finalization_tool_choice,
                         parallel_tool_calls: false,
                     },
+                    &terminal_bindings,
                     &request.run_id,
                     &request.task_id,
                     &request.lease_token,
@@ -762,7 +768,7 @@ impl CodexRuntimeActor {
                     "id": terminal_call.id,
                     "call_id": terminal_call.provider_call_id,
                     "provider_name": terminal_call.provider_name,
-                    "arguments": sanitize_task_tool_payload(&terminal_call.name, &terminal_call.payload),
+                    "arguments": persisted_capability_arguments(&terminal_bindings, &terminal_call.name, &terminal_call.payload),
                 }),
             },
             &request.lease_token,
@@ -830,6 +836,28 @@ fn task_finalization_deadline(
 ) -> tokio::time::Instant {
     const FINALIZATION_GRACE: Duration = Duration::from_secs(30);
     now + FINALIZATION_GRACE
+}
+
+fn binding_snapshot_for_specs(
+    model_tools: &ModelTools,
+    specs: &[noema_capabilities::ToolSpec],
+) -> Result<noema_capabilities::CapabilityCatalogSnapshot, DaemonError> {
+    let mut builder = noema_capabilities::CapabilityCatalogBuilder::new();
+    for spec in specs {
+        let binding = model_tools
+            .bindings
+            .resolve(spec.name.as_str())
+            .ok_or_else(|| {
+                DaemonError::Protocol(
+                    "terminal capability binding is missing from the active catalog".to_string(),
+                )
+            })?
+            .clone();
+        builder.add(binding).map_err(|_| {
+            DaemonError::Protocol("terminal capability catalog is invalid".to_string())
+        })?;
+    }
+    Ok(builder.build())
 }
 
 #[cfg(test)]

@@ -24,6 +24,7 @@ fs2.workspace = true
 http.workspace = true
 libc.workspace = true
 noema-artifacts = { path = "../noema-artifacts", default-features = false, features = ["filesystem"] }
+noema-capabilities = { path = "../noema-capabilities" }
 noema-conversations = { path = "../noema-conversations" }
 noema-home = { path = "../noema-home" }
 ring.workspace = true

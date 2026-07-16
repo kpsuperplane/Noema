@@ -1,6 +1,7 @@
 //! Exa hosted web search provider.
 
-use crate::search::types::{SearchError, SearchRequest, SearchResponse, SearchResult};
+use crate::search::types::SearchError;
+use noema_capabilities::web::search::{SearchRequest, SearchResponse, SearchResult};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -116,7 +117,8 @@ fn map_reqwest_error(error: reqwest::Error) -> SearchError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{provider::adapters::test_support::spawn_server, search::types::SearchRequest};
+    use crate::provider::adapters::test_support::spawn_server;
+    use noema_capabilities::web::search::SearchRequest;
     use serde_json::json;
 
     #[test]

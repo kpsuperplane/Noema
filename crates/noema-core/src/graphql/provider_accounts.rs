@@ -4,12 +4,10 @@ use crate::{
     FoundationLocalProvider, FoundationLocalProviderConfig, ProviderAccountRecord,
     ProviderAccountStatus, ProviderAuthMethod,
     config::DEFAULT_FOUNDATION_LOCAL_PROFILE,
-    provider::{
-        ProviderCapability, ResultPersistencePolicy,
-        adapters::foundation_bridge_process::FoundationBridgeError,
-    },
+    provider::{ProviderCapability, adapters::foundation_bridge_process::FoundationBridgeError},
     store::NewProviderAccount,
 };
+use noema_capabilities::ResultPersistencePolicy;
 
 use super::{
     errors::graphql_error, onboarding::GraphqlProviderAccountStatus, schema::GraphqlState,

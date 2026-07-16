@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use rusqlite::params;
+use ring::digest::{SHA256, digest};
 use serde_json::{Value, json};
 
 use crate::{
@@ -382,6 +382,7 @@ fn preview_mcp_server(
         health_status: McpServerHealthStatus::Unknown,
         auth_status: McpServerAuthStatus::None,
         tool_count: 0,
+        authority_generation: "pending-setup".to_string(),
     }
 }
 
@@ -412,20 +413,36 @@ fn discovered_tool_fingerprint(tool: &DiscoveredMcpTool) -> String {
         "output_schema": tool.output_schema,
         "annotations": tool.annotations
     });
-    let json_string = serde_json::to_string(&payload).expect("metadata fingerprint JSON");
-    format!(
-        "mcp-tool-metadata:v1:{}",
-        stable_hex_fingerprint(json_string.as_bytes())
-    )
+    let canonical_payload = canonicalize_json(&payload);
+    let json_string = serde_json::to_string(&canonical_payload).expect("metadata fingerprint JSON");
+    let fingerprint = digest(&SHA256, json_string.as_bytes());
+    format!("mcp-tool-metadata:v2:{}", hex_bytes(fingerprint.as_ref()))
 }
 
-fn stable_hex_fingerprint(bytes: &[u8]) -> String {
-    let mut hash = 0xcbf29ce484222325_u64;
-    for byte in bytes {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100000001b3);
+fn canonicalize_json(value: &Value) -> Value {
+    match value {
+        Value::Array(values) => Value::Array(values.iter().map(canonicalize_json).collect()),
+        Value::Object(object) => {
+            let mut entries = object.iter().collect::<Vec<_>>();
+            entries.sort_unstable_by_key(|(key, _)| *key);
+            Value::Object(
+                entries
+                    .into_iter()
+                    .map(|(key, value)| (key.clone(), canonicalize_json(value)))
+                    .collect(),
+            )
+        }
+        _ => value.clone(),
     }
-    format!("{hash:016x}")
+}
+
+fn hex_bytes(bytes: &[u8]) -> String {
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        use std::fmt::Write as _;
+        let _ = write!(output, "{byte:02x}");
+    }
+    output
 }
 
 fn validate_display_name(display_name: &str) -> Result<String, StoreError> {
@@ -611,21 +628,14 @@ async fn update_mcp_server_safe_config(
     mcp_server_id: &str,
     safe_config: Value,
 ) -> Result<(), StoreError> {
-    let safe_config_json = serde_json::to_string(&safe_config)?;
+    let server = store
+        .get_mcp_server(mcp_server_id)
+        .await?
+        .ok_or_else(|| StoreError::Schema("MCP server is unavailable".to_string()))?;
     store
-        .with_connection(|conn| {
-            conn.execute(
-                r#"
-                UPDATE mcp_servers SET
-                  safe_config_json = ?2,
-                  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                WHERE mcp_server_id = ?1
-                "#,
-                params![mcp_server_id, safe_config_json],
-            )?;
-            Ok(())
-        })
-        .await
+        .update_mcp_server_connection_identity(mcp_server_id, server.transport_kind, safe_config)
+        .await?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -643,6 +653,83 @@ mod tests {
         sync::{Arc, Mutex},
     };
     use tempfile::TempDir;
+
+    #[test]
+    fn discovered_tool_fingerprint_is_v2_sha256_and_covers_all_metadata() {
+        let base = fake_tool("read");
+        let fingerprint = discovered_tool_fingerprint(&base);
+        let digest = fingerprint
+            .strip_prefix("mcp-tool-metadata:v2:")
+            .expect("v2 prefix");
+        assert_eq!(digest.len(), 64);
+        assert!(
+            digest
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        );
+        assert_eq!(fingerprint, discovered_tool_fingerprint(&base));
+
+        let mut variants = Vec::new();
+        let mut changed = base.clone();
+        changed.name = "write".to_string();
+        variants.push(changed);
+        let mut changed = base.clone();
+        changed.description = Some("different".to_string());
+        variants.push(changed);
+        let mut changed = base.clone();
+        changed.input_schema = json!({"type": "object", "required": ["id"]});
+        variants.push(changed);
+        let mut changed = base.clone();
+        changed.output_schema = Some(json!({"type": "string"}));
+        variants.push(changed);
+        let mut changed = base.clone();
+        changed.annotations = json!({"readOnlyHint": false});
+        variants.push(changed);
+
+        for variant in variants {
+            assert_ne!(fingerprint, discovered_tool_fingerprint(&variant));
+        }
+    }
+
+    #[test]
+    fn discovered_tool_fingerprint_canonicalizes_nested_object_key_order() {
+        let mut first = fake_tool("read");
+        first.input_schema = serde_json::from_str(
+            r#"{"type":"object","properties":{"query":{"type":"string","description":"term"},"limit":{"maximum":10,"minimum":1,"type":"integer"}},"required":["query"]}"#,
+        )
+        .expect("input schema");
+        first.output_schema = Some(
+            serde_json::from_str(
+                r#"{"type":"object","properties":{"items":{"items":{"type":"string"},"type":"array"},"count":{"type":"integer"}}}"#,
+            )
+            .expect("output schema"),
+        );
+        first.annotations = serde_json::from_str(
+            r#"{"readOnlyHint":true,"nested":{"alpha":1,"beta":{"enabled":true,"label":"safe"}}}"#,
+        )
+        .expect("annotations");
+
+        let mut reordered = first.clone();
+        reordered.input_schema = serde_json::from_str(
+            r#"{"required":["query"],"properties":{"limit":{"type":"integer","minimum":1,"maximum":10},"query":{"description":"term","type":"string"}},"type":"object"}"#,
+        )
+        .expect("reordered input schema");
+        reordered.output_schema = Some(
+            serde_json::from_str(
+                r#"{"properties":{"count":{"type":"integer"},"items":{"type":"array","items":{"type":"string"}}},"type":"object"}"#,
+            )
+            .expect("reordered output schema"),
+        );
+        reordered.annotations = serde_json::from_str(
+            r#"{"nested":{"beta":{"label":"safe","enabled":true},"alpha":1},"readOnlyHint":true}"#,
+        )
+        .expect("reordered annotations");
+
+        assert_eq!(
+            discovered_tool_fingerprint(&first),
+            discovered_tool_fingerprint(&reordered)
+        );
+    }
 
     #[tokio::test]
     async fn create_stdio_setup_writes_secret_env_persists_safe_config_and_discovers_tools() {

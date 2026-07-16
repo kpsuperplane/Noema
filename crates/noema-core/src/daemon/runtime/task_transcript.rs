@@ -13,13 +13,12 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     GenerateRequest, GenerateResponse,
-    capability::gateway::is_mcp_shaped_tool_name,
     daemon::protocol::DaemonError,
     graphql::{ConversationSubscriptionRegistry, TaskLiveEvent},
     provider::{GenerateStreamEvent, GenerationPriority},
     store::NewAgentRunItem,
-    web_fetch::tool::{WEB_FETCH_TOOL, sanitize_web_fetch_payload_for_storage},
 };
+use noema_capabilities::CapabilityCatalogSnapshot;
 
 use super::{
     actor::CodexRuntimeActor, background_task::BackgroundTaskGenerateRequest,
@@ -32,6 +31,7 @@ impl CodexRuntimeActor {
         &self,
         provider: &Arc<dyn RuntimeModelProvider>,
         mut request: GenerateRequest,
+        bindings: &CapabilityCatalogSnapshot,
         run_id: &str,
         task_id: &str,
         lease_token: &str,
@@ -164,7 +164,7 @@ impl CodexRuntimeActor {
                 }
             }
             for (output_index, call) in response.tool_calls.iter().enumerate() {
-                let arguments = sanitize_task_tool_payload(&call.name, &call.payload);
+                let arguments = persisted_capability_arguments(bindings, &call.name, &call.payload);
                 self.persist_task_run_item(
                     task_id,
                     subscriptions,
@@ -280,86 +280,61 @@ fn assistant_run_item(
     }
 }
 
-pub(super) fn sanitize_task_tool_payload(
+pub(super) fn persisted_capability_arguments(
+    bindings: &CapabilityCatalogSnapshot,
     name: &str,
     payload: &serde_json::Value,
 ) -> serde_json::Value {
-    if name == WEB_FETCH_TOOL {
-        return sanitize_web_fetch_payload_for_storage(payload);
-    }
-    if name == "artifact.create_local_file" {
-        let mut sanitized = payload.clone();
-        if let Some(versions) = sanitized
-            .get_mut("versions")
-            .and_then(serde_json::Value::as_array_mut)
-        {
-            for version in versions {
-                if let Some(object) = version.as_object_mut()
-                    && let Some(content) = object.get_mut("content")
-                {
-                    let chars = content.as_str().map(str::chars).map(Iterator::count);
-                    *content = serde_json::json!({
-                        "omitted": true,
-                        "character_count": chars,
-                    });
-                }
-            }
-        }
-        return redact_secret_fields(&sanitized);
-    }
-    if is_mcp_shaped_tool_name(name) {
-        return serde_json::json!({
-            "redacted": true,
-            "reason": "mcp_payload",
-        });
-    }
-    redact_secret_fields(payload)
+    bindings
+        .resolve(name)
+        .and_then(|binding| binding.persist_arguments(payload))
+        .unwrap_or_else(omitted_capability_payload)
 }
 
-fn redact_secret_fields(value: &serde_json::Value) -> serde_json::Value {
-    match value {
-        serde_json::Value::Object(object) => serde_json::Value::Object(
-            object
-                .iter()
-                .map(|(key, value)| {
-                    let normalized = key.to_ascii_lowercase();
-                    let sensitive = [
-                        "authorization",
-                        "api_key",
-                        "apikey",
-                        "access_token",
-                        "refresh_token",
-                        "password",
-                        "secret",
-                        "cookie",
-                    ]
-                    .iter()
-                    .any(|needle| normalized.contains(needle));
-                    (
-                        key.clone(),
-                        if sensitive {
-                            serde_json::Value::String("[REDACTED]".to_string())
-                        } else {
-                            redact_secret_fields(value)
-                        },
-                    )
-                })
-                .collect(),
-        ),
-        serde_json::Value::Array(items) => {
-            serde_json::Value::Array(items.iter().map(redact_secret_fields).collect())
-        }
-        _ => value.clone(),
-    }
+pub(super) fn omitted_capability_payload() -> serde_json::Value {
+    serde_json::json!({
+        "redacted": true,
+        "reason": "capability_persistence_policy",
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use noema_capabilities::{
+        CapabilityAccess, CapabilityBinding, CapabilityCatalogBuilder, CapabilityEffect,
+        CapabilityScope, CapabilityTarget, InvokerKey, OmitPayloadSanitizer, OperationToken,
+        RedactingPayloadSanitizer, ToolSpec,
+    };
+    use std::sync::Arc;
+
+    fn bindings(name: &str, omit: bool) -> CapabilityCatalogSnapshot {
+        let spec =
+            ToolSpec::new(name, "Test", serde_json::json!({"type": "object"})).expect("spec");
+        let sanitizer: Arc<dyn noema_capabilities::PayloadSanitizer> = if omit {
+            Arc::new(OmitPayloadSanitizer)
+        } else {
+            Arc::new(RedactingPayloadSanitizer)
+        };
+        let binding = CapabilityBinding::new(
+            spec,
+            CapabilityTarget::new(InvokerKey::new("test"), OperationToken::new("test")),
+            CapabilityAccess {
+                effect: CapabilityEffect::ReadOnly,
+                scope: CapabilityScope::Global,
+            },
+            sanitizer,
+        );
+        let mut builder = CapabilityCatalogBuilder::new();
+        builder.add(binding).expect("unique binding");
+        builder.build()
+    }
 
     #[test]
     fn task_transcript_redacts_secret_fields_recursively() {
-        let sanitized = sanitize_task_tool_payload(
+        let bindings = bindings("web.search", false);
+        let sanitized = persisted_capability_arguments(
+            &bindings,
             "web.search",
             &serde_json::json!({
                 "query": "safe",
@@ -374,26 +349,74 @@ mod tests {
     }
 
     #[test]
-    fn task_transcript_does_not_persist_mcp_payloads() {
-        let sanitized = sanitize_task_tool_payload(
-            "mcp.mcp:notion.search",
+    fn task_transcript_uses_binding_policy_after_mcp_rename() {
+        let bindings = bindings("workspace.lookup", true);
+        let sanitized = persisted_capability_arguments(
+            &bindings,
+            "workspace.lookup",
             &serde_json::json!({"query": "private workspace query"}),
         );
         assert_eq!(sanitized["redacted"], true);
+        assert_eq!(sanitized["reason"], "capability_persistence_policy");
         assert!(!sanitized.to_string().contains("workspace"));
     }
 
     #[test]
     fn task_transcript_omits_artifact_file_contents() {
-        let sanitized = sanitize_task_tool_payload(
+        let spec = ToolSpec::new(
+            "artifact.create_local_file",
+            "Create an artifact.",
+            serde_json::json!({"type": "object"}),
+        )
+        .expect("spec");
+        let binding = CapabilityBinding::new(
+            spec,
+            CapabilityTarget::new(
+                InvokerKey::new("test"),
+                OperationToken::new("artifact.create_local_file"),
+            ),
+            CapabilityAccess {
+                effect: CapabilityEffect::Mutating,
+                scope: CapabilityScope::ConversationOwned,
+            },
+            Arc::new(noema_capabilities::ArtifactPayloadSanitizer),
+        );
+        let mut builder = CapabilityCatalogBuilder::new();
+        builder.add(binding).expect("unique binding");
+        let bindings = builder.build();
+        let sanitized = persisted_capability_arguments(
+            &bindings,
             "artifact.create_local_file",
             &serde_json::json!({
-                "title": "Report",
-                "versions": [{"content": "private report body"}],
+                "arguments": {
+                    "filename": "private.md",
+                    "title": "Safe title",
+                    "api_key": "private secret",
+                    "versions": [{"title": "Draft", "content": "private artifact body"}]
+                }
             }),
         );
-        assert_eq!(sanitized["title"], "Report");
-        assert_eq!(sanitized["versions"][0]["content"]["omitted"], true);
-        assert!(!sanitized.to_string().contains("private report body"));
+
+        assert_eq!(sanitized["arguments"]["filename"], "private.md");
+        assert_eq!(sanitized["arguments"]["title"], "Safe title");
+        assert_eq!(sanitized["arguments"]["versions"][0]["title"], "Draft");
+        assert_eq!(
+            sanitized["arguments"]["versions"][0]["content"],
+            serde_json::json!({"omitted": true, "character_count": 21})
+        );
+        assert_eq!(sanitized["arguments"]["api_key"], "[REDACTED]");
+        assert!(!sanitized.to_string().contains("private artifact body"));
+        assert!(!sanitized.to_string().contains("private secret"));
+    }
+
+    #[test]
+    fn unknown_tool_arguments_are_omitted_without_inspection() {
+        let sanitized = persisted_capability_arguments(
+            &CapabilityCatalogSnapshot::default(),
+            "forged.tool",
+            &serde_json::json!({"private": "must not persist"}),
+        );
+        assert_eq!(sanitized, omitted_capability_payload());
+        assert!(!sanitized.to_string().contains("must not persist"));
     }
 }

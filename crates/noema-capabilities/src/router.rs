@@ -1,0 +1,566 @@
+//! Object-safe invocation and routing contracts.
+
+use crate::{
+    CapabilityCatalogSnapshot, CapabilityTarget, OperationToken, PersistedCapabilityPayload,
+    ToolName,
+};
+use serde_json::Value;
+use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
+use thiserror::Error;
+
+/// Opaque key identifying one server-owned invoker registration.
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct InvokerKey(String);
+
+impl std::fmt::Debug for InvokerKey {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("InvokerKey([REDACTED])")
+    }
+}
+
+impl InvokerKey {
+    /// Construct a server-owned invoker key.
+    #[must_use]
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    /// Return the opaque key for server-side diagnostics and registration.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Boxed future returned by object-safe capability boundaries.
+pub type CapabilityFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// One resolved invocation without provider correlation identifiers or a
+/// generic runtime-context property bag.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CapabilityInvocation {
+    /// Canonical operation name from the advertised binding.
+    pub operation: ToolName,
+    /// Opaque child/runtime-owned operation token from that binding.
+    pub operation_token: OperationToken,
+    /// Provider-supplied JSON arguments.
+    pub arguments: Value,
+}
+
+/// Model-visible capability result.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CapabilityOutput {
+    /// Whether the tool-declared operation succeeded.
+    pub success: bool,
+    /// Structured model-visible payload.
+    pub payload: Value,
+}
+
+/// Completed dispatch with binding-produced persisted views. A tool-declared
+/// failure is still a completed dispatch with `output.success == false`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CapabilityDispatch {
+    /// Model-visible operation output.
+    pub output: CapabilityOutput,
+    /// Persisted views selected by the resolved binding.
+    pub persisted: PersistedCapabilityPayload,
+}
+
+/// Control-plane or routing failure with all persistence policy already
+/// applied. Unknown/unadvertised calls have `None` views because no binding was
+/// resolved; their raw arguments must never be persisted.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CapabilityDispatchFailure {
+    /// Fixed safe failure category.
+    pub error: CapabilityError,
+    /// Binding-produced views, or omitted views for an unknown call.
+    pub persisted: PersistedCapabilityPayload,
+}
+
+impl CapabilityDispatchFailure {
+    /// Build a policy/control-plane failure through the exact binding's
+    /// persistence policy. If the name is unadvertised, the returned error is
+    /// [`CapabilityError::UnknownOperation`] and both views are omitted.
+    #[must_use]
+    pub fn from_snapshot(
+        snapshot: &CapabilityCatalogSnapshot,
+        canonical_name: &str,
+        arguments: &Value,
+        error: CapabilityError,
+    ) -> Self {
+        let Some(binding) = snapshot.resolve(canonical_name) else {
+            return Self {
+                error: CapabilityError::UnknownOperation,
+                persisted: PersistedCapabilityPayload::omitted(),
+            };
+        };
+        Self {
+            persisted: PersistedCapabilityPayload {
+                arguments: binding.persist_arguments(arguments),
+                output: binding.persist_output(&error.safe_payload()),
+            },
+            error,
+        }
+    }
+}
+
+impl CapabilityOutput {
+    /// Construct a successful output.
+    #[must_use]
+    pub fn success(payload: Value) -> Self {
+        Self {
+            success: true,
+            payload,
+        }
+    }
+
+    /// Construct a tool-declared failed output. Transport and control-plane
+    /// failures use [`CapabilityError`] instead.
+    #[must_use]
+    pub fn failed(payload: Value) -> Self {
+        Self {
+            success: false,
+            payload,
+        }
+    }
+}
+
+/// Sanitized invocation failure categories.
+#[derive(Debug, Clone, Error, PartialEq, Eq)]
+pub enum CapabilityError {
+    /// No invoker is registered for the binding target.
+    #[error("capability invoker is unavailable")]
+    UnknownInvoker,
+    /// The operation token is unknown or stale.
+    #[error("capability operation is unavailable")]
+    UnknownOperation,
+    /// Arguments violate the operation contract.
+    #[error("capability arguments are invalid")]
+    InvalidArguments,
+    /// Current execution policy denies the operation.
+    #[error("capability invocation was denied")]
+    Denied,
+    /// The capability is temporarily unavailable.
+    #[error("capability is unavailable")]
+    Unavailable,
+    /// The implementation failed without a safe tool-declared result.
+    #[error("capability invocation failed")]
+    Failed,
+}
+
+/// Object-safe implementation of one family of capability targets.
+pub trait CapabilityInvoker: Send + Sync {
+    /// Invoke one operation resolved from the immutable advertised catalog.
+    fn invoke(
+        &self,
+        invocation: CapabilityInvocation,
+    ) -> CapabilityFuture<'_, Result<CapabilityOutput, CapabilityError>>;
+}
+
+/// Clonable capability invoker handle.
+pub type CapabilityInvokerHandle = Arc<dyn CapabilityInvoker>;
+
+/// Object-safe strict router contract.
+pub trait CapabilityRouter: Send + Sync {
+    /// Resolve and dispatch only through the supplied immutable snapshot.
+    fn dispatch(
+        &self,
+        snapshot: CapabilityCatalogSnapshot,
+        canonical_name: String,
+        arguments: Value,
+    ) -> CapabilityFuture<'_, Result<CapabilityDispatch, CapabilityDispatchFailure>>;
+}
+
+/// Clonable router handle.
+pub type CapabilityRouterHandle = Arc<dyn CapabilityRouter>;
+
+/// Router construction error.
+#[derive(Debug, Clone, Error, PartialEq, Eq)]
+pub enum CapabilityRouterConstructionError {
+    /// Two invokers were registered under the same opaque key.
+    #[error("duplicate capability invoker registration")]
+    DuplicateInvoker,
+}
+
+/// Generic strict registry router over opaque invoker keys and tokens.
+#[derive(Clone, Default)]
+pub struct CapabilityRegistryRouter<'a> {
+    invokers: Arc<HashMap<InvokerKey, Arc<dyn CapabilityInvoker + 'a>>>,
+}
+
+impl std::fmt::Debug for CapabilityRegistryRouter<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CapabilityRegistryRouter")
+            .field("invoker_count", &self.invokers.len())
+            .finish()
+    }
+}
+
+impl<'a> CapabilityRegistryRouter<'a> {
+    /// Build a router, rejecting duplicate invoker registrations.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapabilityRouterConstructionError::DuplicateInvoker`] when a
+    /// key appears more than once.
+    pub fn new<I>(invokers: I) -> Result<Self, CapabilityRouterConstructionError>
+    where
+        I: IntoIterator<Item = (InvokerKey, Arc<dyn CapabilityInvoker + 'a>)>,
+    {
+        let mut registered = HashMap::new();
+        for (key, invoker) in invokers {
+            if registered.insert(key, invoker).is_some() {
+                return Err(CapabilityRouterConstructionError::DuplicateInvoker);
+            }
+        }
+        Ok(Self {
+            invokers: Arc::new(registered),
+        })
+    }
+
+    /// Resolve an advertised name through the exact immutable snapshot and
+    /// dispatch its stored target. Unknown names never fall back to a global
+    /// catalog or to parsing the provider-returned text.
+    async fn dispatch_resolved(
+        &self,
+        snapshot: &CapabilityCatalogSnapshot,
+        canonical_name: &str,
+        arguments: Value,
+    ) -> Result<CapabilityDispatch, CapabilityDispatchFailure> {
+        let Some(binding) = snapshot.resolve(canonical_name) else {
+            return Err(CapabilityDispatchFailure::from_snapshot(
+                snapshot,
+                canonical_name,
+                &arguments,
+                CapabilityError::UnknownOperation,
+            ));
+        };
+        let persisted_arguments = binding.persist_arguments(&arguments);
+        match self
+            .invoke_target(binding.target(), binding.spec().name.clone(), arguments)
+            .await
+        {
+            Ok(output) => Ok(CapabilityDispatch {
+                persisted: PersistedCapabilityPayload {
+                    arguments: persisted_arguments,
+                    output: binding.persist_output(&output.payload),
+                },
+                output,
+            }),
+            Err(error) => {
+                let mut failure = CapabilityDispatchFailure::from_snapshot(
+                    snapshot,
+                    canonical_name,
+                    &Value::Null,
+                    error,
+                );
+                failure.persisted.arguments = persisted_arguments;
+                Err(failure)
+            }
+        }
+    }
+
+    async fn invoke_target(
+        &self,
+        target: &CapabilityTarget,
+        operation: ToolName,
+        arguments: Value,
+    ) -> Result<CapabilityOutput, CapabilityError> {
+        let invoker = self
+            .invokers
+            .get(target.invoker_key())
+            .ok_or(CapabilityError::UnknownInvoker)?;
+        invoker
+            .invoke(CapabilityInvocation {
+                operation,
+                operation_token: target.operation_token().clone(),
+                arguments,
+            })
+            .await
+    }
+}
+
+impl CapabilityRouter for CapabilityRegistryRouter<'_> {
+    fn dispatch(
+        &self,
+        snapshot: CapabilityCatalogSnapshot,
+        canonical_name: String,
+        arguments: Value,
+    ) -> CapabilityFuture<'_, Result<CapabilityDispatch, CapabilityDispatchFailure>> {
+        Box::pin(async move {
+            self.dispatch_resolved(&snapshot, &canonical_name, arguments)
+                .await
+        })
+    }
+}
+
+impl CapabilityError {
+    fn safe_payload(&self) -> Value {
+        serde_json::json!({"error": self.safe_code()})
+    }
+
+    const fn safe_code(&self) -> &'static str {
+        match self {
+            Self::UnknownInvoker => "unknown_invoker",
+            Self::UnknownOperation => "unknown_operation",
+            Self::InvalidArguments => "invalid_arguments",
+            Self::Denied => "denied",
+            Self::Unavailable => "unavailable",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        CapabilityAccess, CapabilityBinding, CapabilityCatalogBuilder, CapabilityEffect,
+        CapabilityScope, OmitPayloadSanitizer, PayloadSanitizer, RedactingPayloadSanitizer,
+        ToolSpec,
+    };
+    use serde_json::json;
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct RecordingInvoker(Mutex<Vec<CapabilityInvocation>>);
+
+    impl CapabilityInvoker for RecordingInvoker {
+        fn invoke(
+            &self,
+            invocation: CapabilityInvocation,
+        ) -> CapabilityFuture<'_, Result<CapabilityOutput, CapabilityError>> {
+            self.0.lock().expect("recording lock").push(invocation);
+            Box::pin(async { Ok(CapabilityOutput::success(json!({"ok": true}))) })
+        }
+    }
+
+    struct FixedInvoker(Result<CapabilityOutput, CapabilityError>);
+
+    impl CapabilityInvoker for FixedInvoker {
+        fn invoke(
+            &self,
+            _invocation: CapabilityInvocation,
+        ) -> CapabilityFuture<'_, Result<CapabilityOutput, CapabilityError>> {
+            let result = self.0.clone();
+            Box::pin(async move { result })
+        }
+    }
+
+    struct TokenCheckingInvoker;
+
+    impl CapabilityInvoker for TokenCheckingInvoker {
+        fn invoke(
+            &self,
+            invocation: CapabilityInvocation,
+        ) -> CapabilityFuture<'_, Result<CapabilityOutput, CapabilityError>> {
+            Box::pin(async move {
+                if invocation.operation_token.as_str() == "current-token" {
+                    Ok(CapabilityOutput::success(json!({"ok":true})))
+                } else {
+                    Err(CapabilityError::UnknownOperation)
+                }
+            })
+        }
+    }
+
+    fn snapshot() -> CapabilityCatalogSnapshot {
+        snapshot_with(
+            InvokerKey::new("mcp"),
+            OperationToken::new("reviewed:1"),
+            Arc::new(RedactingPayloadSanitizer),
+        )
+    }
+
+    fn snapshot_with(
+        invoker_key: InvokerKey,
+        operation_token: OperationToken,
+        sanitizer: Arc<dyn PayloadSanitizer>,
+    ) -> CapabilityCatalogSnapshot {
+        let binding = CapabilityBinding::new(
+            ToolSpec::new("mcp.docs.read", "Read docs.", json!({"type":"object"})).expect("spec"),
+            CapabilityTarget::new(invoker_key, operation_token),
+            CapabilityAccess {
+                effect: CapabilityEffect::ReadOnly,
+                scope: CapabilityScope::Global,
+            },
+            sanitizer,
+        );
+        let mut builder = CapabilityCatalogBuilder::new();
+        builder.add(binding).expect("catalog entry");
+        builder.build()
+    }
+
+    #[test]
+    fn strict_resolution_rejects_unknown_and_forwards_exact_target() {
+        let invoker = Arc::new(RecordingInvoker::default());
+        let router = CapabilityRegistryRouter::new([(
+            InvokerKey::new("mcp"),
+            invoker.clone() as CapabilityInvokerHandle,
+        )])
+        .expect("router");
+        let router: CapabilityRouterHandle = Arc::new(router);
+        let snapshot = snapshot();
+
+        let success = poll_ready(router.dispatch(
+            snapshot.clone(),
+            "mcp.docs.read".to_string(),
+            json!({
+                "query":"rust",
+                "invoker_key":"forged",
+                "operation_token":"forged"
+            }),
+        ));
+        assert_eq!(
+            success.expect("dispatch").output.payload,
+            json!({"ok":true})
+        );
+        assert_eq!(
+            invoker.0.lock().expect("recording lock")[0]
+                .operation_token
+                .as_str(),
+            "reviewed:1"
+        );
+        assert_eq!(
+            invoker.0.lock().expect("recording lock")[0].arguments,
+            json!({
+                "query":"rust",
+                "invoker_key":"forged",
+                "operation_token":"forged"
+            })
+        );
+
+        let error = poll_ready(router.dispatch(
+            snapshot,
+            "mcp.hidden.write".to_string(),
+            json!({"private":"never persist"}),
+        ))
+        .expect_err("unknown advertised name rejected");
+        assert_eq!(error.error, CapabilityError::UnknownOperation);
+        assert_eq!(error.persisted, PersistedCapabilityPayload::omitted());
+    }
+
+    #[test]
+    fn omit_policy_applies_to_control_plane_failure() {
+        let router = CapabilityRegistryRouter::new([(
+            InvokerKey::new("mcp"),
+            Arc::new(FixedInvoker(Err(CapabilityError::Unavailable))) as CapabilityInvokerHandle,
+        )])
+        .expect("router");
+        let failure = poll_ready(CapabilityRouter::dispatch(
+            &router,
+            snapshot_with(
+                InvokerKey::new("mcp"),
+                OperationToken::new("reviewed:1"),
+                Arc::new(OmitPayloadSanitizer),
+            ),
+            "mcp.docs.read".to_string(),
+            json!({"private":"workspace"}),
+        ))
+        .expect_err("control-plane failure");
+        assert_eq!(failure.error, CapabilityError::Unavailable);
+        assert_eq!(failure.persisted, PersistedCapabilityPayload::omitted());
+    }
+
+    #[test]
+    fn redacting_policy_applies_to_fixed_control_plane_error_payload() {
+        let router = CapabilityRegistryRouter::new([(
+            InvokerKey::new("mcp"),
+            Arc::new(FixedInvoker(Err(CapabilityError::Unavailable))) as CapabilityInvokerHandle,
+        )])
+        .expect("router");
+        let failure = poll_ready(CapabilityRouter::dispatch(
+            &router,
+            snapshot(),
+            "mcp.docs.read".to_string(),
+            json!({"api_key":"private", "query":"safe"}),
+        ))
+        .expect_err("control-plane failure");
+        assert_eq!(
+            failure.persisted.arguments,
+            Some(json!({"api_key":"[REDACTED]", "query":"safe"}))
+        );
+        assert_eq!(
+            failure.persisted.output,
+            Some(json!({"error":"unavailable"}))
+        );
+    }
+
+    #[test]
+    fn tool_declared_failure_is_completed_dispatch_with_views() {
+        let router = CapabilityRegistryRouter::new([(
+            InvokerKey::new("mcp"),
+            Arc::new(FixedInvoker(Ok(CapabilityOutput::failed(json!({
+                "error":"tool_declared",
+                "password":"private"
+            }))))) as CapabilityInvokerHandle,
+        )])
+        .expect("router");
+        let dispatch = poll_ready(CapabilityRouter::dispatch(
+            &router,
+            snapshot(),
+            "mcp.docs.read".to_string(),
+            json!({"query":"safe"}),
+        ))
+        .expect("completed tool failure");
+        assert!(!dispatch.output.success);
+        assert_eq!(
+            dispatch.persisted.output,
+            Some(json!({"error":"tool_declared", "password":"[REDACTED]"}))
+        );
+    }
+
+    #[test]
+    fn unknown_invoker_and_stale_token_are_typed_and_sanitized() {
+        let missing = poll_ready(CapabilityRouter::dispatch(
+            &CapabilityRegistryRouter::default(),
+            snapshot(),
+            "mcp.docs.read".to_string(),
+            json!({"query":"safe"}),
+        ))
+        .expect_err("unknown invoker");
+        assert_eq!(missing.error, CapabilityError::UnknownInvoker);
+        assert_eq!(missing.persisted.arguments, Some(json!({"query":"safe"})));
+
+        let router = CapabilityRegistryRouter::new([(
+            InvokerKey::new("mcp"),
+            Arc::new(TokenCheckingInvoker) as CapabilityInvokerHandle,
+        )])
+        .expect("router");
+        let stale = poll_ready(CapabilityRouter::dispatch(
+            &router,
+            snapshot_with(
+                InvokerKey::new("mcp"),
+                OperationToken::new("stale-token"),
+                Arc::new(RedactingPayloadSanitizer),
+            ),
+            "mcp.docs.read".to_string(),
+            json!({}),
+        ))
+        .expect_err("stale token");
+        assert_eq!(stale.error, CapabilityError::UnknownOperation);
+    }
+
+    #[test]
+    fn duplicate_invoker_registration_is_rejected() {
+        let invoker = Arc::new(RecordingInvoker::default()) as CapabilityInvokerHandle;
+        let error = CapabilityRegistryRouter::new([
+            (InvokerKey::new("runtime"), invoker.clone()),
+            (InvokerKey::new("runtime"), invoker),
+        ])
+        .expect_err("duplicate rejected");
+        assert_eq!(error, CapabilityRouterConstructionError::DuplicateInvoker);
+    }
+
+    fn poll_ready<F: Future>(future: F) -> F::Output {
+        use std::task::{Context, Poll, Waker};
+        let mut future = Box::pin(future);
+        let waker = Waker::noop();
+        let mut context = Context::from_waker(waker);
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(value) => value,
+            Poll::Pending => panic!("test future unexpectedly pending"),
+        }
+    }
+}

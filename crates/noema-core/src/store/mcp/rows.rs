@@ -32,6 +32,7 @@ pub(super) fn mcp_server_from_row(row: &Row<'_>) -> rusqlite::Result<McpServerRe
         health_status: parse_mcp_health_status(&health_status).map_err(to_sql_error)?,
         auth_status: parse_mcp_auth_status(&auth_status).map_err(to_sql_error)?,
         tool_count: usize::try_from(tool_count).map_err(to_sql_error)?,
+        authority_generation: row.get(8)?,
     })
 }
 

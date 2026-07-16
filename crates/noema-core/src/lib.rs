@@ -7,7 +7,7 @@
 /// Shared execution roles and role-aware tool dispatch policy.
 pub mod agent_execution;
 /// Capability Gateway runtime entrypoint.
-pub mod capability;
+pub(crate) mod capability;
 /// Configuration loading and provider selection.
 pub mod config;
 /// Local daemon runtime and web protocol types.
@@ -39,7 +39,6 @@ mod test_support;
 #[doc(hidden)]
 pub mod web_fetch;
 
-pub use capability::{CapabilityGateway, GatewayToolProposal, GatewayToolResult};
 pub use config::{
     Config, ConfigError, ConfigOverrides, DEFAULT_NOEMA_CONFIG_YAML, DaemonResolvedConfig,
     FoundationLocalProviderConfig, LocalModelsProviderConfig, ProviderConfig, ProviderKind,

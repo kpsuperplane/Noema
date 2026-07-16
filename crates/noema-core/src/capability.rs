@@ -1,7 +1,5 @@
 //! Capability Gateway runtime entrypoint.
 
-pub mod gateway;
+pub(crate) mod gateway;
 
-pub use gateway::{
-    CapabilityGateway, GatewayToolProposal, GatewayToolResult, is_mcp_shaped_tool_name,
-};
+pub(crate) use gateway::CapabilityGateway;

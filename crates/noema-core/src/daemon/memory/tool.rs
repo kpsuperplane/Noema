@@ -3,9 +3,9 @@ use crate::{
     daemon::memory::{
         HUMAN_MEMORY_SCOPE_ID, context::project_scope_from_cwd, conversation_scope_id,
     },
-    provider::{NoemaToolExecution, NoemaToolSpec, ToolContractError},
     store::StoreError,
 };
+use noema_capabilities::{ToolContractError, ToolSpec};
 use std::collections::HashSet;
 
 use serde::Deserialize;
@@ -88,8 +88,8 @@ pub(in crate::daemon) fn is_search_memory_tool(name: &str) -> bool {
     name == SEARCH_MEMORY_TOOL
 }
 
-pub(in crate::daemon) fn search_memory_tool_spec() -> Result<NoemaToolSpec, ToolContractError> {
-    NoemaToolSpec::new(
+pub(in crate::daemon) fn search_memory_tool_spec() -> Result<ToolSpec, ToolContractError> {
+    ToolSpec::new(
         SEARCH_MEMORY_TOOL,
         "Search governed Noema memory for the current user, conversation, or active project.",
         json!({
@@ -119,7 +119,6 @@ pub(in crate::daemon) fn search_memory_tool_spec() -> Result<NoemaToolSpec, Tool
             "required": ["query"],
             "additionalProperties": false
         }),
-        NoemaToolExecution::LocalBuiltin,
     )
 }
 

@@ -442,7 +442,7 @@ fn chat_noema_response_format(request: &GenerateRequest) -> Result<Value, Provid
 
 fn selected_local_tools(
     request: &GenerateRequest,
-) -> Result<Vec<&crate::provider::NoemaToolSpec>, ProviderError> {
+) -> Result<Vec<&noema_capabilities::ToolSpec>, ProviderError> {
     match &request.tool_choice {
         crate::provider::NoemaToolChoice::None => Ok(Vec::new()),
         crate::provider::NoemaToolChoice::Required if request.tools.is_empty() => {
@@ -863,11 +863,10 @@ mod tests {
 
     #[test]
     fn none_tool_choice_forbids_calls_even_when_specs_are_present() {
-        let tool = crate::provider::NoemaToolSpec::new(
+        let tool = noema_capabilities::ToolSpec::new(
             "search_memory",
             "Search memory.",
             serde_json::json!({"type": "object", "additionalProperties": false}),
-            crate::provider::NoemaToolExecution::LocalBuiltin,
         )
         .expect("tool");
         let request = GenerateRequest {
@@ -896,7 +895,7 @@ mod tests {
 
     #[test]
     fn required_tool_choice_constrains_local_response_schema() {
-        let tool = crate::provider::NoemaToolSpec::new(
+        let tool = noema_capabilities::ToolSpec::new(
             "task.submit_result",
             "Submit a result.",
             serde_json::json!({
@@ -905,7 +904,6 @@ mod tests {
                 "required": ["summary"],
                 "additionalProperties": false
             }),
-            crate::provider::NoemaToolExecution::LocalBuiltin,
         )
         .expect("tool");
         let request = GenerateRequest {
@@ -961,18 +959,16 @@ mod tests {
 
     #[test]
     fn allowed_tool_choice_specializes_schema_to_the_selected_catalog_entry() {
-        let first = crate::provider::NoemaToolSpec::new(
+        let first = noema_capabilities::ToolSpec::new(
             "search_memory",
             "Search memory.",
             serde_json::json!({"type": "object", "additionalProperties": false}),
-            crate::provider::NoemaToolExecution::LocalBuiltin,
         )
         .expect("first tool");
-        let second = crate::provider::NoemaToolSpec::new(
+        let second = noema_capabilities::ToolSpec::new(
             "task.inspect",
             "Inspect a task.",
             serde_json::json!({"type": "object", "additionalProperties": false}),
-            crate::provider::NoemaToolExecution::LocalBuiltin,
         )
         .expect("second tool");
         let request = GenerateRequest {
@@ -1007,7 +1003,7 @@ mod tests {
 
     #[test]
     fn local_tool_schema_drops_patterns_unsupported_by_llama_cpp() {
-        let tool = crate::provider::NoemaToolSpec::new(
+        let tool = noema_capabilities::ToolSpec::new(
             "artifact.create_local_file",
             "Create a file.",
             serde_json::json!({
@@ -1016,7 +1012,6 @@ mod tests {
                 "required": ["title"],
                 "additionalProperties": false
             }),
-            crate::provider::NoemaToolExecution::LocalBuiltin,
         )
         .expect("tool");
         let request = GenerateRequest {
@@ -1046,7 +1041,7 @@ mod tests {
 
     #[test]
     fn local_tool_schema_drops_expansive_string_length_grammar() {
-        let tool = crate::provider::NoemaToolSpec::new(
+        let tool = noema_capabilities::ToolSpec::new(
             "task.submit_result",
             "Submit a result.",
             serde_json::json!({
@@ -1057,7 +1052,6 @@ mod tests {
                 "required": ["summary"],
                 "additionalProperties": false
             }),
-            crate::provider::NoemaToolExecution::LocalBuiltin,
         )
         .expect("tool");
         let request = GenerateRequest {

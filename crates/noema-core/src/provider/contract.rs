@@ -1,6 +1,7 @@
 //! Provider-neutral generation contract.
 
-use super::tools::{NoemaToolChoice, NoemaToolSpec, ProviderToolCapabilities};
+use super::tools::{NoemaToolChoice, ProviderToolCapabilities};
+use noema_capabilities::ToolSpec;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
@@ -141,7 +142,7 @@ pub struct GenerateRequest {
     /// Provider-neutral generation controls.
     pub options: GenerateOptions,
     /// Provider-neutral model-visible tools for this request.
-    pub tools: Vec<NoemaToolSpec>,
+    pub tools: Vec<ToolSpec>,
     /// Tool selection policy requested by Noema.
     pub tool_choice: NoemaToolChoice,
     /// Whether Noema allows the provider to emit independent tool calls in parallel.

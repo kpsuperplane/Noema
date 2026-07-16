@@ -3,15 +3,12 @@ use noema_conversations::{
     NewConversationItem, NewConversationTurn, ReplayMode,
 };
 
-use crate::{
-    capability::GatewayToolResult,
-    provider::{
-        GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
-        GenerateStreamEvent, GenerateToolCall, MultipleChoiceOption, MultipleChoiceSelectionMode,
-        NoemaAllowedToolsMode, NoemaToolChoice, PromptCacheMode, PromptCacheOptions,
-        PromptCacheRetention, ProviderError, ProviderToolCapabilities, ProviderToolTransport,
-        TokenUsage,
-    },
+use crate::provider::{
+    GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
+    GenerateStreamEvent, GenerateToolCall, MultipleChoiceOption, MultipleChoiceSelectionMode,
+    NoemaAllowedToolsMode, NoemaToolChoice, PromptCacheMode, PromptCacheOptions,
+    PromptCacheRetention, ProviderError, ProviderToolCapabilities, ProviderToolTransport,
+    TokenUsage,
 };
 use chrono::{Local, SecondsFormat};
 use noema_home::SystemErrorEvent;
@@ -30,9 +27,9 @@ use super::{
     actor::CodexRuntimeActor,
     continuation_context::ContinuationContext,
     local_tools::{
-        LocalToolResult, agent_identity_after_local_tools, local_tool_artifact_reference_item,
-        local_tool_result_action_item, local_tool_result_continuation_input,
-        local_tool_task_reference_item,
+        LocalToolResult, RuntimeCapabilityResult, agent_identity_after_local_tools,
+        local_tool_artifact_reference_item, local_tool_result_action_item,
+        local_tool_result_continuation_input, local_tool_task_reference_item,
     },
     model_context::{
         AgentIdentityContext, ModelContextState, RuntimeEnvironmentContext, ToolVisibilityContext,
@@ -233,23 +230,6 @@ fn model_context_state(
             catalog_rows,
         ),
     )
-}
-
-pub(super) fn mcp_health_status_label(status: crate::McpServerHealthStatus) -> &'static str {
-    match status {
-        crate::McpServerHealthStatus::Unknown => "unknown",
-        crate::McpServerHealthStatus::Healthy => "healthy",
-        crate::McpServerHealthStatus::Unavailable => "unavailable",
-    }
-}
-
-pub(super) fn mcp_auth_status_label(status: crate::McpServerAuthStatus) -> &'static str {
-    match status {
-        crate::McpServerAuthStatus::None => "none",
-        crate::McpServerAuthStatus::NeedsAuth => "needs_auth",
-        crate::McpServerAuthStatus::Authenticated => "authenticated",
-        crate::McpServerAuthStatus::Unavailable => "unavailable",
-    }
 }
 
 fn build_memory_observation_add_request(
@@ -707,7 +687,7 @@ impl CodexRuntimeActor {
             "runtime_model_tools_ready",
             json!({
                 "duration_ms": tools_started_at.elapsed().as_millis(),
-                "tool_catalog_count": model_tools.tools.len(),
+                "tool_catalog_count": model_tools.bindings.len(),
                 "callable_tool_count": model_tools.callable_tool_names().len(),
                 "continuation_callable_tool_count": continuation_model_tools.callable_tool_names().len(),
             }),
@@ -1176,7 +1156,7 @@ impl CodexRuntimeActor {
                             agent_identity,
                             runtime_environment,
                             tool_capabilities,
-                            provider_tool_catalog: model_tools.provider_tools(),
+                            initial_model_tools: model_tools,
                             continuation_model_tools,
                             initial_provider_input,
                         },
@@ -1356,7 +1336,7 @@ impl CodexRuntimeActor {
                 }),
             );
             let result = if initial_batch_kind == ForegroundToolBatchKind::MixedDelegation {
-                rejected_mixed_delegation_result(call)
+                rejected_mixed_delegation_result(call, &turn.initial_model_tools.bindings)
             } else {
                 self.execute_local_tool(&turn, &turn.agent_identity, call)
                     .await
@@ -1570,10 +1550,18 @@ impl CodexRuntimeActor {
             let continuation_result_count = continuation_tool_results.len();
             let provider = self.provider_for_kind(&turn.provider_kind)?;
             let response_continuation = provider.response_continuation(turn.model.as_deref());
+            let active_continuation_model_tools = if task_handoff {
+                ModelTools::empty(crate::agent_execution::ExecutionRole::PrimaryConversation)
+            } else {
+                ModelTools::retained_catalog_with_policy(
+                    &turn.initial_model_tools,
+                    &turn.continuation_model_tools,
+                )
+            };
             let continuation_context_state = model_context_state(
                 &continuation_agent_identity,
                 turn.runtime_environment.clone(),
-                &turn.continuation_model_tools,
+                &active_continuation_model_tools,
                 !task_handoff,
             );
             let context_updates = sync_model_context(ModelContextSyncRequest {
@@ -1666,7 +1654,7 @@ impl CodexRuntimeActor {
                     {
                         0
                     } else {
-                        turn.continuation_model_tools.tools.len()
+                        turn.continuation_model_tools.bindings.len()
                     },
                 }),
             );
@@ -1678,21 +1666,21 @@ impl CodexRuntimeActor {
                 if turn.tool_capabilities.allowed_tools
                     && turn.continuation_model_tools.transport == ProviderToolTransport::Native
                 {
-                    (
-                        turn.provider_tool_catalog.clone(),
-                        if task_handoff {
-                            NoemaToolChoice::None
-                        } else {
-                            turn.continuation_model_tools
-                                .allowed_tool_choice(NoemaAllowedToolsMode::Auto)
-                        },
-                    )
+                    if task_handoff {
+                        (Vec::new(), NoemaToolChoice::None)
+                    } else {
+                        (
+                            turn.initial_model_tools.provider_tools(),
+                            active_continuation_model_tools
+                                .allowed_tool_choice(NoemaAllowedToolsMode::Auto),
+                        )
+                    }
                 } else {
                     (
                         if task_handoff {
                             Vec::new()
                         } else {
-                            turn.continuation_model_tools.provider_tools()
+                            active_continuation_model_tools.policy_filtered_provider_tools()
                         },
                         NoemaToolChoice::Auto,
                     )
@@ -1716,7 +1704,7 @@ impl CodexRuntimeActor {
                 tool_choice: continuation_tool_choice.clone(),
                 parallel_tool_calls: !task_handoff
                     && turn.continuation_model_tools.transport == ProviderToolTransport::Native
-                    && turn.continuation_model_tools.has_callable_tools()
+                    && active_continuation_model_tools.has_callable_tools()
                     && turn.tool_capabilities.parallel_tool_calls,
             };
             let mut continuation_result = provider
@@ -1759,7 +1747,7 @@ impl CodexRuntimeActor {
                             parallel_tool_calls: !task_handoff
                                 && turn.continuation_model_tools.transport
                                     == ProviderToolTransport::Native
-                                && turn.continuation_model_tools.has_callable_tools()
+                                && active_continuation_model_tools.has_callable_tools()
                                 && turn.tool_capabilities.parallel_tool_calls,
                         },
                         &mut on_continuation_event,
@@ -1916,7 +1904,7 @@ impl CodexRuntimeActor {
                 agent_identity: continuation_agent_identity,
                 runtime_environment: turn.runtime_environment.clone(),
                 tool_capabilities: turn.tool_capabilities,
-                provider_tool_catalog: turn.provider_tool_catalog.clone(),
+                initial_model_tools: active_continuation_model_tools,
                 continuation_model_tools: turn.continuation_model_tools.clone(),
                 initial_provider_input: turn.initial_provider_input.clone(),
             };
@@ -1961,7 +1949,10 @@ impl CodexRuntimeActor {
                 );
                 let result = if continuation_batch_kind == ForegroundToolBatchKind::MixedDelegation
                 {
-                    rejected_mixed_delegation_result(call)
+                    rejected_mixed_delegation_result(
+                        call,
+                        &continuation_turn.initial_model_tools.bindings,
+                    )
                 } else {
                     self.execute_local_tool(
                         &continuation_turn,
@@ -2558,7 +2549,7 @@ pub(in crate::daemon) struct SuccessfulProviderTurn {
     pub(in crate::daemon) agent_identity: AgentPromptIdentity,
     pub(in crate::daemon) runtime_environment: RuntimeEnvironmentContext,
     pub(in crate::daemon) tool_capabilities: ProviderToolCapabilities,
-    pub(in crate::daemon) provider_tool_catalog: Vec<crate::provider::NoemaToolSpec>,
+    pub(in crate::daemon) initial_model_tools: ModelTools,
     pub(in crate::daemon) continuation_model_tools: ModelTools,
     pub(in crate::daemon) initial_provider_input: GenerateInput,
 }
@@ -2636,14 +2627,24 @@ impl ForegroundToolBatchKind {
     }
 }
 
-fn rejected_mixed_delegation_result(call: &LocalToolCall) -> LocalToolResult {
+fn rejected_mixed_delegation_result(
+    call: &LocalToolCall,
+    bindings: &noema_capabilities::CapabilityCatalogSnapshot,
+) -> LocalToolResult {
+    let failure = noema_capabilities::CapabilityDispatchFailure::from_snapshot(
+        bindings,
+        &call.name,
+        &call.payload,
+        noema_capabilities::CapabilityError::Denied,
+    );
     LocalToolResult::Gateway {
         call_id: call.call_id.clone(),
         provider_call_id: call.provider_call_id.clone(),
         provider_name: call.provider_name.clone(),
         name: call.name.clone(),
         arguments: call.payload.clone(),
-        result: GatewayToolResult {
+        persisted: failure.persisted,
+        result: RuntimeCapabilityResult {
             success: false,
             payload: json!({
                 "error": "task_delegate_mixed_tool_batch",

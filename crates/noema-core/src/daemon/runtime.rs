@@ -5,6 +5,7 @@ mod context_window;
 mod continuation_context;
 mod conversation_state;
 pub(in crate::daemon) mod handle;
+mod local_tool_results;
 pub(in crate::daemon) mod local_tools;
 pub(crate) mod model_context;
 mod model_context_ledger;

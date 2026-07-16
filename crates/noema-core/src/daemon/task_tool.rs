@@ -5,8 +5,9 @@ use serde_json::{Value, json};
 
 use crate::{
     ModelConfigSnapshot, NewTask, NewTaskValidationCriterion, NoemaStore, TASK_REVIEWER_AGENT_ID,
-    TaskComplexity, TaskModelPoolEntry, TaskSource, TaskStatus, provider::NoemaToolSpec,
+    TaskComplexity, TaskModelPoolEntry, TaskSource, TaskStatus,
 };
+use noema_capabilities::ToolSpec;
 
 pub(crate) const TASK_DELEGATE_TOOL: &str = "task.delegate";
 pub(crate) const TASK_INSPECT_TOOL: &str = "task.inspect";
@@ -125,16 +126,15 @@ pub(crate) fn is_task_report_blocked_tool(name: &str) -> bool {
     name == TASK_REPORT_BLOCKED_TOOL
 }
 
-pub(crate) fn task_inspect_tool_spec() -> Result<NoemaToolSpec, crate::provider::ToolContractError>
-{
+pub(crate) fn task_inspect_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError> {
     task_id_tool_spec(
         TASK_INSPECT_TOOL,
         "Inspect the current durable status of a delegated task, including its latest run, submission, review, and safe failure details. Use this instead of guessing whether background work is still queued or running.",
     )
 }
 
-pub(crate) fn task_resume_tool_spec() -> Result<NoemaToolSpec, crate::provider::ToolContractError> {
-    NoemaToolSpec::new(
+pub(crate) fn task_resume_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError> {
+    ToolSpec::new(
         TASK_RESUME_TOOL,
         "Continue a failed or human-blocked delegated task from its durable transcript and evidence. Supply the human's answer in message when the task is waiting for human input.",
         json!({
@@ -146,11 +146,10 @@ pub(crate) fn task_resume_tool_spec() -> Result<NoemaToolSpec, crate::provider::
             "required": ["task_id"],
             "additionalProperties": false
         }),
-        crate::provider::NoemaToolExecution::LocalBuiltin,
     )
 }
 
-pub(crate) fn task_cancel_tool_spec() -> Result<NoemaToolSpec, crate::provider::ToolContractError> {
+pub(crate) fn task_cancel_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError> {
     task_id_tool_spec(
         TASK_CANCEL_TOOL,
         "Cancel a queued, running, or human-blocked delegated task. Cancellation is durable and preserves the task transcript for inspection.",
@@ -158,8 +157,8 @@ pub(crate) fn task_cancel_tool_spec() -> Result<NoemaToolSpec, crate::provider::
 }
 
 pub(crate) fn task_submit_result_tool_spec()
--> Result<NoemaToolSpec, crate::provider::ToolContractError> {
-    NoemaToolSpec::new(
+-> Result<ToolSpec, noema_capabilities::ToolContractError> {
+    ToolSpec::new(
         TASK_SUBMIT_RESULT_TOOL,
         "Submit the executor's final result and evidence. Use exactly once when the delegated task can be completed from the available evidence.",
         json!({
@@ -190,13 +189,12 @@ pub(crate) fn task_submit_result_tool_spec()
             "required": ["summary", "result_markdown", "criteria"],
             "additionalProperties": false
         }),
-        crate::provider::NoemaToolExecution::LocalBuiltin,
     )
 }
 
 pub(crate) fn task_submit_review_tool_spec()
--> Result<NoemaToolSpec, crate::provider::ToolContractError> {
-    NoemaToolSpec::new(
+-> Result<ToolSpec, noema_capabilities::ToolContractError> {
+    ToolSpec::new(
         TASK_SUBMIT_REVIEW_TOOL,
         "Submit the reviewer's typed verdict and one assessment for every validation criterion.",
         json!({
@@ -230,13 +228,12 @@ pub(crate) fn task_submit_review_tool_spec()
             "required": ["overall_verdict", "overall_feedback", "criteria"],
             "additionalProperties": false
         }),
-        crate::provider::NoemaToolExecution::LocalBuiltin,
     )
 }
 
 pub(crate) fn task_report_blocked_tool_spec()
--> Result<NoemaToolSpec, crate::provider::ToolContractError> {
-    NoemaToolSpec::new(
+-> Result<ToolSpec, noema_capabilities::ToolContractError> {
+    ToolSpec::new(
         TASK_REPORT_BLOCKED_TOOL,
         "Stop execution and ask the task owner one blocking question when safe progress requires human input.",
         json!({
@@ -249,15 +246,14 @@ pub(crate) fn task_report_blocked_tool_spec()
             "required": ["question", "work_summary"],
             "additionalProperties": false
         }),
-        crate::provider::NoemaToolExecution::LocalBuiltin,
     )
 }
 
 fn task_id_tool_spec(
     name: &str,
     description: &str,
-) -> Result<NoemaToolSpec, crate::provider::ToolContractError> {
-    NoemaToolSpec::new(
+) -> Result<ToolSpec, noema_capabilities::ToolContractError> {
+    ToolSpec::new(
         name,
         description,
         json!({
@@ -268,14 +264,13 @@ fn task_id_tool_spec(
             "required": ["task_id"],
             "additionalProperties": false
         }),
-        crate::provider::NoemaToolExecution::LocalBuiltin,
     )
 }
 
 /// Build a task delegation schema containing only currently enabled pool ids.
 pub(crate) fn task_delegate_tool_spec(
     entries: &[TaskModelPoolEntry],
-) -> Result<NoemaToolSpec, crate::provider::ToolContractError> {
+) -> Result<ToolSpec, noema_capabilities::ToolContractError> {
     let pool_ids = entries
         .iter()
         .filter(|entry| entry.enabled)
@@ -301,7 +296,7 @@ pub(crate) fn task_delegate_tool_spec(
         })
         .collect::<Vec<_>>()
         .join("; ");
-    NoemaToolSpec::new(
+    ToolSpec::new(
         TASK_DELEGATE_TOOL,
         format!(
             "Delegate a bounded one-off request to a background executor. Use only when the work is independently verifiable and does not need an immediate human exchange. Available executor models: {options}"
@@ -329,7 +324,6 @@ pub(crate) fn task_delegate_tool_spec(
             "required": ["title", "request", "complexity", "executor_model_pool_entry_id", "validation_criteria"],
             "additionalProperties": false
         }),
-        crate::provider::NoemaToolExecution::LocalBuiltin,
     )
 }
 

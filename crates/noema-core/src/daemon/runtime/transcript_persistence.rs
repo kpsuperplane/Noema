@@ -1104,7 +1104,7 @@ fn tool_call_display(name: &str, payload: &Value) -> Value {
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .map(crate::web_fetch::tool::sanitized_web_fetch_display_url);
+            .map(noema_capabilities::web::fetch::sanitized_display_url);
         insert_display_value(&mut display, "target", url);
     } else if name == "update_own_name" {
         insert_display_value(

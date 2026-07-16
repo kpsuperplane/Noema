@@ -1,39 +1,12 @@
 //! Provider-neutral web search types.
 
+use noema_capabilities::web::search::{SearchRequest, SearchResponse};
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
 
 /// Stable id for Noema's default public DuckDuckGo provider.
 pub const DUCKDUCKGO_PUBLIC_PROVIDER_ID: &str = "duckduckgo_public";
 /// Reliability label for providers that do not have a formal API contract.
 pub const BEST_EFFORT_PUBLIC_CONTRACT: &str = "best_effort_public";
-
-/// Normalized search request after tool argument validation.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SearchRequest {
-    pub query: String,
-    pub reason: Option<String>,
-    pub max_results: usize,
-}
-
-/// Normalized successful search response.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct SearchResponse {
-    pub provider: String,
-    pub provider_contract: String,
-    pub query: String,
-    pub results: Vec<SearchResult>,
-    pub summary: String,
-}
-
-/// One normalized search result.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct SearchResult {
-    pub rank: usize,
-    pub title: String,
-    pub url: String,
-    pub snippet: String,
-}
 
 /// Safe error categories returned by the first-party search tool.
 #[derive(Debug, thiserror::Error)]

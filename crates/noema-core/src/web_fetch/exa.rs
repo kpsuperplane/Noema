@@ -1,9 +1,8 @@
 //! Exa hosted web fetch provider.
 
-use crate::web_fetch::{
-    tool::sanitized_web_fetch_display_url,
-    types::{FetchContentKind, FetchError, FetchRequest, FetchResponse, FetchSummaryStrategy},
-    url_policy::validate_public_web_fetch_url,
+use crate::web_fetch::{types::FetchError, url_policy::validate_public_web_fetch_url};
+use noema_capabilities::web::fetch::{
+    FetchContentKind, FetchRequest, FetchResponse, FetchSummaryStrategy, sanitized_display_url,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -71,8 +70,8 @@ pub fn normalize_exa_contents_response(
     let final_url = result
         .get("url")
         .and_then(Value::as_str)
-        .unwrap_or(requested_url)
-        .to_string();
+        .map(sanitized_display_url)
+        .unwrap_or_else(|| sanitized_display_url(requested_url));
     let title = result
         .get("title")
         .and_then(Value::as_str)
@@ -89,7 +88,7 @@ pub fn normalize_exa_contents_response(
 
     Ok(FetchResponse {
         provider: EXA_FETCH_PROVIDER_ID.to_string(),
-        url: sanitized_web_fetch_display_url(requested_url),
+        url: sanitized_display_url(requested_url),
         final_url,
         title,
         format: "markdown".to_string(),
@@ -116,7 +115,8 @@ fn map_reqwest_error(error: reqwest::Error) -> FetchError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{provider::adapters::test_support::spawn_server, web_fetch::types::FetchRequest};
+    use crate::provider::adapters::test_support::spawn_server;
+    use noema_capabilities::web::fetch::FetchRequest;
     use serde_json::json;
 
     #[test]
@@ -141,6 +141,22 @@ mod tests {
         assert_eq!(response.content, "# Rust\nFast and reliable.");
         assert_eq!(response.extraction, "exa_contents");
         assert!(!response.truncated);
+    }
+
+    #[test]
+    fn normalizer_redacts_sensitive_remote_final_url() {
+        let value = json!({
+            "results": [{
+                "url": "https://user:secret@example.com/private#token",
+                "text": "safe"
+            }]
+        });
+        let response =
+            normalize_exa_contents_response("https://example.com", 30, &value).expect("fetch");
+        assert_eq!(
+            response.final_url,
+            noema_capabilities::web::fetch::REDACTED_SENSITIVE_URL
+        );
     }
 
     #[tokio::test]

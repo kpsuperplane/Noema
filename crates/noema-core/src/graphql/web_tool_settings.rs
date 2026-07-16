@@ -2,8 +2,9 @@ use async_graphql::{InputObject, Result, SimpleObject};
 
 use crate::{
     NoemaStore, ProviderAccountRecord,
-    provider::{CapabilityId, ProviderCapability, ProviderCapabilityStatus},
+    provider::{ProviderCapability, ProviderCapabilityStatus},
 };
+use noema_capabilities::CapabilityId;
 
 use super::{errors::graphql_error, schema::GraphqlState};
 
