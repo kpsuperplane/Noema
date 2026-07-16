@@ -93,6 +93,68 @@ async fn installation_updates_append_cursor_events() {
 }
 
 #[tokio::test]
+async fn cancellation_preserves_the_latest_durable_progress() {
+    let store = crate::store::tests::test_store().await;
+    let created = store
+        .upsert_local_model_installation(installation())
+        .await
+        .expect("create installation");
+    for downloaded_bytes in [40, 80] {
+        store
+            .update_local_model_installation(
+                &created.installation_id,
+                LocalModelInstallationUpdate {
+                    status: LocalModelInstallationStatus::Downloading,
+                    downloaded_bytes,
+                    expected_bytes: Some(100),
+                    sha256: None,
+                    blob_relative_path: None,
+                    error_code: None,
+                    error_message: None,
+                },
+            )
+            .await
+            .expect("progress");
+    }
+
+    let cancelled = store
+        .cancel_local_model_installation(&created.installation_id)
+        .await
+        .expect("cancel");
+
+    assert_eq!(cancelled.status, LocalModelInstallationStatus::Cancelled);
+    assert_eq!(cancelled.downloaded_bytes, 80);
+}
+
+#[tokio::test]
+async fn removal_returns_the_exact_deleted_blob_projection() {
+    let store = crate::store::tests::test_store().await;
+    let created = store
+        .upsert_local_model_installation(installation())
+        .await
+        .expect("create installation");
+    mark_installed(&store, &created).await;
+
+    let removed = store
+        .remove_local_model_installation(&created.installation_id)
+        .await
+        .expect("remove");
+
+    assert_eq!(
+        removed.installation.status,
+        LocalModelInstallationStatus::Installed
+    );
+    assert_eq!(
+        removed.installation.blob_relative_path.as_deref(),
+        Some("models/blobs/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.gguf")
+    );
+    assert_eq!(
+        removed.unreferenced_blob_relative_path,
+        removed.installation.blob_relative_path
+    );
+}
+
+#[tokio::test]
 async fn activation_assigns_every_current_model_workload_atomically() {
     let store = crate::store::tests::test_store().await;
     let created = store

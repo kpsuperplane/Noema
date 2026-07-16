@@ -5,19 +5,18 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use noema_home::NoemaPaths;
 use noema_providers::{
     CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS, CodexOAuthConfig, DEFAULT_CODEX_BASE_URL,
-    ProviderAccountRecord, ProviderAccountStatus, ProviderError, ProviderModelProfile,
-    ReasoningEffort,
+    PersistProviderModelCatalogRequest, ProviderAccountRecord, ProviderAccountStatus,
+    ProviderError, ProviderModelCatalogPersistence, ProviderModelProfile, ReasoningEffort,
 };
 use reqwest::StatusCode;
 use serde_json::Value;
 
-use crate::{
-    NoemaStore,
-    provider::adapters::{
-        codex_oauth::{CodexOAuthClient, CodexTokenStore},
-        reqwest_transport_error,
-        responses::normalize_base_url,
-    },
+#[cfg(test)]
+use crate::NoemaStore;
+use crate::provider::adapters::{
+    codex_oauth::{CodexOAuthClient, CodexTokenStore},
+    reqwest_transport_error,
+    responses::normalize_base_url,
 };
 
 const MODEL_CATALOG_TIMEOUT_SECONDS: u64 = 20;
@@ -38,12 +37,12 @@ const CODEX_VERSION_USER_AGENT: &str = "Noema/0.1 (+https://github.com/kpsuperpl
 /// Returns [`ProviderError`] when the provider catalog endpoint, provider
 /// credentials, or metadata persistence fails.
 pub async fn refresh_provider_model_profiles(
-    store: &NoemaStore,
+    persistence: &dyn ProviderModelCatalogPersistence,
     paths: &NoemaPaths,
     account: &ProviderAccountRecord,
 ) -> Result<(), ProviderError> {
     refresh_provider_model_profiles_at_version_endpoint(
-        store,
+        persistence,
         paths,
         account,
         CODEX_CLIENT_VERSION_ENDPOINT,
@@ -52,7 +51,7 @@ pub async fn refresh_provider_model_profiles(
 }
 
 async fn refresh_provider_model_profiles_at_version_endpoint(
-    store: &NoemaStore,
+    persistence: &dyn ProviderModelCatalogPersistence,
     paths: &NoemaPaths,
     account: &ProviderAccountRecord,
     version_endpoint: &str,
@@ -70,60 +69,30 @@ async fn refresh_provider_model_profiles_at_version_endpoint(
         return Ok(());
     }
 
-    let mut metadata = account.metadata.clone();
-    ProviderModelProfile::write_account_metadata(&mut metadata, &catalog.profiles).map_err(
-        |source| ProviderError::MalformedResponse {
-            message: format!("failed to serialize model catalog profiles: {source}"),
-        },
-    )?;
-    let metadata_object = metadata
-        .as_object_mut()
-        .expect("provider profile metadata was normalized to an object");
-    metadata_object.insert(
-        "models_refreshed_at".to_string(),
-        Value::String(now_string()),
-    );
-    metadata_object.insert(
-        "models_source".to_string(),
-        Value::String(format!("{}_models_endpoint", account.provider_kind)),
-    );
-    metadata_object.insert(
-        "models_metadata_version".to_string(),
-        Value::from(MODEL_METADATA_VERSION),
-    );
-    metadata_object.insert(
-        "models_client_version".to_string(),
-        Value::String(catalog.client_version),
-    );
-    if let Some(refreshed_at) = catalog.client_version_refreshed_at {
-        metadata_object.insert(
-            "models_client_version_refreshed_at".to_string(),
-            Value::String(refreshed_at),
-        );
-    }
+    persist_model_catalog_refresh(persistence, account, catalog).await
+}
 
-    store
-        .update_provider_account_metadata(&account.provider_account_id, metadata)
+async fn persist_model_catalog_refresh(
+    persistence: &dyn ProviderModelCatalogPersistence,
+    account: &ProviderAccountRecord,
+    catalog: CodexModelCatalog,
+) -> Result<(), ProviderError> {
+    persistence
+        .persist_provider_model_catalog(PersistProviderModelCatalogRequest {
+            provider_account_id: account.provider_account_id.clone(),
+            profiles: catalog.profiles,
+            refreshed_at_unix: current_unix_timestamp(),
+            source: format!("{}_models_endpoint", account.provider_kind),
+            metadata_version: MODEL_METADATA_VERSION,
+            client_version: catalog.client_version,
+            client_version_refreshed_at_unix: catalog.client_version_refreshed_at_unix,
+            resulting_status: ProviderAccountStatus::Authenticated,
+        })
         .await
         .map_err(|source| ProviderError::ProviderUnavailable {
             provider: account.provider_kind.clone(),
-            message: format!("failed to persist model catalog metadata: {source}"),
+            message: format!("failed to persist model catalog: {source}"),
         })?;
-
-    if account.status != ProviderAccountStatus::Authenticated {
-        store
-            .update_provider_account_status(
-                &account.provider_account_id,
-                ProviderAccountStatus::Authenticated,
-                None,
-                None,
-            )
-            .await
-            .map_err(|source| ProviderError::ProviderUnavailable {
-                provider: account.provider_kind.clone(),
-                message: format!("failed to persist provider account status: {source}"),
-            })?;
-    }
 
     Ok(())
 }
@@ -208,7 +177,7 @@ async fn fetch_codex_model_profiles(
     Ok(CodexModelCatalog {
         profiles: profile_values_from_model_list(&value),
         client_version: client_version.value,
-        client_version_refreshed_at: client_version.refreshed_at,
+        client_version_refreshed_at_unix: client_version.refreshed_at_unix,
     })
 }
 
@@ -216,13 +185,13 @@ async fn fetch_codex_model_profiles(
 struct CodexModelCatalog {
     profiles: Vec<ProviderModelProfile>,
     client_version: String,
-    client_version_refreshed_at: Option<String>,
+    client_version_refreshed_at_unix: Option<u64>,
 }
 
 #[derive(Debug)]
 struct ResolvedCodexClientVersion {
     value: String,
-    refreshed_at: Option<String>,
+    refreshed_at_unix: Option<u64>,
 }
 
 async fn resolve_codex_client_version(
@@ -243,19 +212,19 @@ async fn resolve_codex_client_version(
     {
         return ResolvedCodexClientVersion {
             value: cached_version.clone(),
-            refreshed_at: None,
+            refreshed_at_unix: None,
         };
     }
 
     match fetch_latest_codex_client_version(client, version_endpoint).await {
         Ok(value) => ResolvedCodexClientVersion {
             value,
-            refreshed_at: Some(now_string()),
+            refreshed_at_unix: Some(current_unix_timestamp()),
         },
         Err(_) => ResolvedCodexClientVersion {
             value: cached_version
                 .unwrap_or_else(|| FALLBACK_CODEX_MODELS_CLIENT_VERSION.to_string()),
-            refreshed_at: None,
+            refreshed_at_unix: None,
         },
     }
 }
@@ -462,6 +431,7 @@ fn current_unix_timestamp() -> u64 {
         .map_or(0, |duration| duration.as_secs())
 }
 
+#[cfg(test)]
 fn now_string() -> String {
     current_unix_timestamp().to_string()
 }

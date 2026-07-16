@@ -1,8 +1,11 @@
 use async_graphql::{InputObject, Result, SimpleObject};
-use noema_providers::{ProviderAccountRecord, ProviderCapability, ProviderCapabilityStatus};
+use noema_providers::{
+    ProviderAccountRecord, ProviderCapability, ProviderCapabilityAssignmentPersistence,
+    ProviderCapabilityStatus, UpsertProviderCapabilityAssignmentRequest, system_provider_accounts,
+};
 
 use crate::NoemaStore;
-use noema_capabilities::CapabilityId;
+use noema_capabilities::{CapabilityId, ToolName};
 
 use super::{errors::graphql_error, schema::GraphqlState};
 
@@ -83,20 +86,23 @@ pub(super) async fn save_web_tool_provider_binding(
         ));
     }
 
-    store
-        .upsert_provider_capability_binding(
-            &input.tool_name,
-            &input.capability_id,
-            &input.provider_account_id,
+    ProviderCapabilityAssignmentPersistence::upsert_provider_capability_assignment(
+        store,
+        UpsertProviderCapabilityAssignmentRequest::new(
+            ToolName::new(input.tool_name).map_err(graphql_error)?,
+            capability_id,
+            input.provider_account_id,
         )
-        .await
-        .map_err(graphql_error)?;
+        .map_err(graphql_error)?,
+    )
+    .await
+    .map_err(graphql_error)?;
 
     binding_settings(store, &accounts, capability_id).await
 }
 
 async fn selectable_accounts(store: &NoemaStore) -> Result<Vec<ProviderAccountRecord>> {
-    let mut accounts = store.system_provider_accounts();
+    let mut accounts = system_provider_accounts();
     accounts.extend(
         store
             .active_provider_accounts()
@@ -114,8 +120,13 @@ async fn binding_settings(
     let tool_name = tool_name_for_capability(capability_id);
     let provider_options = provider_options(accounts, capability_id);
     let default_provider_account_id = default_provider_account_id(capability_id).to_string();
-    let active_provider_account_id = store
-        .provider_capability_binding(tool_name, capability_id.as_str())
+    let tool_name = ToolName::new(tool_name).map_err(graphql_error)?;
+    let active_provider_account_id =
+        ProviderCapabilityAssignmentPersistence::provider_capability_assignment(
+            store,
+            &tool_name,
+            capability_id,
+        )
         .await
         .map_err(graphql_error)?
         .map(|binding| binding.provider_account_id)

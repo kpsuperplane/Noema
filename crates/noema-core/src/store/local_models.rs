@@ -39,8 +39,9 @@ impl NoemaStore {
                 )
                 .optional()?;
             if existing_status.as_deref() == Some(LocalModelInstallationStatus::Installed.as_str()) {
+                let installation = installation_in_transaction(&transaction, &input.installation_id)?;
                 transaction.commit()?;
-                return Ok(());
+                return Ok(installation);
             }
             transaction.execute(
                 r#"
@@ -93,18 +94,11 @@ impl NoemaStore {
                 input.expected_bytes,
                 None,
             )?;
+            let installation = installation_in_transaction(&transaction, &input.installation_id)?;
             transaction.commit()?;
-            Ok(())
+            Ok(installation)
         })
-        .await?;
-        self.get_local_model_installation(&input.installation_id)
-            .await?
-            .ok_or_else(|| StoreError::InvariantViolation {
-                message: format!(
-                    "local-model installation disappeared: {}",
-                    input.installation_id
-                ),
-            })
+        .await
     }
 
     /// Return one local-model installation by id.
@@ -190,100 +184,15 @@ impl NoemaStore {
         installation_id: &str,
         update: LocalModelInstallationUpdate,
     ) -> Result<LocalModelInstallationRecord, StoreError> {
-        if update
-            .expected_bytes
-            .is_some_and(|total| update.downloaded_bytes > total)
-        {
-            return Err(StoreError::InvariantViolation {
-                message: "local-model downloaded bytes exceed expected bytes".to_string(),
-            });
-        }
-        if update.status == LocalModelInstallationStatus::Installed
-            && update.blob_relative_path.is_none()
-        {
-            return Err(StoreError::InvariantViolation {
-                message: "installed local model requires a blob path".to_string(),
-            });
-        }
-        let downloaded_bytes = u64_to_i64(update.downloaded_bytes, "downloaded bytes")?;
-        let expected_bytes = optional_u64_to_i64(update.expected_bytes, "expected bytes")?;
-        let event_kind = event_kind_for_status(update.status);
-        let message = update.error_message.clone();
+        validate_installation_update(&update)?;
         self.with_connection(|conn| {
             let transaction = conn.transaction()?;
-            let current_status = transaction
-                .query_row(
-                    "SELECT status FROM local_model_installations WHERE installation_id = ?1",
-                    [installation_id],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()?
-                .ok_or_else(|| StoreError::InvariantViolation {
-                    message: format!("local-model installation not found: {installation_id}"),
-                })?;
-            let current_status = current_status
-                .parse::<LocalModelInstallationStatus>()
-                .map_err(|_| StoreError::InvariantViolation {
-                    message: format!(
-                        "local-model installation has invalid status: {current_status}"
-                    ),
-                })?;
-            if !current_status.can_transition_to(update.status) {
-                return Err(StoreError::InvariantViolation {
-                    message: format!(
-                        "local-model installation cannot transition from {} to {}",
-                        current_status.as_str(),
-                        update.status.as_str()
-                    ),
-                });
-            }
-            let changed = transaction.execute(
-                r#"
-                UPDATE local_model_installations
-                SET status = ?2,
-                    downloaded_bytes = ?3,
-                    expected_bytes = COALESCE(?4, expected_bytes),
-                    sha256 = COALESCE(?5, sha256),
-                    blob_relative_path = COALESCE(?6, blob_relative_path),
-                    error_code = ?7,
-                    error_message = ?8,
-                    installed_at = CASE WHEN ?2 = 'installed' THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE installed_at END,
-                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                WHERE installation_id = ?1
-                "#,
-                params![
-                    installation_id,
-                    update.status.as_str(),
-                    downloaded_bytes,
-                    expected_bytes,
-                    update.sha256,
-                    update.blob_relative_path,
-                    update.error_code,
-                    update.error_message,
-                ],
-            )?;
-            if changed != 1 {
-                return Err(StoreError::InvariantViolation {
-                    message: format!("local-model installation not found: {installation_id}"),
-                });
-            }
-            append_event(
-                &transaction,
-                installation_id,
-                event_kind,
-                Some(update.downloaded_bytes),
-                update.expected_bytes,
-                message.as_deref(),
-            )?;
+            let current = installation_in_transaction(&transaction, installation_id)?;
+            let updated = update_installation_in_transaction(&transaction, current, update)?;
             transaction.commit()?;
-            Ok(())
+            Ok(updated)
         })
-        .await?;
-        self.get_local_model_installation(installation_id)
-            .await?
-            .ok_or_else(|| StoreError::InvariantViolation {
-                message: format!("local-model installation disappeared: {installation_id}"),
-            })
+        .await
     }
 
     /// Mark an in-flight installation cancelled and append its event atomically.
@@ -296,23 +205,20 @@ impl NoemaStore {
         &self,
         installation_id: &str,
     ) -> Result<LocalModelInstallationRecord, StoreError> {
-        let current = self
-            .get_local_model_installation(installation_id)
-            .await?
-            .ok_or_else(|| StoreError::InvariantViolation {
-                message: format!("local-model installation not found: {installation_id}"),
-            })?;
-        if current.status == LocalModelInstallationStatus::Installed {
-            return Err(StoreError::InvariantViolation {
-                message: "an installed local model cannot be cancelled".to_string(),
-            });
-        }
-        if current.status == LocalModelInstallationStatus::Cancelled {
-            return Ok(current);
-        }
-        self.update_local_model_installation(
-            installation_id,
-            LocalModelInstallationUpdate {
+        self.with_connection(|conn| {
+            let transaction = conn.transaction()?;
+            let current = installation_in_transaction(&transaction, installation_id)?;
+            if current.status == LocalModelInstallationStatus::Installed {
+                return Err(StoreError::InvalidLocalModelTransition {
+                    from: current.status.as_str().to_string(),
+                    to: LocalModelInstallationStatus::Cancelled.as_str().to_string(),
+                });
+            }
+            if current.status == LocalModelInstallationStatus::Cancelled {
+                transaction.commit()?;
+                return Ok(current);
+            }
+            let update = LocalModelInstallationUpdate {
                 status: LocalModelInstallationStatus::Cancelled,
                 downloaded_bytes: current.downloaded_bytes,
                 expected_bytes: current.expected_bytes,
@@ -320,8 +226,11 @@ impl NoemaStore {
                 blob_relative_path: None,
                 error_code: None,
                 error_message: None,
-            },
-        )
+            };
+            let cancelled = update_installation_in_transaction(&transaction, current, update)?;
+            transaction.commit()?;
+            Ok(cancelled)
+        })
         .await
     }
 
@@ -339,52 +248,45 @@ impl NoemaStore {
         &self,
         installation_id: &str,
     ) -> Result<RemovedLocalModelInstallation, StoreError> {
-        let installation = self
-            .get_local_model_installation(installation_id)
-            .await?
-            .ok_or_else(|| StoreError::InvariantViolation {
-                message: format!("local-model installation not found: {installation_id}"),
-            })?;
-        if installation.is_active {
-            return Err(StoreError::InvariantViolation {
-                message: "the active local model cannot be removed".to_string(),
-            });
-        }
-        let blob_path = installation.blob_relative_path.clone();
-        let sha256 = installation.sha256.clone();
-        let unreferenced = self
-            .with_connection(|conn| {
-                let transaction = conn.transaction()?;
-                append_event(
-                    &transaction,
-                    installation_id,
-                    LocalModelEventKind::Removed,
-                    Some(installation.downloaded_bytes),
-                    installation.expected_bytes,
-                    None,
-                )?;
-                let removed = transaction.execute(
-                    "DELETE FROM local_model_installations WHERE installation_id = ?1 AND is_active = 0",
-                    [installation_id],
-                )?;
-                if removed != 1 {
-                    return Err(StoreError::InvariantViolation {
-                        message: "local-model installation became active during removal".to_string(),
-                    });
-                }
-                let remaining: i64 = transaction.query_row(
-                    "SELECT COUNT(*) FROM local_model_installations WHERE sha256 = ?1 AND blob_relative_path IS NOT NULL",
-                    [&sha256],
-                    |row| row.get(0),
-                )?;
-                transaction.commit()?;
-                Ok(remaining == 0)
+        self.with_connection(|conn| {
+            let transaction = conn.transaction()?;
+            let installation = installation_in_transaction(&transaction, installation_id)?;
+            if installation.is_active {
+                return Err(StoreError::ActiveLocalModelInstallation {
+                    installation_id: installation_id.to_string(),
+                });
+            }
+            let blob_path = installation.blob_relative_path.clone();
+            let sha256 = installation.sha256.clone();
+            append_event(
+                &transaction,
+                installation_id,
+                LocalModelEventKind::Removed,
+                Some(installation.downloaded_bytes),
+                installation.expected_bytes,
+                None,
+            )?;
+            let removed = transaction.execute(
+                "DELETE FROM local_model_installations WHERE installation_id = ?1 AND is_active = 0",
+                [installation_id],
+            )?;
+            if removed != 1 {
+                return Err(StoreError::ActiveLocalModelInstallation {
+                    installation_id: installation_id.to_string(),
+                });
+            }
+            let remaining: i64 = transaction.query_row(
+                "SELECT COUNT(*) FROM local_model_installations WHERE sha256 = ?1 AND blob_relative_path IS NOT NULL",
+                [&sha256],
+                |row| row.get(0),
+            )?;
+            transaction.commit()?;
+            Ok(RemovedLocalModelInstallation {
+                installation,
+                unreferenced_blob_relative_path: (remaining == 0).then_some(blob_path).flatten(),
             })
-            .await?;
-        Ok(RemovedLocalModelInstallation {
-            installation,
-            unreferenced_blob_relative_path: unreferenced.then_some(blob_path).flatten(),
         })
+        .await
     }
 
     /// Return local-model events strictly after a cursor.
@@ -544,6 +446,98 @@ impl NoemaStore {
     }
 }
 
+fn installation_in_transaction(
+    transaction: &Transaction<'_>,
+    installation_id: &str,
+) -> Result<LocalModelInstallationRecord, StoreError> {
+    let raw = transaction
+        .query_row(
+            &format!("{INSTALLATION_SELECT} WHERE installation_id = ?1 LIMIT 1"),
+            [installation_id],
+            raw_installation_from_row,
+        )
+        .optional()?
+        .ok_or_else(|| StoreError::LocalModelInstallationNotFound {
+            installation_id: installation_id.to_string(),
+        })?;
+    installation_from_raw(raw)
+}
+
+fn validate_installation_update(update: &LocalModelInstallationUpdate) -> Result<(), StoreError> {
+    if update
+        .expected_bytes
+        .is_some_and(|total| update.downloaded_bytes > total)
+    {
+        return Err(StoreError::InvalidLocalModelRequest {
+            kind: "downloaded_bytes_exceed_expected_bytes",
+        });
+    }
+    if update.status == LocalModelInstallationStatus::Installed
+        && update.blob_relative_path.is_none()
+    {
+        return Err(StoreError::InvalidLocalModelRequest {
+            kind: "installed_model_requires_blob_path",
+        });
+    }
+    Ok(())
+}
+
+fn update_installation_in_transaction(
+    transaction: &Transaction<'_>,
+    current: LocalModelInstallationRecord,
+    update: LocalModelInstallationUpdate,
+) -> Result<LocalModelInstallationRecord, StoreError> {
+    if !current.status.can_transition_to(update.status) {
+        return Err(StoreError::InvalidLocalModelTransition {
+            from: current.status.as_str().to_string(),
+            to: update.status.as_str().to_string(),
+        });
+    }
+    let downloaded_bytes = u64_to_i64(update.downloaded_bytes, "downloaded bytes")?;
+    let expected_bytes = optional_u64_to_i64(update.expected_bytes, "expected bytes")?;
+    let event_kind = event_kind_for_status(update.status);
+    let message = update.error_message.clone();
+    let changed = transaction.execute(
+        r#"
+        UPDATE local_model_installations
+        SET status = ?2,
+            downloaded_bytes = ?3,
+            expected_bytes = COALESCE(?4, expected_bytes),
+            sha256 = COALESCE(?5, sha256),
+            blob_relative_path = COALESCE(?6, blob_relative_path),
+            error_code = ?7,
+            error_message = ?8,
+            installed_at = CASE WHEN ?2 = 'installed' THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE installed_at END,
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE installation_id = ?1
+        "#,
+        params![
+            current.installation_id,
+            update.status.as_str(),
+            downloaded_bytes,
+            expected_bytes,
+            update.sha256,
+            update.blob_relative_path,
+            update.error_code,
+            update.error_message,
+        ],
+    )?;
+    if changed != 1 {
+        return Err(StoreError::LocalModelInstallationNotFound {
+            installation_id: current.installation_id,
+        });
+    }
+    append_event(
+        transaction,
+        &current.installation_id,
+        event_kind,
+        Some(update.downloaded_bytes),
+        update.expected_bytes,
+        message.as_deref(),
+    )?;
+    installation_in_transaction(transaction, &current.installation_id)
+}
+
 pub(super) fn append_event(
     transaction: &Transaction<'_>,
     installation_id: &str,
@@ -593,8 +587,8 @@ fn validate_new_installation(input: &NewLocalModelInstallation) -> Result<(), St
                     .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
         })
     {
-        return Err(StoreError::InvariantViolation {
-            message: "invalid local-model installation metadata".to_string(),
+        return Err(StoreError::InvalidLocalModelRequest {
+            kind: "installation_metadata",
         });
     }
     if input.source_kind == LocalModelSourceKind::Catalog
@@ -603,8 +597,8 @@ fn validate_new_installation(input: &NewLocalModelInstallation) -> Result<(), St
             || input.source_file.is_none()
             || input.sha256.is_none())
     {
-        return Err(StoreError::InvariantViolation {
-            message: "catalog installation requires pinned source provenance".to_string(),
+        return Err(StoreError::InvalidLocalModelRequest {
+            kind: "catalog_installation_provenance",
         });
     }
     Ok(())

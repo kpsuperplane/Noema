@@ -8,13 +8,14 @@ use std::{future::Future, pin::Pin, time::Duration};
 use crate::TurnTranscriptItem;
 use crate::provider::adapters::codex_oauth::CodexTokenStore;
 use noema_providers::{
-    CodexDeviceAuthRequest, CodexOAuthTokens, ProviderAuthAttemptStatus, ProviderAuthAttemptView,
+    CodexDeviceAuthRequest, CodexOAuthTokens, NewProviderAccount, ProviderAccountPersistence,
+    ProviderAccountRecord, ProviderAccountStatusUpdate, ProviderAuthAttemptStatus,
+    ProviderAuthAttemptView, ProviderPersistenceFuture, UpdateProviderAccountRequest,
 };
 use serde_json::json;
 
 use super::provider_auth::{
-    CodexDeviceAuthStarter, ProviderAccountStatusStore, ProviderAccountStatusUpdate,
-    ProviderAuthAttemptPoller, StartProviderAuthAttemptError,
+    CodexDeviceAuthStarter, ProviderAuthAttemptPoller, StartProviderAuthAttemptError,
     persist_provider_auth_attempt_terminal_status, provider_account_status_update_from_attempt,
     start_codex_provider_auth_attempt, validate_provider_auth_account,
 };
@@ -342,26 +343,70 @@ impl ProviderAuthAttemptPoller for RecordingProviderAuthAttemptPoller {
     }
 }
 
-impl ProviderAccountStatusStore for RecordingProviderAccountStatusStore {
-    fn update_provider_account_status<'a>(
+impl ProviderAccountPersistence for RecordingProviderAccountStatusStore {
+    fn provider_account<'a>(
         &'a self,
-        provider_account_id: &'a str,
-        status: noema_providers::ProviderAccountStatus,
-        error_code: Option<&'a str>,
-        error_message: Option<&'a str>,
-    ) -> Pin<Box<dyn Future<Output = Result<(), DaemonError>> + Send + 'a>> {
+        _provider_account_id: &'a str,
+    ) -> ProviderPersistenceFuture<'a, Option<ProviderAccountRecord>> {
+        Box::pin(async { panic!("unexpected provider account read") })
+    }
+
+    fn active_provider_account<'a>(
+        &'a self,
+        _provider_kind: &'a str,
+    ) -> ProviderPersistenceFuture<'a, Option<ProviderAccountRecord>> {
+        Box::pin(async { panic!("unexpected active provider account read") })
+    }
+
+    fn active_default_provider_accounts(
+        &self,
+    ) -> ProviderPersistenceFuture<'_, Vec<ProviderAccountRecord>> {
+        Box::pin(async { panic!("unexpected default provider account read") })
+    }
+
+    fn active_provider_accounts(
+        &self,
+    ) -> ProviderPersistenceFuture<'_, Vec<ProviderAccountRecord>> {
+        Box::pin(async { panic!("unexpected active provider account list") })
+    }
+
+    fn provider_accounts(&self) -> ProviderPersistenceFuture<'_, Vec<ProviderAccountRecord>> {
+        Box::pin(async { panic!("unexpected provider account list") })
+    }
+
+    fn create_provider_account(
+        &self,
+        _request: NewProviderAccount,
+    ) -> ProviderPersistenceFuture<'_, ProviderAccountRecord> {
+        Box::pin(async { panic!("unexpected provider account create") })
+    }
+
+    fn update_provider_account(
+        &self,
+        request: UpdateProviderAccountRequest,
+    ) -> ProviderPersistenceFuture<'_, ProviderAccountRecord> {
         Box::pin(async move {
+            let status = request.status.expect("status update");
             self.updates
                 .lock()
                 .expect("updates lock")
                 .push(RecordedProviderAccountStatusUpdate {
-                    provider_account_id: provider_account_id.to_string(),
-                    status,
-                    error_code: error_code.map(str::to_string),
-                    error_message: error_message.map(str::to_string),
+                    provider_account_id: request.provider_account_id,
+                    status: status.status,
+                    error_code: status.error_code,
+                    error_message: status.error_message,
                 });
-            Ok(())
+            let mut account = test_provider_account();
+            account.status = status.status;
+            Ok(account)
         })
+    }
+
+    fn delete_provider_account<'a>(
+        &'a self,
+        _provider_account_id: &'a str,
+    ) -> ProviderPersistenceFuture<'a, bool> {
+        Box::pin(async { panic!("unexpected provider account delete") })
     }
 }
 

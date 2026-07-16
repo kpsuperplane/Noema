@@ -1,7 +1,9 @@
 use async_graphql::{InputObject, Result, SimpleObject};
 use noema_providers::{
     DEFAULT_FOUNDATION_LOCAL_PROFILE, FoundationLocalProviderConfig, NewProviderAccount,
-    ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod, ProviderCapability,
+    ProviderAccountPersistence, ProviderAccountRecord, ProviderAccountStatus,
+    ProviderAccountStatusUpdate, ProviderAuthMethod, ProviderCapability,
+    UpdateProviderAccountRequest,
 };
 
 use crate::{
@@ -169,9 +171,8 @@ pub(super) async fn provider_accounts(state: &GraphqlState) -> Result<Vec<Graphq
 pub(super) async fn provider_account_catalog(
     state: &GraphqlState,
 ) -> Result<Vec<GraphqlProviderAccountCatalogEntry>> {
-    let store = state.store()?;
-    Ok(store
-        .provider_account_catalog()
+    state.store()?;
+    Ok(noema_providers::provider_account_catalog()
         .into_iter()
         .map(|entry| GraphqlProviderAccountCatalogEntry {
             provider_kind: entry.provider_kind,
@@ -191,16 +192,18 @@ pub(super) async fn create_provider_account(
     }
     reject_blank_secret(&input.secret)?;
     let store = state.store()?;
-    let account = store
-        .create_provider_account(NewProviderAccount {
+    let account = ProviderAccountPersistence::create_provider_account(
+        store,
+        NewProviderAccount {
             provider_kind: input.provider_kind,
             display_name: input.display_name,
             auth_method: ProviderAuthMethod::SecretInput,
             status: ProviderAccountStatus::Unauthenticated,
             metadata: serde_json::json!({"secretConfigured": false}),
-        })
-        .await
-        .map_err(graphql_error)?;
+        },
+    )
+    .await
+    .map_err(graphql_error)?;
     save_secret_for_account(state, account, &input.secret).await
 }
 
@@ -226,22 +229,20 @@ pub(super) async fn clear_provider_secret(
     secret_store
         .clear_api_key()
         .map_err(|error| async_graphql::Error::new(error.to_string()))?;
-    store
-        .update_provider_account_status(
-            &account.provider_account_id,
-            ProviderAccountStatus::Unauthenticated,
-            None,
-            None,
-        )
-        .await
-        .map_err(graphql_error)?;
-    store
-        .update_provider_account_metadata(
-            &account.provider_account_id,
-            serde_json::json!({"secretConfigured": false}),
-        )
-        .await
-        .map_err(graphql_error)?;
+    ProviderAccountPersistence::update_provider_account(
+        store,
+        UpdateProviderAccountRequest {
+            provider_account_id: account.provider_account_id.clone(),
+            status: Some(ProviderAccountStatusUpdate {
+                status: ProviderAccountStatus::Unauthenticated,
+                error_code: None,
+                error_message: None,
+            }),
+            metadata: Some(serde_json::json!({"secretConfigured": false})),
+        },
+    )
+    .await
+    .map_err(graphql_error)?;
     refreshed_provider_account(store, &account.provider_account_id).await
 }
 
@@ -250,10 +251,10 @@ pub(super) async fn delete_provider_account(
     input: GraphqlDeleteProviderAccountInput,
 ) -> Result<bool> {
     let store = state.store()?;
-    let Some(account) = store
-        .get_provider_account(&input.provider_account_id)
-        .await
-        .map_err(graphql_error)?
+    let Some(account) =
+        ProviderAccountPersistence::provider_account(store, &input.provider_account_id)
+            .await
+            .map_err(graphql_error)?
     else {
         return Ok(false);
     };
@@ -271,8 +272,7 @@ pub(super) async fn delete_provider_account(
         Err(error) => return Err(async_graphql::Error::new(error.to_string())),
     }
 
-    store
-        .delete_provider_account(&input.provider_account_id)
+    ProviderAccountPersistence::delete_provider_account(store, &input.provider_account_id)
         .await
         .map_err(graphql_error)
 }
@@ -290,22 +290,20 @@ async fn save_secret_for_account(
     secret_store
         .save_api_key(secret)
         .map_err(|error| async_graphql::Error::new(error.to_string()))?;
-    store
-        .update_provider_account_status(
-            &account.provider_account_id,
-            ProviderAccountStatus::Authenticated,
-            None,
-            None,
-        )
-        .await
-        .map_err(graphql_error)?;
-    store
-        .update_provider_account_metadata(
-            &account.provider_account_id,
-            serde_json::json!({"secretConfigured": true}),
-        )
-        .await
-        .map_err(graphql_error)?;
+    ProviderAccountPersistence::update_provider_account(
+        store,
+        UpdateProviderAccountRequest {
+            provider_account_id: account.provider_account_id.clone(),
+            status: Some(ProviderAccountStatusUpdate {
+                status: ProviderAccountStatus::Authenticated,
+                error_code: None,
+                error_message: None,
+            }),
+            metadata: Some(serde_json::json!({"secretConfigured": true})),
+        },
+    )
+    .await
+    .map_err(graphql_error)?;
     refreshed_provider_account(store, &account.provider_account_id).await
 }
 
@@ -314,8 +312,7 @@ async fn secret_input_account(
     provider_account_id: &str,
 ) -> Result<ProviderAccountRecord> {
     let store = state.store()?;
-    let account = store
-        .get_provider_account(provider_account_id)
+    let account = ProviderAccountPersistence::provider_account(store, provider_account_id)
         .await
         .map_err(graphql_error)?
         .ok_or_else(|| async_graphql::Error::new("provider account not found"))?;
@@ -337,8 +334,7 @@ async fn refreshed_provider_account(
     store: &crate::NoemaStore,
     provider_account_id: &str,
 ) -> Result<GraphqlProviderAccount> {
-    store
-        .get_provider_account(provider_account_id)
+    ProviderAccountPersistence::provider_account(store, provider_account_id)
         .await
         .map_err(graphql_error)?
         .map(Into::into)

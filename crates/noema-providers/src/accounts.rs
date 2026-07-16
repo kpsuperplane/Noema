@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
 
+use crate::capabilities::capabilities_for_provider_account;
 use crate::{ProviderCapability, config::CodexOAuthConfig};
 
 /// Supported provider account authentication methods.
@@ -127,6 +128,51 @@ pub struct NewProviderAccount {
     pub status: ProviderAccountStatus,
     /// Non-secret provider account metadata.
     pub metadata: Value,
+}
+
+/// Return built-in system provider accounts exposed without durable rows.
+#[must_use]
+pub fn system_provider_accounts() -> Vec<ProviderAccountRecord> {
+    vec![
+        system_provider_account("duckduckgo_public", "DuckDuckGo public search"),
+        system_provider_account("direct_http", "Direct HTTP web fetch"),
+    ]
+}
+
+/// Return provider types that can be added by the user.
+#[must_use]
+pub fn provider_account_catalog() -> Vec<ProviderAccountCatalogEntry> {
+    vec![ProviderAccountCatalogEntry {
+        provider_kind: "exa".to_string(),
+        display_name: "Exa".to_string(),
+        auth_method: ProviderAuthMethod::SecretInput,
+        capabilities: capabilities_for_provider_account(
+            "exa",
+            "catalog",
+            ProviderAccountStatus::Authenticated,
+        ),
+    }]
+}
+
+fn system_provider_account(provider_kind: &str, display_name: &str) -> ProviderAccountRecord {
+    let account_key = "system".to_string();
+    let status = ProviderAccountStatus::Authenticated;
+    ProviderAccountRecord {
+        provider_account_id: format!("provider_account:{provider_kind}:system"),
+        provider_kind: provider_kind.to_string(),
+        account_key: account_key.clone(),
+        display_name: display_name.to_string(),
+        auth_method: ProviderAuthMethod::None,
+        is_active: true,
+        is_default: true,
+        status,
+        last_checked_at: None,
+        last_authenticated_at: None,
+        last_error_code: None,
+        last_error_message: None,
+        metadata: serde_json::json!({}),
+        capabilities: capabilities_for_provider_account(provider_kind, &account_key, status),
+    }
 }
 
 /// Short-lived provider auth attempt status.

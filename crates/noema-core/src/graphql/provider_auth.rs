@@ -2,8 +2,11 @@ use std::{future::Future, pin::Pin, time::Duration};
 
 use noema_home::NoemaPaths;
 use noema_providers::{
-    CodexDeviceAuthRequest, CodexOAuthConfig, ProviderAuthAttemptStatus, ProviderAuthAttemptView,
+    CodexDeviceAuthRequest, CodexOAuthConfig, ProviderAccountPersistence,
+    ProviderAccountStatusUpdate, ProviderAuthAttemptStatus, ProviderAuthAttemptView,
+    ProviderPersistenceError, UpdateProviderAccountRequest,
 };
+use thiserror::Error;
 
 use crate::{
     NoemaStore,
@@ -113,44 +116,6 @@ pub(super) fn validate_provider_auth_account(
     Ok(())
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct ProviderAccountStatusUpdate {
-    pub(super) status: noema_providers::ProviderAccountStatus,
-    pub(super) error_code: Option<String>,
-    pub(super) error_message: Option<String>,
-}
-
-pub(crate) trait ProviderAccountStatusStore {
-    fn update_provider_account_status<'a>(
-        &'a self,
-        provider_account_id: &'a str,
-        status: noema_providers::ProviderAccountStatus,
-        error_code: Option<&'a str>,
-        error_message: Option<&'a str>,
-    ) -> Pin<Box<dyn Future<Output = Result<(), DaemonError>> + Send + 'a>>;
-}
-
-impl ProviderAccountStatusStore for NoemaStore {
-    fn update_provider_account_status<'a>(
-        &'a self,
-        provider_account_id: &'a str,
-        status: noema_providers::ProviderAccountStatus,
-        error_code: Option<&'a str>,
-        error_message: Option<&'a str>,
-    ) -> Pin<Box<dyn Future<Output = Result<(), DaemonError>> + Send + 'a>> {
-        Box::pin(async move {
-            self.update_provider_account_status(
-                provider_account_id,
-                status,
-                error_code,
-                error_message,
-            )
-            .await?;
-            Ok(())
-        })
-    }
-}
-
 pub(super) trait ProviderAuthAttemptPoller {
     fn poll_provider_auth_attempt<'a>(
         &'a self,
@@ -211,7 +176,7 @@ pub(super) enum StartProviderAuthAttemptError {
 
 pub(super) async fn start_codex_provider_auth_attempt(
     starter: &impl CodexDeviceAuthStarter,
-    status_store: &impl ProviderAccountStatusStore,
+    status_store: &dyn ProviderAccountPersistence,
     paths: &NoemaPaths,
     account: &noema_providers::ProviderAccountRecord,
 ) -> Result<ProviderAuthAttemptView, StartProviderAuthAttemptError> {
@@ -259,19 +224,18 @@ fn should_persist_provider_auth_attempt_status(attempt: &ProviderAuthAttemptView
 }
 
 pub(crate) async fn persist_provider_account_status_from_attempt(
-    store: &impl ProviderAccountStatusStore,
+    store: &dyn ProviderAccountPersistence,
     attempt: &ProviderAuthAttemptView,
-) -> Result<(), DaemonError> {
+) -> Result<(), ProviderPersistenceError> {
     let Some(update) = provider_account_status_update_from_attempt(attempt) else {
         return Ok(());
     };
     store
-        .update_provider_account_status(
-            &attempt.provider_account_id,
-            update.status,
-            update.error_code.as_deref(),
-            update.error_message.as_deref(),
-        )
+        .update_provider_account(UpdateProviderAccountRequest {
+            provider_account_id: attempt.provider_account_id.clone(),
+            status: Some(update),
+            metadata: None,
+        })
         .await?;
     Ok(())
 }
@@ -294,27 +258,41 @@ fn spawn_provider_auth_terminal_persistence(
 
 pub(super) async fn persist_provider_auth_attempt_terminal_status(
     poller: &impl ProviderAuthAttemptPoller,
-    status_store: &impl ProviderAccountStatusStore,
+    status_store: &dyn ProviderAccountPersistence,
     attempt_id: &str,
     poll_interval: Duration,
-) -> Result<(), DaemonError> {
+) -> Result<(), ProviderAuthTerminalPersistenceError> {
     loop {
-        let Some(attempt) = poller.poll_provider_auth_attempt(attempt_id).await? else {
+        let Some(attempt) = poller
+            .poll_provider_auth_attempt(attempt_id)
+            .await
+            .map_err(ProviderAuthTerminalPersistenceError::Poll)?
+        else {
             return Ok(());
         };
         if should_persist_provider_auth_attempt_status(&attempt) {
-            persist_provider_account_status_from_attempt(status_store, &attempt).await?;
+            persist_provider_account_status_from_attempt(status_store, &attempt)
+                .await
+                .map_err(ProviderAuthTerminalPersistenceError::Persistence)?;
             return Ok(());
         }
         tokio::time::sleep(poll_interval).await;
     }
 }
 
+#[derive(Debug, Error)]
+pub(super) enum ProviderAuthTerminalPersistenceError {
+    #[error(transparent)]
+    Poll(DaemonError),
+    #[error(transparent)]
+    Persistence(ProviderPersistenceError),
+}
+
 pub(crate) async fn reconcile_onboarding_provider_account(
-    status_store: &impl ProviderAccountStatusStore,
+    status_store: &dyn ProviderAccountPersistence,
     paths: &NoemaPaths,
     account: Option<noema_providers::ProviderAccountRecord>,
-) -> Result<Option<noema_providers::ProviderAccountRecord>, DaemonError> {
+) -> Result<Option<noema_providers::ProviderAccountRecord>, ProviderPersistenceError> {
     let Some(mut account) = account else {
         return Ok(None);
     };
@@ -325,12 +303,15 @@ pub(crate) async fn reconcile_onboarding_provider_account(
     }
 
     status_store
-        .update_provider_account_status(
-            &account.provider_account_id,
-            noema_providers::ProviderAccountStatus::Authenticated,
-            None,
-            None,
-        )
+        .update_provider_account(UpdateProviderAccountRequest {
+            provider_account_id: account.provider_account_id.clone(),
+            status: Some(ProviderAccountStatusUpdate {
+                status: noema_providers::ProviderAccountStatus::Authenticated,
+                error_code: None,
+                error_message: None,
+            }),
+            metadata: None,
+        })
         .await?;
     account.status = noema_providers::ProviderAccountStatus::Authenticated;
     account.last_error_code = None;

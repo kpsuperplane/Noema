@@ -67,6 +67,18 @@ pub struct ProviderCapabilityAssignment {
     pub provider_account_id: String,
 }
 
+/// Return whether a tool/capability pair is supported for durable assignment.
+#[must_use]
+pub fn provider_capability_assignment_pair_is_supported(
+    tool_name: &str,
+    capability_id: &str,
+) -> bool {
+    matches!(
+        (tool_name, capability_id),
+        ("web.search", "web.search") | ("web.fetch", "web.fetch")
+    )
+}
+
 /// Return the static capabilities declared for a provider account.
 #[must_use]
 pub fn capabilities_for_provider_account(

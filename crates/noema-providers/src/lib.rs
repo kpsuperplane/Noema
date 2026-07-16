@@ -15,6 +15,8 @@ pub mod generation;
 pub mod local_models;
 /// Provider model profile metadata.
 pub mod model_profiles;
+/// Provider-owned persistence boundaries.
+pub mod persistence;
 /// Immutable provider selection provenance.
 pub mod selection;
 /// Provider-neutral tool transport and selection policy.
@@ -23,10 +25,11 @@ pub mod tools;
 pub use accounts::{
     CodexDeviceAuthRequest, NewProviderAccount, ProviderAccountCatalogEntry, ProviderAccountRecord,
     ProviderAccountStatus, ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderAuthMethod,
+    provider_account_catalog, system_provider_accounts,
 };
 pub use capabilities::{
     ProviderCapability, ProviderCapabilityAssignment, ProviderCapabilityStatus,
-    capabilities_for_provider_account,
+    capabilities_for_provider_account, provider_capability_assignment_pair_is_supported,
 };
 pub use config::{
     CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS, CODEX_PROVIDER, CodexOAuthConfig, CodexOAuthTokens,
@@ -58,6 +61,16 @@ pub use local_models::{
     NewLocalModelInstallation, RemovedLocalModelInstallation,
 };
 pub use model_profiles::ProviderModelProfile;
+pub use persistence::{
+    LocalModelActivationPersistence, LocalModelActivationPersistenceHandle,
+    LocalModelInstallationPersistence, LocalModelInstallationPersistenceHandle,
+    PersistProviderModelCatalogRequest, ProviderAccountPersistence,
+    ProviderAccountPersistenceHandle, ProviderAccountStatusUpdate,
+    ProviderCapabilityAssignmentPersistence, ProviderCapabilityAssignmentPersistenceHandle,
+    ProviderModelCatalogPersistence, ProviderModelCatalogPersistenceHandle,
+    ProviderPersistenceError, ProviderPersistenceFuture, UpdateProviderAccountRequest,
+    UpsertProviderCapabilityAssignmentRequest,
+};
 pub use selection::{
     ProviderInstanceKey, ProviderSelectionError, ProviderSelectionMode, ProviderSelectionSnapshot,
 };

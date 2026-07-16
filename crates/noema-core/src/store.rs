@@ -17,14 +17,22 @@ mod conversations;
 mod error;
 mod ids;
 mod local_model_activation;
+#[cfg(test)]
+mod local_model_port_tests;
+mod local_model_ports;
 mod local_model_rows;
 mod local_models;
 #[cfg(test)]
 mod local_models_tests;
 mod mcp;
 mod memory_service;
+mod provider_account_port;
 mod provider_accounts;
 mod provider_capability_bindings;
+mod provider_capability_port;
+mod provider_catalog_port;
+#[cfg(test)]
+mod provider_persistence_port_tests;
 mod run_items;
 mod runtime;
 mod schema;

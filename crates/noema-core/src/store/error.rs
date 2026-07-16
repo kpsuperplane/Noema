@@ -38,6 +38,46 @@ pub enum StoreError {
         /// Missing provider account id.
         provider_account_id: String,
     },
+    /// A protected built-in provider account cannot be deleted.
+    #[error("protected provider account cannot be deleted: {provider_account_id}")]
+    ProtectedProviderAccount {
+        /// Protected provider account id.
+        provider_account_id: String,
+    },
+    /// A local-model installation expected to exist was not found.
+    #[error("local-model installation not found: {installation_id}")]
+    LocalModelInstallationNotFound {
+        /// Missing installation id.
+        installation_id: String,
+    },
+    /// A local-model lifecycle transition is not permitted.
+    #[error("local-model installation cannot transition from {from} to {to}")]
+    InvalidLocalModelTransition {
+        /// Current durable status.
+        from: String,
+        /// Requested durable status.
+        to: String,
+    },
+    /// An active local-model installation cannot be removed.
+    #[error("active local-model installation cannot be removed: {installation_id}")]
+    ActiveLocalModelInstallation {
+        /// Active installation id.
+        installation_id: String,
+    },
+    /// A local-model persistence command contains invalid caller input.
+    #[error("invalid local-model request: {kind}")]
+    InvalidLocalModelRequest {
+        /// Stable invalid-request category.
+        kind: &'static str,
+    },
+    /// A local-model installation is not ready for activation.
+    #[error("local-model installation is not ready for activation: {installation_id} ({status})")]
+    LocalModelActivationNotReady {
+        /// Installation id.
+        installation_id: String,
+        /// Current durable status.
+        status: String,
+    },
     /// An agent expected to exist was not found.
     #[error("agent not found: {agent_id}")]
     AgentNotFound {

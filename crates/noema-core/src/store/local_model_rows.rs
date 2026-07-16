@@ -147,9 +147,7 @@ pub(super) fn event_from_raw(raw: RawEvent) -> Result<LocalModelEventRecord, Sto
 }
 
 pub(super) fn u64_to_i64(value: u64, field: &'static str) -> Result<i64, StoreError> {
-    i64::try_from(value).map_err(|_| StoreError::InvariantViolation {
-        message: format!("local-model {field} exceeds SQLite integer range"),
-    })
+    i64::try_from(value).map_err(|_| StoreError::InvalidLocalModelRequest { kind: field })
 }
 
 pub(super) fn optional_u64_to_i64(

@@ -1,8 +1,11 @@
 #![cfg_attr(not(test), allow(dead_code))]
 
-use crate::{NoemaStore, StoreError};
-use noema_capabilities::CapabilityId;
-use noema_providers::ProviderCapabilityStatus;
+use crate::NoemaStore;
+use noema_capabilities::{CapabilityId, ToolName};
+use noema_providers::{
+    ProviderAccountPersistence, ProviderCapabilityAssignmentPersistence, ProviderCapabilityStatus,
+    ProviderPersistenceError, system_provider_accounts,
+};
 
 const WEB_SEARCH_TOOL: &str = "web.search";
 const WEB_FETCH_TOOL: &str = "web.fetch";
@@ -19,29 +22,33 @@ pub(in crate::daemon) struct ResolvedWebProvider {
 
 pub(in crate::daemon) async fn resolve_web_search_provider(
     store: &NoemaStore,
-) -> Result<ResolvedWebProvider, StoreError> {
-    resolve_bound_provider(store, WEB_SEARCH_TOOL, WEB_SEARCH_TOOL).await
+) -> Result<ResolvedWebProvider, ProviderPersistenceError> {
+    resolve_bound_provider(store, WEB_SEARCH_TOOL, CapabilityId::WebSearch).await
 }
 
 pub(in crate::daemon) async fn resolve_web_fetch_provider(
     store: &NoemaStore,
-) -> Result<ResolvedWebProvider, StoreError> {
-    resolve_bound_provider(store, WEB_FETCH_TOOL, WEB_FETCH_TOOL).await
+) -> Result<ResolvedWebProvider, ProviderPersistenceError> {
+    resolve_bound_provider(store, WEB_FETCH_TOOL, CapabilityId::WebFetch).await
 }
 
 async fn resolve_bound_provider(
     store: &NoemaStore,
     tool_name: &str,
-    capability_id: &str,
-) -> Result<ResolvedWebProvider, StoreError> {
-    let Some(expected_capability) = capability_enum(capability_id) else {
-        return Ok(default_provider(tool_name));
-    };
-    let Some(binding) = store
-        .provider_capability_binding(tool_name, capability_id)
-        .await?
+    expected_capability: CapabilityId,
+) -> Result<ResolvedWebProvider, ProviderPersistenceError> {
+    let tool_name =
+        ToolName::new(tool_name).map_err(|_| ProviderPersistenceError::InvalidRequest {
+            kind: "web_tool_name",
+        })?;
+    let Some(binding) = ProviderCapabilityAssignmentPersistence::provider_capability_assignment(
+        store,
+        &tool_name,
+        expected_capability,
+    )
+    .await?
     else {
-        return Ok(default_provider(tool_name));
+        return Ok(default_provider(tool_name.as_str()));
     };
 
     match load_provider_account(store, &binding.provider_account_id).await? {
@@ -52,18 +59,22 @@ async fn resolve_bound_provider(
                 .find(|capability| capability.capability_id == expected_capability)
             else {
                 return Ok(fallback_provider(
-                    tool_name,
+                    tool_name.as_str(),
                     binding.provider_account_id,
-                    format!("bound provider account does not declare {capability_id}"),
+                    format!(
+                        "bound provider account does not declare {}",
+                        expected_capability.as_str()
+                    ),
                 ));
             };
 
             if capability.status != ProviderCapabilityStatus::Available {
                 return Ok(fallback_provider(
-                    tool_name,
+                    tool_name.as_str(),
                     binding.provider_account_id,
                     format!(
-                        "bound provider capability {capability_id} is {}",
+                        "bound provider capability {} is {}",
+                        expected_capability.as_str(),
                         capability.status.as_str()
                     ),
                 ));
@@ -78,7 +89,7 @@ async fn resolve_bound_provider(
             })
         }
         None => Ok(fallback_provider(
-            tool_name,
+            tool_name.as_str(),
             binding.provider_account_id,
             "bound provider account is no longer available".to_string(),
         )),
@@ -88,13 +99,14 @@ async fn resolve_bound_provider(
 async fn load_provider_account(
     store: &NoemaStore,
     provider_account_id: &str,
-) -> Result<Option<noema_providers::ProviderAccountRecord>, StoreError> {
-    if let Some(account) = store.get_provider_account(provider_account_id).await? {
+) -> Result<Option<noema_providers::ProviderAccountRecord>, ProviderPersistenceError> {
+    if let Some(account) =
+        ProviderAccountPersistence::provider_account(store, provider_account_id).await?
+    {
         return Ok(Some(account));
     }
 
-    Ok(store
-        .system_provider_accounts()
+    Ok(system_provider_accounts()
         .into_iter()
         .find(|account| account.provider_account_id == provider_account_id))
 }
@@ -134,14 +146,6 @@ fn fallback_provider(
     fallback.fallback_from = Some(provider_account_id);
     fallback.fallback_reason = Some(fallback_reason);
     fallback
-}
-
-fn capability_enum(capability_id: &str) -> Option<CapabilityId> {
-    match capability_id {
-        "web.search" => Some(CapabilityId::WebSearch),
-        "web.fetch" => Some(CapabilityId::WebFetch),
-        _ => None,
-    }
 }
 
 #[cfg(test)]

@@ -32,12 +32,13 @@ impl NoemaStore {
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 )
                 .optional()?
-                .ok_or_else(|| StoreError::InvariantViolation {
-                    message: format!("local-model installation not found: {installation_id}"),
+                .ok_or_else(|| StoreError::LocalModelInstallationNotFound {
+                    installation_id: installation_id.to_string(),
                 })?;
             if status != LocalModelInstallationStatus::Installed.as_str() {
-                return Err(StoreError::InvariantViolation {
-                    message: format!("local-model installation is not complete: {installation_id}"),
+                return Err(StoreError::LocalModelActivationNotReady {
+                    installation_id: installation_id.to_string(),
+                    status,
                 });
             }
 
@@ -61,16 +62,37 @@ impl NoemaStore {
                 None,
                 None,
             )?;
+            let preference = default_model_preference(&transaction)?;
             transaction.commit()?;
-            Ok(())
+            Ok(preference)
         })
-        .await?;
-        self.get_default_model_preference()
-            .await?
-            .ok_or_else(|| StoreError::InvariantViolation {
-                message: "default model preference disappeared after activation".to_string(),
-            })
+        .await
     }
+}
+
+fn default_model_preference(
+    transaction: &Transaction<'_>,
+) -> Result<DefaultModelPreferenceRecord, StoreError> {
+    transaction
+        .query_row(
+            r#"
+            SELECT provider_kind, provider_account_id, model_profile,
+                   reasoning_effort, updated_at
+            FROM default_model_preference
+            WHERE preference_id = 'default'
+            "#,
+            [],
+            |row| {
+                Ok(DefaultModelPreferenceRecord {
+                    provider_kind: row.get(0)?,
+                    provider_account_id: row.get(1)?,
+                    model_profile: row.get(2)?,
+                    reasoning_effort: row.get(3)?,
+                    updated_at: row.get(4)?,
+                })
+            },
+        )
+        .map_err(StoreError::Sqlite)
 }
 
 fn ensure_local_provider_account(transaction: &Transaction<'_>) -> Result<(), StoreError> {

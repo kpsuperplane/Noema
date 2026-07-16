@@ -6,37 +6,13 @@ use crate::store::{
     sqlite::{json_from_string, json_to_string},
 };
 use noema_providers::{
-    NewProviderAccount, ProviderAccountCatalogEntry, ProviderAccountRecord, ProviderAccountStatus,
-    ProviderAuthMethod, capabilities_for_provider_account,
+    NewProviderAccount, ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod,
+    capabilities_for_provider_account,
 };
 
 use super::{NoemaStore, StoreError};
 
 impl NoemaStore {
-    /// Return built-in system provider accounts exposed without durable rows.
-    #[must_use]
-    pub fn system_provider_accounts(&self) -> Vec<ProviderAccountRecord> {
-        vec![
-            system_provider_account("duckduckgo_public", "DuckDuckGo public search"),
-            system_provider_account("direct_http", "Direct HTTP web fetch"),
-        ]
-    }
-
-    /// Return provider types that can be added by the user.
-    #[must_use]
-    pub fn provider_account_catalog(&self) -> Vec<ProviderAccountCatalogEntry> {
-        vec![ProviderAccountCatalogEntry {
-            provider_kind: "exa".to_string(),
-            display_name: "Exa".to_string(),
-            auth_method: ProviderAuthMethod::SecretInput,
-            capabilities: capabilities_for_provider_account(
-                "exa",
-                "catalog",
-                ProviderAccountStatus::Authenticated,
-            ),
-        }]
-    }
-
     /// Create or return the default Codex provider account metadata.
     ///
     /// # Errors
@@ -326,9 +302,8 @@ impl NoemaStore {
             return Ok(false);
         };
         if account.is_default {
-            return Err(StoreError::InvalidEnum {
-                kind: "provider_account_delete_target",
-                value: provider_account_id.to_string(),
+            return Err(StoreError::ProtectedProviderAccount {
+                provider_account_id: provider_account_id.to_string(),
             });
         }
 
@@ -450,7 +425,7 @@ impl NoemaStore {
     }
 }
 
-const PROVIDER_ACCOUNT_SELECT: &str = r#"
+pub(super) const PROVIDER_ACCOUNT_SELECT: &str = r#"
 SELECT provider_account_id, provider_kind, account_key, display_name,
   auth_method, is_active, is_default, status, last_checked_at,
   last_authenticated_at, last_error_code, last_error_message, metadata_json
@@ -458,7 +433,7 @@ FROM provider_accounts
 "#;
 
 #[derive(Debug)]
-struct ProviderAccountRow {
+pub(super) struct ProviderAccountRow {
     provider_account_id: String,
     provider_kind: String,
     account_key: String,
@@ -474,7 +449,9 @@ struct ProviderAccountRow {
     metadata_json: String,
 }
 
-fn provider_account_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProviderAccountRow> {
+pub(super) fn provider_account_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<ProviderAccountRow> {
     Ok(ProviderAccountRow {
         provider_account_id: row.get(0)?,
         provider_kind: row.get(1)?,
@@ -492,7 +469,9 @@ fn provider_account_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProviderAcc
     })
 }
 
-fn provider_account_from_row(row: ProviderAccountRow) -> Result<ProviderAccountRecord, StoreError> {
+pub(super) fn provider_account_from_row(
+    row: ProviderAccountRow,
+) -> Result<ProviderAccountRecord, StoreError> {
     let status = parse_provider_status(&row.status)?;
     let capabilities =
         capabilities_for_provider_account(&row.provider_kind, &row.account_key, status);
@@ -512,27 +491,6 @@ fn provider_account_from_row(row: ProviderAccountRow) -> Result<ProviderAccountR
         metadata: json_from_string(row.metadata_json)?,
         capabilities,
     })
-}
-
-fn system_provider_account(provider_kind: &str, display_name: &str) -> ProviderAccountRecord {
-    let account_key = "system".to_string();
-    let status = ProviderAccountStatus::Authenticated;
-    ProviderAccountRecord {
-        provider_account_id: format!("provider_account:{provider_kind}:system"),
-        provider_kind: provider_kind.to_string(),
-        account_key: account_key.clone(),
-        display_name: display_name.to_string(),
-        auth_method: ProviderAuthMethod::None,
-        is_active: true,
-        is_default: true,
-        status,
-        last_checked_at: None,
-        last_authenticated_at: None,
-        last_error_code: None,
-        last_error_message: None,
-        metadata: serde_json::json!({}),
-        capabilities: capabilities_for_provider_account(provider_kind, &account_key, status),
-    }
 }
 
 fn generated_account_key(provider_kind: &str) -> String {
@@ -574,7 +532,7 @@ fn parse_provider_status(value: &str) -> Result<ProviderAccountStatus, StoreErro
     }
 }
 
-const fn provider_status_str(status: ProviderAccountStatus) -> &'static str {
+pub(super) const fn provider_status_str(status: ProviderAccountStatus) -> &'static str {
     match status {
         ProviderAccountStatus::Unknown => "unknown",
         ProviderAccountStatus::Checking => "checking",

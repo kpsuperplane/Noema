@@ -1,4 +1,5 @@
 use serde_json::json;
+use std::sync::Mutex;
 use tempfile::TempDir;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -12,6 +13,24 @@ use noema_home::NoemaPaths;
 use noema_providers::CodexOAuthTokens;
 
 const TEST_CODEX_CLIENT_VERSION: &str = "0.144.1";
+
+struct RecordingCatalogPersistence {
+    requests: Mutex<Vec<PersistProviderModelCatalogRequest>>,
+    result:
+        Result<noema_providers::ProviderAccountRecord, noema_providers::ProviderPersistenceError>,
+}
+
+impl ProviderModelCatalogPersistence for RecordingCatalogPersistence {
+    fn persist_provider_model_catalog(
+        &self,
+        request: PersistProviderModelCatalogRequest,
+    ) -> noema_providers::ProviderPersistenceFuture<'_, noema_providers::ProviderAccountRecord>
+    {
+        self.requests.lock().expect("requests lock").push(request);
+        let result = self.result.clone();
+        Box::pin(async move { result })
+    }
+}
 
 #[test]
 fn extracts_visible_profiles_from_codex_model_list() {
@@ -140,10 +159,24 @@ async fn codex_catalog_refresh_with_tokens_marks_unknown_account_authenticated()
         .await
         .expect("get account")
         .expect("account exists");
+    let persistence = RecordingCatalogPersistence {
+        requests: Mutex::new(Vec::new()),
+        result: Ok(account.clone()),
+    };
 
-    refresh_provider_model_profiles(&store, &paths, &account)
+    refresh_provider_model_profiles(&persistence, &paths, &account)
         .await
         .expect("refresh profiles");
+    {
+        let requests = persistence.requests.lock().expect("requests lock");
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].provider_account_id, account.provider_account_id);
+        assert_eq!(requests[0].profiles[0].id, "gpt-live");
+        assert_eq!(
+            requests[0].resulting_status,
+            ProviderAccountStatus::Authenticated
+        );
+    }
 
     let request = request_rx.await.expect("captured request");
     assert_eq!(
@@ -153,22 +186,6 @@ async fn codex_catalog_refresh_with_tokens_marks_unknown_account_authenticated()
     assert_eq!(
         request.headers.get("authorization").map(String::as_str),
         Some("Bearer access-token")
-    );
-    let updated = store
-        .get_provider_account(&created.provider_account_id)
-        .await
-        .expect("get updated account")
-        .expect("updated account exists");
-    assert_eq!(updated.status, ProviderAccountStatus::Authenticated);
-    assert_eq!(updated.metadata["profiles"][0]["id"], "gpt-live");
-    assert_eq!(updated.metadata["profiles"][0]["label"], "GPT Live");
-    assert_eq!(
-        updated.metadata["models_metadata_version"],
-        MODEL_METADATA_VERSION
-    );
-    assert_eq!(
-        updated.metadata["models_client_version"],
-        TEST_CODEX_CLIENT_VERSION
     );
 }
 
@@ -234,9 +251,13 @@ async fn codex_catalog_refreshes_expired_profiles_with_latest_client_version() {
         .await
         .expect("get account")
         .expect("account exists");
+    let persistence = RecordingCatalogPersistence {
+        requests: Mutex::new(Vec::new()),
+        result: Ok(account.clone()),
+    };
 
     refresh_provider_model_profiles_at_version_endpoint(
-        &store,
+        &persistence,
         &paths,
         &account,
         &format!("{version_url}/latest"),
@@ -251,28 +272,75 @@ async fn codex_catalog_refreshes_expired_profiles_with_latest_client_version() {
         request.path,
         format!("/models?client_version={TEST_CODEX_CLIENT_VERSION}")
     );
-    let updated = store
-        .get_provider_account(&created.provider_account_id)
-        .await
-        .expect("get updated account")
-        .expect("updated account exists");
+    let requests = persistence.requests.lock().expect("requests lock");
+    assert_eq!(requests.len(), 1);
     assert_eq!(
-        updated.metadata["profiles"][0]["reasoning_efforts"],
-        json!(["low", "medium", "high", "xhigh"])
+        requests[0].profiles[0].reasoning_efforts,
+        vec![
+            ReasoningEffort::Low,
+            ReasoningEffort::Medium,
+            ReasoningEffort::High,
+            ReasoningEffort::XHigh
+        ]
     );
     assert_eq!(
-        updated.metadata["profiles"][0]["default_reasoning_effort"],
-        "medium"
+        requests[0].profiles[0].default_reasoning_effort,
+        Some(ReasoningEffort::Medium)
     );
-    assert_eq!(
-        updated.metadata["models_metadata_version"],
-        MODEL_METADATA_VERSION
-    );
-    assert_eq!(
-        updated.metadata["models_client_version"],
-        TEST_CODEX_CLIENT_VERSION
-    );
-    assert!(updated.metadata["models_client_version_refreshed_at"].is_string());
+    assert_eq!(requests[0].metadata_version, MODEL_METADATA_VERSION);
+    assert_eq!(requests[0].client_version, TEST_CODEX_CLIENT_VERSION);
+    assert!(requests[0].client_version_refreshed_at_unix.is_some());
+}
+
+#[tokio::test]
+async fn catalog_persistence_failure_remains_a_provider_availability_error() {
+    let account = noema_providers::ProviderAccountRecord {
+        provider_account_id: "provider_account:codex:default".to_string(),
+        provider_kind: "codex".to_string(),
+        account_key: "default".to_string(),
+        display_name: "Codex".to_string(),
+        auth_method: noema_providers::ProviderAuthMethod::OauthDeviceCode,
+        is_active: true,
+        is_default: true,
+        status: ProviderAccountStatus::Unknown,
+        last_checked_at: None,
+        last_authenticated_at: None,
+        last_error_code: None,
+        last_error_message: None,
+        metadata: json!({}),
+        capabilities: Vec::new(),
+    };
+    let persistence = RecordingCatalogPersistence {
+        requests: Mutex::new(Vec::new()),
+        result: Err(noema_providers::ProviderPersistenceError::Persistence {
+            operation: "persist_provider_model_catalog",
+        }),
+    };
+
+    let error = persist_model_catalog_refresh(
+        &persistence,
+        &account,
+        CodexModelCatalog {
+            profiles: vec![ProviderModelProfile {
+                id: "gpt-live".to_string(),
+                label: "GPT Live".to_string(),
+                reasoning_efforts: Vec::new(),
+                default_reasoning_effort: None,
+            }],
+            client_version: TEST_CODEX_CLIENT_VERSION.to_string(),
+            client_version_refreshed_at_unix: None,
+        },
+    )
+    .await
+    .expect_err("persistence failure");
+
+    assert!(matches!(
+        error,
+        ProviderError::ProviderUnavailable { provider, message }
+            if provider == "codex"
+                && message.contains("provider persistence operation failed")
+    ));
+    assert_eq!(persistence.requests.lock().expect("requests lock").len(), 1);
 }
 
 #[derive(Debug)]
