@@ -1,6 +1,8 @@
 use std::{fs, path::PathBuf, sync::Arc};
 
-use noema_home::{NoemaPathError, NoemaPaths, sanitize_path_segment};
+#[cfg(test)]
+use noema_home::NoemaPathError;
+use noema_home::{NoemaPaths, sanitize_path_segment};
 use rusqlite::Connection;
 use tokio::sync::Mutex;
 
@@ -102,6 +104,7 @@ impl NoemaStore {
     ///
     /// Returns [`NoemaPathError`] when the store was opened with an
     /// unusable Noema home path.
+    #[cfg(test)]
     pub(crate) fn noema_paths(&self) -> Result<NoemaPaths, NoemaPathError> {
         NoemaPaths::from_noema_home(self.noema_home.clone())
     }

@@ -1,18 +1,13 @@
 use crate::{
     NoemaStore,
-    artifacts::{
-        NewConversationLocalFileArtifact, NewConversationLocalFileArtifactVersion,
-        NewTaskLocalFileArtifact, NewTaskLocalFileArtifactVersion,
-        append_conversation_local_file_artifact_version, append_task_local_file_artifact_version,
-        create_conversation_local_file_artifact, create_task_local_file_artifact,
-    },
     provider::{NoemaToolExecution, NoemaToolSpec, ToolContractError},
 };
 
 use noema_artifacts::{
-    ArtifactDomainError, ArtifactSource, artifact_download_url, safe_artifact_filename,
+    AppendLocalArtifactVersionRequest, ArtifactDomainError, ArtifactOperationError,
+    ArtifactOperationsHandle, ArtifactOwnerRef, ArtifactSource, CreateLocalArtifactRequest,
+    artifact_download_url, safe_artifact_filename,
 };
-use noema_home::NoemaPathError;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -48,9 +43,7 @@ pub(super) enum ArtifactToolError {
     #[error(transparent)]
     Path(#[from] ArtifactDomainError),
     #[error(transparent)]
-    HomePath(#[from] NoemaPathError),
-    #[error(transparent)]
-    Write(#[from] crate::artifacts::ArtifactWriteError),
+    Operation(#[from] ArtifactOperationError),
     #[error(transparent)]
     Store(#[from] crate::StoreError),
 }
@@ -150,11 +143,14 @@ pub(super) fn artifact_create_local_file_tool_spec() -> Result<NoemaToolSpec, To
 
 pub(super) async fn execute_artifact_create_local_file(
     store: &NoemaStore,
+    artifact_operations: &ArtifactOperationsHandle,
     context: &ArtifactToolRuntimeContext,
     call_id: Option<String>,
     payload: &Value,
 ) -> ArtifactToolResult {
-    match execute_artifact_create_local_file_inner(store, context, payload).await {
+    match execute_artifact_create_local_file_inner(store, artifact_operations, context, payload)
+        .await
+    {
         Ok(payload) => ArtifactToolResult {
             call_id,
             name: ARTIFACT_CREATE_LOCAL_FILE_TOOL.to_string(),
@@ -174,11 +170,11 @@ pub(super) async fn execute_artifact_create_local_file(
 
 async fn execute_artifact_create_local_file_inner(
     store: &NoemaStore,
+    artifact_operations: &ArtifactOperationsHandle,
     context: &ArtifactToolRuntimeContext,
     payload: &Value,
 ) -> Result<Value, ArtifactToolError> {
     let arguments = parse_arguments(payload)?;
-    let paths = store.noema_paths()?;
     let task = match (&context.task_id, &context.task_run_id) {
         (Some(task_id), Some(run_id)) => {
             let task = store.get_task(task_id).await?.ok_or_else(|| {
@@ -226,86 +222,49 @@ async fn execute_artifact_create_local_file_inner(
     let first_version = versions.next().ok_or_else(|| {
         ArtifactToolError::InvalidArguments("versions must include at least one item".to_string())
     })?;
-    let first_bytes = first_version.content.into_bytes();
-    let artifact = if let Some(task) = &task {
-        create_task_local_file_artifact(
-            store,
-            &paths,
-            NewTaskLocalFileArtifact {
-                task_id: task.task_id.clone(),
-                title: arguments.title.clone(),
-                description: arguments.description.clone(),
-                artifact_kind: arguments.artifact_kind.clone(),
-                filename: arguments.filename.clone(),
-                bytes: first_bytes,
-                media_type: arguments.media_type.clone(),
-                created_by_actor_id: context.created_by_actor_id.clone(),
-                source: source.clone(),
-                metadata: json!({
-                    "created_by_tool": ARTIFACT_CREATE_LOCAL_FILE_TOOL,
-                    "task_id": task.task_id,
-                    "task_run_id": context.task_run_id,
-                }),
-            },
-        )
-        .await?
-    } else {
-        create_conversation_local_file_artifact(
-            store,
-            &paths,
-            NewConversationLocalFileArtifact {
-                conversation_id: context.conversation_id.clone(),
-                title: arguments.title.clone(),
-                description: arguments.description.clone(),
-                artifact_kind: arguments.artifact_kind.clone(),
-                filename: arguments.filename.clone(),
-                bytes: first_bytes,
-                media_type: arguments.media_type.clone(),
-                created_by_actor_id: context.created_by_actor_id.clone(),
-                source: source.clone(),
-                metadata: json!({
-                    "created_by_tool": ARTIFACT_CREATE_LOCAL_FILE_TOOL,
-                }),
-            },
-        )
-        .await?
-    };
+    let owner = task.as_ref().map_or_else(
+        || ArtifactOwnerRef::conversation(&context.conversation_id),
+        |task| ArtifactOwnerRef::task(&task.task_id),
+    );
+    let metadata = task.as_ref().map_or_else(
+        || json!({"created_by_tool": ARTIFACT_CREATE_LOCAL_FILE_TOOL}),
+        |task| {
+            json!({
+                "created_by_tool": ARTIFACT_CREATE_LOCAL_FILE_TOOL,
+                "task_id": task.task_id,
+                "task_run_id": context.task_run_id,
+            })
+        },
+    );
+    let artifact = artifact_operations
+        .create_local_file(CreateLocalArtifactRequest {
+            owner,
+            title: arguments.title.clone(),
+            description: arguments.description.clone(),
+            artifact_kind: arguments.artifact_kind.clone(),
+            filename: arguments.filename.clone(),
+            bytes: first_version.content.into_bytes(),
+            media_type: arguments.media_type.clone(),
+            created_by_actor_id: context.created_by_actor_id.clone(),
+            source: source.clone(),
+            metadata,
+        })
+        .await?;
 
     let artifact_id = artifact.artifact.artifact_id.clone();
     for version in versions {
-        if task.is_some() {
-            append_task_local_file_artifact_version(
-                store,
-                &paths,
-                NewTaskLocalFileArtifactVersion {
-                    artifact_id: artifact_id.clone(),
-                    title: version.title,
-                    filename: arguments.filename.clone(),
-                    bytes: version.content.into_bytes(),
-                    media_type: arguments.media_type.clone(),
-                    created_by_actor_id: context.created_by_actor_id.clone(),
-                    source: source.clone(),
-                    metadata: json!({"created_by_tool": ARTIFACT_CREATE_LOCAL_FILE_TOOL}),
-                },
-            )
+        artifact_operations
+            .append_local_file_version(AppendLocalArtifactVersionRequest {
+                artifact_id: artifact_id.clone(),
+                title: version.title,
+                filename: arguments.filename.clone(),
+                bytes: version.content.into_bytes(),
+                media_type: arguments.media_type.clone(),
+                created_by_actor_id: context.created_by_actor_id.clone(),
+                source: source.clone(),
+                metadata: json!({"created_by_tool": ARTIFACT_CREATE_LOCAL_FILE_TOOL}),
+            })
             .await?;
-        } else {
-            append_conversation_local_file_artifact_version(
-                store,
-                &paths,
-                NewConversationLocalFileArtifactVersion {
-                    artifact_id: artifact_id.clone(),
-                    title: version.title,
-                    filename: arguments.filename.clone(),
-                    bytes: version.content.into_bytes(),
-                    media_type: arguments.media_type.clone(),
-                    created_by_actor_id: context.created_by_actor_id.clone(),
-                    source: source.clone(),
-                    metadata: json!({"created_by_tool": ARTIFACT_CREATE_LOCAL_FILE_TOOL}),
-                },
-            )
-            .await?;
-        }
     }
 
     let artifact =
@@ -450,10 +409,8 @@ fn trim_optional(
 fn safe_error_message(error: &ArtifactToolError) -> String {
     match error {
         ArtifactToolError::InvalidArguments(message) => message.clone(),
-        ArtifactToolError::Path(_) | ArtifactToolError::HomePath(_) => {
-            "artifact path validation failed".to_string()
-        }
-        ArtifactToolError::Write(_) => "artifact write failed".to_string(),
+        ArtifactToolError::Path(_) => "artifact path validation failed".to_string(),
+        ArtifactToolError::Operation(_) => "artifact write failed".to_string(),
         ArtifactToolError::Store(_) => "artifact metadata update failed".to_string(),
     }
 }

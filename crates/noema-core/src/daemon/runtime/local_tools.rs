@@ -142,6 +142,7 @@ impl CodexRuntimeActor {
                 arguments: call.payload.clone(),
                 result: execute_artifact_create_local_file(
                     &self.store,
+                    &self.artifact_operations,
                     &context,
                     call.call_id.clone(),
                     &call.payload,
@@ -153,6 +154,7 @@ impl CodexRuntimeActor {
                 (Some(task_id), Some(run_id)) => {
                     execute_task_read_artifact(
                         &self.store,
+                        &self.artifact_operations,
                         &TaskArtifactReadContext {
                             task_id: task_id.clone(),
                             run_id: run_id.clone(),

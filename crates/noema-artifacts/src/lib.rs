@@ -6,6 +6,8 @@
 
 mod domain;
 mod error;
+#[cfg(feature = "filesystem")]
+mod filesystem;
 mod operations;
 mod paths;
 mod ports;
@@ -16,6 +18,8 @@ pub use domain::{
     validate_external_artifact_url,
 };
 pub use error::{ArtifactDomainError, ArtifactMetadataError, ArtifactOperationError};
+#[cfg(feature = "filesystem")]
+pub use filesystem::LocalArtifactService;
 pub use operations::{
     AppendLocalArtifactVersionRequest, ArtifactFileContent, ArtifactOperationFuture,
     ArtifactOperations, ArtifactOperationsHandle, CreateLocalArtifactRequest,

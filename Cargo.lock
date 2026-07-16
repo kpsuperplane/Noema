@@ -2676,9 +2676,14 @@ dependencies = [
 name = "noema-artifacts"
 version = "0.1.0"
 dependencies = [
+ "cap-std",
+ "libc",
  "noema-home",
+ "ring",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.18",
+ "tokio",
  "url",
 ]
 

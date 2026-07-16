@@ -2,7 +2,7 @@ use crate::{
     NoemaRuntimeHost, NoemaStore, daemon::CodexRuntimeHandle, mcp::McpOAuthSetupManager,
     provider::auth::ProviderAuthManager,
 };
-use noema_home::NoemaPaths;
+use noema_home::{NoemaPaths, SystemErrorEvent, SystemErrorLogger};
 
 use super::{ConversationSubscriptionRegistry, local_status::GraphqlMemoryStorageStatus};
 
@@ -11,6 +11,8 @@ use super::{ConversationSubscriptionRegistry, local_status::GraphqlMemoryStorage
 pub struct GraphqlRuntimeState {
     runtime: Option<CodexRuntimeHandle>,
     store: Option<NoemaStore>,
+    artifact_operations: Option<noema_artifacts::ArtifactOperationsHandle>,
+    artifact_diagnostics: ArtifactDiagnosticReporter,
     provider_auth: Option<ProviderAuthManager>,
     mcp_oauth: Option<McpOAuthSetupManager>,
     paths: Option<NoemaPaths>,
@@ -27,6 +29,8 @@ impl GraphqlRuntimeState {
         Self {
             runtime: Some(host.runtime().clone()),
             store: Some(host.store().clone()),
+            artifact_operations: Some(host.artifact_operations().clone()),
+            artifact_diagnostics: ArtifactDiagnosticReporter::new(host.system_errors().clone()),
             provider_auth: Some(host.provider_auth().clone()),
             mcp_oauth: Some(host.mcp_oauth().clone()),
             paths: Some(host.paths().clone()),
@@ -43,6 +47,8 @@ impl GraphqlRuntimeState {
         Self {
             runtime: None,
             store: None,
+            artifact_operations: None,
+            artifact_diagnostics: ArtifactDiagnosticReporter::default(),
             provider_auth: None,
             mcp_oauth: Some(McpOAuthSetupManager::new()),
             paths: None,
@@ -81,8 +87,14 @@ impl GraphqlRuntimeState {
     #[cfg(test)]
     #[must_use]
     pub fn for_tests_with_store_and_paths(store: NoemaStore, paths: NoemaPaths) -> Self {
+        let artifact_operations =
+            crate::test_support::artifact_operations(&store).expect("test artifact service");
         Self {
             store: Some(store),
+            artifact_operations: Some(artifact_operations),
+            artifact_diagnostics: ArtifactDiagnosticReporter::new(SystemErrorLogger::from_paths(
+                &paths,
+            )),
             paths: Some(paths),
             ..Self::for_tests()
         }
@@ -102,6 +114,18 @@ impl GraphqlRuntimeState {
 
     pub(crate) fn optional_store(&self) -> Option<&NoemaStore> {
         self.store.as_ref()
+    }
+
+    pub(crate) fn artifact_operations(
+        &self,
+    ) -> async_graphql::Result<&noema_artifacts::ArtifactOperationsHandle> {
+        self.artifact_operations
+            .as_ref()
+            .ok_or_else(|| async_graphql::Error::new("Noema artifact service is unavailable"))
+    }
+
+    pub(crate) fn record_artifact_download_failure(&self, operation: &'static str) {
+        self.artifact_diagnostics.download_failure(operation);
     }
 
     pub(crate) fn provider_auth(&self) -> async_graphql::Result<&ProviderAuthManager> {
@@ -136,5 +160,32 @@ impl GraphqlRuntimeState {
 
     pub(crate) fn memory_storage(&self) -> GraphqlMemoryStorageStatus {
         self.memory_storage
+    }
+}
+
+#[derive(Clone, Default)]
+struct ArtifactDiagnosticReporter {
+    system_errors: Option<SystemErrorLogger>,
+}
+
+impl ArtifactDiagnosticReporter {
+    fn new(system_errors: SystemErrorLogger) -> Self {
+        Self {
+            system_errors: Some(system_errors),
+        }
+    }
+
+    fn download_failure(&self, operation: &'static str) {
+        let Some(system_errors) = &self.system_errors else {
+            return;
+        };
+        let event = SystemErrorEvent::new(
+            "artifact_download_failure",
+            "artifact download operation failed",
+        )
+        .with_context(serde_json::json!({ "operation": operation }));
+        if system_errors.append(event).is_err() {
+            eprintln!("Noema artifact download failure: diagnostic_write");
+        }
     }
 }

@@ -854,25 +854,27 @@ owner without making artifacts depend on SQLite.
 
 **Steps:**
 
-- [ ] Move `ArtifactOwnerRef`, `ArtifactStorageKind`,
+- [x] Move `ArtifactOwnerRef`, `ArtifactStorageKind`,
   `ArtifactVersionStorage`, `ArtifactSource`, new-record inputs, persisted read
   models, and external URL validation into `noema-artifacts`.
-- [ ] Give artifact enum parsing an artifact-domain error; SQLite adapters map
+- [x] Give artifact enum parsing an artifact-domain error; SQLite adapters map
   that error to `StoreError` at the store boundary.
-- [ ] Define a narrow `ArtifactMetadataStore` port containing only the atomic
+- [x] Define a narrow `ArtifactMetadataStore` port containing only the atomic
   metadata operations needed by filesystem writers. Its append operation takes
   the caller's `expected_next_version_index`; the SQLite implementation rechecks
   that index in the same transaction as the insert and returns a typed append
   conflict without writing metadata when another appender won.
-- [ ] Implement that port for the current `NoemaStore` without moving SQL.
-- [ ] Keep an object-safe `ArtifactOperations` contract, clonable
+- [x] Implement that port for the current `NoemaStore` without moving SQL.
+- [x] Keep an object-safe `ArtifactOperations` contract, clonable
   `ArtifactOperationsHandle`, requests/results, and errors always compiled.
   Behind `filesystem`, expose a root-bound `LocalArtifactService` implementation
-  that owns safe path resolution, reads/writes, rollback, verification, and
-  artifact diagnostics through the metadata port. Runtime/API receive only the
-  operations handle, never a Noema root, logger, or concrete writer.
-- [ ] Remove `StoreError` and `NoemaStore` from public artifact signatures.
-- [ ] Preserve write-bytes-before-metadata visibility while making publication
+  that owns safe path resolution, reads/writes, rollback, and verification
+  through the metadata port. Runtime/API receive artifact filesystem authority
+  only through the operations handle, never a Noema root or concrete writer;
+  API diagnostics use a separately injected narrow reporter rather than giving
+  resolvers a root or logger.
+- [x] Remove `StoreError` and `NoemaStore` from public artifact signatures.
+- [x] Preserve write-bytes-before-metadata visibility while making publication
   race-safe. Each append allocates an unguessable operation ID, writes with
   create-new semantics to an operation-private staging path, verifies the
   bytes, and atomically publishes with no-clobber semantics to an
@@ -884,22 +886,24 @@ owner without making artifacts depend on SQLite.
   destination. The caller's logical filename stays in metadata; it is never the
   sole physical path component, so two appends of the same logical filename
   cannot overwrite or unlink one another.
-- [ ] After publishing its unique object, call the expected-index metadata
+- [x] After publishing its unique object, call the expected-index metadata
   operation. On conflict, remove only that operation's published object and
-  empty operation/version directories that it exclusively created. On any
-  pre-publish failure, remove only its private staging tree. Never rename over
-  an existing target, and never delete the winning appender's file or metadata,
+  private object directory. On any pre-publish failure, remove only its private
+  staging directory. Shared `.artifact-staging`, version, and `objects`
+  directories remain as permanent coordination scaffolding because another
+  service may already hold a verified handle to them. Never rename over an
+  existing target, and never delete the winning appender's file or metadata,
   even when both callers began from the same last version with the same logical
   filename. Add bounded stale-staging cleanup that recognizes only abandoned
   operation directories and cannot traverse symlinks or touch published
   objects.
-- [ ] Move artifact directory construction to `noema-artifacts`, accepting the
+- [x] Move artifact directory construction to `noema-artifacts`, accepting the
   resolved Noema root rather than the entire host configuration.
-- [ ] Keep domain records, persistence ports, and the consumer operations
+- [x] Keep domain records, persistence ports, and the consumer operations
   handle always compiled; gate only governed local filesystem construction and
   implementation behind `filesystem` so store/runtime can compile their
   contracts without file I/O implementation.
-- [ ] Move filesystem, symlink, rollback, URL, and owner-validation tests with
+- [x] Move filesystem, symlink, rollback, URL, and owner-validation tests with
   the artifact crate.
 
 **Acceptance:**

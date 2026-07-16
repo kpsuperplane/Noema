@@ -27,7 +27,10 @@ pub type ArtifactFuture<'a, T> =
 /// Atomic metadata operations required by governed artifact writers.
 ///
 /// Implementations own transactionality and repository-specific error
-/// conversion. They must not expose a raw database connection.
+/// conversion. They must not expose a raw database connection. Dropping a
+/// create or append future before it returns `Ready(Ok(_))` must leave no
+/// committed metadata: the filesystem service treats future cancellation as a
+/// failed metadata write and removes its operation-private publication.
 pub trait ArtifactMetadataStore: std::fmt::Debug + Send + Sync {
     /// Allocate one canonical artifact id.
     fn new_artifact_id(&self) -> String;
@@ -42,6 +45,8 @@ pub trait ArtifactMetadataStore: std::fmt::Debug + Send + Sync {
     ) -> ArtifactFuture<'a, Option<ArtifactAppendTarget>>;
 
     /// Atomically insert an artifact and its initial version.
+    ///
+    /// Cancellation before `Ready(Ok(_))` must not commit either row.
     fn create_artifact_with_initial_version<'a>(
         &'a self,
         artifact: NewArtifact,
@@ -54,6 +59,7 @@ pub trait ArtifactMetadataStore: std::fmt::Debug + Send + Sync {
     /// Implementations must re-read the actual next index inside the same
     /// transaction as the insert. A mismatch returns
     /// [`ArtifactMetadataError::AppendConflict`] without writing metadata.
+    /// Cancellation before `Ready(Ok(_))` must not commit the version.
     fn append_artifact_version<'a>(
         &'a self,
         artifact_id: &'a str,

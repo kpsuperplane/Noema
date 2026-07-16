@@ -6,6 +6,10 @@ pub const SYSTEM_ERROR_STORE_INVARIANT: &str = "store_invariant_violation";
 mod agent_runs;
 mod agent_runtime_preferences;
 mod agents;
+mod artifact_metadata_port;
+#[cfg(test)]
+mod artifact_metadata_port_tests;
+mod artifact_writes;
 mod artifacts;
 mod auxiliary_model_preferences;
 mod context_summaries;

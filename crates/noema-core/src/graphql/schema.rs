@@ -227,6 +227,15 @@ impl GraphqlState {
         self.runtime_state.optional_store()
     }
 
+    pub(crate) fn artifact_operations(&self) -> Result<&noema_artifacts::ArtifactOperationsHandle> {
+        self.runtime_state.artifact_operations()
+    }
+
+    pub(crate) fn record_artifact_download_failure(&self, operation: &'static str) {
+        self.runtime_state
+            .record_artifact_download_failure(operation);
+    }
+
     pub(crate) fn provider_auth(&self) -> Result<&crate::provider::auth::ProviderAuthManager> {
         self.runtime_state.provider_auth()
     }
@@ -5674,11 +5683,13 @@ mod tests {
             .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
             .expect("conversation");
-        let artifact = crate::create_conversation_local_file_artifact(
-            &store,
-            &paths,
-            crate::NewConversationLocalFileArtifact {
-                conversation_id: conversation.conversation_id.clone(),
+        let artifact_operations =
+            crate::test_support::artifact_operations(&store).expect("artifact operations");
+        let artifact = artifact_operations
+            .create_local_file(noema_artifacts::CreateLocalArtifactRequest {
+                owner: noema_artifacts::ArtifactOwnerRef::conversation(
+                    &conversation.conversation_id,
+                ),
                 title: "Session report".to_string(),
                 description: Some("Local markdown artifact".to_string()),
                 artifact_kind: "document".to_string(),
@@ -5692,10 +5703,9 @@ mod tests {
                     item_id: None,
                 },
                 metadata: serde_json::json!({"origin": "unit-test"}),
-            },
-        )
-        .await
-        .expect("artifact");
+            })
+            .await
+            .expect("artifact");
         let schema = build_schema(GraphqlState::for_tests_with_store_and_paths(store, paths));
 
         let response = schema
@@ -5743,11 +5753,13 @@ mod tests {
             .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
             .expect("conversation");
-        let artifact = crate::create_conversation_local_file_artifact(
-            &store,
-            &paths,
-            crate::NewConversationLocalFileArtifact {
-                conversation_id: conversation.conversation_id,
+        let artifact_operations =
+            crate::test_support::artifact_operations(&store).expect("artifact operations");
+        let artifact = artifact_operations
+            .create_local_file(noema_artifacts::CreateLocalArtifactRequest {
+                owner: noema_artifacts::ArtifactOwnerRef::conversation(
+                    conversation.conversation_id,
+                ),
                 title: "Session report".to_string(),
                 description: Some("Local markdown artifact".to_string()),
                 artifact_kind: "document".to_string(),
@@ -5757,14 +5769,11 @@ mod tests {
                 created_by_actor_id: "agent:primary".to_string(),
                 source: noema_artifacts::ArtifactSource::default(),
                 metadata: serde_json::json!({}),
-            },
-        )
-        .await
-        .expect("artifact");
-        let second_version = crate::artifacts::append_conversation_local_file_artifact_version(
-            &store,
-            &paths,
-            crate::artifacts::NewConversationLocalFileArtifactVersion {
+            })
+            .await
+            .expect("artifact");
+        let second_version = artifact_operations
+            .append_local_file_version(noema_artifacts::AppendLocalArtifactVersionRequest {
                 artifact_id: artifact.artifact.artifact_id.clone(),
                 title: Some("Second draft".to_string()),
                 filename: "report-v2.md".to_string(),
@@ -5773,10 +5782,9 @@ mod tests {
                 created_by_actor_id: "agent:primary".to_string(),
                 source: noema_artifacts::ArtifactSource::default(),
                 metadata: serde_json::json!({}),
-            },
-        )
-        .await
-        .expect("second version");
+            })
+            .await
+            .expect("second version");
         let schema = build_schema(GraphqlState::for_tests_with_store_and_paths(store, paths));
 
         let response = schema
@@ -5858,11 +5866,13 @@ mod tests {
             .await
             .expect("conversation");
         let content = "# Literal heading\n\n* literal asterisk\n  indented\n";
-        let artifact = crate::create_conversation_local_file_artifact(
-            &store,
-            &paths,
-            crate::NewConversationLocalFileArtifact {
-                conversation_id: conversation.conversation_id,
+        let artifact_operations =
+            crate::test_support::artifact_operations(&store).expect("artifact operations");
+        let artifact = artifact_operations
+            .create_local_file(noema_artifacts::CreateLocalArtifactRequest {
+                owner: noema_artifacts::ArtifactOwnerRef::conversation(
+                    conversation.conversation_id,
+                ),
                 title: "Notes".to_string(),
                 description: None,
                 artifact_kind: "document".to_string(),
@@ -5872,10 +5882,9 @@ mod tests {
                 created_by_actor_id: "agent:primary".to_string(),
                 source: noema_artifacts::ArtifactSource::default(),
                 metadata: serde_json::json!({}),
-            },
-        )
-        .await
-        .expect("artifact");
+            })
+            .await
+            .expect("artifact");
         let schema = build_schema(GraphqlState::for_tests_with_store_and_paths(store, paths));
 
         let response = schema
@@ -5919,11 +5928,13 @@ mod tests {
             .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
             .expect("conversation");
-        let artifact = crate::create_conversation_local_file_artifact(
-            &store,
-            &paths,
-            crate::NewConversationLocalFileArtifact {
-                conversation_id: conversation.conversation_id,
+        let artifact_operations =
+            crate::test_support::artifact_operations(&store).expect("artifact operations");
+        let artifact = artifact_operations
+            .create_local_file(noema_artifacts::CreateLocalArtifactRequest {
+                owner: noema_artifacts::ArtifactOwnerRef::conversation(
+                    conversation.conversation_id,
+                ),
                 title: "Data export".to_string(),
                 description: None,
                 artifact_kind: "table".to_string(),
@@ -5933,10 +5944,9 @@ mod tests {
                 created_by_actor_id: "agent:primary".to_string(),
                 source: noema_artifacts::ArtifactSource::default(),
                 metadata: serde_json::json!({}),
-            },
-        )
-        .await
-        .expect("artifact");
+            })
+            .await
+            .expect("artifact");
         let schema = build_schema(GraphqlState::for_tests_with_store_and_paths(store, paths));
 
         let response = schema

@@ -292,12 +292,12 @@ async fn conversation_local_file_artifact_writes_bytes_and_metadata() {
         .await
         .expect("conversation");
     let bytes = b"# report\n".to_vec();
+    let artifact_operations =
+        crate::test_support::artifact_operations(&store).expect("artifact operations");
 
-    let artifact = crate::create_conversation_local_file_artifact(
-        &store,
-        &paths,
-        crate::NewConversationLocalFileArtifact {
-            conversation_id: conversation.conversation_id.clone(),
+    let artifact = artifact_operations
+        .create_local_file(noema_artifacts::CreateLocalArtifactRequest {
+            owner: noema_artifacts::ArtifactOwnerRef::conversation(&conversation.conversation_id),
             title: "Session report".to_string(),
             description: Some("Local markdown artifact".to_string()),
             artifact_kind: "document".to_string(),
@@ -311,10 +311,9 @@ async fn conversation_local_file_artifact_writes_bytes_and_metadata() {
                 item_id: None,
             },
             metadata: serde_json::json!({"origin": "unit-test"}),
-        },
-    )
-    .await
-    .expect("create local artifact");
+        })
+        .await
+        .expect("create local artifact");
 
     assert_eq!(
         artifact.artifact.storage_kind,
@@ -378,11 +377,11 @@ async fn conversation_local_file_artifact_rejects_symlinked_artifact_root() {
     )
     .expect("symlink artifact root");
 
-    let error = crate::create_conversation_local_file_artifact(
-        &store,
-        &paths,
-        crate::NewConversationLocalFileArtifact {
-            conversation_id: conversation.conversation_id.clone(),
+    let artifact_operations =
+        crate::test_support::artifact_operations(&store).expect("artifact operations");
+    let error = artifact_operations
+        .create_local_file(noema_artifacts::CreateLocalArtifactRequest {
+            owner: noema_artifacts::ArtifactOwnerRef::conversation(&conversation.conversation_id),
             title: "Session report".to_string(),
             description: None,
             artifact_kind: "document".to_string(),
@@ -392,15 +391,13 @@ async fn conversation_local_file_artifact_rejects_symlinked_artifact_root() {
             created_by_actor_id: "agent:primary".to_string(),
             source: noema_artifacts::ArtifactSource::default(),
             metadata: serde_json::json!({}),
-        },
-    )
-    .await
-    .expect_err("symlinked artifact root should be rejected");
+        })
+        .await
+        .expect_err("symlinked artifact root should be rejected");
 
     assert!(matches!(
         error,
-        crate::ArtifactWriteError::CreateDirectory { .. }
-            | crate::ArtifactWriteError::WriteFile { .. }
+        noema_artifacts::ArtifactOperationError::Filesystem { .. }
     ));
 }
 
@@ -610,11 +607,11 @@ async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
         )
         .await
         .expect("run executor");
-    let task_artifact = crate::create_task_local_file_artifact(
-        &store,
-        &store.noema_paths().expect("paths"),
-        crate::NewTaskLocalFileArtifact {
-            task_id: task.task_id.clone(),
+    let artifact_operations =
+        crate::test_support::artifact_operations(&store).expect("artifact operations");
+    let task_artifact = artifact_operations
+        .create_local_file(noema_artifacts::CreateLocalArtifactRequest {
+            owner: noema_artifacts::ArtifactOwnerRef::task(&task.task_id),
             title: "Task report".to_string(),
             description: None,
             artifact_kind: "document".to_string(),
@@ -624,15 +621,12 @@ async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
             created_by_actor_id: crate::TASK_EXECUTOR_AGENT_ID.to_string(),
             source: noema_artifacts::ArtifactSource::default(),
             metadata: serde_json::json!({}),
-        },
-    )
-    .await
-    .expect("task artifact");
-    let data_artifact = crate::create_task_local_file_artifact(
-        &store,
-        &store.noema_paths().expect("paths"),
-        crate::NewTaskLocalFileArtifact {
-            task_id: task.task_id.clone(),
+        })
+        .await
+        .expect("task artifact");
+    let data_artifact = artifact_operations
+        .create_local_file(noema_artifacts::CreateLocalArtifactRequest {
+            owner: noema_artifacts::ArtifactOwnerRef::task(&task.task_id),
             title: "Task data".to_string(),
             description: None,
             artifact_kind: "data".to_string(),
@@ -642,10 +636,9 @@ async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
             created_by_actor_id: crate::TASK_EXECUTOR_AGENT_ID.to_string(),
             source: noema_artifacts::ArtifactSource::default(),
             metadata: serde_json::json!({}),
-        },
-    )
-    .await
-    .expect("second task artifact");
+        })
+        .await
+        .expect("second task artifact");
     let criterion_id = store
         .list_task_validation_criteria(&task.task_id)
         .await
@@ -656,11 +649,9 @@ async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
         .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
         .await
         .expect("conversation");
-    let foreign_artifact = crate::create_conversation_local_file_artifact(
-        &store,
-        &store.noema_paths().expect("paths"),
-        crate::NewConversationLocalFileArtifact {
-            conversation_id: conversation.conversation_id,
+    let foreign_artifact = artifact_operations
+        .create_local_file(noema_artifacts::CreateLocalArtifactRequest {
+            owner: noema_artifacts::ArtifactOwnerRef::conversation(conversation.conversation_id),
             title: "Foreign artifact".to_string(),
             description: None,
             artifact_kind: "document".to_string(),
@@ -670,10 +661,9 @@ async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
             created_by_actor_id: "agent:primary".to_string(),
             source: noema_artifacts::ArtifactSource::default(),
             metadata: serde_json::json!({}),
-        },
-    )
-    .await
-    .expect("foreign artifact");
+        })
+        .await
+        .expect("foreign artifact");
     assert!(
         store
             .create_task_submission(

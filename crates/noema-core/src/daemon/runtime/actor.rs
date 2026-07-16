@@ -22,6 +22,7 @@ pub(in crate::daemon) struct CodexRuntimeActor {
     pub(in crate::daemon) default_provider_kind: String,
     pub(in crate::daemon) providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
     pub(in crate::daemon) store: NoemaStore,
+    pub(in crate::daemon) artifact_operations: noema_artifacts::ArtifactOperationsHandle,
     pub(in crate::daemon) system_errors: SystemErrorLogger,
     pub(in crate::daemon) memory_connection: Option<crate::MnemosyneConnection>,
     pub(in crate::daemon) search_provider: crate::search::types::SearchRuntimeProvider,
@@ -39,10 +40,13 @@ impl CodexRuntimeActor {
         store: NoemaStore,
         system_errors: SystemErrorLogger,
     ) -> Result<Self, DaemonError> {
+        let artifact_operations =
+            crate::test_support::artifact_operations(&store).map_err(DaemonError::Protocol)?;
         Self::new_with_memory(
             default_provider_kind,
             providers,
             store,
+            artifact_operations,
             system_errors,
             None,
             crate::graphql::ConversationSubscriptionRegistry::default(),
@@ -54,6 +58,7 @@ impl CodexRuntimeActor {
         default_provider_kind: String,
         providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
         store: NoemaStore,
+        artifact_operations: noema_artifacts::ArtifactOperationsHandle,
         system_errors: SystemErrorLogger,
         memory_connection: Option<crate::MnemosyneConnection>,
         task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
@@ -62,6 +67,7 @@ impl CodexRuntimeActor {
             default_provider_kind,
             providers,
             store,
+            artifact_operations,
             system_errors,
             memory_connection,
             search_provider: crate::search::types::SearchRuntimeProvider::default(),
@@ -129,6 +135,7 @@ impl CodexRuntimeActor {
             default_provider_kind: self.default_provider_kind.clone(),
             providers: self.providers.clone(),
             store: self.store.clone(),
+            artifact_operations: self.artifact_operations.clone(),
             system_errors: self.system_errors.clone(),
             memory_connection: self.memory_connection.clone(),
             search_provider: self.search_provider.clone(),

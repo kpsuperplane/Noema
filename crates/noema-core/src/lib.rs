@@ -6,8 +6,6 @@
 
 /// Shared execution roles and role-aware tool dispatch policy.
 pub mod agent_execution;
-/// Governed artifact filesystem helpers and local artifact writers.
-pub mod artifacts;
 /// Capability Gateway runtime entrypoint.
 pub mod capability;
 /// Configuration loading and provider selection.
@@ -36,14 +34,11 @@ pub mod search;
 pub mod store;
 /// Durable one-off task vocabulary and workflow contracts.
 pub mod task;
+#[cfg(test)]
+mod test_support;
 #[doc(hidden)]
 pub mod web_fetch;
 
-pub use artifacts::{
-    ArtifactWriteError, NewConversationLocalFileArtifact, NewTaskLocalFileArtifact,
-    NewTaskLocalFileArtifactVersion, append_task_local_file_artifact_version,
-    create_conversation_local_file_artifact, create_task_local_file_artifact,
-};
 pub use capability::{CapabilityGateway, GatewayToolProposal, GatewayToolResult};
 pub use config::{
     Config, ConfigError, ConfigOverrides, DEFAULT_NOEMA_CONFIG_YAML, DaemonResolvedConfig,

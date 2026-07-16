@@ -22,6 +22,7 @@ pub struct NoemaRuntimeHost {
     runtime: CodexRuntimeHandle,
     task_runtime: TaskRuntimeHandle,
     store: NoemaStore,
+    artifact_operations: noema_artifacts::ArtifactOperationsHandle,
     provider_auth: ProviderAuthManager,
     mcp_oauth: McpOAuthSetupManager,
     mnemosyne: Option<crate::MnemosyneLifecycle>,
@@ -250,10 +251,17 @@ impl NoemaRuntimeHost {
         };
 
         let subscriptions = crate::graphql::ConversationSubscriptionRegistry::default();
+        let artifact_metadata: noema_artifacts::ArtifactMetadataStoreHandle =
+            std::sync::Arc::new(store.clone());
+        let artifact_operations: noema_artifacts::ArtifactOperationsHandle = std::sync::Arc::new(
+            noema_artifacts::LocalArtifactService::new(paths.root(), artifact_metadata)
+                .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?,
+        );
         let runtime = CodexRuntimeHandle::spawn_with_provider_map_and_memory(
             default_provider_kind,
             providers,
             store.clone(),
+            artifact_operations.clone(),
             system_errors.clone(),
             mnemosyne_connection,
             subscriptions.clone(),
@@ -307,6 +315,7 @@ impl NoemaRuntimeHost {
             runtime,
             task_runtime,
             store,
+            artifact_operations,
             provider_auth: ProviderAuthManager::new(),
             mcp_oauth: McpOAuthSetupManager::new(),
             mnemosyne,
@@ -326,6 +335,11 @@ impl NoemaRuntimeHost {
     #[must_use]
     pub fn store(&self) -> &NoemaStore {
         &self.store
+    }
+
+    /// Governed artifact operations shared by runtime and API consumers.
+    pub(crate) fn artifact_operations(&self) -> &noema_artifacts::ArtifactOperationsHandle {
+        &self.artifact_operations
     }
 
     /// Provider auth manager.

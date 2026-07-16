@@ -11,10 +11,17 @@ workspace = true
 
 [features]
 default = []
-filesystem = []
+filesystem = ["dep:cap-std", "dep:libc", "dep:ring", "dep:tokio"]
 
 [dependencies]
+cap-std = { workspace = true, optional = true }
+libc = { workspace = true, optional = true }
 noema-home = { path = "../noema-home", default-features = false }
+ring = { workspace = true, optional = true }
 serde_json.workspace = true
 thiserror.workspace = true
+tokio = { workspace = true, optional = true }
 url.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

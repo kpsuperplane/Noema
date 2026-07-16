@@ -791,10 +791,22 @@ The next storage slice should stay small and concrete:
   and consumer-operations contracts without a core forwarding export. Artifact
   paths and filename validation left `noema-home`, server consumes download
   slugs directly, and store maps artifact-domain failures at its boundary.
-  Phase 3B still owns the SQLite expected-index CAS implementation, governed
-  no-clobber filesystem service, runtime/API handle injection, and
-  barrier-controlled conversation/task append race tests before Phase 3 is
-  complete.
+  Phase 3B completed the artifact extraction. `noema-artifacts` now owns the
+  root-bound capability filesystem service, CSPRNG operation-private staging,
+  hard-link no-clobber publication, verified reads, bounded stale cleanup, and
+  cancellation-safe rollback. `NoemaStore` implements the narrow metadata port
+  with no-yield SQLite transactions, expected-index CAS, and bounded async
+  retries for cross-connection `SQLITE_BUSY`; runtime and GraphQL receive
+  artifact filesystem authority only through `ArtifactOperationsHandle`, while
+  the host remains the production composition root. The old core writers and
+  forwarding exports are deleted. Independent store handles now exercise
+  barrier-controlled conversation and task append races, proving one
+  readable/hash-valid winner, one typed conflict, and exact cleanup of the
+  loser's operation-private staging/object directories. Shared staging,
+  version, and `objects` directories remain as permanent coordination
+  scaffolding so one service can never invalidate another service's verified
+  handle. Artifact download diagnostics remain redacted through a separately
+  injected narrow reporter rather than resolver-owned path/logger construction.
 
 - The bounded remediation program completed Phase 2 at `92,157` maintained
   source lines (`-1,767` from its baseline). Axum/tower-sessions now own the

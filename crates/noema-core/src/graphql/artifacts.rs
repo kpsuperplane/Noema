@@ -1,5 +1,4 @@
 use async_graphql::{Enum, InputObject, Result, SimpleObject};
-use noema_home::{NoemaPaths, SystemErrorEvent, SystemErrorLogger};
 
 use super::{errors::graphql_error, schema::GraphqlState};
 
@@ -32,47 +31,39 @@ pub async fn authorized_artifact_download(
     principal: &super::RequestPrincipal,
     artifact_version_id: &str,
 ) -> std::result::Result<Option<AuthorizedArtifactDownload>, AuthorizedArtifactDownloadError> {
-    let paths = state.paths().map_err(|_| AuthorizedArtifactDownloadError)?;
+    let artifact_operations = state
+        .artifact_operations()
+        .map_err(|_| AuthorizedArtifactDownloadError)?;
     let store = state.store().map_err(|_| {
-        record_artifact_download_failure(paths, "store_state");
+        state.record_artifact_download_failure("store_state");
         AuthorizedArtifactDownloadError
     })?;
     let Some((artifact, version)) = store
         .get_local_artifact_version_for_human(artifact_version_id, principal.subject_id())
         .await
         .map_err(|_| {
-            record_artifact_download_failure(paths, "authorized_version_query");
+            state.record_artifact_download_failure("authorized_version_query");
             AuthorizedArtifactDownloadError
         })?
     else {
         return Ok(None);
     };
-    let Ok((absolute_path, bytes)) =
-        crate::artifacts::read_validated_local_artifact_file(paths, &artifact, &version)
+    let Ok(content) = artifact_operations
+        .read_local_file(noema_artifacts::ReadLocalArtifactRequest {
+            artifact,
+            version: version.clone(),
+        })
+        .await
     else {
         return Ok(None);
     };
-    let Some(filename) = absolute_path.file_name().and_then(|value| value.to_str()) else {
-        return Ok(None);
-    };
     Ok(Some(AuthorizedArtifactDownload {
-        filename: filename.to_owned(),
+        filename: content.filename,
         media_type: version
             .media_type
             .unwrap_or_else(|| "application/octet-stream".to_owned()),
-        bytes,
+        bytes: content.bytes,
     }))
-}
-
-fn record_artifact_download_failure(paths: &NoemaPaths, operation: &'static str) {
-    let event = SystemErrorEvent::new(
-        "artifact_download_failure",
-        "artifact download operation failed",
-    )
-    .with_context(serde_json::json!({ "operation": operation }));
-    if SystemErrorLogger::from_paths(paths).append(event).is_err() {
-        eprintln!("Noema artifact download failure: diagnostic_write");
-    }
 }
 
 /// Artifact storage kind exposed through GraphQL.
@@ -308,13 +299,15 @@ pub async fn artifact_version_detail(
                 }));
             };
 
-            let (_, bytes) = crate::artifacts::read_validated_local_artifact_file(
-                state.paths()?,
-                &artifact.artifact,
-                &version,
-            )
-            .map_err(graphql_error)?;
-            let content = String::from_utf8(bytes).map_err(|error| {
+            let file = state
+                .artifact_operations()?
+                .read_local_file(noema_artifacts::ReadLocalArtifactRequest {
+                    artifact: artifact.artifact.clone(),
+                    version: version.clone(),
+                })
+                .await
+                .map_err(graphql_error)?;
+            let content = String::from_utf8(file.bytes).map_err(|error| {
                 graphql_error(format!("artifact text content is not valid UTF-8: {error}"))
             })?;
             let (markdown, plain_text) = match preview_kind {
@@ -444,6 +437,7 @@ fn text_preview_kind(media_type: Option<&str>) -> Option<GraphqlArtifactVersionP
 #[cfg(test)]
 mod tests {
     use super::*;
+    use noema_home::NoemaPaths;
 
     async fn local_artifact_fixture() -> (
         tempfile::TempDir,
@@ -461,11 +455,13 @@ mod tests {
             .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
             .expect("conversation");
-        let artifact = crate::create_conversation_local_file_artifact(
-            &store,
-            &paths,
-            crate::NewConversationLocalFileArtifact {
-                conversation_id: conversation.conversation_id.clone(),
+        let artifact_operations =
+            crate::test_support::artifact_operations(&store).expect("artifact operations");
+        let artifact = artifact_operations
+            .create_local_file(noema_artifacts::CreateLocalArtifactRequest {
+                owner: noema_artifacts::ArtifactOwnerRef::conversation(
+                    &conversation.conversation_id,
+                ),
                 title: "Report".to_owned(),
                 description: None,
                 artifact_kind: "document".to_owned(),
@@ -478,10 +474,9 @@ mod tests {
                     ..Default::default()
                 },
                 metadata: serde_json::json!({}),
-            },
-        )
-        .await
-        .expect("artifact");
+            })
+            .await
+            .expect("artifact");
         let state = GraphqlState::for_tests_with_store_and_paths(store.clone(), paths.clone());
         (home, paths, store, artifact, state)
     }

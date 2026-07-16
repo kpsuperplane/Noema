@@ -14,13 +14,13 @@ pub enum ArtifactDomainError {
         value: String,
     },
     /// An external artifact URL was not a valid HTTP(S) URL.
-    #[error("artifact external URL must use HTTP or HTTPS: {url}")]
+    #[error("artifact external URL must use HTTP or HTTPS")]
     InvalidExternalUrl {
         /// Rejected URL.
         url: String,
     },
     /// An artifact filename was not one safe portable path segment.
-    #[error("artifact filename must be a single safe path segment: {value}")]
+    #[error("artifact filename must be a single safe path segment")]
     UnsafeFilename {
         /// Rejected raw filename.
         value: String,
@@ -75,13 +75,13 @@ pub enum ArtifactMetadataError {
         actual_next_version_index: i64,
     },
     /// Persisted artifact metadata violated a closed invariant.
-    #[error("artifact metadata invariant violated: {message}")]
+    #[error("artifact metadata invariant violated")]
     Invariant {
         /// Safe invariant detail.
         message: String,
     },
     /// The backing metadata repository failed.
-    #[error("artifact metadata persistence failed: {message}")]
+    #[error("artifact metadata persistence failed")]
     Persistence {
         /// Safe persistence failure detail.
         message: String,
@@ -98,7 +98,7 @@ pub enum ArtifactOperationError {
     #[error(transparent)]
     Domain(#[from] ArtifactDomainError),
     /// A governed filesystem operation failed.
-    #[error("artifact filesystem operation {operation} failed for {}: {message}", path.display())]
+    #[error("artifact filesystem operation failed: {operation}")]
     Filesystem {
         /// Stable operation name.
         operation: &'static str,
@@ -108,16 +108,13 @@ pub enum ArtifactOperationError {
         message: String,
     },
     /// Published bytes did not match their expected size or digest.
-    #[error("artifact content verification failed for {}", path.display())]
+    #[error("artifact content verification failed")]
     Integrity {
         /// Path whose bytes failed verification.
         path: PathBuf,
     },
     /// Metadata failed and cleanup of this operation's private object also failed.
-    #[error(
-        "artifact metadata failed after publication: {metadata_error}; cleanup of {} failed: {cleanup_message}",
-        path.display()
-    )]
+    #[error("artifact metadata failed after publication: {metadata_error}; cleanup failed")]
     MetadataRollback {
         /// Private published object that could not be removed.
         path: PathBuf,

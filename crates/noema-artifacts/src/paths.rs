@@ -13,12 +13,16 @@ const ARTIFACT_VERSION_ID_PREFIX: &str = "artifact_version:";
 /// # Errors
 ///
 /// Returns [`ArtifactDomainError::UnsafeFilename`] for empty values, path
-/// traversal, nested paths, control characters, backslashes, or quotes.
+/// traversal, nested paths, control characters, Windows-forbidden characters,
+/// trailing aliases, or reserved device basenames.
 pub fn safe_artifact_filename(value: &str) -> Result<&str, ArtifactDomainError> {
     if value.is_empty()
-        || value.contains('\\')
-        || value.contains('"')
+        || value.ends_with(['.', ' '])
+        || value
+            .chars()
+            .any(|character| matches!(character, '\\' | '"' | ':' | '<' | '>' | '|' | '?' | '*'))
         || value.chars().any(char::is_control)
+        || windows_device_basename(value)
     {
         return Err(ArtifactDomainError::UnsafeFilename {
             value: value.to_string(),
@@ -32,6 +36,19 @@ pub fn safe_artifact_filename(value: &str) -> Result<&str, ArtifactDomainError> 
             value: value.to_string(),
         }),
     }
+}
+
+fn windows_device_basename(value: &str) -> bool {
+    let basename = value
+        .split('.')
+        .next()
+        .unwrap_or(value)
+        .to_ascii_uppercase();
+    matches!(basename.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || basename
+            .strip_prefix("COM")
+            .or_else(|| basename.strip_prefix("LPT"))
+            .is_some_and(|suffix| suffix.len() == 1 && matches!(suffix.as_bytes()[0], b'1'..=b'9'))
 }
 
 /// Return the root-owned directory for one artifact version.
@@ -115,6 +132,33 @@ mod tests {
         assert!(safe_artifact_filename("report\".md").is_err());
         assert!(safe_artifact_filename("report\r.md").is_err());
         assert!(safe_artifact_filename("report\n.md").is_err());
+    }
+
+    #[test]
+    fn safe_artifact_filename_rejects_windows_aliases_and_forbidden_characters() {
+        for filename in [
+            "report:stream.txt",
+            "report<draft>.txt",
+            "report|draft.txt",
+            "report?.txt",
+            "report*.txt",
+            "report.txt.",
+            "report.txt ",
+            "CON",
+            "con.txt",
+            "PRN.md",
+            "AUX",
+            "nul.json",
+            "COM1.log",
+            "com9",
+            "LPT1.csv",
+            "lpt9.txt",
+        ] {
+            assert!(safe_artifact_filename(filename).is_err(), "{filename}");
+        }
+        assert!(safe_artifact_filename("computer.txt").is_ok());
+        assert!(safe_artifact_filename("com10.txt").is_ok());
+        assert!(safe_artifact_filename("lpt0.txt").is_ok());
     }
 
     #[test]

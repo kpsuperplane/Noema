@@ -162,6 +162,7 @@ impl CodexRuntimeHandle {
         default_provider_kind: String,
         providers: RuntimeProviderMap,
         store: NoemaStore,
+        artifact_operations: noema_artifacts::ArtifactOperationsHandle,
         system_errors: SystemErrorLogger,
         memory_connection: Option<crate::MnemosyneConnection>,
         task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
@@ -170,6 +171,7 @@ impl CodexRuntimeHandle {
             default_provider_kind,
             providers,
             store,
+            artifact_operations,
             system_errors,
             memory_connection,
             task_subscriptions,
@@ -197,10 +199,13 @@ impl CodexRuntimeHandle {
     ) -> Result<Self, DaemonError> {
         let provider_kind = "codex".to_string();
         let system_errors = store.system_error_logger();
+        let artifact_operations =
+            crate::test_support::artifact_operations(&store).map_err(DaemonError::Protocol)?;
         Self::spawn_with_provider_map_inner(
             provider_kind.clone(),
             HashMap::from([(provider_kind, provider)]),
             store,
+            artifact_operations,
             system_errors,
             memory_connection,
             crate::graphql::ConversationSubscriptionRegistry::default(),
@@ -311,10 +316,13 @@ impl CodexRuntimeHandle {
         I: IntoIterator<Item = (String, Arc<dyn RuntimeModelProvider>)>,
     {
         let system_errors = store.system_error_logger();
+        let artifact_operations =
+            crate::test_support::artifact_operations(&store).map_err(DaemonError::Protocol)?;
         Self::spawn_with_provider_map_inner(
             default_provider_kind.into(),
             providers.into_iter().collect(),
             store,
+            artifact_operations,
             system_errors,
             None,
             crate::graphql::ConversationSubscriptionRegistry::default(),
@@ -326,6 +334,7 @@ impl CodexRuntimeHandle {
         default_provider_kind: String,
         providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
         store: NoemaStore,
+        artifact_operations: noema_artifacts::ArtifactOperationsHandle,
         system_errors: SystemErrorLogger,
         memory_connection: Option<crate::MnemosyneConnection>,
         task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
@@ -342,6 +351,7 @@ impl CodexRuntimeHandle {
             default_provider_kind.clone(),
             providers,
             store,
+            artifact_operations,
             system_errors,
             memory_connection,
             task_subscriptions,

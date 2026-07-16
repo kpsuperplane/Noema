@@ -44,6 +44,7 @@ pub(crate) fn task_read_artifact_tool_spec()
 
 pub(crate) async fn execute_task_read_artifact(
     store: &NoemaStore,
+    artifact_operations: &noema_artifacts::ArtifactOperationsHandle,
     context: &TaskArtifactReadContext,
     payload: &Value,
 ) -> Result<Value, String> {
@@ -81,15 +82,15 @@ pub(crate) async fn execute_task_read_artifact(
     ) {
         return Err("external artifact content is unavailable to the reviewer".to_string());
     }
-    let paths = store.noema_paths().map_err(|error| error.to_string())?;
-    let (_, bytes) = crate::artifacts::read_validated_local_artifact_file(
-        &paths,
-        &linked.artifact,
-        &linked.version,
-    )
-    .map_err(|_| "artifact content is unavailable".to_string())?;
-    let text =
-        String::from_utf8(bytes).map_err(|_| "artifact is not valid UTF-8 text".to_string())?;
+    let file = artifact_operations
+        .read_local_file(noema_artifacts::ReadLocalArtifactRequest {
+            artifact: linked.artifact.clone(),
+            version: linked.version.clone(),
+        })
+        .await
+        .map_err(|_| "artifact content is unavailable".to_string())?;
+    let text = String::from_utf8(file.bytes)
+        .map_err(|_| "artifact is not valid UTF-8 text".to_string())?;
     if text.chars().count() > MAX_ARTIFACT_TEXT_CHARS {
         return Err("artifact exceeds the reviewer text limit".to_string());
     }
@@ -110,6 +111,8 @@ mod tests {
     #[tokio::test]
     async fn reviewer_reads_only_the_linked_task_artifact_snapshot() {
         let store = crate::store::tests::test_store().await;
+        let artifact_operations =
+            crate::test_support::artifact_operations(&store).expect("artifact operations");
         let (task, executor) = crate::store::tests::seed_task(&store, "Artifact review").await;
         store
             .claim_next_agent_run("worker:test", "lease:executor", 120)
@@ -129,11 +132,9 @@ mod tests {
             .transition_task(&task.task_id, crate::TaskStatus::Executing, None)
             .await
             .expect("executing");
-        let artifact = crate::create_task_local_file_artifact(
-            &store,
-            &store.noema_paths().expect("paths"),
-            crate::NewTaskLocalFileArtifact {
-                task_id: task.task_id.clone(),
+        let artifact = artifact_operations
+            .create_local_file(noema_artifacts::CreateLocalArtifactRequest {
+                owner: noema_artifacts::ArtifactOwnerRef::task(&task.task_id),
                 title: "Evidence".to_string(),
                 description: None,
                 artifact_kind: "document".to_string(),
@@ -143,10 +144,9 @@ mod tests {
                 created_by_actor_id: crate::TASK_EXECUTOR_AGENT_ID.to_string(),
                 source: noema_artifacts::ArtifactSource::default(),
                 metadata: json!({}),
-            },
-        )
-        .await
-        .expect("artifact");
+            })
+            .await
+            .expect("artifact");
         assert!(
             store
                 .get_local_artifact_version_for_human(
@@ -199,6 +199,7 @@ mod tests {
 
         let result = execute_task_read_artifact(
             &store,
+            &artifact_operations,
             &TaskArtifactReadContext {
                 task_id: task.task_id.clone(),
                 run_id: reviewer.run_id.clone(),
@@ -210,11 +211,9 @@ mod tests {
 
         assert_eq!(result["content"], "reviewable evidence");
 
-        let unlinked = crate::create_task_local_file_artifact(
-            &store,
-            &store.noema_paths().expect("paths"),
-            crate::NewTaskLocalFileArtifact {
-                task_id: task.task_id.clone(),
+        let unlinked = artifact_operations
+            .create_local_file(noema_artifacts::CreateLocalArtifactRequest {
+                owner: noema_artifacts::ArtifactOwnerRef::task(&task.task_id),
                 title: "Unlinked".to_string(),
                 description: None,
                 artifact_kind: "document".to_string(),
@@ -224,12 +223,12 @@ mod tests {
                 created_by_actor_id: crate::TASK_EXECUTOR_AGENT_ID.to_string(),
                 source: noema_artifacts::ArtifactSource::default(),
                 metadata: json!({}),
-            },
-        )
-        .await
-        .expect("unlinked artifact");
+            })
+            .await
+            .expect("unlinked artifact");
         let denied = execute_task_read_artifact(
             &store,
+            &artifact_operations,
             &TaskArtifactReadContext {
                 task_id: task.task_id,
                 run_id: reviewer.run_id,

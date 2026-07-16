@@ -7,8 +7,12 @@ use rusqlite::{OptionalExtension, params};
 
 use super::{
     NoemaStore, StoreError,
+    artifact_writes::{
+        ArtifactTransactionError, append_artifact_transaction, create_artifact_transaction,
+        prepare_artifact_append, prepare_artifact_create,
+    },
     ids::allocate_id,
-    sqlite::{json_from_string, json_to_string, now_timestamp_sql},
+    sqlite::json_from_string,
 };
 
 impl NoemaStore {
@@ -23,93 +27,14 @@ impl NoemaStore {
         artifact: NewArtifact,
         initial_version: NewArtifactVersion,
     ) -> Result<ArtifactWithVersions, StoreError> {
-        let title = trim_non_empty(artifact.title, StoreError::ArtifactTitleEmpty)?;
-        let artifact_kind = trim_non_empty(artifact.artifact_kind, StoreError::ArtifactKindEmpty)?;
-        self.require_artifact_creation_owner(&artifact.owner)
-            .await?;
-        if initial_version.storage.storage_kind() != artifact.storage_kind {
-            return Err(StoreError::ArtifactStorageKindMismatch);
-        }
-
-        let artifact_id = artifact
-            .artifact_id
-            .unwrap_or_else(|| self.new_artifact_id());
-        let artifact_version_id = initial_version
-            .artifact_version_id
-            .unwrap_or_else(|| self.new_artifact_version_id());
-        let artifact_metadata_json = json_to_string(&artifact.metadata)?;
-        let version_metadata_json = json_to_string(&initial_version.metadata)?;
-        let version_storage = VersionStorageParts::try_from_storage(initial_version.storage)?;
-
-        self.with_connection(|conn| {
-            let tx = conn.transaction()?;
-            tx.execute(
-                format!(
-                    r#"
-                    INSERT INTO artifacts (
-                      artifact_id, owner_object_type, owner_object_id, title, description,
-                      artifact_kind, storage_kind, current_version_id, created_by_actor_id,
-                      source_conversation_id, source_turn_id, source_item_id, metadata_json,
-                      created_at, updated_at
-                    )
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, {now}, {now})
-                    "#,
-                    now = now_timestamp_sql()
-                )
-                .as_str(),
-                params![
-                    artifact_id,
-                    artifact.owner.object_type,
-                    artifact.owner.object_id,
-                    title,
-                    artifact.description,
-                    artifact_kind,
-                    artifact.storage_kind.as_str(),
-                    artifact_version_id,
-                    artifact.created_by_actor_id,
-                    artifact.source.conversation_id,
-                    artifact.source.turn_id,
-                    artifact.source.item_id,
-                    artifact_metadata_json,
-                ],
-            )?;
-            tx.execute(
-                format!(
-                    r#"
-                    INSERT INTO artifact_versions (
-                      artifact_version_id, artifact_id, version_index, title, local_relative_path,
-                      external_url, media_type, byte_size, content_sha256, created_by_actor_id,
-                      source_conversation_id, source_turn_id, source_item_id, metadata_json,
-                      created_at
-                    )
-                    VALUES (?1, ?2, 1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, {now})
-                    "#,
-                    now = now_timestamp_sql()
-                )
-                .as_str(),
-                params![
-                    artifact_version_id,
-                    artifact_id,
-                    initial_version.title,
-                    version_storage.local_relative_path,
-                    version_storage.external_url,
-                    initial_version.media_type,
-                    initial_version.byte_size,
-                    initial_version.content_sha256,
-                    initial_version.created_by_actor_id,
-                    initial_version.source.conversation_id,
-                    initial_version.source.turn_id,
-                    initial_version.source.item_id,
-                    version_metadata_json,
-                ],
-            )?;
-            tx.commit().map_err(StoreError::Sqlite)
-        })
-        .await?;
-
-        self.get_artifact(&artifact_id)
-            .await?
-            .ok_or(StoreError::ArtifactNotFound { artifact_id })
+        let prepared = prepare_artifact_create(self, artifact, initial_version)?;
+        let mut conn = self.conn.lock().await;
+        create_artifact_transaction(
+            &mut conn,
+            &prepared,
+            rusqlite::TransactionBehavior::Deferred,
+        )
+        .map_err(inherent_transaction_error)
     }
 
     /// Append a new immutable version to an existing artifact.
@@ -123,75 +48,14 @@ impl NoemaStore {
         artifact_id: &str,
         version: NewArtifactVersion,
     ) -> Result<ArtifactVersionRecord, StoreError> {
-        let Some(existing) = self.get_artifact_row(artifact_id).await? else {
-            return Err(StoreError::ArtifactNotFound {
-                artifact_id: artifact_id.to_string(),
-            });
-        };
-        if version.storage.storage_kind() != existing.storage_kind {
-            return Err(StoreError::ArtifactStorageKindMismatch);
-        }
-
-        let artifact_version_id = version
-            .artifact_version_id
-            .unwrap_or_else(|| self.new_artifact_version_id());
-        let version_metadata_json = json_to_string(&version.metadata)?;
-        let version_storage = VersionStorageParts::try_from_storage(version.storage)?;
-
-        self.with_connection(|conn| {
-            let tx = conn.transaction()?;
-            let version_index = tx.query_row(
-                "SELECT COALESCE(MAX(version_index), 0) + 1 FROM artifact_versions WHERE artifact_id = ?1",
-                [artifact_id],
-                |row| row.get::<_, i64>(0),
-            )?;
-            tx.execute(
-                format!(
-                    r#"
-                    INSERT INTO artifact_versions (
-                      artifact_version_id, artifact_id, version_index, title, local_relative_path,
-                      external_url, media_type, byte_size, content_sha256, created_by_actor_id,
-                      source_conversation_id, source_turn_id, source_item_id, metadata_json,
-                      created_at
-                    )
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, {now})
-                    "#
-                , now = now_timestamp_sql())
-                .as_str(),
-                params![
-                    artifact_version_id,
-                    artifact_id,
-                    version_index,
-                    version.title,
-                    version_storage.local_relative_path,
-                    version_storage.external_url,
-                    version.media_type,
-                    version.byte_size,
-                    version.content_sha256,
-                    version.created_by_actor_id,
-                    version.source.conversation_id,
-                    version.source.turn_id,
-                    version.source.item_id,
-                    version_metadata_json,
-                ],
-            )?;
-            tx.execute(
-                format!(
-                    "UPDATE artifacts SET current_version_id = ?2, updated_at = {now} WHERE artifact_id = ?1",
-                    now = now_timestamp_sql()
-                )
-                .as_str(),
-                params![artifact_id, artifact_version_id],
-            )?;
-            tx.commit().map_err(StoreError::Sqlite)
-        })
-        .await?;
-
-        self.get_artifact_version(&artifact_version_id)
-            .await?
-            .ok_or(StoreError::ArtifactNotFound {
-                artifact_id: artifact_id.to_string(),
-            })
+        let prepared = prepare_artifact_append(self, artifact_id, None, version)?;
+        let mut conn = self.conn.lock().await;
+        append_artifact_transaction(
+            &mut conn,
+            &prepared,
+            rusqlite::TransactionBehavior::Deferred,
+        )
+        .map_err(inherent_transaction_error)
     }
 
     /// Load one artifact and all immutable versions.
@@ -445,37 +309,16 @@ impl NoemaStore {
             .await?;
         row.map(artifact_from_row).transpose()
     }
-
-    async fn require_artifact_creation_owner(
-        &self,
-        owner: &ArtifactOwnerRef,
-    ) -> Result<(), StoreError> {
-        match owner.object_type.as_str() {
-            "conversation" => self.require_conversation(&owner.object_id).await,
-            "task" => self
-                .get_task(&owner.object_id)
-                .await?
-                .map(|_| ())
-                .ok_or_else(|| StoreError::UnsupportedArtifactOwner {
-                    owner_object_type: owner.object_type.clone(),
-                    owner_object_id: owner.object_id.clone(),
-                }),
-            _ => Err(StoreError::UnsupportedArtifactOwner {
-                owner_object_type: owner.object_type.clone(),
-                owner_object_id: owner.object_id.clone(),
-            }),
-        }
-    }
 }
 
-const ARTIFACT_SELECT: &str = r#"
+pub(super) const ARTIFACT_SELECT: &str = r#"
 artifact_id, owner_object_type, owner_object_id, title, description,
 artifact_kind, storage_kind, current_version_id, created_by_actor_id,
 source_conversation_id, source_turn_id, source_item_id, metadata_json,
 created_at, updated_at
 "#;
 
-const ARTIFACT_VERSION_SELECT: &str = r#"
+pub(super) const ARTIFACT_VERSION_SELECT: &str = r#"
 artifact_version_id, artifact_id, version_index, title, local_relative_path,
 external_url, media_type, byte_size, content_sha256, created_by_actor_id,
 source_conversation_id, source_turn_id, source_item_id, metadata_json,
@@ -483,7 +326,7 @@ created_at
 "#;
 
 #[derive(Debug)]
-struct ArtifactRow {
+pub(super) struct ArtifactRow {
     artifact_id: String,
     owner_object_type: String,
     owner_object_id: String,
@@ -502,7 +345,7 @@ struct ArtifactRow {
 }
 
 #[derive(Debug)]
-struct ArtifactVersionRow {
+pub(super) struct ArtifactVersionRow {
     artifact_version_id: String,
     artifact_id: String,
     version_index: i64,
@@ -520,28 +363,7 @@ struct ArtifactVersionRow {
     created_at: String,
 }
 
-#[derive(Debug)]
-struct VersionStorageParts {
-    local_relative_path: Option<String>,
-    external_url: Option<String>,
-}
-
-impl VersionStorageParts {
-    fn try_from_storage(storage: ArtifactVersionStorage) -> Result<Self, StoreError> {
-        match storage {
-            ArtifactVersionStorage::LocalFile { relative_path } => Ok(Self {
-                local_relative_path: Some(relative_path),
-                external_url: None,
-            }),
-            ArtifactVersionStorage::ExternalUrl { url } => Ok(Self {
-                local_relative_path: None,
-                external_url: Some(validate_external_artifact_url(&url)?),
-            }),
-        }
-    }
-}
-
-fn artifact_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ArtifactRow> {
+pub(super) fn artifact_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ArtifactRow> {
     Ok(ArtifactRow {
         artifact_id: row.get(0)?,
         owner_object_type: row.get(1)?,
@@ -561,7 +383,9 @@ fn artifact_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ArtifactRow> {
     })
 }
 
-fn artifact_version_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ArtifactVersionRow> {
+pub(super) fn artifact_version_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<ArtifactVersionRow> {
     Ok(ArtifactVersionRow {
         artifact_version_id: row.get(0)?,
         artifact_id: row.get(1)?,
@@ -581,7 +405,7 @@ fn artifact_version_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ArtifactVer
     })
 }
 
-fn artifact_from_row(row: ArtifactRow) -> Result<ArtifactRecord, StoreError> {
+pub(super) fn artifact_from_row(row: ArtifactRow) -> Result<ArtifactRecord, StoreError> {
     Ok(ArtifactRecord {
         artifact_id: row.artifact_id,
         owner: ArtifactOwnerRef {
@@ -605,7 +429,9 @@ fn artifact_from_row(row: ArtifactRow) -> Result<ArtifactRecord, StoreError> {
     })
 }
 
-fn artifact_version_from_row(row: ArtifactVersionRow) -> Result<ArtifactVersionRecord, StoreError> {
+pub(super) fn artifact_version_from_row(
+    row: ArtifactVersionRow,
+) -> Result<ArtifactVersionRecord, StoreError> {
     Ok(ArtifactVersionRecord {
         artifact_version_id: row.artifact_version_id,
         artifact_id: row.artifact_id,
@@ -689,11 +515,14 @@ fn assemble_artifact_with_versions(
     })
 }
 
-fn trim_non_empty<T>(value: String, error: T) -> Result<String, T> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        Err(error)
-    } else {
-        Ok(trimmed.to_string())
+fn inherent_transaction_error(error: ArtifactTransactionError) -> StoreError {
+    match error {
+        ArtifactTransactionError::Busy(error) => StoreError::Sqlite(error),
+        ArtifactTransactionError::Store(error) => error,
+        ArtifactTransactionError::AppendConflict { artifact_id, .. } => {
+            StoreError::InvariantViolation {
+                message: format!("unexpected append conflict for {artifact_id}"),
+            }
+        }
     }
 }
