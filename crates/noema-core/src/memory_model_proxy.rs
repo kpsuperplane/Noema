@@ -1,12 +1,12 @@
 //! Private OpenAI-compatible model proxy for managed memory services.
 
-use std::{sync::Arc, time::SystemTime};
+use std::time::SystemTime;
 
 use noema_providers::{
     GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
     GenerateRequest, GenerateResponse, GenerateResponseStatus, GenerateStreamEvent,
     GenerateToolCall, GenerateToolCallInput, GenerateToolResultInput, GenerationPriority,
-    NoemaToolChoice, ProviderError, ProviderHandle, ReasoningEffort,
+    NoemaToolChoice, ProviderError, ProviderRouteLease, ProviderRouteResolverHandle,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -14,8 +14,8 @@ use thiserror::Error;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
-    sync::{RwLock, oneshot},
-    task::JoinHandle,
+    sync::oneshot,
+    task::{JoinHandle, JoinSet},
 };
 
 use noema_capabilities::ToolSpec;
@@ -26,14 +26,12 @@ const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 /// Configuration for Noema's private memory model proxy.
 #[derive(Clone)]
 pub struct MemoryModelProxyConfig {
-    /// Provider selected by Settings > Memory.
-    pub provider: ProviderHandle,
+    /// Fresh provider route bound to Settings > Memory.
+    pub route_resolver: ProviderRouteResolverHandle,
     /// Bearer token accepted from the memory child process.
     pub api_key: String,
     /// Model/profile selected by Settings > Memory.
     pub model_profile: String,
-    /// Reasoning effort selected by Settings > Memory, when configured.
-    pub reasoning_effort: Option<ReasoningEffort>,
     /// Developer diagnostics sink.
     pub system_errors: Option<SystemErrorLogger>,
 }
@@ -43,47 +41,15 @@ pub struct MemoryModelProxy {
     openai_base_url: String,
     api_key: String,
     model_profile: String,
-    route: MemoryModelRoute,
     shutdown_tx: Option<oneshot::Sender<()>>,
     task: JoinHandle<()>,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct MemoryModelRoute {
-    inner: Arc<RwLock<MemoryModelRouteSelection>>,
-}
-
-#[derive(Clone, Debug)]
-struct MemoryModelRouteSelection {
-    provider: ProviderHandle,
-    model_profile: String,
-    reasoning_effort: Option<ReasoningEffort>,
-}
-
 #[derive(Clone)]
 struct RunningMemoryModelProxyConfig {
-    route: MemoryModelRoute,
+    route_resolver: ProviderRouteResolverHandle,
     api_key: String,
     system_errors: Option<SystemErrorLogger>,
-}
-
-impl MemoryModelRoute {
-    async fn selection(&self) -> MemoryModelRouteSelection {
-        self.inner.read().await.clone()
-    }
-
-    pub(crate) async fn update(
-        &self,
-        provider: ProviderHandle,
-        model_profile: String,
-        reasoning_effort: Option<ReasoningEffort>,
-    ) {
-        *self.inner.write().await = MemoryModelRouteSelection {
-            provider,
-            model_profile,
-            reasoning_effort,
-        };
-    }
 }
 
 impl MemoryModelProxy {
@@ -98,15 +64,8 @@ impl MemoryModelProxy {
         let openai_base_url = format!("http://{address}/v1");
         let api_key = config.api_key.clone();
         let model_profile = config.model_profile.clone();
-        let route = MemoryModelRoute {
-            inner: Arc::new(RwLock::new(MemoryModelRouteSelection {
-                provider: config.provider,
-                model_profile: config.model_profile,
-                reasoning_effort: config.reasoning_effort,
-            })),
-        };
         let running_config = RunningMemoryModelProxyConfig {
-            route: route.clone(),
+            route_resolver: config.route_resolver,
             api_key: config.api_key,
             system_errors: config.system_errors,
         };
@@ -117,7 +76,6 @@ impl MemoryModelProxy {
             openai_base_url,
             api_key,
             model_profile,
-            route,
             shutdown_tx: Some(shutdown_tx),
             task,
         })
@@ -139,10 +97,6 @@ impl MemoryModelProxy {
     #[must_use]
     pub fn model_profile(&self) -> &str {
         &self.model_profile
-    }
-
-    pub(crate) fn route(&self) -> MemoryModelRoute {
-        self.route.clone()
     }
 
     /// Stop the proxy accept loop.
@@ -169,26 +123,23 @@ async fn run_proxy(
     config: RunningMemoryModelProxyConfig,
     mut shutdown_rx: oneshot::Receiver<()>,
 ) {
+    let mut connections = JoinSet::new();
     loop {
         tokio::select! {
             biased;
             _ = &mut shutdown_rx => {
                 break;
             }
+            result = connections.join_next(), if !connections.is_empty() => {
+                if let Some(result) = result {
+                    log_connection_result(config.system_errors.as_ref(), result);
+                }
+            }
             accepted = listener.accept() => {
                 match accepted {
                     Ok((stream, _peer)) => {
                         let config = config.clone();
-                        let system_errors = config.system_errors.clone();
-                        tokio::spawn(async move {
-                            if let Err(error) = handle_connection(stream, config).await {
-                                log_proxy_error(
-                                    system_errors.as_ref(),
-                                    "memory_model_proxy_request_failed",
-                                    &error.to_string(),
-                                );
-                            }
-                        });
+                        connections.spawn(handle_connection(stream, config));
                     }
                     Err(error) => {
                         log_proxy_error(
@@ -201,6 +152,30 @@ async fn run_proxy(
                 }
             }
         }
+    }
+
+    drop(listener);
+    while let Some(result) = connections.join_next().await {
+        log_connection_result(config.system_errors.as_ref(), result);
+    }
+}
+
+fn log_connection_result(
+    system_errors: Option<&SystemErrorLogger>,
+    result: Result<Result<(), MemoryModelProxyError>, tokio::task::JoinError>,
+) {
+    match result {
+        Ok(Err(error)) => log_proxy_error(
+            system_errors,
+            "memory_model_proxy_request_failed",
+            &error.to_string(),
+        ),
+        Err(error) => log_proxy_error(
+            system_errors,
+            "memory_model_proxy_request_join_failed",
+            &error.to_string(),
+        ),
+        Ok(Ok(())) => {}
     }
 }
 
@@ -223,13 +198,22 @@ async fn route_request(
         return json_error(http::StatusCode::METHOD_NOT_ALLOWED, "method_not_allowed");
     }
     if request.path == "/v1/models" && request.method == "GET" {
-        let route = config.route.selection().await;
+        let route = match config.route_resolver.resolve_route().await {
+            Ok(route) => route,
+            Err(error) => {
+                return json_error_message(
+                    http::StatusCode::BAD_GATEWAY,
+                    "provider_unavailable",
+                    error.to_string(),
+                );
+            }
+        };
         return json_response(
             http::StatusCode::OK,
             json!({
                 "object": "list",
                 "data": [{
-                    "id": route.model_profile,
+                    "id": resolved_model_profile(&route),
                     "object": "model",
                     "created": unix_timestamp(),
                     "owned_by": "noema"
@@ -266,7 +250,16 @@ async fn route_request(
         }
         return json_error(http::StatusCode::NOT_IMPLEMENTED, "streaming_not_supported");
     }
-    let route = config.route.selection().await;
+    let route = match config.route_resolver.resolve_route().await {
+        Ok(route) => route,
+        Err(error) => {
+            return json_error_message(
+                http::StatusCode::BAD_GATEWAY,
+                "provider_unavailable",
+                error.to_string(),
+            );
+        }
+    };
     let generate_request = match openai_request.into_generate_request(&route) {
         Ok(request) => request,
         Err(error) => {
@@ -279,7 +272,7 @@ async fn route_request(
     };
     let mut ignore_event = |_event: GenerateStreamEvent| {};
     match route
-        .provider
+        .operations()
         .generate_streaming(generate_request, &mut ignore_event)
         .await
     {
@@ -471,7 +464,7 @@ struct OpenAiChatCompletionRequest {
 impl OpenAiChatCompletionRequest {
     fn into_generate_request(
         self,
-        route: &MemoryModelRouteSelection,
+        route: &ProviderRouteLease,
     ) -> Result<GenerateRequest, MemoryModelProxyError> {
         let _requested_model = self.model;
         let _ignored_temperature = self.temperature;
@@ -543,7 +536,7 @@ impl OpenAiChatCompletionRequest {
 
         Ok(GenerateRequest {
             conversation_id: None,
-            model: Some(route.model_profile.clone()),
+            model: Some(resolved_model_profile(route)),
             input: GenerateInput::Items(items),
             instructions: nonempty_join(instructions, "\n\n"),
             options: GenerateOptions {
@@ -552,7 +545,7 @@ impl OpenAiChatCompletionRequest {
                 // OpenAI-compatible memory clients often send sampling knobs that
                 // are not valid for every configured Noema provider/model.
                 temperature: None,
-                reasoning_effort: route.reasoning_effort,
+                reasoning_effort: route.selection().reasoning_effort,
                 require_noema_response: false,
                 prompt_cache_retention: None,
                 ..GenerateOptions::default()
@@ -562,6 +555,15 @@ impl OpenAiChatCompletionRequest {
             parallel_tool_calls: true,
         })
     }
+}
+
+fn resolved_model_profile(route: &ProviderRouteLease) -> String {
+    route
+        .selection()
+        .model_profile
+        .clone()
+        .or_else(|| route.operations().default_tool_classification_model())
+        .unwrap_or_else(|| noema_providers::DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string())
 }
 
 #[derive(Debug, Deserialize)]
@@ -812,6 +814,7 @@ mod tests {
         future::Future,
         pin::Pin,
         sync::{Arc, Mutex},
+        time::Duration,
     };
 
     use noema_providers::ProviderOperations;
@@ -826,6 +829,12 @@ mod tests {
     struct CapturingProvider {
         response: Mutex<GenerateResponse>,
         requests: Mutex<Vec<GenerateRequest>>,
+    }
+
+    #[derive(Debug)]
+    struct BlockingProvider {
+        started: Arc<tokio::sync::Notify>,
+        release: Arc<tokio::sync::Notify>,
     }
 
     impl CapturingProvider {
@@ -855,6 +864,42 @@ mod tests {
         }
     }
 
+    impl ProviderOperations for BlockingProvider {
+        fn generate_streaming<'a>(
+            &'a self,
+            _request: GenerateRequest,
+            _on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+        ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>>
+        {
+            Box::pin(async move {
+                self.started.notify_one();
+                self.release.notified().await;
+                Ok(GenerateResponse::final_text("old", "codex", "memory-model"))
+            })
+        }
+    }
+
+    fn proxy_config(
+        provider: noema_providers::ProviderHandle,
+        model_profile: &str,
+    ) -> super::MemoryModelProxyConfig {
+        super::MemoryModelProxyConfig {
+            route_resolver: crate::test_support::provider_route_resolver(
+                noema_providers::ProviderSelectionSnapshot::explicit(
+                    "codex",
+                    "provider_account:codex:memory-test",
+                    model_profile,
+                    None,
+                    Some("memory_proxy_test".to_string()),
+                ),
+                provider,
+            ),
+            api_key: "secret".to_string(),
+            model_profile: model_profile.to_string(),
+            system_errors: None,
+        }
+    }
+
     #[tokio::test]
     async fn chat_completions_route_to_configured_memory_model() {
         let provider = Arc::new(CapturingProvider::new(GenerateResponse::final_text(
@@ -862,15 +907,9 @@ mod tests {
             "fake",
             "memory-model",
         )));
-        let proxy = super::MemoryModelProxy::start(super::MemoryModelProxyConfig {
-            provider: provider.clone(),
-            api_key: "secret".to_string(),
-            model_profile: "memory-model".to_string(),
-            reasoning_effort: None,
-            system_errors: None,
-        })
-        .await
-        .expect("start proxy");
+        let proxy = super::MemoryModelProxy::start(proxy_config(provider.clone(), "memory-model"))
+            .await
+            .expect("start proxy");
 
         let response = reqwest::Client::new()
             .post(format!("{}/chat/completions", proxy.openai_base_url()))
@@ -947,24 +986,37 @@ mod tests {
             "local_models",
             "replacement-model",
         )));
+        let routes = crate::daemon::LegacyProviderRoutes::new([(
+            "codex",
+            initial_provider.clone() as noema_providers::ProviderHandle,
+        )])
+        .expect("routes");
+        let selection = noema_providers::ProviderSelectionSnapshot::explicit(
+            "codex",
+            "provider_account:codex:memory-test",
+            "initial-model",
+            None,
+            Some("memory_proxy_test".to_string()),
+        );
+        let loader_selection = selection.clone();
         let proxy = super::MemoryModelProxy::start(super::MemoryModelProxyConfig {
-            provider: initial_provider.clone(),
+            route_resolver: routes.bind(noema_providers::provider_selection_loader(move || {
+                let selection = loader_selection.clone();
+                Box::pin(async move { Ok(selection) })
+            })),
             api_key: "secret".to_string(),
             model_profile: "initial-model".to_string(),
-            reasoning_effort: None,
             system_errors: None,
         })
         .await
         .expect("start proxy");
 
-        proxy
-            .route()
-            .update(
-                replacement_provider.clone(),
-                "replacement-model".to_string(),
-                None,
+        routes
+            .register(
+                "codex",
+                replacement_provider.clone() as noema_providers::ProviderHandle,
             )
-            .await;
+            .expect("replace provider");
         let body: Value = reqwest::Client::new()
             .post(format!("{}/chat/completions", proxy.openai_base_url()))
             .bearer_auth(proxy.api_key())
@@ -983,7 +1035,143 @@ mod tests {
         assert!(initial_provider.requests().is_empty());
         let requests = replacement_provider.requests();
         assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0].model.as_deref(), Some("replacement-model"));
+        assert_eq!(requests[0].model.as_deref(), Some("initial-model"));
+    }
+
+    #[tokio::test]
+    async fn in_flight_request_keeps_old_route_while_next_request_uses_replacement() {
+        let started = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let old_provider = Arc::new(BlockingProvider {
+            started: Arc::clone(&started),
+            release: Arc::clone(&release),
+        });
+        let new_provider = Arc::new(CapturingProvider::new(GenerateResponse::final_text(
+            "new",
+            "codex",
+            "memory-model",
+        )));
+        let routes = crate::daemon::LegacyProviderRoutes::new([(
+            "codex",
+            old_provider as noema_providers::ProviderHandle,
+        )])
+        .expect("routes");
+        let selection = noema_providers::ProviderSelectionSnapshot::explicit(
+            "codex",
+            "provider_account:codex:memory-test",
+            "memory-model",
+            None,
+            Some("memory_proxy_test".to_string()),
+        );
+        let loader_selection = selection.clone();
+        let proxy = super::MemoryModelProxy::start(super::MemoryModelProxyConfig {
+            route_resolver: routes.bind(noema_providers::provider_selection_loader(move || {
+                let selection = loader_selection.clone();
+                Box::pin(async move { Ok(selection) })
+            })),
+            api_key: "secret".to_string(),
+            model_profile: "memory-model".to_string(),
+            system_errors: None,
+        })
+        .await
+        .expect("start proxy");
+
+        let client = reqwest::Client::new();
+        let first_started = started.notified();
+        let first_url = format!("{}/chat/completions", proxy.openai_base_url());
+        let first_api_key = proxy.api_key().to_string();
+        let first_client = client.clone();
+        let first = tokio::spawn(async move {
+            first_client
+                .post(first_url)
+                .bearer_auth(first_api_key)
+                .json(&json!({
+                    "model": "memory-model",
+                    "messages": [{"role": "user", "content": "first request"}]
+                }))
+                .send()
+                .await
+                .expect("first request")
+                .json::<Value>()
+                .await
+                .expect("first json")
+        });
+        first_started.await;
+
+        routes
+            .register(
+                "codex",
+                new_provider.clone() as noema_providers::ProviderHandle,
+            )
+            .expect("replace provider");
+        release.notify_one();
+
+        let first_body = first.await.expect("first task");
+        assert_eq!(first_body["choices"][0]["message"]["content"], "old");
+
+        let second_body: Value = client
+            .post(format!("{}/chat/completions", proxy.openai_base_url()))
+            .bearer_auth(proxy.api_key())
+            .json(&json!({
+                "model": "memory-model",
+                "messages": [{"role": "user", "content": "second request"}]
+            }))
+            .send()
+            .await
+            .expect("second request")
+            .json()
+            .await
+            .expect("second json");
+        assert_eq!(second_body["choices"][0]["message"]["content"], "new");
+        assert_eq!(new_provider.requests().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn shutdown_drains_in_flight_connections_before_returning() {
+        let started = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let provider = Arc::new(BlockingProvider {
+            started: Arc::clone(&started),
+            release: Arc::clone(&release),
+        });
+        let proxy = super::MemoryModelProxy::start(proxy_config(provider, "memory-model"))
+            .await
+            .expect("start proxy");
+        let request_started = started.notified();
+        let url = format!("{}/chat/completions", proxy.openai_base_url());
+        let api_key = proxy.api_key().to_string();
+        let request = tokio::spawn(async move {
+            reqwest::Client::new()
+                .post(url)
+                .bearer_auth(api_key)
+                .json(&json!({
+                    "model": "memory-model",
+                    "messages": [{"role": "user", "content": "finish during shutdown"}]
+                }))
+                .send()
+                .await
+                .expect("request")
+                .json::<Value>()
+                .await
+                .expect("json")
+        });
+        request_started.await;
+
+        let mut shutdown = tokio::spawn(proxy.shutdown());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), &mut shutdown)
+                .await
+                .is_err(),
+            "shutdown returned before the active connection completed"
+        );
+
+        release.notify_one();
+        let body = request.await.expect("request task");
+        assert_eq!(body["choices"][0]["message"]["content"], "old");
+        tokio::time::timeout(Duration::from_secs(1), shutdown)
+            .await
+            .expect("shutdown should finish after the connection drains")
+            .expect("shutdown task");
     }
 
     #[tokio::test]
@@ -1004,15 +1192,9 @@ mod tests {
             response_id: Some("resp_1".to_string()),
             usage: None,
         }));
-        let proxy = super::MemoryModelProxy::start(super::MemoryModelProxyConfig {
-            provider: provider.clone(),
-            api_key: "secret".to_string(),
-            model_profile: "memory-model".to_string(),
-            reasoning_effort: None,
-            system_errors: None,
-        })
-        .await
-        .expect("start proxy");
+        let proxy = super::MemoryModelProxy::start(proxy_config(provider.clone(), "memory-model"))
+            .await
+            .expect("start proxy");
 
         let body: Value = reqwest::Client::new()
             .post(format!("{}/chat/completions", proxy.openai_base_url()))
@@ -1051,15 +1233,9 @@ mod tests {
             "fake",
             "memory-model",
         )));
-        let proxy = super::MemoryModelProxy::start(super::MemoryModelProxyConfig {
-            provider: provider.clone(),
-            api_key: "secret".to_string(),
-            model_profile: "memory-model".to_string(),
-            reasoning_effort: None,
-            system_errors: None,
-        })
-        .await
-        .expect("start proxy");
+        let proxy = super::MemoryModelProxy::start(proxy_config(provider.clone(), "memory-model"))
+            .await
+            .expect("start proxy");
 
         let response = reqwest::Client::new()
             .post(format!("{}/chat/completions", proxy.openai_base_url()))
@@ -1115,15 +1291,9 @@ mod tests {
             "fake",
             "memory-model",
         )));
-        let proxy = super::MemoryModelProxy::start(super::MemoryModelProxyConfig {
-            provider: provider.clone(),
-            api_key: "secret".to_string(),
-            model_profile: "memory-model".to_string(),
-            reasoning_effort: None,
-            system_errors: None,
-        })
-        .await
-        .expect("start proxy");
+        let proxy = super::MemoryModelProxy::start(proxy_config(provider.clone(), "memory-model"))
+            .await
+            .expect("start proxy");
 
         let response = reqwest::Client::new()
             .post(format!("{}/chat/completions", proxy.openai_base_url()))
