@@ -10,7 +10,8 @@ use crate::{
 };
 use noema_providers::{
     GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
-    NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, TokenUsage,
+    NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderSelectionSnapshot,
+    TokenUsage,
 };
 
 use super::{
@@ -47,12 +48,8 @@ pub(crate) struct BackgroundTaskGenerateRequest {
     pub agent_id: String,
     /// Role policy applied to advertised and dispatched tools.
     pub role: ExecutionRole,
-    /// Provider family selected by the persisted model snapshot.
-    pub provider_kind: String,
-    /// Provider model/profile selected by the persisted model snapshot.
-    pub model: Option<String>,
-    /// Explicit reasoning effort from the persisted model snapshot.
-    pub reasoning_effort: Option<noema_providers::ReasoningEffort>,
+    /// Complete immutable provider selection retained from the durable run.
+    pub provider_selection: ProviderSelectionSnapshot,
     /// Immutable provider-independent execution-policy snapshot.
     pub execution_policy: crate::TaskExecutionPolicy,
     /// User/task prompt supplied to the provider.
@@ -80,9 +77,11 @@ impl CodexRuntimeActor {
                 .saturating_mul(60),
         );
         let deadline = tokio::time::Instant::now() + max_active_duration;
-        let provider = self.provider_for_kind(&request.provider_kind)?;
-        let capabilities = provider.tool_capabilities(request.model.as_deref());
-        let response_continuation = provider.response_continuation(request.model.as_deref());
+        let provider = self.provider_for_kind(&request.provider_selection.provider_kind)?;
+        let capabilities =
+            provider.tool_capabilities(request.provider_selection.model_profile.as_deref());
+        let response_continuation =
+            provider.response_continuation(request.provider_selection.model_profile.as_deref());
         let model_tools =
             build_model_tools_for_role(&self.store, request.role, false, capabilities)
                 .await
@@ -108,12 +107,12 @@ impl CodexRuntimeActor {
                 &provider,
                 GenerateRequest {
                     conversation_id: Some(conversation_id.clone()),
-                    model: request.model.clone(),
+                    model: request.provider_selection.model_profile.clone(),
                     input: GenerateInput::Text(request.input.clone()),
                     instructions: Some(tool_instructions),
                     options: GenerateOptions {
                         require_noema_response: true,
-                        reasoning_effort: request.reasoning_effort,
+                        reasoning_effort: request.provider_selection.reasoning_effort,
                         max_output_tokens: Some(8_000),
                         store_response: response_continuation.store_response(),
                         ..GenerateOptions::default()
@@ -257,9 +256,9 @@ impl CodexRuntimeActor {
                 task_id: Some(request.task_id.clone()),
                 task_run_id: Some(request.run_id.clone()),
                 cwd: None,
-                provider_kind: request.provider_kind.clone(),
-                model: request.model.clone(),
-                reasoning_effort: request.reasoning_effort,
+                provider_kind: request.provider_selection.provider_kind.clone(),
+                model: request.provider_selection.model_profile.clone(),
+                reasoning_effort: request.provider_selection.reasoning_effort,
                 initial_stream_id: format!("task_stream:{}:{continuation_index}", request.run_id),
                 response: response.clone(),
                 agent_identity: agent_identity.clone(),
@@ -395,8 +394,8 @@ impl CodexRuntimeActor {
                 }
                 result = context.compact_if_needed(
                     provider.as_ref(),
-                    request.model.as_deref(),
-                    request.reasoning_effort,
+                    request.provider_selection.model_profile.as_deref(),
+                    request.provider_selection.reasoning_effort,
                     noema_providers::GenerationPriority::Background,
                     &request.input,
                 ) => result,
@@ -516,12 +515,12 @@ impl CodexRuntimeActor {
             );
             let continuation_request = GenerateRequest {
                 conversation_id: Some(conversation_id.clone()),
-                model: request.model.clone(),
+                model: request.provider_selection.model_profile.clone(),
                 input: continuation_input.input,
                 instructions: Some(instructions.clone()),
                 options: GenerateOptions {
                     require_noema_response: true,
-                    reasoning_effort: request.reasoning_effort,
+                    reasoning_effort: request.provider_selection.reasoning_effort,
                     max_output_tokens: Some(8_000),
                     previous_response_id: continuation_input.previous_response_id.clone(),
                     store_response: response_continuation.store_response(),
@@ -560,12 +559,12 @@ impl CodexRuntimeActor {
                         &provider,
                         GenerateRequest {
                             conversation_id: Some(conversation_id.clone()),
-                            model: request.model.clone(),
+                            model: request.provider_selection.model_profile.clone(),
                             input: context.provider_input(capabilities.native_tool_results),
                             instructions: Some(instructions),
                             options: GenerateOptions {
                                 require_noema_response: true,
-                                reasoning_effort: request.reasoning_effort,
+                                reasoning_effort: request.provider_selection.reasoning_effort,
                                 max_output_tokens: Some(8_000),
                                 store_response: response_continuation.store_response(),
                                 ..GenerateOptions::default()
@@ -642,8 +641,10 @@ impl CodexRuntimeActor {
             model_tools,
             &terminal_tools,
         );
-        let capabilities = provider.tool_capabilities(request.model.as_deref());
-        let response_continuation = provider.response_continuation(request.model.as_deref());
+        let capabilities =
+            provider.tool_capabilities(request.provider_selection.model_profile.as_deref());
+        let response_continuation =
+            provider.response_continuation(request.provider_selection.model_profile.as_deref());
         let continuation_input =
             context.next_provider_input(capabilities.native_tool_results, response_continuation);
         let (finalization_tools, finalization_tool_choice) = if capabilities.allowed_tools {
@@ -663,12 +664,12 @@ impl CodexRuntimeActor {
         let chained = continuation_input.previous_response_id.is_some();
         let finalization_request = GenerateRequest {
             conversation_id: Some(conversation_id.to_string()),
-            model: request.model.clone(),
+            model: request.provider_selection.model_profile.clone(),
             input: continuation_input.input,
             instructions: Some(instructions.clone()),
             options: GenerateOptions {
                 require_noema_response: true,
-                reasoning_effort: request.reasoning_effort,
+                reasoning_effort: request.provider_selection.reasoning_effort,
                 max_output_tokens: Some(8_000),
                 previous_response_id: continuation_input.previous_response_id,
                 store_response: response_continuation.store_response(),
@@ -698,16 +699,18 @@ impl CodexRuntimeActor {
                     provider,
                     GenerateRequest {
                         conversation_id: Some(conversation_id.to_string()),
-                        model: request.model.clone(),
+                        model: request.provider_selection.model_profile.clone(),
                         input: context.provider_input(
                             provider
-                                .tool_capabilities(request.model.as_deref())
+                                .tool_capabilities(
+                                    request.provider_selection.model_profile.as_deref(),
+                                )
                                 .native_tool_results,
                         ),
                         instructions: Some(instructions),
                         options: GenerateOptions {
                             require_noema_response: true,
-                            reasoning_effort: request.reasoning_effort,
+                            reasoning_effort: request.provider_selection.reasoning_effort,
                             max_output_tokens: Some(8_000),
                             store_response: response_continuation.store_response(),
                             ..GenerateOptions::default()

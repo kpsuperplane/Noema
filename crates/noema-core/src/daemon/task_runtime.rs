@@ -690,28 +690,45 @@ async fn generate_once(
     instructions: &str,
     subscriptions: &ConversationSubscriptionRegistry,
 ) -> Result<noema_providers::GenerateResponse, String> {
+    let request = background_task_generate_request(
+        run,
+        lease_token,
+        cancellation,
+        input,
+        instructions,
+        subscriptions,
+    );
     runtime
-        .generate_background_task(BackgroundTaskGenerateRequest {
-            run_id: run.run_id.clone(),
-            task_id: run.task_id.clone(),
-            lease_token: lease_token.to_string(),
-            cancellation: cancellation.clone(),
-            agent_id: run.agent_id.clone(),
-            role: if run.run_kind == RunKind::Reviewer {
-                ExecutionRole::TaskReviewer
-            } else {
-                ExecutionRole::TaskExecutor
-            },
-            provider_kind: run.model.provider_kind.clone(),
-            model: run.model.model_profile.clone(),
-            reasoning_effort: run.model.reasoning_effort,
-            execution_policy: run.execution_policy,
-            input,
-            instructions: instructions.to_string(),
-            task_subscriptions: subscriptions.clone(),
-        })
+        .generate_background_task(request)
         .await
         .map_err(|error| error.to_string())
+}
+
+fn background_task_generate_request(
+    run: &crate::AgentRunRecord,
+    lease_token: &str,
+    cancellation: &CancellationToken,
+    input: String,
+    instructions: &str,
+    subscriptions: &ConversationSubscriptionRegistry,
+) -> BackgroundTaskGenerateRequest {
+    BackgroundTaskGenerateRequest {
+        run_id: run.run_id.clone(),
+        task_id: run.task_id.clone(),
+        lease_token: lease_token.to_string(),
+        cancellation: cancellation.clone(),
+        agent_id: run.agent_id.clone(),
+        role: if run.run_kind == RunKind::Reviewer {
+            ExecutionRole::TaskReviewer
+        } else {
+            ExecutionRole::TaskExecutor
+        },
+        provider_selection: run.model.clone(),
+        execution_policy: run.execution_policy,
+        input,
+        instructions: instructions.to_string(),
+        task_subscriptions: subscriptions.clone(),
+    }
 }
 
 fn publish_task_changed(subscriptions: &ConversationSubscriptionRegistry, task_id: &str) {
@@ -726,3 +743,7 @@ fn uuid_fragment() -> String {
         .map_or(0, |duration| duration.as_nanos());
     format!("{nanos:x}")
 }
+
+#[cfg(test)]
+#[path = "task_runtime_tests.rs"]
+mod tests;
