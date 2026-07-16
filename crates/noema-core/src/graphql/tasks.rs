@@ -194,13 +194,15 @@ impl From<TaskSubmissionRecord> for GraphqlTaskSubmission {
                 .into_iter()
                 .map(|linked| {
                     let (download_url, external_url) = match linked.version.storage {
-                        crate::ArtifactVersionStorage::LocalFile { .. } => (
-                            Some(crate::artifact_download_url(
+                        noema_artifacts::ArtifactVersionStorage::LocalFile { .. } => (
+                            Some(noema_artifacts::artifact_download_url(
                                 &linked.version.artifact_version_id,
                             )),
                             None,
                         ),
-                        crate::ArtifactVersionStorage::ExternalUrl { url } => (None, Some(url)),
+                        noema_artifacts::ArtifactVersionStorage::ExternalUrl { url } => {
+                            (None, Some(url))
+                        }
                     };
                     GraphqlTaskSubmissionArtifact {
                         artifact_id: linked.artifact.artifact_id,

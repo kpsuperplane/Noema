@@ -3819,7 +3819,7 @@ async fn native_provider_can_create_local_artifact_with_two_versions_and_continu
     )));
     let artifacts = store
         .list_artifacts_for_owner(
-            crate::ArtifactOwnerRef::conversation(&conversation.conversation_id),
+            noema_artifacts::ArtifactOwnerRef::conversation(&conversation.conversation_id),
             10,
         )
         .await

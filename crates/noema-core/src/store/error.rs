@@ -1,3 +1,4 @@
+use noema_artifacts::ArtifactDomainError;
 use noema_conversations::ConversationError;
 use noema_home::SystemErrorEvent;
 use thiserror::Error;
@@ -116,6 +117,36 @@ impl From<ConversationError> for StoreError {
         match error {
             ConversationError::InvalidEnum { kind, value } => Self::InvalidEnum { kind, value },
             other => Self::Schema(other.to_string()),
+        }
+    }
+}
+
+impl From<ArtifactDomainError> for StoreError {
+    fn from(error: ArtifactDomainError) -> Self {
+        match error {
+            ArtifactDomainError::InvalidStorageKind { value } => Self::InvalidEnum {
+                kind: "artifact_storage_kind",
+                value,
+            },
+            ArtifactDomainError::InvalidExternalUrl { url } => {
+                Self::InvalidArtifactExternalUrl { url }
+            }
+            ArtifactDomainError::UnsupportedOwner {
+                owner_object_type,
+                owner_object_id,
+            } => Self::UnsupportedArtifactOwner {
+                owner_object_type,
+                owner_object_id,
+            },
+            ArtifactDomainError::TitleEmpty => Self::ArtifactTitleEmpty,
+            ArtifactDomainError::KindEmpty => Self::ArtifactKindEmpty,
+            ArtifactDomainError::StorageKindMismatch => Self::ArtifactStorageKindMismatch,
+            ArtifactDomainError::UnsafeFilename { value } => Self::Schema(format!(
+                "unsafe artifact filename reached the metadata store: {value}"
+            )),
+            ArtifactDomainError::InvalidVersionIndex { version_index } => Self::Schema(format!(
+                "invalid artifact version index reached the metadata store: {version_index}"
+            )),
         }
     }
 }

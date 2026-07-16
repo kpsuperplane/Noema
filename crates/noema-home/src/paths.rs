@@ -200,26 +200,6 @@ impl NoemaPaths {
             .join(sanitize_path_segment(conversation_id))
     }
 
-    /// Path to one conversation's artifact root.
-    #[must_use]
-    pub fn conversation_artifacts_dir(&self, conversation_id: &str) -> PathBuf {
-        self.conversation_dir(conversation_id).join("artifacts")
-    }
-
-    /// Path to one conversation artifact version directory.
-    #[must_use]
-    pub fn conversation_artifact_version_dir(
-        &self,
-        conversation_id: &str,
-        artifact_id: &str,
-        version_index: i64,
-    ) -> PathBuf {
-        self.conversation_artifacts_dir(conversation_id)
-            .join(sanitize_path_segment(artifact_id))
-            .join("versions")
-            .join(version_index.to_string())
-    }
-
     /// Path to the task filesystem root.
     #[must_use]
     pub fn tasks_dir(&self) -> PathBuf {
@@ -230,21 +210,6 @@ impl NoemaPaths {
     #[must_use]
     pub fn task_dir(&self, task_id: &str) -> PathBuf {
         self.tasks_dir().join(sanitize_path_segment(task_id))
-    }
-
-    /// Path to one task artifact version directory.
-    #[must_use]
-    pub fn task_artifact_version_dir(
-        &self,
-        task_id: &str,
-        artifact_id: &str,
-        version_index: i64,
-    ) -> PathBuf {
-        self.task_dir(task_id)
-            .join("artifacts")
-            .join(sanitize_path_segment(artifact_id))
-            .join("versions")
-            .join(version_index.to_string())
     }
 
     /// Path to the provider credential root.
@@ -296,13 +261,6 @@ pub enum NoemaPathError {
     /// The `NOEMA_HOME` value was present but empty.
     #[error("{NOEMA_HOME_ENV} cannot be empty")]
     EmptyNoemaHome,
-
-    /// Artifact filename was empty or unsafe for local artifact storage.
-    #[error("artifact filename must be a single safe path segment: {value}")]
-    UnsafeArtifactFilename {
-        /// Rejected raw filename value.
-        value: String,
-    },
 
     /// A content-addressed model digest was malformed.
     #[error("model SHA-256 digest must be 64 lowercase hexadecimal characters: {value}")]
@@ -406,28 +364,6 @@ mod tests {
         assert!(paths.local_model_blob_path("../model").is_err());
         assert!(paths.local_model_blob_path(&"A".repeat(64)).is_err());
         assert!(paths.local_model_blob_path(&"g".repeat(64)).is_err());
-    }
-
-    #[test]
-    fn conversation_artifact_version_dir_lives_under_conversation_artifacts() {
-        let paths = NoemaPaths::from_noema_home("/tmp/noema").expect("paths");
-
-        assert_eq!(
-            paths.conversation_artifact_version_dir("conversation:abc", "artifact:def", 2),
-            PathBuf::from(
-                "/tmp/noema/conversations/conversation_abc/artifacts/artifact_def/versions/2"
-            )
-        );
-    }
-
-    #[test]
-    fn task_artifact_version_dir_lives_under_task_artifacts() {
-        let paths = NoemaPaths::from_noema_home("/tmp/noema").expect("paths");
-
-        assert_eq!(
-            paths.task_artifact_version_dir("task:abc", "artifact:def", 2),
-            PathBuf::from("/tmp/noema/tasks/task_abc/artifacts/artifact_def/versions/2")
-        );
     }
 
     #[test]

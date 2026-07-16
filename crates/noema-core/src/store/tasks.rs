@@ -94,9 +94,9 @@ pub struct TaskSubmissionArtifactRecord {
     /// One-based order supplied by the executor.
     pub ordinal: i64,
     /// Durable artifact metadata.
-    pub artifact: crate::ArtifactRecord,
+    pub artifact: noema_artifacts::ArtifactRecord,
     /// Immutable version captured when the submission was committed.
-    pub version: crate::ArtifactVersionRecord,
+    pub version: noema_artifacts::ArtifactVersionRecord,
 }
 
 /// Persisted adversarial review with per-criterion outcomes.
@@ -766,7 +766,7 @@ async fn validate_submission_artifacts(
                 message: format!("task submission artifact not found: {artifact_id}"),
             }
         })?;
-        if artifact.artifact.owner != crate::ArtifactOwnerRef::task(task_id) {
+        if artifact.artifact.owner != noema_artifacts::ArtifactOwnerRef::task(task_id) {
             return Err(StoreError::InvariantViolation {
                 message: format!("artifact is not owned by task {task_id}: {artifact_id}"),
             });

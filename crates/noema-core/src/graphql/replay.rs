@@ -251,9 +251,10 @@ mod tests {
     use serde_json::json;
 
     use super::web_conversation_item_from_record;
-    use crate::{
+    use crate::TurnTranscriptItem;
+    use noema_artifacts::{
         ArtifactOwnerRef, ArtifactSource, ArtifactStorageKind, ArtifactVersionStorage, NewArtifact,
-        NewArtifactVersion, TurnTranscriptItem,
+        NewArtifactVersion,
     };
     use noema_conversations::{
         ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,

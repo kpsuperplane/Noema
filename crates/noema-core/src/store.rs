@@ -39,11 +39,6 @@ pub(crate) mod tests;
 pub use agent_runs::{AgentRunHeartbeat, AgentRunRecord, NewAgentRun};
 pub use agent_runtime_preferences::{AgentRuntimePreferenceRecord, NewAgentRuntimePreference};
 pub use agents::{AgentRecord, AgentSystemRole, HumanRecord, NewAgent};
-pub use artifacts::{
-    ArtifactOwnerRef, ArtifactRecord, ArtifactSource, ArtifactStorageKind, ArtifactVersionRecord,
-    ArtifactVersionStorage, ArtifactWithVersions, NewArtifact, NewArtifactVersion,
-    validate_external_artifact_url,
-};
 pub use auxiliary_model_preferences::{
     AuxiliaryModelPreferenceRecord, NewAuxiliaryModelPreference, TOOL_PROGRESS_AUDIT_TASK_ID,
     WEB_FETCH_SUMMARIZER_TASK_ID,

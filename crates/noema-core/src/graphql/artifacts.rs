@@ -85,11 +85,11 @@ pub enum GraphqlArtifactStorageKind {
     ExternalUrl,
 }
 
-impl From<crate::ArtifactStorageKind> for GraphqlArtifactStorageKind {
-    fn from(kind: crate::ArtifactStorageKind) -> Self {
+impl From<noema_artifacts::ArtifactStorageKind> for GraphqlArtifactStorageKind {
+    fn from(kind: noema_artifacts::ArtifactStorageKind) -> Self {
         match kind {
-            crate::ArtifactStorageKind::LocalFile => Self::LocalFile,
-            crate::ArtifactStorageKind::ExternalUrl => Self::ExternalUrl,
+            noema_artifacts::ArtifactStorageKind::LocalFile => Self::LocalFile,
+            noema_artifacts::ArtifactStorageKind::ExternalUrl => Self::ExternalUrl,
         }
     }
 }
@@ -207,7 +207,7 @@ pub async fn artifacts(
     let store = state.store()?;
     let artifacts = store
         .list_artifacts_for_owner(
-            crate::ArtifactOwnerRef {
+            noema_artifacts::ArtifactOwnerRef {
                 object_type: owner_object_type,
                 object_id: owner_object_id,
             },
@@ -269,7 +269,7 @@ pub async fn artifact_version_detail(
         .collect::<Result<Vec<_>>>()?;
 
     match &version.storage {
-        crate::ArtifactVersionStorage::ExternalUrl { url } => {
+        noema_artifacts::ArtifactVersionStorage::ExternalUrl { url } => {
             Ok(Some(GraphqlArtifactVersionDetail {
                 artifact_version_id: version.artifact_version_id,
                 artifact_id: version.artifact_id,
@@ -286,8 +286,10 @@ pub async fn artifact_version_detail(
                 versions,
             }))
         }
-        crate::ArtifactVersionStorage::LocalFile { .. } => {
-            let download_url = Some(crate::artifact_download_url(&version.artifact_version_id));
+        noema_artifacts::ArtifactVersionStorage::LocalFile { .. } => {
+            let download_url = Some(noema_artifacts::artifact_download_url(
+                &version.artifact_version_id,
+            ));
             let Some(preview_kind) = text_preview_kind(media_type.as_deref()) else {
                 return Ok(Some(GraphqlArtifactVersionDetail {
                     artifact_version_id: version.artifact_version_id,
@@ -348,29 +350,31 @@ pub async fn create_conversation_external_artifact(
     input: GraphqlCreateConversationExternalArtifactInput,
 ) -> Result<GraphqlArtifact> {
     let store = state.store()?;
-    let external_url =
-        crate::validate_external_artifact_url(&input.external_url).map_err(graphql_error)?;
-    let source = crate::ArtifactSource {
+    let external_url = noema_artifacts::validate_external_artifact_url(&input.external_url)
+        .map_err(graphql_error)?;
+    let source = noema_artifacts::ArtifactSource {
         conversation_id: Some(input.conversation_id.clone()),
         ..Default::default()
     };
     let created = store
         .create_artifact_with_initial_version(
-            crate::NewArtifact {
+            noema_artifacts::NewArtifact {
                 artifact_id: None,
-                owner: crate::ArtifactOwnerRef::conversation(input.conversation_id.clone()),
+                owner: noema_artifacts::ArtifactOwnerRef::conversation(
+                    input.conversation_id.clone(),
+                ),
                 title: input.title,
                 description: input.description,
                 artifact_kind: input.artifact_kind,
-                storage_kind: crate::ArtifactStorageKind::ExternalUrl,
+                storage_kind: noema_artifacts::ArtifactStorageKind::ExternalUrl,
                 created_by_actor_id: GRAPHQL_ARTIFACT_ACTOR_ID.to_string(),
                 source: source.clone(),
                 metadata: serde_json::json!({}),
             },
-            crate::NewArtifactVersion {
+            noema_artifacts::NewArtifactVersion {
                 artifact_version_id: None,
                 title: None,
-                storage: crate::ArtifactVersionStorage::ExternalUrl { url: external_url },
+                storage: noema_artifacts::ArtifactVersionStorage::ExternalUrl { url: external_url },
                 media_type: input.media_type,
                 byte_size: None,
                 content_sha256: None,
@@ -384,7 +388,9 @@ pub async fn create_conversation_external_artifact(
     graphql_artifact_from_store(created)
 }
 
-fn graphql_artifact_from_store(artifact: crate::ArtifactWithVersions) -> Result<GraphqlArtifact> {
+fn graphql_artifact_from_store(
+    artifact: noema_artifacts::ArtifactWithVersions,
+) -> Result<GraphqlArtifact> {
     Ok(GraphqlArtifact {
         artifact_id: artifact.artifact.artifact_id,
         owner_object_type: artifact.artifact.owner.object_type,
@@ -398,14 +404,16 @@ fn graphql_artifact_from_store(artifact: crate::ArtifactWithVersions) -> Result<
 }
 
 fn graphql_artifact_version_from_store(
-    version: crate::ArtifactVersionRecord,
+    version: noema_artifacts::ArtifactVersionRecord,
 ) -> Result<GraphqlArtifactVersion> {
     let (external_url, download_url) = match version.storage {
-        crate::ArtifactVersionStorage::LocalFile { .. } => (
+        noema_artifacts::ArtifactVersionStorage::LocalFile { .. } => (
             None,
-            Some(crate::artifact_download_url(&version.artifact_version_id)),
+            Some(noema_artifacts::artifact_download_url(
+                &version.artifact_version_id,
+            )),
         ),
-        crate::ArtifactVersionStorage::ExternalUrl { url } => (Some(url), None),
+        noema_artifacts::ArtifactVersionStorage::ExternalUrl { url } => (Some(url), None),
     };
     let version_index = i32::try_from(version.version_index)
         .map_err(|_| graphql_error("artifact version index exceeds GraphQL Int range"))?;
@@ -441,7 +449,7 @@ mod tests {
         tempfile::TempDir,
         NoemaPaths,
         crate::NoemaStore,
-        crate::ArtifactWithVersions,
+        noema_artifacts::ArtifactWithVersions,
         GraphqlState,
     ) {
         let home = tempfile::tempdir().expect("temp dir");
@@ -465,7 +473,7 @@ mod tests {
                 bytes: b"hello download".to_vec(),
                 media_type: Some("text/markdown".to_owned()),
                 created_by_actor_id: "agent:primary".to_owned(),
-                source: crate::ArtifactSource {
+                source: noema_artifacts::ArtifactSource {
                     conversation_id: Some(conversation.conversation_id),
                     ..Default::default()
                 },
@@ -539,7 +547,7 @@ mod tests {
     #[tokio::test]
     async fn authorized_download_hides_missing_file() {
         let (_home, paths, _store, artifact, state) = local_artifact_fixture().await;
-        let crate::ArtifactVersionStorage::LocalFile { relative_path } =
+        let noema_artifacts::ArtifactVersionStorage::LocalFile { relative_path } =
             &artifact.current_version.storage
         else {
             panic!("expected local file");
@@ -590,7 +598,7 @@ mod tests {
     #[tokio::test]
     async fn authorized_download_refuses_symlink() {
         let (_home, paths, _store, artifact, state) = local_artifact_fixture().await;
-        let crate::ArtifactVersionStorage::LocalFile { relative_path } =
+        let noema_artifacts::ArtifactVersionStorage::LocalFile { relative_path } =
             &artifact.current_version.storage
         else {
             panic!("expected local file");

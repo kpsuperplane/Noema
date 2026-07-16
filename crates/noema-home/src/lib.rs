@@ -10,4 +10,4 @@ pub use initialization::{
     NoemaHomeError, NoemaHomeInitOptions, NoemaHomeInitResult, init_noema_home,
 };
 pub use paths::{NOEMA_HOME_ENV, NoemaPathError, NoemaPaths};
-pub use safe_path::{safe_artifact_filename, sanitize_path_segment};
+pub use safe_path::sanitize_path_segment;

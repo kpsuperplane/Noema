@@ -1,16 +1,18 @@
 use crate::{
-    ArtifactSource, NoemaStore,
+    NoemaStore,
     artifacts::{
         NewConversationLocalFileArtifact, NewConversationLocalFileArtifactVersion,
         NewTaskLocalFileArtifact, NewTaskLocalFileArtifactVersion,
         append_conversation_local_file_artifact_version, append_task_local_file_artifact_version,
-        artifact_download_url, create_conversation_local_file_artifact,
-        create_task_local_file_artifact,
+        create_conversation_local_file_artifact, create_task_local_file_artifact,
     },
     provider::{NoemaToolExecution, NoemaToolSpec, ToolContractError},
 };
 
-use noema_home::{NoemaPathError, safe_artifact_filename};
+use noema_artifacts::{
+    ArtifactDomainError, ArtifactSource, artifact_download_url, safe_artifact_filename,
+};
+use noema_home::NoemaPathError;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -44,7 +46,9 @@ pub(super) enum ArtifactToolError {
     #[error("{0}")]
     InvalidArguments(String),
     #[error(transparent)]
-    Path(#[from] NoemaPathError),
+    Path(#[from] ArtifactDomainError),
+    #[error(transparent)]
+    HomePath(#[from] NoemaPathError),
     #[error(transparent)]
     Write(#[from] crate::artifacts::ArtifactWriteError),
     #[error(transparent)]
@@ -446,7 +450,9 @@ fn trim_optional(
 fn safe_error_message(error: &ArtifactToolError) -> String {
     match error {
         ArtifactToolError::InvalidArguments(message) => message.clone(),
-        ArtifactToolError::Path(_) => "artifact path validation failed".to_string(),
+        ArtifactToolError::Path(_) | ArtifactToolError::HomePath(_) => {
+            "artifact path validation failed".to_string()
+        }
         ArtifactToolError::Write(_) => "artifact write failed".to_string(),
         ArtifactToolError::Store(_) => "artifact metadata update failed".to_string(),
     }

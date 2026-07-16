@@ -132,13 +132,13 @@ async fn build_task_completion_request(
                 .iter()
                 .map(|linked| {
                     let (external_url, download_url) = match &linked.version.storage {
-                        crate::ArtifactVersionStorage::LocalFile { .. } => (
+                        noema_artifacts::ArtifactVersionStorage::LocalFile { .. } => (
                             None,
-                            Some(crate::artifact_download_url(
+                            Some(noema_artifacts::artifact_download_url(
                                 &linked.version.artifact_version_id,
                             )),
                         ),
-                        crate::ArtifactVersionStorage::ExternalUrl { url } => {
+                        noema_artifacts::ArtifactVersionStorage::ExternalUrl { url } => {
                             (Some(url.clone()), None)
                         }
                     };

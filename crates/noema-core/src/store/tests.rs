@@ -187,32 +187,34 @@ async fn artifact_external_url_initial_version_round_trips() {
 
     let artifact = store
         .create_artifact_with_initial_version(
-            crate::NewArtifact {
+            noema_artifacts::NewArtifact {
                 artifact_id: None,
-                owner: crate::ArtifactOwnerRef::conversation(&conversation.conversation_id),
+                owner: noema_artifacts::ArtifactOwnerRef::conversation(
+                    &conversation.conversation_id,
+                ),
                 title: "Sprint brief".to_string(),
                 description: Some("Planning notes".to_string()),
                 artifact_kind: "document".to_string(),
-                storage_kind: crate::ArtifactStorageKind::ExternalUrl,
+                storage_kind: noema_artifacts::ArtifactStorageKind::ExternalUrl,
                 created_by_actor_id: "agent:primary".to_string(),
-                source: crate::ArtifactSource {
+                source: noema_artifacts::ArtifactSource {
                     conversation_id: Some(conversation.conversation_id.clone()),
                     turn_id: None,
                     item_id: None,
                 },
                 metadata: serde_json::json!({"provider": "notion"}),
             },
-            crate::NewArtifactVersion {
+            noema_artifacts::NewArtifactVersion {
                 artifact_version_id: None,
                 title: Some("Initial".to_string()),
-                storage: crate::ArtifactVersionStorage::ExternalUrl {
+                storage: noema_artifacts::ArtifactVersionStorage::ExternalUrl {
                     url: "https://notion.so/noema-brief".to_string(),
                 },
                 media_type: Some("text/html".to_string()),
                 byte_size: None,
                 content_sha256: None,
                 created_by_actor_id: "agent:primary".to_string(),
-                source: crate::ArtifactSource {
+                source: noema_artifacts::ArtifactSource {
                     conversation_id: Some(conversation.conversation_id.clone()),
                     turn_id: None,
                     item_id: None,
@@ -242,28 +244,30 @@ async fn artifact_external_url_initial_version_rejects_non_http_url() {
 
     let error = store
         .create_artifact_with_initial_version(
-            crate::NewArtifact {
+            noema_artifacts::NewArtifact {
                 artifact_id: None,
-                owner: crate::ArtifactOwnerRef::conversation(&conversation.conversation_id),
+                owner: noema_artifacts::ArtifactOwnerRef::conversation(
+                    &conversation.conversation_id,
+                ),
                 title: "Unsafe link".to_string(),
                 description: None,
                 artifact_kind: "document".to_string(),
-                storage_kind: crate::ArtifactStorageKind::ExternalUrl,
+                storage_kind: noema_artifacts::ArtifactStorageKind::ExternalUrl,
                 created_by_actor_id: "agent:primary".to_string(),
-                source: crate::ArtifactSource::default(),
+                source: noema_artifacts::ArtifactSource::default(),
                 metadata: serde_json::json!({}),
             },
-            crate::NewArtifactVersion {
+            noema_artifacts::NewArtifactVersion {
                 artifact_version_id: None,
                 title: None,
-                storage: crate::ArtifactVersionStorage::ExternalUrl {
+                storage: noema_artifacts::ArtifactVersionStorage::ExternalUrl {
                     url: "javascript:alert(1)".to_string(),
                 },
                 media_type: None,
                 byte_size: None,
                 content_sha256: None,
                 created_by_actor_id: "agent:primary".to_string(),
-                source: crate::ArtifactSource::default(),
+                source: noema_artifacts::ArtifactSource::default(),
                 metadata: serde_json::json!({}),
             },
         )
@@ -301,7 +305,7 @@ async fn conversation_local_file_artifact_writes_bytes_and_metadata() {
             bytes: bytes.clone(),
             media_type: Some("text/markdown".to_string()),
             created_by_actor_id: "agent:primary".to_string(),
-            source: crate::ArtifactSource {
+            source: noema_artifacts::ArtifactSource {
                 conversation_id: Some(conversation.conversation_id.clone()),
                 turn_id: None,
                 item_id: None,
@@ -314,7 +318,7 @@ async fn conversation_local_file_artifact_writes_bytes_and_metadata() {
 
     assert_eq!(
         artifact.artifact.storage_kind,
-        crate::ArtifactStorageKind::LocalFile
+        noema_artifacts::ArtifactStorageKind::LocalFile
     );
     assert_eq!(artifact.current_version.version_index, 1);
     assert_eq!(
@@ -325,8 +329,8 @@ async fn conversation_local_file_artifact_writes_bytes_and_metadata() {
     assert!(artifact.current_version.content_sha256.is_some());
 
     let relative_path = match &artifact.current_version.storage {
-        crate::ArtifactVersionStorage::LocalFile { relative_path } => relative_path,
-        crate::ArtifactVersionStorage::ExternalUrl { .. } => {
+        noema_artifacts::ArtifactVersionStorage::LocalFile { relative_path } => relative_path,
+        noema_artifacts::ArtifactVersionStorage::ExternalUrl { .. } => {
             panic!("expected local file storage")
         }
     };
@@ -335,9 +339,10 @@ async fn conversation_local_file_artifact_writes_bytes_and_metadata() {
         tokio::fs::read(&absolute_path).await.expect("read bytes"),
         bytes
     );
-    assert!(
-        absolute_path.starts_with(paths.conversation_artifacts_dir(&conversation.conversation_id))
-    );
+    let owner = noema_artifacts::ArtifactOwnerRef::conversation(&conversation.conversation_id);
+    assert!(absolute_path.starts_with(
+        noema_artifacts::owner_artifacts_dir(paths.root(), &owner).expect("artifact root")
+    ));
     assert_eq!(
         artifact.artifact.metadata,
         serde_json::json!({"origin": "unit-test"})
@@ -365,7 +370,11 @@ async fn conversation_local_file_artifact_rejects_symlinked_artifact_root() {
         .expect("conversation dir");
     std::os::unix::fs::symlink(
         &outside,
-        paths.conversation_artifacts_dir(&conversation.conversation_id),
+        noema_artifacts::owner_artifacts_dir(
+            paths.root(),
+            &noema_artifacts::ArtifactOwnerRef::conversation(&conversation.conversation_id),
+        )
+        .expect("artifact root"),
     )
     .expect("symlink artifact root");
 
@@ -381,7 +390,7 @@ async fn conversation_local_file_artifact_rejects_symlinked_artifact_root() {
             bytes: b"# report\n".to_vec(),
             media_type: Some("text/markdown".to_string()),
             created_by_actor_id: "agent:primary".to_string(),
-            source: crate::ArtifactSource::default(),
+            source: noema_artifacts::ArtifactSource::default(),
             metadata: serde_json::json!({}),
         },
     )
@@ -407,17 +416,17 @@ async fn append_artifact_version_updates_current_version() {
     let second = store
         .append_artifact_version(
             &created.artifact.artifact_id,
-            crate::NewArtifactVersion {
+            noema_artifacts::NewArtifactVersion {
                 artifact_version_id: None,
                 title: Some("Revision".to_string()),
-                storage: crate::ArtifactVersionStorage::ExternalUrl {
+                storage: noema_artifacts::ArtifactVersionStorage::ExternalUrl {
                     url: "https://notion.so/noema-brief-v2".to_string(),
                 },
                 media_type: Some("text/html".to_string()),
                 byte_size: None,
                 content_sha256: None,
                 created_by_actor_id: "agent:primary".to_string(),
-                source: crate::ArtifactSource::default(),
+                source: noema_artifacts::ArtifactSource::default(),
                 metadata: serde_json::json!({"revision": 2}),
             },
         )
@@ -449,17 +458,17 @@ async fn append_artifact_version_rejects_non_http_external_url() {
     let error = store
         .append_artifact_version(
             &created.artifact.artifact_id,
-            crate::NewArtifactVersion {
+            noema_artifacts::NewArtifactVersion {
                 artifact_version_id: None,
                 title: Some("Unsafe revision".to_string()),
-                storage: crate::ArtifactVersionStorage::ExternalUrl {
+                storage: noema_artifacts::ArtifactVersionStorage::ExternalUrl {
                     url: "file:///private/report.html".to_string(),
                 },
                 media_type: None,
                 byte_size: None,
                 content_sha256: None,
                 created_by_actor_id: "agent:primary".to_string(),
-                source: crate::ArtifactSource::default(),
+                source: noema_artifacts::ArtifactSource::default(),
                 metadata: serde_json::json!({}),
             },
         )
@@ -613,7 +622,7 @@ async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
             bytes: b"# Task report".to_vec(),
             media_type: Some("text/markdown".to_string()),
             created_by_actor_id: crate::TASK_EXECUTOR_AGENT_ID.to_string(),
-            source: crate::ArtifactSource::default(),
+            source: noema_artifacts::ArtifactSource::default(),
             metadata: serde_json::json!({}),
         },
     )
@@ -631,7 +640,7 @@ async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
             bytes: b"value\n42\n".to_vec(),
             media_type: Some("text/csv".to_string()),
             created_by_actor_id: crate::TASK_EXECUTOR_AGENT_ID.to_string(),
-            source: crate::ArtifactSource::default(),
+            source: noema_artifacts::ArtifactSource::default(),
             metadata: serde_json::json!({}),
         },
     )
@@ -659,7 +668,7 @@ async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
             bytes: b"foreign".to_vec(),
             media_type: Some("text/plain".to_string()),
             created_by_actor_id: "agent:primary".to_string(),
-            source: crate::ArtifactSource::default(),
+            source: noema_artifacts::ArtifactSource::default(),
             metadata: serde_json::json!({}),
         },
     )
@@ -1555,35 +1564,35 @@ pub(crate) async fn seed_task(
 async fn seed_external_artifact(
     store: &crate::NoemaStore,
     conversation_id: &str,
-) -> crate::ArtifactWithVersions {
+) -> noema_artifacts::ArtifactWithVersions {
     store
         .create_artifact_with_initial_version(
-            crate::NewArtifact {
+            noema_artifacts::NewArtifact {
                 artifact_id: None,
-                owner: crate::ArtifactOwnerRef::conversation(conversation_id),
+                owner: noema_artifacts::ArtifactOwnerRef::conversation(conversation_id),
                 title: "Sprint brief".to_string(),
                 description: Some("Planning notes".to_string()),
                 artifact_kind: "document".to_string(),
-                storage_kind: crate::ArtifactStorageKind::ExternalUrl,
+                storage_kind: noema_artifacts::ArtifactStorageKind::ExternalUrl,
                 created_by_actor_id: "agent:primary".to_string(),
-                source: crate::ArtifactSource {
+                source: noema_artifacts::ArtifactSource {
                     conversation_id: Some(conversation_id.to_string()),
                     turn_id: None,
                     item_id: None,
                 },
                 metadata: serde_json::json!({"provider": "notion"}),
             },
-            crate::NewArtifactVersion {
+            noema_artifacts::NewArtifactVersion {
                 artifact_version_id: None,
                 title: Some("Initial".to_string()),
-                storage: crate::ArtifactVersionStorage::ExternalUrl {
+                storage: noema_artifacts::ArtifactVersionStorage::ExternalUrl {
                     url: "https://notion.so/noema-brief".to_string(),
                 },
                 media_type: Some("text/html".to_string()),
                 byte_size: None,
                 content_sha256: None,
                 created_by_actor_id: "agent:primary".to_string(),
-                source: crate::ArtifactSource {
+                source: noema_artifacts::ArtifactSource {
                     conversation_id: Some(conversation_id.to_string()),
                     turn_id: None,
                     item_id: None,

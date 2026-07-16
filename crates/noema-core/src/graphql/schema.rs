@@ -3960,32 +3960,34 @@ mod tests {
             .expect("turn");
         let artifact = store
             .create_artifact_with_initial_version(
-                crate::NewArtifact {
+                noema_artifacts::NewArtifact {
                     artifact_id: None,
-                    owner: crate::ArtifactOwnerRef::conversation(&conversation.conversation_id),
+                    owner: noema_artifacts::ArtifactOwnerRef::conversation(
+                        &conversation.conversation_id,
+                    ),
                     title: "Noema notes".to_string(),
                     description: Some("Shared notes".to_string()),
                     artifact_kind: "document".to_string(),
-                    storage_kind: crate::ArtifactStorageKind::ExternalUrl,
+                    storage_kind: noema_artifacts::ArtifactStorageKind::ExternalUrl,
                     created_by_actor_id: "agent:primary".to_string(),
-                    source: crate::ArtifactSource {
+                    source: noema_artifacts::ArtifactSource {
                         conversation_id: Some(conversation.conversation_id.clone()),
                         turn_id: Some(turn.turn_id.clone()),
                         item_id: None,
                     },
                     metadata: serde_json::json!({}),
                 },
-                crate::NewArtifactVersion {
+                noema_artifacts::NewArtifactVersion {
                     artifact_version_id: None,
                     title: None,
-                    storage: crate::ArtifactVersionStorage::ExternalUrl {
+                    storage: noema_artifacts::ArtifactVersionStorage::ExternalUrl {
                         url: "https://notion.so/noema-notes".to_string(),
                     },
                     media_type: Some("text/html".to_string()),
                     byte_size: None,
                     content_sha256: None,
                     created_by_actor_id: "agent:primary".to_string(),
-                    source: crate::ArtifactSource {
+                    source: noema_artifacts::ArtifactSource {
                         conversation_id: Some(conversation.conversation_id.clone()),
                         turn_id: Some(turn.turn_id.clone()),
                         item_id: None,
@@ -5427,32 +5429,34 @@ mod tests {
 
         let expected = store
             .create_artifact_with_initial_version(
-                crate::NewArtifact {
+                noema_artifacts::NewArtifact {
                     artifact_id: None,
-                    owner: crate::ArtifactOwnerRef::conversation(&conversation.conversation_id),
+                    owner: noema_artifacts::ArtifactOwnerRef::conversation(
+                        &conversation.conversation_id,
+                    ),
                     title: "Sprint brief".to_string(),
                     description: Some("Planning notes".to_string()),
                     artifact_kind: "document".to_string(),
-                    storage_kind: crate::ArtifactStorageKind::ExternalUrl,
+                    storage_kind: noema_artifacts::ArtifactStorageKind::ExternalUrl,
                     created_by_actor_id: "agent:primary".to_string(),
-                    source: crate::ArtifactSource {
+                    source: noema_artifacts::ArtifactSource {
                         conversation_id: Some(conversation.conversation_id.clone()),
                         turn_id: None,
                         item_id: None,
                     },
                     metadata: serde_json::json!({"provider": "notion"}),
                 },
-                crate::NewArtifactVersion {
+                noema_artifacts::NewArtifactVersion {
                     artifact_version_id: None,
                     title: Some("Initial".to_string()),
-                    storage: crate::ArtifactVersionStorage::ExternalUrl {
+                    storage: noema_artifacts::ArtifactVersionStorage::ExternalUrl {
                         url: "https://notion.so/noema-brief".to_string(),
                     },
                     media_type: Some("text/html".to_string()),
                     byte_size: None,
                     content_sha256: None,
                     created_by_actor_id: "agent:primary".to_string(),
-                    source: crate::ArtifactSource {
+                    source: noema_artifacts::ArtifactSource {
                         conversation_id: Some(conversation.conversation_id.clone()),
                         turn_id: None,
                         item_id: None,
@@ -5464,34 +5468,34 @@ mod tests {
             .expect("artifact");
         let other_artifact = store
             .create_artifact_with_initial_version(
-                crate::NewArtifact {
+                noema_artifacts::NewArtifact {
                     artifact_id: None,
-                    owner: crate::ArtifactOwnerRef::conversation(
+                    owner: noema_artifacts::ArtifactOwnerRef::conversation(
                         &other_conversation.conversation_id,
                     ),
                     title: "Other brief".to_string(),
                     description: None,
                     artifact_kind: "document".to_string(),
-                    storage_kind: crate::ArtifactStorageKind::ExternalUrl,
+                    storage_kind: noema_artifacts::ArtifactStorageKind::ExternalUrl,
                     created_by_actor_id: "agent:primary".to_string(),
-                    source: crate::ArtifactSource {
+                    source: noema_artifacts::ArtifactSource {
                         conversation_id: Some(other_conversation.conversation_id.clone()),
                         turn_id: None,
                         item_id: None,
                     },
                     metadata: serde_json::json!({}),
                 },
-                crate::NewArtifactVersion {
+                noema_artifacts::NewArtifactVersion {
                     artifact_version_id: None,
                     title: Some("Initial".to_string()),
-                    storage: crate::ArtifactVersionStorage::ExternalUrl {
+                    storage: noema_artifacts::ArtifactVersionStorage::ExternalUrl {
                         url: "https://example.com/other".to_string(),
                     },
                     media_type: Some("text/html".to_string()),
                     byte_size: None,
                     content_sha256: None,
                     created_by_actor_id: "agent:primary".to_string(),
-                    source: crate::ArtifactSource {
+                    source: noema_artifacts::ArtifactSource {
                         conversation_id: Some(other_conversation.conversation_id.clone()),
                         turn_id: None,
                         item_id: None,
@@ -5568,32 +5572,34 @@ mod tests {
             .expect("conversation");
         let expected = store
             .create_artifact_with_initial_version(
-                crate::NewArtifact {
+                noema_artifacts::NewArtifact {
                     artifact_id: None,
-                    owner: crate::ArtifactOwnerRef::conversation(&conversation.conversation_id),
+                    owner: noema_artifacts::ArtifactOwnerRef::conversation(
+                        &conversation.conversation_id,
+                    ),
                     title: "Sprint brief".to_string(),
                     description: Some("Planning notes".to_string()),
                     artifact_kind: "document".to_string(),
-                    storage_kind: crate::ArtifactStorageKind::ExternalUrl,
+                    storage_kind: noema_artifacts::ArtifactStorageKind::ExternalUrl,
                     created_by_actor_id: "agent:primary".to_string(),
-                    source: crate::ArtifactSource {
+                    source: noema_artifacts::ArtifactSource {
                         conversation_id: Some(conversation.conversation_id.clone()),
                         turn_id: None,
                         item_id: None,
                     },
                     metadata: serde_json::json!({"provider": "notion"}),
                 },
-                crate::NewArtifactVersion {
+                noema_artifacts::NewArtifactVersion {
                     artifact_version_id: None,
                     title: Some("Initial".to_string()),
-                    storage: crate::ArtifactVersionStorage::ExternalUrl {
+                    storage: noema_artifacts::ArtifactVersionStorage::ExternalUrl {
                         url: "https://notion.so/noema-brief".to_string(),
                     },
                     media_type: Some("text/html".to_string()),
                     byte_size: None,
                     content_sha256: None,
                     created_by_actor_id: "agent:primary".to_string(),
-                    source: crate::ArtifactSource {
+                    source: noema_artifacts::ArtifactSource {
                         conversation_id: Some(conversation.conversation_id.clone()),
                         turn_id: None,
                         item_id: None,
@@ -5680,7 +5686,7 @@ mod tests {
                 bytes: b"# report\n".to_vec(),
                 media_type: Some("text/markdown".to_string()),
                 created_by_actor_id: "agent:primary".to_string(),
-                source: crate::ArtifactSource {
+                source: noema_artifacts::ArtifactSource {
                     conversation_id: Some(conversation.conversation_id.clone()),
                     turn_id: None,
                     item_id: None,
@@ -5722,7 +5728,7 @@ mod tests {
         );
         assert_eq!(
             queried_artifact["currentVersion"]["downloadUrl"],
-            crate::artifact_download_url(&artifact.current_version.artifact_version_id)
+            noema_artifacts::artifact_download_url(&artifact.current_version.artifact_version_id)
         );
     }
 
@@ -5749,7 +5755,7 @@ mod tests {
                 bytes: b"# Report\n\nA useful note.\n".to_vec(),
                 media_type: Some("text/markdown".to_string()),
                 created_by_actor_id: "agent:primary".to_string(),
-                source: crate::ArtifactSource::default(),
+                source: noema_artifacts::ArtifactSource::default(),
                 metadata: serde_json::json!({}),
             },
         )
@@ -5765,7 +5771,7 @@ mod tests {
                 bytes: b"# Report\n\nA sharper note.\n".to_vec(),
                 media_type: Some("text/markdown".to_string()),
                 created_by_actor_id: "agent:primary".to_string(),
-                source: crate::ArtifactSource::default(),
+                source: noema_artifacts::ArtifactSource::default(),
                 metadata: serde_json::json!({}),
             },
         )
@@ -5823,7 +5829,7 @@ mod tests {
         assert!(detail["plainText"].is_null());
         assert_eq!(
             detail["downloadUrl"],
-            crate::artifact_download_url(&second_version.artifact_version_id)
+            noema_artifacts::artifact_download_url(&second_version.artifact_version_id)
         );
         assert!(detail["externalUrl"].is_null());
         let versions = detail["versions"].as_array().expect("versions");
@@ -5864,7 +5870,7 @@ mod tests {
                 bytes: content.as_bytes().to_vec(),
                 media_type: Some("text/plain; charset=utf-8".to_string()),
                 created_by_actor_id: "agent:primary".to_string(),
-                source: crate::ArtifactSource::default(),
+                source: noema_artifacts::ArtifactSource::default(),
                 metadata: serde_json::json!({}),
             },
         )
@@ -5898,7 +5904,7 @@ mod tests {
         assert_eq!(detail["plainText"], content);
         assert_eq!(
             detail["downloadUrl"],
-            crate::artifact_download_url(&artifact.current_version.artifact_version_id)
+            noema_artifacts::artifact_download_url(&artifact.current_version.artifact_version_id)
         );
     }
 
@@ -5925,7 +5931,7 @@ mod tests {
                 bytes: b"a,b\n1,2\n".to_vec(),
                 media_type: Some("text/csv".to_string()),
                 created_by_actor_id: "agent:primary".to_string(),
-                source: crate::ArtifactSource::default(),
+                source: noema_artifacts::ArtifactSource::default(),
                 metadata: serde_json::json!({}),
             },
         )
@@ -5961,7 +5967,7 @@ mod tests {
         assert_eq!(detail["mediaType"], "text/csv");
         assert_eq!(
             detail["downloadUrl"],
-            crate::artifact_download_url(&artifact.current_version.artifact_version_id)
+            noema_artifacts::artifact_download_url(&artifact.current_version.artifact_version_id)
         );
     }
 

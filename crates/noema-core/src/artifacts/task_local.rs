@@ -1,6 +1,7 @@
 //! Task-owned local artifact writers.
 
-use noema_home::{NoemaPaths, safe_artifact_filename};
+use noema_artifacts::{ArtifactOwnerRef, artifact_version_dir, safe_artifact_filename};
+use noema_home::NoemaPaths;
 
 use super::{ArtifactWriteError, artifact_relative_path, sha256_hex, write_local_artifact_bytes};
 
@@ -24,7 +25,7 @@ pub struct NewTaskLocalFileArtifact {
     /// Actor creating the artifact.
     pub created_by_actor_id: String,
     /// Source provenance.
-    pub source: crate::ArtifactSource,
+    pub source: noema_artifacts::ArtifactSource,
     /// Arbitrary artifact metadata.
     pub metadata: serde_json::Value,
 }
@@ -45,7 +46,7 @@ pub struct NewTaskLocalFileArtifactVersion {
     /// Actor creating the version.
     pub created_by_actor_id: String,
     /// Source provenance.
-    pub source: crate::ArtifactSource,
+    pub source: noema_artifacts::ArtifactSource,
     /// Arbitrary version metadata.
     pub metadata: serde_json::Value,
 }
@@ -60,32 +61,37 @@ pub async fn create_task_local_file_artifact(
     store: &crate::NoemaStore,
     paths: &NoemaPaths,
     input: NewTaskLocalFileArtifact,
-) -> Result<crate::ArtifactWithVersions, ArtifactWriteError> {
+) -> Result<noema_artifacts::ArtifactWithVersions, ArtifactWriteError> {
     let artifact_id = store.new_artifact_id();
     let artifact_version_id = store.new_artifact_version_id();
     let filename = safe_artifact_filename(&input.filename)?;
-    let version_dir = paths.task_artifact_version_dir(&input.task_id, &artifact_id, 1);
+    let version_dir = artifact_version_dir(
+        paths.root(),
+        &ArtifactOwnerRef::task(&input.task_id),
+        &artifact_id,
+        1,
+    )?;
     let artifact_path = version_dir.join(filename);
     let relative_path = artifact_relative_path(paths.root(), &artifact_path)?;
     write_local_artifact_bytes(paths, &version_dir, &artifact_path, &input.bytes)?;
 
     let create_result = store
         .create_artifact_with_initial_version(
-            crate::NewArtifact {
+            noema_artifacts::NewArtifact {
                 artifact_id: Some(artifact_id),
-                owner: crate::ArtifactOwnerRef::task(&input.task_id),
+                owner: noema_artifacts::ArtifactOwnerRef::task(&input.task_id),
                 title: input.title,
                 description: input.description,
                 artifact_kind: input.artifact_kind,
-                storage_kind: crate::ArtifactStorageKind::LocalFile,
+                storage_kind: noema_artifacts::ArtifactStorageKind::LocalFile,
                 created_by_actor_id: input.created_by_actor_id.clone(),
                 source: input.source.clone(),
                 metadata: input.metadata,
             },
-            crate::NewArtifactVersion {
+            noema_artifacts::NewArtifactVersion {
                 artifact_version_id: Some(artifact_version_id),
                 title: None,
-                storage: crate::ArtifactVersionStorage::LocalFile { relative_path },
+                storage: noema_artifacts::ArtifactVersionStorage::LocalFile { relative_path },
                 media_type: input.media_type,
                 byte_size: Some(input.bytes.len() as i64),
                 content_sha256: Some(sha256_hex(&input.bytes)),
@@ -108,7 +114,7 @@ pub async fn append_task_local_file_artifact_version(
     store: &crate::NoemaStore,
     paths: &NoemaPaths,
     input: NewTaskLocalFileArtifactVersion,
-) -> Result<crate::ArtifactVersionRecord, ArtifactWriteError> {
+) -> Result<noema_artifacts::ArtifactVersionRecord, ArtifactWriteError> {
     let artifact = store
         .get_artifact(&input.artifact_id)
         .await?
@@ -116,7 +122,7 @@ pub async fn append_task_local_file_artifact_version(
             artifact_id: input.artifact_id.clone(),
         })?;
     if artifact.artifact.owner.object_type != "task"
-        || artifact.artifact.storage_kind != crate::ArtifactStorageKind::LocalFile
+        || artifact.artifact.storage_kind != noema_artifacts::ArtifactStorageKind::LocalFile
     {
         return Err(ArtifactWriteError::Store(
             crate::StoreError::ArtifactStorageKindMismatch,
@@ -128,11 +134,12 @@ pub async fn append_task_local_file_artifact_version(
         .last()
         .map_or(1, |version| version.version_index + 1);
     let filename = safe_artifact_filename(&input.filename)?;
-    let version_dir = paths.task_artifact_version_dir(
-        &artifact.artifact.owner.object_id,
+    let version_dir = artifact_version_dir(
+        paths.root(),
+        &artifact.artifact.owner,
         &artifact.artifact.artifact_id,
         next_version_index,
-    );
+    )?;
     let artifact_path = version_dir.join(filename);
     let relative_path = artifact_relative_path(paths.root(), &artifact_path)?;
     write_local_artifact_bytes(paths, &version_dir, &artifact_path, &input.bytes)?;
@@ -140,10 +147,10 @@ pub async fn append_task_local_file_artifact_version(
     let append_result = store
         .append_artifact_version(
             &artifact.artifact.artifact_id,
-            crate::NewArtifactVersion {
+            noema_artifacts::NewArtifactVersion {
                 artifact_version_id: None,
                 title: input.title,
-                storage: crate::ArtifactVersionStorage::LocalFile { relative_path },
+                storage: noema_artifacts::ArtifactVersionStorage::LocalFile { relative_path },
                 media_type: input.media_type,
                 byte_size: Some(input.bytes.len() as i64),
                 content_sha256: Some(sha256_hex(&input.bytes)),

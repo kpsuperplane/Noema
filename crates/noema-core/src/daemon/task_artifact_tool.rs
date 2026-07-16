@@ -77,7 +77,7 @@ pub(crate) async fn execute_task_read_artifact(
 
     if !matches!(
         linked.version.storage,
-        crate::ArtifactVersionStorage::LocalFile { .. }
+        noema_artifacts::ArtifactVersionStorage::LocalFile { .. }
     ) {
         return Err("external artifact content is unavailable to the reviewer".to_string());
     }
@@ -141,7 +141,7 @@ mod tests {
                 bytes: b"reviewable evidence".to_vec(),
                 media_type: Some("text/plain".to_string()),
                 created_by_actor_id: crate::TASK_EXECUTOR_AGENT_ID.to_string(),
-                source: crate::ArtifactSource::default(),
+                source: noema_artifacts::ArtifactSource::default(),
                 metadata: json!({}),
             },
         )
@@ -222,7 +222,7 @@ mod tests {
                 bytes: b"not submitted".to_vec(),
                 media_type: Some("text/plain".to_string()),
                 created_by_actor_id: crate::TASK_EXECUTOR_AGENT_ID.to_string(),
-                source: crate::ArtifactSource::default(),
+                source: noema_artifacts::ArtifactSource::default(),
                 metadata: json!({}),
             },
         )

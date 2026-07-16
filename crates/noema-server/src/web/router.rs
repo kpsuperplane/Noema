@@ -224,7 +224,7 @@ async fn download_artifact_slug(
         return StatusCode::UNAUTHORIZED.into_response();
     };
     let Some(artifact_version_id) =
-        noema_core::artifact_version_id_from_download_slug(&artifact_version_slug)
+        noema_artifacts::artifact_version_id_from_download_slug(&artifact_version_slug)
     else {
         return not_found();
     };

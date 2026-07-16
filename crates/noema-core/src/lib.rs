@@ -42,7 +42,6 @@ pub mod web_fetch;
 pub use artifacts::{
     ArtifactWriteError, NewConversationLocalFileArtifact, NewTaskLocalFileArtifact,
     NewTaskLocalFileArtifactVersion, append_task_local_file_artifact_version,
-    artifact_download_url, artifact_version_id_from_download_slug,
     create_conversation_local_file_artifact, create_task_local_file_artifact,
 };
 pub use capability::{CapabilityGateway, GatewayToolProposal, GatewayToolResult};
@@ -96,17 +95,14 @@ pub use provider::{
 pub use runtime_host::{NoemaRuntimeHost, RuntimeHostError};
 pub use store::{
     AgentRecord, AgentRunHeartbeat, AgentRunItemRecord, AgentRunItemStatus, AgentRunRecord,
-    AgentRuntimePreferenceRecord, AgentSystemRole, ArtifactOwnerRef, ArtifactRecord,
-    ArtifactSource, ArtifactStorageKind, ArtifactVersionRecord, ArtifactVersionStorage,
-    ArtifactWithVersions, AuxiliaryModelPreferenceRecord, McpServerAuthStatus,
-    McpServerHealthStatus, McpServerRecord, McpToolRecord, MemoryArticleCacheRecord,
-    MemoryServiceMode, MemoryServiceSettingsRecord, NewAgent, NewAgentRun, NewAgentRunItem,
-    NewAgentRuntimePreference, NewArtifact, NewArtifactVersion, NewAuxiliaryModelPreference,
+    AgentRuntimePreferenceRecord, AgentSystemRole, AuxiliaryModelPreferenceRecord,
+    McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolRecord,
+    MemoryArticleCacheRecord, MemoryServiceMode, MemoryServiceSettingsRecord, NewAgent,
+    NewAgentRun, NewAgentRunItem, NewAgentRuntimePreference, NewAuxiliaryModelPreference,
     NewMcpServer, NewMcpTool, NewTaskModelPoolEntry, NewToolCalibration, NoemaStore,
     SaveMemoryArticleCache, SaveMemoryServiceSettings, StoreConfig, StoreError, TaskEventRecord,
     TaskModelPoolEntry, TaskRecord, TaskReviewRecord, TaskSubmissionArtifactRecord,
     TaskSubmissionRecord, ToolCalibrationRecord, WEB_FETCH_SUMMARIZER_TASK_ID,
-    validate_external_artifact_url,
 };
 pub use task::{
     CriterionOutcome, DEFAULT_TASK_MAX_ACTIVE_MINUTES, DEFAULT_TASK_MAX_PROVIDER_CONTINUATIONS,

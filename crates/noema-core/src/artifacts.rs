@@ -9,7 +9,10 @@ use cap_std::{
     ambient_authority,
     fs::{Dir, Metadata, OpenOptions},
 };
-use noema_home::{NoemaPathError, NoemaPaths, safe_artifact_filename};
+use noema_artifacts::{
+    ArtifactDomainError, ArtifactOwnerRef, artifact_version_dir, safe_artifact_filename,
+};
+use noema_home::NoemaPaths;
 use thiserror::Error;
 
 mod task_local;
@@ -17,8 +20,6 @@ pub use task_local::{
     NewTaskLocalFileArtifact, NewTaskLocalFileArtifactVersion,
     append_task_local_file_artifact_version, create_task_local_file_artifact,
 };
-
-const ARTIFACT_VERSION_ID_PREFIX: &str = "artifact_version:";
 
 /// Input for creating a conversation-owned local file artifact and first version.
 #[derive(Debug, Clone, PartialEq)]
@@ -40,7 +41,7 @@ pub struct NewConversationLocalFileArtifact {
     /// Actor responsible for the artifact and first version.
     pub created_by_actor_id: String,
     /// Optional transcript provenance for the artifact and version.
-    pub source: crate::ArtifactSource,
+    pub source: noema_artifacts::ArtifactSource,
     /// Arbitrary artifact metadata stored with the canonical artifact row.
     pub metadata: serde_json::Value,
 }
@@ -61,7 +62,7 @@ pub struct NewConversationLocalFileArtifactVersion {
     /// Actor responsible for the appended version.
     pub created_by_actor_id: String,
     /// Optional transcript provenance for the version.
-    pub source: crate::ArtifactSource,
+    pub source: noema_artifacts::ArtifactSource,
     /// Arbitrary version metadata stored with the immutable version row.
     pub metadata: serde_json::Value,
 }
@@ -71,7 +72,7 @@ pub struct NewConversationLocalFileArtifactVersion {
 pub enum ArtifactWriteError {
     /// The artifact filename or derived path was unsafe.
     #[error(transparent)]
-    Path(#[from] NoemaPathError),
+    Path(#[from] ArtifactDomainError),
 
     /// The local artifact version directory could not be created.
     #[error("failed to create artifact directory {}: {source}", path.display())]
@@ -110,29 +111,6 @@ pub enum ArtifactWriteError {
     Store(#[from] crate::StoreError),
 }
 
-/// Build the local download route for an artifact version.
-#[must_use]
-pub fn artifact_download_url(artifact_version_id: &str) -> String {
-    let artifact_version_slug = artifact_version_download_slug(artifact_version_id);
-    format!("/artifacts/versions/{artifact_version_slug}/download")
-}
-
-/// Convert a public artifact-version download slug back into a canonical id.
-#[must_use]
-pub fn artifact_version_id_from_download_slug(slug: &str) -> Option<String> {
-    if slug.is_empty() || slug.contains('/') || slug.contains(':') {
-        return None;
-    }
-
-    Some(format!("{ARTIFACT_VERSION_ID_PREFIX}{slug}"))
-}
-
-fn artifact_version_download_slug(artifact_version_id: &str) -> &str {
-    artifact_version_id
-        .strip_prefix(ARTIFACT_VERSION_ID_PREFIX)
-        .unwrap_or(artifact_version_id)
-}
-
 /// Create a conversation-owned local file artifact, writing bytes first and metadata second.
 ///
 /// # Errors
@@ -143,12 +121,16 @@ pub async fn create_conversation_local_file_artifact(
     store: &crate::NoemaStore,
     paths: &NoemaPaths,
     input: NewConversationLocalFileArtifact,
-) -> Result<crate::ArtifactWithVersions, ArtifactWriteError> {
+) -> Result<noema_artifacts::ArtifactWithVersions, ArtifactWriteError> {
     let artifact_id = store.new_artifact_id();
     let artifact_version_id = store.new_artifact_version_id();
     let filename = safe_artifact_filename(&input.filename)?;
-    let version_dir =
-        paths.conversation_artifact_version_dir(&input.conversation_id, &artifact_id, 1);
+    let version_dir = artifact_version_dir(
+        paths.root(),
+        &ArtifactOwnerRef::conversation(&input.conversation_id),
+        &artifact_id,
+        1,
+    )?;
     let artifact_path = version_dir.join(filename);
     let relative_path = artifact_relative_path(paths.root(), &artifact_path)?;
     write_local_artifact_bytes(paths, &version_dir, &artifact_path, &input.bytes)?;
@@ -156,21 +138,21 @@ pub async fn create_conversation_local_file_artifact(
     let content_sha256 = sha256_hex(&input.bytes);
     let create_result = store
         .create_artifact_with_initial_version(
-            crate::NewArtifact {
+            noema_artifacts::NewArtifact {
                 artifact_id: Some(artifact_id),
-                owner: crate::ArtifactOwnerRef::conversation(&input.conversation_id),
+                owner: noema_artifacts::ArtifactOwnerRef::conversation(&input.conversation_id),
                 title: input.title,
                 description: input.description,
                 artifact_kind: input.artifact_kind,
-                storage_kind: crate::ArtifactStorageKind::LocalFile,
+                storage_kind: noema_artifacts::ArtifactStorageKind::LocalFile,
                 created_by_actor_id: input.created_by_actor_id.clone(),
                 source: input.source.clone(),
                 metadata: input.metadata,
             },
-            crate::NewArtifactVersion {
+            noema_artifacts::NewArtifactVersion {
                 artifact_version_id: Some(artifact_version_id),
                 title: None,
-                storage: crate::ArtifactVersionStorage::LocalFile { relative_path },
+                storage: noema_artifacts::ArtifactVersionStorage::LocalFile { relative_path },
                 media_type: input.media_type,
                 byte_size: Some(input.bytes.len() as i64),
                 content_sha256: Some(content_sha256),
@@ -205,7 +187,7 @@ pub async fn append_conversation_local_file_artifact_version(
     store: &crate::NoemaStore,
     paths: &NoemaPaths,
     input: NewConversationLocalFileArtifactVersion,
-) -> Result<crate::ArtifactVersionRecord, ArtifactWriteError> {
+) -> Result<noema_artifacts::ArtifactVersionRecord, ArtifactWriteError> {
     let artifact = store
         .get_artifact(&input.artifact_id)
         .await?
@@ -213,7 +195,7 @@ pub async fn append_conversation_local_file_artifact_version(
             artifact_id: input.artifact_id.clone(),
         })?;
     if artifact.artifact.owner.object_type != "conversation"
-        || artifact.artifact.storage_kind != crate::ArtifactStorageKind::LocalFile
+        || artifact.artifact.storage_kind != noema_artifacts::ArtifactStorageKind::LocalFile
     {
         return Err(ArtifactWriteError::Store(
             crate::StoreError::ArtifactStorageKindMismatch,
@@ -225,11 +207,12 @@ pub async fn append_conversation_local_file_artifact_version(
         .last()
         .map_or(1, |version| version.version_index + 1);
     let filename = safe_artifact_filename(&input.filename)?;
-    let version_dir = paths.conversation_artifact_version_dir(
-        &artifact.artifact.owner.object_id,
+    let version_dir = artifact_version_dir(
+        paths.root(),
+        &artifact.artifact.owner,
         &artifact.artifact.artifact_id,
         next_version_index,
-    );
+    )?;
     let artifact_path = version_dir.join(filename);
     let relative_path = artifact_relative_path(paths.root(), &artifact_path)?;
     write_local_artifact_bytes(paths, &version_dir, &artifact_path, &input.bytes)?;
@@ -238,10 +221,10 @@ pub async fn append_conversation_local_file_artifact_version(
     let append_result = store
         .append_artifact_version(
             &artifact.artifact.artifact_id,
-            crate::NewArtifactVersion {
+            noema_artifacts::NewArtifactVersion {
                 artifact_version_id: None,
                 title: input.title,
-                storage: crate::ArtifactVersionStorage::LocalFile { relative_path },
+                storage: noema_artifacts::ArtifactVersionStorage::LocalFile { relative_path },
                 media_type: input.media_type,
                 byte_size: Some(input.bytes.len() as i64),
                 content_sha256: Some(content_sha256),
@@ -268,9 +251,9 @@ pub async fn append_conversation_local_file_artifact_version(
 pub(crate) fn local_artifact_absolute_path(
     paths: &NoemaPaths,
     relative_path: &str,
-) -> Result<PathBuf, NoemaPathError> {
+) -> Result<PathBuf, ArtifactDomainError> {
     if !relative_path_components_are_safe(Path::new(relative_path)) {
-        return Err(NoemaPathError::UnsafeArtifactFilename {
+        return Err(ArtifactDomainError::UnsafeFilename {
             value: relative_path.to_string(),
         });
     }
@@ -279,11 +262,12 @@ pub(crate) fn local_artifact_absolute_path(
 
 pub(crate) fn validated_local_artifact_absolute_path(
     paths: &NoemaPaths,
-    artifact: &crate::ArtifactRecord,
-    version: &crate::ArtifactVersionRecord,
-) -> Result<PathBuf, NoemaPathError> {
-    let crate::ArtifactVersionStorage::LocalFile { relative_path } = &version.storage else {
-        return Err(NoemaPathError::UnsafeArtifactFilename {
+    artifact: &noema_artifacts::ArtifactRecord,
+    version: &noema_artifacts::ArtifactVersionRecord,
+) -> Result<PathBuf, ArtifactDomainError> {
+    let noema_artifacts::ArtifactVersionStorage::LocalFile { relative_path } = &version.storage
+    else {
+        return Err(ArtifactDomainError::UnsafeFilename {
             value: version.artifact_version_id.clone(),
         });
     };
@@ -292,30 +276,19 @@ pub(crate) fn validated_local_artifact_absolute_path(
     let filename = absolute_path
         .file_name()
         .and_then(|value| value.to_str())
-        .ok_or_else(|| NoemaPathError::UnsafeArtifactFilename {
+        .ok_or_else(|| ArtifactDomainError::UnsafeFilename {
             value: relative_path.clone(),
         })?;
     let filename = safe_artifact_filename(filename)?;
-    let expected_dir = match artifact.owner.object_type.as_str() {
-        "conversation" => paths.conversation_artifact_version_dir(
-            &artifact.owner.object_id,
-            &artifact.artifact_id,
-            version.version_index,
-        ),
-        "task" => paths.task_artifact_version_dir(
-            &artifact.owner.object_id,
-            &artifact.artifact_id,
-            version.version_index,
-        ),
-        _ => {
-            return Err(NoemaPathError::UnsafeArtifactFilename {
-                value: artifact.owner.object_type.clone(),
-            });
-        }
-    };
+    let expected_dir = artifact_version_dir(
+        paths.root(),
+        &artifact.owner,
+        &artifact.artifact_id,
+        version.version_index,
+    )?;
     let expected_path = expected_dir.join(filename);
     if absolute_path != expected_path {
-        return Err(NoemaPathError::UnsafeArtifactFilename {
+        return Err(ArtifactDomainError::UnsafeFilename {
             value: relative_path.clone(),
         });
     }
@@ -325,38 +298,38 @@ pub(crate) fn validated_local_artifact_absolute_path(
 
 pub(crate) fn read_validated_local_artifact_file(
     paths: &NoemaPaths,
-    artifact: &crate::ArtifactRecord,
-    version: &crate::ArtifactVersionRecord,
-) -> Result<(PathBuf, Vec<u8>), NoemaPathError> {
+    artifact: &noema_artifacts::ArtifactRecord,
+    version: &noema_artifacts::ArtifactVersionRecord,
+) -> Result<(PathBuf, Vec<u8>), ArtifactDomainError> {
     let absolute_path = validated_local_artifact_absolute_path(paths, artifact, version)?;
     let parent = absolute_path
         .parent()
-        .ok_or_else(|| NoemaPathError::UnsafeArtifactFilename {
+        .ok_or_else(|| ArtifactDomainError::UnsafeFilename {
             value: absolute_path.display().to_string(),
         })?;
     let filename =
         absolute_path
             .file_name()
-            .ok_or_else(|| NoemaPathError::UnsafeArtifactFilename {
+            .ok_or_else(|| ArtifactDomainError::UnsafeFilename {
                 value: absolute_path.display().to_string(),
             })?;
     let root_dir =
-        open_cap_root(paths.root()).map_err(|_| NoemaPathError::UnsafeArtifactFilename {
+        open_cap_root(paths.root()).map_err(|_| ArtifactDomainError::UnsafeFilename {
             value: paths.root().display().to_string(),
         })?;
     let parent_dir = open_verified_cap_dir(&root_dir, paths.root(), parent).map_err(|_| {
-        NoemaPathError::UnsafeArtifactFilename {
+        ArtifactDomainError::UnsafeFilename {
             value: parent.display().to_string(),
         }
     })?;
     let filename_path = Path::new(filename);
     let before_metadata = parent_dir.symlink_metadata(filename_path).map_err(|_| {
-        NoemaPathError::UnsafeArtifactFilename {
+        ArtifactDomainError::UnsafeFilename {
             value: absolute_path.display().to_string(),
         }
     })?;
     if before_metadata.file_type().is_symlink() || !before_metadata.is_file() {
-        return Err(NoemaPathError::UnsafeArtifactFilename {
+        return Err(ArtifactDomainError::UnsafeFilename {
             value: absolute_path.display().to_string(),
         });
     }
@@ -365,29 +338,29 @@ pub(crate) fn read_validated_local_artifact_file(
     options.read(true);
     set_no_follow(&mut options);
     let mut file = parent_dir.open_with(filename_path, &options).map_err(|_| {
-        NoemaPathError::UnsafeArtifactFilename {
+        ArtifactDomainError::UnsafeFilename {
             value: absolute_path.display().to_string(),
         }
     })?;
     let file_metadata = file
         .metadata()
-        .map_err(|_| NoemaPathError::UnsafeArtifactFilename {
+        .map_err(|_| ArtifactDomainError::UnsafeFilename {
             value: absolute_path.display().to_string(),
         })?;
     let after_metadata = parent_dir.symlink_metadata(filename_path).map_err(|_| {
-        NoemaPathError::UnsafeArtifactFilename {
+        ArtifactDomainError::UnsafeFilename {
             value: absolute_path.display().to_string(),
         }
     })?;
     if !same_cap_metadata(&file_metadata, &after_metadata) {
-        return Err(NoemaPathError::UnsafeArtifactFilename {
+        return Err(ArtifactDomainError::UnsafeFilename {
             value: absolute_path.display().to_string(),
         });
     }
 
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)
-        .map_err(|_| NoemaPathError::UnsafeArtifactFilename {
+        .map_err(|_| ArtifactDomainError::UnsafeFilename {
             value: absolute_path.display().to_string(),
         })?;
     Ok((absolute_path, bytes))
@@ -420,7 +393,7 @@ fn write_local_artifact_bytes(
             }
         })?;
     let filename = artifact_path.file_name().ok_or_else(|| {
-        ArtifactWriteError::Path(NoemaPathError::UnsafeArtifactFilename {
+        ArtifactWriteError::Path(ArtifactDomainError::UnsafeFilename {
             value: artifact_path.display().to_string(),
         })
     })?;
@@ -447,15 +420,18 @@ fn write_local_artifact_bytes(
     Ok(())
 }
 
-fn artifact_relative_path(root: &Path, artifact_path: &Path) -> Result<String, NoemaPathError> {
+fn artifact_relative_path(
+    root: &Path,
+    artifact_path: &Path,
+) -> Result<String, ArtifactDomainError> {
     let relative =
         artifact_path
             .strip_prefix(root)
-            .map_err(|_| NoemaPathError::UnsafeArtifactFilename {
+            .map_err(|_| ArtifactDomainError::UnsafeFilename {
                 value: artifact_path.display().to_string(),
             })?;
     if !relative_path_components_are_safe(relative) {
-        return Err(NoemaPathError::UnsafeArtifactFilename {
+        return Err(ArtifactDomainError::UnsafeFilename {
             value: relative.display().to_string(),
         });
     }
@@ -541,14 +517,17 @@ fn reject_symlink_component(path: &Path) -> Result<(), std::io::Error> {
     Ok(())
 }
 
-fn relative_path_for_cap_operation(root: &Path, path: &Path) -> Result<PathBuf, NoemaPathError> {
+fn relative_path_for_cap_operation(
+    root: &Path,
+    path: &Path,
+) -> Result<PathBuf, ArtifactDomainError> {
     let relative = path
         .strip_prefix(root)
-        .map_err(|_| NoemaPathError::UnsafeArtifactFilename {
+        .map_err(|_| ArtifactDomainError::UnsafeFilename {
             value: path.display().to_string(),
         })?;
     if !relative_path_components_are_safe(relative) {
-        return Err(NoemaPathError::UnsafeArtifactFilename {
+        return Err(ArtifactDomainError::UnsafeFilename {
             value: relative.display().to_string(),
         });
     }
@@ -577,31 +556,4 @@ fn sha256_hex(bytes: &[u8]) -> String {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{artifact_download_url, artifact_version_id_from_download_slug};
-
-    #[test]
-    fn artifact_download_url_uses_public_version_slug() {
-        assert_eq!(
-            artifact_download_url("artifact_version:18c0aa78b3e7c5e86"),
-            "/artifacts/versions/18c0aa78b3e7c5e86/download"
-        );
-    }
-
-    #[test]
-    fn artifact_version_slug_resolves_to_canonical_id() {
-        assert_eq!(
-            artifact_version_id_from_download_slug("18c0aa78b3e7c5e86"),
-            Some("artifact_version:18c0aa78b3e7c5e86".to_string())
-        );
-        assert_eq!(artifact_version_id_from_download_slug(""), None);
-        assert_eq!(
-            artifact_version_id_from_download_slug("artifact_version:18c0aa78b3e7c5e86"),
-            None
-        );
-        assert_eq!(artifact_version_id_from_download_slug("nested/path"), None);
-    }
 }
