@@ -26,7 +26,7 @@ const TARGET_DEPENDENCIES = new Map<string, ReadonlySet<string>>([
   ["noema-providers", new Set(["noema-capabilities", "noema-home"])],
   [
     "noema-tasks",
-    new Set(["noema-conversations", "noema-artifacts", "noema-providers"]),
+    new Set(["noema-artifacts", "noema-providers"]),
   ],
   [
     "noema-capabilities-mcp",
