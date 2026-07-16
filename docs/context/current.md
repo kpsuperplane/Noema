@@ -819,12 +819,22 @@ The next storage slice should stay small and concrete:
   lowering and concrete network backends remain outside it. The old gateway
   parser/fallback facades and provider tool aliases are deleted. The Phase-4
   workspace, inventory, dependency, boundary, and preservation gates are green.
-  Phase 5 begins with provider vocabulary and persistence ports. Until Phase
-  10C, exact provider instance keys are optional in durable selection snapshots
-  and may be attached only to an in-memory legacy route; provider errors are
-  transport-neutral, credential-reachable `Debug` output must be redacted,
-  model profiles become typed without changing metadata JSON, and the
-  `local-models` provider feature is only transitional shared response support.
+  Phase 5's provider-vocabulary unit landed at `74e75be75`.
+  `noema-providers` now owns generation contracts, transport-neutral errors,
+  resolved provider/OAuth configuration, account/auth/capability-assignment
+  models, typed model-profile metadata, durable selection provenance, and
+  public local-model persistence codecs. Core, server, desktop, and model evals
+  consume those types directly with no core forwarding facade. Credential- and
+  path-reachable `Debug` implementations are redacted, credential-bearing
+  endpoint URLs are rejected, stable test ownership is preserved, and the
+  GraphQL/frontend/local-model/SQLite decomposition baselines are unchanged.
+  Until Phase 10C, exact provider instance keys remain optional in snapshots and
+  legacy durable task/run writes reject `Some(key)` instead of discarding it.
+  Checkpoint 5A is not complete: the next unit must add provider-owned boxed-
+  future persistence ports plus `ProviderPersistenceError`, implement them for
+  `NoemaStore`, and replace the model-catalog metadata/status two-write sequence
+  with one atomic port operation. The `local-models` provider feature remains
+  transitional shared response support until the concrete implementation moves.
 
 - The bounded remediation program completed Phase 2 at `92,157` maintained
   source lines (`-1,767` from its baseline). Axum/tower-sessions now own the
