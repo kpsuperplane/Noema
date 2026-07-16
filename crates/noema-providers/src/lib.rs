@@ -3,6 +3,8 @@
 //! Concrete HTTP adapters and local inference implementations intentionally
 //! live outside this crate. Its default feature set remains transport-free.
 
+/// Object-safe provider account orchestration contracts.
+pub mod account_operations;
 /// Provider account and authentication vocabulary.
 pub mod accounts;
 /// Provider capability declarations and assignments.
@@ -31,6 +33,11 @@ pub mod selection;
 /// Provider-neutral tool transport and selection policy.
 pub mod tools;
 
+pub use account_operations::{
+    CreateSecretProviderAccountRequest, ProviderAccountOperationError,
+    ProviderAccountOperationFuture, ProviderAccountOperations, ProviderAccountOperationsHandle,
+    SaveProviderAccountSecretRequest, StartProviderAuthRequest,
+};
 pub use accounts::{
     CodexDeviceAuthRequest, NewProviderAccount, ProviderAccountCatalogEntry, ProviderAccountRecord,
     ProviderAccountStatus, ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderAuthMethod,

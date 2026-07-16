@@ -868,6 +868,11 @@ The next storage slice should stay small and concrete:
   compensation, OAuth token/status publication, shared per-account credential
   serialization, object-safe web backend handles, Exa's remote-resolution
   policy, and the Foundation packaging claim explicit implementation gates.
+  The always-compiled provider-account operations contract is now established:
+  API layers can receive one object-safe handle for account catalog/listing,
+  secret-backed CRUD, auth lifecycle, reconciliation, and catalog refresh.
+  Its public requests are pathless, credential-bearing request `Debug` output
+  is redacted, and its typed errors expose no filesystem or transport details.
 
 - The bounded remediation program completed Phase 2 at `92,157` maintained
   source lines (`-1,767` from its baseline). Axum/tower-sessions now own the
