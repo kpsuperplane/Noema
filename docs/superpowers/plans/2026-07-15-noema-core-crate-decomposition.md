@@ -933,31 +933,61 @@ MCP all share, without pulling MCP or persistence into the parent crate.
 **Create:**
 
 - `crates/noema-capabilities/Cargo.toml`
-- canonical tool contract, schema, invocation, result, access-class, and gateway
-  interface modules
+- provider-visible tool specification/schema, server-only binding, invocation,
+  result, neutral effect/scope, persistence, and router interface modules
 
 **Move:**
 
 - provider-neutral portions of `crates/noema-core/src/provider/tools.rs`
-- provider-neutral types from `agent_execution.rs`
-- search/fetch request, result, schema, and URL-policy types that define stable
-  Noema-visible operations
+- neutral effect/scope types adapted from `agent_execution.rs`; role and
+  terminal classifications stay in runtime
+- `CapabilityId`, `ReliabilityContract`, `DataFlowClass`,
+  `ResultPersistencePolicy`, and neutral feature metadata from provider
+  capability declarations
+- search/fetch request, result, schema, redaction, and pure URL-policy types
+  that define stable Noema-visible operations
 - only generic pieces of `capability.rs`; leave MCP execution in core until
   Phase 7
 
 **Steps:**
 
-- [ ] Move `ToolName`, `NoemaToolSpec`, `NoemaToolSchema`, call, result, and
-  neutral access contracts.
-- [ ] Replace `NoemaToolExecution::Mcp` with an opaque invoker key plus
-  invoker-owned operation token. The parent contract may identify a registered
-  invoker, but it cannot encode MCP server IDs, tool IDs, names, or transports.
-- [ ] Define a generic `CapabilityInvoker` interface and a gateway/router that
-  dispatches to registered invokers without knowing MCP naming or transport.
-- [ ] Keep `ExecutionRole` and role-specific continuation state in runtime;
-  move only access classifications and policy inputs that are capability
-  semantics.
-- [ ] Move stable `web.search` and `web.fetch` request/result contracts here.
+- [ ] Split the current `NoemaToolSpec` before moving it. The serializable,
+  provider-visible `ToolSpec` contains only name, description, input schema, and
+  optional output schema. Remove `NoemaToolExecution` wholesale. Keep opaque,
+  non-serializable `InvokerKey` and `OperationToken` in a server-only
+  `CapabilityTarget`, and combine target, spec, neutral access, and persistence
+  metadata in `CapabilityBinding`.
+- [ ] Delete the unused provider-correlated `NoemaToolCall` and
+  `NoemaToolResult`; define fresh `CapabilityInvocation` and
+  `CapabilityOutput` without provider call IDs. Provider correlation and
+  continuation stay in providers/runtime.
+- [ ] Define object-safe `CapabilityInvoker` and router contracts using boxed
+  futures, with clonable `Arc<dyn ...>` handles. Typed, sanitized errors cover
+  unknown invoker, unknown operation, invalid arguments, denied, unavailable,
+  and failed; raw MCP/store/provider errors and diagnostic strings stay inside
+  adapters. Tool-declared failure is a failed `CapabilityOutput`, while
+  transport/control-plane failure is `Err`.
+- [ ] Route only through the immutable binding catalog advertised for that
+  provider request: map a provider-safe name back to its canonical name, look
+  up the binding, apply runtime role policy, and dispatch the stored target.
+  Never parse authority from a provider-returned name or deserialize invoker or
+  operation tokens from model arguments. Reject duplicate canonical names and
+  duplicate invoker registration.
+- [ ] Keep `ExecutionRole`, terminal-contract classification, allowlists,
+  provider-loop continuation flags, and `ToolPolicy` in runtime. Move only
+  neutral effect/scope metadata such as read-only versus mutating/internal and
+  execution-owned versus conversation-owned versus global.
+- [ ] Put neutral argument/result persistence or invoker sanitization metadata
+  on the binding/output contract so runtime persists only the sanitized view.
+  Preserve the test proving MCP payloads never enter task transcripts without
+  retaining MCP name-prefix parsing.
+- [ ] Move canonical capability IDs/data-flow/persistence/reliability vocabulary
+  and stable `web.search`/`web.fetch` request/result/schema contracts here.
+- [ ] Split URL safety at the implementation boundary: capabilities owns pure
+  URL parsing, scheme/credential/fragment/hostname/IP-literal policy and public
+  IP classification; provider direct HTTP owns DNS resolution, checked socket
+  addresses, connection pinning, and redirect enforcement while consuming the
+  same pure policy. Security decisions must not be duplicated per adapter.
 - [ ] Leave DuckDuckGo, Exa, direct HTTP, readability extraction, and model
   summarization implementations outside this crate.
 - [ ] Leave provider request lowering, provider-safe function-name mapping,
@@ -966,13 +996,23 @@ MCP all share, without pulling MCP or persistence into the parent crate.
   semantics.
 - [ ] Adapt the current core MCP gateway through the generic invoker interface
   as a temporary implementation.
-- [ ] Move contract/schema tests and add an assertion that the parent crate has
-  no MCP dependency.
+- [ ] Move contract/schema/parser/redaction/pure-URL-policy tests. Add router
+  tests for object-safe dispatch, duplicate registration, unknown target,
+  exact payload forwarding, sanitized error mapping, forged target fields,
+  catalog-name resolution, and persistence redaction.
+- [ ] Assert that `noema-capabilities` has no dependency on
+  `noema-capabilities-mcp`; `noema-core` necessarily retains `rmcp` until Phase
+  7 and is not the parent named by this dependency rule.
 
 **Acceptance:**
 
 - Provider tool serialization tests consume `noema-capabilities` types.
+- `GenerateRequest.tools` contains only provider-visible `ToolSpec` values;
+  runtime retains the matching immutable `CapabilityBinding` catalog and no
+  serialized tool spec contains execution authority.
 - The canonical tool names and JSON schemas are unchanged.
+- `task_transcript_does_not_persist_mcp_payloads` passes through neutral binding
+  persistence metadata, with no MCP prefix inspection in generic runtime code.
 - `cargo tree -p noema-capabilities` contains no `rmcp`, `rusqlite`, provider,
   runtime, GraphQL, Axum, or Tauri dependencies.
 
@@ -1016,16 +1056,27 @@ tasks, memory, store, and runtime depend on it.
   defaults now. Raw config resolves into provider-owned types; adapters never
   import host configuration.
 - [ ] Put `ProviderConfig`, `ProviderKind`, and every hosted/local adapter
-  configuration record in the always-compiled provider contract/config
-  modules. Feature-gated adapter implementations consume those records; the
-  records must not import a feature-gated implementation module.
+  configuration record and default in the always-compiled provider
+  contract/config modules, including OpenAI, Codex, and OAuth endpoint records.
+  Feature-gated adapter implementations consume those records; the records must
+  not import a feature-gated implementation module.
+- [ ] Make the always-compiled provider error surface transport-neutral.
+  `ProviderError` must not embed `reqwest::Error` or another concrete adapter
+  error; hosted adapters translate transport failures into provider-owned
+  structured kind/message/context fields at the boundary.
 - [ ] Make provider adapters depend on canonical tool contracts from
   `noema-capabilities`.
 - [ ] Move provider account status/auth/read models out of store code while
   leaving persistence SQL in place.
 - [ ] Define provider-owned persistence ports for accounts, capability
   bindings, model profiles, and local-model installation/activation state.
-  Keep every SQL implementation in the store.
+  Keep every SQL implementation in the store. Every port used behind `dyn`
+  uses the repository's boxed-future convention, has a clonable `Arc<dyn ...>`
+  handle, and returns provider-owned errors rather than `StoreError`.
+- [ ] Promote the local-model status/backend/source/event storage codecs and
+  transition checks needed by store row adapters to deliberate public
+  `Display`/`FromStr`/transition APIs; store must not reach into `pub(crate)`
+  provider internals.
 - [ ] Implement those ports for the still-core-owned `NoemaStore` in this
   integration window and convert model-catalog/account call sites before moved
   provider code loses access to core. Phase 9 moves the implementations with
@@ -1037,16 +1088,24 @@ no concrete adapter or runtime erasure boundary has moved in this commit.
 
 ### Checkpoint 5B — Provider Handle, Registry, And Resolver Contracts
 
-- [ ] Define the provider-owned object-safe `ProviderHandle` and a single
-  erasure adapter from typed `ModelProvider` implementations. Move all call,
-  metadata, context-window, chaining, replay, cancellation, and availability
-  operations currently duplicated by `daemon::RuntimeModelProvider` onto that
-  provider surface; runtime and memory consume the same handle.
+- [ ] Define the provider-owned object-safe `ProviderOperations` trait,
+  `ProviderHandle = Arc<dyn ProviderOperations>`, and one
+  `erase_model_provider<T: ModelProvider + Debug + 'static>` adapter. Preserve
+  generation, streaming callback/lifetimes, token counting, context metadata,
+  continuations, tool capabilities, and default classification-model behavior.
+  Cancellation remains caller-owned by dropping/selecting the returned future,
+  and availability remains registry/account construction state unless a new
+  operation with explicit semantics is deliberately added. Test fakes implement
+  this contract without enabling concrete adapters.
 - [ ] Define `ProviderRegistryHandle` as the stable shared indirection used by
   runtime and memory. It registers ready provider instances under immutable
   `ProviderInstanceKey`s, returns a `ProviderInstanceLease` with a retirement
-  guard, marks an instance retiring, and removes it after leases drain. It does
-  not store default/agent/task/memory/audit/web-summary selections. A
+  guard, marks an instance retiring, and removes it after leases drain.
+  Registration under an existing stable key atomically replaces the current
+  entry with a new generation; retirement and final removal carry that entry's
+  generation/token and may remove only the same generation, never a replacement
+  registered under that key. It does not store
+  default/agent/task/memory/audit/web-summary selections. A
   `ProviderRouteLease` combines the repository-read
   `ProviderSelectionSnapshot` with the matching instance lease.
 - [ ] Keep `ProviderSelectionSnapshot`, `ProviderInstanceKey`, and
@@ -1087,6 +1146,10 @@ no concrete adapter or runtime erasure boundary has moved in this commit.
   snapshot. It implements `ProviderRouteResolver`, so Phase 8 can inject the
   stable handle unchanged; Phase 10C deletes the legacy implementation when
   production consumers adopt exact SQLite-backed resolver handles.
+- [ ] Run a no-residual-symbol scan for `RuntimeModelProvider` and a focused
+  `noema-core` test build after conversion; memory proxy, web-fetch
+  summarization, runtime turn/compaction/audit/task paths, eval support, and
+  daemon fakes all currently consume that symbol.
 
 **Checkpoint exit:** handle/registry/resolver contract tests are green, current
 runtime behavior uses the provider-owned call surface, and schema/hash output is
@@ -1095,22 +1158,38 @@ deferred to Phase 10C.
 
 ### Checkpoint 5C — Hosted Adapters, Account Service, And Swift Bridge
 
-- [ ] Expose a root-bound `ProviderAccountService` that owns provider account
-  homes, secret deletion, authentication files, catalog refresh/cache, and
-  provider diagnostics through the provider ports. GraphQL later receives this
-  handle instead of `NoemaPaths` or `SystemErrorLogger`.
+- [ ] Keep an always-compiled object-safe `ProviderAccountOperations` contract
+  and clonable handle. Behind `adapters`, expose the root-bound
+  `ProviderAccountService` implementation that owns provider account homes,
+  secret deletion, authentication files, catalog refresh/cache, and provider
+  diagnostics through the provider ports. GraphQL later receives only the
+  handle, never `NoemaPaths`, `SystemErrorLogger`, or the concrete service.
 - [ ] Move diagnostic categories with providers and use the logger from
   `noema-home`.
 - [ ] Move OpenAI, Codex, Responses-dialect, Foundation Local, and secret-input
   adapters.
+- [ ] Before moving the hosted Responses modules, extract a narrow
+  provider-owned shared response-support surface for the structured response
+  schema, stream decoder, and diagnostic context used by both hosted adapters
+  and the transitional core-owned local-model adapter. Relocate that local
+  adapter beneath core's local-model tree for the transition; do not copy the
+  helpers or expose all hosted internals. The support compiles under either
+  `adapters` or `local-models`, and `local-models` must not imply all hosted
+  adapters.
 - [ ] Move provider-backed web search/fetch implementations while leaving the
-  stable model-visible operations in capabilities.
+  stable model-visible operations in capabilities. Keep concrete
+  `SearchRuntimeProvider`, `WebFetchRuntimeProvider`, summarizer runtime context,
+  DNS resolution, checked socket addresses, and direct-HTTP policy enforcement
+  with provider adapters; only pure request/decision/limit contracts belong in
+  `noema-capabilities`.
 - [ ] Keep the existing local-model provider implementation temporarily beside
   the current local-model subsystem in core, implementing the external
   `noema-providers` contract.
 - [ ] Define the provider registry/factory API now, but keep its transitional
   local-model construction adapter in core until Phase 10.
-- [ ] Move provider tests without copying shared fakes back into core.
+- [ ] Move provider tests without copying shared fakes back into core. Rewrite
+  model-catalog tests that currently instantiate `NoemaStore` against a fake
+  provider persistence port, while retaining separate store adapter tests.
 - [ ] Update current config, store, runtime, and API modules to import provider
   types directly.
 - [ ] Move `apple-foundation-bridge/` and update the `noema_dev` Swift watcher,
@@ -1121,7 +1200,12 @@ deferred to Phase 10C.
   add the command to the macOS CI lane so the real moved `Package.swift` and
   `Sources` tree compile rather than relying on fake-process Rust tests.
 - [ ] Split the provider contract, Responses dialect, Foundation adapter, and
-  OAuth modules according to the source-file split gate.
+  OAuth modules according to the source-file split gate: contract request/input
+  and response/output/parser surfaces; Responses request/tool lowering,
+  response parsing, and streaming transport; OAuth config/token store/client
+  and device auth; Foundation lowering/adapter and bridge availability; bridge
+  build/discovery/process I/O. Record the current local-model adapter as an
+  explicit Phase-5 size exception and perform its final split in Phase 10B.
 
 **Acceptance:**
 
@@ -1134,10 +1218,12 @@ deferred to Phase 10C.
   without exposing a raw SQLite connection.
 - `RuntimeModelProvider` is deleted; provider registry, runtime, memory proxy,
   and provider test doubles all use the provider-owned handle.
-- Registry tests prove immutable instance registration, lease retention during
-  retirement, rejection of new leases after retirement begins, and process
-  cleanup after the final lease drains. A selected missing or unready instance
-  produces a typed availability error instead of silently falling back.
+- Registry tests prove generation-safe instance registration, lease retention
+  during retirement, rejection of new leases after retirement begins, and process
+  cleanup after the final lease drains. A paused old-generation retirement
+  racing a replacement registration proves the old guard cannot remove the new
+  entry. A selected missing or unready instance produces a typed availability
+  error instead of silently falling back.
   Selection freshness is tested at each repository-owning consumer rather than
   in the registry.
 - Resolver tests pause after a repository read, retire that instance, change
@@ -1151,6 +1237,9 @@ deferred to Phase 10C.
 - OpenAI/Codex request shapes, structured response parsing, tool lowering,
   streaming behavior, and catalog tests remain green.
 - Foundation Local still compiles on non-macOS targets without requiring Swift.
+- The contract-only provider graph contains no `reqwest`; `local-models` does
+  not enable hosted `adapters`, and each feature combination compiles in the
+  focused dependency-tree gate.
 
 **Suggested commits:**
 
