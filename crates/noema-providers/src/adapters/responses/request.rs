@@ -1,0 +1,192 @@
+//! Responses-compatible request construction and provider-profile lowering.
+
+use super::{
+    ResponsesInput, ResponsesInputShape, ResponsesTool, ResponsesToolChoice,
+    tools::{ResponsesToolNameMap, responses_tool_choice},
+};
+use crate::{
+    GenerateRequest, PromptCacheOptions, PromptCacheRetention, ProviderError, ReasoningEffort,
+    response_support::noema_response_text_format,
+};
+use serde::Serialize;
+use serde_json::Value;
+
+/// JSON request body sent to a Responses-compatible endpoint.
+#[derive(Debug, Clone, Serialize)]
+pub struct ResponsesRequest {
+    /// Model identifier to use for the response.
+    pub model: String,
+    /// User-visible input.
+    pub input: ResponsesInput,
+    /// Optional system/developer instructions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
+    /// Opaque id of the response whose provider-side context should be reused.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_response_id: Option<String>,
+    /// Optional maximum output token budget.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<u32>,
+    /// Optional sampling temperature.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
+    /// Optional Responses text controls such as JSON schema output format.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<Value>,
+    /// Optional explicit reasoning controls.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<ResponsesReasoning>,
+    /// Native Responses API tool definitions.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<ResponsesTool>,
+    /// Responses API tool-choice policy.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<ResponsesToolChoice>,
+    /// Whether parallel independent tool calls are allowed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parallel_tool_calls: Option<bool>,
+    /// Additional provider output fields to include in responses.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub include: Vec<&'static str>,
+    /// Provider prompt-cache key used to bind reusable prefixes to a conversation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_key: Option<String>,
+    /// Request-wide prompt-cache controls when supported by the profile.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_options: Option<PromptCacheOptions>,
+    /// Whether the upstream should store this response.
+    pub store: bool,
+    /// Provider prompt-cache retention request when supported.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_retention: Option<PromptCacheRetention>,
+    /// Whether the provider should return an SSE stream.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream: Option<bool>,
+}
+
+/// Provider-specific wire capabilities for a shared Responses request.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ResponsesRequestProfile {
+    input_shape: ResponsesInputShape,
+    forward_max_output_tokens: bool,
+    forward_prompt_cache_retention: bool,
+    forward_prompt_cache_options: bool,
+    forward_prompt_cache_breakpoints: bool,
+    allowed_tools: bool,
+    include_encrypted_reasoning: bool,
+    stream: bool,
+}
+
+pub(crate) const OPENAI_RESPONSES_PROFILE: ResponsesRequestProfile = ResponsesRequestProfile {
+    input_shape: ResponsesInputShape::String,
+    forward_max_output_tokens: true,
+    forward_prompt_cache_retention: true,
+    forward_prompt_cache_options: true,
+    forward_prompt_cache_breakpoints: true,
+    allowed_tools: true,
+    include_encrypted_reasoning: true,
+    stream: false,
+};
+
+pub(crate) const CODEX_RESPONSES_PROFILE: ResponsesRequestProfile = ResponsesRequestProfile {
+    input_shape: ResponsesInputShape::MessageArray,
+    forward_max_output_tokens: false,
+    forward_prompt_cache_retention: false,
+    forward_prompt_cache_options: false,
+    forward_prompt_cache_breakpoints: false,
+    allowed_tools: false,
+    include_encrypted_reasoning: false,
+    stream: true,
+};
+
+impl ResponsesRequest {
+    /// Lower one provider-neutral request according to a Responses wire profile.
+    pub(crate) fn from_generate(
+        request: &GenerateRequest,
+        model: String,
+        default_reasoning_effort: Option<ReasoningEffort>,
+        profile: ResponsesRequestProfile,
+    ) -> Result<(Self, ResponsesToolNameMap), ProviderError> {
+        if request.input.is_empty() {
+            return Err(ProviderError::InvalidRequest {
+                message: "input cannot be empty".to_string(),
+            });
+        }
+
+        let tool_names = ResponsesToolNameMap::from_tools(&request.tools)?;
+        let has_tools = !tool_names.tools.is_empty();
+        let body = Self {
+            model,
+            input: ResponsesInput::from_generate(
+                &request.input,
+                profile.input_shape,
+                request.options.previous_response_id.is_some(),
+                if profile.forward_prompt_cache_breakpoints {
+                    &request.options.prompt_cache_breakpoints
+                } else {
+                    &[]
+                },
+            )?,
+            instructions: request
+                .instructions
+                .as_deref()
+                .filter(|instructions| !instructions.trim().is_empty())
+                .map(ToString::to_string),
+            previous_response_id: request.options.previous_response_id.clone(),
+            max_output_tokens: profile
+                .forward_max_output_tokens
+                .then_some(request.options.max_output_tokens)
+                .flatten(),
+            temperature: request.options.temperature,
+            text: request
+                .options
+                .require_noema_response
+                .then(noema_response_text_format),
+            reasoning: request
+                .options
+                .reasoning_effort
+                .or(default_reasoning_effort)
+                .map(|effort| ResponsesReasoning { effort }),
+            tools: tool_names.tools.clone(),
+            tool_choice: responses_tool_choice(
+                &request.tool_choice,
+                &tool_names,
+                profile.allowed_tools,
+            )?,
+            parallel_tool_calls: has_tools.then_some(request.parallel_tool_calls),
+            include: if profile.include_encrypted_reasoning {
+                vec!["reasoning.encrypted_content"]
+            } else {
+                Vec::new()
+            },
+            prompt_cache_key: prompt_cache_key_from_conversation_id(
+                request.conversation_id.as_deref(),
+            ),
+            prompt_cache_options: profile
+                .forward_prompt_cache_options
+                .then_some(request.options.prompt_cache_options)
+                .flatten(),
+            store: request.options.store_response,
+            prompt_cache_retention: profile
+                .forward_prompt_cache_retention
+                .then_some(request.options.prompt_cache_retention)
+                .flatten(),
+            stream: profile.stream.then_some(true),
+        };
+        Ok((body, tool_names))
+    }
+}
+
+/// Responses API reasoning controls.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct ResponsesReasoning {
+    /// Reasoning effort requested from the provider.
+    pub effort: ReasoningEffort,
+}
+
+pub(crate) fn prompt_cache_key_from_conversation_id(
+    conversation_id: Option<&str>,
+) -> Option<String> {
+    let conversation_id = conversation_id?.trim();
+    (!conversation_id.is_empty()).then(|| conversation_id.to_string())
+}

@@ -7,7 +7,10 @@ use noema_capabilities::{
     CapabilityDispatchFailure, CapabilityError, CapabilityFuture, CapabilityInvocation,
     CapabilityInvoker, CapabilityOutput, CapabilityRegistryRouter, CapabilityRouter, InvokerKey,
 };
-use noema_providers::{DEFAULT_TOOL_CLASSIFICATION_MODEL, ProviderAccountStatus};
+use noema_providers::{
+    DEFAULT_TOOL_CLASSIFICATION_MODEL, EXA_FETCH_PROVIDER_ID, EXA_SEARCH_PROVIDER_ID,
+    ExaFetchClient, ExaSearchClient, ProviderAccountStatus, SecretInputStore,
+};
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 
@@ -41,7 +44,6 @@ use crate::web_fetch::{
 };
 use noema_capabilities::web::fetch::WEB_FETCH_TOOL;
 
-const EXA_API_BASE_URL: &str = "https://api.exa.ai";
 const PROVIDER_ACCOUNT_UNAUTHENTICATED: &str = "provider account unauthenticated";
 
 impl CodexRuntimeActor {
@@ -520,7 +522,7 @@ impl CodexRuntimeActor {
                 resolved.fallback_reason,
                 None,
             )),
-            crate::web_fetch::exa::EXA_FETCH_PROVIDER_ID => {
+            EXA_FETCH_PROVIDER_ID => {
                 let provider_account_id = resolved.provider_account_id.clone();
                 let api_key = match self
                     .load_provider_secret_api_key(&resolved.provider_kind, &resolved.account_key)
@@ -540,11 +542,9 @@ impl CodexRuntimeActor {
                     }
                 };
                 Ok((
-                    WebFetchRuntimeProvider::new(crate::web_fetch::exa::ExaFetchClient {
-                        base_url: EXA_API_BASE_URL.to_string(),
-                        api_key,
-                        http: reqwest::Client::new(),
-                    }),
+                    WebFetchRuntimeProvider::new(ExaFetchClient::new(api_key).map_err(|_| {
+                        "web.fetch Exa client could not be initialized".to_string()
+                    })?),
                     context,
                     resolved.fallback_from,
                     resolved.fallback_reason,
@@ -580,7 +580,7 @@ impl CodexRuntimeActor {
                 resolved.fallback_reason,
                 None,
             )),
-            crate::search::exa::EXA_SEARCH_PROVIDER_ID => {
+            EXA_SEARCH_PROVIDER_ID => {
                 let provider_account_id = resolved.provider_account_id.clone();
                 let api_key = match self
                     .load_provider_secret_api_key(&resolved.provider_kind, &resolved.account_key)
@@ -599,11 +599,9 @@ impl CodexRuntimeActor {
                     }
                 };
                 Ok((
-                    SearchRuntimeProvider::new(crate::search::exa::ExaSearchClient {
-                        base_url: EXA_API_BASE_URL.to_string(),
-                        api_key,
-                        http: reqwest::Client::new(),
-                    }),
+                    SearchRuntimeProvider::new(ExaSearchClient::new(api_key).map_err(|_| {
+                        "web.search Exa client could not be initialized".to_string()
+                    })?),
                     resolved.fallback_from,
                     resolved.fallback_reason,
                     Some(provider_account_id),
@@ -620,11 +618,9 @@ impl CodexRuntimeActor {
         provider_kind: &str,
         account_key: &str,
     ) -> Result<String, ()> {
-        crate::provider::secret_input::SecretInputStore::new(
-            self.store.provider_account_home(provider_kind, account_key),
-        )
-        .load_api_key()
-        .map_err(|_| ())
+        SecretInputStore::new(self.store.provider_account_home(provider_kind, account_key))
+            .load_api_key()
+            .map_err(|_| ())
     }
 
     async fn mark_provider_account_unauthenticated(&self, provider_account_id: &str) {
@@ -1282,7 +1278,7 @@ mod tests {
             .await
             .expect("web fetch context");
         let markdown = format!("{}\n", "Long page paragraph.".repeat(600));
-        let summary = crate::web_fetch::summarize::summarize_markdown(
+        let summary = noema_providers::summarize_markdown(
             &context,
             "https://example.com/page",
             Some("Example Page"),

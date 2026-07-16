@@ -429,7 +429,7 @@ fn auxiliary_cases(model_id: &str) -> Vec<EvalCase> {
             critical: true,
             request: plain_request(
                 model_id,
-                crate::web_fetch::summarize::summarizer_prompt(
+                noema_providers::web_fetch_summarizer_prompt(
                     "https://example.invalid/flight-note",
                     Some("Flight note"),
                     web_markdown,

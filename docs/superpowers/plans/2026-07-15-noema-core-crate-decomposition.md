@@ -1250,9 +1250,9 @@ deferred to Phase 10C.
   per-account gate so runtime provider calls cannot observe the transient side
   of a compensated change; do not hold that gate during remote polling or
   catalog HTTP.
-- [ ] Move diagnostic categories with providers and use the logger from
+- [x] Move diagnostic categories with providers and use the logger from
   `noema-home`.
-- [ ] Move OpenAI, Codex, Responses-dialect, Foundation Local, and secret-input
+- [x] Move OpenAI, Codex, Responses-dialect, Foundation Local, and secret-input
   adapters.
 - [x] Before moving the hosted Responses modules, extract a narrow
   provider-owned shared response-support surface for the structured response
@@ -1273,7 +1273,7 @@ deferred to Phase 10C.
   security split: Direct HTTP alone performs local DNS resolution, address
   pinning, and redirect revalidation, while Exa applies the pure public-URL
   policy because the remote service performs its own resolution.
-- [ ] Move provider-backed web search/fetch implementations while leaving the
+- [x] Move provider-backed web search/fetch implementations while leaving the
   stable model-visible operations in capabilities. Keep concrete adapters, DNS
   resolution, checked socket addresses, and direct-HTTP policy enforcement with
   provider adapters.
@@ -1282,27 +1282,27 @@ deferred to Phase 10C.
   `noema-providers` contract.
 - [ ] Define the provider registry/factory API now, but keep its transitional
   local-model construction adapter in core until Phase 10.
-- [ ] Move provider tests without copying shared fakes back into core. Rewrite
+- [x] Move provider tests without copying shared fakes back into core. Rewrite
   model-catalog tests that currently instantiate `NoemaStore` against a fake
   provider persistence port, while retaining separate store adapter tests.
   Replace dependency-local `#[cfg(test)]` static search/fetch enum variants
   with always-compiled object-safe backend handles or Phase-4 capability
   invoker fakes; test-only variants in a dependency are not available to core's
   tests, and a product `test-support` feature is not an acceptable workaround.
-- [ ] Update current config, store, runtime, and API modules to import provider
+- [x] Update current config, store, runtime, and API modules to import provider
   types directly.
-- [ ] Move `apple-foundation-bridge/` and update the `noema_dev` Swift watcher,
+- [x] Move `apple-foundation-bridge/` and update the `noema_dev` Swift watcher,
   source builder, hard-coded path tests, CI paths, and ignores in this same
   integration window.
-- [ ] Treat packaged Foundation Local availability as a separate distribution
+- [x] Treat packaged Foundation Local availability as a separate distribution
   claim: either bundle and validate the bridge from the macOS app layout in this
   checkpoint, or record the existing packaging gap as deferred and limit 5C's
   claim to source-tree development discovery plus Swift package compilation.
-- [ ] On macOS, run
+- [x] On macOS, run
   `swift build --package-path crates/noema-providers/apple-foundation-bridge`;
   add the command to the macOS CI lane so the real moved `Package.swift` and
   `Sources` tree compile rather than relying on fake-process Rust tests.
-- [ ] Split the provider contract, Responses dialect, Foundation adapter, and
+- [x] Split the provider contract, Responses dialect, Foundation adapter, and
   OAuth modules according to the source-file split gate: contract request/input
   and response/output/parser surfaces; Responses request/tool lowering,
   response parsing, and streaming transport; OAuth config/token store/client

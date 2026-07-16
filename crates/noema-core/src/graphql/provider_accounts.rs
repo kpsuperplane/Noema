@@ -1,14 +1,11 @@
 use async_graphql::{InputObject, Result, SimpleObject};
 use noema_providers::{
-    DEFAULT_FOUNDATION_LOCAL_PROFILE, FoundationLocalProviderConfig, NewProviderAccount,
-    ProviderAccountPersistence, ProviderAccountRecord, ProviderAccountStatus,
-    ProviderAccountStatusUpdate, ProviderAuthMethod, ProviderCapability,
-    UpdateProviderAccountRequest,
+    DEFAULT_FOUNDATION_LOCAL_PROFILE, FoundationBridgeError, FoundationLocalProvider,
+    FoundationLocalProviderConfig, NewProviderAccount, ProviderAccountPersistence,
+    ProviderAccountRecord, ProviderAccountStatus, ProviderAccountStatusUpdate, ProviderAuthMethod,
+    ProviderCapability, SecretInputStore, UpdateProviderAccountRequest,
 };
 
-use crate::{
-    FoundationLocalProvider, provider::adapters::foundation_bridge_process::FoundationBridgeError,
-};
 use noema_capabilities::ResultPersistencePolicy;
 
 use super::{
@@ -223,7 +220,7 @@ pub(super) async fn clear_provider_secret(
     let store = state.store()?;
     let account = secret_input_account(state, &input.provider_account_id).await?;
     let paths = state.paths()?;
-    let secret_store = crate::provider::secret_input::SecretInputStore::new(
+    let secret_store = SecretInputStore::new(
         paths.provider_account_home(&account.provider_kind, &account.account_key),
     );
     secret_store
@@ -284,7 +281,7 @@ async fn save_secret_for_account(
 ) -> Result<GraphqlProviderAccount> {
     let store = state.store()?;
     let paths = state.paths()?;
-    let secret_store = crate::provider::secret_input::SecretInputStore::new(
+    let secret_store = SecretInputStore::new(
         paths.provider_account_home(&account.provider_kind, &account.account_key),
     );
     secret_store

@@ -236,7 +236,7 @@ impl GraphqlState {
             .record_artifact_download_failure(operation);
     }
 
-    pub(crate) fn provider_auth(&self) -> Result<&crate::provider::auth::ProviderAuthManager> {
+    pub(crate) fn provider_auth(&self) -> Result<&noema_providers::ProviderAuthManager> {
         self.runtime_state.provider_auth()
     }
 

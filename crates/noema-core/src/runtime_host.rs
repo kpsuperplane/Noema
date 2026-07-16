@@ -4,7 +4,6 @@ use crate::{
     DEFAULT_NOEMA_CONFIG_YAML, DaemonError, NoemaStore, StoreConfig,
     daemon::{CodexRuntimeHandle, LegacyProviderRoutes, TaskRuntimeHandle},
     mcp::McpOAuthSetupManager,
-    provider::auth::ProviderAuthManager,
 };
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -14,8 +13,9 @@ use noema_home::{
 };
 use noema_providers::{
     DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS, DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
-    DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS, DEFAULT_TOOL_CLASSIFICATION_MODEL, ProviderConfig,
-    ProviderRouteError, ProviderSelectionSnapshot, erase_model_provider, provider_selection_loader,
+    DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS, DEFAULT_TOOL_CLASSIFICATION_MODEL, ProviderAuthManager,
+    ProviderConfig, ProviderRouteError, ProviderSelectionSnapshot, erase_model_provider,
+    provider_selection_loader,
 };
 use ring::rand::{SecureRandom, SystemRandom};
 use std::path::PathBuf;

@@ -641,10 +641,9 @@ The next storage slice should stay small and concrete:
   nearby submodules with root files acting as stable facades.
 - Memory service configuration lives in SQLite store modules, while live
   service status is queried through Noema core as a proxy to Mnemosyne and local
-  Mnemosyne owns durable memory behavior. Provider-neutral contracts,
-  account metadata, and auth support live under `provider`, while concrete
-  adapters and response stream helpers live under `provider::adapters`; the old
-  top-level `providers` module has been retired.
+  Mnemosyne owns durable memory behavior. Provider-neutral contracts, account
+  metadata, response support, and concrete hosted adapters now live in
+  `noema-providers`; core's former `provider` module has been retired.
 - `crates/noema-core/web/tests` has been removed; web validation should use
   `bun run lint`, `bun run build`, and local browser smoke checks.
 - Agent memory reads are explicit `search_memory` tool-only calls. Noema
@@ -708,7 +707,7 @@ The next storage slice should stay small and concrete:
   extraction model preference.
 - Apple Foundation Models local-provider implementation is in active bridge
   integration shape: the Swift bridge lives under
-  `crates/noema-core/apple-foundation-bridge`, Rust provider account/runtime
+  `crates/noema-providers/apple-foundation-bridge`, Rust provider account/runtime
   plumbing records `foundation_local` as a provider kind, the web dashboard
   exposes per-agent provider/model selection, and the daemon resolves saved
   agent provider preference at conversation/turn time without restart. The
@@ -887,6 +886,21 @@ The next storage slice should stay small and concrete:
   move the concrete DuckDuckGo, Exa, direct-HTTP, extraction, and summarization
   implementations into `noema-providers` alongside their shared HTTP test
   support.
+  That concrete adapter move is now complete. OpenAI, Codex, the shared
+  Responses dialect, Codex OAuth/catalog support, Foundation Local, secret-input
+  storage, DuckDuckGo, Exa, direct HTTP, readability extraction, and web
+  summarization all compile behind `noema-providers/adapters`; core imports the
+  provider package directly and no longer has a `provider` module or concrete
+  web backend modules. The former provider hotspots are split below 750 lines,
+  catalog tests use a fake persistence port instead of `NoemaStore`, and the
+  shared HTTP fake lives once with the provider tests. The Swift package now
+  lives under `crates/noema-providers/apple-foundation-bridge`; the dev watcher
+  and macOS CI compile that real package. This establishes source-tree
+  Foundation discovery and compilation only. Bundling the bridge into the
+  packaged macOS app remains a deferred distribution claim. Direct HTTP
+  disables environment proxies so its validated DNS pin remains authoritative;
+  Exa owns its production endpoint and bounded transport policy inside the
+  provider crate.
 
 - The bounded remediation program completed Phase 2 at `92,157` maintained
   source lines (`-1,767` from its baseline). Axum/tower-sessions now own the

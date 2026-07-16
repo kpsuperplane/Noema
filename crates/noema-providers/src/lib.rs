@@ -1,7 +1,11 @@
-//! Provider-neutral contracts, configuration, and durable provider vocabulary.
+//! Provider contracts, durable vocabulary, and optional concrete adapters.
 //!
-//! Concrete HTTP adapters and local inference implementations intentionally
-//! live outside this crate. Its default feature set remains transport-free.
+//! The default feature set remains transport-free. Hosted, Foundation, and web
+//! adapters compile only with the `adapters` feature.
+
+/// Concrete provider adapters and provider-owned integration services.
+#[cfg(feature = "adapters")]
+pub mod adapters;
 
 /// Object-safe provider account orchestration contracts.
 pub mod account_operations;
@@ -44,6 +48,18 @@ pub use accounts::{
     CodexDeviceAuthRequest, NewProviderAccount, ProviderAccountCatalogEntry, ProviderAccountRecord,
     ProviderAccountStatus, ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderAuthMethod,
     provider_account_catalog, system_provider_accounts,
+};
+#[cfg(feature = "adapters")]
+pub use adapters::{
+    CodexOAuthClient, CodexResponsesProvider, CodexTokenStore, DirectHttpClient,
+    DuckDuckGoSearchBackend, EXA_EXTRACTION, EXA_FETCH_PROVIDER_ID, EXA_SEARCH_CONTRACT,
+    EXA_SEARCH_PROVIDER_ID, ExaFetchClient, ExaSearchClient,
+    FOUNDATION_LOCAL_COMPACT_SUMMARY_TARGET_TOKENS, FOUNDATION_LOCAL_CONTEXT_WINDOW_TOKENS,
+    FOUNDATION_LOCAL_DEFAULT_OUTPUT_RESERVE_TOKENS, FOUNDATION_LOCAL_PROVIDER,
+    FoundationBridgeError, FoundationLocalProvider, OpenAiProvider, ProviderAuthManager,
+    SecretInputStore, default_web_fetch_backend, default_web_search_backend,
+    ensure_provider_account_home, refresh_provider_model_profiles, summarize_markdown,
+    web_fetch_summarizer_prompt,
 };
 pub use capabilities::{
     ProviderCapability, ProviderCapabilityAssignment, ProviderCapabilityStatus,

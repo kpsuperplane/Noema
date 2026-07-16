@@ -1,16 +1,14 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
-use crate::{
-    FoundationLocalProvider, LocalModelsProvider, NoemaStore, OpenAiProvider,
-    provider::adapters::codex_responses::CodexResponsesProvider,
-};
+use crate::{LocalModelsProvider, NoemaStore};
 use noema_home::{NoemaPaths, SystemErrorLogger};
 #[cfg(test)]
 use noema_providers::ProviderError;
 use noema_providers::{
-    CodexProviderConfig, DEFAULT_FOUNDATION_LOCAL_PROFILE, FoundationLocalProviderConfig,
-    GenerateRequest, GenerateResponse, LocalModelsProviderConfig, ProviderConfig, ProviderHandle,
-    ProviderKind, ProviderSelectionSnapshot, erase_model_provider,
+    CodexProviderConfig, CodexResponsesProvider, DEFAULT_FOUNDATION_LOCAL_PROFILE,
+    FoundationLocalProvider, FoundationLocalProviderConfig, GenerateRequest, GenerateResponse,
+    LocalModelsProviderConfig, OpenAiProvider, ProviderConfig, ProviderHandle, ProviderKind,
+    ProviderSelectionSnapshot, erase_model_provider,
 };
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
@@ -556,7 +554,7 @@ fn codex_provider_config(
 ) -> Result<CodexProviderConfig, DaemonError> {
     let paths = NoemaPaths::from_process_env()?;
     let account_home = paths.provider_account_home("codex", "default");
-    crate::provider::auth::ensure_provider_account_home(&account_home)?;
+    noema_providers::ensure_provider_account_home(&account_home)?;
     apply_provider_account_home(&mut codex_config, &account_home);
     codex_config.system_errors = Some(system_errors);
     Ok(codex_config)

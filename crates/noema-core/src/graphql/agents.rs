@@ -4,13 +4,12 @@ use async_graphql::{Enum, InputObject, Result, SimpleObject};
 use noema_providers::{
     DEFAULT_FOUNDATION_LOCAL_PROFILE, DEFAULT_TOOL_CLASSIFICATION_MODEL,
     LocalModelInstallationRecord, LocalModelInstallationStatus, ProviderAccountRecord,
-    ProviderAccountStatus, ProviderModelProfile, ReasoningEffort,
+    ProviderAccountStatus, ProviderModelProfile, ReasoningEffort, refresh_provider_model_profiles,
 };
 use serde_json::Value;
 
 use crate::{
     AgentRecord, AgentRuntimePreferenceRecord, NewAgentRuntimePreference, TASK_EXECUTOR_AGENT_ID,
-    provider::model_catalog::refresh_provider_model_profiles,
 };
 
 use super::{errors::graphql_error, schema::GraphqlState};

@@ -6,11 +6,11 @@ use noema_conversations::{ConversationItemKind, ConversationItemRecord, Conversa
 use std::{future::Future, pin::Pin, time::Duration};
 
 use crate::TurnTranscriptItem;
-use crate::provider::adapters::codex_oauth::CodexTokenStore;
 use noema_providers::{
-    CodexDeviceAuthRequest, CodexOAuthTokens, NewProviderAccount, ProviderAccountPersistence,
-    ProviderAccountRecord, ProviderAccountStatusUpdate, ProviderAuthAttemptStatus,
-    ProviderAuthAttemptView, ProviderPersistenceFuture, UpdateProviderAccountRequest,
+    CodexDeviceAuthRequest, CodexOAuthTokens, CodexTokenStore, NewProviderAccount,
+    ProviderAccountPersistence, ProviderAccountRecord, ProviderAccountStatusUpdate,
+    ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderPersistenceFuture,
+    UpdateProviderAccountRequest,
 };
 use serde_json::json;
 

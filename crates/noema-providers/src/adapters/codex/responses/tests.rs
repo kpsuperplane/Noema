@@ -1,0 +1,539 @@
+use super::*;
+use crate::adapters::test_support::spawn_server;
+use crate::{
+    CodexOAuthTokens, GenerateInput, GenerateOptions, GenerateResponseStatus, NoemaToolChoice,
+    ProviderToolSchemaDialect, ProviderToolTransport,
+    response_support::SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE,
+};
+use noema_capabilities::ToolSpec;
+use serde_json::Value;
+use tempfile::TempDir;
+
+fn read_system_error_events(path: &std::path::Path) -> Vec<Value> {
+    std::fs::read_to_string(path)
+        .expect("system error log")
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("system error event"))
+        .collect()
+}
+
+#[test]
+fn rejects_missing_account_home() {
+    let error = CodexResponsesProvider::new(CodexProviderConfig {
+        account_home: None,
+        ..CodexProviderConfig::default()
+    })
+    .unwrap_err();
+
+    assert!(matches!(error, ProviderError::InvalidRequest { .. }));
+}
+
+#[test]
+fn rejects_credential_bearing_base_url() {
+    let dir = TempDir::new().expect("temp dir");
+    let error = CodexResponsesProvider::new(CodexProviderConfig {
+        base_url: "https://user:password@example.test/codex?token=secret".to_string(),
+        account_home: Some(dir.path().join("providers/codex/default")),
+        ..CodexProviderConfig::default()
+    })
+    .unwrap_err();
+
+    assert!(matches!(error, ProviderError::InvalidRequest { .. }));
+    assert!(!error.to_string().contains("password"));
+    assert!(!error.to_string().contains("token=secret"));
+}
+
+#[test]
+fn accepts_noema_owned_token_store() {
+    let dir = TempDir::new().expect("temp dir");
+    let account_home = dir.path().join("providers/codex/default");
+    let provider = CodexResponsesProvider::new(CodexProviderConfig {
+        account_home: Some(account_home.clone()),
+        ..CodexProviderConfig::default()
+    })
+    .expect("provider");
+
+    provider
+        .token_store()
+        .write(&CodexOAuthTokens {
+            access_token: "access".to_string(),
+            refresh_token: "refresh".to_string(),
+            last_refresh: 123,
+        })
+        .expect("write token");
+
+    assert!(provider.token_store().has_usable_tokens());
+}
+
+#[test]
+fn provider_debug_redacts_account_and_oauth_configuration() {
+    let dir = TempDir::new().expect("temp dir");
+    let provider = CodexResponsesProvider::new(CodexProviderConfig {
+        account_home: Some(dir.path().join("private-codex-account")),
+        oauth: crate::CodexOAuthConfig {
+            client_id: "codex-oauth-client-secret".to_string(),
+            ..crate::CodexOAuthConfig::default()
+        },
+        ..CodexProviderConfig::default()
+    })
+    .expect("provider");
+
+    let debug = format!("{provider:?}");
+    assert!(!debug.contains("private-codex-account"));
+    assert!(!debug.contains("codex-oauth-client-secret"));
+    assert!(debug.contains("[REDACTED]"));
+    assert!(debug.contains("[REDACTED URL]"));
+}
+
+#[test]
+fn default_tool_classification_model_is_gpt_5_4_mini() {
+    let dir = TempDir::new().expect("temp dir");
+    let account_home = dir.path().join("providers/codex/default");
+    let provider = CodexResponsesProvider::new(CodexProviderConfig {
+        account_home: Some(account_home),
+        ..CodexProviderConfig::default()
+    })
+    .expect("provider");
+
+    assert_eq!(
+        provider.default_tool_classification_model().as_deref(),
+        Some(DEFAULT_TOOL_CLASSIFICATION_MODEL)
+    );
+}
+
+#[test]
+fn configured_tool_classification_model_overrides_provider_default() {
+    let dir = TempDir::new().expect("temp dir");
+    let account_home = dir.path().join("providers/codex/default");
+    let provider = CodexResponsesProvider::new(CodexProviderConfig {
+        account_home: Some(account_home),
+        tool_classification_model: Some("custom-tool-classifier".to_string()),
+        ..CodexProviderConfig::default()
+    })
+    .expect("provider");
+
+    assert_eq!(
+        provider.default_tool_classification_model().as_deref(),
+        Some("custom-tool-classifier")
+    );
+}
+
+#[test]
+fn advertises_codex_responses_native_tool_capabilities() {
+    let dir = TempDir::new().expect("temp dir");
+    let account_home = dir.path().join("providers/codex/default");
+    let provider = CodexResponsesProvider::new(CodexProviderConfig {
+        account_home: Some(account_home),
+        ..CodexProviderConfig::default()
+    })
+    .expect("provider");
+
+    let capabilities = provider.tool_capabilities(Some("gpt-test"));
+    let continuation = provider.response_continuation(Some("gpt-test"));
+
+    assert_eq!(capabilities.tool_transport, ProviderToolTransport::Native);
+    assert!(capabilities.parallel_tool_calls);
+    assert!(capabilities.tool_choice);
+    assert!(capabilities.native_tool_results);
+    assert!(capabilities.prompt_cache_key);
+    assert!(!capabilities.prompt_cache_retention);
+    assert_eq!(
+        capabilities.encrypted_reasoning,
+        codex_encrypted_reasoning_supported()
+    );
+    assert_eq!(
+        capabilities.schema_dialect,
+        ProviderToolSchemaDialect::OpenAiResponses
+    );
+    assert_eq!(
+        continuation,
+        ProviderResponseContinuation::PreviousResponseId {
+            store_response: false
+        }
+    );
+}
+
+#[tokio::test]
+async fn sends_codex_input_as_response_message_list() {
+    let (base_url, request_rx) = spawn_server(
+            200,
+            "event: response.output_text.delta\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hel\"}\n\
+             \n\
+             event: response.output_text.delta\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"lo\"}\n\
+             \n\
+             event: response.completed\n\
+             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\",\"usage\":{\"input_tokens\":2,\"output_tokens\":1,\"total_tokens\":3}}}\n\
+             \n",
+        )
+        .await;
+    let (provider, _dir) = provider_with_tokens(base_url);
+
+    let response = provider
+        .generate(GenerateRequest::text("Hello?"))
+        .await
+        .expect("response");
+
+    let captured = request_rx.await.expect("captured request");
+    assert_eq!(captured.method, "POST");
+    assert_eq!(captured.path, "/responses");
+    assert_eq!(
+        captured.headers.get("authorization"),
+        Some(&format!("Bearer {}", test_access_token()))
+    );
+    assert_eq!(
+        captured
+            .headers
+            .get("chatgpt-account-id")
+            .map(String::as_str),
+        Some("workspace-test")
+    );
+    assert_eq!(
+        captured.headers.get("originator").map(String::as_str),
+        Some(CODEX_ORIGINATOR)
+    );
+    assert_eq!(
+        captured.headers.get("version").map(String::as_str),
+        Some("0.144.0")
+    );
+    assert_eq!(
+        captured.headers.get("user-agent").map(String::as_str),
+        Some("codex_cli_rs/0.144.0 (Noema)")
+    );
+    assert_eq!(
+        captured.headers.get("accept").map(String::as_str),
+        Some("text/event-stream")
+    );
+    let body: Value = serde_json::from_str(&captured.body).expect("json body");
+    assert_eq!(body["model"], "gpt-test");
+    assert_eq!(body["input"][0]["role"], "user");
+    assert_eq!(body["input"][0]["content"], "Hello?");
+    assert_eq!(body["stream"], true);
+    assert_eq!(body["store"], false);
+    assert!(body.get("tools").is_none());
+    assert!(body.get("tool_choice").is_none());
+    assert!(body.get("parallel_tool_calls").is_none());
+
+    assert_eq!(response.assistant_text(), "Hello");
+}
+
+#[tokio::test]
+async fn codex_request_sends_native_tool_specs_with_provider_safe_names() {
+    let response_body = "event: response.completed\n\
+             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\",\"output\":[{\"type\":\"function_call\",\"id\":\"item_1\",\"call_id\":\"call_1\",\"name\":\"mcp_x2e_docs_x3a_read\",\"arguments\":\"{\\\"document_id\\\":\\\"doc_1\\\"}\"}]}}\n\
+             \n";
+    let (base_url, request_rx) = spawn_server(200, response_body).await;
+    let (provider, _dir) = provider_with_tokens(base_url);
+
+    let response = provider
+        .generate(GenerateRequest {
+            conversation_id: None,
+            model: Some("gpt-test".to_string()),
+            input: GenerateInput::Text("Read it".to_string()),
+            instructions: None,
+            options: GenerateOptions {
+                require_noema_response: true,
+                ..GenerateOptions::default()
+            },
+            tools: vec![mcp_docs_read_tool()],
+            tool_choice: NoemaToolChoice::Required,
+            parallel_tool_calls: true,
+        })
+        .await
+        .expect("response");
+
+    let captured = request_rx.await.expect("captured request");
+    let body: Value = serde_json::from_str(&captured.body).expect("json body");
+    assert_eq!(body["tools"][0]["name"], "mcp_x2e_docs_x3a_read");
+    assert_eq!(body["tool_choice"], "required");
+    assert_eq!(body["parallel_tool_calls"], true);
+    assert_eq!(response.response_status, GenerateResponseStatus::NeedsTools);
+    assert_eq!(response.tool_calls[0].name, "mcp.docs:read");
+}
+
+#[tokio::test]
+async fn codex_sse_mixed_streamed_text_and_function_call_returns_needs_tools() {
+    let response_body = "event: response.output_text.delta\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"{\\\"response_status\\\":\\\"needs_tools\\\",\\\"responses\\\":[{\\\"kind\\\":\\\"text\\\",\\\"phase\\\":\\\"commentary\\\",\\\"text\\\":\\\"Checking.\\\"}],\\\"tool_calls\\\":[]}\"}\n\
+             \n\
+             event: response.output_item.done\n\
+             data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"id\":\"item_1\",\"call_id\":\"call_1\",\"name\":\"search_memory\",\"arguments\":\"{\\\"query\\\":\\\"trains\\\"}\"}}\n\
+             \n\
+             event: response.completed\n\
+             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\",\"output\":null}}\n\
+             \n";
+    let (base_url, _request_rx) = spawn_server(200, response_body).await;
+    let (provider, _dir) = provider_with_tokens(base_url);
+
+    let response = provider
+        .generate(GenerateRequest {
+            options: GenerateOptions {
+                require_noema_response: true,
+                ..GenerateOptions::default()
+            },
+            tools: vec![search_memory_tool()],
+            ..GenerateRequest::text("Search memory")
+        })
+        .await
+        .expect("response");
+
+    assert_eq!(response.response_status, GenerateResponseStatus::NeedsTools);
+    assert_eq!(response.assistant_text(), "Checking.");
+    assert_eq!(response.tool_calls.len(), 1);
+    assert_eq!(response.tool_calls[0].id.as_deref(), Some("item_1"));
+    assert_eq!(
+        response.tool_calls[0].provider_call_id.as_deref(),
+        Some("call_1")
+    );
+    assert_eq!(response.tool_calls[0].name, "search_memory");
+    assert_eq!(response.tool_calls[0].payload["query"], "trains");
+}
+
+#[tokio::test]
+async fn codex_parses_encrypted_reasoning_items_when_returned() {
+    let (base_url, _request_rx) = spawn_server(
+            200,
+            "event: response.completed\n\
+             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\",\"output\":[{\"type\":\"reasoning\",\"id\":\"rs_1\",\"encrypted_content\":\"opaque-codex-reasoning\"},{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"Done\"}]}]}}\n\
+             \n",
+        )
+        .await;
+    let (provider, _dir) = provider_with_tokens(base_url);
+
+    let response = provider
+        .generate(GenerateRequest::text("Hello?"))
+        .await
+        .expect("response");
+
+    assert_eq!(response.assistant_text(), "Done");
+    assert_eq!(response.reasoning_items.len(), 1);
+    assert_eq!(
+        response.reasoning_items[0].encrypted_content.as_deref(),
+        Some("opaque-codex-reasoning")
+    );
+}
+
+#[tokio::test]
+async fn forwards_codex_streaming_text_deltas() {
+    let (base_url, request_rx) = spawn_server(
+            200,
+            "event: response.output_text.delta\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hel\"}\n\
+             \n\
+             event: response.output_text.delta\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"lo\"}\n\
+             \n\
+             event: response.completed\n\
+             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\"}}\n\
+             \n",
+        )
+        .await;
+    let (provider, _dir) = provider_with_tokens(base_url);
+
+    let mut events = Vec::new();
+    let response = provider
+        .generate_streaming(GenerateRequest::text("Hello?"), &mut |event| {
+            events.push(event);
+        })
+        .await
+        .expect("response");
+
+    let captured = request_rx.await.expect("captured request");
+    let body: Value = serde_json::from_str(&captured.body).expect("json body");
+    assert!(body.get("text").is_none());
+
+    assert_eq!(response.assistant_text(), "Hello");
+    assert_eq!(
+        events,
+        vec![
+            GenerateStreamEvent::AssistantTextDelta {
+                response_index: 0,
+                delta: "Hel".to_string()
+            },
+            GenerateStreamEvent::AssistantTextDelta {
+                response_index: 0,
+                delta: "lo".to_string()
+            }
+        ]
+    );
+}
+
+#[tokio::test]
+async fn generate_streaming_required_noema_response_emits_only_assistant_text_deltas() {
+    let response_body = format!(
+        "{}{}{}",
+        sse_delta(
+            r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Hel"#
+        ),
+        sse_delta(r#"lo"}],"tool_calls":[]}"#),
+        sse_completed(),
+    );
+    let (base_url, request_rx) = spawn_server(200, response_body).await;
+    let (provider, _dir) = provider_with_tokens(base_url);
+
+    let request = GenerateRequest {
+        options: GenerateOptions {
+            require_noema_response: true,
+            ..GenerateOptions::default()
+        },
+        ..GenerateRequest::text("Hello?")
+    };
+    let mut events = Vec::new();
+    let response = provider
+        .generate_streaming(request, &mut |event| {
+            events.push(event);
+        })
+        .await
+        .expect("response");
+
+    let captured = request_rx.await.expect("captured request");
+    let body: Value = serde_json::from_str(&captured.body).expect("json body");
+    assert_eq!(body["text"]["format"]["type"], "json_schema");
+    assert_eq!(body["text"]["format"]["name"], "noema_response");
+    assert_eq!(
+        body["text"]["format"]["schema"]["properties"]["response_status"]["enum"][1],
+        "final"
+    );
+
+    assert_eq!(response.assistant_text(), "Hello");
+    assert_eq!(
+        events,
+        vec![
+            GenerateStreamEvent::AssistantTextDelta {
+                response_index: 0,
+                delta: "Hel".to_string()
+            },
+            GenerateStreamEvent::AssistantTextDelta {
+                response_index: 0,
+                delta: "lo".to_string()
+            }
+        ]
+    );
+}
+
+#[tokio::test]
+async fn logs_required_noema_response_parse_failure() {
+    let response_body = "event: response.output_text.delta\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"{\\\"output\\\":[]}\"}\n\
+             \n\
+             event: response.completed\n\
+             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_bad\",\"model\":\"gpt-test\",\"status\":\"completed\"}}\n\
+             \n";
+    let (base_url, _request_rx) = spawn_server(200, response_body).await;
+    let dir = TempDir::new().expect("temp dir");
+    let logger = SystemErrorLogger::new(dir.path().join("errors.log"));
+    let (mut provider, _tokens_dir) = provider_with_tokens(base_url);
+    provider.system_errors = Some(logger.clone());
+
+    let error = provider
+        .generate(GenerateRequest {
+            conversation_id: Some("conversation:test".to_string()),
+            model: Some("gpt-test".to_string()),
+            input: GenerateInput::Text("hello".to_string()),
+            instructions: None,
+            options: GenerateOptions {
+                require_noema_response: true,
+                ..GenerateOptions::default()
+            },
+            tools: Vec::new(),
+            tool_choice: Default::default(),
+            parallel_tool_calls: false,
+        })
+        .await
+        .expect_err("malformed response");
+
+    assert!(matches!(error, ProviderError::MalformedResponse { .. }));
+    let events = read_system_error_events(logger.path());
+    assert_eq!(events.len(), 1);
+    assert_eq!(
+        events[0]["category"],
+        SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE
+    );
+    assert_eq!(events[0]["context"]["conversation_id"], "conversation:test");
+    assert_eq!(events[0]["raw"]["provider_text"], "{\"output\":[]}");
+}
+
+fn provider_with_tokens(base_url: String) -> (CodexResponsesProvider, TempDir) {
+    let dir = TempDir::new().expect("temp dir");
+    let account_home = dir.path().join("providers/codex/default");
+    let provider = CodexResponsesProvider::new(CodexProviderConfig {
+        base_url,
+        default_model: Some("gpt-test".to_string()),
+        client_version: Some("0.144.0".to_string()),
+        account_home: Some(account_home.clone()),
+        ..CodexProviderConfig::default()
+    })
+    .expect("provider");
+    provider
+        .token_store()
+        .write(&CodexOAuthTokens {
+            access_token: test_access_token(),
+            refresh_token: "refresh".to_string(),
+            last_refresh: 123,
+        })
+        .expect("write token");
+    (provider, dir)
+}
+
+fn test_access_token() -> String {
+    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+
+    let claims = URL_SAFE_NO_PAD.encode(
+        serde_json::json!({
+            "https://api.openai.com/auth": {
+                "chatgpt_account_id": "workspace-test"
+            },
+            "exp": 4_102_444_800_u64
+        })
+        .to_string(),
+    );
+    format!("header.{claims}.signature")
+}
+
+fn sse_delta(delta: &str) -> String {
+    format!(
+        "event: response.output_text.delta\n\
+             data: {}\n\
+             \n",
+        serde_json::json!({
+            "type": "response.output_text.delta",
+            "delta": delta,
+        })
+    )
+}
+
+fn sse_completed() -> String {
+    "event: response.completed\n\
+         data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-test\",\"status\":\"completed\"}}\n\
+        \n"
+        .to_string()
+}
+
+fn mcp_docs_read_tool() -> ToolSpec {
+    ToolSpec::new(
+        "mcp.docs:read",
+        "Read docs.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {"document_id": {"type": "string"}},
+            "required": ["document_id"],
+            "additionalProperties": false
+        }),
+    )
+    .expect("tool")
+}
+
+fn search_memory_tool() -> ToolSpec {
+    ToolSpec::new(
+        "search_memory",
+        "Search memory.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+            "additionalProperties": false
+        }),
+    )
+    .expect("tool")
+}

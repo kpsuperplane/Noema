@@ -16,7 +16,9 @@ adapters = [
     "dep:base64",
     "dep:futures-util",
     "dep:reqwest",
+    "dep:readabilityrs",
     "dep:ring",
+    "dep:scraper",
     "dep:tokio",
     "dep:url",
 ]
@@ -29,7 +31,9 @@ futures-util = { workspace = true, optional = true }
 noema-capabilities = { path = "../noema-capabilities", default-features = false }
 noema-home = { path = "../noema-home", default-features = false }
 reqwest = { workspace = true, features = ["stream"], optional = true }
+readabilityrs = { workspace = true, optional = true }
 ring = { workspace = true, optional = true }
+scraper = { workspace = true, optional = true }
 serde.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
 thiserror.workspace = true

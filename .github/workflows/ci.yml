@@ -27,6 +27,7 @@ jobs:
         with:
           bun-version: 1.3.14
       - run: cargo fetch --locked
+      - run: swift build --package-path crates/noema-providers/apple-foundation-bridge
       - run: bun test scripts/*.test.ts
       - run: bun run scripts/check-crate-boundaries.ts
       - run: bun run scripts/check-focused-dependency-trees.ts
@@ -42,6 +43,12 @@ jobs:
           --sqlite-schema-shape target/noema-core-decomposition-ci/sqlite-schema-shape.jsonl
       - run: cargo fmt --all --check
       - run: cargo check --workspace
+      - run: cargo check -p noema-providers --no-default-features --all-targets
+      - run: >-
+          cargo check -p noema-providers
+          --no-default-features
+          --features local-models
+          --all-targets
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace --no-fail-fast
       - run: bun run scripts/verify-rust-test-inventory.ts

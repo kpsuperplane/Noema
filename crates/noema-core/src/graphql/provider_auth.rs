@@ -2,16 +2,13 @@ use std::{future::Future, pin::Pin, time::Duration};
 
 use noema_home::NoemaPaths;
 use noema_providers::{
-    CodexDeviceAuthRequest, CodexOAuthConfig, ProviderAccountPersistence,
+    CodexDeviceAuthRequest, CodexOAuthConfig, CodexTokenStore, ProviderAccountPersistence,
     ProviderAccountStatusUpdate, ProviderAuthAttemptStatus, ProviderAuthAttemptView,
-    ProviderPersistenceError, UpdateProviderAccountRequest,
+    ProviderAuthManager, ProviderPersistenceError, UpdateProviderAccountRequest,
 };
 use thiserror::Error;
 
-use crate::{
-    NoemaStore,
-    provider::{adapters::codex_oauth::CodexTokenStore, auth::ProviderAuthManager},
-};
+use crate::NoemaStore;
 
 use crate::DaemonError;
 

@@ -30,10 +30,8 @@ noema-home = { path = "../noema-home" }
 noema-providers = { path = "../noema-providers", default-features = false, features = ["adapters", "local-models"] }
 ring.workspace = true
 reqwest = { workspace = true, features = ["stream"] }
-readabilityrs.workspace = true
 rmcp.workspace = true
 rusqlite.workspace = true
-scraper.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sysinfo = { workspace = true, optional = true }

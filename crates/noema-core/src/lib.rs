@@ -24,8 +24,6 @@ pub mod memory_model_proxy;
 pub mod mnemosyne;
 /// Onboarding status derived from provider account readiness.
 pub mod onboarding;
-/// Concrete provider adapters, authentication support, and catalog refresh.
-pub mod provider;
 /// Shared runtime host for daemon and desktop client surfaces.
 pub mod runtime_host;
 /// First-party governed web search capability.
@@ -68,10 +66,6 @@ pub use mnemosyne::{
 pub use onboarding::{
     OnboardingStatus, OnboardingStep, OnboardingStepStatus, onboarding_status_from_account,
     onboarding_status_from_options,
-};
-pub use provider::adapters::{
-    codex_responses::CodexResponsesProvider, foundation_local::FoundationLocalProvider,
-    openai::OpenAiProvider,
 };
 pub use runtime_host::{NoemaRuntimeHost, RuntimeHostError};
 pub use store::{

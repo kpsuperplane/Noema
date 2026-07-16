@@ -220,7 +220,7 @@ fn foundation_bridge_watcher_enabled() -> bool {
 }
 
 fn foundation_bridge_package_dir(repo_root: &Path) -> PathBuf {
-    repo_root.join("crates/noema-core/apple-foundation-bridge")
+    repo_root.join("crates/noema-providers/apple-foundation-bridge")
 }
 
 fn foundation_bridge_watch_args(package_dir: &Path) -> Vec<String> {
@@ -674,16 +674,16 @@ mod tests {
     fn foundation_bridge_watcher_uses_swift_package_sources() {
         assert_eq!(
             foundation_bridge_package_dir(Path::new("/workspace")),
-            PathBuf::from("/workspace/crates/noema-core/apple-foundation-bridge")
+            PathBuf::from("/workspace/crates/noema-providers/apple-foundation-bridge")
         );
         assert_eq!(
             foundation_bridge_watch_args(Path::new(
-                "/workspace/crates/noema-core/apple-foundation-bridge"
+                "/workspace/crates/noema-providers/apple-foundation-bridge"
             )),
             vec![
                 "watch",
                 "-C",
-                "/workspace/crates/noema-core/apple-foundation-bridge",
+                "/workspace/crates/noema-providers/apple-foundation-bridge",
                 "-w",
                 "Package.swift",
                 "-w",

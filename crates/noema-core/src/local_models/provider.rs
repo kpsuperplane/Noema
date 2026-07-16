@@ -13,14 +13,13 @@ use noema_providers::{
     GenerateInput, GenerateInputItem, GenerateMessageRole, GenerateRequest, GenerateResponse,
     GenerateResponseStatus, GenerateStreamEvent, LocalModelsProviderConfig, ModelProvider,
     ParsedNoemaResponse, ProviderContextMetadata, ProviderError, ProviderToolCapabilities,
-    ProviderToolTransport, TokenUsage, output_items_from_text, required_noema_response_from_text,
+    ProviderToolTransport, ProviderTransportContext, ProviderTransportKind, TokenUsage,
+    output_items_from_text, required_noema_response_from_text,
     response_support::{
         NoemaAssistantTextDeltaExtractor, StructuredResponseDiagnosticContext,
         noema_response_text_format,
     },
 };
-
-use crate::provider::adapters::reqwest_transport_error;
 
 /// Stable provider identifier for first-party local GGUF inference.
 pub const LOCAL_MODELS_PROVIDER: &str = "local_models";
@@ -28,6 +27,46 @@ pub const LOCAL_MODELS_PROVIDER: &str = "local_models";
 pub const LOCAL_MODELS_DEFAULT_OUTPUT_RESERVE_TOKENS: u32 = 1_024;
 /// Default compact-summary target for local models.
 pub const LOCAL_MODELS_COMPACT_SUMMARY_TARGET_TOKENS: u32 = 768;
+
+fn reqwest_transport_error(
+    provider: &str,
+    operation: &'static str,
+    source: &reqwest::Error,
+) -> ProviderError {
+    let kind = if source.is_timeout() {
+        ProviderTransportKind::Timeout
+    } else if source.is_connect() {
+        ProviderTransportKind::Connection
+    } else if source.is_builder() {
+        ProviderTransportKind::Configuration
+    } else if source.is_request() || source.is_body() {
+        ProviderTransportKind::Request
+    } else if source.is_decode() {
+        ProviderTransportKind::Response
+    } else {
+        ProviderTransportKind::Unknown
+    };
+    let message = match kind {
+        ProviderTransportKind::Configuration => "transport configuration failed",
+        ProviderTransportKind::Connection => "connection failed",
+        ProviderTransportKind::Timeout => "transport operation timed out",
+        ProviderTransportKind::Request => "request transport failed",
+        ProviderTransportKind::Response => "response transport failed",
+        ProviderTransportKind::Protocol => "transport protocol failed",
+        ProviderTransportKind::Unknown => "transport operation failed",
+    };
+
+    ProviderError::TransportFailure {
+        provider: provider.to_string(),
+        kind,
+        message: message.to_string(),
+        context: ProviderTransportContext {
+            operation: operation.to_string(),
+            status_code: source.status().map(|status| status.as_u16()),
+            request_id: None,
+        },
+    }
+}
 
 /// Local model provider facade that preserves Noema's provider-neutral contracts.
 #[derive(Clone)]
