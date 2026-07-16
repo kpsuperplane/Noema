@@ -7,6 +7,12 @@ use noema_capabilities::{
 };
 use serde_json::{Value, json};
 
+#[derive(Debug)]
+pub enum FetchExecutionError {
+    InvalidArguments(String),
+    Backend(FetchError),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WebFetchToolResult {
     pub call_id: Option<String>,
@@ -51,36 +57,61 @@ async fn execute_web_fetch_inner(
     provider: &WebFetchRuntimeProvider,
     context: &FetchRuntimeContext,
     payload: &Value,
-) -> Result<FetchResponse, FetchError> {
+) -> Result<FetchResponse, FetchExecutionError> {
     let request = parse_web_fetch_arguments(payload)?;
-    provider.fetch(&request, context).await
+    provider
+        .fetch(&request, context)
+        .await
+        .map_err(FetchExecutionError::Backend)
 }
 
-pub fn parse_web_fetch_arguments(payload: &Value) -> Result<FetchRequest, FetchError> {
+pub fn parse_web_fetch_arguments(payload: &Value) -> Result<FetchRequest, FetchExecutionError> {
     noema_capabilities::web::fetch::parse_arguments(payload)
-        .map_err(|error| FetchError::InvalidArguments(error.message().to_string()))
+        .map_err(|error| FetchExecutionError::InvalidArguments(error.message().to_string()))
 }
 
 #[must_use]
-pub fn safe_error_message(error: &FetchError) -> String {
+pub fn safe_error_message(error: &FetchExecutionError) -> String {
     match error {
-        FetchError::InvalidArguments(message) => message.clone(),
-        FetchError::UnsupportedScheme => {
+        FetchExecutionError::InvalidArguments(message) => message.clone(),
+        FetchExecutionError::Backend(FetchError::UnsupportedScheme) => {
             "only public http and https URLs are supported".to_string()
         }
-        FetchError::MalformedUrl => "url could not be parsed".to_string(),
-        FetchError::BlockedTarget => "private, internal, or local URLs are blocked".to_string(),
-        FetchError::Dns => "DNS lookup failed".to_string(),
-        FetchError::RedirectBlocked => "redirect target is private, internal, or local".to_string(),
-        FetchError::TooManyRedirects => "too many redirects".to_string(),
-        FetchError::Timeout => "web fetch request timed out".to_string(),
-        FetchError::Http => "web fetch request failed".to_string(),
-        FetchError::AuthFailed => "provider account unauthenticated".to_string(),
-        FetchError::UnsupportedContentType => "content type is not supported".to_string(),
-        FetchError::ResponseTooLarge => "response exceeded the web fetch size limit".to_string(),
-        FetchError::Extraction => "readable page content could not be extracted".to_string(),
-        FetchError::Summarization => "page summarization failed".to_string(),
-        FetchError::PageTooLarge => "page is too large to summarize responsibly".to_string(),
+        FetchExecutionError::Backend(FetchError::MalformedUrl) => {
+            "url could not be parsed".to_string()
+        }
+        FetchExecutionError::Backend(FetchError::BlockedTarget) => {
+            "private, internal, or local URLs are blocked".to_string()
+        }
+        FetchExecutionError::Backend(FetchError::Dns) => "DNS lookup failed".to_string(),
+        FetchExecutionError::Backend(FetchError::RedirectBlocked) => {
+            "redirect target is private, internal, or local".to_string()
+        }
+        FetchExecutionError::Backend(FetchError::TooManyRedirects) => {
+            "too many redirects".to_string()
+        }
+        FetchExecutionError::Backend(FetchError::Timeout) => {
+            "web fetch request timed out".to_string()
+        }
+        FetchExecutionError::Backend(FetchError::Http) => "web fetch request failed".to_string(),
+        FetchExecutionError::Backend(FetchError::AuthFailed) => {
+            "provider account unauthenticated".to_string()
+        }
+        FetchExecutionError::Backend(FetchError::UnsupportedContentType) => {
+            "content type is not supported".to_string()
+        }
+        FetchExecutionError::Backend(FetchError::ResponseTooLarge) => {
+            "response exceeded the web fetch size limit".to_string()
+        }
+        FetchExecutionError::Backend(FetchError::Extraction) => {
+            "readable page content could not be extracted".to_string()
+        }
+        FetchExecutionError::Backend(FetchError::Summarization) => {
+            "page summarization failed".to_string()
+        }
+        FetchExecutionError::Backend(FetchError::PageTooLarge) => {
+            "page is too large to summarize responsibly".to_string()
+        }
     }
 }
 

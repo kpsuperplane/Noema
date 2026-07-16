@@ -49,6 +49,24 @@ impl DirectHttpClient {
     }
 }
 
+impl noema_providers::WebFetchBackend for DirectHttpClient {
+    fn backend_id(&self) -> &str {
+        DIRECT_HTTP_PROVIDER_ID
+    }
+
+    fn fetch<'a>(
+        &'a self,
+        request: &'a FetchRequest,
+        context: &'a FetchRuntimeContext,
+    ) -> noema_providers::WebOperationFuture<'a, FetchResponse, FetchError> {
+        Box::pin(fetch_direct_http(self, request, context))
+    }
+}
+
+pub(crate) fn default_runtime_provider() -> noema_providers::WebFetchBackendHandle {
+    noema_providers::WebFetchBackendHandle::new(DirectHttpClient::default())
+}
+
 pub async fn fetch_direct_http(
     client: &DirectHttpClient,
     request: &FetchRequest,
@@ -491,7 +509,6 @@ mod tests {
 
     fn test_context() -> FetchRuntimeContext {
         FetchRuntimeContext {
-            summarizer_provider_kind: "codex".to_string(),
             summarizer_route: crate::test_support::provider_route(
                 noema_providers::ProviderSelectionSnapshot::explicit(
                     "codex",

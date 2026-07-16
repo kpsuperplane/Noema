@@ -877,8 +877,16 @@ The next storage slice should stay small and concrete:
   errors are also established without transport dependencies. Fetch
   summarization context now has a provider-owned contract, while the pure size
   thresholds, strategy decision, and raw-excerpt limit live with the stable
-  `noema-capabilities` fetch contract. Core's closed backend enums are the next
-  5C seam to remove.
+  `noema-capabilities` fetch contract. Core's closed backend enums and
+  dependency-local static test variants are now removed: runtime selection uses
+  redacted provider-owned handles, core tests install local object-safe fakes,
+  and stable backend IDs preserve fallback assertions without exposing concrete
+  types. Direct HTTP retains local DNS resolution, address pinning, and redirect
+  revalidation, while Exa performs only pure public-URL validation before
+  delegating resolution to its remote service. The remaining web slice is to
+  move the concrete DuckDuckGo, Exa, direct-HTTP, extraction, and summarization
+  implementations into `noema-providers` alongside their shared HTTP test
+  support.
 
 - The bounded remediation program completed Phase 2 at `92,157` maintained
   source lines (`-1,767` from its baseline). Axum/tower-sessions now own the

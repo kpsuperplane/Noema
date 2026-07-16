@@ -72,6 +72,9 @@ pub enum WebFetchError {
 
 /// Object-safe provider backend for the first-party `web.fetch` capability.
 pub trait WebFetchBackend: Send + Sync {
+    /// Stable provider backend identifier.
+    fn backend_id(&self) -> &str;
+
     /// Execute one validated fetch request.
     fn fetch<'a>(
         &'a self,
@@ -95,6 +98,12 @@ impl WebFetchBackendHandle {
     #[must_use]
     pub fn from_arc(backend: Arc<dyn WebFetchBackend>) -> Self {
         Self(backend)
+    }
+
+    /// Return the stable provider backend identifier.
+    #[must_use]
+    pub fn backend_id(&self) -> &str {
+        self.0.backend_id()
     }
 
     /// Execute one validated fetch request.
@@ -127,6 +136,10 @@ mod tests {
     struct FailingFetch;
 
     impl WebFetchBackend for FailingFetch {
+        fn backend_id(&self) -> &str {
+            "failing"
+        }
+
         fn fetch<'a>(
             &'a self,
             _request: &'a FetchRequest,
@@ -144,5 +157,6 @@ mod tests {
             format!("{handle:?}"),
             "WebFetchBackendHandle(\"[CONFIGURED]\")",
         );
+        assert_eq!(handle.backend_id(), "failing");
     }
 }

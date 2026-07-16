@@ -7,6 +7,12 @@ use noema_capabilities::{
 };
 use serde_json::{Value, json};
 
+#[derive(Debug)]
+pub(crate) enum SearchExecutionError {
+    InvalidArguments(String),
+    Backend(SearchError),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WebSearchToolResult {
     pub call_id: Option<String>,
@@ -50,26 +56,39 @@ pub(crate) async fn execute_web_search(
 async fn execute_web_search_inner(
     provider: &SearchRuntimeProvider,
     payload: &Value,
-) -> Result<SearchResponse, SearchError> {
+) -> Result<SearchResponse, SearchExecutionError> {
     let request = parse_web_search_arguments(payload)?;
-    provider.search(&request).await
+    provider
+        .search(&request)
+        .await
+        .map_err(SearchExecutionError::Backend)
 }
 
-pub(crate) fn parse_web_search_arguments(payload: &Value) -> Result<SearchRequest, SearchError> {
+pub(crate) fn parse_web_search_arguments(
+    payload: &Value,
+) -> Result<SearchRequest, SearchExecutionError> {
     noema_capabilities::web::search::parse_arguments(payload)
-        .map_err(|error| SearchError::InvalidArguments(error.message().to_string()))
+        .map_err(|error| SearchExecutionError::InvalidArguments(error.message().to_string()))
 }
 
-pub(crate) fn safe_error_message(error: &SearchError) -> String {
+pub(crate) fn safe_error_message(error: &SearchExecutionError) -> String {
     match error {
-        SearchError::InvalidArguments(message) => message.clone(),
-        SearchError::Timeout => "search request timed out".to_string(),
-        SearchError::RateLimited => {
+        SearchExecutionError::InvalidArguments(message) => message.clone(),
+        SearchExecutionError::Backend(SearchError::Timeout) => {
+            "search request timed out".to_string()
+        }
+        SearchExecutionError::Backend(SearchError::RateLimited) => {
             "search provider rate limited or blocked the request".to_string()
         }
-        SearchError::AuthFailed => "provider account unauthenticated".to_string(),
-        SearchError::Http => "search provider request failed".to_string(),
-        SearchError::Parse => "search provider response could not be parsed".to_string(),
+        SearchExecutionError::Backend(SearchError::AuthFailed) => {
+            "provider account unauthenticated".to_string()
+        }
+        SearchExecutionError::Backend(SearchError::Http) => {
+            "search provider request failed".to_string()
+        }
+        SearchExecutionError::Backend(SearchError::Parse) => {
+            "search provider response could not be parsed".to_string()
+        }
     }
 }
 

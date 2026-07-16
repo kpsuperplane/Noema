@@ -2,36 +2,11 @@
 
 use noema_providers::GenerateRequest;
 
-use crate::web_fetch::types::{
-    CHUNKED_SUMMARY_LIMIT_CHARS, FetchError, FetchRuntimeContext, RAW_EXCERPT_CHARS,
-    RAW_MARKDOWN_LIMIT_CHARS, SINGLE_PASS_SUMMARY_LIMIT_CHARS,
-};
+use crate::web_fetch::types::{FetchError, FetchRuntimeContext};
 use noema_capabilities::web::fetch::FetchSummaryStrategy;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SummaryDecision {
-    Raw,
-    Summarize(FetchSummaryStrategy),
-    Refuse,
-}
-
-#[must_use]
-pub fn summary_strategy_for_chars(chars: usize) -> SummaryDecision {
-    if chars <= RAW_MARKDOWN_LIMIT_CHARS {
-        SummaryDecision::Raw
-    } else if chars <= SINGLE_PASS_SUMMARY_LIMIT_CHARS {
-        SummaryDecision::Summarize(FetchSummaryStrategy::SinglePass)
-    } else if chars <= CHUNKED_SUMMARY_LIMIT_CHARS {
-        SummaryDecision::Summarize(FetchSummaryStrategy::Chunked)
-    } else {
-        SummaryDecision::Refuse
-    }
-}
-
-#[must_use]
-pub fn raw_excerpt(markdown: &str) -> String {
-    markdown.chars().take(RAW_EXCERPT_CHARS).collect()
-}
+pub use noema_capabilities::web::fetch::{
+    FetchSummaryDecision as SummaryDecision, raw_excerpt, summary_strategy_for_chars,
+};
 
 pub async fn summarize_markdown(
     context: &FetchRuntimeContext,
@@ -215,7 +190,6 @@ mod tests {
     async fn summarizer_request_includes_context_reasoning_effort() {
         let requests = Arc::new(Mutex::new(Vec::new()));
         let context = FetchRuntimeContext {
-            summarizer_provider_kind: "codex".to_string(),
             summarizer_route: crate::test_support::provider_route(
                 noema_providers::ProviderSelectionSnapshot::explicit(
                     "codex",

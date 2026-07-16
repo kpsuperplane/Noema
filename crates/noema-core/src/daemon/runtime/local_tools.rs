@@ -466,7 +466,6 @@ impl CodexRuntimeActor {
                 })?,
             );
             return Ok(FetchRuntimeContext {
-                summarizer_provider_kind: preference.provider_kind,
                 summarizer_route,
                 summarizer_model: preference.model_profile,
                 summarizer_reasoning_effort: preference.reasoning_effort,
@@ -488,7 +487,6 @@ impl CodexRuntimeActor {
             })?,
         );
         Ok(FetchRuntimeContext {
-            summarizer_provider_kind: self.default_provider_kind.clone(),
             summarizer_route,
             summarizer_model: DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string(),
             summarizer_reasoning_effort: None,
@@ -542,13 +540,11 @@ impl CodexRuntimeActor {
                     }
                 };
                 Ok((
-                    WebFetchRuntimeProvider::Exa {
-                        client: crate::web_fetch::exa::ExaFetchClient {
-                            base_url: EXA_API_BASE_URL.to_string(),
-                            api_key,
-                            http: reqwest::Client::new(),
-                        },
-                    },
+                    WebFetchRuntimeProvider::new(crate::web_fetch::exa::ExaFetchClient {
+                        base_url: EXA_API_BASE_URL.to_string(),
+                        api_key,
+                        http: reqwest::Client::new(),
+                    }),
                     context,
                     resolved.fallback_from,
                     resolved.fallback_reason,
@@ -603,13 +599,11 @@ impl CodexRuntimeActor {
                     }
                 };
                 Ok((
-                    SearchRuntimeProvider::Exa {
-                        client: crate::search::exa::ExaSearchClient {
-                            base_url: EXA_API_BASE_URL.to_string(),
-                            api_key,
-                            http: reqwest::Client::new(),
-                        },
-                    },
+                    SearchRuntimeProvider::new(crate::search::exa::ExaSearchClient {
+                        base_url: EXA_API_BASE_URL.to_string(),
+                        api_key,
+                        http: reqwest::Client::new(),
+                    }),
                     resolved.fallback_from,
                     resolved.fallback_reason,
                     Some(provider_account_id),
@@ -1167,7 +1161,10 @@ mod tests {
             .await
             .expect("web fetch context");
 
-        assert_eq!(context.summarizer_provider_kind, "foundation_local");
+        assert_eq!(
+            context.summarizer_route.selection().provider_kind,
+            "foundation_local",
+        );
         assert_eq!(context.summarizer_model, "custom-fetch-summary");
         assert_eq!(
             context.generation_priority,
@@ -1340,10 +1337,10 @@ mod tests {
             .await
             .expect("provider");
 
-        assert!(matches!(
-            provider,
-            crate::search::types::SearchRuntimeProvider::DuckDuckGoPublic { .. }
-        ));
+        assert_eq!(
+            provider.backend_id(),
+            crate::search::types::DUCKDUCKGO_PUBLIC_PROVIDER_ID,
+        );
         assert_eq!(
             fallback_from.as_deref(),
             Some("provider_account:exa:acct_research")
@@ -1390,10 +1387,10 @@ mod tests {
             .await
             .expect("context");
 
-        assert!(matches!(
-            provider,
-            crate::web_fetch::types::WebFetchRuntimeProvider::DirectHttp { .. }
-        ));
+        assert_eq!(
+            provider.backend_id(),
+            crate::web_fetch::types::DIRECT_HTTP_PROVIDER_ID,
+        );
         assert_eq!(
             fallback_from.as_deref(),
             Some("provider_account:exa:acct_research")

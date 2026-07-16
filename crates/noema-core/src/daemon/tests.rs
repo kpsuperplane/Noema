@@ -7,7 +7,9 @@ use noema_providers::{
     GenerateReasoningItem, GenerateRequest, GenerateResponse, GenerateResponseItem,
     GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall, MultipleChoiceOption,
     MultipleChoiceSelectionMode, ProviderError, ProviderResponseContinuation,
-    ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport,
+    ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport, WebFetchBackend,
+    WebFetchBackendHandle, WebFetchContext, WebFetchError, WebOperationFuture, WebSearchBackend,
+    WebSearchBackendHandle, WebSearchError,
 };
 use serde_json::{Value, json};
 use std::{
@@ -36,6 +38,71 @@ fn read_system_error_events(path: &Path) -> Vec<Value> {
 const RESTART_CONTEXT_TEST_PHASE_ENV: &str = "NOEMA_RESTART_CONTEXT_TEST_PHASE";
 const RESTART_CONTEXT_TEST_HOME_ENV: &str = "NOEMA_RESTART_CONTEXT_TEST_HOME";
 const RESTART_CONTEXT_TEST_CONVERSATION_FILE: &str = "restart_context_conversation_id";
+
+#[derive(Debug, Clone)]
+struct StaticWebSearchBackend {
+    response: noema_capabilities::web::search::SearchResponse,
+}
+
+impl WebSearchBackend for StaticWebSearchBackend {
+    fn backend_id(&self) -> &str {
+        &self.response.provider
+    }
+
+    fn search<'a>(
+        &'a self,
+        request: &'a noema_capabilities::web::search::SearchRequest,
+    ) -> WebOperationFuture<'a, noema_capabilities::web::search::SearchResponse, WebSearchError>
+    {
+        Box::pin(async move {
+            let mut response = self.response.clone();
+            response.query = request.query.clone();
+            response.results.truncate(request.max_results);
+            response.summary = match response.results.len() {
+                0 => "No web results found".to_string(),
+                1 => "Found 1 web result".to_string(),
+                count => format!("Found {count} web results"),
+            };
+            Ok(response)
+        })
+    }
+}
+
+fn static_web_search_backend(
+    response: noema_capabilities::web::search::SearchResponse,
+) -> WebSearchBackendHandle {
+    WebSearchBackendHandle::new(StaticWebSearchBackend { response })
+}
+
+#[derive(Debug, Clone)]
+struct StaticWebFetchBackend {
+    response: noema_capabilities::web::fetch::FetchResponse,
+}
+
+impl WebFetchBackend for StaticWebFetchBackend {
+    fn backend_id(&self) -> &str {
+        &self.response.provider
+    }
+
+    fn fetch<'a>(
+        &'a self,
+        request: &'a noema_capabilities::web::fetch::FetchRequest,
+        _context: &'a WebFetchContext,
+    ) -> WebOperationFuture<'a, noema_capabilities::web::fetch::FetchResponse, WebFetchError> {
+        Box::pin(async move {
+            let mut response = self.response.clone();
+            response.url = request.url.clone();
+            response.returned_chars = response.content.chars().count();
+            Ok(response)
+        })
+    }
+}
+
+fn static_web_fetch_backend(
+    response: noema_capabilities::web::fetch::FetchResponse,
+) -> WebFetchBackendHandle {
+    WebFetchBackendHandle::new(StaticWebFetchBackend { response })
+}
 
 #[derive(Debug, Clone)]
 enum GenerateOutputItem {
@@ -3505,8 +3572,8 @@ async fn search_memory_returns_sanitized_mnemosyne_failure() {
 
 #[tokio::test]
 async fn runtime_actor_executes_web_search_as_local_tool_result() {
-    let search_provider = crate::search::types::SearchRuntimeProvider::Static {
-        response: noema_capabilities::web::search::SearchResponse {
+    let search_provider =
+        static_web_search_backend(noema_capabilities::web::search::SearchResponse {
             provider: "duckduckgo_public".to_string(),
             provider_contract: "best_effort_public".to_string(),
             query: String::new(),
@@ -3517,8 +3584,7 @@ async fn runtime_actor_executes_web_search_as_local_tool_result() {
                 url: "https://www.rust-lang.org/".to_string(),
                 snippet: "A language empowering everyone to build reliable software.".to_string(),
             }],
-        },
-    };
+        });
     let (handle, store) = test_runtime_handle_with_search_provider(
         Arc::new(fake_provider(FakeCodexScenario::NativeWebSearch)),
         search_provider,
@@ -3777,8 +3843,8 @@ async fn rejected_response_chain_falls_back_to_complete_local_replay() {
 
 #[tokio::test]
 async fn web_search_result_is_sent_as_native_tool_result_input() {
-    let search_provider = crate::search::types::SearchRuntimeProvider::Static {
-        response: noema_capabilities::web::search::SearchResponse {
+    let search_provider =
+        static_web_search_backend(noema_capabilities::web::search::SearchResponse {
             provider: "duckduckgo_public".to_string(),
             provider_contract: "best_effort_public".to_string(),
             query: String::new(),
@@ -3789,8 +3855,7 @@ async fn web_search_result_is_sent_as_native_tool_result_input() {
                 url: "https://www.rust-lang.org/".to_string(),
                 snippet: "A language empowering everyone to build reliable software.".to_string(),
             }],
-        },
-    };
+        });
     let provider = Arc::new(
         RecordingFakeProvider::new("codex", FakeCodexScenario::NativeWebSearchContinuation)
             .with_tool_capabilities(ProviderToolCapabilities {
@@ -3848,9 +3913,7 @@ async fn native_provider_can_call_web_fetch_and_continue() {
         summary_strategy: noema_capabilities::web::fetch::FetchSummaryStrategy::NotSummarized,
         truncated: false,
     };
-    let web_fetch_provider = crate::web_fetch::types::WebFetchRuntimeProvider::Static {
-        response: Box::new(fetch_response),
-    };
+    let web_fetch_provider = static_web_fetch_backend(fetch_response);
     let provider = Arc::new(
         RecordingFakeProvider::new("codex", FakeCodexScenario::NativeWebFetchContinuation)
             .with_tool_capabilities(ProviderToolCapabilities {
@@ -4089,15 +4152,13 @@ async fn hard_ceiling_gets_one_no_tools_finalization_attempt() {
     ));
     let (handle, store) = test_runtime_handle_with_search_provider(
         provider.clone(),
-        crate::search::types::SearchRuntimeProvider::Static {
-            response: noema_capabilities::web::search::SearchResponse {
-                provider: "test".to_string(),
-                provider_contract: "test".to_string(),
-                query: "restaurants".to_string(),
-                summary: "Found 1 test result".to_string(),
-                results: vec![],
-            },
-        },
+        static_web_search_backend(noema_capabilities::web::search::SearchResponse {
+            provider: "test".to_string(),
+            provider_contract: "test".to_string(),
+            query: "restaurants".to_string(),
+            summary: "Found 1 test result".to_string(),
+            results: vec![],
+        }),
     )
     .await;
     store.ensure_default_actors().await.expect("actors");
@@ -4153,15 +4214,13 @@ async fn audit_execution_failure_gets_one_no_tools_finalization_attempt() {
     ));
     let (handle, store) = test_runtime_handle_with_search_provider(
         provider.clone(),
-        crate::search::types::SearchRuntimeProvider::Static {
-            response: noema_capabilities::web::search::SearchResponse {
-                provider: "test".to_string(),
-                provider_contract: "test".to_string(),
-                query: "restaurants".to_string(),
-                summary: "Found 1 test result".to_string(),
-                results: vec![],
-            },
-        },
+        static_web_search_backend(noema_capabilities::web::search::SearchResponse {
+            provider: "test".to_string(),
+            provider_contract: "test".to_string(),
+            query: "restaurants".to_string(),
+            summary: "Found 1 test result".to_string(),
+            results: vec![],
+        }),
     )
     .await;
     let codex = store
@@ -5039,7 +5098,7 @@ async fn spawn_runtime_with_memory_provider(
 
 async fn test_runtime_handle_with_search_provider(
     provider: noema_providers::ProviderHandle,
-    search_provider: crate::search::types::SearchRuntimeProvider,
+    search_provider: WebSearchBackendHandle,
 ) -> (CodexRuntimeHandle, crate::NoemaStore) {
     let home = tempfile::tempdir().expect("temp noema home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
@@ -5203,17 +5262,16 @@ async fn wait_for_memory_observation_requests(server: &FakeMemoryServer, minimum
 
 async fn test_runtime_handle_with_search_and_fetch_providers(
     provider: noema_providers::ProviderHandle,
-    web_fetch_provider: crate::web_fetch::types::WebFetchRuntimeProvider,
+    web_fetch_provider: WebFetchBackendHandle,
 ) -> (CodexRuntimeHandle, crate::NoemaStore) {
-    let search_provider = crate::search::types::SearchRuntimeProvider::Static {
-        response: noema_capabilities::web::search::SearchResponse {
+    let search_provider =
+        static_web_search_backend(noema_capabilities::web::search::SearchResponse {
             provider: "duckduckgo_public".to_string(),
             provider_contract: "best_effort_public".to_string(),
             query: String::new(),
             summary: "Found 0 web results".to_string(),
             results: Vec::new(),
-        },
-    };
+        });
     let home = tempfile::tempdir().expect("temp noema home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
     let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))

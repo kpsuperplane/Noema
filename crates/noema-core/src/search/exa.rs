@@ -27,6 +27,19 @@ impl fmt::Debug for ExaSearchClient {
     }
 }
 
+impl noema_providers::WebSearchBackend for ExaSearchClient {
+    fn backend_id(&self) -> &str {
+        EXA_SEARCH_PROVIDER_ID
+    }
+
+    fn search<'a>(
+        &'a self,
+        request: &'a SearchRequest,
+    ) -> noema_providers::WebOperationFuture<'a, SearchResponse, SearchError> {
+        Box::pin(search_exa(self, request))
+    }
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ExaSearchRequest<'a> {
@@ -172,11 +185,16 @@ mod tests {
             api_key: "exa-search-secret".to_string(),
             http: reqwest::Client::new(),
         };
-        let runtime = crate::search::types::SearchRuntimeProvider::Exa { client };
-        let debug = format!("{runtime:?}");
+        let debug = format!("{client:?}");
 
         assert!(!debug.contains("exa-search-secret"));
         assert!(debug.contains("[REDACTED]"));
+
+        let runtime = noema_providers::WebSearchBackendHandle::new(client);
+        assert_eq!(
+            format!("{runtime:?}"),
+            "WebSearchBackendHandle(\"[CONFIGURED]\")"
+        );
     }
 
     #[tokio::test]

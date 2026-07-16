@@ -31,6 +31,9 @@ pub enum WebSearchError {
 
 /// Object-safe provider backend for the first-party `web.search` capability.
 pub trait WebSearchBackend: Send + Sync {
+    /// Stable provider backend identifier.
+    fn backend_id(&self) -> &str;
+
     /// Execute one validated search request.
     fn search<'a>(
         &'a self,
@@ -53,6 +56,12 @@ impl WebSearchBackendHandle {
     #[must_use]
     pub fn from_arc(backend: Arc<dyn WebSearchBackend>) -> Self {
         Self(backend)
+    }
+
+    /// Return the stable provider backend identifier.
+    #[must_use]
+    pub fn backend_id(&self) -> &str {
+        self.0.backend_id()
     }
 
     /// Execute one validated search request.
@@ -81,6 +90,10 @@ mod tests {
     struct EchoSearch;
 
     impl WebSearchBackend for EchoSearch {
+        fn backend_id(&self) -> &str {
+            "echo"
+        }
+
         fn search<'a>(
             &'a self,
             request: &'a SearchRequest,
@@ -110,6 +123,7 @@ mod tests {
             .expect("search");
 
         assert_eq!(response.query, "Noema");
+        assert_eq!(handle.backend_id(), "echo");
         assert_eq!(
             format!("{handle:?}"),
             "WebSearchBackendHandle(\"[CONFIGURED]\")"

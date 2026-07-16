@@ -1264,17 +1264,19 @@ deferred to Phase 10C.
   adapters. During Phase 5, `local-models` is only a transitional shared
   response-support feature for the core-owned local adapter; it does not claim
   that `noema-providers` already owns the concrete llama.cpp implementation.
+- [x] Replace the closed `SearchRuntimeProvider` and
+  `WebFetchRuntimeProvider` enums with always-compiled object-safe backend
+  handles so core tests can supply local fakes without a product
+  `test-support` feature. Move summarizer runtime context into providers and
+  pure request/decision/limit contracts, including fetch summary thresholds and
+  the summary-strategy decision, into `noema-capabilities`. Preserve the
+  security split: Direct HTTP alone performs local DNS resolution, address
+  pinning, and redirect revalidation, while Exa applies the pure public-URL
+  policy because the remote service performs its own resolution.
 - [ ] Move provider-backed web search/fetch implementations while leaving the
-  stable model-visible operations in capabilities. Keep concrete
-  adapters, summarizer runtime context, DNS resolution, checked socket
-  addresses, and direct-HTTP policy enforcement with provider adapters; pure
-  request/decision/limit contracts, including fetch summary thresholds and the
-  summary-strategy decision, belong in `noema-capabilities`. Replace the closed
-  `SearchRuntimeProvider` and `WebFetchRuntimeProvider` enums with always-compiled
-  object-safe backend handles so core tests can supply local fakes without a
-  product `test-support` feature. Direct HTTP alone performs local DNS
-  resolution, address pinning, and redirect revalidation; Exa applies the pure
-  public-URL policy because the remote service performs its own resolution.
+  stable model-visible operations in capabilities. Keep concrete adapters, DNS
+  resolution, checked socket addresses, and direct-HTTP policy enforcement with
+  provider adapters.
 - [x] Keep the existing local-model provider implementation temporarily beside
   the current local-model subsystem in core, implementing the external
   `noema-providers` contract.

@@ -15,6 +15,28 @@ const USER_AGENT: &str = "Noema/0.1 web.search (+https://github.com/kpsuperplane
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_BODY_BYTES: usize = 1_000_000;
 
+#[derive(Debug, Clone, Default)]
+pub(crate) struct DuckDuckGoSearchBackend {
+    client: Client,
+}
+
+impl noema_providers::WebSearchBackend for DuckDuckGoSearchBackend {
+    fn backend_id(&self) -> &str {
+        DUCKDUCKGO_PUBLIC_PROVIDER_ID
+    }
+
+    fn search<'a>(
+        &'a self,
+        request: &'a SearchRequest,
+    ) -> noema_providers::WebOperationFuture<'a, SearchResponse, SearchError> {
+        Box::pin(search_duckduckgo_public(&self.client, request))
+    }
+}
+
+pub(crate) fn default_runtime_provider() -> noema_providers::WebSearchBackendHandle {
+    noema_providers::WebSearchBackendHandle::new(DuckDuckGoSearchBackend::default())
+}
+
 pub(crate) async fn search_duckduckgo_public(
     client: &Client,
     request: &SearchRequest,

@@ -1,9 +1,10 @@
 //! Exa hosted web fetch provider.
 
-use crate::web_fetch::{types::FetchError, url_policy::validate_public_web_fetch_url};
+use crate::web_fetch::types::FetchError;
 use noema_capabilities::web::fetch::{
     FetchContentKind, FetchRequest, FetchResponse, FetchSummaryStrategy, sanitized_display_url,
 };
+use noema_capabilities::web::url_policy::PublicUrlError;
 use serde::Serialize;
 use serde_json::Value;
 use std::fmt;
@@ -29,6 +30,20 @@ impl fmt::Debug for ExaFetchClient {
     }
 }
 
+impl noema_providers::WebFetchBackend for ExaFetchClient {
+    fn backend_id(&self) -> &str {
+        EXA_FETCH_PROVIDER_ID
+    }
+
+    fn fetch<'a>(
+        &'a self,
+        request: &'a FetchRequest,
+        _context: &'a noema_providers::WebFetchContext,
+    ) -> noema_providers::WebOperationFuture<'a, FetchResponse, FetchError> {
+        Box::pin(fetch_exa(self, request))
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct ExaContentsRequest<'a> {
     urls: [&'a str; 1],
@@ -39,7 +54,8 @@ pub async fn fetch_exa(
     client: &ExaFetchClient,
     request: &FetchRequest,
 ) -> Result<FetchResponse, FetchError> {
-    validate_public_web_fetch_url(&request.url).await?;
+    noema_capabilities::web::url_policy::validate_public_url(&request.url)
+        .map_err(map_public_url_error)?;
     let response = client
         .http
         .post(format!(
@@ -124,6 +140,14 @@ fn map_reqwest_error(error: reqwest::Error) -> FetchError {
     }
 }
 
+fn map_public_url_error(error: PublicUrlError) -> FetchError {
+    match error {
+        PublicUrlError::UnsupportedScheme => FetchError::UnsupportedScheme,
+        PublicUrlError::Malformed => FetchError::MalformedUrl,
+        PublicUrlError::BlockedTarget => FetchError::BlockedTarget,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,11 +202,16 @@ mod tests {
             api_key: "exa-fetch-secret".to_string(),
             http: reqwest::Client::new(),
         };
-        let runtime = crate::web_fetch::types::WebFetchRuntimeProvider::Exa { client };
-        let debug = format!("{runtime:?}");
+        let debug = format!("{client:?}");
 
         assert!(!debug.contains("exa-fetch-secret"));
         assert!(debug.contains("[REDACTED]"));
+
+        let runtime = noema_providers::WebFetchBackendHandle::new(client);
+        assert_eq!(
+            format!("{runtime:?}"),
+            "WebFetchBackendHandle(\"[CONFIGURED]\")"
+        );
     }
 
     #[tokio::test]
@@ -201,7 +230,7 @@ mod tests {
         let response = fetch_exa(
             &client,
             &FetchRequest {
-                url: "https://www.rust-lang.org/".to_string(),
+                url: "https://noema-remote-resolution-check-404.com/".to_string(),
                 reason: None,
                 max_chars: 8_000,
             },
@@ -219,7 +248,7 @@ mod tests {
         assert!(
             request
                 .body
-                .contains("\"urls\":[\"https://www.rust-lang.org/\"]")
+                .contains("\"urls\":[\"https://noema-remote-resolution-check-404.com/\"]",)
         );
         assert!(request.body.contains("\"text\":true"));
         assert_eq!(response.content, "Rust");
