@@ -13,6 +13,7 @@ use noema_providers::{
     ProviderRouteResolver, ProviderRouteResolverHandle, ProviderSelectionError,
     ProviderSelectionLoaderHandle, ProviderSelectionSnapshot,
 };
+use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 
 const LEGACY_INSTANCE_KEY_PREFIX: &str = "legacy-process:";
 
@@ -20,6 +21,7 @@ const LEGACY_INSTANCE_KEY_PREFIX: &str = "legacy-process:";
 #[derive(Clone)]
 pub(crate) struct LegacyProviderRoutes {
     registry: Arc<ProviderRegistry>,
+    publication_gate: Arc<RwLock<()>>,
 }
 
 impl LegacyProviderRoutes {
@@ -31,6 +33,7 @@ impl LegacyProviderRoutes {
     {
         let routes = Self {
             registry: Arc::new(ProviderRegistry::new()),
+            publication_gate: Arc::new(RwLock::new(())),
         };
         for (provider_kind, provider) in providers {
             routes.register(provider_kind.as_ref(), provider)?;
@@ -84,6 +87,33 @@ impl LegacyProviderRoutes {
         ProviderRouteLease::try_new(selection, instance)
     }
 
+    /// Acquire shared publication access before reading a durable selection.
+    ///
+    /// The guard must cover the canonical repository read and
+    /// [`LegacyProviderRouteReadGuard::resolve_snapshot`] call. This prevents an
+    /// activation from committing durable state and publishing its replacement
+    /// registry generation between those two operations.
+    pub(crate) async fn read(&self) -> LegacyProviderRouteReadGuard {
+        let gate = Arc::clone(&self.publication_gate).read_owned().await;
+        LegacyProviderRouteReadGuard {
+            routes: self.clone(),
+            _gate: gate,
+        }
+    }
+
+    /// Acquire exclusive publication access for a provider activation.
+    ///
+    /// Hold this owned guard across the durable selection commit and the
+    /// following [`LegacyProviderPublicationGuard::register`] call. Readers
+    /// cannot observe the state between those two publication steps.
+    pub(crate) async fn begin_publication(&self) -> LegacyProviderPublicationGuard {
+        let gate = Arc::clone(&self.publication_gate).write_owned().await;
+        LegacyProviderPublicationGuard {
+            routes: self.clone(),
+            _gate: gate,
+        }
+    }
+
     /// Bind an async canonical snapshot loader to this temporary route bridge.
     pub(crate) fn bind(
         &self,
@@ -93,6 +123,55 @@ impl LegacyProviderRoutes {
             routes: self.clone(),
             loader,
         })
+    }
+}
+
+/// Owned shared guard spanning one canonical selection read and route lease.
+pub(crate) struct LegacyProviderRouteReadGuard {
+    routes: LegacyProviderRoutes,
+    _gate: OwnedRwLockReadGuard<()>,
+}
+
+impl LegacyProviderRouteReadGuard {
+    /// Lease the process-local provider matching a snapshot read under this guard.
+    pub(crate) fn resolve_snapshot(
+        &self,
+        selection: ProviderSelectionSnapshot,
+    ) -> Result<ProviderRouteLease, ProviderRouteError> {
+        self.routes.resolve_snapshot(selection)
+    }
+}
+
+impl fmt::Debug for LegacyProviderRouteReadGuard {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("LegacyProviderRouteReadGuard")
+            .finish_non_exhaustive()
+    }
+}
+
+/// Owned exclusive guard spanning durable activation and registry publication.
+pub(crate) struct LegacyProviderPublicationGuard {
+    routes: LegacyProviderRoutes,
+    _gate: OwnedRwLockWriteGuard<()>,
+}
+
+impl LegacyProviderPublicationGuard {
+    /// Publish the provider generation after the matching durable commit succeeds.
+    pub(crate) fn register(
+        &self,
+        provider_kind: &str,
+        provider: ProviderHandle,
+    ) -> Result<ProviderRegistration, ProviderRouteError> {
+        self.routes.register(provider_kind, provider)
+    }
+}
+
+impl fmt::Debug for LegacyProviderPublicationGuard {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("LegacyProviderPublicationGuard")
+            .finish_non_exhaustive()
     }
 }
 
@@ -112,8 +191,9 @@ struct LegacyProviderRouteResolver {
 impl ProviderRouteResolver for LegacyProviderRouteResolver {
     fn resolve_route(&self) -> ProviderRouteFuture<'_, ProviderRouteLease> {
         Box::pin(async move {
+            let routes = self.routes.read().await;
             let selection = self.loader.load_selection().await?;
-            self.routes.resolve_snapshot(selection)
+            routes.resolve_snapshot(selection)
         })
     }
 }
@@ -140,10 +220,13 @@ fn route_registry_error(error: ProviderRegistryError) -> ProviderRouteError {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use noema_providers::{
         GenerateRequest, GenerateResponse, GenerateStreamEvent, ProviderOperationFuture,
         ProviderOperations, ReasoningEffort, provider_selection_loader,
     };
+    use tokio::sync::{Mutex, oneshot};
 
     use super::*;
 
@@ -280,6 +363,172 @@ mod tests {
         assert_eq!(
             route.selection().provider_instance_key.as_ref(),
             Some(route.key())
+        );
+    }
+
+    #[tokio::test]
+    async fn exclusive_publication_hides_the_durable_registry_middle_state() {
+        let routes =
+            LegacyProviderRoutes::new([("codex", provider("old"))]).expect("initial routes");
+        let current_selection = Arc::new(Mutex::new(full_selection("codex")));
+        let (loader_entered_tx, mut loader_entered_rx) = oneshot::channel();
+        let loader_entered_tx = Arc::new(std::sync::Mutex::new(Some(loader_entered_tx)));
+        let resolver = routes.bind(provider_selection_loader({
+            let current_selection = Arc::clone(&current_selection);
+            let loader_entered_tx = Arc::clone(&loader_entered_tx);
+            move || {
+                let current_selection = Arc::clone(&current_selection);
+                let loader_entered_tx = Arc::clone(&loader_entered_tx);
+                Box::pin(async move {
+                    loader_entered_tx
+                        .lock()
+                        .expect("loader entered sender")
+                        .take()
+                        .expect("first loader call")
+                        .send(())
+                        .expect("signal loader entered");
+                    Ok(current_selection.lock().await.clone())
+                })
+            }
+        }));
+        let publication = routes.begin_publication().await;
+        *current_selection.lock().await = ProviderSelectionSnapshot::explicit(
+            "codex",
+            "provider_account:codex:account-7",
+            "replacement-profile",
+            Some(ReasoningEffort::Low),
+            Some("replacement-commit".to_string()),
+        );
+
+        let resolution = tokio::spawn(async move { resolver.resolve_route().await });
+
+        assert!(
+            tokio::time::timeout(Duration::from_millis(25), &mut loader_entered_rx)
+                .await
+                .is_err()
+        );
+        assert!(!resolution.is_finished());
+
+        let replacement = publication
+            .register("codex", provider("new"))
+            .expect("publish replacement");
+        drop(publication);
+        loader_entered_rx
+            .await
+            .expect("loader entered after publish");
+        let route = resolution
+            .await
+            .expect("resolver task")
+            .expect("resolved replacement");
+
+        assert_eq!(route.generation(), replacement.generation());
+        assert_eq!(
+            route.selection().model_profile.as_deref(),
+            Some("replacement-profile")
+        );
+        assert_eq!(
+            route
+                .operations()
+                .generate(GenerateRequest::text("replacement"))
+                .await
+                .expect("replacement generation")
+                .assistant_text(),
+            "new"
+        );
+    }
+
+    #[tokio::test]
+    async fn publication_waits_for_an_in_flight_selection_read_and_lease() {
+        let routes =
+            LegacyProviderRoutes::new([("codex", provider("old"))]).expect("initial routes");
+        let (loaded_tx, loaded_rx) = oneshot::channel();
+        let loaded_tx = Arc::new(std::sync::Mutex::new(Some(loaded_tx)));
+        let (resume_tx, resume_rx) = oneshot::channel();
+        let resume_rx = Arc::new(Mutex::new(Some(resume_rx)));
+        let resolver = routes.bind(provider_selection_loader({
+            let loaded_tx = Arc::clone(&loaded_tx);
+            let resume_rx = Arc::clone(&resume_rx);
+            move || {
+                let loaded_tx = Arc::clone(&loaded_tx);
+                let resume_rx = Arc::clone(&resume_rx);
+                Box::pin(async move {
+                    loaded_tx
+                        .lock()
+                        .expect("loaded sender")
+                        .take()
+                        .expect("first loader call")
+                        .send(())
+                        .expect("signal loaded selection");
+                    resume_rx
+                        .lock()
+                        .await
+                        .take()
+                        .expect("resume receiver")
+                        .await
+                        .expect("resume selection load");
+                    Ok(full_selection("codex"))
+                })
+            }
+        }));
+        let resolution = tokio::spawn(async move { resolver.resolve_route().await });
+        loaded_rx.await.expect("selection loader entered");
+
+        let publication_routes = routes.clone();
+        let (publication_attempted_tx, publication_attempted_rx) = oneshot::channel();
+        let (publication_acquired_tx, mut publication_acquired_rx) = oneshot::channel();
+        let publication = tokio::spawn(async move {
+            publication_attempted_tx
+                .send(())
+                .expect("signal publication attempt");
+            let publication = publication_routes.begin_publication().await;
+            publication_acquired_tx
+                .send(())
+                .expect("signal publication acquired");
+            let registration = publication
+                .register("codex", provider("new"))
+                .expect("publish replacement");
+            (publication, registration)
+        });
+        publication_attempted_rx
+            .await
+            .expect("publication task attempted");
+        assert!(
+            tokio::time::timeout(Duration::from_millis(25), &mut publication_acquired_rx)
+                .await
+                .is_err()
+        );
+        assert!(!publication.is_finished());
+
+        resume_tx.send(()).expect("resume selection load");
+        let old_route = resolution.await.expect("resolver task").expect("old route");
+        publication_acquired_rx
+            .await
+            .expect("publication acquired after read");
+        let (publication_guard, replacement) = publication.await.expect("publication task");
+        drop(publication_guard);
+
+        assert_eq!(
+            old_route
+                .operations()
+                .generate(GenerateRequest::text("old"))
+                .await
+                .expect("old leased generation")
+                .assistant_text(),
+            "old"
+        );
+        let read = routes.read().await;
+        let new_route = read
+            .resolve_snapshot(full_selection("codex"))
+            .expect("new route");
+        assert_eq!(new_route.generation(), replacement.generation());
+        assert_eq!(
+            new_route
+                .operations()
+                .generate(GenerateRequest::text("new"))
+                .await
+                .expect("new generation")
+                .assistant_text(),
+            "new"
         );
     }
 
