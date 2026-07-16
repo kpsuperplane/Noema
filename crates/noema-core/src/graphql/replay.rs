@@ -1,9 +1,8 @@
+use noema_conversations::{ConversationItemKind, ConversationItemRecord};
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::{
-    TurnActivityStatus, TurnTranscriptItem, {ConversationItemKind, ConversationItemRecord},
-};
+use crate::{TurnActivityStatus, TurnTranscriptItem};
 
 use crate::DaemonError;
 
@@ -253,16 +252,19 @@ mod tests {
 
     use super::web_conversation_item_from_record;
     use crate::{
-        ActorRef, ArtifactOwnerRef, ArtifactSource, ArtifactStorageKind, ArtifactVersionStorage,
-        ConversationItemKind, ConversationItemStatus, NewArtifact, NewArtifactVersion,
-        NewConversationItem, NewConversationTurn, TurnTranscriptItem,
+        ArtifactOwnerRef, ArtifactSource, ArtifactStorageKind, ArtifactVersionStorage, NewArtifact,
+        NewArtifactVersion, TurnTranscriptItem,
+    };
+    use noema_conversations::{
+        ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
+        NewConversationTurn,
     };
 
     #[tokio::test]
     async fn conversation_replay_maps_artifact_reference() {
         let store = crate::store::tests::test_store().await;
         let conversation = store
-            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
             .expect("conversation");
         let turn = store
@@ -317,7 +319,8 @@ mod tests {
                 parent_item_id: None,
                 kind: ConversationItemKind::ArtifactReference,
                 status: ConversationItemStatus::Completed,
-                author: ActorRef::agent("agent:primary"),
+                author: ActorRef::agent("agent:primary")
+                    .expect("static primary agent id must be valid"),
                 content_text: None,
                 payload_json: json!({
                     "artifact_id": artifact.artifact.artifact_id,
@@ -357,7 +360,7 @@ mod tests {
     async fn conversation_replay_maps_task_reference_with_canonical_status() {
         let store = crate::store::tests::test_store().await;
         let conversation = store
-            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
             .expect("conversation");
         let turn = store
@@ -375,7 +378,8 @@ mod tests {
                 parent_item_id: None,
                 kind: ConversationItemKind::TaskReference,
                 status: ConversationItemStatus::Completed,
-                author: ActorRef::agent("agent:primary"),
+                author: ActorRef::agent("agent:primary")
+                    .expect("static primary agent id must be valid"),
                 content_text: Some("Research providers".to_string()),
                 payload_json: json!({
                     "task_id": "task_1",

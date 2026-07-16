@@ -1,7 +1,6 @@
 use serde_json::{Value, json};
 
-use super::status::{ConversationItemKind, ConversationItemStatus};
-use crate::{ActorRef, ObjectRef};
+use crate::{ActorRef, ConversationItemKind, ConversationItemStatus, ConversationOwnerRef};
 
 /// Input for creating a durable conversation.
 #[derive(Debug, Clone, PartialEq)]
@@ -9,7 +8,7 @@ pub struct NewConversation {
     /// Human-visible conversation title, when known.
     pub title: Option<String>,
     /// Concrete object that owns the conversation.
-    pub owner: ObjectRef,
+    pub owner: ConversationOwnerRef,
     /// Primary human participant id.
     pub primary_human_id: Option<String>,
     /// Primary agent participant id.
@@ -40,7 +39,8 @@ impl NewConversation {
     ) -> Self {
         Self {
             title: None,
-            owner: ObjectRef::human("human:local"),
+            owner: ConversationOwnerRef::human("human:local")
+                .expect("static local human owner id must be valid"),
             primary_human_id: Some("human:local".to_string()),
             primary_agent_id: Some("agent:primary".to_string()),
             provider: provider.into(),
@@ -146,4 +146,44 @@ pub enum ReplayMode {
     Visible,
     /// Include soft-deleted items for audit views.
     Audit,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ConversationOwnerKind;
+
+    #[test]
+    fn local_chat_preserves_default_conversation_wire_values() {
+        let conversation = NewConversation::local_chat(
+            Some("gpt-test".to_string()),
+            Some("/tmp/noema".to_string()),
+        );
+
+        assert_eq!(conversation.title, None);
+        assert_eq!(conversation.owner.object_type, ConversationOwnerKind::Human);
+        assert_eq!(conversation.owner.object_type.as_str(), "human");
+        assert_eq!(conversation.owner.object_id, "human:local");
+        assert_eq!(
+            conversation.primary_human_id.as_deref(),
+            Some("human:local")
+        );
+        assert_eq!(
+            conversation.primary_agent_id.as_deref(),
+            Some("agent:primary")
+        );
+        assert_eq!(conversation.provider, "codex");
+        assert_eq!(conversation.model.as_deref(), Some("gpt-test"));
+        assert_eq!(conversation.cwd.as_deref(), Some("/tmp/noema"));
+        assert_eq!(conversation.metadata, json!({}));
+    }
+
+    #[test]
+    fn local_chat_for_provider_preserves_requested_provider() {
+        let conversation = NewConversation::local_chat_for_provider("local_models", None, None);
+
+        assert_eq!(conversation.provider, "local_models");
+        assert_eq!(conversation.owner.object_type.as_str(), "human");
+        assert_eq!(conversation.owner.object_id, "human:local");
+    }
 }

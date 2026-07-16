@@ -1,6 +1,9 @@
+use noema_conversations::{
+    ConversationContextSummaryRecord, ConversationItemKind, ConversationItemRecord,
+};
+
 use crate::{
-    ConversationContextSummaryRecord, ConversationItemKind, ConversationItemRecord, GenerateInput,
-    GenerateMessage, GenerateMessageRole, NoemaStore,
+    GenerateInput, GenerateMessage, GenerateMessageRole, NoemaStore,
     daemon::{prompts::build_structured_turn_system_prompt, protocol::DaemonError},
     provider::{
         GenerateInputItem, GenerateReasoningInput, GenerateToolCallInput, GenerateToolResultInput,
@@ -327,7 +330,7 @@ fn tool_result_input_item(item: &ConversationItemRecord) -> Option<GenerateInput
         success: action
             .get("success")
             .and_then(Value::as_bool)
-            .unwrap_or(item.status == crate::ConversationItemStatus::Completed),
+            .unwrap_or(item.status == noema_conversations::ConversationItemStatus::Completed),
         payload: action.get("payload").cloned().unwrap_or(Value::Null),
     }))
 }
@@ -357,9 +360,9 @@ fn render_prompt_context(summary: Option<&ConversationContextSummaryRecord>) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
+    use crate::provider::GenerateInputItem;
+    use noema_conversations::{
         ConversationItemKind, ConversationItemRecord, ConversationItemStatus,
-        provider::GenerateInputItem,
     };
 
     #[test]

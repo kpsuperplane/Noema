@@ -1,3 +1,4 @@
+use noema_conversations::ConversationError;
 use noema_home::SystemErrorEvent;
 use thiserror::Error;
 
@@ -110,6 +111,15 @@ pub enum StoreError {
     },
 }
 
+impl From<ConversationError> for StoreError {
+    fn from(error: ConversationError) -> Self {
+        match error {
+            ConversationError::InvalidEnum { kind, value } => Self::InvalidEnum { kind, value },
+            other => Self::Schema(other.to_string()),
+        }
+    }
+}
+
 impl StoreError {
     /// Return true when this store error represents a Noema schema invariant failure.
     #[must_use]
@@ -164,5 +174,21 @@ mod tests {
         };
 
         assert!(error.system_error_event(json!({}), json!({})).is_none());
+    }
+
+    #[test]
+    fn conversation_enum_errors_preserve_store_vocabulary_context() {
+        let error = StoreError::from(ConversationError::InvalidEnum {
+            kind: "conversation_item_status",
+            value: "unknown".to_string(),
+        });
+
+        assert!(matches!(
+            error,
+            StoreError::InvalidEnum {
+                kind: "conversation_item_status",
+                value,
+            } if value == "unknown"
+        ));
     }
 }

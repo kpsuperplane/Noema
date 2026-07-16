@@ -1,6 +1,9 @@
+use noema_conversations::{
+    ActorRef, AgentStatus as PersistedAgentStatus, ConversationItemKind, ConversationItemStatus,
+    NewConversationItem, NewConversationTurn, ReplayMode,
+};
+
 use crate::{
-    ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
-    NewConversationTurn, PersistedAgentStatus, ReplayMode,
     capability::GatewayToolResult,
     provider::{
         GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
@@ -340,7 +343,7 @@ impl CodexRuntimeActor {
             &self.default_provider_kind,
         )
         .await?;
-        let new_conversation = crate::NewConversation::local_chat_for_provider(
+        let new_conversation = noema_conversations::NewConversation::local_chat_for_provider(
             &selection.provider_kind,
             selection.model.clone(),
             cwd.clone(),
@@ -820,7 +823,8 @@ impl CodexRuntimeActor {
                 parent_item_id,
                 kind: user_kind,
                 status: ConversationItemStatus::Completed,
-                author: ActorRef::human("human:local"),
+                author: ActorRef::human("human:local")
+                    .expect("static local human actor id must be valid"),
                 content_text: user_content_text,
                 payload_json: user_payload,
                 metadata: user_metadata.clone(),
@@ -2296,7 +2300,8 @@ impl CodexRuntimeActor {
                 parent_item_id: Some(turn.user_item_id.clone()),
                 kind: ConversationItemKind::AssistantText,
                 status: ConversationItemStatus::Completed,
-                author: ActorRef::agent("agent:primary"),
+                author: ActorRef::agent("agent:primary")
+                    .expect("static primary agent id must be valid"),
                 content_text: Some(summary.to_string()),
                 payload_json: json!({}),
                 metadata: metadata.clone(),
@@ -2351,7 +2356,8 @@ impl CodexRuntimeActor {
                 parent_item_id: Some(turn.user_item_id.clone()),
                 kind: ConversationItemKind::AssistantText,
                 status: ConversationItemStatus::Completed,
-                author: ActorRef::agent("agent:primary"),
+                author: ActorRef::agent("agent:primary")
+                    .expect("static primary agent id must be valid"),
                 content_text: Some(text.clone()),
                 payload_json: json!({}),
                 metadata: metadata.clone(),

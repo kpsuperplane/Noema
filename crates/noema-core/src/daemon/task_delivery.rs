@@ -1,8 +1,11 @@
 //! Exactly-once structured task status delivery into source conversations.
 
+use noema_conversations::{
+    ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
+};
+
 use crate::{
-    ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem, NoemaStore,
-    TaskStatus,
+    NoemaStore, TaskStatus,
     daemon::{
         CodexRuntimeHandle,
         runtime::{TaskCompletionArtifact, TaskCompletionCriterion, TaskCompletionDeliveryRequest},
@@ -219,7 +222,8 @@ pub(crate) async fn deliver_task_status_event(
                 parent_item_id: task.source.item_id.clone(),
                 kind: ConversationItemKind::TaskReference,
                 status: ConversationItemStatus::Completed,
-                author: ActorRef::system("system:task-runtime"),
+                author: ActorRef::system("system:task-runtime")
+                    .expect("static task runtime actor id must be valid"),
                 content_text: Some(task.title.clone()),
                 payload_json: serde_json::json!({
                     "task_id": task.task_id,

@@ -12,26 +12,18 @@ pub mod artifacts;
 pub mod capability;
 /// Configuration loading and provider selection.
 pub mod config;
-/// Neutral conversation domain types.
-pub mod conversation;
 /// Local daemon runtime and web protocol types.
 pub mod daemon;
 /// GraphQL client API facade.
 pub mod graphql;
-/// Neutral typed object ids.
-pub mod ids;
 /// Curated local-model catalog and hardware-fit recommendation.
 pub mod local_models;
 /// Third-party MCP control-plane types.
 pub mod mcp;
-/// Shared memory persistence error types.
-pub mod memory;
 /// Private OpenAI-compatible model proxy for local memory extraction.
 pub mod memory_model_proxy;
 /// Mnemosyne local service client and lifecycle support.
 pub mod mnemosyne;
-/// Neutral concrete object and actor references.
-pub mod objects;
 /// Onboarding status derived from provider account readiness.
 pub mod onboarding;
 /// Provider contracts, account/auth support, and concrete adapters.
@@ -59,20 +51,10 @@ pub use config::{
     FoundationLocalProviderConfig, LocalModelsProviderConfig, ProviderConfig, ProviderKind,
     ResolvedConfig, WebConfig,
 };
-pub use conversation::{
-    AgentStatus as PersistedAgentStatus, ConversationContextSummaryStatus, ConversationItemKind,
-    ConversationItemPage, ConversationItemRecord, ConversationItemStatus, ConversationRecord,
-    ConversationTurnRecord, ConversationTurnStatus, NewConversation, NewConversationItem,
-    NewConversationTurn, ReplayMode,
-};
 pub use daemon::{
     AgentStatus, DaemonError, StartedConversation, TurnActivityStatus, TurnTranscriptItem,
 };
 pub use graphql::RequestPrincipal;
-pub use ids::{
-    ActorId, AgentRunId, ContextPacketId, ConversationId, ConversationItemId, ObjectId,
-    TaskEventId, TaskId, TaskReviewId, TaskSubmissionId,
-};
 pub use local_models::{
     HuggingFaceLocalModelImport, LLAMA_CPP_COMMIT, LLAMA_CPP_RELEASE_TAG, LLAMA_CPP_RUNTIME_ASSETS,
     LLAMA_SERVER_SIDECAR_BASENAME, LlamaCppRuntimeAsset, LlamaCppRuntimeAssetRole,
@@ -87,7 +69,6 @@ pub use local_models::{
     detect_local_hardware_profiles, tauri_sidecar_input_name,
 };
 pub use mcp::{McpCalibrationStatus, McpTransportKind, McpTrustClassification};
-pub use memory::error::MemoryPersistenceError;
 pub use memory_model_proxy::{MemoryModelProxy, MemoryModelProxyConfig, MemoryModelProxyError};
 pub use mnemosyne::{
     MnemosyneAddMemoryRequest, MnemosyneClient, MnemosyneClientError, MnemosyneConnection,
@@ -95,7 +76,6 @@ pub use mnemosyne::{
     MnemosyneListMemoriesResponse, MnemosyneMemory, MnemosyneMessage, MnemosyneSearchRequest,
     MnemosyneSearchResponse,
 };
-pub use objects::{ActorKind, ActorRef, ObjectRef, ObjectType};
 pub use onboarding::{
     OnboardingStatus, OnboardingStep, OnboardingStepStatus, onboarding_status_from_account,
     onboarding_status_from_options,
@@ -118,15 +98,15 @@ pub use store::{
     AgentRecord, AgentRunHeartbeat, AgentRunItemRecord, AgentRunItemStatus, AgentRunRecord,
     AgentRuntimePreferenceRecord, AgentSystemRole, ArtifactOwnerRef, ArtifactRecord,
     ArtifactSource, ArtifactStorageKind, ArtifactVersionRecord, ArtifactVersionStorage,
-    ArtifactWithVersions, AuxiliaryModelPreferenceRecord, ConversationContextSummaryRecord,
-    McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolRecord,
-    MemoryArticleCacheRecord, MemoryServiceMode, MemoryServiceSettingsRecord, NewAgent,
-    NewAgentRun, NewAgentRunItem, NewAgentRuntimePreference, NewArtifact, NewArtifactVersion,
-    NewAuxiliaryModelPreference, NewConversationContextSummary, NewMcpServer, NewMcpTool,
-    NewTaskModelPoolEntry, NewToolCalibration, NoemaStore, SaveMemoryArticleCache,
-    SaveMemoryServiceSettings, StoreConfig, StoreError, TaskEventRecord, TaskModelPoolEntry,
-    TaskRecord, TaskReviewRecord, TaskSubmissionArtifactRecord, TaskSubmissionRecord,
-    ToolCalibrationRecord, WEB_FETCH_SUMMARIZER_TASK_ID, validate_external_artifact_url,
+    ArtifactWithVersions, AuxiliaryModelPreferenceRecord, McpServerAuthStatus,
+    McpServerHealthStatus, McpServerRecord, McpToolRecord, MemoryArticleCacheRecord,
+    MemoryServiceMode, MemoryServiceSettingsRecord, NewAgent, NewAgentRun, NewAgentRunItem,
+    NewAgentRuntimePreference, NewArtifact, NewArtifactVersion, NewAuxiliaryModelPreference,
+    NewMcpServer, NewMcpTool, NewTaskModelPoolEntry, NewToolCalibration, NoemaStore,
+    SaveMemoryArticleCache, SaveMemoryServiceSettings, StoreConfig, StoreError, TaskEventRecord,
+    TaskModelPoolEntry, TaskRecord, TaskReviewRecord, TaskSubmissionArtifactRecord,
+    TaskSubmissionRecord, ToolCalibrationRecord, WEB_FETCH_SUMMARIZER_TASK_ID,
+    validate_external_artifact_url,
 };
 pub use task::{
     CriterionOutcome, DEFAULT_TASK_MAX_ACTIVE_MINUTES, DEFAULT_TASK_MAX_PROVIDER_CONTINUATIONS,

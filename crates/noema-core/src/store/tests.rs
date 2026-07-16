@@ -181,7 +181,7 @@ async fn sqlite_schema_creates_artifact_tables() {
 async fn artifact_external_url_initial_version_round_trips() {
     let store = test_store().await;
     let conversation = store
-        .create_conversation(crate::NewConversation::local_chat(None, None))
+        .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
         .await
         .expect("conversation");
 
@@ -236,7 +236,7 @@ async fn artifact_external_url_initial_version_round_trips() {
 async fn artifact_external_url_initial_version_rejects_non_http_url() {
     let store = test_store().await;
     let conversation = store
-        .create_conversation(crate::NewConversation::local_chat(None, None))
+        .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
         .await
         .expect("conversation");
 
@@ -284,7 +284,7 @@ async fn conversation_local_file_artifact_writes_bytes_and_metadata() {
         .await
         .expect("open store");
     let conversation = store
-        .create_conversation(crate::NewConversation::local_chat(None, None))
+        .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
         .await
         .expect("conversation");
     let bytes = b"# report\n".to_vec();
@@ -353,7 +353,7 @@ async fn conversation_local_file_artifact_rejects_symlinked_artifact_root() {
         .await
         .expect("open store");
     let conversation = store
-        .create_conversation(crate::NewConversation::local_chat(None, None))
+        .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
         .await
         .expect("conversation");
     let outside = home.path().join("outside-artifacts");
@@ -399,7 +399,7 @@ async fn conversation_local_file_artifact_rejects_symlinked_artifact_root() {
 async fn append_artifact_version_updates_current_version() {
     let store = test_store().await;
     let conversation = store
-        .create_conversation(crate::NewConversation::local_chat(None, None))
+        .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
         .await
         .expect("conversation");
     let created = seed_external_artifact(&store, &conversation.conversation_id).await;
@@ -441,7 +441,7 @@ async fn append_artifact_version_updates_current_version() {
 async fn append_artifact_version_rejects_non_http_external_url() {
     let store = test_store().await;
     let conversation = store
-        .create_conversation(crate::NewConversation::local_chat(None, None))
+        .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
         .await
         .expect("conversation");
     let created = seed_external_artifact(&store, &conversation.conversation_id).await;
@@ -476,7 +476,7 @@ async fn append_artifact_version_rejects_non_http_external_url() {
 async fn artifact_read_rejects_forged_non_http_external_url() {
     let store = test_store().await;
     let conversation = store
-        .create_conversation(crate::NewConversation::local_chat(None, None))
+        .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
         .await
         .expect("conversation");
     let created = seed_external_artifact(&store, &conversation.conversation_id).await;
@@ -644,7 +644,7 @@ async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
         .criterion_id
         .clone();
     let conversation = store
-        .create_conversation(crate::NewConversation::local_chat(None, None))
+        .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
         .await
         .expect("conversation");
     let foreign_artifact = crate::create_conversation_local_file_artifact(
@@ -1870,7 +1870,7 @@ async fn sqlite_conversation_items_page_in_sequence_order() {
         .expect("conversation");
 
     let turn = store
-        .create_conversation_turn(crate::NewConversationTurn {
+        .create_conversation_turn(noema_conversations::NewConversationTurn {
             conversation_id: conversation.conversation_id.clone(),
             trigger_item_id: None,
             metadata: serde_json::json!({}),
@@ -1879,13 +1879,14 @@ async fn sqlite_conversation_items_page_in_sequence_order() {
         .expect("turn");
 
     store
-        .append_conversation_item(crate::NewConversationItem {
+        .append_conversation_item(noema_conversations::NewConversationItem {
             conversation_id: conversation.conversation_id.clone(),
             turn_id: Some(turn.turn_id.clone()),
             parent_item_id: None,
-            kind: crate::ConversationItemKind::UserText,
-            status: crate::ConversationItemStatus::Completed,
-            author: crate::ActorRef::human("human:local"),
+            kind: noema_conversations::ConversationItemKind::UserText,
+            status: noema_conversations::ConversationItemStatus::Completed,
+            author: noema_conversations::ActorRef::human("human:local")
+                .expect("static local human actor id must be valid"),
             content_text: Some("hello".to_string()),
             payload_json: serde_json::json!({}),
             metadata: serde_json::json!({}),
@@ -1911,13 +1912,14 @@ async fn idempotent_conversation_item_id_prevents_duplicate_task_delivery() {
         .get_or_create_primary_conversation("human:local", None, None)
         .await
         .expect("conversation");
-    let item = || crate::NewConversationItem {
+    let item = || noema_conversations::NewConversationItem {
         conversation_id: conversation.conversation_id.clone(),
         turn_id: None,
         parent_item_id: None,
-        kind: crate::ConversationItemKind::TaskReference,
-        status: crate::ConversationItemStatus::Completed,
-        author: crate::ActorRef::system("system:task-runtime"),
+        kind: noema_conversations::ConversationItemKind::TaskReference,
+        status: noema_conversations::ConversationItemStatus::Completed,
+        author: noema_conversations::ActorRef::system("system:task-runtime")
+            .expect("static task runtime actor id must be valid"),
         content_text: Some("Task update".to_string()),
         payload_json: serde_json::json!({"task_id": "task:1", "status": "completed"}),
         metadata: serde_json::json!({"task_event_id": "event:1"}),
@@ -1932,7 +1934,10 @@ async fn idempotent_conversation_item_id_prevents_duplicate_task_delivery() {
         .await
         .expect("idempotent delivery");
     let rows = store
-        .list_conversation_items(&conversation.conversation_id, crate::ReplayMode::Audit)
+        .list_conversation_items(
+            &conversation.conversation_id,
+            noema_conversations::ReplayMode::Audit,
+        )
         .await
         .expect("conversation items");
 
@@ -1989,13 +1994,14 @@ async fn durable_task_events_expose_pending_status_deliveries_until_materialized
     store
         .append_conversation_item_with_id(
             format!("item:task_status:{event_id}"),
-            crate::NewConversationItem {
+            noema_conversations::NewConversationItem {
                 conversation_id: conversation.conversation_id.clone(),
                 turn_id: None,
                 parent_item_id: None,
-                kind: crate::ConversationItemKind::TaskReference,
-                status: crate::ConversationItemStatus::Completed,
-                author: crate::ActorRef::system("system:task-runtime"),
+                kind: noema_conversations::ConversationItemKind::TaskReference,
+                status: noema_conversations::ConversationItemStatus::Completed,
+                author: noema_conversations::ActorRef::system("system:task-runtime")
+                    .expect("static task runtime actor id must be valid"),
                 content_text: Some("Pending delivery".to_string()),
                 payload_json: serde_json::json!({"task_id": task.task_id}),
                 metadata: serde_json::json!({"task_event_id": event_id}),
@@ -2014,13 +2020,14 @@ async fn durable_task_events_expose_pending_status_deliveries_until_materialized
     store
         .append_conversation_item_with_id(
             format!("item:task_completion:{event_id}"),
-            crate::NewConversationItem {
+            noema_conversations::NewConversationItem {
                 conversation_id: conversation.conversation_id,
                 turn_id: None,
                 parent_item_id: None,
-                kind: crate::ConversationItemKind::AssistantText,
-                status: crate::ConversationItemStatus::Completed,
-                author: crate::ActorRef::agent("agent:primary"),
+                kind: noema_conversations::ConversationItemKind::AssistantText,
+                status: noema_conversations::ConversationItemStatus::Completed,
+                author: noema_conversations::ActorRef::agent("agent:primary")
+                    .expect("static primary agent id must be valid"),
                 content_text: Some("The task failed.".to_string()),
                 payload_json: serde_json::json!({"task_id": task.task_id}),
                 metadata: serde_json::json!({"delivery_id": event_id}),

@@ -2673,6 +2673,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "noema-conversations"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "noema-core"
 version = "0.1.0"
 dependencies = [
@@ -2686,6 +2694,7 @@ dependencies = [
  "futures-util",
  "http",
  "libc",
+ "noema-conversations",
  "noema-home",
  "readabilityrs",
  "reqwest",

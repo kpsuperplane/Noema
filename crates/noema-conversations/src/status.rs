@@ -1,7 +1,7 @@
-use crate::MemoryPersistenceError;
+use crate::ConversationError;
 
-fn invalid_enum<T>(kind: &'static str, value: &str) -> Result<T, MemoryPersistenceError> {
-    Err(MemoryPersistenceError::InvalidEnum {
+fn invalid_enum<T>(kind: &'static str, value: &str) -> Result<T, ConversationError> {
+    Err(ConversationError::InvalidEnum {
         kind,
         value: value.to_string(),
     })
@@ -45,8 +45,8 @@ impl AgentStatus {
     ///
     /// # Errors
     ///
-    /// Returns [`MemoryPersistenceError::InvalidEnum`] for unknown values.
-    pub fn parse(value: &str) -> Result<Self, MemoryPersistenceError> {
+    /// Returns [`ConversationError::InvalidEnum`] for unknown values.
+    pub fn parse(value: &str) -> Result<Self, ConversationError> {
         match value {
             "idle" => Ok(Self::Idle),
             "input_received" => Ok(Self::InputReceived),
@@ -98,8 +98,8 @@ impl ConversationTurnStatus {
     ///
     /// # Errors
     ///
-    /// Returns [`MemoryPersistenceError::InvalidEnum`] for unknown values.
-    pub fn parse(value: &str) -> Result<Self, MemoryPersistenceError> {
+    /// Returns [`ConversationError::InvalidEnum`] for unknown values.
+    pub fn parse(value: &str) -> Result<Self, ConversationError> {
         match value {
             "input_received" => Ok(Self::InputReceived),
             "running" => Ok(Self::Running),
@@ -175,8 +175,8 @@ impl ConversationItemKind {
     ///
     /// # Errors
     ///
-    /// Returns [`MemoryPersistenceError::InvalidEnum`] for unknown values.
-    pub fn parse(value: &str) -> Result<Self, MemoryPersistenceError> {
+    /// Returns [`ConversationError::InvalidEnum`] for unknown values.
+    pub fn parse(value: &str) -> Result<Self, ConversationError> {
         match value {
             "user_text" => Ok(Self::UserText),
             "assistant_text" => Ok(Self::AssistantText),
@@ -233,8 +233,8 @@ impl ConversationItemStatus {
     ///
     /// # Errors
     ///
-    /// Returns [`MemoryPersistenceError::InvalidEnum`] for unknown values.
-    pub fn parse(value: &str) -> Result<Self, MemoryPersistenceError> {
+    /// Returns [`ConversationError::InvalidEnum`] for unknown values.
+    pub fn parse(value: &str) -> Result<Self, ConversationError> {
         match value {
             "pending" => Ok(Self::Pending),
             "running" => Ok(Self::Running),
@@ -276,8 +276,8 @@ impl ConversationContextSummaryStatus {
     ///
     /// # Errors
     ///
-    /// Returns [`MemoryPersistenceError::InvalidEnum`] for unknown values.
-    pub fn parse(value: &str) -> Result<Self, MemoryPersistenceError> {
+    /// Returns [`ConversationError::InvalidEnum`] for unknown values.
+    pub fn parse(value: &str) -> Result<Self, ConversationError> {
         match value {
             "pending" => Ok(Self::Pending),
             "active" => Ok(Self::Active),
@@ -290,7 +290,147 @@ impl ConversationContextSummaryStatus {
 
 #[cfg(test)]
 mod tests {
-    use super::ConversationItemKind;
+    use super::*;
+
+    #[test]
+    fn agent_status_round_trips_every_wire_value() {
+        for (value, expected) in [
+            ("idle", AgentStatus::Idle),
+            ("input_received", AgentStatus::InputReceived),
+            ("thinking", AgentStatus::Thinking),
+            ("tool_running", AgentStatus::ToolRunning),
+            (
+                "waiting_for_previous_turn_completion",
+                AgentStatus::WaitingForPreviousTurnCompletion,
+            ),
+            ("interrupting", AgentStatus::Interrupting),
+            ("error", AgentStatus::Error),
+        ] {
+            let parsed = AgentStatus::parse(value).expect("valid agent status");
+            assert_eq!(parsed, expected);
+            assert_eq!(parsed.as_str(), value);
+        }
+    }
+
+    #[test]
+    fn conversation_turn_status_round_trips_every_wire_value() {
+        for (value, expected) in [
+            ("input_received", ConversationTurnStatus::InputReceived),
+            ("running", ConversationTurnStatus::Running),
+            ("waiting_for_tool", ConversationTurnStatus::WaitingForTool),
+            ("interrupted", ConversationTurnStatus::Interrupted),
+            ("completed", ConversationTurnStatus::Completed),
+            ("failed", ConversationTurnStatus::Failed),
+            ("cancelled", ConversationTurnStatus::Cancelled),
+        ] {
+            let parsed = ConversationTurnStatus::parse(value).expect("valid turn status");
+            assert_eq!(parsed, expected);
+            assert_eq!(parsed.as_str(), value);
+        }
+    }
+
+    #[test]
+    fn conversation_item_kind_round_trips_every_wire_value() {
+        for (value, expected) in [
+            ("user_text", ConversationItemKind::UserText),
+            ("assistant_text", ConversationItemKind::AssistantText),
+            ("activity", ConversationItemKind::Activity),
+            ("a2ui_card", ConversationItemKind::A2uiCard),
+            (
+                "multiple_choice_prompt",
+                ConversationItemKind::MultipleChoicePrompt,
+            ),
+            (
+                "multiple_choice_selection",
+                ConversationItemKind::MultipleChoiceSelection,
+            ),
+            ("tool_call", ConversationItemKind::ToolCall),
+            ("tool_result", ConversationItemKind::ToolResult),
+            ("reasoning", ConversationItemKind::Reasoning),
+            (
+                "model_context_update",
+                ConversationItemKind::ModelContextUpdate,
+            ),
+            ("approval_request", ConversationItemKind::ApprovalRequest),
+            ("approval_result", ConversationItemKind::ApprovalResult),
+            (
+                "artifact_reference",
+                ConversationItemKind::ArtifactReference,
+            ),
+            ("task_reference", ConversationItemKind::TaskReference),
+            ("error_notice", ConversationItemKind::ErrorNotice),
+        ] {
+            let parsed = ConversationItemKind::parse(value).expect("valid item kind");
+            assert_eq!(parsed, expected);
+            assert_eq!(parsed.as_str(), value);
+        }
+    }
+
+    #[test]
+    fn conversation_item_status_round_trips_every_wire_value() {
+        for (value, expected) in [
+            ("pending", ConversationItemStatus::Pending),
+            ("running", ConversationItemStatus::Running),
+            ("completed", ConversationItemStatus::Completed),
+            ("failed", ConversationItemStatus::Failed),
+            ("cancelled", ConversationItemStatus::Cancelled),
+            ("interrupted", ConversationItemStatus::Interrupted),
+        ] {
+            let parsed = ConversationItemStatus::parse(value).expect("valid item status");
+            assert_eq!(parsed, expected);
+            assert_eq!(parsed.as_str(), value);
+        }
+    }
+
+    #[test]
+    fn conversation_context_summary_status_round_trips_every_wire_value() {
+        for (value, expected) in [
+            ("pending", ConversationContextSummaryStatus::Pending),
+            ("active", ConversationContextSummaryStatus::Active),
+            ("failed", ConversationContextSummaryStatus::Failed),
+            ("superseded", ConversationContextSummaryStatus::Superseded),
+        ] {
+            let parsed =
+                ConversationContextSummaryStatus::parse(value).expect("valid summary status");
+            assert_eq!(parsed, expected);
+            assert_eq!(parsed.as_str(), value);
+        }
+    }
+
+    #[test]
+    fn every_status_vocabulary_rejects_unknown_values() {
+        for (error, expected_kind) in [
+            (
+                AgentStatus::parse("unknown").expect_err("invalid agent status"),
+                "agent_status",
+            ),
+            (
+                ConversationTurnStatus::parse("unknown").expect_err("invalid turn status"),
+                "conversation_turn_status",
+            ),
+            (
+                ConversationItemKind::parse("unknown").expect_err("invalid item kind"),
+                "conversation_item_kind",
+            ),
+            (
+                ConversationItemStatus::parse("unknown").expect_err("invalid item status"),
+                "conversation_item_status",
+            ),
+            (
+                ConversationContextSummaryStatus::parse("unknown")
+                    .expect_err("invalid summary status"),
+                "conversation_context_summary_status",
+            ),
+        ] {
+            assert_eq!(
+                error,
+                ConversationError::InvalidEnum {
+                    kind: expected_kind,
+                    value: "unknown".to_string(),
+                }
+            );
+        }
+    }
 
     #[test]
     fn conversation_item_kind_parse_round_trips_artifact_reference() {

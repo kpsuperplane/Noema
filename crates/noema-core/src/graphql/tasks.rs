@@ -1274,7 +1274,7 @@ mod tests {
             .await
             .expect("authenticated provider");
         let conversation = store
-            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
             .expect("conversation");
         let pool = store
@@ -1336,12 +1336,15 @@ mod tests {
             .expect("idempotent cancel mutation");
 
         let delivered = store
-            .list_conversation_items(&conversation.conversation_id, crate::ReplayMode::Audit)
+            .list_conversation_items(
+                &conversation.conversation_id,
+                noema_conversations::ReplayMode::Audit,
+            )
             .await
             .expect("conversation items")
             .into_iter()
             .filter(|item| {
-                item.kind == crate::ConversationItemKind::TaskReference
+                item.kind == noema_conversations::ConversationItemKind::TaskReference
                     && item.metadata["source"] == "background_task_status"
             })
             .collect::<Vec<_>>();

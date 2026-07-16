@@ -28,18 +28,18 @@ pub enum AgentStatus {
     Error,
 }
 
-impl From<crate::PersistedAgentStatus> for AgentStatus {
-    fn from(status: crate::PersistedAgentStatus) -> Self {
+impl From<noema_conversations::AgentStatus> for AgentStatus {
+    fn from(status: noema_conversations::AgentStatus) -> Self {
         match status {
-            crate::PersistedAgentStatus::Idle => Self::Idle,
-            crate::PersistedAgentStatus::InputReceived => Self::InputReceived,
-            crate::PersistedAgentStatus::Thinking => Self::Thinking,
-            crate::PersistedAgentStatus::ToolRunning => Self::ToolRunning,
-            crate::PersistedAgentStatus::WaitingForPreviousTurnCompletion => {
+            noema_conversations::AgentStatus::Idle => Self::Idle,
+            noema_conversations::AgentStatus::InputReceived => Self::InputReceived,
+            noema_conversations::AgentStatus::Thinking => Self::Thinking,
+            noema_conversations::AgentStatus::ToolRunning => Self::ToolRunning,
+            noema_conversations::AgentStatus::WaitingForPreviousTurnCompletion => {
                 Self::WaitingForPreviousTurnCompletion
             }
-            crate::PersistedAgentStatus::Interrupting => Self::Interrupting,
-            crate::PersistedAgentStatus::Error => Self::Error,
+            noema_conversations::AgentStatus::Interrupting => Self::Interrupting,
+            noema_conversations::AgentStatus::Error => Self::Error,
         }
     }
 }

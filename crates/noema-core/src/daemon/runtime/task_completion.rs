@@ -2,12 +2,13 @@
 
 use std::sync::Arc;
 
-use crate::{
-    ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
-    NewConversationTurn, PersistedAgentStatus,
-    provider::{
-        GenerateInput, GenerateOptions, GenerateRequest, GenerateResponseItem, GenerateStreamEvent,
-    },
+use noema_conversations::{
+    ActorRef, AgentStatus as PersistedAgentStatus, ConversationItemKind, ConversationItemStatus,
+    NewConversationItem, NewConversationTurn,
+};
+
+use crate::provider::{
+    GenerateInput, GenerateOptions, GenerateRequest, GenerateResponseItem, GenerateStreamEvent,
 };
 use serde_json::json;
 
@@ -247,7 +248,8 @@ impl CodexRuntimeActor {
                     parent_item_id: None,
                     kind: ConversationItemKind::AssistantText,
                     status: ConversationItemStatus::Completed,
-                    author: ActorRef::agent("agent:primary"),
+                    author: ActorRef::agent("agent:primary")
+                        .expect("static primary agent id must be valid"),
                     content_text: Some(content_text.clone()),
                     payload_json: json!({
                         "task_id": request.task_id,
@@ -343,7 +345,8 @@ impl CodexRuntimeActor {
                         parent_item_id: None,
                         kind: ConversationItemKind::ArtifactReference,
                         status: ConversationItemStatus::Completed,
-                        author: ActorRef::agent("agent:primary"),
+                        author: ActorRef::agent("agent:primary")
+                            .expect("static primary agent id must be valid"),
                         content_text: None,
                         payload_json: payload,
                         metadata: metadata.clone(),

@@ -2,10 +2,12 @@
 
 use serde_json::{Value, json};
 
-use crate::{
+use noema_conversations::{
     ActorRef, ConversationItemKind, ConversationItemRecord, ConversationItemStatus,
-    NewConversationItem, NoemaStore, daemon::protocol::DaemonError,
+    NewConversationItem,
 };
+
+use crate::{NoemaStore, daemon::protocol::DaemonError};
 
 use super::model_context::{ModelContextSnapshot, ModelContextState, ModelContextUpdate};
 
@@ -62,7 +64,8 @@ pub(super) async fn sync_model_context(
                 parent_item_id: None,
                 kind: ConversationItemKind::ModelContextUpdate,
                 status: ConversationItemStatus::Completed,
-                author: ActorRef::agent("agent:primary"),
+                author: ActorRef::agent("agent:primary")
+                    .expect("static primary agent id must be valid"),
                 content_text: Some(content),
                 payload_json,
                 metadata: json!({
@@ -181,7 +184,7 @@ mod tests {
             .await
             .expect("conversation");
         let turn = store
-            .create_conversation_turn(crate::NewConversationTurn {
+            .create_conversation_turn(noema_conversations::NewConversationTurn {
                 conversation_id: conversation.conversation_id.clone(),
                 trigger_item_id: None,
                 metadata: json!({}),
@@ -239,25 +242,27 @@ mod tests {
             .expect("context items exist")
             .sequence_index;
         store
-            .insert_conversation_context_summary(crate::NewConversationContextSummary {
-                conversation_id: conversation.conversation_id.clone(),
-                provider_kind: "codex".to_string(),
-                model_profile: None,
-                summary_text: "compacted transcript".to_string(),
-                covered_item_start_sequence: 1,
-                covered_item_end_sequence: covered_end,
-                source_item_ids: before_summary
-                    .iter()
-                    .map(|item| item.item_id.clone())
-                    .collect(),
-                input_token_estimate: 100,
-                summary_token_estimate: 10,
-                compaction_provider_kind: "codex".to_string(),
-                compaction_model_profile: None,
-                status: crate::ConversationContextSummaryStatus::Active,
-                error_code: None,
-                error_message: None,
-            })
+            .insert_conversation_context_summary(
+                noema_conversations::NewConversationContextSummary {
+                    conversation_id: conversation.conversation_id.clone(),
+                    provider_kind: "codex".to_string(),
+                    model_profile: None,
+                    summary_text: "compacted transcript".to_string(),
+                    covered_item_start_sequence: 1,
+                    covered_item_end_sequence: covered_end,
+                    source_item_ids: before_summary
+                        .iter()
+                        .map(|item| item.item_id.clone())
+                        .collect(),
+                    input_token_estimate: 100,
+                    summary_token_estimate: 10,
+                    compaction_provider_kind: "codex".to_string(),
+                    compaction_model_profile: None,
+                    status: noema_conversations::ConversationContextSummaryStatus::Active,
+                    error_code: None,
+                    error_message: None,
+                },
+            )
             .await
             .expect("summary");
 

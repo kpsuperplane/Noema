@@ -1,16 +1,13 @@
 use super::*;
 use super::{protocol::TurnStreamEvent, runtime::CodexRuntimeHandle};
-use crate::{
-    ActorRef,
-    provider::{
-        AssistantTextPhase, GenerateActionItem, GenerateInput, GenerateInputItem,
-        GenerateReasoningItem, GenerateRequest, GenerateResponse, GenerateResponseItem,
-        GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall, MultipleChoiceOption,
-        MultipleChoiceSelectionMode, ProviderError, ProviderResponseContinuation,
-        ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport,
-    },
-    {ConversationItemKind, ConversationItemStatus, ReplayMode},
+use crate::provider::{
+    AssistantTextPhase, GenerateActionItem, GenerateInput, GenerateInputItem,
+    GenerateReasoningItem, GenerateRequest, GenerateResponse, GenerateResponseItem,
+    GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall, MultipleChoiceOption,
+    MultipleChoiceSelectionMode, ProviderError, ProviderResponseContinuation,
+    ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport,
 };
+use noema_conversations::{ActorRef, ConversationItemKind, ConversationItemStatus, ReplayMode};
 use noema_home::NoemaPaths;
 use serde_json::{Value, json};
 use std::{
@@ -1309,7 +1306,7 @@ async fn prompt_context_uses_active_summary_and_post_checkpoint_items() {
     append_test_text_item(&store, &started.conversation_id, "covered user").await;
     append_test_text_item(&store, &started.conversation_id, "covered assistant").await;
     store
-        .insert_conversation_context_summary(crate::NewConversationContextSummary {
+        .insert_conversation_context_summary(noema_conversations::NewConversationContextSummary {
             conversation_id: started.conversation_id.clone(),
             provider_kind: "foundation_local".to_string(),
             model_profile: None,
@@ -1321,7 +1318,7 @@ async fn prompt_context_uses_active_summary_and_post_checkpoint_items() {
             summary_token_estimate: 16,
             compaction_provider_kind: "foundation_local".to_string(),
             compaction_model_profile: None,
-            status: crate::ConversationContextSummaryStatus::Active,
+            status: noema_conversations::ConversationContextSummaryStatus::Active,
             error_code: None,
             error_message: None,
         })
@@ -1375,7 +1372,7 @@ async fn compacted_summary_is_replayed_as_input_checkpoint_not_instruction_text(
     append_test_text_item(&store, &started.conversation_id, "covered user").await;
     append_test_text_item(&store, &started.conversation_id, "covered assistant").await;
     store
-        .insert_conversation_context_summary(crate::NewConversationContextSummary {
+        .insert_conversation_context_summary(noema_conversations::NewConversationContextSummary {
             conversation_id: started.conversation_id.clone(),
             provider_kind: "foundation_local".to_string(),
             model_profile: None,
@@ -1387,7 +1384,7 @@ async fn compacted_summary_is_replayed_as_input_checkpoint_not_instruction_text(
             summary_token_estimate: 16,
             compaction_provider_kind: "foundation_local".to_string(),
             compaction_model_profile: None,
-            status: crate::ConversationContextSummaryStatus::Active,
+            status: noema_conversations::ConversationContextSummaryStatus::Active,
             error_code: None,
             error_message: None,
         })
@@ -5037,9 +5034,15 @@ async fn append_test_text_item_with_kind(
     text: &str,
 ) {
     let author = match kind {
-        ConversationItemKind::UserText => ActorRef::human("human:local"),
-        ConversationItemKind::MultipleChoiceSelection => ActorRef::human("human:local"),
-        ConversationItemKind::AssistantText => ActorRef::agent("agent:primary"),
+        ConversationItemKind::UserText => {
+            ActorRef::human("human:local").expect("static local human actor id must be valid")
+        }
+        ConversationItemKind::MultipleChoiceSelection => {
+            ActorRef::human("human:local").expect("static local human actor id must be valid")
+        }
+        ConversationItemKind::AssistantText => {
+            ActorRef::agent("agent:primary").expect("static primary agent id must be valid")
+        }
         ConversationItemKind::Activity
         | ConversationItemKind::A2uiCard
         | ConversationItemKind::MultipleChoicePrompt
@@ -5051,10 +5054,12 @@ async fn append_test_text_item_with_kind(
         | ConversationItemKind::ApprovalResult
         | ConversationItemKind::ArtifactReference
         | ConversationItemKind::TaskReference
-        | ConversationItemKind::ErrorNotice => ActorRef::agent("agent:primary"),
+        | ConversationItemKind::ErrorNotice => {
+            ActorRef::agent("agent:primary").expect("static primary agent id must be valid")
+        }
     };
     store
-        .append_conversation_item(crate::NewConversationItem {
+        .append_conversation_item(noema_conversations::NewConversationItem {
             conversation_id: conversation_id.to_string(),
             turn_id: None,
             parent_item_id: None,
@@ -5075,13 +5080,14 @@ async fn append_test_multiple_choice_prompt(
     selection_mode: MultipleChoiceSelectionMode,
 ) -> String {
     let record = store
-        .append_conversation_item(crate::NewConversationItem {
+        .append_conversation_item(noema_conversations::NewConversationItem {
             conversation_id: conversation_id.to_string(),
             turn_id: None,
             parent_item_id: None,
             kind: ConversationItemKind::MultipleChoicePrompt,
             status: ConversationItemStatus::Completed,
-            author: ActorRef::agent("agent:primary"),
+            author: ActorRef::agent("agent:primary")
+                .expect("static primary agent id must be valid"),
             content_text: Some("Pick a direction".to_string()),
             payload_json: json!({
                 "prompt": "Pick a direction",

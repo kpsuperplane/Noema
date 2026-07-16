@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/noema-conversations",
     "crates/noema-core",
     "crates/noema-desktop",
     "crates/noema-home",

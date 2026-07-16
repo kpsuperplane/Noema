@@ -450,7 +450,7 @@ mod tests {
             .await
             .expect("store");
         let conversation = store
-            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
             .expect("conversation");
         let artifact = crate::create_conversation_local_file_artifact(

@@ -1,10 +1,11 @@
-use crate::{
-    ActorRef, ConversationItemKind, ConversationItemRecord, ConversationItemStatus,
-    NewConversationItem, PersistedAgentStatus,
-    provider::{
-        AssistantTextPhase, GenerateActionItem, GenerateReasoningItem, GenerateResponse,
-        GenerateResponseItem, GenerateStreamEvent,
-    },
+use noema_conversations::{
+    ActorRef, AgentStatus as PersistedAgentStatus, ConversationItemKind, ConversationItemRecord,
+    ConversationItemStatus, NewConversationItem,
+};
+
+use crate::provider::{
+    AssistantTextPhase, GenerateActionItem, GenerateReasoningItem, GenerateResponse,
+    GenerateResponseItem, GenerateStreamEvent,
 };
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
@@ -94,7 +95,8 @@ impl CodexRuntimeActor {
                     parent_item_id: None,
                     kind: ConversationItemKind::Reasoning,
                     status: ConversationItemStatus::Completed,
-                    author: ActorRef::agent("agent:primary"),
+                    author: ActorRef::agent("agent:primary")
+                        .expect("static primary agent id must be valid"),
                     content_text: None,
                     payload_json: json!({
                         "provider_reasoning": {
@@ -158,7 +160,8 @@ impl CodexRuntimeActor {
                         parent_item_id: Some(turn.user_item_id.clone()),
                         kind: ConversationItemKind::AssistantText,
                         status: ConversationItemStatus::Completed,
-                        author: ActorRef::agent("agent:primary"),
+                        author: ActorRef::agent("agent:primary")
+                            .expect("static primary agent id must be valid"),
                         content_text: Some(text.clone()),
                         payload_json: json!({}),
                         metadata: metadata.clone(),
@@ -194,7 +197,8 @@ impl CodexRuntimeActor {
                         parent_item_id: Some(turn.user_item_id.clone()),
                         kind: ConversationItemKind::A2uiCard,
                         status: ConversationItemStatus::Completed,
-                        author: ActorRef::agent("agent:primary"),
+                        author: ActorRef::agent("agent:primary")
+                            .expect("static primary agent id must be valid"),
                         content_text: None,
                         payload_json: json!({
                             "id": card_id.clone(),
@@ -244,7 +248,8 @@ impl CodexRuntimeActor {
                         parent_item_id: Some(turn.user_item_id.clone()),
                         kind: ConversationItemKind::MultipleChoicePrompt,
                         status: ConversationItemStatus::Completed,
-                        author: ActorRef::agent("agent:primary"),
+                        author: ActorRef::agent("agent:primary")
+                            .expect("static primary agent id must be valid"),
                         content_text: Some(prompt.clone()),
                         payload_json: json!({
                             "prompt": prompt.clone(),
@@ -385,7 +390,8 @@ impl CodexRuntimeActor {
                     parent_item_id: None,
                     kind: ConversationItemKind::AssistantText,
                     status: ConversationItemStatus::Completed,
-                    author: ActorRef::agent("agent:primary"),
+                    author: ActorRef::agent("agent:primary")
+                        .expect("static primary agent id must be valid"),
                     content_text: Some(text),
                     payload_json: json!({}),
                     metadata,
@@ -594,7 +600,8 @@ impl CodexRuntimeActor {
                 parent_item_id: Some(turn.user_item_id.clone()),
                 kind: action.kind,
                 status: action.status,
-                author: ActorRef::agent("agent:primary"),
+                author: ActorRef::agent("agent:primary")
+                    .expect("static primary agent id must be valid"),
                 content_text,
                 payload_json: payload_json.clone(),
                 metadata: metadata.clone(),
@@ -670,7 +677,8 @@ impl CodexRuntimeActor {
                 TurnTranscriptItem::UserText { text } => (
                     ConversationItemKind::UserText,
                     ConversationItemStatus::Completed,
-                    ActorRef::human("human:local"),
+                    ActorRef::human("human:local")
+                        .expect("static local human actor id must be valid"),
                     None,
                     Some(text.clone()),
                     json!({}),
@@ -679,7 +687,8 @@ impl CodexRuntimeActor {
                 TurnTranscriptItem::AssistantText { text } => (
                     ConversationItemKind::AssistantText,
                     ConversationItemStatus::Completed,
-                    ActorRef::agent("agent:primary"),
+                    ActorRef::agent("agent:primary")
+                        .expect("static primary agent id must be valid"),
                     default_parent_item_id.clone(),
                     Some(text.clone()),
                     json!({}),
@@ -695,7 +704,8 @@ impl CodexRuntimeActor {
                 } => (
                     ConversationItemKind::Activity,
                     conversation_item_status_for_activity(*status),
-                    ActorRef::agent("agent:primary"),
+                    ActorRef::agent("agent:primary")
+                        .expect("static primary agent id must be valid"),
                     default_parent_item_id.clone(),
                     Some(title.clone()),
                     json!({
@@ -718,7 +728,8 @@ impl CodexRuntimeActor {
                 } => (
                     ConversationItemKind::A2uiCard,
                     ConversationItemStatus::Completed,
-                    ActorRef::agent("agent:primary"),
+                    ActorRef::agent("agent:primary")
+                        .expect("static primary agent id must be valid"),
                     default_parent_item_id.clone(),
                     None,
                     json!({
@@ -739,7 +750,8 @@ impl CodexRuntimeActor {
                 } => (
                     ConversationItemKind::MultipleChoicePrompt,
                     ConversationItemStatus::Completed,
-                    ActorRef::agent("agent:primary"),
+                    ActorRef::agent("agent:primary")
+                        .expect("static primary agent id must be valid"),
                     default_parent_item_id.clone(),
                     Some(prompt.clone()),
                     json!({
@@ -756,7 +768,8 @@ impl CodexRuntimeActor {
                 } => (
                     ConversationItemKind::MultipleChoiceSelection,
                     ConversationItemStatus::Completed,
-                    ActorRef::human("human:local"),
+                    ActorRef::human("human:local")
+                        .expect("static local human actor id must be valid"),
                     Some(prompt_item_id.clone()),
                     Some(
                         selected_options
@@ -778,7 +791,8 @@ impl CodexRuntimeActor {
                 } => (
                     ConversationItemKind::ErrorNotice,
                     ConversationItemStatus::Failed,
-                    ActorRef::agent("agent:primary"),
+                    ActorRef::agent("agent:primary")
+                        .expect("static primary agent id must be valid"),
                     default_parent_item_id,
                     Some(message.clone()),
                     json!({
@@ -799,7 +813,8 @@ impl CodexRuntimeActor {
                 } => (
                     ConversationItemKind::ArtifactReference,
                     ConversationItemStatus::Completed,
-                    ActorRef::agent("agent:primary"),
+                    ActorRef::agent("agent:primary")
+                        .expect("static primary agent id must be valid"),
                     default_parent_item_id,
                     None,
                     json!({
@@ -832,7 +847,8 @@ impl CodexRuntimeActor {
                     (
                         ConversationItemKind::TaskReference,
                         ConversationItemStatus::Completed,
-                        ActorRef::agent("agent:primary"),
+                        ActorRef::agent("agent:primary")
+                            .expect("static primary agent id must be valid"),
                         default_parent_item_id,
                         Some(title.clone()),
                         json!({

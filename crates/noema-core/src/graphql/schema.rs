@@ -1701,7 +1701,7 @@ mod tests {
             .await
             .expect("conversation");
         let turn = store
-            .create_conversation_turn(crate::NewConversationTurn {
+            .create_conversation_turn(noema_conversations::NewConversationTurn {
                 conversation_id: conversation.conversation_id.clone(),
                 trigger_item_id: None,
                 metadata: json!({}),
@@ -1709,13 +1709,14 @@ mod tests {
             .await
             .expect("turn");
         let user_item = store
-            .append_conversation_item(crate::NewConversationItem {
+            .append_conversation_item(noema_conversations::NewConversationItem {
                 conversation_id: conversation.conversation_id.clone(),
                 turn_id: Some(turn.turn_id.clone()),
                 parent_item_id: None,
-                kind: crate::ConversationItemKind::UserText,
-                status: crate::ConversationItemStatus::Completed,
-                author: crate::ActorRef::human("human:local"),
+                kind: noema_conversations::ConversationItemKind::UserText,
+                status: noema_conversations::ConversationItemStatus::Completed,
+                author: noema_conversations::ActorRef::human("human:local")
+                    .expect("static local human actor id must be valid"),
                 content_text: Some("I like airplanes and local-first tools.".to_string()),
                 payload_json: json!({}),
                 metadata: json!({}),
@@ -3713,7 +3714,7 @@ mod tests {
             .await
             .expect("primary conversation");
         let turn = store
-            .create_conversation_turn(crate::NewConversationTurn {
+            .create_conversation_turn(noema_conversations::NewConversationTurn {
                 conversation_id: conversation.conversation_id.clone(),
                 trigger_item_id: None,
                 metadata: serde_json::json!({ "turn_index": 1 }),
@@ -3723,13 +3724,14 @@ mod tests {
 
         for label in ["one", "two", "three"] {
             store
-                .append_conversation_item(crate::NewConversationItem {
+                .append_conversation_item(noema_conversations::NewConversationItem {
                     conversation_id: conversation.conversation_id.clone(),
                     turn_id: Some(turn.turn_id.clone()),
                     parent_item_id: None,
-                    kind: crate::ConversationItemKind::UserText,
-                    status: crate::ConversationItemStatus::Completed,
-                    author: crate::ActorRef::human("human:local"),
+                    kind: noema_conversations::ConversationItemKind::UserText,
+                    status: noema_conversations::ConversationItemStatus::Completed,
+                    author: noema_conversations::ActorRef::human("human:local")
+                        .expect("static local human actor id must be valid"),
                     content_text: Some(label.to_string()),
                     payload_json: serde_json::json!({}),
                     metadata: serde_json::json!({ "turn_index": 1 }),
@@ -3784,11 +3786,11 @@ mod tests {
         let store = test_store().await;
         store.ensure_default_actors().await.expect("actors");
         let conversation = store
-            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
             .expect("conversation");
         let turn = store
-            .create_conversation_turn(crate::NewConversationTurn {
+            .create_conversation_turn(noema_conversations::NewConversationTurn {
                 conversation_id: conversation.conversation_id.clone(),
                 trigger_item_id: None,
                 metadata: serde_json::json!({ "turn_index": 1 }),
@@ -3798,13 +3800,14 @@ mod tests {
 
         for label in ["one", "two", "three"] {
             store
-                .append_conversation_item(crate::NewConversationItem {
+                .append_conversation_item(noema_conversations::NewConversationItem {
                     conversation_id: conversation.conversation_id.clone(),
                     turn_id: Some(turn.turn_id.clone()),
                     parent_item_id: None,
-                    kind: crate::ConversationItemKind::UserText,
-                    status: crate::ConversationItemStatus::Completed,
-                    author: crate::ActorRef::human("human:local"),
+                    kind: noema_conversations::ConversationItemKind::UserText,
+                    status: noema_conversations::ConversationItemStatus::Completed,
+                    author: noema_conversations::ActorRef::human("human:local")
+                        .expect("static local human actor id must be valid"),
                     content_text: Some(label.to_string()),
                     payload_json: serde_json::json!({}),
                     metadata: serde_json::json!({ "turn_index": 1 }),
@@ -3873,11 +3876,11 @@ mod tests {
         let store = test_store().await;
         store.ensure_default_actors().await.expect("actors");
         let conversation = store
-            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
             .expect("conversation");
         let turn = store
-            .create_conversation_turn(crate::NewConversationTurn {
+            .create_conversation_turn(noema_conversations::NewConversationTurn {
                 conversation_id: conversation.conversation_id.clone(),
                 trigger_item_id: None,
                 metadata: serde_json::json!({ "turn_index": 1 }),
@@ -3885,13 +3888,14 @@ mod tests {
             .await
             .expect("turn");
         store
-            .append_conversation_item(crate::NewConversationItem {
+            .append_conversation_item(noema_conversations::NewConversationItem {
                 conversation_id: conversation.conversation_id.clone(),
                 turn_id: Some(turn.turn_id.clone()),
                 parent_item_id: None,
-                kind: crate::ConversationItemKind::AssistantText,
-                status: crate::ConversationItemStatus::Completed,
-                author: crate::ActorRef::agent("agent:primary"),
+                kind: noema_conversations::ConversationItemKind::AssistantText,
+                status: noema_conversations::ConversationItemStatus::Completed,
+                author: noema_conversations::ActorRef::agent("agent:primary")
+                    .expect("static primary agent id must be valid"),
                 content_text: Some("hello".to_string()),
                 payload_json: serde_json::json!({}),
                 metadata: serde_json::json!({
@@ -3943,11 +3947,11 @@ mod tests {
     async fn conversation_transcript_page_exposes_artifact_reference_item() {
         let store = crate::store::tests::test_store().await;
         let conversation = store
-            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
             .expect("conversation");
         let turn = store
-            .create_conversation_turn(crate::NewConversationTurn {
+            .create_conversation_turn(noema_conversations::NewConversationTurn {
                 conversation_id: conversation.conversation_id.clone(),
                 trigger_item_id: None,
                 metadata: serde_json::json!({ "turn_index": 1 }),
@@ -3992,13 +3996,14 @@ mod tests {
             .await
             .expect("artifact");
         store
-            .append_conversation_item(crate::NewConversationItem {
+            .append_conversation_item(noema_conversations::NewConversationItem {
                 conversation_id: conversation.conversation_id.clone(),
                 turn_id: Some(turn.turn_id.clone()),
                 parent_item_id: None,
-                kind: crate::ConversationItemKind::ArtifactReference,
-                status: crate::ConversationItemStatus::Completed,
-                author: crate::ActorRef::agent("agent:primary"),
+                kind: noema_conversations::ConversationItemKind::ArtifactReference,
+                status: noema_conversations::ConversationItemStatus::Completed,
+                author: noema_conversations::ActorRef::agent("agent:primary")
+                    .expect("static primary agent id must be valid"),
                 content_text: None,
                 payload_json: serde_json::json!({
                     "artifact_id": artifact.artifact.artifact_id,
@@ -5327,7 +5332,7 @@ mod tests {
     async fn create_conversation_external_artifact_mutation_round_trips() {
         let store = crate::store::tests::test_store().await;
         let conversation = store
-            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
             .expect("conversation");
         let schema = build_schema(GraphqlState::for_tests_with_store(store));
@@ -5377,7 +5382,7 @@ mod tests {
     async fn create_conversation_external_artifact_rejects_non_http_url() {
         let store = crate::store::tests::test_store().await;
         let conversation = store
-            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
             .expect("conversation");
         let schema = build_schema(GraphqlState::for_tests_with_store(store));
@@ -5412,11 +5417,11 @@ mod tests {
             .await
             .expect("store");
         let conversation = store
-            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
             .expect("conversation");
         let other_conversation = store
-            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
             .expect("other conversation");
 
@@ -5558,7 +5563,7 @@ mod tests {
     async fn artifact_query_resolves_one_artifact() {
         let store = crate::store::tests::test_store().await;
         let conversation = store
-            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
             .expect("conversation");
         let expected = store
@@ -5660,7 +5665,7 @@ mod tests {
             .await
             .expect("store");
         let conversation = store
-            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
             .expect("conversation");
         let artifact = crate::create_conversation_local_file_artifact(
@@ -5729,7 +5734,7 @@ mod tests {
             .await
             .expect("store");
         let conversation = store
-            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
             .expect("conversation");
         let artifact = crate::create_conversation_local_file_artifact(
@@ -5843,7 +5848,7 @@ mod tests {
             .await
             .expect("store");
         let conversation = store
-            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
             .expect("conversation");
         let content = "# Literal heading\n\n* literal asterisk\n  indented\n";
@@ -5905,7 +5910,7 @@ mod tests {
             .await
             .expect("store");
         let conversation = store
-            .create_conversation(crate::NewConversation::local_chat(None, None))
+            .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
             .expect("conversation");
         let artifact = crate::create_conversation_local_file_artifact(

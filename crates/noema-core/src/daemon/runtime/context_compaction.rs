@@ -1,6 +1,10 @@
-use crate::{
+use noema_conversations::{
     ConversationContextSummaryRecord, ConversationContextSummaryStatus, ConversationItemRecord,
-    NewConversationContextSummary, NoemaStore,
+    NewConversationContextSummary,
+};
+
+use crate::{
+    NoemaStore,
     daemon::protocol::DaemonError,
     provider::{
         GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseItem,
@@ -571,7 +575,7 @@ struct SummarySeed {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ConversationItemKind, ConversationItemStatus};
+    use noema_conversations::{ConversationItemKind, ConversationItemStatus};
 
     #[test]
     fn background_threshold_uses_context_budget() {

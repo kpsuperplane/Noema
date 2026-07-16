@@ -23,6 +23,7 @@ futures-util.workspace = true
 fs2.workspace = true
 http.workspace = true
 libc.workspace = true
+noema-conversations = { path = "../noema-conversations" }
 noema-home = { path = "../noema-home" }
 ring.workspace = true
 reqwest = { workspace = true, features = ["stream"] }

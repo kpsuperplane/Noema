@@ -1,10 +1,10 @@
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use serde_json::Value;
 
-use crate::{
-    ConversationItemKind, ConversationItemPage, ConversationItemRecord, ConversationItemStatus,
-    ConversationRecord, ConversationTurnRecord, NewConversation, NewConversationItem,
-    NewConversationTurn, PersistedAgentStatus as AgentStatus, ReplayMode,
+use noema_conversations::{
+    AgentStatus, ConversationItemKind, ConversationItemPage, ConversationItemRecord,
+    ConversationItemStatus, ConversationRecord, ConversationTurnRecord, NewConversation,
+    NewConversationItem, NewConversationTurn, ReplayMode,
 };
 
 use super::{
@@ -1027,19 +1027,10 @@ fn conversation_item_from_row(
         turn_id: row.turn_id,
         sequence_index: row.sequence_index,
         cursor,
-        kind: ConversationItemKind::parse(&row.kind).map_err(memory_enum_error)?,
-        status: ConversationItemStatus::parse(&row.status).map_err(memory_enum_error)?,
+        kind: ConversationItemKind::parse(&row.kind).map_err(StoreError::from)?,
+        status: ConversationItemStatus::parse(&row.status).map_err(StoreError::from)?,
         content_text: row.content_text,
         payload_json: json_from_string(row.payload_json)?,
         metadata: json_from_string(row.metadata_json)?,
     })
-}
-
-fn memory_enum_error(error: crate::MemoryPersistenceError) -> StoreError {
-    match error {
-        crate::MemoryPersistenceError::InvalidEnum { kind, value } => {
-            StoreError::InvalidEnum { kind, value }
-        }
-        other => StoreError::Schema(other.to_string()),
-    }
 }

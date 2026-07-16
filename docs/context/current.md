@@ -782,6 +782,11 @@ The next storage slice should stay small and concrete:
   initialization, and the generic JSONL diagnostic sink; configuration bytes
   and diagnostic categories remain with their semantic owners, and all
   consumers use direct dependencies instead of `noema-core` forwarding exports.
+  Phase 2 extracted `noema-conversations` with the schema-exact conversation
+  owner vocabulary and fallible actor/owner references. The unused generic
+  typed IDs, object registry/table mappings, and `MemoryPersistenceError`
+  wrapper were deleted; store, runtime, and GraphQL now consume the conversation
+  leaf directly, and store owns the error conversion at its boundary.
 
 - The bounded remediation program completed Phase 2 at `92,157` maintained
   source lines (`-1,767` from its baseline). Axum/tower-sessions now own the
