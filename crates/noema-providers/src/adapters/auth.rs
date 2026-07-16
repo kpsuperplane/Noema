@@ -7,7 +7,7 @@ use crate::{
 };
 use tokio::sync::{Mutex, oneshot};
 
-use super::codex::oauth;
+use super::codex::oauth::{self, CodexDeviceAuthOutcome, CodexDeviceAuthSession};
 
 /// Default maximum lifetime for a provider auth attempt.
 pub const DEFAULT_PROVIDER_AUTH_ATTEMPT_TIMEOUT: std::time::Duration =
@@ -45,13 +45,53 @@ impl ProviderAuthManager {
     ///
     /// # Errors
     ///
-    /// Returns [`ProviderError`] when Codex account-home setup or process
-    /// startup fails.
+    /// Returns [`ProviderError`] when OAuth client setup or the initial
+    /// device-code request fails.
     pub async fn start_codex_device_code(
         &self,
         request: CodexDeviceAuthRequest,
     ) -> Result<ProviderAuthAttemptView, ProviderError> {
-        oauth::start_codex_device_auth(self.clone(), request).await
+        let session = self.begin_codex_device_code(request).await?;
+        let attempt = session.attempt.clone();
+        let attempt_id = attempt.attempt_id.clone();
+        let manager = self.clone();
+        tokio::spawn(async move {
+            let (status, error_code, error_message) = match session.completion.await {
+                CodexDeviceAuthOutcome::Completed(tokens) => {
+                    drop(tokens);
+                    (ProviderAuthAttemptStatus::Completed, None, None)
+                }
+                CodexDeviceAuthOutcome::Cancelled => {
+                    (ProviderAuthAttemptStatus::Cancelled, None, None)
+                }
+                CodexDeviceAuthOutcome::Expired => (
+                    ProviderAuthAttemptStatus::Expired,
+                    Some("provider_auth_expired".to_string()),
+                    Some("provider auth expired".to_string()),
+                ),
+                CodexDeviceAuthOutcome::Failed {
+                    error_code,
+                    error_message,
+                } => (
+                    ProviderAuthAttemptStatus::Failed,
+                    Some(error_code),
+                    Some(error_message),
+                ),
+            };
+            manager
+                .mark_attempt_terminal(&attempt_id, status, error_code, error_message)
+                .await;
+            manager.remove_attempt_runtime(&attempt_id).await;
+        });
+
+        Ok(attempt)
+    }
+
+    pub(crate) async fn begin_codex_device_code(
+        &self,
+        request: CodexDeviceAuthRequest,
+    ) -> Result<CodexDeviceAuthSession, ProviderError> {
+        oauth::begin_codex_device_auth(self.clone(), request).await
     }
 
     /// Return a safe auth attempt view, if it is still known.
@@ -128,6 +168,24 @@ impl ProviderAuthManager {
         let attempt = attempts.get_mut(attempt_id)?;
         update(attempt);
         Some(attempt.clone())
+    }
+
+    pub(crate) async fn mark_attempt_terminal(
+        &self,
+        attempt_id: &str,
+        status: ProviderAuthAttemptStatus,
+        error_code: Option<String>,
+        error_message: Option<String>,
+    ) -> Option<ProviderAuthAttemptView> {
+        debug_assert!(is_terminal_status(status));
+        self.update_attempt(attempt_id, |view| {
+            if !is_terminal_status(view.status) {
+                view.status = status;
+                view.error_code = error_code;
+                view.error_message = error_message;
+            }
+        })
+        .await
     }
 }
 

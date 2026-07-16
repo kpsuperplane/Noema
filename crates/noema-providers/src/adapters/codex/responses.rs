@@ -7,6 +7,7 @@ use super::{
     oauth::{CodexOAuthClient, CodexTokenStore, chatgpt_account_id_from_access_token},
 };
 use crate::adapters::{
+    account_service::{ProviderCredential, ProviderCredentialAccessHandle},
     reqwest_transport_error,
     responses::{
         CODEX_RESPONSES_PROFILE, ResponsesDiagnosticContext, ResponsesRequest, ResponsesTransport,
@@ -27,15 +28,53 @@ use tokio::sync::OnceCell;
 const CODEX_ORIGINATOR: &str = "codex_cli_rs";
 
 /// Provider implementation backed by Codex OAuth and direct Responses calls.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CodexResponsesProvider {
     transport: ResponsesTransport,
     version_client: reqwest::Client,
     resolved_client_version: Arc<OnceCell<String>>,
-    token_store: CodexTokenStore,
-    oauth_client: CodexOAuthClient,
+    credentials: CodexCredentialSource,
     config: CodexProviderConfig,
     system_errors: Option<SystemErrorLogger>,
+}
+
+#[derive(Clone)]
+enum CodexCredentialSource {
+    File {
+        token_store: CodexTokenStore,
+        oauth_client: CodexOAuthClient,
+    },
+    Service {
+        provider_account_id: String,
+        access: ProviderCredentialAccessHandle,
+    },
+}
+
+impl std::fmt::Debug for CodexCredentialSource {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::File { .. } => formatter.write_str("CodexCredentialSource::File([REDACTED])"),
+            Self::Service {
+                provider_account_id,
+                ..
+            } => formatter
+                .debug_struct("CodexCredentialSource::Service")
+                .field("provider_account_id", provider_account_id)
+                .field("access", &"[CONFIGURED]")
+                .finish(),
+        }
+    }
+}
+
+impl std::fmt::Debug for CodexResponsesProvider {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CodexResponsesProvider")
+            .field("credentials", &self.credentials)
+            .field("config", &self.config)
+            .field("system_errors", &self.system_errors)
+            .finish_non_exhaustive()
+    }
 }
 
 impl CodexResponsesProvider {
@@ -78,8 +117,61 @@ impl CodexResponsesProvider {
             transport,
             version_client: client,
             resolved_client_version: Arc::new(OnceCell::new()),
-            token_store,
-            oauth_client,
+            credentials: CodexCredentialSource::File {
+                token_store,
+                oauth_client,
+            },
+            system_errors: config.system_errors.clone(),
+            config,
+        })
+    }
+
+    /// Build a Codex provider using provider-account credential access.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProviderError`] when configuration or the HTTP client is
+    /// invalid.
+    pub fn new_with_credentials(
+        config: CodexProviderConfig,
+        provider_account_id: impl Into<String>,
+        access: ProviderCredentialAccessHandle,
+    ) -> Result<Self, ProviderError> {
+        let config = normalize_config(config)?;
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(config.timeout_seconds))
+            .build()
+            .map_err(|source| reqwest_transport_error("codex", "build_client", &source))?;
+        Self::with_client_and_credentials(client, config, provider_account_id, access)
+    }
+
+    /// Build a Codex provider with injected HTTP and credential access.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProviderError`] when configuration is invalid.
+    pub fn with_client_and_credentials(
+        client: reqwest::Client,
+        config: CodexProviderConfig,
+        provider_account_id: impl Into<String>,
+        access: ProviderCredentialAccessHandle,
+    ) -> Result<Self, ProviderError> {
+        let config = normalize_config(config)?;
+        let provider_account_id = provider_account_id.into();
+        if provider_account_id.trim().is_empty() {
+            return Err(ProviderError::InvalidRequest {
+                message: "codex provider account id is required".to_string(),
+            });
+        }
+        let transport = ResponsesTransport::new(client.clone(), config.base_url.clone())?;
+        Ok(Self {
+            transport,
+            version_client: client,
+            resolved_client_version: Arc::new(OnceCell::new()),
+            credentials: CodexCredentialSource::Service {
+                provider_account_id,
+                access,
+            },
             system_errors: config.system_errors.clone(),
             config,
         })
@@ -87,8 +179,11 @@ impl CodexResponsesProvider {
 
     /// Return the configured token store.
     #[must_use]
-    pub fn token_store(&self) -> &CodexTokenStore {
-        &self.token_store
+    pub fn token_store(&self) -> Option<&CodexTokenStore> {
+        match &self.credentials {
+            CodexCredentialSource::File { token_store, .. } => Some(token_store),
+            CodexCredentialSource::Service { .. } => None,
+        }
     }
 
     fn model_for_request(&self, model: Option<String>) -> Result<String, ProviderError> {
@@ -148,6 +243,42 @@ impl CodexResponsesProvider {
         }
         Ok(headers)
     }
+
+    async fn access_token(&self) -> Result<String, ProviderError> {
+        match &self.credentials {
+            CodexCredentialSource::File {
+                token_store,
+                oauth_client,
+            } => {
+                token_store
+                    .access_token(oauth_client, CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS)
+                    .await
+            }
+            CodexCredentialSource::Service {
+                provider_account_id,
+                access,
+            } => access
+                .codex_access_token(provider_account_id)
+                .await
+                .map(ProviderCredential::into_secret),
+        }
+    }
+
+    async fn refresh_access_token(&self) -> Result<String, ProviderError> {
+        match &self.credentials {
+            CodexCredentialSource::File {
+                token_store,
+                oauth_client,
+            } => token_store.refresh_access_token(oauth_client).await,
+            CodexCredentialSource::Service {
+                provider_account_id,
+                access,
+            } => access
+                .refresh_codex_access_token(provider_account_id)
+                .await
+                .map(ProviderCredential::into_secret),
+        }
+    }
 }
 
 fn normalize_config(mut config: CodexProviderConfig) -> Result<CodexProviderConfig, ProviderError> {
@@ -206,10 +337,7 @@ impl CodexResponsesProvider {
             request.conversation_id.clone(),
         );
 
-        let access_token = self
-            .token_store
-            .access_token(&self.oauth_client, CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS)
-            .await?;
+        let access_token = self.access_token().await?;
         let request_headers = self
             .request_headers(&access_token, request.conversation_id.as_deref())
             .await?;
@@ -236,10 +364,7 @@ impl CodexResponsesProvider {
         {
             Ok(response) => response,
             Err(ProviderError::AuthenticationFailure { .. }) => {
-                let refreshed = self
-                    .token_store
-                    .refresh_access_token(&self.oauth_client)
-                    .await?;
+                let refreshed = self.refresh_access_token().await?;
                 let request_headers = self
                     .request_headers(&refreshed, request.conversation_id.as_deref())
                     .await?;

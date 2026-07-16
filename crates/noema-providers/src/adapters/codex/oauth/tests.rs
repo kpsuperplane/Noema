@@ -1,10 +1,17 @@
-use std::fs;
+use std::{fs, path::Path, time::Duration};
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use tempfile::TempDir;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
+};
 
 use super::*;
-use crate::{CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS, CodexOAuthConfig, CodexOAuthTokens};
+use crate::{
+    CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS, CodexDeviceAuthRequest, CodexOAuthConfig,
+    CodexOAuthTokens, ProviderAuthAttemptStatus, adapters::auth::ProviderAuthManager,
+};
 
 #[test]
 fn oauth_debug_redacts_credentials_and_account_paths() {
@@ -147,4 +154,162 @@ fn opaque_non_empty_token_is_not_preemptively_refreshed() {
         &tokens,
         CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS
     ));
+}
+
+#[tokio::test]
+async fn device_auth_completion_returns_tokens_without_writing_credentials() {
+    let base_url = spawn_oauth_server(vec![
+        r#"{"device_auth_id":"device-secret","user_code":"ABCD-EFGH","interval":0}"#,
+        r#"{"authorization_code":"authorization-secret","code_verifier":"verifier-secret"}"#,
+        r#"{"access_token":"access-secret","refresh_token":"refresh-secret"}"#,
+    ])
+    .await;
+    let dir = TempDir::new().expect("temp dir");
+    let account_home = dir.path().join("providers/codex/default");
+    let manager = ProviderAuthManager::new();
+
+    let session = manager
+        .begin_codex_device_code(device_auth_request(&base_url, &account_home, None))
+        .await
+        .expect("begin auth");
+    assert_eq!(
+        session.attempt.status,
+        ProviderAuthAttemptStatus::WaitingForUser
+    );
+
+    let outcome = session.completion.await;
+    let debug = format!("{outcome:?}");
+    assert!(!debug.contains("access-secret"));
+    assert!(!debug.contains("refresh-secret"));
+    let CodexDeviceAuthOutcome::Completed(tokens) = outcome else {
+        panic!("expected completed device auth");
+    };
+    assert_eq!(tokens.access_token, "access-secret");
+    assert_eq!(tokens.refresh_token, "refresh-secret");
+    assert!(!account_home.join("codex_tokens.json").exists());
+}
+
+#[tokio::test]
+async fn device_auth_completion_preserves_manager_cancellation() {
+    let base_url = spawn_oauth_server(vec![
+        r#"{"device_auth_id":"device-secret","user_code":"ABCD-EFGH","interval":5}"#,
+    ])
+    .await;
+    let dir = TempDir::new().expect("temp dir");
+    let account_home = dir.path().join("providers/codex/default");
+    let manager = ProviderAuthManager::new();
+    let session = manager
+        .begin_codex_device_code(device_auth_request(&base_url, &account_home, None))
+        .await
+        .expect("begin auth");
+
+    manager
+        .cancel_attempt(&session.attempt.attempt_id)
+        .await
+        .expect("cancel");
+
+    assert!(matches!(
+        session.completion.await,
+        CodexDeviceAuthOutcome::Cancelled
+    ));
+    assert_eq!(
+        manager
+            .poll_attempt(&session.attempt.attempt_id)
+            .await
+            .expect("poll")
+            .expect("attempt")
+            .status,
+        ProviderAuthAttemptStatus::Cancelled
+    );
+    assert!(!account_home.join("codex_tokens.json").exists());
+}
+
+#[tokio::test]
+async fn device_auth_completion_preserves_attempt_expiry() {
+    let base_url = spawn_oauth_server(vec![
+        r#"{"device_auth_id":"device-secret","user_code":"ABCD-EFGH","interval":5}"#,
+    ])
+    .await;
+    let dir = TempDir::new().expect("temp dir");
+    let account_home = dir.path().join("providers/codex/default");
+    let manager = ProviderAuthManager::new();
+    let session = manager
+        .begin_codex_device_code(device_auth_request(
+            &base_url,
+            &account_home,
+            Some(Duration::from_millis(1)),
+        ))
+        .await
+        .expect("begin auth");
+
+    assert!(matches!(
+        session.completion.await,
+        CodexDeviceAuthOutcome::Expired
+    ));
+    assert!(!account_home.join("codex_tokens.json").exists());
+}
+
+fn device_auth_request(
+    base_url: &str,
+    account_home: &Path,
+    attempt_timeout: Option<Duration>,
+) -> CodexDeviceAuthRequest {
+    CodexDeviceAuthRequest {
+        provider_account_id: "provider_account:codex:default".to_string(),
+        account_home: account_home.to_path_buf(),
+        oauth: CodexOAuthConfig {
+            issuer: base_url.to_string(),
+            client_id: "test-client".to_string(),
+            token_url: format!("{base_url}/oauth/token"),
+            timeout_seconds: 10,
+        },
+        attempt_timeout,
+    }
+}
+
+async fn spawn_oauth_server(response_bodies: Vec<&'static str>) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("local addr");
+    tokio::spawn(async move {
+        for response_body in response_bodies {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            read_http_request(&mut socket).await;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            socket
+                .write_all(response.as_bytes())
+                .await
+                .expect("write response");
+        }
+    });
+    format!("http://{addr}")
+}
+
+async fn read_http_request(socket: &mut TcpStream) {
+    let mut bytes = Vec::new();
+    let mut buffer = [0_u8; 1024];
+    loop {
+        let read = socket.read(&mut buffer).await.expect("read request");
+        assert_ne!(read, 0, "client closed before request completed");
+        bytes.extend_from_slice(&buffer[..read]);
+        let Some(header_end) = bytes.windows(4).position(|window| window == b"\r\n\r\n") else {
+            continue;
+        };
+        let headers = String::from_utf8_lossy(&bytes[..header_end]);
+        let content_length = headers
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("content-length")
+                    .then(|| value.trim().parse::<usize>().ok())
+                    .flatten()
+            })
+            .unwrap_or(0);
+        if bytes.len() >= header_end + 4 + content_length {
+            return;
+        }
+    }
 }

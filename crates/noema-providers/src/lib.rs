@@ -56,10 +56,11 @@ pub use adapters::{
     EXA_SEARCH_PROVIDER_ID, ExaFetchClient, ExaSearchClient,
     FOUNDATION_LOCAL_COMPACT_SUMMARY_TARGET_TOKENS, FOUNDATION_LOCAL_CONTEXT_WINDOW_TOKENS,
     FOUNDATION_LOCAL_DEFAULT_OUTPUT_RESERVE_TOKENS, FOUNDATION_LOCAL_PROVIDER,
-    FoundationBridgeError, FoundationLocalProvider, OpenAiProvider, ProviderAuthManager,
-    SecretInputStore, default_web_fetch_backend, default_web_search_backend,
-    ensure_provider_account_home, refresh_provider_model_profiles, summarize_markdown,
-    web_fetch_summarizer_prompt,
+    FoundationBridgeError, FoundationLocalProvider, OpenAiProvider, ProviderAccountService,
+    ProviderAuthManager, ProviderCredential, ProviderCredentialAccess,
+    ProviderCredentialAccessHandle, ProviderCredentialFuture, SecretInputStore,
+    default_web_fetch_backend, default_web_search_backend, ensure_provider_account_home,
+    refresh_provider_model_profiles, summarize_markdown, web_fetch_summarizer_prompt,
 };
 pub use capabilities::{
     ProviderCapability, ProviderCapabilityAssignment, ProviderCapabilityStatus,

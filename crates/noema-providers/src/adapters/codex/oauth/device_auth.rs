@@ -1,3 +1,5 @@
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -5,45 +7,55 @@ use tokio::{sync::oneshot, time};
 
 use crate::adapters::auth::{
     DEFAULT_PROVIDER_AUTH_ATTEMPT_TIMEOUT, ProviderAuthAttemptRuntime, ProviderAuthManager,
-    ensure_provider_account_home, is_terminal_status,
 };
 use crate::{
-    CODEX_PROVIDER, CodexDeviceAuthRequest, ProviderAuthAttemptStatus, ProviderAuthAttemptView,
-    ProviderAuthMethod, ProviderError,
+    CODEX_PROVIDER, CodexDeviceAuthRequest, CodexOAuthTokens, ProviderAuthAttemptStatus,
+    ProviderAuthAttemptView, ProviderAuthMethod, ProviderError,
 };
 
-use super::{
-    client::{CodexOAuthClient, DeviceCodeResponse},
-    token_store::CodexTokenStore,
-};
+use super::client::{CodexOAuthClient, DeviceCodeResponse};
 
 const LOGIN_INSTRUCTIONS: &str = "Complete the login in your browser.";
-const AUTH_EXPIRED_CODE: &str = "provider_auth_expired";
-const AUTH_EXPIRED_MESSAGE: &str = "provider auth expired";
 
 static NEXT_ATTEMPT_ID: AtomicU64 = AtomicU64::new(1);
 
-/// Start a Codex device-code auth attempt.
+pub(crate) type CodexDeviceAuthCompletion =
+    Pin<Box<dyn Future<Output = CodexDeviceAuthOutcome> + Send + 'static>>;
+
+pub(crate) struct CodexDeviceAuthSession {
+    pub(crate) attempt: ProviderAuthAttemptView,
+    pub(crate) completion: CodexDeviceAuthCompletion,
+}
+
+#[derive(Debug)]
+pub(crate) enum CodexDeviceAuthOutcome {
+    Completed(CodexOAuthTokens),
+    Cancelled,
+    Expired,
+    Failed {
+        error_code: String,
+        error_message: String,
+    },
+}
+
+/// Begin a Codex device-code auth attempt without publishing credentials.
 ///
 /// # Errors
 ///
-/// Returns [`ProviderError`] when the account home cannot be prepared or the
-/// initial device-code request fails.
-pub(crate) async fn start_codex_device_auth(
+/// Returns [`ProviderError`] when OAuth client setup or the initial device-code
+/// request fails.
+pub(crate) async fn begin_codex_device_auth(
     manager: ProviderAuthManager,
     request: CodexDeviceAuthRequest,
-) -> Result<ProviderAuthAttemptView, ProviderError> {
-    let attempt_timeout = request
-        .attempt_timeout
-        .unwrap_or(DEFAULT_PROVIDER_AUTH_ATTEMPT_TIMEOUT);
-    ensure_provider_account_home(&request.account_home).map_err(|source| {
-        ProviderError::ProviderUnavailable {
-            provider: CODEX_PROVIDER.to_string(),
-            message: format!("failed to prepare Codex account home: {source}"),
-        }
-    })?;
-    let store = CodexTokenStore::new(request.account_home);
-    let oauth_client = CodexOAuthClient::new(request.oauth)?;
+) -> Result<CodexDeviceAuthSession, ProviderError> {
+    let CodexDeviceAuthRequest {
+        provider_account_id,
+        account_home: _,
+        oauth,
+        attempt_timeout,
+    } = request;
+    let attempt_timeout = attempt_timeout.unwrap_or(DEFAULT_PROVIDER_AUTH_ATTEMPT_TIMEOUT);
+    let oauth_client = CodexOAuthClient::new(oauth)?;
     let device_code = oauth_client.request_device_code().await?;
 
     if device_code.user_code.trim().is_empty() || device_code.device_auth_id.trim().is_empty() {
@@ -55,7 +67,7 @@ pub(crate) async fn start_codex_device_auth(
     let attempt = ProviderAuthAttemptView {
         attempt_id: next_attempt_id(),
         provider_kind: CODEX_PROVIDER.to_string(),
-        provider_account_id: request.provider_account_id,
+        provider_account_id,
         method: ProviderAuthMethod::OauthDeviceCode,
         status: ProviderAuthAttemptStatus::WaitingForUser,
         verification_url: Some(oauth_client.verification_url()),
@@ -75,81 +87,31 @@ pub(crate) async fn start_codex_device_auth(
         )
         .await;
 
-    let task_manager = manager.clone();
-    tokio::spawn(async move {
-        let outcome = run_device_auth_polling(
+    Ok(CodexDeviceAuthSession {
+        attempt,
+        completion: Box::pin(run_device_auth_polling(
             oauth_client,
-            store,
             device_code,
             attempt_timeout,
             cancel_receiver,
-        )
-        .await;
-
-        match outcome {
-            DeviceAuthOutcome::Completed => {
-                mark_terminal(
-                    &task_manager,
-                    &attempt_id,
-                    ProviderAuthAttemptStatus::Completed,
-                    None,
-                    None,
-                )
-                .await;
-            }
-            DeviceAuthOutcome::Cancelled => {
-                mark_terminal(
-                    &task_manager,
-                    &attempt_id,
-                    ProviderAuthAttemptStatus::Cancelled,
-                    None,
-                    None,
-                )
-                .await;
-            }
-            DeviceAuthOutcome::Expired => {
-                mark_terminal(
-                    &task_manager,
-                    &attempt_id,
-                    ProviderAuthAttemptStatus::Expired,
-                    Some(AUTH_EXPIRED_CODE),
-                    Some(AUTH_EXPIRED_MESSAGE),
-                )
-                .await;
-            }
-            DeviceAuthOutcome::Failed(message) => {
-                mark_terminal(
-                    &task_manager,
-                    &attempt_id,
-                    ProviderAuthAttemptStatus::Failed,
-                    Some("codex_device_auth_failed"),
-                    Some(&message),
-                )
-                .await;
-            }
-        }
-
-        task_manager.remove_attempt_runtime(&attempt_id).await;
-    });
-
-    Ok(attempt)
+        )),
+    })
 }
 
 async fn run_device_auth_polling(
     oauth_client: CodexOAuthClient,
-    store: CodexTokenStore,
     device_code: DeviceCodeResponse,
     attempt_timeout: Duration,
     mut cancel_receiver: oneshot::Receiver<()>,
-) -> DeviceAuthOutcome {
+) -> CodexDeviceAuthOutcome {
     let sleep_seconds = device_code.interval.unwrap_or(5).max(3);
     let deadline = time::sleep(attempt_timeout);
     tokio::pin!(deadline);
 
     loop {
         tokio::select! {
-            _ = &mut cancel_receiver => return DeviceAuthOutcome::Cancelled,
-            () = &mut deadline => return DeviceAuthOutcome::Expired,
+            _ = &mut cancel_receiver => return CodexDeviceAuthOutcome::Cancelled,
+            () = &mut deadline => return CodexDeviceAuthOutcome::Expired,
             () = time::sleep(Duration::from_secs(sleep_seconds)) => {}
         }
 
@@ -159,58 +121,36 @@ async fn run_device_auth_polling(
         {
             Ok(Some(authorization)) => authorization,
             Ok(None) => continue,
-            Err(error) => return DeviceAuthOutcome::Failed(safe_auth_failure_message(error)),
+            Err(error) => return failed_outcome(error),
         };
 
         if authorization.authorization_code.trim().is_empty()
             || authorization.code_verifier.trim().is_empty()
         {
-            return DeviceAuthOutcome::Failed(
-                "Codex authorization response was incomplete".to_string(),
-            );
+            return CodexDeviceAuthOutcome::Failed {
+                error_code: "codex_device_auth_failed".to_string(),
+                error_message: "Codex authorization response was incomplete".to_string(),
+            };
         }
 
-        let tokens = match oauth_client
+        return match oauth_client
             .exchange_authorization_code(
                 &authorization.authorization_code,
                 &authorization.code_verifier,
             )
             .await
         {
-            Ok(tokens) => tokens,
-            Err(error) => return DeviceAuthOutcome::Failed(safe_auth_failure_message(error)),
-        };
-
-        return match store.write(&tokens) {
-            Ok(()) => DeviceAuthOutcome::Completed,
-            Err(error) => DeviceAuthOutcome::Failed(safe_auth_failure_message(error)),
+            Ok(tokens) => CodexDeviceAuthOutcome::Completed(tokens),
+            Err(error) => failed_outcome(error),
         };
     }
 }
 
-enum DeviceAuthOutcome {
-    Completed,
-    Cancelled,
-    Expired,
-    Failed(String),
-}
-
-async fn mark_terminal(
-    manager: &ProviderAuthManager,
-    attempt_id: &str,
-    status: ProviderAuthAttemptStatus,
-    error_code: Option<&str>,
-    error_message: Option<&str>,
-) {
-    manager
-        .update_attempt(attempt_id, |view| {
-            if !is_terminal_status(view.status) {
-                view.status = status;
-                view.error_code = error_code.map(str::to_string);
-                view.error_message = error_message.map(str::to_string);
-            }
-        })
-        .await;
+fn failed_outcome(error: ProviderError) -> CodexDeviceAuthOutcome {
+    CodexDeviceAuthOutcome::Failed {
+        error_code: "codex_device_auth_failed".to_string(),
+        error_message: safe_auth_failure_message(error),
+    }
 }
 
 fn next_attempt_id() -> String {

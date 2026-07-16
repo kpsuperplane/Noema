@@ -1,6 +1,8 @@
 //! Write-only secret-input provider account storage.
 
-use super::auth::ensure_provider_account_home;
+use super::account_service::filesystem::{
+    FileSnapshot, atomic_write_private, remove_file_if_exists, restore_file, snapshot_file,
+};
 use crate::ProviderError;
 use serde::{Deserialize, Serialize};
 use std::{fmt, fs, path::PathBuf};
@@ -55,19 +57,13 @@ impl SecretInputStore {
                 message: "api key is required".to_string(),
             });
         }
-        ensure_provider_account_home(&self.account_home).map_err(|source| {
-            ProviderError::ProviderUnavailable {
-                provider: "secret_input".to_string(),
-                message: format!("provider account home unavailable: {source}"),
-            }
-        })?;
         let payload = serde_json::to_vec(&ApiKeyFile {
             api_key: api_key.to_string(),
         })
         .map_err(|source| ProviderError::InvalidRequest {
             message: source.to_string(),
         })?;
-        fs::write(self.secret_path(), payload).map_err(|source| {
+        atomic_write_private(&self.secret_path(), &payload).map_err(|source| {
             ProviderError::ProviderUnavailable {
                 provider: "secret_input".to_string(),
                 message: format!("provider secret could not be written: {source}"),
@@ -109,14 +105,28 @@ impl SecretInputStore {
     /// Returns [`ProviderError`] when removal fails for a reason other than a
     /// missing file.
     pub fn clear_api_key(&self) -> Result<(), ProviderError> {
-        match fs::remove_file(self.secret_path()) {
-            Ok(()) => Ok(()),
-            Err(source) if source.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(source) => Err(ProviderError::ProviderUnavailable {
+        remove_file_if_exists(&self.secret_path()).map_err(|source| {
+            ProviderError::ProviderUnavailable {
                 provider: "secret_input".to_string(),
                 message: format!("provider secret could not be removed: {source}"),
-            }),
-        }
+            }
+        })
+    }
+
+    pub(crate) fn snapshot(&self) -> Result<FileSnapshot, ProviderError> {
+        snapshot_file(&self.secret_path()).map_err(|source| ProviderError::ProviderUnavailable {
+            provider: "secret_input".to_string(),
+            message: format!("provider secret could not be snapshotted: {source}"),
+        })
+    }
+
+    pub(crate) fn restore(&self, snapshot: &FileSnapshot) -> Result<(), ProviderError> {
+        restore_file(&self.secret_path(), snapshot).map_err(|source| {
+            ProviderError::ProviderUnavailable {
+                provider: "secret_input".to_string(),
+                message: format!("provider secret could not be restored: {source}"),
+            }
+        })
     }
 }
 
@@ -157,5 +167,46 @@ mod tests {
 
         assert!(!debug.contains("provider-secret-path"));
         assert!(debug.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn secret_snapshot_restores_exact_prior_bytes() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = SecretInputStore::new(dir.path().join("providers/exa/acct_one"));
+        let secret_path = store.secret_path();
+        super::atomic_write_private(&secret_path, b"{malformed-secret}\0")
+            .expect("write malformed prior file");
+        let snapshot = store.snapshot().expect("snapshot");
+
+        store.save_api_key("replacement").expect("replace");
+        store.restore(&snapshot).expect("restore");
+
+        assert_eq!(
+            fs::read(secret_path).expect("read restored"),
+            b"{malformed-secret}\0"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn saved_api_key_has_private_unix_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = SecretInputStore::new(dir.path().join("providers/exa/acct_one"));
+        store.save_api_key("secret-key").expect("save");
+
+        let account_mode = fs::metadata(&store.account_home)
+            .expect("account metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        let file_mode = fs::metadata(store.secret_path())
+            .expect("file metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(account_mode, 0o700);
+        assert_eq!(file_mode, 0o600);
     }
 }

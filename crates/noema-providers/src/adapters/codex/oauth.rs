@@ -9,7 +9,9 @@ pub use client::CodexOAuthClient;
 pub use token_store::CodexTokenStore;
 
 pub(crate) use claims::chatgpt_account_id_from_access_token;
-pub(crate) use device_auth::start_codex_device_auth;
+pub(crate) use device_auth::{
+    CodexDeviceAuthOutcome, CodexDeviceAuthSession, begin_codex_device_auth,
+};
 
 #[cfg(test)]
 use claims::{now_unix_seconds, token_needs_refresh};

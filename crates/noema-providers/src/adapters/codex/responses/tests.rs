@@ -55,6 +55,7 @@ fn accepts_noema_owned_token_store() {
 
     provider
         .token_store()
+        .expect("file token store")
         .write(&CodexOAuthTokens {
             access_token: "access".to_string(),
             refresh_token: "refresh".to_string(),
@@ -62,7 +63,12 @@ fn accepts_noema_owned_token_store() {
         })
         .expect("write token");
 
-    assert!(provider.token_store().has_usable_tokens());
+    assert!(
+        provider
+            .token_store()
+            .expect("file token store")
+            .has_usable_tokens()
+    );
 }
 
 #[test]
@@ -467,6 +473,7 @@ fn provider_with_tokens(base_url: String) -> (CodexResponsesProvider, TempDir) {
     .expect("provider");
     provider
         .token_store()
+        .expect("file token store")
         .write(&CodexOAuthTokens {
             access_token: test_access_token(),
             refresh_token: "refresh".to_string(),

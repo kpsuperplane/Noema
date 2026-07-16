@@ -1,6 +1,7 @@
 //! Concrete provider adapters and provider-owned integration services.
 
 mod account_files;
+mod account_service;
 pub mod auth;
 pub mod codex;
 pub mod foundation;
@@ -10,6 +11,10 @@ mod transport_error;
 pub mod web;
 
 pub use account_files::SecretInputStore;
+pub use account_service::{
+    ProviderAccountService, ProviderCredential, ProviderCredentialAccess,
+    ProviderCredentialAccessHandle, ProviderCredentialFuture,
+};
 pub use auth::{ProviderAuthManager, ensure_provider_account_home};
 pub use codex::{
     CodexOAuthClient, CodexResponsesProvider, CodexTokenStore, refresh_provider_model_profiles,
