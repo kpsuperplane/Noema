@@ -23,10 +23,28 @@ jobs:
         with:
           components: clippy, rustfmt
       - uses: mozilla-actions/sccache-action@v0.0.10
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: cargo fetch --locked
+      - run: bun test scripts/*.test.ts
+      - run: bun run scripts/check-crate-boundaries.ts
+      - run: bun run scripts/check-focused-dependency-trees.ts
+      - run: mkdir -p target/noema-core-decomposition-ci
+      - run: >-
+          bun run scripts/export-sqlite-schema-shape.ts
+          --sql-output target/noema-core-decomposition-ci/sqlite-bootstrap.sql
+          --output target/noema-core-decomposition-ci/sqlite-schema-shape.jsonl
+      - run: >-
+          bun run scripts/verify-decomposition-baselines.ts verify
+          --baseline-root docs/superpowers/baselines
+          --sqlite-bootstrap target/noema-core-decomposition-ci/sqlite-bootstrap.sql
+          --sqlite-schema-shape target/noema-core-decomposition-ci/sqlite-schema-shape.jsonl
       - run: cargo fmt --all --check
       - run: cargo check --workspace
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace --no-fail-fast
+      - run: bun run scripts/verify-rust-test-inventory.ts
 
   desktop-platform-check:
     name: Desktop check (${{ matrix.os }})
@@ -55,12 +73,17 @@ jobs:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
         working-directory: crates/noema-core/web
+      - run: bun run test
+        working-directory: crates/noema-core/web
       - run: bun run lint
         working-directory: crates/noema-core/web
       - run: bun run build
         working-directory: crates/noema-core/web
+      - run: bun run build:tauri
+        working-directory: crates/noema-core/web
       - name: Check generated frontend artifacts
-        run: git diff --exit-code -- crates/noema-core/web/src/generated crates/noema-core/web/src/routeTree.gen.ts
+        run: bun run check:generated
+        working-directory: crates/noema-core/web
       - name: Verify release assets are embeddable
         run: cargo build -p noema-server --release
 

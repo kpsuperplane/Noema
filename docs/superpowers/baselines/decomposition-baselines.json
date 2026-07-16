@@ -1,0 +1,13 @@
+{
+  "formatVersion": 1,
+  "hashAlgorithm": "sha256",
+  "hashes": {
+    "graphqlSdl": "f637d68b7baa9f61ab9116dc27ed82c997d87ac56d7d0f08869e33d07c960071",
+    "graphqlTypes": "25293e579a4dd7137f0a5c4868377abcf28955b4b87d6bb1d3d24022e16d8be0",
+    "routeTree": "bfd7de4ef2c56d9d7301ff313e2d7ffcb04ec7291a7eaea6e5716b66b001d5ee",
+    "localModelCatalog": "c0b87f06027430bc898f3aed6eabdd4394e2e0428f51544bd356fa16909b8e71",
+    "runtimeAssets": "a7eedad862508a62a92d9454cbe99384dc4833bd5b1c00018864ea0292cd8613",
+    "sqliteBootstrap": "1c3687a2eb13394b47dbe94f0188acc039e1ddd0b3184eeb441c09870e86abd4",
+    "sqliteSchemaShape": "9a13c135cb3a9e43ebf4405ec2a04449bd8fd89bf238a315f87c1557de4ca0f6"
+  }
+}
