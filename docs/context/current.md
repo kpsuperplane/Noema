@@ -853,7 +853,7 @@ The next storage slice should stay small and concrete:
   gates the SQLite preference commit, registry publication, and supervisor
   swap so readers cannot observe the middle state. Exact durable instance keys
   and multi-instance local-model retirement remain Phase 10C work rather than
-  being implied by this legacy bridge. Checkpoint 5C is next: move hosted
+  being implied by this legacy bridge. Checkpoint 5C began by moving hosted
   adapters, provider-account orchestration, concrete web backends, and the
   Foundation Swift bridge into `noema-providers`. The `local-models` provider
   feature remains transitional shared response support until the concrete
@@ -901,6 +901,22 @@ The next storage slice should stay small and concrete:
   disables environment proxies so its validated DNS pin remains authoritative;
   Exa owns its production endpoint and bounded transport policy inside the
   provider crate.
+  Checkpoint 5C is complete across `0c821af4c` and `800394d96`.
+  `noema-providers` now owns pathless provider-account operations, credential
+  access, OAuth completion and shutdown, catalog reconciliation, and the hosted
+  provider factory. GraphQL receives only the object-safe operations handle,
+  while the host retains the concrete service solely for lifecycle shutdown.
+  Cross-resource mutations restore or quarantine credentials on persistence
+  failure, credential reads share the same per-account gate, OAuth publication
+  is revision-fenced, and provider-reported auth failures cannot overwrite
+  replacement credentials. The legacy Codex route rejects non-default account
+  snapshots rather than executing them with default credentials, and delegated
+  tasks preserve the exact executing route selection. The final gate passed
+  provider feature slices, Swift bridge compilation, crate/dependency policies,
+  preservation baselines, the Rust test inventory, the complete Rust workspace,
+  frontend tests/lint/web and desktop builds, the release server build, and the
+  Mnemosyne sidecar unit suite. Decomposition Phase 6 is next: extract the task
+  domain and persistence ports without moving execution loops out of core yet.
 
 - The bounded remediation program completed Phase 2 at `92,157` maintained
   source lines (`-1,767` from its baseline). Axum/tower-sessions now own the

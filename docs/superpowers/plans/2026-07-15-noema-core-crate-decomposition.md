@@ -1226,7 +1226,7 @@ deferred to Phase 10C.
 
 ### Checkpoint 5C — Hosted Adapters, Account Service, And Swift Bridge
 
-- [ ] Keep an always-compiled object-safe `ProviderAccountOperations` contract
+- [x] Keep an always-compiled object-safe `ProviderAccountOperations` contract
   and clonable handle. Behind `adapters`, expose the root-bound
   `ProviderAccountService` implementation that owns provider account homes,
   secret deletion, authentication files, catalog refresh/cache, and provider
@@ -1238,7 +1238,7 @@ deferred to Phase 10C.
   OAuth completion is owned by this service: it publishes token files and the
   terminal durable account status as one compensation-safe operation instead
   of relying on a detached GraphQL watcher.
-- [ ] Make cross-resource account changes compensation-safe. Delete renames the
+- [x] Make cross-resource account changes compensation-safe. Delete renames the
   account home atomically into a quarantine path, deletes the durable row, and
   restores the directory if persistence fails before cleaning quarantine after
   success. Create/save/clear operations restore the previous secret or remove a
@@ -1280,7 +1280,7 @@ deferred to Phase 10C.
 - [x] Keep the existing local-model provider implementation temporarily beside
   the current local-model subsystem in core, implementing the external
   `noema-providers` contract.
-- [ ] Define the provider registry/factory API now, but keep its transitional
+- [x] Define the provider registry/factory API now, but keep its transitional
   local-model construction adapter in core until Phase 10.
 - [x] Move provider tests without copying shared fakes back into core. Rewrite
   model-catalog tests that currently instantiate `NoemaStore` against a fake
