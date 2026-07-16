@@ -853,11 +853,11 @@ async fn primary_agent_codex_preference_sends_reasoning_effort_to_codex_provider
         vec![
             (
                 "codex".to_string(),
-                codex_provider.clone() as Arc<dyn crate::daemon::runtime::RuntimeModelProvider>,
+                codex_provider.clone() as noema_providers::ProviderHandle,
             ),
             (
                 "openai".to_string(),
-                openai_provider.clone() as Arc<dyn crate::daemon::runtime::RuntimeModelProvider>,
+                openai_provider.clone() as noema_providers::ProviderHandle,
             ),
         ],
         store,
@@ -919,11 +919,11 @@ async fn primary_agent_openai_preference_sends_reasoning_effort_to_openai_provid
         vec![
             (
                 "codex".to_string(),
-                codex_provider.clone() as Arc<dyn crate::daemon::runtime::RuntimeModelProvider>,
+                codex_provider.clone() as noema_providers::ProviderHandle,
             ),
             (
                 "openai".to_string(),
-                openai_provider.clone() as Arc<dyn crate::daemon::runtime::RuntimeModelProvider>,
+                openai_provider.clone() as noema_providers::ProviderHandle,
             ),
         ],
         store,
@@ -1887,12 +1887,11 @@ async fn primary_agent_runtime_preference_selects_provider_without_restart() {
         vec![
             (
                 "codex".to_string(),
-                codex_provider.clone() as Arc<dyn crate::daemon::runtime::RuntimeModelProvider>,
+                codex_provider.clone() as noema_providers::ProviderHandle,
             ),
             (
                 "foundation_local".to_string(),
-                foundation_provider.clone()
-                    as Arc<dyn crate::daemon::runtime::RuntimeModelProvider>,
+                foundation_provider.clone() as noema_providers::ProviderHandle,
             ),
         ],
         store,
@@ -1958,12 +1957,11 @@ async fn runtime_turn_refreshes_agent_preference_after_conversation_hydration() 
         vec![
             (
                 "codex".to_string(),
-                codex_provider.clone() as Arc<dyn crate::daemon::runtime::RuntimeModelProvider>,
+                codex_provider.clone() as noema_providers::ProviderHandle,
             ),
             (
                 "foundation_local".to_string(),
-                foundation_provider.clone()
-                    as Arc<dyn crate::daemon::runtime::RuntimeModelProvider>,
+                foundation_provider.clone() as noema_providers::ProviderHandle,
             ),
         ],
         store.clone(),
@@ -4890,7 +4888,7 @@ async fn test_runtime_handle_with_private_memory(
 }
 
 async fn spawn_runtime_with_memory_provider(
-    provider: Arc<dyn super::runtime::RuntimeModelProvider>,
+    provider: noema_providers::ProviderHandle,
     response: serde_json::Value,
 ) -> (CodexRuntimeHandle, crate::NoemaStore, FakeMemoryServer) {
     let home = tempfile::tempdir().expect("temp noema home");
@@ -4925,7 +4923,7 @@ async fn spawn_runtime_with_memory_provider(
 }
 
 async fn test_runtime_handle_with_search_provider(
-    provider: Arc<dyn super::runtime::RuntimeModelProvider>,
+    provider: noema_providers::ProviderHandle,
     search_provider: crate::search::types::SearchRuntimeProvider,
 ) -> (CodexRuntimeHandle, crate::NoemaStore) {
     let home = tempfile::tempdir().expect("temp noema home");
@@ -5089,7 +5087,7 @@ async fn wait_for_memory_observation_requests(server: &FakeMemoryServer, minimum
 }
 
 async fn test_runtime_handle_with_search_and_fetch_providers(
-    provider: Arc<dyn super::runtime::RuntimeModelProvider>,
+    provider: noema_providers::ProviderHandle,
     web_fetch_provider: crate::web_fetch::types::WebFetchRuntimeProvider,
 ) -> (CodexRuntimeHandle, crate::NoemaStore) {
     let search_provider = crate::search::types::SearchRuntimeProvider::Static {
@@ -6146,7 +6144,7 @@ async fn insert_authenticated_provider_account(
     .await;
 }
 
-impl super::runtime::RuntimeModelProvider for FakeCodexProvider {
+impl noema_providers::ProviderOperations for FakeCodexProvider {
     fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
         ProviderToolCapabilities {
             tool_transport: ProviderToolTransport::NoemaEnvelope,
@@ -6193,7 +6191,7 @@ impl super::runtime::RuntimeModelProvider for FakeCodexProvider {
     }
 }
 
-impl super::runtime::RuntimeModelProvider for RecordingFakeProvider {
+impl noema_providers::ProviderOperations for RecordingFakeProvider {
     fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
         self.tool_capabilities
     }
@@ -6248,7 +6246,7 @@ impl super::runtime::RuntimeModelProvider for RecordingFakeProvider {
     }
 }
 
-impl super::runtime::RuntimeModelProvider for CapturingProvider {
+impl noema_providers::ProviderOperations for CapturingProvider {
     fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
         self.capabilities
     }
@@ -6272,7 +6270,7 @@ impl super::runtime::RuntimeModelProvider for CapturingProvider {
     }
 }
 
-impl super::runtime::RuntimeModelProvider for MetadataCapturingProvider {
+impl noema_providers::ProviderOperations for MetadataCapturingProvider {
     fn context_metadata(&self, _model: Option<&str>) -> noema_providers::ProviderContextMetadata {
         noema_providers::ProviderContextMetadata {
             context_window_tokens: Some(self.context_window_tokens),
@@ -6346,7 +6344,7 @@ impl super::runtime::RuntimeModelProvider for MetadataCapturingProvider {
     }
 }
 
-impl super::runtime::RuntimeModelProvider for BlockingOnceProvider {
+impl noema_providers::ProviderOperations for BlockingOnceProvider {
     fn generate_streaming<'a>(
         &'a self,
         _request: GenerateRequest,
@@ -6377,7 +6375,7 @@ impl super::runtime::RuntimeModelProvider for BlockingOnceProvider {
     }
 }
 
-impl super::runtime::RuntimeModelProvider for BlockingTaskCompletionProvider {
+impl noema_providers::ProviderOperations for BlockingTaskCompletionProvider {
     fn generate_streaming<'a>(
         &'a self,
         request: GenerateRequest,
@@ -6428,7 +6426,7 @@ impl super::runtime::RuntimeModelProvider for BlockingTaskCompletionProvider {
     }
 }
 
-impl super::runtime::RuntimeModelProvider for ConcurrentTaskProvider {
+impl noema_providers::ProviderOperations for ConcurrentTaskProvider {
     fn generate_streaming<'a>(
         &'a self,
         request: GenerateRequest,

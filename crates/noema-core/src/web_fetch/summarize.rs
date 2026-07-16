@@ -153,7 +153,7 @@ fn chunk_markdown(markdown: &str, chunk_chars: usize) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::daemon::RuntimeModelProvider;
+    use noema_providers::ProviderOperations;
     use noema_providers::{
         GenerateResponse, GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent,
         ProviderError,
@@ -266,7 +266,7 @@ mod tests {
         requests: Arc<Mutex<Vec<GenerateRequest>>>,
     }
 
-    impl RuntimeModelProvider for CapturingSummaryProvider {
+    impl ProviderOperations for CapturingSummaryProvider {
         fn generate_streaming<'a>(
             &'a self,
             request: GenerateRequest,

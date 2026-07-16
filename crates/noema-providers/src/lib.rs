@@ -15,8 +15,14 @@ pub mod generation;
 pub mod local_models;
 /// Provider model profile metadata.
 pub mod model_profiles;
+/// Object-safe provider generation operations.
+pub mod operations;
 /// Provider-owned persistence boundaries.
 pub mod persistence;
+/// Generation-safe provider instance registry.
+pub mod registry;
+/// Provider selection-to-instance route resolution.
+pub mod routing;
 /// Immutable provider selection provenance.
 pub mod selection;
 /// Provider-neutral tool transport and selection policy.
@@ -61,6 +67,9 @@ pub use local_models::{
     NewLocalModelInstallation, RemovedLocalModelInstallation,
 };
 pub use model_profiles::ProviderModelProfile;
+pub use operations::{
+    ProviderHandle, ProviderOperationFuture, ProviderOperations, erase_model_provider,
+};
 pub use persistence::{
     LocalModelActivationPersistence, LocalModelActivationPersistenceHandle,
     LocalModelInstallationPersistence, LocalModelInstallationPersistenceHandle,
@@ -70,6 +79,15 @@ pub use persistence::{
     ProviderModelCatalogPersistence, ProviderModelCatalogPersistenceHandle,
     ProviderPersistenceError, ProviderPersistenceFuture, UpdateProviderAccountRequest,
     UpsertProviderCapabilityAssignmentRequest,
+};
+pub use registry::{
+    ProviderInstanceLease, ProviderRegistration, ProviderRegistry, ProviderRegistryError,
+    ProviderRegistryHandle, ProviderRetirementGuard,
+};
+pub use routing::{
+    ProviderRouteError, ProviderRouteFuture, ProviderRouteLease, ProviderRouteResolver,
+    ProviderRouteResolverHandle, ProviderSelectionLoader, ProviderSelectionLoaderHandle,
+    RegistryProviderRouteResolver, provider_selection_loader,
 };
 pub use selection::{
     ProviderInstanceKey, ProviderSelectionError, ProviderSelectionMode, ProviderSelectionSnapshot,

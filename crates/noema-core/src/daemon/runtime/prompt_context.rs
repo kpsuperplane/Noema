@@ -8,14 +8,11 @@ use crate::{
 };
 use noema_providers::{
     GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateReasoningInput,
-    GenerateToolCallInput, GenerateToolResultInput,
+    GenerateToolCallInput, GenerateToolResultInput, ProviderOperations,
 };
 use serde_json::Value;
 
-use super::{
-    context_window::{ContextBudget, estimate_text_tokens},
-    handle::RuntimeModelProvider,
-};
+use super::context_window::{ContextBudget, estimate_text_tokens};
 
 /// Model-visible context selected for one provider turn.
 #[derive(Debug, Clone, PartialEq)]
@@ -38,7 +35,7 @@ pub(super) struct PlannedPromptContext {
 
 pub(super) struct PromptPlanRequest<'a> {
     pub(super) store: &'a NoemaStore,
-    pub(super) provider: &'a dyn RuntimeModelProvider,
+    pub(super) provider: &'a dyn ProviderOperations,
     pub(super) conversation_id: &'a str,
     pub(super) provider_kind: &'a str,
     pub(super) model_profile: Option<&'a str>,
@@ -46,7 +43,7 @@ pub(super) struct PromptPlanRequest<'a> {
 }
 
 struct LoadedPromptPlanRequest<'a> {
-    provider: &'a dyn RuntimeModelProvider,
+    provider: &'a dyn ProviderOperations,
     model_profile: Option<&'a str>,
     current_input: &'a str,
     context: PromptContext,
@@ -124,7 +121,7 @@ async fn plan_loaded_prompt_context(
 }
 
 async fn count_tokens_or_estimate(
-    provider: &dyn RuntimeModelProvider,
+    provider: &dyn ProviderOperations,
     instructions: Option<&str>,
     input: &GenerateInput,
     model_profile: Option<&str>,

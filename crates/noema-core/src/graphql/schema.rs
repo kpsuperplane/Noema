@@ -3615,12 +3615,12 @@ mod tests {
             .await
             .expect("preference");
 
-        let codex_provider = Arc::new(AutofillTestProvider {
+        let codex_provider = noema_providers::erase_model_provider(AutofillTestProvider {
             text: "codex".to_string(),
             tool_classification_model: None,
             requests: Arc::new(Mutex::new(Vec::new())),
         });
-        let foundation_provider = Arc::new(AutofillTestProvider {
+        let foundation_provider = noema_providers::erase_model_provider(AutofillTestProvider {
             text: "foundation".to_string(),
             tool_classification_model: None,
             requests: Arc::new(Mutex::new(Vec::new())),
@@ -3628,14 +3628,8 @@ mod tests {
         let runtime = crate::daemon::CodexRuntimeHandle::spawn_with_provider_map(
             "codex",
             vec![
-                (
-                    "codex".to_string(),
-                    codex_provider as Arc<dyn crate::daemon::RuntimeModelProvider>,
-                ),
-                (
-                    "foundation_local".to_string(),
-                    foundation_provider as Arc<dyn crate::daemon::RuntimeModelProvider>,
-                ),
+                ("codex".to_string(), codex_provider),
+                ("foundation_local".to_string(), foundation_provider),
             ],
             store.clone(),
         )
@@ -5292,7 +5286,7 @@ mod tests {
         crate::daemon::CodexRuntimeHandle,
     ) {
         let requests = Arc::new(Mutex::new(Vec::new()));
-        let provider = Arc::new(AutofillTestProvider {
+        let provider = noema_providers::erase_model_provider(AutofillTestProvider {
             text: text.to_string(),
             tool_classification_model: tool_classification_model.map(str::to_string),
             requests: requests.clone(),

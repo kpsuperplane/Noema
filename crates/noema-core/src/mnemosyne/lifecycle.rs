@@ -313,7 +313,7 @@ sleep 5
     #[derive(Debug)]
     struct StaticProvider;
 
-    impl crate::daemon::RuntimeModelProvider for StaticProvider {
+    impl noema_providers::ProviderOperations for StaticProvider {
         fn generate_streaming<'a>(
             &'a self,
             _request: noema_providers::GenerateRequest,

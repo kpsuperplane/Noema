@@ -1,13 +1,11 @@
 use serde::Deserialize;
 
-use std::sync::Arc;
-
 use noema_providers::{
     GenerateInput, GenerateOptions, GenerateRequest, GenerateResponseItem, GenerationPriority,
+    ProviderHandle,
 };
 
 use super::actor::CodexRuntimeActor;
-use super::handle::RuntimeModelProvider;
 use super::progress::ContinuationProgressDigest;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,7 +30,7 @@ pub(super) enum ProgressAuditError {
 }
 
 struct ProgressAuditModel {
-    provider: Arc<dyn RuntimeModelProvider>,
+    provider: ProviderHandle,
     model_profile: String,
     reasoning_effort: Option<noema_providers::ReasoningEffort>,
 }
@@ -228,7 +226,7 @@ struct RawProgressAuditResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::daemon::runtime::handle::RuntimeModelProvider;
+    use noema_providers::ProviderOperations;
     use noema_providers::{GenerateRequest, GenerateResponse, GenerateStreamEvent, ProviderError};
     use std::{
         collections::HashMap,
@@ -261,7 +259,7 @@ mod tests {
         }
     }
 
-    impl RuntimeModelProvider for ProgressAuditTestProvider {
+    impl ProviderOperations for ProgressAuditTestProvider {
         fn default_tool_classification_model(&self) -> Option<String> {
             self.default_model.clone()
         }
@@ -306,7 +304,7 @@ mod tests {
             provider_kind.to_string(),
             HashMap::from([(
                 provider_kind.to_string(),
-                provider as Arc<dyn RuntimeModelProvider>,
+                provider as noema_providers::ProviderHandle,
             )]),
             store.clone(),
             store.system_error_logger(),
@@ -425,7 +423,7 @@ mod tests {
             "codex".to_string(),
             HashMap::from([(
                 "codex".to_string(),
-                provider.clone() as Arc<dyn RuntimeModelProvider>,
+                provider.clone() as noema_providers::ProviderHandle,
             )]),
             store.clone(),
             store.system_error_logger(),

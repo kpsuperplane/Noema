@@ -1,7 +1,5 @@
 //! Primary-agent delivery of durable background-task outcomes.
 
-use std::sync::Arc;
-
 use noema_conversations::{
     ActorRef, AgentStatus as PersistedAgentStatus, ConversationItemKind, ConversationItemStatus,
     NewConversationItem, NewConversationTurn,
@@ -9,12 +7,11 @@ use noema_conversations::{
 
 use noema_providers::{
     GenerateInput, GenerateOptions, GenerateRequest, GenerateResponseItem, GenerateStreamEvent,
+    ProviderHandle,
 };
 use serde_json::json;
 
-use super::{
-    TaskCompletionDeliveryRequest, actor::CodexRuntimeActor, handle::RuntimeModelProvider,
-};
+use super::{TaskCompletionDeliveryRequest, actor::CodexRuntimeActor};
 use crate::daemon::{
     AgentStatus,
     protocol::{DaemonError, TurnStreamEvent, TurnTranscriptItem},
@@ -34,7 +31,7 @@ pub(super) struct TaskCompletionGeneration {
     request: TaskCompletionDeliveryRequest,
     turn_id: String,
     turn_index: u64,
-    provider: Option<Arc<dyn RuntimeModelProvider>>,
+    provider: Option<ProviderHandle>,
     model: Option<String>,
     reasoning_effort: Option<noema_providers::ReasoningEffort>,
     subscriptions: crate::graphql::ConversationSubscriptionRegistry,

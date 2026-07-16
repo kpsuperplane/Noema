@@ -620,7 +620,7 @@ impl CodexRuntimeActor {
     async fn finalize_background_task(
         &self,
         request: &BackgroundTaskGenerateRequest,
-        provider: &std::sync::Arc<dyn super::handle::RuntimeModelProvider>,
+        provider: &noema_providers::ProviderHandle,
         conversation_id: &str,
         model_tools: &ModelTools,
         context: &ContinuationContext,

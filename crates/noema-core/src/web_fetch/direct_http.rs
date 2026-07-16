@@ -506,7 +506,7 @@ mod tests {
     #[derive(Debug)]
     struct StaticSummaryProvider;
 
-    impl crate::daemon::RuntimeModelProvider for StaticSummaryProvider {
+    impl noema_providers::ProviderOperations for StaticSummaryProvider {
         fn generate_streaming<'a>(
             &'a self,
             request: GenerateRequest,

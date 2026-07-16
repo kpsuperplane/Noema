@@ -15,6 +15,7 @@ use noema_home::{
 use noema_providers::{
     DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS, DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
     DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS, DEFAULT_TOOL_CLASSIFICATION_MODEL, ProviderConfig,
+    erase_model_provider,
 };
 use ring::rand::{SecureRandom, SystemRandom};
 use std::path::PathBuf;
@@ -163,7 +164,7 @@ impl NoemaRuntimeHost {
                 noema_providers::ProviderKind::LocalModels
                     .as_str()
                     .to_string(),
-                std::sync::Arc::new(provider),
+                erase_model_provider(provider),
             );
         }
         let memory_settings = store
@@ -487,7 +488,7 @@ impl From<DaemonError> for RuntimeHostError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::daemon::RuntimeModelProvider;
+    use noema_providers::ProviderOperations;
     use std::{future::Future, pin::Pin, sync::Arc};
 
     #[test]
@@ -511,12 +512,12 @@ mod tests {
         let providers = crate::daemon::RuntimeProviderMap::from([
             (
                 "codex".to_string(),
-                Arc::new(DefaultModelProvider("codex-default")) as Arc<dyn RuntimeModelProvider>,
+                Arc::new(DefaultModelProvider("codex-default")) as noema_providers::ProviderHandle,
             ),
             (
                 "foundation_local".to_string(),
                 Arc::new(DefaultModelProvider("foundation-default"))
-                    as Arc<dyn RuntimeModelProvider>,
+                    as noema_providers::ProviderHandle,
             ),
         ]);
         let settings = crate::MemoryServiceSettingsRecord {
@@ -557,7 +558,7 @@ mod tests {
     fn memory_proxy_config_falls_back_to_default_provider_when_unset() {
         let providers = crate::daemon::RuntimeProviderMap::from([(
             "codex".to_string(),
-            Arc::new(DefaultModelProvider("codex-default")) as Arc<dyn RuntimeModelProvider>,
+            Arc::new(DefaultModelProvider("codex-default")) as noema_providers::ProviderHandle,
         )]);
         let settings = crate::MemoryServiceSettingsRecord {
             settings_id: "default".to_string(),
@@ -592,7 +593,7 @@ mod tests {
     #[derive(Debug)]
     struct DefaultModelProvider(&'static str);
 
-    impl RuntimeModelProvider for DefaultModelProvider {
+    impl ProviderOperations for DefaultModelProvider {
         fn default_tool_classification_model(&self) -> Option<String> {
             Some(self.0.to_string())
         }

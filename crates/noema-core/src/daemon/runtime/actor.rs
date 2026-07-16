@@ -1,11 +1,12 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use crate::NoemaStore;
 use futures_util::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use noema_home::SystemErrorLogger;
+use noema_providers::ProviderHandle;
 use tokio::sync::{mpsc, oneshot};
 
-use super::handle::{CodexRuntimeCommand, RuntimeModelProvider};
+use super::handle::CodexRuntimeCommand;
 use super::tasks::RuntimeTaskGroup;
 use crate::daemon::protocol::DaemonError;
 
@@ -20,7 +21,7 @@ type PendingTaskCompletion = BoxFuture<
 #[derive(Debug)]
 pub(in crate::daemon) struct CodexRuntimeActor {
     pub(in crate::daemon) default_provider_kind: String,
-    pub(in crate::daemon) providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
+    pub(in crate::daemon) providers: HashMap<String, ProviderHandle>,
     pub(in crate::daemon) store: NoemaStore,
     pub(in crate::daemon) artifact_operations: noema_artifacts::ArtifactOperationsHandle,
     pub(in crate::daemon) system_errors: SystemErrorLogger,
@@ -36,7 +37,7 @@ impl CodexRuntimeActor {
     #[cfg(test)]
     pub(in crate::daemon) async fn new(
         default_provider_kind: String,
-        providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
+        providers: HashMap<String, ProviderHandle>,
         store: NoemaStore,
         system_errors: SystemErrorLogger,
     ) -> Result<Self, DaemonError> {
@@ -56,7 +57,7 @@ impl CodexRuntimeActor {
 
     pub(in crate::daemon) async fn new_with_memory(
         default_provider_kind: String,
-        providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
+        providers: HashMap<String, ProviderHandle>,
         store: NoemaStore,
         artifact_operations: noema_artifacts::ArtifactOperationsHandle,
         system_errors: SystemErrorLogger,
@@ -81,7 +82,7 @@ impl CodexRuntimeActor {
     #[cfg(test)]
     pub(in crate::daemon) async fn new_with_search_provider(
         default_provider_kind: String,
-        providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
+        providers: HashMap<String, ProviderHandle>,
         store: NoemaStore,
         system_errors: SystemErrorLogger,
         search_provider: crate::search::types::SearchRuntimeProvider,
@@ -94,7 +95,7 @@ impl CodexRuntimeActor {
     #[cfg(test)]
     pub(in crate::daemon) async fn new_with_search_and_fetch_provider(
         default_provider_kind: String,
-        providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
+        providers: HashMap<String, ProviderHandle>,
         store: NoemaStore,
         system_errors: SystemErrorLogger,
         search_provider: crate::search::types::SearchRuntimeProvider,
@@ -115,7 +116,7 @@ impl CodexRuntimeActor {
     pub(in crate::daemon) fn provider_for_kind(
         &self,
         provider_kind: &str,
-    ) -> Result<Arc<dyn RuntimeModelProvider>, DaemonError> {
+    ) -> Result<ProviderHandle, DaemonError> {
         self.providers.get(provider_kind).cloned().ok_or_else(|| {
             DaemonError::Provider(noema_providers::ProviderError::ProviderUnavailable {
                 provider: provider_kind.to_string(),
@@ -124,9 +125,7 @@ impl CodexRuntimeActor {
         })
     }
 
-    pub(in crate::daemon) fn default_provider(
-        &self,
-    ) -> Result<Arc<dyn RuntimeModelProvider>, DaemonError> {
+    pub(in crate::daemon) fn default_provider(&self) -> Result<ProviderHandle, DaemonError> {
         self.provider_for_kind(&self.default_provider_kind)
     }
 

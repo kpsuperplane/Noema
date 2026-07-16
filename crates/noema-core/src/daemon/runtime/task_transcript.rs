@@ -17,18 +17,20 @@ use crate::{
     store::NewAgentRunItem,
 };
 use noema_capabilities::CapabilityCatalogSnapshot;
-use noema_providers::{GenerateRequest, GenerateResponse, GenerateStreamEvent, GenerationPriority};
+use noema_providers::{
+    GenerateRequest, GenerateResponse, GenerateStreamEvent, GenerationPriority, ProviderHandle,
+};
 
 use super::{
     actor::CodexRuntimeActor, background_task::BackgroundTaskGenerateRequest,
-    handle::RuntimeModelProvider, tool_lifecycle::LocalToolCall,
+    tool_lifecycle::LocalToolCall,
 };
 
 impl CodexRuntimeActor {
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn generate_task_provider_round(
         &self,
-        provider: &Arc<dyn RuntimeModelProvider>,
+        provider: &ProviderHandle,
         mut request: GenerateRequest,
         bindings: &CapabilityCatalogSnapshot,
         run_id: &str,

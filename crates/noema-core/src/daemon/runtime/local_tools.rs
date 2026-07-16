@@ -757,15 +757,15 @@ mod tests {
         daemon::{
             agent_onboarding::AgentPromptIdentity,
             runtime::{
-                actor::CodexRuntimeActor, handle::RuntimeModelProvider, model_tools::ModelTools,
-                tool_lifecycle::LocalToolCall, turn::SuccessfulProviderTurn,
+                actor::CodexRuntimeActor, model_tools::ModelTools, tool_lifecycle::LocalToolCall,
+                turn::SuccessfulProviderTurn,
             },
         },
     };
     use noema_providers::{
         DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateActionItem, GenerateInput, GenerateRequest,
         GenerateResponse, GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent,
-        ProviderError, ProviderToolCapabilities,
+        ProviderError, ProviderOperations, ProviderToolCapabilities,
     };
     use serde_json::{Value, json};
 
@@ -775,7 +775,7 @@ mod tests {
         requests: Arc<Mutex<Vec<GenerateRequest>>>,
     }
 
-    impl RuntimeModelProvider for LocalToolTestProvider {
+    impl ProviderOperations for LocalToolTestProvider {
         fn default_tool_classification_model(&self) -> Option<String> {
             self.default_tool_model.clone()
         }
@@ -821,7 +821,7 @@ mod tests {
             HashMap::from([(
                 "codex".to_string(),
                 Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
-                    as Arc<dyn RuntimeModelProvider>,
+                    as noema_providers::ProviderHandle,
             )]),
             store.clone(),
             store.system_error_logger(),
@@ -1120,12 +1120,12 @@ mod tests {
                 (
                     "codex".to_string(),
                     Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
-                        as Arc<dyn RuntimeModelProvider>,
+                        as noema_providers::ProviderHandle,
                 ),
                 (
                     "foundation_local".to_string(),
                     Arc::new(LocalToolTestProvider::new(Some("foundation-tool-default")))
-                        as Arc<dyn RuntimeModelProvider>,
+                        as noema_providers::ProviderHandle,
                 ),
             ]),
             store.clone(),
@@ -1169,7 +1169,7 @@ mod tests {
             HashMap::from([(
                 "codex".to_string(),
                 Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
-                    as Arc<dyn RuntimeModelProvider>,
+                    as noema_providers::ProviderHandle,
             )]),
             store.clone(),
             store.system_error_logger(),
@@ -1214,7 +1214,7 @@ mod tests {
             HashMap::from([(
                 "codex".to_string(),
                 Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
-                    as Arc<dyn RuntimeModelProvider>,
+                    as noema_providers::ProviderHandle,
             )]),
             store.clone(),
             store.system_error_logger(),
@@ -1244,7 +1244,7 @@ mod tests {
                 Arc::new(LocalToolTestProvider::with_requests(
                     Some("configured-tool-override"),
                     Arc::clone(&requests),
-                )) as Arc<dyn RuntimeModelProvider>,
+                )) as noema_providers::ProviderHandle,
             )]),
             store.clone(),
             store.system_error_logger(),
@@ -1299,7 +1299,7 @@ mod tests {
             HashMap::from([(
                 "codex".to_string(),
                 Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
-                    as Arc<dyn RuntimeModelProvider>,
+                    as noema_providers::ProviderHandle,
             )]),
             store.clone(),
             store.system_error_logger(),
@@ -1349,7 +1349,7 @@ mod tests {
             HashMap::from([(
                 "codex".to_string(),
                 Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
-                    as Arc<dyn RuntimeModelProvider>,
+                    as noema_providers::ProviderHandle,
             )]),
             store.clone(),
             store.system_error_logger(),
@@ -1394,7 +1394,7 @@ mod tests {
             HashMap::from([(
                 "codex".to_string(),
                 Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
-                    as Arc<dyn RuntimeModelProvider>,
+                    as noema_providers::ProviderHandle,
             )]),
             store.clone(),
             store.system_error_logger(),
@@ -1444,7 +1444,7 @@ mod tests {
             HashMap::from([(
                 "codex".to_string(),
                 Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
-                    as Arc<dyn RuntimeModelProvider>,
+                    as noema_providers::ProviderHandle,
             )]),
             store.clone(),
             store.system_error_logger(),

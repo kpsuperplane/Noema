@@ -6,7 +6,7 @@ use noema_providers::{
     GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
     GenerateRequest, GenerateResponse, GenerateResponseStatus, GenerateStreamEvent,
     GenerateToolCall, GenerateToolCallInput, GenerateToolResultInput, GenerationPriority,
-    NoemaToolChoice, ProviderError, ReasoningEffort,
+    NoemaToolChoice, ProviderError, ProviderHandle, ReasoningEffort,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -18,7 +18,6 @@ use tokio::{
     task::JoinHandle,
 };
 
-use crate::daemon::RuntimeModelProvider;
 use noema_capabilities::ToolSpec;
 use noema_home::{SystemErrorEvent, SystemErrorLogger};
 
@@ -28,7 +27,7 @@ const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 #[derive(Clone)]
 pub struct MemoryModelProxyConfig {
     /// Provider selected by Settings > Memory.
-    pub provider: Arc<dyn RuntimeModelProvider>,
+    pub provider: ProviderHandle,
     /// Bearer token accepted from the memory child process.
     pub api_key: String,
     /// Model/profile selected by Settings > Memory.
@@ -56,7 +55,7 @@ pub(crate) struct MemoryModelRoute {
 
 #[derive(Clone, Debug)]
 struct MemoryModelRouteSelection {
-    provider: Arc<dyn RuntimeModelProvider>,
+    provider: ProviderHandle,
     model_profile: String,
     reasoning_effort: Option<ReasoningEffort>,
 }
@@ -75,7 +74,7 @@ impl MemoryModelRoute {
 
     pub(crate) async fn update(
         &self,
-        provider: Arc<dyn RuntimeModelProvider>,
+        provider: ProviderHandle,
         model_profile: String,
         reasoning_effort: Option<ReasoningEffort>,
     ) {
@@ -815,7 +814,7 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
-    use crate::daemon::RuntimeModelProvider;
+    use noema_providers::ProviderOperations;
     use noema_providers::{
         GenerateInput, GenerateInputItem, GenerateRequest, GenerateResponse,
         GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall, GenerationPriority,
@@ -842,7 +841,7 @@ mod tests {
         }
     }
 
-    impl RuntimeModelProvider for CapturingProvider {
+    impl ProviderOperations for CapturingProvider {
         fn generate_streaming<'a>(
             &'a self,
             request: GenerateRequest,

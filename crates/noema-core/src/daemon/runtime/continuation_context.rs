@@ -6,12 +6,11 @@ use noema_providers::{
     GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
     GenerateReasoningInput, GenerateRequest, GenerateResponse, GenerateResponseItem,
     GenerateStreamEvent, GenerateToolCallInput, GenerateToolResultInput, GenerationPriority,
-    ProviderError, ProviderResponseContinuation, ReasoningEffort,
+    ProviderError, ProviderOperations, ProviderResponseContinuation, ReasoningEffort,
 };
 
 use super::{
     context_window::{ContextBudget, estimate_text_tokens},
-    handle::RuntimeModelProvider,
     local_tools::LocalToolResult,
 };
 
@@ -221,7 +220,7 @@ impl ContinuationContext {
     /// budget approaches exhaustion. Recent rounds remain lossless.
     pub(super) async fn compact_if_needed(
         &mut self,
-        provider: &dyn RuntimeModelProvider,
+        provider: &dyn ProviderOperations,
         model: Option<&str>,
         reasoning_effort: Option<ReasoningEffort>,
         generation_priority: GenerationPriority,
@@ -403,7 +402,7 @@ fn messages_for_non_native_history(items: &[GenerateInputItem]) -> Vec<GenerateM
 }
 
 async fn count_tokens(
-    provider: &dyn RuntimeModelProvider,
+    provider: &dyn ProviderOperations,
     instructions: Option<&str>,
     input: &str,
     model: Option<&str>,
@@ -439,7 +438,7 @@ mod tests {
         requests: Arc<Mutex<Vec<GenerateRequest>>>,
     }
 
-    impl RuntimeModelProvider for CompactionProvider {
+    impl ProviderOperations for CompactionProvider {
         fn context_metadata(&self, _model: Option<&str>) -> ProviderContextMetadata {
             ProviderContextMetadata {
                 context_window_tokens: Some(1_200),

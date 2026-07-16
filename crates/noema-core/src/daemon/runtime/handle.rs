@@ -1,4 +1,4 @@
-use std::{collections::HashMap, future::Future, path::PathBuf, pin::Pin, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use crate::{
     FoundationLocalProvider, LocalModelsProvider, NoemaStore, OpenAiProvider,
@@ -9,9 +9,8 @@ use noema_providers::{
     CodexProviderConfig, DEFAULT_FOUNDATION_LOCAL_PROFILE,
     DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS, DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
     DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS, FoundationLocalProviderConfig, GenerateRequest,
-    GenerateResponse, GenerateStreamEvent, LocalModelsProviderConfig, ModelProvider,
-    ProviderConfig, ProviderContextMetadata, ProviderError, ProviderKind,
-    ProviderResponseContinuation, ProviderToolCapabilities,
+    GenerateResponse, LocalModelsProviderConfig, ModelProvider, ProviderConfig, ProviderError,
+    ProviderHandle, ProviderKind, erase_model_provider,
 };
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
@@ -19,96 +18,13 @@ use tokio_util::sync::CancellationToken;
 use super::{TaskCompletionDeliveryRequest, actor::CodexRuntimeActor};
 use crate::daemon::protocol::{DaemonError, StartedConversation, TurnStreamEvent};
 
-pub(crate) type RuntimeProviderMap = HashMap<String, Arc<dyn RuntimeModelProvider>>;
-type ConfiguredRuntimeProvider = (
-    String,
-    Arc<dyn RuntimeModelProvider>,
-    Option<crate::LlamaServerSupervisor>,
-);
+pub(crate) type RuntimeProviderMap = HashMap<String, ProviderHandle>;
+type ConfiguredRuntimeProvider = (String, ProviderHandle, Option<crate::LlamaServerSupervisor>);
 type ConfiguredRuntimeProviderMap = (
     String,
     RuntimeProviderMap,
     Option<crate::LlamaServerSupervisor>,
 );
-
-/// Model provider interface used by the daemon runtime and auxiliary tools.
-pub trait RuntimeModelProvider: std::fmt::Debug + Send + Sync {
-    /// Return the provider's default model for tool-classification style tasks.
-    fn default_tool_classification_model(&self) -> Option<String> {
-        None
-    }
-
-    /// Return context metadata for an optional model override.
-    fn context_metadata(&self, _model: Option<&str>) -> ProviderContextMetadata {
-        ProviderContextMetadata::default()
-    }
-
-    /// Return the provider's response-continuation strategy.
-    fn response_continuation(&self, _model: Option<&str>) -> ProviderResponseContinuation {
-        ProviderResponseContinuation::default()
-    }
-
-    /// Return provider tool capabilities for an optional model override.
-    fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
-        ProviderToolCapabilities::default()
-    }
-
-    /// Count provider tokens for optional instructions and input.
-    fn count_tokens<'a>(
-        &'a self,
-        instructions: Option<&'a str>,
-        input: &'a str,
-        model: Option<&'a str>,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<u32>, ProviderError>> + Send + 'a>> {
-        let _ = (instructions, input, model);
-        Box::pin(async { Ok(None) })
-    }
-
-    /// Generate a response while optionally emitting stream events.
-    fn generate_streaming<'a>(
-        &'a self,
-        request: GenerateRequest,
-        on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
-    ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>>;
-}
-
-impl<T> RuntimeModelProvider for T
-where
-    T: ModelProvider + std::fmt::Debug + Send + Sync,
-{
-    fn default_tool_classification_model(&self) -> Option<String> {
-        ModelProvider::default_tool_classification_model(self)
-    }
-
-    fn context_metadata(&self, model: Option<&str>) -> ProviderContextMetadata {
-        ModelProvider::context_metadata(self, model)
-    }
-
-    fn response_continuation(&self, model: Option<&str>) -> ProviderResponseContinuation {
-        ModelProvider::response_continuation(self, model)
-    }
-
-    fn tool_capabilities(&self, model: Option<&str>) -> ProviderToolCapabilities {
-        ModelProvider::tool_capabilities(self, model)
-    }
-
-    fn count_tokens<'a>(
-        &'a self,
-        instructions: Option<&'a str>,
-        input: &'a str,
-        model: Option<&'a str>,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<u32>, ProviderError>> + Send + 'a>> {
-        Box::pin(async move { ModelProvider::count_tokens(self, instructions, input, model).await })
-    }
-
-    fn generate_streaming<'a>(
-        &'a self,
-        request: GenerateRequest,
-        on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
-    ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
-        Box::pin(async move { ModelProvider::generate_streaming(self, request, on_event).await })
-    }
-}
 
 #[derive(Debug, Clone)]
 pub(crate) struct CodexRuntimeHandle {
@@ -143,7 +59,7 @@ impl CodexRuntimeHandle {
         if !providers.contains_key("codex") {
             providers.insert(
                 "codex".to_string(),
-                Arc::new(CodexResponsesProvider::new(default_codex_provider_config(
+                erase_model_provider(CodexResponsesProvider::new(default_codex_provider_config(
                     system_errors.clone(),
                 )?)?),
             );
@@ -151,7 +67,7 @@ impl CodexRuntimeHandle {
         if !providers.contains_key("foundation_local") {
             providers.insert(
                 "foundation_local".to_string(),
-                Arc::new(FoundationLocalProvider::new(
+                erase_model_provider(FoundationLocalProvider::new(
                     default_foundation_local_config(system_errors),
                 )?),
             );
@@ -186,7 +102,7 @@ impl CodexRuntimeHandle {
 
     #[cfg(test)]
     pub(crate) async fn spawn_with_provider(
-        provider: Arc<dyn RuntimeModelProvider>,
+        provider: ProviderHandle,
         store: NoemaStore,
     ) -> Result<Self, DaemonError> {
         Self::spawn_with_provider_kind(provider, store, "codex").await
@@ -194,7 +110,7 @@ impl CodexRuntimeHandle {
 
     #[cfg(test)]
     pub(crate) async fn spawn_with_provider_and_memory(
-        provider: Arc<dyn RuntimeModelProvider>,
+        provider: ProviderHandle,
         store: NoemaStore,
         memory_connection: Option<crate::MnemosyneConnection>,
     ) -> Result<Self, DaemonError> {
@@ -216,7 +132,7 @@ impl CodexRuntimeHandle {
 
     #[cfg(test)]
     pub(crate) async fn spawn_with_provider_kind(
-        provider: Arc<dyn RuntimeModelProvider>,
+        provider: ProviderHandle,
         store: NoemaStore,
         provider_kind: impl Into<String>,
     ) -> Result<Self, DaemonError> {
@@ -231,7 +147,7 @@ impl CodexRuntimeHandle {
 
     #[cfg(test)]
     pub(crate) async fn spawn_with_provider_and_search_provider(
-        provider: Arc<dyn RuntimeModelProvider>,
+        provider: ProviderHandle,
         store: NoemaStore,
         search_provider: crate::search::types::SearchRuntimeProvider,
     ) -> Result<Self, DaemonError> {
@@ -269,7 +185,7 @@ impl CodexRuntimeHandle {
 
     #[cfg(test)]
     pub(crate) async fn spawn_with_provider_and_search_fetch_providers(
-        provider: Arc<dyn RuntimeModelProvider>,
+        provider: ProviderHandle,
         store: NoemaStore,
         search_provider: crate::search::types::SearchRuntimeProvider,
         web_fetch_provider: crate::web_fetch::types::WebFetchRuntimeProvider,
@@ -314,7 +230,7 @@ impl CodexRuntimeHandle {
         store: NoemaStore,
     ) -> Result<Self, DaemonError>
     where
-        I: IntoIterator<Item = (String, Arc<dyn RuntimeModelProvider>)>,
+        I: IntoIterator<Item = (String, ProviderHandle)>,
     {
         let system_errors = store.system_error_logger();
         let artifact_operations =
@@ -333,7 +249,7 @@ impl CodexRuntimeHandle {
 
     async fn spawn_with_provider_map_inner(
         default_provider_kind: String,
-        providers: HashMap<String, Arc<dyn RuntimeModelProvider>>,
+        providers: RuntimeProviderMap,
         store: NoemaStore,
         artifact_operations: noema_artifacts::ArtifactOperationsHandle,
         system_errors: SystemErrorLogger,
@@ -442,7 +358,7 @@ impl CodexRuntimeHandle {
                     "local models provider has no default model profile".to_string(),
                 )
             })?;
-        let provider: Arc<dyn RuntimeModelProvider> = Arc::new(provider);
+        let provider = erase_model_provider(provider);
         let (reply, reply_rx) = oneshot::channel();
         self.sender
             .send(CodexRuntimeCommand::RegisterProvider {
@@ -674,7 +590,7 @@ fn provider_from_config(
     match provider_config {
         ProviderConfig::Codex(codex_config) => Ok((
             ProviderKind::Codex.as_str().to_string(),
-            Arc::new(CodexResponsesProvider::new(codex_provider_config(
+            erase_model_provider(CodexResponsesProvider::new(codex_provider_config(
                 codex_config,
                 system_errors,
             )?)?),
@@ -684,13 +600,13 @@ fn provider_from_config(
             openai_config.system_errors = Some(system_errors);
             Ok((
                 ProviderKind::OpenAi.as_str().to_string(),
-                Arc::new(OpenAiProvider::new(openai_config)?),
+                erase_model_provider(OpenAiProvider::new(openai_config)?),
                 None,
             ))
         }
         ProviderConfig::FoundationLocal(config) => Ok((
             ProviderKind::FoundationLocal.as_str().to_string(),
-            Arc::new(FoundationLocalProvider::new(foundation_local_config(
+            erase_model_provider(FoundationLocalProvider::new(foundation_local_config(
                 config,
                 system_errors,
             ))?),
@@ -701,7 +617,7 @@ fn provider_from_config(
             let runtime = provider.runtime().clone();
             Ok((
                 ProviderKind::LocalModels.as_str().to_string(),
-                Arc::new(provider),
+                erase_model_provider(provider),
                 Some(runtime),
             ))
         }
@@ -796,7 +712,7 @@ pub(super) enum CodexRuntimeCommand {
     },
     RegisterProvider {
         provider_kind: String,
-        provider: Arc<dyn RuntimeModelProvider>,
+        provider: ProviderHandle,
         reply: oneshot::Sender<()>,
     },
     TaskCompletionDelivery {

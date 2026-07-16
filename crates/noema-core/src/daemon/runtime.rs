@@ -24,7 +24,6 @@ pub(crate) mod turn_timing;
 mod web_tools;
 
 pub(crate) use background_task::BackgroundTaskGenerateRequest;
-pub use handle::RuntimeModelProvider;
 pub(crate) use handle::{CodexRuntimeHandle, RuntimeProviderMap};
 
 /// Structured context for one primary-agent completion report.

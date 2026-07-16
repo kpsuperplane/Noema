@@ -6,12 +6,11 @@ use noema_conversations::{
 use crate::{NoemaStore, daemon::protocol::DaemonError};
 use noema_providers::{
     GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseItem,
-    GenerateStreamEvent, GenerationPriority, ProviderError,
+    GenerateStreamEvent, GenerationPriority, ProviderError, ProviderOperations,
 };
 
 use super::{
     context_window::{ContextBudget, estimate_text_tokens},
-    handle::RuntimeModelProvider,
     prompt_context::{PlannedPromptContext, input_item_from_transcript_item},
 };
 
@@ -28,7 +27,7 @@ pub(super) enum CompactionMode {
 #[derive(Debug, Clone)]
 pub(super) struct CompactionRequest<'a> {
     pub(super) store: &'a NoemaStore,
-    pub(super) provider: &'a dyn RuntimeModelProvider,
+    pub(super) provider: &'a dyn ProviderOperations,
     pub(super) conversation_id: &'a str,
     pub(super) provider_kind: &'a str,
     pub(super) model_profile: Option<&'a str>,
@@ -271,7 +270,7 @@ async fn compact_context_with_target(
 }
 
 async fn generate_compaction_summary(
-    provider: &dyn RuntimeModelProvider,
+    provider: &dyn ProviderOperations,
     model_profile: Option<&str>,
     instructions: String,
     input: String,
@@ -429,7 +428,7 @@ fn retry_summary_target(budget: ContextBudget) -> Option<u32> {
 }
 
 async fn bound_summary_seed_to_context_budget(
-    provider: &dyn RuntimeModelProvider,
+    provider: &dyn ProviderOperations,
     model_profile: Option<&str>,
     budget: ContextBudget,
     target_tokens: u32,
@@ -471,7 +470,7 @@ async fn bound_summary_seed_to_context_budget(
 }
 
 async fn largest_fitting_transcript_prefix(
-    provider: &dyn RuntimeModelProvider,
+    provider: &dyn ProviderOperations,
     model_profile: Option<&str>,
     budget: ContextBudget,
     target_tokens: u32,
@@ -518,7 +517,7 @@ async fn largest_fitting_transcript_prefix(
 }
 
 async fn count_tokens_or_estimate(
-    provider: &dyn RuntimeModelProvider,
+    provider: &dyn ProviderOperations,
     instructions: Option<&str>,
     input: &str,
     model_profile: Option<&str>,

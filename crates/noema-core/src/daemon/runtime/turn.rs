@@ -2392,7 +2392,7 @@ impl CodexRuntimeActor {
     #[allow(clippy::too_many_arguments)]
     async fn reconcile_model_context_plan(
         &self,
-        provider: &dyn super::handle::RuntimeModelProvider,
+        provider: &dyn noema_providers::ProviderOperations,
         conversation_id: &str,
         turn_id: &str,
         provider_kind: &str,
