@@ -1368,12 +1368,14 @@ assembly and host lifecycle composition separate.
 
 **Move:**
 
-- `crates/noema-core/src/memory.rs` and subtree
 - `crates/noema-core/src/mnemosyne/`
 - `crates/noema-core/src/memory_model_proxy.rs`
 - memory service/cache semantic models from store
 - stable memory search operation from `daemon/memory/tool.rs`
 - Python sidecar package and tests
+
+The former generic `memory.rs`/`memory/error.rs` facade was deleted in Phase 2;
+do not recreate it or introduce a second generic memory error layer.
 
 **Steps:**
 
@@ -1383,7 +1385,8 @@ assembly and host lifecycle composition separate.
 - [ ] Define the memory repository port for settings/article-cache operations,
   implement it for the current core-owned `NoemaStore`, and convert moved
   memory behavior to the port in this integration window. Phase 9 later moves
-  the impl with store.
+  the impl with store. The port is object-safe through boxed futures, has a
+  clonable handle, and returns memory-owned errors rather than `StoreError`.
 - [ ] Make lifecycle construction accept resolved roots, settings, and provider
   access explicitly; memory must not import `NoemaStore` or host configuration.
 - [ ] Move the private model proxy and retain the provider-owned
@@ -1408,6 +1411,9 @@ assembly and host lifecycle composition separate.
 - [ ] Update the dev supervisor, CI, ignored venv paths, install stamp paths,
   and their unit tests when the filesystem move lands in this integration
   window.
+- [ ] Split the current 1,000-plus-line model proxy while moving it into
+  request handling, provider translation, service lifecycle, and focused test
+  support; no moved production Rust file may retain the Phase-0 size exception.
 - [ ] Run Rust memory tests and existing Python unit tests.
 
 **Acceptance:**
@@ -1443,6 +1449,9 @@ has been removed.
 - [ ] Provider capability derivation happens outside repository code.
 - [ ] `StoreError` has no conversion from host config, provider transport,
   GraphQL, or system-diagnostic errors.
+- [ ] Store code has no `noema-home`, `SystemErrorEvent`, or logger dependency.
+  Repository errors expose typed invariant/context data; the consuming service
+  boundary decides whether and how to write a diagnostic event.
 - [ ] External tests do not access the raw SQLite connection.
 - [ ] Every current non-store test that imports `store::tests` is assigned a
   replacement fixture before the module moves. Record the inventory and do not
