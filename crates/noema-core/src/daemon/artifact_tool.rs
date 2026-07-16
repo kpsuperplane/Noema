@@ -10,6 +10,7 @@ use crate::{
     provider::{NoemaToolExecution, NoemaToolSpec, ToolContractError},
 };
 
+use noema_home::{NoemaPathError, safe_artifact_filename};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -43,7 +44,7 @@ pub(super) enum ArtifactToolError {
     #[error("{0}")]
     InvalidArguments(String),
     #[error(transparent)]
-    Path(#[from] crate::NoemaPathError),
+    Path(#[from] NoemaPathError),
     #[error(transparent)]
     Write(#[from] crate::artifacts::ArtifactWriteError),
     #[error(transparent)]
@@ -384,7 +385,7 @@ fn parse_arguments(payload: &Value) -> Result<CreateLocalFileArtifactArguments, 
             )));
         }
     }
-    crate::paths::safe_artifact_filename(&arguments.filename)?;
+    safe_artifact_filename(&arguments.filename)?;
     Ok(arguments)
 }
 

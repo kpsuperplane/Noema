@@ -4,14 +4,12 @@ use super::responses::{
     OPENAI_RESPONSES_PROFILE, ResponsesDiagnosticContext, ResponsesRequest, ResponsesTransport,
     header_value, normalize_base_url,
 };
-use crate::{
-    SystemErrorLogger,
-    provider::{
-        DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, ModelProvider,
-        ProviderError, ProviderResponseContinuation, ProviderToolCapabilities,
-        ProviderToolSchemaDialect, ProviderToolTransport,
-    },
+use crate::provider::{
+    DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, ModelProvider,
+    ProviderError, ProviderResponseContinuation, ProviderToolCapabilities,
+    ProviderToolSchemaDialect, ProviderToolTransport,
 };
+use noema_home::SystemErrorLogger;
 use reqwest::header::{HeaderMap, HeaderName};
 use std::time::Duration;
 

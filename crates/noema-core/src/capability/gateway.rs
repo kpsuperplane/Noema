@@ -2,17 +2,17 @@
 
 use crate::{
     McpServerAuthStatus, McpServerHealthStatus, McpTransportKind, NoemaStore,
-    SYSTEM_ERROR_MCP_MALFORMED_RESPONSE, SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE, SystemErrorEvent,
-    SystemErrorLogger,
     agent_execution::ToolPolicy,
     mcp::{
-        McpClientError, McpClientRuntime, McpTransport, StdioMcpTransport,
-        StreamableHttpMcpTransport, mcp_tool_ineligibility,
+        McpClientError, McpClientRuntime, McpTransport, SYSTEM_ERROR_MCP_MALFORMED_RESPONSE,
+        SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE, StdioMcpTransport, StreamableHttpMcpTransport,
+        mcp_tool_ineligibility,
         secrets::{
             McpOAuthStoredCredentials, McpSecretMaterial, read_mcp_secrets, write_mcp_secrets,
         },
     },
 };
+use noema_home::{SystemErrorEvent, SystemErrorLogger};
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -339,6 +339,14 @@ mod tests {
     };
     use serde_json::json;
 
+    fn read_system_error_events(path: &Path) -> Vec<Value> {
+        std::fs::read_to_string(path)
+            .expect("system error log")
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("system error event"))
+            .collect()
+    }
+
     #[test]
     fn parses_mcp_tool_name_with_colon_server_id() {
         let parsed = parse_mcp_tool_name("mcp.mcp:notion.notion-search").expect("parsed");
@@ -585,13 +593,9 @@ mod tests {
             .await;
 
         assert_eq!(error, "mcp_authentication_failed");
-        let events =
-            crate::system_errors::read_system_error_events(&errors_log_path).expect("error events");
+        let events = read_system_error_events(&errors_log_path);
         assert_eq!(events.len(), 1);
-        assert_eq!(
-            events[0]["category"],
-            crate::SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE
-        );
+        assert_eq!(events[0]["category"], SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE);
         assert_eq!(events[0]["context"]["mcp_server_id"], "mcp:notion");
         assert_eq!(events[0]["context"]["tool_name"], "dex_search_contacts");
         assert!(events[0]["message"].as_str().is_some_and(|message| {

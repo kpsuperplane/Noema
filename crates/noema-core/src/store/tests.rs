@@ -7,7 +7,7 @@ mod mcp;
 #[tokio::test]
 async fn opens_sqlite_store_under_noema_db_dir() {
     let home = TempDir::new().expect("temp noema home");
-    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
     let config = StoreConfig::from_paths(&paths);
 
     let store = NoemaStore::open(&config).await.expect("open store");
@@ -20,7 +20,7 @@ async fn opens_sqlite_store_under_noema_db_dir() {
 #[tokio::test]
 async fn opening_pre_v1_task_runtime_tables_rebuilds_and_preserves_history() {
     let home = TempDir::new().expect("temp noema home");
-    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
     let config = StoreConfig::from_paths(&paths);
     let store = NoemaStore::open(&config).await.expect("open store");
     store
@@ -109,7 +109,7 @@ async fn opening_pre_v1_task_runtime_tables_rebuilds_and_preserves_history() {
 #[tokio::test]
 async fn opening_legacy_tasks_adds_blocking_columns() {
     let home = TempDir::new().expect("temp noema home");
-    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
     let config = StoreConfig::from_paths(&paths);
     let store = NoemaStore::open(&config).await.expect("open store");
     store
@@ -279,7 +279,7 @@ async fn artifact_external_url_initial_version_rejects_non_http_url() {
 #[tokio::test]
 async fn conversation_local_file_artifact_writes_bytes_and_metadata() {
     let home = TempDir::new().expect("temp noema home");
-    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
     let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
         .await
         .expect("open store");
@@ -348,7 +348,7 @@ async fn conversation_local_file_artifact_writes_bytes_and_metadata() {
 #[tokio::test]
 async fn conversation_local_file_artifact_rejects_symlinked_artifact_root() {
     let home = TempDir::new().expect("temp noema home");
-    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
     let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
         .await
         .expect("open store");
@@ -510,7 +510,7 @@ async fn artifact_read_rejects_forged_non_http_external_url() {
 #[tokio::test]
 async fn sqlite_store_config_is_stable_for_reopen() {
     let home = TempDir::new().expect("temp noema home");
-    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
     let config = StoreConfig::from_paths(&paths);
 
     assert_eq!(config.path, paths.sqlite_db_path());
@@ -519,7 +519,7 @@ async fn sqlite_store_config_is_stable_for_reopen() {
 
 pub(crate) async fn test_store() -> crate::NoemaStore {
     let home = TempDir::new().expect("temp noema home");
-    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
     let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
         .await
         .expect("open store");

@@ -11,11 +11,12 @@ use crate::{
     },
     {ConversationItemKind, ConversationItemStatus, ReplayMode},
 };
-use serde_json::json;
+use noema_home::NoemaPaths;
+use serde_json::{Value, json};
 use std::{
     collections::HashMap,
     future::Future,
-    path::PathBuf,
+    path::{Path, PathBuf},
     pin::Pin,
     process::Command,
     sync::{Arc, Mutex},
@@ -26,6 +27,14 @@ use tokio::{
     net::TcpListener,
     sync::{Mutex as AsyncMutex, Notify, mpsc, oneshot},
 };
+
+fn read_system_error_events(path: &Path) -> Vec<Value> {
+    std::fs::read_to_string(path)
+        .expect("system error log")
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("system error event"))
+        .collect()
+}
 
 const RESTART_CONTEXT_TEST_PHASE_ENV: &str = "NOEMA_RESTART_CONTEXT_TEST_PHASE";
 const RESTART_CONTEXT_TEST_HOME_ENV: &str = "NOEMA_RESTART_CONTEXT_TEST_HOME";
@@ -2282,9 +2291,9 @@ async fn failed_initial_name_onboarding_logs_runtime_invariant() {
             .contains("initial onboarding response did not include assistant text")
     );
     let logger = store.system_error_logger();
-    let events = crate::system_errors::read_system_error_events(logger.path()).expect("events");
+    let events = read_system_error_events(logger.path());
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0]["category"], crate::SYSTEM_ERROR_RUNTIME_INVARIANT);
+    assert_eq!(events[0]["category"], SYSTEM_ERROR_RUNTIME_INVARIANT);
     assert_eq!(
         events[0]["message"],
         "initial onboarding response did not include assistant text"
@@ -2337,7 +2346,7 @@ fn run_restart_context_child_phase(phase: &str, home: &std::path::Path) {
 }
 
 async fn restart_context_write_phase(home: &std::path::Path) {
-    let paths = crate::NoemaPaths::from_noema_home(home).expect("paths");
+    let paths = NoemaPaths::from_noema_home(home).expect("paths");
     let config = crate::StoreConfig::from_paths(&paths);
     let first_store = crate::NoemaStore::open(&config)
         .await
@@ -2374,7 +2383,7 @@ async fn restart_context_read_phase(home: &std::path::Path) {
     let first_conversation_id =
         std::fs::read_to_string(home.join(RESTART_CONTEXT_TEST_CONVERSATION_FILE))
             .expect("read restart conversation id");
-    let paths = crate::NoemaPaths::from_noema_home(home).expect("paths");
+    let paths = NoemaPaths::from_noema_home(home).expect("paths");
     let config = crate::StoreConfig::from_paths(&paths);
     let reopened_store = crate::NoemaStore::open(&config)
         .await
@@ -3059,7 +3068,7 @@ async fn memory_observation_waits_for_the_foreground_turn_to_finish() {
 #[tokio::test]
 async fn slow_memory_ingest_does_not_delay_provider_response() {
     let home = tempfile::tempdir().expect("temp noema home");
-    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
     let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
         .await
         .expect("store");
@@ -3788,7 +3797,7 @@ async fn native_provider_can_create_local_artifact_with_two_versions_and_continu
         }),
     );
     let home = tempfile::tempdir().expect("temp noema home");
-    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
     let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
         .await
         .expect("store");
@@ -4692,7 +4701,7 @@ async fn test_runtime_handle_with_store(
     provider: FakeCodexProvider,
 ) -> (CodexRuntimeHandle, crate::NoemaStore) {
     let home = tempfile::tempdir().expect("temp noema home");
-    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
     let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
         .await
         .expect("store");
@@ -4707,7 +4716,7 @@ async fn test_runtime_handle_with_task_delegation(
     provider: FakeCodexProvider,
 ) -> (CodexRuntimeHandle, crate::NoemaStore) {
     let home = tempfile::tempdir().expect("temp noema home");
-    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
     let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
         .await
         .expect("store");
@@ -4741,7 +4750,7 @@ async fn test_runtime_handle_with_mnemosyne(
     response: serde_json::Value,
 ) -> (CodexRuntimeHandle, crate::NoemaStore, FakeMemoryServer) {
     let home = tempfile::tempdir().expect("temp noema home");
-    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
     let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
         .await
         .expect("store");
@@ -4792,7 +4801,7 @@ async fn spawn_runtime_with_memory_provider(
     response: serde_json::Value,
 ) -> (CodexRuntimeHandle, crate::NoemaStore, FakeMemoryServer) {
     let home = tempfile::tempdir().expect("temp noema home");
-    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
     let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
         .await
         .expect("store");
@@ -4827,7 +4836,7 @@ async fn test_runtime_handle_with_search_provider(
     search_provider: crate::search::types::SearchRuntimeProvider,
 ) -> (CodexRuntimeHandle, crate::NoemaStore) {
     let home = tempfile::tempdir().expect("temp noema home");
-    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
     let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
         .await
         .expect("store");
@@ -5000,7 +5009,7 @@ async fn test_runtime_handle_with_search_and_fetch_providers(
         },
     };
     let home = tempfile::tempdir().expect("temp noema home");
-    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
     let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
         .await
         .expect("store");

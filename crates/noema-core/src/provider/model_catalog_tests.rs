@@ -8,6 +8,7 @@ use tokio::{
 
 use super::*;
 use crate::{provider::adapters::codex_oauth::CodexOAuthTokens, store::StoreConfig};
+use noema_home::NoemaPaths;
 
 const TEST_CODEX_CLIENT_VERSION: &str = "0.144.1";
 

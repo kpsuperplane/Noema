@@ -1,5 +1,6 @@
 use std::{fs, path::PathBuf, sync::Arc};
 
+use noema_home::{NoemaPathError, NoemaPaths, sanitize_path_segment};
 use rusqlite::Connection;
 use tokio::sync::Mutex;
 
@@ -20,7 +21,7 @@ pub struct StoreConfig {
 impl StoreConfig {
     /// Build store config from resolved Noema paths.
     #[must_use]
-    pub fn from_paths(paths: &crate::NoemaPaths) -> Self {
+    pub fn from_paths(paths: &NoemaPaths) -> Self {
         Self {
             path: paths.sqlite_db_path(),
             noema_home: paths.root().to_path_buf(),
@@ -83,7 +84,7 @@ impl NoemaStore {
     pub(crate) fn mcp_server_home(&self, mcp_server_id: &str) -> PathBuf {
         self.noema_home
             .join("mcp")
-            .join(crate::paths::sanitize_path_segment(mcp_server_id))
+            .join(sanitize_path_segment(mcp_server_id))
     }
 
     /// Return the private home directory for one provider account.
@@ -91,25 +92,25 @@ impl NoemaStore {
     pub(crate) fn provider_account_home(&self, provider_kind: &str, account_key: &str) -> PathBuf {
         self.noema_home
             .join("providers")
-            .join(crate::paths::sanitize_path_segment(provider_kind))
-            .join(crate::paths::sanitize_path_segment(account_key))
+            .join(sanitize_path_segment(provider_kind))
+            .join(sanitize_path_segment(account_key))
     }
 
     /// Reconstruct the resolved Noema paths for this store's home directory.
     ///
     /// # Errors
     ///
-    /// Returns [`crate::NoemaPathError`] when the store was opened with an
+    /// Returns [`NoemaPathError`] when the store was opened with an
     /// unusable Noema home path.
-    pub(crate) fn noema_paths(&self) -> Result<crate::NoemaPaths, crate::NoemaPathError> {
-        crate::NoemaPaths::from_noema_home(self.noema_home.clone())
+    pub(crate) fn noema_paths(&self) -> Result<NoemaPaths, NoemaPathError> {
+        NoemaPaths::from_noema_home(self.noema_home.clone())
     }
 
     /// Return a developer diagnostic logger rooted in this store's Noema home.
     #[cfg(test)]
     #[must_use]
-    pub(crate) fn system_error_logger(&self) -> crate::SystemErrorLogger {
-        crate::SystemErrorLogger::new(self.noema_home.join("errors.log"))
+    pub(crate) fn system_error_logger(&self) -> noema_home::SystemErrorLogger {
+        noema_home::SystemErrorLogger::new(self.noema_home.join("errors.log"))
     }
 
     /// Return the current schema marker version.

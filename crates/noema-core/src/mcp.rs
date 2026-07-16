@@ -1,5 +1,10 @@
 //! Third-party MCP control-plane domain types.
 
+/// MCP metadata or tool-call payload was malformed.
+pub const SYSTEM_ERROR_MCP_MALFORMED_RESPONSE: &str = "mcp_malformed_response";
+/// MCP tool execution failed at the transport or remote tool boundary.
+pub const SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE: &str = "mcp_tool_call_failure";
+
 /// Advisory MCP tool calibration autofill prompt and parser support.
 pub mod autofill;
 pub mod client;

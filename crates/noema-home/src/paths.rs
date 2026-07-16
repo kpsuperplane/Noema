@@ -3,9 +3,12 @@
 use std::{
     env,
     ffi::OsString,
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
 };
+
 use thiserror::Error;
+
+use crate::sanitize_path_segment;
 
 /// Environment variable that overrides the Noema home directory.
 pub const NOEMA_HOME_ENV: &str = "NOEMA_HOME";
@@ -323,48 +326,11 @@ fn validate_model_digest(value: &str) -> Result<(), NoemaPathError> {
     }
 }
 
-pub(crate) fn sanitize_path_segment(value: &str) -> String {
-    let sanitized = value
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
-                character
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>();
-    if sanitized.is_empty() {
-        "_".to_string()
-    } else {
-        sanitized
-    }
-}
-
-pub(crate) fn safe_artifact_filename(value: &str) -> Result<&str, NoemaPathError> {
-    if value.is_empty()
-        || value.contains('\\')
-        || value.contains('"')
-        || value.chars().any(char::is_control)
-    {
-        return Err(NoemaPathError::UnsafeArtifactFilename {
-            value: value.to_string(),
-        });
-    }
-
-    let mut components = Path::new(value).components();
-    match (components.next(), components.next()) {
-        (Some(Component::Normal(_)), None) => Ok(value),
-        _ => Err(NoemaPathError::UnsafeArtifactFilename {
-            value: value.to_string(),
-        }),
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::ffi::OsString;
+
+    use super::*;
 
     #[test]
     fn noema_home_env_is_the_noema_root() {
@@ -465,21 +431,6 @@ mod tests {
     }
 
     #[test]
-    fn safe_artifact_filename_rejects_path_traversal() {
-        assert!(safe_artifact_filename("report.md").is_ok());
-        assert!(safe_artifact_filename("../report.md").is_err());
-        assert!(safe_artifact_filename("nested/report.md").is_err());
-        assert!(safe_artifact_filename("").is_err());
-    }
-
-    #[test]
-    fn safe_artifact_filename_rejects_header_unsafe_characters() {
-        assert!(safe_artifact_filename("report\".md").is_err());
-        assert!(safe_artifact_filename("report\r.md").is_err());
-        assert!(safe_artifact_filename("report\n.md").is_err());
-    }
-
-    #[test]
     fn home_env_falls_back_to_dot_noema() {
         let paths =
             NoemaPaths::from_env_values(None, Some(OsString::from("/tmp/home"))).expect("paths");
@@ -493,7 +444,7 @@ mod tests {
 
     #[test]
     fn missing_home_is_an_error() {
-        let error = NoemaPaths::from_env_values(None, None).unwrap_err();
+        let error = NoemaPaths::from_env_values(None, None).expect_err("missing home");
 
         assert!(matches!(error, NoemaPathError::MissingHome));
     }

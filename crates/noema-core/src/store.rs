@@ -1,5 +1,8 @@
 //! SQLite-backed canonical Noema store.
 
+/// Store-backed state violated a closed Noema schema assumption.
+pub const SYSTEM_ERROR_STORE_INVARIANT: &str = "store_invariant_violation";
+
 mod agent_runs;
 mod agent_runtime_preferences;
 mod agents;

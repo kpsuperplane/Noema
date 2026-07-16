@@ -9,6 +9,7 @@ use cap_std::{
     ambient_authority,
     fs::{Dir, Metadata, OpenOptions},
 };
+use noema_home::{NoemaPathError, NoemaPaths, safe_artifact_filename};
 use thiserror::Error;
 
 mod task_local;
@@ -70,7 +71,7 @@ pub struct NewConversationLocalFileArtifactVersion {
 pub enum ArtifactWriteError {
     /// The artifact filename or derived path was unsafe.
     #[error(transparent)]
-    Path(#[from] crate::NoemaPathError),
+    Path(#[from] NoemaPathError),
 
     /// The local artifact version directory could not be created.
     #[error("failed to create artifact directory {}: {source}", path.display())]
@@ -140,12 +141,12 @@ fn artifact_version_download_slug(artifact_version_id: &str) -> &str {
 /// fails, or the canonical artifact metadata write fails.
 pub async fn create_conversation_local_file_artifact(
     store: &crate::NoemaStore,
-    paths: &crate::NoemaPaths,
+    paths: &NoemaPaths,
     input: NewConversationLocalFileArtifact,
 ) -> Result<crate::ArtifactWithVersions, ArtifactWriteError> {
     let artifact_id = store.new_artifact_id();
     let artifact_version_id = store.new_artifact_version_id();
-    let filename = crate::paths::safe_artifact_filename(&input.filename)?;
+    let filename = safe_artifact_filename(&input.filename)?;
     let version_dir =
         paths.conversation_artifact_version_dir(&input.conversation_id, &artifact_id, 1);
     let artifact_path = version_dir.join(filename);
@@ -202,7 +203,7 @@ pub async fn create_conversation_local_file_artifact(
 /// I/O fails, or the canonical version metadata write fails.
 pub async fn append_conversation_local_file_artifact_version(
     store: &crate::NoemaStore,
-    paths: &crate::NoemaPaths,
+    paths: &NoemaPaths,
     input: NewConversationLocalFileArtifactVersion,
 ) -> Result<crate::ArtifactVersionRecord, ArtifactWriteError> {
     let artifact = store
@@ -223,7 +224,7 @@ pub async fn append_conversation_local_file_artifact_version(
         .versions
         .last()
         .map_or(1, |version| version.version_index + 1);
-    let filename = crate::paths::safe_artifact_filename(&input.filename)?;
+    let filename = safe_artifact_filename(&input.filename)?;
     let version_dir = paths.conversation_artifact_version_dir(
         &artifact.artifact.owner.object_id,
         &artifact.artifact.artifact_id,
@@ -265,11 +266,11 @@ pub async fn append_conversation_local_file_artifact_version(
 }
 
 pub(crate) fn local_artifact_absolute_path(
-    paths: &crate::NoemaPaths,
+    paths: &NoemaPaths,
     relative_path: &str,
-) -> Result<PathBuf, crate::NoemaPathError> {
+) -> Result<PathBuf, NoemaPathError> {
     if !relative_path_components_are_safe(Path::new(relative_path)) {
-        return Err(crate::NoemaPathError::UnsafeArtifactFilename {
+        return Err(NoemaPathError::UnsafeArtifactFilename {
             value: relative_path.to_string(),
         });
     }
@@ -277,12 +278,12 @@ pub(crate) fn local_artifact_absolute_path(
 }
 
 pub(crate) fn validated_local_artifact_absolute_path(
-    paths: &crate::NoemaPaths,
+    paths: &NoemaPaths,
     artifact: &crate::ArtifactRecord,
     version: &crate::ArtifactVersionRecord,
-) -> Result<PathBuf, crate::NoemaPathError> {
+) -> Result<PathBuf, NoemaPathError> {
     let crate::ArtifactVersionStorage::LocalFile { relative_path } = &version.storage else {
-        return Err(crate::NoemaPathError::UnsafeArtifactFilename {
+        return Err(NoemaPathError::UnsafeArtifactFilename {
             value: version.artifact_version_id.clone(),
         });
     };
@@ -291,10 +292,10 @@ pub(crate) fn validated_local_artifact_absolute_path(
     let filename = absolute_path
         .file_name()
         .and_then(|value| value.to_str())
-        .ok_or_else(|| crate::NoemaPathError::UnsafeArtifactFilename {
+        .ok_or_else(|| NoemaPathError::UnsafeArtifactFilename {
             value: relative_path.clone(),
         })?;
-    let filename = crate::paths::safe_artifact_filename(filename)?;
+    let filename = safe_artifact_filename(filename)?;
     let expected_dir = match artifact.owner.object_type.as_str() {
         "conversation" => paths.conversation_artifact_version_dir(
             &artifact.owner.object_id,
@@ -307,14 +308,14 @@ pub(crate) fn validated_local_artifact_absolute_path(
             version.version_index,
         ),
         _ => {
-            return Err(crate::NoemaPathError::UnsafeArtifactFilename {
+            return Err(NoemaPathError::UnsafeArtifactFilename {
                 value: artifact.owner.object_type.clone(),
             });
         }
     };
     let expected_path = expected_dir.join(filename);
     if absolute_path != expected_path {
-        return Err(crate::NoemaPathError::UnsafeArtifactFilename {
+        return Err(NoemaPathError::UnsafeArtifactFilename {
             value: relative_path.clone(),
         });
     }
@@ -323,40 +324,39 @@ pub(crate) fn validated_local_artifact_absolute_path(
 }
 
 pub(crate) fn read_validated_local_artifact_file(
-    paths: &crate::NoemaPaths,
+    paths: &NoemaPaths,
     artifact: &crate::ArtifactRecord,
     version: &crate::ArtifactVersionRecord,
-) -> Result<(PathBuf, Vec<u8>), crate::NoemaPathError> {
+) -> Result<(PathBuf, Vec<u8>), NoemaPathError> {
     let absolute_path = validated_local_artifact_absolute_path(paths, artifact, version)?;
-    let parent =
-        absolute_path
-            .parent()
-            .ok_or_else(|| crate::NoemaPathError::UnsafeArtifactFilename {
-                value: absolute_path.display().to_string(),
-            })?;
+    let parent = absolute_path
+        .parent()
+        .ok_or_else(|| NoemaPathError::UnsafeArtifactFilename {
+            value: absolute_path.display().to_string(),
+        })?;
     let filename =
         absolute_path
             .file_name()
-            .ok_or_else(|| crate::NoemaPathError::UnsafeArtifactFilename {
+            .ok_or_else(|| NoemaPathError::UnsafeArtifactFilename {
                 value: absolute_path.display().to_string(),
             })?;
     let root_dir =
-        open_cap_root(paths.root()).map_err(|_| crate::NoemaPathError::UnsafeArtifactFilename {
+        open_cap_root(paths.root()).map_err(|_| NoemaPathError::UnsafeArtifactFilename {
             value: paths.root().display().to_string(),
         })?;
     let parent_dir = open_verified_cap_dir(&root_dir, paths.root(), parent).map_err(|_| {
-        crate::NoemaPathError::UnsafeArtifactFilename {
+        NoemaPathError::UnsafeArtifactFilename {
             value: parent.display().to_string(),
         }
     })?;
     let filename_path = Path::new(filename);
     let before_metadata = parent_dir.symlink_metadata(filename_path).map_err(|_| {
-        crate::NoemaPathError::UnsafeArtifactFilename {
+        NoemaPathError::UnsafeArtifactFilename {
             value: absolute_path.display().to_string(),
         }
     })?;
     if before_metadata.file_type().is_symlink() || !before_metadata.is_file() {
-        return Err(crate::NoemaPathError::UnsafeArtifactFilename {
+        return Err(NoemaPathError::UnsafeArtifactFilename {
             value: absolute_path.display().to_string(),
         });
     }
@@ -365,36 +365,36 @@ pub(crate) fn read_validated_local_artifact_file(
     options.read(true);
     set_no_follow(&mut options);
     let mut file = parent_dir.open_with(filename_path, &options).map_err(|_| {
-        crate::NoemaPathError::UnsafeArtifactFilename {
+        NoemaPathError::UnsafeArtifactFilename {
             value: absolute_path.display().to_string(),
         }
     })?;
-    let file_metadata =
-        file.metadata()
-            .map_err(|_| crate::NoemaPathError::UnsafeArtifactFilename {
-                value: absolute_path.display().to_string(),
-            })?;
+    let file_metadata = file
+        .metadata()
+        .map_err(|_| NoemaPathError::UnsafeArtifactFilename {
+            value: absolute_path.display().to_string(),
+        })?;
     let after_metadata = parent_dir.symlink_metadata(filename_path).map_err(|_| {
-        crate::NoemaPathError::UnsafeArtifactFilename {
+        NoemaPathError::UnsafeArtifactFilename {
             value: absolute_path.display().to_string(),
         }
     })?;
     if !same_cap_metadata(&file_metadata, &after_metadata) {
-        return Err(crate::NoemaPathError::UnsafeArtifactFilename {
+        return Err(NoemaPathError::UnsafeArtifactFilename {
             value: absolute_path.display().to_string(),
         });
     }
 
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)
-        .map_err(|_| crate::NoemaPathError::UnsafeArtifactFilename {
+        .map_err(|_| NoemaPathError::UnsafeArtifactFilename {
             value: absolute_path.display().to_string(),
         })?;
     Ok((absolute_path, bytes))
 }
 
 fn write_local_artifact_bytes(
-    paths: &crate::NoemaPaths,
+    paths: &NoemaPaths,
     version_dir: &Path,
     artifact_path: &Path,
     bytes: &[u8],
@@ -420,7 +420,7 @@ fn write_local_artifact_bytes(
             }
         })?;
     let filename = artifact_path.file_name().ok_or_else(|| {
-        ArtifactWriteError::Path(crate::NoemaPathError::UnsafeArtifactFilename {
+        ArtifactWriteError::Path(NoemaPathError::UnsafeArtifactFilename {
             value: artifact_path.display().to_string(),
         })
     })?;
@@ -447,17 +447,15 @@ fn write_local_artifact_bytes(
     Ok(())
 }
 
-fn artifact_relative_path(
-    root: &Path,
-    artifact_path: &Path,
-) -> Result<String, crate::NoemaPathError> {
-    let relative = artifact_path.strip_prefix(root).map_err(|_| {
-        crate::NoemaPathError::UnsafeArtifactFilename {
-            value: artifact_path.display().to_string(),
-        }
-    })?;
+fn artifact_relative_path(root: &Path, artifact_path: &Path) -> Result<String, NoemaPathError> {
+    let relative =
+        artifact_path
+            .strip_prefix(root)
+            .map_err(|_| NoemaPathError::UnsafeArtifactFilename {
+                value: artifact_path.display().to_string(),
+            })?;
     if !relative_path_components_are_safe(relative) {
-        return Err(crate::NoemaPathError::UnsafeArtifactFilename {
+        return Err(NoemaPathError::UnsafeArtifactFilename {
             value: relative.display().to_string(),
         });
     }
@@ -543,17 +541,14 @@ fn reject_symlink_component(path: &Path) -> Result<(), std::io::Error> {
     Ok(())
 }
 
-fn relative_path_for_cap_operation(
-    root: &Path,
-    path: &Path,
-) -> Result<PathBuf, crate::NoemaPathError> {
-    let relative =
-        path.strip_prefix(root)
-            .map_err(|_| crate::NoemaPathError::UnsafeArtifactFilename {
-                value: path.display().to_string(),
-            })?;
+fn relative_path_for_cap_operation(root: &Path, path: &Path) -> Result<PathBuf, NoemaPathError> {
+    let relative = path
+        .strip_prefix(root)
+        .map_err(|_| NoemaPathError::UnsafeArtifactFilename {
+            value: path.display().to_string(),
+        })?;
     if !relative_path_components_are_safe(relative) {
-        return Err(crate::NoemaPathError::UnsafeArtifactFilename {
+        return Err(NoemaPathError::UnsafeArtifactFilename {
             value: relative.display().to_string(),
         });
     }

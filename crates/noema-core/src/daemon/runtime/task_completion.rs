@@ -19,6 +19,7 @@ use crate::daemon::{
     protocol::{DaemonError, TurnStreamEvent, TurnTranscriptItem},
 };
 use crate::graphql::ConversationLiveEvent;
+use noema_home::{SystemErrorEvent, SystemErrorLogger};
 
 const MAX_COMPLETION_CONTEXT_CHARS: usize = 60_000;
 const MAX_COMPLETION_RESULT_CHARS: usize = 40_000;
@@ -36,7 +37,7 @@ pub(super) struct TaskCompletionGeneration {
     model: Option<String>,
     reasoning_effort: Option<crate::provider::ReasoningEffort>,
     subscriptions: crate::graphql::ConversationSubscriptionRegistry,
-    system_errors: crate::SystemErrorLogger,
+    system_errors: SystemErrorLogger,
 }
 
 pub(super) struct GeneratedTaskCompletion {
@@ -106,7 +107,7 @@ impl TaskCompletionGeneration {
                     Ok(response) => response_text(response.responses),
                     Err(error) => {
                         system_errors.try_append(
-                            crate::SystemErrorEvent::new(
+                            SystemErrorEvent::new(
                                 "task_completion_provider_failed",
                                 "Primary-agent task completion report generation failed; using fallback",
                             )
@@ -185,7 +186,7 @@ impl CodexRuntimeActor {
             Ok(provider) => Some(provider),
             Err(error) => {
                 self.system_errors.try_append(
-                    crate::SystemErrorEvent::new(
+                    SystemErrorEvent::new(
                         "task_completion_provider_unavailable",
                         "Primary-agent task completion report provider is unavailable; using fallback",
                     )

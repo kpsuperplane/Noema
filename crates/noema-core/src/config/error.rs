@@ -1,4 +1,4 @@
-use crate::NoemaPathError;
+use noema_home::NoemaPathError;
 use std::path::PathBuf;
 use thiserror::Error;
 

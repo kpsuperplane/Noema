@@ -4,6 +4,9 @@
 //! metadata and authentication support live alongside the contract, while
 //! concrete provider adapters and transport helpers live under [`adapters`].
 
+/// Provider output or transport body was malformed.
+pub const SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE: &str = "provider_malformed_response";
+
 /// Neutral provider account metadata types.
 pub mod accounts;
 /// Concrete model provider adapters and transport helpers.

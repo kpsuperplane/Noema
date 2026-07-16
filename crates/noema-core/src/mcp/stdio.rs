@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use tokio::process::Command;
 
 use crate::{
-    McpServerRecord, SystemErrorLogger,
+    McpServerRecord,
     mcp::{
         client::{
             DiscoveredMcpTool, McpClientError, McpDiagnosticContext, McpTransport,
@@ -17,6 +17,7 @@ use crate::{
         secrets::McpSecretMaterial,
     },
 };
+use noema_home::SystemErrorLogger;
 
 /// Metadata-only MCP transport over stdio.
 pub struct StdioMcpTransport {

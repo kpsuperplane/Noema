@@ -1,10 +1,10 @@
 //! Server-Sent Events parser for Responses-compatible streams.
 
 use super::responses::{ResponsesDiagnosticContext, ResponsesResponse, ResponsesUsage};
-use crate::{
-    SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SystemErrorEvent,
-    provider::{GenerateStreamEvent, ProviderError},
+use crate::provider::{
+    GenerateStreamEvent, ProviderError, SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE,
 };
+use noema_home::SystemErrorEvent;
 use serde_json::Value;
 
 pub(crate) struct SseAccumulator {

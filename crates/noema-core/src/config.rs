@@ -1,5 +1,6 @@
 //! Configuration loading and provider selection.
 
+mod defaults;
 mod error;
 mod file;
 mod loading;
@@ -8,6 +9,7 @@ mod provider;
 mod raw;
 mod web;
 
+pub use defaults::DEFAULT_NOEMA_CONFIG_YAML;
 pub use error::ConfigError;
 pub use loading::Config;
 pub use overrides::{ConfigOpenAiOverrides, ConfigOverrides};

@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use crate::{
-    McpServerRecord, SystemErrorLogger,
+    McpServerRecord,
     mcp::{
         client::{
             DiscoveredMcpTool, McpClientError, McpDiagnosticContext, McpTransport,
@@ -18,6 +18,7 @@ use crate::{
     },
 };
 use http::{HeaderName as RmcpHeaderName, HeaderValue as RmcpHeaderValue};
+use noema_home::SystemErrorLogger;
 use rmcp::{
     ServiceExt,
     transport::{

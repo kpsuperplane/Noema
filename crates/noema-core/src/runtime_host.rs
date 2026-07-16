@@ -1,8 +1,7 @@
 //! Shared Noema runtime host used by daemon and desktop shells.
 
 use crate::{
-    DaemonError, NoemaHomeInitOptions, NoemaPathError, NoemaPaths, NoemaStore, ProviderConfig,
-    StoreConfig, SystemErrorLogger,
+    DEFAULT_NOEMA_CONFIG_YAML, DaemonError, NoemaStore, ProviderConfig, StoreConfig,
     daemon::{CodexRuntimeHandle, TaskRuntimeHandle},
     mcp::McpOAuthSetupManager,
     provider::DEFAULT_TOOL_CLASSIFICATION_MODEL,
@@ -10,6 +9,10 @@ use crate::{
 };
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use noema_home::{
+    NoemaHomeInitOptions, NoemaPathError, NoemaPaths, SystemErrorEvent, SystemErrorLogger,
+    init_noema_home,
+};
 use ring::rand::{SecureRandom, SystemRandom};
 use std::path::PathBuf;
 use thiserror::Error;
@@ -53,12 +56,10 @@ impl NoemaRuntimeHost {
         let configured_provider_kind = provider.kind().as_str().to_string();
         let paths = NoemaPaths::from_process_env()
             .map_err(|source| RuntimeHostError::DataFolder(source.to_string()))?;
-        crate::init_noema_home(
+        init_noema_home(
             &paths,
-            NoemaHomeInitOptions {
-                force: false,
-                write_config: !paths.config_exists(),
-            },
+            Some(DEFAULT_NOEMA_CONFIG_YAML.as_bytes()),
+            NoemaHomeInitOptions { force: false },
         )
         .map_err(|source| RuntimeHostError::DataFolder(source.to_string()))?;
 
@@ -190,7 +191,7 @@ impl NoemaRuntimeHost {
                             let error = error.to_string();
                             memory_startup_error = Some(error.clone());
                             system_errors.try_append(
-                                crate::SystemErrorEvent::new(
+                                SystemErrorEvent::new(
                                     "memory_model_proxy_unavailable",
                                     "Memory model proxy is unavailable",
                                 )
@@ -202,7 +203,7 @@ impl NoemaRuntimeHost {
                     Err(error) => {
                         memory_startup_error = Some(error.clone());
                         system_errors.try_append(
-                            crate::SystemErrorEvent::new(
+                            SystemErrorEvent::new(
                                 "memory_model_proxy_unavailable",
                                 "Memory model proxy is unavailable",
                             )
@@ -237,7 +238,7 @@ impl NoemaRuntimeHost {
                 Err(error) => {
                     memory_startup_error = Some(error.to_string());
                     system_errors.try_append(
-                        crate::SystemErrorEvent::new(
+                        SystemErrorEvent::new(
                             "mnemosyne_lifecycle_unavailable",
                             "Mnemosyne lifecycle is unavailable",
                         )
@@ -288,7 +289,7 @@ impl NoemaRuntimeHost {
         };
         if has_local_models_runtime && let Err(error) = runtime.retry_local_model_runtime().await {
             system_errors.try_append(
-                crate::SystemErrorEvent::new(
+                SystemErrorEvent::new(
                     "local_model_runtime_unavailable",
                     "The local model runtime could not start",
                 )

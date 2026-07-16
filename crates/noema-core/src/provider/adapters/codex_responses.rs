@@ -13,15 +13,12 @@ use super::{
         normalize_base_url,
     },
 };
-use crate::{
-    SystemErrorLogger,
-    provider::{
-        DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, GenerateStreamEvent,
-        ModelProvider, ProviderError, ProviderResponseContinuation, ProviderToolCapabilities,
-        ProviderToolSchemaDialect, ProviderToolTransport,
-        model_catalog::latest_codex_client_version,
-    },
+use crate::provider::{
+    DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, GenerateStreamEvent,
+    ModelProvider, ProviderError, ProviderResponseContinuation, ProviderToolCapabilities,
+    ProviderToolSchemaDialect, ProviderToolTransport, model_catalog::latest_codex_client_version,
 };
+use noema_home::SystemErrorLogger;
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue, USER_AGENT};
 use tokio::sync::OnceCell;
 
@@ -354,7 +351,7 @@ impl ModelProvider for CodexResponsesProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE;
+    use crate::provider::SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE;
     use crate::provider::adapters::codex_oauth::CodexOAuthTokens;
     use crate::provider::adapters::test_support::spawn_server;
     use crate::provider::{
@@ -363,6 +360,14 @@ mod tests {
     };
     use serde_json::Value;
     use tempfile::TempDir;
+
+    fn read_system_error_events(path: &std::path::Path) -> Vec<Value> {
+        std::fs::read_to_string(path)
+            .expect("system error log")
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("system error event"))
+            .collect()
+    }
 
     #[test]
     fn rejects_missing_account_home() {
@@ -756,7 +761,7 @@ mod tests {
             .expect_err("malformed response");
 
         assert!(matches!(error, ProviderError::MalformedResponse { .. }));
-        let events = crate::system_errors::read_system_error_events(logger.path()).expect("events");
+        let events = read_system_error_events(logger.path());
         assert_eq!(events.len(), 1);
         assert_eq!(
             events[0]["category"],

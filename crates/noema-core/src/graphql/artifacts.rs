@@ -1,4 +1,5 @@
 use async_graphql::{Enum, InputObject, Result, SimpleObject};
+use noema_home::{NoemaPaths, SystemErrorEvent, SystemErrorLogger};
 
 use super::{errors::graphql_error, schema::GraphqlState};
 
@@ -63,16 +64,13 @@ pub async fn authorized_artifact_download(
     }))
 }
 
-fn record_artifact_download_failure(paths: &crate::NoemaPaths, operation: &'static str) {
-    let event = crate::SystemErrorEvent::new(
+fn record_artifact_download_failure(paths: &NoemaPaths, operation: &'static str) {
+    let event = SystemErrorEvent::new(
         "artifact_download_failure",
         "artifact download operation failed",
     )
     .with_context(serde_json::json!({ "operation": operation }));
-    if crate::SystemErrorLogger::from_paths(paths)
-        .append(event)
-        .is_err()
-    {
+    if SystemErrorLogger::from_paths(paths).append(event).is_err() {
         eprintln!("Noema artifact download failure: diagnostic_write");
     }
 }
@@ -441,13 +439,13 @@ mod tests {
 
     async fn local_artifact_fixture() -> (
         tempfile::TempDir,
-        crate::NoemaPaths,
+        NoemaPaths,
         crate::NoemaStore,
         crate::ArtifactWithVersions,
         GraphqlState,
     ) {
         let home = tempfile::tempdir().expect("temp dir");
-        let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
         let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
             .await
             .expect("store");

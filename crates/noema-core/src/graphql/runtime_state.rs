@@ -1,7 +1,8 @@
 use crate::{
-    NoemaPaths, NoemaRuntimeHost, NoemaStore, daemon::CodexRuntimeHandle,
-    mcp::McpOAuthSetupManager, provider::auth::ProviderAuthManager,
+    NoemaRuntimeHost, NoemaStore, daemon::CodexRuntimeHandle, mcp::McpOAuthSetupManager,
+    provider::auth::ProviderAuthManager,
 };
+use noema_home::NoemaPaths;
 
 use super::{ConversationSubscriptionRegistry, local_status::GraphqlMemoryStorageStatus};
 

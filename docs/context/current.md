@@ -769,6 +769,20 @@ The next storage slice should stay small and concrete:
 
 ## Open Loops
 
+- The approved `noema-core` crate decomposition is in implementation under
+  `docs/superpowers/plans/2026-07-15-noema-core-crate-decomposition.md`. Phase 0
+  landed as tooling commit `41dafcd52` and committed-baseline/CI commit
+  `c18d4cce4`: dependency and feature ownership, all-target focused trees,
+  generated frontend identity, GraphQL/local-model/SQLite preservation, and
+  normalized Rust unit-test ownership are now executable gates. The settled
+  target has no generic common/domain/objects crate; MCP is a capability child,
+  local models remain an internal provider implementation, and host concrete
+  composition is shell-enabled so focused API builds stay backend-free. Phase 1
+  extracted `noema-home`: it owns filesystem layout, safe path components,
+  initialization, and the generic JSONL diagnostic sink; configuration bytes
+  and diagnostic categories remain with their semantic owners, and all
+  consumers use direct dependencies instead of `noema-core` forwarding exports.
+
 - The bounded remediation program completed Phase 2 at `92,157` maintained
   source lines (`-1,767` from its baseline). Axum/tower-sessions now own the
   local web boundary; OpenAI and Codex share a Responses dialect; MCP supports

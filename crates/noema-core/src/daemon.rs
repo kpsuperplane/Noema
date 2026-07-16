@@ -1,5 +1,8 @@
 //! Local daemon runtime and web protocol types.
 
+/// Runtime state reached an invariant violation.
+pub const SYSTEM_ERROR_RUNTIME_INVARIANT: &str = "runtime_invariant_violation";
+
 mod agent_name_tool;
 mod agent_onboarding;
 mod artifact_tool;

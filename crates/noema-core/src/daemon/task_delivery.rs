@@ -2,13 +2,14 @@
 
 use crate::{
     ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem, NoemaStore,
-    SystemErrorLogger, TaskStatus,
+    TaskStatus,
     daemon::{
         CodexRuntimeHandle,
         runtime::{TaskCompletionArtifact, TaskCompletionCriterion, TaskCompletionDeliveryRequest},
     },
     graphql::{ConversationLiveEvent, ConversationSubscriptionRegistry},
 };
+use noema_home::{SystemErrorEvent, SystemErrorLogger};
 
 use super::{TurnStreamEvent, TurnTranscriptItem};
 
@@ -22,7 +23,7 @@ pub(crate) async fn drain_task_completion_outbox(
         Ok(deliveries) => deliveries,
         Err(error) => {
             system_errors.try_append(
-                crate::SystemErrorEvent::new(
+                SystemErrorEvent::new(
                     "task_completion_outbox_read_failed",
                     "Task completion delivery queue could not be read",
                 )
@@ -37,7 +38,7 @@ pub(crate) async fn drain_task_completion_outbox(
             Ok(request) => request,
             Err(error) => {
                 system_errors.try_append(
-                    crate::SystemErrorEvent::new(
+                    SystemErrorEvent::new(
                         "task_completion_context_failed",
                         "Task completion context could not be assembled",
                     )
@@ -51,7 +52,7 @@ pub(crate) async fn drain_task_completion_outbox(
         };
         if let Err(error) = runtime.deliver_task_completion(request).await {
             system_errors.try_append(
-                crate::SystemErrorEvent::new(
+                SystemErrorEvent::new(
                     "task_completion_delivery_failed",
                     "Primary-agent task completion report could not be delivered",
                 )

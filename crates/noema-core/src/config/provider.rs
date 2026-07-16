@@ -1,9 +1,9 @@
-use crate::SystemErrorLogger;
 use crate::local_models::LocalModelBackend;
 use crate::provider::adapters::{
     codex_oauth::DEFAULT_CODEX_BASE_URL, codex_responses::CodexProviderConfig,
     openai::OpenAiProviderConfig,
 };
+use noema_home::SystemErrorLogger;
 use std::{path::PathBuf, str::FromStr};
 
 /// Default provider used when config does not specify one.

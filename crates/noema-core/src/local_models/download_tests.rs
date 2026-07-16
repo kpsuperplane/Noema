@@ -8,7 +8,7 @@ use super::{
 #[tokio::test]
 async fn local_file_import_is_verified_content_addressed_and_removable() {
     let home = tempfile::tempdir().expect("Noema home");
-    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
     let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
         .await
         .expect("store");
@@ -61,7 +61,7 @@ async fn local_file_import_is_verified_content_addressed_and_removable() {
 #[tokio::test]
 async fn verified_import_replaces_corrupt_existing_content_addressed_blob() {
     let home = tempfile::tempdir().expect("Noema home");
-    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
     let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
         .await
         .expect("store");
@@ -116,7 +116,7 @@ async fn verified_import_replaces_corrupt_existing_content_addressed_blob() {
 #[tokio::test]
 async fn local_file_import_rejects_a_non_gguf_payload() {
     let home = tempfile::tempdir().expect("Noema home");
-    let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
     let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
         .await
         .expect("store");

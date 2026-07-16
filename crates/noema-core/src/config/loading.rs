@@ -2,11 +2,11 @@ use super::{
     DaemonResolvedConfig, ResolvedConfig, error::ConfigError, file::validate_file_config,
     overrides::ConfigOverrides, raw::RawConfig,
 };
-use crate::{NOEMA_HOME_ENV, NoemaPaths};
 use figment::{
     Figment,
     providers::{Env, Format, Serialized, Yaml},
 };
+use noema_home::{NOEMA_HOME_ENV, NoemaPaths};
 use std::{env, path::PathBuf};
 
 pub(super) const CONFIG_ENV_KEYS: &[&str] = &[

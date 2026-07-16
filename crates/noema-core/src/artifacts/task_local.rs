@@ -1,5 +1,7 @@
 //! Task-owned local artifact writers.
 
+use noema_home::{NoemaPaths, safe_artifact_filename};
+
 use super::{ArtifactWriteError, artifact_relative_path, sha256_hex, write_local_artifact_bytes};
 
 /// Input for creating a task-owned local file artifact and first version.
@@ -56,12 +58,12 @@ pub struct NewTaskLocalFileArtifactVersion {
 /// fails.
 pub async fn create_task_local_file_artifact(
     store: &crate::NoemaStore,
-    paths: &crate::NoemaPaths,
+    paths: &NoemaPaths,
     input: NewTaskLocalFileArtifact,
 ) -> Result<crate::ArtifactWithVersions, ArtifactWriteError> {
     let artifact_id = store.new_artifact_id();
     let artifact_version_id = store.new_artifact_version_id();
-    let filename = crate::paths::safe_artifact_filename(&input.filename)?;
+    let filename = safe_artifact_filename(&input.filename)?;
     let version_dir = paths.task_artifact_version_dir(&input.task_id, &artifact_id, 1);
     let artifact_path = version_dir.join(filename);
     let relative_path = artifact_relative_path(paths.root(), &artifact_path)?;
@@ -104,7 +106,7 @@ pub async fn create_task_local_file_artifact(
 /// file write, or metadata write fails.
 pub async fn append_task_local_file_artifact_version(
     store: &crate::NoemaStore,
-    paths: &crate::NoemaPaths,
+    paths: &NoemaPaths,
     input: NewTaskLocalFileArtifactVersion,
 ) -> Result<crate::ArtifactVersionRecord, ArtifactWriteError> {
     let artifact = store
@@ -125,7 +127,7 @@ pub async fn append_task_local_file_artifact_version(
         .versions
         .last()
         .map_or(1, |version| version.version_index + 1);
-    let filename = crate::paths::safe_artifact_filename(&input.filename)?;
+    let filename = safe_artifact_filename(&input.filename)?;
     let version_dir = paths.task_artifact_version_dir(
         &artifact.artifact.owner.object_id,
         &artifact.artifact.artifact_id,

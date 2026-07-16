@@ -1,12 +1,10 @@
 use super::*;
-use crate::{
-    NOEMA_HOME_ENV,
-    provider::adapters::{
-        codex_oauth::DEFAULT_CODEX_BASE_URL,
-        codex_responses::{CodexProviderConfig, DEFAULT_CODEX_TIMEOUT_SECONDS},
-    },
+use crate::provider::adapters::{
+    codex_oauth::DEFAULT_CODEX_BASE_URL,
+    codex_responses::{CodexProviderConfig, DEFAULT_CODEX_TIMEOUT_SECONDS},
 };
 use figment::{Figment, providers::Serialized};
+use noema_home::NOEMA_HOME_ENV;
 use serde_json::{Number, Value};
 use std::path::PathBuf;
 use tempfile::NamedTempFile;
@@ -91,8 +89,8 @@ fn parse_env_value(value: &str) -> Value {
 
 #[test]
 fn generated_default_config_omits_codex_model() {
-    assert!(!crate::home::DEFAULT_NOEMA_CONFIG_YAML.contains("model: gpt-5.5"));
-    assert!(!crate::home::DEFAULT_NOEMA_CONFIG_YAML.contains("codex:\n  model:"));
+    assert!(!crate::config::DEFAULT_NOEMA_CONFIG_YAML.contains("model: gpt-5.5"));
+    assert!(!crate::config::DEFAULT_NOEMA_CONFIG_YAML.contains("codex:\n  model:"));
 }
 
 #[test]

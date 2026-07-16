@@ -2686,6 +2686,7 @@ dependencies = [
  "futures-util",
  "http",
  "libc",
+ "noema-home",
  "readabilityrs",
  "reqwest",
  "ring",
@@ -2722,10 +2723,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "noema-home"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "time",
+]
+
+[[package]]
 name = "noema-model-evals"
 version = "0.1.0"
 dependencies = [
  "noema-core",
+ "noema-home",
  "ring",
  "serde",
  "serde_json",
@@ -2745,6 +2758,7 @@ dependencies = [
  "bytes",
  "futures-util",
  "noema-core",
+ "noema-home",
  "reqwest",
  "ring",
  "serde",

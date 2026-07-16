@@ -1,5 +1,7 @@
 use std::{future::Future, pin::Pin, time::Duration};
 
+use noema_home::NoemaPaths;
+
 use crate::{
     NoemaStore,
     provider::adapters::codex_oauth::{CodexOAuthConfig, CodexTokenStore},
@@ -52,7 +54,7 @@ pub(crate) struct ProviderAuthStartRequest {
 pub(crate) async fn start_provider_auth_attempt_view_from_parts(
     provider_auth: &ProviderAuthManager,
     store: &NoemaStore,
-    paths: &crate::NoemaPaths,
+    paths: &NoemaPaths,
     body: ProviderAuthStartRequest,
 ) -> Result<ProviderAuthAttemptView, WebApiError> {
     if body.provider_kind != "codex" {
@@ -203,7 +205,7 @@ pub(super) enum StartProviderAuthAttemptError {
 pub(super) async fn start_codex_provider_auth_attempt(
     starter: &impl CodexDeviceAuthStarter,
     status_store: &impl ProviderAccountStatusStore,
-    paths: &crate::NoemaPaths,
+    paths: &NoemaPaths,
     account: &crate::ProviderAccountRecord,
 ) -> Result<ProviderAuthAttemptView, StartProviderAuthAttemptError> {
     let attempt = starter
@@ -303,7 +305,7 @@ pub(super) async fn persist_provider_auth_attempt_terminal_status(
 
 pub(crate) async fn reconcile_onboarding_provider_account(
     status_store: &impl ProviderAccountStatusStore,
-    paths: &crate::NoemaPaths,
+    paths: &NoemaPaths,
     account: Option<crate::ProviderAccountRecord>,
 ) -> Result<Option<crate::ProviderAccountRecord>, DaemonError> {
     let Some(mut account) = account else {
@@ -330,7 +332,7 @@ pub(crate) async fn reconcile_onboarding_provider_account(
 }
 
 fn codex_account_home_has_noema_tokens(
-    paths: &crate::NoemaPaths,
+    paths: &NoemaPaths,
     account: &crate::ProviderAccountRecord,
 ) -> bool {
     if account.provider_kind != "codex" {

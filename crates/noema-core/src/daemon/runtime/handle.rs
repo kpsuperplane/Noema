@@ -3,7 +3,6 @@ use std::{collections::HashMap, future::Future, path::PathBuf, pin::Pin, sync::A
 use crate::{
     FoundationLocalProvider, FoundationLocalProviderConfig, LocalModelsProvider,
     LocalModelsProviderConfig, NoemaStore, OpenAiProvider, ProviderConfig, ProviderKind,
-    SystemErrorLogger,
     config::DEFAULT_FOUNDATION_LOCAL_PROFILE,
     provider::adapters::codex_responses::{CodexProviderConfig, CodexResponsesProvider},
     provider::{
@@ -12,6 +11,7 @@ use crate::{
         ProviderToolCapabilities,
     },
 };
+use noema_home::{NoemaPaths, SystemErrorLogger};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
@@ -388,7 +388,7 @@ impl CodexRuntimeHandle {
     pub(crate) async fn register_installed_local_model(
         &self,
         installation: &crate::LocalModelInstallationRecord,
-        paths: &crate::NoemaPaths,
+        paths: &NoemaPaths,
     ) -> Result<(), DaemonError> {
         if installation.status != crate::LocalModelInstallationStatus::Installed {
             return Err(DaemonError::Provider(ProviderError::ProviderUnavailable {
@@ -707,7 +707,7 @@ fn codex_provider_config(
     mut codex_config: CodexProviderConfig,
     system_errors: SystemErrorLogger,
 ) -> Result<CodexProviderConfig, DaemonError> {
-    let paths = crate::NoemaPaths::from_process_env()?;
+    let paths = NoemaPaths::from_process_env()?;
     let account_home = paths.provider_account_home("codex", "default");
     crate::provider::auth::ensure_provider_account_home(&account_home)?;
     apply_provider_account_home(&mut codex_config, &account_home);

@@ -1,5 +1,6 @@
 use async_graphql::{Context, Object, Result, Schema, Subscription};
 use futures_util::Stream;
+use noema_home::{NoemaPaths, SystemErrorLogger};
 #[cfg(test)]
 use std::collections::VecDeque;
 use std::{
@@ -108,10 +109,7 @@ impl GraphqlState {
     /// Build test state backed by a real embedded store and path root.
     #[cfg(test)]
     #[must_use]
-    pub fn for_tests_with_store_and_paths(
-        store: crate::NoemaStore,
-        paths: crate::NoemaPaths,
-    ) -> Self {
+    pub fn for_tests_with_store_and_paths(store: crate::NoemaStore, paths: NoemaPaths) -> Self {
         Self {
             runtime_state: GraphqlRuntimeState::for_tests_with_store_and_paths(store, paths),
             local_model_cancellations: Arc::default(),
@@ -140,7 +138,7 @@ impl GraphqlState {
     #[must_use]
     pub(crate) fn for_tests_with_store_paths_and_mcp_setup(
         store: crate::NoemaStore,
-        paths: crate::NoemaPaths,
+        paths: NoemaPaths,
         outcomes: Vec<TestMcpSetupOutcome>,
     ) -> Self {
         Self {
@@ -237,7 +235,7 @@ impl GraphqlState {
         self.runtime_state.mcp_oauth()
     }
 
-    pub(crate) fn paths(&self) -> Result<&crate::NoemaPaths> {
+    pub(crate) fn paths(&self) -> Result<&NoemaPaths> {
         self.runtime_state.paths()
     }
 
@@ -288,7 +286,7 @@ impl GraphqlState {
                 &disk_secrets
             }
         };
-        let system_errors = Some(crate::SystemErrorLogger::from_paths(paths));
+        let system_errors = Some(SystemErrorLogger::from_paths(paths));
         let diagnostic_server_id = Some(server.mcp_server_id.clone());
         match server.transport_kind {
             crate::McpTransportKind::Stdio => {
@@ -1478,7 +1476,7 @@ mod tests {
     #[tokio::test]
     async fn memory_settings_query_reports_managed_mnemosyne_unavailable() {
         let home = tempfile::TempDir::new().expect("home");
-        let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
         let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
             .await
             .expect("store");
@@ -2273,7 +2271,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_exa_provider_account_stores_secret_without_returning_it() {
-        use crate::{NoemaPaths, store::tests::test_store};
+        use crate::store::tests::test_store;
 
         let dir = tempfile::tempdir().expect("tempdir");
         let store = test_store().await;
@@ -2322,7 +2320,7 @@ mod tests {
 
     #[tokio::test]
     async fn provider_accounts_query_includes_created_exa_accounts() {
-        use crate::{NoemaPaths, store::tests::test_store};
+        use crate::store::tests::test_store;
 
         let dir = tempfile::tempdir().expect("tempdir");
         let store = test_store().await;
@@ -2383,7 +2381,7 @@ mod tests {
 
     #[tokio::test]
     async fn delete_provider_account_removes_exa_account_secret_and_binding() {
-        use crate::{NoemaPaths, store::tests::test_store};
+        use crate::store::tests::test_store;
 
         let dir = tempfile::tempdir().expect("tempdir");
         let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
@@ -4727,14 +4725,14 @@ mod tests {
     struct GraphqlMcpSetupFixture {
         state: GraphqlState,
         store: crate::NoemaStore,
-        paths: crate::NoemaPaths,
+        paths: NoemaPaths,
         _home: TempDir,
     }
 
     impl GraphqlMcpSetupFixture {
         async fn new(outcomes: Vec<TestMcpSetupOutcome>) -> Self {
             let home = TempDir::new().expect("temp noema home");
-            let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+            let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
             let config = crate::StoreConfig::from_paths(&paths);
             let store = crate::NoemaStore::open(&config).await.expect("open store");
             let state = GraphqlState::for_tests_with_store_paths_and_mcp_setup(
@@ -5409,7 +5407,7 @@ mod tests {
     #[tokio::test]
     async fn artifacts_query_resolves_owner_scoped_artifacts_and_field_names() {
         let home = tempfile::TempDir::new().expect("home");
-        let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
         let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
             .await
             .expect("store");
@@ -5657,7 +5655,7 @@ mod tests {
     #[tokio::test]
     async fn artifact_query_exposes_local_file_download_url() {
         let home = tempfile::TempDir::new().expect("home");
-        let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
         let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
             .await
             .expect("store");
@@ -5726,7 +5724,7 @@ mod tests {
     #[tokio::test]
     async fn artifact_version_detail_reads_markdown_content() {
         let home = tempfile::TempDir::new().expect("home");
-        let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
         let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
             .await
             .expect("store");
@@ -5840,7 +5838,7 @@ mod tests {
     #[tokio::test]
     async fn artifact_version_detail_previews_plain_text_literally() {
         let home = tempfile::TempDir::new().expect("home");
-        let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
         let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
             .await
             .expect("store");
@@ -5902,7 +5900,7 @@ mod tests {
     #[tokio::test]
     async fn artifact_version_detail_marks_non_markdown_local_file_unsupported() {
         let home = tempfile::TempDir::new().expect("home");
-        let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
         let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
             .await
             .expect("store");

@@ -303,7 +303,7 @@ mod tests {
 
     async fn test_store() -> (tempfile::TempDir, crate::NoemaStore) {
         let home = tempfile::tempdir().expect("temp noema home");
-        let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
         let config = crate::StoreConfig::from_paths(&paths);
         let store = crate::NoemaStore::open(&config).await.expect("open store");
         (home, store)

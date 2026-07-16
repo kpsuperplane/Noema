@@ -8,8 +8,7 @@ use tokio_util::sync::CancellationToken;
 use crate::graphql::{ConversationSubscriptionRegistry, TaskLiveEvent};
 use crate::{
     CriterionOutcome, NewTaskReview, NewTaskSubmission, NoemaStore, RunKind, RunStatus,
-    SubmissionCriterionEvidence, SystemErrorLogger, TaskReviewCriterion, TaskReviewVerdict,
-    TaskStatus,
+    SubmissionCriterionEvidence, TaskReviewCriterion, TaskReviewVerdict, TaskStatus,
     agent_execution::ExecutionRole,
     daemon::{
         CodexRuntimeHandle,
@@ -22,6 +21,7 @@ use crate::{
         task_tool::{TASK_REPORT_BLOCKED_TOOL, TASK_SUBMIT_RESULT_TOOL, TASK_SUBMIT_REVIEW_TOOL},
     },
 };
+use noema_home::{SystemErrorEvent, SystemErrorLogger};
 
 const LEASE_SECONDS: i64 = 120;
 const POLL_INTERVAL: Duration = Duration::from_millis(300);
@@ -127,7 +127,7 @@ async fn run_loop(
                 Ok(None) => queue_available = false,
                 Err(error) => {
                     system_errors.try_append(
-                        crate::SystemErrorEvent::new(
+                        SystemErrorEvent::new(
                             "task_runtime_claim_error",
                             "Background task queue could not be read",
                         )
@@ -182,7 +182,7 @@ async fn supervise_claimed_run(
         fail_run(&store, &subscriptions, &run, &lease_token, &error).await;
         publish_task_changed(&subscriptions, &run.task_id);
         system_errors.try_append(
-            crate::SystemErrorEvent::new("task_runtime_worker_error", "Background task run failed")
+            SystemErrorEvent::new("task_runtime_worker_error", "Background task run failed")
                 .with_context(json!({"run_id": run.run_id, "task_id": run.task_id}))
                 .with_error_chain([error]),
         );
@@ -193,7 +193,7 @@ async fn supervise_claimed_run(
 
 fn log_task_run_join_error(system_errors: &SystemErrorLogger, error: &tokio::task::JoinError) {
     system_errors.try_append(
-        crate::SystemErrorEvent::new(
+        SystemErrorEvent::new(
             "task_runtime_worker_join_error",
             "Background task worker stopped unexpectedly",
         )
@@ -211,7 +211,7 @@ async fn drain_task_status_outbox(
         Ok(task_ids) => task_ids,
         Err(error) => {
             system_errors.try_append(
-                crate::SystemErrorEvent::new(
+                SystemErrorEvent::new(
                     "task_status_outbox_read_failed",
                     "Task status delivery queue could not be read",
                 )
@@ -226,7 +226,7 @@ async fn drain_task_status_outbox(
                 .await
         {
             system_errors.try_append(
-                crate::SystemErrorEvent::new(
+                SystemErrorEvent::new(
                     "task_status_delivery_failed",
                     "Task status update could not be delivered",
                 )

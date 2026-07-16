@@ -13,7 +13,6 @@ use tokio::{
 };
 
 use crate::{
-    SystemErrorLogger,
     daemon::RuntimeModelProvider,
     provider::{
         GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
@@ -22,6 +21,7 @@ use crate::{
         NoemaToolChoice, NoemaToolExecution, NoemaToolSpec, ProviderError, ReasoningEffort,
     },
 };
+use noema_home::{SystemErrorEvent, SystemErrorLogger};
 
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 
@@ -261,7 +261,7 @@ async fn route_request(
     };
     if openai_request.stream.unwrap_or(false) {
         if let Some(system_errors) = &config.system_errors {
-            system_errors.try_append(crate::SystemErrorEvent::new(
+            system_errors.try_append(SystemErrorEvent::new(
                 "memory_model_proxy_streaming_unsupported",
                 "Memory service requested streaming from the private model proxy",
             ));
@@ -292,7 +292,7 @@ async fn route_request(
         Err(error) => {
             if let Some(system_errors) = &config.system_errors {
                 system_errors.try_append(
-                    crate::SystemErrorEvent::new(
+                    SystemErrorEvent::new(
                         "memory_model_proxy_provider_failed",
                         "Memory model proxy provider request failed",
                     )
@@ -789,7 +789,7 @@ fn unix_timestamp() -> u64 {
 fn log_proxy_error(system_errors: Option<&SystemErrorLogger>, code: &'static str, message: &str) {
     if let Some(system_errors) = system_errors {
         system_errors.try_append(
-            crate::SystemErrorEvent::new(code, "Memory model proxy request failed")
+            SystemErrorEvent::new(code, "Memory model proxy request failed")
                 .with_error_chain([message.to_string()]),
         );
     }

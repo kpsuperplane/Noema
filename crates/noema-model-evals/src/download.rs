@@ -1,9 +1,10 @@
 use std::path::{Path, PathBuf};
 
 use noema_core::{
-    HuggingFaceLocalModelImport, LocalModelInstaller, NoemaPaths, NoemaStore, StoreConfig,
+    HuggingFaceLocalModelImport, LocalModelInstaller, NoemaStore, StoreConfig,
     detect_local_hardware_profiles,
 };
+use noema_home::NoemaPaths;
 use ring::digest::{Context, SHA256};
 use tokio::{fs, io::AsyncReadExt};
 use tokio_util::sync::CancellationToken;

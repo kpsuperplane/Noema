@@ -1,3 +1,4 @@
+use noema_home::SystemErrorEvent;
 use thiserror::Error;
 
 /// Errors produced by the embedded canonical store.
@@ -125,9 +126,9 @@ impl StoreError {
         &self,
         context: serde_json::Value,
         raw: serde_json::Value,
-    ) -> Option<crate::SystemErrorEvent> {
+    ) -> Option<SystemErrorEvent> {
         self.is_system_invariant().then(|| {
-            crate::SystemErrorEvent::new(crate::SYSTEM_ERROR_STORE_INVARIANT, self.to_string())
+            SystemErrorEvent::new(super::SYSTEM_ERROR_STORE_INVARIANT, self.to_string())
                 .with_context(context)
                 .with_error_chain([self.to_string()])
                 .with_raw(raw)
@@ -151,7 +152,7 @@ mod tests {
             )
             .expect("event");
 
-        assert_eq!(event.category, crate::SYSTEM_ERROR_STORE_INVARIANT);
+        assert_eq!(event.category, crate::store::SYSTEM_ERROR_STORE_INVARIANT);
         assert_eq!(event.context["table"], "mcp_tools");
         assert_eq!(event.raw["row"]["status"], "bad");
     }

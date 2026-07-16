@@ -105,8 +105,9 @@ async fn start_auth_returned_completed_attempt_persists_authenticated_status() {
     let mut attempt = test_provider_auth_attempt();
     attempt.status = crate::provider::auth::ProviderAuthAttemptStatus::Completed;
     let starter = RecordingCodexDeviceAuthStarter { attempt };
-    let paths = crate::NoemaPaths::from_noema_home(tempfile::tempdir().expect("temp dir").path())
-        .expect("paths");
+    let paths =
+        noema_home::NoemaPaths::from_noema_home(tempfile::tempdir().expect("temp dir").path())
+            .expect("paths");
 
     start_codex_provider_auth_attempt(&starter, &store, &paths, &test_provider_account())
         .await
@@ -130,8 +131,9 @@ async fn start_auth_preserves_provider_start_error_message() {
     let starter = FailingCodexDeviceAuthStarter {
         message: "device code request returned status 403",
     };
-    let paths = crate::NoemaPaths::from_noema_home(tempfile::tempdir().expect("temp dir").path())
-        .expect("paths");
+    let paths =
+        noema_home::NoemaPaths::from_noema_home(tempfile::tempdir().expect("temp dir").path())
+            .expect("paths");
 
     let error =
         start_codex_provider_auth_attempt(&starter, &store, &paths, &test_provider_account())
@@ -181,7 +183,7 @@ async fn auth_terminal_watcher_persists_completed_attempt_without_http_poll() {
 async fn onboarding_reconciles_existing_noema_codex_tokens() {
     let store = RecordingProviderAccountStatusStore::default();
     let temp_dir = tempfile::tempdir().expect("temp dir");
-    let paths = crate::NoemaPaths::from_noema_home(temp_dir.path()).expect("paths");
+    let paths = noema_home::NoemaPaths::from_noema_home(temp_dir.path()).expect("paths");
     let mut account = test_provider_account();
     account.status = crate::ProviderAccountStatus::Unauthenticated;
     let account_home = paths.provider_account_home(&account.provider_kind, &account.account_key);

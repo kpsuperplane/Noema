@@ -12,7 +12,8 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
-use crate::{NoemaPathError, NoemaPaths, NoemaStore, StoreError};
+use crate::{NoemaStore, StoreError};
+use noema_home::{NoemaPathError, NoemaPaths};
 
 use super::download_support::{
     InstalledArtifact, hash_file, hex_digest, hugging_face_url, local_file_installation_id,

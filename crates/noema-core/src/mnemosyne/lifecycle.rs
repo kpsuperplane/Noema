@@ -2,6 +2,7 @@
 
 use std::{env, process::ExitStatus, process::Stdio};
 
+use noema_home::{NoemaPaths, SystemErrorEvent, SystemErrorLogger};
 use thiserror::Error;
 use tokio::time::{Duration, sleep};
 
@@ -26,9 +27,9 @@ impl MnemosyneLifecycle {
     /// Returns [`MnemosyneLifecycleError`] when managed directory setup or
     /// child-process startup fails.
     pub async fn start(
-        paths: &crate::NoemaPaths,
+        paths: &NoemaPaths,
         settings: &crate::MemoryServiceSettingsRecord,
-        system_errors: crate::SystemErrorLogger,
+        system_errors: SystemErrorLogger,
         model_proxy: Option<MemoryModelProxy>,
     ) -> Result<Self, MnemosyneLifecycleError> {
         match settings.mode {
@@ -60,9 +61,9 @@ impl MnemosyneLifecycle {
     }
 
     async fn start_with_command_and_port(
-        paths: &crate::NoemaPaths,
+        paths: &NoemaPaths,
         settings: &crate::MemoryServiceSettingsRecord,
-        system_errors: crate::SystemErrorLogger,
+        system_errors: SystemErrorLogger,
         command: MnemosyneSidecarCommand,
         port: u16,
         model_proxy: Option<MemoryModelProxy>,
@@ -100,7 +101,7 @@ impl MnemosyneLifecycle {
                     Ok(child) => child,
                     Err(error) => {
                         system_errors.try_append(
-                            crate::SystemErrorEvent::new(
+                            SystemErrorEvent::new(
                                 "mnemosyne_start_failed",
                                 "Mnemosyne managed process could not start",
                             )
@@ -116,7 +117,7 @@ impl MnemosyneLifecycle {
                     let error_message =
                         format!("Mnemosyne managed process exited with status {status}");
                     system_errors.try_append(
-                        crate::SystemErrorEvent::new(
+                        SystemErrorEvent::new(
                             "mnemosyne_start_failed",
                             "Mnemosyne managed process exited during startup",
                         )
@@ -146,7 +147,7 @@ impl MnemosyneLifecycle {
 
     #[cfg(test)]
     pub(crate) async fn start_with_command_for_test(
-        paths: &crate::NoemaPaths,
+        paths: &NoemaPaths,
         command: String,
         model_proxy: MemoryModelProxy,
     ) -> Result<Self, MnemosyneLifecycleError> {
@@ -162,7 +163,7 @@ impl MnemosyneLifecycle {
                 model_profile: None,
                 reasoning_effort: None,
             },
-            crate::SystemErrorLogger::new(paths.root().join("errors.jsonl")),
+            SystemErrorLogger::new(paths.root().join("errors.jsonl")),
             MnemosyneSidecarCommand::Shell(command),
             0,
             Some(model_proxy),
@@ -239,12 +240,13 @@ pub enum MnemosyneLifecycleError {
 mod tests {
     use std::fs;
 
+    use noema_home::NoemaPaths;
     use tempfile::TempDir;
 
     #[tokio::test]
     async fn managed_mnemosyne_lifecycle_exports_private_sidecar_env() {
         let home = TempDir::new().expect("temp noema home");
-        let paths = crate::NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
         let proxy = crate::MemoryModelProxy::start(crate::MemoryModelProxyConfig {
             provider: std::sync::Arc::new(StaticProvider),
             api_key: "proxy-secret".to_string(),

@@ -6,7 +6,7 @@ use reqwest::StatusCode;
 use serde_json::{Map, Value};
 
 use crate::{
-    NoemaPaths, NoemaStore, ProviderAccountRecord, ProviderAccountStatus, ProviderError,
+    NoemaStore, ProviderAccountRecord, ProviderAccountStatus, ProviderError,
     provider::adapters::{
         codex_oauth::{
             CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS, CodexOAuthClient, CodexOAuthConfig,
@@ -15,6 +15,7 @@ use crate::{
         responses::normalize_base_url,
     },
 };
+use noema_home::NoemaPaths;
 
 const MODEL_CATALOG_TIMEOUT_SECONDS: u64 = 20;
 const CODEX_CLIENT_VERSION_ENDPOINT: &str = "https://registry.npmjs.org/@openai%2fcodex/latest";

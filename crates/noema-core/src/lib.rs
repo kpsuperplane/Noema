@@ -1,8 +1,8 @@
 //! Core Noema types and runtimes.
 //!
 //! This crate contains configuration loading, provider adapters, daemon
-//! runtime support, home-directory setup, path resolution, and the memory
-//! retrieval model.
+//! runtime support and the memory retrieval model. Filesystem layout and
+//! developer diagnostics live in `noema-home`.
 
 /// Shared execution roles and role-aware tool dispatch policy.
 pub mod agent_execution;
@@ -18,8 +18,6 @@ pub mod conversation;
 pub mod daemon;
 /// GraphQL client API facade.
 pub mod graphql;
-/// Noema home-directory initialization.
-pub mod home;
 /// Neutral typed object ids.
 pub mod ids;
 /// Curated local-model catalog and hardware-fit recommendation.
@@ -36,8 +34,6 @@ pub mod mnemosyne;
 pub mod objects;
 /// Onboarding status derived from provider account readiness.
 pub mod onboarding;
-/// Filesystem path resolution for Noema state.
-pub mod paths;
 /// Provider contracts, account/auth support, and concrete adapters.
 pub mod provider;
 /// Shared runtime host for daemon and desktop client surfaces.
@@ -46,8 +42,6 @@ pub mod runtime_host;
 pub mod search;
 /// Embedded canonical structured store.
 pub mod store;
-/// Developer diagnostic system error logging.
-pub mod system_errors;
 /// Durable one-off task vocabulary and workflow contracts.
 pub mod task;
 #[doc(hidden)]
@@ -61,8 +55,9 @@ pub use artifacts::{
 };
 pub use capability::{CapabilityGateway, GatewayToolProposal, GatewayToolResult};
 pub use config::{
-    Config, ConfigError, ConfigOverrides, DaemonResolvedConfig, FoundationLocalProviderConfig,
-    LocalModelsProviderConfig, ProviderConfig, ProviderKind, ResolvedConfig, WebConfig,
+    Config, ConfigError, ConfigOverrides, DEFAULT_NOEMA_CONFIG_YAML, DaemonResolvedConfig,
+    FoundationLocalProviderConfig, LocalModelsProviderConfig, ProviderConfig, ProviderKind,
+    ResolvedConfig, WebConfig,
 };
 pub use conversation::{
     AgentStatus as PersistedAgentStatus, ConversationContextSummaryStatus, ConversationItemKind,
@@ -74,10 +69,6 @@ pub use daemon::{
     AgentStatus, DaemonError, StartedConversation, TurnActivityStatus, TurnTranscriptItem,
 };
 pub use graphql::RequestPrincipal;
-pub use home::{
-    DEFAULT_NOEMA_CONFIG_YAML, NoemaHomeError, NoemaHomeInitOptions, NoemaHomeInitResult,
-    init_noema_home,
-};
 pub use ids::{
     ActorId, AgentRunId, ContextPacketId, ConversationId, ConversationItemId, ObjectId,
     TaskEventId, TaskId, TaskReviewId, TaskSubmissionId,
@@ -109,7 +100,6 @@ pub use onboarding::{
     OnboardingStatus, OnboardingStep, OnboardingStepStatus, onboarding_status_from_account,
     onboarding_status_from_options,
 };
-pub use paths::{NOEMA_HOME_ENV, NoemaPathError, NoemaPaths};
 pub use provider::accounts::{ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod};
 pub use provider::adapters::{
     codex_responses::{CodexProviderConfig, CodexResponsesProvider},
@@ -137,11 +127,6 @@ pub use store::{
     SaveMemoryServiceSettings, StoreConfig, StoreError, TaskEventRecord, TaskModelPoolEntry,
     TaskRecord, TaskReviewRecord, TaskSubmissionArtifactRecord, TaskSubmissionRecord,
     ToolCalibrationRecord, WEB_FETCH_SUMMARIZER_TASK_ID, validate_external_artifact_url,
-};
-pub use system_errors::{
-    SYSTEM_ERROR_MCP_MALFORMED_RESPONSE, SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE,
-    SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, SYSTEM_ERROR_RUNTIME_INVARIANT,
-    SYSTEM_ERROR_STORE_INVARIANT, SystemErrorEvent, SystemErrorLogger, SystemErrorWriteError,
 };
 pub use task::{
     CriterionOutcome, DEFAULT_TASK_MAX_ACTIVE_MINUTES, DEFAULT_TASK_MAX_PROVIDER_CONTINUATIONS,

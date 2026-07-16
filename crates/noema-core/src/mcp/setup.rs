@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use crate::{
     McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpTransportKind, NewMcpServer,
-    NewMcpTool, NoemaPaths, NoemaStore, StoreError,
+    NewMcpTool, NoemaStore, StoreError,
     mcp::{
         client::{
             DiscoveredMcpTool, McpClientError, McpClientRuntime, McpTransport,
@@ -16,6 +16,7 @@ use crate::{
         secrets::{McpSecretMaterial, read_mcp_secrets, write_mcp_secrets},
     },
 };
+use noema_home::NoemaPaths;
 
 /// Status returned by guided MCP setup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -631,11 +632,11 @@ async fn update_mcp_server_safe_config(
 mod tests {
     use super::*;
     use crate::{
-        McpServerAuthStatus, McpServerHealthStatus, McpTransportKind, NoemaPaths, NoemaStore,
-        StoreConfig,
+        McpServerAuthStatus, McpServerHealthStatus, McpTransportKind, NoemaStore, StoreConfig,
         mcp::secrets::{McpOAuthClientCredentials, McpSecretMaterial, read_mcp_secrets},
         mcp::{DiscoveredMcpTool, McpClientError, McpTransport},
     };
+    use noema_home::NoemaPaths;
     use serde_json::json;
     use std::{
         collections::{BTreeMap, VecDeque},

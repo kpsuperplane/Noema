@@ -1,27 +1,19 @@
-//! Developer diagnostic system error logging.
+//! Append-only developer diagnostic logging.
 
-use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
 use std::{
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
 };
+
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use thiserror::Error;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
-/// Provider output or transport body was malformed.
-pub const SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE: &str = "provider_malformed_response";
-/// MCP metadata or tool-call payload was malformed.
-pub const SYSTEM_ERROR_MCP_MALFORMED_RESPONSE: &str = "mcp_malformed_response";
-/// MCP tool execution failed at the transport or remote tool boundary.
-pub const SYSTEM_ERROR_MCP_TOOL_CALL_FAILURE: &str = "mcp_tool_call_failure";
-/// Runtime state reached an invariant violation.
-pub const SYSTEM_ERROR_RUNTIME_INVARIANT: &str = "runtime_invariant_violation";
-/// Store-backed state violated a closed Noema schema assumption.
-pub const SYSTEM_ERROR_STORE_INVARIANT: &str = "store_invariant_violation";
+use crate::NoemaPaths;
 
-/// Append-only developer diagnostic system error logger.
+/// Append-only developer diagnostic logger.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SystemErrorLogger {
     path: PathBuf,
@@ -36,7 +28,7 @@ impl SystemErrorLogger {
 
     /// Create a logger from resolved Noema paths.
     #[must_use]
-    pub fn from_paths(paths: &crate::NoemaPaths) -> Self {
+    pub fn from_paths(paths: &NoemaPaths) -> Self {
         Self::new(paths.errors_log_path())
     }
 
@@ -46,7 +38,7 @@ impl SystemErrorLogger {
         &self.path
     }
 
-    /// Append one diagnostic event and report filesystem/serialization errors.
+    /// Append one diagnostic event and report filesystem or serialization errors.
     ///
     /// # Errors
     ///
@@ -72,14 +64,14 @@ impl SystemErrorLogger {
     }
 }
 
-/// One JSONL system error event.
+/// One JSONL developer diagnostic event.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SystemErrorEvent {
-    /// UTC RFC3339 timestamp at write construction time.
+    /// UTC RFC3339 timestamp at construction time.
     pub timestamp: String,
-    /// Severity label. The first slice writes only `error`.
+    /// Severity label. The current sink writes only `error`.
     pub severity: &'static str,
-    /// Stable machine-readable category.
+    /// Stable machine-readable category owned by the emitting subsystem.
     pub category: &'static str,
     /// Concise human-readable message.
     pub message: String,
@@ -92,7 +84,7 @@ pub struct SystemErrorEvent {
 }
 
 impl SystemErrorEvent {
-    /// Construct a system error event with empty context, error chain, and raw payload.
+    /// Construct an error event with empty context, error chain, and raw payload.
     #[must_use]
     pub fn new(category: &'static str, message: impl Into<String>) -> Self {
         Self {
@@ -138,32 +130,29 @@ impl SystemErrorEvent {
 pub enum SystemErrorWriteError {
     /// Parent directory could not be created.
     #[error("failed to create system error log directory: {0}")]
-    CreateDirectory(std::io::Error),
+    CreateDirectory(#[source] std::io::Error),
     /// Log file could not be opened.
     #[error("failed to open system error log: {0}")]
-    Open(std::io::Error),
+    Open(#[source] std::io::Error),
     /// Event could not be serialized.
     #[error("failed to serialize system error event: {0}")]
-    Serialize(serde_json::Error),
+    Serialize(#[source] serde_json::Error),
     /// Log line could not be written.
     #[error("failed to write system error event: {0}")]
-    Write(std::io::Error),
-}
-
-#[cfg(test)]
-pub(crate) fn read_system_error_events(
-    path: impl AsRef<Path>,
-) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
-    let text = fs::read_to_string(path)?;
-    text.lines()
-        .map(|line| serde_json::from_str::<Value>(line).map_err(Into::into))
-        .collect()
+    Write(#[source] std::io::Error),
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+
+    fn read_events(path: &Path) -> Vec<Value> {
+        fs::read_to_string(path)
+            .expect("error log")
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("event"))
+            .collect()
+    }
 
     #[test]
     fn appends_jsonl_events_without_overwriting() {
@@ -172,32 +161,26 @@ mod tests {
 
         logger
             .append(
-                SystemErrorEvent::new(SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE, "first failure")
-                    .with_context(json!({"provider_kind": "codex"}))
+                SystemErrorEvent::new("first_failure", "first failure")
+                    .with_context(json!({"provider_kind": "test"}))
                     .with_raw(json!({"provider_text": "line one\nline two"})),
             )
             .expect("first append");
         logger
             .append(
-                SystemErrorEvent::new(SYSTEM_ERROR_MCP_MALFORMED_RESPONSE, "second failure")
-                    .with_context(json!({"mcp_server_id": "mcp:test"}))
-                    .with_error_chain(["outer".to_string(), "inner".to_string()])
-                    .with_raw(json!({"result": {"tools": "bad"}})),
+                SystemErrorEvent::new("second_failure", "second failure")
+                    .with_error_chain(["outer".to_string(), "inner".to_string()]),
             )
             .expect("second append");
 
-        let events = read_system_error_events(dir.path().join("errors.log")).expect("events");
+        let events = read_events(logger.path());
         assert_eq!(events.len(), 2);
-        assert_eq!(
-            events[0]["category"],
-            SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE
-        );
+        assert_eq!(events[0]["category"], "first_failure");
         assert_eq!(events[0]["severity"], "error");
-        assert_eq!(events[0]["context"]["provider_kind"], "codex");
+        assert_eq!(events[0]["context"]["provider_kind"], "test");
         assert_eq!(events[0]["raw"]["provider_text"], "line one\nline two");
-        assert_eq!(events[1]["category"], SYSTEM_ERROR_MCP_MALFORMED_RESPONSE);
+        assert_eq!(events[1]["category"], "second_failure");
         assert_eq!(events[1]["error_chain"], json!(["outer", "inner"]));
-        assert_eq!(events[1]["raw"]["result"]["tools"], "bad");
     }
 
     #[test]
@@ -206,7 +189,7 @@ mod tests {
         let logger = SystemErrorLogger::new(dir.path());
 
         logger.try_append(SystemErrorEvent::new(
-            SYSTEM_ERROR_RUNTIME_INVARIANT,
+            "expected_test_failure",
             "cannot append to a directory",
         ));
     }

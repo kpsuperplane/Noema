@@ -5,7 +5,9 @@ use std::collections::BTreeMap;
 use serde_json::{Map, Value, json};
 use thiserror::Error;
 
-use crate::{SYSTEM_ERROR_MCP_MALFORMED_RESPONSE, SystemErrorEvent, SystemErrorLogger};
+use noema_home::{SystemErrorEvent, SystemErrorLogger};
+
+use super::SYSTEM_ERROR_MCP_MALFORMED_RESPONSE;
 
 /// MCP tool metadata discovered during setup.
 #[derive(Debug, Clone, PartialEq)]
