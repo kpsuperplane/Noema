@@ -876,10 +876,15 @@ owner without making artifacts depend on SQLite.
 - [ ] Preserve write-bytes-before-metadata visibility while making publication
   race-safe. Each append allocates an unguessable operation ID, writes with
   create-new semantics to an operation-private staging path, verifies the
-  bytes, and atomically renames to an operation-unique physical object name
-  beneath the expected version directory. The caller's logical filename stays
-  in metadata; it is never the sole physical path component, so two appends of
-  the same logical filename cannot overwrite or unlink one another.
+  bytes, and atomically publishes with no-clobber semantics to an
+  operation-unique physical object name beneath the expected version directory.
+  The portable implementation uses a same-filesystem hard link from the staged
+  file to the published path, which fails if the destination exists, verifies
+  the published link/inode, and only then unlinks the staging name; a plain
+  `cap_std::fs::Dir::rename` is insufficient because it may replace an existing
+  destination. The caller's logical filename stays in metadata; it is never the
+  sole physical path component, so two appends of the same logical filename
+  cannot overwrite or unlink one another.
 - [ ] After publishing its unique object, call the expected-index metadata
   operation. On conflict, remove only that operation's published object and
   empty operation/version directories that it exclusively created. On any
@@ -912,7 +917,9 @@ owner without making artifacts depend on SQLite.
   commits, `current_version_id` names that winning row, the winner's unique
   object remains readable and hash-valid, the loser receives the typed
   conflict, and no loser metadata, staged file, published object, or empty
-  operation directory remains.
+  operation directory remains. Filesystem tests must prove that publication
+  fails closed when the unique destination path already exists and leaves that
+  existing object byte-for-byte unchanged.
 - Server adds a direct `noema-artifacts` dependency and its download helpers
   consume artifact types without a core forwarding export.
 
