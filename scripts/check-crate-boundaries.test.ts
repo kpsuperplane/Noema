@@ -351,6 +351,21 @@ describe("crate boundary metadata policy", () => {
     );
   });
 
+  for (const dependency of ["readabilityrs", "reqwest", "tokio"]) {
+    test(`keeps noema-capabilities free of ${dependency}`, () => {
+      const errors = validateMetadata(
+        metadata([
+          { name: "noema-core" },
+          { name: "noema-capabilities", dependencies: [{ name: dependency }] },
+        ]),
+      );
+
+      expect(errors).toContain(
+        `noema-capabilities contract boundary may not depend on ${dependency}`,
+      );
+    });
+  }
+
   const directDependencyOwnerCases = [
     ["async-graphql-axum", "noema-server"],
     ["axum", "noema-server"],

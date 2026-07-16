@@ -976,15 +976,31 @@ MCP all share, without pulling MCP or persistence into the parent crate.
   up the binding, apply runtime role policy, and dispatch the stored target.
   Never parse authority from a provider-returned name or deserialize invoker or
   operation tokens from model arguments. Reject duplicate canonical names and
-  duplicate invoker registration.
+  duplicate invoker registration. This applies equally to primary-conversation
+  and task/background calls: remove the current foreground fallback that allows
+  an unlisted name, and reject provider-returned names that do not resolve in
+  the advertised snapshot.
+- [ ] Replace `ModelTools`' spec-only catalog with the immutable binding
+  snapshot and derive provider-visible specs from it. Carry that exact snapshot
+  through provider continuations which reuse the original advertised tools;
+  never reconstruct execution authority from a later name lookup.
 - [ ] Keep `ExecutionRole`, terminal-contract classification, allowlists,
   provider-loop continuation flags, and `ToolPolicy` in runtime. Move only
   neutral effect/scope metadata such as read-only versus mutating/internal and
   execution-owned versus conversation-owned versus global.
-- [ ] Put neutral argument/result persistence or invoker sanitization metadata
-  on the binding/output contract so runtime persists only the sanitized view.
-  Preserve the test proving MCP payloads never enter task transcripts without
-  retaining MCP name-prefix parsing.
+- [ ] Give each binding a synchronous object-safe payload sanitizer (or an
+  equivalent binding-owned policy) that produces explicit persisted argument
+  and output views. Carry those views with the dispatch result so generic task
+  persistence never branches on tool names or prefixes. Preserve recursive
+  secret redaction, web-fetch URL redaction, artifact-content omission, and
+  whole-MCP-payload omission; prove that both arguments and outputs remain
+  omitted when an MCP capability is exposed under a renamed provider-safe name.
+- [ ] Do not add a generic runtime-context property bag to
+  `CapabilityInvocation`. Built-in operations which require turn,
+  conversation, task, identity, or provider context are exposed through a
+  runtime-owned invoker captured/registered for that execution; the capability
+  crate sees only the opaque target/token, canonical operation name, and JSON
+  arguments. The temporary MCP invoker similarly owns its MCP/store context.
 - [ ] Move canonical capability IDs/data-flow/persistence/reliability vocabulary
   and stable `web.search`/`web.fetch` request/result/schema contracts here.
 - [ ] Split URL safety at the implementation boundary: capabilities owns pure
@@ -1000,10 +1016,16 @@ MCP all share, without pulling MCP or persistence into the parent crate.
   semantics.
 - [ ] Adapt the current core MCP gateway through the generic invoker interface
   as a temporary implementation.
+- [ ] Before replacing the current builders, add exact serialized `ToolSpec`
+  snapshots for `web.search` and `web.fetch` plus exact provider-lowered request
+  fixtures, including provider-safe MCP naming. Fragment-only schema assertions
+  are insufficient evidence that canonical schemas stayed unchanged.
 - [ ] Move contract/schema/parser/redaction/pure-URL-policy tests. Add router
   tests for object-safe dispatch, duplicate registration, unknown target,
   exact payload forwarding, sanitized error mapping, forged target fields,
-  catalog-name resolution, and persistence redaction.
+  catalog-name resolution, persistence redaction, and forged/unknown foreground
+  calls. Run the same strict-resolution cases for background calls and across a
+  provider continuation using the original snapshot.
 - [ ] Assert that `noema-capabilities` has no dependency on
   `noema-capabilities-mcp`; `noema-core` necessarily retains `rmcp` until Phase
   7 and is not the parent named by this dependency rule.
@@ -1016,9 +1038,15 @@ MCP all share, without pulling MCP or persistence into the parent crate.
   serialized tool spec contains execution authority.
 - The canonical tool names and JSON schemas are unchanged.
 - `task_transcript_does_not_persist_mcp_payloads` passes through neutral binding
-  persistence metadata, with no MCP prefix inspection in generic runtime code.
-- `cargo tree -p noema-capabilities` contains no `rmcp`, `rusqlite`, provider,
-  runtime, GraphQL, Axum, or Tauri dependencies.
+  sanitization, with no MCP prefix inspection in generic runtime code; renamed
+  MCP bindings omit both persisted arguments and outputs.
+- Foreground and background providers cannot invoke an unadvertised name, forge
+  an operation token through arguments, or gain authority after a continuation
+  catalog change.
+- `cargo tree -p noema-capabilities` contains no `rmcp`, `rusqlite`, `reqwest`,
+  `tokio`, `readabilityrs`, provider, runtime, GraphQL, Axum, or Tauri
+  dependencies; the boundary checker enforces the direct transport/parser
+  exclusions.
 
 **Suggested commit:** `refactor(capabilities): extract provider-neutral capability contracts`
 

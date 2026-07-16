@@ -202,6 +202,10 @@ const FORBIDDEN_FRAMEWORKS = new Set([
   "tauri",
 ]);
 
+const PACKAGE_FORBIDDEN_DEPENDENCIES = new Map<string, ReadonlySet<string>>([
+  ["noema-capabilities", new Set(["readabilityrs", "reqwest", "tokio"])],
+]);
+
 function isNoemaPackage(name: string): boolean {
   return name === "noema-core" || name.startsWith("noema-");
 }
@@ -504,6 +508,10 @@ export function validateMetadata(metadata: CargoMetadata): string[] {
         FRAMEWORK_FREE_PACKAGES.has(pkg.name) &&
         FORBIDDEN_FRAMEWORKS.has(dependencyName)
       ) {
+        errors.add(`${pkg.name} contract boundary may not depend on ${dependencyName}`);
+      }
+
+      if (PACKAGE_FORBIDDEN_DEPENDENCIES.get(pkg.name)?.has(dependencyName)) {
         errors.add(`${pkg.name} contract boundary may not depend on ${dependencyName}`);
       }
 

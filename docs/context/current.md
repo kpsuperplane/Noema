@@ -786,7 +786,15 @@ The next storage slice should stay small and concrete:
   owner vocabulary and fallible actor/owner references. The unused generic
   typed IDs, object registry/table mappings, and `MemoryPersistenceError`
   wrapper were deleted; store, runtime, and GraphQL now consume the conversation
-  leaf directly, and store owns the error conversion at its boundary.
+  leaf directly, and store owns the error conversion at its boundary. Phase 3A
+  extracted the always-compiled `noema-artifacts` domain, path, metadata-port,
+  and consumer-operations contracts without a core forwarding export. Artifact
+  paths and filename validation left `noema-home`, server consumes download
+  slugs directly, and store maps artifact-domain failures at its boundary.
+  Phase 3B still owns the SQLite expected-index CAS implementation, governed
+  no-clobber filesystem service, runtime/API handle injection, and
+  barrier-controlled conversation/task append race tests before Phase 3 is
+  complete.
 
 - The bounded remediation program completed Phase 2 at `92,157` maintained
   source lines (`-1,767` from its baseline). Axum/tower-sessions now own the
