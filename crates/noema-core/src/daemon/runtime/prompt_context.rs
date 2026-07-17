@@ -2,10 +2,9 @@ use noema_conversations::{
     ConversationContextSummaryRecord, ConversationItemKind, ConversationItemRecord,
 };
 
-use crate::{
-    NoemaStore,
-    daemon::{prompts::build_structured_turn_system_prompt, protocol::DaemonError},
-};
+use noema_store::NoemaStore;
+
+use crate::daemon::{prompts::build_structured_turn_system_prompt, protocol::DaemonError};
 use noema_providers::{
     GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateReasoningInput,
     GenerateToolCallInput, GenerateToolResultInput, ProviderOperations,
@@ -54,7 +53,7 @@ async fn load_prompt_context(
     conversation_id: &str,
     provider_kind: &str,
     model_profile: Option<&str>,
-) -> Result<PromptContext, crate::StoreError> {
+) -> Result<PromptContext, noema_store::StoreError> {
     let active_summary = store
         .latest_active_context_summary(conversation_id, provider_kind, model_profile)
         .await?;

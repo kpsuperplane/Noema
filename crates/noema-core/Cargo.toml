@@ -30,10 +30,10 @@ noema-conversations = { path = "../noema-conversations" }
 noema-home = { path = "../noema-home" }
 noema-memory = { path = "../noema-memory", default-features = false, features = ["service"] }
 noema-providers = { path = "../noema-providers", default-features = false, features = ["adapters", "local-models"] }
+noema-store = { path = "../noema-store", default-features = false }
 noema-tasks = { path = "../noema-tasks", default-features = false }
 ring.workspace = true
 reqwest = { workspace = true, features = ["stream"] }
-rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sysinfo = { workspace = true, optional = true }
@@ -46,4 +46,5 @@ ts-rs.workspace = true
 url.workspace = true
 
 [dev-dependencies]
+noema-store = { path = "../noema-store", default-features = false, features = ["test-support"] }
 tempfile.workspace = true

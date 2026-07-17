@@ -1,0 +1,32 @@
+[package]
+name = "noema-store"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+test-support = ["dep:tempfile"]
+
+[dependencies]
+noema-artifacts = { path = "../noema-artifacts", default-features = false }
+noema-capabilities-mcp = { path = "../noema-capabilities/mcp", default-features = false }
+noema-conversations = { path = "../noema-conversations", default-features = false }
+noema-memory = { path = "../noema-memory", default-features = false }
+noema-providers = { path = "../noema-providers", default-features = false }
+noema-tasks = { path = "../noema-tasks", default-features = false }
+ring.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile = { workspace = true, optional = true }
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

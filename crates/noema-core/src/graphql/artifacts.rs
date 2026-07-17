@@ -45,7 +45,7 @@ trait AuthorizedArtifactDownloadRepository {
     ) -> AuthorizedArtifactDownloadRepositoryFuture<'a>;
 }
 
-impl AuthorizedArtifactDownloadRepository for crate::NoemaStore {
+impl AuthorizedArtifactDownloadRepository for noema_store::NoemaStore {
     fn get_local_version_for_human<'a>(
         &'a self,
         artifact_version_id: &'a str,
@@ -523,7 +523,7 @@ mod tests {
     async fn local_artifact_fixture() -> (
         tempfile::TempDir,
         NoemaPaths,
-        crate::NoemaStore,
+        noema_store::NoemaStore,
         noema_artifacts::ArtifactWithVersions,
         GraphqlState,
     ) {

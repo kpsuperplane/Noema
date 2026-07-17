@@ -426,7 +426,7 @@ impl CodexRuntimeActor {
     ) -> Result<FetchRuntimeContext, String> {
         if let Some(preference) = self
             .store
-            .get_auxiliary_model_preference(crate::WEB_FETCH_SUMMARIZER_TASK_ID)
+            .get_auxiliary_model_preference(noema_store::WEB_FETCH_SUMMARIZER_TASK_ID)
             .await
             .map_err(|_| "web.fetch summarizer preference could not be read".to_string())?
         {
@@ -742,14 +742,13 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
-    use crate::{
-        NewAuxiliaryModelPreference, WEB_FETCH_SUMMARIZER_TASK_ID,
-        daemon::{
-            agent_onboarding::AgentPromptIdentity,
-            runtime::{
-                actor::CodexRuntimeActor, model_tools::ModelTools, tool_lifecycle::LocalToolCall,
-                turn::SuccessfulProviderTurn,
-            },
+    use noema_store::{NewAuxiliaryModelPreference, WEB_FETCH_SUMMARIZER_TASK_ID};
+
+    use crate::daemon::{
+        agent_onboarding::AgentPromptIdentity,
+        runtime::{
+            actor::CodexRuntimeActor, model_tools::ModelTools, tool_lifecycle::LocalToolCall,
+            turn::SuccessfulProviderTurn,
         },
     };
     use noema_capabilities::{
@@ -1408,7 +1407,9 @@ mod tests {
         assert_eq!(result.persisted().output, Some(json!({"error": "denied"})));
     }
 
-    async fn ensure_provider_account_without_web_capabilities(store: &crate::NoemaStore) -> String {
+    async fn ensure_provider_account_without_web_capabilities(
+        store: &noema_store::NoemaStore,
+    ) -> String {
         let account = store
             .ensure_default_provider_account()
             .await
@@ -1417,7 +1418,7 @@ mod tests {
     }
 
     async fn create_exa_provider_account(
-        store: &crate::NoemaStore,
+        store: &noema_store::NoemaStore,
         status: noema_providers::ProviderAccountStatus,
     ) -> String {
         crate::test_support::create_exa_provider_account_for_tests(
@@ -1431,7 +1432,7 @@ mod tests {
     }
 
     async fn insert_provider_capability_binding(
-        store: &crate::NoemaStore,
+        store: &noema_store::NoemaStore,
         tool_name: &str,
         provider_account_id: impl Into<String>,
     ) {

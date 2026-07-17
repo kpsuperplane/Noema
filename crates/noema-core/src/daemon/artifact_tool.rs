@@ -1,5 +1,5 @@
-use crate::NoemaStore;
 use noema_capabilities::{ToolContractError, ToolSpec};
+use noema_store::NoemaStore;
 
 use noema_artifacts::{
     AppendLocalArtifactVersionRequest, ArtifactDomainError, ArtifactOperationError,
@@ -43,7 +43,7 @@ pub(super) enum ArtifactToolError {
     #[error(transparent)]
     Operation(#[from] ArtifactOperationError),
     #[error(transparent)]
-    Store(#[from] crate::StoreError),
+    Store(#[from] noema_store::StoreError),
 }
 
 #[derive(Debug, Deserialize)]
@@ -264,13 +264,11 @@ async fn execute_artifact_create_local_file_inner(
             .await?;
     }
 
-    let artifact =
-        store
-            .get_artifact(&artifact_id)
-            .await?
-            .ok_or(crate::StoreError::ArtifactNotFound {
-                artifact_id: artifact_id.clone(),
-            })?;
+    let artifact = store.get_artifact(&artifact_id).await?.ok_or(
+        noema_store::StoreError::ArtifactNotFound {
+            artifact_id: artifact_id.clone(),
+        },
+    )?;
 
     Ok(json!({
         "artifact_id": artifact.artifact.artifact_id,

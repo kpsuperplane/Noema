@@ -12,7 +12,7 @@ use noema_artifacts::{
 use tempfile::TempDir;
 use tokio::sync::Barrier;
 
-use crate::{NoemaStore, StoreConfig};
+use noema_store::{NoemaStore, StoreConfig};
 
 fn store_config(root: &std::path::Path) -> StoreConfig {
     StoreConfig::new(root.join("db/noema.sqlite3"))

@@ -2,7 +2,7 @@
 
 use serde::Deserialize;
 
-use crate::NoemaStore;
+use noema_store::NoemaStore;
 
 const RUN_LINEAGE_LIMIT: usize = 32;
 const HUMAN_CONTEXT_VALUE_CHAR_LIMIT: usize = 20_000;

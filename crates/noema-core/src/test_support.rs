@@ -15,19 +15,22 @@ pub(crate) fn system_error_logger() -> noema_home::SystemErrorLogger {
     noema_home::SystemErrorLogger::from_paths(&test_paths())
 }
 
-pub(crate) async fn test_store() -> crate::NoemaStore {
-    let paths = test_paths();
-    test_store_for_paths(&paths).await
+pub(crate) async fn test_store() -> noema_store::NoemaStore {
+    noema_store::test_support::open_ephemeral_store()
+        .await
+        .expect("open ephemeral store")
 }
 
-pub(crate) async fn test_store_for_paths(paths: &noema_home::NoemaPaths) -> crate::NoemaStore {
-    crate::NoemaStore::open(&crate::StoreConfig::new(paths.sqlite_db_path()))
+pub(crate) async fn test_store_for_paths(
+    paths: &noema_home::NoemaPaths,
+) -> noema_store::NoemaStore {
+    noema_store::NoemaStore::open(&noema_store::StoreConfig::new(paths.sqlite_db_path()))
         .await
         .expect("open store")
 }
 
 pub(crate) async fn seed_task(
-    store: &crate::NoemaStore,
+    store: &noema_store::NoemaStore,
     title: &str,
 ) -> (noema_tasks::TaskRecord, noema_tasks::AgentRunRecord) {
     store.ensure_default_actors().await.expect("actors");
@@ -77,7 +80,7 @@ pub(crate) async fn seed_task(
 }
 
 pub(crate) async fn create_exa_provider_account_for_tests(
-    store: &crate::NoemaStore,
+    store: &noema_store::NoemaStore,
     display_name: &str,
     status: noema_providers::ProviderAccountStatus,
     metadata: serde_json::Value,
@@ -97,7 +100,7 @@ pub(crate) async fn create_exa_provider_account_for_tests(
 }
 
 pub(crate) async fn save_provider_capability_assignment_for_tests(
-    store: &crate::NoemaStore,
+    store: &noema_store::NoemaStore,
     tool_name: &str,
     capability_id: &str,
     account_reference: noema_providers::ProviderCapabilityAccountReference,
@@ -116,14 +119,14 @@ pub(crate) async fn save_provider_capability_assignment_for_tests(
 }
 
 pub(crate) fn artifact_operations(
-    store: &crate::NoemaStore,
+    store: &noema_store::NoemaStore,
 ) -> Result<noema_artifacts::ArtifactOperationsHandle, String> {
     let paths = test_paths();
     artifact_operations_for_paths(store, &paths)
 }
 
 pub(crate) fn artifact_operations_for_paths(
-    store: &crate::NoemaStore,
+    store: &noema_store::NoemaStore,
     paths: &noema_home::NoemaPaths,
 ) -> Result<noema_artifacts::ArtifactOperationsHandle, String> {
     let metadata: noema_artifacts::ArtifactMetadataStoreHandle = Arc::new(store.clone());

@@ -87,7 +87,7 @@ impl GraphqlState {
     /// Build test state backed by a real embedded store.
     #[cfg(test)]
     #[must_use]
-    pub fn for_tests_with_store(store: crate::NoemaStore) -> Self {
+    pub fn for_tests_with_store(store: noema_store::NoemaStore) -> Self {
         Self {
             runtime_state: GraphqlRuntimeState::for_tests_with_store(store),
             local_model_cancellations: Arc::default(),
@@ -97,7 +97,10 @@ impl GraphqlState {
     /// Build test state backed by a real embedded store and path root.
     #[cfg(test)]
     #[must_use]
-    pub fn for_tests_with_store_and_paths(store: crate::NoemaStore, paths: NoemaPaths) -> Self {
+    pub fn for_tests_with_store_and_paths(
+        store: noema_store::NoemaStore,
+        paths: NoemaPaths,
+    ) -> Self {
         Self {
             runtime_state: GraphqlRuntimeState::for_tests_with_store_and_paths(store, paths),
             local_model_cancellations: Arc::default(),
@@ -122,7 +125,7 @@ impl GraphqlState {
     #[cfg(test)]
     #[must_use]
     pub(crate) fn for_tests_with_store_and_runtime(
-        store: crate::NoemaStore,
+        store: noema_store::NoemaStore,
         runtime: crate::daemon::CodexRuntimeHandle,
     ) -> Self {
         Self {
@@ -213,11 +216,11 @@ impl GraphqlState {
             .remove(installation_id);
     }
 
-    pub(crate) fn store(&self) -> Result<&crate::NoemaStore> {
+    pub(crate) fn store(&self) -> Result<&noema_store::NoemaStore> {
         self.runtime_state.store()
     }
 
-    pub(crate) fn optional_store(&self) -> Option<&crate::NoemaStore> {
+    pub(crate) fn optional_store(&self) -> Option<&noema_store::NoemaStore> {
         self.runtime_state.optional_store()
     }
 
@@ -1006,7 +1009,7 @@ fn parse_task_event_cursor(cursor: &str) -> Result<i64> {
 }
 
 async fn project_task_event(
-    store: &crate::NoemaStore,
+    store: &noema_store::NoemaStore,
     event: noema_tasks::TaskEventRecord,
 ) -> Result<GraphqlTaskEvent> {
     let kind = if event.event_kind.as_str() == "run.item_upserted" {
@@ -1094,6 +1097,7 @@ mod tests {
     use super::*;
     use crate::{daemon::TurnStreamEvent, graphql::subscriptions::ConversationLiveEvent};
     use futures_util::StreamExt;
+    use noema_capabilities_mcp::McpRepository;
     use serde_json::json;
     use std::collections::VecDeque;
     use tempfile::TempDir;
@@ -1237,14 +1241,14 @@ mod tests {
         spawn_memory_graph_mnemosyne_server_with_limit(25).await
     }
 
-    fn memory_graph_state(store: crate::NoemaStore) -> GraphqlState {
+    fn memory_graph_state(store: noema_store::NoemaStore) -> GraphqlState {
         let repository: noema_memory::MemoryRepositoryHandle = Arc::new(store.clone());
         let access = crate::test_support::memory_service_access(repository);
         GraphqlState::for_tests_with_store(store).with_memory_service_access(access)
     }
 
     fn memory_graph_state_with_runtime(
-        store: crate::NoemaStore,
+        store: noema_store::NoemaStore,
         runtime: crate::daemon::CodexRuntimeHandle,
     ) -> GraphqlState {
         let repository: noema_memory::MemoryRepositoryHandle = Arc::new(store.clone());
@@ -2399,7 +2403,9 @@ mod tests {
 
     #[tokio::test]
     async fn agents_query_returns_safe_agent_metadata() {
-        use crate::{NewAgent, test_support::test_store};
+        use noema_store::NewAgent;
+
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         store.ensure_default_actors().await.expect("default actors");
@@ -2484,7 +2490,7 @@ mod tests {
             .await
             .expect("foundation account");
         store
-            .upsert_agent_runtime_preference(crate::NewAgentRuntimePreference {
+            .upsert_agent_runtime_preference(noema_store::NewAgentRuntimePreference {
                 agent_id: "agent:primary".to_string(),
                 provider_kind: "foundation_local".to_string(),
                 provider_account_id: foundation.provider_account_id,
@@ -2956,7 +2962,7 @@ mod tests {
 
         assert!(response.errors.is_empty(), "{:?}", response.errors);
         let saved = store
-            .get_auxiliary_model_preference(crate::WEB_FETCH_SUMMARIZER_TASK_ID)
+            .get_auxiliary_model_preference(noema_store::WEB_FETCH_SUMMARIZER_TASK_ID)
             .await
             .expect("preference read")
             .expect("preference saved");
@@ -3157,7 +3163,7 @@ mod tests {
 
         assert!(response.errors.is_empty(), "{:?}", response.errors);
         let saved = store
-            .get_auxiliary_model_preference(crate::store::TOOL_PROGRESS_AUDIT_TASK_ID)
+            .get_auxiliary_model_preference(noema_store::TOOL_PROGRESS_AUDIT_TASK_ID)
             .await
             .expect("preference read")
             .expect("preference saved");
@@ -3236,7 +3242,7 @@ mod tests {
         assert!(!message.contains("abc123"));
         assert!(
             store
-                .get_auxiliary_model_preference(crate::WEB_FETCH_SUMMARIZER_TASK_ID)
+                .get_auxiliary_model_preference(noema_store::WEB_FETCH_SUMMARIZER_TASK_ID)
                 .await
                 .expect("preference read")
                 .is_none()
@@ -3286,7 +3292,7 @@ mod tests {
         );
         assert!(
             store
-                .get_auxiliary_model_preference(crate::WEB_FETCH_SUMMARIZER_TASK_ID)
+                .get_auxiliary_model_preference(noema_store::WEB_FETCH_SUMMARIZER_TASK_ID)
                 .await
                 .expect("preference read")
                 .is_none()
@@ -3454,7 +3460,7 @@ mod tests {
             .await
             .expect("foundation account");
         store
-            .upsert_agent_runtime_preference(crate::NewAgentRuntimePreference {
+            .upsert_agent_runtime_preference(noema_store::NewAgentRuntimePreference {
                 agent_id: "agent:primary".to_string(),
                 provider_kind: "foundation_local".to_string(),
                 provider_account_id: foundation.provider_account_id,
@@ -4177,44 +4183,61 @@ mod tests {
 
     #[tokio::test]
     async fn mcp_settings_query_returns_servers() {
-        use crate::{McpTransportKind, NewMcpServer, NewMcpTool, test_support::test_store};
+        use crate::test_support::test_store;
+        use noema_capabilities_mcp::{
+            McpDiscoveredTool, McpFailureStatus, McpInitialDiscoveryCommit, McpServerAuthStatus,
+            McpServerHealthStatus, McpTransportKind, NewMcpServer,
+        };
 
         let store = test_store().await;
-        store
-            .create_mcp_server(NewMcpServer {
-                mcp_server_id: "mcp_server:local-test".to_string(),
-                display_name: "Local Test".to_string(),
-                transport_kind: McpTransportKind::Stdio,
-                safe_config: json!({"command": "test-mcp"}),
+        let local = store
+            .commit_initial_discovery(McpInitialDiscoveryCommit {
+                server: NewMcpServer {
+                    display_name: "Local Test".to_string(),
+                    transport_kind: McpTransportKind::Stdio,
+                    safe_config: json!({"command": "test-mcp"}),
+                },
+                tools: vec![McpDiscoveredTool {
+                    name: "read".to_string(),
+                    description: Some("Read metadata".to_string()),
+                    input_schema: json!({"type": "object"}),
+                    output_schema: Some(json!({"type": "object"})),
+                    annotations: json!({"readOnlyHint": true}),
+                    metadata_fingerprint: "fingerprint:local-test:read:v1".to_string(),
+                }],
+                auth_status: McpServerAuthStatus::None,
             })
             .await
-            .expect("create server");
-        store
-            .upsert_discovered_mcp_tool(NewMcpTool {
-                mcp_tool_id: "mcp_tool:local-test:read".to_string(),
-                mcp_server_id: "mcp_server:local-test".to_string(),
-                name: "read".to_string(),
-                description: Some("Read metadata".to_string()),
-                input_schema: json!({"type": "object"}),
-                output_schema: Some(json!({"type": "object"})),
-                annotations: json!({"readOnlyHint": true}),
-                metadata_fingerprint: "fingerprint:local-test:read:v1".to_string(),
+            .expect("commit local discovery");
+        assert!(
+            store
+                .record_failure_status(McpFailureStatus {
+                    mcp_server_id: local.server.mcp_server_id.clone(),
+                    expected_authority_generation: local.server.authority_generation.clone(),
+                    health_status: McpServerHealthStatus::Unknown,
+                    auth_status: McpServerAuthStatus::None,
+                })
+                .await
+                .expect("restore unknown health projection")
+        );
+        let browser_oauth = store
+            .commit_initial_discovery(McpInitialDiscoveryCommit {
+                server: NewMcpServer {
+                    display_name: "Browser OAuth".to_string(),
+                    transport_kind: McpTransportKind::StreamableHttp,
+                    safe_config: json!({
+                        "url": "https://example.com/mcp",
+                        "headers": {},
+                        "secret_refs": { "oauth_credentials": true }
+                    }),
+                },
+                tools: Vec::new(),
+                auth_status: McpServerAuthStatus::Authenticated,
             })
             .await
-            .expect("upsert tool");
-        store
-            .create_mcp_server(NewMcpServer {
-                mcp_server_id: "mcp:browser-oauth".to_string(),
-                display_name: "Browser OAuth".to_string(),
-                transport_kind: McpTransportKind::StreamableHttp,
-                safe_config: json!({
-                    "url": "https://example.com/mcp",
-                    "headers": {},
-                    "secret_refs": { "oauth_credentials": true }
-                }),
-            })
-            .await
-            .expect("create browser oauth server");
+            .expect("commit browser OAuth discovery");
+        let local_server_id = local.server.mcp_server_id;
+        let browser_oauth_server_id = browser_oauth.server.mcp_server_id;
         let schema = build_schema(GraphqlState::for_tests_with_store(store));
         let response = schema
             .execute(async_graphql::Request::new(
@@ -4240,9 +4263,9 @@ mod tests {
             .as_array()
             .expect("servers")
             .iter()
-            .find(|server| server["mcpServerId"] == "mcp_server:local-test")
+            .find(|server| server["mcpServerId"] == local_server_id)
             .expect("local test server");
-        assert_eq!(server["mcpServerId"], "mcp_server:local-test");
+        assert_eq!(server["mcpServerId"], local_server_id);
         assert_eq!(server["displayName"], "Local Test");
         assert_eq!(server["transportKind"], "stdio");
         assert_eq!(server["enabled"], false);
@@ -4254,7 +4277,7 @@ mod tests {
             .as_array()
             .expect("servers")
             .iter()
-            .find(|server| server["mcpServerId"] == "mcp:browser-oauth")
+            .find(|server| server["mcpServerId"] == browser_oauth_server_id)
             .expect("browser oauth server");
         assert_eq!(
             browser_oauth_server["browserOauthReauthenticationSupported"],
@@ -4368,7 +4391,7 @@ mod tests {
         assert_eq!(result["server"], serde_json::Value::Null);
         assert!(
             store
-                .list_mcp_servers()
+                .control_plane_catalog()
                 .await
                 .expect("list servers")
                 .is_empty()
@@ -4443,7 +4466,7 @@ mod tests {
         );
         assert!(
             store
-                .list_mcp_servers()
+                .control_plane_catalog()
                 .await
                 .expect("list servers")
                 .is_empty()
@@ -4551,6 +4574,7 @@ mod tests {
         assert!(tools.errors.is_empty(), "{:?}", tools.errors);
         let tools_data = tools.data.into_json().expect("tools json");
         let tool = &tools_data["mcpTools"][0];
+        let mcp_tool_id = tool["mcpToolId"].as_str().expect("tool id").to_string();
         assert_eq!(tool["mcpServerId"], mcp_server_id);
         assert_eq!(tool["name"], "read_doc");
         assert_eq!(tool["description"], "Read a document");
@@ -4571,7 +4595,7 @@ mod tests {
         assert!(
             fixture
                 .store
-                .get_mcp_server(&mcp_server_id)
+                .control_plane_server(mcp_server_id.clone())
                 .await
                 .expect("server")
                 .is_none()
@@ -4579,17 +4603,17 @@ mod tests {
         assert!(
             fixture
                 .store
-                .list_mcp_tools_for_server(&mcp_server_id)
+                .invocation_snapshot(mcp_server_id.clone(), mcp_tool_id)
                 .await
-                .expect("tools")
-                .is_empty()
+                .expect("invocation snapshot")
+                .is_none()
         );
         assert!(!fixture.paths.mcp_server_home(&mcp_server_id).exists());
     }
 
     struct GraphqlMcpSetupFixture {
         state: GraphqlState,
-        store: crate::NoemaStore,
+        store: noema_store::NoemaStore,
         paths: NoemaPaths,
         _mcp_service: noema_capabilities_mcp::LocalMcpService,
         _home: TempDir,
@@ -4711,6 +4735,19 @@ mod tests {
         schema.execute(async_graphql::Request::new(query)).await
     }
 
+    async fn execute_graphql_with_variables(
+        schema: &GraphqlSchema,
+        query: &str,
+        variables: serde_json::Value,
+    ) -> async_graphql::Response {
+        schema
+            .execute(
+                async_graphql::Request::new(query)
+                    .variables(async_graphql::Variables::from_json(variables)),
+            )
+            .await
+    }
+
     fn discovered_mcp_tool(
         name: &str,
         description: &str,
@@ -4727,48 +4764,69 @@ mod tests {
         }
     }
 
-    async fn seed_google_mcp_tools(store: &crate::NoemaStore, tools: &[(&str, &str)]) {
+    async fn seed_google_mcp_tools(
+        store: &noema_store::NoemaStore,
+        tools: &[(&str, &str)],
+    ) -> noema_capabilities_mcp::McpControlPlaneServer {
+        use noema_capabilities_mcp::{
+            McpInitialDiscoveryCommit, McpServerAuthStatus, McpTransportKind, NewMcpServer,
+        };
+
         store
-            .create_mcp_server(crate::NewMcpServer {
-                mcp_server_id: "mcp_server:google".to_string(),
-                display_name: "Google".to_string(),
-                transport_kind: crate::McpTransportKind::Stdio,
-                safe_config: json!({}),
+            .commit_initial_discovery(McpInitialDiscoveryCommit {
+                server: NewMcpServer {
+                    display_name: "Google".to_string(),
+                    transport_kind: McpTransportKind::Stdio,
+                    safe_config: json!({}),
+                },
+                tools: tools
+                    .iter()
+                    .map(
+                        |(name, fingerprint)| noema_capabilities_mcp::McpDiscoveredTool {
+                            name: (*name).to_string(),
+                            description: Some(format!("Tool {name}")),
+                            input_schema: json!({"type": "object"}),
+                            output_schema: None,
+                            annotations: json!({}),
+                            metadata_fingerprint: (*fingerprint).to_string(),
+                        },
+                    )
+                    .collect(),
+                auth_status: McpServerAuthStatus::None,
             })
             .await
-            .expect("create server");
-        for (name, fingerprint) in tools {
-            store
-                .upsert_discovered_mcp_tool(crate::NewMcpTool {
-                    mcp_tool_id: format!("mcp_tool:google:{name}"),
-                    mcp_server_id: "mcp_server:google".to_string(),
-                    name: (*name).to_string(),
-                    description: Some(format!("Tool {name}")),
-                    input_schema: json!({"type": "object"}),
-                    output_schema: None,
-                    annotations: json!({}),
-                    metadata_fingerprint: (*fingerprint).to_string(),
-                })
-                .await
-                .expect("upsert tool");
-        }
+            .expect("commit Google discovery")
+    }
+
+    fn seeded_tool_id(
+        server: &noema_capabilities_mcp::McpControlPlaneServer,
+        name: &str,
+    ) -> String {
+        server
+            .tools
+            .iter()
+            .find(|tool| tool.tool.name == name)
+            .map(|tool| tool.tool.mcp_tool_id.clone())
+            .expect("seeded MCP tool")
     }
 
     #[tokio::test]
     async fn save_tool_calibration_mutation_persists_reviewed_policy() {
-        use crate::{McpCalibrationStatus, test_support::test_store};
+        use crate::test_support::test_store;
+        use noema_capabilities_mcp::McpCalibrationStatus;
 
         let store = test_store().await;
-        seed_google_mcp_tools(&store, &[("read_doc", "fingerprint_1")]).await;
+        let seeded = seed_google_mcp_tools(&store, &[("read_doc", "fingerprint_1")]).await;
+        let read_doc_id = seeded_tool_id(&seeded, "read_doc");
 
         let schema = build_schema(GraphqlState::for_tests_with_store(store.clone()));
-        let response = execute_graphql(
+        let response = execute_graphql_with_variables(
             &schema,
             r#"
-                mutation {
+                mutation SaveToolCalibration($mcpToolId: String!) {
                   saveToolCalibration(input: {
                     calibrationId: "tool_calibration:read_doc"
-                    mcpToolId: "mcp_tool:google:read_doc"
+                    mcpToolId: $mcpToolId
                     readClassification: "mixed"
                     writeClassification: "none"
                     exportClassification: "none"
@@ -4785,6 +4843,7 @@ mod tests {
                   }
                 }
                 "#,
+            json!({"mcpToolId": read_doc_id}),
         )
         .await;
 
@@ -4792,16 +4851,18 @@ mod tests {
         let data = response.data.into_json().expect("json");
         let calibration = &data["saveToolCalibration"];
         assert_eq!(calibration["calibrationId"], "tool_calibration:read_doc");
-        assert_eq!(calibration["mcpToolId"], "mcp_tool:google:read_doc");
+        assert_eq!(calibration["mcpToolId"], read_doc_id);
         assert_eq!(calibration["status"], "blocked_unresolved_ownership");
         assert_eq!(calibration["readClassification"], "mixed");
         assert_eq!(calibration["writeClassification"], "none");
         assert_eq!(calibration["exportClassification"], "none");
 
         let persisted = store
-            .get_tool_calibration("mcp_tool:google:read_doc")
+            .invocation_snapshot(seeded.server.mcp_server_id, read_doc_id)
             .await
-            .expect("get calibration")
+            .expect("invocation snapshot")
+            .expect("tool exists")
+            .calibration
             .expect("calibration exists");
         assert_eq!(
             persisted.status,
@@ -4816,10 +4877,11 @@ mod tests {
 
     #[tokio::test]
     async fn save_tool_calibrations_mutation_persists_multiple_policies_in_one_request() {
-        use crate::{McpCalibrationStatus, McpTrustClassification, test_support::test_store};
+        use crate::test_support::test_store;
+        use noema_capabilities_mcp::{McpCalibrationStatus, McpTrustClassification};
 
         let store = test_store().await;
-        seed_google_mcp_tools(
+        let seeded = seed_google_mcp_tools(
             &store,
             &[
                 ("read_doc", "fingerprint_read"),
@@ -4827,16 +4889,18 @@ mod tests {
             ],
         )
         .await;
+        let read_doc_id = seeded_tool_id(&seeded, "read_doc");
+        let share_doc_id = seeded_tool_id(&seeded, "share_doc");
 
         let schema = build_schema(GraphqlState::for_tests_with_store(store.clone()));
-        let response = execute_graphql(
+        let response = execute_graphql_with_variables(
             &schema,
             r#"
-                mutation {
+                mutation SaveToolCalibrations($readDocId: String!, $shareDocId: String!) {
                   saveToolCalibrations(inputs: [
                     {
                       calibrationId: "tool_calibration:read_doc"
-                      mcpToolId: "mcp_tool:google:read_doc"
+                      mcpToolId: $readDocId
                       readClassification: "mixed"
                       writeClassification: "none"
                       exportClassification: "none"
@@ -4846,7 +4910,7 @@ mod tests {
                     },
                     {
                       calibrationId: "tool_calibration:share_doc"
-                      mcpToolId: "mcp_tool:google:share_doc"
+                      mcpToolId: $shareDocId
                       readClassification: "none"
                       writeClassification: "trusted"
                       exportClassification: "untrusted"
@@ -4863,6 +4927,7 @@ mod tests {
                   }
                 }
                 "#,
+            json!({"readDocId": read_doc_id, "shareDocId": share_doc_id}),
         )
         .await;
 
@@ -4872,18 +4937,22 @@ mod tests {
             .as_array()
             .expect("calibrations");
         assert_eq!(calibrations.len(), 2);
-        assert_eq!(calibrations[0]["mcpToolId"], "mcp_tool:google:read_doc");
-        assert_eq!(calibrations[1]["mcpToolId"], "mcp_tool:google:share_doc");
+        assert_eq!(calibrations[0]["mcpToolId"], read_doc_id);
+        assert_eq!(calibrations[1]["mcpToolId"], share_doc_id);
 
         let read_doc = store
-            .get_tool_calibration("mcp_tool:google:read_doc")
+            .invocation_snapshot(seeded.server.mcp_server_id.clone(), read_doc_id)
             .await
-            .expect("get read calibration")
+            .expect("read invocation snapshot")
+            .expect("read tool exists")
+            .calibration
             .expect("read calibration exists");
         let share_doc = store
-            .get_tool_calibration("mcp_tool:google:share_doc")
+            .invocation_snapshot(seeded.server.mcp_server_id, share_doc_id)
             .await
-            .expect("get share calibration")
+            .expect("share invocation snapshot")
+            .expect("share tool exists")
+            .calibration
             .expect("share calibration exists");
         assert_eq!(
             read_doc.status,
@@ -4904,7 +4973,7 @@ mod tests {
         use crate::test_support::test_store;
 
         let store = test_store().await;
-        seed_google_mcp_tools(
+        let seeded = seed_google_mcp_tools(
             &store,
             &[
                 ("read_doc", "fingerprint_read"),
@@ -4912,16 +4981,18 @@ mod tests {
             ],
         )
         .await;
+        let read_doc_id = seeded_tool_id(&seeded, "read_doc");
+        let share_doc_id = seeded_tool_id(&seeded, "share_doc");
 
         let schema = build_schema(GraphqlState::for_tests_with_store(store.clone()));
-        let response = execute_graphql(
+        let response = execute_graphql_with_variables(
             &schema,
             r#"
-                mutation {
+                mutation SaveToolCalibrations($readDocId: String!, $shareDocId: String!) {
                   saveToolCalibrations(inputs: [
                     {
                       calibrationId: "tool_calibration:read_doc"
-                      mcpToolId: "mcp_tool:google:read_doc"
+                      mcpToolId: $readDocId
                       readClassification: "mixed"
                       writeClassification: "none"
                       exportClassification: "none"
@@ -4931,7 +5002,7 @@ mod tests {
                     },
                     {
                       calibrationId: "tool_calibration:share_doc"
-                      mcpToolId: "mcp_tool:google:share_doc"
+                      mcpToolId: $shareDocId
                       readClassification: "none"
                       writeClassification: "trusted"
                       exportClassification: "untrusted"
@@ -4944,22 +5015,27 @@ mod tests {
                   }
                 }
                 "#,
+            json!({"readDocId": read_doc_id, "shareDocId": share_doc_id}),
         )
         .await;
 
         assert!(!response.errors.is_empty());
         assert!(
             store
-                .get_tool_calibration("mcp_tool:google:read_doc")
+                .invocation_snapshot(seeded.server.mcp_server_id.clone(), read_doc_id,)
                 .await
-                .expect("get read calibration")
+                .expect("read invocation snapshot")
+                .expect("read tool exists")
+                .calibration
                 .is_none()
         );
         assert!(
             store
-                .get_tool_calibration("mcp_tool:google:share_doc")
+                .invocation_snapshot(seeded.server.mcp_server_id, share_doc_id)
                 .await
-                .expect("get share calibration")
+                .expect("share invocation snapshot")
+                .expect("share tool exists")
+                .calibration
                 .is_none()
         );
     }
@@ -4969,16 +5045,17 @@ mod tests {
         use crate::test_support::test_store;
 
         let store = test_store().await;
-        seed_google_mcp_tools(&store, &[("read_doc", "fingerprint_1")]).await;
+        let seeded = seed_google_mcp_tools(&store, &[("read_doc", "fingerprint_1")]).await;
+        let read_doc_id = seeded_tool_id(&seeded, "read_doc");
 
         let schema = build_schema(GraphqlState::for_tests_with_store(store.clone()));
-        let response = execute_graphql(
+        let response = execute_graphql_with_variables(
             &schema,
             r#"
-                mutation {
+                mutation SaveToolCalibration($mcpToolId: String!) {
                   saveToolCalibration(input: {
                     calibrationId: "tool_calibration:read_doc"
-                    mcpToolId: "mcp_tool:google:read_doc"
+                    mcpToolId: $mcpToolId
                     readClassification: "Mixed"
                     writeClassification: "none"
                     exportClassification: "none"
@@ -4988,6 +5065,7 @@ mod tests {
                   }
                 }
                 "#,
+            json!({"mcpToolId": read_doc_id}),
         )
         .await;
 
@@ -5001,9 +5079,11 @@ mod tests {
         );
         assert!(
             store
-                .get_tool_calibration("mcp_tool:google:read_doc")
+                .invocation_snapshot(seeded.server.mcp_server_id, read_doc_id)
                 .await
-                .expect("get calibration")
+                .expect("invocation snapshot")
+                .expect("tool exists")
+                .calibration
                 .is_none()
         );
     }
@@ -5013,7 +5093,9 @@ mod tests {
         use crate::test_support::test_store;
 
         let store = test_store().await;
-        seed_autofill_server(&store).await;
+        let seeded = seed_autofill_server(&store).await;
+        let server_id = seeded.server.mcp_server_id.clone();
+        let read_doc_id = seeded_tool_id(&seeded, "read_doc");
         let runtime = test_autofill_runtime(
             store.clone(),
             r#"{"suggestions":[{"tool":"read_doc","read":"m","write":"n","export":"n","d":false}]}"#,
@@ -5024,11 +5106,11 @@ mod tests {
             runtime,
         ));
 
-        let response = schema
-            .execute(async_graphql::Request::new(
-                r#"
-                mutation {
-                  autofillToolCalibrations(mcpServerId: "mcp_server:docs") {
+        let response = execute_graphql_with_variables(
+            &schema,
+            r#"
+                mutation AutofillToolCalibrations($mcpServerId: String!) {
+                  autofillToolCalibrations(mcpServerId: $mcpServerId) {
                     suggestions {
                       mcpToolId
                       readClassification
@@ -5039,22 +5121,25 @@ mod tests {
                   }
                 }
                 "#,
-            ))
-            .await;
+            json!({"mcpServerId": server_id}),
+        )
+        .await;
 
         assert!(response.errors.is_empty(), "{:?}", response.errors);
         let data = response.data.into_json().expect("json");
         let suggestion = &data["autofillToolCalibrations"]["suggestions"][0];
-        assert_eq!(suggestion["mcpToolId"], "mcp_tool:docs:read_doc");
+        assert_eq!(suggestion["mcpToolId"], read_doc_id);
         assert_eq!(suggestion["readClassification"], "mixed");
         assert_eq!(suggestion["writeClassification"], "none");
         assert_eq!(suggestion["exportClassification"], "none");
         assert_eq!(suggestion["disabled"], false);
         assert!(
             store
-                .get_tool_calibration("mcp_tool:docs:read_doc")
+                .invocation_snapshot(server_id, read_doc_id)
                 .await
-                .expect("get calibration")
+                .expect("invocation snapshot")
+                .expect("tool exists")
+                .calibration
                 .is_none()
         );
     }
@@ -5064,7 +5149,9 @@ mod tests {
         use crate::test_support::test_store;
 
         let store = test_store().await;
-        seed_autofill_server(&store).await;
+        let seeded = seed_autofill_server(&store).await;
+        let server_id = seeded.server.mcp_server_id.clone();
+        let read_doc_id = seeded_tool_id(&seeded, "read_doc");
         let runtime = test_autofill_runtime(
             store.clone(),
             r#"{"suggestions":[{"tool":"missing_doc","read":"m","write":"n","export":"n","d":false}]}"#,
@@ -5075,17 +5162,18 @@ mod tests {
             runtime,
         ));
 
-        let response = schema
-            .execute(async_graphql::Request::new(
-                r#"
-                mutation {
-                  autofillToolCalibrations(mcpServerId: "mcp_server:docs") {
+        let response = execute_graphql_with_variables(
+            &schema,
+            r#"
+                mutation AutofillToolCalibrations($mcpServerId: String!) {
+                  autofillToolCalibrations(mcpServerId: $mcpServerId) {
                     suggestions { mcpToolId }
                   }
                 }
                 "#,
-            ))
-            .await;
+            json!({"mcpServerId": server_id}),
+        )
+        .await;
 
         assert!(!response.errors.is_empty());
         assert_eq!(
@@ -5095,9 +5183,11 @@ mod tests {
         assert!(!response.errors[0].message.contains("missing_doc"));
         assert!(
             store
-                .get_tool_calibration("mcp_tool:docs:read_doc")
+                .invocation_snapshot(server_id, read_doc_id)
                 .await
-                .expect("get calibration")
+                .expect("invocation snapshot")
+                .expect("tool exists")
+                .calibration
                 .is_none()
         );
     }
@@ -5107,7 +5197,9 @@ mod tests {
         use crate::test_support::test_store;
 
         let store = test_store().await;
-        seed_autofill_server(&store).await;
+        let seeded = seed_autofill_server(&store).await;
+        let server_id = seeded.server.mcp_server_id.clone();
+        let read_doc_id = seeded_tool_id(&seeded, "read_doc");
         let runtime = test_autofill_runtime(
             store.clone(),
             r#"{"suggestions":[{"tool":"read_doc","read":"m","write":"n","export":"n"}]}"#,
@@ -5118,11 +5210,11 @@ mod tests {
             runtime,
         ));
 
-        let response = schema
-            .execute(async_graphql::Request::new(
-                r#"
-                mutation {
-                  autofillToolCalibrations(mcpServerId: "mcp_server:docs") {
+        let response = execute_graphql_with_variables(
+            &schema,
+            r#"
+                mutation AutofillToolCalibrations($mcpServerId: String!) {
+                  autofillToolCalibrations(mcpServerId: $mcpServerId) {
                     suggestions {
                       mcpToolId
                       disabled
@@ -5130,53 +5222,58 @@ mod tests {
                   }
                 }
                 "#,
-            ))
-            .await;
+            json!({"mcpServerId": server_id}),
+        )
+        .await;
 
         assert!(response.errors.is_empty(), "{:?}", response.errors);
         let data = response.data.into_json().expect("json");
         let suggestion = &data["autofillToolCalibrations"]["suggestions"][0];
-        assert_eq!(suggestion["mcpToolId"], "mcp_tool:docs:read_doc");
+        assert_eq!(suggestion["mcpToolId"], read_doc_id);
         assert_eq!(suggestion["disabled"], serde_json::Value::Null);
         assert!(
             store
-                .get_tool_calibration("mcp_tool:docs:read_doc")
+                .invocation_snapshot(server_id, read_doc_id)
                 .await
-                .expect("get calibration")
+                .expect("invocation snapshot")
+                .expect("tool exists")
+                .calibration
                 .is_none()
         );
     }
 
-    async fn seed_autofill_server(store: &crate::NoemaStore) {
-        use crate::{McpTransportKind, NewMcpServer, NewMcpTool};
+    async fn seed_autofill_server(
+        store: &noema_store::NoemaStore,
+    ) -> noema_capabilities_mcp::McpControlPlaneServer {
+        use noema_capabilities_mcp::{
+            McpDiscoveredTool, McpInitialDiscoveryCommit, McpServerAuthStatus, McpTransportKind,
+            NewMcpServer,
+        };
 
         store
-            .create_mcp_server(NewMcpServer {
-                mcp_server_id: "mcp_server:docs".to_string(),
-                display_name: "Docs".to_string(),
-                transport_kind: McpTransportKind::Stdio,
-                safe_config: json!({}),
+            .commit_initial_discovery(McpInitialDiscoveryCommit {
+                server: NewMcpServer {
+                    display_name: "Docs".to_string(),
+                    transport_kind: McpTransportKind::Stdio,
+                    safe_config: json!({}),
+                },
+                tools: vec![McpDiscoveredTool {
+                    name: "read_doc".to_string(),
+                    description: Some("Read a document by id".to_string()),
+                    input_schema: json!({
+                        "type": "object",
+                        "properties": {
+                            "owner_email": { "type": "string" }
+                        }
+                    }),
+                    output_schema: None,
+                    annotations: json!({"readOnlyHint": true}),
+                    metadata_fingerprint: "fingerprint_1".to_string(),
+                }],
+                auth_status: McpServerAuthStatus::None,
             })
             .await
-            .expect("create server");
-        store
-            .upsert_discovered_mcp_tool(NewMcpTool {
-                mcp_tool_id: "mcp_tool:docs:read_doc".to_string(),
-                mcp_server_id: "mcp_server:docs".to_string(),
-                name: "read_doc".to_string(),
-                description: Some("Read a document by id".to_string()),
-                input_schema: json!({
-                    "type": "object",
-                    "properties": {
-                        "owner_email": { "type": "string" }
-                    }
-                }),
-                output_schema: None,
-                annotations: json!({"readOnlyHint": true}),
-                metadata_fingerprint: "fingerprint_1".to_string(),
-            })
-            .await
-            .expect("upsert tool");
+            .expect("commit Docs discovery")
     }
 
     #[derive(Debug)]
@@ -5213,7 +5310,7 @@ mod tests {
     }
 
     async fn test_autofill_runtime(
-        store: crate::NoemaStore,
+        store: noema_store::NoemaStore,
         text: &str,
     ) -> crate::daemon::CodexRuntimeHandle {
         let (_runtime, runtime) =
@@ -5222,7 +5319,7 @@ mod tests {
     }
 
     async fn test_autofill_runtime_with_requests(
-        store: crate::NoemaStore,
+        store: noema_store::NoemaStore,
         text: &str,
         tool_classification_model: Option<&str>,
     ) -> (
@@ -5246,7 +5343,7 @@ mod tests {
         use crate::test_support::test_store;
 
         let store = test_store().await;
-        seed_autofill_server(&store).await;
+        let seeded = seed_autofill_server(&store).await;
         let (requests, runtime) = test_autofill_runtime_with_requests(
             store.clone(),
             r#"{"suggestions":[{"tool":"read_doc","read":"m","write":"n","export":"n","d":false}]}"#,
@@ -5258,17 +5355,18 @@ mod tests {
             runtime,
         ));
 
-        let response = schema
-            .execute(async_graphql::Request::new(
-                r#"
-                mutation {
-                  autofillToolCalibrations(mcpServerId: "mcp_server:docs") {
+        let response = execute_graphql_with_variables(
+            &schema,
+            r#"
+                mutation AutofillToolCalibrations($mcpServerId: String!) {
+                  autofillToolCalibrations(mcpServerId: $mcpServerId) {
                     suggestions { mcpToolId }
                   }
                 }
                 "#,
-            ))
-            .await;
+            json!({"mcpServerId": seeded.server.mcp_server_id}),
+        )
+        .await;
 
         assert!(response.errors.is_empty(), "{:?}", response.errors);
         let requests = requests.lock().expect("requests");
@@ -5284,7 +5382,7 @@ mod tests {
         use crate::test_support::test_store;
 
         let store = test_store().await;
-        seed_autofill_server(&store).await;
+        let seeded = seed_autofill_server(&store).await;
         let old_requests = Arc::new(Mutex::new(Vec::new()));
         let old_provider = noema_providers::erase_model_provider(AutofillTestProvider {
             text: r#"{"suggestions":[]}"#.to_string(),
@@ -5320,17 +5418,18 @@ mod tests {
             store, runtime,
         ));
 
-        let response = schema
-            .execute(async_graphql::Request::new(
-                r#"
-                mutation {
-                  autofillToolCalibrations(mcpServerId: "mcp_server:docs") {
+        let response = execute_graphql_with_variables(
+            &schema,
+            r#"
+                mutation AutofillToolCalibrations($mcpServerId: String!) {
+                  autofillToolCalibrations(mcpServerId: $mcpServerId) {
                     suggestions { mcpToolId }
                   }
                 }
                 "#,
-            ))
-            .await;
+            json!({"mcpServerId": seeded.server.mcp_server_id}),
+        )
+        .await;
 
         assert!(response.errors.is_empty(), "{:?}", response.errors);
         assert!(old_requests.lock().expect("old requests").is_empty());

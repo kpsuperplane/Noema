@@ -654,7 +654,7 @@ async fn visible_conversation_transcript_page(
 }
 
 async fn primary_agent_provider_kind(
-    store: &crate::NoemaStore,
+    store: &noema_store::NoemaStore,
     default_provider_kind: &str,
 ) -> Result<String> {
     Ok(store

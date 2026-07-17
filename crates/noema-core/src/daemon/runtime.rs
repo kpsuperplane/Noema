@@ -33,7 +33,7 @@ pub(crate) use provider_routes::LegacyProviderRoutes;
 pub(crate) struct CodexRuntimeSpawnConfig {
     pub(crate) default_provider_kind: String,
     pub(crate) provider_routes: LegacyProviderRoutes,
-    pub(crate) store: crate::NoemaStore,
+    pub(crate) store: noema_store::NoemaStore,
     pub(crate) artifact_operations: noema_artifacts::ArtifactOperationsHandle,
     pub(crate) system_errors: noema_home::SystemErrorLogger,
     pub(crate) memory_operations: Option<noema_memory::MemoryOperationsHandle>,

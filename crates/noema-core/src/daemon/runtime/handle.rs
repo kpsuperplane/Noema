@@ -1,8 +1,6 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use crate::LocalModelsProvider;
-#[cfg(test)]
-use crate::NoemaStore;
 use noema_home::SystemErrorLogger;
 #[cfg(test)]
 use noema_providers::ProviderError;
@@ -12,6 +10,8 @@ use noema_providers::{
     ProviderCredentialAccessHandle, ProviderHandle, ProviderKind, ProviderSelectionSnapshot,
     erase_model_provider, hosted_provider_from_config,
 };
+#[cfg(test)]
+use noema_store::NoemaStore;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 

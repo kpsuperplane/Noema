@@ -237,7 +237,7 @@ function isAllowedTransition(
 
   return (
     source === "noema-model-evals" &&
-    destination === "noema-home" &&
+    (destination === "noema-home" || destination === "noema-store") &&
     !packageNames.has("noema-runtime")
   );
 }

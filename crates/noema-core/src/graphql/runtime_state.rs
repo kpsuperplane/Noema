@@ -1,4 +1,6 @@
-use crate::{NoemaRuntimeHost, NoemaStore, daemon::CodexRuntimeHandle};
+use noema_store::NoemaStore;
+
+use crate::{NoemaRuntimeHost, daemon::CodexRuntimeHandle};
 use noema_capabilities_mcp::McpControlPlaneHandle;
 use noema_home::{NoemaPaths, SystemErrorEvent, SystemErrorLogger};
 use noema_memory::{MemoryRepositoryHandle, MemoryServiceAccessHandle};
@@ -234,14 +236,16 @@ mod test_mcp {
     use noema_capabilities_mcp::{
         CompleteMcpOAuthSetupCommand, ContinueMcpServerSetupCommand, CreateMcpServerCommand,
         McpAutofillCalibrationsCommand, McpAutofillCalibrationsResult, McpControlPlaneHandle,
-        McpControlPlaneTool, McpDeleteServerCommand, McpDeleteServerResult, McpListToolsCommand,
+        McpDeleteServerCommand, McpDeleteServerResult, McpListToolsCommand,
         McpOAuthSetupAttemptQuery, McpOAuthSetupAttemptView, McpOperationError, McpOperationFuture,
-        McpOperations, McpSaveCalibrationsCommand, McpSaveCalibrationsResult, McpServerList,
-        McpServerSetupResult, McpToolList, StartMcpOAuthReauthenticationCommand,
+        McpOperations, McpRepository, McpSaveCalibrationsCommand, McpSaveCalibrationsResult,
+        McpServerList, McpServerSetupResult, McpToolList, StartMcpOAuthReauthenticationCommand,
         StartMcpOAuthSetupCommand, build_autofill_prompt, parse_autofill_response,
     };
 
-    use crate::{NoemaStore, daemon::CodexRuntimeHandle};
+    use noema_store::NoemaStore;
+
+    use crate::daemon::CodexRuntimeHandle;
 
     pub(super) fn test_mcp_operations(
         store: NoemaStore,
@@ -259,9 +263,11 @@ mod test_mcp {
         fn list_servers(&self) -> McpOperationFuture<'_, Result<McpServerList, McpOperationError>> {
             Box::pin(async move {
                 self.store
-                    .list_mcp_servers()
+                    .control_plane_catalog()
                     .await
-                    .map(|servers| McpServerList { servers })
+                    .map(|servers| McpServerList {
+                        servers: servers.into_iter().map(|server| server.server).collect(),
+                    })
                     .map_err(|_| McpOperationError::Unavailable)
             })
         }
@@ -273,25 +279,14 @@ mod test_mcp {
             Box::pin(async move {
                 let server = self
                     .store
-                    .get_mcp_server(&command.mcp_server_id)
+                    .control_plane_server(command.mcp_server_id)
                     .await
                     .map_err(|_| McpOperationError::Unavailable)?
                     .ok_or(McpOperationError::NotFound)?;
-                let records = self
-                    .store
-                    .list_mcp_tools_for_server(&command.mcp_server_id)
-                    .await
-                    .map_err(|_| McpOperationError::Unavailable)?;
-                let mut tools = Vec::with_capacity(records.len());
-                for tool in records {
-                    let calibration = self
-                        .store
-                        .get_tool_calibration(&tool.mcp_tool_id)
-                        .await
-                        .map_err(|_| McpOperationError::Unavailable)?;
-                    tools.push(McpControlPlaneTool { tool, calibration });
-                }
-                Ok(McpToolList { server, tools })
+                Ok(McpToolList {
+                    server: server.server,
+                    tools: server.tools,
+                })
             })
         }
 
@@ -350,16 +345,16 @@ mod test_mcp {
                     .ok_or(McpOperationError::Unavailable)?;
                 let server = self
                     .store
-                    .get_mcp_server(&command.mcp_server_id)
+                    .control_plane_server(command.mcp_server_id)
                     .await
                     .map_err(|_| McpOperationError::Unavailable)?
                     .ok_or(McpOperationError::NotFound)?;
-                let tools = self
-                    .store
-                    .list_mcp_tools_for_server(&command.mcp_server_id)
-                    .await
-                    .map_err(|_| McpOperationError::Unavailable)?;
-                let prompt = build_autofill_prompt(&server.display_name, &tools);
+                let tools = server
+                    .tools
+                    .iter()
+                    .map(|tool| tool.tool.clone())
+                    .collect::<Vec<_>>();
+                let prompt = build_autofill_prompt(&server.server.display_name, &tools);
                 let mut request = noema_providers::GenerateRequest::text(prompt);
                 request.instructions =
                     Some("Return strict JSON only for MCP calibration suggestions.".to_string());
@@ -379,7 +374,7 @@ mod test_mcp {
         ) -> McpOperationFuture<'_, Result<McpSaveCalibrationsResult, McpOperationError>> {
             Box::pin(async move {
                 self.store
-                    .save_tool_calibrations(command.calibrations)
+                    .save_calibrations(command.calibrations)
                     .await
                     .map(|calibrations| McpSaveCalibrationsResult { calibrations })
                     .map_err(|_| McpOperationError::InvalidInput)
@@ -391,11 +386,20 @@ mod test_mcp {
             command: McpDeleteServerCommand,
         ) -> McpOperationFuture<'_, Result<McpDeleteServerResult, McpOperationError>> {
             Box::pin(async move {
-                self.store
-                    .delete_mcp_server(&command.mcp_server_id)
+                let Some(ticket) = self
+                    .store
+                    .begin_delete(command.mcp_server_id)
                     .await
-                    .map(|deleted| McpDeleteServerResult { deleted })
-                    .map_err(|_| McpOperationError::Unavailable)
+                    .map_err(|_| McpOperationError::Unavailable)?
+                else {
+                    return Ok(McpDeleteServerResult { deleted: false });
+                };
+                let deleted = self
+                    .store
+                    .finish_delete(ticket)
+                    .await
+                    .map_err(|_| McpOperationError::Unavailable)?;
+                Ok(McpDeleteServerResult { deleted })
             })
         }
     }

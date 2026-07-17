@@ -3,7 +3,9 @@ use noema_conversations::{
     NewConversationContextSummary,
 };
 
-use crate::{NoemaStore, daemon::protocol::DaemonError};
+use noema_store::NoemaStore;
+
+use crate::daemon::protocol::DaemonError;
 use noema_providers::{
     GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseItem,
     GenerateStreamEvent, GenerationPriority, ProviderError, ProviderOperations,

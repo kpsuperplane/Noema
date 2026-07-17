@@ -5,8 +5,8 @@ use noema_providers::{
     ProviderCapabilityStatus, UpsertProviderCapabilityAssignmentRequest, system_provider_accounts,
 };
 
-use crate::NoemaStore;
 use noema_capabilities::{CapabilityId, ToolName};
+use noema_store::NoemaStore;
 
 use super::{errors::graphql_error, schema::GraphqlState};
 
@@ -476,7 +476,7 @@ mod tests {
     }
 
     async fn create_exa_provider_account(
-        store: &crate::NoemaStore,
+        store: &noema_store::NoemaStore,
         status: ProviderAccountStatus,
     ) -> String {
         crate::test_support::create_exa_provider_account_for_tests(

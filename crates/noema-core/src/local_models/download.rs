@@ -12,13 +12,13 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
-use crate::{NoemaStore, StoreError};
 use noema_home::{NoemaPathError, NoemaPaths};
 use noema_providers::{
     LocalModelBackend, LocalModelInstallationRecord, LocalModelInstallationStatus,
     LocalModelInstallationUpdate, LocalModelSourceKind, NewLocalModelInstallation,
     RemovedLocalModelInstallation,
 };
+use noema_store::{NoemaStore, StoreError};
 
 use super::download_support::{
     InstalledArtifact, hash_file, hex_digest, hugging_face_url, local_file_installation_id,

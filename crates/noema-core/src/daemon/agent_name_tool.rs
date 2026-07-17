@@ -1,5 +1,5 @@
-use crate::{NoemaStore, store::StoreError};
 use noema_capabilities::{ToolContractError, ToolSpec};
+use noema_store::{NoemaStore, StoreError};
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -297,7 +297,7 @@ mod tests {
         assert!(!is_update_own_name_tool("update_own_name_v2"));
     }
 
-    async fn test_store() -> (tempfile::TempDir, crate::NoemaStore) {
+    async fn test_store() -> (tempfile::TempDir, noema_store::NoemaStore) {
         let home = tempfile::tempdir().expect("temp noema home");
         let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
         let store = crate::test_support::test_store_for_paths(&paths).await;

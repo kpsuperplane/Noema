@@ -1,12 +1,12 @@
 #![cfg_attr(not(test), allow(dead_code))]
 
-use crate::NoemaStore;
 use noema_capabilities::{CapabilityId, ToolName};
 use noema_providers::{
     ProviderAccountPersistence, ProviderCapabilityAssignmentKey,
     ProviderCapabilityAssignmentPersistence, ProviderCapabilityStatus, ProviderPersistenceError,
     system_provider_accounts,
 };
+use noema_store::NoemaStore;
 
 const WEB_SEARCH_TOOL: &str = "web.search";
 const WEB_FETCH_TOOL: &str = "web.fetch";

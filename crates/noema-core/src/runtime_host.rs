@@ -1,7 +1,9 @@
 //! Shared Noema runtime host used by daemon and desktop shells.
 
+use noema_store::{NoemaStore, StoreConfig};
+
 use crate::{
-    DEFAULT_NOEMA_CONFIG_YAML, DaemonError, NoemaStore, StoreConfig,
+    DEFAULT_NOEMA_CONFIG_YAML, DaemonError,
     daemon::{
         CodexRuntimeHandle, CodexRuntimeSpawnConfig, LegacyProviderRoutes,
         ProviderAccountRuntimeAccess, TaskRuntimeHandle,

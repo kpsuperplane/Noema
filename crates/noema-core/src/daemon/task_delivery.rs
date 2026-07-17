@@ -5,8 +5,9 @@ use noema_conversations::{
 };
 use noema_tasks::TaskStatus;
 
+use noema_store::NoemaStore;
+
 use crate::{
-    NoemaStore,
     daemon::{
         CodexRuntimeHandle,
         runtime::{TaskCompletionArtifact, TaskCompletionCriterion, TaskCompletionDeliveryRequest},

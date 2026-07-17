@@ -32,7 +32,7 @@ impl CodexRuntimeActor {
 }
 
 pub(super) async fn provider_selection_for_conversation(
-    store: &crate::NoemaStore,
+    store: &noema_store::NoemaStore,
     default_provider_kind: &str,
 ) -> Result<ProviderSelectionSnapshot, DaemonError> {
     let Some(preference) = store.get_agent_runtime_preference("agent:primary").await? else {

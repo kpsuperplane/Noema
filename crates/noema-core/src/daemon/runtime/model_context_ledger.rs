@@ -7,7 +7,9 @@ use noema_conversations::{
     NewConversationItem,
 };
 
-use crate::{NoemaStore, daemon::protocol::DaemonError};
+use noema_store::NoemaStore;
+
+use crate::daemon::protocol::DaemonError;
 
 use super::model_context::{ModelContextSnapshot, ModelContextState, ModelContextUpdate};
 

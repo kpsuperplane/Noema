@@ -3,9 +3,9 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::NoemaStore;
 use noema_capabilities::ToolSpec;
 use noema_providers::ProviderSelectionSnapshot;
+use noema_store::NoemaStore;
 use noema_tasks::{
     NewTask, NewTaskValidationCriterion, TASK_REVIEWER_AGENT_ID, TaskComplexity,
     TaskModelPoolEntry, TaskSource, TaskStatus,

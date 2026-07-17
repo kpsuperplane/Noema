@@ -86,7 +86,7 @@ impl CodexRuntimeActor {
     async fn progress_audit_model(&self) -> Result<ProgressAuditModel, ProgressAuditError> {
         if let Some(preference) = self
             .store
-            .get_auxiliary_model_preference(crate::store::TOOL_PROGRESS_AUDIT_TASK_ID)
+            .get_auxiliary_model_preference(noema_store::TOOL_PROGRESS_AUDIT_TASK_ID)
             .await
             .map_err(|_| {
                 ProgressAuditError::Unavailable(
@@ -419,8 +419,8 @@ mod tests {
             .await
             .expect("account");
         store
-            .upsert_auxiliary_model_preference(crate::NewAuxiliaryModelPreference {
-                task_id: crate::store::TOOL_PROGRESS_AUDIT_TASK_ID.to_string(),
+            .upsert_auxiliary_model_preference(noema_store::NewAuxiliaryModelPreference {
+                task_id: noema_store::TOOL_PROGRESS_AUDIT_TASK_ID.to_string(),
                 provider_kind: "codex".to_string(),
                 provider_account_id: account.provider_account_id,
                 model_profile: "gpt-5.5".to_string(),

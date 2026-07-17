@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::NoemaStore;
 use futures_util::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use noema_capabilities::{CapabilityBindingSourceHandle, CapabilityInvokerRegistration};
 use noema_home::SystemErrorLogger;
@@ -11,6 +10,7 @@ use noema_providers::{
 };
 #[cfg(test)]
 use noema_providers::{ProviderAccountService, ProviderHandle};
+use noema_store::NoemaStore;
 use tokio::sync::{mpsc, oneshot};
 
 use super::CodexRuntimeSpawnConfig;

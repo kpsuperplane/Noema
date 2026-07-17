@@ -2764,10 +2764,10 @@ dependencies = [
  "noema-home",
  "noema-memory",
  "noema-providers",
+ "noema-store",
  "noema-tasks",
  "reqwest",
  "ring",
- "rusqlite",
  "serde",
  "serde_json",
  "sysinfo",
@@ -2833,6 +2833,7 @@ dependencies = [
  "noema-core",
  "noema-home",
  "noema-providers",
+ "noema-store",
  "ring",
  "serde",
  "serde_json",
@@ -2888,6 +2889,25 @@ dependencies = [
  "tower-http",
  "tower-sessions",
  "url",
+]
+
+[[package]]
+name = "noema-store"
+version = "0.1.0"
+dependencies = [
+ "noema-artifacts",
+ "noema-capabilities-mcp",
+ "noema-conversations",
+ "noema-memory",
+ "noema-providers",
+ "noema-tasks",
+ "ring",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
 ]
 
 [[package]]

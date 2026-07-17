@@ -858,7 +858,7 @@ fn require_local_principal(principal_subject: &str) -> Result<()> {
 }
 
 async fn detail_from_task(
-    store: &crate::NoemaStore,
+    store: &noema_store::NoemaStore,
     task: TaskRecord,
 ) -> Result<GraphqlTaskDetail> {
     let criteria = store

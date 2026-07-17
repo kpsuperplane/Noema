@@ -28,8 +28,6 @@ pub mod onboarding;
 pub mod runtime_host;
 /// First-party governed web search capability.
 pub mod search;
-/// Embedded canonical structured store.
-pub mod store;
 #[cfg(test)]
 mod test_support;
 #[doc(hidden)]
@@ -59,11 +57,3 @@ pub use onboarding::{
     onboarding_status_from_options,
 };
 pub use runtime_host::{NoemaRuntimeHost, RuntimeHostError};
-pub use store::{
-    AgentRecord, AgentRuntimePreferenceRecord, AgentSystemRole, AuxiliaryModelPreferenceRecord,
-    McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolRecord, NewAgent,
-    NewAgentRuntimePreference, NewAuxiliaryModelPreference, NewToolCalibration, NoemaStore,
-    StoreConfig, StoreError, ToolCalibrationRecord, WEB_FETCH_SUMMARIZER_TASK_ID,
-};
-#[cfg(test)]
-pub(crate) use store::{NewMcpServer, NewMcpTool};

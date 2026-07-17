@@ -6,7 +6,9 @@ use noema_providers::{
 };
 
 use super::CodexRuntimeHandle;
-use crate::{LocalModelsProvider, NoemaStore, daemon::protocol::DaemonError};
+use noema_store::NoemaStore;
+
+use crate::{LocalModelsProvider, daemon::protocol::DaemonError};
 
 impl CodexRuntimeHandle {
     /// Set the packaged llama.cpp resource root used for dynamic registrations.

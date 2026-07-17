@@ -1,5 +1,6 @@
+use noema_store::NoemaStore;
+
 use crate::{
-    NoemaStore,
     agent_execution::{ExecutionRole, ToolAccessClass, ToolPolicy},
     daemon::{
         agent_name_tool::update_own_name_tool_spec,
@@ -444,7 +445,7 @@ fn add_binding(
     })
 }
 
-fn store_tool_error(_error: crate::StoreError) -> ToolContractError {
+fn store_tool_error(_error: noema_store::StoreError) -> ToolContractError {
     ToolContractError::InvalidSchema("capability catalog is unavailable".to_string())
 }
 

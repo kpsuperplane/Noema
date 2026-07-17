@@ -377,22 +377,39 @@ describe("crate boundary metadata policy", () => {
     }
   });
 
-  test("allows and expires the eval home transition", () => {
+  test("allows and expires the eval extraction transitions", () => {
     const transitional = metadata([
       { name: "noema-core" },
       { name: "noema-home" },
-      { name: "noema-model-evals", dependencies: [{ name: "noema-home" }] },
+      { name: "noema-store" },
+      {
+        name: "noema-model-evals",
+        dependencies: [
+          { name: "noema-home" },
+          { name: "noema-store", usesDefaultFeatures: false },
+        ],
+      },
     ]);
     expect(validateMetadata(transitional)).toEqual([]);
 
     const expired = metadata([
       { name: "noema-core" },
       { name: "noema-home" },
+      { name: "noema-store" },
       { name: "noema-runtime" },
-      { name: "noema-model-evals", dependencies: [{ name: "noema-home" }] },
+      {
+        name: "noema-model-evals",
+        dependencies: [
+          { name: "noema-home" },
+          { name: "noema-store", usesDefaultFeatures: false },
+        ],
+      },
     ]);
     expect(validateMetadata(expired)).toContain(
       "noema-model-evals -> noema-home is not an allowed direct edge",
+    );
+    expect(validateMetadata(expired)).toContain(
+      "noema-model-evals -> noema-store is not an allowed direct edge",
     );
   });
 

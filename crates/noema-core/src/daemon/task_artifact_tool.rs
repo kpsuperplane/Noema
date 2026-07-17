@@ -3,8 +3,8 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::NoemaStore;
 use noema_capabilities::ToolSpec;
+use noema_store::NoemaStore;
 
 pub(crate) const TASK_READ_ARTIFACT_TOOL: &str = "task.read_artifact";
 const MAX_ARTIFACT_TEXT_CHARS: usize = 120_000;

@@ -9,7 +9,7 @@ use noema_providers::{
 use noema_tasks::TASK_EXECUTOR_AGENT_ID;
 use serde_json::Value;
 
-use crate::{AgentRecord, AgentRuntimePreferenceRecord, NewAgentRuntimePreference};
+use noema_store::{AgentRecord, AgentRuntimePreferenceRecord, NewAgentRuntimePreference};
 
 use super::{errors::graphql_error, schema::GraphqlState};
 
@@ -275,7 +275,7 @@ fn option_from_account(
 }
 
 pub(super) async fn model_options_from_accounts(
-    store: &crate::NoemaStore,
+    store: &noema_store::NoemaStore,
     accounts: &[ProviderAccountRecord],
 ) -> Result<Vec<GraphqlAgentModelProviderOption>> {
     let local_installations = if accounts
@@ -296,7 +296,7 @@ pub(super) async fn model_options_from_accounts(
 }
 
 pub(super) async fn selectable_profiles_from_account(
-    store: &crate::NoemaStore,
+    store: &noema_store::NoemaStore,
     account: &ProviderAccountRecord,
 ) -> Result<Vec<GraphqlAgentModelProfileOption>> {
     let local_installations = if account.provider_kind == "local_models" {
@@ -542,7 +542,7 @@ mod tests {
         assert_eq!(saved.model_profile, "ternary-bonsai-8b");
     }
 
-    async fn seed_installed_bonsai(store: &crate::NoemaStore) -> String {
+    async fn seed_installed_bonsai(store: &noema_store::NoemaStore) -> String {
         let installation_id = "local_model_installation:catalog:ternary-bonsai-8b:test".to_string();
         let installation = store
             .upsert_local_model_installation(noema_providers::NewLocalModelInstallation {

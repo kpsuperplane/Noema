@@ -911,7 +911,7 @@ async fn primary_agent_runtime_preference_supplies_turn_model() {
         .await
         .expect("foundation account");
     store
-        .upsert_agent_runtime_preference(crate::NewAgentRuntimePreference {
+        .upsert_agent_runtime_preference(noema_store::NewAgentRuntimePreference {
             agent_id: "agent:primary".to_string(),
             provider_kind: "foundation_local".to_string(),
             provider_account_id: account.provider_account_id,
@@ -956,7 +956,7 @@ async fn primary_agent_runtime_preference_supplies_reasoning_effort() {
         .await
         .expect("codex account");
     store
-        .upsert_agent_runtime_preference(crate::NewAgentRuntimePreference {
+        .upsert_agent_runtime_preference(noema_store::NewAgentRuntimePreference {
             agent_id: "agent:primary".to_string(),
             provider_kind: "codex".to_string(),
             provider_account_id: account.provider_account_id,
@@ -1004,7 +1004,7 @@ async fn primary_agent_codex_preference_sends_reasoning_effort_to_codex_provider
         .await
         .expect("codex account");
     store
-        .upsert_agent_runtime_preference(crate::NewAgentRuntimePreference {
+        .upsert_agent_runtime_preference(noema_store::NewAgentRuntimePreference {
             agent_id: "agent:primary".to_string(),
             provider_kind: "codex".to_string(),
             provider_account_id: account.provider_account_id,
@@ -1067,7 +1067,7 @@ async fn primary_agent_openai_preference_sends_reasoning_effort_to_openai_provid
         .expect("foundation account")
         .provider_account_id;
     store
-        .upsert_agent_runtime_preference(crate::NewAgentRuntimePreference {
+        .upsert_agent_runtime_preference(noema_store::NewAgentRuntimePreference {
             agent_id: "agent:primary".to_string(),
             provider_kind: "foundation_local".to_string(),
             provider_account_id,
@@ -2038,7 +2038,7 @@ async fn primary_agent_runtime_preference_selects_provider_without_restart() {
         .await
         .expect("foundation account");
     store
-        .upsert_agent_runtime_preference(crate::NewAgentRuntimePreference {
+        .upsert_agent_runtime_preference(noema_store::NewAgentRuntimePreference {
             agent_id: "agent:primary".to_string(),
             provider_kind: "foundation_local".to_string(),
             provider_account_id: account.provider_account_id,
@@ -2108,7 +2108,7 @@ async fn runtime_turn_refreshes_agent_preference_after_conversation_hydration() 
         .await
         .expect("codex account");
     store
-        .upsert_agent_runtime_preference(crate::NewAgentRuntimePreference {
+        .upsert_agent_runtime_preference(noema_store::NewAgentRuntimePreference {
             agent_id: "agent:primary".to_string(),
             provider_kind: "codex".to_string(),
             provider_account_id: codex_account.provider_account_id,
@@ -2146,7 +2146,7 @@ async fn runtime_turn_refreshes_agent_preference_after_conversation_hydration() 
         .await
         .expect("foundation account");
     store
-        .upsert_agent_runtime_preference(crate::NewAgentRuntimePreference {
+        .upsert_agent_runtime_preference(noema_store::NewAgentRuntimePreference {
             agent_id: "agent:primary".to_string(),
             provider_kind: "foundation_local".to_string(),
             provider_account_id: foundation_account.provider_account_id,
@@ -4144,7 +4144,7 @@ async fn hard_ceiling_gets_one_no_tools_finalization_attempt() {
         .await
         .expect("codex account");
     store
-        .upsert_agent_runtime_preference(crate::NewAgentRuntimePreference {
+        .upsert_agent_runtime_preference(noema_store::NewAgentRuntimePreference {
             agent_id: "agent:primary".to_string(),
             provider_kind: "codex".to_string(),
             provider_account_id: codex.provider_account_id,
@@ -4205,8 +4205,8 @@ async fn audit_execution_failure_gets_one_no_tools_finalization_attempt() {
         .await
         .expect("codex account");
     store
-        .upsert_auxiliary_model_preference(crate::NewAuxiliaryModelPreference {
-            task_id: crate::store::TOOL_PROGRESS_AUDIT_TASK_ID.to_string(),
+        .upsert_auxiliary_model_preference(noema_store::NewAuxiliaryModelPreference {
+            task_id: noema_store::TOOL_PROGRESS_AUDIT_TASK_ID.to_string(),
             provider_kind: "codex".to_string(),
             provider_account_id: codex.provider_account_id,
             model_profile: "gpt-5.4-mini".to_string(),
@@ -4731,7 +4731,7 @@ async fn test_runtime_handle(provider: FakeCodexProvider) -> CodexRuntimeHandle 
 
 async fn test_runtime_handle_with_store(
     provider: FakeCodexProvider,
-) -> (CodexRuntimeHandle, crate::NoemaStore) {
+) -> (CodexRuntimeHandle, noema_store::NoemaStore) {
     let (handle, store, _system_errors) =
         test_runtime_handle_with_store_and_system_errors(provider).await;
     (handle, store)
@@ -4741,7 +4741,7 @@ async fn test_runtime_handle_with_store_and_system_errors(
     provider: FakeCodexProvider,
 ) -> (
     CodexRuntimeHandle,
-    crate::NoemaStore,
+    noema_store::NoemaStore,
     noema_home::SystemErrorLogger,
 ) {
     let store = crate::test_support::test_store().await;
@@ -4767,7 +4767,7 @@ async fn test_runtime_handle_with_store_and_system_errors(
 
 async fn test_runtime_handle_with_task_delegation(
     provider: FakeCodexProvider,
-) -> (CodexRuntimeHandle, crate::NoemaStore) {
+) -> (CodexRuntimeHandle, noema_store::NoemaStore) {
     let home = tempfile::tempdir().expect("temp noema home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
     let store = crate::test_support::test_store_for_paths(&paths).await;
@@ -4799,7 +4799,11 @@ async fn test_runtime_handle_with_task_delegation(
 async fn test_runtime_handle_with_mnemosyne(
     provider: FakeCodexProvider,
     response: serde_json::Value,
-) -> (CodexRuntimeHandle, crate::NoemaStore, FakeMemoryServer) {
+) -> (
+    CodexRuntimeHandle,
+    noema_store::NoemaStore,
+    FakeMemoryServer,
+) {
     let home = tempfile::tempdir().expect("temp noema home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
     let store = crate::test_support::test_store_for_paths(&paths).await;
@@ -4832,7 +4836,11 @@ async fn test_runtime_handle_with_mnemosyne(
 async fn test_runtime_handle_with_private_memory(
     provider: FakeCodexProvider,
     response: serde_json::Value,
-) -> (CodexRuntimeHandle, crate::NoemaStore, FakeMemoryServer) {
+) -> (
+    CodexRuntimeHandle,
+    noema_store::NoemaStore,
+    FakeMemoryServer,
+) {
     let store = crate::test_support::test_store().await;
     let server = FakeMemoryServer::start(response, 32).await;
     let memory_operations =
@@ -4850,7 +4858,11 @@ async fn test_runtime_handle_with_private_memory(
 async fn spawn_runtime_with_memory_provider(
     provider: noema_providers::ProviderHandle,
     response: serde_json::Value,
-) -> (CodexRuntimeHandle, crate::NoemaStore, FakeMemoryServer) {
+) -> (
+    CodexRuntimeHandle,
+    noema_store::NoemaStore,
+    FakeMemoryServer,
+) {
     let home = tempfile::tempdir().expect("temp noema home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
     let store = crate::test_support::test_store_for_paths(&paths).await;
@@ -4884,7 +4896,7 @@ async fn spawn_runtime_with_memory_provider(
 async fn test_runtime_handle_with_search_provider(
     provider: noema_providers::ProviderHandle,
     search_provider: WebSearchBackendHandle,
-) -> (CodexRuntimeHandle, crate::NoemaStore) {
+) -> (CodexRuntimeHandle, noema_store::NoemaStore) {
     let home = tempfile::tempdir().expect("temp noema home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
     let store = crate::test_support::test_store_for_paths(&paths).await;
@@ -5046,7 +5058,7 @@ async fn wait_for_memory_observation_requests(server: &FakeMemoryServer, minimum
 async fn test_runtime_handle_with_search_and_fetch_providers(
     provider: noema_providers::ProviderHandle,
     web_fetch_provider: WebFetchBackendHandle,
-) -> (CodexRuntimeHandle, crate::NoemaStore) {
+) -> (CodexRuntimeHandle, noema_store::NoemaStore) {
     let search_provider =
         static_web_search_backend(noema_capabilities::web::search::SearchResponse {
             provider: "duckduckgo_public".to_string(),
@@ -5070,13 +5082,13 @@ async fn test_runtime_handle_with_search_and_fetch_providers(
     (handle, store)
 }
 
-async fn append_test_text_item(store: &crate::NoemaStore, conversation_id: &str, text: &str) {
+async fn append_test_text_item(store: &noema_store::NoemaStore, conversation_id: &str, text: &str) {
     append_test_text_item_with_kind(store, conversation_id, ConversationItemKind::UserText, text)
         .await;
 }
 
 async fn append_test_text_item_with_kind(
-    store: &crate::NoemaStore,
+    store: &noema_store::NoemaStore,
     conversation_id: &str,
     kind: ConversationItemKind,
     text: &str,
@@ -5123,7 +5135,7 @@ async fn append_test_text_item_with_kind(
 }
 
 async fn append_test_multiple_choice_prompt(
-    store: &crate::NoemaStore,
+    store: &noema_store::NoemaStore,
     conversation_id: &str,
     selection_mode: MultipleChoiceSelectionMode,
 ) -> String {
@@ -5153,7 +5165,7 @@ async fn append_test_multiple_choice_prompt(
 }
 
 async fn wait_for_context_summary_count(
-    store: &crate::NoemaStore,
+    store: &noema_store::NoemaStore,
     conversation_id: &str,
     minimum_count: usize,
 ) {
