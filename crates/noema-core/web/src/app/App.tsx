@@ -533,7 +533,11 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
 
   const applyConversationEvent = React.useCallback((event: ConversationEvent) => {
     markConversationEventReceived(event);
-    if (isTurnCompletedEvent(event)) {
+    if (event.__typename === "SubscriptionReadyEvent") {
+      reconcilingRecoveryRef.current = true;
+      void loadConversationTranscriptPage({ cursor: null, placement: "latest" });
+      markConversationEventScheduled(event);
+    } else if (isTurnCompletedEvent(event)) {
       setPending(false);
       setAwaitingAssistantTurn(false);
       setAgentStatus("IDLE");
@@ -577,7 +581,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
         void localStatusRefetchRef.current();
       });
     }
-  }, []);
+  }, [loadConversationTranscriptPage]);
 
   useSubscription(ConversationEventsDocument, {
     variables: { conversationId: conversationId ?? "" },

@@ -82,7 +82,7 @@ pub(in crate::daemon) struct CodexRuntimeActor {
     pub(in crate::daemon) capability_invokers: Arc<[CapabilityInvokerRegistration]>,
     pub(in crate::daemon) conversations: HashMap<String, ActiveConversation>,
     pub(super) tasks: RuntimeTaskGroup,
-    pub(super) task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
+    pub(super) runtime_events: crate::daemon::RuntimeEventRegistry,
 }
 
 impl std::fmt::Debug for CodexRuntimeActor {
@@ -128,7 +128,7 @@ impl CodexRuntimeActor {
             artifact_operations,
             system_errors,
             None,
-            crate::graphql::ConversationSubscriptionRegistry::default(),
+            crate::daemon::RuntimeEventRegistry::default(),
         )
         .await
     }
@@ -141,7 +141,7 @@ impl CodexRuntimeActor {
         artifact_operations: noema_artifacts::ArtifactOperationsHandle,
         system_errors: SystemErrorLogger,
         memory_operations: Option<noema_memory::MemoryOperationsHandle>,
-        task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
+        runtime_events: crate::daemon::RuntimeEventRegistry,
     ) -> Result<Self, DaemonError> {
         let routing = test_provider_routing(&store, &default_provider_kind, providers).await?;
         let provider_accounts = test_provider_account_access(&store)?;
@@ -156,7 +156,7 @@ impl CodexRuntimeActor {
             artifact_operations,
             system_errors,
             memory_operations,
-            task_subscriptions,
+            runtime_events,
             provider_accounts,
             capability_bindings,
             capability_invokers,
@@ -184,7 +184,7 @@ impl CodexRuntimeActor {
             capability_invokers: config.capability_invokers,
             conversations: HashMap::new(),
             tasks: RuntimeTaskGroup::default(),
-            task_subscriptions: config.task_subscriptions,
+            runtime_events: config.runtime_events,
         })
     }
 
@@ -284,7 +284,7 @@ impl CodexRuntimeActor {
             capability_invokers: self.capability_invokers.clone(),
             conversations: HashMap::new(),
             tasks: RuntimeTaskGroup::default(),
-            task_subscriptions: self.task_subscriptions.clone(),
+            runtime_events: self.runtime_events.clone(),
         }
     }
 

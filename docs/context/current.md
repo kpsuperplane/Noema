@@ -1030,8 +1030,23 @@ The next storage slice should stay small and concrete:
   fatal, and leaves transient launch failures typed and degraded. Exact schema
   baselines, crate/dependency policy, normalized test ownership, strict Clippy,
   provider feature tests, and the full Rust workspace are green after repeated
-  adversarial closure. Phase 11 is next: decouple runtime events from GraphQL,
-  then extract the governed `noema-runtime` crate.
+  adversarial closure. Decomposition Checkpoint 11A is complete.
+  Transport-neutral `ConversationRuntimeEvent`, `TaskRuntimeEvent`, and
+  `RuntimeEventRegistry` now live under the runtime boundary; GraphQL only
+  adapts them, and daemon/runtime source has no GraphQL imports or subscription-
+  named state. The registry retains the existing per-key 256-event broadcast
+  behavior. On conversation lag the adapter re-emits its existing operation
+  readiness event, and the client refetches and merges the latest durable
+  transcript before processing retained events, so a later completion cannot
+  hide dropped cursor-bearing items. Task subscriptions compute their initial
+  durable cursor before registering for invalidations, then always scan SQLite
+  before waiting, closing the setup race without changing cursor semantics.
+  GraphQL SDL is byte-identical, the normalized test inventory is preserved,
+  and focused replay, live invalidation, overflow, strict Clippy, and core tests
+  are green. Task query/subscription cursor handoff remains explicit Phase 13
+  API/client work.
+  Phase 11C is next: extract the governed `noema-runtime` crate and rename the
+  remaining provider-era runtime types during the move.
 
 - The bounded remediation program completed Phase 2 at `92,157` maintained
   source lines (`-1,767` from its baseline). Axum/tower-sessions now own the

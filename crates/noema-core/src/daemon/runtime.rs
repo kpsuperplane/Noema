@@ -39,7 +39,7 @@ pub(crate) struct CodexRuntimeSpawnConfig {
     pub(crate) artifact_operations: noema_artifacts::ArtifactOperationsHandle,
     pub(crate) system_errors: noema_home::SystemErrorLogger,
     pub(crate) memory_operations: Option<noema_memory::MemoryOperationsHandle>,
-    pub(crate) task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
+    pub(crate) runtime_events: super::RuntimeEventRegistry,
     pub(crate) provider_accounts: ProviderAccountRuntimeAccess,
     pub(crate) capability_bindings: noema_capabilities::CapabilityBindingSourceHandle,
     pub(crate) capability_invokers:

@@ -25,7 +25,7 @@ fn background_generation_request_preserves_complete_provider_selection() {
         &CancellationToken::new(),
         "Do the work.".to_string(),
         "Follow the task contract.",
-        &ConversationSubscriptionRegistry::default(),
+        &RuntimeEventRegistry::default(),
     );
 
     assert_eq!(

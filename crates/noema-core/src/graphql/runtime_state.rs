@@ -1,6 +1,9 @@
 use noema_store::NoemaStore;
 
-use crate::{NoemaRuntimeHost, daemon::CodexRuntimeHandle};
+use crate::{
+    NoemaRuntimeHost,
+    daemon::{CodexRuntimeHandle, RuntimeEventRegistry},
+};
 use noema_capabilities_mcp::McpControlPlaneHandle;
 #[cfg(test)]
 use noema_home::NoemaPaths;
@@ -8,7 +11,7 @@ use noema_home::{SystemErrorEvent, SystemErrorLogger};
 use noema_memory::{MemoryRepositoryHandle, MemoryServiceAccessHandle};
 use noema_providers::{LocalModelManager, ProviderAccountOperationsHandle, ProviderRegistryHandle};
 
-use super::{ConversationSubscriptionRegistry, local_status::GraphqlMemoryStorageStatus};
+use super::local_status::GraphqlMemoryStorageStatus;
 
 /// GraphQL resolver state shared by web daemon and desktop transports.
 #[derive(Clone)]
@@ -24,7 +27,7 @@ pub struct GraphqlRuntimeState {
     memory_repository: Option<MemoryRepositoryHandle>,
     memory_service_access: Option<MemoryServiceAccessHandle>,
     memory_startup_error: Option<String>,
-    subscriptions: ConversationSubscriptionRegistry,
+    subscriptions: RuntimeEventRegistry,
     memory_storage: GraphqlMemoryStorageStatus,
 }
 
@@ -44,7 +47,7 @@ impl GraphqlRuntimeState {
             memory_repository: Some(host.memory_repository().clone()),
             memory_service_access: Some(host.memory_service_access().clone()),
             memory_startup_error: host.memory_startup_error().map(str::to_string),
-            subscriptions: host.subscriptions().clone(),
+            subscriptions: host.runtime_events().clone(),
             memory_storage: GraphqlMemoryStorageStatus::Ready,
         }
     }
@@ -64,7 +67,7 @@ impl GraphqlRuntimeState {
             memory_repository: None,
             memory_service_access: None,
             memory_startup_error: None,
-            subscriptions: ConversationSubscriptionRegistry::default(),
+            subscriptions: RuntimeEventRegistry::default(),
             memory_storage: GraphqlMemoryStorageStatus::Ready,
         }
     }
@@ -253,7 +256,7 @@ impl GraphqlRuntimeState {
         self.memory_startup_error.as_deref()
     }
 
-    pub(crate) fn subscriptions(&self) -> &ConversationSubscriptionRegistry {
+    pub(crate) fn subscriptions(&self) -> &RuntimeEventRegistry {
         &self.subscriptions
     }
 

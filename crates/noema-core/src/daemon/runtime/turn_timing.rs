@@ -59,7 +59,7 @@ impl TurnTiming {
     }
 }
 
-pub(crate) fn mark_graphql_turn_event(
+pub(crate) fn mark_turn_timing_event(
     event: &str,
     conversation_id: &str,
     client_message_id: Option<&str>,

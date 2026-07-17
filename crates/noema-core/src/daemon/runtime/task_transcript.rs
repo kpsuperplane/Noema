@@ -13,10 +13,7 @@ use tokio_util::sync::CancellationToken;
 
 use noema_tasks::NewAgentRunItem;
 
-use crate::{
-    daemon::protocol::DaemonError,
-    graphql::{ConversationSubscriptionRegistry, TaskLiveEvent},
-};
+use crate::daemon::{DaemonError, RuntimeEventRegistry, TaskRuntimeEvent};
 use noema_capabilities::CapabilityCatalogSnapshot;
 use noema_providers::{
     GenerateRequest, GenerateResponse, GenerateStreamEvent, GenerationPriority, ProviderOperations,
@@ -40,7 +37,7 @@ impl CodexRuntimeActor {
         round_index: i64,
         deadline: tokio::time::Instant,
         cancellation: &CancellationToken,
-        subscriptions: &ConversationSubscriptionRegistry,
+        subscriptions: &RuntimeEventRegistry,
     ) -> Result<GenerateResponse, DaemonError> {
         request.options.generation_priority = GenerationPriority::Background;
         let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -84,7 +81,7 @@ impl CodexRuntimeActor {
                                 .await
                                 .is_ok()
                             {
-                                subscriptions_for_writer.publish_task(TaskLiveEvent::Changed {
+                                subscriptions_for_writer.publish_task(TaskRuntimeEvent::Changed {
                                     task_id: task_id_for_writer.clone(),
                                 });
                             }
@@ -105,7 +102,7 @@ impl CodexRuntimeActor {
                     .await
                     .is_ok()
                 {
-                    subscriptions_for_writer.publish_task(TaskLiveEvent::Changed {
+                    subscriptions_for_writer.publish_task(TaskRuntimeEvent::Changed {
                         task_id: task_id_for_writer.clone(),
                     });
                 }
@@ -204,7 +201,7 @@ impl CodexRuntimeActor {
     pub(super) async fn persist_task_run_item(
         &self,
         task_id: &str,
-        subscriptions: &ConversationSubscriptionRegistry,
+        subscriptions: &RuntimeEventRegistry,
         item: NewAgentRunItem,
         lease_token: &str,
     ) {
@@ -214,7 +211,7 @@ impl CodexRuntimeActor {
             .await
             .is_ok()
         {
-            subscriptions.publish_task(TaskLiveEvent::Changed {
+            subscriptions.publish_task(TaskRuntimeEvent::Changed {
                 task_id: task_id.to_string(),
             });
         }
@@ -235,7 +232,7 @@ impl CodexRuntimeActor {
                 .unwrap_or_else(|| format!("output-{}", call.output_index));
             self.persist_task_run_item(
                 &request.task_id,
-                &request.task_subscriptions,
+                &request.runtime_events,
                 NewAgentRunItem {
                     item_id: Some(format!(
                         "run_item:tool_call:{}:{round_index}:{correlation_id}",

@@ -9,8 +9,7 @@ use noema_tasks::NewAgentRunItem;
 
 use crate::{
     agent_execution::ExecutionRole,
-    daemon::{agent_onboarding::AgentPromptIdentity, protocol::DaemonError},
-    graphql::ConversationSubscriptionRegistry,
+    daemon::{RuntimeEventRegistry, agent_onboarding::AgentPromptIdentity, protocol::DaemonError},
 };
 use noema_providers::{
     GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
@@ -60,8 +59,8 @@ pub(crate) struct BackgroundTaskGenerateRequest {
     pub input: String,
     /// System instructions for the executor or reviewer contract.
     pub instructions: String,
-    /// GraphQL task subscription registry for live detail refreshes.
-    pub task_subscriptions: ConversationSubscriptionRegistry,
+    /// Runtime event registry for live task-detail refreshes.
+    pub runtime_events: RuntimeEventRegistry,
 }
 
 impl CodexRuntimeActor {
@@ -148,7 +147,7 @@ impl CodexRuntimeActor {
                 0,
                 deadline,
                 &request.cancellation,
-                &request.task_subscriptions,
+                &request.runtime_events,
             )
             .await;
         let mut response = match initial_response {
@@ -335,7 +334,7 @@ impl CodexRuntimeActor {
                     .await?;
                 self.persist_task_run_item(
                     &request.task_id,
-                    &request.task_subscriptions,
+                    &request.runtime_events,
                     NewAgentRunItem {
                         item_id: Some(format!(
                             "run_item:tool_result:{}:{}:{}",
@@ -359,7 +358,7 @@ impl CodexRuntimeActor {
                 .await;
                 self.persist_task_run_item(
                     &request.task_id,
-                    &request.task_subscriptions,
+                    &request.runtime_events,
                     NewAgentRunItem {
                         item_id: Some(tool_call_item_id),
                         run_id: request.run_id.clone(),
@@ -562,7 +561,7 @@ impl CodexRuntimeActor {
                     continuation_step as i64,
                     deadline,
                     &request.cancellation,
-                    &request.task_subscriptions,
+                    &request.runtime_events,
                 )
                 .await;
             if matches!(&continuation_response, Err(DaemonError::Provider(_)))
@@ -601,7 +600,7 @@ impl CodexRuntimeActor {
                         continuation_step as i64,
                         deadline,
                         &request.cancellation,
-                        &request.task_subscriptions,
+                        &request.runtime_events,
                     )
                     .await;
             }
@@ -704,7 +703,7 @@ impl CodexRuntimeActor {
                 request.execution_policy.max_provider_continuations,
                 deadline,
                 &request.cancellation,
-                &request.task_subscriptions,
+                &request.runtime_events,
             )
             .await;
         if chained && matches!(&finalization_result, Err(DaemonError::Provider(_))) {
@@ -740,7 +739,7 @@ impl CodexRuntimeActor {
                     request.execution_policy.max_provider_continuations,
                     deadline,
                     &request.cancellation,
-                    &request.task_subscriptions,
+                    &request.runtime_events,
                 )
                 .await;
         }
@@ -773,7 +772,7 @@ impl CodexRuntimeActor {
         );
         self.persist_task_run_item(
             &request.task_id,
-            &request.task_subscriptions,
+            &request.runtime_events,
             NewAgentRunItem {
                 item_id: Some(tool_call_item_id.clone()),
                 run_id: request.run_id.clone(),
@@ -795,7 +794,7 @@ impl CodexRuntimeActor {
         .await;
         self.persist_task_run_item(
             &request.task_id,
-            &request.task_subscriptions,
+            &request.runtime_events,
             NewAgentRunItem {
                 item_id: Some(format!(
                     "run_item:tool_result:{}:{}:{}",
@@ -823,7 +822,7 @@ impl CodexRuntimeActor {
     ) {
         self.persist_task_run_item(
             &request.task_id,
-            &request.task_subscriptions,
+            &request.runtime_events,
             NewAgentRunItem {
                 item_id: None,
                 run_id: request.run_id.clone(),

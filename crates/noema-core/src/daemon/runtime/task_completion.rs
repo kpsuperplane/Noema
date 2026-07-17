@@ -16,7 +16,7 @@ use crate::daemon::{
     AgentStatus,
     protocol::{DaemonError, TurnStreamEvent, TurnTranscriptItem},
 };
-use crate::graphql::ConversationLiveEvent;
+use crate::daemon::{ConversationRuntimeEvent, RuntimeEventRegistry};
 use noema_home::{SystemErrorEvent, SystemErrorLogger};
 
 const MAX_COMPLETION_CONTEXT_CHARS: usize = 60_000;
@@ -34,7 +34,7 @@ pub(super) struct TaskCompletionGeneration {
     provider: Option<ProviderRouteLease>,
     model: Option<String>,
     reasoning_effort: Option<noema_providers::ReasoningEffort>,
-    subscriptions: crate::graphql::ConversationSubscriptionRegistry,
+    subscriptions: RuntimeEventRegistry,
     system_errors: SystemErrorLogger,
 }
 
@@ -68,7 +68,7 @@ impl TaskCompletionGeneration {
                         delta,
                     } = event
                     {
-                        subscriptions.publish(ConversationLiveEvent::Turn {
+                        subscriptions.publish_conversation(ConversationRuntimeEvent::Turn {
                             client_message_id: None,
                             event: Box::new(TurnStreamEvent::AssistantTextDelta {
                                 conversation_id: conversation_id.clone(),
@@ -212,7 +212,7 @@ impl CodexRuntimeActor {
                 provider,
                 model,
                 reasoning_effort,
-                subscriptions: self.task_subscriptions.clone(),
+                subscriptions: self.runtime_events.clone(),
                 system_errors: self.system_errors.clone(),
             },
         )))
@@ -264,8 +264,8 @@ impl CodexRuntimeActor {
             )
             .await?;
         if inserted {
-            self.task_subscriptions
-                .publish(ConversationLiveEvent::Turn {
+            self.runtime_events
+                .publish_conversation(ConversationRuntimeEvent::Turn {
                     client_message_id: None,
                     event: Box::new(TurnStreamEvent::ConversationItem {
                         conversation_id: record.conversation_id,
@@ -294,8 +294,8 @@ impl CodexRuntimeActor {
             .store
             .update_conversation_agent_status(conversation_id, status)
             .await;
-        self.task_subscriptions
-            .publish(ConversationLiveEvent::Turn {
+        self.runtime_events
+            .publish_conversation(ConversationRuntimeEvent::Turn {
                 client_message_id: None,
                 event: Box::new(TurnStreamEvent::AgentStatusChanged {
                     conversation_id: conversation_id.to_string(),
@@ -305,8 +305,8 @@ impl CodexRuntimeActor {
     }
 
     fn publish_completed(&self, conversation_id: &str) {
-        self.task_subscriptions
-            .publish(ConversationLiveEvent::Completed {
+        self.runtime_events
+            .publish_conversation(ConversationRuntimeEvent::Completed {
                 conversation_id: conversation_id.to_string(),
                 client_message_id: None,
             });
@@ -357,8 +357,8 @@ impl CodexRuntimeActor {
                 )
                 .await?;
             if inserted {
-                self.task_subscriptions
-                    .publish(ConversationLiveEvent::Turn {
+                self.runtime_events
+                    .publish_conversation(ConversationRuntimeEvent::Turn {
                         client_message_id: None,
                         event: Box::new(TurnStreamEvent::ConversationItem {
                             conversation_id: record.conversation_id,

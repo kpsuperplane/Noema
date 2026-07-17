@@ -78,7 +78,7 @@ impl CodexRuntimeHandle {
         artifact_operations: noema_artifacts::ArtifactOperationsHandle,
         system_errors: SystemErrorLogger,
         memory_operations: Option<noema_memory::MemoryOperationsHandle>,
-        task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
+        runtime_events: crate::daemon::RuntimeEventRegistry,
     ) -> Result<Self, DaemonError> {
         Self::spawn_with_provider_map_inner(
             default_provider_kind,
@@ -87,7 +87,7 @@ impl CodexRuntimeHandle {
             artifact_operations,
             system_errors,
             memory_operations,
-            task_subscriptions,
+            runtime_events,
         )
         .await
     }
@@ -99,7 +99,7 @@ impl CodexRuntimeHandle {
         artifact_operations: noema_artifacts::ArtifactOperationsHandle,
         system_errors: SystemErrorLogger,
         memory_operations: Option<noema_memory::MemoryOperationsHandle>,
-        task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
+        runtime_events: crate::daemon::RuntimeEventRegistry,
     ) -> Result<Self, DaemonError> {
         use noema_providers::RegistryProviderRouteResolver;
 
@@ -126,7 +126,7 @@ impl CodexRuntimeHandle {
             artifact_operations,
             system_errors,
             memory_operations,
-            task_subscriptions,
+            runtime_events,
             provider_accounts,
             capability_bindings,
             capability_invokers,
@@ -170,7 +170,7 @@ impl CodexRuntimeHandle {
             artifact_operations,
             system_errors,
             memory_operations,
-            crate::graphql::ConversationSubscriptionRegistry::default(),
+            crate::daemon::RuntimeEventRegistry::default(),
         )
         .await
     }
@@ -275,7 +275,7 @@ impl CodexRuntimeHandle {
             artifact_operations,
             system_errors,
             None,
-            crate::graphql::ConversationSubscriptionRegistry::default(),
+            crate::daemon::RuntimeEventRegistry::default(),
         )
         .await
     }
@@ -288,7 +288,7 @@ impl CodexRuntimeHandle {
         artifact_operations: noema_artifacts::ArtifactOperationsHandle,
         system_errors: SystemErrorLogger,
         memory_operations: Option<noema_memory::MemoryOperationsHandle>,
-        task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
+        runtime_events: crate::daemon::RuntimeEventRegistry,
     ) -> Result<Self, DaemonError> {
         if !providers.contains_key(&default_provider_kind) {
             return Err(DaemonError::Provider(ProviderError::ProviderUnavailable {
@@ -310,7 +310,7 @@ impl CodexRuntimeHandle {
             artifact_operations,
             system_errors,
             memory_operations,
-            task_subscriptions,
+            runtime_events,
             provider_accounts,
             capability_bindings,
             capability_invokers,

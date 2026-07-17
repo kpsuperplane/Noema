@@ -4,13 +4,12 @@ use serde_json::Value;
 
 use crate::{
     AgentStatus, TurnActivityStatus, TurnTranscriptItem,
-    daemon::{TurnStreamEvent, mark_graphql_turn_event},
+    daemon::{
+        ConversationRuntimeEvent, RuntimeEventRegistry, TurnStreamEvent, mark_turn_timing_event,
+    },
 };
 
-use super::{
-    ConversationLiveEvent, ConversationSubscriptionRegistry, errors::graphql_error,
-    schema::GraphqlState,
-};
+use super::{errors::graphql_error, schema::GraphqlState};
 
 /// Agent status exposed through GraphQL.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
@@ -673,7 +672,7 @@ pub(super) async fn send_conversation_turn(
     let published_client_message_id = client_message_id.clone();
     let input_text = input.input;
     let completion_conversation_id = conversation_id.clone();
-    mark_graphql_turn_event(
+    mark_turn_timing_event(
         "graphql_turn_received",
         &conversation_id,
         client_message_id.as_deref(),
@@ -683,7 +682,7 @@ pub(super) async fn send_conversation_turn(
     );
 
     tokio::spawn(async move {
-        mark_graphql_turn_event(
+        mark_turn_timing_event(
             "graphql_runtime_task_started",
             &completion_conversation_id,
             published_client_message_id.as_deref(),
@@ -704,7 +703,7 @@ pub(super) async fn send_conversation_turn(
                         published_error_notice = true;
                     }
                     mark_graphql_published_turn_event(&event, published_client_message_id.as_deref());
-                    subscriptions.publish(ConversationLiveEvent::Turn {
+                    subscriptions.publish_conversation(ConversationRuntimeEvent::Turn {
                         client_message_id: published_client_message_id.clone(),
                         event: Box::new(event),
                     });
@@ -715,7 +714,7 @@ pub(super) async fn send_conversation_turn(
                             published_error_notice = true;
                         }
                         mark_graphql_published_turn_event(&event, published_client_message_id.as_deref());
-                        subscriptions.publish(ConversationLiveEvent::Turn {
+                        subscriptions.publish_conversation(ConversationRuntimeEvent::Turn {
                             client_message_id: published_client_message_id.clone(),
                             event: Box::new(event),
                         });
@@ -752,7 +751,7 @@ pub(super) async fn send_multiple_choice_selection(
     let completion_conversation_id = conversation_id.clone();
     let prompt_item_id = input.prompt_item_id.clone();
     let selected_option_ids = input.selected_option_ids.clone();
-    mark_graphql_turn_event(
+    mark_turn_timing_event(
         "graphql_multiple_choice_selection_received",
         &conversation_id,
         client_message_id.as_deref(),
@@ -763,7 +762,7 @@ pub(super) async fn send_multiple_choice_selection(
     );
 
     tokio::spawn(async move {
-        mark_graphql_turn_event(
+        mark_turn_timing_event(
             "graphql_runtime_task_started",
             &completion_conversation_id,
             published_client_message_id.as_deref(),
@@ -785,7 +784,7 @@ pub(super) async fn send_multiple_choice_selection(
                         published_error_notice = true;
                     }
                     mark_graphql_published_turn_event(&event, published_client_message_id.as_deref());
-                    subscriptions.publish(ConversationLiveEvent::Turn {
+                    subscriptions.publish_conversation(ConversationRuntimeEvent::Turn {
                         client_message_id: published_client_message_id.clone(),
                         event: Box::new(event),
                     });
@@ -796,7 +795,7 @@ pub(super) async fn send_multiple_choice_selection(
                             published_error_notice = true;
                         }
                         mark_graphql_published_turn_event(&event, published_client_message_id.as_deref());
-                        subscriptions.publish(ConversationLiveEvent::Turn {
+                        subscriptions.publish_conversation(ConversationRuntimeEvent::Turn {
                             client_message_id: published_client_message_id.clone(),
                             event: Box::new(event),
                         });
@@ -821,10 +820,10 @@ pub(super) async fn send_multiple_choice_selection(
 }
 
 pub(super) fn conversation_events(
-    subscriptions: ConversationSubscriptionRegistry,
+    subscriptions: RuntimeEventRegistry,
     conversation_id: String,
 ) -> impl Stream<Item = GraphqlConversationEvent> {
-    let mut rx = subscriptions.subscribe(&conversation_id);
+    let mut rx = subscriptions.subscribe_conversation(&conversation_id);
 
     async_stream::stream! {
         yield GraphqlConversationEvent::SubscriptionReady(
@@ -833,9 +832,21 @@ pub(super) fn conversation_events(
             },
         );
 
-        while let Ok(event) = rx.recv().await {
+        loop {
+            let event = match rx.recv().await {
+                Ok(event) => event,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    yield GraphqlConversationEvent::SubscriptionReady(
+                        GraphqlSubscriptionReadyEvent {
+                            conversation_id: conversation_id.clone(),
+                        },
+                    );
+                    continue;
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            };
             match event {
-                ConversationLiveEvent::Turn {
+                ConversationRuntimeEvent::Turn {
                     client_message_id,
                     event,
                 } => match *event {
@@ -888,7 +899,7 @@ pub(super) fn conversation_events(
                     );
                 }
                 },
-                ConversationLiveEvent::Completed {
+                ConversationRuntimeEvent::Completed {
                     conversation_id,
                     client_message_id,
                 } => {
@@ -905,7 +916,7 @@ pub(super) fn conversation_events(
 }
 
 fn publish_turn_terminal_events(
-    subscriptions: &ConversationSubscriptionRegistry,
+    subscriptions: &RuntimeEventRegistry,
     conversation_id: String,
     client_message_id: Option<String>,
     published_error_notice: bool,
@@ -920,7 +931,7 @@ fn publish_turn_terminal_events(
                 format!("graphql_runtime_error:{conversation_id}:{client_message_id}")
             },
         );
-        subscriptions.publish(ConversationLiveEvent::Turn {
+        subscriptions.publish_conversation(ConversationRuntimeEvent::Turn {
             client_message_id: client_message_id.clone(),
             event: Box::new(TurnStreamEvent::ConversationItem {
                 conversation_id: conversation_id.clone(),
@@ -936,7 +947,7 @@ fn publish_turn_terminal_events(
         });
     }
 
-    mark_graphql_turn_event(
+    mark_turn_timing_event(
         "graphql_turn_completed",
         &conversation_id,
         client_message_id.as_deref(),
@@ -945,7 +956,7 @@ fn publish_turn_terminal_events(
             "published_error_notice": published_error_notice,
         }),
     );
-    subscriptions.publish(ConversationLiveEvent::Completed {
+    subscriptions.publish_conversation(ConversationRuntimeEvent::Completed {
         conversation_id,
         client_message_id,
     });
@@ -987,7 +998,7 @@ fn mark_graphql_published_turn_event(event: &TurnStreamEvent, client_message_id:
                     ("task_reference", None, Some(status.as_str()))
                 }
             };
-            mark_graphql_turn_event(
+            mark_turn_timing_event(
                 "graphql_publish_conversation_item",
                 conversation_id,
                 client_message_id,
@@ -1006,7 +1017,7 @@ fn mark_graphql_published_turn_event(event: &TurnStreamEvent, client_message_id:
             stream_id,
             response_index,
             delta,
-        } => mark_graphql_turn_event(
+        } => mark_turn_timing_event(
             "graphql_publish_assistant_delta",
             conversation_id,
             client_message_id,
@@ -1020,7 +1031,7 @@ fn mark_graphql_published_turn_event(event: &TurnStreamEvent, client_message_id:
         TurnStreamEvent::AgentStatusChanged {
             conversation_id,
             status,
-        } => mark_graphql_turn_event(
+        } => mark_turn_timing_event(
             "graphql_publish_agent_status",
             conversation_id,
             client_message_id,
@@ -1139,8 +1150,8 @@ mod tests {
 
     #[tokio::test]
     async fn runtime_turn_error_publishes_error_notice_and_completion() {
-        let subscriptions = ConversationSubscriptionRegistry::default();
-        let mut rx = subscriptions.subscribe("conversation_1");
+        let subscriptions = RuntimeEventRegistry::default();
+        let mut rx = subscriptions.subscribe_conversation("conversation_1");
 
         publish_turn_terminal_events(
             &subscriptions,
@@ -1151,7 +1162,7 @@ mod tests {
         );
 
         let event = rx.recv().await.expect("error notice event");
-        let ConversationLiveEvent::Turn {
+        let ConversationRuntimeEvent::Turn {
             client_message_id,
             event,
         } = event
@@ -1183,7 +1194,7 @@ mod tests {
         assert!(!recoverable);
 
         let event = rx.recv().await.expect("completion event");
-        let ConversationLiveEvent::Completed {
+        let ConversationRuntimeEvent::Completed {
             conversation_id,
             client_message_id,
         } = event
@@ -1196,9 +1207,9 @@ mod tests {
 
     #[tokio::test]
     async fn runtime_turn_error_does_not_duplicate_published_error_notice() {
-        let subscriptions = ConversationSubscriptionRegistry::default();
-        let mut rx = subscriptions.subscribe("conversation_1");
-        subscriptions.publish(ConversationLiveEvent::Turn {
+        let subscriptions = RuntimeEventRegistry::default();
+        let mut rx = subscriptions.subscribe_conversation("conversation_1");
+        subscriptions.publish_conversation(ConversationRuntimeEvent::Turn {
             client_message_id: Some("client_1".to_string()),
             event: Box::new(TurnStreamEvent::ConversationItem {
                 conversation_id: "conversation_1".to_string(),
@@ -1225,7 +1236,7 @@ mod tests {
         let mut completion_count = 0;
         while let Ok(event) = rx.try_recv() {
             match event {
-                ConversationLiveEvent::Turn { event, .. } => {
+                ConversationRuntimeEvent::Turn { event, .. } => {
                     if matches!(
                         *event,
                         TurnStreamEvent::ConversationItem {
@@ -1239,7 +1250,7 @@ mod tests {
                         error_notice_count += 1;
                     }
                 }
-                ConversationLiveEvent::Completed { .. } => {
+                ConversationRuntimeEvent::Completed { .. } => {
                     completion_count += 1;
                 }
             }

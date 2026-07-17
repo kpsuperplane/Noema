@@ -408,7 +408,7 @@ async fn task_supervisor_starts_distinct_tasks_concurrently() {
     )
     .await
     .expect("runtime");
-    let subscriptions = crate::graphql::ConversationSubscriptionRegistry::default();
+    let subscriptions = crate::daemon::RuntimeEventRegistry::default();
     let task_runtime = TaskRuntimeHandle::start(
         store.clone(),
         runtime.clone(),
@@ -486,7 +486,7 @@ async fn background_task_pins_local_provider_generation_across_replacement() {
         crate::test_support::artifact_operations(&store).expect("artifact operations"),
         crate::test_support::system_error_logger(),
         None,
-        crate::graphql::ConversationSubscriptionRegistry::default(),
+        crate::daemon::RuntimeEventRegistry::default(),
     )
     .await
     .expect("runtime");
@@ -515,7 +515,7 @@ async fn background_task_pins_local_provider_generation_across_replacement() {
                 execution_policy: run.execution_policy,
                 input: task.request_markdown.clone(),
                 instructions: "Complete the task and submit the result.".to_string(),
-                task_subscriptions: crate::graphql::ConversationSubscriptionRegistry::default(),
+                runtime_events: crate::daemon::RuntimeEventRegistry::default(),
             })
             .await
     });
@@ -4953,7 +4953,7 @@ async fn test_runtime_handle_with_store_and_system_errors(
         crate::test_support::artifact_operations(&store).expect("artifact operations"),
         system_errors.clone(),
         None,
-        crate::graphql::ConversationSubscriptionRegistry::default(),
+        crate::daemon::RuntimeEventRegistry::default(),
     )
     .await
     .expect("runtime");

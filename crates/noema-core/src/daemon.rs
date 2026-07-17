@@ -9,6 +9,7 @@ mod artifact_tool;
 #[cfg(feature = "local-model-evals")]
 #[doc(hidden)]
 pub mod eval_support;
+mod events;
 mod memory;
 mod prompts;
 mod protocol;
@@ -21,13 +22,14 @@ pub(crate) mod task_tool;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use events::{ConversationRuntimeEvent, RuntimeEventRegistry, TaskRuntimeEvent};
 pub(crate) use protocol::TurnStreamEvent;
 pub use protocol::{
     AgentStatus, DaemonError, StartedConversation, TurnActivityStatus, TurnTranscriptItem,
 };
 #[cfg(test)]
 pub(crate) use runtime::RuntimeProviderMap;
-pub(crate) use runtime::turn_timing::mark_graphql_turn_event;
+pub(crate) use runtime::turn_timing::mark_turn_timing_event;
 pub(crate) use runtime::{
     CodexRuntimeHandle, CodexRuntimeSpawnConfig, ProviderAccountRuntimeAccess,
 };

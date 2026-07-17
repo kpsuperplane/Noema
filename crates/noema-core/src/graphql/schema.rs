@@ -5,8 +5,10 @@ use noema_home::NoemaPaths;
 #[cfg(test)]
 use std::sync::{Arc, Mutex};
 
+use crate::daemon::{RuntimeEventRegistry, TaskRuntimeEvent};
+
 use super::{
-    ConversationSubscriptionRegistry, GraphqlRuntimeState, TaskLiveEvent,
+    GraphqlRuntimeState,
     agents::{
         self, GraphqlAgent, GraphqlAgentModelPreference, GraphqlSaveAgentModelPreferenceInput,
     },
@@ -233,7 +235,7 @@ impl GraphqlState {
         self.runtime_state.memory_startup_error()
     }
 
-    pub(crate) fn subscriptions(&self) -> &ConversationSubscriptionRegistry {
+    pub(crate) fn subscriptions(&self) -> &RuntimeEventRegistry {
         self.runtime_state.subscriptions()
     }
 
@@ -938,7 +940,6 @@ impl SubscriptionRoot {
         if !is_authorized {
             return Err(async_graphql::Error::new("task is unavailable"));
         }
-        let mut rx = state.subscriptions().subscribe_task(&task_id);
         let mut cursor = match after {
             Some(cursor) => parse_task_event_cursor(&cursor)?,
             None => store
@@ -946,6 +947,7 @@ impl SubscriptionRoot {
                 .await
                 .map_err(super::errors::graphql_error)?,
         };
+        let mut rx = state.subscriptions().subscribe_task(&task_id);
         Ok(async_stream::stream! {
             loop {
                 let events = match store.list_task_events_after(&task_id, Some(cursor), 256).await {
@@ -963,7 +965,7 @@ impl SubscriptionRoot {
                     continue;
                 }
                 match rx.recv().await {
-                    Ok(TaskLiveEvent::Changed { .. })
+                    Ok(TaskRuntimeEvent::Changed { .. })
                     | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 }
@@ -1070,7 +1072,7 @@ async fn project_task_event(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{daemon::TurnStreamEvent, graphql::subscriptions::ConversationLiveEvent};
+    use crate::daemon::{ConversationRuntimeEvent, TurnStreamEvent};
     use futures_util::StreamExt;
     use noema_capabilities_mcp::McpRepository;
     use serde_json::json;
@@ -5472,7 +5474,7 @@ mod tests {
             crate::test_support::artifact_operations(&store).expect("artifact operations"),
             crate::test_support::system_error_logger(),
             None,
-            crate::graphql::ConversationSubscriptionRegistry::default(),
+            crate::daemon::RuntimeEventRegistry::default(),
         )
         .await
         .expect("runtime");
@@ -6184,12 +6186,43 @@ mod tests {
             Some("conversation_1")
         );
 
-        subscriptions.publish(ConversationLiveEvent::Completed {
+        for index in 0..256 {
+            subscriptions.publish_conversation(ConversationRuntimeEvent::Turn {
+                client_message_id: None,
+                event: Box::new(TurnStreamEvent::ConversationItem {
+                    conversation_id: "conversation_1".to_string(),
+                    item_id: format!("item_{index}"),
+                    cursor: Some(format!("conversation_item:{}", index + 1)),
+                    turn_id: Some("turn_1".to_string()),
+                    metadata: serde_json::json!({}),
+                    item: Box::new(crate::TurnTranscriptItem::UserText {
+                        text: format!("message {index}"),
+                    }),
+                }),
+            });
+        }
+        subscriptions.publish_conversation(ConversationRuntimeEvent::Completed {
             conversation_id: "conversation_1".to_string(),
             client_message_id: Some("client_1".to_string()),
         });
-        let response = stream.next().await.expect("completion response");
-        let data = response.data.into_json().expect("completion json");
+        let response = stream.next().await.expect("resynchronization response");
+        let data = response.data.into_json().expect("resynchronization json");
+        assert_eq!(
+            data.pointer("/conversationEvents/__typename")
+                .and_then(serde_json::Value::as_str),
+            Some("SubscriptionReadyEvent")
+        );
+        let data = loop {
+            let response = stream.next().await.expect("live response after lag");
+            let data = response.data.into_json().expect("live response json");
+            if data
+                .pointer("/conversationEvents/__typename")
+                .and_then(serde_json::Value::as_str)
+                == Some("TurnCompletedEvent")
+            {
+                break data;
+            }
+        };
         assert_eq!(
             data.pointer("/conversationEvents/__typename")
                 .and_then(serde_json::Value::as_str),
@@ -6257,7 +6290,8 @@ mod tests {
             )
             .await
             .expect("task");
-        let state = GraphqlState::for_tests_with_store(store);
+        let state = GraphqlState::for_tests_with_store(store.clone());
+        let runtime_events = state.subscriptions().clone();
         let schema = build_schema(state);
         let mut stream = schema.execute_stream(async_graphql::Request::new(format!(
             r#"
@@ -6303,6 +6337,41 @@ mod tests {
                 .and_then(serde_json::Value::as_i64),
             Some(0)
         );
+
+        store
+            .append_task_event(noema_tasks::NewTaskEvent {
+                event_id: None,
+                task_id: task.task_id.clone(),
+                event_kind: noema_tasks::TaskEventKind::new("task.live_test")
+                    .expect("valid event kind"),
+                actor_id: "runtime:test".to_string(),
+                causation_id: None,
+                correlation_id: None,
+                payload: serde_json::json!({}),
+            })
+            .await
+            .expect("append live task event");
+        runtime_events.publish_task(TaskRuntimeEvent::Changed {
+            task_id: task.task_id.clone(),
+        });
+
+        let response = stream.next().await.expect("live task event response");
+        let data = response.data.into_json().expect("live task event json");
+        assert_eq!(
+            data.pointer("/taskEvents/cursor")
+                .and_then(serde_json::Value::as_str),
+            Some("2")
+        );
+        assert_eq!(
+            data.pointer("/taskEvents/kind")
+                .and_then(serde_json::Value::as_str),
+            Some("TASK_UPDATED")
+        );
+        assert_eq!(
+            data.pointer("/taskEvents/status")
+                .and_then(serde_json::Value::as_str),
+            Some("queued")
+        );
     }
 
     #[tokio::test]
@@ -6332,7 +6401,7 @@ mod tests {
             "SubscriptionReadyEvent"
         );
 
-        subscriptions.publish(ConversationLiveEvent::Turn {
+        subscriptions.publish_conversation(ConversationRuntimeEvent::Turn {
             client_message_id: None,
             event: Box::new(TurnStreamEvent::AssistantTextDelta {
                 conversation_id: "conversation_1".to_string(),
@@ -6380,7 +6449,7 @@ mod tests {
             "SubscriptionReadyEvent"
         );
 
-        subscriptions.publish(ConversationLiveEvent::Turn {
+        subscriptions.publish_conversation(ConversationRuntimeEvent::Turn {
             client_message_id: None,
             event: Box::new(TurnStreamEvent::ConversationItem {
                 conversation_id: "conversation_1".to_string(),
@@ -6438,7 +6507,7 @@ mod tests {
             "SubscriptionReadyEvent"
         );
 
-        subscriptions.publish(ConversationLiveEvent::Turn {
+        subscriptions.publish_conversation(ConversationRuntimeEvent::Turn {
             client_message_id: None,
             event: Box::new(TurnStreamEvent::ConversationItem {
                 conversation_id: "conversation_1".to_string(),

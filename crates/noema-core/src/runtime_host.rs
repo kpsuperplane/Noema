@@ -58,7 +58,7 @@ pub struct NoemaRuntimeHost {
     system_errors: SystemErrorLogger,
     paths: NoemaPaths,
     #[allow(dead_code)]
-    subscriptions: crate::graphql::ConversationSubscriptionRegistry,
+    runtime_events: crate::daemon::RuntimeEventRegistry,
 }
 
 impl NoemaRuntimeHost {
@@ -350,7 +350,7 @@ impl NoemaRuntimeHost {
                 MnemosyneMemoryService::from_connection(Some(connection)).into_handle()
             });
 
-        let subscriptions = crate::graphql::ConversationSubscriptionRegistry::default();
+        let runtime_events = crate::daemon::RuntimeEventRegistry::default();
         let artifact_metadata: noema_artifacts::ArtifactMetadataStoreHandle =
             std::sync::Arc::new(store.clone());
         let artifact_operations: noema_artifacts::ArtifactOperationsHandle = std::sync::Arc::new(
@@ -411,7 +411,7 @@ impl NoemaRuntimeHost {
             artifact_operations: artifact_operations.clone(),
             system_errors: system_errors.clone(),
             memory_operations: runtime_memory_operations,
-            task_subscriptions: subscriptions.clone(),
+            runtime_events: runtime_events.clone(),
             provider_accounts,
             capability_bindings: mcp_service.binding_source(),
             capability_invokers: Arc::from([mcp_service.invoker_registration()]),
@@ -424,7 +424,7 @@ impl NoemaRuntimeHost {
             runtime.clone(),
             local_model_manager.registry(),
             system_errors.clone(),
-            subscriptions.clone(),
+            runtime_events.clone(),
         );
 
         Ok(Self {
@@ -443,7 +443,7 @@ impl NoemaRuntimeHost {
             memory_startup_error,
             system_errors,
             paths,
-            subscriptions,
+            runtime_events,
         })
     }
 
@@ -511,10 +511,9 @@ impl NoemaRuntimeHost {
         self.memory_startup_error.as_deref()
     }
 
-    /// Conversation subscription registry.
-    #[allow(dead_code)]
-    pub(crate) fn subscriptions(&self) -> &crate::graphql::ConversationSubscriptionRegistry {
-        &self.subscriptions
+    /// Transport-neutral runtime event registry.
+    pub(crate) fn runtime_events(&self) -> &crate::daemon::RuntimeEventRegistry {
+        &self.runtime_events
     }
 
     /// Shut down runtime-owned work.

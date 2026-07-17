@@ -734,7 +734,7 @@ pub(super) async fn resume_task(
         .map_err(graphql_error)?;
     state
         .subscriptions()
-        .publish_task(crate::graphql::TaskLiveEvent::Changed {
+        .publish_task(crate::daemon::TaskRuntimeEvent::Changed {
             task_id: task.task_id.clone(),
         });
     detail_from_task(store, task).await
@@ -754,7 +754,7 @@ pub(super) async fn cancel_task(
         .map_err(graphql_error)?;
     state
         .subscriptions()
-        .publish_task(crate::graphql::TaskLiveEvent::Changed {
+        .publish_task(crate::daemon::TaskRuntimeEvent::Changed {
             task_id: task.task_id.clone(),
         });
     let _ = crate::daemon::task_delivery::deliver_task_status_event(

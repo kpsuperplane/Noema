@@ -270,14 +270,14 @@ impl CodexRuntimeActor {
                 && (is_resume || is_cancel)
                 && let Some(task_id) = result.payload.get("task_id").and_then(Value::as_str)
             {
-                self.task_subscriptions
-                    .publish_task(crate::graphql::TaskLiveEvent::Changed {
+                self.runtime_events
+                    .publish_task(crate::daemon::TaskRuntimeEvent::Changed {
                         task_id: task_id.to_string(),
                     });
                 if is_cancel {
                     let _ = crate::daemon::task_delivery::deliver_task_status_event(
                         &self.store,
-                        &self.task_subscriptions,
+                        &self.runtime_events,
                         task_id,
                     )
                     .await;

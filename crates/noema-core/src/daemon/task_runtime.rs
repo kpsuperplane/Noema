@@ -10,13 +10,12 @@ use noema_tasks::{
     SubmissionCriterionEvidence, TaskReviewCriterion, TaskReviewVerdict, TaskStatus,
 };
 
-use crate::graphql::{ConversationSubscriptionRegistry, TaskLiveEvent};
 use noema_store::NoemaStore;
 
 use crate::{
     agent_execution::ExecutionRole,
     daemon::{
-        CodexRuntimeHandle,
+        CodexRuntimeHandle, RuntimeEventRegistry, TaskRuntimeEvent,
         runtime::BackgroundTaskGenerateRequest,
         task_run_context::{
             ExecutorBlockedResponse, ExecutorSubmissionResponse, ReviewerResponse,
@@ -50,7 +49,7 @@ struct TaskRuntimeServices {
     runtime: CodexRuntimeHandle,
     provider_registry: ProviderRegistryHandle,
     system_errors: SystemErrorLogger,
-    subscriptions: ConversationSubscriptionRegistry,
+    subscriptions: RuntimeEventRegistry,
 }
 
 impl std::fmt::Debug for TaskRuntimeHandle {
@@ -68,7 +67,7 @@ impl TaskRuntimeHandle {
         runtime: CodexRuntimeHandle,
         provider_registry: ProviderRegistryHandle,
         system_errors: SystemErrorLogger,
-        subscriptions: ConversationSubscriptionRegistry,
+        subscriptions: RuntimeEventRegistry,
     ) -> Self {
         let inner = Arc::new(TaskRuntimeInner {
             cancellation: CancellationToken::new(),
@@ -226,7 +225,7 @@ fn log_task_run_join_error(system_errors: &SystemErrorLogger, error: &tokio::tas
 async fn drain_task_status_outbox(
     store: &NoemaStore,
     runtime: &CodexRuntimeHandle,
-    subscriptions: &ConversationSubscriptionRegistry,
+    subscriptions: &RuntimeEventRegistry,
     system_errors: &SystemErrorLogger,
 ) {
     let task_ids = match store.list_pending_task_status_deliveries(32).await {
@@ -266,7 +265,7 @@ async fn supervise_run(
     store: &NoemaStore,
     runtime: &CodexRuntimeHandle,
     provider_registry: &ProviderRegistryHandle,
-    subscriptions: &ConversationSubscriptionRegistry,
+    subscriptions: &RuntimeEventRegistry,
     run: &noema_tasks::AgentRunRecord,
     lease_token: &str,
     run_cancellation: &CancellationToken,
@@ -340,7 +339,7 @@ async fn supervise_run(
 
 async fn fail_run(
     store: &NoemaStore,
-    subscriptions: &ConversationSubscriptionRegistry,
+    subscriptions: &RuntimeEventRegistry,
     run: &noema_tasks::AgentRunRecord,
     lease_token: &str,
     error: &str,
@@ -457,7 +456,7 @@ async fn execute_run(
     store: &NoemaStore,
     runtime: &CodexRuntimeHandle,
     provider_registry: &ProviderRegistryHandle,
-    subscriptions: &ConversationSubscriptionRegistry,
+    subscriptions: &RuntimeEventRegistry,
     run: &noema_tasks::AgentRunRecord,
     lease_token: &str,
     cancellation: &CancellationToken,
@@ -499,7 +498,7 @@ async fn execute_executor(
     store: &NoemaStore,
     runtime: &CodexRuntimeHandle,
     provider_registry: &ProviderRegistryHandle,
-    subscriptions: &ConversationSubscriptionRegistry,
+    subscriptions: &RuntimeEventRegistry,
     run: &noema_tasks::AgentRunRecord,
     lease_token: &str,
     cancellation: &CancellationToken,
@@ -620,7 +619,7 @@ async fn execute_reviewer(
     store: &NoemaStore,
     runtime: &CodexRuntimeHandle,
     provider_registry: &ProviderRegistryHandle,
-    subscriptions: &ConversationSubscriptionRegistry,
+    subscriptions: &RuntimeEventRegistry,
     run: &noema_tasks::AgentRunRecord,
     lease_token: &str,
     cancellation: &CancellationToken,
@@ -719,7 +718,7 @@ async fn generate_once(
     cancellation: &CancellationToken,
     input: String,
     instructions: &str,
-    subscriptions: &ConversationSubscriptionRegistry,
+    subscriptions: &RuntimeEventRegistry,
 ) -> Result<noema_providers::GenerateResponse, String> {
     let request = background_task_generate_request(
         run,
@@ -741,7 +740,7 @@ fn background_task_generate_request(
     cancellation: &CancellationToken,
     input: String,
     instructions: &str,
-    subscriptions: &ConversationSubscriptionRegistry,
+    subscriptions: &RuntimeEventRegistry,
 ) -> BackgroundTaskGenerateRequest {
     BackgroundTaskGenerateRequest {
         run_id: run.run_id.clone(),
@@ -758,12 +757,12 @@ fn background_task_generate_request(
         execution_policy: run.execution_policy,
         input,
         instructions: instructions.to_string(),
-        task_subscriptions: subscriptions.clone(),
+        runtime_events: subscriptions.clone(),
     }
 }
 
-fn publish_task_changed(subscriptions: &ConversationSubscriptionRegistry, task_id: &str) {
-    subscriptions.publish_task(TaskLiveEvent::Changed {
+fn publish_task_changed(subscriptions: &RuntimeEventRegistry, task_id: &str) {
+    subscriptions.publish_task(TaskRuntimeEvent::Changed {
         task_id: task_id.to_string(),
     });
 }

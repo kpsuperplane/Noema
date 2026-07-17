@@ -7,12 +7,9 @@ use noema_tasks::TaskStatus;
 
 use noema_store::NoemaStore;
 
-use crate::{
-    daemon::{
-        CodexRuntimeHandle,
-        runtime::{TaskCompletionArtifact, TaskCompletionCriterion, TaskCompletionDeliveryRequest},
-    },
-    graphql::{ConversationLiveEvent, ConversationSubscriptionRegistry},
+use crate::daemon::{
+    CodexRuntimeHandle, ConversationRuntimeEvent, RuntimeEventRegistry,
+    runtime::{TaskCompletionArtifact, TaskCompletionCriterion, TaskCompletionDeliveryRequest},
 };
 use noema_home::{SystemErrorEvent, SystemErrorLogger};
 
@@ -185,7 +182,7 @@ async fn build_task_completion_request(
 /// authored prose.
 pub(crate) async fn deliver_task_status_event(
     store: &NoemaStore,
-    subscriptions: &ConversationSubscriptionRegistry,
+    subscriptions: &RuntimeEventRegistry,
     task_id: &str,
 ) -> Result<(), String> {
     let task = store
@@ -251,7 +248,7 @@ pub(crate) async fn deliver_task_status_event(
     if !inserted {
         return Ok(());
     }
-    subscriptions.publish(ConversationLiveEvent::Turn {
+    subscriptions.publish_conversation(ConversationRuntimeEvent::Turn {
         client_message_id: None,
         event: Box::new(TurnStreamEvent::ConversationItem {
             conversation_id: record.conversation_id.clone(),
@@ -267,7 +264,7 @@ pub(crate) async fn deliver_task_status_event(
             }),
         }),
     });
-    subscriptions.publish(ConversationLiveEvent::Completed {
+    subscriptions.publish_conversation(ConversationRuntimeEvent::Completed {
         conversation_id,
         client_message_id: None,
     });

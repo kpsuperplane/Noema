@@ -2132,12 +2132,12 @@ that has no GraphQL dependency.
 
 ### Checkpoint 11A — Remove GraphQL From Runtime Events
 
-- [ ] Identify every `daemon` import of `graphql` and replace it with runtime
+- [x] Identify every `daemon` import of `graphql` and replace it with runtime
   event types and a neutral event sink/registry.
-- [ ] Let GraphQL subscriptions adapt runtime events rather than own them.
-- [ ] Preserve cursor IDs, event ordering, reconnect backfill, and task/run live
+- [x] Let GraphQL subscriptions adapt runtime events rather than own them.
+- [x] Preserve cursor IDs, event ordering, reconnect backfill, and task/run live
   event behavior.
-- [ ] Commit this decoupling before moving files.
+- [x] Commit this decoupling before moving files.
 
 ### Checkpoint 11B — Establish Runtime Ownership
 
@@ -2393,6 +2393,11 @@ or API behavior.
 - [ ] Move local-model resolvers as thin adapters over
   `LocalModelManager`; no installation worker, cancellation token, supervisor,
   activation transaction, retry loop, or event merge state remains in API.
+- [ ] Finish subscription cursor handoff without changing the GraphQL SDL:
+  conversation `SubscriptionReadyEvent` already triggers client transcript
+  resynchronization after operation registration and broadcast lag; make task
+  query-plus-subscription consumers resume from a durable cursor (or zero)
+  instead of `after: null`.
 - [ ] Split the schema and domain resolver hotspots according to the
   source-file split gate.
 - [ ] Make the exporter require `--output <path>` (resolved from the caller's

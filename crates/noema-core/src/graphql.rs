@@ -21,7 +21,6 @@ mod replay;
 mod resolvers;
 mod runtime_state;
 mod schema;
-mod subscriptions;
 #[cfg(test)]
 mod support_tests;
 mod tasks;
@@ -37,9 +36,6 @@ pub(crate) use onboarding::is_user_onboarded_for_chat;
 pub(crate) use replay::{ConversationReplayItem, web_conversation_item_from_record};
 pub(crate) use runtime_state::GraphqlRuntimeState;
 pub use schema::{GraphqlSchema, GraphqlState, build_schema};
-pub(crate) use subscriptions::{
-    ConversationLiveEvent, ConversationSubscriptionRegistry, TaskLiveEvent,
-};
 
 /// Server-derived identity attached to every authenticated GraphQL operation.
 #[derive(Clone, Debug, PartialEq, Eq)]
