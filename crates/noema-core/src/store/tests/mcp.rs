@@ -4,8 +4,8 @@ use super::test_store;
 use crate::{
     McpCalibrationStatus, McpServerAuthStatus, McpServerHealthStatus, McpTransportKind,
     McpTrustClassification, NewMcpServer, NewMcpTool, NewToolCalibration,
-    mcp::{McpToolIneligibility, mcp_tool_ineligibility},
 };
+use noema_capabilities_mcp::{McpToolIneligibility, mcp_tool_ineligibility};
 
 #[tokio::test]
 async fn mcp_control_plane_tables_bootstrap() {

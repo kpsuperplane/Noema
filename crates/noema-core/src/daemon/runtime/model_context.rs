@@ -439,7 +439,7 @@ fn tool_exposure_instructions(context: &ToolVisibilityContext) -> String {
 Do not put native executable tool calls in the Noema JSON response object.
 Use the native tool channel when a listed tool is needed and all required arguments are known.
 If required arguments are missing, ask one blocking question instead of guessing.
-Native MCP tool names have the form `mcp.<server_id>.<tool_name>`; use the exact listed name through the native tool channel."#,
+Use the exact listed capability name through the native tool channel."#,
         ),
         ProviderToolTransport::NoemaEnvelope => sections.push(
             r#"Callable tools in the catalog are provided through the strict Noema JSON response envelope.
@@ -454,7 +454,7 @@ Use response_status "needs_tools" whenever tool_calls is non-empty. After Noema 
     }
 
     sections.push(
-        r#"Rows beginning with `unavailable_mcp` are not callable tools. They describe connectors Noema cannot use in this turn. If the user's request depends on one, do not claim you can perform that external action; explain that the connector is unavailable or needs authentication."#,
+        r#"Rows beginning with `unavailable_capability` are not callable tools. They describe capabilities Noema cannot use in this turn. If the user's request depends on one, do not claim you can perform that external action; explain that the capability is unavailable or needs authentication."#,
     );
 
     if search_memory_available {
@@ -511,8 +511,8 @@ mod tests {
                 ProviderToolTransport::Native,
                 vec!["mcp.zeta.read".to_string(), "mcp.alpha.read".to_string()],
                 vec![
-                    "- mcp\tmcp.zeta.read\tRead Zeta".to_string(),
-                    "- mcp\tmcp.alpha.read\tRead Alpha".to_string(),
+                    "- capability\tmcp.zeta.read\tRead Zeta".to_string(),
+                    "- capability\tmcp.alpha.read\tRead Alpha".to_string(),
                 ],
             ),
         )

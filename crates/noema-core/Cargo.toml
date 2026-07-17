@@ -25,13 +25,13 @@ http.workspace = true
 libc.workspace = true
 noema-artifacts = { path = "../noema-artifacts", default-features = false, features = ["filesystem"] }
 noema-capabilities = { path = "../noema-capabilities" }
+noema-capabilities-mcp = { path = "../noema-capabilities/mcp", default-features = false, features = ["transport"] }
 noema-conversations = { path = "../noema-conversations" }
 noema-home = { path = "../noema-home" }
 noema-providers = { path = "../noema-providers", default-features = false, features = ["adapters", "local-models"] }
 noema-tasks = { path = "../noema-tasks", default-features = false }
 ring.workspace = true
 reqwest = { workspace = true, features = ["stream"] }
-rmcp.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true

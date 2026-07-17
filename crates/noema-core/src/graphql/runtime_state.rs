@@ -1,4 +1,5 @@
-use crate::{NoemaRuntimeHost, NoemaStore, daemon::CodexRuntimeHandle, mcp::McpOAuthSetupManager};
+use crate::{NoemaRuntimeHost, NoemaStore, daemon::CodexRuntimeHandle};
+use noema_capabilities_mcp::McpControlPlaneHandle;
 use noema_home::{NoemaPaths, SystemErrorEvent, SystemErrorLogger};
 use noema_providers::ProviderAccountOperationsHandle;
 
@@ -12,7 +13,7 @@ pub struct GraphqlRuntimeState {
     artifact_operations: Option<noema_artifacts::ArtifactOperationsHandle>,
     artifact_diagnostics: ArtifactDiagnosticReporter,
     provider_account_operations: Option<ProviderAccountOperationsHandle>,
-    mcp_oauth: Option<McpOAuthSetupManager>,
+    mcp_operations: Option<McpControlPlaneHandle>,
     paths: Option<NoemaPaths>,
     memory_connection: Option<crate::MnemosyneConnection>,
     memory_startup_error: Option<String>,
@@ -30,7 +31,7 @@ impl GraphqlRuntimeState {
             artifact_operations: Some(host.artifact_operations().clone()),
             artifact_diagnostics: ArtifactDiagnosticReporter::new(host.system_errors().clone()),
             provider_account_operations: Some(host.provider_account_operations().clone()),
-            mcp_oauth: Some(host.mcp_oauth().clone()),
+            mcp_operations: Some(host.mcp_operations().clone()),
             paths: Some(host.paths().clone()),
             memory_connection: host.memory_connection().cloned(),
             memory_startup_error: host.memory_startup_error().map(str::to_string),
@@ -48,7 +49,7 @@ impl GraphqlRuntimeState {
             artifact_operations: None,
             artifact_diagnostics: ArtifactDiagnosticReporter::default(),
             provider_account_operations: None,
-            mcp_oauth: Some(McpOAuthSetupManager::new()),
+            mcp_operations: None,
             paths: None,
             memory_connection: None,
             memory_startup_error: None,
@@ -62,9 +63,11 @@ impl GraphqlRuntimeState {
     #[must_use]
     pub fn for_tests_with_store(store: NoemaStore) -> Self {
         let provider_account_operations = test_provider_account_operations(store.clone());
+        let mcp_operations = test_mcp_operations(store.clone(), None);
         Self {
             store: Some(store),
             provider_account_operations: Some(provider_account_operations),
+            mcp_operations: Some(mcp_operations),
             ..Self::for_tests()
         }
     }
@@ -77,10 +80,12 @@ impl GraphqlRuntimeState {
         runtime: CodexRuntimeHandle,
     ) -> Self {
         let provider_account_operations = test_provider_account_operations(store.clone());
+        let mcp_operations = test_mcp_operations(store.clone(), Some(runtime.clone()));
         Self {
             runtime: Some(runtime),
             store: Some(store),
             provider_account_operations: Some(provider_account_operations),
+            mcp_operations: Some(mcp_operations),
             ..Self::for_tests()
         }
     }
@@ -92,6 +97,7 @@ impl GraphqlRuntimeState {
         let artifact_operations =
             crate::test_support::artifact_operations(&store).expect("test artifact service");
         let provider_account_operations = test_provider_account_service(&store, &paths);
+        let mcp_operations = test_mcp_operations(store.clone(), None);
         Self {
             store: Some(store),
             artifact_operations: Some(artifact_operations),
@@ -99,9 +105,18 @@ impl GraphqlRuntimeState {
                 &paths,
             )),
             provider_account_operations: Some(provider_account_operations),
+            mcp_operations: Some(mcp_operations),
             paths: Some(paths),
             ..Self::for_tests()
         }
+    }
+
+    /// Attach explicit MCP control-plane operations to existing test state.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn with_mcp_operations(mut self, mcp_operations: McpControlPlaneHandle) -> Self {
+        self.mcp_operations = Some(mcp_operations);
+        self
     }
 
     /// Build state with explicit provider account operations.
@@ -152,10 +167,10 @@ impl GraphqlRuntimeState {
         })
     }
 
-    pub(crate) fn mcp_oauth(&self) -> async_graphql::Result<&McpOAuthSetupManager> {
-        self.mcp_oauth
+    pub(crate) fn mcp_operations(&self) -> async_graphql::Result<&McpControlPlaneHandle> {
+        self.mcp_operations
             .as_ref()
-            .ok_or_else(|| async_graphql::Error::new("Noema MCP OAuth setup is unavailable"))
+            .ok_or_else(|| async_graphql::Error::new("Noema MCP service is unavailable"))
     }
 
     pub(crate) fn paths(&self) -> async_graphql::Result<&NoemaPaths> {
@@ -178,6 +193,183 @@ impl GraphqlRuntimeState {
 
     pub(crate) fn memory_storage(&self) -> GraphqlMemoryStorageStatus {
         self.memory_storage
+    }
+}
+
+#[cfg(test)]
+use test_mcp::test_mcp_operations;
+
+#[cfg(test)]
+mod test_mcp {
+    use std::sync::Arc;
+
+    use noema_capabilities_mcp::{
+        CompleteMcpOAuthSetupCommand, ContinueMcpServerSetupCommand, CreateMcpServerCommand,
+        McpAutofillCalibrationsCommand, McpAutofillCalibrationsResult, McpControlPlaneHandle,
+        McpControlPlaneTool, McpDeleteServerCommand, McpDeleteServerResult, McpListToolsCommand,
+        McpOAuthSetupAttemptQuery, McpOAuthSetupAttemptView, McpOperationError, McpOperationFuture,
+        McpOperations, McpSaveCalibrationsCommand, McpSaveCalibrationsResult, McpServerList,
+        McpServerSetupResult, McpToolList, StartMcpOAuthReauthenticationCommand,
+        StartMcpOAuthSetupCommand, build_autofill_prompt, parse_autofill_response,
+    };
+
+    use crate::{NoemaStore, daemon::CodexRuntimeHandle};
+
+    pub(super) fn test_mcp_operations(
+        store: NoemaStore,
+        runtime: Option<CodexRuntimeHandle>,
+    ) -> McpControlPlaneHandle {
+        Arc::new(TestStoreMcpOperations { store, runtime })
+    }
+
+    struct TestStoreMcpOperations {
+        store: NoemaStore,
+        runtime: Option<CodexRuntimeHandle>,
+    }
+
+    impl McpOperations for TestStoreMcpOperations {
+        fn list_servers(&self) -> McpOperationFuture<'_, Result<McpServerList, McpOperationError>> {
+            Box::pin(async move {
+                self.store
+                    .list_mcp_servers()
+                    .await
+                    .map(|servers| McpServerList { servers })
+                    .map_err(|_| McpOperationError::Unavailable)
+            })
+        }
+
+        fn list_tools(
+            &self,
+            command: McpListToolsCommand,
+        ) -> McpOperationFuture<'_, Result<McpToolList, McpOperationError>> {
+            Box::pin(async move {
+                let server = self
+                    .store
+                    .get_mcp_server(&command.mcp_server_id)
+                    .await
+                    .map_err(|_| McpOperationError::Unavailable)?
+                    .ok_or(McpOperationError::NotFound)?;
+                let records = self
+                    .store
+                    .list_mcp_tools_for_server(&command.mcp_server_id)
+                    .await
+                    .map_err(|_| McpOperationError::Unavailable)?;
+                let mut tools = Vec::with_capacity(records.len());
+                for tool in records {
+                    let calibration = self
+                        .store
+                        .get_tool_calibration(&tool.mcp_tool_id)
+                        .await
+                        .map_err(|_| McpOperationError::Unavailable)?;
+                    tools.push(McpControlPlaneTool { tool, calibration });
+                }
+                Ok(McpToolList { server, tools })
+            })
+        }
+
+        fn create_server(
+            &self,
+            _command: CreateMcpServerCommand,
+        ) -> McpOperationFuture<'_, Result<McpServerSetupResult, McpOperationError>> {
+            Box::pin(async { Err(McpOperationError::Failed) })
+        }
+
+        fn continue_setup(
+            &self,
+            _command: ContinueMcpServerSetupCommand,
+        ) -> McpOperationFuture<'_, Result<McpServerSetupResult, McpOperationError>> {
+            Box::pin(async { Err(McpOperationError::Failed) })
+        }
+
+        fn start_oauth_setup(
+            &self,
+            _command: StartMcpOAuthSetupCommand,
+        ) -> McpOperationFuture<'_, Result<McpOAuthSetupAttemptView, McpOperationError>> {
+            Box::pin(async { Err(McpOperationError::Failed) })
+        }
+
+        fn start_oauth_reauthentication(
+            &self,
+            _command: StartMcpOAuthReauthenticationCommand,
+        ) -> McpOperationFuture<'_, Result<McpOAuthSetupAttemptView, McpOperationError>> {
+            Box::pin(async { Err(McpOperationError::Failed) })
+        }
+
+        fn oauth_setup_attempt(
+            &self,
+            _query: McpOAuthSetupAttemptQuery,
+        ) -> McpOperationFuture<'_, Result<Option<McpOAuthSetupAttemptView>, McpOperationError>>
+        {
+            Box::pin(async { Ok(None) })
+        }
+
+        fn complete_oauth_setup(
+            &self,
+            _command: CompleteMcpOAuthSetupCommand,
+        ) -> McpOperationFuture<'_, Result<McpOAuthSetupAttemptView, McpOperationError>> {
+            Box::pin(async { Err(McpOperationError::Failed) })
+        }
+
+        fn autofill_calibrations(
+            &self,
+            command: McpAutofillCalibrationsCommand,
+        ) -> McpOperationFuture<'_, Result<McpAutofillCalibrationsResult, McpOperationError>>
+        {
+            Box::pin(async move {
+                let runtime = self
+                    .runtime
+                    .as_ref()
+                    .ok_or(McpOperationError::Unavailable)?;
+                let server = self
+                    .store
+                    .get_mcp_server(&command.mcp_server_id)
+                    .await
+                    .map_err(|_| McpOperationError::Unavailable)?
+                    .ok_or(McpOperationError::NotFound)?;
+                let tools = self
+                    .store
+                    .list_mcp_tools_for_server(&command.mcp_server_id)
+                    .await
+                    .map_err(|_| McpOperationError::Unavailable)?;
+                let prompt = build_autofill_prompt(&server.display_name, &tools);
+                let mut request = noema_providers::GenerateRequest::text(prompt);
+                request.instructions =
+                    Some("Return strict JSON only for MCP calibration suggestions.".to_string());
+                let response = runtime
+                    .generate_once_with_tool_classification_model(request)
+                    .await
+                    .map_err(|_| McpOperationError::Failed)?;
+                let suggestions = parse_autofill_response(&response.assistant_text(), &tools)
+                    .map_err(|_| McpOperationError::MalformedResponse)?;
+                Ok(McpAutofillCalibrationsResult { suggestions })
+            })
+        }
+
+        fn save_calibrations(
+            &self,
+            command: McpSaveCalibrationsCommand,
+        ) -> McpOperationFuture<'_, Result<McpSaveCalibrationsResult, McpOperationError>> {
+            Box::pin(async move {
+                self.store
+                    .save_tool_calibrations(command.calibrations)
+                    .await
+                    .map(|calibrations| McpSaveCalibrationsResult { calibrations })
+                    .map_err(|_| McpOperationError::InvalidInput)
+            })
+        }
+
+        fn delete_server(
+            &self,
+            command: McpDeleteServerCommand,
+        ) -> McpOperationFuture<'_, Result<McpDeleteServerResult, McpOperationError>> {
+            Box::pin(async move {
+                self.store
+                    .delete_mcp_server(&command.mcp_server_id)
+                    .await
+                    .map(|deleted| McpDeleteServerResult { deleted })
+                    .map_err(|_| McpOperationError::Unavailable)
+            })
+        }
     }
 }
 

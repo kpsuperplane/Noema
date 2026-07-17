@@ -2,6 +2,7 @@
 members = [
     "crates/noema-artifacts",
     "crates/noema-capabilities",
+    "crates/noema-capabilities/mcp",
     "crates/noema-conversations",
     "crates/noema-core",
     "crates/noema-desktop",
@@ -34,6 +35,8 @@ futures-util = "0.3"
 fs2 = "0.4"
 http = "1"
 libc = "0.2"
+nix = { version = "0.30", default-features = false, features = ["process", "signal"] }
+process-wrap = { version = "9.1", default-features = false, features = ["creation-flags", "job-object", "kill-on-drop", "process-group", "tokio1"] }
 reqwest = { version = "0.13", default-features = false, features = ["form", "json", "rustls"] }
 readabilityrs = "0.1.3"
 ring = "0.17"
@@ -42,6 +45,7 @@ rusqlite = { version = "0.37", features = ["bundled", "time"] }
 scraper = "0.25"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sse-stream = "0.2.3"
 sysinfo = { version = "0.37", default-features = false, features = ["system"] }
 tempfile = "3"
 thiserror = "2"

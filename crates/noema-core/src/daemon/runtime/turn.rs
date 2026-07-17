@@ -2394,9 +2394,14 @@ impl CodexRuntimeActor {
         include_agent_name_tool: bool,
         capabilities: ProviderToolCapabilities,
     ) -> Result<ModelTools, DaemonError> {
-        build_model_tools(&self.store, include_agent_name_tool, capabilities)
-            .await
-            .map_err(|error| DaemonError::Protocol(error.to_string()))
+        build_model_tools(
+            &self.store,
+            &self.capability_bindings,
+            include_agent_name_tool,
+            capabilities,
+        )
+        .await
+        .map_err(|error| DaemonError::Protocol(error.to_string()))
     }
 
     #[allow(clippy::too_many_arguments)]

@@ -1,6 +1,5 @@
 use crate::{
     agent_execution::{ExecutionRole, ToolPolicy},
-    capability::CapabilityGateway,
     search::types::{DUCKDUCKGO_PUBLIC_PROVIDER_ID, SearchRuntimeProvider},
 };
 use noema_capabilities::{
@@ -69,7 +68,7 @@ impl CodexRuntimeActor {
         .await
     }
 
-    /// Execute one local/MCP tool under an explicit role policy.
+    /// Execute one local or injected capability under an explicit role policy.
     pub(super) async fn execute_local_tool_with_policy(
         &self,
         turn: &SuccessfulProviderTurn,
@@ -96,21 +95,19 @@ impl CodexRuntimeActor {
             agent_identity,
             call,
         ));
-        let mcp_invoker = Arc::new(CapabilityGateway {
-            store: self.store.clone(),
-            system_errors: self.system_errors.clone(),
-        });
-        let router = CapabilityRegistryRouter::new(vec![
+        let mut invokers = Vec::with_capacity(self.capability_invokers.len() + 1);
+        invokers.push((
+            InvokerKey::new("runtime-execution"),
+            runtime_invoker.clone() as Arc<dyn CapabilityInvoker + '_>,
+        ));
+        invokers.extend(self.capability_invokers.iter().map(|registration| {
             (
-                InvokerKey::new("runtime-execution"),
-                runtime_invoker.clone() as Arc<dyn CapabilityInvoker + '_>,
-            ),
-            (
-                InvokerKey::new("mcp"),
-                mcp_invoker as Arc<dyn CapabilityInvoker + '_>,
-            ),
-        ])
-        .expect("runtime capability invoker keys are unique");
+                registration.key().clone(),
+                registration.invoker().clone() as Arc<dyn CapabilityInvoker + '_>,
+            )
+        }));
+        let router = CapabilityRegistryRouter::new(invokers)
+            .expect("runtime capability invoker keys are unique");
         match router
             .dispatch(snapshot.clone(), call.name.clone(), call.payload.clone())
             .await
@@ -759,6 +756,9 @@ mod tests {
             },
         },
     };
+    use noema_capabilities::{
+        CapabilityError, CapabilityFuture, CapabilityInvoker, CapabilityOutput,
+    };
     use noema_providers::{
         DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateActionItem, GenerateInput, GenerateRequest,
         GenerateResponse, GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent,
@@ -770,6 +770,42 @@ mod tests {
     struct LocalToolTestProvider {
         default_tool_model: Option<String>,
         requests: Arc<Mutex<Vec<GenerateRequest>>>,
+    }
+
+    struct RecordingCapabilityInvoker {
+        invocations: Mutex<Vec<noema_capabilities::CapabilityInvocation>>,
+        result: Result<CapabilityOutput, CapabilityError>,
+    }
+
+    impl RecordingCapabilityInvoker {
+        fn returning(result: Result<CapabilityOutput, CapabilityError>) -> Self {
+            Self {
+                invocations: Mutex::new(Vec::new()),
+                result,
+            }
+        }
+    }
+
+    impl Default for RecordingCapabilityInvoker {
+        fn default() -> Self {
+            Self::returning(Ok(CapabilityOutput::success(
+                json!({"document": "contents"}),
+            )))
+        }
+    }
+
+    impl CapabilityInvoker for RecordingCapabilityInvoker {
+        fn invoke(
+            &self,
+            invocation: noema_capabilities::CapabilityInvocation,
+        ) -> CapabilityFuture<'_, Result<CapabilityOutput, CapabilityError>> {
+            self.invocations
+                .lock()
+                .expect("invocation lock")
+                .push(invocation);
+            let result = self.result.clone();
+            Box::pin(async move { result })
+        }
     }
 
     impl ProviderOperations for LocalToolTestProvider {
@@ -947,6 +983,47 @@ mod tests {
         }
     }
 
+    const TEST_CAPABILITY_NAME: &str = "extension.docs.read";
+
+    fn test_injected_capability_model_tools(
+        sanitizer: Arc<dyn noema_capabilities::PayloadSanitizer>,
+    ) -> ModelTools {
+        let spec = noema_capabilities::ToolSpec::new(
+            TEST_CAPABILITY_NAME,
+            "Read a document.",
+            json!({"type": "object"}),
+        )
+        .expect("tool spec");
+        let mut builder = noema_capabilities::CapabilityCatalogBuilder::new();
+        builder
+            .add(noema_capabilities::CapabilityBinding::new(
+                spec,
+                noema_capabilities::CapabilityTarget::new(
+                    noema_capabilities::InvokerKey::new("external:test"),
+                    noema_capabilities::OperationToken::new("opaque-child-authority"),
+                ),
+                noema_capabilities::CapabilityAccess {
+                    effect: noema_capabilities::CapabilityEffect::ReadOnly,
+                    scope: noema_capabilities::CapabilityScope::Global,
+                },
+                sanitizer,
+            ))
+            .expect("unique binding");
+        let mut policy = crate::agent_execution::ToolPolicy::default();
+        policy.allow_tool_name(TEST_CAPABILITY_NAME);
+        ModelTools {
+            transport: noema_providers::ProviderToolTransport::Native,
+            bindings: builder.build(),
+            prompt_rows: Vec::new(),
+            unavailable_rows: Vec::new(),
+            prompt_kinds: std::collections::BTreeMap::from([(
+                TEST_CAPABILITY_NAME.to_string(),
+                crate::daemon::runtime::model_tools::ModelToolPromptKind::Capability,
+            )]),
+            tool_policy: policy,
+        }
+    }
+
     fn test_tool_call(name: &str, payload: Value) -> LocalToolCall {
         LocalToolCall {
             output_index: 0,
@@ -978,7 +1055,45 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn forged_foreground_call_is_unknown_and_omits_persistence() {
+    async fn injected_capability_invoker_receives_the_opaque_advertised_target() {
+        let mut actor = test_actor().await;
+        let invoker = Arc::new(RecordingCapabilityInvoker::default());
+        actor.capability_invokers =
+            Arc::from([noema_capabilities::CapabilityInvokerRegistration::new(
+                noema_capabilities::InvokerKey::new("external:test"),
+                invoker.clone(),
+            )]);
+        let mut turn = test_turn();
+        turn.initial_model_tools = test_injected_capability_model_tools(Arc::new(
+            noema_capabilities::OmitPayloadSanitizer,
+        ));
+        let call = test_tool_call(TEST_CAPABILITY_NAME, json!({"document_id": "document:1"}));
+
+        let result = actor
+            .execute_local_tool(
+                &turn,
+                &AgentPromptIdentity {
+                    agent_id: "agent:primary".to_string(),
+                    display_name: None,
+                },
+                &call,
+            )
+            .await;
+
+        assert!(result.success());
+        assert_eq!(result.payload(), &json!({"document": "contents"}));
+        let invocations = invoker.invocations.lock().expect("invocation lock");
+        assert_eq!(invocations.len(), 1);
+        assert_eq!(invocations[0].operation.as_str(), TEST_CAPABILITY_NAME);
+        assert_eq!(
+            invocations[0].operation_token.as_str(),
+            "opaque-child-authority"
+        );
+        assert_eq!(invocations[0].arguments, call.payload);
+    }
+
+    #[tokio::test]
+    async fn unadvertised_capability_call_returns_a_sanitized_failure_and_continues() {
         let result = test_actor()
             .await
             .execute_local_tool(
@@ -998,6 +1113,137 @@ mod tests {
         );
         assert_eq!(result.persisted().arguments, None);
         assert_eq!(result.persisted().output, None);
+        assert!(result.requires_provider_continuation());
+    }
+
+    #[tokio::test]
+    async fn unavailable_capability_remains_unadvertised_and_denied() {
+        let mut actor = test_actor().await;
+        let invoker = Arc::new(RecordingCapabilityInvoker::default());
+        actor.capability_invokers =
+            Arc::from([noema_capabilities::CapabilityInvokerRegistration::new(
+                noema_capabilities::InvokerKey::new("external:test"),
+                invoker.clone(),
+            )]);
+        let turn = test_turn();
+        assert!(
+            turn.initial_model_tools
+                .provider_tools()
+                .iter()
+                .all(|tool| tool.name.as_str() != TEST_CAPABILITY_NAME)
+        );
+
+        let result = actor
+            .execute_local_tool(
+                &turn,
+                &AgentPromptIdentity {
+                    agent_id: "agent:primary".to_string(),
+                    display_name: None,
+                },
+                &test_tool_call(TEST_CAPABILITY_NAME, json!({"secret": "do not persist"})),
+            )
+            .await;
+
+        assert!(!result.success());
+        assert_eq!(
+            result.payload(),
+            &json!({"error": "capability operation is unavailable"})
+        );
+        assert_eq!(result.persisted().arguments, None);
+        assert_eq!(result.persisted().output, None);
+        assert!(result.requires_provider_continuation());
+        assert!(
+            invoker
+                .invocations
+                .lock()
+                .expect("invocation lock")
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn advertised_capability_failure_is_sanitized_and_continues_to_provider() {
+        let mut actor = test_actor().await;
+        actor.capability_invokers =
+            Arc::from([noema_capabilities::CapabilityInvokerRegistration::new(
+                noema_capabilities::InvokerKey::new("external:test"),
+                Arc::new(RecordingCapabilityInvoker::returning(Err(
+                    CapabilityError::Failed,
+                ))),
+            )]);
+        let mut turn = test_turn();
+        turn.initial_model_tools = test_injected_capability_model_tools(Arc::new(
+            noema_capabilities::RedactingPayloadSanitizer,
+        ));
+
+        let result = actor
+            .execute_local_tool(
+                &turn,
+                &AgentPromptIdentity {
+                    agent_id: "agent:primary".to_string(),
+                    display_name: None,
+                },
+                &test_tool_call(
+                    TEST_CAPABILITY_NAME,
+                    json!({"document_id": "document:1", "api_key": "private"}),
+                ),
+            )
+            .await;
+
+        assert!(!result.success());
+        assert_eq!(
+            result.payload(),
+            &json!({"error": "capability invocation failed"})
+        );
+        assert_eq!(
+            result.persisted().arguments,
+            Some(json!({"document_id": "document:1", "api_key": "[REDACTED]"}))
+        );
+        assert_eq!(result.persisted().output, Some(json!({"error": "failed"})));
+        assert!(result.requires_provider_continuation());
+    }
+
+    #[tokio::test]
+    async fn tool_declared_failed_capability_output_is_persisted_as_failed() {
+        let mut actor = test_actor().await;
+        actor.capability_invokers =
+            Arc::from([noema_capabilities::CapabilityInvokerRegistration::new(
+                noema_capabilities::InvokerKey::new("external:test"),
+                Arc::new(RecordingCapabilityInvoker::returning(Ok(
+                    CapabilityOutput::failed(json!({
+                        "isError": true,
+                        "error": "document rejected",
+                        "password": "private"
+                    })),
+                ))),
+            )]);
+        let mut turn = test_turn();
+        turn.initial_model_tools = test_injected_capability_model_tools(Arc::new(
+            noema_capabilities::RedactingPayloadSanitizer,
+        ));
+
+        let result = actor
+            .execute_local_tool(
+                &turn,
+                &AgentPromptIdentity {
+                    agent_id: "agent:primary".to_string(),
+                    display_name: None,
+                },
+                &test_tool_call(TEST_CAPABILITY_NAME, json!({"document_id": "document:1"})),
+            )
+            .await;
+
+        assert!(!result.success());
+        assert_eq!(result.payload()["isError"], true);
+        assert_eq!(
+            result.persisted().output,
+            Some(json!({
+                "isError": true,
+                "error": "document rejected",
+                "password": "[REDACTED]"
+            }))
+        );
+        assert!(result.requires_provider_continuation());
     }
 
     #[tokio::test]

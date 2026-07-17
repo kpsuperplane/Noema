@@ -90,10 +90,15 @@ impl CodexRuntimeActor {
             provider.tool_capabilities(request.provider_selection.model_profile.as_deref());
         let response_continuation =
             provider.response_continuation(request.provider_selection.model_profile.as_deref());
-        let model_tools =
-            build_model_tools_for_role(&self.store, request.role, false, capabilities)
-                .await
-                .map_err(|error| DaemonError::Protocol(error.to_string()))?;
+        let model_tools = build_model_tools_for_role(
+            &self.store,
+            &self.capability_bindings,
+            request.role,
+            false,
+            capabilities,
+        )
+        .await
+        .map_err(|error| DaemonError::Protocol(error.to_string()))?;
         let agent = self
             .store
             .get_agent(&request.agent_id)

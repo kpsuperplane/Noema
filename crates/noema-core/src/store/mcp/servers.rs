@@ -16,7 +16,7 @@ impl NoemaStore {
     /// # Errors
     ///
     /// Returns [`StoreError`] when the embedded store write or read fails.
-    pub async fn create_mcp_server(
+    pub(crate) async fn create_mcp_server(
         &self,
         server: NewMcpServer,
     ) -> Result<McpServerRecord, StoreError> {
@@ -181,50 +181,6 @@ impl NoemaStore {
         self.get_mcp_server(mcp_server_id).await?.ok_or_else(|| {
             StoreError::Schema(format!(
                 "missing MCP server after status update: {mcp_server_id}"
-            ))
-        })
-    }
-
-    /// Replace connection-defining metadata and rotate invocation authority
-    /// when either the transport or safe configuration changes.
-    pub(crate) async fn update_mcp_server_connection_identity(
-        &self,
-        mcp_server_id: &str,
-        transport_kind: crate::McpTransportKind,
-        safe_config: serde_json::Value,
-    ) -> Result<McpServerRecord, StoreError> {
-        let safe_config_json = json_to_string(&safe_config)?;
-        let authority_generation = random_authority_generation()?;
-        self.with_connection(|conn| {
-            conn.execute(
-                format!(
-                    r#"
-                    UPDATE mcp_servers SET
-                      transport_kind = ?2,
-                      safe_config_json = ?3,
-                      metadata_fingerprint = CASE
-                        WHEN transport_kind <> ?2 OR safe_config_json <> ?3 THEN ?4
-                        ELSE metadata_fingerprint
-                      END,
-                      updated_at = {}
-                    WHERE mcp_server_id = ?1
-                    "#,
-                    now_timestamp_sql()
-                )
-                .as_str(),
-                params![
-                    mcp_server_id,
-                    transport_kind.as_str(),
-                    safe_config_json,
-                    authority_generation,
-                ],
-            )?;
-            Ok(())
-        })
-        .await?;
-        self.get_mcp_server(mcp_server_id).await?.ok_or_else(|| {
-            StoreError::Schema(format!(
-                "missing MCP server after connection identity update: {mcp_server_id}"
             ))
         })
     }

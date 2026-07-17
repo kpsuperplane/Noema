@@ -20,7 +20,7 @@ impl NoemaStore {
     /// # Errors
     ///
     /// Returns [`StoreError`] when the embedded store write or read fails.
-    pub async fn upsert_discovered_mcp_tool(
+    pub(crate) async fn upsert_discovered_mcp_tool(
         &self,
         tool: NewMcpTool,
     ) -> Result<McpToolRecord, StoreError> {

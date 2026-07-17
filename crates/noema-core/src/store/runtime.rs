@@ -2,7 +2,7 @@ use std::{fs, path::PathBuf, sync::Arc};
 
 #[cfg(test)]
 use noema_home::NoemaPathError;
-use noema_home::{NoemaPaths, sanitize_path_segment};
+use noema_home::NoemaPaths;
 use rusqlite::Connection;
 use tokio::sync::Mutex;
 
@@ -35,6 +35,7 @@ impl StoreConfig {
 #[derive(Debug, Clone)]
 pub struct NoemaStore {
     pub(super) conn: Arc<Mutex<Connection>>,
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(super) noema_home: PathBuf,
     pub(super) append_item_lock: Arc<Mutex<()>>,
 }
@@ -79,14 +80,6 @@ impl NoemaStore {
     ) -> Result<T, StoreError> {
         let mut conn = self.conn.lock().await;
         work(&mut conn)
-    }
-
-    /// Return the private home directory for one MCP server.
-    #[must_use]
-    pub(crate) fn mcp_server_home(&self, mcp_server_id: &str) -> PathBuf {
-        self.noema_home
-            .join("mcp")
-            .join(sanitize_path_segment(mcp_server_id))
     }
 
     /// Reconstruct the resolved Noema paths for this store's home directory.

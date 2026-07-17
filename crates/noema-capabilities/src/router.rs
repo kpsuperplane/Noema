@@ -160,6 +160,43 @@ pub trait CapabilityInvoker: Send + Sync {
 /// Clonable capability invoker handle.
 pub type CapabilityInvokerHandle = Arc<dyn CapabilityInvoker>;
 
+/// One opaque invoker registration assembled outside generic runtime consumers.
+#[derive(Clone)]
+pub struct CapabilityInvokerRegistration {
+    key: InvokerKey,
+    invoker: CapabilityInvokerHandle,
+}
+
+impl CapabilityInvokerRegistration {
+    /// Bind one child-owned invoker key to its implementation.
+    #[must_use]
+    pub fn new(key: InvokerKey, invoker: CapabilityInvokerHandle) -> Self {
+        Self { key, invoker }
+    }
+
+    /// Return the opaque child-owned registration key.
+    #[must_use]
+    pub const fn key(&self) -> &InvokerKey {
+        &self.key
+    }
+
+    /// Return the registered invoker handle.
+    #[must_use]
+    pub const fn invoker(&self) -> &CapabilityInvokerHandle {
+        &self.invoker
+    }
+}
+
+impl std::fmt::Debug for CapabilityInvokerRegistration {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CapabilityInvokerRegistration")
+            .field("key", &self.key)
+            .field("invoker", &"[CONFIGURED]")
+            .finish()
+    }
+}
+
 /// Object-safe strict router contract.
 pub trait CapabilityRouter: Send + Sync {
     /// Resolve and dispatch only through the supplied immutable snapshot.

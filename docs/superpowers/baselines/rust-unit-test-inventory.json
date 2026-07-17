@@ -858,6 +858,9 @@
     "zero_codex_timeout_is_an_error": 1
   },
   "acceptedAliases": {
+    "auth_required_setup_returns_needs_auth_without_secret_values": [
+      "auth_required_create_discards_staged_secrets_and_projects_typed_browser_auth"
+    ],
     "auth_terminal_watcher_persists_completed_attempt_without_http_poll": [
       "service_uses_selected_codex_oauth_endpoints_and_client_id"
     ],
@@ -870,23 +873,86 @@
     "codex_config_for_provider_account_uses_account_home": [
       "codex_factory_builds_with_pathless_credentials"
     ],
+    "continue_setup_rejects_corrupt_existing_secrets_without_overwriting_them": [
+      "corrupt_active_secret_blocks_continuation_without_overwrite"
+    ],
+    "continue_setup_updates_secrets_and_retries_discovery": [
+      "streamable_http_create_and_continue_persist_secret_headers_and_discover_tools"
+    ],
+    "create_http_setup_with_browser_oauth_support_returns_needs_auth_without_persisting": [
+      "create_mcp_server_mutation_reports_browser_oauth_before_persisting"
+    ],
+    "create_mcp_server_mutation_autodetects_browser_oauth_before_persisting": [
+      "create_mcp_server_mutation_reports_browser_oauth_before_persisting"
+    ],
+    "create_stdio_setup_writes_secret_env_persists_safe_config_and_discovers_tools": [
+      "create_mcp_server_mutation_returns_ready_for_calibration_without_secrets",
+      "setup_normalizes_safe_config_without_copying_secrets",
+      "replacement_is_atomic_and_can_be_rolled_back",
+      "config_merges_safe_and_secret_environment_with_secret_precedence"
+    ],
+    "create_streamable_http_setup_writes_secret_headers_and_discovers_tools": [
+      "streamable_http_create_and_continue_persist_secret_headers_and_discover_tools"
+    ],
     "ensure_provider_account_home_creates_private_directory": [
       "credentials_use_private_unix_permissions"
     ],
     "ensure_provider_account_home_sets_private_unix_permissions": [
       "credentials_use_private_unix_permissions"
     ],
+    "failed_mcp_tool_result_continues_to_provider": [
+      "advertised_capability_failure_is_sanitized_and_continues_to_provider"
+    ],
+    "from_server_config_merges_safe_env_and_secret_env": [
+      "config_merges_safe_and_secret_environment_with_secret_precedence"
+    ],
+    "gateway_marks_transport_failures_unhealthy_without_requiring_auth": [
+      "ordinary_unavailable_failure_preserves_the_prior_auth_status"
+    ],
+    "gateway_reports_auth_required_mcp_call_errors": [
+      "typed_authentication_failure_marks_auth_required_at_every_transport_stage"
+    ],
+    "gateway_reports_auth_shaped_mcp_transport_errors": [
+      "auth_shaped_unavailable_detail_does_not_change_auth_status"
+    ],
+    "gateway_reports_disabled_server_before_calibration": [
+      "unavailable_capability_remains_unadvertised_and_denied"
+    ],
     "gateway_reports_unknown_tool_with_provider_continuation": [
-      "uncalibrated_mcp_tool_call_is_rejected_as_unadvertised_and_continues"
+      "uncalibrated_mcp_tool_call_is_rejected_as_unadvertised_and_continues",
+      "unadvertised_capability_call_returns_a_sanitized_failure_and_continues"
     ],
     "mcp_tool_arguments_accept_nested_or_raw_payloads": [
-      "invocation_forwards_a_legitimate_arguments_property_exactly"
+      "invocation_forwards_a_legitimate_arguments_property_exactly",
+      "injected_capability_invoker_receives_the_opaque_advertised_target"
+    ],
+    "mcp_tool_payload_is_error_marks_result_failed": [
+      "tool_declared_failed_capability_output_is_persisted_as_failed"
+    ],
+    "metadata_discovery_lists_tools_without_calling_them": [
+      "prepared_stdio_session_discovers_tools_and_closes_child"
+    ],
+    "metadata_oauth_resource_accepts_origin_resource": [
+      "protected_resource_metadata_is_origin_scoped"
+    ],
+    "metadata_oauth_resource_rejects_unrelated_resource": [
+      "protected_resource_metadata_is_origin_scoped"
+    ],
+    "metadata_request_sends_current_sdk_protocol_version": [
+      "metadata_probe_sends_current_protocol_version"
     ],
     "onboarding_reconciles_existing_noema_codex_tokens": [
       "reconcile_account_marks_existing_codex_tokens_authenticated"
     ],
+    "oauth_resource_mismatch_still_indicates_browser_auth_metadata": [
+      "auth_required_create_discards_staged_secrets_and_projects_typed_browser_auth"
+    ],
+    "oauth_resource_origin_url_uses_url_origin": [
+      "protected_resource_metadata_is_origin_scoped"
+    ],
     "parses_mcp_tool_name_with_colon_server_id": [
-      "authority_round_trips_colon_server_id"
+      "authority_round_trips_colon_server_id",
+      "operation_token_contains_only_lookup_authority_and_round_trips"
     ],
     "policy_aware_gateway_rejects_hidden_tool_before_mcp_lookup": [
       "known_background_call_denied_by_role_policy_uses_binding_persistence"
@@ -901,11 +967,32 @@
       "service_uses_selected_codex_oauth_endpoints_and_client_id",
       "failed_attempt_persists_safe_terminal_account_state"
     ],
+    "remove_secret_home_ignores_missing_directory_and_removes_existing_one": [
+      "filesystem_secret_removal_is_idempotent_and_removes_the_existing_home"
+    ],
+    "safe_config_rejects_secret_shaped_keys": [
+      "safe_configuration_rejects_secret_shaped_keys"
+    ],
+    "secret_file_round_trips_env_and_headers_without_safe_config": [
+      "filesystem_secret_file_round_trips_env_and_headers_without_safe_configuration"
+    ],
+    "secret_home_and_file_are_private_on_unix": [
+      "committed_secret_directory_and_file_are_private"
+    ],
     "start_auth_preserves_provider_start_error_message": [
       "device_auth_failure_does_not_expose_remote_response_text"
     ],
     "start_auth_returned_completed_attempt_persists_authenticated_status": [
       "service_uses_selected_codex_oauth_endpoints_and_client_id"
+    ],
+    "stdio_transport_initializes_and_lists_tools": [
+      "prepared_stdio_session_discovers_tools_and_closes_child"
+    ],
+    "stored_oauth_credentials_need_refresh_when_received_token_is_expiring": [
+      "refreshes_inside_safety_window_and_preserves_unbounded_tokens"
+    ],
+    "streamable_from_server_config_merges_safe_headers_and_secret_headers": [
+      "config_merges_safe_and_secret_headers_with_secret_precedence"
     ],
     "task_transcript_does_not_persist_mcp_payloads": [
       "task_transcript_uses_binding_policy_after_mcp_rename"
@@ -914,7 +1001,8 @@
       "generate_tool_call_preserves_provider_call_id_separately"
     ],
     "uncalibrated_mcp_tool_call_returns_disabled_server_result": [
-      "uncalibrated_mcp_tool_call_is_rejected_as_unadvertised_and_continues"
+      "uncalibrated_mcp_tool_call_is_rejected_as_unadvertised_and_continues",
+      "unavailable_capability_remains_unadvertised_and_denied"
     ]
   }
 }

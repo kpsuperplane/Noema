@@ -6,10 +6,16 @@ use crate::{
         CodexRuntimeHandle, CodexRuntimeSpawnConfig, LegacyProviderRoutes,
         ProviderAccountRuntimeAccess, TaskRuntimeHandle,
     },
-    mcp::McpOAuthSetupManager,
+    mcp_completion::RuntimeMcpAutofillCompletionBridge,
 };
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use noema_capabilities_mcp::{
+    FilesystemMcpSecretStore, LocalMcpService, LocalMcpServiceConfig, McpControlPlaneHandle,
+    McpHttpAuthorizationHandle, McpRepositoryHandle, McpSessionFactoryHandle,
+    McpSessionFactoryRouter, StdioMcpSessionFactory, StreamableHttpMcpSessionFactory,
+    SystemErrorMcpDiagnostics,
+};
 use noema_home::{
     NoemaHomeInitOptions, NoemaPathError, NoemaPaths, SystemErrorEvent, SystemErrorLogger,
     init_noema_home,
@@ -32,7 +38,8 @@ pub struct NoemaRuntimeHost {
     artifact_operations: noema_artifacts::ArtifactOperationsHandle,
     provider_account_service: ProviderAccountService,
     provider_account_operations: ProviderAccountOperationsHandle,
-    mcp_oauth: McpOAuthSetupManager,
+    mcp_service: LocalMcpService,
+    mcp_operations: McpControlPlaneHandle,
     mnemosyne: Option<crate::MnemosyneLifecycle>,
     memory_startup_error: Option<String>,
     system_errors: SystemErrorLogger,
@@ -301,6 +308,30 @@ impl NoemaRuntimeHost {
             provider_account_operations.clone(),
             provider_credentials,
         );
+        let mcp_repository: McpRepositoryHandle = Arc::new(store.clone());
+        let mcp_secrets = Arc::new(FilesystemMcpSecretStore::new(paths.clone()));
+        let mcp_diagnostics = SystemErrorMcpDiagnostics::new(system_errors.clone()).handle();
+        let mcp_completion = RuntimeMcpAutofillCompletionBridge::new(system_errors.clone());
+        let mcp_service = LocalMcpService::new(
+            mcp_repository,
+            mcp_secrets,
+            mcp_diagnostics.clone(),
+            Some(mcp_completion.handle()),
+            LocalMcpServiceConfig::default(),
+            |oauth| {
+                let authorization: McpHttpAuthorizationHandle = Arc::new(oauth);
+                let stdio: McpSessionFactoryHandle =
+                    Arc::new(StdioMcpSessionFactory::new(Some(mcp_diagnostics.clone())));
+                let streamable_http: McpSessionFactoryHandle =
+                    Arc::new(StreamableHttpMcpSessionFactory::new(
+                        Some(mcp_diagnostics),
+                        Some(authorization),
+                    ));
+                Arc::new(McpSessionFactoryRouter::new(stdio, streamable_http))
+            },
+        )
+        .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
+        let mcp_operations = mcp_service.operations();
         let runtime = CodexRuntimeHandle::spawn(CodexRuntimeSpawnConfig {
             default_provider_kind,
             provider_routes,
@@ -310,9 +341,12 @@ impl NoemaRuntimeHost {
             memory_connection: mnemosyne_connection,
             task_subscriptions: subscriptions.clone(),
             provider_accounts,
+            capability_bindings: mcp_service.binding_source(),
+            capability_invokers: Arc::from([mcp_service.invoker_registration()]),
         })
         .await
         .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
+        mcp_completion.attach(runtime.clone());
         runtime
             .set_local_models_runtime_root(local_model_runtime_root)
             .await;
@@ -335,7 +369,8 @@ impl NoemaRuntimeHost {
             artifact_operations,
             provider_account_service,
             provider_account_operations,
-            mcp_oauth: McpOAuthSetupManager::new(),
+            mcp_service,
+            mcp_operations,
             mnemosyne,
             memory_startup_error,
             system_errors,
@@ -366,10 +401,10 @@ impl NoemaRuntimeHost {
         &self.provider_account_operations
     }
 
-    /// MCP OAuth setup manager.
+    /// MCP settings and setup control plane.
     #[must_use]
-    pub fn mcp_oauth(&self) -> &McpOAuthSetupManager {
-        &self.mcp_oauth
+    pub(crate) fn mcp_operations(&self) -> &McpControlPlaneHandle {
+        &self.mcp_operations
     }
 
     /// Developer diagnostic system error logger.
@@ -406,12 +441,19 @@ impl NoemaRuntimeHost {
 
     /// Shut down runtime-owned work.
     pub async fn shutdown(self) {
-        self.provider_account_service.shutdown().await;
+        self.mcp_service.begin_shutdown();
         self.task_runtime.shutdown().await;
         if let Some(mnemosyne) = self.mnemosyne {
             mnemosyne.shutdown().await;
         }
         self.runtime.shutdown().await;
+        if !self.mcp_service.shutdown().await {
+            self.system_errors.try_append(SystemErrorEvent::new(
+                "mcp_shutdown_drain_timeout",
+                "MCP work did not terminate before the shutdown deadline",
+            ));
+        }
+        self.provider_account_service.shutdown().await;
     }
 }
 

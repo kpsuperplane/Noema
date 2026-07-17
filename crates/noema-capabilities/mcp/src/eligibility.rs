@@ -65,20 +65,30 @@ pub fn mcp_tool_ineligibility(
 /// Transient server availability is intentionally excluded. A catalog-approved
 /// definition may remain declared only when the provider enforces a separate
 /// allowed-tools subset; dispatch still uses [`mcp_tool_ineligibility`].
-pub(crate) fn mcp_tool_catalog_ineligibility(
+#[must_use]
+pub fn mcp_tool_catalog_ineligibility(
     tool: &McpToolRecord,
     calibration: Option<&ToolCalibrationRecord>,
 ) -> Option<McpToolIneligibility> {
     let Some(calibration) = calibration else {
         return Some(McpToolIneligibility::ToolNotCalibrated);
     };
-    if calibration.status != McpCalibrationStatus::Ready
+    if calibration.mcp_tool_id != tool.mcp_tool_id
+        || calibration.status != McpCalibrationStatus::Ready
+        || !matches!(
+            calibration.read_classification,
+            McpTrustClassification::Trusted | McpTrustClassification::Untrusted
+        )
         || [
             calibration.read_classification,
             calibration.write_classification,
             calibration.export_classification,
         ]
         .contains(&McpTrustClassification::Mixed)
+        || calibration
+            .reviewed_by
+            .as_deref()
+            .is_none_or(|reviewer| reviewer.trim().is_empty())
         || calibration.reviewed_metadata_fingerprint.as_deref()
             != Some(tool.metadata_fingerprint.as_str())
     {
@@ -246,6 +256,36 @@ mod tests {
             mcp_tool_catalog_ineligibility(&tool, Some(&calibration)),
             Some(McpToolIneligibility::ToolApprovalRequired)
         );
+    }
+
+    #[test]
+    fn corrupt_ready_calibration_is_never_eligible() {
+        let (tool, calibration) = catalog_projection_fixture();
+        let corruptions = [
+            ToolCalibrationRecord {
+                mcp_tool_id: "mcp_tool:other".to_string(),
+                ..calibration.clone()
+            },
+            ToolCalibrationRecord {
+                read_classification: McpTrustClassification::None,
+                ..calibration.clone()
+            },
+            ToolCalibrationRecord {
+                reviewed_by: None,
+                ..calibration.clone()
+            },
+            ToolCalibrationRecord {
+                reviewed_by: Some("   ".to_string()),
+                ..calibration
+            },
+        ];
+
+        for corrupt in &corruptions {
+            assert_eq!(
+                mcp_tool_catalog_ineligibility(&tool, Some(corrupt)),
+                Some(McpToolIneligibility::ToolNotCalibrated)
+            );
+        }
     }
 
     fn catalog_projection_fixture() -> (McpToolRecord, ToolCalibrationRecord) {

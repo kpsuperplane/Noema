@@ -1,25 +1,23 @@
-use std::collections::BTreeMap;
-
 use async_graphql::{InputObject, Json, Result, SimpleObject};
+use noema_capabilities_mcp::{
+    CompleteMcpOAuthSetupCommand, ContinueMcpServerSetupCommand, McpAutofillCalibrationsCommand,
+    McpDeleteServerCommand, McpDiscoveryStatus, McpListToolsCommand, McpOAuthSetupAttemptQuery,
+    McpOAuthSetupAttemptStatus, McpOAuthSetupAttemptView, McpSaveCalibrationsCommand,
+    McpSecretMaterial, McpServerAuthStatus, McpServerHealthStatus, McpServerRecord,
+    McpServerSetupResult, McpSetupAuthDetails, McpSetupStatus, McpToolCalibrationSuggestion,
+    McpToolRecord, McpTransportKind, StartMcpOAuthReauthenticationCommand,
+    StartMcpOAuthSetupCommand, ToolCalibrationRecord,
+};
 use serde_json::Value;
 
-use crate::{
-    McpCalibrationStatus, McpServerAuthStatus, McpServerHealthStatus, McpServerRecord,
-    McpToolRecord, McpTransportKind, McpTrustClassification, NewToolCalibration,
-    ToolCalibrationRecord,
-    mcp::{
-        McpOAuthSetupAttemptView, StartMcpOAuthSetupRequest,
-        oauth::oauth_secret_material,
-        secrets::{McpOAuthClientCredentials, McpSecretMaterial, read_mcp_secrets},
-        setup::{
-            ContinueMcpServerSetup, McpServerSetupResult, McpSetupAuthDetails, NewMcpServerSetup,
-            continue_mcp_server_setup as continue_setup_service,
-            create_mcp_server_setup as create_setup_service,
-        },
-    },
-};
-
 use super::{errors::graphql_error, schema::GraphqlState};
+
+mod input;
+
+use input::{
+    json_string_map, parse_create_mcp_server_input, parse_oauth_client_credentials,
+    parse_save_tool_calibration_input,
+};
 
 /// MCP server metadata safe to show in Settings.
 #[derive(Clone, Debug, SimpleObject)]
@@ -183,10 +181,13 @@ impl From<McpServerSetupResult> for GraphqlMcpServerSetupResult {
     fn from(result: McpServerSetupResult) -> Self {
         Self {
             server: result.server.map(Into::into),
-            setup_status: result.setup_status.as_str().to_string(),
-            discovery_status: result.discovery_status,
+            setup_status: setup_status_label(result.setup_status).to_string(),
+            discovery_status: result
+                .discovery_status
+                .map(discovery_status_label)
+                .map(str::to_string),
             discovered_tool_count: result.discovered_tool_count,
-            setup_error: result.setup_error,
+            setup_error: result.issue.map(|issue| issue.to_string()),
             auth: result.auth.map(Into::into),
         }
     }
@@ -206,10 +207,10 @@ impl From<McpOAuthSetupAttemptView> for GraphqlMcpOAuthSetupAttempt {
     fn from(attempt: McpOAuthSetupAttemptView) -> Self {
         Self {
             attempt_id: attempt.attempt_id,
-            status: attempt.status.as_str().to_string(),
+            status: oauth_attempt_status_label(attempt.status).to_string(),
             authorization_url: attempt.authorization_url,
             setup_result: attempt.setup_result.map(Into::into),
-            error_message: attempt.error_message,
+            error_message: attempt.failure.map(|failure| failure.to_string()),
         }
     }
 }
@@ -342,8 +343,8 @@ pub struct GraphqlToolCalibrationSuggestion {
     pub disabled: Option<bool>,
 }
 
-impl From<crate::mcp::autofill::McpToolCalibrationSuggestion> for GraphqlToolCalibrationSuggestion {
-    fn from(suggestion: crate::mcp::autofill::McpToolCalibrationSuggestion) -> Self {
+impl From<McpToolCalibrationSuggestion> for GraphqlToolCalibrationSuggestion {
+    fn from(suggestion: McpToolCalibrationSuggestion) -> Self {
         Self {
             mcp_tool_id: suggestion.mcp_tool_id,
             read_classification: suggestion.read_classification.as_str().to_string(),
@@ -393,30 +394,55 @@ const fn auth_status_label(status: McpServerAuthStatus) -> &'static str {
     }
 }
 
+const fn setup_status_label(status: McpSetupStatus) -> &'static str {
+    match status {
+        McpSetupStatus::NeedsAuth => "needs_auth",
+        McpSetupStatus::ReadyForCalibration => "ready_for_calibration",
+        McpSetupStatus::Unavailable => "unavailable",
+        McpSetupStatus::Malformed => "malformed",
+    }
+}
+
+const fn discovery_status_label(status: McpDiscoveryStatus) -> &'static str {
+    match status {
+        McpDiscoveryStatus::NeedsAuth => "needs_auth",
+        McpDiscoveryStatus::Discovered => "discovered",
+        McpDiscoveryStatus::Unavailable => "unavailable",
+        McpDiscoveryStatus::Malformed => "malformed",
+    }
+}
+
+const fn oauth_attempt_status_label(status: McpOAuthSetupAttemptStatus) -> &'static str {
+    match status {
+        McpOAuthSetupAttemptStatus::WaitingForUser => "waiting_for_user",
+        McpOAuthSetupAttemptStatus::Completed => "completed",
+        McpOAuthSetupAttemptStatus::Failed => "failed",
+    }
+}
+
 pub(super) async fn mcp_servers(state: &GraphqlState) -> Result<Vec<GraphqlMcpServer>> {
-    let store = state.store()?;
-    let servers = store.list_mcp_servers().await.map_err(graphql_error)?;
-    Ok(servers.into_iter().map(Into::into).collect())
+    let result = state
+        .mcp_operations()?
+        .list_servers()
+        .await
+        .map_err(graphql_error)?;
+    Ok(result.servers.into_iter().map(Into::into).collect())
 }
 
 pub(super) async fn mcp_tools(
     state: &GraphqlState,
     mcp_server_id: String,
 ) -> Result<Vec<GraphqlMcpTool>> {
-    let store = state.store()?;
-    let tools = store
-        .list_mcp_tools_for_server(&mcp_server_id)
+    let result = state
+        .mcp_operations()?
+        .list_tools(McpListToolsCommand { mcp_server_id })
         .await
         .map_err(graphql_error)?;
-    let mut graphql_tools = Vec::with_capacity(tools.len());
-    for tool in tools {
-        let calibration = store
-            .get_tool_calibration(&tool.mcp_tool_id)
-            .await
-            .map_err(graphql_error)?;
-        graphql_tools.push(GraphqlMcpTool::from_records(tool, calibration));
-    }
-    Ok(graphql_tools)
+    Ok(result
+        .tools
+        .into_iter()
+        .map(|entry| GraphqlMcpTool::from_records(entry.tool, entry.calibration))
+        .collect())
 }
 
 pub(super) async fn mcp_oauth_setup_attempt(
@@ -424,9 +450,10 @@ pub(super) async fn mcp_oauth_setup_attempt(
     attempt_id: String,
 ) -> Result<Option<GraphqlMcpOAuthSetupAttempt>> {
     let attempt = state
-        .mcp_oauth()?
-        .attempt(&attempt_id)
+        .mcp_operations()?
+        .oauth_setup_attempt(McpOAuthSetupAttemptQuery { attempt_id })
         .await
+        .map_err(graphql_error)?
         .map(Into::into);
     Ok(attempt)
 }
@@ -435,32 +462,14 @@ pub(super) async fn autofill_tool_calibrations(
     state: &GraphqlState,
     mcp_server_id: String,
 ) -> Result<GraphqlAutofillToolCalibrationsResult> {
-    let store = state.store()?;
-    let server = store
-        .get_mcp_server(&mcp_server_id)
-        .await
-        .map_err(graphql_error)?
-        .ok_or_else(|| graphql_error("MCP server was not found"))?;
-    let tools = store
-        .list_mcp_tools_for_server(&mcp_server_id)
+    let result = state
+        .mcp_operations()?
+        .autofill_calibrations(McpAutofillCalibrationsCommand { mcp_server_id })
         .await
         .map_err(graphql_error)?;
-    let prompt = crate::mcp::autofill::build_autofill_prompt(&server.display_name, &tools);
-    let runtime = state.runtime()?;
-    let mut request = noema_providers::GenerateRequest::text(prompt);
-    request.instructions =
-        Some("Return strict JSON only for MCP calibration suggestions.".to_string());
-
-    let response = runtime
-        .generate_once_with_tool_classification_model(request)
-        .await
-        .map_err(graphql_error)?;
-    let suggestions =
-        crate::mcp::autofill::parse_autofill_response(&response.assistant_text(), &tools)
-            .map_err(graphql_error)?;
 
     Ok(GraphqlAutofillToolCalibrationsResult {
-        suggestions: suggestions.into_iter().map(Into::into).collect(),
+        suggestions: result.suggestions.into_iter().map(Into::into).collect(),
     })
 }
 
@@ -468,15 +477,12 @@ pub(super) async fn create_mcp_server(
     state: &GraphqlState,
     input: GraphqlCreateMcpServerInput,
 ) -> Result<GraphqlMcpServerSetupResult> {
-    let store = state.store()?;
-    let paths = state.paths()?;
-    let mut setup_input = parse_create_mcp_server_input(input)?;
-    setup_input.browser_oauth_supported = state.mcp_browser_oauth_supported(&setup_input).await;
-    let result = create_setup_service(store, paths, setup_input, |server, secrets| {
-        state.mcp_setup_transport(server, Some(secrets))
-    })
-    .await
-    .map_err(graphql_error)?;
+    let command = parse_create_mcp_server_input(input)?;
+    let result = state
+        .mcp_operations()?
+        .create_server(command)
+        .await
+        .map_err(graphql_error)?;
     Ok(result.into())
 }
 
@@ -486,11 +492,10 @@ pub(super) async fn start_mcp_server_oauth_setup(
 ) -> Result<GraphqlMcpOAuthSetupAttempt> {
     let setup = parse_create_mcp_server_input(input.server)?;
     let attempt = state
-        .mcp_oauth()?
-        .start_attempt(StartMcpOAuthSetupRequest {
+        .mcp_operations()?
+        .start_oauth_setup(StartMcpOAuthSetupCommand {
             setup,
             redirect_uri: input.redirect_uri,
-            existing_mcp_server_id: None,
         })
         .await
         .map_err(graphql_error)?;
@@ -501,33 +506,11 @@ pub(super) async fn start_mcp_server_reauthentication_oauth_setup(
     state: &GraphqlState,
     input: GraphqlStartMcpServerReauthenticationOAuthSetupInput,
 ) -> Result<GraphqlMcpOAuthSetupAttempt> {
-    let store = state.store()?;
-    let paths = state.paths()?;
-    let server = store
-        .get_mcp_server(&input.mcp_server_id)
-        .await
-        .map_err(graphql_error)?
-        .ok_or_else(|| graphql_error("MCP server was not found"))?;
-    if !browser_oauth_reauth_supported(&server) {
-        return Err(graphql_error(
-            "MCP server does not have browser OAuth credentials to refresh",
-        ));
-    }
-    let secrets = read_mcp_secrets(&paths.mcp_server_home(&server.mcp_server_id))
-        .map_err(|error| graphql_error(format!("failed to read MCP secrets: {error}")))?;
-    let setup = NewMcpServerSetup {
-        display_name: server.display_name,
-        transport_kind: server.transport_kind,
-        safe_config: server.safe_config,
-        secrets,
-        browser_oauth_supported: true,
-    };
     let attempt = state
-        .mcp_oauth()?
-        .start_attempt(StartMcpOAuthSetupRequest {
-            setup,
+        .mcp_operations()?
+        .start_oauth_reauthentication(StartMcpOAuthReauthenticationCommand {
+            mcp_server_id: input.mcp_server_id,
             redirect_uri: input.redirect_uri,
-            existing_mcp_server_id: Some(input.mcp_server_id),
         })
         .await
         .map_err(graphql_error)?;
@@ -549,82 +532,27 @@ pub async fn complete_mcp_server_oauth_setup(
     attempt_id: &str,
     callback_url: &str,
 ) -> Result<GraphqlMcpOAuthSetupAttempt> {
-    let manager = state.mcp_oauth()?;
-    let Some(mut runtime) = manager.take_runtime(attempt_id).await else {
-        return Err(graphql_error("MCP OAuth setup attempt was not found"));
-    };
-    if let Err(error) = runtime.oauth_state.handle_callback_url(callback_url).await {
-        let attempt = manager
-            .fail_attempt(
-                attempt_id,
-                "Noema could not complete MCP OAuth authorization.",
-            )
-            .await;
-        return attempt
-            .map(Into::into)
-            .ok_or_else(|| graphql_error(format!("MCP OAuth setup attempt failed: {error}")));
-    }
-    let secrets = match oauth_secret_material(&runtime.oauth_state, runtime.setup.secrets).await {
-        Ok(secrets) => secrets,
-        Err(error) => {
-            let attempt = manager
-                .fail_attempt(attempt_id, "Noema could not store MCP OAuth credentials.")
-                .await;
-            return attempt.map(Into::into).ok_or_else(|| graphql_error(error));
-        }
-    };
-    let store = state.store()?;
-    let paths = state.paths()?;
-    let setup_result = if let Some(mcp_server_id) = runtime.existing_mcp_server_id {
-        continue_setup_service(
-            store,
-            paths,
-            ContinueMcpServerSetup {
-                mcp_server_id,
-                secrets,
-            },
-            |server, secrets| state.mcp_setup_transport(server, Some(secrets)),
-        )
-        .await
-    } else {
-        runtime.setup.secrets = secrets;
-        create_setup_service(store, paths, runtime.setup, |server, secrets| {
-            state.mcp_setup_transport(server, Some(secrets))
+    let attempt = state
+        .mcp_operations()?
+        .complete_oauth_setup(CompleteMcpOAuthSetupCommand {
+            attempt_id: attempt_id.to_string(),
+            callback_url: callback_url.to_string(),
         })
         .await
-    }
-    .map_err(graphql_error)?;
-    let status = setup_result.setup_status;
-    let attempt = if matches!(
-        status,
-        crate::mcp::setup::McpSetupStatus::ReadyForCalibration
-    ) {
-        manager.complete_attempt(attempt_id, setup_result).await
-    } else {
-        manager
-            .fail_attempt(
-                attempt_id,
-                "Noema completed OAuth, but could not list tools from this MCP server.",
-            )
-            .await
-    };
-    attempt
-        .map(Into::into)
-        .ok_or_else(|| graphql_error("MCP OAuth setup attempt was not found"))
+        .map_err(graphql_error)?;
+    Ok(attempt.into())
 }
 
 pub(super) async fn continue_mcp_server_setup(
     state: &GraphqlState,
     input: GraphqlContinueMcpServerSetupInput,
 ) -> Result<GraphqlMcpServerSetupResult> {
-    let store = state.store()?;
-    let paths = state.paths()?;
-    let result = continue_setup_service(
-        store,
-        paths,
-        ContinueMcpServerSetup {
+    let result = state
+        .mcp_operations()?
+        .continue_setup(ContinueMcpServerSetupCommand {
             mcp_server_id: input.mcp_server_id,
             secrets: McpSecretMaterial {
+                secret_identity_revision: None,
                 env: json_string_map(input.secret_env, "secretEnv")?,
                 headers: json_string_map(input.secret_headers, "secretHeaders")?,
                 oauth_client_credentials: parse_oauth_client_credentials(
@@ -632,32 +560,19 @@ pub(super) async fn continue_mcp_server_setup(
                 )?,
                 oauth_credentials: None,
             },
-        },
-        |server, secrets| state.mcp_setup_transport(server, Some(secrets)),
-    )
-    .await
-    .map_err(graphql_error)?;
+        })
+        .await
+        .map_err(graphql_error)?;
     Ok(result.into())
 }
 
 pub(super) async fn delete_mcp_server(state: &GraphqlState, mcp_server_id: String) -> Result<bool> {
-    let store = state.store()?;
-    let paths = state.paths()?;
-    if store
-        .get_mcp_server(&mcp_server_id)
-        .await
-        .map_err(graphql_error)?
-        .is_none()
-    {
-        return Ok(false);
-    }
-    crate::mcp::secrets::remove_mcp_secrets_dir(&paths.mcp_server_home(&mcp_server_id))
-        .map_err(graphql_error)?;
-    let deleted = store
-        .delete_mcp_server(&mcp_server_id)
+    let result = state
+        .mcp_operations()?
+        .delete_server(McpDeleteServerCommand { mcp_server_id })
         .await
         .map_err(graphql_error)?;
-    Ok(deleted)
+    Ok(result.deleted)
 }
 
 pub(super) async fn save_tool_calibration(
@@ -665,12 +580,19 @@ pub(super) async fn save_tool_calibration(
     input: GraphqlSaveToolCalibrationInput,
 ) -> Result<GraphqlToolCalibration> {
     let calibration = parse_save_tool_calibration_input(input)?;
-    let store = state.store()?;
-    let saved = store
-        .save_tool_calibration(calibration)
+    let result = state
+        .mcp_operations()?
+        .save_calibrations(McpSaveCalibrationsCommand {
+            calibrations: vec![calibration],
+        })
         .await
         .map_err(graphql_error)?;
-    Ok(saved.into())
+    result
+        .calibrations
+        .into_iter()
+        .next()
+        .map(Into::into)
+        .ok_or_else(|| graphql_error("MCP calibration save returned no result"))
 }
 
 pub(super) async fn save_tool_calibrations(
@@ -682,197 +604,10 @@ pub(super) async fn save_tool_calibrations(
         .map(parse_save_tool_calibration_input)
         .collect::<Result<Vec<_>>>()?;
 
-    let store = state.store()?;
-    let saved = store
-        .save_tool_calibrations(calibrations)
+    let result = state
+        .mcp_operations()?
+        .save_calibrations(McpSaveCalibrationsCommand { calibrations })
         .await
         .map_err(graphql_error)?;
-    Ok(saved.into_iter().map(Into::into).collect())
-}
-
-fn parse_save_tool_calibration_input(
-    input: GraphqlSaveToolCalibrationInput,
-) -> Result<NewToolCalibration> {
-    let read_classification =
-        parse_graphql_trust_classification(&input.read_classification, "readClassification")?;
-    let write_classification =
-        parse_graphql_trust_classification(&input.write_classification, "writeClassification")?;
-    let export_classification =
-        parse_graphql_trust_classification(&input.export_classification, "exportClassification")?;
-    let status = parse_graphql_calibration_status(&input.status)?;
-    Ok(NewToolCalibration {
-        calibration_id: input.calibration_id,
-        mcp_tool_id: input.mcp_tool_id,
-        read_classification,
-        write_classification,
-        export_classification,
-        status,
-        reviewed_by: input.reviewed_by,
-        reviewed_metadata_fingerprint: input.reviewed_metadata_fingerprint,
-    })
-}
-
-fn parse_graphql_trust_classification(
-    value: &str,
-    field_name: &'static str,
-) -> Result<McpTrustClassification> {
-    match value {
-        "none" => Ok(McpTrustClassification::None),
-        "trusted" => Ok(McpTrustClassification::Trusted),
-        "untrusted" => Ok(McpTrustClassification::Untrusted),
-        "mixed" => Ok(McpTrustClassification::Mixed),
-        _ => Err(graphql_error(format!(
-            "invalid {field_name}: expected one of none, trusted, untrusted, mixed"
-        ))),
-    }
-}
-
-fn parse_create_mcp_server_input(input: GraphqlCreateMcpServerInput) -> Result<NewMcpServerSetup> {
-    let transport_kind = parse_graphql_transport_kind(&input.transport_kind)?;
-    match transport_kind {
-        McpTransportKind::Stdio => {
-            if input.http.is_some() {
-                return Err(graphql_error(
-                    "invalid MCP setup input: http cannot be set for stdio transport",
-                ));
-            }
-            let stdio = input.stdio.ok_or_else(|| {
-                graphql_error("invalid MCP setup input: stdio config is required")
-            })?;
-            let env = json_string_map(stdio.env, "env")?;
-            let secret_env = json_string_map(stdio.secret_env, "secretEnv")?;
-            Ok(NewMcpServerSetup {
-                display_name: input.display_name,
-                transport_kind,
-                safe_config: serde_json::json!({
-                    "command": stdio.command,
-                    "args": stdio.args,
-                    "cwd": stdio.cwd,
-                    "env": env
-                }),
-                secrets: McpSecretMaterial {
-                    env: secret_env,
-                    headers: BTreeMap::new(),
-                    oauth_client_credentials: None,
-                    oauth_credentials: None,
-                },
-                browser_oauth_supported: false,
-            })
-        }
-        McpTransportKind::StreamableHttp => {
-            if input.stdio.is_some() {
-                return Err(graphql_error(
-                    "invalid MCP setup input: stdio cannot be set for HTTP transport",
-                ));
-            }
-            let http = input
-                .http
-                .ok_or_else(|| graphql_error("invalid MCP setup input: http config is required"))?;
-            let headers = json_string_map(http.headers, "headers")?;
-            let secret_headers = json_string_map(http.secret_headers, "secretHeaders")?;
-            let oauth_client_credentials =
-                parse_oauth_client_credentials(http.oauth_client_credentials)?;
-            Ok(NewMcpServerSetup {
-                display_name: input.display_name,
-                transport_kind,
-                safe_config: serde_json::json!({
-                    "url": http.url,
-                    "headers": headers
-                }),
-                secrets: McpSecretMaterial {
-                    env: BTreeMap::new(),
-                    headers: secret_headers,
-                    oauth_client_credentials,
-                    oauth_credentials: None,
-                },
-                browser_oauth_supported: false,
-            })
-        }
-    }
-}
-
-fn parse_oauth_client_credentials(
-    input: Option<GraphqlMcpOAuthClientCredentialsInput>,
-) -> Result<Option<McpOAuthClientCredentials>> {
-    let Some(input) = input else {
-        return Ok(None);
-    };
-    let client_id = input.client_id.trim();
-    let client_secret = input.client_secret.trim();
-    if client_id.is_empty() || client_secret.is_empty() {
-        return Err(graphql_error(
-            "invalid MCP OAuth client credentials: clientId and clientSecret are required",
-        ));
-    }
-    Ok(Some(McpOAuthClientCredentials {
-        client_id: client_id.to_string(),
-        client_secret: client_secret.to_string(),
-        scopes: input
-            .scopes
-            .into_iter()
-            .map(|scope| scope.trim().to_string())
-            .filter(|scope| !scope.is_empty())
-            .collect(),
-    }))
-}
-
-fn parse_graphql_transport_kind(value: &str) -> Result<McpTransportKind> {
-    match value {
-        "stdio" => Ok(McpTransportKind::Stdio),
-        "streamable_http" => Ok(McpTransportKind::StreamableHttp),
-        _ => Err(graphql_error(
-            "invalid transportKind: expected one of stdio, streamable_http",
-        )),
-    }
-}
-
-fn json_string_map(
-    value: Option<Json<Value>>,
-    field_name: &'static str,
-) -> Result<BTreeMap<String, String>> {
-    let Some(Json(value)) = value else {
-        return Ok(BTreeMap::new());
-    };
-    let object = value.as_object().ok_or_else(|| {
-        graphql_error(format!(
-            "invalid MCP {field_name} map: expected object with string values"
-        ))
-    })?;
-    object
-        .iter()
-        .map(|(key, value)| {
-            value
-                .as_str()
-                .map(|string| (key.clone(), string.to_string()))
-                .ok_or_else(|| {
-                    graphql_error(format!(
-                        "invalid MCP {field_name} map: expected object with string values"
-                    ))
-                })
-        })
-        .collect()
-}
-
-fn parse_graphql_calibration_status(value: &str) -> Result<McpCalibrationStatus> {
-    match value {
-        "needs_review" => Ok(McpCalibrationStatus::NeedsReview),
-        "blocked_unresolved_ownership" => Ok(McpCalibrationStatus::BlockedUnresolvedOwnership),
-        "ready" => Ok(McpCalibrationStatus::Ready),
-        "disabled" => Ok(McpCalibrationStatus::Disabled),
-        _ => Err(graphql_error(
-            "invalid status: expected one of needs_review, blocked_unresolved_ownership, ready, disabled",
-        )),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn rejects_removed_sse_transport_kind() {
-        let error = parse_graphql_transport_kind("sse").expect_err("SSE must be rejected");
-
-        assert!(error.message.contains("stdio, streamable_http"));
-    }
+    Ok(result.calibrations.into_iter().map(Into::into).collect())
 }

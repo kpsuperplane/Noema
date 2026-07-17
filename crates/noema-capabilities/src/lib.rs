@@ -24,8 +24,8 @@ pub use metadata::{
 };
 pub use router::{
     CapabilityDispatch, CapabilityDispatchFailure, CapabilityError, CapabilityFuture,
-    CapabilityInvocation, CapabilityInvoker, CapabilityInvokerHandle, CapabilityOutput,
-    CapabilityRegistryRouter, CapabilityRouter, CapabilityRouterConstructionError,
-    CapabilityRouterHandle, InvokerKey,
+    CapabilityInvocation, CapabilityInvoker, CapabilityInvokerHandle,
+    CapabilityInvokerRegistration, CapabilityOutput, CapabilityRegistryRouter, CapabilityRouter,
+    CapabilityRouterConstructionError, CapabilityRouterHandle, InvokerKey,
 };
 pub use tool::{ToolContractError, ToolName, ToolSchema, ToolSpec};

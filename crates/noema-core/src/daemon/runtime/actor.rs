@@ -1,9 +1,9 @@
 use std::collections::HashMap;
-#[cfg(test)]
 use std::sync::Arc;
 
 use crate::NoemaStore;
 use futures_util::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
+use noema_capabilities::{CapabilityBindingSourceHandle, CapabilityInvokerRegistration};
 use noema_home::SystemErrorLogger;
 use noema_providers::{
     ProviderAccountOperationsHandle, ProviderCredentialAccessHandle, ProviderRouteLease,
@@ -73,6 +73,8 @@ pub(in crate::daemon) struct CodexRuntimeActor {
     pub(in crate::daemon) search_provider: crate::search::types::SearchRuntimeProvider,
     pub(in crate::daemon) web_fetch_provider: crate::web_fetch::types::WebFetchRuntimeProvider,
     pub(in crate::daemon) provider_accounts: ProviderAccountRuntimeAccess,
+    pub(in crate::daemon) capability_bindings: CapabilityBindingSourceHandle,
+    pub(in crate::daemon) capability_invokers: Arc<[CapabilityInvokerRegistration]>,
     pub(in crate::daemon) conversations: HashMap<String, ActiveConversation>,
     pub(super) tasks: RuntimeTaskGroup,
     pub(super) task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
@@ -94,6 +96,8 @@ impl std::fmt::Debug for CodexRuntimeActor {
             .field("search_provider", &self.search_provider)
             .field("web_fetch_provider", &self.web_fetch_provider)
             .field("provider_accounts", &self.provider_accounts)
+            .field("capability_bindings", &"[CONFIGURED]")
+            .field("capability_invokers", &self.capability_invokers.len())
             .field("conversation_count", &self.conversations.len())
             .finish_non_exhaustive()
     }
@@ -133,6 +137,7 @@ impl CodexRuntimeActor {
     ) -> Result<Self, DaemonError> {
         let provider_routes = LegacyProviderRoutes::new(providers)?;
         let provider_accounts = test_provider_account_access(&store)?;
+        let (capability_bindings, capability_invokers) = test_capability_handles();
         Self::from_spawn_config(CodexRuntimeSpawnConfig {
             default_provider_kind,
             provider_routes,
@@ -142,6 +147,8 @@ impl CodexRuntimeActor {
             memory_connection,
             task_subscriptions,
             provider_accounts,
+            capability_bindings,
+            capability_invokers,
         })
         .await
     }
@@ -159,6 +166,8 @@ impl CodexRuntimeActor {
             search_provider: noema_providers::default_web_search_backend(),
             web_fetch_provider: noema_providers::default_web_fetch_backend(),
             provider_accounts: config.provider_accounts,
+            capability_bindings: config.capability_bindings,
+            capability_invokers: config.capability_invokers,
             conversations: HashMap::new(),
             tasks: RuntimeTaskGroup::default(),
             task_subscriptions: config.task_subscriptions,
@@ -240,6 +249,8 @@ impl CodexRuntimeActor {
             search_provider: self.search_provider.clone(),
             web_fetch_provider: self.web_fetch_provider.clone(),
             provider_accounts: self.provider_accounts.clone(),
+            capability_bindings: self.capability_bindings.clone(),
+            capability_invokers: self.capability_invokers.clone(),
             conversations: HashMap::new(),
             tasks: RuntimeTaskGroup::default(),
             task_subscriptions: self.task_subscriptions.clone(),
@@ -444,6 +455,56 @@ pub(super) fn test_provider_account_access(
         service.operations(),
         service.credentials(),
     ))
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+struct EmptyCapabilityBindingSource;
+
+#[cfg(test)]
+impl noema_capabilities::CapabilityBindingSource for EmptyCapabilityBindingSource {
+    fn catalog(
+        &self,
+    ) -> noema_capabilities::CapabilityFuture<
+        '_,
+        Result<
+            noema_capabilities::CapabilityCatalogResult,
+            noema_capabilities::CapabilityBindingSourceError,
+        >,
+    > {
+        Box::pin(async { Ok(noema_capabilities::CapabilityCatalogResult::default()) })
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+struct EmptyCapabilityInvoker;
+
+#[cfg(test)]
+impl noema_capabilities::CapabilityInvoker for EmptyCapabilityInvoker {
+    fn invoke(
+        &self,
+        _invocation: noema_capabilities::CapabilityInvocation,
+    ) -> noema_capabilities::CapabilityFuture<
+        '_,
+        Result<noema_capabilities::CapabilityOutput, noema_capabilities::CapabilityError>,
+    > {
+        Box::pin(async { Err(noema_capabilities::CapabilityError::UnknownOperation) })
+    }
+}
+
+#[cfg(test)]
+pub(super) fn test_capability_handles() -> (
+    CapabilityBindingSourceHandle,
+    Arc<[CapabilityInvokerRegistration]>,
+) {
+    (
+        Arc::new(EmptyCapabilityBindingSource),
+        Arc::from([CapabilityInvokerRegistration::new(
+            noema_capabilities::InvokerKey::new("test-external"),
+            Arc::new(EmptyCapabilityInvoker),
+        )]),
+    )
 }
 
 fn runtime_stopped() -> DaemonError {

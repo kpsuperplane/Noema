@@ -1,13 +1,12 @@
+use std::str::FromStr;
+
 use rusqlite::Row;
 
 use super::{
     McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolRecord,
     ToolCalibrationRecord,
 };
-use crate::{
-    McpCalibrationStatus, McpTransportKind, McpTrustClassification,
-    store::{StoreError, ids::invalid_enum},
-};
+use crate::{McpCalibrationStatus, McpTransportKind, McpTrustClassification, store::StoreError};
 
 pub(super) fn bool_from_i64(value: i64) -> bool {
     value != 0
@@ -89,50 +88,33 @@ pub(super) fn tool_calibration_from_row(row: &Row<'_>) -> rusqlite::Result<ToolC
 }
 
 fn parse_mcp_transport_kind(value: &str) -> Result<McpTransportKind, StoreError> {
-    match value {
-        "stdio" => Ok(McpTransportKind::Stdio),
-        "streamable_http" => Ok(McpTransportKind::StreamableHttp),
-        _ => invalid_enum("mcp_transport_kind", value),
-    }
+    parse_persisted_enum("mcp_transport_kind", value)
 }
 
 fn parse_mcp_health_status(value: &str) -> Result<McpServerHealthStatus, StoreError> {
-    match value {
-        "unknown" => Ok(McpServerHealthStatus::Unknown),
-        "healthy" => Ok(McpServerHealthStatus::Healthy),
-        "unavailable" => Ok(McpServerHealthStatus::Unavailable),
-        _ => invalid_enum("mcp_server_health_status", value),
-    }
+    parse_persisted_enum("mcp_server_health_status", value)
 }
 
 fn parse_mcp_auth_status(value: &str) -> Result<McpServerAuthStatus, StoreError> {
-    match value {
-        "none" => Ok(McpServerAuthStatus::None),
-        "needs_auth" => Ok(McpServerAuthStatus::NeedsAuth),
-        "authenticated" => Ok(McpServerAuthStatus::Authenticated),
-        "unavailable" => Ok(McpServerAuthStatus::Unavailable),
-        _ => invalid_enum("mcp_server_auth_status", value),
-    }
+    parse_persisted_enum("mcp_server_auth_status", value)
 }
 
 fn parse_mcp_trust_classification(value: &str) -> Result<McpTrustClassification, StoreError> {
-    match value {
-        "none" => Ok(McpTrustClassification::None),
-        "trusted" => Ok(McpTrustClassification::Trusted),
-        "untrusted" => Ok(McpTrustClassification::Untrusted),
-        "mixed" => Ok(McpTrustClassification::Mixed),
-        _ => invalid_enum("mcp_trust_classification", value),
-    }
+    parse_persisted_enum("mcp_trust_classification", value)
 }
 
 fn parse_mcp_calibration_status(value: &str) -> Result<McpCalibrationStatus, StoreError> {
-    match value {
-        "needs_review" => Ok(McpCalibrationStatus::NeedsReview),
-        "blocked_unresolved_ownership" => Ok(McpCalibrationStatus::BlockedUnresolvedOwnership),
-        "ready" => Ok(McpCalibrationStatus::Ready),
-        "disabled" => Ok(McpCalibrationStatus::Disabled),
-        _ => invalid_enum("mcp_calibration_status", value),
-    }
+    parse_persisted_enum("mcp_calibration_status", value)
+}
+
+fn parse_persisted_enum<T>(kind: &'static str, value: &str) -> Result<T, StoreError>
+where
+    T: FromStr,
+{
+    value.parse().map_err(|_| StoreError::InvalidEnum {
+        kind,
+        value: value.to_string(),
+    })
 }
 
 fn to_sql_error(error: impl std::error::Error + Send + Sync + 'static) -> rusqlite::Error {

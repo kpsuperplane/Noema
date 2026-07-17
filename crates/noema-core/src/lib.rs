@@ -11,8 +11,6 @@ use noema_tasks::TaskStatus;
 
 /// Shared execution roles and role-aware tool dispatch policy.
 pub mod agent_execution;
-/// Capability Gateway runtime entrypoint.
-pub(crate) mod capability;
 /// Configuration loading and provider selection.
 pub mod config;
 /// Local daemon runtime and web protocol types.
@@ -21,8 +19,7 @@ pub mod daemon;
 pub mod graphql;
 /// Curated local-model catalog and hardware-fit recommendation.
 pub mod local_models;
-/// Third-party MCP control-plane types.
-pub mod mcp;
+mod mcp_completion;
 /// Private OpenAI-compatible model proxy for local memory extraction.
 pub mod memory_model_proxy;
 /// Mnemosyne local service client and lifecycle support.
@@ -58,7 +55,6 @@ pub use local_models::{
     LocalModelsProvider, NOEMA_LLAMA_SERVER_PATH_ENV, bundled_llama_server_candidates,
     bundled_llama_server_candidates_in, detect_local_hardware_profiles, tauri_sidecar_input_name,
 };
-pub use mcp::{McpCalibrationStatus, McpTransportKind, McpTrustClassification};
 pub use memory_model_proxy::{MemoryModelProxy, MemoryModelProxyConfig, MemoryModelProxyError};
 pub use mnemosyne::{
     MnemosyneAddMemoryRequest, MnemosyneClient, MnemosyneClientError, MnemosyneConnection,
@@ -66,6 +62,7 @@ pub use mnemosyne::{
     MnemosyneListMemoriesResponse, MnemosyneMemory, MnemosyneMessage, MnemosyneSearchRequest,
     MnemosyneSearchResponse,
 };
+pub use noema_capabilities_mcp::{McpCalibrationStatus, McpTransportKind, McpTrustClassification};
 pub use onboarding::{
     OnboardingStatus, OnboardingStep, OnboardingStepStatus, onboarding_status_from_account,
     onboarding_status_from_options,
@@ -75,7 +72,9 @@ pub use store::{
     AgentRecord, AgentRuntimePreferenceRecord, AgentSystemRole, AuxiliaryModelPreferenceRecord,
     McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolRecord,
     MemoryArticleCacheRecord, MemoryServiceMode, MemoryServiceSettingsRecord, NewAgent,
-    NewAgentRuntimePreference, NewAuxiliaryModelPreference, NewMcpServer, NewMcpTool,
-    NewToolCalibration, NoemaStore, SaveMemoryArticleCache, SaveMemoryServiceSettings, StoreConfig,
-    StoreError, ToolCalibrationRecord, WEB_FETCH_SUMMARIZER_TASK_ID,
+    NewAgentRuntimePreference, NewAuxiliaryModelPreference, NewToolCalibration, NoemaStore,
+    SaveMemoryArticleCache, SaveMemoryServiceSettings, StoreConfig, StoreError,
+    ToolCalibrationRecord, WEB_FETCH_SUMMARIZER_TASK_ID,
 };
+#[cfg(test)]
+pub(crate) use store::{NewMcpServer, NewMcpTool};

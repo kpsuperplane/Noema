@@ -93,6 +93,7 @@ impl CodexRuntimeHandle {
         task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
     ) -> Result<Self, DaemonError> {
         let provider_accounts = super::actor::test_provider_account_access(&store)?;
+        let (capability_bindings, capability_invokers) = super::actor::test_capability_handles();
         Self::spawn(CodexRuntimeSpawnConfig {
             default_provider_kind,
             provider_routes,
@@ -102,6 +103,8 @@ impl CodexRuntimeHandle {
             memory_connection,
             task_subscriptions,
             provider_accounts,
+            capability_bindings,
+            capability_invokers,
         })
         .await
     }
@@ -290,6 +293,7 @@ impl CodexRuntimeHandle {
         }
         let provider_routes = LegacyProviderRoutes::new(providers)?;
         let provider_accounts = super::actor::test_provider_account_access(&store)?;
+        let (capability_bindings, capability_invokers) = super::actor::test_capability_handles();
         Self::spawn(CodexRuntimeSpawnConfig {
             default_provider_kind,
             provider_routes,
@@ -299,6 +303,8 @@ impl CodexRuntimeHandle {
             memory_connection,
             task_subscriptions,
             provider_accounts,
+            capability_bindings,
+            capability_invokers,
         })
         .await
     }

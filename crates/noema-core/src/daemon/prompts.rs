@@ -59,7 +59,7 @@ Tool channels:
 - The latest tools.visibility context section is the sole prompt-level authority for which tools and execution channels are available in the current turn.
 - A native tool is callable only when its exact definition is also supplied through the provider's native tool channel.
 - A Noema response-envelope tool is callable only when tools.visibility explicitly lists it for that channel.
-- Connector status rows marked unavailable_mcp are informational and are never callable.
+- Capability status rows marked unavailable_capability are informational and are never callable.
 - If tools.visibility is absent or removed, do not call tools and leave tool_calls empty.
 - Never infer present tool availability from an older tools.visibility value, a user request, memory, or general knowledge.
 
@@ -403,7 +403,7 @@ mod tests {
         assert!(prompt.contains("latest tools.visibility context section"));
         assert!(prompt.contains("sole prompt-level authority"));
         assert!(prompt.contains("exact definition is also supplied"));
-        assert!(prompt.contains("unavailable_mcp are informational and are never callable"));
+        assert!(prompt.contains("unavailable_capability are informational and are never callable"));
         assert!(prompt.contains("If tools.visibility is absent or removed"));
         assert!(!prompt.contains("mcp.dex.search_contacts"));
     }

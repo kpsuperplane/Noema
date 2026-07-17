@@ -39,6 +39,9 @@ pub(crate) struct CodexRuntimeSpawnConfig {
     pub(crate) memory_connection: Option<crate::MnemosyneConnection>,
     pub(crate) task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
     pub(crate) provider_accounts: ProviderAccountRuntimeAccess,
+    pub(crate) capability_bindings: noema_capabilities::CapabilityBindingSourceHandle,
+    pub(crate) capability_invokers:
+        std::sync::Arc<[noema_capabilities::CapabilityInvokerRegistration]>,
 }
 
 /// Structured context for one primary-agent completion report.

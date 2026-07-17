@@ -57,9 +57,11 @@ pub use auxiliary_model_preferences::{
 };
 pub use error::StoreError;
 pub use mcp::{
-    McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolRecord, NewMcpServer,
-    NewMcpTool, NewToolCalibration, ToolCalibrationRecord,
+    McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolRecord, NewToolCalibration,
+    ToolCalibrationRecord,
 };
+#[cfg(test)]
+pub(crate) use mcp::{NewMcpServer, NewMcpTool};
 pub use memory_service::{
     MemoryArticleCacheRecord, MemoryServiceMode, MemoryServiceSettingsRecord,
     SaveMemoryArticleCache, SaveMemoryServiceSettings,
