@@ -3,7 +3,8 @@
 use std::sync::Arc;
 
 use crate::{
-    ProviderAccountRecord, ProviderAccountStatus, ProviderModelProfile, ProviderPersistenceFuture,
+    PersistedProviderAccountRecord, ProviderAccountStatus, ProviderModelProfile,
+    ProviderPersistenceFuture,
 };
 
 /// Typed provider-owned fields committed by one model-catalog refresh.
@@ -34,7 +35,7 @@ pub trait ProviderModelCatalogPersistence: Send + Sync {
     fn persist_provider_model_catalog(
         &self,
         request: PersistProviderModelCatalogRequest,
-    ) -> ProviderPersistenceFuture<'_, ProviderAccountRecord>;
+    ) -> ProviderPersistenceFuture<'_, PersistedProviderAccountRecord>;
 }
 
 /// Clonable provider model-catalog persistence handle.

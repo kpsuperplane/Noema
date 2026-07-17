@@ -40,7 +40,7 @@ pub(crate) async fn resolve_candidate(
         candidate.repo,
         candidate.revision
     );
-    let store = NoemaStore::open(&StoreConfig::from_paths(&eval_paths))
+    let store = NoemaStore::open(&StoreConfig::new(eval_paths.sqlite_db_path()))
         .await
         .map_err(|error| error.to_string())?;
     let installer =

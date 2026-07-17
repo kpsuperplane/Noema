@@ -6,8 +6,9 @@ use super::*;
 use crate::{
     DefaultModelPreferenceRecord, LocalModelBackend, LocalModelEventRecord,
     LocalModelInstallationRecord, LocalModelInstallationStatus, LocalModelInstallationUpdate,
-    LocalModelSourceKind, NewLocalModelInstallation, NewProviderAccount, ProviderAccountRecord,
-    ProviderCapabilityAssignment, RemovedLocalModelInstallation,
+    LocalModelSourceKind, NewLocalModelInstallation, NewProviderAccount,
+    PersistedProviderAccountRecord, ProviderCapabilityAccountReference,
+    ProviderCapabilityAssignment, ProviderCapabilityAssignmentKey, RemovedLocalModelInstallation,
 };
 
 fn unsupported<T>(operation: &'static str) -> ProviderPersistenceFuture<'static, T> {
@@ -20,44 +21,46 @@ impl ProviderAccountPersistence for AccountFake {
     fn provider_account<'a>(
         &'a self,
         _provider_account_id: &'a str,
-    ) -> ProviderPersistenceFuture<'a, Option<ProviderAccountRecord>> {
+    ) -> ProviderPersistenceFuture<'a, Option<PersistedProviderAccountRecord>> {
         unsupported("provider_account")
     }
 
     fn active_provider_account<'a>(
         &'a self,
         _provider_kind: &'a str,
-    ) -> ProviderPersistenceFuture<'a, Option<ProviderAccountRecord>> {
+    ) -> ProviderPersistenceFuture<'a, Option<PersistedProviderAccountRecord>> {
         unsupported("active_provider_account")
     }
 
     fn active_default_provider_accounts(
         &self,
-    ) -> ProviderPersistenceFuture<'_, Vec<ProviderAccountRecord>> {
+    ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>> {
         unsupported("active_default_provider_accounts")
     }
 
     fn active_provider_accounts(
         &self,
-    ) -> ProviderPersistenceFuture<'_, Vec<ProviderAccountRecord>> {
+    ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>> {
         unsupported("active_provider_accounts")
     }
 
-    fn provider_accounts(&self) -> ProviderPersistenceFuture<'_, Vec<ProviderAccountRecord>> {
+    fn provider_accounts(
+        &self,
+    ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>> {
         unsupported("provider_accounts")
     }
 
     fn create_provider_account(
         &self,
         _request: NewProviderAccount,
-    ) -> ProviderPersistenceFuture<'_, ProviderAccountRecord> {
+    ) -> ProviderPersistenceFuture<'_, PersistedProviderAccountRecord> {
         unsupported("create_provider_account")
     }
 
     fn update_provider_account(
         &self,
         _request: UpdateProviderAccountRequest,
-    ) -> ProviderPersistenceFuture<'_, ProviderAccountRecord> {
+    ) -> ProviderPersistenceFuture<'_, PersistedProviderAccountRecord> {
         unsupported("update_provider_account")
     }
 
@@ -74,8 +77,7 @@ struct CapabilityFake;
 impl ProviderCapabilityAssignmentPersistence for CapabilityFake {
     fn provider_capability_assignment<'a>(
         &'a self,
-        _tool_name: &'a ToolName,
-        _capability_id: CapabilityId,
+        _key: &'a ProviderCapabilityAssignmentKey,
     ) -> ProviderPersistenceFuture<'a, Option<ProviderCapabilityAssignment>> {
         unsupported("provider_capability_assignment")
     }
@@ -94,7 +96,7 @@ impl ProviderModelCatalogPersistence for CatalogFake {
     fn persist_provider_model_catalog(
         &self,
         _request: PersistProviderModelCatalogRequest,
-    ) -> ProviderPersistenceFuture<'_, ProviderAccountRecord> {
+    ) -> ProviderPersistenceFuture<'_, PersistedProviderAccountRecord> {
         unsupported("persist_provider_model_catalog")
     }
 }
@@ -205,9 +207,11 @@ async fn every_persistence_port_is_object_safe_and_independently_erasable() {
 
     let capability: ProviderCapabilityAssignmentPersistenceHandle = Arc::new(CapabilityFake);
     let tool_name = ToolName::new("web.search").expect("tool");
+    let key = ProviderCapabilityAssignmentKey::new(tool_name.clone(), CapabilityId::WebSearch)
+        .expect("assignment key");
     assert!(
         capability
-            .provider_capability_assignment(&tool_name, CapabilityId::WebSearch)
+            .provider_capability_assignment(&key)
             .await
             .is_err()
     );
@@ -217,7 +221,7 @@ async fn every_persistence_port_is_object_safe_and_independently_erasable() {
                 UpsertProviderCapabilityAssignmentRequest::new(
                     tool_name,
                     CapabilityId::WebSearch,
-                    "account",
+                    ProviderCapabilityAccountReference::persisted("account"),
                 )
                 .expect("assignment request"),
             )

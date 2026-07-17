@@ -145,7 +145,7 @@ impl CodexRuntimeHandle {
         memory_operations: Option<noema_memory::MemoryOperationsHandle>,
     ) -> Result<Self, DaemonError> {
         let provider_kind = "codex".to_string();
-        let system_errors = store.system_error_logger();
+        let system_errors = crate::test_support::system_error_logger();
         let artifact_operations =
             crate::test_support::artifact_operations(&store).map_err(DaemonError::Protocol)?;
         Self::spawn_with_provider_map_inner(
@@ -182,7 +182,7 @@ impl CodexRuntimeHandle {
         search_provider: crate::search::types::SearchRuntimeProvider,
     ) -> Result<Self, DaemonError> {
         let provider_kind = "codex".to_string();
-        let system_errors = store.system_error_logger();
+        let system_errors = crate::test_support::system_error_logger();
         let providers = HashMap::from([(provider_kind.clone(), provider)]);
         if !providers.contains_key(&provider_kind) {
             return Err(DaemonError::Provider(ProviderError::ProviderUnavailable {
@@ -220,7 +220,7 @@ impl CodexRuntimeHandle {
         web_fetch_provider: crate::web_fetch::types::WebFetchRuntimeProvider,
     ) -> Result<Self, DaemonError> {
         let provider_kind = "codex".to_string();
-        let system_errors = store.system_error_logger();
+        let system_errors = crate::test_support::system_error_logger();
         let providers = HashMap::from([(provider_kind.clone(), provider)]);
         if !providers.contains_key(&provider_kind) {
             return Err(DaemonError::Provider(ProviderError::ProviderUnavailable {
@@ -260,7 +260,7 @@ impl CodexRuntimeHandle {
     where
         I: IntoIterator<Item = (String, ProviderHandle)>,
     {
-        let system_errors = store.system_error_logger();
+        let system_errors = crate::test_support::system_error_logger();
         let artifact_operations =
             crate::test_support::artifact_operations(&store).map_err(DaemonError::Protocol)?;
         Self::spawn_with_provider_map_inner(

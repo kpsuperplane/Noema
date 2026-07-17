@@ -21,7 +21,7 @@ impl ProviderModelCatalogPersistence for NoemaStore {
     fn persist_provider_model_catalog(
         &self,
         request: PersistProviderModelCatalogRequest,
-    ) -> ProviderPersistenceFuture<'_, noema_providers::ProviderAccountRecord> {
+    ) -> ProviderPersistenceFuture<'_, noema_providers::PersistedProviderAccountRecord> {
         Box::pin(async move { persist_model_catalog(self, request).await })
     }
 }
@@ -29,7 +29,7 @@ impl ProviderModelCatalogPersistence for NoemaStore {
 async fn persist_model_catalog(
     store: &NoemaStore,
     request: PersistProviderModelCatalogRequest,
-) -> Result<noema_providers::ProviderAccountRecord, ProviderPersistenceError> {
+) -> Result<noema_providers::PersistedProviderAccountRecord, ProviderPersistenceError> {
     store
         .with_connection(|conn| {
             let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;

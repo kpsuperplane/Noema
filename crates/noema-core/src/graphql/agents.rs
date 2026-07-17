@@ -500,7 +500,7 @@ mod tests {
 
     #[tokio::test]
     async fn installed_active_local_model_is_selectable_and_saveable() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         let installation_id = seed_installed_bonsai(&store).await;
         store
             .activate_local_model_as_system_default(&installation_id)

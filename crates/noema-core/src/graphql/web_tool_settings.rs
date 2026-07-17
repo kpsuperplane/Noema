@@ -1,6 +1,7 @@
 use async_graphql::{InputObject, Result, SimpleObject};
 use noema_providers::{
-    ProviderAccountRecord, ProviderCapability, ProviderCapabilityAssignmentPersistence,
+    ProviderAccountRecord, ProviderCapability, ProviderCapabilityAccountReference,
+    ProviderCapabilityAssignmentKey, ProviderCapabilityAssignmentPersistence,
     ProviderCapabilityStatus, UpsertProviderCapabilityAssignmentRequest, system_provider_accounts,
 };
 
@@ -52,6 +53,12 @@ pub struct GraphqlSaveWebToolProviderBindingInput {
     pub provider_account_id: String,
 }
 
+#[derive(Clone, Debug)]
+struct SelectableProviderAccount {
+    account: ProviderAccountRecord,
+    reference: ProviderCapabilityAccountReference,
+}
+
 pub(super) async fn web_tool_settings(state: &GraphqlState) -> Result<GraphqlWebToolSettings> {
     let store = state.store()?;
     let accounts = selectable_accounts(state).await?;
@@ -76,22 +83,20 @@ pub(super) async fn save_web_tool_provider_binding(
     }
 
     let accounts = selectable_accounts(state).await?;
-    let provider_options = provider_options(&accounts, capability_id);
-    if !provider_options
-        .iter()
-        .any(|option| option.provider_account_id == input.provider_account_id)
-    {
-        return Err(async_graphql::Error::new(
-            "provider account does not supply the requested capability",
-        ));
-    }
+    let account_reference =
+        selectable_account_reference(&accounts, capability_id, &input.provider_account_id)
+            .ok_or_else(|| {
+                async_graphql::Error::new(
+                    "provider account does not supply the requested capability",
+                )
+            })?;
 
     ProviderCapabilityAssignmentPersistence::upsert_provider_capability_assignment(
         store,
         UpsertProviderCapabilityAssignmentRequest::new(
             ToolName::new(input.tool_name).map_err(graphql_error)?,
             capability_id,
-            input.provider_account_id,
+            account_reference,
         )
         .map_err(graphql_error)?,
     )
@@ -101,45 +106,59 @@ pub(super) async fn save_web_tool_provider_binding(
     binding_settings(store, &accounts, capability_id).await
 }
 
-async fn selectable_accounts(state: &GraphqlState) -> Result<Vec<ProviderAccountRecord>> {
-    let mut accounts = system_provider_accounts();
+async fn selectable_accounts(state: &GraphqlState) -> Result<Vec<SelectableProviderAccount>> {
+    let mut accounts = Vec::new();
+    for account in system_provider_accounts() {
+        accounts.push(SelectableProviderAccount {
+            reference: ProviderCapabilityAccountReference::validated_system(
+                account.provider_account_id.clone(),
+            )
+            .map_err(graphql_error)?,
+            account,
+        });
+    }
     accounts.extend(
         state
             .provider_account_operations()?
             .active_accounts()
             .await
-            .map_err(graphql_error)?,
+            .map_err(graphql_error)?
+            .into_iter()
+            .map(|account| SelectableProviderAccount {
+                reference: ProviderCapabilityAccountReference::persisted(
+                    account.provider_account_id.clone(),
+                ),
+                account,
+            }),
     );
     Ok(accounts)
 }
 
 async fn binding_settings(
     store: &NoemaStore,
-    accounts: &[ProviderAccountRecord],
+    accounts: &[SelectableProviderAccount],
     capability_id: CapabilityId,
 ) -> Result<GraphqlWebToolBindingSettings> {
     let tool_name = tool_name_for_capability(capability_id);
     let provider_options = provider_options(accounts, capability_id);
     let default_provider_account_id = default_provider_account_id(capability_id).to_string();
     let tool_name = ToolName::new(tool_name).map_err(graphql_error)?;
+    let key =
+        ProviderCapabilityAssignmentKey::new(tool_name, capability_id).map_err(graphql_error)?;
     let active_provider_account_id =
-        ProviderCapabilityAssignmentPersistence::provider_capability_assignment(
-            store,
-            &tool_name,
-            capability_id,
-        )
-        .await
-        .map_err(graphql_error)?
-        .map(|binding| binding.provider_account_id)
-        .filter(|provider_account_id| {
-            provider_options
-                .iter()
-                .any(|option| option.provider_account_id == *provider_account_id)
-        })
-        .unwrap_or(default_provider_account_id);
+        ProviderCapabilityAssignmentPersistence::provider_capability_assignment(store, &key)
+            .await
+            .map_err(graphql_error)?
+            .map(|binding| binding.provider_account_id)
+            .filter(|provider_account_id| {
+                provider_options
+                    .iter()
+                    .any(|option| option.provider_account_id == *provider_account_id)
+            })
+            .unwrap_or(default_provider_account_id);
 
     Ok(GraphqlWebToolBindingSettings {
-        tool_name: tool_name.to_string(),
+        tool_name: key.tool_name_str().to_string(),
         capability_id: capability_id.as_str().to_string(),
         active_provider_account_id,
         provider_options,
@@ -147,22 +166,40 @@ async fn binding_settings(
 }
 
 fn provider_options(
-    accounts: &[ProviderAccountRecord],
+    accounts: &[SelectableProviderAccount],
     capability_id: CapabilityId,
 ) -> Vec<GraphqlWebToolProviderOption> {
     accounts
         .iter()
-        .filter_map(|account| {
-            account
+        .filter_map(|selectable| {
+            selectable
+                .account
                 .capabilities
                 .iter()
                 .find(|capability| {
                     capability.capability_id == capability_id
                         && capability.status == ProviderCapabilityStatus::Available
                 })
-                .map(|capability| option_from_account(account, capability))
+                .map(|capability| option_from_account(&selectable.account, capability))
         })
         .collect()
+}
+
+fn selectable_account_reference(
+    accounts: &[SelectableProviderAccount],
+    capability_id: CapabilityId,
+    provider_account_id: &str,
+) -> Option<ProviderCapabilityAccountReference> {
+    accounts
+        .iter()
+        .find(|selectable| {
+            selectable.account.provider_account_id == provider_account_id
+                && selectable.account.capabilities.iter().any(|capability| {
+                    capability.capability_id == capability_id
+                        && capability.status == ProviderCapabilityStatus::Available
+                })
+        })
+        .map(|selectable| selectable.reference.clone())
 }
 
 fn option_from_account(
@@ -211,8 +248,8 @@ const fn default_provider_account_id(capability_id: CapabilityId) -> &'static st
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{graphql::schema::GraphqlState, store::tests::test_store};
-    use noema_providers::{ProviderAccountStatus, ProviderAuthMethod};
+    use crate::{graphql::schema::GraphqlState, test_support::test_store};
+    use noema_providers::ProviderAccountStatus;
 
     #[tokio::test]
     async fn web_tool_settings_lists_only_matching_available_capabilities() {
@@ -221,15 +258,8 @@ mod tests {
             .ensure_default_provider_account()
             .await
             .expect("codex account");
-        insert_provider_account(
-            &store,
-            "provider_account:exa:research",
-            "exa",
-            "research",
-            false,
-            ProviderAccountStatus::Authenticated,
-        )
-        .await;
+        let exa_account_id =
+            create_exa_provider_account(&store, ProviderAccountStatus::Authenticated).await;
         let state = GraphqlState::for_tests_with_store(store);
 
         let settings = web_tool_settings(&state).await.expect("settings");
@@ -250,7 +280,7 @@ mod tests {
                 .search
                 .provider_options
                 .iter()
-                .any(|option| { option.provider_account_id == "provider_account:exa:research" })
+                .any(|option| option.provider_account_id == exa_account_id)
         );
         assert!(
             settings.fetch.provider_options.iter().any(|option| {
@@ -276,26 +306,18 @@ mod tests {
     #[tokio::test]
     async fn web_tool_settings_falls_back_when_saved_binding_is_not_selectable() {
         let store = test_store().await;
-        insert_provider_account(
+        let exa_account_id =
+            create_exa_provider_account(&store, ProviderAccountStatus::Authenticated).await;
+        crate::test_support::save_provider_capability_assignment_for_tests(
             &store,
-            "provider_account:exa:research",
-            "exa",
-            "research",
-            false,
-            ProviderAccountStatus::Authenticated,
+            "web.search",
+            "web.search",
+            ProviderCapabilityAccountReference::persisted(exa_account_id.clone()),
         )
         .await;
         store
-            .upsert_provider_capability_binding(
-                "web.search",
-                "web.search",
-                "provider_account:exa:research",
-            )
-            .await
-            .expect("save binding");
-        store
             .update_provider_account_status(
-                "provider_account:exa:research",
+                &exa_account_id,
                 ProviderAccountStatus::Unknown,
                 None,
                 None,
@@ -315,35 +337,32 @@ mod tests {
                 .search
                 .provider_options
                 .iter()
-                .any(|option| { option.provider_account_id == "provider_account:exa:research" })
+                .any(|option| option.provider_account_id == exa_account_id)
         );
     }
 
     #[tokio::test]
     async fn web_tool_settings_include_active_non_default_exa_accounts() {
         let store = test_store().await;
-        insert_provider_account(
-            &store,
-            "provider_account:exa:acct_research",
-            "exa",
-            "acct_research",
-            false,
-            ProviderAccountStatus::Authenticated,
-        )
-        .await;
+        let exa_account_id =
+            create_exa_provider_account(&store, ProviderAccountStatus::Authenticated).await;
         let state = GraphqlState::for_tests_with_store(store);
 
         let settings = web_tool_settings(&state).await.expect("settings");
 
         assert!(
-            settings.search.provider_options.iter().any(|option| {
-                option.provider_account_id == "provider_account:exa:acct_research"
-            })
+            settings
+                .search
+                .provider_options
+                .iter()
+                .any(|option| { option.provider_account_id == exa_account_id })
         );
         assert!(
-            settings.fetch.provider_options.iter().any(|option| {
-                option.provider_account_id == "provider_account:exa:acct_research"
-            })
+            settings
+                .fetch
+                .provider_options
+                .iter()
+                .any(|option| { option.provider_account_id == exa_account_id })
         );
     }
 
@@ -372,15 +391,8 @@ mod tests {
     #[tokio::test]
     async fn save_web_tool_provider_binding_rejects_unavailable_provider_capability() {
         let store = test_store().await;
-        insert_provider_account(
-            &store,
-            "provider_account:exa:research",
-            "exa",
-            "research",
-            false,
-            ProviderAccountStatus::Unknown,
-        )
-        .await;
+        let exa_account_id =
+            create_exa_provider_account(&store, ProviderAccountStatus::Unknown).await;
         let state = GraphqlState::for_tests_with_store(store);
 
         let error = save_web_tool_provider_binding(
@@ -388,7 +400,7 @@ mod tests {
             GraphqlSaveWebToolProviderBindingInput {
                 tool_name: "web.search".to_string(),
                 capability_id: "web.search".to_string(),
-                provider_account_id: "provider_account:exa:research".to_string(),
+                provider_account_id: exa_account_id,
             },
         )
         .await
@@ -405,15 +417,8 @@ mod tests {
     #[tokio::test]
     async fn save_web_tool_provider_binding_persists_selectable_provider() {
         let store = test_store().await;
-        insert_provider_account(
-            &store,
-            "provider_account:exa:research",
-            "exa",
-            "research",
-            false,
-            ProviderAccountStatus::Authenticated,
-        )
-        .await;
+        let exa_account_id =
+            create_exa_provider_account(&store, ProviderAccountStatus::Authenticated).await;
         let state = GraphqlState::for_tests_with_store(store.clone());
 
         let saved = save_web_tool_provider_binding(
@@ -421,43 +426,66 @@ mod tests {
             GraphqlSaveWebToolProviderBindingInput {
                 tool_name: "web.search".to_string(),
                 capability_id: "web.search".to_string(),
-                provider_account_id: "provider_account:exa:research".to_string(),
+                provider_account_id: exa_account_id.clone(),
             },
         )
         .await
         .expect("save binding");
 
+        assert_eq!(saved.active_provider_account_id, exa_account_id);
+        let binding = store
+            .provider_capability_binding("web.search", "web.search")
+            .await
+            .expect("binding lookup")
+            .expect("binding row");
+        assert_eq!(
+            binding.provider_account_id,
+            saved.active_provider_account_id
+        );
+    }
+
+    #[tokio::test]
+    async fn save_web_tool_provider_binding_persists_system_provider_without_durable_row() {
+        let store = test_store().await;
+        let state = GraphqlState::for_tests_with_store(store.clone());
+
+        let saved = save_web_tool_provider_binding(
+            &state,
+            GraphqlSaveWebToolProviderBindingInput {
+                tool_name: "web.search".to_string(),
+                capability_id: "web.search".to_string(),
+                provider_account_id: "provider_account:duckduckgo_public:system".to_string(),
+            },
+        )
+        .await
+        .expect("save system binding");
+
         assert_eq!(
             saved.active_provider_account_id,
-            "provider_account:exa:research"
+            "provider_account:duckduckgo_public:system"
         );
         let binding = store
             .provider_capability_binding("web.search", "web.search")
             .await
             .expect("binding lookup")
             .expect("binding row");
-        assert_eq!(binding.provider_account_id, "provider_account:exa:research");
+        assert_eq!(
+            binding.provider_account_id,
+            "provider_account:duckduckgo_public:system"
+        );
     }
 
-    async fn insert_provider_account(
+    async fn create_exa_provider_account(
         store: &crate::NoemaStore,
-        provider_account_id: &str,
-        provider_kind: &str,
-        account_key: &str,
-        is_default: bool,
         status: ProviderAccountStatus,
-    ) {
-        crate::store::tests::insert_provider_account_for_tests(
+    ) -> String {
+        crate::test_support::create_exa_provider_account_for_tests(
             store,
-            provider_account_id,
-            provider_kind,
-            account_key,
-            &format!("{provider_kind} {account_key}"),
-            ProviderAuthMethod::SecretInput,
-            is_default,
+            "Exa research",
             status,
             serde_json::json!({}),
         )
-        .await;
+        .await
+        .provider_account_id
     }
 }

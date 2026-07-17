@@ -55,7 +55,7 @@ mod tests {
 
     #[tokio::test]
     async fn local_status_query_returns_primary_agent_display_name() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         store.ensure_default_actors().await.expect("actors");
         store
             .update_agent_display_name("agent:primary", "Fred")

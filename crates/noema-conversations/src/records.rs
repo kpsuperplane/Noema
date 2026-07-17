@@ -1,6 +1,9 @@
 use serde_json::{Value, json};
 
-use crate::{ActorRef, ConversationItemKind, ConversationItemStatus, ConversationOwnerRef};
+use crate::{
+    ActorRef, AgentStatus, ConversationItemKind, ConversationItemStatus, ConversationOwnerRef,
+    ConversationTurnStatus,
+};
 
 /// Input for creating a durable conversation.
 #[derive(Debug, Clone, PartialEq)]
@@ -76,6 +79,15 @@ pub struct ConversationTurnRecord {
     pub turn_id: String,
     /// Conversation that owns the turn.
     pub conversation_id: String,
+}
+
+/// Latest durable turn and live-agent state for one conversation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConversationRuntimeStatus {
+    /// Latest durable turn lifecycle state.
+    pub turn_status: ConversationTurnStatus,
+    /// Conversation-level live agent state.
+    pub agent_status: AgentStatus,
 }
 
 /// Input for appending a durable item to a conversation stream.

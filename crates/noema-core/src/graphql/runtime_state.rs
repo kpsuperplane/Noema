@@ -103,7 +103,8 @@ impl GraphqlRuntimeState {
     #[must_use]
     pub fn for_tests_with_store_and_paths(store: NoemaStore, paths: NoemaPaths) -> Self {
         let artifact_operations =
-            crate::test_support::artifact_operations(&store).expect("test artifact service");
+            crate::test_support::artifact_operations_for_paths(&store, &paths)
+                .expect("test artifact service");
         let provider_account_operations = test_provider_account_service(&store, &paths);
         let mcp_operations = test_mcp_operations(store.clone(), None);
         let memory_repository: MemoryRepositoryHandle = std::sync::Arc::new(store.clone());
@@ -450,6 +451,12 @@ impl noema_providers::ProviderAccountOperations for TestStoreBackedProviderAccou
                 .active_provider_accounts()
                 .await
                 .map_err(|_| noema_providers::ProviderAccountOperationError::Persistence)
+                .map(|accounts| {
+                    accounts
+                        .into_iter()
+                        .map(noema_providers::provider_account_from_persisted)
+                        .collect()
+                })
         })
     }
 
@@ -552,7 +559,7 @@ impl noema_providers::ProviderAccountOperations for TestStoreBackedProviderAccou
             if !account.is_active {
                 return Err(noema_providers::ProviderAccountOperationError::AccountInactive);
             }
-            Ok(account)
+            Ok(noema_providers::provider_account_from_persisted(account))
         })
     }
 

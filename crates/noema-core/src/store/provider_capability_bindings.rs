@@ -1,11 +1,11 @@
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
-use noema_providers::{ProviderAccountRecord, ProviderCapabilityAssignment};
-
-use super::{
-    NoemaStore, StoreError,
-    provider_accounts::{PROVIDER_ACCOUNT_SELECT, provider_account_from_row, provider_account_row},
+use noema_providers::{
+    ProviderCapabilityAccountReference, ProviderCapabilityAccountReferenceMode,
+    ProviderCapabilityAssignment,
 };
+
+use super::{NoemaStore, StoreError};
 
 impl NoemaStore {
     /// Create or update one provider capability binding.
@@ -13,21 +13,17 @@ impl NoemaStore {
     /// # Errors
     ///
     /// Returns [`StoreError`] when the embedded store write/read fails.
-    pub async fn upsert_provider_capability_binding(
+    pub(super) async fn upsert_provider_capability_binding(
         &self,
         tool_name: &str,
         capability_id: &str,
-        provider_account_id: &str,
+        account_reference: &ProviderCapabilityAccountReference,
     ) -> Result<ProviderCapabilityAssignment, StoreError> {
         let binding_id = binding_id(tool_name, capability_id);
         self.with_connection(|conn| {
             let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            let account = validate_provider_capability_binding(
-                &transaction,
-                tool_name,
-                capability_id,
-                provider_account_id,
-            )?;
+            require_persisted_account(&transaction, account_reference)?;
+            let provider_account_id = account_reference.provider_account_id();
             transaction.execute(
                 r#"
                 INSERT INTO provider_capability_bindings
@@ -37,12 +33,7 @@ impl NoemaStore {
                   provider_account_id = excluded.provider_account_id,
                   updated_at = excluded.updated_at
                 "#,
-                params![
-                    binding_id,
-                    tool_name,
-                    capability_id,
-                    account.provider_account_id,
-                ],
+                params![binding_id, tool_name, capability_id, provider_account_id,],
             )?;
             let assignment = transaction.query_row(
                 r#"
@@ -90,42 +81,27 @@ impl NoemaStore {
     }
 }
 
-fn validate_provider_capability_binding(
+fn require_persisted_account(
     transaction: &Transaction<'_>,
-    tool_name: &str,
-    capability_id: &str,
-    provider_account_id: &str,
-) -> Result<ProviderAccountRecord, StoreError> {
-    validate_binding_pair(tool_name, capability_id)?;
-    let durable = transaction
-        .query_row(
-            format!("{PROVIDER_ACCOUNT_SELECT} WHERE provider_account_id = ?1 LIMIT 1").as_str(),
-            [provider_account_id],
-            provider_account_row,
-        )
-        .optional()?
-        .map(provider_account_from_row)
-        .transpose()?;
-    let account = durable
-        .or_else(|| {
-            noema_providers::system_provider_accounts()
-                .into_iter()
-                .find(|account| account.provider_account_id == provider_account_id)
-        })
-        .ok_or_else(|| StoreError::ProviderAccountNotFound {
-            provider_account_id: provider_account_id.to_string(),
-        })?;
-    let declares_capability = account
-        .capabilities
-        .iter()
-        .any(|capability| capability.capability_id.as_str() == capability_id);
-    if !declares_capability {
-        return Err(StoreError::InvalidEnum {
-            kind: "provider_capability_binding_provider_account",
-            value: account.provider_account_id,
-        });
+    account_reference: &ProviderCapabilityAccountReference,
+) -> Result<(), StoreError> {
+    if account_reference.mode() == ProviderCapabilityAccountReferenceMode::Persisted {
+        let provider_account_id = account_reference.provider_account_id();
+        let account_exists = transaction
+            .query_row(
+                "SELECT 1 FROM provider_accounts WHERE provider_account_id = ?1 LIMIT 1",
+                [provider_account_id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if !account_exists {
+            return Err(StoreError::ProviderAccountNotFound {
+                provider_account_id: provider_account_id.to_string(),
+            });
+        }
     }
-    Ok(account)
+    Ok(())
 }
 
 fn provider_capability_binding_from_row(
@@ -141,15 +117,4 @@ fn provider_capability_binding_from_row(
 
 fn binding_id(tool_name: &str, capability_id: &str) -> String {
     format!("provider_capability_binding:{tool_name}:{capability_id}")
-}
-
-fn validate_binding_pair(tool_name: &str, capability_id: &str) -> Result<(), StoreError> {
-    if noema_providers::provider_capability_assignment_pair_is_supported(tool_name, capability_id) {
-        Ok(())
-    } else {
-        Err(StoreError::InvalidEnum {
-            kind: "provider_capability_binding_pair",
-            value: format!("{tool_name}:{capability_id}"),
-        })
-    }
 }

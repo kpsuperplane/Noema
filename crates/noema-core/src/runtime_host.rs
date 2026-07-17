@@ -88,7 +88,7 @@ impl NoemaRuntimeHost {
         .map_err(|source| RuntimeHostError::DataFolder(source.to_string()))?;
 
         let system_errors = SystemErrorLogger::from_paths(&paths);
-        let store = NoemaStore::open(&StoreConfig::from_paths(&paths))
+        let store = NoemaStore::open(&StoreConfig::new(paths.sqlite_db_path()))
             .await
             .map_err(|source| RuntimeHostError::Store(source.to_string()))?;
         store
@@ -617,7 +617,7 @@ mod tests {
             model_profile: Some("memory-profile".to_string()),
             reasoning_effort: Some(noema_providers::ReasoningEffort::Low),
         };
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         store
             .ensure_default_foundation_local_provider_account()
             .await
@@ -716,7 +716,7 @@ mod tests {
             model_profile: None,
             reasoning_effort: None,
         };
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         let routes = LegacyProviderRoutes::new(providers.clone()).expect("provider routes");
 
         let config = memory_model_proxy_config_from_settings(

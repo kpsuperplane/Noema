@@ -3,8 +3,8 @@ use serde_json::Value;
 
 use noema_conversations::{
     AgentStatus, ConversationItemKind, ConversationItemPage, ConversationItemRecord,
-    ConversationItemStatus, ConversationRecord, ConversationTurnRecord, NewConversation,
-    NewConversationItem, NewConversationTurn, ReplayMode,
+    ConversationItemStatus, ConversationRecord, ConversationRuntimeStatus, ConversationTurnRecord,
+    ConversationTurnStatus, NewConversation, NewConversationItem, NewConversationTurn, ReplayMode,
 };
 
 use super::{
@@ -687,6 +687,44 @@ impl NoemaStore {
             Ok(())
         })
         .await
+    }
+
+    /// Return the latest durable turn and live-agent state for a conversation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store read fails or a stored
+    /// status value is invalid.
+    pub async fn conversation_runtime_status(
+        &self,
+        conversation_id: &str,
+    ) -> Result<Option<ConversationRuntimeStatus>, StoreError> {
+        let row = self
+            .with_connection(|conn| {
+                conn.query_row(
+                    r#"
+                    SELECT turn.status, conversation.agent_status
+                    FROM conversations AS conversation
+                    JOIN conversation_turns AS turn
+                      ON turn.conversation_id = conversation.conversation_id
+                    WHERE conversation.conversation_id = ?1
+                    ORDER BY turn.created_at DESC
+                    LIMIT 1
+                    "#,
+                    [conversation_id],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )
+                .optional()
+                .map_err(StoreError::Sqlite)
+            })
+            .await?;
+        row.map(|(turn_status, agent_status)| {
+            Ok(ConversationRuntimeStatus {
+                turn_status: ConversationTurnStatus::parse(&turn_status)?,
+                agent_status: AgentStatus::parse(&agent_status)?,
+            })
+        })
+        .transpose()
     }
 
     /// Recover in-flight conversation state after process shutdown cancels runtime work.

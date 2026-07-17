@@ -531,8 +531,8 @@ mod tests {
 
     #[tokio::test]
     async fn reviewer_context_pairs_executor_question_with_human_answer() {
-        let store = crate::store::tests::test_store().await;
-        let (task, run) = crate::store::tests::seed_task(&store, "Clarified task").await;
+        let store = crate::test_support::test_store().await;
+        let (task, run) = crate::test_support::seed_task(&store, "Clarified task").await;
         store
             .claim_next_agent_run("worker:test", "lease:blocked", 120)
             .await

@@ -763,7 +763,7 @@ mod tests {
 
     #[tokio::test]
     async fn setup_surfaces_recommended_installation_while_download_is_queued() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         store
             .upsert_local_model_installation(noema_providers::NewLocalModelInstallation {
                 installation_id: "local_model_installation:catalog:gemma-4-e4b-it:test".to_string(),
@@ -796,7 +796,7 @@ mod tests {
 
     #[tokio::test]
     async fn setup_is_not_ready_until_the_active_runtime_is_running() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         let installation_id = "local_model_installation:catalog:ternary-bonsai-8b:test";
         let created = store
             .upsert_local_model_installation(noema_providers::NewLocalModelInstallation {

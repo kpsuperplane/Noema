@@ -263,7 +263,7 @@ mod tests {
 
     #[tokio::test]
     async fn conversation_replay_maps_artifact_reference() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         let conversation = store
             .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
@@ -359,7 +359,7 @@ mod tests {
 
     #[tokio::test]
     async fn conversation_replay_maps_task_reference_with_canonical_status() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         let conversation = store
             .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await

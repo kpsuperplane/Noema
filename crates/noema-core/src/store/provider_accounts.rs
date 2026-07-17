@@ -6,8 +6,7 @@ use crate::store::{
     sqlite::{json_from_string, json_to_string},
 };
 use noema_providers::{
-    NewProviderAccount, ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod,
-    capabilities_for_provider_account,
+    NewProviderAccount, PersistedProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod,
 };
 
 use super::{NoemaStore, StoreError};
@@ -20,7 +19,7 @@ impl NoemaStore {
     /// Returns [`StoreError`] when the embedded store write or read fails.
     pub async fn ensure_default_provider_account(
         &self,
-    ) -> Result<ProviderAccountRecord, StoreError> {
+    ) -> Result<PersistedProviderAccountRecord, StoreError> {
         self.with_connection(|conn| {
             conn.execute(
                 r#"
@@ -53,7 +52,7 @@ impl NoemaStore {
     /// Returns [`StoreError`] when the embedded store write or read fails.
     pub async fn ensure_default_foundation_local_provider_account(
         &self,
-    ) -> Result<ProviderAccountRecord, StoreError> {
+    ) -> Result<PersistedProviderAccountRecord, StoreError> {
         const ACCOUNT_ID: &str = "provider_account:foundation_local:default";
         self.with_connection(|conn| {
             conn.execute(
@@ -97,7 +96,7 @@ impl NoemaStore {
     /// Returns [`StoreError`] when the embedded store write or read fails.
     pub async fn ensure_default_local_models_provider_account(
         &self,
-    ) -> Result<ProviderAccountRecord, StoreError> {
+    ) -> Result<PersistedProviderAccountRecord, StoreError> {
         const ACCOUNT_ID: &str = "provider_account:local_models:default";
         self.with_connection(|conn| {
             conn.execute(
@@ -147,7 +146,7 @@ impl NoemaStore {
     pub async fn active_provider_account(
         &self,
         provider_kind: &str,
-    ) -> Result<Option<ProviderAccountRecord>, StoreError> {
+    ) -> Result<Option<PersistedProviderAccountRecord>, StoreError> {
         let row = self
             .with_connection(|conn| {
                 conn.query_row(
@@ -170,7 +169,7 @@ impl NoemaStore {
     /// enum is invalid.
     pub async fn active_default_provider_accounts(
         &self,
-    ) -> Result<Vec<ProviderAccountRecord>, StoreError> {
+    ) -> Result<Vec<PersistedProviderAccountRecord>, StoreError> {
         self.provider_account_rows("WHERE is_active = 1 AND is_default = 1 ORDER BY provider_kind")
             .await
     }
@@ -181,7 +180,9 @@ impl NoemaStore {
     ///
     /// Returns [`StoreError`] when the embedded store read fails or a stored
     /// enum is invalid.
-    pub async fn active_provider_accounts(&self) -> Result<Vec<ProviderAccountRecord>, StoreError> {
+    pub async fn active_provider_accounts(
+        &self,
+    ) -> Result<Vec<PersistedProviderAccountRecord>, StoreError> {
         self.provider_account_rows(
             "WHERE is_active = 1 ORDER BY provider_kind, display_name, account_key",
         )
@@ -194,7 +195,9 @@ impl NoemaStore {
     ///
     /// Returns [`StoreError`] when the embedded store read fails or a stored
     /// enum is invalid.
-    pub async fn list_provider_accounts(&self) -> Result<Vec<ProviderAccountRecord>, StoreError> {
+    pub async fn list_provider_accounts(
+        &self,
+    ) -> Result<Vec<PersistedProviderAccountRecord>, StoreError> {
         self.provider_account_rows("ORDER BY provider_kind, display_name, account_key")
             .await
     }
@@ -208,7 +211,7 @@ impl NoemaStore {
     pub async fn create_provider_account(
         &self,
         input: NewProviderAccount,
-    ) -> Result<ProviderAccountRecord, StoreError> {
+    ) -> Result<PersistedProviderAccountRecord, StoreError> {
         if input.provider_kind != "exa" {
             return Err(StoreError::InvalidEnum {
                 kind: "provider_kind",
@@ -272,7 +275,7 @@ impl NoemaStore {
     pub async fn get_provider_account(
         &self,
         provider_account_id: &str,
-    ) -> Result<Option<ProviderAccountRecord>, StoreError> {
+    ) -> Result<Option<PersistedProviderAccountRecord>, StoreError> {
         let row = self
             .with_connection(|conn| {
                 conn.query_row(
@@ -411,7 +414,7 @@ impl NoemaStore {
     async fn provider_account_rows(
         &self,
         clause: &str,
-    ) -> Result<Vec<ProviderAccountRecord>, StoreError> {
+    ) -> Result<Vec<PersistedProviderAccountRecord>, StoreError> {
         let rows = self
             .with_connection(|conn| {
                 let mut statement =
@@ -471,11 +474,9 @@ pub(super) fn provider_account_row(
 
 pub(super) fn provider_account_from_row(
     row: ProviderAccountRow,
-) -> Result<ProviderAccountRecord, StoreError> {
+) -> Result<PersistedProviderAccountRecord, StoreError> {
     let status = parse_provider_status(&row.status)?;
-    let capabilities =
-        capabilities_for_provider_account(&row.provider_kind, &row.account_key, status);
-    Ok(ProviderAccountRecord {
+    Ok(PersistedProviderAccountRecord {
         provider_account_id: row.provider_account_id,
         provider_kind: row.provider_kind,
         account_key: row.account_key,
@@ -489,7 +490,6 @@ pub(super) fn provider_account_from_row(
         last_error_code: row.last_error_code,
         last_error_message: row.last_error_message,
         metadata: json_from_string(row.metadata_json)?,
-        capabilities,
     })
 }
 

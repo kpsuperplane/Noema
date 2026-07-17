@@ -310,7 +310,7 @@ mod tests {
         provider_kind: &str,
         provider: Arc<ProgressAuditTestProvider>,
     ) -> CodexRuntimeActor {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         CodexRuntimeActor::new(
             provider_kind.to_string(),
             HashMap::from([(
@@ -318,7 +318,7 @@ mod tests {
                 provider as noema_providers::ProviderHandle,
             )]),
             store.clone(),
-            store.system_error_logger(),
+            crate::test_support::system_error_logger(),
         )
         .await
         .expect("actor")
@@ -413,7 +413,7 @@ mod tests {
 
     #[tokio::test]
     async fn progress_audit_uses_saved_reasoning_effort() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         let account = store
             .ensure_default_provider_account()
             .await
@@ -437,7 +437,7 @@ mod tests {
                 provider.clone() as noema_providers::ProviderHandle,
             )]),
             store.clone(),
-            store.system_error_logger(),
+            crate::test_support::system_error_logger(),
         )
         .await
         .expect("actor");

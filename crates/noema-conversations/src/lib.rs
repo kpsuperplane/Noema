@@ -9,8 +9,8 @@ mod status;
 pub use context_summary::{ConversationContextSummaryRecord, NewConversationContextSummary};
 pub use error::ConversationError;
 pub use records::{
-    ConversationItemPage, ConversationItemRecord, ConversationRecord, ConversationTurnRecord,
-    NewConversation, NewConversationItem, NewConversationTurn, ReplayMode,
+    ConversationItemPage, ConversationItemRecord, ConversationRecord, ConversationRuntimeStatus,
+    ConversationTurnRecord, NewConversation, NewConversationItem, NewConversationTurn, ReplayMode,
 };
 pub use references::{ActorKind, ActorRef, ConversationOwnerKind, ConversationOwnerRef};
 pub use status::{

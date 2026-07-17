@@ -9,8 +9,8 @@ use crate::adapters::{
     codex::oauth::{CodexOAuthClient, CodexTokenStore},
 };
 use crate::{
-    CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS, ProviderAccountPersistenceHandle,
-    ProviderAccountRecord, ProviderAuthMethod, ProviderError,
+    CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS, PersistedProviderAccountRecord,
+    ProviderAccountPersistenceHandle, ProviderAuthMethod, ProviderError,
 };
 
 use super::gates::AccountGateRegistry;
@@ -241,7 +241,7 @@ struct AccountIdentity {
 
 impl AccountIdentity {
     fn from_account(
-        account: ProviderAccountRecord,
+        account: PersistedProviderAccountRecord,
         requested_id: &str,
         expected_provider: &str,
     ) -> Result<Self, ProviderError> {
@@ -310,14 +310,14 @@ mod tests {
 
     use super::*;
     use crate::{
-        CodexOAuthConfig, CodexOAuthTokens, NewProviderAccount, ProviderAccountStatus,
-        ProviderPersistenceError, ProviderPersistenceFuture, UpdateProviderAccountRequest,
-        capabilities_for_provider_account,
+        CodexOAuthConfig, CodexOAuthTokens, NewProviderAccount, PersistedProviderAccountRecord,
+        ProviderAccountRecord, ProviderAccountStatus, ProviderPersistenceError,
+        ProviderPersistenceFuture, UpdateProviderAccountRequest, capabilities_for_provider_account,
     };
 
     #[derive(Default)]
     struct FakeAccountPersistence {
-        account: Mutex<Option<ProviderAccountRecord>>,
+        account: Mutex<Option<PersistedProviderAccountRecord>>,
         reads: AtomicUsize,
         delete_on_read: Option<(usize, PathBuf)>,
     }
@@ -325,7 +325,7 @@ mod tests {
     impl FakeAccountPersistence {
         fn with_account(account: ProviderAccountRecord) -> Self {
             Self {
-                account: Mutex::new(Some(account)),
+                account: Mutex::new(Some(account.into())),
                 reads: AtomicUsize::new(0),
                 delete_on_read: None,
             }
@@ -337,7 +337,7 @@ mod tests {
             account_home: PathBuf,
         ) -> Self {
             Self {
-                account: Mutex::new(Some(account)),
+                account: Mutex::new(Some(account.into())),
                 reads: AtomicUsize::new(0),
                 delete_on_read: Some((read_number, account_home)),
             }
@@ -348,7 +348,7 @@ mod tests {
         fn provider_account<'a>(
             &'a self,
             provider_account_id: &'a str,
-        ) -> ProviderPersistenceFuture<'a, Option<ProviderAccountRecord>> {
+        ) -> ProviderPersistenceFuture<'a, Option<PersistedProviderAccountRecord>> {
             let read_number = self.reads.fetch_add(1, Ordering::SeqCst) + 1;
             let mut account = self.account.lock().expect("fake account lock");
             if let Some((delete_on_read, account_home)) = self.delete_on_read.as_ref()
@@ -366,37 +366,39 @@ mod tests {
         fn active_provider_account<'a>(
             &'a self,
             _provider_kind: &'a str,
-        ) -> ProviderPersistenceFuture<'a, Option<ProviderAccountRecord>> {
+        ) -> ProviderPersistenceFuture<'a, Option<PersistedProviderAccountRecord>> {
             unsupported("active_provider_account")
         }
 
         fn active_default_provider_accounts(
             &self,
-        ) -> ProviderPersistenceFuture<'_, Vec<ProviderAccountRecord>> {
+        ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>> {
             unsupported("active_default_provider_accounts")
         }
 
         fn active_provider_accounts(
             &self,
-        ) -> ProviderPersistenceFuture<'_, Vec<ProviderAccountRecord>> {
+        ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>> {
             unsupported("active_provider_accounts")
         }
 
-        fn provider_accounts(&self) -> ProviderPersistenceFuture<'_, Vec<ProviderAccountRecord>> {
+        fn provider_accounts(
+            &self,
+        ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>> {
             unsupported("provider_accounts")
         }
 
         fn create_provider_account(
             &self,
             _request: NewProviderAccount,
-        ) -> ProviderPersistenceFuture<'_, ProviderAccountRecord> {
+        ) -> ProviderPersistenceFuture<'_, PersistedProviderAccountRecord> {
             unsupported("create_provider_account")
         }
 
         fn update_provider_account(
             &self,
             _request: UpdateProviderAccountRequest,
-        ) -> ProviderPersistenceFuture<'_, ProviderAccountRecord> {
+        ) -> ProviderPersistenceFuture<'_, PersistedProviderAccountRecord> {
             unsupported("update_provider_account")
         }
 

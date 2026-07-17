@@ -5,7 +5,8 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use crate::{
-    NewProviderAccount, ProviderAccountRecord, ProviderAccountStatus, ProviderPersistenceFuture,
+    NewProviderAccount, PersistedProviderAccountRecord, ProviderAccountStatus,
+    ProviderPersistenceFuture,
 };
 
 /// Safe status fields updated together for one provider account.
@@ -36,37 +37,40 @@ pub trait ProviderAccountPersistence: Send + Sync {
     fn provider_account<'a>(
         &'a self,
         provider_account_id: &'a str,
-    ) -> ProviderPersistenceFuture<'a, Option<ProviderAccountRecord>>;
+    ) -> ProviderPersistenceFuture<'a, Option<PersistedProviderAccountRecord>>;
 
     /// Return the active default account for one provider.
     fn active_provider_account<'a>(
         &'a self,
         provider_kind: &'a str,
-    ) -> ProviderPersistenceFuture<'a, Option<ProviderAccountRecord>>;
+    ) -> ProviderPersistenceFuture<'a, Option<PersistedProviderAccountRecord>>;
 
     /// Return all active default provider accounts.
     fn active_default_provider_accounts(
         &self,
-    ) -> ProviderPersistenceFuture<'_, Vec<ProviderAccountRecord>>;
+    ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>>;
 
     /// Return all active provider accounts.
-    fn active_provider_accounts(&self)
-    -> ProviderPersistenceFuture<'_, Vec<ProviderAccountRecord>>;
+    fn active_provider_accounts(
+        &self,
+    ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>>;
 
     /// Return all durable provider accounts.
-    fn provider_accounts(&self) -> ProviderPersistenceFuture<'_, Vec<ProviderAccountRecord>>;
+    fn provider_accounts(
+        &self,
+    ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>>;
 
     /// Create one user-managed provider account.
     fn create_provider_account(
         &self,
         request: NewProviderAccount,
-    ) -> ProviderPersistenceFuture<'_, ProviderAccountRecord>;
+    ) -> ProviderPersistenceFuture<'_, PersistedProviderAccountRecord>;
 
     /// Atomically replace the requested account fields.
     fn update_provider_account(
         &self,
         request: UpdateProviderAccountRequest,
-    ) -> ProviderPersistenceFuture<'_, ProviderAccountRecord>;
+    ) -> ProviderPersistenceFuture<'_, PersistedProviderAccountRecord>;
 
     /// Delete one unprotected user-managed provider account.
     fn delete_provider_account<'a>(

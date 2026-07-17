@@ -3,16 +3,17 @@ use std::sync::{Arc, Mutex};
 
 use super::*;
 use crate::{
-    ProviderAccountRecord, ProviderAuthMethod, ProviderCredential, ProviderCredentialAccess,
-    ProviderCredentialAccessHandle, ProviderCredentialFuture, ProviderPersistenceError,
-    ProviderPersistenceFuture, ReasoningEffort, adapters::test_support::spawn_server,
+    PersistedProviderAccountRecord, ProviderAccountRecord, ProviderAuthMethod, ProviderCredential,
+    ProviderCredentialAccess, ProviderCredentialAccessHandle, ProviderCredentialFuture,
+    ProviderPersistenceError, ProviderPersistenceFuture, ReasoningEffort,
+    adapters::test_support::spawn_server,
 };
 
 const TEST_CODEX_CLIENT_VERSION: &str = "0.144.1";
 
 struct RecordingCatalogPersistence {
     requests: Mutex<Vec<PersistProviderModelCatalogRequest>>,
-    result: Result<ProviderAccountRecord, ProviderPersistenceError>,
+    result: Result<PersistedProviderAccountRecord, ProviderPersistenceError>,
 }
 
 struct StaticCredentials;
@@ -49,7 +50,7 @@ impl ProviderModelCatalogPersistence for RecordingCatalogPersistence {
     fn persist_provider_model_catalog(
         &self,
         request: PersistProviderModelCatalogRequest,
-    ) -> ProviderPersistenceFuture<'_, ProviderAccountRecord> {
+    ) -> ProviderPersistenceFuture<'_, PersistedProviderAccountRecord> {
         self.requests.lock().expect("requests lock").push(request);
         let result = self.result.clone();
         Box::pin(async move { result })
@@ -158,7 +159,7 @@ async fn codex_catalog_refresh_with_credentials_marks_unknown_account_authentica
     }));
     let persistence = RecordingCatalogPersistence {
         requests: Mutex::new(Vec::new()),
-        result: Ok(account.clone()),
+        result: Ok(account.clone().into()),
     };
 
     let catalog = fetch_provider_model_catalog(&credential_access(), &account)
@@ -227,7 +228,7 @@ async fn codex_catalog_refreshes_expired_profiles_with_latest_client_version() {
     }));
     let persistence = RecordingCatalogPersistence {
         requests: Mutex::new(Vec::new()),
-        result: Ok(account.clone()),
+        result: Ok(account.clone().into()),
     };
 
     let catalog = fetch_provider_model_catalog_at_version_endpoint(

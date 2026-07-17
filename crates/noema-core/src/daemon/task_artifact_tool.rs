@@ -110,10 +110,10 @@ mod tests {
 
     #[tokio::test]
     async fn reviewer_reads_only_the_linked_task_artifact_snapshot() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         let artifact_operations =
             crate::test_support::artifact_operations(&store).expect("artifact operations");
-        let (task, executor) = crate::store::tests::seed_task(&store, "Artifact review").await;
+        let (task, executor) = crate::test_support::seed_task(&store, "Artifact review").await;
         store
             .claim_next_agent_run("worker:test", "lease:executor", 120)
             .await

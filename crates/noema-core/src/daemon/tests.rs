@@ -246,7 +246,7 @@ async fn blocked_task_completion_generation_does_not_block_a_primary_turn() {
         primary_started: Mutex::new(Some(primary_started_tx)),
         release_completion: Mutex::new(Some(release_completion_rx)),
     };
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     let handle = CodexRuntimeHandle::spawn_with_provider(Arc::new(provider), store.clone())
         .await
         .expect("runtime");
@@ -328,7 +328,7 @@ async fn runtime_handle_generate_once_does_not_block_subsequent_commands() {
         started: Mutex::new(Some(started_tx)),
         release: Mutex::new(Some(release_rx)),
     };
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     let handle = CodexRuntimeHandle::spawn_with_provider(Arc::new(provider), store)
         .await
         .expect("runtime");
@@ -358,9 +358,9 @@ async fn runtime_handle_generate_once_does_not_block_subsequent_commands() {
 
 #[tokio::test]
 async fn task_supervisor_starts_distinct_tasks_concurrently() {
-    let store = crate::store::tests::test_store().await;
-    let (_, first_run) = crate::store::tests::seed_task(&store, "Concurrent task one").await;
-    let (_, second_run) = crate::store::tests::seed_task(&store, "Concurrent task two").await;
+    let store = crate::test_support::test_store().await;
+    let (_, first_run) = crate::test_support::seed_task(&store, "Concurrent task one").await;
+    let (_, second_run) = crate::test_support::seed_task(&store, "Concurrent task two").await;
     let (started_tx, mut started_rx) = mpsc::unbounded_channel();
     let runtime = CodexRuntimeHandle::spawn_with_provider(
         Arc::new(ConcurrentTaskProvider {
@@ -374,7 +374,7 @@ async fn task_supervisor_starts_distinct_tasks_concurrently() {
     let task_runtime = TaskRuntimeHandle::start(
         store.clone(),
         runtime.clone(),
-        store.system_error_logger(),
+        crate::test_support::system_error_logger(),
         subscriptions,
     );
 
@@ -399,8 +399,8 @@ async fn task_supervisor_starts_distinct_tasks_concurrently() {
 
 #[tokio::test]
 async fn background_task_pins_local_provider_generation_across_replacement() {
-    let store = crate::store::tests::test_store().await;
-    let (task, run) = crate::store::tests::seed_task(&store, "Pinned provider generation").await;
+    let store = crate::test_support::test_store().await;
+    let (task, run) = crate::test_support::seed_task(&store, "Pinned provider generation").await;
     let lease_token = "lease:provider-generation";
     let claimed = store
         .claim_next_agent_run("worker:provider-generation", lease_token, 120)
@@ -436,7 +436,7 @@ async fn background_task_pins_local_provider_generation_across_replacement() {
         routes.clone(),
         store.clone(),
         crate::test_support::artifact_operations(&store).expect("artifact operations"),
-        store.system_error_logger(),
+        crate::test_support::system_error_logger(),
         None,
         crate::graphql::ConversationSubscriptionRegistry::default(),
     )
@@ -527,7 +527,7 @@ async fn runtime_shutdown_cancels_blocked_task_completion_generation() {
         primary_started: Mutex::new(Some(primary_started_tx)),
         release_completion: Mutex::new(Some(release_completion_rx)),
     };
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     let handle = CodexRuntimeHandle::spawn_with_provider(Arc::new(provider), store)
         .await
         .expect("runtime");
@@ -588,7 +588,7 @@ async fn assert_shutdown_cancels_blocked_operation(inline_turn: bool) {
         started: Mutex::new(Some(started_tx)),
         release: Mutex::new(Some(release_rx)),
     };
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     let handle = CodexRuntimeHandle::spawn_with_provider(Arc::new(provider), store.clone())
         .await
         .expect("runtime");
@@ -638,30 +638,16 @@ async fn assert_shutdown_cancels_blocked_operation(inline_turn: bool) {
     );
 
     if let Some(conversation_id) = durable_conversation_id {
-        let (turn_status, agent_status) = store
-            .with_connection(|conn| {
-                let turn_status = conn.query_row(
-                    r#"
-                    SELECT status
-                    FROM conversation_turns
-                    WHERE conversation_id = ?1
-                    ORDER BY created_at DESC
-                    LIMIT 1
-                    "#,
-                    [&conversation_id],
-                    |row| row.get::<_, String>(0),
-                )?;
-                let agent_status = conn.query_row(
-                    "SELECT agent_status FROM conversations WHERE conversation_id = ?1",
-                    [&conversation_id],
-                    |row| row.get::<_, String>(0),
-                )?;
-                Ok((turn_status, agent_status))
-            })
+        let status = store
+            .conversation_runtime_status(&conversation_id)
             .await
-            .expect("durable shutdown recovery state");
-        assert_eq!(turn_status, "cancelled");
-        assert_eq!(agent_status, "idle");
+            .expect("read conversation runtime status")
+            .expect("conversation runtime status");
+        assert_eq!(
+            status.turn_status,
+            noema_conversations::ConversationTurnStatus::Cancelled
+        );
+        assert_eq!(status.agent_status, noema_conversations::AgentStatus::Idle);
     }
 }
 
@@ -918,7 +904,7 @@ async fn slash_remember_is_ordinary_chat_text() {
 
 #[tokio::test]
 async fn primary_agent_runtime_preference_supplies_turn_model() {
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let account = store
         .ensure_default_foundation_local_provider_account()
@@ -963,7 +949,7 @@ async fn primary_agent_runtime_preference_supplies_turn_model() {
 
 #[tokio::test]
 async fn primary_agent_runtime_preference_supplies_reasoning_effort() {
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let account = store
         .ensure_default_provider_account()
@@ -1011,7 +997,7 @@ async fn primary_agent_runtime_preference_supplies_reasoning_effort() {
 
 #[tokio::test]
 async fn primary_agent_codex_preference_sends_reasoning_effort_to_codex_provider_kind() {
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let account = store
         .ensure_default_provider_account()
@@ -1073,21 +1059,18 @@ async fn primary_agent_codex_preference_sends_reasoning_effort_to_codex_provider
 
 #[tokio::test]
 async fn primary_agent_openai_preference_sends_reasoning_effort_to_openai_provider_kind() {
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
-    let provider_account_id = "provider_account:openai:runtime_reasoning";
-    insert_authenticated_provider_account(
-        &store,
-        provider_account_id,
-        "openai",
-        "runtime-reasoning",
-    )
-    .await;
+    let provider_account_id = store
+        .ensure_default_foundation_local_provider_account()
+        .await
+        .expect("foundation account")
+        .provider_account_id;
     store
         .upsert_agent_runtime_preference(crate::NewAgentRuntimePreference {
             agent_id: "agent:primary".to_string(),
-            provider_kind: "openai".to_string(),
-            provider_account_id: provider_account_id.to_string(),
+            provider_kind: "foundation_local".to_string(),
+            provider_account_id,
             model_profile: "gpt-5.5".to_string(),
             reasoning_effort: Some(noema_providers::ReasoningEffort::Medium),
         })
@@ -1095,7 +1078,7 @@ async fn primary_agent_openai_preference_sends_reasoning_effort_to_openai_provid
         .expect("preference");
 
     let codex_provider = Arc::new(CapturingProvider::default());
-    let openai_provider = Arc::new(CapturingProvider::default());
+    let foundation_provider = Arc::new(CapturingProvider::default());
     let runtime = CodexRuntimeHandle::spawn_with_provider_map(
         "codex",
         vec![
@@ -1104,8 +1087,8 @@ async fn primary_agent_openai_preference_sends_reasoning_effort_to_openai_provid
                 codex_provider.clone() as noema_providers::ProviderHandle,
             ),
             (
-                "openai".to_string(),
-                openai_provider.clone() as noema_providers::ProviderHandle,
+                "foundation_local".to_string(),
+                foundation_provider.clone() as noema_providers::ProviderHandle,
             ),
         ],
         store,
@@ -1128,9 +1111,12 @@ async fn primary_agent_openai_preference_sends_reasoning_effort_to_openai_provid
     runtime.shutdown().await;
 
     assert!(codex_provider.requests.lock().expect("codex").is_empty());
-    let openai_requests = openai_provider.requests.lock().expect("openai requests");
+    let foundation_requests = foundation_provider
+        .requests
+        .lock()
+        .expect("foundation requests");
     assert_eq!(
-        openai_requests
+        foundation_requests
             .last()
             .and_then(|request| request.options.reasoning_effort),
         Some(noema_providers::ReasoningEffort::Medium)
@@ -1139,7 +1125,7 @@ async fn primary_agent_openai_preference_sends_reasoning_effort_to_openai_provid
 
 #[tokio::test]
 async fn primary_agent_default_provider_sends_no_reasoning_effort() {
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let codex_provider = Arc::new(CapturingProvider::default());
     let runtime =
@@ -1172,7 +1158,7 @@ async fn primary_agent_default_provider_sends_no_reasoning_effort() {
 
 #[tokio::test]
 async fn native_provider_turn_request_includes_builtin_tools() {
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let provider = Arc::new(CapturingProvider {
         capabilities: ProviderToolCapabilities {
@@ -1235,7 +1221,7 @@ async fn native_provider_turn_request_includes_builtin_tools() {
 
 #[tokio::test]
 async fn normal_turn_instructions_are_stable_across_turns() {
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let provider = Arc::new(MetadataCapturingProvider {
         context_window_tokens: 20_000,
@@ -1301,7 +1287,7 @@ async fn normal_turn_instructions_are_stable_across_turns() {
 
 #[tokio::test]
 async fn normal_turn_appends_only_changed_keyed_context_sections() {
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let provider = Arc::new(MetadataCapturingProvider {
         context_window_tokens: 20_000,
@@ -1376,7 +1362,7 @@ async fn normal_turn_appends_only_changed_keyed_context_sections() {
 
 #[tokio::test]
 async fn normal_turn_input_replays_previous_turn_as_prefix() {
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let provider = Arc::new(MetadataCapturingProvider {
         context_window_tokens: 20_000,
@@ -1470,7 +1456,7 @@ async fn runtime_persists_and_replays_encrypted_reasoning_items() {
 
 #[tokio::test]
 async fn prompt_context_uses_active_summary_and_post_checkpoint_items() {
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let provider = Arc::new(MetadataCapturingProvider::default());
     let runtime = CodexRuntimeHandle::spawn_with_provider_kind(
@@ -1536,7 +1522,7 @@ async fn prompt_context_uses_active_summary_and_post_checkpoint_items() {
 
 #[tokio::test]
 async fn compacted_summary_is_replayed_as_input_checkpoint_not_instruction_text() {
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let provider = Arc::new(MetadataCapturingProvider::default());
     let runtime = CodexRuntimeHandle::spawn_with_provider_kind(
@@ -1607,7 +1593,7 @@ async fn compacted_summary_is_replayed_as_input_checkpoint_not_instruction_text(
 
 #[tokio::test]
 async fn prompt_context_keeps_all_post_checkpoint_items_for_budgeting() {
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let provider = Arc::new(MetadataCapturingProvider {
         context_window_tokens: 20_000,
@@ -1657,7 +1643,7 @@ async fn prompt_context_keeps_all_post_checkpoint_items_for_budgeting() {
 
 #[tokio::test]
 async fn prompt_context_sends_prior_transcript_as_provider_messages() {
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let provider = Arc::new(CapturingProvider::default());
     let runtime = CodexRuntimeHandle::spawn_with_provider_kind(
@@ -1744,7 +1730,7 @@ async fn prompt_context_sends_prior_transcript_as_provider_messages() {
 
 #[tokio::test]
 async fn prompt_context_falls_back_to_estimates_when_token_count_fails() {
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let provider = Arc::new(MetadataCapturingProvider {
         context_window_tokens: 20_000,
@@ -1784,7 +1770,7 @@ async fn prompt_context_falls_back_to_estimates_when_token_count_fails() {
 
 #[tokio::test]
 async fn foreground_context_compaction_runs_before_over_limit_turn() {
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let provider = Arc::new(MetadataCapturingProvider::default());
     let runtime = CodexRuntimeHandle::spawn_with_provider_kind(
@@ -1842,7 +1828,7 @@ async fn foreground_context_compaction_runs_before_over_limit_turn() {
 
 #[tokio::test]
 async fn foreground_context_compaction_chunks_backlog_to_fit_provider_window() {
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let provider = Arc::new(MetadataCapturingProvider {
         context_window_tokens: 5_500,
@@ -1914,7 +1900,7 @@ async fn foreground_context_compaction_chunks_backlog_to_fit_provider_window() {
 
 #[tokio::test]
 async fn background_context_compaction_creates_checkpoint_after_large_turn() {
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let provider = Arc::new(MetadataCapturingProvider {
         context_window_tokens: 18_000,
@@ -1977,7 +1963,7 @@ async fn background_context_compaction_creates_checkpoint_after_large_turn() {
 
 #[tokio::test]
 async fn foreground_context_compaction_failure_blocks_turn_with_recoverable_notice() {
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let provider = Arc::new(MetadataCapturingProvider {
         context_window_tokens: 4_096,
@@ -2045,7 +2031,7 @@ async fn foreground_context_compaction_failure_blocks_turn_with_recoverable_noti
 
 #[tokio::test]
 async fn primary_agent_runtime_preference_selects_provider_without_restart() {
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let account = store
         .ensure_default_foundation_local_provider_account()
@@ -2111,7 +2097,7 @@ async fn primary_agent_runtime_preference_selects_provider_without_restart() {
 
 #[tokio::test]
 async fn runtime_turn_refreshes_agent_preference_after_conversation_hydration() {
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     store
         .update_agent_display_name("agent:primary", "Noema")
@@ -2452,7 +2438,7 @@ async fn start_primary_conversation_generates_initial_name_onboarding_message() 
 
 #[tokio::test]
 async fn failed_initial_name_onboarding_logs_runtime_invariant() {
-    let (handle, store) = test_runtime_handle_with_store(fake_provider(
+    let (handle, _store, logger) = test_runtime_handle_with_store_and_system_errors(fake_provider(
         FakeCodexScenario::InitialNameOnboardingNoAssistant,
     ))
     .await;
@@ -2467,7 +2453,6 @@ async fn failed_initial_name_onboarding_logs_runtime_invariant() {
             .to_string()
             .contains("initial onboarding response did not include assistant text")
     );
-    let logger = store.system_error_logger();
     let events = read_system_error_events(logger.path());
     assert_eq!(events.len(), 1);
     assert_eq!(events[0]["category"], SYSTEM_ERROR_RUNTIME_INVARIANT);
@@ -2524,10 +2509,7 @@ fn run_restart_context_child_phase(phase: &str, home: &std::path::Path) {
 
 async fn restart_context_write_phase(home: &std::path::Path) {
     let paths = NoemaPaths::from_noema_home(home).expect("paths");
-    let config = crate::StoreConfig::from_paths(&paths);
-    let first_store = crate::NoemaStore::open(&config)
-        .await
-        .expect("open first store");
+    let first_store = crate::test_support::test_store_for_paths(&paths).await;
     let first_handle = CodexRuntimeHandle::spawn_with_provider(
         Arc::new(fake_provider(FakeCodexScenario::RestartContext)),
         first_store.clone(),
@@ -2561,10 +2543,7 @@ async fn restart_context_read_phase(home: &std::path::Path) {
         std::fs::read_to_string(home.join(RESTART_CONTEXT_TEST_CONVERSATION_FILE))
             .expect("read restart conversation id");
     let paths = NoemaPaths::from_noema_home(home).expect("paths");
-    let config = crate::StoreConfig::from_paths(&paths);
-    let reopened_store = crate::NoemaStore::open(&config)
-        .await
-        .expect("reopen store");
+    let reopened_store = crate::test_support::test_store_for_paths(&paths).await;
     let second_handle = CodexRuntimeHandle::spawn_with_provider(
         Arc::new(fake_provider(FakeCodexScenario::RestartContext)),
         reopened_store.clone(),
@@ -3199,7 +3178,7 @@ async fn memory_observation_waits_for_the_foreground_turn_to_finish() {
         started: Mutex::new(Some(started_tx)),
         release: Mutex::new(Some(release_rx)),
     };
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     let server = FakeMemoryServer::start(json!({"results": []}), 1).await;
     let memory_operations =
         crate::test_support::mnemosyne_operations_for_base_url(server.base_url());
@@ -3247,9 +3226,7 @@ async fn memory_observation_waits_for_the_foreground_turn_to_finish() {
 async fn slow_memory_ingest_does_not_delay_provider_response() {
     let home = tempfile::tempdir().expect("temp noema home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
-        .await
-        .expect("store");
+    let store = crate::test_support::test_store_for_paths(&paths).await;
     store.ensure_default_actors().await.expect("actors");
     let server = FakeMemoryServer::start_with_add_delay(
         json!({"results": []}),
@@ -3973,9 +3950,7 @@ async fn native_provider_can_create_local_artifact_with_two_versions_and_continu
     );
     let home = tempfile::tempdir().expect("temp noema home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
-        .await
-        .expect("store");
+    let store = crate::test_support::test_store_for_paths(&paths).await;
     std::mem::forget(home);
     let handle = CodexRuntimeHandle::spawn_with_provider(provider.clone(), store.clone())
         .await
@@ -4757,16 +4732,37 @@ async fn test_runtime_handle(provider: FakeCodexProvider) -> CodexRuntimeHandle 
 async fn test_runtime_handle_with_store(
     provider: FakeCodexProvider,
 ) -> (CodexRuntimeHandle, crate::NoemaStore) {
-    let home = tempfile::tempdir().expect("temp noema home");
-    let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
-        .await
-        .expect("store");
-    std::mem::forget(home);
-    let handle = CodexRuntimeHandle::spawn_with_provider(Arc::new(provider), store.clone())
-        .await
-        .expect("runtime");
+    let (handle, store, _system_errors) =
+        test_runtime_handle_with_store_and_system_errors(provider).await;
     (handle, store)
+}
+
+async fn test_runtime_handle_with_store_and_system_errors(
+    provider: FakeCodexProvider,
+) -> (
+    CodexRuntimeHandle,
+    crate::NoemaStore,
+    noema_home::SystemErrorLogger,
+) {
+    let store = crate::test_support::test_store().await;
+    let system_errors = crate::test_support::system_error_logger();
+    let provider_routes = super::LegacyProviderRoutes::new([(
+        "codex",
+        Arc::new(provider) as noema_providers::ProviderHandle,
+    )])
+    .expect("provider routes");
+    let handle = CodexRuntimeHandle::spawn_with_provider_routes_and_memory(
+        "codex".to_string(),
+        provider_routes,
+        store.clone(),
+        crate::test_support::artifact_operations(&store).expect("artifact operations"),
+        system_errors.clone(),
+        None,
+        crate::graphql::ConversationSubscriptionRegistry::default(),
+    )
+    .await
+    .expect("runtime");
+    (handle, store, system_errors)
 }
 
 async fn test_runtime_handle_with_task_delegation(
@@ -4774,9 +4770,7 @@ async fn test_runtime_handle_with_task_delegation(
 ) -> (CodexRuntimeHandle, crate::NoemaStore) {
     let home = tempfile::tempdir().expect("temp noema home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
-        .await
-        .expect("store");
+    let store = crate::test_support::test_store_for_paths(&paths).await;
     store.ensure_default_actors().await.expect("actors");
     store
         .ensure_default_provider_account()
@@ -4808,9 +4802,7 @@ async fn test_runtime_handle_with_mnemosyne(
 ) -> (CodexRuntimeHandle, crate::NoemaStore, FakeMemoryServer) {
     let home = tempfile::tempdir().expect("temp noema home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
-        .await
-        .expect("store");
+    let store = crate::test_support::test_store_for_paths(&paths).await;
     let server = FakeMemoryServer::start(response, 32).await;
     store
         .save_memory_service_settings(noema_memory::SaveMemoryServiceSettings {
@@ -4841,7 +4833,7 @@ async fn test_runtime_handle_with_private_memory(
     provider: FakeCodexProvider,
     response: serde_json::Value,
 ) -> (CodexRuntimeHandle, crate::NoemaStore, FakeMemoryServer) {
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     let server = FakeMemoryServer::start(response, 32).await;
     let memory_operations =
         crate::test_support::mnemosyne_operations_for_base_url(server.base_url());
@@ -4861,9 +4853,7 @@ async fn spawn_runtime_with_memory_provider(
 ) -> (CodexRuntimeHandle, crate::NoemaStore, FakeMemoryServer) {
     let home = tempfile::tempdir().expect("temp noema home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
-        .await
-        .expect("store");
+    let store = crate::test_support::test_store_for_paths(&paths).await;
     store.ensure_default_actors().await.expect("actors");
     let server = FakeMemoryServer::start(response, 32).await;
     store
@@ -4897,9 +4887,7 @@ async fn test_runtime_handle_with_search_provider(
 ) -> (CodexRuntimeHandle, crate::NoemaStore) {
     let home = tempfile::tempdir().expect("temp noema home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
-        .await
-        .expect("store");
+    let store = crate::test_support::test_store_for_paths(&paths).await;
     std::mem::forget(home);
     let handle = CodexRuntimeHandle::spawn_with_provider_and_search_provider(
         provider,
@@ -5069,9 +5057,7 @@ async fn test_runtime_handle_with_search_and_fetch_providers(
         });
     let home = tempfile::tempdir().expect("temp noema home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
-        .await
-        .expect("store");
+    let store = crate::test_support::test_store_for_paths(&paths).await;
     std::mem::forget(home);
     let handle = CodexRuntimeHandle::spawn_with_provider_and_search_fetch_providers(
         provider,
@@ -6066,26 +6052,6 @@ fn input_tool_results(input: &GenerateInput) -> Vec<&noema_providers::GenerateTo
         GenerateInput::NativeToolResults(results) => results.iter().collect(),
         GenerateInput::Text(_) | GenerateInput::Messages(_) => Vec::new(),
     }
-}
-
-async fn insert_authenticated_provider_account(
-    store: &crate::NoemaStore,
-    provider_account_id: &str,
-    provider_kind: &str,
-    account_key: &str,
-) {
-    crate::store::tests::insert_provider_account_for_tests(
-        store,
-        provider_account_id,
-        provider_kind,
-        account_key,
-        &format!("{provider_kind} {account_key}"),
-        noema_providers::ProviderAuthMethod::SecretInput,
-        false,
-        noema_providers::ProviderAccountStatus::Authenticated,
-        json!({}),
-    )
-    .await;
 }
 
 impl noema_providers::ProviderOperations for FakeCodexProvider {

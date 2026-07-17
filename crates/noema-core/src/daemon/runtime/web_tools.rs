@@ -3,8 +3,9 @@
 use crate::NoemaStore;
 use noema_capabilities::{CapabilityId, ToolName};
 use noema_providers::{
-    ProviderAccountPersistence, ProviderCapabilityAssignmentPersistence, ProviderCapabilityStatus,
-    ProviderPersistenceError, system_provider_accounts,
+    ProviderAccountPersistence, ProviderCapabilityAssignmentKey,
+    ProviderCapabilityAssignmentPersistence, ProviderCapabilityStatus, ProviderPersistenceError,
+    system_provider_accounts,
 };
 
 const WEB_SEARCH_TOOL: &str = "web.search";
@@ -42,59 +43,73 @@ async fn resolve_bound_provider(
         ToolName::new(tool_name).map_err(|_| ProviderPersistenceError::InvalidRequest {
             kind: "web_tool_name",
         })?;
-    let Some(binding) = ProviderCapabilityAssignmentPersistence::provider_capability_assignment(
-        store,
-        &tool_name,
-        expected_capability,
-    )
-    .await?
+    let key = ProviderCapabilityAssignmentKey::new(tool_name.clone(), expected_capability)?;
+    let Some(binding) =
+        ProviderCapabilityAssignmentPersistence::provider_capability_assignment(store, &key)
+            .await?
     else {
         return Ok(default_provider(tool_name.as_str()));
     };
 
-    match load_provider_account(store, &binding.provider_account_id).await? {
+    let provider_account_id = binding.provider_account_id;
+    let account = load_provider_account(store, &provider_account_id).await?;
+    Ok(resolve_bound_account(
+        tool_name.as_str(),
+        expected_capability,
+        provider_account_id,
+        account,
+    ))
+}
+
+fn resolve_bound_account(
+    tool_name: &str,
+    expected_capability: CapabilityId,
+    provider_account_id: String,
+    account: Option<noema_providers::ProviderAccountRecord>,
+) -> ResolvedWebProvider {
+    match account {
         Some(account) => {
             let Some(capability) = account
                 .capabilities
                 .iter()
                 .find(|capability| capability.capability_id == expected_capability)
             else {
-                return Ok(fallback_provider(
-                    tool_name.as_str(),
-                    binding.provider_account_id,
+                return fallback_provider(
+                    tool_name,
+                    provider_account_id,
                     format!(
                         "bound provider account does not declare {}",
                         expected_capability.as_str()
                     ),
-                ));
+                );
             };
 
             if capability.status != ProviderCapabilityStatus::Available {
-                return Ok(fallback_provider(
-                    tool_name.as_str(),
-                    binding.provider_account_id,
+                return fallback_provider(
+                    tool_name,
+                    provider_account_id,
                     format!(
                         "bound provider capability {} is {}",
                         expected_capability.as_str(),
                         capability.status.as_str()
                     ),
-                ));
+                );
             }
 
-            Ok(ResolvedWebProvider {
+            ResolvedWebProvider {
                 credential_revision: credential_revision(&account),
                 provider_account_id: account.provider_account_id,
                 provider_kind: account.provider_kind,
                 account_key: account.account_key,
                 fallback_from: None,
                 fallback_reason: None,
-            })
+            }
         }
-        None => Ok(fallback_provider(
-            tool_name.as_str(),
-            binding.provider_account_id,
+        None => fallback_provider(
+            tool_name,
+            provider_account_id,
             "bound provider account is no longer available".to_string(),
-        )),
+        ),
     }
 }
 
@@ -105,7 +120,9 @@ async fn load_provider_account(
     if let Some(account) =
         ProviderAccountPersistence::provider_account(store, provider_account_id).await?
     {
-        return Ok(Some(account));
+        return Ok(Some(noema_providers::provider_account_from_persisted(
+            account,
+        )));
     }
 
     Ok(system_provider_accounts()
@@ -164,9 +181,11 @@ fn credential_revision(account: &noema_providers::ProviderAccountRecord) -> u64 
 mod tests {
     use super::*;
     use crate::daemon::runtime::actor::CodexRuntimeActor;
-    use crate::store::tests::test_store;
+    use crate::test_support::test_store;
     use noema_capabilities::CapabilityId;
-    use noema_providers::{ProviderAccountStatus, ProviderAuthMethod, ProviderCapabilityStatus};
+    use noema_providers::{
+        ProviderAccountStatus, ProviderCapabilityAccountReference, ProviderCapabilityStatus,
+    };
     use std::collections::HashMap;
 
     #[tokio::test]
@@ -199,18 +218,14 @@ mod tests {
         assert!(resolved.fallback_reason.is_none());
     }
 
-    #[tokio::test]
-    async fn falls_back_when_bound_provider_account_is_missing() {
-        let store = test_store().await;
-        insert_binding_row(
-            &store,
+    #[test]
+    fn falls_back_when_bound_provider_account_is_missing() {
+        let resolved = resolve_bound_account(
             WEB_SEARCH_TOOL,
-            WEB_SEARCH_TOOL,
-            "provider_account:openai:missing",
-        )
-        .await;
-
-        let resolved = resolve_web_search_provider(&store).await.expect("resolve");
+            CapabilityId::WebSearch,
+            "provider_account:openai:missing".to_string(),
+            None,
+        );
 
         assert_eq!(
             resolved.provider_account_id,
@@ -233,11 +248,11 @@ mod tests {
             .ensure_default_provider_account()
             .await
             .expect("codex account");
-        insert_binding_row(
+        save_binding(
             &store,
             WEB_SEARCH_TOOL,
             WEB_SEARCH_TOOL,
-            &account.provider_account_id,
+            ProviderCapabilityAccountReference::persisted(account.provider_account_id.clone()),
         )
         .await;
 
@@ -260,22 +275,15 @@ mod tests {
     #[tokio::test]
     async fn falls_back_when_bound_capability_is_not_available() {
         let store = test_store().await;
-        insert_provider_account(
+        let provider_account_id =
+            create_exa_provider_account(&store, ProviderAccountStatus::Unknown).await;
+        save_binding(
             &store,
-            "provider_account:exa:test",
-            "exa",
-            "test",
-            ProviderAccountStatus::Unknown,
+            WEB_SEARCH_TOOL,
+            WEB_SEARCH_TOOL,
+            ProviderCapabilityAccountReference::persisted(provider_account_id.clone()),
         )
         .await;
-        store
-            .upsert_provider_capability_binding(
-                WEB_SEARCH_TOOL,
-                WEB_SEARCH_TOOL,
-                "provider_account:exa:test",
-            )
-            .await
-            .expect("save binding");
 
         let resolved = resolve_web_search_provider(&store).await.expect("resolve");
 
@@ -285,7 +293,7 @@ mod tests {
         );
         assert_eq!(
             resolved.fallback_from.as_deref(),
-            Some("provider_account:exa:test")
+            Some(provider_account_id.as_str())
         );
         assert_eq!(
             resolved.fallback_reason.as_deref(),
@@ -296,19 +304,15 @@ mod tests {
     #[tokio::test]
     async fn fetch_falls_back_when_stale_binding_points_to_account_without_fetch_capability() {
         let store = test_store().await;
-        insert_provider_account(
-            &store,
-            "provider_account:openai:test",
-            "openai",
-            "test",
-            ProviderAccountStatus::Authenticated,
-        )
-        .await;
-        insert_binding_row(
+        let account = store
+            .ensure_default_provider_account()
+            .await
+            .expect("codex account");
+        save_binding(
             &store,
             WEB_FETCH_TOOL,
             WEB_FETCH_TOOL,
-            "provider_account:openai:test",
+            ProviderCapabilityAccountReference::persisted(account.provider_account_id.clone()),
         )
         .await;
 
@@ -320,7 +324,7 @@ mod tests {
         );
         assert_eq!(
             resolved.fallback_from.as_deref(),
-            Some("provider_account:openai:test")
+            Some(account.provider_account_id.as_str())
         );
         assert_eq!(
             resolved.fallback_reason.as_deref(),
@@ -331,34 +335,27 @@ mod tests {
     #[tokio::test]
     async fn actor_accessor_uses_same_resolution_logic() {
         let store = test_store().await;
-        insert_provider_account(
+        let provider_account_id =
+            create_exa_provider_account(&store, ProviderAccountStatus::Authenticated).await;
+        save_binding(
             &store,
-            "provider_account:exa:test",
-            "exa",
-            "test",
-            ProviderAccountStatus::Authenticated,
+            WEB_SEARCH_TOOL,
+            WEB_SEARCH_TOOL,
+            ProviderCapabilityAccountReference::persisted(provider_account_id.clone()),
         )
         .await;
-        store
-            .upsert_provider_capability_binding(
-                WEB_SEARCH_TOOL,
-                WEB_SEARCH_TOOL,
-                "provider_account:exa:test",
-            )
-            .await
-            .expect("save binding");
         let actor = CodexRuntimeActor::new(
             "codex".to_string(),
             HashMap::new(),
             store.clone(),
-            store.system_error_logger(),
+            crate::test_support::system_error_logger(),
         )
         .await
         .expect("actor");
 
         let resolved = actor.resolved_web_search_provider().await.expect("resolve");
 
-        assert_eq!(resolved.provider_account_id, "provider_account:exa:test");
+        assert_eq!(resolved.provider_account_id, provider_account_id);
         assert_eq!(resolved.provider_kind, "exa");
     }
 
@@ -369,7 +366,7 @@ mod tests {
             "codex".to_string(),
             HashMap::new(),
             store.clone(),
-            store.system_error_logger(),
+            crate::test_support::system_error_logger(),
         )
         .await
         .expect("actor");
@@ -383,38 +380,31 @@ mod tests {
         assert_eq!(resolved.provider_kind, "direct_http");
     }
 
-    async fn insert_provider_account(
+    async fn create_exa_provider_account(
         store: &NoemaStore,
-        provider_account_id: &str,
-        provider_kind: &str,
-        account_key: &str,
         status: ProviderAccountStatus,
-    ) {
-        crate::store::tests::insert_provider_account_for_tests(
+    ) -> String {
+        crate::test_support::create_exa_provider_account_for_tests(
             store,
-            provider_account_id,
-            provider_kind,
-            account_key,
-            &format!("{provider_kind} {account_key}"),
-            ProviderAuthMethod::SecretInput,
-            false,
+            "Exa test",
             status,
             serde_json::json!({}),
         )
-        .await;
+        .await
+        .provider_account_id
     }
 
-    async fn insert_binding_row(
+    async fn save_binding(
         store: &NoemaStore,
         tool_name: &str,
         capability_id: &str,
-        provider_account_id: &str,
+        account_reference: ProviderCapabilityAccountReference,
     ) {
-        crate::store::tests::insert_provider_capability_binding_for_tests(
+        crate::test_support::save_provider_capability_assignment_for_tests(
             store,
             tool_name,
             capability_id,
-            provider_account_id,
+            account_reference,
         )
         .await;
     }

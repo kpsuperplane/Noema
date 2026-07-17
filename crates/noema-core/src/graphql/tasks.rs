@@ -930,7 +930,7 @@ async fn detail_from_task(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::tests::test_store;
+    use crate::test_support::test_store;
 
     #[tokio::test]
     async fn task_model_pools_query_projects_canonical_entries() {

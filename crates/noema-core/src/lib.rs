@@ -11,6 +11,8 @@ use noema_tasks::TaskStatus;
 
 /// Shared execution roles and role-aware tool dispatch policy.
 pub mod agent_execution;
+#[cfg(test)]
+mod artifact_store_composition_tests;
 /// Configuration loading and provider selection.
 pub mod config;
 /// Local daemon runtime and web protocol types.

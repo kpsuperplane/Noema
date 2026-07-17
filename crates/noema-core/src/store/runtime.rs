@@ -1,8 +1,5 @@
 use std::{fs, path::PathBuf, sync::Arc};
 
-#[cfg(test)]
-use noema_home::NoemaPathError;
-use noema_home::NoemaPaths;
 use rusqlite::Connection;
 use tokio::sync::Mutex;
 
@@ -16,18 +13,13 @@ use super::{
 pub struct StoreConfig {
     /// Path to the SQLite database file.
     pub path: PathBuf,
-    /// Root directory for Noema state.
-    pub noema_home: PathBuf,
 }
 
 impl StoreConfig {
-    /// Build store config from resolved Noema paths.
+    /// Build store config from an explicit SQLite database-file path.
     #[must_use]
-    pub fn from_paths(paths: &NoemaPaths) -> Self {
-        Self {
-            path: paths.sqlite_db_path(),
-            noema_home: paths.root().to_path_buf(),
-        }
+    pub fn new(path: impl Into<PathBuf>) -> Self {
+        Self { path: path.into() }
     }
 }
 
@@ -35,8 +27,6 @@ impl StoreConfig {
 #[derive(Debug, Clone)]
 pub struct NoemaStore {
     pub(super) conn: Arc<Mutex<Connection>>,
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(super) noema_home: PathBuf,
     pub(super) append_item_lock: Arc<Mutex<()>>,
 }
 
@@ -62,7 +52,6 @@ impl NoemaStore {
 
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
-            noema_home: config.noema_home.clone(),
             append_item_lock: Arc::new(Mutex::new(())),
         })
     }
@@ -80,24 +69,6 @@ impl NoemaStore {
     ) -> Result<T, StoreError> {
         let mut conn = self.conn.lock().await;
         work(&mut conn)
-    }
-
-    /// Reconstruct the resolved Noema paths for this store's home directory.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`NoemaPathError`] when the store was opened with an
-    /// unusable Noema home path.
-    #[cfg(test)]
-    pub(crate) fn noema_paths(&self) -> Result<NoemaPaths, NoemaPathError> {
-        NoemaPaths::from_noema_home(self.noema_home.clone())
-    }
-
-    /// Return a developer diagnostic logger rooted in this store's Noema home.
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) fn system_error_logger(&self) -> noema_home::SystemErrorLogger {
-        noema_home::SystemErrorLogger::new(self.noema_home.join("errors.log"))
     }
 
     /// Return the current schema marker version.

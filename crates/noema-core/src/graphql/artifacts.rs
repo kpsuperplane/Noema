@@ -1,3 +1,5 @@
+use std::{future::Future, pin::Pin};
+
 use async_graphql::{Enum, InputObject, Result, SimpleObject};
 
 use super::{errors::graphql_error, schema::GraphqlState};
@@ -20,6 +22,43 @@ pub struct AuthorizedArtifactDownload {
 #[error("artifact download unavailable")]
 pub struct AuthorizedArtifactDownloadError;
 
+type AuthorizedArtifactDownloadRepositoryFuture<'a> = Pin<
+    Box<
+        dyn Future<
+                Output = std::result::Result<
+                    Option<(
+                        noema_artifacts::ArtifactRecord,
+                        noema_artifacts::ArtifactVersionRecord,
+                    )>,
+                    AuthorizedArtifactDownloadError,
+                >,
+            > + Send
+            + 'a,
+    >,
+>;
+
+trait AuthorizedArtifactDownloadRepository {
+    fn get_local_version_for_human<'a>(
+        &'a self,
+        artifact_version_id: &'a str,
+        human_id: &'a str,
+    ) -> AuthorizedArtifactDownloadRepositoryFuture<'a>;
+}
+
+impl AuthorizedArtifactDownloadRepository for crate::NoemaStore {
+    fn get_local_version_for_human<'a>(
+        &'a self,
+        artifact_version_id: &'a str,
+        human_id: &'a str,
+    ) -> AuthorizedArtifactDownloadRepositoryFuture<'a> {
+        Box::pin(async move {
+            self.get_local_artifact_version_for_human(artifact_version_id, human_id)
+                .await
+                .map_err(|_| AuthorizedArtifactDownloadError)
+        })
+    }
+}
+
 /// Resolve a local artifact only when it belongs to the authenticated principal.
 ///
 /// # Errors
@@ -38,8 +77,25 @@ pub async fn authorized_artifact_download(
         state.record_artifact_download_failure("store_state");
         AuthorizedArtifactDownloadError
     })?;
-    let Some((artifact, version)) = store
-        .get_local_artifact_version_for_human(artifact_version_id, principal.subject_id())
+    authorized_artifact_download_with_repository(
+        state,
+        artifact_operations,
+        store,
+        principal,
+        artifact_version_id,
+    )
+    .await
+}
+
+async fn authorized_artifact_download_with_repository(
+    state: &GraphqlState,
+    artifact_operations: &noema_artifacts::ArtifactOperationsHandle,
+    repository: &impl AuthorizedArtifactDownloadRepository,
+    principal: &super::RequestPrincipal,
+    artifact_version_id: &str,
+) -> std::result::Result<Option<AuthorizedArtifactDownload>, AuthorizedArtifactDownloadError> {
+    let Some((artifact, version)) = repository
+        .get_local_version_for_human(artifact_version_id, principal.subject_id())
         .await
         .map_err(|_| {
             state.record_artifact_download_failure("authorized_version_query");
@@ -439,6 +495,31 @@ mod tests {
     use super::*;
     use noema_home::NoemaPaths;
 
+    #[derive(Debug)]
+    enum TestArtifactDownloadRepository {
+        Found(
+            Box<(
+                noema_artifacts::ArtifactRecord,
+                noema_artifacts::ArtifactVersionRecord,
+            )>,
+        ),
+        Failure,
+    }
+
+    impl AuthorizedArtifactDownloadRepository for TestArtifactDownloadRepository {
+        fn get_local_version_for_human<'a>(
+            &'a self,
+            _artifact_version_id: &'a str,
+            _human_id: &'a str,
+        ) -> AuthorizedArtifactDownloadRepositoryFuture<'a> {
+            let result = match self {
+                Self::Found(found) => Ok(Some((found.0.clone(), found.1.clone()))),
+                Self::Failure => Err(AuthorizedArtifactDownloadError),
+            };
+            Box::pin(async move { result })
+        }
+    }
+
     async fn local_artifact_fixture() -> (
         tempfile::TempDir,
         NoemaPaths,
@@ -448,15 +529,14 @@ mod tests {
     ) {
         let home = tempfile::tempdir().expect("temp dir");
         let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-        let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
-            .await
-            .expect("store");
+        let store = crate::test_support::test_store_for_paths(&paths).await;
         let conversation = store
             .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
             .expect("conversation");
         let artifact_operations =
-            crate::test_support::artifact_operations(&store).expect("artifact operations");
+            crate::test_support::artifact_operations_for_paths(&store, &paths)
+                .expect("artifact operations");
         let artifact = artifact_operations
             .create_local_file(noema_artifacts::CreateLocalArtifactRequest {
                 owner: noema_artifacts::ArtifactOwnerRef::conversation(
@@ -514,24 +594,42 @@ mod tests {
 
     #[tokio::test]
     async fn authorized_download_hides_other_owner() {
-        let (_home, _paths, store, artifact, state) = local_artifact_fixture().await;
-        store
-            .with_connection(|connection| {
-                connection
-                    .execute(
-                        "UPDATE conversations SET owner_object_id = 'human:other', primary_human_id = 'human:other' WHERE conversation_id = ?1",
-                        [&artifact.artifact.owner.object_id],
-                    )
-                    .map(|_| ())
-                    .map_err(crate::StoreError::Sqlite)
+        let (_home, _paths, store, _artifact, state) = local_artifact_fixture().await;
+        let mut other_conversation = noema_conversations::NewConversation::local_chat(None, None);
+        other_conversation.owner = noema_conversations::ConversationOwnerRef::human("human:other")
+            .expect("other human owner");
+        other_conversation.primary_human_id = Some("human:other".to_owned());
+        let other_conversation = store
+            .create_conversation(other_conversation)
+            .await
+            .expect("other conversation");
+        let other_artifact = state
+            .artifact_operations()
+            .expect("artifact operations")
+            .create_local_file(noema_artifacts::CreateLocalArtifactRequest {
+                owner: noema_artifacts::ArtifactOwnerRef::conversation(
+                    &other_conversation.conversation_id,
+                ),
+                title: "Other report".to_owned(),
+                description: None,
+                artifact_kind: "document".to_owned(),
+                filename: "other-report.md".to_owned(),
+                bytes: b"private to another human".to_vec(),
+                media_type: Some("text/markdown".to_owned()),
+                created_by_actor_id: "agent:primary".to_owned(),
+                source: noema_artifacts::ArtifactSource {
+                    conversation_id: Some(other_conversation.conversation_id),
+                    ..Default::default()
+                },
+                metadata: serde_json::json!({}),
             })
             .await
-            .expect("change owner");
+            .expect("other artifact");
         assert!(
             authorized_artifact_download(
                 &state,
                 &super::super::RequestPrincipal::local(),
-                &artifact.current_version.artifact_version_id,
+                &other_artifact.current_version.artifact_version_id,
             )
             .await
             .expect("download query")
@@ -562,24 +660,22 @@ mod tests {
 
     #[tokio::test]
     async fn authorized_download_refuses_traversal() {
-        let (_home, paths, store, artifact, state) = local_artifact_fixture().await;
-        store
-            .with_connection(|connection| {
-                connection
-                    .execute(
-                        "UPDATE artifact_versions SET local_relative_path = 'providers/secret.txt' WHERE artifact_version_id = ?1",
-                        [&artifact.current_version.artifact_version_id],
-                    )
-                    .map(|_| ())
-                    .map_err(crate::StoreError::Sqlite)
-            })
-            .await
-            .expect("forge artifact path");
+        let (_home, paths, _store, artifact, state) = local_artifact_fixture().await;
+        let mut forged_version = artifact.current_version.clone();
+        forged_version.storage = noema_artifacts::ArtifactVersionStorage::LocalFile {
+            relative_path: "providers/secret.txt".to_owned(),
+        };
+        let repository = TestArtifactDownloadRepository::Found(Box::new((
+            artifact.artifact.clone(),
+            forged_version,
+        )));
         std::fs::create_dir_all(paths.providers_dir()).expect("providers dir");
         std::fs::write(paths.providers_dir().join("secret.txt"), b"secret").expect("secret");
         assert!(
-            authorized_artifact_download(
+            authorized_artifact_download_with_repository(
                 &state,
+                state.artifact_operations().expect("artifact operations"),
+                &repository,
                 &super::super::RequestPrincipal::local(),
                 &artifact.current_version.artifact_version_id,
             )
@@ -617,19 +713,13 @@ mod tests {
 
     #[tokio::test]
     async fn authorized_download_store_failure_writes_redacted_diagnostic() {
-        let (_home, paths, store, artifact, state) = local_artifact_fixture().await;
-        store
-            .with_connection(|connection| {
-                connection
-                    .execute("DROP TABLE artifact_versions", [])
-                    .map(|_| ())
-                    .map_err(crate::StoreError::Sqlite)
-            })
-            .await
-            .expect("break artifact query");
+        let (_home, paths, _store, artifact, state) = local_artifact_fixture().await;
+        let repository = TestArtifactDownloadRepository::Failure;
         assert!(
-            authorized_artifact_download(
+            authorized_artifact_download_with_repository(
                 &state,
+                state.artifact_operations().expect("artifact operations"),
+                &repository,
                 &super::super::RequestPrincipal::local(),
                 &artifact.current_version.artifact_version_id,
             )

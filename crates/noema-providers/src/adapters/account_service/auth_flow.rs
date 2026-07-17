@@ -17,7 +17,7 @@ use crate::{
     FoundationLocalProviderConfig, ProviderAccountOperationError, ProviderAccountRecord,
     ProviderAccountStatus, ProviderAccountStatusUpdate, ProviderAuthAttemptStatus,
     ProviderAuthAttemptView, ProviderAuthMethod, StartProviderAuthRequest,
-    UpdateProviderAccountRequest,
+    UpdateProviderAccountRequest, provider_account_from_persisted,
 };
 
 impl ProviderAccountService {
@@ -29,7 +29,10 @@ impl ProviderAccountService {
             .accounts
             .active_provider_accounts()
             .await
-            .map_err(map_persistence_error)?;
+            .map_err(map_persistence_error)?
+            .into_iter()
+            .map(provider_account_from_persisted)
+            .collect::<Vec<_>>();
         for account in &accounts {
             if account.provider_kind == "foundation_local"
                 && account.is_default
@@ -43,6 +46,12 @@ impl ProviderAccountService {
             .active_provider_accounts()
             .await
             .map_err(map_persistence_error)
+            .map(|accounts| {
+                accounts
+                    .into_iter()
+                    .map(provider_account_from_persisted)
+                    .collect()
+            })
     }
 
     pub(super) async fn start_auth_impl(
@@ -316,6 +325,7 @@ impl ProviderAccountService {
             .await
             .map_err(map_persistence_error)?
             .ok_or(ProviderAccountOperationError::AccountNotFound)?;
+        let account = provider_account_from_persisted(account);
         if account.provider_kind == "foundation_local" {
             return self.reconcile_foundation_account(account).await;
         }
@@ -353,6 +363,7 @@ impl ProviderAccountService {
             })
             .await
             .map_err(map_persistence_error)
+            .map(provider_account_from_persisted)
     }
 
     pub(super) async fn record_auth_failure_impl(
@@ -379,6 +390,7 @@ impl ProviderAccountService {
             })
             .await
             .map_err(map_persistence_error)
+            .map(provider_account_from_persisted)
     }
 
     async fn reconcile_foundation_account(
@@ -420,6 +432,7 @@ impl ProviderAccountService {
             })
             .await
             .map_err(map_persistence_error)
+            .map(provider_account_from_persisted)
     }
 
     pub(super) async fn refresh_model_catalog_impl(

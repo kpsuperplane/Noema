@@ -1,7 +1,7 @@
 //! Provider account persistence port backed by the embedded SQLite store.
 
 use noema_providers::{
-    NewProviderAccount, ProviderAccountPersistence, ProviderAccountRecord,
+    NewProviderAccount, PersistedProviderAccountRecord, ProviderAccountPersistence,
     ProviderAccountStatusUpdate, ProviderPersistenceError, ProviderPersistenceFuture,
     UpdateProviderAccountRequest,
 };
@@ -21,7 +21,7 @@ impl ProviderAccountPersistence for NoemaStore {
     fn provider_account<'a>(
         &'a self,
         provider_account_id: &'a str,
-    ) -> ProviderPersistenceFuture<'a, Option<ProviderAccountRecord>> {
+    ) -> ProviderPersistenceFuture<'a, Option<PersistedProviderAccountRecord>> {
         Box::pin(async move {
             NoemaStore::get_provider_account(self, provider_account_id)
                 .await
@@ -32,7 +32,7 @@ impl ProviderAccountPersistence for NoemaStore {
     fn active_provider_account<'a>(
         &'a self,
         provider_kind: &'a str,
-    ) -> ProviderPersistenceFuture<'a, Option<ProviderAccountRecord>> {
+    ) -> ProviderPersistenceFuture<'a, Option<PersistedProviderAccountRecord>> {
         Box::pin(async move {
             NoemaStore::active_provider_account(self, provider_kind)
                 .await
@@ -42,7 +42,7 @@ impl ProviderAccountPersistence for NoemaStore {
 
     fn active_default_provider_accounts(
         &self,
-    ) -> ProviderPersistenceFuture<'_, Vec<ProviderAccountRecord>> {
+    ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>> {
         Box::pin(async move {
             NoemaStore::active_default_provider_accounts(self)
                 .await
@@ -52,7 +52,7 @@ impl ProviderAccountPersistence for NoemaStore {
 
     fn active_provider_accounts(
         &self,
-    ) -> ProviderPersistenceFuture<'_, Vec<ProviderAccountRecord>> {
+    ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>> {
         Box::pin(async move {
             NoemaStore::active_provider_accounts(self)
                 .await
@@ -60,7 +60,9 @@ impl ProviderAccountPersistence for NoemaStore {
         })
     }
 
-    fn provider_accounts(&self) -> ProviderPersistenceFuture<'_, Vec<ProviderAccountRecord>> {
+    fn provider_accounts(
+        &self,
+    ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>> {
         Box::pin(async move {
             NoemaStore::list_provider_accounts(self)
                 .await
@@ -71,7 +73,7 @@ impl ProviderAccountPersistence for NoemaStore {
     fn create_provider_account(
         &self,
         request: NewProviderAccount,
-    ) -> ProviderPersistenceFuture<'_, ProviderAccountRecord> {
+    ) -> ProviderPersistenceFuture<'_, PersistedProviderAccountRecord> {
         Box::pin(async move {
             NoemaStore::create_provider_account(self, request)
                 .await
@@ -82,7 +84,7 @@ impl ProviderAccountPersistence for NoemaStore {
     fn update_provider_account(
         &self,
         request: UpdateProviderAccountRequest,
-    ) -> ProviderPersistenceFuture<'_, ProviderAccountRecord> {
+    ) -> ProviderPersistenceFuture<'_, PersistedProviderAccountRecord> {
         Box::pin(async move { update_provider_account(self, request).await })
     }
 
@@ -97,7 +99,7 @@ impl ProviderAccountPersistence for NoemaStore {
 async fn update_provider_account(
     store: &NoemaStore,
     request: UpdateProviderAccountRequest,
-) -> Result<ProviderAccountRecord, ProviderPersistenceError> {
+) -> Result<PersistedProviderAccountRecord, ProviderPersistenceError> {
     if request.status.is_none() && request.metadata.is_none() {
         return Err(ProviderPersistenceError::InvalidRequest {
             kind: "empty_provider_account_update",
@@ -171,7 +173,7 @@ async fn update_provider_account(
 fn update_status(
     transaction: &rusqlite::Transaction<'_>,
     provider_account_id: &str,
-    current: &ProviderAccountRecord,
+    current: &PersistedProviderAccountRecord,
     status: ProviderAccountStatusUpdate,
 ) -> Result<(), StoreError> {
     let checked_at = now_string();
@@ -207,7 +209,7 @@ fn update_status(
 fn update_status_and_metadata(
     transaction: &rusqlite::Transaction<'_>,
     provider_account_id: &str,
-    current: &ProviderAccountRecord,
+    current: &PersistedProviderAccountRecord,
     status: ProviderAccountStatusUpdate,
     metadata_json: &str,
 ) -> Result<(), StoreError> {

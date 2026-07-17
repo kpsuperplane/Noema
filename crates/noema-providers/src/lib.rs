@@ -45,9 +45,10 @@ pub use account_operations::{
     SaveProviderAccountSecretRequest, StartProviderAuthRequest,
 };
 pub use accounts::{
-    CodexDeviceAuthRequest, NewProviderAccount, ProviderAccountCatalogEntry, ProviderAccountRecord,
-    ProviderAccountStatus, ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderAuthMethod,
-    provider_account_catalog, system_provider_accounts,
+    CodexDeviceAuthRequest, NewProviderAccount, PersistedProviderAccountRecord,
+    ProviderAccountCatalogEntry, ProviderAccountRecord, ProviderAccountStatus,
+    ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderAuthMethod,
+    provider_account_catalog, provider_account_from_persisted, system_provider_accounts,
 };
 #[cfg(feature = "adapters")]
 pub use adapters::{
@@ -99,10 +100,11 @@ pub use persistence::{
     LocalModelInstallationPersistence, LocalModelInstallationPersistenceHandle,
     PersistProviderModelCatalogRequest, ProviderAccountPersistence,
     ProviderAccountPersistenceHandle, ProviderAccountStatusUpdate,
-    ProviderCapabilityAssignmentPersistence, ProviderCapabilityAssignmentPersistenceHandle,
-    ProviderModelCatalogPersistence, ProviderModelCatalogPersistenceHandle,
-    ProviderPersistenceError, ProviderPersistenceFuture, UpdateProviderAccountRequest,
-    UpsertProviderCapabilityAssignmentRequest,
+    ProviderCapabilityAccountReference, ProviderCapabilityAccountReferenceMode,
+    ProviderCapabilityAssignmentKey, ProviderCapabilityAssignmentPersistence,
+    ProviderCapabilityAssignmentPersistenceHandle, ProviderModelCatalogPersistence,
+    ProviderModelCatalogPersistenceHandle, ProviderPersistenceError, ProviderPersistenceFuture,
+    UpdateProviderAccountRequest, UpsertProviderCapabilityAssignmentRequest,
 };
 pub use registry::{
     ProviderInstanceLease, ProviderRegistration, ProviderRegistry, ProviderRegistryError,

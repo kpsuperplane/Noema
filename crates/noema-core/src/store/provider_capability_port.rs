@@ -1,9 +1,9 @@
 //! Provider capability-assignment persistence port backed by SQLite.
 
-use noema_capabilities::{CapabilityId, ToolName};
 use noema_providers::{
-    ProviderCapabilityAssignment, ProviderCapabilityAssignmentPersistence,
-    ProviderPersistenceError, ProviderPersistenceFuture, UpsertProviderCapabilityAssignmentRequest,
+    ProviderCapabilityAssignment, ProviderCapabilityAssignmentKey,
+    ProviderCapabilityAssignmentPersistence, ProviderPersistenceError, ProviderPersistenceFuture,
+    UpsertProviderCapabilityAssignmentRequest,
 };
 
 use super::{NoemaStore, StoreError};
@@ -11,14 +11,13 @@ use super::{NoemaStore, StoreError};
 impl ProviderCapabilityAssignmentPersistence for NoemaStore {
     fn provider_capability_assignment<'a>(
         &'a self,
-        tool_name: &'a ToolName,
-        capability_id: CapabilityId,
+        key: &'a ProviderCapabilityAssignmentKey,
     ) -> ProviderPersistenceFuture<'a, Option<ProviderCapabilityAssignment>> {
         Box::pin(async move {
             NoemaStore::provider_capability_binding(
                 self,
-                tool_name.as_str(),
-                capability_id.as_str(),
+                key.tool_name_str(),
+                key.capability_id_str(),
             )
             .await
             .map_err(capability_read_error)
@@ -32,9 +31,9 @@ impl ProviderCapabilityAssignmentPersistence for NoemaStore {
         Box::pin(async move {
             NoemaStore::upsert_provider_capability_binding(
                 self,
-                request.tool_name().as_str(),
-                request.capability_id().as_str(),
-                request.provider_account_id(),
+                request.tool_name_str(),
+                request.capability_id_str(),
+                request.account_reference(),
             )
             .await
             .map_err(capability_write_error)
@@ -62,12 +61,6 @@ fn capability_write_error(error: StoreError) -> ProviderPersistenceError {
             provider_account_id,
         } => ProviderPersistenceError::AccountNotFound {
             provider_account_id,
-        },
-        StoreError::InvalidEnum {
-            kind: "provider_capability_binding_provider_account",
-            ..
-        } => ProviderPersistenceError::InvalidRequest {
-            kind: "provider_capability_assignment_account",
         },
         StoreError::Json(_) | StoreError::InvalidEnum { .. } => {
             ProviderPersistenceError::Invariant {

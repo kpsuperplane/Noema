@@ -7,9 +7,7 @@ use noema_providers::{LocalModelBackend, LocalModelEventKind, LocalModelInstalla
 async fn local_file_import_is_verified_content_addressed_and_removable() {
     let home = tempfile::tempdir().expect("Noema home");
     let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
-        .await
-        .expect("store");
+    let store = crate::test_support::test_store_for_paths(&paths).await;
     let source = home.path().join("user-model.gguf");
     tokio::fs::write(&source, b"GGUF small deterministic test payload")
         .await
@@ -60,9 +58,7 @@ async fn local_file_import_is_verified_content_addressed_and_removable() {
 async fn verified_import_replaces_corrupt_existing_content_addressed_blob() {
     let home = tempfile::tempdir().expect("Noema home");
     let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
-        .await
-        .expect("store");
+    let store = crate::test_support::test_store_for_paths(&paths).await;
     let installer = LocalModelInstaller::new(store, paths.clone()).expect("installer");
     let payload = b"GGUF same verified payload";
     let first_source = home.path().join("first.gguf");
@@ -115,9 +111,7 @@ async fn verified_import_replaces_corrupt_existing_content_addressed_blob() {
 async fn local_file_import_rejects_a_non_gguf_payload() {
     let home = tempfile::tempdir().expect("Noema home");
     let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
-        .await
-        .expect("store");
+    let store = crate::test_support::test_store_for_paths(&paths).await;
     let source = home.path().join("not-a-model.gguf");
     tokio::fs::write(&source, b"this is not a model")
         .await

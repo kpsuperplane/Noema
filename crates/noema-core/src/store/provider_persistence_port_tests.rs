@@ -1,9 +1,9 @@
 //! Provider persistence port transaction and error-contract tests.
 
-use noema_capabilities::{CapabilityId, ToolName};
 use noema_providers::{
     NewProviderAccount, PersistProviderModelCatalogRequest, ProviderAccountPersistence,
     ProviderAccountStatus, ProviderAccountStatusUpdate, ProviderAuthMethod,
+    ProviderCapabilityAccountReference, ProviderCapabilityAssignmentKey,
     ProviderCapabilityAssignmentPersistence, ProviderModelCatalogPersistence, ProviderModelProfile,
     ProviderPersistenceError, UpdateProviderAccountRequest,
     UpsertProviderCapabilityAssignmentRequest,
@@ -385,33 +385,52 @@ async fn corrupted_account_rows_are_persistence_invariants() {
             operation: "update_provider_account"
         }
     );
-    let assignment_error =
-        ProviderCapabilityAssignmentPersistence::upsert_provider_capability_assignment(
-            &store,
-            UpsertProviderCapabilityAssignmentRequest::new(
-                ToolName::new("web.search").expect("tool"),
-                CapabilityId::WebSearch,
-                account.provider_account_id,
-            )
-            .expect("request"),
-        )
-        .await
-        .expect_err("corrupt row");
-    assert_eq!(
-        assignment_error,
-        ProviderPersistenceError::Invariant {
-            operation: "upsert_provider_capability_assignment"
-        }
-    );
 }
 
 #[tokio::test]
 async fn capability_assignment_and_account_delete_never_leave_a_dangling_row() {
-    let home = TempDir::new().expect("temp noema home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let config = StoreConfig::from_paths(&paths);
+    let home = TempDir::new().expect("temp store root");
+    let config = StoreConfig::new(home.path().join("db/noema.sqlite3"));
     let writer = NoemaStore::open(&config).await.expect("writer");
     let deleter = NoemaStore::open(&config).await.expect("deleter");
+    let missing_provider_account_id = "provider_account:exa:missing";
+    let error = ProviderCapabilityAssignmentPersistence::upsert_provider_capability_assignment(
+        &writer,
+        UpsertProviderCapabilityAssignmentRequest::from_storage_values(
+            "web.search",
+            "web.search",
+            ProviderCapabilityAccountReference::persisted(missing_provider_account_id),
+        )
+        .expect("missing persisted account request"),
+    )
+    .await
+    .expect_err("missing persisted account");
+    assert_eq!(
+        error,
+        ProviderPersistenceError::AccountNotFound {
+            provider_account_id: missing_provider_account_id.to_string(),
+        }
+    );
+
+    let system_provider_account_id = "provider_account:direct_http:system";
+    let system_assignment =
+        ProviderCapabilityAssignmentPersistence::upsert_provider_capability_assignment(
+            &writer,
+            UpsertProviderCapabilityAssignmentRequest::from_storage_values(
+                "web.fetch",
+                "web.fetch",
+                ProviderCapabilityAccountReference::validated_system(system_provider_account_id)
+                    .expect("system account"),
+            )
+            .expect("system assignment request"),
+        )
+        .await
+        .expect("save system assignment");
+    assert_eq!(
+        system_assignment.provider_account_id,
+        system_provider_account_id
+    );
+
     let account = ProviderAccountPersistence::create_provider_account(
         &writer,
         NewProviderAccount {
@@ -424,11 +443,12 @@ async fn capability_assignment_and_account_delete_never_leave_a_dangling_row() {
     )
     .await
     .expect("account");
-    let tool = ToolName::new("web.search").expect("tool");
-    let request = UpsertProviderCapabilityAssignmentRequest::new(
-        tool.clone(),
-        CapabilityId::WebSearch,
-        account.provider_account_id.clone(),
+    let key = ProviderCapabilityAssignmentKey::from_storage_values("web.search", "web.search")
+        .expect("assignment key");
+    let request = UpsertProviderCapabilityAssignmentRequest::from_storage_values(
+        "web.search",
+        "web.search",
+        ProviderCapabilityAccountReference::persisted(account.provider_account_id.clone()),
     )
     .expect("request");
 
@@ -445,22 +465,17 @@ async fn capability_assignment_and_account_delete_never_leave_a_dangling_row() {
             .expect("account read")
             .is_some();
     let assignment_exists =
-        ProviderCapabilityAssignmentPersistence::provider_capability_assignment(
-            &writer,
-            &tool,
-            CapabilityId::WebSearch,
-        )
-        .await
-        .expect("assignment read")
-        .is_some();
+        ProviderCapabilityAssignmentPersistence::provider_capability_assignment(&writer, &key)
+            .await
+            .expect("assignment read")
+            .is_some();
     assert!(!assignment_exists || account_exists);
 }
 
 #[tokio::test]
 async fn catalog_commit_is_visible_through_a_second_store_handle() {
-    let home = TempDir::new().expect("temp noema home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let config = StoreConfig::from_paths(&paths);
+    let home = TempDir::new().expect("temp store root");
+    let config = StoreConfig::new(home.path().join("db/noema.sqlite3"));
     let writer = NoemaStore::open(&config).await.expect("writer");
     let reader = NoemaStore::open(&config).await.expect("reader");
     let account = writer

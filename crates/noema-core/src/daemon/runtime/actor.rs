@@ -435,14 +435,12 @@ impl CodexRuntimeActor {
 pub(super) fn test_provider_account_access(
     store: &NoemaStore,
 ) -> Result<ProviderAccountRuntimeAccess, DaemonError> {
-    let paths = store
-        .noema_paths()
-        .map_err(|source| DaemonError::Protocol(source.to_string()))?;
+    let paths = crate::test_support::test_paths();
     let service = ProviderAccountService::new(
         paths,
         Arc::new(store.clone()),
         Arc::new(store.clone()),
-        store.system_error_logger(),
+        crate::test_support::system_error_logger(),
     )
     .map_err(DaemonError::from)?;
     Ok(ProviderAccountRuntimeAccess::new(

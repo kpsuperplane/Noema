@@ -679,7 +679,7 @@ mod tests {
 
     #[tokio::test]
     async fn native_provider_gets_builtin_and_calibrated_mcp_tools() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         store.ensure_default_actors().await.expect("actors");
         let (_, capability_bindings) = ready_mcp_source();
 
@@ -761,7 +761,7 @@ mod tests {
 
     #[tokio::test]
     async fn native_catalog_keeps_prompt_safe_approved_tools_across_transient_outages() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         store.ensure_default_actors().await.expect("actors");
         let (source, capability_bindings) = ready_mcp_source();
         let capabilities = ProviderToolCapabilities {
@@ -815,7 +815,7 @@ mod tests {
 
     #[tokio::test]
     async fn envelope_catalog_excludes_transiently_unavailable_mcp_tools() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         store.ensure_default_actors().await.expect("actors");
         let source = TestCapabilityBindingSource::default();
         source.replace(mcp_catalog(Some(CapabilityAvailabilityStatus::Unavailable)));
@@ -856,7 +856,7 @@ mod tests {
 
     #[tokio::test]
     async fn noema_envelope_gets_the_same_complete_catalog() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         store.ensure_default_actors().await.expect("actors");
         let (_, capability_bindings) = ready_mcp_source();
 
@@ -906,7 +906,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_tool_transport_exposes_no_catalog() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         let (_, capability_bindings) = ready_mcp_source();
 
         let tools = build_model_tools(
@@ -934,7 +934,7 @@ mod tests {
 
     #[tokio::test]
     async fn authenticated_provider_defaults_expose_task_delegation() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         let capability_bindings = empty_capability_source();
         store
             .ensure_default_provider_account()
@@ -993,7 +993,7 @@ mod tests {
 
     #[tokio::test]
     async fn background_roles_expose_read_tools_and_their_typed_terminal_contracts() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         let (_, capability_bindings) = ready_mcp_source();
 
         let capabilities = ProviderToolCapabilities {
@@ -1039,7 +1039,7 @@ mod tests {
 
     #[tokio::test]
     async fn envelope_background_roles_keep_typed_terminal_specs() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         let capability_bindings = empty_capability_source();
         let capabilities = ProviderToolCapabilities {
             tool_transport: ProviderToolTransport::NoemaEnvelope,
@@ -1081,7 +1081,7 @@ mod tests {
 
     #[tokio::test]
     async fn native_provider_hides_ready_write_tool_without_one_shot_approval() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         let capability_bindings = empty_capability_source();
 
         let tools = build_model_tools(

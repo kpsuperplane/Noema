@@ -774,7 +774,7 @@ mod tests {
 
     #[tokio::test]
     async fn inspect_and_resume_tools_use_canonical_task_state() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         store.ensure_default_actors().await.expect("actors");
         store
             .ensure_default_provider_account()
@@ -861,9 +861,9 @@ mod tests {
 
     #[tokio::test]
     async fn reviewer_inspection_targets_the_submission_executor_run() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         let (task, executor_run) =
-            crate::store::tests::seed_task(&store, "Review inspection").await;
+            crate::test_support::seed_task(&store, "Review inspection").await;
         store
             .claim_next_agent_run("worker:executor", "lease:executor", 120)
             .await

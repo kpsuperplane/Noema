@@ -69,6 +69,37 @@ impl ProviderAccountStatus {
 }
 
 /// Durable non-secret provider account metadata.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PersistedProviderAccountRecord {
+    /// Stable provider account id.
+    pub provider_account_id: String,
+    /// Provider family, such as `codex`.
+    pub provider_kind: String,
+    /// Provider-local account key.
+    pub account_key: String,
+    /// Human-readable account name.
+    pub display_name: String,
+    /// Authentication method used for this account.
+    pub auth_method: ProviderAuthMethod,
+    /// Whether the account may be selected.
+    pub is_active: bool,
+    /// Whether the account is the default account for its provider.
+    pub is_default: bool,
+    /// Last known account readiness status.
+    pub status: ProviderAccountStatus,
+    /// Last time Noema checked the account status.
+    pub last_checked_at: Option<String>,
+    /// Last time Noema observed successful authentication.
+    pub last_authenticated_at: Option<String>,
+    /// Last non-secret provider error code.
+    pub last_error_code: Option<String>,
+    /// Last non-secret provider error message.
+    pub last_error_message: Option<String>,
+    /// Additional non-secret account metadata.
+    pub metadata: Value,
+}
+
+/// Provider account metadata enriched with provider-derived capabilities.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProviderAccountRecord {
     /// Stable provider account id.
@@ -100,6 +131,54 @@ pub struct ProviderAccountRecord {
     /// Derived capabilities available through this provider account.
     #[serde(default)]
     pub capabilities: Vec<ProviderCapability>,
+}
+
+/// Enrich one durable account record with its provider-owned capabilities.
+#[must_use]
+pub fn provider_account_from_persisted(
+    account: PersistedProviderAccountRecord,
+) -> ProviderAccountRecord {
+    let capabilities = capabilities_for_provider_account(
+        &account.provider_kind,
+        &account.account_key,
+        account.status,
+    );
+    ProviderAccountRecord {
+        provider_account_id: account.provider_account_id,
+        provider_kind: account.provider_kind,
+        account_key: account.account_key,
+        display_name: account.display_name,
+        auth_method: account.auth_method,
+        is_active: account.is_active,
+        is_default: account.is_default,
+        status: account.status,
+        last_checked_at: account.last_checked_at,
+        last_authenticated_at: account.last_authenticated_at,
+        last_error_code: account.last_error_code,
+        last_error_message: account.last_error_message,
+        metadata: account.metadata,
+        capabilities,
+    }
+}
+
+impl From<ProviderAccountRecord> for PersistedProviderAccountRecord {
+    fn from(account: ProviderAccountRecord) -> Self {
+        Self {
+            provider_account_id: account.provider_account_id,
+            provider_kind: account.provider_kind,
+            account_key: account.account_key,
+            display_name: account.display_name,
+            auth_method: account.auth_method,
+            is_active: account.is_active,
+            is_default: account.is_default,
+            status: account.status,
+            last_checked_at: account.last_checked_at,
+            last_authenticated_at: account.last_authenticated_at,
+            last_error_code: account.last_error_code,
+            last_error_message: account.last_error_message,
+            metadata: account.metadata,
+        }
+    }
 }
 
 /// Provider type shown in the Settings add-account catalog.

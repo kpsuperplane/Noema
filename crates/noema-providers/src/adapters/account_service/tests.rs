@@ -21,14 +21,14 @@ use crate::adapters::{
 };
 use crate::{
     CodexOAuthTokens, CreateSecretProviderAccountRequest, NewProviderAccount,
-    PersistProviderModelCatalogRequest, ProviderAccountOperationError, ProviderAccountOperations,
-    ProviderAccountPersistence, ProviderAccountPersistenceHandle, ProviderAccountRecord,
-    ProviderAccountStatus, ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderAuthMethod,
-    ProviderCredential, ProviderCredentialAccess, ProviderCredentialAccessHandle,
-    ProviderCredentialFuture, ProviderError, ProviderModelCatalogPersistence,
-    ProviderModelCatalogPersistenceHandle, ProviderPersistenceError, ProviderPersistenceFuture,
-    SaveProviderAccountSecretRequest, UpdateProviderAccountRequest,
-    capabilities_for_provider_account,
+    PersistProviderModelCatalogRequest, PersistedProviderAccountRecord,
+    ProviderAccountOperationError, ProviderAccountOperations, ProviderAccountPersistence,
+    ProviderAccountPersistenceHandle, ProviderAccountRecord, ProviderAccountStatus,
+    ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderAuthMethod, ProviderCredential,
+    ProviderCredentialAccess, ProviderCredentialAccessHandle, ProviderCredentialFuture,
+    ProviderError, ProviderModelCatalogPersistence, ProviderModelCatalogPersistenceHandle,
+    ProviderPersistenceError, ProviderPersistenceFuture, SaveProviderAccountSecretRequest,
+    UpdateProviderAccountRequest, capabilities_for_provider_account,
 };
 
 #[path = "tests/auth_failure.rs"]
@@ -43,7 +43,7 @@ struct FakePersistence {
 
 #[derive(Default)]
 struct FakePersistenceState {
-    accounts: BTreeMap<String, ProviderAccountRecord>,
+    accounts: BTreeMap<String, PersistedProviderAccountRecord>,
     fail_next_update: bool,
     fail_next_delete: bool,
     catalog_persist_count: usize,
@@ -51,9 +51,10 @@ struct FakePersistenceState {
 
 impl FakePersistence {
     fn with_account(account: ProviderAccountRecord) -> Self {
+        let provider_account_id = account.provider_account_id.clone();
         Self {
             state: Mutex::new(FakePersistenceState {
-                accounts: BTreeMap::from([(account.provider_account_id.clone(), account)]),
+                accounts: BTreeMap::from([(provider_account_id, account.into())]),
                 ..FakePersistenceState::default()
             }),
         }
@@ -67,7 +68,7 @@ impl FakePersistence {
         self.state.lock().expect("fake state").fail_next_delete = true;
     }
 
-    fn account(&self, provider_account_id: &str) -> Option<ProviderAccountRecord> {
+    fn account(&self, provider_account_id: &str) -> Option<PersistedProviderAccountRecord> {
         self.state
             .lock()
             .expect("fake state")
@@ -95,7 +96,7 @@ impl ProviderAccountPersistence for FakePersistence {
     fn provider_account<'a>(
         &'a self,
         provider_account_id: &'a str,
-    ) -> ProviderPersistenceFuture<'a, Option<ProviderAccountRecord>> {
+    ) -> ProviderPersistenceFuture<'a, Option<PersistedProviderAccountRecord>> {
         let account = self.account(provider_account_id);
         Box::pin(async move { Ok(account) })
     }
@@ -103,7 +104,7 @@ impl ProviderAccountPersistence for FakePersistence {
     fn active_provider_account<'a>(
         &'a self,
         provider_kind: &'a str,
-    ) -> ProviderPersistenceFuture<'a, Option<ProviderAccountRecord>> {
+    ) -> ProviderPersistenceFuture<'a, Option<PersistedProviderAccountRecord>> {
         let account = self
             .state
             .lock()
@@ -119,7 +120,7 @@ impl ProviderAccountPersistence for FakePersistence {
 
     fn active_default_provider_accounts(
         &self,
-    ) -> ProviderPersistenceFuture<'_, Vec<ProviderAccountRecord>> {
+    ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>> {
         let accounts = self
             .state
             .lock()
@@ -134,7 +135,7 @@ impl ProviderAccountPersistence for FakePersistence {
 
     fn active_provider_accounts(
         &self,
-    ) -> ProviderPersistenceFuture<'_, Vec<ProviderAccountRecord>> {
+    ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>> {
         let accounts = self
             .state
             .lock()
@@ -147,7 +148,9 @@ impl ProviderAccountPersistence for FakePersistence {
         Box::pin(async move { Ok(accounts) })
     }
 
-    fn provider_accounts(&self) -> ProviderPersistenceFuture<'_, Vec<ProviderAccountRecord>> {
+    fn provider_accounts(
+        &self,
+    ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>> {
         let accounts = self
             .state
             .lock()
@@ -162,15 +165,15 @@ impl ProviderAccountPersistence for FakePersistence {
     fn create_provider_account(
         &self,
         request: NewProviderAccount,
-    ) -> ProviderPersistenceFuture<'_, ProviderAccountRecord> {
-        let account = account(
+    ) -> ProviderPersistenceFuture<'_, PersistedProviderAccountRecord> {
+        let account = PersistedProviderAccountRecord::from(account(
             &request.provider_kind,
             "created",
             request.auth_method,
             false,
             request.status,
             request.metadata,
-        );
+        ));
         self.state
             .lock()
             .expect("fake state")
@@ -182,7 +185,7 @@ impl ProviderAccountPersistence for FakePersistence {
     fn update_provider_account(
         &self,
         request: UpdateProviderAccountRequest,
-    ) -> ProviderPersistenceFuture<'_, ProviderAccountRecord> {
+    ) -> ProviderPersistenceFuture<'_, PersistedProviderAccountRecord> {
         let result = {
             let mut state = self.state.lock().expect("fake state");
             if state.fail_next_update {
@@ -206,11 +209,6 @@ impl ProviderAccountPersistence for FakePersistence {
                     if let Some(metadata) = request.metadata {
                         account.metadata = metadata;
                     }
-                    account.capabilities = capabilities_for_provider_account(
-                        &account.provider_kind,
-                        &account.account_key,
-                        account.status,
-                    );
                     account.clone()
                 })
             }
@@ -249,7 +247,7 @@ impl ProviderModelCatalogPersistence for FakePersistence {
     fn persist_provider_model_catalog(
         &self,
         request: PersistProviderModelCatalogRequest,
-    ) -> ProviderPersistenceFuture<'_, ProviderAccountRecord> {
+    ) -> ProviderPersistenceFuture<'_, PersistedProviderAccountRecord> {
         let result = {
             let mut state = self.state.lock().expect("fake state");
             state.catalog_persist_count += 1;

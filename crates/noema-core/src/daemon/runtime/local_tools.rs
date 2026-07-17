@@ -758,7 +758,8 @@ mod tests {
     use noema_providers::{
         DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateActionItem, GenerateInput, GenerateRequest,
         GenerateResponse, GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent,
-        ProviderError, ProviderOperations, ProviderToolCapabilities,
+        ProviderCapabilityAccountReference, ProviderError, ProviderOperations,
+        ProviderToolCapabilities,
     };
     use serde_json::{Value, json};
 
@@ -844,7 +845,7 @@ mod tests {
     }
 
     async fn test_actor() -> CodexRuntimeActor {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         CodexRuntimeActor::new(
             "codex".to_string(),
             HashMap::from([(
@@ -853,7 +854,7 @@ mod tests {
                     as noema_providers::ProviderHandle,
             )]),
             store.clone(),
-            store.system_error_logger(),
+            crate::test_support::system_error_logger(),
         )
         .await
         .expect("actor")
@@ -1244,7 +1245,7 @@ mod tests {
 
     #[tokio::test]
     async fn task_delegate_preserves_the_executing_route_account() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         store.ensure_default_actors().await.expect("actors");
         store
             .ensure_default_provider_account()
@@ -1259,14 +1260,20 @@ mod tests {
             )
             .await
             .expect("authenticate default account");
-        insert_provider_account(
-            &store,
-            "provider_account:openai:team",
-            "openai",
-            "team",
-            noema_providers::ProviderAccountStatus::Authenticated,
-        )
-        .await;
+        let provider_account_id = store
+            .ensure_default_foundation_local_provider_account()
+            .await
+            .expect("foundation account")
+            .provider_account_id;
+        store
+            .update_provider_account_status(
+                &provider_account_id,
+                noema_providers::ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .expect("authenticate foundation account");
         let pool = store
             .ensure_default_task_model_pool_settings("codex")
             .await
@@ -1282,15 +1289,15 @@ mod tests {
                     as noema_providers::ProviderHandle,
             )]),
             store.clone(),
-            store.system_error_logger(),
+            crate::test_support::system_error_logger(),
         )
         .await
         .expect("actor");
         let turn = test_turn_with_selection(noema_providers::ProviderSelectionSnapshot::explicit(
-            "openai",
-            "provider_account:openai:team",
-            "gpt-explicit",
-            Some(noema_providers::ReasoningEffort::Low),
+            "foundation_local",
+            provider_account_id.clone(),
+            "default",
+            None,
             Some("agent:primary".to_string()),
         ));
 
@@ -1328,19 +1335,13 @@ mod tests {
             .await
             .expect("read task")
             .expect("created task");
-        assert_eq!(task.reviewer_model.provider_kind, "openai");
-        assert_eq!(
-            task.reviewer_model.provider_account_id,
-            "provider_account:openai:team"
-        );
+        assert_eq!(task.reviewer_model.provider_kind, "foundation_local");
+        assert_eq!(task.reviewer_model.provider_account_id, provider_account_id);
         assert_eq!(
             task.reviewer_model.model_profile.as_deref(),
-            Some("gpt-explicit")
+            Some("default")
         );
-        assert_eq!(
-            task.reviewer_model.reasoning_effort,
-            Some(noema_providers::ReasoningEffort::Low)
-        );
+        assert_eq!(task.reviewer_model.reasoning_effort, None);
         assert_eq!(
             task.reviewer_model.selection_source.as_deref(),
             Some("primary:effective")
@@ -1407,62 +1408,45 @@ mod tests {
         assert_eq!(result.persisted().output, Some(json!({"error": "denied"})));
     }
 
-    async fn insert_provider_account_without_web_capabilities(
-        store: &crate::NoemaStore,
-        provider_account_id: &str,
-    ) {
-        crate::store::tests::insert_provider_account_for_tests(
-            store,
-            provider_account_id,
-            "codex",
-            "runtime-test",
-            "codex runtime test",
-            noema_providers::ProviderAuthMethod::SecretInput,
-            false,
-            noema_providers::ProviderAccountStatus::Authenticated,
-            json!({}),
-        )
-        .await;
+    async fn ensure_provider_account_without_web_capabilities(store: &crate::NoemaStore) -> String {
+        let account = store
+            .ensure_default_provider_account()
+            .await
+            .expect("default Codex provider account");
+        account.provider_account_id
     }
 
-    async fn insert_provider_account(
+    async fn create_exa_provider_account(
         store: &crate::NoemaStore,
-        provider_account_id: &str,
-        provider_kind: &str,
-        account_key: &str,
         status: noema_providers::ProviderAccountStatus,
-    ) {
-        crate::store::tests::insert_provider_account_for_tests(
+    ) -> String {
+        crate::test_support::create_exa_provider_account_for_tests(
             store,
-            provider_account_id,
-            provider_kind,
-            account_key,
-            &format!("{provider_kind} {account_key}"),
-            noema_providers::ProviderAuthMethod::SecretInput,
-            false,
+            "Exa runtime test",
             status,
             json!({}),
         )
-        .await;
+        .await
+        .provider_account_id
     }
 
     async fn insert_provider_capability_binding(
         store: &crate::NoemaStore,
         tool_name: &str,
-        provider_account_id: &str,
+        provider_account_id: impl Into<String>,
     ) {
-        crate::store::tests::insert_provider_capability_binding_for_tests(
+        crate::test_support::save_provider_capability_assignment_for_tests(
             store,
             tool_name,
             tool_name,
-            provider_account_id,
+            ProviderCapabilityAccountReference::persisted(provider_account_id),
         )
         .await;
     }
 
     #[tokio::test]
     async fn web_fetch_runtime_context_uses_saved_summarizer_preference() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         let account = store
             .ensure_default_foundation_local_provider_account()
             .await
@@ -1492,7 +1476,7 @@ mod tests {
                 ),
             ]),
             store.clone(),
-            store.system_error_logger(),
+            crate::test_support::system_error_logger(),
         )
         .await
         .expect("actor");
@@ -1515,7 +1499,7 @@ mod tests {
 
     #[tokio::test]
     async fn web_fetch_runtime_context_uses_saved_summarizer_reasoning_effort() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         let account = store
             .ensure_default_provider_account()
             .await
@@ -1538,7 +1522,7 @@ mod tests {
                     as noema_providers::ProviderHandle,
             )]),
             store.clone(),
-            store.system_error_logger(),
+            crate::test_support::system_error_logger(),
         )
         .await
         .expect("actor");
@@ -1560,7 +1544,7 @@ mod tests {
 
     #[tokio::test]
     async fn web_fetch_runtime_context_rejects_saved_provider_missing_from_runtime() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         let account = store
             .ensure_default_foundation_local_provider_account()
             .await
@@ -1583,7 +1567,7 @@ mod tests {
                     as noema_providers::ProviderHandle,
             )]),
             store.clone(),
-            store.system_error_logger(),
+            crate::test_support::system_error_logger(),
         )
         .await
         .expect("actor");
@@ -1601,7 +1585,7 @@ mod tests {
 
     #[tokio::test]
     async fn web_fetch_runtime_context_no_preference_summarizes_with_spec_default_model() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         let requests = Arc::new(Mutex::new(Vec::new()));
         let actor = CodexRuntimeActor::new(
             "codex".to_string(),
@@ -1613,7 +1597,7 @@ mod tests {
                 )) as noema_providers::ProviderHandle,
             )]),
             store.clone(),
-            store.system_error_logger(),
+            crate::test_support::system_error_logger(),
         )
         .await
         .expect("actor");
@@ -1645,21 +1629,13 @@ mod tests {
 
     #[tokio::test]
     async fn bound_exa_web_search_without_secret_falls_back_to_duckduckgo() {
-        let store = crate::store::tests::test_store().await;
-        insert_provider_account(
+        let store = crate::test_support::test_store().await;
+        let provider_account_id = create_exa_provider_account(
             &store,
-            "provider_account:exa:acct_research",
-            "exa",
-            "acct_research",
             noema_providers::ProviderAccountStatus::Authenticated,
         )
         .await;
-        insert_provider_capability_binding(
-            &store,
-            "web.search",
-            "provider_account:exa:acct_research",
-        )
-        .await;
+        insert_provider_capability_binding(&store, "web.search", provider_account_id.clone()).await;
         let actor = CodexRuntimeActor::new(
             "codex".to_string(),
             HashMap::from([(
@@ -1668,7 +1644,7 @@ mod tests {
                     as noema_providers::ProviderHandle,
             )]),
             store.clone(),
-            store.system_error_logger(),
+            crate::test_support::system_error_logger(),
         )
         .await
         .expect("actor");
@@ -1682,17 +1658,14 @@ mod tests {
             provider.backend_id(),
             crate::search::types::DUCKDUCKGO_PUBLIC_PROVIDER_ID,
         );
-        assert_eq!(
-            fallback_from.as_deref(),
-            Some("provider_account:exa:acct_research")
-        );
+        assert_eq!(fallback_from.as_deref(), Some(provider_account_id.as_str()));
         assert_eq!(
             fallback_reason.as_deref(),
             Some("provider account unauthenticated")
         );
         assert!(auth_failure_account_id.is_none());
         let account = store
-            .get_provider_account("provider_account:exa:acct_research")
+            .get_provider_account(&provider_account_id)
             .await
             .expect("provider account")
             .expect("Exa account");
@@ -1705,21 +1678,13 @@ mod tests {
 
     #[tokio::test]
     async fn bound_exa_web_fetch_without_secret_falls_back_to_direct_http() {
-        let store = crate::store::tests::test_store().await;
-        insert_provider_account(
+        let store = crate::test_support::test_store().await;
+        let provider_account_id = create_exa_provider_account(
             &store,
-            "provider_account:exa:acct_research",
-            "exa",
-            "acct_research",
             noema_providers::ProviderAccountStatus::Authenticated,
         )
         .await;
-        insert_provider_capability_binding(
-            &store,
-            "web.fetch",
-            "provider_account:exa:acct_research",
-        )
-        .await;
+        insert_provider_capability_binding(&store, "web.fetch", provider_account_id.clone()).await;
         let actor = CodexRuntimeActor::new(
             "codex".to_string(),
             HashMap::from([(
@@ -1728,7 +1693,7 @@ mod tests {
                     as noema_providers::ProviderHandle,
             )]),
             store.clone(),
-            store.system_error_logger(),
+            crate::test_support::system_error_logger(),
         )
         .await
         .expect("actor");
@@ -1742,10 +1707,7 @@ mod tests {
             provider.backend_id(),
             crate::web_fetch::types::DIRECT_HTTP_PROVIDER_ID,
         );
-        assert_eq!(
-            fallback_from.as_deref(),
-            Some("provider_account:exa:acct_research")
-        );
+        assert_eq!(fallback_from.as_deref(), Some(provider_account_id.as_str()));
         assert_eq!(
             fallback_reason.as_deref(),
             Some("provider account unauthenticated")
@@ -1760,11 +1722,9 @@ mod tests {
 
     #[tokio::test]
     async fn web_search_local_tool_result_payload_preserves_fallback_metadata() {
-        let store = crate::store::tests::test_store().await;
-        insert_provider_account_without_web_capabilities(&store, "provider_account:codex:test")
-            .await;
-        insert_provider_capability_binding(&store, "web.search", "provider_account:codex:test")
-            .await;
+        let store = crate::test_support::test_store().await;
+        let provider_account_id = ensure_provider_account_without_web_capabilities(&store).await;
+        insert_provider_capability_binding(&store, "web.search", provider_account_id.clone()).await;
         let actor = CodexRuntimeActor::new(
             "codex".to_string(),
             HashMap::from([(
@@ -1773,7 +1733,7 @@ mod tests {
                     as noema_providers::ProviderHandle,
             )]),
             store.clone(),
-            store.system_error_logger(),
+            crate::test_support::system_error_logger(),
         )
         .await
         .expect("actor");
@@ -1800,7 +1760,7 @@ mod tests {
             panic!("expected tool result action item");
         };
 
-        assert_eq!(payload["fallback_from"], "provider_account:codex:test");
+        assert_eq!(payload["fallback_from"], provider_account_id);
         assert_eq!(
             payload["fallback_reason"],
             "bound provider account does not declare web.search"
@@ -1810,11 +1770,9 @@ mod tests {
 
     #[tokio::test]
     async fn web_fetch_local_tool_result_payload_preserves_fallback_metadata() {
-        let store = crate::store::tests::test_store().await;
-        insert_provider_account_without_web_capabilities(&store, "provider_account:codex:test")
-            .await;
-        insert_provider_capability_binding(&store, "web.fetch", "provider_account:codex:test")
-            .await;
+        let store = crate::test_support::test_store().await;
+        let provider_account_id = ensure_provider_account_without_web_capabilities(&store).await;
+        insert_provider_capability_binding(&store, "web.fetch", provider_account_id.clone()).await;
         let actor = CodexRuntimeActor::new(
             "codex".to_string(),
             HashMap::from([(
@@ -1823,7 +1781,7 @@ mod tests {
                     as noema_providers::ProviderHandle,
             )]),
             store.clone(),
-            store.system_error_logger(),
+            crate::test_support::system_error_logger(),
         )
         .await
         .expect("actor");
@@ -1850,7 +1808,7 @@ mod tests {
             panic!("expected tool result action item");
         };
 
-        assert_eq!(payload["fallback_from"], "provider_account:codex:test");
+        assert_eq!(payload["fallback_from"], provider_account_id);
         assert_eq!(
             payload["fallback_reason"],
             "bound provider account does not declare web.fetch"

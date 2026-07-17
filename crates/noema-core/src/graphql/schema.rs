@@ -1194,27 +1194,28 @@ mod tests {
         assert!(sdl.contains("MemoryGraphInput"));
     }
 
-    async fn schema_with_reasoning_openai_profile() -> (GraphqlSchema, String) {
-        use crate::store::tests::test_store;
+    async fn schema_with_reasoning_profile() -> (GraphqlSchema, String) {
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         store.ensure_default_actors().await.expect("actors");
-        let account_id = "provider_account:openai:reasoning";
-        crate::store::tests::insert_provider_account_for_tests(
-            &store,
-            account_id,
-            "openai",
-            "reasoning",
-            "OpenAI reasoning",
-            noema_providers::ProviderAuthMethod::SecretInput,
-            true,
-            noema_providers::ProviderAccountStatus::Authenticated,
-            json!({}),
-        )
-        .await;
+        let account = store
+            .ensure_default_provider_account()
+            .await
+            .expect("Codex account");
+        let account_id = account.provider_account_id;
+        store
+            .update_provider_account_status(
+                &account_id,
+                noema_providers::ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .expect("authenticated account");
         store
             .update_provider_account_metadata(
-                account_id,
+                &account_id,
                 serde_json::json!({
                     "profiles": [{
                         "id": "gpt-5.5",
@@ -1228,7 +1229,7 @@ mod tests {
             .expect("metadata");
         (
             build_schema(GraphqlState::for_tests_with_store(store)),
-            account_id.to_string(),
+            account_id,
         )
     }
 
@@ -1320,7 +1321,7 @@ mod tests {
 
     #[tokio::test]
     async fn memory_settings_query_returns_defaults() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         let schema = build_schema(GraphqlState::for_tests_with_store(store));
 
         let response = schema
@@ -1349,9 +1350,7 @@ mod tests {
     async fn memory_settings_query_reports_managed_mnemosyne_unavailable() {
         let home = tempfile::TempDir::new().expect("home");
         let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-        let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
-            .await
-            .expect("store");
+        let store = crate::test_support::test_store_for_paths(&paths).await;
         let schema = build_schema(GraphqlState::for_tests_with_store_and_paths(store, paths));
 
         let response = schema
@@ -1386,7 +1385,7 @@ mod tests {
 
     #[tokio::test]
     async fn memory_graph_returns_unavailable_without_memory_connection() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         let schema = build_schema(GraphqlState::for_tests_with_store(store));
 
         let response = schema
@@ -1440,7 +1439,7 @@ mod tests {
     #[tokio::test]
     async fn memory_graph_lists_external_mnemosyne_memories() {
         let server_base_url = spawn_memory_graph_mnemosyne_server().await;
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         store
             .save_memory_service_settings(noema_memory::SaveMemoryServiceSettings {
                 mode: noema_memory::MemoryServiceMode::External,
@@ -1561,7 +1560,7 @@ mod tests {
 
     #[tokio::test]
     async fn memory_graph_source_resolves_exact_persisted_user_message() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         store.ensure_default_actors().await.expect("actors");
         let conversation = store
             .get_or_create_primary_conversation_for_provider(
@@ -1665,7 +1664,7 @@ mod tests {
     #[tokio::test]
     async fn memory_graph_lazily_generates_and_caches_article() {
         let server_base_url = spawn_memory_graph_mnemosyne_server().await;
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         store
             .save_memory_service_settings(noema_memory::SaveMemoryServiceSettings {
                 mode: noema_memory::MemoryServiceMode::External,
@@ -1755,7 +1754,7 @@ mod tests {
     #[tokio::test]
     async fn memory_article_falls_back_when_model_omits_citations() {
         let server_base_url = spawn_memory_graph_mnemosyne_server().await;
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         store
             .save_memory_service_settings(noema_memory::SaveMemoryServiceSettings {
                 mode: noema_memory::MemoryServiceMode::External,
@@ -1804,7 +1803,7 @@ mod tests {
     #[tokio::test]
     async fn memory_article_uses_configured_memory_model_preference() {
         let server_base_url = spawn_memory_graph_mnemosyne_server().await;
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         store
             .save_memory_service_settings(noema_memory::SaveMemoryServiceSettings {
                 mode: noema_memory::MemoryServiceMode::External,
@@ -1847,7 +1846,7 @@ mod tests {
     #[tokio::test]
     async fn regenerate_memory_article_forces_generation() {
         let server_base_url = spawn_memory_graph_mnemosyne_server_with_limit(100).await;
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         store
             .save_memory_service_settings(noema_memory::SaveMemoryServiceSettings {
                 mode: noema_memory::MemoryServiceMode::External,
@@ -1898,7 +1897,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_external_memory_service_settings_requires_base_url() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         let schema = build_schema(GraphqlState::for_tests_with_store(store));
 
         let response = schema
@@ -1947,7 +1946,7 @@ mod tests {
             }
         });
 
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         let schema = build_schema(memory_graph_state(store));
         let save_response = schema
             .execute(format!(
@@ -1996,7 +1995,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_memory_service_settings_rejects_reasoning_effort_without_model() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         let schema = build_schema(GraphqlState::for_tests_with_store(store));
 
         let response = schema
@@ -2030,7 +2029,7 @@ mod tests {
 
     #[tokio::test]
     async fn provider_accounts_query_returns_safe_metadata() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
         use noema_providers::ProviderAccountStatus;
 
         let store = test_store().await;
@@ -2098,7 +2097,7 @@ mod tests {
 
     #[tokio::test]
     async fn provider_account_catalog_lists_exa() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         let schema = build_schema(GraphqlState::for_tests_with_store(store));
@@ -2133,7 +2132,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_exa_provider_account_stores_secret_without_returning_it() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let dir = tempfile::tempdir().expect("tempdir");
         let store = test_store().await;
@@ -2182,7 +2181,7 @@ mod tests {
 
     #[tokio::test]
     async fn provider_accounts_query_includes_created_exa_accounts() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let dir = tempfile::tempdir().expect("tempdir");
         let store = test_store().await;
@@ -2243,7 +2242,7 @@ mod tests {
 
     #[tokio::test]
     async fn delete_provider_account_removes_exa_account_secret_and_binding() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let dir = tempfile::tempdir().expect("tempdir");
         let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
@@ -2282,10 +2281,13 @@ mod tests {
         let account_key = created["accountKey"].as_str().expect("account key");
         let account_home = paths.provider_account_home("exa", account_key);
         assert!(account_home.join("api_key.json").is_file());
-        store
-            .upsert_provider_capability_binding("web.search", "web.search", provider_account_id)
-            .await
-            .expect("save binding");
+        crate::test_support::save_provider_capability_assignment_for_tests(
+            &store,
+            "web.search",
+            "web.search",
+            noema_providers::ProviderCapabilityAccountReference::persisted(provider_account_id),
+        )
+        .await;
 
         let delete_response = schema
             .execute(async_graphql::Request::new(format!(
@@ -2325,7 +2327,7 @@ mod tests {
 
     #[tokio::test]
     async fn delete_provider_account_rejects_default_accounts() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         store
@@ -2356,7 +2358,7 @@ mod tests {
 
     #[tokio::test]
     async fn provider_accounts_query_returns_all_active_default_accounts() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         store
@@ -2397,7 +2399,7 @@ mod tests {
 
     #[tokio::test]
     async fn agents_query_returns_safe_agent_metadata() {
-        use crate::{NewAgent, store::tests::test_store};
+        use crate::{NewAgent, test_support::test_store};
 
         let store = test_store().await;
         store.ensure_default_actors().await.expect("default actors");
@@ -2454,7 +2456,7 @@ mod tests {
 
     #[tokio::test]
     async fn agents_query_exposes_model_preference_options() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         store.ensure_default_actors().await.expect("actors");
@@ -2545,7 +2547,7 @@ mod tests {
 
     #[tokio::test]
     async fn agents_query_exposes_profile_reasoning_efforts() {
-        let (schema, _) = schema_with_reasoning_openai_profile().await;
+        let (schema, _) = schema_with_reasoning_profile().await;
         let response = schema
             .execute(
                 r#"
@@ -2575,7 +2577,7 @@ mod tests {
 
     #[tokio::test]
     async fn codex_profile_metadata_reasoning_efforts_are_exposed() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         store.ensure_default_actors().await.expect("actors");
@@ -2698,7 +2700,7 @@ mod tests {
 
     #[tokio::test]
     async fn agents_query_does_not_invent_remote_model_profiles() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         store.ensure_default_actors().await.expect("actors");
@@ -2743,7 +2745,7 @@ mod tests {
 
     #[tokio::test]
     async fn web_fetch_settings_query_defaults_to_tool_model_and_returns_options() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         let codex = store
@@ -2807,7 +2809,7 @@ mod tests {
 
     #[tokio::test]
     async fn web_tool_settings_query_returns_default_system_bindings() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         let schema = build_schema(GraphqlState::for_tests_with_store(store));
@@ -2862,40 +2864,36 @@ mod tests {
 
     #[tokio::test]
     async fn save_web_tool_provider_binding_mutation_returns_saved_binding() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
         use noema_providers::ProviderAccountStatus;
 
         let store = test_store().await;
-        crate::store::tests::insert_provider_account_for_tests(
+        let provider_account_id = crate::test_support::create_exa_provider_account_for_tests(
             &store,
-            "provider_account:exa:research",
-            "exa",
-            "research",
             "Exa research",
-            noema_providers::ProviderAuthMethod::SecretInput,
-            true,
             ProviderAccountStatus::Authenticated,
             json!({}),
         )
-        .await;
+        .await
+        .provider_account_id;
 
         let schema = build_schema(GraphqlState::for_tests_with_store(store));
         let response = schema
-            .execute(async_graphql::Request::new(
+            .execute(async_graphql::Request::new(format!(
                 r#"
-                mutation {
-                  saveWebToolProviderBinding(input: {
+                mutation {{
+                  saveWebToolProviderBinding(input: {{
                     toolName: "web.search"
                     capabilityId: "web.search"
-                    providerAccountId: "provider_account:exa:research"
-                  }) {
+                    providerAccountId: "{provider_account_id}"
+                  }}) {{
                     toolName
                     capabilityId
                     activeProviderAccountId
-                  }
-                }
+                  }}
+                }}
                 "#,
-            ))
+            )))
             .await;
 
         assert!(response.errors.is_empty(), "{:?}", response.errors);
@@ -2903,13 +2901,13 @@ mod tests {
         assert_eq!(data["saveWebToolProviderBinding"]["toolName"], "web.search");
         assert_eq!(
             data["saveWebToolProviderBinding"]["activeProviderAccountId"],
-            "provider_account:exa:research"
+            provider_account_id
         );
     }
 
     #[tokio::test]
     async fn save_web_fetch_summarizer_preference_persists_valid_codex_profile() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         let codex = store
@@ -2969,7 +2967,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_web_fetch_summarizer_preference_persists_reasoning_effort() {
-        let (schema, account_id) = schema_with_reasoning_openai_profile().await;
+        let (schema, account_id) = schema_with_reasoning_profile().await;
         let response = schema
             .execute(format!(
                 r#"
@@ -2996,7 +2994,7 @@ mod tests {
 
     #[tokio::test]
     async fn usage_settings_query_exposes_progress_audit_default() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         let codex = store
@@ -3046,7 +3044,7 @@ mod tests {
 
     #[tokio::test]
     async fn usage_settings_query_exposes_provider_specific_progress_audit_defaults() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         let codex = store
@@ -3110,7 +3108,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_tool_progress_audit_preference_persists_valid_codex_profile() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         let codex = store
@@ -3170,7 +3168,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_tool_progress_audit_preference_persists_reasoning_effort() {
-        let (schema, account_id) = schema_with_reasoning_openai_profile().await;
+        let (schema, account_id) = schema_with_reasoning_profile().await;
         let response = schema
             .execute(format!(
                 r#"
@@ -3197,7 +3195,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_web_fetch_summarizer_preference_rejects_unavailable_provider() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         let foundation = store
@@ -3247,7 +3245,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_web_fetch_summarizer_preference_rejects_unavailable_profile() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         let codex = store
@@ -3297,7 +3295,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_agent_model_preference_mutation_persists_valid_profile() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         store.ensure_default_actors().await.expect("actors");
@@ -3347,7 +3345,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_agent_model_preference_rejects_task_executor_identity() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         store.ensure_default_actors().await.expect("actors");
@@ -3396,7 +3394,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_agent_model_preference_requires_reasoning_for_reasoning_profile() {
-        let (schema, account_id) = schema_with_reasoning_openai_profile().await;
+        let (schema, account_id) = schema_with_reasoning_profile().await;
         let response = schema
             .execute(format!(
                 r#"
@@ -3418,7 +3416,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_agent_model_preference_persists_reasoning_effort() {
-        let (schema, account_id) = schema_with_reasoning_openai_profile().await;
+        let (schema, account_id) = schema_with_reasoning_profile().await;
         let response = schema
             .execute(format!(
                 r#"
@@ -3443,7 +3441,7 @@ mod tests {
 
     #[tokio::test]
     async fn start_primary_conversation_uses_saved_agent_provider_preference() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         store.ensure_default_actors().await.expect("actors");
@@ -3514,7 +3512,7 @@ mod tests {
 
     #[tokio::test]
     async fn primary_conversation_returns_identity_without_transcript() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         let conversation = store
@@ -3556,7 +3554,7 @@ mod tests {
 
     #[tokio::test]
     async fn primary_conversation_returns_latest_transcript_page() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         store.ensure_default_actors().await.expect("actors");
@@ -3637,7 +3635,7 @@ mod tests {
 
     #[tokio::test]
     async fn conversation_transcript_page_supports_latest_and_cursor_reads() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         store.ensure_default_actors().await.expect("actors");
@@ -3727,7 +3725,7 @@ mod tests {
 
     #[tokio::test]
     async fn conversation_transcript_page_returns_item_metadata() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         store.ensure_default_actors().await.expect("actors");
@@ -3801,7 +3799,7 @@ mod tests {
 
     #[tokio::test]
     async fn conversation_transcript_page_exposes_artifact_reference_item() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         let conversation = store
             .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
@@ -3925,7 +3923,7 @@ mod tests {
 
     #[tokio::test]
     async fn runtime_turn_passes_conversation_id_to_provider_request() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         store.ensure_default_actors().await.expect("actors");
@@ -3970,7 +3968,7 @@ mod tests {
 
     #[tokio::test]
     async fn agents_query_sanitizes_unavailable_provider_errors() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         store.ensure_default_actors().await.expect("actors");
@@ -4037,7 +4035,7 @@ mod tests {
 
     #[tokio::test]
     async fn agents_query_disables_unknown_foundation_local_provider() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         store.ensure_default_actors().await.expect("actors");
@@ -4090,7 +4088,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_agent_model_preference_rejects_unknown_foundation_local_provider() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         store.ensure_default_actors().await.expect("actors");
@@ -4127,7 +4125,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_agent_model_preference_rejects_unavailable_provider() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         store.ensure_default_actors().await.expect("actors");
@@ -4179,7 +4177,7 @@ mod tests {
 
     #[tokio::test]
     async fn mcp_settings_query_returns_servers() {
-        use crate::{McpTransportKind, NewMcpServer, NewMcpTool, store::tests::test_store};
+        use crate::{McpTransportKind, NewMcpServer, NewMcpTool, test_support::test_store};
 
         let store = test_store().await;
         store
@@ -4601,8 +4599,7 @@ mod tests {
         async fn new(outcomes: Vec<TestMcpSetupOutcome>) -> Self {
             let home = TempDir::new().expect("temp noema home");
             let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-            let config = crate::StoreConfig::from_paths(&paths);
-            let store = crate::NoemaStore::open(&config).await.expect("open store");
+            let store = crate::test_support::test_store_for_paths(&paths).await;
             let repository: noema_capabilities_mcp::McpRepositoryHandle = Arc::new(store.clone());
             let secrets = Arc::new(noema_capabilities_mcp::FilesystemMcpSecretStore::new(
                 paths.clone(),
@@ -4759,7 +4756,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_tool_calibration_mutation_persists_reviewed_policy() {
-        use crate::{McpCalibrationStatus, store::tests::test_store};
+        use crate::{McpCalibrationStatus, test_support::test_store};
 
         let store = test_store().await;
         seed_google_mcp_tools(&store, &[("read_doc", "fingerprint_1")]).await;
@@ -4819,7 +4816,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_tool_calibrations_mutation_persists_multiple_policies_in_one_request() {
-        use crate::{McpCalibrationStatus, McpTrustClassification, store::tests::test_store};
+        use crate::{McpCalibrationStatus, McpTrustClassification, test_support::test_store};
 
         let store = test_store().await;
         seed_google_mcp_tools(
@@ -4904,7 +4901,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_tool_calibrations_mutation_rejects_invalid_batch_without_partial_writes() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         seed_google_mcp_tools(
@@ -4969,7 +4966,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_tool_calibration_mutation_rejects_invalid_enum_strings() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         seed_google_mcp_tools(&store, &[("read_doc", "fingerprint_1")]).await;
@@ -5013,7 +5010,7 @@ mod tests {
 
     #[tokio::test]
     async fn autofill_tool_calibrations_returns_validated_suggestions_without_persisting() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         seed_autofill_server(&store).await;
@@ -5064,7 +5061,7 @@ mod tests {
 
     #[tokio::test]
     async fn autofill_tool_calibrations_rejects_invalid_model_output_without_persisting() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         seed_autofill_server(&store).await;
@@ -5107,7 +5104,7 @@ mod tests {
 
     #[tokio::test]
     async fn autofill_tool_calibrations_returns_null_when_disabled_is_omitted() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         seed_autofill_server(&store).await;
@@ -5246,7 +5243,7 @@ mod tests {
 
     #[tokio::test]
     async fn autofill_tool_calibrations_uses_runtime_tool_classification_model() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         seed_autofill_server(&store).await;
@@ -5284,7 +5281,7 @@ mod tests {
 
     #[tokio::test]
     async fn autofill_tool_calibrations_reads_classification_model_from_replacement_route() {
-        use crate::store::tests::test_store;
+        use crate::test_support::test_store;
 
         let store = test_store().await;
         seed_autofill_server(&store).await;
@@ -5301,7 +5298,7 @@ mod tests {
             routes.clone(),
             store.clone(),
             crate::test_support::artifact_operations(&store).expect("artifact operations"),
-            store.system_error_logger(),
+            crate::test_support::system_error_logger(),
             None,
             crate::graphql::ConversationSubscriptionRegistry::default(),
         )
@@ -5347,7 +5344,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_conversation_external_artifact_mutation_round_trips() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         let conversation = store
             .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
@@ -5397,7 +5394,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_conversation_external_artifact_rejects_non_http_url() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         let conversation = store
             .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
@@ -5430,9 +5427,7 @@ mod tests {
     async fn artifacts_query_resolves_owner_scoped_artifacts_and_field_names() {
         let home = tempfile::TempDir::new().expect("home");
         let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-        let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
-            .await
-            .expect("store");
+        let store = crate::test_support::test_store_for_paths(&paths).await;
         let conversation = store
             .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
@@ -5580,7 +5575,7 @@ mod tests {
 
     #[tokio::test]
     async fn artifact_query_resolves_one_artifact() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         let conversation = store
             .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
@@ -5682,15 +5677,14 @@ mod tests {
     async fn artifact_query_exposes_local_file_download_url() {
         let home = tempfile::TempDir::new().expect("home");
         let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-        let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
-            .await
-            .expect("store");
+        let store = crate::test_support::test_store_for_paths(&paths).await;
         let conversation = store
             .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
             .expect("conversation");
         let artifact_operations =
-            crate::test_support::artifact_operations(&store).expect("artifact operations");
+            crate::test_support::artifact_operations_for_paths(&store, &paths)
+                .expect("artifact operations");
         let artifact = artifact_operations
             .create_local_file(noema_artifacts::CreateLocalArtifactRequest {
                 owner: noema_artifacts::ArtifactOwnerRef::conversation(
@@ -5752,15 +5746,14 @@ mod tests {
     async fn artifact_version_detail_reads_markdown_content() {
         let home = tempfile::TempDir::new().expect("home");
         let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-        let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
-            .await
-            .expect("store");
+        let store = crate::test_support::test_store_for_paths(&paths).await;
         let conversation = store
             .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
             .expect("conversation");
         let artifact_operations =
-            crate::test_support::artifact_operations(&store).expect("artifact operations");
+            crate::test_support::artifact_operations_for_paths(&store, &paths)
+                .expect("artifact operations");
         let artifact = artifact_operations
             .create_local_file(noema_artifacts::CreateLocalArtifactRequest {
                 owner: noema_artifacts::ArtifactOwnerRef::conversation(
@@ -5864,16 +5857,15 @@ mod tests {
     async fn artifact_version_detail_previews_plain_text_literally() {
         let home = tempfile::TempDir::new().expect("home");
         let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-        let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
-            .await
-            .expect("store");
+        let store = crate::test_support::test_store_for_paths(&paths).await;
         let conversation = store
             .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
             .expect("conversation");
         let content = "# Literal heading\n\n* literal asterisk\n  indented\n";
         let artifact_operations =
-            crate::test_support::artifact_operations(&store).expect("artifact operations");
+            crate::test_support::artifact_operations_for_paths(&store, &paths)
+                .expect("artifact operations");
         let artifact = artifact_operations
             .create_local_file(noema_artifacts::CreateLocalArtifactRequest {
                 owner: noema_artifacts::ArtifactOwnerRef::conversation(
@@ -5927,15 +5919,14 @@ mod tests {
     async fn artifact_version_detail_marks_non_markdown_local_file_unsupported() {
         let home = tempfile::TempDir::new().expect("home");
         let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-        let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
-            .await
-            .expect("store");
+        let store = crate::test_support::test_store_for_paths(&paths).await;
         let conversation = store
             .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
             .expect("conversation");
         let artifact_operations =
-            crate::test_support::artifact_operations(&store).expect("artifact operations");
+            crate::test_support::artifact_operations_for_paths(&store, &paths)
+                .expect("artifact operations");
         let artifact = artifact_operations
             .create_local_file(noema_artifacts::CreateLocalArtifactRequest {
                 owner: noema_artifacts::ArtifactOwnerRef::conversation(
@@ -6042,7 +6033,7 @@ mod tests {
 
     #[tokio::test]
     async fn task_events_backfills_from_durable_cursor() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         store.ensure_default_actors().await.expect("actors");
         store
             .ensure_default_provider_account()

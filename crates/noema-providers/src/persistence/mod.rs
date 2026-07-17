@@ -15,8 +15,9 @@ pub use accounts::{
     UpdateProviderAccountRequest,
 };
 pub use capabilities::{
-    ProviderCapabilityAssignmentPersistence, ProviderCapabilityAssignmentPersistenceHandle,
-    UpsertProviderCapabilityAssignmentRequest,
+    ProviderCapabilityAccountReference, ProviderCapabilityAccountReferenceMode,
+    ProviderCapabilityAssignmentKey, ProviderCapabilityAssignmentPersistence,
+    ProviderCapabilityAssignmentPersistenceHandle, UpsertProviderCapabilityAssignmentRequest,
 };
 pub use catalog::{
     PersistProviderModelCatalogRequest, ProviderModelCatalogPersistence,

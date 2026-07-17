@@ -14,6 +14,7 @@ use crate::{
     CreateSecretProviderAccountRequest, NewProviderAccount, ProviderAccountOperationError,
     ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod,
     SaveProviderAccountSecretRequest, UpdateProviderAccountRequest, provider_account_catalog,
+    provider_account_from_persisted,
 };
 
 async fn compensate_failed_create_transaction<
@@ -66,6 +67,7 @@ impl ProviderAccountService {
             })
             .await
             .map_err(map_persistence_error)?;
+        let created = provider_account_from_persisted(created);
         let gate = self.inner.gates.gate(&created.provider_account_id);
         let _guard = gate.lock().await;
         let secret_store = self.secret_store(&created);
@@ -107,7 +109,7 @@ impl ProviderAccountService {
             })
             .await;
         match updated {
-            Ok(account) => Ok(account),
+            Ok(account) => Ok(provider_account_from_persisted(account)),
             Err(error) => {
                 self.compensate_failed_create(
                     &created.provider_account_id,
@@ -183,7 +185,7 @@ impl ProviderAccountService {
             })
             .await
         {
-            Ok(account) => Ok(account),
+            Ok(account) => Ok(provider_account_from_persisted(account)),
             Err(error) => {
                 if secret_store.restore(&snapshot).is_err() {
                     self.log_compensation_failure(
@@ -234,7 +236,7 @@ impl ProviderAccountService {
             })
             .await
         {
-            Ok(account) => Ok(account),
+            Ok(account) => Ok(provider_account_from_persisted(account)),
             Err(error) => {
                 if secret_store.restore(&snapshot).is_err() {
                     self.log_compensation_failure(
@@ -264,6 +266,7 @@ impl ProviderAccountService {
         else {
             return Ok(false);
         };
+        let account = provider_account_from_persisted(account);
         if account.is_default {
             return Err(ProviderAccountOperationError::ProtectedAccount);
         }

@@ -5,7 +5,7 @@ use super::{GraphqlState, build_schema};
 
 #[tokio::test]
 async fn catalog_query_exposes_bundled_model_and_machine_fit() {
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     let schema = build_schema(GraphqlState::for_tests_with_store(store));
 
     let response = schema
@@ -60,7 +60,7 @@ async fn catalog_query_exposes_bundled_model_and_machine_fit() {
 
 #[tokio::test]
 async fn default_preference_mutation_is_provider_neutral() {
-    let store = crate::store::tests::test_store().await;
+    let store = crate::test_support::test_store().await;
     store
         .ensure_default_provider_account()
         .await

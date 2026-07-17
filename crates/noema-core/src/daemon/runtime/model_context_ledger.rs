@@ -177,7 +177,7 @@ mod tests {
 
     #[tokio::test]
     async fn durable_sync_diffs_and_resets_after_compaction_checkpoint() {
-        let store = crate::store::tests::test_store().await;
+        let store = crate::test_support::test_store().await;
         store.ensure_default_actors().await.expect("actors");
         let conversation = store
             .get_or_create_primary_conversation("human:local", None, None)

@@ -4,24 +4,26 @@ use super::{NoemaStore, StoreConfig};
 
 mod mcp;
 
+fn store_config(root: &std::path::Path) -> StoreConfig {
+    StoreConfig::new(root.join("db/noema.sqlite3"))
+}
+
 #[tokio::test]
 async fn opens_sqlite_store_under_noema_db_dir() {
-    let home = TempDir::new().expect("temp noema home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let config = StoreConfig::from_paths(&paths);
+    let home = TempDir::new().expect("temp store root");
+    let config = store_config(home.path());
 
     let store = NoemaStore::open(&config).await.expect("open store");
 
-    assert!(paths.db_dir().exists());
-    assert!(paths.sqlite_db_path().exists());
+    assert!(home.path().join("db").exists());
+    assert!(config.path.exists());
     assert_eq!(store.schema_version().await.expect("schema version"), 1);
 }
 
 #[tokio::test]
 async fn opening_pre_v1_task_runtime_tables_rebuilds_and_preserves_history() {
-    let home = TempDir::new().expect("temp noema home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let config = StoreConfig::from_paths(&paths);
+    let home = TempDir::new().expect("temp store root");
+    let config = store_config(home.path());
     let store = NoemaStore::open(&config).await.expect("open store");
     store
         .with_connection(|conn| {
@@ -111,9 +113,8 @@ async fn opening_pre_v1_task_runtime_tables_rebuilds_and_preserves_history() {
 
 #[tokio::test]
 async fn opening_legacy_tasks_adds_blocking_columns() {
-    let home = TempDir::new().expect("temp noema home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let config = StoreConfig::from_paths(&paths);
+    let home = TempDir::new().expect("temp store root");
+    let config = store_config(home.path());
     let store = NoemaStore::open(&config).await.expect("open store");
     store
         .with_connection(|conn| {
@@ -284,127 +285,6 @@ async fn artifact_external_url_initial_version_rejects_non_http_url() {
 }
 
 #[tokio::test]
-async fn conversation_local_file_artifact_writes_bytes_and_metadata() {
-    let home = TempDir::new().expect("temp noema home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
-        .await
-        .expect("open store");
-    let conversation = store
-        .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
-        .await
-        .expect("conversation");
-    let bytes = b"# report\n".to_vec();
-    let artifact_operations =
-        crate::test_support::artifact_operations(&store).expect("artifact operations");
-
-    let artifact = artifact_operations
-        .create_local_file(noema_artifacts::CreateLocalArtifactRequest {
-            owner: noema_artifacts::ArtifactOwnerRef::conversation(&conversation.conversation_id),
-            title: "Session report".to_string(),
-            description: Some("Local markdown artifact".to_string()),
-            artifact_kind: "document".to_string(),
-            filename: "report.md".to_string(),
-            bytes: bytes.clone(),
-            media_type: Some("text/markdown".to_string()),
-            created_by_actor_id: "agent:primary".to_string(),
-            source: noema_artifacts::ArtifactSource {
-                conversation_id: Some(conversation.conversation_id.clone()),
-                turn_id: None,
-                item_id: None,
-            },
-            metadata: serde_json::json!({"origin": "unit-test"}),
-        })
-        .await
-        .expect("create local artifact");
-
-    assert_eq!(
-        artifact.artifact.storage_kind,
-        noema_artifacts::ArtifactStorageKind::LocalFile
-    );
-    assert_eq!(artifact.current_version.version_index, 1);
-    assert_eq!(
-        artifact.current_version.media_type.as_deref(),
-        Some("text/markdown")
-    );
-    assert_eq!(artifact.current_version.byte_size, Some(bytes.len() as i64));
-    assert!(artifact.current_version.content_sha256.is_some());
-
-    let relative_path = match &artifact.current_version.storage {
-        noema_artifacts::ArtifactVersionStorage::LocalFile { relative_path } => relative_path,
-        noema_artifacts::ArtifactVersionStorage::ExternalUrl { .. } => {
-            panic!("expected local file storage")
-        }
-    };
-    let absolute_path = paths.root().join(relative_path);
-    assert_eq!(
-        tokio::fs::read(&absolute_path).await.expect("read bytes"),
-        bytes
-    );
-    let owner = noema_artifacts::ArtifactOwnerRef::conversation(&conversation.conversation_id);
-    assert!(absolute_path.starts_with(
-        noema_artifacts::owner_artifacts_dir(paths.root(), &owner).expect("artifact root")
-    ));
-    assert_eq!(
-        artifact.artifact.metadata,
-        serde_json::json!({"origin": "unit-test"})
-    );
-}
-
-#[cfg(unix)]
-#[tokio::test]
-async fn conversation_local_file_artifact_rejects_symlinked_artifact_root() {
-    let home = TempDir::new().expect("temp noema home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
-        .await
-        .expect("open store");
-    let conversation = store
-        .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
-        .await
-        .expect("conversation");
-    let outside = home.path().join("outside-artifacts");
-    tokio::fs::create_dir_all(&outside)
-        .await
-        .expect("outside dir");
-    tokio::fs::create_dir_all(paths.conversation_dir(&conversation.conversation_id))
-        .await
-        .expect("conversation dir");
-    std::os::unix::fs::symlink(
-        &outside,
-        noema_artifacts::owner_artifacts_dir(
-            paths.root(),
-            &noema_artifacts::ArtifactOwnerRef::conversation(&conversation.conversation_id),
-        )
-        .expect("artifact root"),
-    )
-    .expect("symlink artifact root");
-
-    let artifact_operations =
-        crate::test_support::artifact_operations(&store).expect("artifact operations");
-    let error = artifact_operations
-        .create_local_file(noema_artifacts::CreateLocalArtifactRequest {
-            owner: noema_artifacts::ArtifactOwnerRef::conversation(&conversation.conversation_id),
-            title: "Session report".to_string(),
-            description: None,
-            artifact_kind: "document".to_string(),
-            filename: "report.md".to_string(),
-            bytes: b"# report\n".to_vec(),
-            media_type: Some("text/markdown".to_string()),
-            created_by_actor_id: "agent:primary".to_string(),
-            source: noema_artifacts::ArtifactSource::default(),
-            metadata: serde_json::json!({}),
-        })
-        .await
-        .expect_err("symlinked artifact root should be rejected");
-
-    assert!(matches!(
-        error,
-        noema_artifacts::ArtifactOperationError::Filesystem { .. }
-    ));
-}
-
-#[tokio::test]
 async fn append_artifact_version_updates_current_version() {
     let store = test_store().await;
     let conversation = store
@@ -518,18 +398,17 @@ async fn artifact_read_rejects_forged_non_http_external_url() {
 
 #[tokio::test]
 async fn sqlite_store_config_is_stable_for_reopen() {
-    let home = TempDir::new().expect("temp noema home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let config = StoreConfig::from_paths(&paths);
+    let home = TempDir::new().expect("temp store root");
+    let database_path = home.path().join("db/noema.sqlite3");
+    let config = StoreConfig::new(database_path.clone());
 
-    assert_eq!(config.path, paths.sqlite_db_path());
-    assert_eq!(StoreConfig::from_paths(&paths), config);
+    assert_eq!(config.path, database_path);
+    assert_eq!(StoreConfig::new(config.path.clone()), config);
 }
 
 pub(crate) async fn test_store() -> crate::NoemaStore {
-    let home = TempDir::new().expect("temp noema home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let store = crate::NoemaStore::open(&crate::StoreConfig::from_paths(&paths))
+    let home = TempDir::new().expect("temp store root");
+    let store = crate::NoemaStore::open(&store_config(home.path()))
         .await
         .expect("open store");
     std::mem::forget(home);
@@ -614,38 +493,24 @@ async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
         )
         .await
         .expect("run executor");
-    let artifact_operations =
-        crate::test_support::artifact_operations(&store).expect("artifact operations");
-    let task_artifact = artifact_operations
-        .create_local_file(noema_artifacts::CreateLocalArtifactRequest {
-            owner: noema_artifacts::ArtifactOwnerRef::task(&task.task_id),
-            title: "Task report".to_string(),
-            description: None,
-            artifact_kind: "document".to_string(),
-            filename: "report.md".to_string(),
-            bytes: b"# Task report".to_vec(),
-            media_type: Some("text/markdown".to_string()),
-            created_by_actor_id: noema_tasks::TASK_EXECUTOR_AGENT_ID.to_string(),
-            source: noema_artifacts::ArtifactSource::default(),
-            metadata: serde_json::json!({}),
-        })
-        .await
-        .expect("task artifact");
-    let data_artifact = artifact_operations
-        .create_local_file(noema_artifacts::CreateLocalArtifactRequest {
-            owner: noema_artifacts::ArtifactOwnerRef::task(&task.task_id),
-            title: "Task data".to_string(),
-            description: None,
-            artifact_kind: "data".to_string(),
-            filename: "data.csv".to_string(),
-            bytes: b"value\n42\n".to_vec(),
-            media_type: Some("text/csv".to_string()),
-            created_by_actor_id: noema_tasks::TASK_EXECUTOR_AGENT_ID.to_string(),
-            source: noema_artifacts::ArtifactSource::default(),
-            metadata: serde_json::json!({}),
-        })
-        .await
-        .expect("second task artifact");
+    let task_artifact = seed_local_artifact_metadata(
+        &store,
+        noema_artifacts::ArtifactOwnerRef::task(&task.task_id),
+        "Task report",
+        "document",
+        "test/task-report/report.md",
+        noema_tasks::TASK_EXECUTOR_AGENT_ID,
+    )
+    .await;
+    let data_artifact = seed_local_artifact_metadata(
+        &store,
+        noema_artifacts::ArtifactOwnerRef::task(&task.task_id),
+        "Task data",
+        "data",
+        "test/task-data/data.csv",
+        noema_tasks::TASK_EXECUTOR_AGENT_ID,
+    )
+    .await;
     let criterion_id = store
         .list_task_validation_criteria(&task.task_id)
         .await
@@ -656,21 +521,15 @@ async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
         .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
         .await
         .expect("conversation");
-    let foreign_artifact = artifact_operations
-        .create_local_file(noema_artifacts::CreateLocalArtifactRequest {
-            owner: noema_artifacts::ArtifactOwnerRef::conversation(conversation.conversation_id),
-            title: "Foreign artifact".to_string(),
-            description: None,
-            artifact_kind: "document".to_string(),
-            filename: "foreign.txt".to_string(),
-            bytes: b"foreign".to_vec(),
-            media_type: Some("text/plain".to_string()),
-            created_by_actor_id: "agent:primary".to_string(),
-            source: noema_artifacts::ArtifactSource::default(),
-            metadata: serde_json::json!({}),
-        })
-        .await
-        .expect("foreign artifact");
+    let foreign_artifact = seed_local_artifact_metadata(
+        &store,
+        noema_artifacts::ArtifactOwnerRef::conversation(conversation.conversation_id),
+        "Foreign artifact",
+        "document",
+        "test/foreign/foreign.txt",
+        "agent:primary",
+    )
+    .await;
     assert!(
         store
             .create_task_submission(
@@ -1693,6 +1552,45 @@ pub(crate) async fn seed_task(
         .expect("task")
 }
 
+async fn seed_local_artifact_metadata(
+    store: &crate::NoemaStore,
+    owner: noema_artifacts::ArtifactOwnerRef,
+    title: &str,
+    artifact_kind: &str,
+    relative_path: &str,
+    created_by_actor_id: &str,
+) -> noema_artifacts::ArtifactWithVersions {
+    store
+        .create_artifact_with_initial_version(
+            noema_artifacts::NewArtifact {
+                artifact_id: None,
+                owner,
+                title: title.to_string(),
+                description: None,
+                artifact_kind: artifact_kind.to_string(),
+                storage_kind: noema_artifacts::ArtifactStorageKind::LocalFile,
+                created_by_actor_id: created_by_actor_id.to_string(),
+                source: noema_artifacts::ArtifactSource::default(),
+                metadata: serde_json::json!({}),
+            },
+            noema_artifacts::NewArtifactVersion {
+                artifact_version_id: None,
+                title: None,
+                storage: noema_artifacts::ArtifactVersionStorage::LocalFile {
+                    relative_path: relative_path.to_string(),
+                },
+                media_type: None,
+                byte_size: None,
+                content_sha256: None,
+                created_by_actor_id: created_by_actor_id.to_string(),
+                source: noema_artifacts::ArtifactSource::default(),
+                metadata: serde_json::json!({}),
+            },
+        )
+        .await
+        .expect("seed local artifact metadata")
+}
+
 async fn seed_external_artifact(
     store: &crate::NoemaStore,
     conversation_id: &str,
@@ -1734,82 +1632,6 @@ async fn seed_external_artifact(
         )
         .await
         .expect("seed artifact")
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(crate) async fn insert_provider_account_for_tests(
-    store: &crate::NoemaStore,
-    provider_account_id: &str,
-    provider_kind: &str,
-    account_key: &str,
-    display_name: &str,
-    auth_method: noema_providers::ProviderAuthMethod,
-    is_default: bool,
-    status: noema_providers::ProviderAccountStatus,
-    metadata: serde_json::Value,
-) {
-    let metadata_json = serde_json::to_string(&metadata).expect("serialize provider metadata");
-    store
-        .with_connection(|conn| {
-            conn.execute(
-                r#"
-                INSERT INTO provider_accounts (
-                  provider_account_id, provider_kind, account_key, display_name,
-                  auth_method, is_active, is_default, status, metadata_json, updated_at
-                )
-                VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?7, ?8, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-                ON CONFLICT(provider_account_id) DO UPDATE SET
-                  provider_kind = excluded.provider_kind,
-                  account_key = excluded.account_key,
-                  display_name = excluded.display_name,
-                  auth_method = excluded.auth_method,
-                  is_active = excluded.is_active,
-                  is_default = excluded.is_default,
-                  status = excluded.status,
-                  metadata_json = excluded.metadata_json,
-                  updated_at = excluded.updated_at
-                "#,
-                rusqlite::params![
-                    provider_account_id,
-                    provider_kind,
-                    account_key,
-                    display_name,
-                    auth_method.as_str(),
-                    is_default,
-                    status.as_str(),
-                    metadata_json,
-                ],
-            )?;
-            Ok(())
-        })
-        .await
-        .expect("insert provider account");
-}
-
-pub(crate) async fn insert_provider_capability_binding_for_tests(
-    store: &crate::NoemaStore,
-    tool_name: &str,
-    capability_id: &str,
-    provider_account_id: &str,
-) {
-    let binding_id = format!("provider_capability_binding:{tool_name}:{capability_id}");
-    store
-        .with_connection(|conn| {
-            conn.execute(
-                r#"
-                INSERT INTO provider_capability_bindings
-                  (binding_id, tool_name, capability_id, provider_account_id, updated_at)
-                VALUES (?1, ?2, ?3, ?4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-                ON CONFLICT(tool_name, capability_id) DO UPDATE SET
-                  provider_account_id = excluded.provider_account_id,
-                  updated_at = excluded.updated_at
-                "#,
-                rusqlite::params![binding_id, tool_name, capability_id, provider_account_id],
-            )?;
-            Ok(())
-        })
-        .await
-        .expect("insert provider capability binding");
 }
 
 #[tokio::test]
@@ -2043,6 +1865,28 @@ async fn sqlite_conversation_items_page_in_sequence_order() {
     assert_eq!(page.items.len(), 1);
     assert_eq!(page.items[0].content_text.as_deref(), Some("hello"));
     assert_eq!(page.items[0].sequence_index, 1);
+
+    store
+        .update_conversation_agent_status(
+            &conversation.conversation_id,
+            noema_conversations::AgentStatus::Thinking,
+        )
+        .await
+        .expect("mark conversation active");
+    store
+        .recover_shutdown_cancelled_work(&conversation.conversation_id)
+        .await
+        .expect("recover interrupted conversation");
+    let status = store
+        .conversation_runtime_status(&conversation.conversation_id)
+        .await
+        .expect("read recovered conversation state")
+        .expect("recovered conversation status");
+    assert_eq!(
+        status.turn_status,
+        noema_conversations::ConversationTurnStatus::Cancelled
+    );
+    assert_eq!(status.agent_status, noema_conversations::AgentStatus::Idle);
 }
 
 #[tokio::test]
