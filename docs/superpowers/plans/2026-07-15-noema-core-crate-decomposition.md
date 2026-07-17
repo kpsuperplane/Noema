@@ -2719,6 +2719,42 @@ Perform a read-only adversarial review covering:
 Resolve all Critical and Important findings, rerun the relevant focused tests,
 then rerun the full gate.
 
+### Phase 15 Execution Record — 2026-07-16
+
+Three read-only adversarial reviewers independently covered the crate graph and
+ownership model, runtime/security behavior, and API/shell/packaging surfaces.
+They found no Critical issues. All Important findings were resolved before
+closure:
+
+- GraphQL conversation, task, subscription, and artifact operations now derive
+  a required `RequestPrincipal`, fail closed when it is absent, and enforce
+  human ownership before reading, mutating, subscribing, previewing, or
+  downloading. Cross-human and missing-principal regression tests cover every
+  affected resolver family, and the server transport test proves request
+  extensions cannot override the authenticated principal.
+- Server and desktop shells now guarantee host teardown. Server serving borrows
+  the host so the outer lifecycle always awaits shutdown; desktop close requests
+  wait for a shared idempotent shutdown completion before destroying the window,
+  including concurrent and shutdown-before-initialization paths.
+- Desktop artifact rendering no longer exposes daemon-only local download URLs.
+  Web and external links remain available, and a shared frontend policy helper
+  is covered by unit tests.
+
+The review also hardened MCP secret storage against symlink/root-swap traversal,
+made local-model launch revalidate the canonical blob path and SHA-256 digest,
+and propagated background compaction failure instead of discarding it.
+Transport-only filesystem dependencies remain optional and absent from the MCP
+contract surface. Stale API MCP forwarding exports, generated Python build
+artifacts, and obsolete documentation wording were removed, and CI now runs the
+exact macOS Tauri `build --no-bundle` gate.
+
+The complete Rust workspace format, check, strict Clippy, and unit-test gates
+pass, as do all focused no-default tests and forbidden-feature tree scans,
+boundary/baseline/test-inventory scripts, frontend generation/tests/lint/server
+and Tauri builds, Mnemosyne package/tests, release server build, model-eval and
+runtime-asset mapping tests, the Swift bridge build, and the exact desktop
+packaging command. No Critical or Important review finding remains open.
+
 ## Recommended Commit Sequence
 
 Each item is a required milestone boundary; split a high-risk item into smaller

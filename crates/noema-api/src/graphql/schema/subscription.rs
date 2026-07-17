@@ -49,7 +49,7 @@ impl SubscriptionRoot {
         local_models::local_model_events(state, after).await
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     async fn test_request_principal(&self, ctx: &Context<'_>) -> impl Stream<Item = String> {
         futures_util::stream::once(std::future::ready(
             ctx.data_unchecked::<crate::graphql::RequestPrincipal>()
@@ -63,9 +63,10 @@ impl SubscriptionRoot {
         &self,
         ctx: &Context<'_>,
         conversation_id: String,
-    ) -> impl Stream<Item = GraphqlConversationEvent> {
+    ) -> Result<impl Stream<Item = GraphqlConversationEvent>> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        chat::conversation_events(state.subscriptions().clone(), conversation_id)
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        chat::conversation_events(state, principal, conversation_id).await
     }
 
     /// Stream owner-authorized durable task updates with reconnect backfill.
@@ -76,9 +77,7 @@ impl SubscriptionRoot {
         after: Option<String>,
     ) -> Result<impl Stream<Item = Result<GraphqlTaskEvent>>> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        let principal = ctx
-            .data_opt::<crate::graphql::RequestPrincipal>()
-            .map_or("human:local", crate::graphql::RequestPrincipal::subject_id);
+        let principal = crate::graphql::request_principal_subject(ctx)?;
         let store = state.store()?.clone();
         let task_id = task_id.trim().to_string();
         let is_authorized = store

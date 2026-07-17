@@ -1,5 +1,6 @@
 /target/
 /crates/noema-memory/target/
+/crates/noema-memory/mnemosyne-sidecar/build/
 /crates/noema-server/target/
 /crates/noema-desktop/gen/
 node_modules/

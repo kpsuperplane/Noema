@@ -16,7 +16,7 @@ The next storage slice should stay small and concrete:
   Codex Responses API calls.
 - First-party local GGUF chat through a pinned, packaged llama.cpp runtime, with
   local setup recommended before cloud-provider setup.
-- Core-hosted local React web chat as the first frontend shell.
+- Server-hosted local React web chat as the first frontend shell.
 - SQLite-backed persisted conversations, transcript items, provider accounts,
   MCP setup, approvals, and memory service configuration.
 - Local Mnemosyne-backed memory search through explicit `search_memory`.
@@ -1114,8 +1114,18 @@ The next storage slice should stay small and concrete:
   seconds for store, 0.07 for providers, 0.10 for API, 0.17 for server, and 0.20
   for desktop; these machine-specific timings replace the umbrella-era 4.23
   second warm check as the useful invalidation shape because each subsystem can
-  now rebuild through its explicit owner path. The Phase 15 adversarial review
-  and final repeated validation gate remain before execution closure.
+  now rebuild through its explicit owner path. Decomposition Phase 15 is
+  complete. Three adversarial reviewers found no Critical issues, and every
+  Important finding is resolved: GraphQL principal and human-ownership checks
+  fail closed across conversations, tasks, subscriptions, and artifacts;
+  server and desktop shells guarantee awaited host teardown; and desktop
+  artifact rendering suppresses daemon-only local download routes. MCP secret
+  storage rejects symlink/root-swap traversal, local-model launch revalidates
+  the canonical blob and digest, and background compaction failures propagate.
+  CI now executes the exact macOS Tauri no-bundle build. The full Rust,
+  no-default dependency, preservation, frontend, Python sidecar, release
+  server, model-eval, runtime-asset, Swift bridge, and desktop packaging gates
+  are green with no unresolved Critical or Important review finding.
 
 - The bounded remediation program completed Phase 2 at `92,157` maintained
   source lines (`-1,767` from its baseline). Axum/tower-sessions now own the

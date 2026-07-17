@@ -631,3 +631,96 @@
             noema_artifacts::artifact_download_url(&artifact.current_version.artifact_version_id)
         );
     }
+
+    #[tokio::test]
+    async fn artifact_operations_hide_foreign_human_resources() {
+        let home = tempfile::TempDir::new().expect("home");
+        let paths = TestEnvironment::from_root(home.path()).expect("paths");
+        let store = crate::test_support::test_store_for_environment(&paths).await;
+        let conversation = store
+            .create_conversation(conversation_for_human("human:other"))
+            .await
+            .expect("foreign conversation");
+        let artifact_operations =
+            crate::test_support::artifact_operations_for_environment(&store, &paths)
+                .expect("artifact operations");
+        let artifact = artifact_operations
+            .create_local_file(noema_artifacts::CreateLocalArtifactRequest {
+                owner: noema_artifacts::ArtifactOwnerRef::conversation(
+                    &conversation.conversation_id,
+                ),
+                title: "Foreign notes".to_string(),
+                description: None,
+                artifact_kind: "document".to_string(),
+                filename: "foreign.md".to_string(),
+                bytes: b"# private".to_vec(),
+                media_type: Some("text/markdown".to_string()),
+                created_by_actor_id: "human:other".to_string(),
+                source: noema_artifacts::ArtifactSource::default(),
+                metadata: serde_json::json!({}),
+            })
+            .await
+            .expect("foreign artifact");
+        let schema = build_schema(GraphqlState::for_tests_with_store_and_environment(
+            store, paths,
+        ));
+
+        let query_response = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                query {{
+                  artifacts(
+                    ownerObjectType: "conversation"
+                    ownerObjectId: "{}"
+                  ) {{
+                    artifactId
+                  }}
+                  artifact(artifactId: "{}") {{
+                    artifactId
+                  }}
+                  artifactVersionDetail(artifactVersionId: "{}") {{
+                    artifactVersionId
+                    markdown
+                  }}
+                }}
+                "#,
+                conversation.conversation_id,
+                artifact.artifact.artifact_id,
+                artifact.current_version.artifact_version_id,
+            )))
+            .await;
+
+        assert!(
+            query_response.errors.is_empty(),
+            "{:?}",
+            query_response.errors
+        );
+        let data = query_response.data.into_json().expect("query json");
+        assert_eq!(data["artifacts"], serde_json::json!([]));
+        assert!(data["artifact"].is_null());
+        assert!(data["artifactVersionDetail"].is_null());
+
+        let mutation_response = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                mutation {{
+                  createConversationExternalArtifact(input: {{
+                    conversationId: "{}"
+                    title: "Injected"
+                    artifactKind: "document"
+                    externalUrl: "https://example.com/injected"
+                  }}) {{
+                    artifactId
+                  }}
+                }}
+                "#,
+                conversation.conversation_id,
+            )))
+            .await;
+        assert_eq!(mutation_response.errors.len(), 1);
+        assert!(
+            mutation_response.errors[0]
+                .message
+                .contains("conversation is unavailable")
+        );
+    }

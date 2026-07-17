@@ -267,6 +267,14 @@ impl GraphqlState {
 /// Build the Noema GraphQL schema.
 #[must_use]
 pub fn build_schema(state: GraphqlState) -> GraphqlSchema {
+    let builder = Schema::build(QueryRoot, MutationRoot, SubscriptionRoot).data(state);
+    #[cfg(test)]
+    let builder = builder.data(crate::graphql::RequestPrincipal::local());
+    builder.finish()
+}
+
+#[cfg(test)]
+fn build_schema_without_request_principal(state: GraphqlState) -> GraphqlSchema {
     Schema::build(QueryRoot, MutationRoot, SubscriptionRoot)
         .data(state)
         .finish()

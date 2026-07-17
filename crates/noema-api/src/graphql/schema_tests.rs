@@ -105,6 +105,80 @@ mod tests {
         assert!(sdl.contains("MemoryGraphInput"));
     }
 
+    #[tokio::test]
+    async fn owner_sensitive_operations_require_a_request_principal() {
+        let schema = build_schema_without_request_principal(GraphqlState::for_tests());
+        let query_response = schema
+            .execute(
+                r#"
+                query {
+                  task(taskId: "task:foreign") { taskId }
+                  artifact(artifactId: "artifact:foreign") { artifactId }
+                  conversationTranscriptPage(input: {
+                    conversationId: "conversation:foreign"
+                  }) {
+                    pageInfo { limit }
+                  }
+                }
+                "#,
+            )
+            .await;
+        assert_eq!(query_response.errors.len(), 3);
+        assert!(query_response.errors.iter().all(|error| {
+            error
+                .message
+                .contains("request is unauthenticated")
+        }));
+
+        let mutation_response = schema
+            .execute(
+                r#"
+                mutation {
+                  createConversationExternalArtifact(input: {
+                    conversationId: "conversation:foreign"
+                    title: "Foreign"
+                    artifactKind: "document"
+                    externalUrl: "https://example.com/foreign"
+                  }) {
+                    artifactId
+                  }
+                }
+                "#,
+            )
+            .await;
+        assert_eq!(mutation_response.errors.len(), 1);
+        assert!(
+            mutation_response.errors[0]
+                .message
+                .contains("request is unauthenticated")
+        );
+
+        let mut stream = schema.execute_stream(async_graphql::Request::new(
+            r#"
+            subscription {
+              conversationEvents(conversationId: "conversation:foreign") {
+                __typename
+              }
+            }
+            "#,
+        ));
+        let subscription_response = stream.next().await.expect("subscription response");
+        assert_eq!(subscription_response.errors.len(), 1);
+        assert!(
+            subscription_response.errors[0]
+                .message
+                .contains("request is unauthenticated")
+        );
+    }
+
+    fn conversation_for_human(human_id: &str) -> noema_conversations::NewConversation {
+        let mut conversation = noema_conversations::NewConversation::local_chat(None, None);
+        conversation.owner =
+            noema_conversations::ConversationOwnerRef::human(human_id).expect("human owner");
+        conversation.primary_human_id = Some(human_id.to_string());
+        conversation
+    }
+
     async fn schema_with_reasoning_profile() -> (GraphqlSchema, String) {
         use crate::test_support::test_store;
 

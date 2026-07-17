@@ -1,5 +1,9 @@
 import type { TurnTranscriptItem } from "@/shared/types";
 import { artifactDetailTarget, type ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
+import {
+  resolveArtifactReferenceLink,
+  type TrustedArtifactLink
+} from "@/shared/artifactLinks";
 import { IconButton, type IconButtonProps } from "@astryxdesign/core/IconButton";
 import { Item, type ItemProps } from "@astryxdesign/core/Item";
 import * as stylex from "@stylexjs/stylex";
@@ -80,7 +84,7 @@ export function ArtifactReferenceCard({
   item: ArtifactReferenceItem;
   onOpenDetail?: (target: ChatDetailTarget) => void;
 }) {
-  const link = resolveArtifactLink(item.download_url, item.external_url);
+  const link = resolveArtifactReferenceLink(item.download_url, item.external_url);
   const detailTarget =
     item.storage_kind === "local_file" ? artifactDetailTarget(item.artifact_version_id) : null;
   const opensDetail = Boolean(detailTarget && onOpenDetail);
@@ -153,57 +157,13 @@ export function ArtifactReferenceCard({
   );
 }
 
-type ArtifactLink = {
-  href: string;
-  external: boolean;
-};
-
-function resolveArtifactLink(downloadUrl: string | null, externalUrl: string | null): ArtifactLink | null {
-  const localDownload = trustedLocalDownloadHref(downloadUrl);
-  if (localDownload) {
-    return { href: localDownload, external: false };
-  }
-
-  const externalLink = trustedExternalHref(externalUrl);
-  if (externalLink) {
-    return { href: externalLink, external: true };
-  }
-
-  return null;
-}
-
-function trustedLocalDownloadHref(href: string | null): string | null {
-  if (!href || href.startsWith("http://") || href.startsWith("https://")) {
-    return null;
-  }
-
-  if (!/^\/artifacts\/(?:versions\/[^/:]+|[^/]+)\/download(?:[?#].*)?$/.test(href)) {
-    return null;
-  }
-
-  return href;
-}
-
-function trustedExternalHref(href: string | null): string | null {
-  if (!href) {
-    return null;
-  }
-
-  try {
-    const url = new URL(href);
-    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : null;
-  } catch {
-    return null;
-  }
-}
-
 function artifactDescription(item: ArtifactReferenceItem): string {
   return [humanizeArtifactKind(item.artifact_kind), humanizeMediaType(item.media_type)]
     .filter((part): part is string => Boolean(part))
     .join(" · ");
 }
 
-function artifactActionIcon(link: ArtifactLink): ReactNode {
+function artifactActionIcon(link: TrustedArtifactLink): ReactNode {
   const iconProps = { "aria-hidden": true, size: 14, strokeWidth: 2 } as const;
   return link.external ? <ExternalLink {...iconProps} /> : <Download {...iconProps} />;
 }

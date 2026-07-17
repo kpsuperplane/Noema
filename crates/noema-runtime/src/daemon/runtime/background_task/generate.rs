@@ -324,7 +324,7 @@ impl RuntimeActor {
             progress.observe_results(&results);
             context.append_results(&results);
             context.finish_round();
-            let _ = tokio::select! {
+            let compaction_result = tokio::select! {
                 _ = request.cancellation.cancelled() => {
                     return Err(RuntimeError::Protocol("task execution cancelled".to_string()));
                 }
@@ -348,6 +348,7 @@ impl RuntimeActor {
                     &request.input,
                 ) => result,
             };
+            propagate_compaction_result(compaction_result)?;
             if !results
                 .iter()
                 .any(LocalToolResult::requires_provider_continuation)

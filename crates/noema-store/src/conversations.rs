@@ -64,7 +64,7 @@ impl NoemaStore {
             .await?;
         if let Some(conversation_id) = primary_conversation_id
             && self
-                .primary_conversation_matches_human(&conversation_id, human_id)
+                .conversation_is_owned_by_human(&conversation_id, human_id)
                 .await?
         {
             return Ok(ConversationRecord { conversation_id });
@@ -117,7 +117,7 @@ impl NoemaStore {
             return Ok(None);
         };
         if !self
-            .primary_conversation_matches_human(&conversation_id, human_id)
+            .conversation_is_owned_by_human(&conversation_id, human_id)
             .await?
         {
             return Ok(None);
@@ -158,7 +158,12 @@ impl NoemaStore {
         Ok(ConversationRecord { conversation_id })
     }
 
-    async fn primary_conversation_matches_human(
+    /// Return whether one active conversation belongs to the given human.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store read fails.
+    pub async fn conversation_is_owned_by_human(
         &self,
         conversation_id: &str,
         human_id: &str,

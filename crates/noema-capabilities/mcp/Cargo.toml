@@ -13,8 +13,10 @@ workspace = true
 default = []
 transport = [
     "dep:bytes",
+    "dep:cap-std",
     "dep:futures-util",
     "dep:http",
+    "dep:libc",
     "dep:nix",
     "dep:process-wrap",
     "dep:reqwest",
@@ -28,6 +30,7 @@ transport = [
 
 [dependencies]
 bytes = { workspace = true, optional = true }
+cap-std = { workspace = true, optional = true }
 futures-util = { workspace = true, optional = true }
 http = { workspace = true, optional = true }
 noema-capabilities = { path = "..", default-features = false }
@@ -46,6 +49,7 @@ tokio-util = { workspace = true, optional = true, features = ["codec"] }
 url = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]
+libc = { workspace = true, optional = true }
 nix = { workspace = true, optional = true }
 
 [dev-dependencies]

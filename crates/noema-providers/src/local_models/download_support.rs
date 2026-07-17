@@ -50,6 +50,10 @@ pub(super) fn hex_digest(bytes: &[u8]) -> String {
     encoded
 }
 
+pub(super) fn blob_relative_path(sha256: &str) -> String {
+    format!("models/blobs/{sha256}.gguf")
+}
+
 pub(super) fn hugging_face_url(
     repo: &str,
     revision: &str,

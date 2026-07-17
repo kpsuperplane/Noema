@@ -11,13 +11,13 @@ use super::web::{self, WebState};
 /// cannot start, Ctrl-C cannot be observed, or accepting a client connection
 /// fails.
 pub async fn run_daemon_web(host: NoemaHost) -> Result<(), WebServerError> {
-    let web_listener = match web::bind_listener(host.web_config()).await {
-        Ok(listener) => listener,
-        Err(error) => {
-            host.shutdown().await;
-            return Err(error);
-        }
-    };
+    let result = serve_daemon_web(&host).await;
+    host.shutdown().await;
+    result
+}
+
+async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
+    let web_listener = web::bind_listener(host.web_config()).await?;
     let listener_address = web_listener.local_addr()?;
     let authority = web::authority::CanonicalAuthority::from_socket_addr(listener_address);
     let sessions = web::session::SessionSecurity::generate().map_err(|_| {
@@ -50,7 +50,6 @@ pub async fn run_daemon_web(host: NoemaHost) -> Result<(), WebServerError> {
             }
         })
         .await;
-    host.shutdown().await;
     let signal_result = shutdown_error
         .lock()
         .map_err(|_| WebServerError::Protocol("Ctrl-C error state was poisoned".to_string()))?

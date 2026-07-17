@@ -2745,8 +2745,10 @@ name = "noema-capabilities-mcp"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "cap-std",
  "futures-util",
  "http",
+ "libc",
  "nix 0.30.1",
  "noema-capabilities",
  "noema-home",

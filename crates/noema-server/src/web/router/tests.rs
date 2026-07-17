@@ -226,14 +226,16 @@ async fn authenticated_http_and_websocket_ignore_client_identity_metadata() {
             .method(Method::POST)
             .uri("/graphql")
             .header(header::CONTENT_TYPE, "application/json")
-            .body(Body::from(r#"{"query":"{ __typename }"}"#))
+            .body(Body::from(
+                r#"{"query":"{ testRequestPrincipal }","extensions":{"principal":{"subjectId":"attacker"}}}"#,
+            ))
             .expect("GraphQL principal request"),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         serde_json::from_slice::<serde_json::Value>(&body).expect("GraphQL JSON"),
-        json!({"data": {"__typename": "QueryRoot"}})
+        json!({"data": {"testRequestPrincipal": "human:local"}})
     );
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -322,7 +324,10 @@ async fn authenticated_http_and_websocket_ignore_client_identity_metadata() {
             json!({
                 "id": "principal",
                 "type": "subscribe",
-                "payload": {"query": "{ __typename }"}
+                "payload": {
+                    "query": "subscription { testRequestPrincipal }",
+                    "extensions": {"principal": {"subjectId": "attacker"}}
+                }
             })
             .to_string()
             .into(),
@@ -340,7 +345,7 @@ async fn authenticated_http_and_websocket_ignore_client_identity_metadata() {
         json!({
             "id": "principal",
             "type": "next",
-            "payload": {"data": {"__typename": "QueryRoot"}}
+            "payload": {"data": {"testRequestPrincipal": "human:local"}}
         })
     );
 

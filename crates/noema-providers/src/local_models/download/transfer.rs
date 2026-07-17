@@ -18,7 +18,9 @@ use crate::{
 use super::{
     BYTES_PER_DECIMAL_GB, LocalModelInstallError, LocalModelInstaller, validate_gguf_magic,
 };
-use crate::local_models::download_support::{InstalledArtifact, hash_file, hex_digest};
+use crate::local_models::download_support::{
+    InstalledArtifact, blob_relative_path, hash_file, hex_digest,
+};
 
 const PROGRESS_INTERVAL_BYTES: u64 = 8 * 1024 * 1024;
 
@@ -281,7 +283,7 @@ impl LocalModelInstaller {
             sha256: sha256.clone(),
             downloaded_bytes,
             expected_bytes,
-            blob_relative_path: format!("models/blobs/{sha256}.gguf"),
+            blob_relative_path: blob_relative_path(&sha256),
         })
     }
 

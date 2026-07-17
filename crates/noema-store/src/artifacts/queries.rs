@@ -9,6 +9,46 @@ use super::{
 };
 
 impl NoemaStore {
+    /// Return whether one artifact owner is accessible to the given human.
+    ///
+    /// Conversation owners must be live human-owned conversations. Task owners
+    /// must name tasks owned by the same human. Unknown owner kinds are denied.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store read fails.
+    pub async fn artifact_owner_is_authorized_for_human(
+        &self,
+        owner: &ArtifactOwnerRef,
+        human_id: &str,
+    ) -> Result<bool, StoreError> {
+        match owner.object_type.as_str() {
+            "conversation" => {
+                self.conversation_is_owned_by_human(&owner.object_id, human_id)
+                    .await
+            }
+            "task" => {
+                self.with_connection(|conn| {
+                    conn.query_row(
+                        r#"
+                        SELECT EXISTS(
+                          SELECT 1
+                          FROM tasks
+                          WHERE task_id = ?1
+                            AND owner_human_id = ?2
+                        )
+                        "#,
+                        params![owner.object_id, human_id],
+                        |row| row.get::<_, bool>(0),
+                    )
+                    .map_err(StoreError::Sqlite)
+                })
+                .await
+            }
+            _ => Ok(false),
+        }
+    }
+
     /// Load one artifact and all immutable versions.
     ///
     /// # Errors

@@ -1,6 +1,8 @@
 //! Immutable llama.cpp release manifest and desktop sidecar resolution.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(any(test, debug_assertions))]
+use std::path::PathBuf;
 
 use super::LlamaServerCandidate;
 use crate::LocalModelBackend;
@@ -12,6 +14,7 @@ pub const LLAMA_CPP_RELEASE_TAG: &str = "b10015";
 #[cfg(any(test, feature = "local-model-evals"))]
 pub const LLAMA_CPP_COMMIT: &str = "12127defda4f41b7679cb2477a4b0d65ee6a0c8f";
 /// Development/test-only override for the `llama-server` executable.
+#[cfg(any(test, debug_assertions))]
 pub const NOEMA_LLAMA_SERVER_PATH_ENV: &str = "NOEMA_LLAMA_SERVER_PATH";
 /// Base name used for Tauri external sidecars and installed runtime binaries.
 pub const LLAMA_SERVER_SIDECAR_BASENAME: &str = "noema-llama-server";
@@ -130,6 +133,7 @@ impl<'a> RuntimeTargetPlatform<'a> {
         Some(Self { target_triple, os })
     }
 
+    #[cfg(any(test, debug_assertions))]
     const fn default_backend(self) -> LocalModelBackend {
         match self.os {
             RuntimeTargetOs::MacOs => LocalModelBackend::Metal,
@@ -176,7 +180,7 @@ impl<'a> RuntimeTargetPlatform<'a> {
 /// Resolves backend-specific bundled runtime sidecars in fallback order.
 ///
 /// Installed builds only resolve sidecars adjacent to the Noema executable.
-/// Debug and test builds may opt into [`NOEMA_LLAMA_SERVER_PATH_ENV`] to use a
+/// Debug and test builds may opt into `NOEMA_LLAMA_SERVER_PATH` to use a
 /// developer-built runtime; ambient `PATH` is never consulted.
 /// Resolves backend-specific runtime candidates from a packaged resource root.
 ///

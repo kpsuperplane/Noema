@@ -2,6 +2,7 @@ import { Button } from "@astryxdesign/core/Button";
 import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import * as stylex from "@stylexjs/stylex";
 import { ExternalLink, FileText } from "lucide-react";
+import { resolveTaskArtifactLink } from "@/shared/artifactLinks";
 import { TaskExpandableContent, TaskStaticSection } from "./TaskSection";
 import type { TaskArtifact, TaskFinalResult } from "./taskTypes";
 
@@ -55,6 +56,7 @@ export function TaskResult({
 }
 
 function ArtifactRow({ artifact }: { artifact: TaskArtifact }) {
+  const link = resolveTaskArtifactLink(artifact.href ?? null);
   return (
     <li {...stylex.props(styles.artifactRow)}>
       <span {...stylex.props(styles.artifactIcon)} aria-hidden="true"><FileText size={14} /></span>
@@ -64,13 +66,13 @@ function ArtifactRow({ artifact }: { artifact: TaskArtifact }) {
           <span {...stylex.props(styles.artifactMeta)}>{[artifact.kind, artifact.mediaType].filter(Boolean).join(" · ")}</span>
         ) : null}
       </span>
-      {artifact.href ? (
+      {link ? (
         <Button
-          href={trustedHref(artifact.href) ?? undefined}
+          href={link.href}
           icon={<ExternalLink aria-hidden="true" size={13} />}
           isIconOnly
           label={`Open ${artifact.title}`}
-          rel="noreferrer"
+          rel={link.external ? "noreferrer" : undefined}
           size="sm"
           target="_blank"
           variant="ghost"
@@ -78,18 +80,6 @@ function ArtifactRow({ artifact }: { artifact: TaskArtifact }) {
       ) : null}
     </li>
   );
-}
-
-function trustedHref(value: string): string | null {
-  try {
-    const url = new URL(value, window.location.origin);
-    if (url.origin === window.location.origin) {
-      return url.pathname.startsWith("/artifacts/") ? url.toString() : null;
-    }
-    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : null;
-  } catch {
-    return null;
-  }
 }
 
 function markdownXStyle(...xstyle: unknown[]): MarkdownXStyle {

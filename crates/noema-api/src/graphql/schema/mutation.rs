@@ -78,18 +78,14 @@ impl MutationRoot {
         message: Option<String>,
     ) -> Result<GraphqlTaskDetail> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        let principal = ctx
-            .data_opt::<crate::graphql::RequestPrincipal>()
-            .map_or("human:local", crate::graphql::RequestPrincipal::subject_id);
+        let principal = crate::graphql::request_principal_subject(ctx)?;
         tasks::resume_task(state, principal, task_id, message).await
     }
 
     /// Cancel one owner-authorized queued, active, or blocked task.
     async fn cancel_task(&self, ctx: &Context<'_>, task_id: String) -> Result<GraphqlTaskDetail> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        let principal = ctx
-            .data_opt::<crate::graphql::RequestPrincipal>()
-            .map_or("human:local", crate::graphql::RequestPrincipal::subject_id);
+        let principal = crate::graphql::request_principal_subject(ctx)?;
         tasks::cancel_task(state, principal, task_id).await
     }
 
@@ -101,9 +97,7 @@ impl MutationRoot {
         input: GraphqlTaskModelPoolEntryInput,
     ) -> Result<GraphqlTaskModelPoolEntry> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        let principal = ctx
-            .data_opt::<crate::graphql::RequestPrincipal>()
-            .map_or("human:local", crate::graphql::RequestPrincipal::subject_id);
+        let principal = crate::graphql::request_principal_subject(ctx)?;
         tasks::update_task_model_pool_entry(state, principal, pool_entry_id, input).await
     }
 
@@ -114,9 +108,7 @@ impl MutationRoot {
         input: GraphqlTaskExecutionPolicyInput,
     ) -> Result<GraphqlTaskExecutionPolicy> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        let principal = ctx
-            .data_opt::<crate::graphql::RequestPrincipal>()
-            .map_or("human:local", crate::graphql::RequestPrincipal::subject_id);
+        let principal = crate::graphql::request_principal_subject(ctx)?;
         tasks::update_task_execution_policy(state, principal, input).await
     }
 
@@ -239,7 +231,8 @@ impl MutationRoot {
         cwd: Option<String>,
     ) -> Result<GraphqlPrimaryConversation> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        chat::ensure_primary_conversation(state, cwd).await
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        chat::ensure_primary_conversation(state, principal, cwd).await
     }
 
     /// Send a conversation turn.
@@ -249,7 +242,8 @@ impl MutationRoot {
         input: GraphqlSendConversationTurnInput,
     ) -> Result<GraphqlTurnAccepted> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        chat::send_conversation_turn(state, input).await
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        chat::send_conversation_turn(state, principal, input).await
     }
 
     /// Send a multiple-choice selection as a user turn.
@@ -259,7 +253,8 @@ impl MutationRoot {
         input: GraphqlSendMultipleChoiceSelectionInput,
     ) -> Result<GraphqlTurnAccepted> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        chat::send_multiple_choice_selection(state, input).await
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        chat::send_multiple_choice_selection(state, principal, input).await
     }
 
     /// Create a conversation-owned external artifact.
@@ -269,7 +264,8 @@ impl MutationRoot {
         input: GraphqlCreateConversationExternalArtifactInput,
     ) -> Result<artifacts::GraphqlArtifact> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        artifacts::create_conversation_external_artifact(state, input).await
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        artifacts::create_conversation_external_artifact(state, principal, input).await
     }
 
     /// Save reviewed MCP tool calibration.

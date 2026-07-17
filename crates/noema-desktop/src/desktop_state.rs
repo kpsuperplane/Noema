@@ -7,11 +7,11 @@ use noema_host::{
     NoemaHost, RuntimeHostError, start_from_process_env_with_local_model_runtime_root,
 };
 use tauri::async_runtime::JoinHandle;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, watch};
 
 /// Shared Tauri application state for desktop IPC commands.
 pub struct DesktopState {
-    inner: Mutex<Option<DesktopRuntime>>,
+    inner: Mutex<DesktopLifecycle<DesktopRuntime>>,
 }
 
 impl DesktopState {
@@ -19,7 +19,7 @@ impl DesktopState {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            inner: Mutex::new(None),
+            inner: Mutex::new(DesktopLifecycle::Uninitialized),
         }
     }
 
@@ -45,15 +45,23 @@ impl DesktopState {
                     return Err(RuntimeHostError::Composition(error));
                 }
             };
-        let mut inner = self.inner.lock().await;
-        *inner = Some(DesktopRuntime {
+        let runtime = DesktopRuntime {
             host,
             schema,
             mcp_oauth_callback_url,
             mcp_oauth_callback_server,
             subscriptions: SubscriptionTasks::default(),
-        });
-        Ok(())
+        };
+        let mut inner = self.inner.lock().await;
+        if matches!(&*inner, DesktopLifecycle::Uninitialized) {
+            *inner = DesktopLifecycle::Running(runtime);
+            return Ok(());
+        }
+        drop(inner);
+        runtime.shutdown().await;
+        Err(RuntimeHostError::Composition(
+            "desktop runtime initialization raced with shutdown".to_string(),
+        ))
     }
 
     /// Return the initialized GraphQL schema.
@@ -63,10 +71,12 @@ impl DesktopState {
     /// Returns a user-facing error while the desktop runtime is unavailable.
     pub async fn schema(&self) -> Result<GraphqlSchema, String> {
         let inner = self.inner.lock().await;
-        inner
-            .as_ref()
-            .map(|runtime| runtime.schema.clone())
-            .ok_or_else(|| "Noema lost connection to its local app service.".to_string())
+        match &*inner {
+            DesktopLifecycle::Running(runtime) => Ok(runtime.schema.clone()),
+            DesktopLifecycle::Uninitialized | DesktopLifecycle::Shutdown(_) => {
+                Err("Noema lost connection to its local app service.".to_string())
+            }
+        }
     }
 
     /// Return the desktop-local MCP OAuth callback URL.
@@ -76,10 +86,12 @@ impl DesktopState {
     /// Returns a user-facing error while the desktop runtime is unavailable.
     pub async fn mcp_oauth_callback_url(&self) -> Result<String, String> {
         let inner = self.inner.lock().await;
-        inner
-            .as_ref()
-            .map(|runtime| runtime.mcp_oauth_callback_url.clone())
-            .ok_or_else(|| "Noema lost connection to its local app service.".to_string())
+        match &*inner {
+            DesktopLifecycle::Running(runtime) => Ok(runtime.mcp_oauth_callback_url.clone()),
+            DesktopLifecycle::Uninitialized | DesktopLifecycle::Shutdown(_) => {
+                Err("Noema lost connection to its local app service.".to_string())
+            }
+        }
     }
 
     /// Store an active GraphQL subscription task.
@@ -95,7 +107,7 @@ impl DesktopState {
         handle: JoinHandle<()>,
     ) -> Result<u64, String> {
         let mut inner = self.inner.lock().await;
-        let Some(runtime) = inner.as_mut() else {
+        let DesktopLifecycle::Running(runtime) = &mut *inner else {
             handle.abort();
             return Err("Noema lost connection to its local app service.".to_string());
         };
@@ -105,7 +117,7 @@ impl DesktopState {
     /// Remove a finished GraphQL subscription task if it still owns the id.
     pub async fn remove_finished_subscription(&self, id: &str, generation: u64) {
         let mut inner = self.inner.lock().await;
-        if let Some(runtime) = inner.as_mut() {
+        if let DesktopLifecycle::Running(runtime) = &mut *inner {
             runtime.subscriptions.remove_finished(id, generation);
         }
     }
@@ -113,21 +125,31 @@ impl DesktopState {
     /// Remove and abort an active GraphQL subscription task.
     pub async fn remove_subscription(&self, id: &str) {
         let mut inner = self.inner.lock().await;
-        if let Some(runtime) = inner.as_mut() {
+        if let DesktopLifecycle::Running(runtime) = &mut *inner {
             runtime.subscriptions.remove(id);
         }
     }
 
-    /// Shut down runtime-owned background work.
+    /// Shut down runtime-owned background work and wait for the shared teardown.
     pub async fn shutdown(&self) {
-        let runtime = {
+        let action = {
             let mut inner = self.inner.lock().await;
-            inner.take()
+            inner.begin_shutdown()
         };
-        if let Some(runtime) = runtime {
-            runtime.mcp_oauth_callback_server.abort();
-            runtime.subscriptions.abort_all();
-            runtime.host.shutdown().await;
+        match action {
+            ShutdownAction::Start {
+                runtime,
+                completion,
+                signal,
+            } => {
+                tauri::async_runtime::spawn(async move {
+                    runtime.shutdown().await;
+                    signal.send_replace(true);
+                });
+                completion.wait().await;
+            }
+            ShutdownAction::Wait(completion) => completion.wait().await,
+            ShutdownAction::Complete => {}
         }
     }
 }
@@ -138,6 +160,71 @@ struct DesktopRuntime {
     mcp_oauth_callback_url: String,
     mcp_oauth_callback_server: JoinHandle<()>,
     subscriptions: SubscriptionTasks,
+}
+
+impl DesktopRuntime {
+    async fn shutdown(self) {
+        self.mcp_oauth_callback_server.abort();
+        self.subscriptions.abort_all();
+        self.host.shutdown().await;
+    }
+}
+
+enum DesktopLifecycle<T> {
+    Uninitialized,
+    Running(T),
+    Shutdown(ShutdownCompletion),
+}
+
+impl<T> DesktopLifecycle<T> {
+    fn begin_shutdown(&mut self) -> ShutdownAction<T> {
+        match std::mem::replace(self, Self::Uninitialized) {
+            Self::Uninitialized => {
+                let (_, receiver) = watch::channel(true);
+                *self = Self::Shutdown(ShutdownCompletion { receiver });
+                ShutdownAction::Complete
+            }
+            Self::Running(runtime) => {
+                let (signal, receiver) = watch::channel(false);
+                let completion = ShutdownCompletion { receiver };
+                *self = Self::Shutdown(completion.clone());
+                ShutdownAction::Start {
+                    runtime,
+                    completion,
+                    signal,
+                }
+            }
+            Self::Shutdown(completion) => {
+                *self = Self::Shutdown(completion.clone());
+                ShutdownAction::Wait(completion)
+            }
+        }
+    }
+}
+
+enum ShutdownAction<T> {
+    Start {
+        runtime: T,
+        completion: ShutdownCompletion,
+        signal: watch::Sender<bool>,
+    },
+    Wait(ShutdownCompletion),
+    Complete,
+}
+
+#[derive(Clone)]
+struct ShutdownCompletion {
+    receiver: watch::Receiver<bool>,
+}
+
+impl ShutdownCompletion {
+    async fn wait(mut self) {
+        while !*self.receiver.borrow() {
+            if self.receiver.changed().await.is_err() {
+                break;
+            }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -227,6 +314,58 @@ mod tests {
         assert_eq!(subscriptions.generation("sub_1"), Some(new_generation));
 
         subscriptions.remove("sub_1");
+    }
+
+    #[tokio::test]
+    async fn concurrent_shutdown_callers_wait_for_the_same_completion() {
+        let mut lifecycle = DesktopLifecycle::Running(());
+        let (owner_completion, signal) = match lifecycle.begin_shutdown() {
+            ShutdownAction::Start {
+                runtime: (),
+                completion,
+                signal,
+            } => (completion, signal),
+            ShutdownAction::Wait(_) | ShutdownAction::Complete => {
+                panic!("first shutdown caller must own teardown")
+            }
+        };
+        let waiting_completion = match lifecycle.begin_shutdown() {
+            ShutdownAction::Wait(completion) => completion,
+            ShutdownAction::Start { .. } | ShutdownAction::Complete => {
+                panic!("concurrent shutdown caller must wait")
+            }
+        };
+        let waiting_caller = tokio::spawn(waiting_completion.wait());
+
+        tokio::task::yield_now().await;
+        assert!(!waiting_caller.is_finished());
+
+        signal.send_replace(true);
+        owner_completion.wait().await;
+        waiting_caller.await.expect("waiting shutdown caller");
+
+        match lifecycle.begin_shutdown() {
+            ShutdownAction::Wait(completion) => completion.wait().await,
+            ShutdownAction::Start { .. } | ShutdownAction::Complete => {
+                panic!("completed shutdown must remain a shared one-shot")
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn shutdown_before_initialization_remains_complete() {
+        let mut lifecycle = DesktopLifecycle::<()>::Uninitialized;
+        assert!(matches!(
+            lifecycle.begin_shutdown(),
+            ShutdownAction::Complete
+        ));
+
+        match lifecycle.begin_shutdown() {
+            ShutdownAction::Wait(completion) => completion.wait().await,
+            ShutdownAction::Start { .. } | ShutdownAction::Complete => {
+                panic!("pre-initialization shutdown must remain complete")
+            }
+        }
     }
 
     fn pending_handle() -> JoinHandle<()> {

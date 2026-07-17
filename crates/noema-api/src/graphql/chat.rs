@@ -369,7 +369,8 @@ impl GraphqlPrimaryConversation {
         limit: Option<i32>,
     ) -> Result<GraphqlConversationTranscriptPage> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        latest_conversation_transcript_page(state, &self.conversation_id, limit).await
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        latest_conversation_transcript_page(state, principal, &self.conversation_id, limit).await
     }
 }
 

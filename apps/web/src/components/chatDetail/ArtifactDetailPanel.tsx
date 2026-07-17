@@ -8,6 +8,7 @@ import {
   ArtifactVersionDetailDocument,
   type ArtifactVersionDetailQuery
 } from "@/generated/graphql";
+import { artifactDownloadHref } from "@/shared/artifactLinks";
 
 type MarkdownXStyle = MarkdownProps["xstyle"];
 export type ArtifactDetail = NonNullable<ArtifactVersionDetailQuery["artifactVersionDetail"]>;
@@ -68,13 +69,14 @@ export function ArtifactDetailPanel({
 }
 
 export function ArtifactDownloadAction({ detail }: { detail: ArtifactDetail | null }) {
-  if (!detail?.downloadUrl) {
+  const downloadHref = artifactDownloadHref(detail?.downloadUrl ?? null);
+  if (!downloadHref) {
     return null;
   }
 
   return (
     <Button
-      href={detail.downloadUrl}
+      href={downloadHref}
       icon={<Download aria-hidden="true" size={15} />}
       isIconOnly
       label="Download"

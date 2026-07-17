@@ -215,6 +215,54 @@ async fn artifact_read_rejects_forged_non_http_external_url() {
     ));
 }
 
+#[tokio::test]
+async fn artifact_owner_authorization_is_human_scoped_and_fail_closed() {
+    let store = test_store().await;
+    let local = store
+        .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
+        .await
+        .expect("local conversation");
+    let mut foreign_input = noema_conversations::NewConversation::local_chat(None, None);
+    foreign_input.owner = noema_conversations::ConversationOwnerRef::human("human:other")
+        .expect("foreign human owner");
+    foreign_input.primary_human_id = Some("human:other".to_string());
+    let foreign = store
+        .create_conversation(foreign_input)
+        .await
+        .expect("foreign conversation");
+
+    assert!(
+        store
+            .artifact_owner_is_authorized_for_human(
+                &noema_artifacts::ArtifactOwnerRef::conversation(local.conversation_id),
+                "human:local",
+            )
+            .await
+            .expect("local authorization")
+    );
+    assert!(
+        !store
+            .artifact_owner_is_authorized_for_human(
+                &noema_artifacts::ArtifactOwnerRef::conversation(foreign.conversation_id),
+                "human:local",
+            )
+            .await
+            .expect("foreign authorization")
+    );
+    assert!(
+        !store
+            .artifact_owner_is_authorized_for_human(
+                &noema_artifacts::ArtifactOwnerRef {
+                    object_type: "unknown".to_string(),
+                    object_id: "object:unknown".to_string(),
+                },
+                "human:local",
+            )
+            .await
+            .expect("unknown owner authorization")
+    );
+}
+
 async fn seed_external_artifact(
     store: &crate::NoemaStore,
     conversation_id: &str,

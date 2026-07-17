@@ -5,7 +5,7 @@ pub struct QueryRoot;
 
 #[Object]
 impl QueryRoot {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     async fn test_request_principal(&self, ctx: &Context<'_>) -> String {
         ctx.data_unchecked::<crate::graphql::RequestPrincipal>()
             .subject_id()
@@ -91,9 +91,7 @@ impl QueryRoot {
     /// Return one owner-authorized durable background task detail.
     async fn task(&self, ctx: &Context<'_>, task_id: String) -> Result<Option<GraphqlTaskDetail>> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        let principal = ctx
-            .data_opt::<crate::graphql::RequestPrincipal>()
-            .map_or("human:local", crate::graphql::RequestPrincipal::subject_id);
+        let principal = crate::graphql::request_principal_subject(ctx)?;
         tasks::task(state, principal, task_id).await
     }
 
@@ -106,9 +104,7 @@ impl QueryRoot {
         first: Option<i32>,
     ) -> Result<GraphqlTaskRunItemsConnection> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        let principal = ctx
-            .data_opt::<crate::graphql::RequestPrincipal>()
-            .map_or("human:local", crate::graphql::RequestPrincipal::subject_id);
+        let principal = crate::graphql::request_principal_subject(ctx)?;
         tasks::task_run_items(state, principal, run_id, after, first).await
     }
 
@@ -204,7 +200,8 @@ impl QueryRoot {
         ctx: &Context<'_>,
     ) -> Result<Option<GraphqlPrimaryConversation>> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        chat::primary_conversation(state).await
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        chat::primary_conversation(state, principal).await
     }
 
     /// Return a cursor-based page of visible conversation transcript items.
@@ -214,7 +211,8 @@ impl QueryRoot {
         input: GraphqlConversationTranscriptPageInput,
     ) -> Result<GraphqlConversationTranscriptPage> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        chat::conversation_transcript_page(state, input).await
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        chat::conversation_transcript_page(state, principal, input).await
     }
 
     /// List artifacts for one concrete owner.
@@ -226,7 +224,8 @@ impl QueryRoot {
         limit: Option<i32>,
     ) -> Result<Vec<artifacts::GraphqlArtifact>> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        artifacts::artifacts(state, owner_object_type, owner_object_id, limit).await
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        artifacts::artifacts(state, principal, owner_object_type, owner_object_id, limit).await
     }
 
     /// Load one artifact by id.
@@ -236,7 +235,8 @@ impl QueryRoot {
         artifact_id: String,
     ) -> Result<Option<artifacts::GraphqlArtifact>> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        artifacts::artifact(state, artifact_id).await
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        artifacts::artifact(state, principal, artifact_id).await
     }
 
     /// Load one artifact version detail payload for the chat detail rail.
@@ -246,6 +246,7 @@ impl QueryRoot {
         artifact_version_id: String,
     ) -> Result<Option<artifacts::GraphqlArtifactVersionDetail>> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        artifacts::artifact_version_detail(state, artifact_version_id).await
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        artifacts::artifact_version_detail(state, principal, artifact_version_id).await
     }
 }

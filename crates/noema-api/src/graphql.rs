@@ -53,7 +53,15 @@ impl RequestPrincipal {
 
     /// Return the stable subject identifier.
     #[must_use]
-    pub fn subject_id(&self) -> &str {
+    pub fn subject_id(&self) -> &'static str {
         self.subject_id
     }
+}
+
+pub(crate) fn request_principal_subject(
+    ctx: &async_graphql::Context<'_>,
+) -> async_graphql::Result<&'static str> {
+    ctx.data_opt::<RequestPrincipal>()
+        .map(RequestPrincipal::subject_id)
+        .ok_or_else(|| async_graphql::Error::new("request is unauthenticated"))
 }

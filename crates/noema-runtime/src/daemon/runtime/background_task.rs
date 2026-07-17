@@ -13,8 +13,8 @@ use crate::{
 };
 use noema_providers::{
     GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
-    NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderSelectionSnapshot,
-    TokenUsage,
+    NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderError,
+    ProviderSelectionSnapshot, TokenUsage,
 };
 
 use super::{
@@ -65,6 +65,10 @@ pub(crate) struct BackgroundTaskGenerateRequest {
 
 include!("background_task/generate.rs");
 include!("background_task/finalize.rs");
+
+fn propagate_compaction_result(result: Result<bool, ProviderError>) -> Result<(), RuntimeError> {
+    result.map(|_| ()).map_err(RuntimeError::Provider)
+}
 
 fn is_wall_time_error(error: &RuntimeError) -> bool {
     matches!(

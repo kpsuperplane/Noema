@@ -1,12 +1,16 @@
 use super::*;
 
-pub(in crate::graphql) fn conversation_events(
-    subscriptions: RuntimeEventRegistry,
+pub(in crate::graphql) async fn conversation_events(
+    state: &GraphqlState,
+    human_id: &str,
     conversation_id: String,
-) -> impl Stream<Item = GraphqlConversationEvent> {
+) -> Result<impl Stream<Item = GraphqlConversationEvent>> {
+    super::operations::require_conversation_owner(state.store()?, &conversation_id, human_id)
+        .await?;
+    let subscriptions = state.subscriptions().clone();
     let mut rx = subscriptions.subscribe_conversation(&conversation_id);
 
-    async_stream::stream! {
+    Ok(async_stream::stream! {
         yield GraphqlConversationEvent::SubscriptionReady(
             GraphqlSubscriptionReadyEvent {
                 conversation_id: conversation_id.clone(),
@@ -93,7 +97,7 @@ pub(in crate::graphql) fn conversation_events(
                 }
             }
         }
-    }
+    })
 }
 
 pub(super) fn publish_turn_terminal_events(

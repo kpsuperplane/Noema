@@ -500,3 +500,81 @@
         assert!(item["downloadUrl"].is_null());
         assert_eq!(item["mediaType"], "text/html");
     }
+
+    #[tokio::test]
+    async fn conversation_operations_reject_foreign_human_conversations() {
+        let store = crate::test_support::test_store().await;
+        let conversation = store
+            .create_conversation(conversation_for_human("human:other"))
+            .await
+            .expect("foreign conversation");
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+
+        let query_response = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                query {{
+                  conversationTranscriptPage(input: {{
+                    conversationId: "{}"
+                  }}) {{
+                    pageInfo {{ limit }}
+                  }}
+                }}
+                "#,
+                conversation.conversation_id,
+            )))
+            .await;
+        assert_eq!(query_response.errors.len(), 1);
+        assert!(
+            query_response.errors[0]
+                .message
+                .contains("conversation is unavailable")
+        );
+
+        let turn_response = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                mutation {{
+                  sendConversationTurn(input: {{
+                    conversationId: "{}"
+                    input: "private"
+                    clientMessageId: "client:foreign"
+                  }}) {{
+                    conversationId
+                  }}
+                }}
+                "#,
+                conversation.conversation_id,
+            )))
+            .await;
+        assert_eq!(turn_response.errors.len(), 1);
+        assert!(
+            turn_response.errors[0]
+                .message
+                .contains("conversation is unavailable")
+        );
+
+        let selection_response = schema
+            .execute(async_graphql::Request::new(format!(
+                r#"
+                mutation {{
+                  sendMultipleChoiceSelection(input: {{
+                    conversationId: "{}"
+                    promptItemId: "item:foreign"
+                    selectedOptionIds: ["option:foreign"]
+                    clientMessageId: "client:foreign"
+                  }}) {{
+                    conversationId
+                  }}
+                }}
+                "#,
+                conversation.conversation_id,
+            )))
+            .await;
+        assert_eq!(selection_response.errors.len(), 1);
+        assert!(
+            selection_response.errors[0]
+                .message
+                .contains("conversation is unavailable")
+        );
+    }

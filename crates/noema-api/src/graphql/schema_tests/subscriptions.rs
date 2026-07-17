@@ -1,24 +1,37 @@
+    async fn local_conversation_subscription_fixture(
+    ) -> (GraphqlState, RuntimeEventRegistry, String) {
+        let store = crate::test_support::test_store().await;
+        let conversation = store
+            .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
+            .await
+            .expect("conversation");
+        let state = GraphqlState::for_tests_with_store(store);
+        let subscriptions = state.subscriptions().clone();
+        (state, subscriptions, conversation.conversation_id)
+    }
+
     #[tokio::test]
     async fn conversation_events_emits_ready_before_live_events() {
-        let state = GraphqlState::for_tests();
-        let subscriptions = state.subscriptions().clone();
+        let (state, subscriptions, conversation_id) =
+            local_conversation_subscription_fixture().await;
         let schema = build_schema(state);
-        let mut stream = schema.execute_stream(async_graphql::Request::new(
+        let mut stream = schema.execute_stream(async_graphql::Request::new(format!(
             r#"
-            subscription {
-              conversationEvents(conversationId: "conversation_1") {
+            subscription {{
+              conversationEvents(conversationId: "{}") {{
                 __typename
-                ... on SubscriptionReadyEvent {
+                ... on SubscriptionReadyEvent {{
                   conversationId
-                }
-                ... on TurnCompletedEvent {
+                }}
+                ... on TurnCompletedEvent {{
                   conversationId
                   clientMessageId
-                }
-              }
-            }
+                }}
+              }}
+            }}
             "#,
-        ));
+            conversation_id,
+        )));
 
         let response = stream.next().await.expect("ready response");
         let data = response.data.into_json().expect("ready json");
@@ -30,14 +43,14 @@
         assert_eq!(
             data.pointer("/conversationEvents/conversationId")
                 .and_then(serde_json::Value::as_str),
-            Some("conversation_1")
+            Some(conversation_id.as_str())
         );
 
         for index in 0..256 {
             subscriptions.publish_conversation(ConversationRuntimeEvent::Turn {
                 client_message_id: None,
                 event: Box::new(TurnStreamEvent::ConversationItem {
-                    conversation_id: "conversation_1".to_string(),
+                    conversation_id: conversation_id.clone(),
                     item_id: format!("item_{index}"),
                     cursor: Some(format!("conversation_item:{}", index + 1)),
                     turn_id: Some("turn_1".to_string()),
@@ -49,7 +62,7 @@
             });
         }
         subscriptions.publish_conversation(ConversationRuntimeEvent::Completed {
-            conversation_id: "conversation_1".to_string(),
+            conversation_id: conversation_id.clone(),
             client_message_id: Some("client_1".to_string()),
         });
         let response = stream.next().await.expect("resynchronization response");
@@ -223,24 +236,25 @@
 
     #[tokio::test]
     async fn subscription_streams_assistant_text_delta_event() {
-        let state = GraphqlState::for_tests();
-        let subscriptions = state.subscriptions().clone();
+        let (state, subscriptions, conversation_id) =
+            local_conversation_subscription_fixture().await;
         let schema = build_schema(state);
-        let mut stream = schema.execute_stream(async_graphql::Request::new(
+        let mut stream = schema.execute_stream(async_graphql::Request::new(format!(
             r#"
-            subscription {
-              conversationEvents(conversationId: "conversation_1") {
+            subscription {{
+              conversationEvents(conversationId: "{}") {{
                 __typename
-                ... on AssistantTextDeltaEvent {
+                ... on AssistantTextDeltaEvent {{
                   conversationId
                   turnId
                   streamId
                   delta
-                }
-              }
-            }
+                }}
+              }}
+            }}
             "#,
-        ));
+            conversation_id,
+        )));
 
         let ready = stream.next().await.expect("ready response");
         assert_eq!(
@@ -251,7 +265,7 @@
         subscriptions.publish_conversation(ConversationRuntimeEvent::Turn {
             client_message_id: None,
             event: Box::new(TurnStreamEvent::AssistantTextDelta {
-                conversation_id: "conversation_1".to_string(),
+                conversation_id: conversation_id.clone(),
                 turn_id: "turn_1".to_string(),
                 stream_id: "assistant_stream:turn_1:initial".to_string(),
                 response_index: 0,
@@ -263,7 +277,7 @@
         let data = response.data.into_json().expect("delta json");
         let event = &data["conversationEvents"];
         assert_eq!(event["__typename"], "AssistantTextDeltaEvent");
-        assert_eq!(event["conversationId"], "conversation_1");
+        assert_eq!(event["conversationId"], conversation_id);
         assert_eq!(event["turnId"], "turn_1");
         assert_eq!(event["streamId"], "assistant_stream:turn_1:initial");
         assert_eq!(event["delta"], "Hel");
@@ -271,24 +285,25 @@
 
     #[tokio::test]
     async fn subscription_streams_conversation_item_metadata() {
-        let state = GraphqlState::for_tests();
-        let subscriptions = state.subscriptions().clone();
+        let (state, subscriptions, conversation_id) =
+            local_conversation_subscription_fixture().await;
         let schema = build_schema(state);
-        let mut stream = schema.execute_stream(async_graphql::Request::new(
+        let mut stream = schema.execute_stream(async_graphql::Request::new(format!(
             r#"
-            subscription {
-              conversationEvents(conversationId: "conversation_1") {
+            subscription {{
+              conversationEvents(conversationId: "{}") {{
                 __typename
-                ... on ConversationItemEvent {
+                ... on ConversationItemEvent {{
                   conversationId
                   itemId
                   cursor
                   metadata
-                }
-              }
-            }
+                }}
+              }}
+            }}
             "#,
-        ));
+            conversation_id,
+        )));
 
         let ready = stream.next().await.expect("ready response");
         assert_eq!(
@@ -299,7 +314,7 @@
         subscriptions.publish_conversation(ConversationRuntimeEvent::Turn {
             client_message_id: None,
             event: Box::new(TurnStreamEvent::ConversationItem {
-                conversation_id: "conversation_1".to_string(),
+                conversation_id: conversation_id.clone(),
                 item_id: "transient:activity_1".to_string(),
                 cursor: None,
                 turn_id: Some("turn_1".to_string()),
@@ -317,7 +332,7 @@
         let data = response.data.into_json().expect("item json");
         let event = &data["conversationEvents"];
         assert_eq!(event["__typename"], "ConversationItemEvent");
-        assert_eq!(event["conversationId"], "conversation_1");
+        assert_eq!(event["conversationId"], conversation_id);
         assert_eq!(event["itemId"], "transient:activity_1");
         assert!(event["cursor"].is_null());
         assert_eq!(
@@ -331,22 +346,23 @@
 
     #[tokio::test]
     async fn subscription_streams_conversation_item_cursor_when_present() {
-        let state = GraphqlState::for_tests();
-        let subscriptions = state.subscriptions().clone();
+        let (state, subscriptions, conversation_id) =
+            local_conversation_subscription_fixture().await;
         let schema = build_schema(state);
-        let mut stream = schema.execute_stream(async_graphql::Request::new(
+        let mut stream = schema.execute_stream(async_graphql::Request::new(format!(
             r#"
-            subscription {
-              conversationEvents(conversationId: "conversation_1") {
+            subscription {{
+              conversationEvents(conversationId: "{}") {{
                 __typename
-                ... on ConversationItemEvent {
+                ... on ConversationItemEvent {{
                   itemId
                   cursor
-                }
-              }
-            }
+                }}
+              }}
+            }}
             "#,
-        ));
+            conversation_id,
+        )));
 
         let ready = stream.next().await.expect("ready response");
         assert_eq!(
@@ -357,7 +373,7 @@
         subscriptions.publish_conversation(ConversationRuntimeEvent::Turn {
             client_message_id: None,
             event: Box::new(TurnStreamEvent::ConversationItem {
-                conversation_id: "conversation_1".to_string(),
+                conversation_id,
                 item_id: "item_1".to_string(),
                 cursor: Some("conversation_item:1".to_string()),
                 turn_id: Some("turn_1".to_string()),
@@ -374,4 +390,32 @@
         assert_eq!(event["__typename"], "ConversationItemEvent");
         assert_eq!(event["itemId"], "item_1");
         assert_eq!(event["cursor"], "conversation_item:1");
+    }
+
+    #[tokio::test]
+    async fn conversation_events_rejects_foreign_human_conversations() {
+        let store = crate::test_support::test_store().await;
+        let conversation = store
+            .create_conversation(conversation_for_human("human:other"))
+            .await
+            .expect("foreign conversation");
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let mut stream = schema.execute_stream(async_graphql::Request::new(format!(
+            r#"
+            subscription {{
+              conversationEvents(conversationId: "{}") {{
+                __typename
+              }}
+            }}
+            "#,
+            conversation.conversation_id,
+        )));
+
+        let response = stream.next().await.expect("subscription response");
+        assert_eq!(response.errors.len(), 1);
+        assert!(
+            response.errors[0]
+                .message
+                .contains("conversation is unavailable")
+        );
     }

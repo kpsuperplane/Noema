@@ -4,10 +4,12 @@
 //! rename. The returned commit can be rolled back until its backup is
 //! finalized, which lets the service compensate a later repository failure.
 
+mod filesystem;
+
 use std::{
-    fmt, fs, io,
-    path::{Path, PathBuf},
-    sync::Arc,
+    fmt, io,
+    path::PathBuf,
+    sync::{Arc, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -16,6 +18,7 @@ use ring::rand::{SecureRandom, SystemRandom};
 use thiserror::Error;
 
 use crate::McpSecretMaterial;
+use filesystem::SecretRoot;
 
 const SECRET_FILE: &str = "secrets.json";
 const STAGING_DIR: &str = ".staging";
@@ -62,6 +65,7 @@ impl McpSecretStoreError {
 
 /// A private staged secret file that has not replaced active credentials.
 pub struct McpSecretStage {
+    root: Arc<SecretRoot>,
     path: PathBuf,
 }
 
@@ -73,6 +77,7 @@ impl fmt::Debug for McpSecretStage {
 
 /// A committed replacement that can still be compensated.
 pub struct McpSecretCommit {
+    root: Arc<SecretRoot>,
     target: PathBuf,
     backup: Option<PathBuf>,
 }
@@ -153,6 +158,7 @@ pub type McpSecretStoreHandle = Arc<dyn McpSecretStore>;
 #[derive(Clone)]
 pub struct FilesystemMcpSecretStore {
     paths: NoemaPaths,
+    root: Arc<OnceLock<Arc<SecretRoot>>>,
 }
 
 impl fmt::Debug for FilesystemMcpSecretStore {
@@ -166,48 +172,61 @@ impl fmt::Debug for FilesystemMcpSecretStore {
 impl FilesystemMcpSecretStore {
     /// Construct a filesystem secret store.
     #[must_use]
-    pub const fn new(paths: NoemaPaths) -> Self {
-        Self { paths }
+    pub fn new(paths: NoemaPaths) -> Self {
+        Self {
+            paths,
+            root: Arc::new(OnceLock::new()),
+        }
     }
 
-    fn staging_dir(&self) -> PathBuf {
-        self.paths.mcp_dir().join(STAGING_DIR)
-    }
-
-    fn target(&self, mcp_server_id: &str) -> PathBuf {
-        self.paths.mcp_server_home(mcp_server_id).join(SECRET_FILE)
+    fn root(
+        &self,
+        operation: McpSecretStoreOperation,
+    ) -> Result<Arc<SecretRoot>, McpSecretStoreError> {
+        if let Some(root) = self.root.get() {
+            return Ok(Arc::clone(root));
+        }
+        let opened = Arc::new(
+            SecretRoot::open(self.paths.root())
+                .map_err(|source| McpSecretStoreError::new(operation, source))?,
+        );
+        let _ = self.root.set(opened);
+        Ok(Arc::clone(
+            self.root
+                .get()
+                .expect("MCP secret root is initialized before access"),
+        ))
     }
 }
 
 impl McpSecretStore for FilesystemMcpSecretStore {
     fn load(&self, mcp_server_id: &str) -> Result<McpSecretMaterial, McpSecretStoreError> {
-        let path = self.target(mcp_server_id);
-        match fs::read(path) {
-            Ok(bytes) => serde_json::from_slice(&bytes)
+        let operation = McpSecretStoreOperation::Read;
+        let root = self.root(operation)?;
+        match root.read_secret(mcp_server_id) {
+            Ok(Some(bytes)) => serde_json::from_slice(&bytes)
                 .map_err(io::Error::other)
-                .map_err(|source| McpSecretStoreError::new(McpSecretStoreOperation::Read, source)),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                Ok(McpSecretMaterial::default())
-            }
-            Err(source) => Err(McpSecretStoreError::new(
-                McpSecretStoreOperation::Read,
-                source,
-            )),
+                .map_err(|source| McpSecretStoreError::new(operation, source)),
+            Ok(None) => Ok(McpSecretMaterial::default()),
+            Err(source) => Err(McpSecretStoreError::new(operation, source)),
         }
     }
 
     fn stage(&self, secrets: &McpSecretMaterial) -> Result<McpSecretStage, McpSecretStoreError> {
         let operation = McpSecretStoreOperation::Stage;
-        let staging_dir = self.staging_dir();
-        create_private_dir_all(&staging_dir)
-            .map_err(|source| McpSecretStoreError::new(operation, source))?;
+        let root = self.root(operation)?;
         let bytes = serde_json::to_vec_pretty(secrets)
             .map_err(io::Error::other)
             .map_err(|source| McpSecretStoreError::new(operation, source))?;
         for _ in 0..8 {
-            let path = staging_dir.join(format!("{}.json", random_hex_id(operation)?));
-            match write_new_private_file(&path, &bytes) {
-                Ok(()) => return Ok(McpSecretStage { path }),
+            let filename = format!("{}.json", random_hex_id(operation)?);
+            match root.write_stage(&filename, &bytes) {
+                Ok(path) => {
+                    return Ok(McpSecretStage {
+                        root: Arc::clone(&root),
+                        path,
+                    });
+                }
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
                 Err(source) => return Err(McpSecretStoreError::new(operation, source)),
             }
@@ -227,106 +246,64 @@ impl McpSecretStore for FilesystemMcpSecretStore {
         mcp_server_id: &str,
     ) -> Result<McpSecretCommit, McpSecretStoreError> {
         let operation = McpSecretStoreOperation::Commit;
-        let target = self.target(mcp_server_id);
-        let parent = target.parent().ok_or_else(|| {
-            McpSecretStoreError::new(
+        if stage.root.path() != self.paths.root() {
+            return Err(McpSecretStoreError::new(
                 operation,
-                io::Error::new(io::ErrorKind::InvalidInput, "invalid MCP secret target"),
-            )
-        })?;
-        create_private_dir_all(parent)
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "staged MCP secret belongs to another root",
+                ),
+            ));
+        }
+        let backup_filename = format!("{BACKUP_PREFIX}{}", random_hex_id(operation)?);
+        let (target, backup) = stage
+            .root
+            .commit_stage(&stage.path, mcp_server_id, &backup_filename)
             .map_err(|source| McpSecretStoreError::new(operation, source))?;
-        let backup = if target.exists() {
-            let backup = parent.join(format!("{BACKUP_PREFIX}{}", random_hex_id(operation)?));
-            copy_private_file(&target, &backup)
-                .map_err(|source| McpSecretStoreError::new(operation, source))?;
-            Some(backup)
-        } else {
-            None
-        };
-        if let Err(source) = replace_file(&stage.path, &target) {
-            if !target.exists()
-                && let Some(backup) = &backup
-                && let Err(recovery) = restore_backup(backup, &target)
-            {
-                return Err(McpSecretStoreError::new(
-                    operation,
-                    combined_io_error(source, recovery),
-                ));
-            }
-            return Err(McpSecretStoreError::new(operation, source));
-        }
-        if let Err(source) = set_private_file_permissions(&target) {
-            let recovery = if let Some(backup) = &backup {
-                restore_backup(backup, &target)
-            } else {
-                remove_file_if_present(&target)
-            };
-            if let Err(recovery) = recovery {
-                return Err(McpSecretStoreError::new(
-                    operation,
-                    combined_io_error(source, recovery),
-                ));
-            }
-            return Err(McpSecretStoreError::new(operation, source));
-        }
-        Ok(McpSecretCommit { target, backup })
+        Ok(McpSecretCommit {
+            root: stage.root,
+            target,
+            backup,
+        })
     }
 
     fn rollback(&self, commit: McpSecretCommit) -> Result<(), McpSecretStoreError> {
         let operation = McpSecretStoreOperation::Rollback;
-        if let Some(backup) = commit.backup {
-            restore_backup(&backup, &commit.target)
-                .map_err(|source| McpSecretStoreError::new(operation, source))?;
-            remove_file_if_present(&backup)
-                .map_err(|source| McpSecretStoreError::new(operation, source))?;
-        } else {
-            remove_file_if_present(&commit.target)
-                .map_err(|source| McpSecretStoreError::new(operation, source))?;
-        }
-        Ok(())
+        commit
+            .root
+            .rollback(&commit.target, commit.backup.as_deref())
+            .map_err(|source| McpSecretStoreError::new(operation, source))
     }
 
     fn finalize(&self, commit: McpSecretCommit) -> Result<(), McpSecretStoreError> {
         let Some(backup) = commit.backup else {
             return Ok(());
         };
-        remove_file_if_present(&backup)
+        commit
+            .root
+            .finalize(&backup)
             .map_err(|source| McpSecretStoreError::new(McpSecretStoreOperation::Cleanup, source))
     }
 
     fn discard(&self, stage: McpSecretStage) -> Result<(), McpSecretStoreError> {
-        remove_file_if_present(&stage.path)
+        stage
+            .root
+            .discard(&stage.path)
             .map_err(|source| McpSecretStoreError::new(McpSecretStoreOperation::Cleanup, source))
     }
 
     fn remove(&self, mcp_server_id: &str) -> Result<(), McpSecretStoreError> {
-        match fs::remove_dir_all(self.paths.mcp_server_home(mcp_server_id)) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-            Err(source) => Err(McpSecretStoreError::new(
-                McpSecretStoreOperation::Remove,
-                source,
-            )),
-        }
+        let operation = McpSecretStoreOperation::Remove;
+        self.root(operation)?
+            .remove_server(mcp_server_id)
+            .map_err(|source| McpSecretStoreError::new(operation, source))
     }
 
     fn cleanup_abandoned_staging(&self) -> Result<(), McpSecretStoreError> {
-        recover_abandoned_backups(&self.paths)
-            .map_err(|source| McpSecretStoreError::new(McpSecretStoreOperation::Cleanup, source))?;
-        let staging_dir = self.staging_dir();
-        match fs::remove_dir_all(&staging_dir) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(source) => {
-                return Err(McpSecretStoreError::new(
-                    McpSecretStoreOperation::Cleanup,
-                    source,
-                ));
-            }
-        }
-        create_private_dir_all(&staging_dir)
-            .map_err(|source| McpSecretStoreError::new(McpSecretStoreOperation::Cleanup, source))
+        let operation = McpSecretStoreOperation::Cleanup;
+        self.root(operation)?
+            .cleanup_abandoned_staging()
+            .map_err(|source| McpSecretStoreError::new(operation, source))
     }
 }
 
@@ -355,173 +332,12 @@ fn random_hex_id(operation: McpSecretStoreOperation) -> Result<String, McpSecret
     Ok(output)
 }
 
-fn remove_file_if_present(path: &Path) -> io::Result<()> {
-    match fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error),
-    }
-}
-
-fn copy_private_file(source: &Path, target: &Path) -> io::Result<()> {
-    let bytes = fs::read(source)?;
-    write_new_private_file(target, &bytes)
-}
-
-fn restore_backup(backup: &Path, target: &Path) -> io::Result<()> {
-    let parent = target
-        .parent()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "invalid secret target"))?;
-    let restore = parent.join(format!("{RESTORE_PREFIX}{}", random_hex_io()?));
-    copy_private_file(backup, &restore)?;
-    match replace_file(&restore, target) {
-        Ok(()) => set_private_file_permissions(target),
-        Err(error) => {
-            let _ = remove_file_if_present(&restore);
-            Err(error)
-        }
-    }
-}
-
-#[cfg(not(windows))]
-fn replace_file(source: &Path, target: &Path) -> io::Result<()> {
-    fs::rename(source, target)
-}
-
-#[cfg(windows)]
-fn replace_file(source: &Path, target: &Path) -> io::Result<()> {
-    match fs::rename(source, target) {
-        Ok(()) => Ok(()),
-        Err(error)
-            if target.exists()
-                && matches!(
-                    error.kind(),
-                    io::ErrorKind::AlreadyExists | io::ErrorKind::PermissionDenied
-                ) =>
-        {
-            fs::remove_file(target)?;
-            fs::rename(source, target)
-        }
-        Err(error) => Err(error),
-    }
-}
-
-fn recover_abandoned_backups(paths: &NoemaPaths) -> io::Result<()> {
-    let mcp_dir = paths.mcp_dir();
-    let entries = match fs::read_dir(&mcp_dir) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error),
-    };
-    for entry in entries {
-        let entry = entry?;
-        if !entry.file_type()?.is_dir() || entry.file_name() == STAGING_DIR {
-            continue;
-        }
-        let server_dir = entry.path();
-        let target = server_dir.join(SECRET_FILE);
-        let mut backups = fs::read_dir(&server_dir)?
-            .filter_map(Result::ok)
-            .filter(|candidate| {
-                candidate
-                    .file_name()
-                    .to_str()
-                    .is_some_and(|name| name.starts_with(BACKUP_PREFIX))
-            })
-            .map(|candidate| candidate.path())
-            .collect::<Vec<_>>();
-        backups.sort_by_key(|path| {
-            fs::metadata(path)
-                .and_then(|metadata| metadata.modified())
-                .unwrap_or(UNIX_EPOCH)
-        });
-        if !target.exists()
-            && let Some(backup) = backups.last()
-        {
-            restore_backup(backup, &target)?;
-        }
-        if target.exists() {
-            for backup in backups {
-                remove_file_if_present(&backup)?;
-            }
-        }
-        for candidate in fs::read_dir(&server_dir)? {
-            let candidate = candidate?;
-            if candidate
-                .file_name()
-                .to_str()
-                .is_some_and(|name| name.starts_with(RESTORE_PREFIX))
-            {
-                remove_file_if_present(&candidate.path())?;
-            }
-        }
-    }
-    Ok(())
-}
-
-fn combined_io_error(primary: io::Error, recovery: io::Error) -> io::Error {
-    io::Error::new(
-        primary.kind(),
-        format!("{primary}; recovery also failed: {recovery}"),
-    )
-}
-
-fn random_hex_io() -> io::Result<String> {
-    let mut bytes = [0_u8; 16];
-    SystemRandom::new()
-        .fill(&mut bytes)
-        .map_err(|_| io::Error::other("secure random generation failed"))?;
-    let mut output = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        use fmt::Write as _;
-        let _ = write!(output, "{byte:02x}");
-    }
-    Ok(output)
-}
-
-#[cfg(unix)]
-fn create_private_dir_all(path: &Path) -> io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-
-    fs::create_dir_all(path)?;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
-}
-
-#[cfg(not(unix))]
-fn create_private_dir_all(path: &Path) -> io::Result<()> {
-    fs::create_dir_all(path)
-}
-
-fn write_new_private_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    use std::io::Write as _;
-
-    let mut options = fs::OpenOptions::new();
-    options.create_new(true).write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        options.mode(0o600);
-    }
-    let mut file = options.open(path)?;
-    file.write_all(bytes)?;
-    file.sync_all()
-}
-
-#[cfg(unix)]
-fn set_private_file_permissions(path: &Path) -> io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
-}
-
-#[cfg(not(unix))]
-fn set_private_file_permissions(_path: &Path) -> io::Result<()> {
-    Ok(())
-}
+#[cfg(all(test, unix))]
+mod unix_symlink_tests;
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, fs};
 
     use super::*;
 
@@ -627,7 +443,7 @@ mod tests {
         let interrupted = store.commit(second, "mcp:test").expect("second commit");
         let target = interrupted.target.clone();
         let backup = interrupted.backup.clone().expect("backup");
-        remove_file_if_present(&target).expect("simulate interrupted replacement");
+        fs::remove_file(&target).expect("simulate interrupted replacement");
         assert!(backup.exists());
 
         store.cleanup_abandoned_staging().expect("recover");

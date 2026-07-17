@@ -14,7 +14,7 @@ fn main() {
 }
 
 fn noema_desktop_main() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .manage(desktop_state::DesktopState::new())
         .setup(|app| {
             let state = app.state::<desktop_state::DesktopState>();
@@ -35,11 +35,14 @@ fn noema_desktop_main() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
                 let handle = window.app_handle().clone();
+                let window = window.clone();
                 tauri::async_runtime::spawn(async move {
                     let state = handle.state::<desktop_state::DesktopState>();
                     state.shutdown().await;
+                    let _ = window.destroy();
                 });
             }
         })
@@ -50,8 +53,12 @@ fn noema_desktop_main() {
             external_url::open_external_url,
             mcp_oauth_callback_url,
         ])
-        .run(tauri::generate_context!())
-        .expect("failed to run Noema desktop app");
+        .build(tauri::generate_context!())
+        .expect("failed to build Noema desktop app");
+    let handle = app.handle().clone();
+    let exit_code = app.run_return(|_, _| {});
+    tauri::async_runtime::block_on(handle.state::<desktop_state::DesktopState>().shutdown());
+    std::process::exit(exit_code);
 }
 
 #[tauri::command]

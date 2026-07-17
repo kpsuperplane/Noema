@@ -1,126 +1,17 @@
-use std::{future::Future, pin::Pin};
-
 use async_graphql::{Enum, InputObject, Result, SimpleObject};
 
 use super::{errors::graphql_error, schema::GraphqlState};
 
-const GRAPHQL_ARTIFACT_ACTOR_ID: &str = "human:local";
+mod download;
 
-/// Authorized local artifact bytes prepared for HTTP download adaptation.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AuthorizedArtifactDownload {
-    /// Safe filename for the download response.
-    pub filename: String,
-    /// Stored media type, or the binary default when absent.
-    pub media_type: String,
-    /// Validated artifact contents.
-    pub bytes: Vec<u8>,
-}
-
-/// Internal failure while resolving an authorized artifact download.
-#[derive(Debug, thiserror::Error)]
-#[error("artifact download unavailable")]
-pub struct AuthorizedArtifactDownloadError;
-
-type AuthorizedArtifactDownloadRepositoryFuture<'a> = Pin<
-    Box<
-        dyn Future<
-                Output = std::result::Result<
-                    Option<(
-                        noema_artifacts::ArtifactRecord,
-                        noema_artifacts::ArtifactVersionRecord,
-                    )>,
-                    AuthorizedArtifactDownloadError,
-                >,
-            > + Send
-            + 'a,
-    >,
->;
-
-trait AuthorizedArtifactDownloadRepository {
-    fn get_local_version_for_human<'a>(
-        &'a self,
-        artifact_version_id: &'a str,
-        human_id: &'a str,
-    ) -> AuthorizedArtifactDownloadRepositoryFuture<'a>;
-}
-
-impl AuthorizedArtifactDownloadRepository for noema_store::NoemaStore {
-    fn get_local_version_for_human<'a>(
-        &'a self,
-        artifact_version_id: &'a str,
-        human_id: &'a str,
-    ) -> AuthorizedArtifactDownloadRepositoryFuture<'a> {
-        Box::pin(async move {
-            self.get_local_artifact_version_for_human(artifact_version_id, human_id)
-                .await
-                .map_err(|_| AuthorizedArtifactDownloadError)
-        })
-    }
-}
-
-/// Resolve a local artifact only when it belongs to the authenticated principal.
-///
-/// # Errors
-///
-/// Returns an error when required runtime state or the authorized store query
-/// is unavailable. Missing, unauthorized, or invalid files return `Ok(None)`.
-pub async fn authorized_artifact_download(
-    state: &GraphqlState,
-    principal: &super::RequestPrincipal,
-    artifact_version_id: &str,
-) -> std::result::Result<Option<AuthorizedArtifactDownload>, AuthorizedArtifactDownloadError> {
-    let artifact_operations = state
-        .artifact_operations()
-        .map_err(|_| AuthorizedArtifactDownloadError)?;
-    let store = state.store().map_err(|_| {
-        state.record_artifact_download_failure("store_state");
-        AuthorizedArtifactDownloadError
-    })?;
-    authorized_artifact_download_with_repository(
-        state,
-        artifact_operations,
-        store,
-        principal,
-        artifact_version_id,
-    )
-    .await
-}
-
-async fn authorized_artifact_download_with_repository(
-    state: &GraphqlState,
-    artifact_operations: &noema_artifacts::ArtifactOperationsHandle,
-    repository: &impl AuthorizedArtifactDownloadRepository,
-    principal: &super::RequestPrincipal,
-    artifact_version_id: &str,
-) -> std::result::Result<Option<AuthorizedArtifactDownload>, AuthorizedArtifactDownloadError> {
-    let Some((artifact, version)) = repository
-        .get_local_version_for_human(artifact_version_id, principal.subject_id())
-        .await
-        .map_err(|_| {
-            state.record_artifact_download_failure("authorized_version_query");
-            AuthorizedArtifactDownloadError
-        })?
-    else {
-        return Ok(None);
-    };
-    let Ok(content) = artifact_operations
-        .read_local_file(noema_artifacts::ReadLocalArtifactRequest {
-            artifact,
-            version: version.clone(),
-        })
-        .await
-    else {
-        return Ok(None);
-    };
-    Ok(Some(AuthorizedArtifactDownload {
-        filename: content.filename,
-        media_type: version
-            .media_type
-            .unwrap_or_else(|| "application/octet-stream".to_owned()),
-        bytes: content.bytes,
-    }))
-}
+pub use download::{
+    AuthorizedArtifactDownload, AuthorizedArtifactDownloadError, authorized_artifact_download,
+};
+#[cfg(test)]
+use download::{
+    AuthorizedArtifactDownloadRepository, AuthorizedArtifactDownloadRepositoryFuture,
+    authorized_artifact_download_with_repository,
+};
 
 /// Artifact storage kind exposed through GraphQL.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
@@ -247,19 +138,25 @@ pub struct GraphqlCreateConversationExternalArtifactInput {
 
 pub async fn artifacts(
     state: &GraphqlState,
+    human_id: &str,
     owner_object_type: String,
     owner_object_id: String,
     limit: Option<i32>,
 ) -> Result<Vec<GraphqlArtifact>> {
     let store = state.store()?;
+    let owner = noema_artifacts::ArtifactOwnerRef {
+        object_type: owner_object_type,
+        object_id: owner_object_id,
+    };
+    if !store
+        .artifact_owner_is_authorized_for_human(&owner, human_id)
+        .await
+        .map_err(graphql_error)?
+    {
+        return Ok(Vec::new());
+    }
     let artifacts = store
-        .list_artifacts_for_owner(
-            noema_artifacts::ArtifactOwnerRef {
-                object_type: owner_object_type,
-                object_id: owner_object_id,
-            },
-            i64::from(limit.unwrap_or(20)),
-        )
+        .list_artifacts_for_owner(owner, i64::from(limit.unwrap_or(20)))
         .await
         .map_err(graphql_error)?;
     artifacts
@@ -270,18 +167,30 @@ pub async fn artifacts(
 
 pub async fn artifact(
     state: &GraphqlState,
+    human_id: &str,
     artifact_id: String,
 ) -> Result<Option<GraphqlArtifact>> {
     let store = state.store()?;
-    let artifact = store
+    let Some(artifact) = store
         .get_artifact(&artifact_id)
         .await
-        .map_err(graphql_error)?;
-    artifact.map(graphql_artifact_from_store).transpose()
+        .map_err(graphql_error)?
+    else {
+        return Ok(None);
+    };
+    if !store
+        .artifact_owner_is_authorized_for_human(&artifact.artifact.owner, human_id)
+        .await
+        .map_err(graphql_error)?
+    {
+        return Ok(None);
+    }
+    graphql_artifact_from_store(artifact).map(Some)
 }
 
 pub async fn artifact_version_detail(
     state: &GraphqlState,
+    human_id: &str,
     artifact_version_id: String,
 ) -> Result<Option<GraphqlArtifactVersionDetail>> {
     let store = state.store()?;
@@ -300,6 +209,13 @@ pub async fn artifact_version_detail(
     else {
         return Ok(None);
     };
+    if !store
+        .artifact_owner_is_authorized_for_human(&artifact.artifact.owner, human_id)
+        .await
+        .map_err(graphql_error)?
+    {
+        return Ok(None);
+    }
 
     let title = version
         .title
@@ -396,9 +312,17 @@ pub async fn artifact_version_detail(
 
 pub async fn create_conversation_external_artifact(
     state: &GraphqlState,
+    human_id: &str,
     input: GraphqlCreateConversationExternalArtifactInput,
 ) -> Result<GraphqlArtifact> {
     let store = state.store()?;
+    if !store
+        .conversation_is_owned_by_human(&input.conversation_id, human_id)
+        .await
+        .map_err(graphql_error)?
+    {
+        return Err(async_graphql::Error::new("conversation is unavailable"));
+    }
     let external_url = noema_artifacts::validate_external_artifact_url(&input.external_url)
         .map_err(graphql_error)?;
     let source = noema_artifacts::ArtifactSource {
@@ -416,7 +340,7 @@ pub async fn create_conversation_external_artifact(
                 description: input.description,
                 artifact_kind: input.artifact_kind,
                 storage_kind: noema_artifacts::ArtifactStorageKind::ExternalUrl,
-                created_by_actor_id: GRAPHQL_ARTIFACT_ACTOR_ID.to_string(),
+                created_by_actor_id: human_id.to_string(),
                 source: source.clone(),
                 metadata: serde_json::json!({}),
             },
@@ -427,7 +351,7 @@ pub async fn create_conversation_external_artifact(
                 media_type: input.media_type,
                 byte_size: None,
                 content_sha256: None,
-                created_by_actor_id: GRAPHQL_ARTIFACT_ACTOR_ID.to_string(),
+                created_by_actor_id: human_id.to_string(),
                 source,
                 metadata: serde_json::json!({}),
             },

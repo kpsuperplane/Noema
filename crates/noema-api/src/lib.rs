@@ -9,4 +9,3 @@ pub mod graphql;
 mod test_support;
 
 pub use graphql::RequestPrincipal;
-pub use noema_capabilities_mcp::{McpCalibrationStatus, McpTransportKind, McpTrustClassification};

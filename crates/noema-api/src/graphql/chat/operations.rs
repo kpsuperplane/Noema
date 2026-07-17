@@ -5,11 +5,12 @@ use super::*;
 
 pub(in crate::graphql) async fn primary_conversation(
     state: &GraphqlState,
+    human_id: &str,
 ) -> Result<Option<GraphqlPrimaryConversation>> {
     let store = state.store()?;
     let provider_kind = primary_agent_provider_kind(store).await?;
     let conversation = store
-        .primary_conversation_for_human("human:local")
+        .primary_conversation_for_human(human_id)
         .await
         .map_err(graphql_error)?;
     Ok(conversation.map(|conversation| GraphqlPrimaryConversation {
@@ -20,8 +21,10 @@ pub(in crate::graphql) async fn primary_conversation(
 
 pub(in crate::graphql) async fn ensure_primary_conversation(
     state: &GraphqlState,
+    human_id: &str,
     cwd: Option<String>,
 ) -> Result<GraphqlPrimaryConversation> {
+    require_local_human(human_id)?;
     let store = state.store()?;
     let runtime = state.runtime()?;
     let provider_kind = primary_agent_provider_kind(store).await?;
@@ -45,10 +48,12 @@ pub(in crate::graphql) async fn ensure_primary_conversation(
 
 pub(in crate::graphql) async fn conversation_transcript_page(
     state: &GraphqlState,
+    human_id: &str,
     input: GraphqlConversationTranscriptPageInput,
 ) -> Result<GraphqlConversationTranscriptPage> {
     visible_conversation_transcript_page(
         state,
+        human_id,
         &input.conversation_id,
         input.cursor.as_deref(),
         input.limit,
@@ -58,14 +63,16 @@ pub(in crate::graphql) async fn conversation_transcript_page(
 
 pub(in crate::graphql) async fn latest_conversation_transcript_page(
     state: &GraphqlState,
+    human_id: &str,
     conversation_id: &str,
     limit: Option<i32>,
 ) -> Result<GraphqlConversationTranscriptPage> {
-    visible_conversation_transcript_page(state, conversation_id, None, limit).await
+    visible_conversation_transcript_page(state, human_id, conversation_id, None, limit).await
 }
 
 async fn visible_conversation_transcript_page(
     state: &GraphqlState,
+    human_id: &str,
     conversation_id: &str,
     cursor: Option<&str>,
     limit: Option<i32>,
@@ -82,8 +89,9 @@ async fn visible_conversation_transcript_page(
         ));
     }
 
-    let page = state
-        .store()?
+    let store = state.store()?;
+    require_conversation_owner(store, conversation_id, human_id).await?;
+    let page = store
         .list_visible_conversation_item_page(conversation_id, cursor, i64::from(limit))
         .await
         .map_err(graphql_error)?;
@@ -117,8 +125,10 @@ async fn primary_agent_provider_kind(store: &noema_store::NoemaStore) -> Result<
 
 pub(in crate::graphql) async fn send_conversation_turn(
     state: &GraphqlState,
+    human_id: &str,
     input: GraphqlSendConversationTurnInput,
 ) -> Result<GraphqlTurnAccepted> {
+    require_conversation_owner(state.store()?, &input.conversation_id, human_id).await?;
     let runtime = state.runtime()?.clone();
     let subscriptions = state.subscriptions().clone();
     let (item_tx, mut item_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -195,8 +205,10 @@ pub(in crate::graphql) async fn send_conversation_turn(
 
 pub(in crate::graphql) async fn send_multiple_choice_selection(
     state: &GraphqlState,
+    human_id: &str,
     input: GraphqlSendMultipleChoiceSelectionInput,
 ) -> Result<GraphqlTurnAccepted> {
+    require_conversation_owner(state.store()?, &input.conversation_id, human_id).await?;
     let runtime = state.runtime()?.clone();
     let subscriptions = state.subscriptions().clone();
     let (item_tx, mut item_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -272,4 +284,28 @@ pub(in crate::graphql) async fn send_multiple_choice_selection(
         conversation_id: input.conversation_id,
         client_message_id,
     })
+}
+
+pub(super) async fn require_conversation_owner(
+    store: &noema_store::NoemaStore,
+    conversation_id: &str,
+    human_id: &str,
+) -> Result<()> {
+    if store
+        .conversation_is_owned_by_human(conversation_id, human_id)
+        .await
+        .map_err(graphql_error)?
+    {
+        Ok(())
+    } else {
+        Err(async_graphql::Error::new("conversation is unavailable"))
+    }
+}
+
+fn require_local_human(human_id: &str) -> Result<()> {
+    if human_id == "human:local" {
+        Ok(())
+    } else {
+        Err(async_graphql::Error::new("conversation is unavailable"))
+    }
 }
