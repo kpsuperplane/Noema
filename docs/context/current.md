@@ -53,7 +53,7 @@ The next storage slice should stay small and concrete:
   enables Mnemosyne's enhanced/polyphonic recall paths, and binds a
   runtime-selected loopback port. `cargo dev` prepares a repo-local Python 3.10+
   virtualenv under
-  `crates/noema-core/target/mnemosyne-sidecar-venv` and passes
+  `crates/noema-memory/target/mnemosyne-sidecar-venv` and passes
   `NOEMA_MNEMOSYNE_SIDECAR_COMMAND` to the watched server process. The endpoint is
   kept in memory and is not stored in SQLite or shown in Settings.
 - Managed Mnemosyne receives model access through a Noema-hosted private loopback
@@ -944,9 +944,23 @@ The next storage slice should stay small and concrete:
   ownership gate also caught and closed preparation-failure status persistence
   and legacy OAuth refresh regressions before the checkpoint. Crate/dependency,
   GraphQL/SQLite preservation, frontend, inventory, clippy, and full-workspace
-  gates are green. Decomposition Phase 8 is next: extract memory and Mnemosyne
-  behind repository and operations handles while runtime retains observation
-  timing/context policy and host retains lifecycle composition.
+  gates are green. Decomposition Phase 8 completed at `7ca92593d`.
+  `noema-memory` now owns memory settings/cache records, repository and
+  operations contracts, the stable `search_memory` operation, explicit memory
+  paths, Mnemosyne client/lifecycle, the split model proxy, and the relocated
+  Python sidecar. Concrete service code is feature-gated while contract-only
+  builds stay free of HTTP, async-runtime, SQLite, and MCP transport
+  dependencies. Runtime receives a fixed operations handle admitted at host
+  startup and retains observation timing/context policy; API requests resolve
+  one settings-plus-operations snapshot, so configuration changes take effect
+  between requests without changing dispatch or status classification
+  mid-request. Provider model-list and generation calls acquire fresh route
+  leases, with in-flight work holding its admitted generation. Adversarial
+  review, the full Rust workspace, Python/frontend suites, dependency
+  boundaries, preservation baselines, and test inventory are green.
+  Decomposition Phase 9 is next: remove the store's remaining path/diagnostic
+  reverse dependencies, replace cross-module test fixtures, and extract
+  `noema-store` without changing the Phase 0 SQLite schema.
 
 - The bounded remediation program completed Phase 2 at `92,157` maintained
   source lines (`-1,767` from its baseline). Axum/tower-sessions now own the

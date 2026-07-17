@@ -1607,17 +1607,17 @@ do not recreate it or introduce a second generic memory error layer.
 
 **Steps:**
 
-- [ ] Move Mnemosyne request/response, connection, lifecycle, and readiness
+- [x] Move Mnemosyne request/response, connection, lifecycle, and readiness
   types.
-- [ ] Move memory service mode/settings/cache records out of store SQL modules.
-- [ ] Define the memory repository port for settings/article-cache operations,
+- [x] Move memory service mode/settings/cache records out of store SQL modules.
+- [x] Define the memory repository port for settings/article-cache operations,
   implement it for the current core-owned `NoemaStore`, and convert moved
   memory behavior to the port in this integration window. Phase 9 later moves
   the impl with store. The port is object-safe through boxed futures, has a
   clonable handle, and returns memory-owned errors rather than `StoreError`.
-- [ ] Make lifecycle construction accept resolved roots, settings, and provider
+- [x] Make lifecycle construction accept resolved roots, settings, and provider
   access explicitly; memory must not import `NoemaStore` or host configuration.
-- [ ] Move the private model proxy and retain the provider-owned
+- [x] Move the private model proxy and retain the provider-owned
   route-resolver handle plus the injected memory-settings repository. For each
   independent model-list or generation request, ask that resolver for a fresh
   `ProviderRouteLease` and hold it through the request. Until Phase 10C, core
@@ -1625,24 +1625,24 @@ do not recreate it or introduce a second generic memory error layer.
   replaces it with the exact SQLite-backed `resolve_route` implementation
   without rebuilding the proxy. Memory must not define/import a runtime-owned
   provider trait or retain a permanent effective selection.
-- [ ] Move the `search_memory` tool specification and operation implementation;
+- [x] Move the `search_memory` tool specification and operation implementation;
   runtime retains tool selection, continuation, transcript, and audit behavior.
-- [ ] Keep conversation observation timing/context assembly in runtime because
+- [x] Keep conversation observation timing/context assembly in runtime because
   it is execution policy, not memory truth.
-- [ ] Move Mnemosyne directory construction from `NoemaPaths` into memory.
-- [ ] Put settings/records/repository ports plus an object-safe
+- [x] Move Mnemosyne directory construction from `NoemaPaths` into memory.
+- [x] Put settings/records/repository ports plus an object-safe
   `MemoryOperations` contract, clonable handle, requests/results, events, and
   operation errors in the always-compiled portion. Gate only concrete
   `MnemosyneClient`, lifecycle, sidecar, endpoint, and proxy construction with
   `service`; runtime receives the operations handle and uses fakes in focused
   tests.
-- [ ] Update the dev supervisor, CI, ignored venv paths, install stamp paths,
+- [x] Update the dev supervisor, CI, ignored venv paths, install stamp paths,
   and their unit tests when the filesystem move lands in this integration
   window.
-- [ ] Split the current 1,000-plus-line model proxy while moving it into
+- [x] Split the current 1,000-plus-line model proxy while moving it into
   request handling, provider translation, service lifecycle, and focused test
   support; no moved production Rust file may retain the Phase-0 size exception.
-- [ ] Run Rust memory tests and existing Python unit tests.
+- [x] Run Rust memory tests and existing Python unit tests.
 
 **Acceptance:**
 
@@ -1661,6 +1661,19 @@ do not recreate it or introduce a second generic memory error layer.
   snapshots and the real registry.
 
 **Suggested commit:** `refactor(memory): extract mnemosyne memory subsystem`
+
+**Completed:** Phase 8 landed at `7ca92593d`. `noema-memory` now owns the
+always-compiled memory contracts, repository and operations handles, stable
+search operation, and request-scoped service-access snapshot, with concrete
+Mnemosyne lifecycle, HTTP client, model proxy, and sidecar integration behind
+`service`. Runtime retains observation timing and context policy behind a fixed
+startup operations handle; GraphQL resolves one authoritative settings and
+operations snapshot per request, so settings changes apply to the next request
+without creating dispatch/status races. The model proxy refreshes provider
+leases independently for model-list and generation requests while in-flight
+requests retain their admitted lease. The full Rust workspace, contract-only
+and service feature slices, relocated Python suite, frontend builds, dependency
+boundaries, SQLite/GraphQL preservation baselines, and test inventory are green.
 
 ## Phase 9 — Extract `noema-store`
 
