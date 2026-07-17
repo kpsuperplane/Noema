@@ -63,7 +63,7 @@ The next storage slice should stay small and concrete:
   generation through the provider/model selected in Settings > Memory, falling
   back to the daemon default only when no Memory model preference is saved.
 - The top-level `/memory` page presents Mnemosyne-backed human memories as a
-  Wikipedia-like personal memory article: Noema Core lazily asks the configured
+  Wikipedia-like personal memory article: the memory service lazily asks the configured
   runtime model to write Markdown from Mnemosyne facts when the page is visited,
   caches that Markdown in SQLite by `human:local` fact fingerprint, automatically
   refreshes changed facts at most every 4 hours, and exposes a manual regenerate
@@ -74,8 +74,8 @@ The next storage slice should stay small and concrete:
   are regenerated, and invalid model citations fall back to deterministic cited
   prose. The muted lead figure summarizes loaded memory themes, while stubbed
   action, history, and recall controls should stay hidden until real backend
-  operations exist. The web UI queries Noema Core GraphQL only; Noema Core
-  resolves the configured Mnemosyne endpoint, fetches memories for `human:local`,
+  operations exist. The web UI queries the `noema-api` GraphQL schema only; the
+  host-injected memory service resolves the configured Mnemosyne endpoint, fetches memories for `human:local`,
   and adapts them into grouped memory documents for the frontend. The browser
   never connects directly to Mnemosyne.
 - Docker/Compose development infrastructure has been retired; local development
@@ -775,10 +775,9 @@ The next storage slice should stay small and concrete:
   application-context suffixes, and recreates a session whenever durable
   user/assistant replay diverges from its tracked transcript.
 
-## Open Loops
+## Architecture Work And Open Loops
 
-- The approved `noema-core` crate decomposition is in implementation under
-  `docs/superpowers/plans/2026-07-15-noema-core-crate-decomposition.md`. Phase 0
+- The approved crate decomposition is complete. Phase 0
   landed as tooling commit `41dafcd52` and committed-baseline/CI commit
   `c18d4cce4`: dependency and feature ownership, all-target focused trees,
   generated frontend identity, GraphQL/local-model/SQLite preservation, and
@@ -789,7 +788,7 @@ The next storage slice should stay small and concrete:
   extracted `noema-home`: it owns filesystem layout, safe path components,
   initialization, and the generic JSONL diagnostic sink; configuration bytes
   and diagnostic categories remain with their semantic owners, and all
-  consumers use direct dependencies instead of `noema-core` forwarding exports.
+  consumers use direct dependencies instead of umbrella forwarding exports.
   Phase 2 extracted `noema-conversations` with the schema-exact conversation
   owner vocabulary and fallible actor/owner references. The unused generic
   typed IDs, object registry/table mappings, and `MemoryPersistenceError`
@@ -1097,8 +1096,26 @@ The next storage slice should stay small and concrete:
   `cudart`; the desktop owns a locked Tauri CLI 2.11.4 command, and its real
   `build --no-bundle` gate passed. SDL/generated artifacts, schema baselines,
   normalized unit-test ownership, frontend tests/builds, release server assets,
-  full workspace tests, and strict Clippy are green. Phase 14 is next: remove
-  the empty transitional `noema-core` package and every physical remnant.
+  full workspace tests, and strict Clippy are green.
+  Decomposition Phase 14 is complete. The residual umbrella package and its
+  roughly 746 MB of ignored sidecar environments, caches, generated web assets,
+  and local binaries are physically absent. The final workspace has 15 packages:
+  `noema-home`, `noema-conversations`, `noema-artifacts`,
+  `noema-capabilities`, its independent `noema-capabilities-mcp` child,
+  `noema-providers`, `noema-tasks`, `noema-memory`, `noema-store`,
+  `noema-runtime`, `noema-host`, `noema-api`, `noema-server`,
+  `noema-desktop`, and `noema-model-evals`. The dependency graph is acyclic;
+  the MCP child points to the parent; providers own hosted, Foundation, web, and
+  local-GGUF implementations; store owns SQLite; runtime owns governed
+  execution; host owns composition; API owns GraphQL; and server/desktop remain
+  process shells. `noema-server` is the default workspace member and
+  `noema_web` its default binary. A fresh-target workspace check took 45.19
+  seconds on the final validation machine. Steady focused checks took 0.09
+  seconds for store, 0.07 for providers, 0.10 for API, 0.17 for server, and 0.20
+  for desktop; these machine-specific timings replace the umbrella-era 4.23
+  second warm check as the useful invalidation shape because each subsystem can
+  now rebuild through its explicit owner path. The Phase 15 adversarial review
+  and final repeated validation gate remain before execution closure.
 
 - The bounded remediation program completed Phase 2 at `92,157` maintained
   source lines (`-1,767` from its baseline). Axum/tower-sessions now own the

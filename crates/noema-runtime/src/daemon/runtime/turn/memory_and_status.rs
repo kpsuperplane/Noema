@@ -106,7 +106,7 @@ impl RuntimeActor {
             .await?;
         let _ = item_tx.send(TurnStreamEvent::AgentStatusChanged {
             conversation_id: conversation_id.to_string(),
-            status: AgentStatus::from(status),
+            status,
         });
         Ok(())
     }

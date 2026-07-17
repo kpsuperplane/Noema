@@ -25,9 +25,7 @@ impl noema_providers::ProviderOperations for ReadyTestProvider {
     ) -> noema_providers::ProviderOperationFuture<'a, noema_providers::GenerateResponse> {
         Box::pin(async {
             Ok(noema_providers::GenerateResponse::final_text(
-                "ready",
-                "core-test",
-                "core-test",
+                "ready", "api-test", "api-test",
             ))
         })
     }
@@ -298,12 +296,12 @@ impl noema_capabilities::CapabilityInvoker for EmptyCapabilityInvoker {
 }
 
 #[derive(Debug)]
-struct CoreTestWebBackendResolver {
+struct ApiTestWebBackendResolver {
     search: noema_providers::WebSearchBackendHandle,
     fetch: noema_providers::WebFetchBackendHandle,
 }
 
-impl noema_runtime::WebBackendResolver for CoreTestWebBackendResolver {
+impl noema_runtime::WebBackendResolver for ApiTestWebBackendResolver {
     fn resolve_search(
         &self,
         request: noema_runtime::WebBackendRequest,
@@ -348,14 +346,14 @@ fn test_capability_handles() -> (
     (
         Arc::new(EmptyCapabilityBindingSource),
         Arc::from([noema_capabilities::CapabilityInvokerRegistration::new(
-            noema_capabilities::InvokerKey::new("core-test"),
+            noema_capabilities::InvokerKey::new("api-test"),
             Arc::new(EmptyCapabilityInvoker),
         )]),
     )
 }
 
 fn test_web_backends() -> noema_runtime::WebBackendResolverHandle {
-    Arc::new(CoreTestWebBackendResolver {
+    Arc::new(ApiTestWebBackendResolver {
         search: web::test_search_backend(),
         fetch: web::test_fetch_backend(),
     })
@@ -426,7 +424,7 @@ where
         &default_account.provider_account_id,
         default_model,
         None,
-        Some("core_test_runtime_default".to_string()),
+        Some("api_test_runtime_default".to_string()),
     );
     configured_default.provider_instance_key = Some(
         noema_providers::provider_account_instance_key(&default_account.provider_account_id)

@@ -5,7 +5,6 @@ members = [
     "crates/noema-capabilities",
     "crates/noema-capabilities/mcp",
     "crates/noema-conversations",
-    "crates/noema-core",
     "crates/noema-desktop",
     "crates/noema-home",
     "crates/noema-host",
@@ -17,7 +16,7 @@ members = [
     "crates/noema-store",
     "crates/noema-tasks",
 ]
-default-members = ["crates/noema-api"]
+default-members = ["crates/noema-server"]
 resolver = "3"
 
 [workspace.package]

@@ -2,10 +2,7 @@ import { Database } from "bun:sqlite";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const SCHEMA_SOURCE_CANDIDATES = [
-  "crates/noema-store/src/schema.rs",
-  "crates/noema-core/src/store/schema.rs",
-] as const;
+const SCHEMA_SOURCE = "crates/noema-store/src/schema.rs";
 
 type SchemaEntry = {
   type: string;
@@ -133,15 +130,11 @@ export function canonicalSqliteSchemaShape(schemaSql: string): string {
 
 export function schemaSourcePath(explicit: string | undefined): string {
   if (explicit) return resolve(explicit);
-  const candidate = SCHEMA_SOURCE_CANDIDATES.map((path) => resolve(path)).find(
-    existsSync,
-  );
-  if (!candidate) {
-    throw new Error(
-      `none of the expected schema sources exist: ${SCHEMA_SOURCE_CANDIDATES.join(", ")}`,
-    );
+  const path = resolve(SCHEMA_SOURCE);
+  if (!existsSync(path)) {
+    throw new Error(`expected schema source does not exist: ${SCHEMA_SOURCE}`);
   }
-  return candidate;
+  return path;
 }
 
 function argumentValue(args: string[], name: string): string | undefined {

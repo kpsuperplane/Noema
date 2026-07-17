@@ -140,10 +140,9 @@ reqwest v0.12.0
     ]);
   });
 
-  test("tolerates missing extractions only while noema-core exists", () => {
-    expect(validateTargetPackagePresence(new Set(["noema-core"]))).toEqual([]);
+  test("requires every final target package", () => {
     expect(validateTargetPackagePresence(new Set(["noema-home"]))).toContain(
-      "post-core workspace is missing target package: noema-runtime",
+      "workspace is missing target package: noema-runtime",
     );
   });
 

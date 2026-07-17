@@ -35,6 +35,7 @@ use process::{DefaultLocalModelProcessFactory, LocalModelProcess, LocalModelProc
 
 mod events;
 mod lifecycle;
+mod lifecycle_validation;
 mod process;
 mod reaper;
 mod workers;

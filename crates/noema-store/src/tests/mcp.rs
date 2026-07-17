@@ -10,4 +10,4 @@ use noema_capabilities_mcp::{
 use serde_json::json;
 
 use super::test_store;
-use crate::mcp::{NewMcpServer, NewMcpTool};
+use crate::mcp::{McpServerSeed, McpToolSeed};

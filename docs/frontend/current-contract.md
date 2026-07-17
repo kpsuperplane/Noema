@@ -120,7 +120,8 @@ Current memory UX is Settings plus a top-level memory list:
 - External-mode base URL edits are live for the next `search_memory` call.
 - Managed mode is read-only in the current slice because the managed Mnemosyne child
   process is started by the runtime host at startup.
-- `/memory` lists Mnemosyne-backed human memories through Noema Core GraphQL.
+- `/memory` lists Mnemosyne-backed human memories through the shared Noema
+  GraphQL API.
 - There is no `/memory/graph` route and no React Flow graph browser in the
   current slice.
 - Transcript memory markers and `/remember` are intentionally absent for now.

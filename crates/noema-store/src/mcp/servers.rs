@@ -2,7 +2,7 @@ use ring::rand::{SecureRandom, SystemRandom};
 use rusqlite::{OptionalExtension, params};
 
 use super::{
-    McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, NewMcpServer,
+    McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpServerSeed,
     rows::mcp_server_from_row,
 };
 use crate::{
@@ -18,7 +18,7 @@ impl NoemaStore {
     /// Returns [`StoreError`] when the embedded store write or read fails.
     pub(crate) async fn create_mcp_server(
         &self,
-        server: NewMcpServer,
+        server: McpServerSeed,
     ) -> Result<McpServerRecord, StoreError> {
         let safe_config_json = json_to_string(&server.safe_config)?;
         let authority_generation = random_authority_generation()?;

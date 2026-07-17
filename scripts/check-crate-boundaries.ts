@@ -9,12 +9,14 @@ type CargoDependency = {
 type CargoPackage = {
   id: string;
   name: string;
+  default_run: string | null;
   dependencies: CargoDependency[];
   features: Record<string, string[]>;
 };
 
 export type CargoMetadata = {
   workspace_members: string[];
+  workspace_default_members: string[];
   packages: CargoPackage[];
 };
 
@@ -94,11 +96,7 @@ const TARGET_DEPENDENCIES = new Map<string, ReadonlySet<string>>([
   ["noema-model-evals", new Set(["noema-providers", "noema-runtime"])],
 ]);
 
-const TRANSITIONAL_CORE_CONSUMERS = new Set([
-  "noema-server",
-  "noema-desktop",
-  "noema-model-evals",
-]);
+const RETIRED_PACKAGES = new Set(["noema-core"]);
 
 const FINAL_DIRECT_DEPENDENCY_OWNERS = new Map<string, string>([
   ["async-graphql-axum", "noema-server"],
@@ -110,12 +108,6 @@ const FINAL_DIRECT_DEPENDENCY_OWNERS = new Map<string, string>([
   ["rmcp", "noema-capabilities-mcp"],
   ["rusqlite", "noema-store"],
   ["figment", "noema-host"],
-]);
-
-const TRANSITIONAL_CORE_DEPENDENCIES = new Set([
-  "rmcp",
-  "rusqlite",
-  "figment",
 ]);
 
 const COMPOSITION_FEATURES = new Set([
@@ -134,7 +126,6 @@ const FEATURE_REQUIRED_WITH_PACKAGE = new Set([
 ]);
 
 const KNOWN_INTERNAL_FEATURES = new Map<string, ReadonlySet<string>>([
-  ["noema-core", new Set(["local-model-evals"])],
   ["noema-home", new Set()],
   ["noema-conversations", new Set()],
   ["noema-artifacts", new Set(["filesystem"])],
@@ -207,39 +198,7 @@ const PACKAGE_FORBIDDEN_DEPENDENCIES = new Map<string, ReadonlySet<string>>([
 ]);
 
 function isNoemaPackage(name: string): boolean {
-  return name === "noema-core" || name.startsWith("noema-");
-}
-
-function isAllowedTransition(
-  source: string,
-  destination: string,
-  packageNames: ReadonlySet<string>,
-): boolean {
-  if (!packageNames.has("noema-core")) {
-    return false;
-  }
-
-  if (
-    source === "noema-server" &&
-    destination === "noema-home" &&
-    !packageNames.has("noema-host")
-  ) {
-    return true;
-  }
-
-  if (
-    (source === "noema-server" || source === "noema-desktop") &&
-    destination === "noema-providers" &&
-    !packageNames.has("noema-host")
-  ) {
-    return true;
-  }
-
-  return (
-    source === "noema-model-evals" &&
-    (destination === "noema-home" || destination === "noema-store") &&
-    !packageNames.has("noema-runtime")
-  );
+  return name.startsWith("noema-");
 }
 
 function splitFeatureKey(featureKey: string): [string, string] {
@@ -354,7 +313,6 @@ function validateInternalFeatureActivation(
   source: CargoPackage,
   dependency: CargoDependency,
   feature: string,
-  packageNames: ReadonlySet<string>,
   errors: Set<string>,
 ): void {
   if (!isNoemaPackage(dependency.name)) {
@@ -369,20 +327,14 @@ function validateInternalFeatureActivation(
   }
 
   if (COMPOSITION_FEATURES.has(featureKey)) {
-    const compositionOwner = packageNames.has("noema-host")
-      ? "noema-host"
-      : "noema-core";
-    if (source.name !== compositionOwner) {
+    if (source.name !== "noema-host") {
       errors.add(`${source.name} may not enable implementation feature ${featureKey}`);
     }
     return;
   }
 
   if (featureKey === "noema-providers/local-model-evals") {
-    const allowed =
-      source.name === "noema-model-evals" ||
-      (!packageNames.has("noema-runtime") && source.name === "noema-core");
-    if (!allowed) {
+    if (source.name !== "noema-model-evals") {
       errors.add(`${source.name} may not enable evaluation feature ${featureKey}`);
     }
     return;
@@ -418,13 +370,6 @@ function validateInternalFeatureActivation(
     return;
   }
 
-  if (featureKey === "noema-core/local-model-evals") {
-    if (source.name !== "noema-model-evals" || packageNames.has("noema-runtime")) {
-      errors.add(`${source.name} may not enable transitional feature ${featureKey}`);
-    }
-    return;
-  }
-
   if (
     featureKey === "noema-store/test-support" &&
     dependency.kind !== "dev"
@@ -449,20 +394,33 @@ export function validateMetadata(metadata: CargoMetadata): string[] {
 
   const packagesByName = new Map(packages.map((pkg) => [pkg.name, pkg]));
   const packageNames = new Set(packages.map((pkg) => pkg.name));
-  const hasCore = packageNames.has("noema-core");
+  const defaultPackageNames = metadata.workspace_default_members
+    .map((id) => packagesById.get(id)?.name)
+    .filter((name): name is string => name !== undefined);
+
+  if (
+    metadata.workspace_default_members.length !== 1 ||
+    defaultPackageNames[0] !== "noema-server"
+  ) {
+    errors.add("workspace default member must be noema-server");
+  }
 
   for (const packageName of packageNames) {
-    if (packageName !== "noema-core" && !TARGET_DEPENDENCIES.has(packageName)) {
+    if (RETIRED_PACKAGES.has(packageName)) {
+      errors.add(`workspace contains retired package: ${packageName}`);
+    } else if (!TARGET_DEPENDENCIES.has(packageName)) {
       errors.add(`unknown workspace package: ${packageName}`);
     }
   }
 
-  if (!hasCore) {
-    for (const packageName of TARGET_DEPENDENCIES.keys()) {
-      if (!packageNames.has(packageName)) {
-        errors.add(`post-core workspace is missing target package: ${packageName}`);
-      }
+  for (const packageName of TARGET_DEPENDENCIES.keys()) {
+    if (!packageNames.has(packageName)) {
+      errors.add(`workspace is missing target package: ${packageName}`);
     }
+  }
+
+  if (packagesByName.get("noema-server")?.default_run !== "noema_web") {
+    errors.add("noema-server default runnable binary must be noema_web");
   }
 
   for (const pkg of packages) {
@@ -482,47 +440,21 @@ export function validateMetadata(metadata: CargoMetadata): string[] {
     for (const dependency of pkg.dependencies) {
       const dependencyName = dependency.name;
 
-      if (dependencyName === "noema-core") {
-        const evalTransitionExpired =
-          pkg.name === "noema-model-evals" && packageNames.has("noema-runtime");
-        if (
-          !hasCore ||
-          !TRANSITIONAL_CORE_CONSUMERS.has(pkg.name) ||
-          evalTransitionExpired
-        ) {
-          errors.add(`${pkg.name} has expired or forbidden noema-core dependency`);
-        }
+      if (RETIRED_PACKAGES.has(dependencyName)) {
+        errors.add(`${pkg.name} depends on retired package ${dependencyName}`);
       } else if (isNoemaPackage(dependencyName) && !packageNames.has(dependencyName)) {
         errors.add(
           `${pkg.name} depends on internal package outside the workspace: ${dependencyName}`,
         );
       } else if (isNoemaPackage(dependencyName)) {
-        if (pkg.name === "noema-core") {
-          if (!TARGET_DEPENDENCIES.has(dependencyName)) {
-            errors.add(`noema-core has unknown internal dependency: ${dependencyName}`);
-          }
-        } else {
-          const allowed = TARGET_DEPENDENCIES.get(pkg.name);
-          if (
-            !allowed?.has(dependencyName) &&
-            !isAllowedTransition(pkg.name, dependencyName, packageNames)
-          ) {
-            errors.add(`${pkg.name} -> ${dependencyName} is not an allowed direct edge`);
-          }
+        const allowed = TARGET_DEPENDENCIES.get(pkg.name);
+        if (!allowed?.has(dependencyName)) {
+          errors.add(`${pkg.name} -> ${dependencyName} is not an allowed direct edge`);
         }
       }
 
       const finalOwner = FINAL_DIRECT_DEPENDENCY_OWNERS.get(dependencyName);
-      const isTransitionalCoreOwner =
-        pkg.name === "noema-core" &&
-        TRANSITIONAL_CORE_DEPENDENCIES.has(dependencyName) &&
-        finalOwner !== undefined &&
-        !packageNames.has(finalOwner);
-      if (
-        finalOwner &&
-        pkg.name !== finalOwner &&
-        !isTransitionalCoreOwner
-      ) {
+      if (finalOwner && pkg.name !== finalOwner) {
         errors.add(
           `${pkg.name} may not depend directly on ${dependencyName}; owner is ${finalOwner}`,
         );
@@ -557,20 +489,15 @@ export function validateMetadata(metadata: CargoMetadata): string[] {
       }
 
       for (const feature of dependency.features) {
-        validateInternalFeatureActivation(pkg, dependency, feature, packageNames, errors);
+        validateInternalFeatureActivation(pkg, dependency, feature, errors);
       }
     }
 
     for (const { dependency, feature } of forwardedDependencyFeatures(pkg)) {
-      validateInternalFeatureActivation(pkg, dependency, feature, packageNames, errors);
+      validateInternalFeatureActivation(pkg, dependency, feature, errors);
     }
   }
 
-  const compositionOwner = packageNames.has("noema-host")
-    ? "noema-host"
-    : hasCore
-      ? "noema-core"
-      : undefined;
   for (const featureKey of COMPOSITION_FEATURES) {
     const [dependencyName, feature] = splitFeatureKey(featureKey);
     const dependencyPackage = packagesByName.get(dependencyName);
@@ -580,7 +507,7 @@ export function validateMetadata(metadata: CargoMetadata): string[] {
 
     const mustDeclareFeature =
       FEATURE_REQUIRED_WITH_PACKAGE.has(featureKey) ||
-      (featureKey === "noema-providers/local-models" && packageNames.has("noema-host"));
+      featureKey === "noema-providers/local-models";
     const declaresFeature = packageDeclaresFeature(dependencyPackage, feature);
     if (mustDeclareFeature && !declaresFeature) {
       errors.add(`${dependencyName} must declare implementation feature ${feature}`);
@@ -589,26 +516,17 @@ export function validateMetadata(metadata: CargoMetadata): string[] {
       continue;
     }
 
-    if (!compositionOwner) {
-      errors.add(`no active composition owner enables implementation feature ${featureKey}`);
-      continue;
-    }
-    const owner = packagesByName.get(compositionOwner);
-    const ownerEnablesFeature =
-      compositionOwner === "noema-host" && owner
-        ? localFeatureForwardsDependencyFeature(
-            owner,
-            "composition",
-            dependencyName,
-            feature,
-          )
-        : directlyEnablesFeature(owner, dependencyName, feature);
+    const owner = packagesByName.get("noema-host");
+    const ownerEnablesFeature = owner
+      ? localFeatureForwardsDependencyFeature(
+          owner,
+          "composition",
+          dependencyName,
+          feature,
+        )
+      : false;
     if (!ownerEnablesFeature) {
-      errors.add(
-        compositionOwner === "noema-host"
-          ? `noema-host/composition must forward implementation feature ${featureKey}`
-          : `${compositionOwner} must directly enable implementation feature ${featureKey}`,
-      );
+      errors.add(`noema-host/composition must forward implementation feature ${featureKey}`);
     }
   }
 
@@ -639,46 +557,18 @@ export function validateMetadata(metadata: CargoMetadata): string[] {
         "noema-providers/local-model-evals must imply noema-providers/local-models",
       );
     }
-    if (packageNames.has("noema-runtime")) {
-      if (
-        !directlyEnablesFeature(
-          packagesByName.get("noema-model-evals"),
-          "noema-providers",
-          "local-model-evals",
-        )
-      ) {
-        errors.add(
-          "noema-model-evals must directly enable evaluation feature noema-providers/local-model-evals",
-        );
-      }
-    } else {
-      const core = packagesByName.get("noema-core");
-      if (
-        !core ||
-        !localFeatureForwardsDependencyFeature(
-          core,
-          "local-model-evals",
-          "noema-providers",
-          "local-model-evals",
-        )
-      ) {
-        errors.add(
-          "noema-core/local-model-evals must forward noema-providers/local-model-evals",
-        );
-      }
-      if (
-        !directlyEnablesFeature(
-          packagesByName.get("noema-model-evals"),
-          "noema-providers",
-          "local-model-evals",
-        )
-      ) {
-        errors.add(
-          "noema-model-evals must directly enable evaluation feature noema-providers/local-model-evals",
-        );
-      }
+    if (
+      !directlyEnablesFeature(
+        packagesByName.get("noema-model-evals"),
+        "noema-providers",
+        "local-model-evals",
+      )
+    ) {
+      errors.add(
+        "noema-model-evals must directly enable evaluation feature noema-providers/local-model-evals",
+      );
     }
-  } else if (packageNames.has("noema-runtime") && providers) {
+  } else if (providers) {
     errors.add("noema-providers must declare evaluation feature local-model-evals");
   }
 
@@ -695,22 +585,6 @@ export function validateMetadata(metadata: CargoMetadata): string[] {
     ) {
       errors.add(
         "noema-model-evals must directly enable evaluation feature noema-runtime/eval-support",
-      );
-    }
-  }
-
-  if (hasCore && !packageNames.has("noema-runtime")) {
-    const core = packagesByName.get("noema-core");
-    if (
-      packageDeclaresFeature(core, "local-model-evals") &&
-      !directlyEnablesFeature(
-        packagesByName.get("noema-model-evals"),
-        "noema-core",
-        "local-model-evals",
-      )
-    ) {
-      errors.add(
-        "noema-model-evals must directly enable transitional feature noema-core/local-model-evals",
       );
     }
   }

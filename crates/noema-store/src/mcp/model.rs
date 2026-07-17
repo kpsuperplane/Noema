@@ -9,10 +9,10 @@ pub(super) use noema_capabilities_mcp::{
     ToolCalibrationRecord,
 };
 
-/// Input for creating an MCP server metadata row.
+/// Test-only persistence seed with an explicit durable server id.
 #[cfg(test)]
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct NewMcpServer {
+pub(crate) struct McpServerSeed {
     /// Durable MCP server id.
     pub mcp_server_id: String,
     /// Human-visible server name.
@@ -23,10 +23,10 @@ pub(crate) struct NewMcpServer {
     pub safe_config: Value,
 }
 
-/// Input captured from MCP tool discovery.
+/// Test-only persistence seed with explicit durable server and tool ids.
 #[cfg(test)]
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct NewMcpTool {
+pub(crate) struct McpToolSeed {
     /// Durable MCP tool id.
     pub mcp_tool_id: String,
     /// Owning MCP server id.

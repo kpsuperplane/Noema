@@ -9,7 +9,7 @@ import {
 describe("SQLite schema-shape export", () => {
   test("finds the live schema source without Array.map argument leakage", () => {
     expect(schemaSourcePath(undefined)).toMatch(
-      /crates\/noema-(?:store\/src|core\/src\/store)\/schema\.rs$/,
+      /crates\/noema-store\/src\/schema\.rs$/,
     );
   });
 

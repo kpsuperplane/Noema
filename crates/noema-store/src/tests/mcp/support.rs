@@ -16,8 +16,8 @@ pub(super) async fn test_store_with_mcp_tool() -> crate::NoemaStore {
     store
 }
 
-pub(super) fn google_server() -> NewMcpServer {
-    NewMcpServer {
+pub(super) fn google_server() -> McpServerSeed {
+    McpServerSeed {
         mcp_server_id: "mcp_server:google".to_string(),
         display_name: "Google".to_string(),
         transport_kind: McpTransportKind::Stdio,
@@ -29,8 +29,8 @@ pub(super) fn google_tool(
     name: &str,
     annotations: serde_json::Value,
     fingerprint: &str,
-) -> NewMcpTool {
-    NewMcpTool {
+) -> McpToolSeed {
+    McpToolSeed {
         mcp_tool_id: format!("mcp_tool:google:{name}"),
         mcp_server_id: "mcp_server:google".to_string(),
         name: name.to_string(),

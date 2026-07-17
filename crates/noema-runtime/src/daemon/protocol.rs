@@ -1,3 +1,4 @@
+pub use noema_conversations::AgentStatus;
 use noema_home::NoemaPathError;
 use noema_providers::{
     MultipleChoiceOption, MultipleChoiceSelectionMode, ProviderError, ProviderRouteError,
@@ -6,43 +7,6 @@ use noema_store::StoreError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use ts_rs::TS;
-
-/// Live agent coordination state exported by daemon and web protocols.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(rename_all = "snake_case")]
-pub enum AgentStatus {
-    /// No agent work is currently active.
-    Idle,
-    /// Human or external input has been accepted.
-    InputReceived,
-    /// The agent is producing or planning a response.
-    Thinking,
-    /// The agent is waiting on a tool invocation.
-    ToolRunning,
-    /// A newer turn is waiting for a prior turn's side effects to settle.
-    WaitingForPreviousTurnCompletion,
-    /// The agent is interrupting a previous turn.
-    Interrupting,
-    /// The conversation is in an error state.
-    Error,
-}
-
-impl From<noema_conversations::AgentStatus> for AgentStatus {
-    fn from(status: noema_conversations::AgentStatus) -> Self {
-        match status {
-            noema_conversations::AgentStatus::Idle => Self::Idle,
-            noema_conversations::AgentStatus::InputReceived => Self::InputReceived,
-            noema_conversations::AgentStatus::Thinking => Self::Thinking,
-            noema_conversations::AgentStatus::ToolRunning => Self::ToolRunning,
-            noema_conversations::AgentStatus::WaitingForPreviousTurnCompletion => {
-                Self::WaitingForPreviousTurnCompletion
-            }
-            noema_conversations::AgentStatus::Interrupting => Self::Interrupting,
-            noema_conversations::AgentStatus::Error => Self::Error,
-        }
-    }
-}
 
 /// Transcript item emitted by a daemon turn.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]

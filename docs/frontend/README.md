@@ -215,7 +215,8 @@ from chat/work context rather than pretending they already exist.
 
 ## Current Frontend Slice
 
-The current first shell is a local web chat hosted by the core daemon. The
+The current first shell is a local web chat served by `noema-server` and backed
+by the application composition in `noema-host`. The
 first practical frontend slice should keep proving the chat-led mental model:
 
 1. Guided setup or pre-chat readiness state for local folder, Codex connection,
@@ -261,7 +262,7 @@ Later slices should add:
 ## Open Product Questions
 
 - Should a desktop app or launcher eventually own starting/stopping the
-  core-hosted local web chat?
+  server-hosted local web chat?
 - What minimum local health UI is required before chat can be the default
   landing surface?
 - When should the thread rail appear: after the second chat, after pinned

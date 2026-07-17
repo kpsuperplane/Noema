@@ -1,7 +1,7 @@
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 
 use super::{
-    McpToolRecord, NewMcpTool,
+    McpToolRecord, McpToolSeed,
     calibrations::{
         invalidate_tool_calibration_review_on_connection,
         update_mcp_server_enabled_from_calibrations_on_connection,
@@ -22,7 +22,7 @@ impl NoemaStore {
     /// Returns [`StoreError`] when the embedded store write or read fails.
     pub(crate) async fn upsert_discovered_mcp_tool(
         &self,
-        tool: NewMcpTool,
+        tool: McpToolSeed,
     ) -> Result<McpToolRecord, StoreError> {
         let discovered_at = now_string();
         let input_schema_json = json_to_string(&tool.input_schema)?;

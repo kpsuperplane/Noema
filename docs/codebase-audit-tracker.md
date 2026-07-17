@@ -170,69 +170,53 @@ Priority labels:
 - [ ] **P3** Remove obsolete frontend barrel wrappers and dead state/prop chains.
 - [ ] **P3** Move component-specific animation rules out of global CSS where practical.
 
-### Multi-Crate Workspace Plan
+### Multi-Crate Workspace Architecture
 
-Splitting `noema-core` should optimize incremental development builds and
-architectural isolation rather than assume that more crates will improve clean
-workspace builds. The first pass should remain deliberately small: additional
-rustc invocations and cross-crate APIs can make clean builds slower when the
-boundaries are too granular.
-
-Target dependency direction:
+The July 2026 decomposition is complete. The workspace uses explicit domain,
+infrastructure, composition, API, and shell owners rather than a generic shared
+crate or umbrella facade:
 
 ```text
-noema-domain
-    |---> noema-store ---------|
-    |                           |---> noema-runtime --|
-    `---> noema-integrations --|                     |
-                                                      |---> noema-core
-                    noema-store ---> noema-api -------|       |
-                                         ^                    |---> noema-server
-                                         |                    `---> noema-desktop
-                                  noema-runtime
+noema-server / noema-desktop
+  ├── noema-host (composition)
+  └── noema-api (GraphQL)
+        ├── noema-host service handles
+        ├── noema-runtime
+        ├── noema-store
+        └── semantic contracts
+
+noema-host
+  ├── noema-runtime
+  ├── noema-store
+  └── concrete adapters and semantic contracts
+
+noema-runtime
+  ├── noema-store
+  └── semantic contracts
+
+noema-store
+  └── semantic contracts
 ```
 
-Proposed responsibilities:
+`noema-capabilities-mcp` is an independent child package that depends on
+`noema-capabilities`; the parent does not depend on the child. Hosted providers,
+Foundation Local, web backends, and private local GGUF implementations live in
+`noema-providers`. `noema-store` owns SQLite implementation and persistence read
+models, `noema-runtime` owns governed execution, `noema-host` owns concrete
+application composition and lifecycle, and `noema-api` owns the transport-neutral
+GraphQL schema. HTTP/WebSocket and Tauri concerns stay in their respective shell
+crates.
 
-- `noema-domain`: IDs, concrete object and conversation types, provider/tool
-  contracts, capability types, and shared typed errors. Keep dependencies small.
-- `noema-store`: SQLite schema, records, repositories, and store-specific tests.
-- `noema-integrations`: provider adapters, MCP transports, Mnemosyne lifecycle,
-  search, and web fetch. Split providers or MCP further only when measurements
-  show an independent hotspot.
-- `noema-runtime`: turn orchestration, tool lifecycle, context planning,
-  transcript persistence, and supervised runtime workers.
-- `noema-api`: GraphQL schema, resolvers, subscriptions, and API read models.
-- `noema-core`: thin composition facade containing `NoemaRuntimeHost` and curated
-  re-exports. Lower-level crates must never depend back on this facade.
-- `noema-server`: HTTP/WebSocket transport, web asset embedding, server/dev
-  binaries, and the asset-related build script.
-- `noema-desktop`: existing Tauri shell depending on the composition facade.
+Completed extraction work:
 
-Staged extraction:
-
-- [x] **P2** Capture baseline `cargo build --timings` results before changing crate boundaries.
-- [x] **P2** Measure incremental checks after representative store, provider, runtime, server-route, and frontend-asset edits.
-- [x] **P1** Extract `noema-server` so frontend assets and sidecar source changes no longer invalidate the entire core crate.
-- [x] **P1** Move HTTP/session/asset transport, `noema_web`, `noema_dev`, and web asset embedding into `noema-server`; keep GraphQL product logic and shared provider/replay support in core to preserve acyclic ownership.
-- [x] **P1** Make release asset generation fail when required entry assets are absent.
-- [ ] **P1** Extract `noema-store` with no dependency on GraphQL, provider adapters, MCP transports, or web parsing.
-- [ ] **P2** Extract stable shared types into `noema-domain` after server and store boundaries clarify dependency direction.
-- [ ] **P2** Extract runtime orchestration into `noema-runtime`.
-- [ ] **P2** Extract provider, MCP, memory, search, and fetch adapters into `noema-integrations`.
-- [ ] **P2** Reduce `noema-core` to composition and curated public re-exports.
-- [ ] **P2** Update `noema-desktop` to depend only on the composition/API surfaces it requires.
-- [ ] **P2** Move subsystem tests into their owning crates so focused package tests avoid unrelated dependencies.
-- [x] **P2** Compare clean and incremental timings after the server extraction and stop the store split when its prerequisite boundary and benefit fail the gate.
-
-Boundary guardrails:
-
-- [x] Keep dependency flow acyclic and directed from core composition toward the server executable boundary.
-- [x] Avoid broad internal preludes or facade imports in lower-level crates.
-- [x] Use `pub(crate)` and narrow public interfaces instead of exporting implementation details solely to complete the split.
-- [x] Avoid cross-crate generic-heavy APIs unless measurements justify them.
-- [x] Preserve workspace dependency inheritance, lints, MSRV, and validation commands across every crate.
-- [x] Keep the initial split to one cohesive server crate; create additional crates only from measured evidence.
+- [x] **P1** Extract domain and integration contracts into their explicit owners without introducing a generic common crate.
+- [x] **P1** Extract SQLite persistence into `noema-store` without GraphQL, host, or provider-transport ownership.
+- [x] **P1** Extract governed execution into transport-neutral `noema-runtime`.
+- [x] **P1** Extract configuration, startup, composition, and shutdown into `noema-host`.
+- [x] **P1** Extract the shared GraphQL schema into transport-neutral `noema-api`.
+- [x] **P1** Keep HTTP/session/assets in `noema-server` and Tauri IPC/events in `noema-desktop`.
+- [x] **P2** Move subsystem tests into their owning crates so focused package tests avoid unrelated dependencies.
+- [x] **P2** Preserve workspace dependency inheritance, lints, MSRV, feature boundaries, and validation commands.
 
 ## Testing And CI
 

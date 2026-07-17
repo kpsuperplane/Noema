@@ -15,6 +15,7 @@ type DependencyInput = {
 
 type PackageInput = {
   name: string;
+  defaultRun?: string | null;
   dependencies?: DependencyInput[];
   features?: Record<string, string[]>;
 };
@@ -26,12 +27,20 @@ function packageId(name: string): string {
 function metadata(
   packages: PackageInput[],
   workspacePackageNames = packages.map((pkg) => pkg.name),
+  workspaceDefaultMemberNames = ["noema-server"],
 ): CargoMetadata {
   return {
     workspace_members: workspacePackageNames.map(packageId),
+    workspace_default_members: workspaceDefaultMemberNames.map(packageId),
     packages: packages.map((pkg) => ({
       id: packageId(pkg.name),
       name: pkg.name,
+      default_run:
+        pkg.defaultRun === undefined
+          ? pkg.name === "noema-server"
+            ? "noema_web"
+            : null
+          : pkg.defaultRun,
       dependencies: (pkg.dependencies ?? []).map((dependency) => ({
         name: dependency.name,
         rename: dependency.rename ?? null,
@@ -43,6 +52,11 @@ function metadata(
     })),
   };
 }
+
+const contract = (name: string): DependencyInput => ({
+  name,
+  usesDefaultFeatures: false,
+});
 
 const targetPackageNames = [
   "noema-home",
@@ -60,7 +74,7 @@ const targetPackageNames = [
   "noema-server",
   "noema-desktop",
   "noema-model-evals",
-];
+] as const;
 
 function targetFeatures(name: string): Record<string, string[]> {
   switch (name) {
@@ -97,379 +111,224 @@ function targetFeatures(name: string): Record<string, string[]> {
     case "noema-server":
       return { "dev-no-auth": [] };
     default:
-      return {};
+      return { default: [] };
   }
 }
 
+function targetDependencies(name: string): DependencyInput[] {
+  switch (name) {
+    case "noema-artifacts":
+      return [contract("noema-home")];
+    case "noema-providers":
+      return [contract("noema-capabilities"), contract("noema-home")];
+    case "noema-tasks":
+      return [contract("noema-artifacts"), contract("noema-providers")];
+    case "noema-capabilities-mcp":
+      return [contract("noema-capabilities"), contract("noema-home"), { name: "rmcp" }];
+    case "noema-memory":
+      return [
+        contract("noema-capabilities"),
+        contract("noema-providers"),
+        contract("noema-home"),
+      ];
+    case "noema-store":
+      return [
+        contract("noema-conversations"),
+        contract("noema-artifacts"),
+        contract("noema-tasks"),
+        contract("noema-providers"),
+        contract("noema-capabilities-mcp"),
+        contract("noema-memory"),
+        { name: "rusqlite" },
+      ];
+    case "noema-runtime":
+      return [
+        contract("noema-home"),
+        contract("noema-conversations"),
+        contract("noema-artifacts"),
+        contract("noema-tasks"),
+        contract("noema-capabilities"),
+        contract("noema-capabilities-mcp"),
+        contract("noema-providers"),
+        contract("noema-memory"),
+        contract("noema-store"),
+      ];
+    case "noema-host":
+      return [
+        contract("noema-home"),
+        contract("noema-artifacts"),
+        contract("noema-capabilities"),
+        contract("noema-capabilities-mcp"),
+        contract("noema-providers"),
+        contract("noema-memory"),
+        contract("noema-store"),
+        contract("noema-runtime"),
+        { name: "figment" },
+      ];
+    case "noema-api":
+      return [
+        contract("noema-conversations"),
+        contract("noema-artifacts"),
+        contract("noema-tasks"),
+        contract("noema-capabilities"),
+        contract("noema-capabilities-mcp"),
+        contract("noema-providers"),
+        contract("noema-memory"),
+        contract("noema-store"),
+        contract("noema-runtime"),
+        contract("noema-host"),
+      ];
+    case "noema-server":
+      return [
+        contract("noema-artifacts"),
+        contract("noema-api"),
+        {
+          ...contract("noema-host"),
+          features: ["composition"],
+        },
+        { name: "async-graphql-axum" },
+        { name: "axum" },
+        { name: "tower" },
+        { name: "tower-http" },
+        { name: "tower-sessions" },
+      ];
+    case "noema-desktop":
+      return [
+        contract("noema-api"),
+        {
+          ...contract("noema-host"),
+          features: ["composition"],
+        },
+        { name: "tauri" },
+      ];
+    case "noema-model-evals":
+      return [
+        {
+          ...contract("noema-providers"),
+          features: ["local-model-evals"],
+        },
+        {
+          ...contract("noema-runtime"),
+          features: ["eval-support"],
+        },
+      ];
+    default:
+      return [];
+  }
+}
+
+function targetWorkspace(): PackageInput[] {
+  return targetPackageNames.map((name) => ({
+    name,
+    dependencies: targetDependencies(name),
+    features: targetFeatures(name),
+  }));
+}
+
+function findPackage(packages: PackageInput[], name: string): PackageInput {
+  const pkg = packages.find((candidate) => candidate.name === name);
+  if (!pkg) throw new Error(`missing fixture package ${name}`);
+  return pkg;
+}
+
+function findDependency(pkg: PackageInput, name: string): DependencyInput {
+  const dependency = pkg.dependencies?.find((candidate) => candidate.name === name);
+  if (!dependency) throw new Error(`missing fixture dependency ${pkg.name} -> ${name}`);
+  return dependency;
+}
+
 describe("crate boundary metadata policy", () => {
-  test("accepts the current core transition and transitional dependency owners", () => {
-    const errors = validateMetadata(
-      metadata([
-        {
-          name: "noema-core",
-          features: {
-            "local-model-evals": [
-              "dep:sysinfo",
-              "noema-providers/local-model-evals",
-            ],
-          },
-          dependencies: [
-            { name: "figment" },
-            { name: "rmcp" },
-            { name: "rusqlite" },
-            {
-              name: "noema-providers",
-              features: ["adapters", "local-models"],
-              usesDefaultFeatures: false,
-            },
-          ],
-        },
-        {
-          name: "noema-providers",
-          features: {
-            default: [],
-            adapters: [],
-            "local-models": [],
-            "local-model-evals": ["local-models"],
-          },
-        },
-        {
-          name: "noema-server",
-          dependencies: [
-            { name: "noema-core" },
-            { name: "async-graphql-axum" },
-            { name: "axum" },
-            { name: "tower", kind: "dev" },
-            { name: "tower-http" },
-            { name: "tower-sessions" },
-          ],
-        },
-        {
-          name: "noema-desktop",
-          dependencies: [{ name: "noema-core" }, { name: "tauri" }],
-        },
-        {
-          name: "noema-model-evals",
-          dependencies: [
-            { name: "noema-core", features: ["local-model-evals"] },
-            {
-              name: "noema-providers",
-              features: ["local-model-evals"],
-              usesDefaultFeatures: false,
-            },
-          ],
-        },
-      ]),
-    );
-
-    expect(errors).toEqual([]);
+  test("accepts the complete final workspace and dependency owners", () => {
+    expect(validateMetadata(metadata(targetWorkspace()))).toEqual([]);
   });
 
-  test("accepts the complete target workspace and final dependency owners", () => {
-    const packageOverrides = new Map<string, DependencyInput[]>([
-      ["noema-capabilities-mcp", [{ name: "rmcp" }]],
-      ["noema-store", [{ name: "rusqlite" }]],
-      [
-        "noema-host",
-        [
-          { name: "figment" },
-          {
-            name: "noema-artifacts",
-            usesDefaultFeatures: false,
-          },
-          {
-            name: "noema-providers",
-            usesDefaultFeatures: false,
-          },
-          {
-            name: "noema-capabilities-mcp",
-            usesDefaultFeatures: false,
-          },
-          {
-            name: "noema-memory",
-            usesDefaultFeatures: false,
-          },
-          { name: "noema-store", usesDefaultFeatures: false },
-        ],
-      ],
-      [
-        "noema-server",
-        [
-          { name: "async-graphql-axum" },
-          { name: "axum" },
-          { name: "tower", kind: "dev" },
-          { name: "tower-http" },
-          { name: "tower-sessions" },
-          {
-            name: "noema-host",
-            features: ["composition"],
-            usesDefaultFeatures: false,
-          },
-        ],
-      ],
-      [
-        "noema-desktop",
-        [
-          { name: "tauri" },
-          {
-            name: "noema-host",
-            features: ["composition"],
-            usesDefaultFeatures: false,
-          },
-        ],
-      ],
-      [
-        "noema-api",
-        [{ name: "noema-host", usesDefaultFeatures: false }],
-      ],
-      [
-        "noema-model-evals",
-        [
-          {
-            name: "noema-providers",
-            features: ["local-model-evals"],
-            usesDefaultFeatures: false,
-          },
-          {
-            name: "noema-runtime",
-            features: ["eval-support"],
-            usesDefaultFeatures: false,
-          },
-        ],
-      ],
-    ]);
-    const errors = validateMetadata(
-      metadata(
-        targetPackageNames.map((name) => ({
-          name,
-          dependencies: packageOverrides.get(name),
-          features: targetFeatures(name),
-        })),
+  test("requires the server default member and web runnable", () => {
+    expect(
+      validateMetadata(
+        metadata(targetWorkspace(), [...targetPackageNames], ["noema-api"]),
       ),
-    );
+    ).toContain("workspace default member must be noema-server");
 
-    expect(errors).toEqual([]);
-  });
-
-  test("rejects a forbidden internal edge", () => {
-    const errors = validateMetadata(
-      metadata([
-        { name: "noema-core" },
-        {
-          name: "noema-artifacts",
-          dependencies: [{ name: "noema-store", usesDefaultFeatures: false }],
-        },
-        { name: "noema-store" },
-      ]),
-    );
-
-    expect(errors).toContain(
-      "noema-artifacts -> noema-store is not an allowed direct edge",
+    const packages = targetWorkspace();
+    findPackage(packages, "noema-server").defaultRun = null;
+    expect(validateMetadata(metadata(packages))).toContain(
+      "noema-server default runnable binary must be noema_web",
     );
   });
 
-  test("rejects an internal dependency that is not a workspace member", () => {
-    const errors = validateMetadata(
-      metadata([
-        {
-          name: "noema-core",
-          dependencies: [
-            { name: "noema-home", usesDefaultFeatures: false },
-            { name: "noema-mystery", usesDefaultFeatures: false },
-          ],
-        },
-      ]),
+  test("requires every target package and rejects unknown workspace members", () => {
+    const missing = targetWorkspace().filter((pkg) => pkg.name !== "noema-memory");
+    expect(validateMetadata(metadata(missing))).toContain(
+      "workspace is missing target package: noema-memory",
     );
 
-    expect(errors).toContain(
-      "noema-core depends on internal package outside the workspace: noema-home",
+    const unknown = targetWorkspace();
+    unknown.push({ name: "workspace-tool" });
+    expect(validateMetadata(metadata(unknown))).toContain(
+      "unknown workspace package: workspace-tool",
     );
-    expect(errors).toContain(
-      "noema-core depends on internal package outside the workspace: noema-mystery",
-    );
-  });
-
-  test("rejects every unknown workspace package, regardless of its name", () => {
-    const errors = validateMetadata(
-      metadata([{ name: "noema-core" }, { name: "workspace-tool" }]),
-    );
-
-    expect(errors).toContain("unknown workspace package: workspace-tool");
   });
 
   test("rejects a workspace member without package metadata", () => {
-    const errors = validateMetadata(
-      metadata([{ name: "noema-core" }], ["noema-core", "missing-package"]),
+    expect(
+      validateMetadata(
+        metadata(targetWorkspace(), [...targetPackageNames, "missing-package"]),
+      ),
+    ).toContain("workspace member is missing package metadata: workspace:missing-package");
+  });
+
+  test("keeps the retired package name only as an explicit rejection fixture", () => {
+    const packages = targetWorkspace();
+    packages.push({ name: "noema-core" });
+    expect(validateMetadata(metadata(packages))).toContain(
+      "workspace contains retired package: noema-core",
     );
 
-    expect(errors).toContain(
-      "workspace member is missing package metadata: workspace:missing-package",
+    const dependencyPackages = targetWorkspace();
+    findPackage(dependencyPackages, "noema-server").dependencies?.push({
+      name: "noema-core",
+    });
+    expect(validateMetadata(metadata(dependencyPackages))).toContain(
+      "noema-server depends on retired package noema-core",
     );
   });
 
-  test("requires the complete package set after core is removed", () => {
-    const errors = validateMetadata(metadata([{ name: "noema-home" }]));
+  test("rejects forbidden, missing, and reversed internal edges", () => {
+    const forbidden = targetWorkspace();
+    findPackage(forbidden, "noema-capabilities").dependencies?.push(
+      contract("noema-capabilities-mcp"),
+    );
+    expect(validateMetadata(metadata(forbidden))).toContain(
+      "noema-capabilities -> noema-capabilities-mcp is not an allowed direct edge",
+    );
 
-    expect(errors).toContain(
-      "post-core workspace is missing target package: noema-runtime",
+    const missing = targetWorkspace();
+    findPackage(missing, "noema-server").dependencies?.push(contract("noema-mystery"));
+    expect(validateMetadata(metadata(missing))).toContain(
+      "noema-server depends on internal package outside the workspace: noema-mystery",
     );
   });
 
-  test("rejects an expired core edge", () => {
-    const packages = targetPackageNames.map((name) =>
-      name === "noema-server"
-        ? { name, dependencies: [{ name: "noema-core" }] }
-        : { name },
-    );
+  test("keeps framework dependencies in API and executable shells", () => {
+    const packages = targetWorkspace();
+    findPackage(packages, "noema-runtime").dependencies?.push({ name: "async-graphql" });
     const errors = validateMetadata(metadata(packages));
-
     expect(errors).toContain(
-      "noema-server has expired or forbidden noema-core dependency",
+      "noema-runtime contract boundary may not depend on async-graphql",
     );
-  });
 
-  test("allows and expires the server home transition", () => {
-    const transitional = metadata([
-      { name: "noema-core" },
-      { name: "noema-home" },
-      { name: "noema-server", dependencies: [{ name: "noema-home" }] },
-    ]);
-    expect(validateMetadata(transitional)).toEqual([]);
-
-    const expired = metadata([
-      { name: "noema-core" },
-      { name: "noema-home" },
-      { name: "noema-host" },
-      { name: "noema-server", dependencies: [{ name: "noema-home" }] },
-    ]);
-    expect(validateMetadata(expired)).toContain(
-      "noema-server -> noema-home is not an allowed direct edge",
-    );
-  });
-
-  test("allows and expires shell provider-contract transitions", () => {
-    for (const shell of ["noema-server", "noema-desktop"]) {
-      const transitional = metadata([
-        {
-          name: "noema-core",
-          dependencies: [
-            {
-              name: "noema-providers",
-              features: ["adapters", "local-models"],
-              usesDefaultFeatures: false,
-            },
-          ],
-        },
-        {
-          name: "noema-providers",
-          features: { default: [], adapters: [], "local-models": [] },
-        },
-        {
-          name: shell,
-          dependencies: [
-            { name: "noema-providers", usesDefaultFeatures: false },
-          ],
-        },
-      ]);
-      expect(validateMetadata(transitional)).toEqual([]);
-
-      const expired = metadata([
-        { name: "noema-core" },
-        {
-          name: "noema-providers",
-          features: { default: [], adapters: [], "local-models": [] },
-        },
-        {
-          name: "noema-host",
-          dependencies: [
-            { name: "noema-providers", usesDefaultFeatures: false },
-          ],
-          features: {
-            default: [],
-            composition: [
-              "noema-providers/adapters",
-              "noema-providers/local-models",
-            ],
-          },
-        },
-        {
-          name: shell,
-          dependencies: [
-            { name: "noema-providers", usesDefaultFeatures: false },
-          ],
-        },
-      ]);
-      expect(validateMetadata(expired)).toContain(
-        `${shell} -> noema-providers is not an allowed direct edge`,
+    for (const dependency of ["readabilityrs", "reqwest", "tokio"]) {
+      const capabilityPackages = targetWorkspace();
+      findPackage(capabilityPackages, "noema-capabilities").dependencies?.push({
+        name: dependency,
+      });
+      expect(validateMetadata(metadata(capabilityPackages))).toContain(
+        `noema-capabilities contract boundary may not depend on ${dependency}`,
       );
     }
   });
 
-  test("allows and expires the eval extraction transitions", () => {
-    const transitional = metadata([
-      { name: "noema-core" },
-      { name: "noema-home" },
-      { name: "noema-store" },
-      {
-        name: "noema-model-evals",
-        dependencies: [
-          { name: "noema-home" },
-          { name: "noema-store", usesDefaultFeatures: false },
-        ],
-      },
-    ]);
-    expect(validateMetadata(transitional)).toEqual([]);
-
-    const expired = metadata([
-      { name: "noema-core" },
-      { name: "noema-home" },
-      { name: "noema-store" },
-      { name: "noema-runtime" },
-      {
-        name: "noema-model-evals",
-        dependencies: [
-          { name: "noema-home" },
-          { name: "noema-store", usesDefaultFeatures: false },
-        ],
-      },
-    ]);
-    expect(validateMetadata(expired)).toContain(
-      "noema-model-evals -> noema-home is not an allowed direct edge",
-    );
-    expect(validateMetadata(expired)).toContain(
-      "noema-model-evals -> noema-store is not an allowed direct edge",
-    );
-  });
-
-  test("rejects framework leakage", () => {
-    const errors = validateMetadata(
-      metadata([
-        { name: "noema-core" },
-        { name: "noema-runtime", dependencies: [{ name: "async-graphql" }] },
-      ]),
-    );
-
-    expect(errors).toContain(
-      "noema-runtime contract boundary may not depend on async-graphql",
-    );
-  });
-
-  for (const dependency of ["readabilityrs", "reqwest", "tokio"]) {
-    test(`keeps noema-capabilities free of ${dependency}`, () => {
-      const errors = validateMetadata(
-        metadata([
-          { name: "noema-core" },
-          { name: "noema-capabilities", dependencies: [{ name: dependency }] },
-        ]),
-      );
-
-      expect(errors).toContain(
-        `noema-capabilities contract boundary may not depend on ${dependency}`,
-      );
-    });
-  }
-
-  const directDependencyOwnerCases = [
+  for (const [dependency, owner] of [
     ["async-graphql-axum", "noema-server"],
     ["axum", "noema-server"],
     ["tower", "noema-server"],
@@ -479,529 +338,74 @@ describe("crate boundary metadata policy", () => {
     ["rmcp", "noema-capabilities-mcp"],
     ["rusqlite", "noema-store"],
     ["figment", "noema-host"],
-  ] as const;
-
-  for (const [dependency, owner] of directDependencyOwnerCases) {
+  ] as const) {
     test(`reserves direct ${dependency} dependencies for ${owner}`, () => {
-      const errors = validateMetadata(
-        metadata([
-          { name: "noema-core" },
-          { name: "noema-runtime", dependencies: [{ name: dependency }] },
-        ]),
-      );
-
-      expect(errors).toContain(
+      const packages = targetWorkspace();
+      findPackage(packages, "noema-runtime").dependencies?.push({ name: dependency });
+      expect(validateMetadata(metadata(packages))).toContain(
         `noema-runtime may not depend directly on ${dependency}; owner is ${owner}`,
       );
     });
   }
 
-  test("requires core to own extracted implementation features before host exists", () => {
-    const implementationDependencies: DependencyInput[] = [
-      {
-        name: "noema-artifacts",
-        features: ["filesystem"],
-        usesDefaultFeatures: false,
-      },
-      {
-        name: "noema-providers",
-        features: ["adapters", "local-models"],
-        usesDefaultFeatures: false,
-      },
-      {
-        name: "noema-capabilities-mcp",
-        features: ["transport"],
-        usesDefaultFeatures: false,
-      },
-      {
-        name: "noema-memory",
-        features: ["service"],
-        usesDefaultFeatures: false,
-      },
-    ];
-    const errors = validateMetadata(
-      metadata([
-        { name: "noema-core", dependencies: implementationDependencies },
-        { name: "noema-artifacts", features: { default: [], filesystem: [] } },
-        {
-          name: "noema-providers",
-          features: { default: [], adapters: [], "local-models": [] },
-        },
-        {
-          name: "noema-capabilities-mcp",
-          features: { default: [], transport: [] },
-        },
-        { name: "noema-memory", features: { default: [], service: [] } },
-      ]),
-    );
-
-    expect(errors).toEqual([]);
-  });
-
-  test("transfers every implementation feature from core to host", () => {
-    const implementationDependencies: DependencyInput[] = [
-      {
-        name: "noema-artifacts",
-        usesDefaultFeatures: false,
-      },
-      {
-        name: "noema-providers",
-        usesDefaultFeatures: false,
-      },
-      {
-        name: "noema-capabilities-mcp",
-        usesDefaultFeatures: false,
-      },
-      {
-        name: "noema-memory",
-        usesDefaultFeatures: false,
-      },
-    ];
-    const packages: PackageInput[] = [
-      { name: "noema-core" },
-      {
-        name: "noema-host",
-        dependencies: implementationDependencies,
-        features: targetFeatures("noema-host"),
-      },
-      {
-        name: "noema-server",
-        dependencies: [
-          {
-            name: "noema-host",
-            features: ["composition"],
-            usesDefaultFeatures: false,
-          },
-        ],
-      },
-      {
-        name: "noema-desktop",
-        dependencies: [
-          {
-            name: "noema-host",
-            features: ["composition"],
-            usesDefaultFeatures: false,
-          },
-        ],
-      },
-      { name: "noema-artifacts", features: { default: [], filesystem: [] } },
-      {
-        name: "noema-providers",
-        features: { default: [], adapters: [], "local-models": [] },
-      },
-      {
-        name: "noema-capabilities-mcp",
-        features: { default: [], transport: [] },
-      },
-      { name: "noema-memory", features: { default: [], service: [] } },
-    ];
-    expect(validateMetadata(metadata(packages))).toEqual([]);
-
-    packages[0] = {
-      name: "noema-core",
-      dependencies: [
-        {
-          name: "noema-artifacts",
-          features: ["filesystem"],
-          usesDefaultFeatures: false,
-        },
-      ],
-    };
+  test("requires contract dependencies to disable default features", () => {
+    const packages = targetWorkspace();
+    findDependency(findPackage(packages, "noema-api"), "noema-store").usesDefaultFeatures =
+      true;
     expect(validateMetadata(metadata(packages))).toContain(
-      "noema-core may not enable implementation feature noema-artifacts/filesystem",
+      "noema-api must declare noema-store with default-features = false",
     );
   });
 
-  test("reserves host composition for executable shells", () => {
-    const errors = validateMetadata(
-      metadata([
-        { name: "noema-core" },
-        {
-          name: "noema-host",
-          features: { default: [], composition: [] },
-        },
-        {
-          name: "noema-api",
-          dependencies: [
-            {
-              name: "noema-host",
-              features: ["composition"],
-              usesDefaultFeatures: false,
-            },
-          ],
-        },
-      ]),
+  test("requires host composition to forward all implementation features", () => {
+    const packages = targetWorkspace();
+    findPackage(packages, "noema-host").features!.composition = findPackage(
+      packages,
+      "noema-host",
+    ).features!.composition.filter(
+      (feature) => feature !== "noema-memory/service",
     );
-
-    expect(errors).toContain(
-      "noema-api may not enable shell feature noema-host/composition",
+    expect(validateMetadata(metadata(packages))).toContain(
+      "noema-host/composition must forward implementation feature noema-memory/service",
     );
   });
 
-  test("rejects concrete child features directly on host dependencies", () => {
-    const errors = validateMetadata(
-      metadata([
-        { name: "noema-core" },
-        {
-          name: "noema-host",
-          features: { default: [], composition: [] },
-          dependencies: [
-            {
-              name: "noema-artifacts",
-              features: ["filesystem"],
-              usesDefaultFeatures: false,
-            },
-          ],
-        },
-        { name: "noema-artifacts", features: { default: [], filesystem: [] } },
-      ]),
-    );
-
-    expect(errors).toContain(
+  test("rejects concrete features directly on host dependencies", () => {
+    const packages = targetWorkspace();
+    findDependency(findPackage(packages, "noema-host"), "noema-artifacts").features = [
+      "filesystem",
+    ];
+    expect(validateMetadata(metadata(packages))).toContain(
       "noema-host must forward concrete dependency features only through noema-host/composition",
     );
   });
 
-  test("rejects a missing composition-owner implementation feature", () => {
-    const errors = validateMetadata(
-      metadata([
-        { name: "noema-core" },
-        { name: "noema-artifacts", features: { default: [], filesystem: [] } },
-      ]),
-    );
-
-    expect(errors).toContain(
-      "noema-core must directly enable implementation feature noema-artifacts/filesystem",
-    );
-  });
-
-  const implementationFeatureCases = [
-    ["noema-artifacts", "filesystem"],
-    ["noema-providers", "adapters"],
-    ["noema-providers", "local-models"],
-    ["noema-capabilities-mcp", "transport"],
-    ["noema-memory", "service"],
-  ] as const;
-
-  for (const [dependency, feature] of implementationFeatureCases) {
-    test(`rejects non-owner use of ${dependency}/${feature}`, () => {
-      const errors = validateMetadata(
-        metadata([
-          { name: "noema-core" },
-          {
-            name: "noema-runtime",
-            dependencies: [
-              {
-                name: dependency,
-                features: [feature],
-                usesDefaultFeatures: false,
-              },
-            ],
-          },
-          {
-            name: dependency,
-            features: targetFeatures(dependency),
-          },
-        ]),
-      );
-
-      expect(errors).toContain(
-        `noema-runtime may not enable implementation feature ${dependency}/${feature}`,
-      );
-    });
-  }
-
-  test("requires implementation-bearing dependencies to disable default features", () => {
-    const errors = validateMetadata(
-      metadata([
-        { name: "noema-core" },
-        { name: "noema-store" },
-        { name: "noema-api", dependencies: [{ name: "noema-store" }] },
-      ]),
-    );
-
-    expect(errors).toContain(
-      "noema-api must declare noema-store with default-features = false",
-    );
-
-    const providerErrors = validateMetadata(
-      metadata([
-        { name: "noema-core" },
-        { name: "noema-providers" },
-        { name: "noema-tasks", dependencies: [{ name: "noema-providers" }] },
-      ]),
-    );
-    expect(providerErrors).toContain(
-      "noema-tasks must declare noema-providers with default-features = false",
-    );
-
-    const valid = validateMetadata(
-      metadata([
-        { name: "noema-core" },
-        { name: "noema-store", features: { default: [], "test-support": [] } },
-        {
-          name: "noema-api",
-          dependencies: [{ name: "noema-store", usesDefaultFeatures: false }],
-        },
-      ]),
-    );
-    expect(valid).toEqual([]);
-  });
-
-  test("reserves store test support for dev dependencies", () => {
-    const errors = validateMetadata(
-      metadata([
-        { name: "noema-core" },
-        { name: "noema-store", features: { default: [], "test-support": [] } },
-        {
-          name: "noema-api",
-          dependencies: [
-            {
-              name: "noema-store",
-              features: ["test-support"],
-              usesDefaultFeatures: false,
-            },
-          ],
-        },
-      ]),
-    );
-
-    expect(errors).toContain(
-      "noema-api enables noema-store/test-support outside dev-dependencies",
-    );
-
-    const valid = validateMetadata(
-      metadata([
-        { name: "noema-core" },
-        { name: "noema-store", features: { default: [], "test-support": [] } },
-        {
-          name: "noema-api",
-          dependencies: [
-            {
-              name: "noema-store",
-              kind: "dev",
-              features: ["test-support"],
-              usesDefaultFeatures: false,
-            },
-          ],
-        },
-      ]),
-    );
-    expect(valid).toEqual([]);
-  });
-
-  test("reserves runtime test support for dev dependencies", () => {
-    const runtime = {
-      name: "noema-runtime",
-      features: { default: [], "eval-support": [], "test-support": [] },
-    };
-    const dependency = {
-      name: "noema-runtime",
-      features: ["test-support"],
-      usesDefaultFeatures: false,
-    };
-
-    const errors = validateMetadata(
-      metadata([
-        { name: "noema-core" },
-        runtime,
-        { name: "noema-api", dependencies: [dependency] },
-      ]),
-    );
-    expect(errors).toContain(
-      "noema-api enables noema-runtime/test-support outside dev-dependencies",
-    );
-
-    const valid = validateMetadata(
-      metadata([
-        { name: "noema-core" },
-        runtime,
-        {
-          name: "noema-api",
-          dependencies: [{ ...dependency, kind: "dev" }],
-        },
-      ]),
-    );
-    expect(valid).not.toContain(
-      "noema-api enables noema-runtime/test-support outside dev-dependencies",
-    );
-  });
-
-  test("reserves API test support for dev dependencies", () => {
-    const api = {
-      name: "noema-api",
-      features: { default: [], "test-support": [] },
-    };
-    const dependency = {
-      name: "noema-api",
-      features: ["test-support"],
-      usesDefaultFeatures: false,
-    };
-
-    const errors = validateMetadata(
-      metadata([
-        { name: "noema-core" },
-        api,
-        { name: "noema-server", dependencies: [dependency] },
-      ]),
-    );
-    expect(errors).toContain(
-      "noema-server enables noema-api/test-support outside dev-dependencies",
-    );
-
-    const valid = validateMetadata(
-      metadata([
-        { name: "noema-core" },
-        api,
-        {
-          name: "noema-server",
-          dependencies: [{ ...dependency, kind: "dev" }],
-        },
-      ]),
-    );
-    expect(valid).not.toContain(
-      "noema-server enables noema-api/test-support outside dev-dependencies",
-    );
-  });
-
-  test("does not require provider local models before that milestone is declared", () => {
-    const errors = validateMetadata(
-      metadata([
-        {
-          name: "noema-core",
-          dependencies: [
-            {
-              name: "noema-providers",
-              features: ["adapters"],
-              usesDefaultFeatures: false,
-            },
-          ],
-        },
-        {
-          name: "noema-providers",
-          features: { default: [], adapters: [] },
-        },
-      ]),
-    );
-
-    expect(errors).toEqual([]);
-  });
-
-  test("requires provider local models once the feature is declared", () => {
-    const packages: PackageInput[] = [
-      {
-        name: "noema-core",
-        dependencies: [
-          {
-            name: "noema-providers",
-            features: ["adapters"],
-            usesDefaultFeatures: false,
-          },
-        ],
-      },
-      {
-        name: "noema-providers",
-        features: { default: [], adapters: [], "local-models": [] },
-      },
+  test("rejects implementation feature use outside host composition", () => {
+    const packages = targetWorkspace();
+    findDependency(findPackage(packages, "noema-runtime"), "noema-artifacts").features = [
+      "filesystem",
     ];
-
     expect(validateMetadata(metadata(packages))).toContain(
-      "noema-core must directly enable implementation feature noema-providers/local-models",
-    );
-
-    packages[0] = {
-      name: "noema-core",
-      dependencies: [
-        {
-          name: "noema-providers",
-          features: ["adapters", "local-models"],
-          usesDefaultFeatures: false,
-        },
-      ],
-    };
-    expect(validateMetadata(metadata(packages))).toEqual([]);
-  });
-
-  test("rejects feature forwarding through a renamed dependency", () => {
-    const errors = validateMetadata(
-      metadata([
-        {
-          name: "noema-core",
-          dependencies: [
-            {
-              name: "noema-providers",
-              features: ["adapters", "local-models"],
-              usesDefaultFeatures: false,
-            },
-          ],
-        },
-        {
-          name: "noema-providers",
-          features: { default: [], adapters: [], "local-models": [] },
-        },
-        {
-          name: "noema-api",
-          features: { leak: ["providers?/local-models"] },
-          dependencies: [
-            {
-              name: "noema-providers",
-              rename: "providers",
-              usesDefaultFeatures: false,
-            },
-          ],
-        },
-      ]),
-    );
-
-    expect(errors).toContain(
-      "noema-api may not enable implementation feature noema-providers/local-models",
+      "noema-runtime may not enable implementation feature noema-artifacts/filesystem",
     );
   });
 
-  test("rejects unknown internal dependency features and declarations", () => {
-    const errors = validateMetadata(
-      metadata([
-        { name: "noema-core" },
-        { name: "noema-store", features: { default: [], surprise: [] } },
-        {
-          name: "noema-api",
-          dependencies: [
-            {
-              name: "noema-store",
-              features: ["surprise"],
-              usesDefaultFeatures: false,
-            },
-          ],
-        },
-      ]),
-    );
-
-    expect(errors).toContain(
-      "noema-store declares unknown internal feature surprise",
-    );
-    expect(errors).toContain(
-      "noema-api enables unknown internal feature noema-store/surprise",
+  test("reserves host composition for executable shells", () => {
+    const packages = targetWorkspace();
+    findDependency(findPackage(packages, "noema-api"), "noema-host").features = [
+      "composition",
+    ];
+    expect(validateMetadata(metadata(packages))).toContain(
+      "noema-api may not enable shell feature noema-host/composition",
     );
   });
 
-  test("allows ordinary third-party dependency features and forwarding", () => {
-    const errors = validateMetadata(
-      metadata([
-        { name: "noema-core" },
-        {
-          name: "noema-server",
-          features: { "dev-no-auth": ["tower/util"] },
-          dependencies: [
-            {
-              name: "tower",
-              features: ["util"],
-            },
-          ],
-        },
-      ]),
+  test("requires both executable shells to enable host composition", () => {
+    const packages = targetWorkspace();
+    findDependency(findPackage(packages, "noema-desktop"), "noema-host").features = [];
+    expect(validateMetadata(metadata(packages))).toContain(
+      "noema-desktop must directly enable shell feature noema-host/composition",
     );
-
-    expect(errors).toEqual([]);
   });
 
   for (const [packageName, feature] of [
@@ -1012,195 +416,98 @@ describe("crate boundary metadata policy", () => {
     ["noema-store", "test-support"],
     ["noema-runtime", "eval-support"],
     ["noema-host", "composition"],
+    ["noema-api", "test-support"],
   ] as const) {
     test(`requires an empty default feature for ${packageName}`, () => {
-      const errors = validateMetadata(
-        metadata([
-          { name: "noema-core" },
-          {
-            name: packageName,
-            features: { default: [feature], [feature]: [] },
-          },
-        ]),
-      );
-
-      expect(errors).toContain(
+      const packages = targetWorkspace();
+      findPackage(packages, packageName).features!.default = [feature];
+      expect(validateMetadata(metadata(packages))).toContain(
         `${packageName} must declare an empty default feature`,
       );
     });
   }
 
-  test("requires provider evaluation support to imply local models", () => {
-    const errors = validateMetadata(
-      metadata([
-        {
-          name: "noema-core",
-          features: {
-            "local-model-evals": ["noema-providers/local-model-evals"],
-          },
-          dependencies: [
-            {
-              name: "noema-providers",
-              features: ["adapters", "local-models"],
-              usesDefaultFeatures: false,
-            },
-          ],
-        },
-        {
-          name: "noema-providers",
-          features: {
-            default: [],
-            adapters: [],
-            "local-models": [],
-            "local-model-evals": [],
-          },
-        },
-        {
-          name: "noema-model-evals",
-          dependencies: [
-            { name: "noema-core", features: ["local-model-evals"] },
-            {
-              name: "noema-providers",
-              features: ["local-model-evals"],
-              usesDefaultFeatures: false,
-            },
-          ],
-        },
-      ]),
+  for (const [packageName, dependencyName, feature] of [
+    ["noema-api", "noema-store", "test-support"],
+    ["noema-api", "noema-runtime", "test-support"],
+    ["noema-server", "noema-api", "test-support"],
+  ] as const) {
+    test(`reserves ${dependencyName}/${feature} for dev dependencies`, () => {
+      const packages = targetWorkspace();
+      findDependency(findPackage(packages, packageName), dependencyName).features = [feature];
+      expect(validateMetadata(metadata(packages))).toContain(
+        `${packageName} enables ${dependencyName}/${feature} outside dev-dependencies`,
+      );
+
+      findDependency(findPackage(packages, packageName), dependencyName).kind = "dev";
+      expect(validateMetadata(metadata(packages))).not.toContain(
+        `${packageName} enables ${dependencyName}/${feature} outside dev-dependencies`,
+      );
+    });
+  }
+
+  test("rejects unknown internal features and renamed feature forwarding", () => {
+    const unknown = targetWorkspace();
+    findPackage(unknown, "noema-store").features!.surprise = [];
+    findDependency(findPackage(unknown, "noema-api"), "noema-store").features = [
+      "surprise",
+    ];
+    const unknownErrors = validateMetadata(metadata(unknown));
+    expect(unknownErrors).toContain("noema-store declares unknown internal feature surprise");
+    expect(unknownErrors).toContain(
+      "noema-api enables unknown internal feature noema-store/surprise",
     );
 
-    expect(errors).toContain(
+    const renamed = targetWorkspace();
+    findPackage(renamed, "noema-api").features!.leak = ["providers?/local-models"];
+    findDependency(findPackage(renamed, "noema-api"), "noema-providers").rename =
+      "providers";
+    expect(validateMetadata(metadata(renamed))).toContain(
+      "noema-api may not enable implementation feature noema-providers/local-models",
+    );
+  });
+
+  test("requires provider evaluation support to imply local models", () => {
+    const packages = targetWorkspace();
+    findPackage(packages, "noema-providers").features!["local-model-evals"] = [];
+    expect(validateMetadata(metadata(packages))).toContain(
       "noema-providers/local-model-evals must imply noema-providers/local-models",
     );
   });
 
-  test("allows transitional core forwarding alongside the eval owner", () => {
-    const errors = validateMetadata(
-      metadata([
-        {
-          name: "noema-core",
-          features: {
-            "local-model-evals": ["noema-providers/local-model-evals"],
-          },
-          dependencies: [
-            {
-              name: "noema-providers",
-              features: ["adapters", "local-models"],
-              usesDefaultFeatures: false,
-            },
-          ],
-        },
-        {
-          name: "noema-providers",
-          features: {
-            default: [],
-            adapters: [],
-            "local-models": [],
-            "local-model-evals": ["local-models"],
-          },
-        },
-        {
-          name: "noema-model-evals",
-          dependencies: [
-            { name: "noema-core", features: ["local-model-evals"] },
-            {
-              name: "noema-providers",
-              features: ["local-model-evals"],
-              usesDefaultFeatures: false,
-            },
-          ],
-        },
-      ]),
-    );
-
-    expect(errors).toEqual([]);
-  });
-
-  test("reserves final evaluation features for the model eval crate", () => {
-    const errors = validateMetadata(
-      metadata([
-        { name: "noema-core" },
-        {
-          name: "noema-providers",
-          features: {
-            default: [],
-            adapters: [],
-            "local-models": [],
-            "local-model-evals": ["local-models"],
-          },
-        },
-        {
-          name: "noema-runtime",
-          features: { default: [], "eval-support": [] },
-          dependencies: [
-            {
-              name: "noema-providers",
-              features: ["local-model-evals"],
-              usesDefaultFeatures: false,
-            },
-          ],
-        },
-        {
-          name: "noema-api",
-          dependencies: [
-            {
-              name: "noema-runtime",
-              features: ["eval-support"],
-              usesDefaultFeatures: false,
-            },
-          ],
-        },
-      ]),
-    );
-
+  test("reserves evaluation features for the model eval crate", () => {
+    const packages = targetWorkspace();
+    findDependency(findPackage(packages, "noema-api"), "noema-providers").features = [
+      "local-model-evals",
+    ];
+    findDependency(findPackage(packages, "noema-api"), "noema-runtime").features = [
+      "eval-support",
+    ];
+    const errors = validateMetadata(metadata(packages));
     expect(errors).toContain(
-      "noema-runtime may not enable evaluation feature noema-providers/local-model-evals",
+      "noema-api may not enable evaluation feature noema-providers/local-model-evals",
     );
     expect(errors).toContain(
       "noema-api may not enable evaluation feature noema-runtime/eval-support",
     );
   });
 
-  test("expires the model eval dependency on core once runtime exists", () => {
-    const errors = validateMetadata(
-      metadata([
-        { name: "noema-core", features: { "local-model-evals": [] } },
-        { name: "noema-runtime", features: { default: [], "eval-support": [] } },
-        {
-          name: "noema-model-evals",
-          dependencies: [
-            { name: "noema-core", features: ["local-model-evals"] },
-            {
-              name: "noema-runtime",
-              features: ["eval-support"],
-              usesDefaultFeatures: false,
-            },
-          ],
-        },
-      ]),
-    );
-
+  test("requires model evals to enable both final evaluation features", () => {
+    const packages = targetWorkspace();
+    findDependency(
+      findPackage(packages, "noema-model-evals"),
+      "noema-providers",
+    ).features = [];
+    findDependency(
+      findPackage(packages, "noema-model-evals"),
+      "noema-runtime",
+    ).features = [];
+    const errors = validateMetadata(metadata(packages));
     expect(errors).toContain(
-      "noema-model-evals has expired or forbidden noema-core dependency",
+      "noema-model-evals must directly enable evaluation feature noema-providers/local-model-evals",
     );
     expect(errors).toContain(
-      "noema-model-evals may not enable transitional feature noema-core/local-model-evals",
-    );
-  });
-
-  test("keeps the model eval crate framework-free", () => {
-    const errors = validateMetadata(
-      metadata([
-        { name: "noema-core" },
-        {
-          name: "noema-model-evals",
-          dependencies: [{ name: "async-graphql" }],
-        },
-      ]),
-    );
-
-    expect(errors).toContain(
-      "noema-model-evals contract boundary may not depend on async-graphql",
+      "noema-model-evals must directly enable evaluation feature noema-runtime/eval-support",
     );
   });
 });

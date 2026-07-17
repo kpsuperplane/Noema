@@ -2476,32 +2476,32 @@ or API behavior.
 **Goal:** remove the residual core package and prove every active owner is
 explicit.
 
-- [ ] Inventory every tracked file still under `crates/noema-core` and move it
+- [x] Inventory every tracked file still under `crates/noema-core` and move it
   to an approved owner; do not leave an umbrella library with re-exports.
-- [ ] Delete the remaining `noema-core` modules and any accidental forwarding
+- [x] Delete the remaining `noema-core` modules and any accidental forwarding
   exports found during the inventory.
-- [ ] Remove `crates/noema-core` from workspace members and dependencies.
-- [ ] Remove ignored/generated remnants beneath the old directory, including
+- [x] Remove `crates/noema-core` from workspace members and dependencies.
+- [x] Remove ignored/generated remnants beneath the old directory, including
   core-local `target` trees, sidecar virtual environments/caches, and obsolete
   supermemory binaries. Update `.gitignore` by deleting stale
   `/crates/noema-core/...` rules or relocating still-required patterns to their
   new owner paths; do not use an old-path keepalive directory or symlink.
-- [ ] Set `noema-server` as the default workspace member and set its default
+- [x] Set `noema-server` as the default workspace member and set its default
   runnable binary to `noema_web`; `noema-host` is the composition library, not
   a process entrypoint.
-- [ ] Update `noema-server`, `noema-desktop`, and `noema-model-evals` manifests
+- [x] Update `noema-server`, `noema-desktop`, and `noema-model-evals` manifests
   to direct dependencies.
-- [ ] Verify active source/config contains no `noema_core` imports and no
+- [x] Verify active source/config contains no `noema_core` imports and no
   `crates/noema-core` paths. Update active architecture/project context,
   contributor instructions, CI, scripts, root manifests, and README material;
   historical superseded plans may retain path references.
-- [ ] Confirm `noema-capabilities-mcp` points toward `noema-capabilities` and
+- [x] Confirm `noema-capabilities-mcp` points toward `noema-capabilities` and
   the parent never imports the MCP child.
-- [ ] Compare final GraphQL SDL, generated TypeScript, route tree, and local-model
+- [x] Compare final GraphQL SDL, generated TypeScript, route tree, and local-model
   resource hashes to the Phase 0 baseline, compare SQLite schema to the approved
   post-Phase-10 exact-key baseline, and verify the normalized Rust test inventory.
-- [ ] Record focused and clean build timings and package invalidation changes.
-- [ ] Update `docs/context/current.md` with the final crate map and any honest
+- [x] Record focused and clean build timings and package invalidation changes.
+- [x] Update `docs/context/current.md` with the final crate map and any honest
   deferred cleanup.
 
 **Acceptance:**

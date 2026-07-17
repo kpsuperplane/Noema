@@ -132,12 +132,8 @@ export function validateFocusedTree(
 export function validateTargetPackagePresence(
   packageNames: ReadonlySet<string>,
 ): string[] {
-  if (packageNames.has("noema-core")) {
-    return [];
-  }
-
   return TARGET_PACKAGES.filter((name) => !packageNames.has(name)).map(
-    (name) => `post-core workspace is missing target package: ${name}`,
+    (name) => `workspace is missing target package: ${name}`,
   );
 }
 
@@ -199,11 +195,6 @@ if (import.meta.main) {
 
   for (const focusedPolicy of FOCUSED_TREE_POLICIES) {
     if (!packageNames.has(focusedPolicy.packageName)) {
-      if (packageNames.has("noema-core")) {
-        console.log(
-          `focused dependency tree skipped until extraction: ${focusedPolicy.packageName}`,
-        );
-      }
       continue;
     }
     errors.push(

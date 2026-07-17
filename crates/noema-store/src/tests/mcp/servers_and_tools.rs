@@ -5,7 +5,7 @@ async fn creates_and_lists_mcp_server_with_discovered_tool() {
     let store = test_store().await;
 
     let server = store
-        .create_mcp_server(NewMcpServer {
+        .create_mcp_server(McpServerSeed {
             mcp_server_id: "mcp_server:local-test".to_string(),
             display_name: "Local Test".to_string(),
             transport_kind: McpTransportKind::Stdio,
@@ -24,7 +24,7 @@ async fn creates_and_lists_mcp_server_with_discovered_tool() {
     assert_eq!(server.tool_count, 0);
 
     let tool = store
-        .upsert_discovered_mcp_tool(NewMcpTool {
+        .upsert_discovered_mcp_tool(McpToolSeed {
             mcp_tool_id: "mcp_tool:local-test:read".to_string(),
             mcp_server_id: "mcp_server:local-test".to_string(),
             name: "read".to_string(),
@@ -63,7 +63,7 @@ async fn creates_and_lists_mcp_server_with_discovered_tool() {
 async fn mcp_server_status_can_be_updated_after_setup() {
     let store = test_store().await;
     store
-        .create_mcp_server(NewMcpServer {
+        .create_mcp_server(McpServerSeed {
             mcp_server_id: "mcp:setup".to_string(),
             display_name: "Setup".to_string(),
             transport_kind: McpTransportKind::Stdio,
@@ -137,7 +137,7 @@ async fn rediscovered_tool_metadata_invalidates_reviewed_calibration() {
         .expect("save calibration");
 
     store
-        .upsert_discovered_mcp_tool(NewMcpTool {
+        .upsert_discovered_mcp_tool(McpToolSeed {
             input_schema: json!({"type": "object", "properties": {"id": {"type": "string"}}}),
             ..google_tool("read_doc", json!({"readOnlyHint": true}), "fingerprint_2")
         })
@@ -166,7 +166,7 @@ async fn rediscovered_tool_metadata_invalidates_reviewed_calibration() {
 async fn same_fingerprint_tool_move_recomputes_old_and_new_server_enabled_state() {
     let store = test_store_with_mcp_tool().await;
     store
-        .create_mcp_server(NewMcpServer {
+        .create_mcp_server(McpServerSeed {
             mcp_server_id: "mcp_server:drive".to_string(),
             display_name: "Drive".to_string(),
             transport_kind: McpTransportKind::Stdio,
@@ -197,7 +197,7 @@ async fn same_fingerprint_tool_move_recomputes_old_and_new_server_enabled_state(
     );
 
     store
-        .upsert_discovered_mcp_tool(NewMcpTool {
+        .upsert_discovered_mcp_tool(McpToolSeed {
             mcp_server_id: "mcp_server:drive".to_string(),
             ..google_tool("read_doc", json!({"readOnlyHint": true}), "fingerprint_1")
         })
@@ -241,7 +241,7 @@ async fn mcp_tool_upsert_replaces_discovered_metadata() {
         .expect("create server");
 
     store
-        .upsert_discovered_mcp_tool(NewMcpTool {
+        .upsert_discovered_mcp_tool(McpToolSeed {
             description: Some("Old description".to_string()),
             ..google_tool("read", json!({}), "fingerprint:v1")
         })
@@ -249,7 +249,7 @@ async fn mcp_tool_upsert_replaces_discovered_metadata() {
         .expect("upsert old tool");
 
     let updated = store
-        .upsert_discovered_mcp_tool(NewMcpTool {
+        .upsert_discovered_mcp_tool(McpToolSeed {
             description: Some("New description".to_string()),
             annotations: json!({"destructiveHint": false}),
             ..google_tool("read", json!({}), "fingerprint:v2")

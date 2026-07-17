@@ -3,22 +3,17 @@
 Noema is an open-source, always-on, self-hosted personal agent operating
 system.
 
-This repository currently contains the active Rust product paths:
-
-- `noema-core`: the local runtime host, SQLite store, Mnemosyne integration,
-  provider adapters, GraphQL schema, memory systems, and MCP control plane.
-- `noema-server`: the loopback HTTP transport, browser session boundary,
-  embedded web assets, and standalone web development entrypoints.
-- `noema-desktop`: a macOS Tauri app that starts the Noema runtime host inside
-  the desktop process and talks to it through Tauri IPC/events.
-- `apps/web`: the React product UI used by the web and desktop
-  surfaces.
+The Rust backend is split by ownership rather than collected behind an umbrella
+crate. `noema-host` composes the application from the runtime, persistence,
+provider, memory, and capability crates; `noema-api` exposes the shared GraphQL
+schema; and `noema-server` and `noema-desktop` provide the HTTP and Tauri
+process boundaries. `apps/web` is the React product UI shared by both shells.
 
 The old multi-command Noema CLI surface has been removed. For standalone local
 web development, use the `cargo dev` supervisor. It runs the `noema_web`
 GraphQL/web server watcher next to the Bun web asset watcher. Local product work
-should use that web entrypoint, the core library, the web frontend package, or
-the desktop app.
+should use that web entrypoint, the owning backend crate, the web frontend
+package, or the desktop app.
 
 ```bash
 NOEMA_HOME=.noema-dev cargo dev
@@ -43,11 +38,13 @@ queries and mutations plus `/graphql/ws` for subscriptions. The desktop app
 uses the same GraphQL schema through Tauri commands and events instead of a
 local HTTP server.
 
-`noema-core` owns the runtime and store. It initializes `${NOEMA_HOME}` when the
-runtime host starts, opens SQLite at
-`${NOEMA_HOME:-$HOME/.noema}/db/noema.sqlite3`, manages local Mnemosyne state
-under `${NOEMA_HOME:-$HOME/.noema}/mnemosyne/`, and stores provider credential
-material under `${NOEMA_HOME:-$HOME/.noema}/providers/<provider>/<account>/`.
+`noema-host` owns configuration, startup, composition, and dependency-ordered
+shutdown. During startup it uses `noema-home` to initialize `${NOEMA_HOME}`,
+composes the SQLite-backed `noema-store`, starts the `noema-memory` Mnemosyne
+adapter, and assembles provider and capability implementations. SQLite lives at
+`${NOEMA_HOME:-$HOME/.noema}/db/noema.sqlite3`, local Mnemosyne state lives under
+`${NOEMA_HOME:-$HOME/.noema}/mnemosyne/`, and provider credential material lives
+under `${NOEMA_HOME:-$HOME/.noema}/providers/<provider>/<account>/`.
 
 ## Configuration
 
@@ -156,6 +153,13 @@ root:
 NOEMA_HOME=.noema-dev cargo dev
 ```
 
+To run the authenticated loopback server without the development asset watcher,
+use the workspace default binary:
+
+```bash
+NOEMA_HOME=.noema-dev cargo run
+```
+
 `cargo dev` enables the explicit debug-only `dev-no-auth` feature and binds the
 development server to `0.0.0.0`, so the UI does not require the one-shot browser
 bootstrap URL and can be opened from another device on the LAN. This is an
@@ -208,9 +212,21 @@ cargo test -p noema-desktop
 ## Repository Layout
 
 ```text
-crates/noema-core/       Rust runtime, store, providers, and GraphQL
-apps/web/                React UI and GraphQL operation generation
-crates/noema-server/     Loopback HTTP transport and release web-asset owner
-crates/noema-desktop/    Tauri desktop app
-docs/                    Current design notes and historical plans/specs
+apps/web/                     React UI and GraphQL operation generation
+crates/noema-home/            Home layout, initialization, safe paths, diagnostics
+crates/noema-conversations/   Conversation and transcript domain contracts
+crates/noema-artifacts/       Governed artifact contracts and filesystem service
+crates/noema-capabilities/    Provider-neutral capability and tool contracts
+  mcp/                        MCP contracts and optional local transport adapter
+crates/noema-providers/       Provider contracts, adapters, and local GGUF models
+crates/noema-tasks/           Task, run, submission, and review domain contracts
+crates/noema-memory/          Memory contracts and local Mnemosyne adapter
+crates/noema-store/           SQLite persistence and persistence read models
+crates/noema-runtime/         Governed, transport-neutral agent execution
+crates/noema-host/            Configuration, composition, startup, and shutdown
+crates/noema-api/             Transport-neutral GraphQL schema and resolvers
+crates/noema-server/          HTTP/WebSocket shell and release web-asset owner
+crates/noema-desktop/         Tauri shell using the shared host and GraphQL API
+crates/noema-model-evals/     Opt-in local-model qualification runner
+docs/                         Current design notes and historical plans/specs
 ```

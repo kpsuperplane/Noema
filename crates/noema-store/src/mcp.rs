@@ -16,4 +16,4 @@ use model::{
     ToolCalibrationRecord,
 };
 #[cfg(test)]
-pub(crate) use model::{NewMcpServer, NewMcpTool};
+pub(crate) use model::{McpServerSeed, McpToolSeed};

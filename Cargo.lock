@@ -2774,10 +2774,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "noema-core"
-version = "0.1.0"
-
-[[package]]
 name = "noema-desktop"
 version = "0.1.0"
 dependencies = [

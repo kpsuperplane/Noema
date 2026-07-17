@@ -12,10 +12,7 @@ use noema_providers::{
 use serde_json::json;
 
 use super::{TaskCompletionDeliveryRequest, actor::RuntimeActor};
-use crate::daemon::{
-    AgentStatus,
-    protocol::{RuntimeError, TurnStreamEvent, TurnTranscriptItem},
-};
+use crate::daemon::protocol::{RuntimeError, TurnStreamEvent, TurnTranscriptItem};
 use crate::daemon::{ConversationRuntimeEvent, RuntimeEventRegistry};
 use noema_home::{SystemErrorEvent, SystemErrorLogger};
 
@@ -299,7 +296,7 @@ impl RuntimeActor {
                 client_message_id: None,
                 event: Box::new(TurnStreamEvent::AgentStatusChanged {
                     conversation_id: conversation_id.to_string(),
-                    status: AgentStatus::from(status),
+                    status,
                 }),
             });
     }
