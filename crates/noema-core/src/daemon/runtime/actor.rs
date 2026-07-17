@@ -69,7 +69,7 @@ pub(in crate::daemon) struct CodexRuntimeActor {
     pub(in crate::daemon) store: NoemaStore,
     pub(in crate::daemon) artifact_operations: noema_artifacts::ArtifactOperationsHandle,
     pub(in crate::daemon) system_errors: SystemErrorLogger,
-    pub(in crate::daemon) memory_connection: Option<crate::MnemosyneConnection>,
+    pub(in crate::daemon) memory_operations: Option<noema_memory::MemoryOperationsHandle>,
     pub(in crate::daemon) search_provider: crate::search::types::SearchRuntimeProvider,
     pub(in crate::daemon) web_fetch_provider: crate::web_fetch::types::WebFetchRuntimeProvider,
     pub(in crate::daemon) provider_accounts: ProviderAccountRuntimeAccess,
@@ -90,8 +90,8 @@ impl std::fmt::Debug for CodexRuntimeActor {
             .field("artifact_operations", &"[CONFIGURED]")
             .field("system_errors", &self.system_errors)
             .field(
-                "memory_connection_configured",
-                &self.memory_connection.is_some(),
+                "memory_operations_configured",
+                &self.memory_operations.is_some(),
             )
             .field("search_provider", &self.search_provider)
             .field("web_fetch_provider", &self.web_fetch_provider)
@@ -132,7 +132,7 @@ impl CodexRuntimeActor {
         store: NoemaStore,
         artifact_operations: noema_artifacts::ArtifactOperationsHandle,
         system_errors: SystemErrorLogger,
-        memory_connection: Option<crate::MnemosyneConnection>,
+        memory_operations: Option<noema_memory::MemoryOperationsHandle>,
         task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
     ) -> Result<Self, DaemonError> {
         let provider_routes = LegacyProviderRoutes::new(providers)?;
@@ -144,7 +144,7 @@ impl CodexRuntimeActor {
             store,
             artifact_operations,
             system_errors,
-            memory_connection,
+            memory_operations,
             task_subscriptions,
             provider_accounts,
             capability_bindings,
@@ -162,7 +162,7 @@ impl CodexRuntimeActor {
             store: config.store,
             artifact_operations: config.artifact_operations,
             system_errors: config.system_errors,
-            memory_connection: config.memory_connection,
+            memory_operations: config.memory_operations,
             search_provider: noema_providers::default_web_search_backend(),
             web_fetch_provider: noema_providers::default_web_fetch_backend(),
             provider_accounts: config.provider_accounts,
@@ -245,7 +245,7 @@ impl CodexRuntimeActor {
             store: self.store.clone(),
             artifact_operations: self.artifact_operations.clone(),
             system_errors: self.system_errors.clone(),
-            memory_connection: self.memory_connection.clone(),
+            memory_operations: self.memory_operations.clone(),
             search_provider: self.search_provider.clone(),
             web_fetch_provider: self.web_fetch_provider.clone(),
             provider_accounts: self.provider_accounts.clone(),
@@ -255,12 +255,6 @@ impl CodexRuntimeActor {
             tasks: RuntimeTaskGroup::default(),
             task_subscriptions: self.task_subscriptions.clone(),
         }
-    }
-
-    pub(in crate::daemon) fn memory_client(&self) -> Option<crate::MnemosyneClient> {
-        self.memory_connection.as_ref().map(|connection| {
-            crate::MnemosyneClient::new(connection.base_url.clone(), connection.api_key.clone())
-        })
     }
 
     #[allow(dead_code)]

@@ -1,4 +1,5 @@
 use noema_capabilities::ToolSpec;
+use noema_memory::search_memory_tool_spec;
 use noema_providers::{
     GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
     GenerateRequest, GenerateToolCallInput, GenerateToolResultInput, NoemaToolChoice,
@@ -11,7 +12,6 @@ use super::{
     super::{
         agent_name_tool::update_own_name_tool_spec,
         agent_onboarding::AgentPromptIdentity,
-        memory::tool::search_memory_tool_spec,
         prompts::{
             build_local_tool_result_continuation_system_prompt, build_structured_turn_system_prompt,
         },

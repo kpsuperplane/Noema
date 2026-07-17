@@ -28,6 +28,7 @@ noema-capabilities = { path = "../noema-capabilities" }
 noema-capabilities-mcp = { path = "../noema-capabilities/mcp", default-features = false, features = ["transport"] }
 noema-conversations = { path = "../noema-conversations" }
 noema-home = { path = "../noema-home" }
+noema-memory = { path = "../noema-memory", default-features = false, features = ["service"] }
 noema-providers = { path = "../noema-providers", default-features = false, features = ["adapters", "local-models"] }
 noema-tasks = { path = "../noema-tasks", default-features = false }
 ring.workspace = true

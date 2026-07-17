@@ -1,6 +1,7 @@
 use crate::{NoemaRuntimeHost, NoemaStore, daemon::CodexRuntimeHandle};
 use noema_capabilities_mcp::McpControlPlaneHandle;
 use noema_home::{NoemaPaths, SystemErrorEvent, SystemErrorLogger};
+use noema_memory::{MemoryRepositoryHandle, MemoryServiceAccessHandle};
 use noema_providers::ProviderAccountOperationsHandle;
 
 use super::{ConversationSubscriptionRegistry, local_status::GraphqlMemoryStorageStatus};
@@ -15,7 +16,8 @@ pub struct GraphqlRuntimeState {
     provider_account_operations: Option<ProviderAccountOperationsHandle>,
     mcp_operations: Option<McpControlPlaneHandle>,
     paths: Option<NoemaPaths>,
-    memory_connection: Option<crate::MnemosyneConnection>,
+    memory_repository: Option<MemoryRepositoryHandle>,
+    memory_service_access: Option<MemoryServiceAccessHandle>,
     memory_startup_error: Option<String>,
     subscriptions: ConversationSubscriptionRegistry,
     memory_storage: GraphqlMemoryStorageStatus,
@@ -33,7 +35,8 @@ impl GraphqlRuntimeState {
             provider_account_operations: Some(host.provider_account_operations().clone()),
             mcp_operations: Some(host.mcp_operations().clone()),
             paths: Some(host.paths().clone()),
-            memory_connection: host.memory_connection().cloned(),
+            memory_repository: Some(host.memory_repository().clone()),
+            memory_service_access: Some(host.memory_service_access().clone()),
             memory_startup_error: host.memory_startup_error().map(str::to_string),
             subscriptions: host.subscriptions().clone(),
             memory_storage: GraphqlMemoryStorageStatus::Ready,
@@ -51,7 +54,8 @@ impl GraphqlRuntimeState {
             provider_account_operations: None,
             mcp_operations: None,
             paths: None,
-            memory_connection: None,
+            memory_repository: None,
+            memory_service_access: None,
             memory_startup_error: None,
             subscriptions: ConversationSubscriptionRegistry::default(),
             memory_storage: GraphqlMemoryStorageStatus::Ready,
@@ -64,10 +68,12 @@ impl GraphqlRuntimeState {
     pub fn for_tests_with_store(store: NoemaStore) -> Self {
         let provider_account_operations = test_provider_account_operations(store.clone());
         let mcp_operations = test_mcp_operations(store.clone(), None);
+        let memory_repository: MemoryRepositoryHandle = std::sync::Arc::new(store.clone());
         Self {
             store: Some(store),
             provider_account_operations: Some(provider_account_operations),
             mcp_operations: Some(mcp_operations),
+            memory_repository: Some(memory_repository),
             ..Self::for_tests()
         }
     }
@@ -81,11 +87,13 @@ impl GraphqlRuntimeState {
     ) -> Self {
         let provider_account_operations = test_provider_account_operations(store.clone());
         let mcp_operations = test_mcp_operations(store.clone(), Some(runtime.clone()));
+        let memory_repository: MemoryRepositoryHandle = std::sync::Arc::new(store.clone());
         Self {
             runtime: Some(runtime),
             store: Some(store),
             provider_account_operations: Some(provider_account_operations),
             mcp_operations: Some(mcp_operations),
+            memory_repository: Some(memory_repository),
             ..Self::for_tests()
         }
     }
@@ -98,6 +106,7 @@ impl GraphqlRuntimeState {
             crate::test_support::artifact_operations(&store).expect("test artifact service");
         let provider_account_operations = test_provider_account_service(&store, &paths);
         let mcp_operations = test_mcp_operations(store.clone(), None);
+        let memory_repository: MemoryRepositoryHandle = std::sync::Arc::new(store.clone());
         Self {
             store: Some(store),
             artifact_operations: Some(artifact_operations),
@@ -106,6 +115,7 @@ impl GraphqlRuntimeState {
             )),
             provider_account_operations: Some(provider_account_operations),
             mcp_operations: Some(mcp_operations),
+            memory_repository: Some(memory_repository),
             paths: Some(paths),
             ..Self::for_tests()
         }
@@ -116,6 +126,17 @@ impl GraphqlRuntimeState {
     #[must_use]
     pub(crate) fn with_mcp_operations(mut self, mcp_operations: McpControlPlaneHandle) -> Self {
         self.mcp_operations = Some(mcp_operations);
+        self
+    }
+
+    /// Attach explicit memory-service access to existing test state.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn with_memory_service_access(
+        mut self,
+        memory_service_access: MemoryServiceAccessHandle,
+    ) -> Self {
+        self.memory_service_access = Some(memory_service_access);
         self
     }
 
@@ -179,8 +200,14 @@ impl GraphqlRuntimeState {
             .ok_or_else(|| async_graphql::Error::new("Noema paths are unavailable"))
     }
 
-    pub(crate) fn memory_connection(&self) -> Option<&crate::MnemosyneConnection> {
-        self.memory_connection.as_ref()
+    pub(crate) fn memory_repository(&self) -> async_graphql::Result<&MemoryRepositoryHandle> {
+        self.memory_repository
+            .as_ref()
+            .ok_or_else(|| async_graphql::Error::new("Noema memory repository is unavailable"))
+    }
+
+    pub(crate) fn memory_service_access(&self) -> Option<&MemoryServiceAccessHandle> {
+        self.memory_service_access.as_ref()
     }
 
     pub(crate) fn memory_startup_error(&self) -> Option<&str> {

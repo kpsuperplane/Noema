@@ -1,13 +1,13 @@
 //! Managed Mnemosyne sidecar lifecycle.
 
-use std::{env, process::ExitStatus, process::Stdio};
+use std::{env, path::Path, process::ExitStatus, process::Stdio};
 
-use noema_home::{NoemaPaths, SystemErrorEvent, SystemErrorLogger};
+use noema_home::{SystemErrorEvent, SystemErrorLogger};
 use thiserror::Error;
 use tokio::time::{Duration, sleep};
 
 use super::{MnemosyneConnection, allocate_loopback_port};
-use crate::MemoryModelProxy;
+use crate::{MemoryServiceMode, MemoryServiceSettingsRecord, model_proxy::MemoryModelProxy};
 
 /// Environment variable that overrides the managed Mnemosyne sidecar launch command.
 pub const NOEMA_MNEMOSYNE_SIDECAR_COMMAND_ENV: &str = "NOEMA_MNEMOSYNE_SIDECAR_COMMAND";
@@ -27,22 +27,24 @@ impl MnemosyneLifecycle {
     /// Returns [`MnemosyneLifecycleError`] when managed directory setup or
     /// child-process startup fails.
     pub async fn start(
-        paths: &NoemaPaths,
-        settings: &crate::MemoryServiceSettingsRecord,
+        data_dir: &Path,
+        runtime_dir: &Path,
+        settings: &MemoryServiceSettingsRecord,
         system_errors: SystemErrorLogger,
         model_proxy: Option<MemoryModelProxy>,
     ) -> Result<Self, MnemosyneLifecycleError> {
         match settings.mode {
-            crate::MemoryServiceMode::External => Ok(Self {
+            MemoryServiceMode::External => Ok(Self {
                 child: None,
                 connection: None,
                 model_proxy: None,
             }),
-            crate::MemoryServiceMode::Managed => {
+            MemoryServiceMode::Managed => {
                 let port = allocate_loopback_port()?;
                 let command = MnemosyneSidecarCommand::from_env();
                 Self::start_with_command_and_port(
-                    paths,
+                    data_dir,
+                    runtime_dir,
                     settings,
                     system_errors,
                     command,
@@ -61,32 +63,33 @@ impl MnemosyneLifecycle {
     }
 
     async fn start_with_command_and_port(
-        paths: &NoemaPaths,
-        settings: &crate::MemoryServiceSettingsRecord,
+        data_dir: &Path,
+        runtime_dir: &Path,
+        settings: &MemoryServiceSettingsRecord,
         system_errors: SystemErrorLogger,
         command: MnemosyneSidecarCommand,
         port: u16,
         model_proxy: Option<MemoryModelProxy>,
     ) -> Result<Self, MnemosyneLifecycleError> {
         match settings.mode {
-            crate::MemoryServiceMode::External => Ok(Self {
+            MemoryServiceMode::External => Ok(Self {
                 child: None,
                 connection: None,
                 model_proxy: None,
             }),
-            crate::MemoryServiceMode::Managed => {
+            MemoryServiceMode::Managed => {
                 let Some(model_proxy) = model_proxy else {
                     return Err(MnemosyneLifecycleError::Start(
                         "memory model proxy is unavailable".to_string(),
                     ));
                 };
-                tokio::fs::create_dir_all(paths.mnemosyne_data_dir()).await?;
-                tokio::fs::create_dir_all(paths.mnemosyne_runtime_dir()).await?;
+                tokio::fs::create_dir_all(data_dir).await?;
+                tokio::fs::create_dir_all(runtime_dir).await?;
 
                 let connection = MnemosyneConnection::new(format!("http://127.0.0.1:{port}"), None);
                 let mut process = command.into_process_command(port);
                 process
-                    .env("NOEMA_MNEMOSYNE_DATA_DIR", paths.mnemosyne_data_dir())
+                    .env("NOEMA_MNEMOSYNE_DATA_DIR", data_dir)
                     .env("NOEMA_MNEMOSYNE_PORT", port.to_string())
                     .env(
                         "NOEMA_MEMORY_OPENAI_BASE_URL",
@@ -147,15 +150,17 @@ impl MnemosyneLifecycle {
 
     #[cfg(test)]
     pub(crate) async fn start_with_command_for_test(
-        paths: &NoemaPaths,
+        data_dir: &Path,
+        runtime_dir: &Path,
         command: String,
         model_proxy: MemoryModelProxy,
     ) -> Result<Self, MnemosyneLifecycleError> {
         Self::start_with_command_and_port(
-            paths,
-            &crate::MemoryServiceSettingsRecord {
+            data_dir,
+            runtime_dir,
+            &MemoryServiceSettingsRecord {
                 settings_id: "default".to_string(),
-                mode: crate::MemoryServiceMode::Managed,
+                mode: MemoryServiceMode::Managed,
                 base_url: None,
                 port: None,
                 provider_account_id: None,
@@ -163,7 +168,7 @@ impl MnemosyneLifecycle {
                 model_profile: None,
                 reasoning_effort: None,
             },
-            SystemErrorLogger::new(paths.root().join("errors.jsonl")),
+            SystemErrorLogger::new(runtime_dir.join("errors.jsonl")),
             MnemosyneSidecarCommand::Shell(command),
             0,
             Some(model_proxy),
@@ -240,35 +245,37 @@ pub enum MnemosyneLifecycleError {
 mod tests {
     use std::fs;
 
-    use noema_home::NoemaPaths;
     use tempfile::TempDir;
 
     #[tokio::test]
     async fn managed_mnemosyne_lifecycle_exports_private_sidecar_env() {
         let home = TempDir::new().expect("temp noema home");
-        let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-        let proxy = crate::MemoryModelProxy::start(crate::MemoryModelProxyConfig {
-            route_resolver: crate::test_support::provider_route_resolver(
-                noema_providers::ProviderSelectionSnapshot::explicit(
-                    "codex",
-                    "provider_account:codex:memory-test",
-                    "memory-model",
-                    None,
-                    Some("mnemosyne_test".to_string()),
+        let paths = crate::paths::MemoryServicePaths::from_noema_root(home.path());
+        let proxy = crate::model_proxy::MemoryModelProxy::start(
+            crate::model_proxy::MemoryModelProxyConfig {
+                route_resolver: test_route_resolver(
+                    noema_providers::ProviderSelectionSnapshot::explicit(
+                        "codex",
+                        "provider_account:codex:memory-test",
+                        "memory-model",
+                        None,
+                        Some("mnemosyne_test".to_string()),
+                    ),
+                    std::sync::Arc::new(StaticProvider),
                 ),
-                std::sync::Arc::new(StaticProvider),
-            ),
-            api_key: "proxy-secret".to_string(),
-            model_profile: "memory-model".to_string(),
-            system_errors: None,
-        })
+                api_key: "proxy-secret".to_string(),
+                model_profile: "memory-model".to_string(),
+                system_errors: None,
+            },
+        )
         .await
         .expect("start proxy");
         let openai_base_url = proxy.openai_base_url().to_string();
         let command = write_sleeping_mnemosyne_sidecar(home.path());
 
         let lifecycle = super::MnemosyneLifecycle::start_with_command_for_test(
-            &paths,
+            &paths.data_dir(),
+            &paths.runtime_dir(),
             command.to_string_lossy().to_string(),
             proxy,
         )
@@ -282,7 +289,7 @@ mod tests {
                 .base_url
                 .starts_with("http://127.0.0.1:")
         );
-        let env_file = paths.mnemosyne_data_dir().join("model-env.txt");
+        let env_file = paths.data_dir().join("model-env.txt");
         let env_text = tokio::fs::read_to_string(env_file).await.expect("env file");
         assert!(env_text.contains(&format!("NOEMA_MEMORY_OPENAI_BASE_URL={openai_base_url}")));
         assert!(env_text.contains("NOEMA_MEMORY_OPENAI_API_KEY=proxy-secret"));
@@ -316,6 +323,25 @@ sleep 5
             fs::set_permissions(&path, permissions).expect("chmod");
         }
         path
+    }
+
+    fn test_route_resolver(
+        mut selection: noema_providers::ProviderSelectionSnapshot,
+        provider: noema_providers::ProviderHandle,
+    ) -> noema_providers::ProviderRouteResolverHandle {
+        let key = noema_providers::ProviderInstanceKey::new("codex:mnemosyne-lifecycle:test")
+            .expect("provider key");
+        selection.provider_instance_key = Some(key.clone());
+        let registry = std::sync::Arc::new(noema_providers::ProviderRegistry::new());
+        registry.register(key, provider).expect("register provider");
+        let loader_selection = selection.clone();
+        std::sync::Arc::new(noema_providers::RegistryProviderRouteResolver::new(
+            noema_providers::provider_selection_loader(move || {
+                let selection = loader_selection.clone();
+                Box::pin(async move { Ok(selection) })
+            }),
+            registry,
+        ))
     }
 
     #[derive(Debug)]

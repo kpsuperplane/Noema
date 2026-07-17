@@ -169,24 +169,6 @@ impl NoemaPaths {
         ))
     }
 
-    /// Path to Mnemosyne-owned state.
-    #[must_use]
-    pub fn mnemosyne_dir(&self) -> PathBuf {
-        self.root.join("mnemosyne")
-    }
-
-    /// Path to Mnemosyne managed data.
-    #[must_use]
-    pub fn mnemosyne_data_dir(&self) -> PathBuf {
-        self.mnemosyne_dir().join("data")
-    }
-
-    /// Path to Mnemosyne runtime state.
-    #[must_use]
-    pub fn mnemosyne_runtime_dir(&self) -> PathBuf {
-        self.mnemosyne_dir().join("run")
-    }
-
     /// Path to the conversation filesystem root.
     #[must_use]
     pub fn conversations_dir(&self) -> PathBuf {

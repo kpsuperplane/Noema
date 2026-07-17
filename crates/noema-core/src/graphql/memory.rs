@@ -1,18 +1,16 @@
 use async_graphql::{Enum, InputObject, Json, Result, SimpleObject};
 use std::collections::{BTreeMap, HashSet};
-use std::time::Duration;
 use time::{Duration as TimeDuration, OffsetDateTime, format_description::well_known::Rfc3339};
 
-use crate::{
-    MemoryArticleCacheRecord, MemoryServiceMode, MemoryServiceSettingsRecord,
+use noema_memory::{
+    HUMAN_MEMORY_SCOPE_ID, ListMemoriesRequest, MemoryArticleCacheRecord, MemoryOperationError,
+    MemoryRecord, MemoryServiceMode, MemoryServiceSettingsRecord, MemoryServiceSnapshot,
     SaveMemoryArticleCache, SaveMemoryServiceSettings,
 };
 
-const HUMAN_MEMORY_SCOPE_ID: &str = "human:local";
 const DEFAULT_MEMORY_GRAPH_PAGE: i32 = 1;
 const DEFAULT_MEMORY_GRAPH_LIMIT: i32 = 25;
 const MAX_MEMORY_GRAPH_LIMIT: i32 = 100;
-const MEMORY_SERVICE_READINESS_TIMEOUT: Duration = Duration::from_secs(2);
 const MEMORY_ARTICLE_CACHE_MIN_AGE: TimeDuration = TimeDuration::hours(4);
 const MEMORY_ARTICLE_FORMAT_VERSION: &str = "v2";
 
@@ -273,11 +271,7 @@ pub(super) async fn memory_graph(
     state: &GraphqlState,
     input: GraphqlMemoryGraphInput,
 ) -> Result<GraphqlMemoryGraph> {
-    let store = state.store()?;
-    let settings = store
-        .memory_service_settings()
-        .await
-        .map_err(graphql_error)?;
+    let (settings, memory_operations) = resolve_memory_service(state).await?.into_parts();
     let page = input.page.unwrap_or(DEFAULT_MEMORY_GRAPH_PAGE).max(1);
     let limit = input
         .limit
@@ -289,16 +283,8 @@ pub(super) async fn memory_graph(
         has_more: false,
         total: None,
     };
-    let Some(connection) = memory_graph_connection(state, &settings).await? else {
-        let status = match settings.mode {
-            MemoryServiceMode::Managed => managed_memory_unavailable_status(state).await?,
-            MemoryServiceMode::External => GraphqlMemoryServiceStatus {
-                status: GraphqlMemoryServiceStatusKind::NotConfigured,
-                checked_at: Some(now_rfc3339()?),
-                last_error_code: Some("mnemosyne_not_configured".to_string()),
-                last_error_message: Some("memory service base URL is required".to_string()),
-            },
-        };
+    let Some(memory_operations) = memory_operations else {
+        let status = missing_memory_operations_status(state, &settings).await?;
         return Ok(GraphqlMemoryGraph {
             status,
             article: fallback_memory_article(&[], Some(now_rfc3339()?)),
@@ -308,9 +294,8 @@ pub(super) async fn memory_graph(
     };
 
     let request_limit = u16::try_from(limit).expect("memory graph limit is clamped positive");
-    let client = crate::MnemosyneClient::new(connection.base_url, connection.api_key);
-    let response = match client
-        .list_memories(crate::MnemosyneListMemoriesRequest {
+    let response = match memory_operations
+        .list_memories(ListMemoriesRequest {
             user_id: HUMAN_MEMORY_SCOPE_ID.to_string(),
             limit: request_limit,
         })
@@ -318,8 +303,15 @@ pub(super) async fn memory_graph(
     {
         Ok(response) => response,
         Err(error) => {
+            let status = if settings.mode == MemoryServiceMode::Managed
+                && error == MemoryOperationError::ServiceUnavailable
+            {
+                managed_memory_unavailable_status(state).await?
+            } else {
+                memory_graph_error_status(&error)?
+            };
             return Ok(GraphqlMemoryGraph {
-                status: memory_graph_error_status(&error)?,
+                status,
                 article: fallback_memory_article(&[], Some(now_rfc3339()?)),
                 documents: Vec::new(),
                 page_info,
@@ -351,24 +343,19 @@ pub(super) async fn memory_graph(
 pub(super) async fn regenerate_memory_article(
     state: &GraphqlState,
 ) -> Result<GraphqlMemoryArticle> {
-    let store = state.store()?;
-    let settings = store
-        .memory_service_settings()
-        .await
-        .map_err(graphql_error)?;
-    let Some(connection) = memory_graph_connection(state, &settings).await? else {
+    let (_, memory_operations) = resolve_memory_service(state).await?.into_parts();
+    let Some(memory_operations) = memory_operations else {
         return Ok(fallback_memory_article(&[], Some(now_rfc3339()?)));
     };
 
-    let client = crate::MnemosyneClient::new(connection.base_url, connection.api_key);
-    let response = client
-        .list_memories(crate::MnemosyneListMemoriesRequest {
+    let response = memory_operations
+        .list_memories(ListMemoriesRequest {
             user_id: HUMAN_MEMORY_SCOPE_ID.to_string(),
             limit: u16::try_from(MAX_MEMORY_GRAPH_LIMIT)
                 .expect("memory graph max limit fits in u16"),
         })
         .await
-        .map_err(|error| async_graphql::Error::new(error.sanitized_message().to_string()))?;
+        .map_err(|error| async_graphql::Error::new(error.to_string()))?;
 
     memory_article_for_facts(state, &response.results, true).await
 }
@@ -378,6 +365,7 @@ pub(super) async fn save_memory_service_settings(
     input: GraphqlSaveMemoryServiceSettingsInput,
 ) -> Result<GraphqlMemorySettings> {
     let store = state.store()?;
+    let memory_repository = state.memory_repository()?;
     let mode: MemoryServiceMode = input.mode.into();
     let (base_url, port) = match mode {
         MemoryServiceMode::External => {
@@ -432,7 +420,7 @@ pub(super) async fn save_memory_service_settings(
             }
         };
 
-    store
+    memory_repository
         .save_memory_service_settings(SaveMemoryServiceSettings {
             mode,
             base_url,
@@ -448,39 +436,37 @@ pub(super) async fn save_memory_service_settings(
     memory_settings_from_store(state).await
 }
 
-async fn memory_graph_connection(
-    state: &GraphqlState,
-    settings: &MemoryServiceSettingsRecord,
-) -> Result<Option<crate::MnemosyneConnection>> {
-    match settings.mode {
-        MemoryServiceMode::Managed => Ok(state.memory_connection().cloned()),
-        MemoryServiceMode::External => Ok(settings
-            .base_url
-            .clone()
-            .map(|base_url| crate::MnemosyneConnection::new(base_url, None))),
+async fn resolve_memory_service(state: &GraphqlState) -> Result<MemoryServiceSnapshot> {
+    if let Some(access) = state.memory_service_access() {
+        return access.resolve().await.map_err(graphql_error);
     }
+
+    let settings = state
+        .memory_repository()?
+        .memory_service_settings()
+        .await
+        .map_err(graphql_error)?;
+    Ok(MemoryServiceSnapshot::new(settings, None))
 }
 
-fn memory_graph_error_status(
-    error: &crate::MnemosyneClientError,
-) -> Result<GraphqlMemoryServiceStatus> {
-    let status = match error.sanitized_code() {
+fn memory_graph_error_status(error: &MemoryOperationError) -> Result<GraphqlMemoryServiceStatus> {
+    let status = match error.code() {
         "auth_error" => GraphqlMemoryServiceStatusKind::AuthError,
         _ => GraphqlMemoryServiceStatusKind::Unavailable,
     };
     Ok(GraphqlMemoryServiceStatus {
         status,
         checked_at: Some(now_rfc3339()?),
-        last_error_code: Some(error.sanitized_code().to_string()),
-        last_error_message: Some(error.sanitized_message().to_string()),
+        last_error_code: Some(error.code().to_string()),
+        last_error_message: Some(error.to_string()),
     })
 }
 
 async fn mnemosyne_memories_to_graph_documents(
     state: &GraphqlState,
-    memories: Vec<crate::MnemosyneMemory>,
+    memories: Vec<MemoryRecord>,
 ) -> Result<Vec<GraphqlMemoryGraphDocument>> {
-    let mut groups = BTreeMap::<String, Vec<crate::MnemosyneMemory>>::new();
+    let mut groups = BTreeMap::<String, Vec<MemoryRecord>>::new();
     for memory in memories {
         let document_id = memory
             .metadata
@@ -617,16 +603,16 @@ fn metadata_string(metadata: &serde_json::Value, keys: &[&str]) -> Option<String
 
 async fn memory_article_for_facts(
     state: &GraphqlState,
-    memories: &[crate::MnemosyneMemory],
+    memories: &[MemoryRecord],
     force: bool,
 ) -> Result<GraphqlMemoryArticle> {
-    let store = state.store()?;
+    let memory_repository = state.memory_repository()?;
     let fingerprint = memory_fact_fingerprint(memories);
     let now = OffsetDateTime::now_utc();
 
     if !force
-        && let Some(cached) = store
-            .memory_article_cache(HUMAN_MEMORY_SCOPE_ID)
+        && let Some(cached) = memory_repository
+            .memory_article_cache(HUMAN_MEMORY_SCOPE_ID.to_string())
             .await
             .map_err(graphql_error)?
         && (cached.fact_fingerprint == fingerprint
@@ -640,7 +626,7 @@ async fn memory_article_for_facts(
     let generated_at = now_rfc3339()?;
     match generate_memory_article(state, memories, &generated_at).await {
         Ok(article) => {
-            store
+            memory_repository
                 .save_memory_article_cache(SaveMemoryArticleCache {
                     scope_id: HUMAN_MEMORY_SCOPE_ID.to_string(),
                     fact_fingerprint: fingerprint,
@@ -657,12 +643,12 @@ async fn memory_article_for_facts(
 
 async fn generate_memory_article(
     state: &GraphqlState,
-    memories: &[crate::MnemosyneMemory],
+    memories: &[MemoryRecord],
     generated_at: &str,
 ) -> Result<GraphqlMemoryArticle> {
     let runtime = state.runtime()?;
     let settings = state
-        .store()?
+        .memory_repository()?
         .memory_service_settings()
         .await
         .map_err(graphql_error)?;
@@ -709,7 +695,7 @@ async fn generate_memory_article(
     ))
 }
 
-fn memory_article_prompt(memories: &[crate::MnemosyneMemory]) -> String {
+fn memory_article_prompt(memories: &[MemoryRecord]) -> String {
     let facts = if memories.is_empty() {
         "No extracted facts are currently available.".to_string()
     } else {
@@ -778,7 +764,7 @@ Return Markdown only:
 
 fn article_from_cache(
     record: MemoryArticleCacheRecord,
-    memories: &[crate::MnemosyneMemory],
+    memories: &[MemoryRecord],
 ) -> Option<GraphqlMemoryArticle> {
     if record.article_markdown.trim().is_empty() {
         return None;
@@ -807,7 +793,7 @@ fn memory_article_cache_has_current_format(record: &MemoryArticleCacheRecord) ->
 }
 
 fn fallback_memory_article(
-    memories: &[crate::MnemosyneMemory],
+    memories: &[MemoryRecord],
     generated_at: Option<String>,
 ) -> GraphqlMemoryArticle {
     let title = infer_memory_subject_name(memories).unwrap_or_else(|| "Local human".to_string());
@@ -833,7 +819,7 @@ fn fallback_memory_article(
 
 fn markdown_to_memory_article(
     markdown: &str,
-    memories: &[crate::MnemosyneMemory],
+    memories: &[MemoryRecord],
     is_generated: bool,
     generated_at: Option<String>,
 ) -> GraphqlMemoryArticle {
@@ -850,7 +836,7 @@ fn markdown_to_memory_article(
     }
 }
 
-fn normalize_article_markdown(markdown: &str, memories: &[crate::MnemosyneMemory]) -> String {
+fn normalize_article_markdown(markdown: &str, memories: &[MemoryRecord]) -> String {
     let trimmed = markdown.trim();
     if trimmed.is_empty() {
         let title =
@@ -881,7 +867,7 @@ fn biographical_text_from_fact(fact: &str) -> String {
     }
 }
 
-fn infer_memory_subject_name(memories: &[crate::MnemosyneMemory]) -> Option<String> {
+fn infer_memory_subject_name(memories: &[MemoryRecord]) -> Option<String> {
     memories
         .iter()
         .filter_map(|memory| memory.memory.as_deref())
@@ -897,7 +883,7 @@ fn infer_memory_subject_name(memories: &[crate::MnemosyneMemory]) -> Option<Stri
         })
 }
 
-fn memory_fact_fingerprint(memories: &[crate::MnemosyneMemory]) -> String {
+fn memory_fact_fingerprint(memories: &[MemoryRecord]) -> String {
     let mut facts = memories
         .iter()
         .map(|memory| {
@@ -926,10 +912,7 @@ pub(super) fn memory_citation_key(memory_id: &str) -> String {
     format!("m{}", &hex_digest(digest.as_ref())[..16])
 }
 
-fn validate_memory_article_citations(
-    markdown: &str,
-    memories: &[crate::MnemosyneMemory],
-) -> Result<()> {
+fn validate_memory_article_citations(markdown: &str, memories: &[MemoryRecord]) -> Result<()> {
     let cited = article_citation_keys(markdown);
     if memories.is_empty() {
         return if cited.is_empty() {
@@ -985,57 +968,57 @@ fn hex_digest(bytes: &[u8]) -> String {
 pub(super) async fn check_memory_service(
     state: &GraphqlState,
 ) -> Result<GraphqlMemoryServiceStatus> {
-    let store = state.store()?;
-    let settings = store
-        .memory_service_settings()
-        .await
-        .map_err(graphql_error)?;
-    memory_service_status(state, &settings).await
+    let memory_service = resolve_memory_service(state).await?;
+    memory_service_status(state, &memory_service).await
 }
 
 async fn memory_service_status(
     state: &GraphqlState,
-    settings: &MemoryServiceSettingsRecord,
+    memory_service: &MemoryServiceSnapshot,
 ) -> Result<GraphqlMemoryServiceStatus> {
-    let base_url = match settings.mode {
-        MemoryServiceMode::Managed => {
-            let Some(connection) = state.memory_connection() else {
-                return managed_memory_unavailable_status(state).await;
-            };
-            connection.base_url.as_str()
-        }
-        MemoryServiceMode::External => settings
-            .base_url
-            .as_deref()
-            .ok_or_else(|| async_graphql::Error::new("memory service base URL is required"))?,
+    let settings = memory_service.settings();
+    if settings.mode == MemoryServiceMode::External && settings.base_url.is_none() {
+        return Err(async_graphql::Error::new(
+            "memory service base URL is required",
+        ));
+    }
+    let Some(memory_operations) = memory_service.operations() else {
+        return missing_memory_operations_status(state, settings).await;
     };
     let checked_at = Some(now_rfc3339()?);
-    let status = match memory_service_readiness_request(base_url)?.send().await {
-        Ok(response) if response.status().is_success() => GraphqlMemoryServiceStatus {
+    let status = match memory_operations.check_readiness().await {
+        Ok(readiness) if readiness.ready => GraphqlMemoryServiceStatus {
             status: GraphqlMemoryServiceStatusKind::Ready,
             checked_at,
             last_error_code: None,
             last_error_message: None,
         },
-        Ok(response) if response.status().as_u16() == 401 || response.status().as_u16() == 403 => {
-            GraphqlMemoryServiceStatus {
-                status: GraphqlMemoryServiceStatusKind::AuthError,
-                checked_at,
-                last_error_code: Some("auth_error".to_string()),
-                last_error_message: Some("memory service rejected authentication".to_string()),
-            }
-        }
-        Ok(response) => GraphqlMemoryServiceStatus {
+        Ok(_) => GraphqlMemoryServiceStatus {
             status: GraphqlMemoryServiceStatusKind::Unavailable,
             checked_at,
-            last_error_code: Some(format!("http_{}", response.status().as_u16())),
-            last_error_message: Some("memory service returned an unsuccessful status".to_string()),
+            last_error_code: Some("not_ready".to_string()),
+            last_error_message: Some("memory service is not ready".to_string()),
         },
+        Err(MemoryOperationError::ServiceUnavailable)
+            if settings.mode == MemoryServiceMode::Managed =>
+        {
+            return managed_memory_unavailable_status(state).await;
+        }
         Err(error) => GraphqlMemoryServiceStatus {
-            status: GraphqlMemoryServiceStatusKind::Unavailable,
+            status: if error == MemoryOperationError::AuthenticationRejected {
+                GraphqlMemoryServiceStatusKind::AuthError
+            } else {
+                GraphqlMemoryServiceStatusKind::Unavailable
+            },
             checked_at,
-            last_error_code: Some("request_failed".to_string()),
-            last_error_message: Some(sanitize_error_message(&error.to_string())),
+            last_error_code: Some(match error {
+                MemoryOperationError::TimedOut => "request_failed".to_string(),
+                MemoryOperationError::UnsuccessfulStatus(status) => {
+                    format!("http_{status}")
+                }
+                _ => error.code().to_string(),
+            }),
+            last_error_message: Some(error.to_string()),
         },
     };
 
@@ -1056,22 +1039,35 @@ async fn managed_memory_unavailable_status(
     })
 }
 
-fn memory_service_readiness_request(base_url: &str) -> Result<reqwest::RequestBuilder> {
-    let client = reqwest::Client::builder()
-        .timeout(MEMORY_SERVICE_READINESS_TIMEOUT)
-        .build()
-        .map_err(|error| async_graphql::Error::new(error.to_string()))?;
-    Ok(client.get(format!("{}/health", base_url.trim_end_matches('/'))))
+async fn missing_memory_operations_status(
+    state: &GraphqlState,
+    settings: &MemoryServiceSettingsRecord,
+) -> Result<GraphqlMemoryServiceStatus> {
+    match settings.mode {
+        MemoryServiceMode::Managed => managed_memory_unavailable_status(state).await,
+        MemoryServiceMode::External if settings.base_url.is_none() => {
+            Ok(GraphqlMemoryServiceStatus {
+                status: GraphqlMemoryServiceStatusKind::NotConfigured,
+                checked_at: Some(now_rfc3339()?),
+                last_error_code: Some("mnemosyne_not_configured".to_string()),
+                last_error_message: Some("memory service base URL is required".to_string()),
+            })
+        }
+        MemoryServiceMode::External => Ok(GraphqlMemoryServiceStatus {
+            status: GraphqlMemoryServiceStatusKind::Unavailable,
+            checked_at: Some(now_rfc3339()?),
+            last_error_code: Some(MemoryOperationError::ServiceUnavailable.code().to_string()),
+            last_error_message: Some(MemoryOperationError::ServiceUnavailable.to_string()),
+        }),
+    }
 }
 
 async fn memory_settings_from_store(state: &GraphqlState) -> Result<GraphqlMemorySettings> {
     let store = state.store()?;
     let accounts = active_default_model_accounts(state).await?;
-    let settings = store
-        .memory_service_settings()
-        .await
-        .map_err(graphql_error)?;
-    let status = memory_service_status(state, &settings).await?;
+    let memory_service = resolve_memory_service(state).await?;
+    let settings = memory_service.settings().clone();
+    let status = memory_service_status(state, &memory_service).await?;
     let model_options = model_options_from_accounts(store, &accounts).await?;
     Ok(memory_settings_from_parts(settings, status, model_options))
 }

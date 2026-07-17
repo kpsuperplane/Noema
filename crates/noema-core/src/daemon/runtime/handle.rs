@@ -89,7 +89,7 @@ impl CodexRuntimeHandle {
         store: NoemaStore,
         artifact_operations: noema_artifacts::ArtifactOperationsHandle,
         system_errors: SystemErrorLogger,
-        memory_connection: Option<crate::MnemosyneConnection>,
+        memory_operations: Option<noema_memory::MemoryOperationsHandle>,
         task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
     ) -> Result<Self, DaemonError> {
         let provider_accounts = super::actor::test_provider_account_access(&store)?;
@@ -100,7 +100,7 @@ impl CodexRuntimeHandle {
             store,
             artifact_operations,
             system_errors,
-            memory_connection,
+            memory_operations,
             task_subscriptions,
             provider_accounts,
             capability_bindings,
@@ -142,7 +142,7 @@ impl CodexRuntimeHandle {
     pub(crate) async fn spawn_with_provider_and_memory(
         provider: ProviderHandle,
         store: NoemaStore,
-        memory_connection: Option<crate::MnemosyneConnection>,
+        memory_operations: Option<noema_memory::MemoryOperationsHandle>,
     ) -> Result<Self, DaemonError> {
         let provider_kind = "codex".to_string();
         let system_errors = store.system_error_logger();
@@ -154,7 +154,7 @@ impl CodexRuntimeHandle {
             store,
             artifact_operations,
             system_errors,
-            memory_connection,
+            memory_operations,
             crate::graphql::ConversationSubscriptionRegistry::default(),
         )
         .await
@@ -282,7 +282,7 @@ impl CodexRuntimeHandle {
         store: NoemaStore,
         artifact_operations: noema_artifacts::ArtifactOperationsHandle,
         system_errors: SystemErrorLogger,
-        memory_connection: Option<crate::MnemosyneConnection>,
+        memory_operations: Option<noema_memory::MemoryOperationsHandle>,
         task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
     ) -> Result<Self, DaemonError> {
         if !providers.contains_key(&default_provider_kind) {
@@ -300,7 +300,7 @@ impl CodexRuntimeHandle {
             store,
             artifact_operations,
             system_errors,
-            memory_connection,
+            memory_operations,
             task_subscriptions,
             provider_accounts,
             capability_bindings,

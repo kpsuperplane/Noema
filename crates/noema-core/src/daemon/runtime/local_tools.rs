@@ -6,6 +6,7 @@ use noema_capabilities::{
     CapabilityDispatchFailure, CapabilityError, CapabilityFuture, CapabilityInvocation,
     CapabilityInvoker, CapabilityOutput, CapabilityRegistryRouter, CapabilityRouter, InvokerKey,
 };
+use noema_memory::{MemorySearchAuthority, execute_search_memory, is_search_memory_tool};
 use noema_providers::{
     DEFAULT_TOOL_CLASSIFICATION_MODEL, EXA_FETCH_PROVIDER_ID, EXA_SEARCH_PROVIDER_ID,
     ExaFetchClient, ExaSearchClient, ProviderCredential,
@@ -25,7 +26,7 @@ use crate::daemon::{
         ArtifactToolRuntimeContext, execute_artifact_create_local_file,
         is_artifact_create_local_file_tool,
     },
-    memory::tool::{MemoryToolRuntimeContext, execute_search_memory, is_search_memory_tool},
+    memory::context::project_scope_from_cwd,
     task_artifact_tool::{
         TaskArtifactReadContext, execute_task_read_artifact, is_task_read_artifact_tool,
     },
@@ -143,14 +144,10 @@ impl CodexRuntimeActor {
         call: &LocalToolCall,
     ) -> Result<LocalToolResult, CapabilityError> {
         let result = if is_search_memory_tool(&call.name) {
-            let context = MemoryToolRuntimeContext {
-                conversation_id: turn.conversation_id.clone(),
-                turn_id: turn.turn_id.clone(),
-                turn_index: turn.turn_index,
-                call_site_id: format!("output_{}", call.output_index),
-                cwd: turn.cwd.clone(),
-                user_input: turn.user_input.clone(),
-            };
+            let authority = MemorySearchAuthority::for_conversation(
+                &turn.conversation_id,
+                project_scope_from_cwd(turn.cwd.as_deref()),
+            );
             LocalToolResult::Memory {
                 call_id: call.call_id.clone(),
                 provider_call_id: call.provider_call_id.clone(),
@@ -158,9 +155,8 @@ impl CodexRuntimeActor {
                 arguments: call.payload.clone(),
                 persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
                 result: execute_search_memory(
-                    &self.store,
-                    self.memory_client(),
-                    &context,
+                    self.memory_operations.as_deref(),
+                    &authority,
                     call.call_id.clone(),
                     &call.payload,
                 )

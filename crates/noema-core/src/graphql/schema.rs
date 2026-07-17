@@ -131,6 +131,19 @@ impl GraphqlState {
         }
     }
 
+    /// Attach explicit memory-service access to existing test state.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn with_memory_service_access(
+        mut self,
+        memory_service_access: noema_memory::MemoryServiceAccessHandle,
+    ) -> Self {
+        self.runtime_state = self
+            .runtime_state
+            .with_memory_service_access(memory_service_access);
+        self
+    }
+
     /// Attach explicit MCP control-plane operations to existing test state.
     #[cfg(test)]
     #[must_use]
@@ -231,8 +244,12 @@ impl GraphqlState {
         self.runtime_state.paths()
     }
 
-    pub(crate) fn memory_connection(&self) -> Option<&crate::MnemosyneConnection> {
-        self.runtime_state.memory_connection()
+    pub(crate) fn memory_repository(&self) -> Result<&noema_memory::MemoryRepositoryHandle> {
+        self.runtime_state.memory_repository()
+    }
+
+    pub(crate) fn memory_service_access(&self) -> Option<&noema_memory::MemoryServiceAccessHandle> {
+        self.runtime_state.memory_service_access()
     }
 
     pub(crate) fn memory_startup_error(&self) -> Option<&str> {
@@ -1219,6 +1236,22 @@ mod tests {
         spawn_memory_graph_mnemosyne_server_with_limit(25).await
     }
 
+    fn memory_graph_state(store: crate::NoemaStore) -> GraphqlState {
+        let repository: noema_memory::MemoryRepositoryHandle = Arc::new(store.clone());
+        let access = crate::test_support::memory_service_access(repository);
+        GraphqlState::for_tests_with_store(store).with_memory_service_access(access)
+    }
+
+    fn memory_graph_state_with_runtime(
+        store: crate::NoemaStore,
+        runtime: crate::daemon::CodexRuntimeHandle,
+    ) -> GraphqlState {
+        let repository: noema_memory::MemoryRepositoryHandle = Arc::new(store.clone());
+        let access = crate::test_support::memory_service_access(repository);
+        GraphqlState::for_tests_with_store_and_runtime(store, runtime)
+            .with_memory_service_access(access)
+    }
+
     async fn spawn_memory_graph_mnemosyne_server_with_limit(limit: u16) -> String {
         let results = json!([
             {
@@ -1409,8 +1442,8 @@ mod tests {
         let server_base_url = spawn_memory_graph_mnemosyne_server().await;
         let store = crate::store::tests::test_store().await;
         store
-            .save_memory_service_settings(crate::SaveMemoryServiceSettings {
-                mode: crate::MemoryServiceMode::External,
+            .save_memory_service_settings(noema_memory::SaveMemoryServiceSettings {
+                mode: noema_memory::MemoryServiceMode::External,
                 base_url: Some(server_base_url),
                 port: None,
                 provider_account_id: None,
@@ -1420,7 +1453,7 @@ mod tests {
             })
             .await
             .expect("settings");
-        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let schema = build_schema(memory_graph_state(store));
 
         let response = schema
             .execute(async_graphql::Request::new(
@@ -1582,8 +1615,8 @@ mod tests {
         )
         .await;
         store
-            .save_memory_service_settings(crate::SaveMemoryServiceSettings {
-                mode: crate::MemoryServiceMode::External,
+            .save_memory_service_settings(noema_memory::SaveMemoryServiceSettings {
+                mode: noema_memory::MemoryServiceMode::External,
                 base_url: Some(server_base_url),
                 port: None,
                 provider_account_id: None,
@@ -1593,7 +1626,7 @@ mod tests {
             })
             .await
             .expect("settings");
-        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let schema = build_schema(memory_graph_state(store));
 
         let response = schema
             .execute(async_graphql::Request::new(
@@ -1634,8 +1667,8 @@ mod tests {
         let server_base_url = spawn_memory_graph_mnemosyne_server().await;
         let store = crate::store::tests::test_store().await;
         store
-            .save_memory_service_settings(crate::SaveMemoryServiceSettings {
-                mode: crate::MemoryServiceMode::External,
+            .save_memory_service_settings(noema_memory::SaveMemoryServiceSettings {
+                mode: noema_memory::MemoryServiceMode::External,
                 base_url: Some(server_base_url),
                 port: None,
                 provider_account_id: None,
@@ -1646,7 +1679,7 @@ mod tests {
             .await
             .expect("settings");
         store
-            .save_memory_article_cache(crate::SaveMemoryArticleCache {
+            .save_memory_article_cache(noema_memory::SaveMemoryArticleCache {
                 scope_id: "human:local".to_string(),
                 fact_fingerprint: "legacy-uncited-format".to_string(),
                 article_markdown: "# Legacy\n\nThis cached article has no footnotes.".to_string(),
@@ -1665,10 +1698,7 @@ mod tests {
             Some("test-memory-writer"),
         )
         .await;
-        let schema = build_schema(GraphqlState::for_tests_with_store_and_runtime(
-            store.clone(),
-            runtime,
-        ));
+        let schema = build_schema(memory_graph_state_with_runtime(store.clone(), runtime));
 
         let response = schema
             .execute(async_graphql::Request::new(
@@ -1727,8 +1757,8 @@ mod tests {
         let server_base_url = spawn_memory_graph_mnemosyne_server().await;
         let store = crate::store::tests::test_store().await;
         store
-            .save_memory_service_settings(crate::SaveMemoryServiceSettings {
-                mode: crate::MemoryServiceMode::External,
+            .save_memory_service_settings(noema_memory::SaveMemoryServiceSettings {
+                mode: noema_memory::MemoryServiceMode::External,
                 base_url: Some(server_base_url),
                 port: None,
                 provider_account_id: None,
@@ -1744,10 +1774,7 @@ mod tests {
             Some("test-memory-writer"),
         )
         .await;
-        let schema = build_schema(GraphqlState::for_tests_with_store_and_runtime(
-            store.clone(),
-            runtime,
-        ));
+        let schema = build_schema(memory_graph_state_with_runtime(store.clone(), runtime));
 
         let response = schema
             .execute(async_graphql::Request::new(
@@ -1779,8 +1806,8 @@ mod tests {
         let server_base_url = spawn_memory_graph_mnemosyne_server().await;
         let store = crate::store::tests::test_store().await;
         store
-            .save_memory_service_settings(crate::SaveMemoryServiceSettings {
-                mode: crate::MemoryServiceMode::External,
+            .save_memory_service_settings(noema_memory::SaveMemoryServiceSettings {
+                mode: noema_memory::MemoryServiceMode::External,
                 base_url: Some(server_base_url),
                 port: None,
                 provider_account_id: Some("provider_account:codex:default".to_string()),
@@ -1798,10 +1825,7 @@ mod tests {
             Some("wrong-tool-classifier"),
         )
         .await;
-        let schema = build_schema(GraphqlState::for_tests_with_store_and_runtime(
-            store.clone(),
-            runtime,
-        ));
+        let schema = build_schema(memory_graph_state_with_runtime(store.clone(), runtime));
 
         schema
             .execute(async_graphql::Request::new(
@@ -1825,8 +1849,8 @@ mod tests {
         let server_base_url = spawn_memory_graph_mnemosyne_server_with_limit(100).await;
         let store = crate::store::tests::test_store().await;
         store
-            .save_memory_service_settings(crate::SaveMemoryServiceSettings {
-                mode: crate::MemoryServiceMode::External,
+            .save_memory_service_settings(noema_memory::SaveMemoryServiceSettings {
+                mode: noema_memory::MemoryServiceMode::External,
                 base_url: Some(server_base_url),
                 port: None,
                 provider_account_id: None,
@@ -1844,10 +1868,7 @@ mod tests {
             Some("test-memory-writer"),
         )
         .await;
-        let schema = build_schema(GraphqlState::for_tests_with_store_and_runtime(
-            store.clone(),
-            runtime,
-        ));
+        let schema = build_schema(memory_graph_state_with_runtime(store.clone(), runtime));
 
         let response = schema
             .execute(async_graphql::Request::new(
@@ -1927,7 +1948,7 @@ mod tests {
         });
 
         let store = crate::store::tests::test_store().await;
-        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let schema = build_schema(memory_graph_state(store));
         let save_response = schema
             .execute(format!(
                 r#"

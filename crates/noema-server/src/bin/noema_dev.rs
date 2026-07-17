@@ -1,5 +1,8 @@
 //! Local development supervisor for Noema web mode.
 
+#[path = "noema_dev/mnemosyne.rs"]
+mod mnemosyne;
+
 use std::{
     env,
     future::Future,
@@ -16,7 +19,6 @@ use tokio::{
 
 const WEB_ASSET_WATCH_SCRIPT: &str = "dev:assets";
 const DEV_RUST_TARGET_DIR: &str = "target/noema-dev";
-const MNEMOSYNE_INSTALL_STAMP_FILE: &str = ".noema-install.stamp";
 
 #[derive(Debug, Error)]
 enum DevError {
@@ -67,7 +69,7 @@ async fn run() -> Result<(), DevError> {
     let web_dir = repo_root.join("crates/noema-core/web");
 
     generate_graphql_schema(&repo_root)?;
-    let mnemosyne_sidecar_command = ensure_dev_mnemosyne_sidecar(&repo_root).await?;
+    let mnemosyne_sidecar_command = mnemosyne::ensure_dev_sidecar(&repo_root).await?;
 
     let mut web = spawn_web_watcher(&web_dir)?;
     let mut server = spawn_web_server_watcher(&repo_root, mnemosyne_sidecar_command.as_deref())?;
@@ -175,10 +177,7 @@ fn spawn_web_server_watcher(
     command.env("CARGO_TARGET_DIR", dev_rust_target_dir(repo_root));
     command.env("NOEMA_WEB__HOST", "0.0.0.0");
     if let Some(mnemosyne_sidecar_command) = mnemosyne_sidecar_command {
-        command.env(
-            noema_core::mnemosyne::NOEMA_MNEMOSYNE_SIDECAR_COMMAND_ENV,
-            mnemosyne_sidecar_command,
-        );
+        command.env(mnemosyne::SIDECAR_COMMAND_ENV, mnemosyne_sidecar_command);
     }
 
     spawn_dev_process("web server watcher", &mut command, repo_root)
@@ -192,9 +191,10 @@ fn dev_rust_target_dir(repo_root: &Path) -> PathBuf {
     repo_root.join(DEV_RUST_TARGET_DIR)
 }
 
-fn web_server_watch_ignore_globs() -> [&'static str; 2] {
+fn web_server_watch_ignore_globs() -> [&'static str; 3] {
     [
         "crates/noema-core/web/**",
+        "crates/noema-memory/mnemosyne-sidecar/**",
         "crates/noema-server/target/web-assets/**",
     ]
 }
@@ -252,202 +252,6 @@ fn generate_graphql_schema(repo_root: &Path) -> Result<(), DevError> {
         .map_err(|source| DevError::GenerateSchema { source })?;
     eprintln!("wrote {}", output_path.display());
     Ok(())
-}
-
-async fn ensure_dev_mnemosyne_sidecar(repo_root: &Path) -> Result<Option<String>, DevError> {
-    if env::var_os(noema_core::mnemosyne::NOEMA_MNEMOSYNE_SIDECAR_COMMAND_ENV).is_some() {
-        eprintln!(
-            "using {} override for managed Mnemosyne",
-            noema_core::mnemosyne::NOEMA_MNEMOSYNE_SIDECAR_COMMAND_ENV
-        );
-        return Ok(None);
-    }
-
-    let python = mnemosyne_venv_python(repo_root);
-    if !executable_exists(&python) {
-        let base_python = mnemosyne_base_python().await?;
-        eprintln!(
-            "creating dev Mnemosyne sidecar environment at {}",
-            mnemosyne_sidecar_venv_dir(repo_root).display()
-        );
-        let status = mnemosyne_venv_create_command(repo_root, &base_python)
-            .status()
-            .await
-            .map_err(|source| DevError::InstallMnemosyne { source })?;
-        if !status.success() {
-            return Err(DevError::MnemosyneInstallerExited { status });
-        }
-    }
-
-    if mnemosyne_install_is_current(repo_root)? {
-        eprintln!(
-            "reusing dev Mnemosyne sidecar package in {}",
-            mnemosyne_sidecar_venv_dir(repo_root).display()
-        );
-    } else {
-        eprintln!(
-            "installing dev Mnemosyne sidecar package into {}",
-            mnemosyne_sidecar_venv_dir(repo_root).display()
-        );
-        let status = mnemosyne_install_command(repo_root)
-            .status()
-            .await
-            .map_err(|source| DevError::InstallMnemosyne { source })?;
-        if !status.success() {
-            return Err(DevError::MnemosyneInstallerExited { status });
-        }
-        mark_mnemosyne_install_current(repo_root)?;
-    }
-    let command = mnemosyne_sidecar_uvicorn_command(&python);
-    eprintln!("dev Mnemosyne sidecar: {}", python.display());
-    Ok(Some(command))
-}
-
-fn mnemosyne_sidecar_uvicorn_command(python: &Path) -> String {
-    format!(
-        "{} -m uvicorn --factory noema_mnemosyne_sidecar.app:create_app --host 127.0.0.1 --port \"$NOEMA_MNEMOSYNE_PORT\"",
-        shell_quote(python)
-    )
-}
-
-fn mnemosyne_install_stamp_path(repo_root: &Path) -> PathBuf {
-    mnemosyne_sidecar_venv_dir(repo_root).join(MNEMOSYNE_INSTALL_STAMP_FILE)
-}
-
-fn mnemosyne_install_is_current(repo_root: &Path) -> Result<bool, DevError> {
-    let Ok(stamp) = std::fs::metadata(mnemosyne_install_stamp_path(repo_root)) else {
-        return Ok(false);
-    };
-    let manifest =
-        std::fs::metadata(mnemosyne_sidecar_source_dir(repo_root).join("pyproject.toml"))
-            .map_err(|source| DevError::InstallMnemosyne { source })?;
-    let stamp_modified = stamp
-        .modified()
-        .map_err(|source| DevError::InstallMnemosyne { source })?;
-    let manifest_modified = manifest
-        .modified()
-        .map_err(|source| DevError::InstallMnemosyne { source })?;
-    Ok(stamp_modified >= manifest_modified)
-}
-
-fn mark_mnemosyne_install_current(repo_root: &Path) -> Result<(), DevError> {
-    std::fs::write(mnemosyne_install_stamp_path(repo_root), b"editable")
-        .map_err(|source| DevError::InstallMnemosyne { source })
-}
-
-async fn mnemosyne_base_python() -> Result<PathBuf, DevError> {
-    for candidate in mnemosyne_python_candidates() {
-        if !executable_exists(&candidate) {
-            continue;
-        }
-        let status = Command::new(&candidate)
-            .arg("-c")
-            .arg("import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .await
-            .map_err(|source| DevError::InstallMnemosyne { source })?;
-        if status.success() {
-            return Ok(candidate);
-        }
-    }
-    Err(DevError::MissingMnemosynePython)
-}
-
-fn mnemosyne_python_candidates() -> Vec<PathBuf> {
-    [
-        "python3.13",
-        "python3.12",
-        "python3.11",
-        "python3.10",
-        "/opt/homebrew/bin/python3.13",
-        "/opt/homebrew/bin/python3.12",
-        "/opt/homebrew/bin/python3.11",
-        "/opt/homebrew/bin/python3.10",
-        "/usr/local/bin/python3.13",
-        "/usr/local/bin/python3.12",
-        "/usr/local/bin/python3.11",
-        "/usr/local/bin/python3.10",
-        "python3",
-    ]
-    .into_iter()
-    .map(PathBuf::from)
-    .collect()
-}
-
-fn mnemosyne_venv_create_command(repo_root: &Path, base_python: &Path) -> Command {
-    let mut command = Command::new(base_python);
-    command
-        .arg("-m")
-        .arg("venv")
-        .arg(mnemosyne_sidecar_venv_dir(repo_root))
-        .stdin(Stdio::null())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit());
-    command
-}
-
-fn mnemosyne_install_command(repo_root: &Path) -> Command {
-    let mut command = Command::new(mnemosyne_venv_python(repo_root));
-    command
-        .args(mnemosyne_install_args(repo_root))
-        .stdin(Stdio::null())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit());
-    command
-}
-
-fn mnemosyne_install_args(repo_root: &Path) -> Vec<String> {
-    vec![
-        "-m".to_string(),
-        "pip".to_string(),
-        "install".to_string(),
-        "--editable".to_string(),
-        mnemosyne_sidecar_source_dir(repo_root)
-            .display()
-            .to_string(),
-    ]
-}
-
-fn mnemosyne_sidecar_source_dir(repo_root: &Path) -> PathBuf {
-    repo_root.join("crates/noema-core/mnemosyne-sidecar")
-}
-
-fn mnemosyne_sidecar_venv_dir(repo_root: &Path) -> PathBuf {
-    repo_root.join("crates/noema-core/target/mnemosyne-sidecar-venv")
-}
-
-fn mnemosyne_venv_python(repo_root: &Path) -> PathBuf {
-    if cfg!(windows) {
-        mnemosyne_sidecar_venv_dir(repo_root).join("Scripts/python.exe")
-    } else {
-        mnemosyne_sidecar_venv_dir(repo_root).join("bin/python")
-    }
-}
-
-fn shell_quote(path: &Path) -> String {
-    let value = path.to_string_lossy();
-    format!("'{}'", value.replace('\'', "'\\''"))
-}
-
-fn executable_exists(path: &Path) -> bool {
-    let Ok(metadata) = std::fs::metadata(path) else {
-        return false;
-    };
-    if !metadata.is_file() {
-        return false;
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        metadata.permissions().mode() & 0o111 != 0
-    }
-    #[cfg(not(unix))]
-    {
-        true
-    }
 }
 
 fn spawn_dev_process(
@@ -600,11 +404,12 @@ mod tests {
     }
 
     #[test]
-    fn server_watcher_ignores_web_sources_and_generated_assets() {
+    fn server_watcher_ignores_non_rust_sources_and_generated_assets() {
         assert_eq!(
             web_server_watch_ignore_globs(),
             [
                 "crates/noema-core/web/**",
+                "crates/noema-memory/mnemosyne-sidecar/**",
                 "crates/noema-server/target/web-assets/**",
             ]
         );
@@ -623,50 +428,6 @@ mod tests {
         assert_eq!(
             graphql_schema_output_path(Path::new("/workspace")),
             PathBuf::from("/workspace/crates/noema-core/web/src/generated/schema.graphql")
-        );
-    }
-
-    #[test]
-    fn mnemosyne_dev_paths_target_generated_venv() {
-        assert_eq!(
-            mnemosyne_sidecar_source_dir(Path::new("/workspace")),
-            PathBuf::from("/workspace/crates/noema-core/mnemosyne-sidecar")
-        );
-        assert_eq!(
-            mnemosyne_sidecar_venv_dir(Path::new("/workspace")),
-            PathBuf::from("/workspace/crates/noema-core/target/mnemosyne-sidecar-venv")
-        );
-        assert_eq!(
-            mnemosyne_venv_python(Path::new("/workspace")),
-            PathBuf::from("/workspace/crates/noema-core/target/mnemosyne-sidecar-venv/bin/python")
-        );
-        assert_eq!(
-            mnemosyne_install_stamp_path(Path::new("/workspace")),
-            PathBuf::from(
-                "/workspace/crates/noema-core/target/mnemosyne-sidecar-venv/.noema-install.stamp"
-            )
-        );
-    }
-
-    #[test]
-    fn mnemosyne_dev_sidecar_command_uses_asgi_factory() {
-        assert_eq!(
-            mnemosyne_sidecar_uvicorn_command(Path::new("/workspace/.venv/bin/python")),
-            "'/workspace/.venv/bin/python' -m uvicorn --factory noema_mnemosyne_sidecar.app:create_app --host 127.0.0.1 --port \"$NOEMA_MNEMOSYNE_PORT\""
-        );
-    }
-
-    #[test]
-    fn mnemosyne_dev_install_uses_editable_source_package() {
-        assert_eq!(
-            mnemosyne_install_args(Path::new("/workspace")),
-            vec![
-                "-m",
-                "pip",
-                "install",
-                "--editable",
-                "/workspace/crates/noema-core/mnemosyne-sidecar"
-            ]
         );
     }
 

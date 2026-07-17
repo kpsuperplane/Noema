@@ -3,12 +3,12 @@
 use crate::{
     daemon::{
         agent_name_tool::AgentNameToolResult, agent_onboarding::AgentPromptIdentity,
-        artifact_tool::ArtifactToolResult, memory::tool::MemoryToolResult,
-        protocol::TurnTranscriptItem,
+        artifact_tool::ArtifactToolResult, protocol::TurnTranscriptItem,
     },
     search::tool::WebSearchToolResult,
     web_fetch::tool::WebFetchToolResult,
 };
+use noema_memory::MemoryToolResult;
 use noema_providers::GenerateActionItem;
 use serde_json::{Value, json};
 

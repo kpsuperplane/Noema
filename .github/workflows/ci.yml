@@ -100,14 +100,14 @@ jobs:
     timeout-minutes: 30
     defaults:
       run:
-        working-directory: crates/noema-core/mnemosyne-sidecar
+        working-directory: crates/noema-memory/mnemosyne-sidecar
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: crates/noema-core/mnemosyne-sidecar/pyproject.toml
+          cache-dependency-path: crates/noema-memory/mnemosyne-sidecar/pyproject.toml
       - run: python -m pip install --upgrade pip
       - run: python -m pip install --group dev .
       - run: python -m pytest -q tests

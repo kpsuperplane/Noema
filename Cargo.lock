@@ -2762,6 +2762,7 @@ dependencies = [
  "noema-capabilities-mcp",
  "noema-conversations",
  "noema-home",
+ "noema-memory",
  "noema-providers",
  "noema-tasks",
  "reqwest",
@@ -2806,6 +2807,23 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "time",
+]
+
+[[package]]
+name = "noema-memory"
+version = "0.1.0"
+dependencies = [
+ "http",
+ "noema-capabilities",
+ "noema-home",
+ "noema-providers",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "url",
 ]
 
 [[package]]

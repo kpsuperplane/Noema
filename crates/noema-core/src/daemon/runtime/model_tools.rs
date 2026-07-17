@@ -4,7 +4,6 @@ use crate::{
     daemon::{
         agent_name_tool::update_own_name_tool_spec,
         artifact_tool::artifact_create_local_file_tool_spec,
-        memory::tool::search_memory_tool_spec,
         task_artifact_tool::{TASK_READ_ARTIFACT_TOOL, task_read_artifact_tool_spec},
         task_tool::{
             TASK_CANCEL_TOOL, TASK_INSPECT_TOOL, TASK_REPORT_BLOCKED_TOOL, TASK_RESUME_TOOL,
@@ -23,6 +22,7 @@ use noema_capabilities::{
     CapabilityEffect, CapabilityScope, CapabilityTarget, InvokerKey, RedactingPayloadSanitizer,
     ToolContractError, ToolName, ToolSpec, WebFetchPayloadSanitizer,
 };
+use noema_memory::search_memory_tool_spec;
 use noema_providers::{
     NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderToolCapabilities,
     ProviderToolTransport,

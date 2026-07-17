@@ -2,111 +2,13 @@
 
 use rusqlite::{OptionalExtension, params};
 
+use noema_memory::{
+    MemoryArticleCacheRecord, MemoryServiceMode, MemoryServiceSettingsRecord,
+    SaveMemoryArticleCache, SaveMemoryServiceSettings,
+};
 use noema_providers::ReasoningEffort;
 
 use super::{NoemaStore, StoreError, sqlite};
-
-/// Saved memory service mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MemoryServiceMode {
-    /// Noema manages a local memory service child process.
-    Managed,
-    /// Noema connects to an externally managed memory service.
-    External,
-}
-
-impl MemoryServiceMode {
-    /// Return the SQLite representation.
-    #[must_use]
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Managed => "managed",
-            Self::External => "external",
-        }
-    }
-
-    /// Parse the SQLite representation.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError`] when `value` is not a known memory service mode.
-    pub fn parse(value: &str) -> Result<Self, StoreError> {
-        match value {
-            "managed" => Ok(Self::Managed),
-            "external" => Ok(Self::External),
-            _ => Err(StoreError::InvalidEnum {
-                kind: "memory service mode",
-                value: value.to_string(),
-            }),
-        }
-    }
-}
-
-/// Persisted memory service settings.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MemoryServiceSettingsRecord {
-    /// Stable singleton settings id.
-    pub settings_id: String,
-    /// Memory service mode.
-    pub mode: MemoryServiceMode,
-    /// External memory service base URL.
-    pub base_url: Option<String>,
-    /// External service port, when configured.
-    pub port: Option<u16>,
-    /// Provider account used for memory extraction.
-    pub provider_account_id: Option<String>,
-    /// Provider kind used for memory extraction.
-    pub provider_kind: Option<String>,
-    /// Model profile used for memory extraction.
-    pub model_profile: Option<String>,
-    /// Reasoning effort used for memory extraction.
-    pub reasoning_effort: Option<ReasoningEffort>,
-}
-
-/// Input for saving memory service settings.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SaveMemoryServiceSettings {
-    /// Memory service mode.
-    pub mode: MemoryServiceMode,
-    /// External memory service base URL.
-    pub base_url: Option<String>,
-    /// External service port, when configured.
-    pub port: Option<u16>,
-    /// Provider account used for memory extraction.
-    pub provider_account_id: Option<String>,
-    /// Provider kind used for memory extraction.
-    pub provider_kind: Option<String>,
-    /// Model profile used for memory extraction.
-    pub model_profile: Option<String>,
-    /// Reasoning effort used for memory extraction.
-    pub reasoning_effort: Option<ReasoningEffort>,
-}
-
-/// Cached AI-written memory article.
-#[derive(Debug, Clone, PartialEq)]
-pub struct MemoryArticleCacheRecord {
-    /// Memory scope this article describes.
-    pub scope_id: String,
-    /// Fingerprint of the facts used to generate the article.
-    pub fact_fingerprint: String,
-    /// Cached article Markdown.
-    pub article_markdown: String,
-    /// Timestamp when the article was generated.
-    pub generated_at: String,
-}
-
-/// Input for saving a cached memory article.
-#[derive(Debug, Clone, PartialEq)]
-pub struct SaveMemoryArticleCache {
-    /// Memory scope this article describes.
-    pub scope_id: String,
-    /// Fingerprint of the facts used to generate the article.
-    pub fact_fingerprint: String,
-    /// Cached article Markdown.
-    pub article_markdown: String,
-    /// Timestamp when the article was generated.
-    pub generated_at: String,
-}
 
 impl NoemaStore {
     /// Return the singleton memory service settings record.
@@ -261,6 +163,8 @@ fn settings_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryServiceS
     })
 }
 
-fn to_sqlite_from_sql_conversion_failure(error: StoreError) -> rusqlite::Error {
+fn to_sqlite_from_sql_conversion_failure(
+    error: noema_memory::MemorySettingsError,
+) -> rusqlite::Error {
     rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(error))
 }

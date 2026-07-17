@@ -1944,7 +1944,7 @@ async fn sqlite_memory_service_defaults_to_managed() {
 
     let settings = store.memory_service_settings().await.expect("settings");
 
-    assert_eq!(settings.mode, crate::MemoryServiceMode::Managed);
+    assert_eq!(settings.mode, noema_memory::MemoryServiceMode::Managed);
     assert_eq!(settings.base_url, None);
     assert_eq!(settings.port, None);
 }
@@ -1954,8 +1954,8 @@ async fn sqlite_memory_service_settings_round_trip_external() {
     let store = test_store().await;
 
     store
-        .save_memory_service_settings(crate::SaveMemoryServiceSettings {
-            mode: crate::MemoryServiceMode::External,
+        .save_memory_service_settings(noema_memory::SaveMemoryServiceSettings {
+            mode: noema_memory::MemoryServiceMode::External,
             base_url: Some("http://127.0.0.1:7777".to_string()),
             port: None,
             provider_account_id: Some("provider_account:openai:default".to_string()),
@@ -1967,7 +1967,7 @@ async fn sqlite_memory_service_settings_round_trip_external() {
         .expect("save settings");
 
     let settings = store.memory_service_settings().await.expect("settings");
-    assert_eq!(settings.mode, crate::MemoryServiceMode::External);
+    assert_eq!(settings.mode, noema_memory::MemoryServiceMode::External);
     assert_eq!(settings.base_url.as_deref(), Some("http://127.0.0.1:7777"));
     assert_eq!(
         settings.reasoning_effort,
@@ -1980,7 +1980,7 @@ async fn sqlite_memory_article_cache_round_trip() {
     let store = test_store().await;
 
     store
-        .save_memory_article_cache(crate::SaveMemoryArticleCache {
+        .save_memory_article_cache(noema_memory::SaveMemoryArticleCache {
             scope_id: "human:local".to_string(),
             fact_fingerprint: "facts-v1".to_string(),
             article_markdown: "# Kevin\n\nLittle is currently known about Kevin.".to_string(),

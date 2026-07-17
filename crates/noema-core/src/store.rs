@@ -26,6 +26,7 @@ mod local_models;
 #[cfg(test)]
 mod local_models_tests;
 mod mcp;
+mod memory_repository;
 mod memory_service;
 mod provider_account_port;
 mod provider_accounts;
@@ -62,8 +63,4 @@ pub use mcp::{
 };
 #[cfg(test)]
 pub(crate) use mcp::{NewMcpServer, NewMcpTool};
-pub use memory_service::{
-    MemoryArticleCacheRecord, MemoryServiceMode, MemoryServiceSettingsRecord,
-    SaveMemoryArticleCache, SaveMemoryServiceSettings,
-};
 pub use runtime::{NoemaStore, StoreConfig};

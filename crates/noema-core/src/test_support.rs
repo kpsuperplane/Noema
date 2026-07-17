@@ -26,15 +26,15 @@ pub(crate) fn provider_route(
     )
 }
 
-pub(crate) fn provider_route_resolver(
-    selection: noema_providers::ProviderSelectionSnapshot,
-    provider: noema_providers::ProviderHandle,
-) -> noema_providers::ProviderRouteResolverHandle {
-    let provider_kind = selection.provider_kind.clone();
-    let routes = crate::daemon::LegacyProviderRoutes::new([(provider_kind.as_str(), provider)])
-        .expect("test provider routes");
-    routes.bind(noema_providers::provider_selection_loader(move || {
-        let selection = selection.clone();
-        Box::pin(async move { Ok(selection) })
-    }))
+pub(crate) fn mnemosyne_operations_for_base_url(
+    base_url: String,
+) -> noema_memory::MemoryOperationsHandle {
+    let connection = noema_memory::MnemosyneConnection::new(base_url, None);
+    noema_memory::MnemosyneMemoryService::from_connection(Some(connection)).into_handle()
+}
+
+pub(crate) fn memory_service_access(
+    repository: noema_memory::MemoryRepositoryHandle,
+) -> noema_memory::MemoryServiceAccessHandle {
+    noema_memory::MnemosyneMemoryServiceAccess::new(repository, None).into_handle()
 }

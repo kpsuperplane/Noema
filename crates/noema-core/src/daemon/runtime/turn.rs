@@ -5,6 +5,7 @@ use noema_conversations::{
 
 use chrono::{Local, SecondsFormat};
 use noema_home::SystemErrorEvent;
+use noema_memory::HUMAN_MEMORY_SCOPE_ID;
 use noema_providers::{
     GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
     GenerateStreamEvent, GenerateToolCall, MultipleChoiceOption, MultipleChoiceSelectionMode,
@@ -53,7 +54,7 @@ use crate::daemon::SYSTEM_ERROR_RUNTIME_INVARIANT;
 use crate::daemon::{
     agent_name_tool::is_update_own_name_tool,
     agent_onboarding::AgentPromptIdentity,
-    memory::{HUMAN_MEMORY_SCOPE_ID, context::ConversationMemoryContext},
+    memory::context::ConversationMemoryContext,
     prompts::{
         build_initial_name_onboarding_system_prompt,
         build_local_tool_result_continuation_system_prompt,
@@ -238,7 +239,7 @@ fn build_memory_observation_add_request(
     user_item_id: &str,
     user_text: &str,
     assistant_context: Vec<String>,
-) -> Option<crate::MnemosyneAddMemoryRequest> {
+) -> Option<noema_memory::AddMemoryRequest> {
     let source_observation = user_text.trim();
     if source_observation.is_empty() {
         return None;
@@ -248,18 +249,18 @@ fn build_memory_observation_add_request(
         .into_iter()
         .filter_map(|content| {
             let content = content.trim();
-            (!content.is_empty()).then(|| crate::MnemosyneMessage {
+            (!content.is_empty()).then(|| noema_memory::MemoryMessage {
                 role: "assistant".to_string(),
                 content: content.to_string(),
             })
         })
         .collect::<Vec<_>>();
-    messages.push(crate::MnemosyneMessage {
+    messages.push(noema_memory::MemoryMessage {
         role: "user".to_string(),
         content: source_observation.to_string(),
     });
 
-    Some(crate::MnemosyneAddMemoryRequest {
+    Some(noema_memory::AddMemoryRequest {
         messages,
         user_id: HUMAN_MEMORY_SCOPE_ID.to_string(),
         agent_id: Some("agent:local".to_string()),
@@ -2107,7 +2108,7 @@ impl CodexRuntimeActor {
         ) else {
             return;
         };
-        let Some(client) = self.memory_client() else {
+        let Some(memory_operations) = self.memory_operations.clone() else {
             self.log_runtime_invariant(
                 "memory observation could not be submitted",
                 json!({
@@ -2130,15 +2131,15 @@ impl CodexRuntimeActor {
         });
         self.tasks.spawn(async move {
             let _ = await_turn_finished.await;
-            if let Err(error) = client.add_memory(request).await {
+            if let Err(error) = memory_operations.add_memory(request).await {
                 let message = "memory observation submit failed".to_string();
                 system_errors.try_append(
                     SystemErrorEvent::new(SYSTEM_ERROR_RUNTIME_INVARIANT, message.clone())
                         .with_context(error_context)
                         .with_error_chain([message])
                         .with_raw(json!({
-                            "error_code": error.sanitized_code(),
-                            "error": error.sanitized_message(),
+                            "error_code": error.code(),
+                            "error": error.to_string(),
                         })),
                 );
             }

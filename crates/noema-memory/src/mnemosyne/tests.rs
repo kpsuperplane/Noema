@@ -6,15 +6,18 @@ use tokio::{
     sync::Mutex,
 };
 
+use crate::model::{AddMemoryRequest, MemoryMessage, SearchMemoriesRequest};
+
 #[tokio::test]
 async fn mnemosyne_client_add_posts_v1_memories_add() {
     let server =
         FakeMnemosyneServer::start("POST", "/v1/memories/add", serde_json::json!({})).await;
-    let client = crate::MnemosyneClient::new(server.base_url(), Some("mnemosyne_test".to_string()));
+    let client =
+        super::client::MnemosyneClient::new(server.base_url(), Some("mnemosyne_test".to_string()));
 
     client
-        .add_memory(crate::MnemosyneAddMemoryRequest {
-            messages: vec![crate::MnemosyneMessage {
+        .add_memory(AddMemoryRequest {
+            messages: vec![MemoryMessage {
                 role: "user".to_string(),
                 content: "I love planes.".to_string(),
             }],
@@ -56,10 +59,10 @@ async fn mnemosyne_client_search_posts_v1_memories_search() {
         }),
     )
     .await;
-    let client = crate::MnemosyneClient::new(server.base_url(), None);
+    let client = super::client::MnemosyneClient::new(server.base_url(), None);
 
     let response = client
-        .search_memories(crate::MnemosyneSearchRequest {
+        .search_memories(SearchMemoriesRequest {
             query: "planes".to_string(),
             user_id: "human:local".to_string(),
             agent_id: None,
@@ -87,14 +90,14 @@ async fn mnemosyne_client_times_out_when_server_never_responds() {
         let _ = stream.read(&mut buffer).await.expect("read request");
         tokio::time::sleep(std::time::Duration::from_secs(30)).await;
     });
-    let client = crate::MnemosyneClient::new_with_request_timeout(
+    let client = super::client::MnemosyneClient::new_with_request_timeout(
         base_url,
         None,
         std::time::Duration::from_millis(100),
     );
 
     let error = client
-        .search_memories(crate::MnemosyneSearchRequest {
+        .search_memories(SearchMemoriesRequest {
             query: "preferences".to_string(),
             user_id: "human:local".to_string(),
             agent_id: None,
@@ -109,6 +112,15 @@ async fn mnemosyne_client_times_out_when_server_never_responds() {
         error.sanitized_message(),
         "memory service request timed out"
     );
+}
+
+#[tokio::test]
+async fn mnemosyne_client_checks_health_readiness() {
+    let server =
+        FakeMnemosyneServer::start("GET", "/health", serde_json::json!({"status": "ready"})).await;
+    let client = super::client::MnemosyneClient::new(server.base_url(), None);
+
+    client.check_readiness().await.expect("readiness");
 }
 
 struct FakeMnemosyneServer {

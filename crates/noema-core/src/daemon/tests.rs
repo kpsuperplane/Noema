@@ -3201,11 +3201,12 @@ async fn memory_observation_waits_for_the_foreground_turn_to_finish() {
     };
     let store = crate::store::tests::test_store().await;
     let server = FakeMemoryServer::start(json!({"results": []}), 1).await;
-    let connection = crate::MnemosyneConnection::new(server.base_url(), None);
+    let memory_operations =
+        crate::test_support::mnemosyne_operations_for_base_url(server.base_url());
     let handle = CodexRuntimeHandle::spawn_with_provider_and_memory(
         Arc::new(provider),
         store,
-        Some(connection),
+        Some(memory_operations),
     )
     .await
     .expect("runtime");
@@ -3257,11 +3258,12 @@ async fn slow_memory_ingest_does_not_delay_provider_response() {
     )
     .await;
     std::mem::forget(home);
-    let connection = crate::MnemosyneConnection::new(server.base_url(), None);
+    let memory_operations =
+        crate::test_support::mnemosyne_operations_for_base_url(server.base_url());
     let handle = CodexRuntimeHandle::spawn_with_provider_and_memory(
         Arc::new(fake_provider(FakeCodexScenario::Simple)),
         store,
-        Some(connection),
+        Some(memory_operations),
     )
     .await
     .expect("runtime");
@@ -4569,8 +4571,8 @@ async fn search_memory_uses_runtime_connection_until_restart() {
     .await
     .expect("first turn");
     store
-        .save_memory_service_settings(crate::SaveMemoryServiceSettings {
-            mode: crate::MemoryServiceMode::External,
+        .save_memory_service_settings(noema_memory::SaveMemoryServiceSettings {
+            mode: noema_memory::MemoryServiceMode::External,
             base_url: Some(second_server.base_url()),
             port: None,
             provider_account_id: None,
@@ -4811,8 +4813,8 @@ async fn test_runtime_handle_with_mnemosyne(
         .expect("store");
     let server = FakeMemoryServer::start(response, 32).await;
     store
-        .save_memory_service_settings(crate::SaveMemoryServiceSettings {
-            mode: crate::MemoryServiceMode::External,
+        .save_memory_service_settings(noema_memory::SaveMemoryServiceSettings {
+            mode: noema_memory::MemoryServiceMode::External,
             base_url: Some(server.base_url()),
             port: None,
             provider_account_id: None,
@@ -4823,11 +4825,12 @@ async fn test_runtime_handle_with_mnemosyne(
         .await
         .expect("save memory settings");
     std::mem::forget(home);
-    let connection = crate::MnemosyneConnection::new(server.base_url(), None);
+    let memory_operations =
+        crate::test_support::mnemosyne_operations_for_base_url(server.base_url());
     let handle = CodexRuntimeHandle::spawn_with_provider_and_memory(
         Arc::new(provider),
         store.clone(),
-        Some(connection),
+        Some(memory_operations),
     )
     .await
     .expect("runtime");
@@ -4840,11 +4843,12 @@ async fn test_runtime_handle_with_private_memory(
 ) -> (CodexRuntimeHandle, crate::NoemaStore, FakeMemoryServer) {
     let store = crate::store::tests::test_store().await;
     let server = FakeMemoryServer::start(response, 32).await;
-    let connection = crate::MnemosyneConnection::new(server.base_url(), None);
+    let memory_operations =
+        crate::test_support::mnemosyne_operations_for_base_url(server.base_url());
     let handle = CodexRuntimeHandle::spawn_with_provider_and_memory(
         Arc::new(provider),
         store.clone(),
-        Some(connection),
+        Some(memory_operations),
     )
     .await
     .expect("runtime");
@@ -4863,8 +4867,8 @@ async fn spawn_runtime_with_memory_provider(
     store.ensure_default_actors().await.expect("actors");
     let server = FakeMemoryServer::start(response, 32).await;
     store
-        .save_memory_service_settings(crate::SaveMemoryServiceSettings {
-            mode: crate::MemoryServiceMode::External,
+        .save_memory_service_settings(noema_memory::SaveMemoryServiceSettings {
+            mode: noema_memory::MemoryServiceMode::External,
             base_url: Some(server.base_url()),
             port: None,
             provider_account_id: None,
@@ -4875,11 +4879,12 @@ async fn spawn_runtime_with_memory_provider(
         .await
         .expect("save memory settings");
     std::mem::forget(home);
-    let connection = crate::MnemosyneConnection::new(server.base_url(), None);
+    let memory_operations =
+        crate::test_support::mnemosyne_operations_for_base_url(server.base_url());
     let handle = CodexRuntimeHandle::spawn_with_provider_and_memory(
         provider,
         store.clone(),
-        Some(connection),
+        Some(memory_operations),
     )
     .await
     .expect("runtime");

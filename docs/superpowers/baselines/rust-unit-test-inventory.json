@@ -941,6 +941,15 @@
     "metadata_request_sends_current_sdk_protocol_version": [
       "metadata_probe_sends_current_protocol_version"
     ],
+    "mnemosyne_dev_install_uses_editable_source_package": [
+      "dev_install_uses_the_moved_editable_package"
+    ],
+    "mnemosyne_dev_paths_target_generated_venv": [
+      "dev_paths_follow_the_memory_crate"
+    ],
+    "mnemosyne_dev_sidecar_command_uses_asgi_factory": [
+      "sidecar_command_uses_local_environment_contract"
+    ],
     "onboarding_reconciles_existing_noema_codex_tokens": [
       "reconcile_account_marks_existing_codex_tokens_authenticated"
     ],
@@ -970,6 +979,9 @@
     "remove_secret_home_ignores_missing_directory_and_removes_existing_one": [
       "filesystem_secret_removal_is_idempotent_and_removes_the_existing_home"
     ],
+    "route_updates_apply_without_restarting_the_proxy": [
+      "refreshed_selection_preserves_old_lease_and_routes_later_requests_to_replacement"
+    ],
     "safe_config_rejects_secret_shaped_keys": [
       "safe_configuration_rejects_secret_shaped_keys"
     ],
@@ -978,6 +990,9 @@
     ],
     "secret_home_and_file_are_private_on_unix": [
       "committed_secret_directory_and_file_are_private"
+    ],
+    "server_watcher_ignores_web_sources_and_generated_assets": [
+      "server_watcher_ignores_non_rust_sources_and_generated_assets"
     ],
     "start_auth_preserves_provider_start_error_message": [
       "device_auth_failure_does_not_expose_remote_response_text"

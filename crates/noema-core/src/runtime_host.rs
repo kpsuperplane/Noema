@@ -20,11 +20,17 @@ use noema_home::{
     NoemaHomeInitOptions, NoemaPathError, NoemaPaths, SystemErrorEvent, SystemErrorLogger,
     init_noema_home,
 };
+#[cfg(test)]
+use noema_memory::SaveMemoryServiceSettings;
+use noema_memory::{
+    MemoryModelProxy, MemoryModelProxyConfig, MemoryRepositoryHandle, MemoryServiceAccessHandle,
+    MemoryServiceMode, MemoryServicePaths, MemoryServiceSettingsRecord, MnemosyneLifecycle,
+    MnemosyneMemoryService, MnemosyneMemoryServiceAccess, memory_provider_selection_loader,
+};
 use noema_providers::{
     DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS, DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
     DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS, DEFAULT_TOOL_CLASSIFICATION_MODEL,
-    ProviderAccountOperationsHandle, ProviderAccountService, ProviderConfig, ProviderRouteError,
-    ProviderSelectionSnapshot, erase_model_provider, provider_selection_loader,
+    ProviderAccountOperationsHandle, ProviderAccountService, ProviderConfig, erase_model_provider,
 };
 use ring::rand::{SecureRandom, SystemRandom};
 use std::{path::PathBuf, sync::Arc};
@@ -40,7 +46,9 @@ pub struct NoemaRuntimeHost {
     provider_account_operations: ProviderAccountOperationsHandle,
     mcp_service: LocalMcpService,
     mcp_operations: McpControlPlaneHandle,
-    mnemosyne: Option<crate::MnemosyneLifecycle>,
+    memory_repository: MemoryRepositoryHandle,
+    memory_service_access: MemoryServiceAccessHandle,
+    mnemosyne: Option<MnemosyneLifecycle>,
     memory_startup_error: Option<String>,
     system_errors: SystemErrorLogger,
     paths: NoemaPaths,
@@ -209,31 +217,34 @@ impl NoemaRuntimeHost {
         }
         let provider_routes = LegacyProviderRoutes::new(providers.clone())
             .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
-        let memory_settings = store
+        let memory_repository: MemoryRepositoryHandle = Arc::new(store.clone());
+        let memory_settings = memory_repository
             .memory_service_settings()
             .await
             .map_err(|source| RuntimeHostError::Store(source.to_string()))?;
-        let mut mnemosyne_connection = match memory_settings.mode {
-            crate::MemoryServiceMode::External => memory_settings
-                .base_url
-                .clone()
-                .map(|base_url| crate::MnemosyneConnection::new(base_url, None)),
-            crate::MemoryServiceMode::Managed => None,
-        };
+        let external_memory_connection = (memory_settings.mode == MemoryServiceMode::External)
+            .then(|| {
+                memory_settings
+                    .base_url
+                    .clone()
+                    .map(|base_url| noema_memory::MnemosyneConnection::new(base_url, None))
+            })
+            .flatten();
+        let mut managed_memory_connection = None;
         let mut memory_startup_error = None;
         let memory_model_proxy = match memory_settings.mode {
-            crate::MemoryServiceMode::External => None,
-            crate::MemoryServiceMode::Managed => {
+            MemoryServiceMode::External => None,
+            MemoryServiceMode::Managed => {
                 match memory_model_proxy_config_from_settings(
                     &memory_settings,
                     &default_provider_kind,
                     &providers,
                     provider_routes.clone(),
-                    store.clone(),
+                    memory_repository.clone(),
                     generate_memory_model_proxy_api_key().map_err(RuntimeHostError::Runtime)?,
                     system_errors.clone(),
                 ) {
-                    Ok(config) => match crate::MemoryModelProxy::start(config).await {
+                    Ok(config) => match MemoryModelProxy::start(config).await {
                         Ok(proxy) => Some(proxy),
                         Err(error) => {
                             let error = error.to_string();
@@ -263,14 +274,16 @@ impl NoemaRuntimeHost {
             }
         };
 
-        let mnemosyne = if memory_settings.mode == crate::MemoryServiceMode::Managed
+        let memory_paths = MemoryServicePaths::from_noema_root(paths.root());
+        let mnemosyne = if memory_settings.mode == MemoryServiceMode::Managed
             && memory_model_proxy.is_none()
             && memory_startup_error.is_some()
         {
             None
         } else {
-            match crate::MnemosyneLifecycle::start(
-                &paths,
+            match MnemosyneLifecycle::start(
+                &memory_paths.data_dir(),
+                &memory_paths.runtime_dir(),
                 &memory_settings,
                 system_errors.clone(),
                 memory_model_proxy,
@@ -279,7 +292,7 @@ impl NoemaRuntimeHost {
             {
                 Ok(lifecycle) => {
                     if let Some(connection) = lifecycle.connection().cloned() {
-                        mnemosyne_connection = Some(connection);
+                        managed_memory_connection = Some(connection);
                     }
                     Some(lifecycle)
                 }
@@ -296,6 +309,16 @@ impl NoemaRuntimeHost {
                 }
             }
         };
+        let memory_service_access = MnemosyneMemoryServiceAccess::new(
+            memory_repository.clone(),
+            managed_memory_connection.clone(),
+        )
+        .into_handle();
+        let runtime_memory_operations = managed_memory_connection
+            .or(external_memory_connection)
+            .map(|connection| {
+                MnemosyneMemoryService::from_connection(Some(connection)).into_handle()
+            });
 
         let subscriptions = crate::graphql::ConversationSubscriptionRegistry::default();
         let artifact_metadata: noema_artifacts::ArtifactMetadataStoreHandle =
@@ -338,7 +361,7 @@ impl NoemaRuntimeHost {
             store: store.clone(),
             artifact_operations: artifact_operations.clone(),
             system_errors: system_errors.clone(),
-            memory_connection: mnemosyne_connection,
+            memory_operations: runtime_memory_operations,
             task_subscriptions: subscriptions.clone(),
             provider_accounts,
             capability_bindings: mcp_service.binding_source(),
@@ -371,6 +394,8 @@ impl NoemaRuntimeHost {
             provider_account_operations,
             mcp_service,
             mcp_operations,
+            memory_repository,
+            memory_service_access,
             mnemosyne,
             memory_startup_error,
             system_errors,
@@ -419,12 +444,16 @@ impl NoemaRuntimeHost {
         &self.paths
     }
 
-    /// Runtime-only managed memory service connection, when available.
+    /// Memory settings and article-cache repository.
     #[must_use]
-    pub fn memory_connection(&self) -> Option<&crate::MnemosyneConnection> {
-        self.mnemosyne
-            .as_ref()
-            .and_then(crate::MnemosyneLifecycle::connection)
+    pub fn memory_repository(&self) -> &MemoryRepositoryHandle {
+        &self.memory_repository
+    }
+
+    /// Request-scoped access to the configured memory service.
+    #[must_use]
+    pub fn memory_service_access(&self) -> &MemoryServiceAccessHandle {
+        &self.memory_service_access
     }
 
     /// Runtime-only managed memory service startup error, when startup failed.
@@ -458,14 +487,14 @@ impl NoemaRuntimeHost {
 }
 
 fn memory_model_proxy_config_from_settings(
-    settings: &crate::MemoryServiceSettingsRecord,
+    settings: &MemoryServiceSettingsRecord,
     default_provider_kind: &str,
     providers: &crate::daemon::RuntimeProviderMap,
     provider_routes: LegacyProviderRoutes,
-    store: NoemaStore,
+    memory_repository: MemoryRepositoryHandle,
     api_key: String,
     system_errors: SystemErrorLogger,
-) -> Result<crate::MemoryModelProxyConfig, String> {
+) -> Result<MemoryModelProxyConfig, String> {
     let provider_kind = settings
         .provider_kind
         .as_deref()
@@ -479,54 +508,16 @@ fn memory_model_proxy_config_from_settings(
         .clone()
         .or_else(|| provider.default_tool_classification_model())
         .unwrap_or_else(|| DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string());
-    let default_provider_kind = default_provider_kind.to_string();
-    let route_resolver = provider_routes.bind(provider_selection_loader(move || {
-        let store = store.clone();
-        let default_provider_kind = default_provider_kind.clone();
-        Box::pin(async move {
-            let settings = store.memory_service_settings().await.map_err(|_| {
-                ProviderRouteError::SelectionLoad {
-                    operation: "load_memory_model_selection",
-                }
-            })?;
-            Ok(memory_provider_selection(&settings, &default_provider_kind))
-        })
-    }));
-    Ok(crate::MemoryModelProxyConfig {
+    let route_resolver = provider_routes.bind(memory_provider_selection_loader(
+        memory_repository,
+        default_provider_kind,
+    ));
+    Ok(MemoryModelProxyConfig {
         route_resolver,
         api_key,
         model_profile,
         system_errors: Some(system_errors),
     })
-}
-
-fn memory_provider_selection(
-    settings: &crate::MemoryServiceSettingsRecord,
-    default_provider_kind: &str,
-) -> ProviderSelectionSnapshot {
-    let provider_kind = settings
-        .provider_kind
-        .as_deref()
-        .unwrap_or(default_provider_kind);
-    let provider_account_id = settings
-        .provider_account_id
-        .clone()
-        .unwrap_or_else(|| format!("provider_account:{provider_kind}:default"));
-    match settings.model_profile.clone() {
-        Some(model_profile) => ProviderSelectionSnapshot::explicit(
-            provider_kind,
-            provider_account_id,
-            model_profile,
-            settings.reasoning_effort,
-            Some("memory_service_settings".to_string()),
-        ),
-        None => ProviderSelectionSnapshot::provider_default(
-            provider_kind,
-            provider_account_id,
-            settings.reasoning_effort,
-            Some("memory_service_settings".to_string()),
-        ),
-    }
 }
 
 fn generate_memory_model_proxy_api_key() -> Result<String, String> {
@@ -616,9 +607,9 @@ mod tests {
                     as noema_providers::ProviderHandle,
             ),
         ]);
-        let settings = crate::MemoryServiceSettingsRecord {
+        let settings = MemoryServiceSettingsRecord {
             settings_id: "default".to_string(),
-            mode: crate::MemoryServiceMode::Managed,
+            mode: MemoryServiceMode::Managed,
             base_url: None,
             port: None,
             provider_account_id: Some("provider_account:foundation_local:default".to_string()),
@@ -632,7 +623,7 @@ mod tests {
             .await
             .expect("foundation account");
         store
-            .save_memory_service_settings(crate::SaveMemoryServiceSettings {
+            .save_memory_service_settings(SaveMemoryServiceSettings {
                 mode: settings.mode,
                 base_url: settings.base_url.clone(),
                 port: settings.port,
@@ -650,7 +641,7 @@ mod tests {
             "codex",
             &providers,
             routes,
-            store.clone(),
+            Arc::new(store.clone()),
             "secret".to_string(),
             test_system_error_logger(),
         )
@@ -679,8 +670,8 @@ mod tests {
             .await
             .expect("codex account");
         store
-            .save_memory_service_settings(crate::SaveMemoryServiceSettings {
-                mode: crate::MemoryServiceMode::Managed,
+            .save_memory_service_settings(SaveMemoryServiceSettings {
+                mode: MemoryServiceMode::Managed,
                 base_url: None,
                 port: None,
                 provider_account_id: Some("provider_account:codex:default".to_string()),
@@ -715,9 +706,9 @@ mod tests {
             "codex".to_string(),
             Arc::new(DefaultModelProvider("codex-default")) as noema_providers::ProviderHandle,
         )]);
-        let settings = crate::MemoryServiceSettingsRecord {
+        let settings = MemoryServiceSettingsRecord {
             settings_id: "default".to_string(),
-            mode: crate::MemoryServiceMode::Managed,
+            mode: MemoryServiceMode::Managed,
             base_url: None,
             port: None,
             provider_account_id: None,
@@ -733,7 +724,7 @@ mod tests {
             "codex",
             &providers,
             routes,
-            store,
+            Arc::new(store),
             "secret".to_string(),
             test_system_error_logger(),
         )

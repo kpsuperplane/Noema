@@ -20,10 +20,6 @@ pub mod graphql;
 /// Curated local-model catalog and hardware-fit recommendation.
 pub mod local_models;
 mod mcp_completion;
-/// Private OpenAI-compatible model proxy for local memory extraction.
-pub mod memory_model_proxy;
-/// Mnemosyne local service client and lifecycle support.
-pub mod mnemosyne;
 /// Onboarding status derived from provider account readiness.
 pub mod onboarding;
 /// Shared runtime host for daemon and desktop client surfaces.
@@ -55,13 +51,6 @@ pub use local_models::{
     LocalModelsProvider, NOEMA_LLAMA_SERVER_PATH_ENV, bundled_llama_server_candidates,
     bundled_llama_server_candidates_in, detect_local_hardware_profiles, tauri_sidecar_input_name,
 };
-pub use memory_model_proxy::{MemoryModelProxy, MemoryModelProxyConfig, MemoryModelProxyError};
-pub use mnemosyne::{
-    MnemosyneAddMemoryRequest, MnemosyneClient, MnemosyneClientError, MnemosyneConnection,
-    MnemosyneLifecycle, MnemosyneLifecycleError, MnemosyneListMemoriesRequest,
-    MnemosyneListMemoriesResponse, MnemosyneMemory, MnemosyneMessage, MnemosyneSearchRequest,
-    MnemosyneSearchResponse,
-};
 pub use noema_capabilities_mcp::{McpCalibrationStatus, McpTransportKind, McpTrustClassification};
 pub use onboarding::{
     OnboardingStatus, OnboardingStep, OnboardingStepStatus, onboarding_status_from_account,
@@ -70,11 +59,9 @@ pub use onboarding::{
 pub use runtime_host::{NoemaRuntimeHost, RuntimeHostError};
 pub use store::{
     AgentRecord, AgentRuntimePreferenceRecord, AgentSystemRole, AuxiliaryModelPreferenceRecord,
-    McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolRecord,
-    MemoryArticleCacheRecord, MemoryServiceMode, MemoryServiceSettingsRecord, NewAgent,
+    McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolRecord, NewAgent,
     NewAgentRuntimePreference, NewAuxiliaryModelPreference, NewToolCalibration, NoemaStore,
-    SaveMemoryArticleCache, SaveMemoryServiceSettings, StoreConfig, StoreError,
-    ToolCalibrationRecord, WEB_FETCH_SUMMARIZER_TASK_ID,
+    StoreConfig, StoreError, ToolCalibrationRecord, WEB_FETCH_SUMMARIZER_TASK_ID,
 };
 #[cfg(test)]
 pub(crate) use store::{NewMcpServer, NewMcpTool};
