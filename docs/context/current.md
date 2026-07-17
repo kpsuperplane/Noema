@@ -958,9 +958,26 @@ The next storage slice should stay small and concrete:
   leases, with in-flight work holding its admitted generation. Adversarial
   review, the full Rust workspace, Python/frontend suites, dependency
   boundaries, preservation baselines, and test inventory are green.
-  Decomposition Phase 9 is next: remove the store's remaining path/diagnostic
-  reverse dependencies, replace cross-module test fixtures, and extract
-  `noema-store` without changing the Phase 0 SQLite schema.
+  Decomposition Phase 9 completed across preflight commit `63268bf9e` and
+  extraction commit `53c907f9d`. `noema-store` now owns the SQLite
+  implementation and persistence-port adapters without retaining a Noema root,
+  diagnostics, runtime, GraphQL, host, provider transport, or private
+  local-model dependency. Core and model evals depend on it directly; core
+  provides semantic consumer fixtures through public repository operations,
+  while raw SQLite access and SQL-shape assertions remain private to store
+  tests. The mandatory store hotspots and test concentrations are split below
+  750 lines. The store retains 89 tests and core retains four artifact
+  composition tests, preserving the pre-move 93-leaf inventory. Bootstrap and
+  effective schema hashes remain byte-for-byte at the Phase 0 baseline, and an
+  adversarial review found no Critical or Important issue. A representative
+  invalidating rebuild now checks the focused store in 0.92 seconds; its core
+  consumer checks in 3.61 seconds, compared with the pre-extraction 4.23-second
+  warm core-only baseline where store edits could not be isolated. The full
+  Rust workspace, strict Clippy, frontend generation/tests/lint/builds,
+  dependency policies, preservation baselines, and normalized test inventory
+  are green. Decomposition Phase 10 is next: harden the pre-v1 schema handshake,
+  move local-model lifecycle ownership into `noema-providers`, persist exact
+  provider-instance routing and retirement, and close the evaluation surface.
 
 - The bounded remediation program completed Phase 2 at `92,157` maintained
   source lines (`-1,767` from its baseline). Axum/tower-sessions now own the

@@ -1682,26 +1682,26 @@ has been removed.
 
 ### Mandatory Preflight
 
-- [ ] `StoreConfig::from_paths` is gone; store construction accepts only an
+- [x] `StoreConfig::from_paths` is gone; store construction accepts only an
   explicit SQLite database-file path or a store-owned database configuration.
   `NoemaStore` retains no Noema root directory.
-- [ ] `NoemaStore::mcp_server_home`, `provider_account_home`, `noema_paths`, and
+- [x] `NoemaStore::mcp_server_home`, `provider_account_home`, `noema_paths`, and
   `system_error_logger` are gone.
-- [ ] Provider capability derivation happens outside repository code.
-- [ ] `StoreError` has no conversion from host config, provider transport,
+- [x] Provider capability derivation happens outside repository code.
+- [x] `StoreError` has no conversion from host config, provider transport,
   GraphQL, or system-diagnostic errors.
-- [ ] Store code has no `noema-home`, `SystemErrorEvent`, or logger dependency.
+- [x] Store code has no `noema-home`, `SystemErrorEvent`, or logger dependency.
   Repository errors expose typed invariant/context data; the consuming service
   boundary decides whether and how to write a diagnostic event.
-- [ ] External tests do not access the raw SQLite connection.
-- [ ] Every current non-store test that imports `store::tests` is assigned a
+- [x] External tests do not access the raw SQLite connection.
+- [x] Every current non-store test that imports `store::tests` is assigned a
   replacement fixture before the module moves. Record the inventory and do not
   rely on a dependency's `#[cfg(test)]` module being visible to consumers.
-- [ ] Public semantic records have moved according to the ownership table.
-- [ ] No store source imports `graphql`, `daemon`, `runtime_host`, host config,
+- [x] Public semantic records have moved according to the ownership table.
+- [x] No store source imports `graphql`, `daemon`, `runtime_host`, host config,
   provider transports, or the private `noema_providers::local_models`
   implementation.
-- [ ] The SQLite bootstrap schema baseline has been captured.
+- [x] The SQLite bootstrap schema baseline has been captured.
 
 **Create:**
 
@@ -1711,33 +1711,33 @@ has been removed.
 
 **Steps:**
 
-- [ ] Move `store.rs` and `store/**` without changing SQL or transaction
+- [x] Move `store.rs` and `store/**` without changing SQL or transaction
   boundaries.
-- [ ] Keep row structs, enum-string parsing adapters, schema labels, allocation
+- [x] Keep row structs, enum-string parsing adapters, schema labels, allocation
   helpers, and query implementation private wherever possible.
-- [ ] Move the already-established artifact, MCP, provider, and memory
+- [x] Move the already-established artifact, MCP, provider, and memory
   persistence-port impl blocks with `NoemaStore` and update their crate paths;
   do not defer first implementation of any subsystem port to this phase.
-- [ ] Import conversation, artifact, task, provider, MCP, and memory semantic
+- [x] Import conversation, artifact, task, provider, MCP, and memory semantic
   types from their owner crates.
-- [ ] Keep agent and auxiliary-preference read models in store until independent
+- [x] Keep agent and auxiliary-preference read models in store until independent
   behavior justifies another crate.
-- [ ] Add `#[cfg(any(test, feature = "test-support"))]` store test support that
+- [x] Add `#[cfg(any(test, feature = "test-support"))]` store test support that
   exposes only an ephemeral initialized store and public repository-level
   helpers. Consumer dev-dependencies may enable `test-support`; production
   dependencies may not.
-- [ ] Move task/runtime/API semantic seed builders to their consuming package's
+- [x] Move task/runtime/API semantic seed builders to their consuming package's
   test-support module, implemented through public store operations. Keep raw
   SQL setup and SQL-shape assertions private to `noema-store` tests.
-- [ ] Split store tests by repository area while moving them; preserve test
+- [x] Split store tests by repository area while moving them; preserve test
   names/counts from the Phase 0 ownership inventory and do not duplicate
   fixtures or reduce transactional coverage.
-- [ ] Update core and every extracted consumer to depend on `noema-store`
+- [x] Update core and every extracted consumer to depend on `noema-store`
   directly; do not re-export it through core.
-- [ ] Compare SQLite schema output/hash with the Phase 0 baseline.
-- [ ] Measure focused store checks and package invalidation against the rejected
+- [x] Compare SQLite schema output/hash with the Phase 0 baseline.
+- [x] Measure focused store checks and package invalidation against the rejected
   July 10 attempt.
-- [ ] Assert store's provider, MCP, memory, and artifact dependencies use
+- [x] Assert store's provider, MCP, memory, and artifact dependencies use
   `default-features = false`; inspect `cargo tree -p noema-store -e normal` for
   the heavy implementations named in the target-graph feature policy.
 
