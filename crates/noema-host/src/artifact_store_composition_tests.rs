@@ -24,8 +24,7 @@ async fn conversation_local_file_artifact_writes_bytes_and_metadata() {
     let store = NoemaStore::open(&store_config(home.path()))
         .await
         .expect("open store");
-    let conversation = store
-        .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
+    let conversation_id = noema_store::test_support::create_local_conversation_id(&store)
         .await
         .expect("conversation");
     let bytes = b"# report\n".to_vec();
@@ -35,7 +34,7 @@ async fn conversation_local_file_artifact_writes_bytes_and_metadata() {
 
     let artifact = artifact_operations
         .create_local_file(CreateLocalArtifactRequest {
-            owner: ArtifactOwnerRef::conversation(&conversation.conversation_id),
+            owner: ArtifactOwnerRef::conversation(&conversation_id),
             title: "Session report".to_string(),
             description: Some("Local markdown artifact".to_string()),
             artifact_kind: "document".to_string(),
@@ -44,7 +43,7 @@ async fn conversation_local_file_artifact_writes_bytes_and_metadata() {
             media_type: Some("text/markdown".to_string()),
             created_by_actor_id: "agent:primary".to_string(),
             source: ArtifactSource {
-                conversation_id: Some(conversation.conversation_id.clone()),
+                conversation_id: Some(conversation_id.clone()),
                 turn_id: None,
                 item_id: None,
             },
@@ -74,7 +73,7 @@ async fn conversation_local_file_artifact_writes_bytes_and_metadata() {
         tokio::fs::read(&absolute_path).await.expect("read bytes"),
         bytes
     );
-    let owner = ArtifactOwnerRef::conversation(&conversation.conversation_id);
+    let owner = ArtifactOwnerRef::conversation(&conversation_id);
     assert!(absolute_path.starts_with(
         noema_artifacts::owner_artifacts_dir(home.path(), &owner).expect("artifact root")
     ));
@@ -91,15 +90,14 @@ async fn conversation_local_file_artifact_rejects_symlinked_artifact_root() {
     let store = NoemaStore::open(&store_config(home.path()))
         .await
         .expect("open store");
-    let conversation = store
-        .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
+    let conversation_id = noema_store::test_support::create_local_conversation_id(&store)
         .await
         .expect("conversation");
     let outside = home.path().join("outside-artifacts");
     tokio::fs::create_dir_all(&outside)
         .await
         .expect("outside dir");
-    let owner = ArtifactOwnerRef::conversation(&conversation.conversation_id);
+    let owner = ArtifactOwnerRef::conversation(&conversation_id);
     let artifact_root =
         noema_artifacts::owner_artifacts_dir(home.path(), &owner).expect("artifact root");
     tokio::fs::create_dir_all(artifact_root.parent().expect("conversation directory"))
@@ -112,7 +110,7 @@ async fn conversation_local_file_artifact_rejects_symlinked_artifact_root() {
         LocalArtifactService::new(home.path(), artifact_metadata).expect("artifact operations");
     let error = artifact_operations
         .create_local_file(CreateLocalArtifactRequest {
-            owner: ArtifactOwnerRef::conversation(&conversation.conversation_id),
+            owner: ArtifactOwnerRef::conversation(&conversation_id),
             title: "Session report".to_string(),
             description: None,
             artifact_kind: "document".to_string(),
@@ -187,11 +185,10 @@ impl ArtifactMetadataStore for BarrierMetadataStore {
 async fn conversation_append_race_has_one_winner_and_cleans_loser() {
     run_append_race(|store| {
         Box::pin(async move {
-            let conversation = store
-                .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
+            let conversation_id = noema_store::test_support::create_local_conversation_id(store)
                 .await
                 .expect("conversation");
-            ArtifactOwnerRef::conversation(conversation.conversation_id)
+            ArtifactOwnerRef::conversation(conversation_id)
         })
     })
     .await;
@@ -201,8 +198,11 @@ async fn conversation_append_race_has_one_winner_and_cleans_loser() {
 async fn task_append_race_has_one_winner_and_cleans_loser() {
     run_append_race(|store| {
         Box::pin(async move {
-            let (task, _) = crate::test_support::seed_task(store, "Artifact append race").await;
-            ArtifactOwnerRef::task(task.task_id)
+            let task_id =
+                noema_store::test_support::create_simple_task_id(store, "Artifact append race")
+                    .await
+                    .expect("task");
+            ArtifactOwnerRef::task(task_id)
         })
     })
     .await;

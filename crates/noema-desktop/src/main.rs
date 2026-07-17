@@ -18,30 +18,20 @@ fn noema_desktop_main() {
         .manage(desktop_state::DesktopState::new())
         .setup(|app| {
             let state = app.state::<desktop_state::DesktopState>();
-            let provider =
-                noema_core::Config::load_daemon(None, noema_core::ConfigOverrides::default())
-                    .map(|config| config.provider)
-                    .unwrap_or_else(|_| {
-                        noema_providers::ProviderConfig::Codex(
-                            noema_providers::CodexProviderConfig::default(),
-                        )
-                    });
             let local_model_runtime_root = app
                 .path()
                 .resource_dir()
                 .map_err(|error| std::io::Error::other(error.to_string()))?
                 .join("binaries")
                 .join("runtime");
-            tauri::async_runtime::block_on(
-                state.initialize(provider, Some(local_model_runtime_root)),
-            )
-            .map_err(|error| {
-                std::io::Error::other(format!(
-                    "{} {}",
-                    error.user_message(),
-                    error.technical_details()
-                ))
-            })?;
+            tauri::async_runtime::block_on(state.initialize(Some(local_model_runtime_root)))
+                .map_err(|error| {
+                    std::io::Error::other(format!(
+                        "{} {}",
+                        error.user_message(),
+                        error.technical_details()
+                    ))
+                })?;
             Ok(())
         })
         .on_window_event(|window, event| {

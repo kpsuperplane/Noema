@@ -1,7 +1,12 @@
-//! Onboarding status derived from configured provider accounts.
+//! Onboarding status and orchestration derived from configured provider accounts.
 
-use noema_providers::{ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod};
+use noema_providers::{
+    LocalModelManager, LocalModelRuntimeStatus, ProviderAccountOperationsHandle,
+    ProviderAccountRecord, ProviderAccountStatus, ProviderAuthAttemptView, ProviderAuthMethod,
+    StartProviderAuthRequest,
+};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 use ts_rs::TS;
 
 const PROVIDER_LOGIN_STEP_ID: &str = "connect_provider_account";
@@ -62,6 +67,114 @@ pub struct OnboardingStatus {
     pub is_user_onboarded: bool,
     /// Ordered onboarding steps for the frontend to render.
     pub steps: Vec<OnboardingStep>,
+}
+
+/// Cross-subsystem first-run onboarding operations.
+#[derive(Clone)]
+pub struct OnboardingService {
+    store: noema_store::NoemaStore,
+    provider_accounts: ProviderAccountOperationsHandle,
+    local_models: LocalModelManager,
+}
+
+impl OnboardingService {
+    /// Build onboarding operations from assembled service handles.
+    #[must_use]
+    pub fn new(
+        store: noema_store::NoemaStore,
+        provider_accounts: ProviderAccountOperationsHandle,
+        local_models: LocalModelManager,
+    ) -> Self {
+        Self {
+            store,
+            provider_accounts,
+            local_models,
+        }
+    }
+
+    /// Resolve the current first-run status from canonical provider selection
+    /// and live local-model availability.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OnboardingServiceError`] when canonical state or provider
+    /// account reconciliation is unavailable.
+    pub async fn status(&self) -> Result<OnboardingStatus, OnboardingServiceError> {
+        let selected_preference = self
+            .store
+            .get_agent_runtime_preference("agent:primary")
+            .await
+            .map_err(|error| OnboardingServiceError::Store(error.to_string()))?;
+        let accounts = self
+            .provider_accounts
+            .active_accounts()
+            .await
+            .map_err(|error| OnboardingServiceError::Provider(error.to_string()))?;
+        let account = selected_preference
+            .filter(|preference| preference.provider_kind != "local_models")
+            .and_then(|preference| {
+                accounts
+                    .iter()
+                    .find(|account| account.provider_account_id == preference.provider_account_id)
+                    .map(|account| account.provider_account_id.clone())
+            });
+        let account = match account {
+            Some(provider_account_id) => Some(
+                self.provider_accounts
+                    .reconcile_account(&provider_account_id)
+                    .await
+                    .map_err(|error| OnboardingServiceError::Provider(error.to_string()))?,
+            ),
+            None => None,
+        };
+        let local_model_ready = matches!(
+            self.local_models.runtime_status(),
+            LocalModelRuntimeStatus::Ready { .. }
+        );
+
+        Ok(onboarding_status_from_options(account, local_model_ready))
+    }
+
+    /// Return one provider authentication attempt.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OnboardingServiceError`] when provider account operations fail.
+    pub async fn auth_attempt(
+        &self,
+        attempt_id: &str,
+    ) -> Result<Option<ProviderAuthAttemptView>, OnboardingServiceError> {
+        self.provider_accounts
+            .auth_attempt(attempt_id)
+            .await
+            .map_err(|error| OnboardingServiceError::Provider(error.to_string()))
+    }
+
+    /// Start one provider authentication attempt.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OnboardingServiceError`] when provider account operations fail.
+    pub async fn start_auth(
+        &self,
+        request: StartProviderAuthRequest,
+    ) -> Result<ProviderAuthAttemptView, OnboardingServiceError> {
+        self.provider_accounts
+            .start_auth(request)
+            .await
+            .map_err(|error| OnboardingServiceError::Provider(error.to_string()))
+    }
+}
+
+/// Host onboarding operation failure.
+#[derive(Debug, Error)]
+pub enum OnboardingServiceError {
+    /// Canonical onboarding state could not be loaded.
+    #[error("onboarding store operation failed: {0}")]
+    Store(String),
+    /// Provider authentication or reconciliation failed.
+    #[error("onboarding provider operation failed: {0}")]
+    Provider(String),
 }
 
 /// Build onboarding status from the active provider account.

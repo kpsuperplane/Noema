@@ -1,5 +1,5 @@
 [package]
-name = "noema-core"
+name = "noema-host"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
@@ -9,33 +9,39 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = []
+composition = [
+    "dep:base64",
+    "dep:figment",
+    "dep:ring",
+    "dep:serde_json",
+    "noema-artifacts/filesystem",
+    "noema-capabilities-mcp/transport",
+    "noema-memory/service",
+    "noema-providers/adapters",
+    "noema-providers/local-models",
+]
+
 [dependencies]
-async-graphql.workspace = true
-async-stream.workspace = true
-base64.workspace = true
-chrono.workspace = true
-futures-util.workspace = true
-http.workspace = true
+base64 = { workspace = true, optional = true }
+figment = { workspace = true, optional = true }
 noema-artifacts = { path = "../noema-artifacts", default-features = false }
-noema-capabilities = { path = "../noema-capabilities" }
+noema-capabilities = { path = "../noema-capabilities", default-features = false }
 noema-capabilities-mcp = { path = "../noema-capabilities/mcp", default-features = false }
-noema-conversations = { path = "../noema-conversations" }
-noema-home = { path = "../noema-home" }
-noema-host = { path = "../noema-host", default-features = false }
+noema-home = { path = "../noema-home", default-features = false }
 noema-memory = { path = "../noema-memory", default-features = false }
 noema-providers = { path = "../noema-providers", default-features = false }
 noema-runtime = { path = "../noema-runtime", default-features = false }
 noema-store = { path = "../noema-store", default-features = false }
-noema-tasks = { path = "../noema-tasks", default-features = false }
-ring.workspace = true
+ring = { workspace = true, optional = true }
 serde.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, optional = true }
 thiserror.workspace = true
-time.workspace = true
-tokio.workspace = true
-tokio-util.workspace = true
 ts-rs.workspace = true
 
 [dev-dependencies]
 noema-store = { path = "../noema-store", default-features = false, features = ["test-support"] }
+serde_json.workspace = true
 tempfile.workspace = true
+tokio.workspace = true

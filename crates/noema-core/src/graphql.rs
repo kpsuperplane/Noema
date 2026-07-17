@@ -32,7 +32,6 @@ pub use artifacts::{
     AuthorizedArtifactDownload, AuthorizedArtifactDownloadError, authorized_artifact_download,
 };
 pub use mcp::complete_mcp_server_oauth_setup;
-pub(crate) use onboarding::is_user_onboarded_for_chat;
 pub(crate) use replay::{ConversationReplayItem, web_conversation_item_from_record};
 pub(crate) use runtime_state::GraphqlRuntimeState;
 pub use schema::{GraphqlSchema, GraphqlState, build_schema};

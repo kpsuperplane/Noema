@@ -12,7 +12,7 @@ use crate::{
 };
 
 use super::{LocalModelManagerConfig, LocalModelManagerError};
-use crate::local_models::{LocalModelRuntimeStatus, LocalModelsProvider};
+use crate::{LocalModelRuntimeStatus, local_models::LocalModelsProvider};
 
 pub(super) type LocalModelProcessFuture<'a, T> =
     Pin<Box<dyn Future<Output = Result<T, LocalModelManagerError>> + Send + 'a>>;

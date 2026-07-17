@@ -1,6 +1,6 @@
 use super::{
-    DaemonResolvedConfig, ResolvedConfig, error::ConfigError, file::validate_file_config,
-    overrides::ConfigOverrides, raw::RawConfig,
+    HostConfig, error::ConfigError, file::validate_file_config, overrides::ConfigOverrides,
+    raw::RawConfig,
 };
 use figment::{
     Figment,
@@ -51,23 +51,9 @@ impl Config {
     pub fn load(
         path_override: Option<PathBuf>,
         overrides: ConfigOverrides,
-    ) -> Result<ResolvedConfig, ConfigError> {
+    ) -> Result<HostConfig, ConfigError> {
         let raw = load_raw_config(path_override, overrides)?;
         raw.resolve()
-    }
-
-    /// Load daemon configuration without requiring non-daemon provider credentials.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ConfigError`] when path resolution fails, the config file is
-    /// missing or invalid, or Codex/web settings fail validation.
-    pub fn load_daemon(
-        path_override: Option<PathBuf>,
-        overrides: ConfigOverrides,
-    ) -> Result<DaemonResolvedConfig, ConfigError> {
-        let raw = load_raw_config(path_override, overrides)?;
-        raw.resolve_daemon_config()
     }
 }
 

@@ -40,7 +40,13 @@ impl MnemosyneLifecycle {
                 model_proxy: None,
             }),
             MemoryServiceMode::Managed => {
-                let port = allocate_loopback_port()?;
+                let port = match allocate_loopback_port() {
+                    Ok(port) => port,
+                    Err(error) => {
+                        shutdown_managed_resources(None, model_proxy).await;
+                        return Err(error.into());
+                    }
+                };
                 let command = MnemosyneSidecarCommand::from_env();
                 Self::start_with_command_and_port(
                     data_dir,
@@ -83,8 +89,10 @@ impl MnemosyneLifecycle {
                         "memory model proxy is unavailable".to_string(),
                     ));
                 };
-                tokio::fs::create_dir_all(data_dir).await?;
-                tokio::fs::create_dir_all(runtime_dir).await?;
+                if let Err(error) = create_managed_directories(data_dir, runtime_dir).await {
+                    shutdown_managed_resources(None, Some(model_proxy)).await;
+                    return Err(error.into());
+                }
 
                 let connection = MnemosyneConnection::new(format!("http://127.0.0.1:{port}"), None);
                 let mut process = command.into_process_command(port);
@@ -110,13 +118,21 @@ impl MnemosyneLifecycle {
                             )
                             .with_error_chain([error.to_string()]),
                         );
+                        shutdown_managed_resources(None, Some(model_proxy)).await;
                         return Err(MnemosyneLifecycleError::Start(
                             "Mnemosyne managed process could not start".to_string(),
                         ));
                     }
                 };
 
-                if let Some(status) = wait_for_early_child_exit(&mut child).await? {
+                let early_exit = match wait_for_early_child_exit(&mut child).await {
+                    Ok(status) => status,
+                    Err(error) => {
+                        shutdown_managed_resources(Some(&mut child), Some(model_proxy)).await;
+                        return Err(error.into());
+                    }
+                };
+                if let Some(status) = early_exit {
                     let error_message =
                         format!("Mnemosyne managed process exited with status {status}");
                     system_errors.try_append(
@@ -126,6 +142,7 @@ impl MnemosyneLifecycle {
                         )
                         .with_error_chain([error_message.clone()]),
                     );
+                    shutdown_managed_resources(Some(&mut child), Some(model_proxy)).await;
                     return Err(MnemosyneLifecycleError::Start(error_message));
                 }
 
@@ -140,12 +157,7 @@ impl MnemosyneLifecycle {
 
     /// Stop the managed Mnemosyne child process, when one was started.
     pub async fn shutdown(mut self) {
-        if let Some(child) = &mut self.child {
-            let _ = child.kill().await;
-        }
-        if let Some(model_proxy) = self.model_proxy {
-            model_proxy.shutdown().await;
-        }
+        shutdown_managed_resources(self.child.as_mut(), self.model_proxy.take()).await;
     }
 
     #[cfg(test)]
@@ -182,6 +194,8 @@ impl MnemosyneLifecycle {
 enum MnemosyneSidecarCommand {
     Default,
     Shell(String),
+    #[cfg(test)]
+    MissingExecutable,
 }
 
 impl MnemosyneSidecarCommand {
@@ -215,7 +229,33 @@ impl MnemosyneSidecarCommand {
                 command.arg("-c").arg(script);
                 command
             }
+            #[cfg(test)]
+            Self::MissingExecutable => {
+                tokio::process::Command::new("/noema/tests/missing-mnemosyne-sidecar")
+            }
         }
+    }
+}
+
+async fn create_managed_directories(
+    data_dir: &Path,
+    runtime_dir: &Path,
+) -> Result<(), std::io::Error> {
+    tokio::fs::create_dir_all(data_dir).await?;
+    tokio::fs::create_dir_all(runtime_dir).await?;
+    Ok(())
+}
+
+async fn shutdown_managed_resources(
+    child: Option<&mut tokio::process::Child>,
+    model_proxy: Option<MemoryModelProxy>,
+) {
+    if let Some(child) = child {
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+    }
+    if let Some(model_proxy) = model_proxy {
+        model_proxy.shutdown().await;
     }
 }
 
@@ -252,25 +292,7 @@ mod tests {
     async fn managed_mnemosyne_lifecycle_exports_private_sidecar_env() {
         let home = TempDir::new().expect("temp noema home");
         let paths = crate::paths::MemoryServicePaths::from_noema_root(home.path());
-        let proxy = crate::model_proxy::MemoryModelProxy::start(
-            crate::model_proxy::MemoryModelProxyConfig {
-                route_resolver: test_route_resolver(
-                    noema_providers::ProviderSelectionSnapshot::explicit(
-                        "codex",
-                        "provider_account:codex:memory-test",
-                        "memory-model",
-                        None,
-                        Some("mnemosyne_test".to_string()),
-                    ),
-                    std::sync::Arc::new(StaticProvider),
-                ),
-                api_key: "proxy-secret".to_string(),
-                model_profile: "memory-model".to_string(),
-                system_errors: None,
-            },
-        )
-        .await
-        .expect("start proxy");
+        let (proxy, api_key) = start_test_proxy().await;
         let openai_base_url = proxy.openai_base_url().to_string();
         let command = write_sleeping_mnemosyne_sidecar(home.path());
 
@@ -293,11 +315,162 @@ mod tests {
         let env_file = paths.data_dir().join("model-env.txt");
         let env_text = tokio::fs::read_to_string(env_file).await.expect("env file");
         assert!(env_text.contains(&format!("NOEMA_MEMORY_OPENAI_BASE_URL={openai_base_url}")));
-        assert!(env_text.contains("NOEMA_MEMORY_OPENAI_API_KEY=proxy-secret"));
+        assert!(env_text.contains(&format!("NOEMA_MEMORY_OPENAI_API_KEY={api_key}")));
         assert!(env_text.contains("NOEMA_MEMORY_MODEL=memory-model"));
         assert!(env_text.contains("NOEMA_MNEMOSYNE_PORT=0"));
 
         lifecycle.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn managed_directory_failure_stops_model_proxy() {
+        let home = TempDir::new().expect("temp noema home");
+        let data_dir = home.path().join("data-file");
+        fs::write(&data_dir, "not a directory").expect("write conflicting data path");
+        let runtime_dir = home.path().join("runtime");
+        let (proxy, api_key) = start_test_proxy().await;
+        let openai_base_url = proxy.openai_base_url().to_string();
+
+        let result = super::MnemosyneLifecycle::start_with_command_for_test(
+            &data_dir,
+            &runtime_dir,
+            "sleep 5".to_string(),
+            proxy,
+        )
+        .await;
+
+        assert!(matches!(result, Err(super::MnemosyneLifecycleError::Io(_))));
+        assert_proxy_stopped(&openai_base_url, &api_key).await;
+    }
+
+    #[tokio::test]
+    async fn managed_spawn_failure_stops_model_proxy() {
+        let home = TempDir::new().expect("temp noema home");
+        let paths = crate::paths::MemoryServicePaths::from_noema_root(home.path());
+        let (proxy, api_key) = start_test_proxy().await;
+        let openai_base_url = proxy.openai_base_url().to_string();
+
+        let result = super::MnemosyneLifecycle::start_with_command_and_port(
+            &paths.data_dir(),
+            &paths.runtime_dir(),
+            &managed_settings(),
+            noema_home::SystemErrorLogger::new(paths.runtime_dir().join("errors.jsonl")),
+            super::MnemosyneSidecarCommand::MissingExecutable,
+            0,
+            Some(proxy),
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(super::MnemosyneLifecycleError::Start(message))
+                if message == "Mnemosyne managed process could not start"
+        ));
+        assert_proxy_stopped(&openai_base_url, &api_key).await;
+    }
+
+    #[tokio::test]
+    async fn managed_early_exit_reaps_child_and_stops_model_proxy() {
+        let home = TempDir::new().expect("temp noema home");
+        let paths = crate::paths::MemoryServicePaths::from_noema_root(home.path());
+        let (proxy, api_key) = start_test_proxy().await;
+        let openai_base_url = proxy.openai_base_url().to_string();
+
+        let result = super::MnemosyneLifecycle::start_with_command_for_test(
+            &paths.data_dir(),
+            &paths.runtime_dir(),
+            "exit 7".to_string(),
+            proxy,
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(super::MnemosyneLifecycleError::Start(message))
+                if message.contains("exited with status")
+        ));
+        assert_proxy_stopped(&openai_base_url, &api_key).await;
+    }
+
+    #[tokio::test]
+    async fn failed_start_cleanup_kills_and_waits_for_running_child() {
+        let (proxy, api_key) = start_test_proxy().await;
+        let openai_base_url = proxy.openai_base_url().to_string();
+        let mut child = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg("sleep 30")
+            .spawn()
+            .expect("spawn sleeping child");
+
+        super::shutdown_managed_resources(Some(&mut child), Some(proxy)).await;
+
+        let status = child
+            .try_wait()
+            .expect("inspect cleaned-up child")
+            .expect("child should already be reaped");
+        assert!(!status.success());
+        assert_proxy_stopped(&openai_base_url, &api_key).await;
+    }
+
+    async fn start_test_proxy() -> (crate::model_proxy::MemoryModelProxy, String) {
+        static NEXT_API_KEY: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let api_key = format!(
+            "proxy-secret-{}",
+            NEXT_API_KEY.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        );
+        let proxy = crate::model_proxy::MemoryModelProxy::start(
+            crate::model_proxy::MemoryModelProxyConfig {
+                route_resolver: test_route_resolver(
+                    noema_providers::ProviderSelectionSnapshot::explicit(
+                        "codex",
+                        "provider_account:codex:memory-test",
+                        "memory-model",
+                        None,
+                        Some("mnemosyne_test".to_string()),
+                    ),
+                    std::sync::Arc::new(StaticProvider),
+                ),
+                api_key: api_key.clone(),
+                model_profile: "memory-model".to_string(),
+                system_errors: None,
+            },
+        )
+        .await
+        .expect("start proxy");
+        (proxy, api_key)
+    }
+
+    fn managed_settings() -> crate::MemoryServiceSettingsRecord {
+        crate::MemoryServiceSettingsRecord {
+            settings_id: "default".to_string(),
+            mode: crate::MemoryServiceMode::Managed,
+            base_url: None,
+            port: None,
+            provider_account_id: None,
+            provider_kind: None,
+            provider_instance_key: None,
+            model_profile: None,
+            reasoning_effort: None,
+        }
+    }
+
+    async fn assert_proxy_stopped(openai_base_url: &str, api_key: &str) {
+        let response = reqwest::Client::new()
+            .post(format!("{openai_base_url}/chat/completions"))
+            .bearer_auth(api_key)
+            .json(&serde_json::json!({
+                "model": "memory-model",
+                "messages": [{"role": "user", "content": "probe shutdown"}]
+            }))
+            .send()
+            .await;
+        if let Ok(response) = response {
+            assert_eq!(
+                response.status(),
+                reqwest::StatusCode::UNAUTHORIZED,
+                "the original memory model proxy still accepted its private key"
+            );
+        }
     }
 
     fn write_sleeping_mnemosyne_sidecar(root: &std::path::Path) -> std::path::PathBuf {

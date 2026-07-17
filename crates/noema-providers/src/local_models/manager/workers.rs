@@ -3,18 +3,16 @@
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
-use crate::{LocalModelBackend, LocalModelInstallationRecord, LocalModelInstallationStatus};
-
-use super::{
-    InstallationWorker, LocalModelCatalogSnapshot, LocalModelCatalogSnapshotEntry,
-    LocalModelManager, LocalModelManagerError,
-};
-use crate::local_models::{
-    HuggingFaceLocalModelImport, LocalFileModelImport, LocalModelCatalog,
-    detect_local_hardware_profiles,
+use crate::{
+    HuggingFaceLocalModelImport, LocalFileModelImport, LocalModelBackend,
+    LocalModelCatalogSnapshot, LocalModelCatalogSnapshotEntry, LocalModelInstallationRecord,
+    LocalModelInstallationStatus,
 };
 
-impl LocalModelManager {
+use super::{InstallationWorker, LocalModelManagerError, LocalModelManagerService};
+use crate::local_models::{LocalModelCatalog, detect_local_hardware_profiles};
+
+impl LocalModelManagerService {
     /// Returns the platform-preferred backend for arbitrary imported GGUFs.
     ///
     /// Unlike catalog selection, this does not assume that an imported file
@@ -23,7 +21,7 @@ impl LocalModelManager {
     /// # Errors
     ///
     /// Returns [`LocalModelManagerError::Discovery`] when hardware detection fails.
-    pub fn preferred_import_backend(&self) -> Result<LocalModelBackend, LocalModelManagerError> {
+    pub fn preferred_import_backend() -> Result<LocalModelBackend, LocalModelManagerError> {
         let hardware = detect_hardware()?;
         Ok(hardware
             .first()
@@ -36,7 +34,7 @@ impl LocalModelManager {
     ///
     /// Returns [`LocalModelManagerError::Discovery`] when bundled catalog
     /// validation or hardware detection fails.
-    pub fn catalog_snapshot(&self) -> Result<LocalModelCatalogSnapshot, LocalModelManagerError> {
+    pub fn catalog_snapshot() -> Result<LocalModelCatalogSnapshot, LocalModelManagerError> {
         let (catalog, hardware) = load_catalog_and_hardware()?;
         let recommended_model_id = catalog
             .recommend_with_fallback(&hardware)

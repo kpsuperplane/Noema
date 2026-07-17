@@ -176,11 +176,11 @@ impl GraphqlState {
         self
     }
 
-    /// Build state backed by the shared Noema runtime host.
+    /// Build state backed by assembled host service handles.
     #[must_use]
-    pub fn from_runtime_host(host: &crate::NoemaRuntimeHost) -> Self {
+    pub fn from_host_services(services: &noema_host::HostServices) -> Self {
         Self {
-            runtime_state: GraphqlRuntimeState::from_host(host),
+            runtime_state: GraphqlRuntimeState::from_host_services(services),
         }
     }
 
@@ -217,6 +217,10 @@ impl GraphqlState {
 
     pub(crate) fn local_model_manager(&self) -> Result<&noema_providers::LocalModelManager> {
         self.runtime_state.local_model_manager()
+    }
+
+    pub(crate) fn onboarding(&self) -> Result<&noema_host::OnboardingService> {
+        self.runtime_state.onboarding()
     }
 
     pub(crate) fn provider_registry(&self) -> Result<&noema_providers::ProviderRegistryHandle> {
@@ -1076,8 +1080,9 @@ mod tests {
     use noema_capabilities_mcp::McpRepository;
     use noema_runtime::{ConversationRuntimeEvent, TurnStreamEvent};
     use serde_json::json;
-    use std::collections::VecDeque;
     use tempfile::TempDir;
+
+    use crate::test_support::TestMcpSetupOutcome;
 
     #[test]
     fn schema_sdl_exposes_initial_noema_fields() {
@@ -4655,7 +4660,6 @@ mod tests {
         state: GraphqlState,
         store: noema_store::NoemaStore,
         paths: NoemaPaths,
-        _mcp_service: noema_capabilities_mcp::LocalMcpService,
         _home: TempDir,
     }
 
@@ -4664,110 +4668,20 @@ mod tests {
             let home = TempDir::new().expect("temp noema home");
             let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
             let store = crate::test_support::test_store_for_paths(&paths).await;
-            let repository: noema_capabilities_mcp::McpRepositoryHandle = Arc::new(store.clone());
-            let secrets = Arc::new(noema_capabilities_mcp::FilesystemMcpSecretStore::new(
-                paths.clone(),
-            ));
-            let diagnostics = Arc::new(noema_capabilities_mcp::NoopMcpDiagnostics);
-            let sessions: noema_capabilities_mcp::McpSessionFactoryHandle =
-                Arc::new(TestMcpSessionFactory {
-                    outcomes: Arc::new(Mutex::new(VecDeque::from(outcomes))),
-                });
-            let mcp_service = noema_capabilities_mcp::LocalMcpService::new(
-                repository,
-                secrets,
-                diagnostics,
+            let mcp_operations = crate::test_support::test_mcp_operations_with_setup(
+                store.clone(),
                 None,
-                noema_capabilities_mcp::LocalMcpServiceConfig::default(),
-                |_| sessions,
-            )
-            .expect("MCP service");
+                paths.clone(),
+                outcomes,
+            );
             let state = GraphqlState::for_tests_with_store_and_paths(store.clone(), paths.clone())
-                .with_mcp_operations(mcp_service.operations());
+                .with_mcp_operations(mcp_operations);
             Self {
                 state,
                 store,
                 paths,
-                _mcp_service: mcp_service,
                 _home: home,
             }
-        }
-    }
-
-    #[derive(Clone, Debug)]
-    enum TestMcpSetupOutcome {
-        Ok(Vec<noema_capabilities_mcp::McpDiscoveredTool>),
-        AuthRequired(String),
-    }
-
-    #[derive(Debug)]
-    struct TestMcpSessionFactory {
-        outcomes: Arc<Mutex<VecDeque<TestMcpSetupOutcome>>>,
-    }
-
-    impl noema_capabilities_mcp::McpSessionFactory for TestMcpSessionFactory {
-        fn prepare<'a>(
-            &'a self,
-            _server: &'a noema_capabilities_mcp::McpServerRecord,
-            _secrets: &'a noema_capabilities_mcp::McpSecretMaterial,
-            _context: &'a noema_capabilities_mcp::McpRequestContext,
-        ) -> noema_capabilities_mcp::McpClientFuture<
-            'a,
-            noema_capabilities_mcp::McpSessionPreparation,
-        > {
-            Box::pin(async move {
-                let outcome = self
-                    .outcomes
-                    .lock()
-                    .expect("MCP setup outcomes lock")
-                    .pop_front()
-                    .unwrap_or_else(|| TestMcpSetupOutcome::Ok(Vec::new()));
-                match outcome {
-                    TestMcpSetupOutcome::Ok(tools) => {
-                        Ok(noema_capabilities_mcp::McpSessionPreparation::new(
-                            Box::new(TestMcpPreparedSession { tools }),
-                            None,
-                        ))
-                    }
-                    TestMcpSetupOutcome::AuthRequired(message) => {
-                        Err(noema_capabilities_mcp::McpClientError::AuthenticationRequired(message))
-                    }
-                }
-            })
-        }
-    }
-
-    struct TestMcpPreparedSession {
-        tools: Vec<noema_capabilities_mcp::McpDiscoveredTool>,
-    }
-
-    impl noema_capabilities_mcp::McpPreparedSession for TestMcpPreparedSession {
-        fn discover_tools<'a>(
-            &'a mut self,
-            _context: &'a noema_capabilities_mcp::McpRequestContext,
-        ) -> noema_capabilities_mcp::McpClientFuture<
-            'a,
-            Vec<noema_capabilities_mcp::McpDiscoveredTool>,
-        > {
-            Box::pin(async move { Ok(self.tools.clone()) })
-        }
-
-        fn call_tool<'a>(
-            &'a mut self,
-            _tool_name: &'a str,
-            _arguments: serde_json::Value,
-            _context: &'a noema_capabilities_mcp::McpRequestContext,
-        ) -> noema_capabilities_mcp::McpClientFuture<'a, noema_capabilities_mcp::McpToolCallOutput>
-        {
-            Box::pin(async {
-                Err(noema_capabilities_mcp::McpClientError::Protocol(
-                    "test setup session does not execute tools".to_string(),
-                ))
-            })
-        }
-
-        fn close(self: Box<Self>) -> noema_capabilities_mcp::McpClientFuture<'static, ()> {
-            Box::pin(async { Ok(()) })
         }
     }
 

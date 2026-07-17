@@ -23,8 +23,7 @@ axum.workspace = true
 base64.workspace = true
 noema-artifacts = { path = "../noema-artifacts", default-features = false }
 noema-core = { path = "../noema-core" }
-noema-home = { path = "../noema-home" }
-noema-providers = { path = "../noema-providers", default-features = false }
+noema-host = { path = "../noema-host", default-features = false, features = ["composition"] }
 ring.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

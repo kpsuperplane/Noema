@@ -20,8 +20,8 @@ use crate::{
 };
 
 use super::{
-    LocalModelManager, LocalModelManagerConfig, LocalModelManagerError, LocalModelManagerEvent,
-    LocalModelReaperClock, LocalModelRuntimeStatus,
+    LocalModelManagerConfig, LocalModelManagerError, LocalModelManagerEvent,
+    LocalModelManagerService, LocalModelReaperClock, LocalModelRuntimeStatus,
 };
 use crate::LocalFileModelImport;
 use fakes::{FakeProcessFactory, FakeRepository, installed_record};
@@ -30,7 +30,7 @@ fn manager(
     repository: Arc<FakeRepository>,
     factory: Arc<FakeProcessFactory>,
     paths: &noema_home::NoemaPaths,
-) -> LocalModelManager {
+) -> LocalModelManagerService {
     manager_with_diagnostics(repository, factory, paths, None)
 }
 
@@ -39,11 +39,11 @@ fn manager_with_diagnostics(
     factory: Arc<FakeProcessFactory>,
     paths: &noema_home::NoemaPaths,
     system_errors: Option<noema_home::SystemErrorLogger>,
-) -> LocalModelManager {
+) -> LocalModelManagerService {
     let installations: Arc<dyn crate::LocalModelInstallationPersistence> = repository.clone();
     let activation: Arc<dyn crate::LocalModelActivationPersistence> = repository.clone();
     let lifecycle: Arc<dyn crate::LocalModelLifecyclePersistence> = repository;
-    LocalModelManager::new_with_factory(
+    LocalModelManagerService::new_with_factory(
         installations,
         activation,
         lifecycle,
@@ -88,11 +88,11 @@ fn manager_with_clock(
     factory: Arc<FakeProcessFactory>,
     paths: &noema_home::NoemaPaths,
     clock: Arc<ManualReaperClock>,
-) -> LocalModelManager {
+) -> LocalModelManagerService {
     let installations: Arc<dyn crate::LocalModelInstallationPersistence> = repository.clone();
     let activation: Arc<dyn crate::LocalModelActivationPersistence> = repository.clone();
     let lifecycle: Arc<dyn crate::LocalModelLifecyclePersistence> = repository;
-    LocalModelManager::new_with_factory_and_clock(
+    LocalModelManagerService::new_with_factory_and_clock(
         installations,
         activation,
         lifecycle,
@@ -654,7 +654,7 @@ async fn restart_with_missing_blob_is_nonfatal_and_diagnostic() {
     let installations: Arc<dyn crate::LocalModelInstallationPersistence> = repository.clone();
     let activation: Arc<dyn crate::LocalModelActivationPersistence> = repository.clone();
     let lifecycle: Arc<dyn crate::LocalModelLifecyclePersistence> = repository;
-    let manager = LocalModelManager::new(
+    let manager = LocalModelManagerService::new(
         installations,
         activation,
         lifecycle,

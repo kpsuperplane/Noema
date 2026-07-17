@@ -4,6 +4,18 @@ use std::{collections::HashMap, sync::Arc};
 
 use tempfile::TempDir;
 
+mod artifacts;
+mod local_models;
+mod mcp;
+mod memory;
+mod web;
+
+pub(crate) use artifacts::{
+    artifact_diagnostics_for_paths, artifact_operations, artifact_operations_for_paths,
+};
+pub(crate) use local_models::{local_model_manager, local_model_manager_with_status};
+pub(crate) use mcp::{TestMcpSetupOutcome, test_mcp_operations, test_mcp_operations_with_setup};
+
 #[derive(Debug)]
 struct ReadyTestProvider;
 
@@ -32,32 +44,6 @@ pub(crate) fn test_paths() -> noema_home::NoemaPaths {
 
 pub(crate) fn system_error_logger() -> noema_home::SystemErrorLogger {
     noema_home::SystemErrorLogger::from_paths(&test_paths())
-}
-
-pub(crate) fn local_model_manager(
-    store: &noema_store::NoemaStore,
-    paths: noema_home::NoemaPaths,
-) -> noema_providers::LocalModelManager {
-    let installations: noema_providers::LocalModelInstallationPersistenceHandle =
-        Arc::new(store.clone());
-    let activation: noema_providers::LocalModelActivationPersistenceHandle =
-        Arc::new(store.clone());
-    let lifecycle: noema_providers::LocalModelLifecyclePersistenceHandle = Arc::new(store.clone());
-    noema_providers::LocalModelManager::new(
-        installations,
-        activation,
-        lifecycle,
-        Arc::new(noema_providers::ProviderRegistry::new()),
-        paths.clone(),
-        noema_providers::LocalModelManagerConfig {
-            runtime_root: None,
-            context_window_tokens: noema_providers::DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS,
-            timeout_seconds: noema_providers::DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS,
-            startup_timeout_seconds: noema_providers::DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
-            system_errors: Some(noema_home::SystemErrorLogger::from_paths(&paths)),
-        },
-    )
-    .expect("test local-model manager")
 }
 
 pub(crate) async fn test_store() -> noema_store::NoemaStore {
@@ -234,27 +220,10 @@ pub(crate) async fn save_provider_capability_assignment_for_tests(
     .expect("save provider capability assignment")
 }
 
-pub(crate) fn artifact_operations(
-    store: &noema_store::NoemaStore,
-) -> Result<noema_artifacts::ArtifactOperationsHandle, String> {
-    let paths = test_paths();
-    artifact_operations_for_paths(store, &paths)
-}
-
-pub(crate) fn artifact_operations_for_paths(
-    store: &noema_store::NoemaStore,
-    paths: &noema_home::NoemaPaths,
-) -> Result<noema_artifacts::ArtifactOperationsHandle, String> {
-    let metadata: noema_artifacts::ArtifactMetadataStoreHandle = Arc::new(store.clone());
-    let service = noema_artifacts::LocalArtifactService::new(paths.root(), metadata)
-        .map_err(|error| error.to_string())?;
-    Ok(Arc::new(service))
-}
-
 pub(crate) fn memory_service_access(
     repository: noema_memory::MemoryRepositoryHandle,
 ) -> noema_memory::MemoryServiceAccessHandle {
-    noema_memory::MnemosyneMemoryServiceAccess::new(repository, None).into_handle()
+    Arc::new(memory::TestMemoryServiceAccess::new(repository))
 }
 
 #[derive(Debug)]
@@ -348,8 +317,8 @@ fn test_capability_handles() -> (
 
 fn test_web_backends() -> noema_runtime::WebBackendResolverHandle {
     Arc::new(CoreTestWebBackendResolver {
-        search: noema_providers::default_web_search_backend(),
-        fetch: noema_providers::default_web_fetch_backend(),
+        search: web::test_search_backend(),
+        fetch: web::test_fetch_backend(),
     })
 }
 

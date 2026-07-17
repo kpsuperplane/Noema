@@ -7,9 +7,10 @@ use tokio::{fs, io::AsyncReadExt};
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
+use super::download::LocalModelInstallError;
 #[cfg(test)]
 use super::download::LocalModelInstaller;
-use super::download::{LocalFileModelImport, LocalModelInstallError};
+use crate::LocalFileModelImport;
 
 #[derive(Debug)]
 pub(super) struct InstalledArtifact {

@@ -7,6 +7,21 @@ use thiserror::Error;
 
 use crate::{ProviderInstanceKey, ProviderSelectionError};
 
+mod catalog;
+mod management;
+
+pub use catalog::{
+    LocalHardwareProfile, LocalModelBuild, LocalModelCatalogEntry, LocalModelCatalogSnapshot,
+    LocalModelCatalogSnapshotEntry,
+};
+pub use management::{
+    DegradedLocalModelInstance, HuggingFaceLocalModelImport, LocalFileModelImport,
+    LocalModelManagement, LocalModelManagementFuture, LocalModelManager, LocalModelManagerConfig,
+    LocalModelManagerError, LocalModelManagerEvent, LocalModelManagerEventRecord,
+    LocalModelManagerEventStream, LocalModelReconstructionReport, LocalModelRuntimeStatus,
+    ManagedLocalModelStatus,
+};
+
 /// Stable built-in provider account used for local GGUF inference.
 pub const LOCAL_MODELS_PROVIDER_ACCOUNT_ID: &str = "provider_account:local_models:default";
 

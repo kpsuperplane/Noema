@@ -2256,26 +2256,26 @@ or API behavior.
 
 **Steps:**
 
-- [ ] Move raw Figment/YAML/environment loading, precedence, validation, and
+- [x] Move raw Figment/YAML/environment loading, precedence, validation, and
   conversion into host. Its conversion targets remain the provider-owned
   resolved construction types from Phase 5; do not recreate those types in
   host.
-- [ ] Move the product default YAML template into host and pass its bytes to
+- [x] Move the product default YAML template into host and pass its bytes to
   `noema-home` initialization. Preserve the exact Phase 0 bytes on first run;
   `noema-home` remains unaware of configuration semantics.
-- [ ] Move `NoemaRuntimeHost` and its startup/shutdown error types.
-- [ ] Declare `noema-host` with `default = []` and a single `composition`
+- [x] Move `NoemaRuntimeHost` and its startup/shutdown error types.
+- [x] Declare `noema-host` with `default = []` and a single `composition`
   feature that forwards the five concrete subsystem features and gates raw
   config/root-bound constructors, startup, and shutdown. Keep host handles,
   onboarding operations, and assembled-service accessors always compiled so API
   can consume them without enabling composition.
-- [ ] Expose host-owned `start_from_loaded_config(HostConfig)` and
+- [x] Expose host-owned `start_from_loaded_config(HostConfig)` and
   `start_from_process_env()` entrypoints that perform home initialization,
   loading/resolution, assembly, and startup. Server and desktop pass only their
   transport/window options and receive a host handle; neither shell imports or
   constructs `ProviderConfig`, local-model config, store config, or concrete
   subsystem builders.
-- [ ] Construct the store, ask `noema-providers` to build the hosted/local
+- [x] Construct the store, ask `noema-providers` to build the hosted/local
   provider registry, then construct the MCP invoker, memory lifecycle/proxy,
   capability gateway, concrete `LocalArtifactService`, concrete Mnemosyne
   operations, `ProviderAccountService`, `McpControlPlane`,
@@ -2285,35 +2285,35 @@ or API behavior.
   local-model-manager, artifact, memory, and store-backed query handles into API;
   neither consumer receives concrete roots, transports, loggers, or service
   constructors.
-- [ ] Do not import `noema_providers::local_models`; pass resolved config, the
+- [x] Do not import `noema_providers::local_models`; pass resolved config, the
   provider persistence-port implementation, Noema home paths, and diagnostics
   through the public provider factory.
-- [ ] Keep sidecar and worker startup order explicit and preserve the current
+- [x] Keep sidecar and worker startup order explicit and preserve the current
   dependency-ordered shutdown, including Phase 10 manager
   `begin_shutdown` before runtime/memory drain and final inference-process
   shutdown afterward. MCP shutdown first retires its catalog/invoker, rejects
   new control and invocation work, cancels OAuth attempts and transports, drains
   or aborts bounded work, and terminates stdio children before store/home
   teardown.
-- [ ] Expose the assembled store/runtime/provider/memory services needed to
+- [x] Expose the assembled store/runtime/provider/memory services needed to
   build an API state without importing async-graphql.
-- [ ] Expose a host-owned `OnboardingService` for the cross-subsystem onboarding
+- [x] Expose a host-owned `OnboardingService` for the cross-subsystem onboarding
   read/auth workflow. It coordinates store state with provider/local-model
   services; it does not expose Noema paths or diagnostics to API.
-- [ ] Expose the root-bound artifact/provider/MCP/local-model service handles
+- [x] Expose the root-bound artifact/provider/MCP/local-model service handles
   needed by API. Host is the only layer that supplies Noema roots and generic
   diagnostic sinks to those constructors.
-- [ ] Update server and desktop startup to depend on `noema-host` directly;
+- [x] Update server and desktop startup to depend on `noema-host` directly;
   their GraphQL imports may remain in core until Phase 13, but host types must
   not be re-exported through it.
-- [ ] Make server and desktop enable `noema-host/composition` directly. Make the
+- [x] Make server and desktop enable `noema-host/composition` directly. Make the
   later API dependency use `default-features = false`; add boundary fixtures
   rejecting composition from API/runtime/store/evals and rejecting direct child
   concrete-feature selection in host outside its forwarding feature.
-- [ ] Move host lifecycle tests.
-- [ ] Split the configuration test concentration while preserving precedence
+- [x] Move host lifecycle tests.
+- [x] Split the configuration test concentration while preserving precedence
   and platform-default coverage.
-- [ ] Add first-run tests around both startup entrypoints. An empty temporary
+- [x] Add first-run tests around both startup entrypoints. An empty temporary
   home receives byte-for-byte `DEFAULT_NOEMA_CONFIG_YAML`, loading it produces
   the same resolved provider/web defaults as before extraction, an existing
   config is never overwritten without the explicit force option, and

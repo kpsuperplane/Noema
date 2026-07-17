@@ -7,8 +7,7 @@ use std::fs;
 
 use thiserror::Error;
 
-use super::LocalHardwareProfile;
-use crate::LocalModelBackend;
+use crate::{LocalHardwareProfile, LocalModelBackend};
 
 const BYTES_PER_GIB: u64 = 1024 * 1024 * 1024;
 #[cfg(target_os = "linux")]

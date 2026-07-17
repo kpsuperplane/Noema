@@ -234,19 +234,20 @@ impl ProviderAccountOperations for RecordingProviderAccountOperations {
 
 #[test]
 fn chat_onboarding_gate_requires_authenticated_provider_account() {
-    assert!(!is_user_onboarded_for_chat(None));
+    assert!(!noema_host::onboarding_status_from_options(None, false).is_user_onboarded);
 
     let mut account = test_provider_account();
     account.status = noema_providers::ProviderAccountStatus::Unknown;
-    assert!(!is_user_onboarded_for_chat(Some(account)));
+    assert!(!noema_host::onboarding_status_from_options(Some(account), false).is_user_onboarded);
 
     let mut account = test_provider_account();
     account.status = noema_providers::ProviderAccountStatus::Unauthenticated;
-    assert!(!is_user_onboarded_for_chat(Some(account)));
+    assert!(!noema_host::onboarding_status_from_options(Some(account), false).is_user_onboarded);
 
     let mut account = test_provider_account();
     account.status = noema_providers::ProviderAccountStatus::Authenticated;
-    assert!(is_user_onboarded_for_chat(Some(account)));
+    assert!(noema_host::onboarding_status_from_options(Some(account), false).is_user_onboarded);
+    assert!(noema_host::onboarding_status_from_options(None, true).is_user_onboarded);
 }
 
 #[test]

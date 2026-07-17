@@ -11,9 +11,9 @@ use crate::{
     RemovedLocalModelInstallation,
 };
 
-use super::{LocalModelManager, LocalModelManagerError, ReaperWorker};
+use super::{LocalModelManagerError, LocalModelManagerService, ReaperWorker};
 
-impl LocalModelManager {
+impl LocalModelManagerService {
     pub(super) async fn start_reaper_worker(&self) {
         let mut worker = self.inner.reaper.lock().await;
         if worker.is_some() {

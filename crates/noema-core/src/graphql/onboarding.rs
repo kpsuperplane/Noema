@@ -4,7 +4,7 @@ use noema_providers::{
     StartProviderAuthRequest,
 };
 
-use crate::OnboardingStatus;
+use noema_host::{OnboardingStatus, OnboardingStepStatus};
 
 use super::{errors::graphql_error, schema::GraphqlState};
 
@@ -124,12 +124,8 @@ impl From<OnboardingStatus> for GraphqlOnboardingStatus {
                 .map(|step| GraphqlOnboardingStep {
                     id: step.id,
                     status: match step.status {
-                        crate::OnboardingStepStatus::Complete => {
-                            GraphqlOnboardingStepStatus::Complete
-                        }
-                        crate::OnboardingStepStatus::Blocked => {
-                            GraphqlOnboardingStepStatus::Blocked
-                        }
+                        OnboardingStepStatus::Complete => GraphqlOnboardingStepStatus::Complete,
+                        OnboardingStepStatus::Blocked => GraphqlOnboardingStepStatus::Blocked,
                     },
                     provider_kind: step.provider_kind,
                     provider_account_id: step.provider_account_id,
@@ -230,43 +226,12 @@ impl From<ProviderAuthAttemptView> for GraphqlProviderAuthAttempt {
 }
 
 pub(super) async fn onboarding_status(state: &GraphqlState) -> Result<GraphqlOnboardingStatus> {
-    let store = state.store()?;
-    let provider_account_operations = state.provider_account_operations()?;
-    let local_model_ready = store
-        .list_local_model_installations()
+    state
+        .onboarding()?
+        .status()
         .await
-        .map_err(graphql_error)?
-        .into_iter()
-        .any(|installation| {
-            installation.is_active
-                && installation.status == noema_providers::LocalModelInstallationStatus::Installed
-        });
-    let selected_preference = store
-        .get_agent_runtime_preference("agent:primary")
-        .await
-        .map_err(graphql_error)?;
-    let accounts = provider_account_operations
-        .active_accounts()
-        .await
-        .map_err(graphql_error)?;
-    let account = selected_preference
-        .filter(|preference| preference.provider_kind != "local_models")
-        .and_then(|preference| {
-            accounts
-                .iter()
-                .find(|account| account.provider_account_id == preference.provider_account_id)
-        });
-    let account = match account {
-        Some(account) => Some(
-            provider_account_operations
-                .reconcile_account(&account.provider_account_id)
-                .await
-                .map_err(graphql_error)?,
-        ),
-        None => None,
-    };
-
-    Ok(crate::onboarding_status_from_options(account, local_model_ready).into())
+        .map(Into::into)
+        .map_err(graphql_error)
 }
 
 pub(super) async fn provider_auth_attempt(
@@ -298,14 +263,40 @@ pub(super) async fn start_provider_auth_attempt(
         .map_err(graphql_error)
 }
 
-pub(crate) fn is_user_onboarded_for_chat(
-    account: Option<noema_providers::ProviderAccountRecord>,
-) -> bool {
-    account.is_some_and(|account| {
-        account.is_active
-            && account.is_default
-            && (account.status == ProviderAccountStatus::Authenticated
-                || (account.auth_method == ProviderAuthMethod::None
-                    && account.status == ProviderAccountStatus::Unknown))
-    })
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn onboarding_requires_live_local_model_runtime() {
+        let store = crate::test_support::test_store().await;
+        let stopped = crate::test_support::local_model_manager_with_status(
+            &store,
+            noema_providers::LocalModelRuntimeStatus::Stopped,
+        );
+        let stopped_state =
+            GraphqlState::for_tests_with_store(store.clone()).with_local_model_manager(stopped);
+        assert!(
+            !onboarding_status(&stopped_state)
+                .await
+                .expect("stopped onboarding status")
+                .is_user_onboarded
+        );
+
+        let ready = crate::test_support::local_model_manager_with_status(
+            &store,
+            noema_providers::LocalModelRuntimeStatus::Ready {
+                backend: noema_providers::LocalModelBackend::Metal,
+                endpoint: "http://127.0.0.1:1".to_string(),
+                model_id: "test-local".to_string(),
+            },
+        );
+        let ready_state = GraphqlState::for_tests_with_store(store).with_local_model_manager(ready);
+        assert!(
+            onboarding_status(&ready_state)
+                .await
+                .expect("ready onboarding status")
+                .is_user_onboarded
+        );
+    }
 }

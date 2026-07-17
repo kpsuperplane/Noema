@@ -1,5 +1,5 @@
 use super::*;
-use crate::LocalModelBackend;
+use crate::{LocalHardwareProfile, LocalModelBackend};
 
 const HASH: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const REVISION: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";

@@ -5,7 +5,7 @@ pub(super) mod authority;
 mod router;
 pub(super) mod session;
 
-use noema_core::WebConfig;
+use noema_host::WebConfig;
 use tokio::net::TcpListener;
 
 use crate::WebServerError;

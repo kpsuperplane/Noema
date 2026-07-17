@@ -90,19 +90,16 @@ pub use generation::{
     required_noema_response_from_text, required_noema_response_from_text_with_native_tool_calls,
 };
 pub use local_model::{
-    DefaultModelPreferenceRecord, LOCAL_MODELS_PROVIDER_ACCOUNT_ID, LocalModelBackend,
-    LocalModelCodecError, LocalModelEventKind, LocalModelEventRecord, LocalModelInstallationRecord,
-    LocalModelInstallationStatus, LocalModelInstallationUpdate, LocalModelSourceKind,
+    DefaultModelPreferenceRecord, DegradedLocalModelInstance, HuggingFaceLocalModelImport,
+    LOCAL_MODELS_PROVIDER_ACCOUNT_ID, LocalFileModelImport, LocalHardwareProfile,
+    LocalModelBackend, LocalModelBuild, LocalModelCatalogEntry, LocalModelCatalogSnapshot,
+    LocalModelCatalogSnapshotEntry, LocalModelCodecError, LocalModelEventKind,
+    LocalModelEventRecord, LocalModelInstallationRecord, LocalModelInstallationStatus,
+    LocalModelInstallationUpdate, LocalModelManagement, LocalModelManagementFuture,
+    LocalModelManager, LocalModelManagerConfig, LocalModelManagerError, LocalModelManagerEvent,
+    LocalModelManagerEventRecord, LocalModelManagerEventStream, LocalModelReconstructionReport,
+    LocalModelRuntimeStatus, LocalModelSourceKind, ManagedLocalModelStatus,
     NewLocalModelInstallation, RemovedLocalModelInstallation, local_model_provider_instance_key,
-};
-#[cfg(feature = "local-models")]
-pub use local_models::{
-    DegradedLocalModelInstance, HuggingFaceLocalModelImport, LocalFileModelImport,
-    LocalHardwareProfile, LocalModelBuild, LocalModelCatalogEntry, LocalModelCatalogSnapshot,
-    LocalModelCatalogSnapshotEntry, LocalModelManager, LocalModelManagerConfig,
-    LocalModelManagerError, LocalModelManagerEvent, LocalModelManagerEventRecord,
-    LocalModelManagerEventStream, LocalModelReconstructionReport, LocalModelRuntimeStatus,
-    ManagedLocalModelStatus,
 };
 #[cfg(feature = "local-model-evals")]
 pub use local_models::{

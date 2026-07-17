@@ -1061,9 +1061,23 @@ The next storage slice should stay small and concrete:
   provider, and web operations. The seven preservation baselines and normalized
   Rust test inventory match; 246 runtime/eval-support tests, 174 core tests, the
   full Rust workspace, strict Clippy, frontend generation/tests/lint/builds,
-  and crate/dependency policies are green. Phase 12 is next: extract
-  application composition, startup, configuration, and onboarding into
-  `noema-host`.
+  and crate/dependency policies are green. Decomposition Phase 12 is complete.
+  `noema-host` now owns configuration, first-run home initialization,
+  application assembly, onboarding, and dependency-ordered lifecycle without
+  importing GraphQL, Axum, or Tauri. Its empty-default contract surface exposes
+  only assembled handles; the shell-enabled `composition` feature directly
+  forwards artifact filesystem, hosted/local provider, MCP transport, and
+  memory service implementations. Server and desktop each start one host
+  through host-owned entrypoints and no longer construct providers, stores, or
+  local-model services. Partial startup and normal shutdown share one ordered
+  cleanup path, including deterministic Mnemosyne child/proxy compensation.
+  Startup errors retain typed subsystem causes, fresh unresolved local defaults
+  fail as configuration errors, and complete existing exact selections remain
+  unchanged when their runtime is degraded. Isolated tests exercise both
+  first-run entrypoints and preserve the exact default YAML bytes. The full
+  Rust workspace, strict Clippy, 50 host tests, provider/memory feature slices,
+  policy scripts, and normalized test inventory are green. Phase 13 is next:
+  extract GraphQL into `noema-api` and relocate the web application.
 
 - The bounded remediation program completed Phase 2 at `92,157` maintained
   source lines (`-1,767` from its baseline). Axum/tower-sessions now own the

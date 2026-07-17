@@ -14,13 +14,13 @@ use crate::{
 
 use super::{
     DegradedLocalModelInstance, LIFECYCLE_RUNNING, LIFECYCLE_SHUTTING_DOWN, LIFECYCLE_STOPPED,
-    LocalModelManager, LocalModelManagerError, LocalModelReconstructionReport,
+    LocalModelManagerError, LocalModelManagerService, LocalModelReconstructionReport,
     LocalModelRuntimeStatus, ManagedInstance,
 };
 
 const RETIREMENT_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
-impl LocalModelManager {
+impl LocalModelManagerService {
     /// Reconstruct every exact local instance referenced by durable future work.
     ///
     /// Structural corruption is validated before any process starts. Runtime

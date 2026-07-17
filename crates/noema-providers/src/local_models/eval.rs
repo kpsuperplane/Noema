@@ -162,7 +162,7 @@ mod tests {
     use std::{collections::HashSet, os::unix::fs::PermissionsExt};
 
     use super::*;
-    use crate::local_models::{LocalModelRuntimeStatus, bundled_llama_server_candidates_in};
+    use crate::{LocalModelRuntimeStatus, local_models::bundled_llama_server_candidates_in};
 
     const FAKE_LLAMA_SERVER: &str = r#"#!/bin/sh
 while [ "$#" -gt 0 ]; do

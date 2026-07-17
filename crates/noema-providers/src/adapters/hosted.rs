@@ -6,7 +6,10 @@ use super::{
     account_service::ProviderCredentialAccessHandle, codex::CodexResponsesProvider,
     foundation::FoundationLocalProvider, openai::OpenAiProvider,
 };
-use crate::{ProviderConfig, ProviderError, ProviderHandle, ProviderKind, erase_model_provider};
+use crate::{
+    DEFAULT_CODEX_MODEL, ProviderConfig, ProviderError, ProviderHandle, ProviderKind,
+    erase_model_provider,
+};
 
 const DEFAULT_CODEX_PROVIDER_ACCOUNT_ID: &str = "provider_account:codex:default";
 
@@ -66,7 +69,16 @@ pub fn provider_bootstrap_from_config(
     system_errors: SystemErrorLogger,
 ) -> Result<ProviderBootstrap, ProviderError> {
     let default_provider_kind = config.kind().as_str().to_string();
-    let default_model_profile = config.model().map(str::to_string);
+    let default_model_profile = match &config {
+        ProviderConfig::Codex(config) => Some(
+            config
+                .default_model
+                .as_deref()
+                .unwrap_or(DEFAULT_CODEX_MODEL)
+                .to_string(),
+        ),
+        _ => config.model().map(str::to_string),
+    };
     let hosted_provider = if matches!(&config, ProviderConfig::LocalModels(_)) {
         None
     } else {
@@ -139,7 +151,7 @@ mod tests {
 
     use super::{hosted_provider_from_config, provider_bootstrap_from_config};
     use crate::{
-        CodexProviderConfig, DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS,
+        CodexProviderConfig, DEFAULT_CODEX_MODEL, DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS,
         DEFAULT_LOCAL_MODELS_PROFILE, DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
         DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS, LocalModelsProviderConfig, ProviderConfig,
         ProviderCredentialAccess, ProviderCredentialAccessHandle, ProviderCredentialFuture,
@@ -188,6 +200,24 @@ mod tests {
         .expect("Codex hosted provider");
 
         assert_eq!(kind, "codex");
+    }
+
+    #[test]
+    fn codex_bootstrap_exposes_the_effective_implicit_model() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let config = CodexProviderConfig {
+            default_model: None,
+            ..CodexProviderConfig::default()
+        };
+
+        let bootstrap = provider_bootstrap_from_config(
+            ProviderConfig::Codex(config),
+            credential_access(),
+            SystemErrorLogger::new(temp.path().join("errors.log")),
+        )
+        .expect("Codex bootstrap");
+
+        assert_eq!(bootstrap.default_model_profile(), Some(DEFAULT_CODEX_MODEL));
     }
 
     #[test]

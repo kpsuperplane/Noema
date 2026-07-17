@@ -2,11 +2,10 @@
 
 use std::{collections::HashMap, path::PathBuf};
 
-use noema_core::{
-    NoemaRuntimeHost, RuntimeHostError,
-    graphql::{self, GraphqlSchema},
+use noema_core::graphql::{self, GraphqlSchema};
+use noema_host::{
+    NoemaHost, RuntimeHostError, start_from_process_env_with_local_model_runtime_root,
 };
-use noema_providers::ProviderConfig;
 use tauri::async_runtime::JoinHandle;
 use tokio::sync::Mutex;
 
@@ -32,20 +31,20 @@ impl DesktopState {
     /// or runtime provider.
     pub async fn initialize(
         &self,
-        provider: ProviderConfig,
         local_model_runtime_root: Option<PathBuf>,
     ) -> Result<(), RuntimeHostError> {
-        let host = NoemaRuntimeHost::start_with_local_model_runtime_root(
-            provider,
-            local_model_runtime_root,
-        )
-        .await?;
-        let graphql_state = graphql::GraphqlState::from_runtime_host(&host);
+        let host =
+            start_from_process_env_with_local_model_runtime_root(local_model_runtime_root).await?;
+        let graphql_state = graphql::GraphqlState::from_host_services(host.services());
         let schema = graphql::build_schema(graphql_state.clone());
         let (mcp_oauth_callback_url, mcp_oauth_callback_server) =
-            crate::mcp_oauth_callback::start(graphql_state)
-                .await
-                .map_err(RuntimeHostError::Runtime)?;
+            match crate::mcp_oauth_callback::start(graphql_state).await {
+                Ok(callback) => callback,
+                Err(error) => {
+                    host.shutdown().await;
+                    return Err(RuntimeHostError::Composition(error));
+                }
+            };
         let mut inner = self.inner.lock().await;
         *inner = Some(DesktopRuntime {
             host,
@@ -134,7 +133,7 @@ impl DesktopState {
 }
 
 struct DesktopRuntime {
-    host: NoemaRuntimeHost,
+    host: NoemaHost,
     schema: GraphqlSchema,
     mcp_oauth_callback_url: String,
     mcp_oauth_callback_server: JoinHandle<()>,

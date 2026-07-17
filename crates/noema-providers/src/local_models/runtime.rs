@@ -21,7 +21,7 @@ use tokio::{
 };
 use url::Url;
 
-use crate::{GenerationPriority, LocalModelBackend};
+use crate::{GenerationPriority, LocalModelBackend, LocalModelRuntimeStatus};
 
 use super::hardware::detect_ram_gb;
 use generation_arbiter::{GenerationArbiter, GenerationPermit};
@@ -112,41 +112,6 @@ impl LlamaServerConfig {
         }
         Ok(())
     }
-}
-
-/// Observable state of the local inference runtime.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum LocalModelRuntimeStatus {
-    /// No server process is running.
-    Stopped,
-    /// One backend candidate is loading the installed model.
-    Starting {
-        /// Candidate currently being started.
-        backend: LocalModelBackend,
-    },
-    /// A backend candidate is healthy and ready for generation.
-    Ready {
-        /// Active backend.
-        backend: LocalModelBackend,
-        /// Loopback API base URL.
-        endpoint: String,
-        /// Installed model id loaded by the process.
-        model_id: String,
-    },
-    /// A candidate failed and the supervisor is trying the next backend.
-    Retrying {
-        /// Candidate that failed.
-        failed_backend: LocalModelBackend,
-        /// Next candidate to try.
-        next_backend: LocalModelBackend,
-        /// Concise launch or health failure.
-        message: String,
-    },
-    /// Every configured backend candidate failed.
-    Failed {
-        /// Combined candidate failures.
-        message: String,
-    },
 }
 
 /// Healthy endpoint returned by the supervisor.

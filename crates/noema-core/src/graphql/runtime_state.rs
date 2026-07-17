@@ -1,10 +1,8 @@
 use noema_store::NoemaStore;
 
-use crate::NoemaRuntimeHost;
 use noema_capabilities_mcp::McpControlPlaneHandle;
 #[cfg(test)]
 use noema_home::NoemaPaths;
-use noema_home::{SystemErrorEvent, SystemErrorLogger};
 use noema_memory::{MemoryRepositoryHandle, MemoryServiceAccessHandle};
 use noema_providers::{LocalModelManager, ProviderAccountOperationsHandle, ProviderRegistryHandle};
 use noema_runtime::{RuntimeEventRegistry, RuntimeHandle};
@@ -17,10 +15,11 @@ pub struct GraphqlRuntimeState {
     runtime: Option<RuntimeHandle>,
     store: Option<NoemaStore>,
     artifact_operations: Option<noema_artifacts::ArtifactOperationsHandle>,
-    artifact_diagnostics: ArtifactDiagnosticReporter,
+    artifact_diagnostics: Option<noema_host::ArtifactDiagnosticHandle>,
     provider_account_operations: Option<ProviderAccountOperationsHandle>,
     mcp_operations: Option<McpControlPlaneHandle>,
     local_model_manager: Option<LocalModelManager>,
+    onboarding: Option<noema_host::OnboardingService>,
     provider_registry: Option<ProviderRegistryHandle>,
     memory_repository: Option<MemoryRepositoryHandle>,
     memory_service_access: Option<MemoryServiceAccessHandle>,
@@ -32,20 +31,21 @@ pub struct GraphqlRuntimeState {
 impl GraphqlRuntimeState {
     /// Build state from a real runtime host.
     #[must_use]
-    pub fn from_host(host: &NoemaRuntimeHost) -> Self {
+    pub fn from_host_services(services: &noema_host::HostServices) -> Self {
         Self {
-            runtime: Some(host.runtime().clone()),
-            store: Some(host.store().clone()),
-            artifact_operations: Some(host.artifact_operations().clone()),
-            artifact_diagnostics: ArtifactDiagnosticReporter::new(host.system_errors().clone()),
-            provider_account_operations: Some(host.provider_account_operations().clone()),
-            mcp_operations: Some(host.mcp_operations().clone()),
-            local_model_manager: Some(host.local_model_manager().clone()),
-            provider_registry: Some(host.local_model_manager().registry()),
-            memory_repository: Some(host.memory_repository().clone()),
-            memory_service_access: Some(host.memory_service_access().clone()),
-            memory_startup_error: host.memory_startup_error().map(str::to_string),
-            subscriptions: host.runtime_events().clone(),
+            runtime: Some(services.runtime().clone()),
+            store: Some(services.store().clone()),
+            artifact_operations: Some(services.artifact_operations().clone()),
+            artifact_diagnostics: Some(services.artifact_diagnostics().clone()),
+            provider_account_operations: Some(services.provider_account_operations().clone()),
+            mcp_operations: Some(services.mcp_operations().clone()),
+            local_model_manager: Some(services.local_model_manager().clone()),
+            onboarding: Some(services.onboarding().clone()),
+            provider_registry: Some(services.provider_registry().clone()),
+            memory_repository: Some(services.memory_repository().clone()),
+            memory_service_access: Some(services.memory_service_access().clone()),
+            memory_startup_error: services.memory_startup_error().map(str::to_string),
+            subscriptions: services.runtime_events().clone(),
             memory_storage: GraphqlMemoryStorageStatus::Ready,
         }
     }
@@ -57,10 +57,11 @@ impl GraphqlRuntimeState {
             runtime: None,
             store: None,
             artifact_operations: None,
-            artifact_diagnostics: ArtifactDiagnosticReporter::default(),
+            artifact_diagnostics: None,
             provider_account_operations: None,
             mcp_operations: None,
             local_model_manager: None,
+            onboarding: None,
             provider_registry: None,
             memory_repository: None,
             memory_service_access: None,
@@ -75,12 +76,21 @@ impl GraphqlRuntimeState {
     #[must_use]
     pub fn for_tests_with_store(store: NoemaStore) -> Self {
         let provider_account_operations = test_provider_account_operations(store.clone());
-        let mcp_operations = test_mcp_operations(store.clone(), None);
+        let mcp_operations = crate::test_support::test_mcp_operations(store.clone(), None);
         let memory_repository: MemoryRepositoryHandle = std::sync::Arc::new(store.clone());
+        let local_model_manager =
+            crate::test_support::local_model_manager(&store, crate::test_support::test_paths());
+        let onboarding = noema_host::OnboardingService::new(
+            store.clone(),
+            provider_account_operations.clone(),
+            local_model_manager.clone(),
+        );
         Self {
             store: Some(store),
             provider_account_operations: Some(provider_account_operations),
             mcp_operations: Some(mcp_operations),
+            local_model_manager: Some(local_model_manager),
+            onboarding: Some(onboarding),
             provider_registry: Some(crate::test_support::ready_test_provider_registry()),
             memory_repository: Some(memory_repository),
             ..Self::for_tests()
@@ -95,13 +105,23 @@ impl GraphqlRuntimeState {
         runtime: RuntimeHandle,
     ) -> Self {
         let provider_account_operations = test_provider_account_operations(store.clone());
-        let mcp_operations = test_mcp_operations(store.clone(), Some(runtime.clone()));
+        let mcp_operations =
+            crate::test_support::test_mcp_operations(store.clone(), Some(runtime.clone()));
         let memory_repository: MemoryRepositoryHandle = std::sync::Arc::new(store.clone());
+        let local_model_manager =
+            crate::test_support::local_model_manager(&store, crate::test_support::test_paths());
+        let onboarding = noema_host::OnboardingService::new(
+            store.clone(),
+            provider_account_operations.clone(),
+            local_model_manager.clone(),
+        );
         Self {
             runtime: Some(runtime),
             store: Some(store),
             provider_account_operations: Some(provider_account_operations),
             mcp_operations: Some(mcp_operations),
+            local_model_manager: Some(local_model_manager),
+            onboarding: Some(onboarding),
             provider_registry: Some(crate::test_support::ready_test_provider_registry()),
             memory_repository: Some(memory_repository),
             ..Self::for_tests()
@@ -115,17 +135,25 @@ impl GraphqlRuntimeState {
         let artifact_operations =
             crate::test_support::artifact_operations_for_paths(&store, &paths)
                 .expect("test artifact service");
-        let provider_account_operations = test_provider_account_service(&store, &paths);
-        let mcp_operations = test_mcp_operations(store.clone(), None);
+        let artifact_diagnostics = crate::test_support::artifact_diagnostics_for_paths(&paths);
+        let provider_account_operations =
+            test_provider_account_operations_for_paths(store.clone(), paths.clone());
+        let mcp_operations = crate::test_support::test_mcp_operations(store.clone(), None);
         let memory_repository: MemoryRepositoryHandle = std::sync::Arc::new(store.clone());
+        let local_model_manager = crate::test_support::local_model_manager(&store, paths.clone());
+        let onboarding = noema_host::OnboardingService::new(
+            store.clone(),
+            provider_account_operations.clone(),
+            local_model_manager.clone(),
+        );
         Self {
             store: Some(store),
             artifact_operations: Some(artifact_operations),
-            artifact_diagnostics: ArtifactDiagnosticReporter::new(SystemErrorLogger::from_paths(
-                &paths,
-            )),
+            artifact_diagnostics: Some(artifact_diagnostics),
             provider_account_operations: Some(provider_account_operations),
             mcp_operations: Some(mcp_operations),
+            local_model_manager: Some(local_model_manager),
+            onboarding: Some(onboarding),
             provider_registry: Some(crate::test_support::ready_test_provider_registry()),
             memory_repository: Some(memory_repository),
             ..Self::for_tests()
@@ -148,6 +176,17 @@ impl GraphqlRuntimeState {
         local_model_manager: LocalModelManager,
     ) -> Self {
         self.provider_registry = Some(local_model_manager.registry());
+        self.onboarding = self
+            .store
+            .clone()
+            .zip(self.provider_account_operations.clone())
+            .map(|(store, provider_accounts)| {
+                noema_host::OnboardingService::new(
+                    store,
+                    provider_accounts,
+                    local_model_manager.clone(),
+                )
+            });
         self.local_model_manager = Some(local_model_manager);
         self
     }
@@ -211,7 +250,9 @@ impl GraphqlRuntimeState {
     }
 
     pub(crate) fn record_artifact_download_failure(&self, operation: &'static str) {
-        self.artifact_diagnostics.download_failure(operation);
+        if let Some(diagnostics) = &self.artifact_diagnostics {
+            diagnostics.record_download_failure(operation);
+        }
     }
 
     pub(crate) fn provider_account_operations(
@@ -232,6 +273,12 @@ impl GraphqlRuntimeState {
         self.local_model_manager
             .as_ref()
             .ok_or_else(|| async_graphql::Error::new("Noema local-model service is unavailable"))
+    }
+
+    pub(crate) fn onboarding(&self) -> async_graphql::Result<&noema_host::OnboardingService> {
+        self.onboarding
+            .as_ref()
+            .ok_or_else(|| async_graphql::Error::new("Noema onboarding service is unavailable"))
     }
 
     pub(crate) fn provider_registry(&self) -> async_graphql::Result<&ProviderRegistryHandle> {
@@ -264,215 +311,50 @@ impl GraphqlRuntimeState {
 }
 
 #[cfg(test)]
-use test_mcp::test_mcp_operations;
-
-#[cfg(test)]
-mod test_mcp {
-    use std::sync::Arc;
-
-    use noema_capabilities_mcp::{
-        CompleteMcpOAuthSetupCommand, ContinueMcpServerSetupCommand, CreateMcpServerCommand,
-        McpAutofillCalibrationsCommand, McpAutofillCalibrationsResult, McpControlPlaneHandle,
-        McpDeleteServerCommand, McpDeleteServerResult, McpListToolsCommand,
-        McpOAuthSetupAttemptQuery, McpOAuthSetupAttemptView, McpOperationError, McpOperationFuture,
-        McpOperations, McpRepository, McpSaveCalibrationsCommand, McpSaveCalibrationsResult,
-        McpServerList, McpServerSetupResult, McpToolList, StartMcpOAuthReauthenticationCommand,
-        StartMcpOAuthSetupCommand, build_autofill_prompt, parse_autofill_response,
-    };
-
-    use noema_store::NoemaStore;
-
-    use noema_runtime::RuntimeHandle;
-
-    pub(super) fn test_mcp_operations(
-        store: NoemaStore,
-        runtime: Option<RuntimeHandle>,
-    ) -> McpControlPlaneHandle {
-        Arc::new(TestStoreMcpOperations { store, runtime })
-    }
-
-    struct TestStoreMcpOperations {
-        store: NoemaStore,
-        runtime: Option<RuntimeHandle>,
-    }
-
-    impl McpOperations for TestStoreMcpOperations {
-        fn list_servers(&self) -> McpOperationFuture<'_, Result<McpServerList, McpOperationError>> {
-            Box::pin(async move {
-                self.store
-                    .control_plane_catalog()
-                    .await
-                    .map(|servers| McpServerList {
-                        servers: servers.into_iter().map(|server| server.server).collect(),
-                    })
-                    .map_err(|_| McpOperationError::Unavailable)
-            })
-        }
-
-        fn list_tools(
-            &self,
-            command: McpListToolsCommand,
-        ) -> McpOperationFuture<'_, Result<McpToolList, McpOperationError>> {
-            Box::pin(async move {
-                let server = self
-                    .store
-                    .control_plane_server(command.mcp_server_id)
-                    .await
-                    .map_err(|_| McpOperationError::Unavailable)?
-                    .ok_or(McpOperationError::NotFound)?;
-                Ok(McpToolList {
-                    server: server.server,
-                    tools: server.tools,
-                })
-            })
-        }
-
-        fn create_server(
-            &self,
-            _command: CreateMcpServerCommand,
-        ) -> McpOperationFuture<'_, Result<McpServerSetupResult, McpOperationError>> {
-            Box::pin(async { Err(McpOperationError::Failed) })
-        }
-
-        fn continue_setup(
-            &self,
-            _command: ContinueMcpServerSetupCommand,
-        ) -> McpOperationFuture<'_, Result<McpServerSetupResult, McpOperationError>> {
-            Box::pin(async { Err(McpOperationError::Failed) })
-        }
-
-        fn start_oauth_setup(
-            &self,
-            _command: StartMcpOAuthSetupCommand,
-        ) -> McpOperationFuture<'_, Result<McpOAuthSetupAttemptView, McpOperationError>> {
-            Box::pin(async { Err(McpOperationError::Failed) })
-        }
-
-        fn start_oauth_reauthentication(
-            &self,
-            _command: StartMcpOAuthReauthenticationCommand,
-        ) -> McpOperationFuture<'_, Result<McpOAuthSetupAttemptView, McpOperationError>> {
-            Box::pin(async { Err(McpOperationError::Failed) })
-        }
-
-        fn oauth_setup_attempt(
-            &self,
-            _query: McpOAuthSetupAttemptQuery,
-        ) -> McpOperationFuture<'_, Result<Option<McpOAuthSetupAttemptView>, McpOperationError>>
-        {
-            Box::pin(async { Ok(None) })
-        }
-
-        fn complete_oauth_setup(
-            &self,
-            _command: CompleteMcpOAuthSetupCommand,
-        ) -> McpOperationFuture<'_, Result<McpOAuthSetupAttemptView, McpOperationError>> {
-            Box::pin(async { Err(McpOperationError::Failed) })
-        }
-
-        fn autofill_calibrations(
-            &self,
-            command: McpAutofillCalibrationsCommand,
-        ) -> McpOperationFuture<'_, Result<McpAutofillCalibrationsResult, McpOperationError>>
-        {
-            Box::pin(async move {
-                let runtime = self
-                    .runtime
-                    .as_ref()
-                    .ok_or(McpOperationError::Unavailable)?;
-                let server = self
-                    .store
-                    .control_plane_server(command.mcp_server_id)
-                    .await
-                    .map_err(|_| McpOperationError::Unavailable)?
-                    .ok_or(McpOperationError::NotFound)?;
-                let tools = server
-                    .tools
-                    .iter()
-                    .map(|tool| tool.tool.clone())
-                    .collect::<Vec<_>>();
-                let prompt = build_autofill_prompt(&server.server.display_name, &tools);
-                let mut request = noema_providers::GenerateRequest::text(prompt);
-                request.instructions =
-                    Some("Return strict JSON only for MCP calibration suggestions.".to_string());
-                let response = runtime
-                    .generate_once_with_tool_classification_model(request)
-                    .await
-                    .map_err(|_| McpOperationError::Failed)?;
-                let suggestions = parse_autofill_response(&response.assistant_text(), &tools)
-                    .map_err(|_| McpOperationError::MalformedResponse)?;
-                Ok(McpAutofillCalibrationsResult { suggestions })
-            })
-        }
-
-        fn save_calibrations(
-            &self,
-            command: McpSaveCalibrationsCommand,
-        ) -> McpOperationFuture<'_, Result<McpSaveCalibrationsResult, McpOperationError>> {
-            Box::pin(async move {
-                self.store
-                    .save_calibrations(command.calibrations)
-                    .await
-                    .map(|calibrations| McpSaveCalibrationsResult { calibrations })
-                    .map_err(|_| McpOperationError::InvalidInput)
-            })
-        }
-
-        fn delete_server(
-            &self,
-            command: McpDeleteServerCommand,
-        ) -> McpOperationFuture<'_, Result<McpDeleteServerResult, McpOperationError>> {
-            Box::pin(async move {
-                let Some(ticket) = self
-                    .store
-                    .begin_delete(command.mcp_server_id)
-                    .await
-                    .map_err(|_| McpOperationError::Unavailable)?
-                else {
-                    return Ok(McpDeleteServerResult { deleted: false });
-                };
-                let deleted = self
-                    .store
-                    .finish_delete(ticket)
-                    .await
-                    .map_err(|_| McpOperationError::Unavailable)?;
-                Ok(McpDeleteServerResult { deleted })
-            })
-        }
-    }
-}
-
-#[cfg(test)]
-fn test_provider_account_service(
-    store: &NoemaStore,
-    paths: &NoemaPaths,
-) -> ProviderAccountOperationsHandle {
-    use noema_providers::{
-        ProviderAccountPersistenceHandle, ProviderAccountService,
-        ProviderModelCatalogPersistenceHandle,
-    };
-    use std::sync::Arc;
-
-    let accounts: ProviderAccountPersistenceHandle = Arc::new(store.clone());
-    let catalogs: ProviderModelCatalogPersistenceHandle = Arc::new(store.clone());
-    ProviderAccountService::new(
-        paths.clone(),
-        accounts,
-        catalogs,
-        SystemErrorLogger::from_paths(paths),
-    )
-    .expect("test provider account service")
-    .operations()
-}
-
-#[cfg(test)]
 fn test_provider_account_operations(store: NoemaStore) -> ProviderAccountOperationsHandle {
-    std::sync::Arc::new(TestStoreBackedProviderAccountOperations { store })
+    std::sync::Arc::new(TestStoreBackedProviderAccountOperations { store, paths: None })
+}
+
+#[cfg(test)]
+fn test_provider_account_operations_for_paths(
+    store: NoemaStore,
+    paths: NoemaPaths,
+) -> ProviderAccountOperationsHandle {
+    std::sync::Arc::new(TestStoreBackedProviderAccountOperations {
+        store,
+        paths: Some(paths),
+    })
 }
 
 #[cfg(test)]
 struct TestStoreBackedProviderAccountOperations {
     store: NoemaStore,
+    paths: Option<NoemaPaths>,
+}
+
+#[cfg(test)]
+impl TestStoreBackedProviderAccountOperations {
+    fn account_home(
+        &self,
+        account: &noema_providers::ProviderAccountRecord,
+    ) -> Option<std::path::PathBuf> {
+        self.paths
+            .as_ref()
+            .map(|paths| paths.provider_account_home(&account.provider_kind, &account.account_key))
+    }
+
+    fn write_secret_marker(
+        &self,
+        account: &noema_providers::ProviderAccountRecord,
+    ) -> Result<(), noema_providers::ProviderAccountOperationError> {
+        let Some(home) = self.account_home(account) else {
+            return Ok(());
+        };
+        std::fs::create_dir_all(&home)
+            .map_err(|_| noema_providers::ProviderAccountOperationError::ProviderUnavailable)?;
+        std::fs::write(home.join("api_key.json"), b"{}")
+            .map_err(|_| noema_providers::ProviderAccountOperationError::ProviderUnavailable)
+    }
 }
 
 #[cfg(test)]
@@ -503,26 +385,120 @@ impl noema_providers::ProviderAccountOperations for TestStoreBackedProviderAccou
 
     fn create_secret_account(
         &self,
-        _request: noema_providers::CreateSecretProviderAccountRequest,
+        request: noema_providers::CreateSecretProviderAccountRequest,
     ) -> noema_providers::ProviderAccountOperationFuture<'_, noema_providers::ProviderAccountRecord>
     {
-        Box::pin(async { Err(noema_providers::ProviderAccountOperationError::UnsupportedProvider) })
+        Box::pin(async move {
+            let catalog = noema_providers::provider_account_catalog();
+            let entry = catalog
+                .iter()
+                .find(|entry| entry.provider_kind == request.provider_kind)
+                .ok_or(noema_providers::ProviderAccountOperationError::UnsupportedProvider)?;
+            if entry.auth_method != noema_providers::ProviderAuthMethod::SecretInput {
+                return Err(noema_providers::ProviderAccountOperationError::AuthMethodMismatch);
+            }
+            let account = noema_providers::ProviderAccountPersistence::create_provider_account(
+                &self.store,
+                noema_providers::NewProviderAccount {
+                    provider_kind: request.provider_kind,
+                    display_name: request.display_name,
+                    auth_method: noema_providers::ProviderAuthMethod::SecretInput,
+                    status: noema_providers::ProviderAccountStatus::Authenticated,
+                    metadata: serde_json::json!({
+                        "secretConfigured": true,
+                        "credentialRevision": 1,
+                    }),
+                },
+            )
+            .await
+            .map_err(|_| noema_providers::ProviderAccountOperationError::Persistence)?;
+            let account = noema_providers::provider_account_from_persisted(account);
+            self.write_secret_marker(&account)?;
+            Ok(account)
+        })
     }
 
     fn save_secret(
         &self,
-        _request: noema_providers::SaveProviderAccountSecretRequest,
+        request: noema_providers::SaveProviderAccountSecretRequest,
     ) -> noema_providers::ProviderAccountOperationFuture<'_, noema_providers::ProviderAccountRecord>
     {
-        Box::pin(async { Err(noema_providers::ProviderAccountOperationError::UnsupportedProvider) })
+        Box::pin(async move {
+            let account = self
+                .store
+                .get_provider_account(&request.provider_account_id)
+                .await
+                .map_err(|_| noema_providers::ProviderAccountOperationError::Persistence)?
+                .ok_or(noema_providers::ProviderAccountOperationError::AccountNotFound)?;
+            if account.auth_method != noema_providers::ProviderAuthMethod::SecretInput {
+                return Err(noema_providers::ProviderAccountOperationError::AuthMethodMismatch);
+            }
+            let account = noema_providers::provider_account_from_persisted(account);
+            self.write_secret_marker(&account)?;
+            let account = noema_providers::ProviderAccountPersistence::update_provider_account(
+                &self.store,
+                noema_providers::UpdateProviderAccountRequest {
+                    provider_account_id: account.provider_account_id,
+                    status: Some(noema_providers::ProviderAccountStatusUpdate {
+                        status: noema_providers::ProviderAccountStatus::Authenticated,
+                        error_code: None,
+                        error_message: None,
+                    }),
+                    metadata: Some(serde_json::json!({
+                        "secretConfigured": true,
+                        "credentialRevision": 1,
+                    })),
+                },
+            )
+            .await
+            .map_err(|_| noema_providers::ProviderAccountOperationError::Persistence)?;
+            Ok(noema_providers::provider_account_from_persisted(account))
+        })
     }
 
     fn clear_secret<'a>(
         &'a self,
-        _provider_account_id: &'a str,
+        provider_account_id: &'a str,
     ) -> noema_providers::ProviderAccountOperationFuture<'a, noema_providers::ProviderAccountRecord>
     {
-        Box::pin(async { Err(noema_providers::ProviderAccountOperationError::UnsupportedProvider) })
+        Box::pin(async move {
+            let account = self
+                .store
+                .get_provider_account(provider_account_id)
+                .await
+                .map_err(|_| noema_providers::ProviderAccountOperationError::Persistence)?
+                .ok_or(noema_providers::ProviderAccountOperationError::AccountNotFound)?;
+            if account.auth_method != noema_providers::ProviderAuthMethod::SecretInput {
+                return Err(noema_providers::ProviderAccountOperationError::AuthMethodMismatch);
+            }
+            let account = noema_providers::provider_account_from_persisted(account);
+            if let Some(home) = self.account_home(&account) {
+                let secret_path = home.join("api_key.json");
+                if secret_path.exists() {
+                    std::fs::remove_file(secret_path).map_err(|_| {
+                        noema_providers::ProviderAccountOperationError::ProviderUnavailable
+                    })?;
+                }
+            }
+            let account = noema_providers::ProviderAccountPersistence::update_provider_account(
+                &self.store,
+                noema_providers::UpdateProviderAccountRequest {
+                    provider_account_id: account.provider_account_id,
+                    status: Some(noema_providers::ProviderAccountStatusUpdate {
+                        status: noema_providers::ProviderAccountStatus::Unauthenticated,
+                        error_code: None,
+                        error_message: None,
+                    }),
+                    metadata: Some(serde_json::json!({
+                        "secretConfigured": false,
+                        "credentialRevision": 1,
+                    })),
+                },
+            )
+            .await
+            .map_err(|_| noema_providers::ProviderAccountOperationError::Persistence)?;
+            Ok(noema_providers::provider_account_from_persisted(account))
+        })
     }
 
     fn delete_account<'a>(
@@ -541,10 +517,21 @@ impl noema_providers::ProviderAccountOperations for TestStoreBackedProviderAccou
             if account.is_default {
                 return Err(noema_providers::ProviderAccountOperationError::ProtectedAccount);
             }
-            self.store
+            let deleted = self
+                .store
                 .delete_provider_account(provider_account_id)
                 .await
-                .map_err(|_| noema_providers::ProviderAccountOperationError::Persistence)
+                .map_err(|_| noema_providers::ProviderAccountOperationError::Persistence)?;
+            if deleted
+                && let Some(home) =
+                    self.account_home(&noema_providers::provider_account_from_persisted(account))
+                && home.exists()
+            {
+                std::fs::remove_dir_all(home).map_err(|_| {
+                    noema_providers::ProviderAccountOperationError::ProviderUnavailable
+                })?;
+            }
+            Ok(deleted)
         })
     }
 
@@ -610,32 +597,5 @@ impl noema_providers::ProviderAccountOperations for TestStoreBackedProviderAccou
     ) -> noema_providers::ProviderAccountOperationFuture<'a, noema_providers::ProviderAccountRecord>
     {
         self.reconcile_account(provider_account_id)
-    }
-}
-
-#[derive(Clone, Default)]
-struct ArtifactDiagnosticReporter {
-    system_errors: Option<SystemErrorLogger>,
-}
-
-impl ArtifactDiagnosticReporter {
-    fn new(system_errors: SystemErrorLogger) -> Self {
-        Self {
-            system_errors: Some(system_errors),
-        }
-    }
-
-    fn download_failure(&self, operation: &'static str) {
-        let Some(system_errors) = &self.system_errors else {
-            return;
-        };
-        let event = SystemErrorEvent::new(
-            "artifact_download_failure",
-            "artifact download operation failed",
-        )
-        .with_context(serde_json::json!({ "operation": operation }));
-        if system_errors.append(event).is_err() {
-            eprintln!("Noema artifact download failure: diagnostic_write");
-        }
     }
 }

@@ -4,7 +4,6 @@ use std::{
     collections::HashMap,
     fmt,
     future::Future,
-    path::PathBuf,
     pin::Pin,
     sync::{
         Arc, Mutex as StdMutex,
@@ -13,7 +12,6 @@ use std::{
     time::Duration,
 };
 
-use thiserror::Error;
 use tokio::{
     sync::{Mutex, watch},
     task::JoinHandle,
@@ -23,16 +21,16 @@ use tokio_util::sync::CancellationToken;
 use noema_home::{NoemaPaths, SystemErrorLogger};
 
 use crate::{
-    LocalModelActivationPersistenceHandle, LocalModelEventRecord,
-    LocalModelInstallationPersistenceHandle, LocalModelInstallationRecord,
-    LocalModelLifecyclePersistenceHandle, ProviderInstanceKey, ProviderPersistenceError,
-    ProviderRegistration, ProviderRegistryError, ProviderRegistryHandle,
+    DegradedLocalModelInstance, LocalModelActivationPersistenceHandle, LocalModelCatalogSnapshot,
+    LocalModelEventRecord, LocalModelInstallationPersistenceHandle, LocalModelInstallationRecord,
+    LocalModelLifecyclePersistenceHandle, LocalModelManagement, LocalModelManagementFuture,
+    LocalModelManager, LocalModelManagerConfig, LocalModelManagerError, LocalModelManagerEvent,
+    LocalModelManagerEventRecord, LocalModelManagerEventStream, LocalModelReconstructionReport,
+    LocalModelRuntimeStatus, ManagedLocalModelStatus, ProviderInstanceKey, ProviderRegistration,
+    ProviderRegistryHandle,
 };
 
-use super::{
-    LocalHardwareProfile, LocalModelBuild, LocalModelCatalogEntry, LocalModelInstallError,
-    LocalModelInstaller, LocalModelRuntimeStatus,
-};
+use super::{LocalModelInstallError, LocalModelInstaller};
 use process::{DefaultLocalModelProcessFactory, LocalModelProcess, LocalModelProcessFactory};
 
 mod events;
@@ -50,217 +48,6 @@ const LIFECYCLE_STOPPED: u8 = 2;
 const DEFAULT_REAPER_INTERVAL: Duration = Duration::from_secs(30);
 const DEFAULT_REAPER_BATCH_SIZE: usize = 8;
 
-/// Runtime construction settings shared by every managed local instance.
-#[derive(Clone)]
-pub struct LocalModelManagerConfig {
-    /// Packaged llama.cpp resource root supplied by the desktop shell.
-    pub runtime_root: Option<PathBuf>,
-    /// Context window exposed to prompt planning.
-    pub context_window_tokens: u32,
-    /// Generation request timeout.
-    pub timeout_seconds: u64,
-    /// Time allowed for a process to load its model.
-    pub startup_timeout_seconds: u64,
-    /// Optional developer diagnostic logger for malformed model output.
-    pub system_errors: Option<SystemErrorLogger>,
-}
-
-impl fmt::Debug for LocalModelManagerConfig {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("LocalModelManagerConfig")
-            .field(
-                "runtime_root",
-                &self.runtime_root.as_ref().map(|_| "[REDACTED PATH]"),
-            )
-            .field("context_window_tokens", &self.context_window_tokens)
-            .field("timeout_seconds", &self.timeout_seconds)
-            .field("startup_timeout_seconds", &self.startup_timeout_seconds)
-            .field("system_errors_configured", &self.system_errors.is_some())
-            .finish()
-    }
-}
-
-/// Runtime state for one exact managed installation.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ManagedLocalModelStatus {
-    /// Immutable provider instance identity.
-    pub key: ProviderInstanceKey,
-    /// Concrete installation identity.
-    pub installation_id: String,
-    /// Provider-facing model profile.
-    pub model_id: String,
-    /// Whether this exact instance is currently published for new work.
-    pub is_active: bool,
-    /// Current supervised process state.
-    pub runtime: LocalModelRuntimeStatus,
-}
-
-/// One structurally valid instance that could not be started during reconstruction.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DegradedLocalModelInstance {
-    /// Immutable provider instance identity.
-    pub key: ProviderInstanceKey,
-    /// Concrete installation identity.
-    pub installation_id: String,
-    /// Stable non-secret runtime failure summary.
-    pub message: String,
-}
-
-/// Result of reconstructing every persistently referenced local instance.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct LocalModelReconstructionReport {
-    /// Exact instances that are ready and registered.
-    pub ready: Vec<ProviderInstanceKey>,
-    /// Structurally valid instances that remain temporarily unavailable.
-    pub degraded: Vec<DegradedLocalModelInstance>,
-}
-
-/// Bundled catalog entries together with the machine profiles used for selection.
-#[derive(Clone, Debug, PartialEq)]
-pub struct LocalModelCatalogSnapshot {
-    /// Catalog projections in maintainer-defined order.
-    pub entries: Vec<LocalModelCatalogSnapshotEntry>,
-}
-
-/// One catalog entry with manager-owned compatibility and recommendation results.
-#[derive(Clone, Debug, PartialEq)]
-pub struct LocalModelCatalogSnapshotEntry {
-    /// Validated bundled model and all downloadable builds.
-    pub model: LocalModelCatalogEntry,
-    /// Best compatible build for this machine, when one fits.
-    pub selected_build: Option<LocalModelBuild>,
-    /// Hardware values that selected the compatible build.
-    pub compatible_hardware: Option<LocalHardwareProfile>,
-    /// Explanation derived from the matched model, build, and hardware.
-    pub compatibility_explanation: Option<String>,
-    /// Whether this model is the top compatible recommendation.
-    pub is_recommended: bool,
-}
-
-/// One manager-owned local-model subscription payload.
-#[derive(Clone, Debug, PartialEq)]
-pub enum LocalModelManagerEvent {
-    /// Durable installation/event state suitable for reconnect backfill.
-    Durable {
-        /// Cursor-bearing durable event.
-        event: LocalModelEventRecord,
-        /// Current installation projection, absent after removal.
-        installation: Option<Box<LocalModelInstallationRecord>>,
-    },
-    /// Ephemeral state change for the currently published process.
-    RuntimeChanged {
-        /// New active-process status.
-        status: LocalModelRuntimeStatus,
-    },
-}
-
-/// Cursor-bearing manager event ready for transport adaptation.
-#[derive(Clone, Debug, PartialEq)]
-pub struct LocalModelManagerEventRecord {
-    /// Reconnect cursor. Runtime events retain the durable cursor prefix.
-    pub cursor: String,
-    /// Provider-owned event payload.
-    pub payload: LocalModelManagerEvent,
-}
-
-/// Boxed manager event stream.
-pub type LocalModelManagerEventStream = std::pin::Pin<
-    Box<
-        dyn futures_util::Stream<
-                Item = Result<LocalModelManagerEventRecord, LocalModelManagerError>,
-            > + Send,
-    >,
->;
-
-/// Local-model manager failures.
-#[derive(Debug, Error)]
-pub enum LocalModelManagerError {
-    /// Installation or artifact management failed.
-    #[error("local-model installation operation failed: {message}")]
-    Installation {
-        /// Concise installer failure without exposing the internal installer API.
-        message: String,
-    },
-    /// Durable provider state could not be read or committed.
-    #[error("local-model persistence operation failed: {0}")]
-    Persistence(#[from] ProviderPersistenceError),
-    /// Exact provider registration or retirement failed.
-    #[error("local-model provider registry operation failed: {0}")]
-    Registry(#[from] ProviderRegistryError),
-    /// The requested installation cannot back a process.
-    #[error("local-model installation `{installation_id}` is not runtime-ready: {reason}")]
-    InstallationNotReady {
-        /// Installation that failed validation.
-        installation_id: String,
-        /// Stable, non-secret validation detail.
-        reason: &'static str,
-    },
-    /// A durable reference has no installation owner.
-    #[error("referenced local-model instance has no installation: {provider_instance_key}")]
-    ReferencedInstallationMissing {
-        /// Missing exact instance identity.
-        provider_instance_key: ProviderInstanceKey,
-    },
-    /// Persisted installation identity does not match its immutable provenance.
-    #[error(
-        "local-model installation `{installation_id}` has mismatched provider instance identity"
-    )]
-    InstallationIdentityMismatch {
-        /// Installation with malformed identity.
-        installation_id: String,
-    },
-    /// A durable future reference points at an already claimed installation.
-    #[error("referenced local-model instance is claimed for retirement: {provider_instance_key}")]
-    ReferencedInstallationClaimed {
-        /// Claimed exact instance identity.
-        provider_instance_key: ProviderInstanceKey,
-    },
-    /// A durable future reference points at a runtime-retired installation.
-    #[error("referenced local-model instance is runtime-retired: {provider_instance_key}")]
-    ReferencedInstallationRuntimeRetired {
-        /// Retired exact instance identity.
-        provider_instance_key: ProviderInstanceKey,
-    },
-    /// More than one installation owns the same immutable key.
-    #[error("duplicate local-model provider instance identity: {provider_instance_key}")]
-    DuplicateInstanceIdentity {
-        /// Duplicated exact instance identity.
-        provider_instance_key: ProviderInstanceKey,
-    },
-    /// A process could not be started, health-checked, or stopped.
-    #[error("local-model runtime operation `{operation}` failed: {message}")]
-    Runtime {
-        /// Stable operation identifier.
-        operation: &'static str,
-        /// Concise process failure.
-        message: String,
-    },
-    /// Active installations cannot be removed.
-    #[error("active local-model installation cannot be removed: {installation_id}")]
-    ActiveInstallation {
-        /// Active installation identity.
-        installation_id: String,
-    },
-    /// New work was requested after shutdown began.
-    #[error("local-model manager is shutting down")]
-    ShuttingDown,
-    /// Runtime construction settings are invalid.
-    #[error("invalid local-model manager configuration: {0}")]
-    InvalidConfiguration(&'static str),
-    /// Bundled catalog or local hardware discovery failed.
-    #[error("local-model discovery operation `{operation}` failed: {message}")]
-    Discovery {
-        /// Stable discovery operation.
-        operation: &'static str,
-        /// Concise failure detail.
-        message: String,
-    },
-    /// A reconnect cursor did not contain a valid durable cursor prefix.
-    #[error("invalid local-model event cursor")]
-    InvalidEventCursor,
-}
-
 impl From<LocalModelInstallError> for LocalModelManagerError {
     fn from(error: LocalModelInstallError) -> Self {
         Self::Installation {
@@ -269,9 +56,9 @@ impl From<LocalModelInstallError> for LocalModelManagerError {
     }
 }
 
-/// Clonable local-model control-plane handle.
+/// Concrete feature-gated local-model control-plane service.
 #[derive(Clone)]
-pub struct LocalModelManager {
+pub(super) struct LocalModelManagerService {
     inner: Arc<ManagerInner>,
 }
 
@@ -334,6 +121,33 @@ impl LocalModelReaperClock for TokioLocalModelReaperClock {
 }
 
 impl LocalModelManager {
+    /// Creates the concrete local-model management service without reconstructing persisted state.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LocalModelManagerError`] when configuration is invalid or the
+    /// installer HTTP client cannot be built.
+    pub fn new(
+        installations: LocalModelInstallationPersistenceHandle,
+        activation: LocalModelActivationPersistenceHandle,
+        lifecycle_persistence: LocalModelLifecyclePersistenceHandle,
+        registry: ProviderRegistryHandle,
+        paths: NoemaPaths,
+        config: LocalModelManagerConfig,
+    ) -> Result<Self, LocalModelManagerError> {
+        LocalModelManagerService::new(
+            installations,
+            activation,
+            lifecycle_persistence,
+            registry,
+            paths,
+            config,
+        )
+        .map(|service| Self::from_operations(Arc::new(service)))
+    }
+}
+
+impl LocalModelManagerService {
     /// Creates a manager without starting the persisted active process.
     ///
     /// # Errors
@@ -504,10 +318,141 @@ impl LocalModelManager {
     }
 }
 
-impl fmt::Debug for LocalModelManager {
+impl LocalModelManagement for LocalModelManagerService {
+    fn registry(&self) -> ProviderRegistryHandle {
+        LocalModelManagerService::registry(self)
+    }
+
+    fn runtime_status(&self) -> LocalModelRuntimeStatus {
+        LocalModelManagerService::runtime_status(self)
+    }
+
+    fn installations(
+        &self,
+    ) -> LocalModelManagementFuture<
+        '_,
+        Result<Vec<LocalModelInstallationRecord>, LocalModelManagerError>,
+    > {
+        Box::pin(LocalModelManagerService::installations(self))
+    }
+
+    fn events(
+        &self,
+        after_cursor: Option<u64>,
+        limit: u32,
+    ) -> LocalModelManagementFuture<'_, Result<Vec<LocalModelEventRecord>, LocalModelManagerError>>
+    {
+        Box::pin(LocalModelManagerService::events(self, after_cursor, limit))
+    }
+
+    fn managed_instances(&self) -> LocalModelManagementFuture<'_, Vec<ManagedLocalModelStatus>> {
+        Box::pin(LocalModelManagerService::managed_instances(self))
+    }
+
+    fn catalog_snapshot(&self) -> Result<LocalModelCatalogSnapshot, LocalModelManagerError> {
+        LocalModelManagerService::catalog_snapshot()
+    }
+
+    fn preferred_import_backend(&self) -> Result<crate::LocalModelBackend, LocalModelManagerError> {
+        LocalModelManagerService::preferred_import_backend()
+    }
+
+    fn install_catalog_model(
+        &self,
+        model_id: String,
+        file: Option<String>,
+    ) -> LocalModelManagementFuture<'_, Result<LocalModelInstallationRecord, LocalModelManagerError>>
+    {
+        Box::pin(async move {
+            LocalModelManagerService::install_catalog_model(self, &model_id, file.as_deref()).await
+        })
+    }
+
+    fn import_hugging_face(
+        &self,
+        input: crate::HuggingFaceLocalModelImport,
+    ) -> LocalModelManagementFuture<'_, Result<LocalModelInstallationRecord, LocalModelManagerError>>
+    {
+        Box::pin(LocalModelManagerService::import_hugging_face(self, input))
+    }
+
+    fn import_local_file(
+        &self,
+        input: crate::LocalFileModelImport,
+    ) -> LocalModelManagementFuture<'_, Result<LocalModelInstallationRecord, LocalModelManagerError>>
+    {
+        Box::pin(LocalModelManagerService::import_local_file(self, input))
+    }
+
+    fn cancel_installation(
+        &self,
+        installation_id: String,
+    ) -> LocalModelManagementFuture<'_, Result<LocalModelInstallationRecord, LocalModelManagerError>>
+    {
+        Box::pin(async move {
+            LocalModelManagerService::cancel_installation(self, &installation_id).await
+        })
+    }
+
+    fn remove(
+        &self,
+        installation_id: String,
+    ) -> LocalModelManagementFuture<
+        '_,
+        Result<crate::RemovedLocalModelInstallation, LocalModelManagerError>,
+    > {
+        Box::pin(async move { LocalModelManagerService::remove(self, &installation_id).await })
+    }
+
+    fn activate(
+        &self,
+        installation_id: String,
+    ) -> LocalModelManagementFuture<'_, Result<LocalModelInstallationRecord, LocalModelManagerError>>
+    {
+        Box::pin(async move { LocalModelManagerService::activate(self, &installation_id).await })
+    }
+
+    fn retry_active_installation(
+        &self,
+    ) -> LocalModelManagementFuture<'_, Result<LocalModelRuntimeStatus, LocalModelManagerError>>
+    {
+        Box::pin(LocalModelManagerService::retry_active_installation(self))
+    }
+
+    fn reconstruct_persisted_instances(
+        &self,
+    ) -> LocalModelManagementFuture<
+        '_,
+        Result<LocalModelReconstructionReport, LocalModelManagerError>,
+    > {
+        Box::pin(LocalModelManagerService::reconstruct_persisted_instances(
+            self,
+        ))
+    }
+
+    fn subscribe_events(
+        &self,
+        after: Option<String>,
+    ) -> LocalModelManagementFuture<'_, Result<LocalModelManagerEventStream, LocalModelManagerError>>
+    {
+        Box::pin(
+            async move { LocalModelManagerService::subscribe_events(self, after.as_deref()).await },
+        )
+    }
+
+    fn begin_shutdown(&self) -> LocalModelManagementFuture<'_, ()> {
+        Box::pin(LocalModelManagerService::begin_shutdown(self))
+    }
+
+    fn shutdown(&self) -> LocalModelManagementFuture<'_, Result<(), LocalModelManagerError>> {
+        Box::pin(LocalModelManagerService::shutdown(self))
+    }
+}
+
+impl fmt::Debug for LocalModelManagerService {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
-            .debug_struct("LocalModelManager")
+            .debug_struct("LocalModelManagerService")
             .field(
                 "accepting_work",
                 &(self.inner.lifecycle.load(Ordering::Acquire) == LIFECYCLE_RUNNING),

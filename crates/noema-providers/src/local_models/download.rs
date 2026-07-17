@@ -2,7 +2,7 @@
 
 mod transfer;
 
-use std::{fmt, path::PathBuf};
+use std::fmt;
 
 use thiserror::Error;
 use tokio::{fs, io::AsyncReadExt};
@@ -11,7 +11,8 @@ use tokio_util::sync::CancellationToken;
 use noema_home::{NoemaPathError, NoemaPaths};
 
 use crate::{
-    LocalModelBackend, LocalModelInstallationPersistenceHandle, LocalModelInstallationRecord,
+    HuggingFaceLocalModelImport, LocalFileModelImport, LocalModelBackend,
+    LocalModelInstallationPersistenceHandle, LocalModelInstallationRecord,
     LocalModelInstallationStatus, LocalModelSourceKind, NewLocalModelInstallation,
     ProviderPersistenceError,
 };
@@ -20,45 +21,9 @@ use super::download_support::{
     hugging_face_url, local_file_installation_id, normalized_model_id, normalized_optional,
     required_text, validate_digest, validate_revision,
 };
-use super::{LocalModelBuild, LocalModelCatalogEntry};
+use crate::{LocalModelBuild, LocalModelCatalogEntry};
 
 const BYTES_PER_DECIMAL_GB: f64 = 1_000_000_000.0;
-
-/// Input for importing a public GGUF from an immutable Hugging Face revision.
-#[derive(Clone, Debug, PartialEq)]
-pub struct HuggingFaceLocalModelImport {
-    /// Product-facing model name.
-    pub name: String,
-    /// Provider-facing model profile.
-    pub model_id: String,
-    /// Public repository in `owner/repository` form.
-    pub repo: String,
-    /// Immutable 40-character commit.
-    pub revision: String,
-    /// GGUF path inside the repository.
-    pub file: String,
-    /// Expected lowercase SHA-256 digest.
-    pub sha256: String,
-    /// Optional user-supplied license label.
-    pub license: Option<String>,
-    /// Backend to use for this advanced import.
-    pub backend: LocalModelBackend,
-}
-
-/// Input for importing an existing GGUF from the local filesystem.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LocalFileModelImport {
-    /// Product-facing model name.
-    pub name: String,
-    /// Provider-facing model profile.
-    pub model_id: String,
-    /// Existing local GGUF path.
-    pub path: PathBuf,
-    /// Optional user-supplied license label.
-    pub license: Option<String>,
-    /// Backend to use for this advanced import.
-    pub backend: LocalModelBackend,
-}
 
 /// Local-model installation failures.
 #[derive(Debug, Error)]

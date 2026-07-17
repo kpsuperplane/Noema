@@ -7,6 +7,7 @@ members = [
     "crates/noema-core",
     "crates/noema-desktop",
     "crates/noema-home",
+    "crates/noema-host",
     "crates/noema-memory",
     "crates/noema-model-evals",
     "crates/noema-providers",

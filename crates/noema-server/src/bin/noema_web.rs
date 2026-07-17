@@ -2,8 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use noema_core::{Config, ConfigOverrides, DEFAULT_NOEMA_CONFIG_YAML};
-use noema_home::{NoemaHomeInitOptions, NoemaPaths, init_noema_home};
+use noema_host::start_from_process_env_with_local_model_runtime_root;
 use noema_server::run_daemon_web;
 
 #[tokio::main]
@@ -15,15 +14,9 @@ async fn main() {
 }
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let paths = NoemaPaths::from_process_env()?;
-    init_noema_home(
-        &paths,
-        Some(DEFAULT_NOEMA_CONFIG_YAML.as_bytes()),
-        NoemaHomeInitOptions { force: false },
-    )?;
-
-    let config = Config::load_daemon(None, ConfigOverrides::default())?;
-    run_daemon_web(config.provider, config.web, local_model_runtime_root()).await?;
+    let host =
+        start_from_process_env_with_local_model_runtime_root(local_model_runtime_root()).await?;
+    run_daemon_web(host).await?;
     Ok(())
 }
 

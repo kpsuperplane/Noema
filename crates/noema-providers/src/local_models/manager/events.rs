@@ -5,14 +5,14 @@ use std::{collections::VecDeque, time::Duration};
 use futures_util::stream;
 
 use super::{
-    LIFECYCLE_STOPPED, LocalModelManager, LocalModelManagerError, LocalModelManagerEvent,
-    LocalModelManagerEventRecord, LocalModelManagerEventStream,
+    LIFECYCLE_STOPPED, LocalModelManagerError, LocalModelManagerEvent,
+    LocalModelManagerEventRecord, LocalModelManagerEventStream, LocalModelManagerService,
 };
 
 const EVENT_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const EVENT_BATCH_LIMIT: u32 = 256;
 
-impl LocalModelManager {
+impl LocalModelManagerService {
     /// Subscribes to merged durable and active-runtime events.
     ///
     /// A supplied cursor backfills durable events strictly after its numeric
@@ -49,7 +49,7 @@ impl LocalModelManager {
 }
 
 struct EventStreamState {
-    manager: LocalModelManager,
+    manager: LocalModelManagerService,
     runtime_status: tokio::sync::watch::Receiver<crate::LocalModelRuntimeStatus>,
     lifecycle: tokio::sync::watch::Receiver<u8>,
     durable_cursor: u64,
@@ -156,7 +156,9 @@ fn parse_cursor(cursor: &str) -> Result<u64, LocalModelManagerError> {
         .map_err(|_| LocalModelManagerError::InvalidEventCursor)
 }
 
-async fn latest_durable_cursor(manager: &LocalModelManager) -> Result<u64, LocalModelManagerError> {
+async fn latest_durable_cursor(
+    manager: &LocalModelManagerService,
+) -> Result<u64, LocalModelManagerError> {
     let mut cursor = 0;
     loop {
         let events = manager

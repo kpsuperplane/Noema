@@ -1,4 +1,4 @@
-use super::{error::ConfigError, web::WebConfig};
+use super::{HostConfig, WebConfig, error::ConfigError};
 use noema_providers::{
     CodexProviderConfig, DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_TIMEOUT_SECONDS,
     DEFAULT_FOUNDATION_LOCAL_PROFILE, DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS,
@@ -10,24 +10,6 @@ use noema_providers::{
 };
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, str::FromStr};
-
-/// Fully resolved configuration used by the runtime.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedConfig {
-    /// Selected provider configuration.
-    pub provider: ProviderConfig,
-    /// Local web UI configuration.
-    pub web: WebConfig,
-}
-
-/// Fully resolved configuration needed by the local daemon.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DaemonResolvedConfig {
-    /// Provider configuration used for daemon conversations.
-    pub provider: ProviderConfig,
-    /// Local web UI configuration.
-    pub web: WebConfig,
-}
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -60,7 +42,7 @@ impl Default for RawConfig {
 }
 
 impl RawConfig {
-    pub(super) fn resolve(self) -> Result<ResolvedConfig, ConfigError> {
+    pub(super) fn resolve(self) -> Result<HostConfig, ConfigError> {
         let provider = ProviderKind::from_str(self.provider.trim()).map_err(|provider| {
             ConfigError::UnsupportedProvider {
                 provider: provider.clone(),
@@ -80,19 +62,7 @@ impl RawConfig {
             }
         };
 
-        Ok(ResolvedConfig {
-            provider,
-            web: self.web,
-        })
-    }
-
-    pub(super) fn resolve_daemon_config(self) -> Result<DaemonResolvedConfig, ConfigError> {
-        let resolved = self.resolve()?;
-
-        Ok(DaemonResolvedConfig {
-            provider: resolved.provider,
-            web: resolved.web,
-        })
+        Ok(HostConfig::new(provider, self.web))
     }
 
     pub(super) fn resolve_openai_config(&self) -> Result<OpenAiProviderConfig, ConfigError> {

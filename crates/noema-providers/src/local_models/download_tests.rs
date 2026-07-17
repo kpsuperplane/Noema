@@ -4,9 +4,11 @@ use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
 
-use crate::{LocalModelBackend, LocalModelEventKind, LocalModelInstallationStatus};
+use crate::{
+    LocalFileModelImport, LocalModelBackend, LocalModelEventKind, LocalModelInstallationStatus,
+};
 
-use super::{LocalFileModelImport, LocalModelInstallError, LocalModelInstaller};
+use super::{LocalModelInstallError, LocalModelInstaller};
 use fake::FakeInstallationPersistence;
 
 fn installer(

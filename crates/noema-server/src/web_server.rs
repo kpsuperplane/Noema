@@ -1,6 +1,4 @@
-use noema_core::{NoemaRuntimeHost, WebConfig};
-use noema_providers::ProviderConfig;
-use std::path::PathBuf;
+use noema_host::NoemaHost;
 use thiserror::Error;
 
 use super::web::{self, WebState};
@@ -12,23 +10,21 @@ use super::web::{self, WebState};
 /// Returns [`WebServerError`] when the web listener cannot be bound, the runtime
 /// cannot start, Ctrl-C cannot be observed, or accepting a client connection
 /// fails.
-pub async fn run_daemon_web(
-    provider: ProviderConfig,
-    web_config: WebConfig,
-    local_model_runtime_root: Option<PathBuf>,
-) -> Result<(), WebServerError> {
-    let web_listener = web::bind_listener(&web_config).await?;
+pub async fn run_daemon_web(host: NoemaHost) -> Result<(), WebServerError> {
+    let web_listener = match web::bind_listener(host.web_config()).await {
+        Ok(listener) => listener,
+        Err(error) => {
+            host.shutdown().await;
+            return Err(error);
+        }
+    };
     let listener_address = web_listener.local_addr()?;
     let authority = web::authority::CanonicalAuthority::from_socket_addr(listener_address);
     let sessions = web::session::SessionSecurity::generate().map_err(|_| {
         WebServerError::Protocol("failed to generate the browser bootstrap capability".to_string())
     })?;
     let auth_mode = web::WebAuthMode::from_build();
-    let host =
-        NoemaRuntimeHost::start_with_local_model_runtime_root(provider, local_model_runtime_root)
-            .await
-            .map_err(|source| WebServerError::Protocol(source.to_string()))?;
-    let graphql_state = noema_core::graphql::GraphqlState::from_runtime_host(&host);
+    let graphql_state = noema_core::graphql::GraphqlState::from_host_services(host.services());
     let web_state = WebState::new(
         graphql_state,
         authority.clone(),

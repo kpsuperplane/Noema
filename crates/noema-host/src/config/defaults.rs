@@ -1,4 +1,4 @@
-//! Product-owned default configuration content.
+//! Host-owned product default configuration content.
 
 /// Default config written during Noema home initialization.
 pub const DEFAULT_NOEMA_CONFIG_YAML: &str = r"# Noema configuration
