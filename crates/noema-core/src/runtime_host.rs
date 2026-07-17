@@ -2,13 +2,10 @@
 
 use noema_store::{NoemaStore, StoreConfig};
 
-use crate::{
-    DEFAULT_NOEMA_CONFIG_YAML, DaemonError,
-    daemon::{
-        CodexRuntimeHandle, CodexRuntimeSpawnConfig, ProviderAccountRuntimeAccess,
-        TaskRuntimeHandle,
-    },
-    mcp_completion::RuntimeMcpAutofillCompletionBridge,
+use crate::{DEFAULT_NOEMA_CONFIG_YAML, mcp_completion::RuntimeMcpAutofillCompletionBridge};
+use noema_runtime::{
+    RuntimeError, RuntimeEventRegistry, RuntimeHandle, RuntimeSpawnConfig, TaskRuntimeHandle,
+    WebBackendFuture, WebBackendRequest, WebBackendResolver, WebBackendResolverError,
 };
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -30,11 +27,16 @@ use noema_memory::{
 #[cfg(test)]
 use noema_memory::{MemoryServiceSettingsRecord, SaveMemoryServiceSettings};
 use noema_providers::{
+    CodexProviderConfig, DEFAULT_FOUNDATION_LOCAL_PROFILE, EXA_FETCH_PROVIDER_ID,
+    EXA_SEARCH_PROVIDER_ID, ExaFetchClient, ExaSearchClient, FoundationLocalProviderConfig,
     LocalModelActivationPersistenceHandle, LocalModelInstallationPersistenceHandle,
     LocalModelLifecyclePersistenceHandle, LocalModelManager, ProviderAccountOperationsHandle,
-    ProviderAccountService, ProviderConfig, ProviderKind, ProviderRegistry, ProviderRegistryHandle,
+    ProviderAccountService, ProviderConfig, ProviderCredential, ProviderCredentialAccessHandle,
+    ProviderHandle, ProviderKind, ProviderRegistry, ProviderRegistryHandle,
     ProviderRouteResolverHandle, ProviderSelectionSnapshot, RegistryProviderRouteResolver,
-    provider_account_instance_key,
+    WebFetchBackendHandle, WebSearchBackendHandle, default_web_fetch_backend,
+    default_web_search_backend, hosted_provider_from_config, provider_account_instance_key,
+    provider_bootstrap_from_config,
 };
 use ring::rand::{SecureRandom, SystemRandom};
 use std::{path::PathBuf, sync::Arc};
@@ -42,7 +44,7 @@ use thiserror::Error;
 
 /// Shared host state for Noema client surfaces.
 pub struct NoemaRuntimeHost {
-    runtime: CodexRuntimeHandle,
+    runtime: RuntimeHandle,
     task_runtime: TaskRuntimeHandle,
     store: NoemaStore,
     artifact_operations: noema_artifacts::ArtifactOperationsHandle,
@@ -58,7 +60,7 @@ pub struct NoemaRuntimeHost {
     system_errors: SystemErrorLogger,
     paths: NoemaPaths,
     #[allow(dead_code)]
-    runtime_events: crate::daemon::RuntimeEventRegistry,
+    runtime_events: RuntimeEventRegistry,
 }
 
 impl NoemaRuntimeHost {
@@ -128,13 +130,12 @@ impl NoemaRuntimeHost {
         let provider_credentials = provider_account_service.credentials();
         let local_model_manager_config =
             provider.local_model_manager_config(local_model_runtime_root, system_errors.clone());
-        let (default_provider_kind, default_model_profile, providers) =
-            CodexRuntimeHandle::provider_map_from_config(
-                provider,
-                system_errors.clone(),
-                provider_credentials.clone(),
-            )
-            .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
+        let (default_provider_kind, default_model_profile, providers) = provider_map_from_config(
+            provider,
+            system_errors.clone(),
+            provider_credentials.clone(),
+        )
+        .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
         let provider_registry: ProviderRegistryHandle = Arc::new(ProviderRegistry::new());
         register_hosted_providers(&provider_registry, &providers)
             .map_err(RuntimeHostError::Runtime)?;
@@ -350,17 +351,17 @@ impl NoemaRuntimeHost {
                 MnemosyneMemoryService::from_connection(Some(connection)).into_handle()
             });
 
-        let runtime_events = crate::daemon::RuntimeEventRegistry::default();
+        let runtime_events = RuntimeEventRegistry::default();
         let artifact_metadata: noema_artifacts::ArtifactMetadataStoreHandle =
             std::sync::Arc::new(store.clone());
         let artifact_operations: noema_artifacts::ArtifactOperationsHandle = std::sync::Arc::new(
             noema_artifacts::LocalArtifactService::new(paths.root(), artifact_metadata)
                 .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?,
         );
-        let provider_accounts = ProviderAccountRuntimeAccess::new(
+        let web_backends = Arc::new(HostWebBackendResolver::new(
             provider_account_operations.clone(),
             provider_credentials,
-        );
+        ));
         let mcp_repository: McpRepositoryHandle = Arc::new(store.clone());
         let mcp_secrets = Arc::new(FilesystemMcpSecretStore::new(paths.clone()));
         let mcp_diagnostics = SystemErrorMcpDiagnostics::new(system_errors.clone()).handle();
@@ -401,7 +402,7 @@ impl NoemaRuntimeHost {
             store.auxiliary_provider_selection_loader(noema_store::WEB_FETCH_SUMMARIZER_TASK_ID),
             provider_registry.clone(),
         );
-        let runtime = CodexRuntimeHandle::spawn(CodexRuntimeSpawnConfig {
+        let runtime = RuntimeHandle::spawn(RuntimeSpawnConfig {
             primary_provider,
             default_provider,
             progress_audit_provider,
@@ -412,7 +413,7 @@ impl NoemaRuntimeHost {
             system_errors: system_errors.clone(),
             memory_operations: runtime_memory_operations,
             runtime_events: runtime_events.clone(),
-            provider_accounts,
+            web_backends,
             capability_bindings: mcp_service.binding_source(),
             capability_invokers: Arc::from([mcp_service.invoker_registration()]),
         })
@@ -448,7 +449,7 @@ impl NoemaRuntimeHost {
     }
 
     /// Runtime command handle.
-    pub(crate) fn runtime(&self) -> &CodexRuntimeHandle {
+    pub(crate) fn runtime(&self) -> &RuntimeHandle {
         &self.runtime
     }
 
@@ -512,7 +513,7 @@ impl NoemaRuntimeHost {
     }
 
     /// Transport-neutral runtime event registry.
-    pub(crate) fn runtime_events(&self) -> &crate::daemon::RuntimeEventRegistry {
+    pub(crate) fn runtime_events(&self) -> &RuntimeEventRegistry {
         &self.runtime_events
     }
 
@@ -576,6 +577,152 @@ fn registry_route_resolver(
     registry: ProviderRegistryHandle,
 ) -> ProviderRouteResolverHandle {
     Arc::new(RegistryProviderRouteResolver::new(loader, registry))
+}
+
+type ConfiguredProviderMap = (
+    String,
+    Option<String>,
+    std::collections::HashMap<String, ProviderHandle>,
+);
+
+fn provider_map_from_config(
+    provider_config: ProviderConfig,
+    system_errors: SystemErrorLogger,
+    provider_credentials: ProviderCredentialAccessHandle,
+) -> Result<ConfiguredProviderMap, RuntimeError> {
+    let bootstrap = provider_bootstrap_from_config(
+        provider_config,
+        provider_credentials.clone(),
+        system_errors.clone(),
+    )?;
+    let default_provider_kind = bootstrap.default_provider_kind().to_string();
+    let default_model_profile = bootstrap.default_model_profile().map(str::to_string);
+    let mut providers = std::collections::HashMap::new();
+    if let Some((provider_kind, provider)) = bootstrap.into_hosted_provider() {
+        providers.insert(provider_kind, provider);
+    }
+    if !providers.contains_key("codex") {
+        let (provider_kind, provider) = hosted_provider_from_config(
+            ProviderConfig::Codex(CodexProviderConfig::default()),
+            provider_credentials.clone(),
+            system_errors.clone(),
+        )?;
+        providers.insert(provider_kind, provider);
+    }
+    if !providers.contains_key("foundation_local") {
+        let (provider_kind, provider) = hosted_provider_from_config(
+            ProviderConfig::FoundationLocal(default_foundation_local_config()),
+            provider_credentials,
+            system_errors,
+        )?;
+        providers.insert(provider_kind, provider);
+    }
+    Ok((default_provider_kind, default_model_profile, providers))
+}
+
+fn default_foundation_local_config() -> FoundationLocalProviderConfig {
+    FoundationLocalProviderConfig {
+        default_profile: DEFAULT_FOUNDATION_LOCAL_PROFILE.to_string(),
+        bridge_path: None,
+        system_errors: None,
+    }
+}
+
+#[derive(Clone)]
+struct HostWebBackendResolver {
+    provider_accounts: ProviderAccountOperationsHandle,
+    credentials: ProviderCredentialAccessHandle,
+    default_search: WebSearchBackendHandle,
+    default_fetch: WebFetchBackendHandle,
+}
+
+impl HostWebBackendResolver {
+    fn new(
+        provider_accounts: ProviderAccountOperationsHandle,
+        credentials: ProviderCredentialAccessHandle,
+    ) -> Self {
+        Self {
+            provider_accounts,
+            credentials,
+            default_search: default_web_search_backend(),
+            default_fetch: default_web_fetch_backend(),
+        }
+    }
+}
+
+impl std::fmt::Debug for HostWebBackendResolver {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("HostWebBackendResolver")
+            .field("provider_accounts", &"[CONFIGURED]")
+            .field("credentials", &"[REDACTED]")
+            .finish_non_exhaustive()
+    }
+}
+
+impl WebBackendResolver for HostWebBackendResolver {
+    fn resolve_search(
+        &self,
+        request: WebBackendRequest,
+    ) -> WebBackendFuture<'_, WebSearchBackendHandle> {
+        let credentials = self.credentials.clone();
+        let default_search = self.default_search.clone();
+        Box::pin(async move {
+            match request.provider_kind.as_str() {
+                noema_providers::DUCKDUCKGO_PUBLIC_PROVIDER_ID => Ok(default_search),
+                EXA_SEARCH_PROVIDER_ID => {
+                    let api_key = credentials
+                        .exa_api_key(&request.provider_account_id)
+                        .await
+                        .map(ProviderCredential::into_secret)
+                        .map_err(|_| WebBackendResolverError::Unauthenticated)?;
+                    let provider = ExaSearchClient::new(api_key)
+                        .map_err(|_| WebBackendResolverError::Unavailable)?;
+                    Ok(WebSearchBackendHandle::new(provider))
+                }
+                _ => Err(WebBackendResolverError::Unavailable),
+            }
+        })
+    }
+
+    fn resolve_fetch(
+        &self,
+        request: WebBackendRequest,
+    ) -> WebBackendFuture<'_, WebFetchBackendHandle> {
+        let credentials = self.credentials.clone();
+        let default_fetch = self.default_fetch.clone();
+        Box::pin(async move {
+            match request.provider_kind.as_str() {
+                noema_providers::DIRECT_HTTP_PROVIDER_ID => Ok(default_fetch),
+                EXA_FETCH_PROVIDER_ID => {
+                    let api_key = credentials
+                        .exa_api_key(&request.provider_account_id)
+                        .await
+                        .map(ProviderCredential::into_secret)
+                        .map_err(|_| WebBackendResolverError::Unauthenticated)?;
+                    let provider = ExaFetchClient::new(api_key)
+                        .map_err(|_| WebBackendResolverError::Unavailable)?;
+                    Ok(WebFetchBackendHandle::new(provider))
+                }
+                _ => Err(WebBackendResolverError::Unavailable),
+            }
+        })
+    }
+
+    fn record_auth_failure(
+        &self,
+        provider_account_id: String,
+        credential_revision: u64,
+    ) -> WebBackendFuture<'_, ()> {
+        let provider_accounts = self.provider_accounts.clone();
+        Box::pin(async move {
+            provider_accounts
+                .record_auth_failure(&provider_account_id, credential_revision)
+                .await
+                .map(|_| ())
+                .map_err(|_| WebBackendResolverError::Unavailable)
+        })
+    }
 }
 
 fn register_hosted_providers(
@@ -651,8 +798,8 @@ impl From<NoemaPathError> for RuntimeHostError {
     }
 }
 
-impl From<DaemonError> for RuntimeHostError {
-    fn from(source: DaemonError) -> Self {
+impl From<RuntimeError> for RuntimeHostError {
+    fn from(source: RuntimeError) -> Self {
         Self::Runtime(source.to_string())
     }
 }
@@ -681,7 +828,7 @@ mod tests {
 
     #[tokio::test]
     async fn memory_proxy_config_prefers_memory_model_provider() {
-        let providers = crate::daemon::RuntimeProviderMap::from([
+        let providers = std::collections::HashMap::from([
             (
                 "codex".to_string(),
                 Arc::new(DefaultModelProvider("codex-default")) as noema_providers::ProviderHandle,
@@ -830,7 +977,7 @@ mod tests {
 
     #[tokio::test]
     async fn memory_proxy_config_uses_default_seeded_during_initialization() {
-        let providers = crate::daemon::RuntimeProviderMap::from([(
+        let providers = std::collections::HashMap::from([(
             "codex".to_string(),
             Arc::new(DefaultModelProvider("codex-default")) as noema_providers::ProviderHandle,
         )]);

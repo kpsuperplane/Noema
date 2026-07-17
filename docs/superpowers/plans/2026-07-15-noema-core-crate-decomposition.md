@@ -2182,34 +2182,34 @@ that has no GraphQL dependency.
 
 **Steps:**
 
-- [ ] Move the actor/handle and task worker kernel with runtime; the host starts
+- [x] Move the actor/handle and task worker kernel with runtime; the host starts
   and stops them but does not implement their state machines.
-- [ ] Rename provider-era runtime names such as `CodexRuntimeHandle` and
+- [x] Rename provider-era runtime names such as `CodexRuntimeHandle` and
   `CodexRuntimeActor` to provider-neutral runtime names while moving them; no
   public runtime type should imply one concrete provider.
-- [ ] Consume `noema_providers::ProviderHandle` everywhere and delete the old
+- [x] Consume `noema_providers::ProviderHandle` everywhere and delete the old
   runtime erasure trait, blanket implementation, and provider-map aliases that
   encode a second model-call boundary.
-- [ ] Move tests by behavior area and split the monolithic daemon test file.
-- [ ] Move runtime-sensitive eval cases, fixture constructors, prompt/context
+- [x] Move tests by behavior area and split the monolithic daemon test file.
+- [x] Move runtime-sensitive eval cases, fixture constructors, prompt/context
   graders, progress-audit grading, and compaction harnesses to a feature-gated
   `noema_runtime::eval_support` module. This module may use runtime internals and
   is compiled only for `noema-model-evals`.
-- [ ] Keep candidate orchestration, process isolation, cache/download policy,
+- [x] Keep candidate orchestration, process isolation, cache/download policy,
   resource probing, report models/rendering, and CLI behavior in
   `noema-model-evals`. It calls the provider evaluation constructor from Phase
   10 and the runtime eval harness; it does not reach either crate's private
   modules.
-- [ ] Move the runtime-sensitive portion of core's transitional
+- [x] Move the runtime-sensitive portion of core's transitional
   `local-model-evals` feature to `noema-runtime/eval-support`; update the eval
   manifest to depend directly on runtime and the Phase 10 provider eval
   feature, then delete the core feature and dependency in this phase.
-- [ ] Update core and every consumer to import runtime handles directly; do not
+- [x] Update core and every consumer to import runtime handles directly; do not
   re-export the runtime through core.
-- [ ] Split turn execution, transcript persistence, local tools, runtime
+- [x] Split turn execution, transcript persistence, local tools, runtime
   handles, background tasks, model tools, task tools, and the daemon test
   concentration according to the source-file split gate.
-- [ ] Run focused cancellation, compaction, provider continuation, tool,
+- [x] Run focused cancellation, compaction, provider continuation, tool,
   transcript, and background task tests before the full gate.
 
 **Acceptance:**

@@ -4,13 +4,13 @@ use super::*;
 use noema_conversations::{ConversationItemKind, ConversationItemRecord, ConversationItemStatus};
 use std::sync::{Arc, Mutex};
 
-use crate::TurnTranscriptItem;
 use noema_providers::{
     CreateSecretProviderAccountRequest, ProviderAccountCatalogEntry, ProviderAccountOperationError,
     ProviderAccountOperationFuture, ProviderAccountOperations, ProviderAccountOperationsHandle,
     ProviderAccountRecord, ProviderAuthAttemptStatus, ProviderAuthAttemptView,
     SaveProviderAccountSecretRequest, StartProviderAuthRequest,
 };
+use noema_runtime::TurnTranscriptItem;
 use serde_json::json;
 
 #[tokio::test]

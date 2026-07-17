@@ -2,11 +2,9 @@ use async_graphql::{Enum, InputObject, Json, Result, SimpleObject, Union};
 use futures_util::Stream;
 use serde_json::Value;
 
-use crate::{
-    AgentStatus, TurnActivityStatus, TurnTranscriptItem,
-    daemon::{
-        ConversationRuntimeEvent, RuntimeEventRegistry, TurnStreamEvent, mark_turn_timing_event,
-    },
+use noema_runtime::{
+    AgentStatus, ConversationRuntimeEvent, RuntimeEventRegistry, TurnActivityStatus,
+    TurnStreamEvent, TurnTranscriptItem, mark_turn_timing_event,
 };
 
 use super::{errors::graphql_error, schema::GraphqlState};
@@ -850,7 +848,7 @@ pub(super) fn conversation_events(
                     client_message_id,
                     event,
                 } => match *event {
-                    crate::daemon::TurnStreamEvent::ConversationItem {
+                    noema_runtime::TurnStreamEvent::ConversationItem {
                             conversation_id,
                             item_id,
                             cursor,
@@ -870,7 +868,7 @@ pub(super) fn conversation_events(
                         }),
                     );
                 }
-                    crate::daemon::TurnStreamEvent::AgentStatusChanged {
+                    noema_runtime::TurnStreamEvent::AgentStatusChanged {
                             conversation_id,
                             status,
                         } => {
@@ -881,7 +879,7 @@ pub(super) fn conversation_events(
                         },
                     );
                 }
-                        crate::daemon::TurnStreamEvent::AssistantTextDelta {
+                        noema_runtime::TurnStreamEvent::AssistantTextDelta {
                             conversation_id,
                             turn_id,
                             stream_id,
@@ -920,7 +918,7 @@ fn publish_turn_terminal_events(
     conversation_id: String,
     client_message_id: Option<String>,
     published_error_notice: bool,
-    result: std::result::Result<(), crate::DaemonError>,
+    result: std::result::Result<(), noema_runtime::RuntimeError>,
 ) {
     if let Err(ref error) = result
         && !published_error_notice
@@ -939,7 +937,7 @@ fn publish_turn_terminal_events(
                 cursor: None,
                 turn_id: None,
                 metadata: serde_json::json!({}),
-                item: Box::new(crate::TurnTranscriptItem::ErrorNotice {
+                item: Box::new(noema_runtime::TurnTranscriptItem::ErrorNotice {
                     message: error.to_string(),
                     recoverable: false,
                 }),
@@ -1056,7 +1054,7 @@ fn turn_event_is_error_notice(event: &TurnStreamEvent) -> bool {
         TurnStreamEvent::ConversationItem {
             item,
             ..
-        } if matches!(item.as_ref(), crate::TurnTranscriptItem::ErrorNotice { .. })
+        } if matches!(item.as_ref(), noema_runtime::TurnTranscriptItem::ErrorNotice { .. })
     )
 }
 
@@ -1158,7 +1156,9 @@ mod tests {
             "conversation_1".to_string(),
             Some("client_1".to_string()),
             false,
-            Err(crate::DaemonError::Remote("provider failed".to_string())),
+            Err(noema_runtime::RuntimeError::Remote(
+                "provider failed".to_string(),
+            )),
         );
 
         let event = rx.recv().await.expect("error notice event");
@@ -1170,7 +1170,7 @@ mod tests {
             panic!("expected turn event");
         };
         assert_eq!(client_message_id.as_deref(), Some("client_1"));
-        let crate::daemon::TurnStreamEvent::ConversationItem {
+        let noema_runtime::TurnStreamEvent::ConversationItem {
             conversation_id,
             item_id,
             metadata,
@@ -1183,7 +1183,7 @@ mod tests {
         assert_eq!(conversation_id, "conversation_1");
         assert_eq!(item_id, "graphql_runtime_error:conversation_1:client_1");
         assert_eq!(metadata, json!({}));
-        let crate::TurnTranscriptItem::ErrorNotice {
+        let noema_runtime::TurnTranscriptItem::ErrorNotice {
             message,
             recoverable,
         } = *item
@@ -1217,7 +1217,7 @@ mod tests {
                 cursor: None,
                 turn_id: Some("turn_1".to_string()),
                 metadata: json!({}),
-                item: Box::new(crate::TurnTranscriptItem::ErrorNotice {
+                item: Box::new(noema_runtime::TurnTranscriptItem::ErrorNotice {
                     message: "provider failed".to_string(),
                     recoverable: false,
                 }),
@@ -1229,7 +1229,9 @@ mod tests {
             "conversation_1".to_string(),
             Some("client_1".to_string()),
             true,
-            Err(crate::DaemonError::Remote("provider failed".to_string())),
+            Err(noema_runtime::RuntimeError::Remote(
+                "provider failed".to_string(),
+            )),
         );
 
         let mut error_notice_count = 0;
@@ -1244,7 +1246,7 @@ mod tests {
                             ..
                         } if matches!(
                             item.as_ref(),
-                            crate::TurnTranscriptItem::ErrorNotice { .. }
+                            noema_runtime::TurnTranscriptItem::ErrorNotice { .. }
                         )
                     ) {
                         error_notice_count += 1;

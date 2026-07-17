@@ -5,8 +5,10 @@ pub(super) mod authority;
 mod router;
 pub(super) mod session;
 
-use noema_core::{DaemonError, WebConfig};
+use noema_core::WebConfig;
 use tokio::net::TcpListener;
+
+use crate::WebServerError;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum WebAuthMode {
@@ -78,12 +80,12 @@ impl WebState {
 
 pub(super) use router::build_router;
 
-pub(super) async fn bind_listener(config: &WebConfig) -> Result<TcpListener, DaemonError> {
-    let host = authority::parse_bind_ip(&config.host).map_err(DaemonError::Protocol)?;
+pub(super) async fn bind_listener(config: &WebConfig) -> Result<TcpListener, WebServerError> {
+    let host = authority::parse_bind_ip(&config.host).map_err(WebServerError::Protocol)?;
     TcpListener::bind((host, config.port))
         .await
         .map_err(|source| {
-            DaemonError::Protocol(format!(
+            WebServerError::Protocol(format!(
                 "failed to bind web UI at {}:{}: {source}",
                 config.host, config.port
             ))

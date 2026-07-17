@@ -1,9 +1,11 @@
 use std::{fmt::Write, fs, path::Path};
 
-use noema_core::daemon::eval_support::ModelEvalReport;
 use serde::{Deserialize, Serialize};
 
-use crate::manifest::{ModelCandidate, SuiteConfig};
+use crate::{
+    manifest::{ModelCandidate, SuiteConfig},
+    model_report::ModelEvalReport,
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct MatrixReport {

@@ -10,6 +10,7 @@ members = [
     "crates/noema-memory",
     "crates/noema-model-evals",
     "crates/noema-providers",
+    "crates/noema-runtime",
     "crates/noema-server",
     "crates/noema-store",
     "crates/noema-tasks",

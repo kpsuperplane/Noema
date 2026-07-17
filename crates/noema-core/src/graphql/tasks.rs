@@ -734,7 +734,7 @@ pub(super) async fn resume_task(
         .map_err(graphql_error)?;
     state
         .subscriptions()
-        .publish_task(crate::daemon::TaskRuntimeEvent::Changed {
+        .publish_task(noema_runtime::TaskRuntimeEvent::Changed {
             task_id: task.task_id.clone(),
         });
     detail_from_task(store, task).await
@@ -754,15 +754,11 @@ pub(super) async fn cancel_task(
         .map_err(graphql_error)?;
     state
         .subscriptions()
-        .publish_task(crate::daemon::TaskRuntimeEvent::Changed {
+        .publish_task(noema_runtime::TaskRuntimeEvent::Changed {
             task_id: task.task_id.clone(),
         });
-    let _ = crate::daemon::task_delivery::deliver_task_status_event(
-        store,
-        state.subscriptions(),
-        &task.task_id,
-    )
-    .await;
+    let _ =
+        noema_runtime::deliver_task_status_event(store, state.subscriptions(), &task.task_id).await;
     detail_from_task(store, task).await
 }
 
@@ -1257,64 +1253,8 @@ mod tests {
     #[tokio::test]
     async fn resume_task_mutation_queues_a_linked_attempt() {
         let store = test_store().await;
-        store.ensure_default_actors().await.expect("actors");
-        store
-            .ensure_default_provider_account()
-            .await
-            .expect("provider account");
-        store
-            .update_provider_account_status(
-                "provider_account:codex:default",
-                noema_providers::ProviderAccountStatus::Authenticated,
-                None,
-                None,
-            )
-            .await
-            .expect("authenticated provider");
-        crate::test_support::initialize_codex_provider_selections(&store).await;
-        let provider_registry = crate::test_support::ready_test_provider_registry();
-        store
-            .ensure_default_task_model_pool_settings_with_readiness(
-                "codex",
-                provider_registry.as_ref(),
-            )
-            .await
-            .expect("task model settings");
-        let delegated = crate::daemon::task_tool::execute_task_delegate(
-            &store,
-            provider_registry.as_ref(),
-            &crate::daemon::task_tool::TaskDelegateRuntimeContext {
-                conversation_id: "conversation:test".to_string(),
-                turn_id: "turn:test".to_string(),
-                user_item_id: "item:test".to_string(),
-                agent_id: "agent:primary".to_string(),
-                provider_kind: "codex".to_string(),
-                provider_account_id: "provider_account:codex:default".to_string(),
-                model_profile: Some("gpt-5.6-luna".to_string()),
-                reasoning_effort: Some(noema_providers::ReasoningEffort::Medium),
-            },
-            Some("call:test".to_string()),
-            &serde_json::json!({
-                "title": "Resume through GraphQL",
-                "request": "Complete the task",
-                "complexity": "simple",
-                "executor_model_pool_entry_id": "task_pool:setting:simple",
-                "validation_criteria": [{"description": "Completes"}]
-            }),
-        )
-        .await;
-        assert!(delegated.success);
-        let task_id = delegated.payload["task_id"]
-            .as_str()
-            .expect("task id")
-            .to_string();
-        let run = store
-            .list_agent_runs_for_task(&task_id)
-            .await
-            .expect("runs")
-            .into_iter()
-            .next()
-            .expect("executor run");
+        let (task, run) = crate::test_support::seed_task(&store, "Resume through GraphQL").await;
+        let task_id = task.task_id;
         let leased = store
             .claim_next_agent_run("worker:test", "lease:test", 120)
             .await

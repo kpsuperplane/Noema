@@ -8,12 +8,12 @@ use noema_capabilities_mcp::{
 };
 use noema_home::{SystemErrorEvent, SystemErrorLogger};
 
-use crate::daemon::CodexRuntimeHandle;
+use noema_runtime::RuntimeHandle;
 
 /// Breaks the composition cycle between runtime MCP handles and autofill.
 #[derive(Clone)]
 pub(crate) struct RuntimeMcpAutofillCompletionBridge {
-    runtime: Arc<RwLock<Option<CodexRuntimeHandle>>>,
+    runtime: Arc<RwLock<Option<RuntimeHandle>>>,
     system_errors: SystemErrorLogger,
 }
 
@@ -39,13 +39,13 @@ impl RuntimeMcpAutofillCompletionBridge {
         Arc::new(self.clone())
     }
 
-    pub(crate) fn attach(&self, runtime: CodexRuntimeHandle) {
+    pub(crate) fn attach(&self, runtime: RuntimeHandle) {
         if let Ok(mut slot) = self.runtime.write() {
             *slot = Some(runtime);
         }
     }
 
-    fn runtime(&self) -> Result<CodexRuntimeHandle, McpAutofillCompletionError> {
+    fn runtime(&self) -> Result<RuntimeHandle, McpAutofillCompletionError> {
         self.runtime
             .read()
             .map_err(|_| McpAutofillCompletionError::Failed)?

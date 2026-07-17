@@ -1,6 +1,6 @@
 //! Test-only composition helpers shared across runtime and API tests.
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use tempfile::TempDir;
 
@@ -251,33 +251,230 @@ pub(crate) fn artifact_operations_for_paths(
     Ok(Arc::new(service))
 }
 
-pub(crate) fn provider_route(
-    mut selection: noema_providers::ProviderSelectionSnapshot,
-    provider: noema_providers::ProviderHandle,
-) -> Arc<noema_providers::ProviderRouteLease> {
-    let key = noema_providers::provider_account_instance_key(&selection.provider_account_id)
-        .expect("hosted test provider key");
-    selection.provider_instance_key = Some(key.clone());
-    let registry = noema_providers::ProviderRegistry::new();
-    registry
-        .register(key.clone(), provider)
-        .expect("register test provider");
-    let lease = registry.lease(&key).expect("lease test provider");
-    Arc::new(
-        noema_providers::ProviderRouteLease::try_new(selection, lease)
-            .expect("exact test provider route"),
-    )
-}
-
-pub(crate) fn mnemosyne_operations_for_base_url(
-    base_url: String,
-) -> noema_memory::MemoryOperationsHandle {
-    let connection = noema_memory::MnemosyneConnection::new(base_url, None);
-    noema_memory::MnemosyneMemoryService::from_connection(Some(connection)).into_handle()
-}
-
 pub(crate) fn memory_service_access(
     repository: noema_memory::MemoryRepositoryHandle,
 ) -> noema_memory::MemoryServiceAccessHandle {
     noema_memory::MnemosyneMemoryServiceAccess::new(repository, None).into_handle()
+}
+
+#[derive(Debug)]
+struct EmptyCapabilityBindingSource;
+
+impl noema_capabilities::CapabilityBindingSource for EmptyCapabilityBindingSource {
+    fn catalog(
+        &self,
+    ) -> noema_capabilities::CapabilityFuture<
+        '_,
+        Result<
+            noema_capabilities::CapabilityCatalogResult,
+            noema_capabilities::CapabilityBindingSourceError,
+        >,
+    > {
+        Box::pin(async { Ok(noema_capabilities::CapabilityCatalogResult::default()) })
+    }
+}
+
+#[derive(Debug)]
+struct EmptyCapabilityInvoker;
+
+impl noema_capabilities::CapabilityInvoker for EmptyCapabilityInvoker {
+    fn invoke(
+        &self,
+        _invocation: noema_capabilities::CapabilityInvocation,
+    ) -> noema_capabilities::CapabilityFuture<
+        '_,
+        Result<noema_capabilities::CapabilityOutput, noema_capabilities::CapabilityError>,
+    > {
+        Box::pin(async { Err(noema_capabilities::CapabilityError::UnknownOperation) })
+    }
+}
+
+#[derive(Debug)]
+struct CoreTestWebBackendResolver {
+    search: noema_providers::WebSearchBackendHandle,
+    fetch: noema_providers::WebFetchBackendHandle,
+}
+
+impl noema_runtime::WebBackendResolver for CoreTestWebBackendResolver {
+    fn resolve_search(
+        &self,
+        request: noema_runtime::WebBackendRequest,
+    ) -> noema_runtime::WebBackendFuture<'_, noema_providers::WebSearchBackendHandle> {
+        let search = self.search.clone();
+        Box::pin(async move {
+            if request.provider_kind == noema_providers::DUCKDUCKGO_PUBLIC_PROVIDER_ID {
+                Ok(search)
+            } else {
+                Err(noema_runtime::WebBackendResolverError::Unavailable)
+            }
+        })
+    }
+
+    fn resolve_fetch(
+        &self,
+        request: noema_runtime::WebBackendRequest,
+    ) -> noema_runtime::WebBackendFuture<'_, noema_providers::WebFetchBackendHandle> {
+        let fetch = self.fetch.clone();
+        Box::pin(async move {
+            if request.provider_kind == noema_providers::DIRECT_HTTP_PROVIDER_ID {
+                Ok(fetch)
+            } else {
+                Err(noema_runtime::WebBackendResolverError::Unavailable)
+            }
+        })
+    }
+
+    fn record_auth_failure(
+        &self,
+        _provider_account_id: String,
+        _credential_revision: u64,
+    ) -> noema_runtime::WebBackendFuture<'_, ()> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+fn test_capability_handles() -> (
+    noema_capabilities::CapabilityBindingSourceHandle,
+    Arc<[noema_capabilities::CapabilityInvokerRegistration]>,
+) {
+    (
+        Arc::new(EmptyCapabilityBindingSource),
+        Arc::from([noema_capabilities::CapabilityInvokerRegistration::new(
+            noema_capabilities::InvokerKey::new("core-test"),
+            Arc::new(EmptyCapabilityInvoker),
+        )]),
+    )
+}
+
+fn test_web_backends() -> noema_runtime::WebBackendResolverHandle {
+    Arc::new(CoreTestWebBackendResolver {
+        search: noema_providers::default_web_search_backend(),
+        fetch: noema_providers::default_web_fetch_backend(),
+    })
+}
+
+pub(crate) async fn spawn_runtime_with_provider(
+    provider: noema_providers::ProviderHandle,
+    store: noema_store::NoemaStore,
+) -> Result<noema_runtime::RuntimeHandle, noema_runtime::RuntimeError> {
+    spawn_runtime_with_provider_map("codex", [("codex".to_string(), provider)], store).await
+}
+
+pub(crate) async fn spawn_runtime_with_provider_map<I>(
+    default_provider_kind: impl Into<String>,
+    providers: I,
+    store: noema_store::NoemaStore,
+) -> Result<noema_runtime::RuntimeHandle, noema_runtime::RuntimeError>
+where
+    I: IntoIterator<Item = (String, noema_providers::ProviderHandle)>,
+{
+    let default_provider_kind = default_provider_kind.into();
+    let providers = providers.into_iter().collect::<HashMap<_, _>>();
+    if !providers.contains_key(&default_provider_kind) {
+        return Err(noema_runtime::RuntimeError::Protocol(format!(
+            "default provider '{default_provider_kind}' is unavailable"
+        )));
+    }
+
+    let default_account = match default_provider_kind.as_str() {
+        "foundation_local" => {
+            store
+                .ensure_default_foundation_local_provider_account()
+                .await?
+        }
+        _ => store.ensure_default_provider_account().await?,
+    };
+    store
+        .update_provider_account_status(
+            &default_account.provider_account_id,
+            noema_providers::ProviderAccountStatus::Authenticated,
+            None,
+            None,
+        )
+        .await?;
+    store.ensure_default_actors().await?;
+
+    let default_kind = if default_provider_kind == "foundation_local" {
+        "foundation_local"
+    } else {
+        "codex"
+    };
+    let default_model = if default_kind == "foundation_local" {
+        noema_providers::DEFAULT_FOUNDATION_LOCAL_PROFILE
+    } else {
+        "gpt-5.6-luna"
+    };
+    let registry = Arc::new(noema_providers::ProviderRegistry::new());
+    for (provider_kind, provider) in providers {
+        let account_id = format!("provider_account:{provider_kind}:default");
+        let key = noema_providers::provider_account_instance_key(&account_id)
+            .map_err(|error| noema_runtime::RuntimeError::Protocol(error.to_string()))?;
+        registry
+            .register(key, provider)
+            .map_err(|error| noema_runtime::RuntimeError::Protocol(error.to_string()))?;
+    }
+    let mut configured_default = noema_providers::ProviderSelectionSnapshot::explicit(
+        default_kind,
+        &default_account.provider_account_id,
+        default_model,
+        None,
+        Some("core_test_runtime_default".to_string()),
+    );
+    configured_default.provider_instance_key = Some(
+        noema_providers::provider_account_instance_key(&default_account.provider_account_id)
+            .map_err(|error| noema_runtime::RuntimeError::Protocol(error.to_string()))?,
+    );
+    let ready_selection = registry
+        .prove_ready_selection(configured_default.clone())
+        .map_err(|error| noema_runtime::RuntimeError::Protocol(error.to_string()))?;
+    store
+        .initialize_missing_provider_selections(&configured_default, Some(&ready_selection))
+        .await?;
+
+    spawn_runtime_with_provider_registry_and_memory(
+        registry,
+        store.clone(),
+        artifact_operations(&store).map_err(noema_runtime::RuntimeError::Protocol)?,
+        system_error_logger(),
+        None,
+        noema_runtime::RuntimeEventRegistry::default(),
+    )
+    .await
+}
+
+pub(crate) async fn spawn_runtime_with_provider_registry_and_memory(
+    provider_registry: noema_providers::ProviderRegistryHandle,
+    store: noema_store::NoemaStore,
+    artifact_operations: noema_artifacts::ArtifactOperationsHandle,
+    system_errors: noema_home::SystemErrorLogger,
+    memory_operations: Option<noema_memory::MemoryOperationsHandle>,
+    runtime_events: noema_runtime::RuntimeEventRegistry,
+) -> Result<noema_runtime::RuntimeHandle, noema_runtime::RuntimeError> {
+    let bind = |loader| -> noema_providers::ProviderRouteResolverHandle {
+        Arc::new(noema_providers::RegistryProviderRouteResolver::new(
+            loader,
+            Arc::clone(&provider_registry),
+        ))
+    };
+    let (capability_bindings, capability_invokers) = test_capability_handles();
+    noema_runtime::RuntimeHandle::spawn(noema_runtime::RuntimeSpawnConfig {
+        primary_provider: bind(store.agent_provider_selection_loader("agent:primary")),
+        default_provider: bind(store.default_provider_selection_loader()),
+        progress_audit_provider: bind(
+            store.auxiliary_provider_selection_loader(noema_store::TOOL_PROGRESS_AUDIT_TASK_ID),
+        ),
+        web_summary_provider: bind(
+            store.auxiliary_provider_selection_loader(noema_store::WEB_FETCH_SUMMARIZER_TASK_ID),
+        ),
+        provider_registry,
+        store,
+        artifact_operations,
+        system_errors,
+        memory_operations,
+        runtime_events,
+        web_backends: test_web_backends(),
+        capability_bindings,
+        capability_invokers,
+    })
+    .await
 }

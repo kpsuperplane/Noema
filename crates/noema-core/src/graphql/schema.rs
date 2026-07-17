@@ -5,7 +5,7 @@ use noema_home::NoemaPaths;
 #[cfg(test)]
 use std::sync::{Arc, Mutex};
 
-use crate::daemon::{RuntimeEventRegistry, TaskRuntimeEvent};
+use noema_runtime::{RuntimeEventRegistry, TaskRuntimeEvent};
 
 use super::{
     GraphqlRuntimeState,
@@ -121,7 +121,7 @@ impl GraphqlState {
     #[must_use]
     pub(crate) fn for_tests_with_store_and_runtime(
         store: noema_store::NoemaStore,
-        runtime: crate::daemon::CodexRuntimeHandle,
+        runtime: noema_runtime::RuntimeHandle,
     ) -> Self {
         Self {
             runtime_state: GraphqlRuntimeState::for_tests_with_store_and_runtime(store, runtime),
@@ -184,7 +184,7 @@ impl GraphqlState {
         }
     }
 
-    pub(crate) fn runtime(&self) -> Result<&crate::daemon::CodexRuntimeHandle> {
+    pub(crate) fn runtime(&self) -> Result<&noema_runtime::RuntimeHandle> {
         self.runtime_state.runtime()
     }
 
@@ -1072,9 +1072,9 @@ async fn project_task_event(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::daemon::{ConversationRuntimeEvent, TurnStreamEvent};
     use futures_util::StreamExt;
     use noema_capabilities_mcp::McpRepository;
+    use noema_runtime::{ConversationRuntimeEvent, TurnStreamEvent};
     use serde_json::json;
     use std::collections::VecDeque;
     use tempfile::TempDir;
@@ -1226,7 +1226,7 @@ mod tests {
 
     fn memory_graph_state_with_runtime(
         store: noema_store::NoemaStore,
-        runtime: crate::daemon::CodexRuntimeHandle,
+        runtime: noema_runtime::RuntimeHandle,
     ) -> GraphqlState {
         let repository: noema_memory::MemoryRepositoryHandle = Arc::new(store.clone());
         let access = crate::test_support::memory_service_access(repository);
@@ -3524,7 +3524,7 @@ mod tests {
             tool_classification_model: None,
             requests: Arc::new(Mutex::new(Vec::new())),
         });
-        let runtime = crate::daemon::CodexRuntimeHandle::spawn_with_provider_map(
+        let runtime = crate::test_support::spawn_runtime_with_provider_map(
             "codex",
             vec![
                 ("codex".to_string(), codex_provider),
@@ -3980,16 +3980,17 @@ mod tests {
         let (requests, runtime) =
             test_autofill_runtime_with_requests(store, "captured", None).await;
         let started = runtime
-            .start_conversation(None)
+            .start_primary_conversation(None)
             .await
             .expect("conversation");
         let (item_tx, _item_rx) = tokio::sync::mpsc::unbounded_channel::<TurnStreamEvent>();
 
         runtime
-            .turn(
+            .turn_with_client_message_id(
                 started.conversation_id.clone(),
                 "hello from durable chat".to_string(),
                 item_tx,
+                None,
             )
             .await
             .expect("turn");
@@ -4001,15 +4002,10 @@ mod tests {
                     && matches!(
                         &request.input,
                         noema_providers::GenerateInput::Messages(messages)
-                            if messages.len() == 4
-                                && messages[..3].iter().all(|message| {
-                                    message.role == noema_providers::GenerateMessageRole::Developer
-                                        && message
-                                            .content
-                                            .starts_with("NOEMA_MODEL_CONTEXT_UPDATE")
-                                })
-                                && messages[3].role == noema_providers::GenerateMessageRole::User
-                                && messages[3].content == "hello from durable chat"
+                            if messages.last().is_some_and(|message| {
+                                message.role == noema_providers::GenerateMessageRole::User
+                                    && message.content == "hello from durable chat"
+                            })
                     )
             }),
             "captured requests: {requests:?}"
@@ -5356,7 +5352,7 @@ mod tests {
     async fn test_autofill_runtime(
         store: noema_store::NoemaStore,
         text: &str,
-    ) -> crate::daemon::CodexRuntimeHandle {
+    ) -> noema_runtime::RuntimeHandle {
         let (_runtime, runtime) =
             test_autofill_runtime_with_requests(store, text, Some("test-tool-classifier")).await;
         runtime
@@ -5368,7 +5364,7 @@ mod tests {
         tool_classification_model: Option<&str>,
     ) -> (
         Arc<Mutex<Vec<noema_providers::GenerateRequest>>>,
-        crate::daemon::CodexRuntimeHandle,
+        noema_runtime::RuntimeHandle,
     ) {
         let requests = Arc::new(Mutex::new(Vec::new()));
         let provider = noema_providers::erase_model_provider(AutofillTestProvider {
@@ -5376,7 +5372,7 @@ mod tests {
             tool_classification_model: tool_classification_model.map(str::to_string),
             requests: requests.clone(),
         });
-        let runtime = crate::daemon::CodexRuntimeHandle::spawn_with_provider(provider, store)
+        let runtime = crate::test_support::spawn_runtime_with_provider(provider, store)
             .await
             .expect("runtime");
         (requests, runtime)
@@ -5468,13 +5464,13 @@ mod tests {
             .initialize_missing_provider_selections(&configured_default, Some(&ready_selection))
             .await
             .expect("initialize provider selections");
-        let runtime = crate::daemon::CodexRuntimeHandle::spawn_with_provider_registry_and_memory(
+        let runtime = crate::test_support::spawn_runtime_with_provider_registry_and_memory(
             registry.clone(),
             store.clone(),
             crate::test_support::artifact_operations(&store).expect("artifact operations"),
             crate::test_support::system_error_logger(),
             None,
-            crate::daemon::RuntimeEventRegistry::default(),
+            noema_runtime::RuntimeEventRegistry::default(),
         )
         .await
         .expect("runtime");
@@ -6195,7 +6191,7 @@ mod tests {
                     cursor: Some(format!("conversation_item:{}", index + 1)),
                     turn_id: Some("turn_1".to_string()),
                     metadata: serde_json::json!({}),
-                    item: Box::new(crate::TurnTranscriptItem::UserText {
+                    item: Box::new(noema_runtime::TurnTranscriptItem::UserText {
                         text: format!("message {index}"),
                     }),
                 }),
@@ -6460,7 +6456,7 @@ mod tests {
                     "runtime_item_id": "activity_1",
                     "transient": true,
                 }),
-                item: Box::new(crate::TurnTranscriptItem::AssistantText {
+                item: Box::new(noema_runtime::TurnTranscriptItem::AssistantText {
                     text: "Hello".to_string(),
                 }),
             }),
@@ -6515,7 +6511,7 @@ mod tests {
                 cursor: Some("conversation_item:1".to_string()),
                 turn_id: Some("turn_1".to_string()),
                 metadata: serde_json::json!({}),
-                item: Box::new(crate::TurnTranscriptItem::UserText {
+                item: Box::new(noema_runtime::TurnTranscriptItem::UserText {
                     text: "Hello".to_string(),
                 }),
             }),

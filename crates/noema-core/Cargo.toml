@@ -9,9 +9,6 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
-[features]
-local-model-evals = ["dep:sysinfo", "noema-providers/local-model-evals"]
-
 [dependencies]
 async-graphql.workspace = true
 async-stream.workspace = true
@@ -29,12 +26,12 @@ noema-conversations = { path = "../noema-conversations" }
 noema-home = { path = "../noema-home" }
 noema-memory = { path = "../noema-memory", default-features = false, features = ["service"] }
 noema-providers = { path = "../noema-providers", default-features = false, features = ["adapters", "local-models"] }
+noema-runtime = { path = "../noema-runtime", default-features = false }
 noema-store = { path = "../noema-store", default-features = false }
 noema-tasks = { path = "../noema-tasks", default-features = false }
 ring.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-sysinfo = { workspace = true, optional = true }
 thiserror.workspace = true
 time.workspace = true
 tokio.workspace = true

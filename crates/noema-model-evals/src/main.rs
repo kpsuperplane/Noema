@@ -2,16 +2,20 @@
 
 mod download;
 mod manifest;
+mod memory;
+mod model_report;
 mod orchestrator;
+mod provider_suite;
 mod report;
+mod resource_probe;
 
 use std::{fs, path::PathBuf};
 
-use noema_core::daemon::eval_support::{ModelEvalConfig, run_provider_suite};
-
 use crate::{
     manifest::{load_candidates, load_suite},
+    model_report::ModelEvalConfig,
     orchestrator::{prepare_candidates, run_matrix, select_candidates, workspace_root},
+    provider_suite::run_provider_suite,
 };
 
 #[tokio::main]

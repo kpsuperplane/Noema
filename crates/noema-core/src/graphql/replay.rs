@@ -2,9 +2,9 @@ use noema_conversations::{ConversationItemKind, ConversationItemRecord};
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::{TurnActivityStatus, TurnTranscriptItem};
+use noema_runtime::{TurnActivityStatus, TurnTranscriptItem};
 
-use crate::DaemonError;
+use noema_runtime::RuntimeError;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ConversationReplayItem {
@@ -35,7 +35,7 @@ impl ConversationReplayItem {
 
 pub(crate) fn web_conversation_item_from_record(
     record: ConversationItemRecord,
-) -> Result<Option<ConversationReplayItem>, DaemonError> {
+) -> Result<Option<ConversationReplayItem>, RuntimeError> {
     let Some(item) = turn_transcript_item_from_record(&record)? else {
         return Ok(None);
     };
@@ -50,7 +50,7 @@ pub(crate) fn web_conversation_item_from_record(
 
 fn turn_transcript_item_from_record(
     record: &ConversationItemRecord,
-) -> Result<Option<TurnTranscriptItem>, DaemonError> {
+) -> Result<Option<TurnTranscriptItem>, RuntimeError> {
     match record.kind {
         ConversationItemKind::UserText => Ok(Some(TurnTranscriptItem::UserText {
             text: required_content_text(record)?,
@@ -123,7 +123,7 @@ fn turn_transcript_item_from_record(
                 .status
                 .parse::<noema_tasks::TaskStatus>()
                 .map_err(|error| {
-                    DaemonError::Protocol(format!(
+                    RuntimeError::Protocol(format!(
                         "invalid task reference status for {}: {error}",
                         payload.task_id
                     ))
@@ -156,9 +156,9 @@ fn turn_transcript_item_from_record(
 
 fn replay_payload<T: serde::de::DeserializeOwned>(
     record: &ConversationItemRecord,
-) -> Result<T, DaemonError> {
+) -> Result<T, RuntimeError> {
     serde_json::from_value(record.payload_json.clone()).map_err(|source| {
-        DaemonError::Protocol(format!(
+        RuntimeError::Protocol(format!(
             "invalid replay payload for {} {}: {source}",
             record.kind.as_str(),
             record.item_id
@@ -166,15 +166,15 @@ fn replay_payload<T: serde::de::DeserializeOwned>(
     })
 }
 
-fn required_content_text(record: &ConversationItemRecord) -> Result<String, DaemonError> {
+fn required_content_text(record: &ConversationItemRecord) -> Result<String, RuntimeError> {
     record
         .content_text
         .clone()
         .ok_or_else(|| missing_replay_field(record, "content_text"))
 }
 
-fn missing_replay_field(record: &ConversationItemRecord, field: &str) -> DaemonError {
-    DaemonError::Protocol(format!(
+fn missing_replay_field(record: &ConversationItemRecord, field: &str) -> RuntimeError {
+    RuntimeError::Protocol(format!(
         "missing replay field {field} for {} {}",
         record.kind.as_str(),
         record.item_id
@@ -251,7 +251,6 @@ mod tests {
     use serde_json::json;
 
     use super::web_conversation_item_from_record;
-    use crate::TurnTranscriptItem;
     use noema_artifacts::{
         ArtifactOwnerRef, ArtifactSource, ArtifactStorageKind, ArtifactVersionStorage, NewArtifact,
         NewArtifactVersion,
@@ -260,6 +259,7 @@ mod tests {
         ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
         NewConversationTurn,
     };
+    use noema_runtime::TurnTranscriptItem;
 
     #[tokio::test]
     async fn conversation_replay_maps_artifact_reference() {

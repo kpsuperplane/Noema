@@ -1,22 +1,20 @@
 use noema_store::NoemaStore;
 
-use crate::{
-    NoemaRuntimeHost,
-    daemon::{CodexRuntimeHandle, RuntimeEventRegistry},
-};
+use crate::NoemaRuntimeHost;
 use noema_capabilities_mcp::McpControlPlaneHandle;
 #[cfg(test)]
 use noema_home::NoemaPaths;
 use noema_home::{SystemErrorEvent, SystemErrorLogger};
 use noema_memory::{MemoryRepositoryHandle, MemoryServiceAccessHandle};
 use noema_providers::{LocalModelManager, ProviderAccountOperationsHandle, ProviderRegistryHandle};
+use noema_runtime::{RuntimeEventRegistry, RuntimeHandle};
 
 use super::local_status::GraphqlMemoryStorageStatus;
 
 /// GraphQL resolver state shared by web daemon and desktop transports.
 #[derive(Clone)]
 pub struct GraphqlRuntimeState {
-    runtime: Option<CodexRuntimeHandle>,
+    runtime: Option<RuntimeHandle>,
     store: Option<NoemaStore>,
     artifact_operations: Option<noema_artifacts::ArtifactOperationsHandle>,
     artifact_diagnostics: ArtifactDiagnosticReporter,
@@ -94,7 +92,7 @@ impl GraphqlRuntimeState {
     #[must_use]
     pub(crate) fn for_tests_with_store_and_runtime(
         store: NoemaStore,
-        runtime: CodexRuntimeHandle,
+        runtime: RuntimeHandle,
     ) -> Self {
         let provider_account_operations = test_provider_account_operations(store.clone());
         let mcp_operations = test_mcp_operations(store.clone(), Some(runtime.clone()));
@@ -188,7 +186,7 @@ impl GraphqlRuntimeState {
         }
     }
 
-    pub(crate) fn runtime(&self) -> async_graphql::Result<&CodexRuntimeHandle> {
+    pub(crate) fn runtime(&self) -> async_graphql::Result<&RuntimeHandle> {
         self.runtime
             .as_ref()
             .ok_or_else(|| async_graphql::Error::new("Noema runtime is unavailable"))
@@ -284,18 +282,18 @@ mod test_mcp {
 
     use noema_store::NoemaStore;
 
-    use crate::daemon::CodexRuntimeHandle;
+    use noema_runtime::RuntimeHandle;
 
     pub(super) fn test_mcp_operations(
         store: NoemaStore,
-        runtime: Option<CodexRuntimeHandle>,
+        runtime: Option<RuntimeHandle>,
     ) -> McpControlPlaneHandle {
         Arc::new(TestStoreMcpOperations { store, runtime })
     }
 
     struct TestStoreMcpOperations {
         store: NoemaStore,
-        runtime: Option<CodexRuntimeHandle>,
+        runtime: Option<RuntimeHandle>,
     }
 
     impl McpOperations for TestStoreMcpOperations {

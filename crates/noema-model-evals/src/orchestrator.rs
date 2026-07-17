@@ -5,12 +5,12 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use noema_core::daemon::eval_support::ModelEvalReport;
 use tokio::process::Command;
 
 use crate::{
     download::resolve_candidate,
     manifest::{ModelCandidate, SuiteConfig},
+    model_report::ModelEvalReport,
     report::{MatrixEntry, MatrixReport},
 };
 

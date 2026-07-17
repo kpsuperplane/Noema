@@ -2763,12 +2763,12 @@ dependencies = [
  "noema-home",
  "noema-memory",
  "noema-providers",
+ "noema-runtime",
  "noema-store",
  "noema-tasks",
  "ring",
  "serde",
  "serde_json",
- "sysinfo",
  "tempfile",
  "thiserror 2.0.18",
  "time",
@@ -2826,11 +2826,12 @@ dependencies = [
 name = "noema-model-evals"
 version = "0.1.0"
 dependencies = [
- "noema-core",
  "noema-providers",
+ "noema-runtime",
  "ring",
  "serde",
  "serde_json",
+ "sysinfo",
  "tokio",
  "tokio-util",
  "toml 1.1.2+spec-1.1.0",
@@ -2859,6 +2860,29 @@ dependencies = [
  "toml 1.1.2+spec-1.1.0",
  "ts-rs",
  "url",
+]
+
+[[package]]
+name = "noema-runtime"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "futures-util",
+ "noema-artifacts",
+ "noema-capabilities",
+ "noema-conversations",
+ "noema-home",
+ "noema-memory",
+ "noema-providers",
+ "noema-store",
+ "noema-tasks",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "ts-rs",
 ]
 
 [[package]]

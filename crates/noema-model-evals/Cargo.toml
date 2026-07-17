@@ -10,11 +10,12 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
-noema-core = { path = "../noema-core", features = ["local-model-evals"] }
 noema-providers = { path = "../noema-providers", default-features = false, features = ["local-model-evals"] }
+noema-runtime = { path = "../noema-runtime", default-features = false, features = ["eval-support"] }
 ring.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sysinfo.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 toml.workspace = true

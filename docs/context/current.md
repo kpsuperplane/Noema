@@ -1045,8 +1045,25 @@ The next storage slice should stay small and concrete:
   and focused replay, live invalidation, overflow, strict Clippy, and core tests
   are green. Task query/subscription cursor handoff remains explicit Phase 13
   API/client work.
-  Phase 11C is next: extract the governed `noema-runtime` crate and rename the
-  remaining provider-era runtime types during the move.
+  Decomposition Checkpoint 11C is complete. `noema-runtime` now owns the
+  transport-neutral foreground/background execution kernel, prompts, context
+  and compaction, capability dispatch, transcript persistence, task workers,
+  runtime events, search, and web-fetch execution. Core imports the runtime
+  directly without re-exporting it, while concrete provider/web construction
+  remains in the transitional host composition root. Runtime depends only on
+  provider, store, artifact, memory, capability, and task contracts; its
+  default and `eval-support` feature trees exclude concrete adapters and
+  framework dependencies. Runtime-sensitive model-eval cases and graders live
+  behind `noema-runtime/eval-support`; process orchestration and resource
+  sampling remain in `noema-model-evals`, which no longer depends on core.
+  Provider-era runtime types and map aliases are removed, all runtime Rust
+  sources are below 750 lines, and contract-only fakes cover artifact, memory,
+  provider, and web operations. The seven preservation baselines and normalized
+  Rust test inventory match; 246 runtime/eval-support tests, 174 core tests, the
+  full Rust workspace, strict Clippy, frontend generation/tests/lint/builds,
+  and crate/dependency policies are green. Phase 12 is next: extract
+  application composition, startup, configuration, and onboarding into
+  `noema-host`.
 
 - The bounded remediation program completed Phase 2 at `92,157` maintained
   source lines (`-1,767` from its baseline). Axum/tower-sessions now own the
