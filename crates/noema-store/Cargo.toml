@@ -11,7 +11,7 @@ workspace = true
 
 [features]
 default = []
-test-support = ["dep:tempfile"]
+test-support = []
 
 [dependencies]
 noema-artifacts = { path = "../noema-artifacts", default-features = false }
@@ -24,7 +24,7 @@ ring.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tempfile = { workspace = true, optional = true }
+tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 

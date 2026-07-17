@@ -35,7 +35,6 @@ mod provider_persistence_port_tests;
 mod run_items;
 mod runtime;
 mod schema;
-mod schema_upgrade;
 mod sqlite;
 mod task_controls;
 mod task_events;
@@ -56,5 +55,5 @@ pub use auxiliary_model_preferences::{
     AuxiliaryModelPreferenceRecord, NewAuxiliaryModelPreference, TOOL_PROGRESS_AUDIT_TASK_ID,
     WEB_FETCH_SUMMARIZER_TASK_ID,
 };
-pub use error::StoreError;
+pub use error::{SchemaIncompatibility, StoreError};
 pub use runtime::{NoemaStore, StoreConfig};

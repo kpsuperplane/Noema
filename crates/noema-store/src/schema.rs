@@ -1,23 +1,16 @@
 /// Current schema version for pre-stable local SQLite data.
 pub const STORE_SCHEMA_VERSION: i64 = 1;
 
+/// Stable marker row identifying the exact schema accepted by this binary.
+pub(super) const STORE_SCHEMA_MARKER: &str = "sqlite_store_v1";
+
 /// SQLite bootstrap used by the Noema store.
 pub const STORE_SCHEMA_SQL: &str = r#"
-PRAGMA foreign_keys = ON;
-PRAGMA journal_mode = WAL;
-PRAGMA synchronous = NORMAL;
-
 CREATE TABLE IF NOT EXISTS schema_state (
   name TEXT PRIMARY KEY NOT NULL,
   version INTEGER NOT NULL CHECK (version >= 1),
   applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
-
-INSERT INTO schema_state (name, version, applied_at)
-VALUES ('sqlite_store_v1', 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-ON CONFLICT(name) DO UPDATE SET
-  version = excluded.version,
-  applied_at = excluded.applied_at;
 
 CREATE TABLE IF NOT EXISTS humans (
   human_id TEXT PRIMARY KEY NOT NULL,
@@ -605,5 +598,8 @@ CREATE INDEX IF NOT EXISTS task_events_task_sequence
 ON task_events(task_id, sequence_number, event_id);
 CREATE INDEX IF NOT EXISTS run_events_run_sequence
 ON run_events(run_id, sequence_number, event_id);
+
+INSERT INTO schema_state (name, version, applied_at)
+VALUES ('sqlite_store_v1', 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
 
 "#;

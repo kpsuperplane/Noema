@@ -2,6 +2,33 @@ use noema_artifacts::ArtifactDomainError;
 use noema_conversations::ConversationError;
 use thiserror::Error;
 
+/// Machine-readable reason an existing SQLite schema was rejected.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SchemaIncompatibility {
+    /// SQLite schema objects do not exactly match the canonical bootstrap.
+    Shape {
+        /// Number of schema objects required by this binary.
+        expected_object_count: usize,
+        /// Number of schema objects found in the database.
+        found_object_count: usize,
+    },
+    /// The exact schema objects exist, but the marker row set is not current.
+    Marker {
+        /// Marker name required by this binary.
+        expected_name: &'static str,
+        /// Marker names found in the database, including unexpected extras.
+        found_names: Vec<String>,
+        /// Schema version required by this binary.
+        expected_version: i64,
+        /// Found version when the database contains exactly one marker row.
+        found_version: Option<i64>,
+    },
+    /// SQLite could not read the schema metadata as a valid schema.
+    Unreadable,
+    /// The file changed between immutable inspection and writable open.
+    ChangedDuringOpen,
+}
+
 /// Errors produced by the embedded canonical store.
 #[derive(Debug, Error)]
 pub enum StoreError {
@@ -17,6 +44,14 @@ pub enum StoreError {
     /// Schema bootstrap returned an invalid result.
     #[error("store schema bootstrap failed: {0}")]
     Schema(String),
+    /// The SQLite file is not the exact schema understood by this binary.
+    #[error("incompatible store schema ({kind:?}): {reason}")]
+    IncompatibleSchema {
+        /// Machine-readable incompatibility classification.
+        kind: SchemaIncompatibility,
+        /// Diagnostic explanation of the rejected schema state.
+        reason: String,
+    },
     /// A stored value did not match a closed Noema vocabulary.
     #[error("invalid {kind} value in embedded store: {value}")]
     InvalidEnum {
@@ -196,7 +231,10 @@ impl StoreError {
     pub fn is_system_invariant(&self) -> bool {
         matches!(
             self,
-            Self::Schema(_) | Self::InvalidEnum { .. } | Self::InvariantViolation { .. }
+            Self::Schema(_)
+                | Self::IncompatibleSchema { .. }
+                | Self::InvalidEnum { .. }
+                | Self::InvariantViolation { .. }
         )
     }
 }
@@ -211,6 +249,16 @@ mod tests {
 
         // Consuming runtime boundaries now construct diagnostic events; the
         // store only exposes the typed classification they need.
+        assert!(error.is_system_invariant());
+    }
+
+    #[test]
+    fn incompatible_schema_errors_are_system_invariants() {
+        let error = StoreError::IncompatibleSchema {
+            kind: SchemaIncompatibility::Unreadable,
+            reason: "future marker".to_string(),
+        };
+
         assert!(error.is_system_invariant());
     }
 

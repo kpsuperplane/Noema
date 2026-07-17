@@ -953,6 +953,12 @@
     "onboarding_reconciles_existing_noema_codex_tokens": [
       "reconcile_account_marks_existing_codex_tokens_authenticated"
     ],
+    "opening_legacy_tasks_adds_blocking_columns": [
+      "opening_legacy_tasks_without_blocking_columns_is_rejected_without_mutation"
+    ],
+    "opening_pre_v1_task_runtime_tables_rebuilds_and_preserves_history": [
+      "opening_pre_v1_task_runtime_tables_is_rejected_without_mutation"
+    ],
     "oauth_resource_mismatch_still_indicates_browser_auth_metadata": [
       "auth_required_create_discards_staged_secrets_and_projects_typed_browser_auth"
     ],

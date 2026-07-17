@@ -5,6 +5,7 @@ mod conversations;
 mod mcp;
 mod memory;
 mod schema;
+mod schema_support;
 mod support;
 mod task_lifecycle;
 
