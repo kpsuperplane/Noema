@@ -215,6 +215,7 @@ mod tests {
                 port: input.port,
                 provider_account_id: input.provider_account_id,
                 provider_kind: input.provider_kind,
+                provider_instance_key: None,
                 model_profile: input.model_profile,
                 reasoning_effort: input.reasoning_effort,
             };
@@ -246,6 +247,7 @@ mod tests {
             port: None,
             provider_account_id: None,
             provider_kind: None,
+            provider_instance_key: None,
             model_profile: None,
             reasoning_effort: None,
         }

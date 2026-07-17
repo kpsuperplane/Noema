@@ -942,10 +942,6 @@ mod tests {
             .await
             .expect("provider account");
         store
-            .ensure_default_task_model_pool_settings("codex")
-            .await
-            .expect("provider defaults");
-        store
             .update_provider_account_status(
                 "provider_account:codex:default",
                 noema_providers::ProviderAccountStatus::Authenticated,
@@ -954,6 +950,11 @@ mod tests {
             )
             .await
             .expect("authenticated provider");
+        crate::test_support::initialize_codex_provider_selections(&store).await;
+        store
+            .ensure_default_task_model_pool_settings("codex")
+            .await
+            .expect("provider defaults");
 
         let tools = build_model_tools(
             &store,
@@ -987,9 +988,13 @@ mod tests {
             .as_array()
             .expect("pool ids");
         assert_eq!(pool_ids.len(), 3);
-        assert!(delegation.description.contains("GPT-5.6-Luna · medium"));
-        assert!(delegation.description.contains("GPT-5.6-Luna · max"));
-        assert!(delegation.description.contains("GPT-5.6-Sol · high"));
+        for complexity in ["simple", "medium", "difficult"] {
+            assert!(
+                delegation
+                    .description
+                    .contains(&format!("gpt-5.6-luna ({complexity}, codex)"))
+            );
+        }
     }
 
     #[tokio::test]

@@ -723,11 +723,12 @@ pub(super) async fn resume_task(
     require_local_principal(principal_subject)?;
     let store = state.store()?;
     let (task, _) = store
-        .resume_task(
+        .resume_task_with_readiness(
             task_id.trim(),
             principal_subject,
             principal_subject,
             message.as_deref(),
+            state.provider_registry()?.as_ref(),
         )
         .await
         .map_err(graphql_error)?;
@@ -814,6 +815,44 @@ pub(super) async fn update_task_model_pool_entry(
 ) -> Result<GraphqlTaskModelPoolEntry> {
     require_local_principal(principal_subject)?;
     let store = state.store()?;
+    let normalized_pool_entry_id = pool_entry_id.trim().to_string();
+    let requested_reasoning_effort = input.reasoning_effort.map(Into::into);
+    let existing = store
+        .get_task_model_pool_entry(&normalized_pool_entry_id)
+        .await
+        .map_err(graphql_error)?
+        .ok_or_else(|| async_graphql::Error::new("task model pool entry was not found"))?;
+    let retains_exact_route = existing.model.provider_kind
+        == input.provider_kind.trim().to_ascii_lowercase()
+        && existing.model.provider_account_id == input.provider_account_id.trim()
+        && existing.model.model_profile.as_deref() == Some(input.model_profile.trim())
+        && existing.model.reasoning_effort == requested_reasoning_effort;
+    if !input.enabled && !retains_exact_route {
+        return Err(async_graphql::Error::new(
+            "A disabled task model entry must retain its existing provider route",
+        ));
+    }
+    if retains_exact_route && (existing.enabled || !input.enabled) {
+        let model_profile = existing.model.model_profile.ok_or_else(|| {
+            async_graphql::Error::new("task model pool entry has no model profile")
+        })?;
+        let pool_entry = noema_tasks::NewTaskModelPoolEntry {
+            pool_entry_id: Some(normalized_pool_entry_id.clone()),
+            complexity: input.complexity.into(),
+            label: input.label,
+            provider_kind: existing.model.provider_kind,
+            provider_account_id: existing.model.provider_account_id,
+            model_profile,
+            reasoning_effort: existing.model.reasoning_effort,
+            enabled: input.enabled,
+            sort_order: i64::from(input.sort_order),
+        };
+        return store
+            .update_task_model_pool_entry(&normalized_pool_entry_id, pool_entry)
+            .await
+            .map(Into::into)
+            .map_err(graphql_error);
+    }
     let account = selectable_model_account(state, &input.provider_account_id).await?;
     if let Some(reason) = provider_disabled_reason(&account) {
         return Err(async_graphql::Error::new(reason));
@@ -826,21 +865,31 @@ pub(super) async fn update_task_model_pool_entry(
     let profiles = selectable_profiles_from_account(store, &account).await?;
     let profile = require_selectable_profile(&profiles, &input.model_profile)?;
     let reasoning_effort = validate_reasoning_effort_for_profile(profile, input.reasoning_effort)?;
-    let normalized_pool_entry_id = pool_entry_id.trim().to_string();
+    let ready_selection = super::provider_selection::prove_ready_selection(
+        state,
+        &account.provider_kind,
+        &account.provider_account_id,
+        &input.model_profile,
+        reasoning_effort,
+        "graphql_task_model_pool",
+    )
+    .await?;
+    let pool_entry = noema_tasks::NewTaskModelPoolEntry {
+        pool_entry_id: Some(normalized_pool_entry_id.clone()),
+        complexity: input.complexity.into(),
+        label: input.label,
+        provider_kind: account.provider_kind,
+        provider_account_id: account.provider_account_id,
+        model_profile: input.model_profile,
+        reasoning_effort,
+        enabled: input.enabled,
+        sort_order: i64::from(input.sort_order),
+    };
     store
-        .update_task_model_pool_entry(
+        .update_task_model_pool_entry_with_ready_selection(
             &normalized_pool_entry_id,
-            noema_tasks::NewTaskModelPoolEntry {
-                pool_entry_id: Some(normalized_pool_entry_id.clone()),
-                complexity: input.complexity.into(),
-                label: input.label,
-                provider_kind: account.provider_kind,
-                provider_account_id: account.provider_account_id,
-                model_profile: input.model_profile,
-                reasoning_effort,
-                enabled: input.enabled,
-                sort_order: i64::from(input.sort_order),
-            },
+            pool_entry,
+            &ready_selection,
         )
         .await
         .map(Into::into)
@@ -948,8 +997,12 @@ mod tests {
             )
             .await
             .expect("authenticated provider");
+        let provider_registry = crate::test_support::ready_test_provider_registry();
         let entry = store
-            .ensure_default_task_model_pool_settings("codex")
+            .ensure_default_task_model_pool_settings_with_readiness(
+                "codex",
+                provider_registry.as_ref(),
+            )
             .await
             .expect("task model settings")
             .into_iter()
@@ -995,8 +1048,13 @@ mod tests {
             )
             .await
             .expect("provider catalog");
+        crate::test_support::initialize_codex_provider_selections(&store).await;
+        let provider_registry = crate::test_support::ready_test_provider_registry();
         store
-            .ensure_default_task_model_pool_settings("codex")
+            .ensure_default_task_model_pool_settings_with_readiness(
+                "codex",
+                provider_registry.as_ref(),
+            )
             .await
             .expect("task model settings");
         let schema = crate::graphql::build_schema(
@@ -1067,6 +1125,92 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn editing_and_disabling_stale_task_pool_route_need_no_provider_readiness() {
+        let store = test_store().await;
+        store
+            .ensure_default_provider_account()
+            .await
+            .expect("provider account");
+        store
+            .update_provider_account_status(
+                "provider_account:codex:default",
+                noema_providers::ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .expect("authenticated provider");
+        let provider_registry = crate::test_support::ready_test_provider_registry();
+        let entry = store
+            .ensure_default_task_model_pool_settings_with_readiness(
+                "codex",
+                provider_registry.as_ref(),
+            )
+            .await
+            .expect("task model settings")
+            .into_iter()
+            .find(|entry| entry.complexity == TaskComplexity::Simple)
+            .expect("simple task model");
+        let pool_entry_id = entry.pool_entry_id.clone();
+        let complexity: GraphqlTaskComplexity = entry.complexity.into();
+        let provider_kind = entry.model.provider_kind;
+        let provider_account_id = entry.model.provider_account_id;
+        let model_profile = entry.model.model_profile.expect("model profile");
+        let reasoning_effort = entry.model.reasoning_effort.map(Into::into);
+        let sort_order = i32::try_from(entry.sort_order).expect("sort order");
+        let state = GraphqlState::for_tests_with_store(store.clone())
+            .with_provider_registry(std::sync::Arc::new(noema_providers::ProviderRegistry::new()));
+
+        let edited = update_task_model_pool_entry(
+            &state,
+            "human:local",
+            pool_entry_id.clone(),
+            GraphqlTaskModelPoolEntryInput {
+                complexity,
+                label: Some("Unavailable but editable".to_string()),
+                provider_kind: provider_kind.clone(),
+                provider_account_id: provider_account_id.clone(),
+                model_profile: model_profile.clone(),
+                reasoning_effort,
+                enabled: true,
+                sort_order,
+            },
+        )
+        .await
+        .expect("edit stale route metadata");
+        assert!(edited.enabled);
+        assert_eq!(edited.label.as_deref(), Some("Unavailable but editable"));
+
+        let updated = update_task_model_pool_entry(
+            &state,
+            "human:local",
+            pool_entry_id.clone(),
+            GraphqlTaskModelPoolEntryInput {
+                complexity,
+                label: edited.label,
+                provider_kind,
+                provider_account_id,
+                model_profile,
+                reasoning_effort,
+                enabled: false,
+                sort_order,
+            },
+        )
+        .await
+        .expect("disable stale route");
+
+        assert!(!updated.enabled);
+        assert!(
+            !store
+                .get_task_model_pool_entry(&pool_entry_id)
+                .await
+                .expect("pool entry")
+                .expect("persisted entry")
+                .enabled
+        );
+    }
+
+    #[tokio::test]
     async fn task_execution_policy_is_global_and_mutable() {
         let store = test_store().await;
         let schema = crate::graphql::build_schema(GraphqlState::for_tests_with_store(store));
@@ -1127,12 +1271,18 @@ mod tests {
             )
             .await
             .expect("authenticated provider");
+        crate::test_support::initialize_codex_provider_selections(&store).await;
+        let provider_registry = crate::test_support::ready_test_provider_registry();
         store
-            .ensure_default_task_model_pool_settings("codex")
+            .ensure_default_task_model_pool_settings_with_readiness(
+                "codex",
+                provider_registry.as_ref(),
+            )
             .await
             .expect("task model settings");
         let delegated = crate::daemon::task_tool::execute_task_delegate(
             &store,
+            provider_registry.as_ref(),
             &crate::daemon::task_tool::TaskDelegateRuntimeContext {
                 conversation_id: "conversation:test".to_string(),
                 turn_id: "turn:test".to_string(),
@@ -1259,42 +1409,50 @@ mod tests {
             )
             .await
             .expect("authenticated provider");
+        crate::test_support::initialize_codex_provider_selections(&store).await;
+        let provider_registry = crate::test_support::ready_test_provider_registry();
         let conversation = store
             .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
             .await
             .expect("conversation");
         let pool = store
-            .ensure_default_task_model_pool_settings("codex")
+            .ensure_default_task_model_pool_settings_with_readiness(
+                "codex",
+                provider_registry.as_ref(),
+            )
             .await
             .expect("task models")
             .into_iter()
             .find(|entry| entry.complexity == TaskComplexity::Simple)
             .expect("simple model");
         let (task, _) = store
-            .create_task_with_executor(noema_tasks::NewTask {
-                task_id: None,
-                title: "Cancellable task".to_string(),
-                request_markdown: "Stop when asked".to_string(),
-                complexity: TaskComplexity::Simple,
-                owner_human_id: "human:local".to_string(),
-                source: noema_tasks::TaskSource {
-                    conversation_id: Some(conversation.conversation_id.clone()),
-                    turn_id: None,
-                    item_id: None,
+            .create_task_with_executor_with_readiness(
+                noema_tasks::NewTask {
+                    task_id: None,
+                    title: "Cancellable task".to_string(),
+                    request_markdown: "Stop when asked".to_string(),
+                    complexity: TaskComplexity::Simple,
+                    owner_human_id: "human:local".to_string(),
+                    source: noema_tasks::TaskSource {
+                        conversation_id: Some(conversation.conversation_id.clone()),
+                        turn_id: None,
+                        item_id: None,
+                    },
+                    created_by_agent_id: "agent:primary".to_string(),
+                    creation_tool_call_id: None,
+                    pool_entry_id: pool.pool_entry_id,
+                    executor_model: pool.model.clone(),
+                    reviewer_model: pool.model,
+                    max_review_rounds: None,
+                    criteria: vec![noema_tasks::NewTaskValidationCriterion {
+                        criterion_id: None,
+                        ordinal: 1,
+                        description: "Stops".to_string(),
+                        expected_evidence: None,
+                    }],
                 },
-                created_by_agent_id: "agent:primary".to_string(),
-                creation_tool_call_id: None,
-                pool_entry_id: pool.pool_entry_id,
-                executor_model: pool.model.clone(),
-                reviewer_model: pool.model,
-                max_review_rounds: None,
-                criteria: vec![noema_tasks::NewTaskValidationCriterion {
-                    criterion_id: None,
-                    ordinal: 1,
-                    description: "Stops".to_string(),
-                    expected_evidence: None,
-                }],
-            })
+                provider_registry.as_ref(),
+            )
             .await
             .expect("task");
         let schema =

@@ -319,11 +319,8 @@ impl CodexRuntimeActor {
         cwd: Option<String>,
     ) -> Result<StartedConversation, DaemonError> {
         self.store.ensure_default_actors().await?;
-        let selection = super::conversation_state::provider_selection_for_conversation(
-            &self.store,
-            &self.default_provider_kind,
-        )
-        .await?;
+        let provider_route = Arc::new(self.resolve_primary_provider().await?);
+        let selection = provider_route.selection();
         let new_conversation = noema_conversations::NewConversation::local_chat_for_provider(
             &selection.provider_kind,
             selection.model_profile.clone(),
@@ -342,11 +339,8 @@ impl CodexRuntimeActor {
         cwd: Option<String>,
     ) -> Result<StartedConversation, DaemonError> {
         self.store.ensure_default_actors().await?;
-        let selection = super::conversation_state::provider_selection_for_conversation(
-            &self.store,
-            &self.default_provider_kind,
-        )
-        .await?;
+        let provider_route = Arc::new(self.resolve_primary_provider().await?);
+        let selection = provider_route.selection();
         let durable_conversation = self
             .store
             .get_or_create_primary_conversation_for_provider(
@@ -361,7 +355,7 @@ impl CodexRuntimeActor {
         self.hydrate_active_conversation(&conversation_id, cwd)
             .await?;
 
-        self.ensure_initial_name_onboarding_message(&conversation_id)
+        self.ensure_initial_name_onboarding_message(&conversation_id, provider_route)
             .await?;
 
         Ok(StartedConversation { conversation_id })
@@ -370,6 +364,7 @@ impl CodexRuntimeActor {
     async fn ensure_initial_name_onboarding_message(
         &mut self,
         conversation_id: &str,
+        provider_route: Arc<ProviderRouteLease>,
     ) -> Result<(), DaemonError> {
         let agent_identity = self
             .agent_identity_for_conversation(conversation_id)
@@ -410,21 +405,20 @@ impl CodexRuntimeActor {
             conversation.cwd.as_deref(),
             &agent_identity,
         );
-        let provider_route = self
-            .resolve_provider_route(conversation.provider_selection.clone())
-            .await?;
         let provider = provider_route.operations();
-        let tool_capabilities = provider.tool_capabilities(conversation.model());
+        let selection = provider_route.selection();
+        let model_profile = selection.model_profile.as_deref();
+        let tool_capabilities = provider.tool_capabilities(model_profile);
         let response = match provider
             .generate_streaming(
                 GenerateRequest {
                     conversation_id: Some(conversation_id.to_string()),
-                    model: conversation.model().map(str::to_string),
+                    model: selection.model_profile.clone(),
                     input: GenerateInput::Text("NOEMA_INITIAL_NAME_ONBOARDING".to_string()),
                     instructions: Some(instructions),
                     options: GenerateOptions {
                         require_noema_response: true,
-                        reasoning_effort: conversation.reasoning_effort(),
+                        reasoning_effort: selection.reasoning_effort,
                         prompt_cache_retention: prompt_cache_retention_for(tool_capabilities),
                         ..GenerateOptions::default()
                     },
@@ -474,8 +468,8 @@ impl CodexRuntimeActor {
                     "conversation_id": conversation_id,
                     "turn_id": turn.turn_id,
                     "turn_index": turn_index,
-                    "provider_kind": conversation.provider_kind(),
-                    "model": conversation.model(),
+                    "provider_kind": &selection.provider_kind,
+                    "model": model_profile,
                 }),
                 json!({
                     "persisted_count": persisted_count,
@@ -654,6 +648,11 @@ impl CodexRuntimeActor {
         let conversation = self
             .hydrate_active_conversation(&conversation_id, None)
             .await?;
+        let provider_route = Arc::new(self.resolve_primary_provider().await?);
+        let provider_selection = provider_route.selection().clone();
+        let provider_kind = provider_selection.provider_kind.as_str();
+        let model_profile = provider_selection.model_profile.as_deref();
+        let reasoning_effort = provider_selection.reasoning_effort;
         let turn_index = conversation.next_turn_index;
         let turn = self
             .store
@@ -674,17 +673,13 @@ impl CodexRuntimeActor {
             json!({
                 "hydrate_and_create_turn_ms": pre_turn_started_at.elapsed().as_millis(),
                 "input_chars": user_input.input_chars(),
-                "provider_kind": conversation.provider_kind(),
-                "model": conversation.model(),
+                "provider_kind": provider_kind,
+                "model": model_profile,
             }),
         );
-        let provider_route = Arc::new(
-            self.resolve_provider_route(conversation.provider_selection.clone())
-                .await?,
-        );
         let provider = provider_route.operations();
-        let tool_capabilities = provider.tool_capabilities(conversation.model());
-        let response_continuation = provider.response_continuation(conversation.model());
+        let tool_capabilities = provider.tool_capabilities(model_profile);
+        let response_continuation = provider.response_continuation(model_profile);
         let agent_identity = self
             .agent_identity_for_conversation(&conversation_id)
             .await?;
@@ -724,8 +719,8 @@ impl CodexRuntimeActor {
             store: &self.store,
             conversation_id: &conversation_id,
             turn_id: &turn.turn_id,
-            provider_kind: conversation.provider_kind(),
-            model_profile: conversation.model(),
+            provider_kind,
+            model_profile,
             state: &model_context_state,
         })
         .await?;
@@ -739,8 +734,8 @@ impl CodexRuntimeActor {
                 store: &self.store,
                 provider,
                 conversation_id: &conversation_id,
-                provider_kind: conversation.provider_kind(),
-                model_profile: conversation.model(),
+                provider_kind,
+                model_profile,
                 current_input: &input,
             })
             .await?;
@@ -749,8 +744,8 @@ impl CodexRuntimeActor {
                 provider,
                 &conversation_id,
                 &turn.turn_id,
-                conversation.provider_kind(),
-                conversation.model(),
+                provider_kind,
+                model_profile,
                 &model_context_state,
                 &input,
                 &mut planned_context,
@@ -845,9 +840,9 @@ impl CodexRuntimeActor {
                     store: &self.store,
                     provider,
                     conversation_id: &conversation_id,
-                    provider_kind: conversation.provider_kind(),
-                    model_profile: conversation.model(),
-                    reasoning_effort: conversation.reasoning_effort(),
+                    provider_kind,
+                    model_profile,
+                    reasoning_effort,
                     budget: planned_context.budget,
                     mode: super::context_compaction::CompactionMode::Foreground,
                 },
@@ -881,8 +876,8 @@ impl CodexRuntimeActor {
                 store: &self.store,
                 conversation_id: &conversation_id,
                 turn_id: &turn.turn_id,
-                provider_kind: conversation.provider_kind(),
-                model_profile: conversation.model(),
+                provider_kind,
+                model_profile,
                 state: &model_context_state,
             })
             .await?;
@@ -892,8 +887,8 @@ impl CodexRuntimeActor {
                     store: &self.store,
                     provider,
                     conversation_id: &conversation_id,
-                    provider_kind: conversation.provider_kind(),
-                    model_profile: conversation.model(),
+                    provider_kind,
+                    model_profile,
                     current_input: &input,
                 },
             )
@@ -902,8 +897,8 @@ impl CodexRuntimeActor {
                 provider,
                 &conversation_id,
                 &turn.turn_id,
-                conversation.provider_kind(),
-                conversation.model(),
+                provider_kind,
+                model_profile,
                 &model_context_state,
                 &input,
                 &mut planned_context,
@@ -925,9 +920,9 @@ impl CodexRuntimeActor {
                         store: &self.store,
                         provider,
                         conversation_id: &conversation_id,
-                        provider_kind: conversation.provider_kind(),
-                        model_profile: conversation.model(),
-                        reasoning_effort: conversation.reasoning_effort(),
+                        provider_kind,
+                        model_profile,
+                        reasoning_effort,
                         budget: planned_context.budget,
                         mode: super::context_compaction::CompactionMode::Foreground,
                     },
@@ -961,8 +956,8 @@ impl CodexRuntimeActor {
                     store: &self.store,
                     conversation_id: &conversation_id,
                     turn_id: &turn.turn_id,
-                    provider_kind: conversation.provider_kind(),
-                    model_profile: conversation.model(),
+                    provider_kind,
+                    model_profile,
                     state: &model_context_state,
                 })
                 .await?;
@@ -972,8 +967,8 @@ impl CodexRuntimeActor {
                         store: &self.store,
                         provider,
                         conversation_id: &conversation_id,
-                        provider_kind: conversation.provider_kind(),
-                        model_profile: conversation.model(),
+                        provider_kind,
+                        model_profile,
                         current_input: &input,
                     },
                 )
@@ -982,8 +977,8 @@ impl CodexRuntimeActor {
                     provider,
                     &conversation_id,
                     &turn.turn_id,
-                    conversation.provider_kind(),
-                    conversation.model(),
+                    provider_kind,
+                    model_profile,
                     &model_context_state,
                     &input,
                     &mut planned_context,
@@ -1092,12 +1087,12 @@ impl CodexRuntimeActor {
             .generate_streaming(
                 GenerateRequest {
                     conversation_id: Some(conversation_id.clone()),
-                    model: conversation.model().map(str::to_string),
+                    model: provider_selection.model_profile.clone(),
                     input: planned_context.input,
                     instructions: Some(planned_context.instructions),
                     options: GenerateOptions {
                         max_output_tokens: planned_context.budget.output_reserve_tokens(),
-                        reasoning_effort: conversation.reasoning_effort(),
+                        reasoning_effort,
                         require_noema_response: true,
                         prompt_cache_retention: prompt_cache_retention_for(tool_capabilities),
                         prompt_cache_options: prompt_cache_options_for(tool_capabilities),
@@ -1156,9 +1151,9 @@ impl CodexRuntimeActor {
                             task_id: None,
                             task_run_id: None,
                             cwd: conversation.cwd.clone(),
-                            provider_kind: conversation.provider_kind().to_string(),
-                            model: conversation.model().map(str::to_string),
-                            reasoning_effort: conversation.reasoning_effort(),
+                            provider_kind: provider_selection.provider_kind.clone(),
+                            model: provider_selection.model_profile.clone(),
+                            reasoning_effort,
                             provider_route: Arc::clone(&provider_route),
                             initial_stream_id: initial_stream_id.clone(),
                             response,
@@ -1188,9 +1183,9 @@ impl CodexRuntimeActor {
                 }
                 self.schedule_background_context_compaction(BackgroundContextCompactionSchedule {
                     conversation_id: conversation_id.clone(),
-                    provider_kind: conversation.provider_kind().to_string(),
-                    model_profile: conversation.model().map(str::to_string),
-                    reasoning_effort: conversation.reasoning_effort(),
+                    provider_kind: provider_selection.provider_kind.clone(),
+                    model_profile: provider_selection.model_profile.clone(),
+                    reasoning_effort,
                     provider_route,
                     next_turn_index: turn_index.saturating_add(1),
                 });

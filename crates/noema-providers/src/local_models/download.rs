@@ -13,12 +13,12 @@ use noema_home::{NoemaPathError, NoemaPaths};
 use crate::{
     LocalModelBackend, LocalModelInstallationPersistenceHandle, LocalModelInstallationRecord,
     LocalModelInstallationStatus, LocalModelSourceKind, NewLocalModelInstallation,
-    ProviderPersistenceError, RemovedLocalModelInstallation,
+    ProviderPersistenceError,
 };
 
 use super::download_support::{
     hugging_face_url, local_file_installation_id, normalized_model_id, normalized_optional,
-    remove_file_if_present, required_text, validate_digest, validate_revision,
+    required_text, validate_digest, validate_revision,
 };
 use super::{LocalModelBuild, LocalModelCatalogEntry};
 
@@ -370,35 +370,6 @@ impl LocalModelInstaller {
             backend: input.backend,
         })
         .await
-    }
-
-    /// Deletes installation metadata and any newly unreferenced artifact files.
-    ///
-    /// This is a storage primitive. A process manager must retire and drain an
-    /// inactive runtime instance before invoking it.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the installation is active, persistence fails, or
-    /// an unreferenced artifact file cannot be removed.
-    pub async fn remove(
-        &self,
-        installation_id: &str,
-    ) -> Result<RemovedLocalModelInstallation, LocalModelInstallError> {
-        let removed = self
-            .persistence
-            .remove_local_model_installation(installation_id)
-            .await?;
-        if removed.unreferenced_blob_relative_path.is_some()
-            && let Some(sha256) = removed.installation.sha256.as_deref()
-        {
-            remove_file_if_present(self.paths.local_model_blob_path(sha256)?).await?;
-        }
-        if let Some(sha256) = removed.installation.sha256.as_deref() {
-            remove_file_if_present(self.paths.local_model_partial_path(sha256)?).await?;
-        }
-        remove_file_if_present(self.paths.local_model_import_partial_path(installation_id)).await?;
-        Ok(removed)
     }
 
     async fn ensure_queued(

@@ -1006,9 +1006,32 @@ The next storage slice should stay small and concrete:
   `noema-model-evals` no longer depends on `noema-home` or `noema-store`.
   Schema shape and bootstrap hashes remain at the post-10A baseline, the full
   Rust/frontend/policy gates are green, and two adversarial closure reviews
-  found no remaining Critical or Important issue. Checkpoint 10C is next:
-  persist exact provider instance identity and retirement claims, then replace
-  the temporary legacy resolver.
+  found no remaining Critical or Important issue. Decomposition Checkpoint 10C
+  is complete. SQLite now persists exact provider-instance identity for every
+  canonical preference and task/run snapshot, plus distinct reversible
+  `runtime_retired_at` and monotonic `retirement_claimed_at` lifecycle fields.
+  One initialization transaction fills only missing canonical selections from
+  a ready configured route; an already complete database needs no new proof and
+  can start degraded without rewriting an unavailable route. Every write that
+  establishes or redirects a future provider reference, hosted or local,
+  retains an exact registry readiness lease through commit. Proof-free paths
+  are limited to operations that create no reference: complete/no-write
+  initialization, idempotent replay, omitted memory-route preservation, and
+  exact task-pool metadata edits or disabling. Foreground turns resolve a fresh
+  canonical route, background runs retain their exact snapshot, and memory,
+  audit, and web-summary work resolve independently through the shared registry;
+  the temporary legacy resolver is deleted. Runtime retirement now compare-
+  and-sets only an unreferenced inactive installation, drains leases, and
+  preserves its installed row and verified blob for reactivation. Explicit
+  removal uses a separate claim, cancels and drains owned work, deletes the row
+  only after references and leases are gone, and retains shared verified blobs
+  until a future digest-aware garbage collector exists. Startup reconstructs
+  every referenced unclaimed instance, treats structural identity corruption as
+  fatal, and leaves transient launch failures typed and degraded. Exact schema
+  baselines, crate/dependency policy, normalized test ownership, strict Clippy,
+  provider feature tests, and the full Rust workspace are green after repeated
+  adversarial closure. Phase 11 is next: decouple runtime events from GraphQL,
+  then extract the governed `noema-runtime` crate.
 
 - The bounded remediation program completed Phase 2 at `92,157` maintained
   source lines (`-1,767` from its baseline). Axum/tower-sessions now own the

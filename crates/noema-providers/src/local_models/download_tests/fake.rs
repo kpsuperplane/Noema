@@ -194,7 +194,7 @@ impl LocalModelInstallationPersistence for FakeInstallationPersistence {
         })
     }
 
-    fn remove_local_model_installation<'a>(
+    fn remove_terminal_local_model_installation<'a>(
         &'a self,
         installation_id: &'a str,
     ) -> ProviderPersistenceFuture<'a, RemovedLocalModelInstallation> {
@@ -207,20 +207,20 @@ impl LocalModelInstallationPersistence for FakeInstallationPersistence {
                 .ok_or_else(|| ProviderPersistenceError::InstallationNotFound {
                     installation_id: installation_id.to_string(),
                 })?;
-            if record.is_active {
-                return Err(ProviderPersistenceError::ActiveInstallationConflict {
-                    installation_id: installation_id.to_string(),
+            if record.is_active
+                || !matches!(
+                    record.status,
+                    LocalModelInstallationStatus::Cancelled | LocalModelInstallationStatus::Failed
+                )
+                || record.retirement_claimed_at.is_some()
+            {
+                return Err(ProviderPersistenceError::Conflict {
+                    operation: "remove_terminal_local_model_installation",
                 });
             }
             state.installations.remove(installation_id);
             append_event(&mut state, &record, LocalModelEventKind::Removed, None);
-            let blob_is_referenced = state.installations.values().any(|remaining| {
-                remaining.sha256 == record.sha256 && remaining.blob_relative_path.is_some()
-            });
             Ok(RemovedLocalModelInstallation {
-                unreferenced_blob_relative_path: (!blob_is_referenced)
-                    .then(|| record.blob_relative_path.clone())
-                    .flatten(),
                 installation: record,
             })
         })
@@ -244,8 +244,15 @@ impl LocalModelInstallationPersistence for FakeInstallationPersistence {
 }
 
 fn queued_record(input: NewLocalModelInstallation) -> LocalModelInstallationRecord {
+    let provider_instance_key = crate::local_model_provider_instance_key(
+        crate::LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
+        &input.installation_id,
+        &input.model_id,
+    )
+    .expect("fake exact key");
     LocalModelInstallationRecord {
         installation_id: input.installation_id,
+        provider_instance_key,
         model_id: input.model_id,
         display_name: input.display_name,
         source_kind: input.source_kind,
@@ -261,6 +268,8 @@ fn queued_record(input: NewLocalModelInstallation) -> LocalModelInstallationReco
         status: LocalModelInstallationStatus::Queued,
         blob_relative_path: None,
         is_active: false,
+        runtime_retired_at: None,
+        retirement_claimed_at: None,
         error_code: None,
         error_message: None,
         installed_at: None,

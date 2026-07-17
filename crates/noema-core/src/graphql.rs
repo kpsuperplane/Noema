@@ -16,6 +16,7 @@ mod mcp;
 mod memory;
 mod onboarding;
 mod provider_accounts;
+mod provider_selection;
 mod replay;
 mod resolvers;
 mod runtime_state;

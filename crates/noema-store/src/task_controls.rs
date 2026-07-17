@@ -2,14 +2,16 @@
 
 #![allow(clippy::missing_errors_doc)]
 
-use noema_providers::ReasoningEffort;
+use noema_providers::{ProviderRegistry, ReasoningEffort};
 use noema_tasks::{
-    AgentRunRecord, ManualContinuationInput, RunKind, TASK_EXECUTOR_AGENT_ID,
-    TASK_REVIEWER_AGENT_ID, TaskRecord, TaskStatus, plan_manual_continuation,
+    AgentRunRecord, ManualContinuationInput, RunKind, TASK_EXECUTOR_AGENT_ID, TaskRecord,
+    TaskStatus, plan_manual_continuation,
 };
 use rusqlite::{OptionalExtension, params};
 
 use super::{NoemaStore, StoreError, ids::allocate_id};
+use crate::provider_selections::prove_selection_ready;
+use crate::tasks::provider_selection::{pool_selection_tx, reviewer_preference_tx};
 
 impl NoemaStore {
     /// Continue a failed or human-blocked task with its existing lineage and evidence.
@@ -19,6 +21,32 @@ impl NoemaStore {
         owner_human_id: &str,
         actor_id: &str,
         message: Option<&str>,
+    ) -> Result<(TaskRecord, AgentRunRecord), StoreError> {
+        self.resume_task_inner(task_id, owner_human_id, actor_id, message, None)
+            .await
+    }
+
+    /// Continue a task while proving its newly selected exact route is ready
+    /// and retaining that proof through commit.
+    pub async fn resume_task_with_readiness(
+        &self,
+        task_id: &str,
+        owner_human_id: &str,
+        actor_id: &str,
+        message: Option<&str>,
+        registry: &ProviderRegistry,
+    ) -> Result<(TaskRecord, AgentRunRecord), StoreError> {
+        self.resume_task_inner(task_id, owner_human_id, actor_id, message, Some(registry))
+            .await
+    }
+
+    async fn resume_task_inner(
+        &self,
+        task_id: &str,
+        owner_human_id: &str,
+        actor_id: &str,
+        message: Option<&str>,
+        registry: Option<&ProviderRegistry>,
     ) -> Result<(TaskRecord, AgentRunRecord), StoreError> {
         let task_id = required(task_id, "task id")?;
         let owner_human_id = required(owner_human_id, "owner id")?;
@@ -62,29 +90,6 @@ impl NoemaStore {
         })?;
         let resume_kind = continuation_plan.run_kind;
         let message = continuation_plan.message.clone();
-        let model = if resume_kind == RunKind::Executor {
-            self.select_task_model_pool_entry(task.complexity, &task.pool_entry_id)
-                .await?
-                .model
-        } else if let Some(preference) = self
-            .get_agent_runtime_preference(TASK_REVIEWER_AGENT_ID)
-            .await?
-        {
-            noema_providers::ProviderSelectionSnapshot::explicit(
-                preference.provider_kind,
-                preference.provider_account_id,
-                preference.model_profile,
-                preference.reasoning_effort,
-                Some("agent:task-reviewer".to_string()),
-            )
-        } else {
-            task.reviewer_model.clone()
-        }
-        .normalized_for_persistence()
-        .map_err(|error| StoreError::InvariantViolation {
-            message: error.to_string(),
-        })?;
-        self.validate_task_model_snapshot(&model).await?;
         let execution_policy = self.get_task_execution_policy().await?;
         let new_run_id = allocate_id("run");
         let next_attempt_index = continuation_plan.attempt_index;
@@ -104,11 +109,10 @@ impl NoemaStore {
             .as_ref()
             .map(|review| review.review_id.as_str())
             .or(parent.triggering_review_id.as_deref());
-        self.with_connection(|conn| {
-            let tx = conn.transaction()?;
-            let current = tx
+        let (_, _ready_selection) = self.with_immediate_transaction_retry(|transaction| {
+            let current = transaction
                 .query_row(
-                    "SELECT status, owner_human_id, latest_run_id, revision_index FROM tasks WHERE task_id = ?1",
+                    "SELECT status, owner_human_id, latest_run_id, revision_index, complexity, pool_entry_id FROM tasks WHERE task_id = ?1",
                     [task_id],
                     |row| {
                         Ok((
@@ -116,6 +120,8 @@ impl NoemaStore {
                             row.get::<_, String>(1)?,
                             row.get::<_, Option<String>>(2)?,
                             row.get::<_, i64>(3)?,
+                            row.get::<_, String>(4)?,
+                            row.get::<_, String>(5)?,
                         ))
                     },
                 )
@@ -129,7 +135,7 @@ impl NoemaStore {
                         kind: "task_status",
                         value: error.to_string(),
                     })?;
-            let parent_status = tx
+            let parent_status = transaction
                 .query_row(
                     "SELECT status FROM agent_runs WHERE run_id = ?1",
                     [&parent.run_id],
@@ -141,7 +147,7 @@ impl NoemaStore {
                     value: error.to_string(),
                 })?;
             let committed_review_now = if parent.run_kind == RunKind::Reviewer {
-                tx.query_row(
+                transaction.query_row(
                     "SELECT EXISTS(SELECT 1 FROM task_reviews WHERE task_id = ?1 AND reviewed_submission_id = ?2)",
                     params![
                         task_id,
@@ -173,16 +179,51 @@ impl NoemaStore {
                     message: "task changed while continuing".to_string(),
                 });
             }
-            tx.execute(
+            if parent_status == noema_tasks::RunStatus::WaitingForApproval {
+                let changed = transaction.execute(
+                    "UPDATE agent_runs SET status = 'completed', \
+                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
+                     WHERE run_id = ?1 AND status = 'waiting_for_approval'",
+                    [&parent.run_id],
+                )?;
+                if changed != 1 {
+                    return Err(StoreError::InvariantViolation {
+                        message: "task continuation parent changed while continuing".to_string(),
+                    });
+                }
+                append_run_event_tx(
+                    transaction,
+                    &parent.run_id,
+                    "run.continued",
+                    actor_id,
+                    serde_json::json!({
+                        "continued_by_run_id": new_run_id,
+                    }),
+                )?;
+            }
+            let model = if resume_kind == RunKind::Executor {
+                let complexity = current.4.parse().map_err(
+                    |error: noema_tasks::TaskDomainError| StoreError::InvalidEnum {
+                        kind: "task_complexity",
+                        value: error.to_string(),
+                    },
+                )?;
+                pool_selection_tx(transaction, complexity, &current.5)?
+            } else {
+                reviewer_preference_tx(transaction)?
+            };
+            let ready_selection = prove_selection_ready(&model, registry)?;
+            transaction.execute(
                 r#"INSERT INTO agent_runs (
                     run_id, task_id, run_kind, agent_id, attempt_index, revision_index,
                     parent_run_id, triggering_submission_id, triggering_review_id,
-                    resume_message, provider_kind, provider_account_id, selection_mode,
-                    model_profile, reasoning_effort, selection_source,
+                    resume_message, provider_kind, provider_account_id,
+                    provider_instance_key, selection_mode, model_profile,
+                    reasoning_effort, selection_source,
                     max_provider_continuations, max_tool_calls, max_active_minutes,
                     progress_audit_interval, status, priority
                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
-                    ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, 'queued', ?21)"#,
+                    ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, 'queued', ?22)"#,
                 params![
                     new_run_id,
                     task_id,
@@ -196,6 +237,7 @@ impl NoemaStore {
                     message,
                     model.provider_kind,
                     model.provider_account_id,
+                    model.provider_instance_key.as_ref().map(ToString::to_string),
                     model.selection_mode.as_str(),
                     model.model_profile,
                     model.reasoning_effort.map(ReasoningEffort::as_persistence_str),
@@ -208,7 +250,7 @@ impl NoemaStore {
                 ],
             )?;
             append_run_event_tx(
-                &tx,
+                transaction,
                 &new_run_id,
                 "run.queued",
                 actor_id,
@@ -220,7 +262,7 @@ impl NoemaStore {
                     "has_message": message.is_some(),
                 }),
             )?;
-            let changed = tx.execute(
+            let changed = transaction.execute(
                 "UPDATE tasks SET status = ?2, latest_run_id = ?3, blocked_question = NULL, blocked_context = NULL, terminal_reason = NULL, error_code = NULL, error_message = NULL, completed_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND latest_run_id = ?4",
                 params![task_id, next_status.as_str(), new_run_id, parent.run_id],
             )?;
@@ -230,7 +272,7 @@ impl NoemaStore {
                 });
             }
             append_task_event_tx(
-                &tx,
+                transaction,
                 task_id,
                 "task.resumed",
                 actor_id,
@@ -241,8 +283,7 @@ impl NoemaStore {
                     "has_message": message.is_some(),
                 }),
             )?;
-            tx.commit()?;
-            Ok(())
+            Ok(((), ready_selection))
         })
         .await?;
         let task = self.get_task(task_id).await?.ok_or_else(task_unavailable)?;

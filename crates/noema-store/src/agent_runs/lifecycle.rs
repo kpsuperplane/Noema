@@ -1,3 +1,4 @@
+use noema_providers::ProviderRegistry;
 use noema_tasks::{AgentRunHeartbeat, AgentRunRecord, RunStatus};
 use rusqlite::{OptionalExtension, params};
 
@@ -16,31 +17,53 @@ impl NoemaStore {
         lease_token: &str,
         lease_seconds: i64,
     ) -> Result<Option<AgentRunRecord>, StoreError> {
+        self.claim_next_agent_run_inner(worker_id, lease_token, lease_seconds, None)
+            .await
+    }
+
+    /// Recover and claim queued work while proving every recovery child is
+    /// registered and ready through commit.
+    pub async fn claim_next_agent_run_with_readiness(
+        &self,
+        worker_id: &str,
+        lease_token: &str,
+        lease_seconds: i64,
+        registry: &ProviderRegistry,
+    ) -> Result<Option<AgentRunRecord>, StoreError> {
+        self.claim_next_agent_run_inner(worker_id, lease_token, lease_seconds, Some(registry))
+            .await
+    }
+
+    async fn claim_next_agent_run_inner(
+        &self,
+        worker_id: &str,
+        lease_token: &str,
+        lease_seconds: i64,
+        registry: Option<&ProviderRegistry>,
+    ) -> Result<Option<AgentRunRecord>, StoreError> {
         if worker_id.trim().is_empty() || lease_token.trim().is_empty() || lease_seconds < 1 {
             return Err(StoreError::InvariantViolation {
                 message: "invalid agent run lease request".to_string(),
             });
         }
-        self.with_connection(|conn| {
-            let tx = conn.transaction()?;
+        let (run, _ready_selections) = self.with_immediate_transaction_retry(|transaction| {
             let now = now_string();
             let lease_expires_at = (now.parse::<i64>().unwrap_or_default() + lease_seconds).to_string();
-            recover_expired_runs(&tx, &now)?;
-            recover_interrupted_runs(&tx)?;
-            let changed = tx.execute(
+            let mut ready_selections = recover_expired_runs(transaction, &now, registry)?;
+            ready_selections.extend(recover_interrupted_runs(transaction, registry)?);
+            let changed = transaction.execute(
                 "UPDATE agent_runs SET status = 'leased', lease_owner = ?1, lease_token = ?2, lease_expires_at = ?3, heartbeat_at = ?4, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = (SELECT queued.run_id FROM agent_runs queued WHERE queued.status = 'queued' AND NOT EXISTS (SELECT 1 FROM agent_runs active WHERE active.task_id = queued.task_id AND active.status IN ('leased', 'running')) ORDER BY queued.priority DESC, queued.queued_at, queued.run_id LIMIT 1) AND status = 'queued'",
                 params![worker_id, lease_token, lease_expires_at, now],
             )?;
             if changed == 0 {
-                tx.commit()?;
-                return Ok(None);
+                return Ok((None, ready_selections));
             }
-            let run = tx
+            let run = transaction
                 .query_row(&format!("SELECT {RUN_COLUMNS} FROM agent_runs WHERE lease_owner = ?1 AND lease_token = ?2 AND status = 'leased' ORDER BY updated_at DESC LIMIT 1"), params![worker_id, lease_token], run_from_row)
                 .optional()?;
             if let Some(run) = &run {
                 append_run_event(
-                    &tx,
+                    transaction,
                     &run.run_id,
                     "run.leased",
                     serde_json::json!({
@@ -49,7 +72,7 @@ impl NoemaStore {
                     }),
                 )?;
                 append_task_event(
-                    &tx,
+                    transaction,
                     &run.task_id,
                     "run.updated",
                     serde_json::json!({
@@ -58,9 +81,9 @@ impl NoemaStore {
                     }),
                 )?;
             }
-            tx.commit()?;
-            Ok(run)
-        }).await
+            Ok((run, ready_selections))
+        }).await?;
+        Ok(run)
     }
 
     /// Change a run state while enforcing the domain transition matrix.

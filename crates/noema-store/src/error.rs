@@ -72,6 +72,53 @@ pub enum StoreError {
         /// Missing provider account id.
         provider_account_id: String,
     },
+    /// A canonical or future-work selection still names the provider account.
+    #[error("provider account is still in use: {provider_account_id}")]
+    ProviderAccountInUse {
+        /// Referenced provider account id.
+        provider_account_id: String,
+    },
+    /// A durable provider selection omitted its exact process identity.
+    #[error("provider selection is missing an exact instance key")]
+    ProviderInstanceKeyMissing,
+    /// A durable provider selection's exact key disagrees with its account or profile.
+    #[error(
+        "provider instance key does not match the selected account/profile: {provider_instance_key}"
+    )]
+    ProviderInstanceKeyMismatch {
+        /// Exact key rejected by the authoritative store.
+        provider_instance_key: String,
+    },
+    /// A durable provider selection names an instance already claimed for retirement.
+    #[error("provider instance has been claimed for retirement: {provider_instance_key}")]
+    ProviderInstanceClaimed {
+        /// Claimed exact key.
+        provider_instance_key: String,
+    },
+    /// A provider selection names an instance that cannot currently accept new references.
+    #[error("provider instance is unavailable for selection: {provider_instance_key}")]
+    ProviderInstanceUnavailable {
+        /// Unavailable exact key.
+        provider_instance_key: String,
+    },
+    /// A local provider instance is still named by durable future work.
+    #[error("provider instance is still referenced: {provider_instance_key}")]
+    ProviderInstanceReferenced {
+        /// Referenced exact key.
+        provider_instance_key: String,
+    },
+    /// A local-model retirement compare-and-set lost its guard.
+    #[error("local-model retirement persistence conflict during {operation}")]
+    LocalModelRetirementConflict {
+        /// Stable operation identifier.
+        operation: &'static str,
+    },
+    /// The configured startup default could not be resolved to an exact provider instance.
+    #[error("configured default provider selection is unresolvable: {reason}")]
+    ConfiguredDefaultUnresolvable {
+        /// Stable non-secret diagnostic.
+        reason: String,
+    },
     /// A protected built-in provider account cannot be deleted.
     #[error("protected provider account cannot be deleted: {provider_account_id}")]
     ProtectedProviderAccount {
@@ -235,6 +282,8 @@ impl StoreError {
                 | Self::IncompatibleSchema { .. }
                 | Self::InvalidEnum { .. }
                 | Self::InvariantViolation { .. }
+                | Self::ProviderInstanceKeyMissing
+                | Self::ProviderInstanceKeyMismatch { .. }
         )
     }
 }
@@ -269,6 +318,23 @@ mod tests {
         };
 
         assert!(!error.is_system_invariant());
+    }
+
+    #[test]
+    fn malformed_exact_provider_identity_is_a_store_invariant() {
+        assert!(StoreError::ProviderInstanceKeyMissing.is_system_invariant());
+        assert!(
+            StoreError::ProviderInstanceKeyMismatch {
+                provider_instance_key: "bad-key".to_string(),
+            }
+            .is_system_invariant()
+        );
+        assert!(
+            !StoreError::ProviderInstanceUnavailable {
+                provider_instance_key: "temporarily-down".to_string(),
+            }
+            .is_system_invariant()
+        );
     }
 
     #[test]

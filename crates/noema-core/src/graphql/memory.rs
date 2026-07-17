@@ -365,7 +365,6 @@ pub(super) async fn save_memory_service_settings(
     input: GraphqlSaveMemoryServiceSettingsInput,
 ) -> Result<GraphqlMemorySettings> {
     let store = state.store()?;
-    let memory_repository = state.memory_repository()?;
     let mode: MemoryServiceMode = input.mode.into();
     let (base_url, port) = match mode {
         MemoryServiceMode::External => {
@@ -420,18 +419,42 @@ pub(super) async fn save_memory_service_settings(
             }
         };
 
-    memory_repository
-        .save_memory_service_settings(SaveMemoryServiceSettings {
-            mode,
-            base_url,
-            port,
-            provider_account_id,
-            provider_kind,
-            model_profile,
-            reasoning_effort,
-        })
-        .await
-        .map_err(graphql_error)?;
+    let ready_selection = match (
+        provider_kind.as_deref(),
+        provider_account_id.as_deref(),
+        model_profile.as_deref(),
+    ) {
+        (Some(provider_kind), Some(provider_account_id), Some(model_profile)) => Some(
+            super::provider_selection::prove_ready_selection(
+                state,
+                provider_kind,
+                provider_account_id,
+                model_profile,
+                reasoning_effort,
+                "graphql_memory_service_settings",
+            )
+            .await?,
+        ),
+        _ => None,
+    };
+    let settings = SaveMemoryServiceSettings {
+        mode,
+        base_url,
+        port,
+        provider_account_id,
+        provider_kind,
+        model_profile,
+        reasoning_effort,
+    };
+    match ready_selection.as_ref() {
+        Some(ready_selection) => {
+            store
+                .save_memory_service_settings_with_ready_selection(settings, ready_selection)
+                .await
+        }
+        None => store.save_memory_service_settings(settings).await,
+    }
+    .map_err(graphql_error)?;
 
     memory_settings_from_store(state).await
 }
@@ -646,43 +669,15 @@ async fn generate_memory_article(
     memories: &[MemoryRecord],
     generated_at: &str,
 ) -> Result<GraphqlMemoryArticle> {
-    let runtime = state.runtime()?;
-    let settings = state
-        .memory_repository()?
-        .memory_service_settings()
-        .await
-        .map_err(graphql_error)?;
     let mut request = noema_providers::GenerateRequest::text(memory_article_prompt(memories));
-    request.model = settings.model_profile.clone();
-    request.options.reasoning_effort = settings.reasoning_effort;
     request.instructions = Some(
         "Return Markdown only. Write a compact Wikipedia-style biographical article from the supplied memory facts. Do not invent facts. Preserve the supplied inline footnote markers exactly."
             .to_string(),
     );
-    let provider_kind = settings
-        .provider_kind
-        .unwrap_or_else(|| runtime.provider_kind().to_string());
-    let provider_account_id = settings
-        .provider_account_id
-        .unwrap_or_else(|| format!("provider_account:{provider_kind}:default"));
-    let selection = match settings.model_profile {
-        Some(model_profile) => noema_providers::ProviderSelectionSnapshot::explicit(
-            &provider_kind,
-            provider_account_id,
-            model_profile,
-            request.options.reasoning_effort,
-            Some("memory_article_settings".to_string()),
-        ),
-        None => noema_providers::ProviderSelectionSnapshot::provider_default(
-            &provider_kind,
-            provider_account_id,
-            request.options.reasoning_effort,
-            Some("memory_article_settings".to_string()),
-        ),
-    };
 
-    let response = runtime
-        .generate_once_with_provider_selection(selection, request)
+    let response = state
+        .runtime()?
+        .generate_once_with_memory_provider(request)
         .await
         .map_err(graphql_error)?;
     let markdown = response.assistant_text();

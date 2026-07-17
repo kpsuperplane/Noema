@@ -1,9 +1,10 @@
 //! Local-model persistence port transaction and error-contract tests.
 
 use noema_providers::{
-    LocalModelActivationPersistence, LocalModelBackend, LocalModelInstallationPersistence,
-    LocalModelInstallationStatus, LocalModelInstallationUpdate, LocalModelSourceKind,
-    NewLocalModelInstallation, ProviderPersistenceError,
+    LOCAL_MODELS_PROVIDER_ACCOUNT_ID, LocalModelActivationPersistence, LocalModelBackend,
+    LocalModelInstallationPersistence, LocalModelInstallationStatus, LocalModelInstallationUpdate,
+    LocalModelSourceKind, NewLocalModelInstallation, ProviderInstanceKey, ProviderPersistenceError,
+    ProviderReadySelection, ProviderSelectionSnapshot,
 };
 
 #[tokio::test]
@@ -39,14 +40,16 @@ async fn active_local_model_removal_has_a_typed_conflict() {
         .await
         .expect("advance installation");
     }
+    let ready_selection = ready_local_selection(&created.model_id, &created.provider_instance_key);
     LocalModelActivationPersistence::activate_local_model_as_system_default(
         &store,
         &created.installation_id,
+        &ready_selection,
     )
     .await
     .expect("activate installation");
 
-    let error = LocalModelInstallationPersistence::remove_local_model_installation(
+    let error = LocalModelInstallationPersistence::remove_terminal_local_model_installation(
         &store,
         &created.installation_id,
     )
@@ -214,9 +217,11 @@ async fn activation_failure_rolls_back_every_earlier_write() {
             .expect("install failure trigger");
     }
 
+    let ready_selection = ready_local_selection(&created.model_id, &created.provider_instance_key);
     let error = LocalModelActivationPersistence::activate_local_model_as_system_default(
         &store,
         &created.installation_id,
+        &ready_selection,
     )
     .await
     .expect_err("activation must fail");
@@ -267,6 +272,45 @@ async fn activation_failure_rolls_back_every_earlier_write() {
         .await
         .expect("events");
     assert_eq!(events.len(), event_count_before);
+}
+
+#[tokio::test]
+async fn activation_rejects_an_instance_key_that_does_not_own_the_installation() {
+    let store = super::tests::test_store().await;
+    let created =
+        LocalModelInstallationPersistence::upsert_local_model_installation(&store, installation())
+            .await
+            .expect("create installation");
+    let wrong_key = noema_providers::ProviderInstanceKey::new("local-model:v1:wrong")
+        .expect("wrong instance key");
+    let ready_selection = ready_local_selection(&created.model_id, &wrong_key);
+
+    let error = LocalModelActivationPersistence::activate_local_model_as_system_default(
+        &store,
+        &created.installation_id,
+        &ready_selection,
+    )
+    .await
+    .expect_err("mismatched key must fail closed");
+
+    assert_eq!(
+        error,
+        ProviderPersistenceError::Invariant {
+            operation: "activate_local_model"
+        }
+    );
+}
+
+fn ready_local_selection(model_id: &str, key: &ProviderInstanceKey) -> ProviderReadySelection {
+    let mut selection = ProviderSelectionSnapshot::explicit(
+        "local_models",
+        LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
+        model_id,
+        None,
+        Some("local_model_activation_port_test".to_string()),
+    );
+    selection.provider_instance_key = Some(key.clone());
+    crate::tests::ready_provider_selection(selection)
 }
 
 fn installation() -> NewLocalModelInstallation {

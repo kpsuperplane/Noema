@@ -7,7 +7,26 @@ use serde_json::Value;
 use ts_rs::TS;
 
 use crate::capabilities::capabilities_for_provider_account;
+use crate::selection::{ProviderInstanceKey, ProviderSelectionError};
 use crate::{ProviderCapability, config::CodexOAuthConfig};
+
+/// Derive the immutable provider-instance identity for one hosted account.
+///
+/// # Errors
+///
+/// Returns [`ProviderSelectionError::EmptyField`] when the account id is blank.
+pub fn provider_account_instance_key(
+    provider_account_id: &str,
+) -> Result<ProviderInstanceKey, ProviderSelectionError> {
+    let provider_account_id = provider_account_id.trim();
+    if provider_account_id.is_empty() {
+        return Err(ProviderSelectionError::EmptyField("provider_account_id"));
+    }
+    ProviderInstanceKey::new(format!(
+        "provider-account:v1:{}:{provider_account_id}",
+        provider_account_id.len()
+    ))
+}
 
 /// Supported provider account authentication methods.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -358,6 +377,25 @@ impl fmt::Debug for ProviderAuthAttemptView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hosted_instance_keys_are_stable_and_unambiguous_per_account() {
+        let first = provider_account_instance_key("provider_account:openai:a:b")
+            .expect("first account key");
+        let second =
+            provider_account_instance_key("provider_account:openai:a").expect("second account key");
+
+        assert_ne!(first, second);
+        assert_eq!(
+            first,
+            provider_account_instance_key(" provider_account:openai:a:b ")
+                .expect("stable account key")
+        );
+        assert_eq!(
+            provider_account_instance_key("   "),
+            Err(ProviderSelectionError::EmptyField("provider_account_id"))
+        );
+    }
 
     #[test]
     fn auth_attempt_debug_redacts_user_code() {

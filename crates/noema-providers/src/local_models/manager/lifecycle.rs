@@ -1,49 +1,132 @@
-//! Exact-instance activation, retirement, restart, and shutdown.
+//! Exact-instance reconstruction, activation, retirement, restart, and shutdown.
 
-use std::{sync::Arc, sync::atomic::Ordering, time::Duration};
+use std::{collections::HashMap, sync::Arc, sync::atomic::Ordering, time::Duration};
 
+use noema_home::SystemErrorEvent;
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 
-use noema_home::SystemErrorEvent;
-
 use crate::{
     LOCAL_MODELS_PROVIDER_ACCOUNT_ID, LocalModelInstallationRecord, LocalModelInstallationStatus,
-    ProviderInstanceKey, ProviderRetirementGuard, local_model_provider_instance_key,
+    ProviderInstanceKey, ProviderPersistenceError, ProviderReadySelectionError,
+    ProviderRetirementGuard, ProviderSelectionSnapshot, local_model_provider_instance_key,
 };
 
 use super::{
-    LIFECYCLE_RUNNING, LIFECYCLE_SHUTTING_DOWN, LIFECYCLE_STOPPED, LocalModelManager,
-    LocalModelManagerError, LocalModelRuntimeStatus, ManagedInstance,
+    DegradedLocalModelInstance, LIFECYCLE_RUNNING, LIFECYCLE_SHUTTING_DOWN, LIFECYCLE_STOPPED,
+    LocalModelManager, LocalModelManagerError, LocalModelReconstructionReport,
+    LocalModelRuntimeStatus, ManagedInstance,
 };
-use crate::local_models::routes::ActiveLocalModelRoute;
 
 const RETIREMENT_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 impl LocalModelManager {
-    /// Reconstructs only the Phase 9 active installation.
+    /// Reconstruct every exact local instance referenced by durable future work.
     ///
-    /// A transient process launch failure is published as a failed runtime
-    /// status while the manager remains available for retry.
+    /// Structural corruption is validated before any process starts. Runtime
+    /// launch failures are retained in the degraded report while reconstruction
+    /// continues for every other valid instance.
     ///
     /// # Errors
     ///
-    /// Returns [`LocalModelManagerError`] for invalid durable state or
-    /// repository failures.
-    pub async fn start_active_installation(&self) -> Result<(), LocalModelManagerError> {
-        self.retry_active_installation().await.map(|_| ())
+    /// Returns a typed structural or persistence error when durable state cannot
+    /// be interpreted safely.
+    pub async fn reconstruct_persisted_instances(
+        &self,
+    ) -> Result<LocalModelReconstructionReport, LocalModelManagerError> {
+        self.ensure_accepting_work()?;
+        let manager = self.clone();
+        tokio::spawn(async move { manager.reconstruct_persisted_instances_owned().await })
+            .await
+            .map_err(|_| LocalModelManagerError::Runtime {
+                operation: "join_local_model_reconstruction",
+                message: "local-model reconstruction task did not complete".to_string(),
+            })?
     }
 
-    /// Retries the durable active installation when its retained process is absent or failed.
-    ///
-    /// A healthy retained process is preserved. A transient retry failure is
-    /// returned as a published [`LocalModelRuntimeStatus::Failed`] value while
-    /// structural persistence and installation errors remain typed failures.
+    async fn reconstruct_persisted_instances_owned(
+        &self,
+    ) -> Result<LocalModelReconstructionReport, LocalModelManagerError> {
+        let _control = self.inner.control.lock().await;
+        self.ensure_accepting_work()?;
+        let snapshot = self
+            .inner
+            .lifecycle_persistence
+            .local_model_reconstruction_snapshot()
+            .await?;
+        let required = validate_reconstruction_snapshot(&snapshot)?;
+
+        for installation in &snapshot.installations {
+            if installation.retirement_claimed_at.is_some() {
+                self.inner
+                    .registry
+                    .block_for_retirement(installation.provider_instance_key.clone())?;
+            }
+        }
+        if let Err(error) = self.reap_once_locked().await {
+            self.record_reaper_failure(&error);
+        }
+
+        let mut report = LocalModelReconstructionReport::default();
+        let mut active_process = None;
+        let mut active_degraded = false;
+        for installation in required {
+            let key = installation.provider_instance_key.clone();
+            match self.prepare_instance(installation.clone()).await {
+                Ok(prepared) => {
+                    self.inner
+                        .degraded
+                        .lock()
+                        .expect("degraded lock")
+                        .remove(&key);
+                    if installation.is_active {
+                        active_process = Some(Arc::clone(&prepared.instance.process));
+                    }
+                    report.ready.push(key);
+                }
+                Err(error @ LocalModelManagerError::Runtime { .. }) => {
+                    active_degraded |= installation.is_active;
+                    self.inner.registry.mark_unready(key.clone());
+                    let degraded = DegradedLocalModelInstance {
+                        key: key.clone(),
+                        installation_id: installation.installation_id,
+                        message: error.to_string(),
+                    };
+                    self.inner
+                        .degraded
+                        .lock()
+                        .expect("degraded lock")
+                        .insert(key, degraded.clone());
+                    report.degraded.push(degraded);
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        report
+            .ready
+            .sort_by(|left, right| left.as_str().cmp(right.as_str()));
+        report
+            .degraded
+            .sort_by(|left, right| left.key.as_str().cmp(right.key.as_str()));
+
+        if let Some(process) = active_process {
+            self.publish_active_status(process).await;
+        } else if active_degraded {
+            self.publish_start_failure();
+        } else {
+            self.inner
+                .runtime_status_tx
+                .send_replace(LocalModelRuntimeStatus::Stopped);
+        }
+        self.start_reaper_worker().await;
+        Ok(report)
+    }
+
+    /// Retry the single active installation after a transient launch failure.
     ///
     /// # Errors
     ///
-    /// Returns [`LocalModelManagerError`] for invalid durable state,
-    /// repository failures, or malformed installed-artifact metadata.
+    /// Returns structural persistence errors and malformed installation state.
     pub async fn retry_active_installation(
         &self,
     ) -> Result<LocalModelRuntimeStatus, LocalModelManagerError> {
@@ -73,12 +156,12 @@ impl LocalModelManager {
             return Ok(LocalModelRuntimeStatus::Stopped);
         };
         if active.next().is_some() {
-            return Err(LocalModelManagerError::Persistence(
-                crate::ProviderPersistenceError::Invariant {
-                    operation: "retry_active_local_model",
-                },
-            ));
+            return Err(ProviderPersistenceError::Invariant {
+                operation: "retry_active_local_model",
+            }
+            .into());
         }
+        ensure_unclaimed(&installation)?;
         validate_runtime_installation(&installation)?;
         let key = instance_key(&installation)?;
         let existing = self
@@ -97,67 +180,39 @@ impl LocalModelManager {
                     | LocalModelRuntimeStatus::Retrying { .. }
             ) && self.inner.registry.lease(&key).is_ok()
             {
-                self.ensure_accepting_work()?;
-                let mut publication = self.inner.routes.begin_publication().await;
-                publication.publish(ActiveLocalModelRoute {
-                    key,
-                    model_id: installation.model_id,
-                });
-                drop(publication);
                 self.publish_active_status(Arc::clone(&existing.process))
                     .await;
                 return Ok(status);
             }
-        }
-
-        if let Some(existing) = &existing {
-            let mut publication = self.inner.routes.begin_publication().await;
-            publication.clear();
-            drop(publication);
             self.stop_active_status_forwarder().await;
-            let retirement = self
-                .inner
-                .registry
-                .begin_retirement(&existing.registration)?;
-            wait_until_drained(&retirement).await;
-            existing.process.shutdown().await?;
-            self.inner
-                .instances
-                .lock()
-                .expect("instances lock")
-                .remove(&key);
+            self.retire_stop_and_untrack(&key, existing).await?;
         }
 
-        let prepared = match self.prepare_instance(installation).await {
-            Ok(prepared) => prepared,
+        match self.prepare_instance(installation).await {
+            Ok(prepared) => {
+                self.inner
+                    .degraded
+                    .lock()
+                    .expect("degraded lock")
+                    .remove(&key);
+                self.publish_active_status(Arc::clone(&prepared.instance.process))
+                    .await;
+                Ok(self.runtime_status())
+            }
             Err(LocalModelManagerError::Runtime { .. }) => {
                 self.publish_start_failure();
-                return Ok(self.runtime_status());
+                Ok(self.runtime_status())
             }
-            Err(error) => return Err(error),
-        };
-        if self.inner.lifecycle.load(Ordering::Acquire) != LIFECYCLE_RUNNING {
-            self.retire_stop_and_untrack(&prepared.key, &prepared.instance)
-                .await?;
-            return Err(LocalModelManagerError::ShuttingDown);
+            Err(error) => Err(error),
         }
-        let process = Arc::clone(&prepared.instance.process);
-        let mut publication = self.inner.routes.begin_publication().await;
-        publication.publish(ActiveLocalModelRoute {
-            key: prepared.key.clone(),
-            model_id: prepared.instance.installation.model_id.clone(),
-        });
-        drop(publication);
-        self.publish_active_status(process).await;
-        Ok(self.runtime_status())
     }
 
-    /// Starts, health-checks, registers, and activates one installed artifact.
+    /// Start and register one installed artifact before atomically publishing
+    /// every canonical selection to its exact key.
     ///
     /// # Errors
     ///
-    /// Returns [`LocalModelManagerError`] when the installation is unavailable,
-    /// process startup fails, registration fails, or activation cannot commit.
+    /// Returns process, registry, validation, or activation persistence errors.
     pub async fn activate(
         &self,
         installation_id: &str,
@@ -180,6 +235,7 @@ impl LocalModelManager {
         let _control = self.inner.control.lock().await;
         self.ensure_accepting_work()?;
         let installation = self.required_installation(installation_id).await?;
+        ensure_unclaimed(&installation)?;
         validate_runtime_installation(&installation)?;
         let key = instance_key(&installation)?;
 
@@ -190,9 +246,9 @@ impl LocalModelManager {
             .expect("instances lock")
             .get(&key)
             .cloned();
-        let reusable = existing.as_ref().is_some_and(|existing| {
+        let reusable = existing.as_ref().is_some_and(|instance| {
             !matches!(
-                existing.process.status(),
+                instance.process.status(),
                 LocalModelRuntimeStatus::Failed { .. } | LocalModelRuntimeStatus::Stopped
             ) && self.inner.registry.lease(&key).is_ok()
         });
@@ -200,33 +256,10 @@ impl LocalModelManager {
             (existing.expect("reusable instance exists"), false)
         } else {
             if let Some(existing) = existing {
-                if self.inner.routes.active_key().await.as_ref() == Some(&key) {
-                    let mut publication = self.inner.routes.begin_publication().await;
-                    publication.clear();
-                    drop(publication);
-                    self.stop_active_status_forwarder().await;
-                }
-                let retirement = self
-                    .inner
-                    .registry
-                    .begin_retirement(&existing.registration)?;
-                wait_until_drained(&retirement).await;
-                existing.process.shutdown().await?;
-                self.inner
-                    .instances
-                    .lock()
-                    .expect("instances lock")
-                    .remove(&key);
+                self.retire_stop_and_untrack(&key, &existing).await?;
             }
-            match self.prepare_instance(installation.clone()).await {
-                Ok(prepared) => (prepared.instance, true),
-                Err(error) => {
-                    if self.inner.routes.active_key().await.is_none() {
-                        self.publish_start_failure();
-                    }
-                    return Err(error);
-                }
-            }
+            let prepared = self.prepare_instance(installation.clone()).await?;
+            (prepared.instance, true)
         };
         if self.inner.lifecycle.load(Ordering::Acquire) != LIFECYCLE_RUNNING {
             if is_new {
@@ -235,79 +268,169 @@ impl LocalModelManager {
             return Err(LocalModelManagerError::ShuttingDown);
         }
 
-        let mut publication = self.inner.routes.begin_publication().await;
-        if let Err(error) = self
+        let mut selection = ProviderSelectionSnapshot::explicit(
+            "local_models",
+            LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
+            installation.model_id.clone(),
+            None,
+            Some("local_model_activation".to_string()),
+        );
+        selection.provider_instance_key = Some(key.clone());
+        let ready_selection = match self.inner.registry.prove_ready_selection(selection) {
+            Ok(ready_selection) => ready_selection,
+            Err(error) => {
+                if is_new {
+                    self.retire_stop_and_untrack(&key, &instance).await?;
+                }
+                return Err(match error {
+                    ProviderReadySelectionError::Registry(error) => error.into(),
+                    ProviderReadySelectionError::InvalidSelection(_) => {
+                        ProviderPersistenceError::Invariant {
+                            operation: "prove_local_model_activation_ready",
+                        }
+                        .into()
+                    }
+                });
+            }
+        };
+        let activation_result = self
             .inner
             .activation
-            .activate_local_model_as_system_default(installation_id)
-            .await
-        {
-            drop(publication);
-            if is_new {
-                self.retire_stop_and_untrack(&key, &instance).await?;
+            .activate_local_model_as_system_default(installation_id, &ready_selection)
+            .await;
+        drop(ready_selection);
+        let activated = match activation_result {
+            Ok(preference) => preference,
+            Err(error) => {
+                if is_new {
+                    self.retire_stop_and_untrack(&key, &instance).await?;
+                }
+                return Err(error.into());
             }
-            return Err(error.into());
+        };
+        debug_assert_eq!(activated.provider_instance_key, key);
+        debug_assert!(activated.is_active);
+        {
+            let mut instances = self.inner.instances.lock().expect("instances lock");
+            for managed in instances.values_mut() {
+                managed.installation.is_active = managed.installation.provider_instance_key == key;
+            }
+            if let Some(managed) = instances.get_mut(&key) {
+                managed.installation = activated.clone();
+            }
         }
-        publication.publish(ActiveLocalModelRoute {
-            key: key.clone(),
-            model_id: installation.model_id.clone(),
-        });
-        drop(publication);
-
+        self.inner
+            .degraded
+            .lock()
+            .expect("degraded lock")
+            .remove(&key);
         self.publish_active_status(Arc::clone(&instance.process))
             .await;
-        self.required_installation(installation_id).await
+        self.trigger_reaper().await;
+        Ok(activated)
     }
 
-    /// Retires an inactive process before deleting its row and artifact files.
+    /// Atomically claim an inactive exact instance before retiring its runtime
+    /// and deleting artifacts and persistence idempotently.
     ///
     /// # Errors
     ///
-    /// Returns [`LocalModelManagerError::ActiveInstallation`] for the active
-    /// installation. Drain, stop, persistence, and filesystem failures are
-    /// returned without deleting persistence before a successful process stop.
+    /// Returns a typed reference conflict when durable future work still pins
+    /// the instance.
     pub async fn remove(
         &self,
         installation_id: &str,
     ) -> Result<crate::RemovedLocalModelInstallation, LocalModelManagerError> {
         self.ensure_accepting_work()?;
-        let _control = self.inner.control.lock().await;
-        self.ensure_accepting_work()?;
-        let installation = self.required_installation(installation_id).await?;
-        let key = instance_key(&installation)?;
-        if installation.is_active || self.inner.routes.active_key().await.as_ref() == Some(&key) {
+        let manager = self.clone();
+        let installation_id = installation_id.to_string();
+        tokio::spawn(async move { manager.remove_owned(&installation_id).await })
+            .await
+            .map_err(|_| LocalModelManagerError::Runtime {
+                operation: "join_local_model_removal",
+                message: "local-model removal task did not complete".to_string(),
+            })?
+    }
+
+    async fn remove_owned(
+        &self,
+        installation_id: &str,
+    ) -> Result<crate::RemovedLocalModelInstallation, LocalModelManagerError> {
+        loop {
+            self.ensure_accepting_work()?;
+            let mut completion = self.cancel_owned_worker(installation_id).await;
+            if let Some(completion) = completion.as_mut() {
+                if !*completion.borrow() {
+                    let _ = completion.changed().await;
+                }
+                continue;
+            }
+
+            let control = self.inner.control.lock().await;
+            self.ensure_accepting_work()?;
+            let mut completion = self.cancel_owned_worker(installation_id).await;
+            if let Some(completion) = completion.as_mut() {
+                drop(control);
+                if !*completion.borrow() {
+                    let _ = completion.changed().await;
+                }
+                continue;
+            }
+
+            return self.remove_without_worker_locked(installation_id).await;
+        }
+    }
+
+    async fn cancel_owned_worker(
+        &self,
+        installation_id: &str,
+    ) -> Option<tokio::sync::watch::Receiver<bool>> {
+        let mut workers = self.inner.workers.lock().await;
+        workers.retain(|_, worker| !*worker.completion.borrow());
+        workers.get(installation_id).map(|worker| {
+            worker.cancellation.cancel();
+            worker.completion.clone()
+        })
+    }
+
+    async fn remove_without_worker_locked(
+        &self,
+        installation_id: &str,
+    ) -> Result<crate::RemovedLocalModelInstallation, LocalModelManagerError> {
+        let mut installation = self.required_installation(installation_id).await?;
+        if installation.is_active {
             return Err(LocalModelManagerError::ActiveInstallation {
                 installation_id: installation_id.to_string(),
             });
         }
-
-        let instance = self
-            .inner
-            .instances
-            .lock()
-            .expect("instances lock")
-            .get(&key)
-            .cloned();
-        if let Some(instance) = &instance {
-            let retirement = self
-                .inner
-                .registry
-                .begin_retirement(&instance.registration)?;
-            wait_until_drained(&retirement).await;
-            instance.process.shutdown().await?;
+        if installation.retirement_claimed_at.is_some()
+            || installation.status == LocalModelInstallationStatus::Installed
+        {
+            let key = instance_key(&installation)?;
+            return self.claim_and_remove_locked(&key).await;
         }
-        let removed = self.inner.installer.remove(installation_id).await?;
-        if instance.is_some() {
-            self.inner
-                .instances
-                .lock()
-                .expect("instances lock")
-                .remove(&key);
+        if !matches!(
+            installation.status,
+            LocalModelInstallationStatus::Cancelled | LocalModelInstallationStatus::Failed
+        ) {
+            installation = self
+                .inner
+                .installations
+                .cancel_local_model_installation(installation_id)
+                .await?;
+        }
+        let removed = self
+            .inner
+            .installations
+            .remove_terminal_local_model_installation(&installation.installation_id)
+            .await?;
+        if let Err(error) = self.remove_removed_artifacts(&removed).await {
+            self.record_reaper_failure(&error);
         }
         Ok(removed)
     }
 
-    /// Rejects new work and cancels every active installation/import worker.
+    /// Reject new work, stop periodic scheduling, and drain manager-owned workers.
     pub async fn begin_shutdown(&self) {
         let previous = self
             .inner
@@ -326,6 +449,7 @@ impl LocalModelManager {
         for worker in self.inner.workers.lock().await.values() {
             worker.cancellation.cancel();
         }
+        self.stop_reaper_worker().await;
         {
             let _control = self.inner.control.lock().await;
             for worker in self.inner.workers.lock().await.values() {
@@ -334,21 +458,16 @@ impl LocalModelManager {
         }
         self.drain_workers().await;
         let _control = self.inner.control.lock().await;
-        let mut publication = self.inner.routes.begin_publication().await;
-        publication.clear();
-        drop(publication);
         self.stop_active_status_forwarder().await;
     }
 
-    /// Drains installation workers and leases, then stops every managed process.
+    /// Drain exact leases and stop every retained process.
     ///
     /// # Errors
     ///
-    /// Returns [`LocalModelManagerError`] when any process fails to stop. Every
-    /// other process is still given a stop attempt, and a later call may retry.
+    /// Returns the first process shutdown error after attempting every process.
     pub async fn shutdown(&self) -> Result<(), LocalModelManagerError> {
         self.begin_shutdown().await;
-
         let _control = self.inner.control.lock().await;
         let instances = self
             .inner
@@ -401,11 +520,13 @@ impl LocalModelManager {
         &self,
         installation: LocalModelInstallationRecord,
     ) -> Result<PreparedInstance, LocalModelManagerError> {
+        ensure_unclaimed(&installation)?;
         validate_runtime_installation(&installation)?;
         let key = instance_key(&installation)?;
         let process = match self.inner.process_factory.start(installation.clone()).await {
             Ok(process) => process,
             Err(error) => {
+                self.inner.registry.mark_unready(key.clone());
                 self.record_start_failure(&error);
                 return Err(error);
             }
@@ -439,7 +560,7 @@ impl LocalModelManager {
         Ok(PreparedInstance { key, instance })
     }
 
-    async fn retire_stop_and_untrack(
+    pub(super) async fn retire_stop_and_untrack(
         &self,
         key: &ProviderInstanceKey,
         instance: &ManagedInstance,
@@ -502,11 +623,10 @@ impl LocalModelManager {
             .local_model_installation(installation_id)
             .await?
             .ok_or_else(|| {
-                LocalModelManagerError::Persistence(
-                    crate::ProviderPersistenceError::InstallationNotFound {
-                        installation_id: installation_id.to_string(),
-                    },
-                )
+                ProviderPersistenceError::InstallationNotFound {
+                    installation_id: installation_id.to_string(),
+                }
+                .into()
             })
     }
 
@@ -533,8 +653,85 @@ impl LocalModelManager {
 
 #[derive(Clone)]
 struct PreparedInstance {
+    #[allow(dead_code)]
     key: ProviderInstanceKey,
     instance: ManagedInstance,
+}
+
+fn validate_reconstruction_snapshot(
+    snapshot: &crate::LocalModelReconstructionSnapshot,
+) -> Result<Vec<LocalModelInstallationRecord>, LocalModelManagerError> {
+    let mut by_key = HashMap::new();
+    for installation in &snapshot.installations {
+        let key = instance_key(installation)?;
+        if by_key.insert(key.clone(), installation).is_some() {
+            return Err(LocalModelManagerError::DuplicateInstanceIdentity {
+                provider_instance_key: key,
+            });
+        }
+    }
+    let mut required = HashMap::new();
+    for reference in &snapshot.references {
+        let installation = by_key
+            .get(&reference.provider_instance_key)
+            .ok_or_else(|| LocalModelManagerError::ReferencedInstallationMissing {
+                provider_instance_key: reference.provider_instance_key.clone(),
+            })?;
+        if installation.retirement_claimed_at.is_some() {
+            return Err(LocalModelManagerError::ReferencedInstallationClaimed {
+                provider_instance_key: reference.provider_instance_key.clone(),
+            });
+        }
+        if installation.runtime_retired_at.is_some() {
+            return Err(
+                LocalModelManagerError::ReferencedInstallationRuntimeRetired {
+                    provider_instance_key: reference.provider_instance_key.clone(),
+                },
+            );
+        }
+        validate_runtime_installation(installation)?;
+        required.insert(
+            reference.provider_instance_key.clone(),
+            (*installation).clone(),
+        );
+    }
+    for installation in snapshot
+        .installations
+        .iter()
+        .filter(|installation| installation.is_active)
+    {
+        ensure_unclaimed(installation)?;
+        if installation.runtime_retired_at.is_some() {
+            return Err(
+                LocalModelManagerError::ReferencedInstallationRuntimeRetired {
+                    provider_instance_key: installation.provider_instance_key.clone(),
+                },
+            );
+        }
+        validate_runtime_installation(installation)?;
+        required.insert(
+            installation.provider_instance_key.clone(),
+            installation.clone(),
+        );
+    }
+    let mut required = required.into_values().collect::<Vec<_>>();
+    required.sort_by(|left, right| {
+        left.provider_instance_key
+            .as_str()
+            .cmp(right.provider_instance_key.as_str())
+    });
+    Ok(required)
+}
+
+fn ensure_unclaimed(
+    installation: &LocalModelInstallationRecord,
+) -> Result<(), LocalModelManagerError> {
+    if installation.retirement_claimed_at.is_some() {
+        return Err(LocalModelManagerError::ReferencedInstallationClaimed {
+            provider_instance_key: installation.provider_instance_key.clone(),
+        });
+    }
+    Ok(())
 }
 
 fn validate_runtime_installation(
@@ -558,18 +755,23 @@ fn validate_runtime_installation(
 fn instance_key(
     installation: &LocalModelInstallationRecord,
 ) -> Result<ProviderInstanceKey, LocalModelManagerError> {
-    local_model_provider_instance_key(
+    let expected = local_model_provider_instance_key(
         LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
         &installation.installation_id,
         &installation.model_id,
     )
-    .map_err(|_| LocalModelManagerError::InstallationNotReady {
+    .map_err(|_| LocalModelManagerError::InstallationIdentityMismatch {
         installation_id: installation.installation_id.clone(),
-        reason: "provider instance identity is invalid",
-    })
+    })?;
+    if expected != installation.provider_instance_key {
+        return Err(LocalModelManagerError::InstallationIdentityMismatch {
+            installation_id: installation.installation_id.clone(),
+        });
+    }
+    Ok(installation.provider_instance_key.clone())
 }
 
-async fn wait_until_drained(retirement: &ProviderRetirementGuard) {
+pub(super) async fn wait_until_drained(retirement: &ProviderRetirementGuard) {
     while !retirement.is_drained() {
         sleep(RETIREMENT_POLL_INTERVAL).await;
         retirement.try_finalize();

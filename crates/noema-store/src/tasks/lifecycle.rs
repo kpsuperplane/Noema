@@ -1,11 +1,16 @@
-use noema_providers::{ProviderSelectionSnapshot, ReasoningEffort};
+use noema_providers::{
+    ProviderInstanceKey, ProviderRegistry, ProviderSelectionSnapshot, ReasoningEffort,
+};
 use noema_tasks::{
-    AgentRunRecord, DEFAULT_TASK_MAX_REVIEW_ROUNDS, NewTask, RunKind, TASK_EXECUTOR_AGENT_ID,
+    AgentRunRecord, DEFAULT_TASK_MAX_REVIEW_ROUNDS, NewTask, TASK_EXECUTOR_AGENT_ID,
     TaskComplexity, TaskDomainError, TaskRecord, TaskSource, TaskStatus, TaskValidationCriterion,
 };
 use rusqlite::{OptionalExtension, params};
 
-use crate::{NoemaStore, StoreError, ids::allocate_id};
+use super::provider_selection::{pool_selection_tx, reviewer_preference_tx};
+use crate::{NoemaStore, StoreError, ids::allocate_id, provider_selections::prove_selection_ready};
+
+const TASK_COLUMNS: &str = "task_id, title, request_markdown, complexity, status, owner_human_id, source_conversation_id, source_turn_id, source_item_id, created_by_agent_id, creation_tool_call_id, pool_entry_id, executor_provider_kind, executor_provider_account_id, executor_provider_instance_key, executor_selection_mode, executor_model_profile, executor_reasoning_effort, executor_selection_source, reviewer_provider_kind, reviewer_provider_account_id, reviewer_provider_instance_key, reviewer_selection_mode, reviewer_model_profile, reviewer_reasoning_effort, reviewer_selection_source, revision_index, max_review_rounds, final_submission_id, latest_run_id, blocked_question, blocked_context, terminal_reason, error_code, error_message, created_at, updated_at, completed_at";
 
 impl NoemaStore {
     /// Create a task, criteria, initial executor run, and creation event in one
@@ -14,39 +19,29 @@ impl NoemaStore {
         &self,
         input: NewTask,
     ) -> Result<(TaskRecord, AgentRunRecord), StoreError> {
-        self.validate_task_model_snapshot(&input.executor_model)
-            .await?;
-        self.validate_task_model_snapshot(&input.reviewer_model)
-            .await?;
+        self.create_task_with_executor_inner(input, None).await
+    }
+
+    /// Create a task while proving every newly referenced executor and reviewer
+    /// instance is registered and ready through commit.
+    pub async fn create_task_with_executor_with_readiness(
+        &self,
+        input: NewTask,
+        registry: &ProviderRegistry,
+    ) -> Result<(TaskRecord, AgentRunRecord), StoreError> {
+        self.create_task_with_executor_inner(input, Some(registry))
+            .await
+    }
+
+    async fn create_task_with_executor_inner(
+        &self,
+        input: NewTask,
+        registry: Option<&ProviderRegistry>,
+    ) -> Result<(TaskRecord, AgentRunRecord), StoreError> {
         let input = input.normalized().map_err(task_domain_error)?;
         let execution_policy = self.get_task_execution_policy().await?;
-        let pool = self
-            .select_task_model_pool_entry(input.complexity, &input.pool_entry_id)
-            .await?;
-        if pool.model != input.executor_model {
-            return Err(StoreError::InvariantViolation {
-                message: "executor snapshot does not match selected pool entry".to_string(),
-            });
-        }
         self.require_agent(&input.created_by_agent_id).await?;
         let task_id = input.task_id.clone().unwrap_or_else(|| allocate_id("task"));
-        if let (Some(conversation_id), Some(call_id)) = (
-            input.source.conversation_id.as_deref(),
-            input.creation_tool_call_id.as_deref(),
-        ) && let Some(existing) = self
-            .find_task_by_creation_call(conversation_id, call_id)
-            .await?
-        {
-            let run = self
-                .list_agent_runs_for_task(&existing.task_id)
-                .await?
-                .into_iter()
-                .find(|run| run.run_kind == RunKind::Executor)
-                .ok_or_else(|| StoreError::InvariantViolation {
-                    message: format!("idempotent task has no executor run: {}", existing.task_id),
-                })?;
-            return Ok((existing, run));
-        }
         let run_id = allocate_id("run");
         let criterion_ids = input
             .criteria
@@ -61,32 +56,56 @@ impl NoemaStore {
         let max_review_rounds = input
             .max_review_rounds
             .unwrap_or(DEFAULT_TASK_MAX_REVIEW_ROUNDS);
-        let executor = input
-            .executor_model
-            .normalized_for_persistence()
-            .map_err(|error| StoreError::InvariantViolation {
-                message: error.to_string(),
-            })?;
-        let reviewer = input
-            .reviewer_model
-            .normalized_for_persistence()
-            .map_err(|error| StoreError::InvariantViolation {
-                message: error.to_string(),
-            })?;
-        self.with_connection(|conn| {
-            let tx = conn.transaction()?;
-            tx.execute(
+        let ((task_id, run_id), _ready_selections) = self.with_immediate_transaction_retry(|transaction| {
+            if let (Some(conversation_id), Some(call_id)) = (
+                input.source.conversation_id.as_deref(),
+                input.creation_tool_call_id.as_deref(),
+            ) && let Some(existing_task_id) = transaction
+                .query_row(
+                    "SELECT task_id FROM tasks WHERE source_conversation_id = ?1 AND creation_tool_call_id = ?2 LIMIT 1",
+                    params![conversation_id, call_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?
+            {
+                let existing_run_id = transaction
+                    .query_row(
+                        "SELECT run_id FROM agent_runs WHERE task_id = ?1 AND run_kind = 'executor' ORDER BY created_at, run_id LIMIT 1",
+                        [&existing_task_id],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .optional()?
+                    .ok_or_else(|| StoreError::InvariantViolation {
+                        message: format!("idempotent task has no executor run: {existing_task_id}"),
+                    })?;
+                return Ok(((existing_task_id, existing_run_id), Vec::new()));
+            }
+            let executor = pool_selection_tx(
+                transaction,
+                input.complexity,
+                &input.pool_entry_id,
+            )?;
+            let reviewer = reviewer_preference_tx(transaction)?;
+            let ready_selections = vec![
+                prove_selection_ready(&executor, registry)?,
+                prove_selection_ready(&reviewer, registry)?,
+            ];
+            transaction.execute(
                 r#"INSERT INTO tasks (
                     task_id, title, request_markdown, complexity, status,
                     owner_human_id, source_conversation_id, source_turn_id,
                     source_item_id, created_by_agent_id, creation_tool_call_id,
                     pool_entry_id, executor_provider_kind, executor_provider_account_id,
-                    executor_selection_mode, executor_model_profile, executor_reasoning_effort,
-                    executor_selection_source, reviewer_provider_kind, reviewer_provider_account_id,
-                    reviewer_selection_mode, reviewer_model_profile, reviewer_reasoning_effort,
-                    reviewer_selection_source, max_review_rounds, latest_run_id
+                    executor_provider_instance_key, executor_selection_mode,
+                    executor_model_profile, executor_reasoning_effort,
+                    executor_selection_source, reviewer_provider_kind,
+                    reviewer_provider_account_id, reviewer_provider_instance_key,
+                    reviewer_selection_mode, reviewer_model_profile,
+                    reviewer_reasoning_effort, reviewer_selection_source,
+                    max_review_rounds, latest_run_id
                 ) VALUES (?1, ?2, ?3, ?4, 'queued', ?5, ?6, ?7, ?8, ?9, ?10, ?11,
-                    ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)"#,
+                    ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23,
+                    ?24, ?25, ?26, ?27)"#,
                 params![
                     task_id,
                     input.title,
@@ -101,12 +120,14 @@ impl NoemaStore {
                     input.pool_entry_id,
                     executor.provider_kind,
                     executor.provider_account_id,
+                    executor.provider_instance_key.as_ref().map(ToString::to_string),
                     executor.selection_mode.as_str(),
                     executor.model_profile,
                     executor.reasoning_effort.map(ReasoningEffort::as_persistence_str),
                     executor.selection_source,
                     reviewer.provider_kind,
                     reviewer.provider_account_id,
+                    reviewer.provider_instance_key.as_ref().map(ToString::to_string),
                     reviewer.selection_mode.as_str(),
                     reviewer.model_profile,
                     reviewer.reasoning_effort.map(ReasoningEffort::as_persistence_str),
@@ -116,25 +137,27 @@ impl NoemaStore {
                 ],
             )?;
             for (criterion, criterion_id) in input.criteria.iter().zip(criterion_ids.iter()) {
-                tx.execute(
+                transaction.execute(
                     "INSERT INTO task_validation_criteria (criterion_id, task_id, ordinal, description, expected_evidence) VALUES (?1, ?2, ?3, ?4, ?5)",
                     params![criterion_id, task_id, criterion.ordinal, criterion.description, criterion.expected_evidence],
                 )?;
             }
-            tx.execute(
+            transaction.execute(
                 r#"INSERT INTO agent_runs (
                     run_id, task_id, run_kind, agent_id, attempt_index, revision_index,
-                    provider_kind, provider_account_id, selection_mode, model_profile,
-                    reasoning_effort, selection_source, max_provider_continuations,
-                    max_tool_calls, max_active_minutes, progress_audit_interval, status
+                    provider_kind, provider_account_id, provider_instance_key,
+                    selection_mode, model_profile, reasoning_effort, selection_source,
+                    max_provider_continuations, max_tool_calls, max_active_minutes,
+                    progress_audit_interval, status
                 ) VALUES (?1, ?2, 'executor', ?3, 0, 0, ?4, ?5, ?6, ?7, ?8, ?9,
-                    ?10, ?11, ?12, ?13, 'queued')"#,
+                    ?10, ?11, ?12, ?13, ?14, 'queued')"#,
                 params![
                     run_id,
                     task_id,
                     TASK_EXECUTOR_AGENT_ID,
                     executor.provider_kind,
                     executor.provider_account_id,
+                    executor.provider_instance_key.as_ref().map(ToString::to_string),
                     executor.selection_mode.as_str(),
                     executor.model_profile,
                     executor.reasoning_effort.map(ReasoningEffort::as_persistence_str),
@@ -145,7 +168,7 @@ impl NoemaStore {
                     execution_policy.progress_audit_interval,
                 ],
             )?;
-            tx.execute(
+            transaction.execute(
                 "INSERT INTO run_events (event_id, run_id, sequence_number, event_kind, actor_id, payload_json) VALUES (?1, ?2, 1, 'run.queued', ?3, ?4)",
                 params![
                     allocate_id("event"),
@@ -154,12 +177,11 @@ impl NoemaStore {
                     serde_json::json!({"run_kind": "executor", "revision_index": 0}).to_string(),
                 ],
             )?;
-            tx.execute(
+            transaction.execute(
                 "INSERT INTO task_events (event_id, task_id, sequence_number, event_kind, actor_id, payload_json) VALUES (?1, ?2, 1, 'task.created', ?3, ?4)",
                 params![allocate_id("event"), task_id, input.created_by_agent_id, serde_json::json!({"run_id": run_id, "complexity": input.complexity.as_str()}).to_string()],
             )?;
-            tx.commit()?;
-            Ok(())
+            Ok(((task_id.clone(), run_id.clone()), ready_selections))
         }).await?;
         let task =
             self.get_task(&task_id)
@@ -184,7 +206,7 @@ impl NoemaStore {
     ) -> Result<Option<TaskRecord>, StoreError> {
         self.with_connection(|conn| {
             conn.query_row(
-                "SELECT task_id, title, request_markdown, complexity, status, owner_human_id, source_conversation_id, source_turn_id, source_item_id, created_by_agent_id, creation_tool_call_id, pool_entry_id, executor_provider_kind, executor_provider_account_id, executor_selection_mode, executor_model_profile, executor_reasoning_effort, executor_selection_source, reviewer_provider_kind, reviewer_provider_account_id, reviewer_selection_mode, reviewer_model_profile, reviewer_reasoning_effort, reviewer_selection_source, revision_index, max_review_rounds, final_submission_id, latest_run_id, blocked_question, blocked_context, terminal_reason, error_code, error_message, created_at, updated_at, completed_at FROM tasks WHERE source_conversation_id = ?1 AND creation_tool_call_id = ?2 LIMIT 1",
+                &format!("SELECT {TASK_COLUMNS} FROM tasks WHERE source_conversation_id = ?1 AND creation_tool_call_id = ?2 LIMIT 1"),
                 params![conversation_id, call_id],
                 task_from_row,
             ).optional().map_err(StoreError::Sqlite)
@@ -195,11 +217,14 @@ impl NoemaStore {
     pub async fn get_task(&self, task_id: &str) -> Result<Option<TaskRecord>, StoreError> {
         self.with_connection(|conn| {
             conn.query_row(
-                "SELECT task_id, title, request_markdown, complexity, status, owner_human_id, source_conversation_id, source_turn_id, source_item_id, created_by_agent_id, creation_tool_call_id, pool_entry_id, executor_provider_kind, executor_provider_account_id, executor_selection_mode, executor_model_profile, executor_reasoning_effort, executor_selection_source, reviewer_provider_kind, reviewer_provider_account_id, reviewer_selection_mode, reviewer_model_profile, reviewer_reasoning_effort, reviewer_selection_source, revision_index, max_review_rounds, final_submission_id, latest_run_id, blocked_question, blocked_context, terminal_reason, error_code, error_message, created_at, updated_at, completed_at FROM tasks WHERE task_id = ?1 LIMIT 1",
+                &format!("SELECT {TASK_COLUMNS} FROM tasks WHERE task_id = ?1 LIMIT 1"),
                 [task_id],
                 task_from_row,
-            ).optional().map_err(StoreError::Sqlite)
-        }).await
+            )
+            .optional()
+            .map_err(StoreError::Sqlite)
+        })
+        .await
     }
 
     /// Return immutable criteria in display order.
@@ -269,27 +294,27 @@ fn task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRecord> {
             )
         })?;
     let executor_selection_mode = row
-        .get::<_, String>(14)?
+        .get::<_, String>(15)?
         .parse::<noema_providers::ProviderSelectionMode>()
         .map_err(|error| {
             rusqlite::Error::FromSqlConversionFailure(
-                14,
+                15,
                 rusqlite::types::Type::Text,
                 Box::new(error),
             )
         })?;
     let reviewer_selection_mode = row
-        .get::<_, String>(20)?
+        .get::<_, String>(22)?
         .parse::<noema_providers::ProviderSelectionMode>()
         .map_err(|error| {
             rusqlite::Error::FromSqlConversionFailure(
-                20,
+                22,
                 rusqlite::types::Type::Text,
                 Box::new(error),
             )
         })?;
-    let executor_reasoning_effort = parse_reasoning(row.get::<_, Option<String>>(16)?.as_deref())?;
-    let reviewer_reasoning_effort = parse_reasoning(row.get::<_, Option<String>>(22)?.as_deref())?;
+    let executor_reasoning_effort = parse_reasoning(row.get::<_, Option<String>>(17)?.as_deref())?;
+    let reviewer_reasoning_effort = parse_reasoning(row.get::<_, Option<String>>(24)?.as_deref())?;
     Ok(TaskRecord {
         task_id: row.get(0)?,
         title: row.get(1)?,
@@ -306,35 +331,51 @@ fn task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRecord> {
         creation_tool_call_id: row.get(10)?,
         pool_entry_id: row.get(11)?,
         executor_model: ProviderSelectionSnapshot {
-            provider_instance_key: None,
+            provider_instance_key: Some(
+                ProviderInstanceKey::new(row.get::<_, String>(14)?).map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        14,
+                        rusqlite::types::Type::Text,
+                        Box::new(error),
+                    )
+                })?,
+            ),
             provider_kind: row.get(12)?,
             provider_account_id: row.get(13)?,
             selection_mode: executor_selection_mode,
-            model_profile: row.get(15)?,
+            model_profile: row.get(16)?,
             reasoning_effort: executor_reasoning_effort,
-            selection_source: row.get(17)?,
+            selection_source: row.get(18)?,
         },
         reviewer_model: ProviderSelectionSnapshot {
-            provider_instance_key: None,
-            provider_kind: row.get(18)?,
-            provider_account_id: row.get(19)?,
+            provider_instance_key: Some(
+                ProviderInstanceKey::new(row.get::<_, String>(21)?).map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        21,
+                        rusqlite::types::Type::Text,
+                        Box::new(error),
+                    )
+                })?,
+            ),
+            provider_kind: row.get(19)?,
+            provider_account_id: row.get(20)?,
             selection_mode: reviewer_selection_mode,
-            model_profile: row.get(21)?,
+            model_profile: row.get(23)?,
             reasoning_effort: reviewer_reasoning_effort,
-            selection_source: row.get(23)?,
+            selection_source: row.get(25)?,
         },
-        revision_index: row.get(24)?,
-        max_review_rounds: row.get(25)?,
-        final_submission_id: row.get(26)?,
-        latest_run_id: row.get(27)?,
-        blocked_question: row.get(28)?,
-        blocked_context: row.get(29)?,
-        terminal_reason: row.get(30)?,
-        error_code: row.get(31)?,
-        error_message: row.get(32)?,
-        created_at: row.get(33)?,
-        updated_at: row.get(34)?,
-        completed_at: row.get(35)?,
+        revision_index: row.get(26)?,
+        max_review_rounds: row.get(27)?,
+        final_submission_id: row.get(28)?,
+        latest_run_id: row.get(29)?,
+        blocked_question: row.get(30)?,
+        blocked_context: row.get(31)?,
+        terminal_reason: row.get(32)?,
+        error_code: row.get(33)?,
+        error_message: row.get(34)?,
+        created_at: row.get(35)?,
+        updated_at: row.get(36)?,
+        completed_at: row.get(37)?,
     })
 }
 

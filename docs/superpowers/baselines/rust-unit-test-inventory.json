@@ -858,6 +858,9 @@
     "zero_codex_timeout_is_an_error": 1
   },
   "acceptedAliases": {
+    "audit_uses_default_provider_tool_model_without_saved_preference": [
+      "audit_uses_bound_auxiliary_selection_instead_of_provider_tool_default"
+    ],
     "auth_required_setup_returns_needs_auth_without_secret_values": [
       "auth_required_create_discards_staged_secrets_and_projects_typed_browser_auth"
     ],
@@ -922,12 +925,19 @@
       "uncalibrated_mcp_tool_call_is_rejected_as_unadvertised_and_continues",
       "unadvertised_capability_call_returns_a_sanitized_failure_and_continues"
     ],
+    "local_file_import_is_verified_content_addressed_and_removable": [
+      "local_file_import_is_verified_and_content_addressed",
+      "inactive_remove_drains_before_delete_and_same_key_can_be_reinstalled"
+    ],
     "mcp_tool_arguments_accept_nested_or_raw_payloads": [
       "invocation_forwards_a_legitimate_arguments_property_exactly",
       "injected_capability_invoker_receives_the_opaque_advertised_target"
     ],
     "mcp_tool_payload_is_error_marks_result_failed": [
       "tool_declared_failed_capability_output_is_persisted_as_failed"
+    ],
+    "memory_proxy_config_falls_back_to_default_provider_when_unset": [
+      "memory_proxy_config_uses_default_seeded_during_initialization"
     ],
     "metadata_discovery_lists_tools_without_calling_them": [
       "prepared_stdio_session_discovers_tools_and_closes_child"
@@ -1025,9 +1035,15 @@
       "uncalibrated_mcp_tool_call_is_rejected_as_unadvertised_and_continues",
       "unavailable_capability_remains_unadvertised_and_denied"
     ],
+    "usable_defaults_require_an_authenticated_provider": [
+      "default_pool_creation_requires_an_authenticated_provider"
+    ],
     "verified_import_replaces_corrupt_existing_content_addressed_blob": [
       "verified_import_preserves_a_corrupt_shared_blob_and_fails_closed",
       "verified_import_repairs_an_unreferenced_corrupt_blob"
+    ],
+    "web_fetch_runtime_context_no_preference_summarizes_with_spec_default_model": [
+      "web_fetch_runtime_context_uses_initialized_auxiliary_selection"
     ]
   }
 }

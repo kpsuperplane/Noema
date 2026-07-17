@@ -1,18 +1,20 @@
 //! SQLite persistence for local-model installations and global activation.
 
-use rusqlite::{OptionalExtension, Transaction, params};
+use rusqlite::{OptionalExtension, Transaction, params, types::Type};
 
 use noema_providers::{
-    DefaultModelPreferenceRecord, LocalModelEventKind, LocalModelEventRecord,
-    LocalModelInstallationRecord, LocalModelInstallationStatus, LocalModelInstallationUpdate,
-    LocalModelSourceKind, NewLocalModelInstallation, RemovedLocalModelInstallation,
+    DefaultModelPreferenceRecord, LOCAL_MODELS_PROVIDER_ACCOUNT_ID, LocalModelEventKind,
+    LocalModelEventRecord, LocalModelInstallationRecord, LocalModelInstallationStatus,
+    LocalModelInstallationUpdate, LocalModelSourceKind, NewLocalModelInstallation,
+    ProviderInstanceKey, ProviderReadySelection, ProviderSelectionSnapshot, ReasoningEffort,
+    RemovedLocalModelInstallation, local_model_provider_instance_key,
 };
 
 use super::local_model_rows::{
     INSTALLATION_SELECT, backend_str, event_from_raw, installation_from_raw, optional_u64_to_i64,
     raw_event_from_row, raw_installation_from_row, u64_to_i64,
 };
-use super::{NoemaStore, StoreError};
+use super::{NoemaStore, StoreError, provider_selections::resolve_new_canonical_selection_tx};
 
 impl NoemaStore {
     /// Create or refresh queued installation provenance.
@@ -29,28 +31,68 @@ impl NoemaStore {
     ) -> Result<LocalModelInstallationRecord, StoreError> {
         validate_new_installation(&input)?;
         let expected_bytes = optional_u64_to_i64(input.expected_bytes, "expected bytes")?;
+        let provider_instance_key = local_model_provider_instance_key(
+            LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
+            &input.installation_id,
+            &input.model_id,
+        )
+        .map_err(|error| StoreError::InvariantViolation {
+            message: format!("invalid local-model provider instance identity: {error}"),
+        })?;
         self.with_connection(|conn| {
             let transaction = conn.transaction()?;
-            let existing_status = transaction
+            let existing = transaction
                 .query_row(
-                    "SELECT status FROM local_model_installations WHERE installation_id = ?1",
+                    "SELECT status, model_id, provider_instance_key, retirement_claimed_at FROM local_model_installations WHERE installation_id = ?1",
                     [&input.installation_id],
-                    |row| row.get::<_, String>(0),
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, Option<String>>(3)?,
+                        ))
+                    },
                 )
                 .optional()?;
-            if existing_status.as_deref() == Some(LocalModelInstallationStatus::Installed.as_str()) {
-                let installation = installation_in_transaction(&transaction, &input.installation_id)?;
-                transaction.commit()?;
-                return Ok(installation);
+            if let Some((status, model_id, existing_key, retirement_claimed_at)) = existing.as_ref() {
+                if retirement_claimed_at.is_some() {
+                    return Err(StoreError::InvariantViolation {
+                        message: format!(
+                            "local-model installation is already claimed for retirement: {}",
+                            input.installation_id
+                        ),
+                    });
+                }
+                if model_id != &input.model_id {
+                    return Err(StoreError::InvariantViolation {
+                        message: format!(
+                            "local-model installation identity cannot change model: {}",
+                            input.installation_id
+                        ),
+                    });
+                }
+                if existing_key != provider_instance_key.as_str() {
+                    return Err(StoreError::ProviderInstanceKeyMismatch {
+                        provider_instance_key: existing_key.clone(),
+                    });
+                }
+                if status == LocalModelInstallationStatus::Installed.as_str() {
+                    let installation =
+                        installation_in_transaction(&transaction, &input.installation_id)?;
+                    transaction.commit()?;
+                    return Ok(installation);
+                }
             }
             transaction.execute(
                 r#"
                 INSERT INTO local_model_installations (
-                  installation_id, model_id, display_name, source_kind, source_repo,
-                  source_revision, source_file, sha256, download_gb, expected_bytes,
-                  downloaded_bytes, license, backend, status
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, ?11, ?12, 'queued')
+                  installation_id, provider_instance_key, model_id, display_name,
+                  source_kind, source_repo, source_revision, source_file, sha256,
+                  download_gb, expected_bytes, downloaded_bytes, license, backend, status
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0, ?12, ?13, 'queued')
                 ON CONFLICT(installation_id) DO UPDATE SET
+                  provider_instance_key = excluded.provider_instance_key,
                   model_id = excluded.model_id,
                   display_name = excluded.display_name,
                   source_kind = excluded.source_kind,
@@ -73,6 +115,7 @@ impl NoemaStore {
                 "#,
                 params![
                     input.installation_id,
+                    provider_instance_key.as_str(),
                     input.model_id,
                     input.display_name,
                     input.source_kind.as_str(),
@@ -140,6 +183,7 @@ impl NoemaStore {
                 conn.query_row(
                     &format!(
                         "{INSTALLATION_SELECT} WHERE model_id = ?1 AND status = 'installed' \
+                         AND retirement_claimed_at IS NULL \
                          ORDER BY is_active DESC, updated_at DESC, installation_id LIMIT 1"
                     ),
                     [model_id],
@@ -234,32 +278,40 @@ impl NoemaStore {
         .await
     }
 
-    /// Remove a non-active installation projection and retain a durable event.
-    ///
-    /// The caller owns deleting `unreferenced_blob_relative_path` after the
-    /// transaction. Returning the path instead of deleting it while holding the
-    /// SQLite lock keeps filesystem failure handling explicit.
+    /// Remove a cancelled or failed installation projection and retain a durable event.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError`] when the installation is missing, active, or
-    /// SQLite fails.
-    pub async fn remove_local_model_installation(
+    /// Returns [`StoreError`] when the installation is missing, active,
+    /// installed, still in progress, or SQLite fails.
+    pub(crate) async fn remove_terminal_local_model_installation(
         &self,
         installation_id: &str,
     ) -> Result<RemovedLocalModelInstallation, StoreError> {
-        self.with_connection(|conn| {
-            let transaction = conn.transaction()?;
-            let installation = installation_in_transaction(&transaction, installation_id)?;
+        self.with_immediate_transaction_retry(|transaction| {
+            let installation = installation_in_transaction(transaction, installation_id)?;
             if installation.is_active {
                 return Err(StoreError::ActiveLocalModelInstallation {
                     installation_id: installation_id.to_string(),
                 });
             }
-            let blob_path = installation.blob_relative_path.clone();
-            let sha256 = installation.sha256.clone();
+            if installation.runtime_retired_at.is_some()
+                || installation.retirement_claimed_at.is_some()
+            {
+                return Err(StoreError::ProviderInstanceClaimed {
+                    provider_instance_key: installation.provider_instance_key.to_string(),
+                });
+            }
+            if !matches!(
+                installation.status,
+                LocalModelInstallationStatus::Cancelled | LocalModelInstallationStatus::Failed
+            ) {
+                return Err(StoreError::InvalidLocalModelRequest {
+                    kind: "terminal_local_model_removal_requires_cancelled_or_failed",
+                });
+            }
             append_event(
-                &transaction,
+                transaction,
                 installation_id,
                 LocalModelEventKind::Removed,
                 Some(installation.downloaded_bytes),
@@ -267,24 +319,19 @@ impl NoemaStore {
                 None,
             )?;
             let removed = transaction.execute(
-                "DELETE FROM local_model_installations WHERE installation_id = ?1 AND is_active = 0",
+                "DELETE FROM local_model_installations \
+                 WHERE installation_id = ?1 AND is_active = 0 \
+                   AND status IN ('cancelled', 'failed') \
+                   AND runtime_retired_at IS NULL \
+                   AND retirement_claimed_at IS NULL",
                 [installation_id],
             )?;
             if removed != 1 {
-                return Err(StoreError::ActiveLocalModelInstallation {
-                    installation_id: installation_id.to_string(),
+                return Err(StoreError::LocalModelRetirementConflict {
+                    operation: "remove_terminal_local_model_installation",
                 });
             }
-            let remaining: i64 = transaction.query_row(
-                "SELECT COUNT(*) FROM local_model_installations WHERE sha256 = ?1 AND blob_relative_path IS NOT NULL",
-                [&sha256],
-                |row| row.get(0),
-            )?;
-            transaction.commit()?;
-            Ok(RemovedLocalModelInstallation {
-                installation,
-                unreferenced_blob_relative_path: (remaining == 0).then_some(blob_path).flatten(),
-            })
+            Ok(RemovedLocalModelInstallation { installation })
         })
         .await
     }
@@ -332,21 +379,13 @@ impl NoemaStore {
         self.with_connection(|conn| {
             conn.query_row(
                 r#"
-                SELECT provider_kind, provider_account_id, model_profile,
-                       reasoning_effort, updated_at
+                SELECT provider_kind, provider_account_id, provider_instance_key,
+                       model_profile, reasoning_effort, updated_at
                 FROM default_model_preference
                 WHERE preference_id = 'default'
                 "#,
                 [],
-                |row| {
-                    Ok(DefaultModelPreferenceRecord {
-                        provider_kind: row.get(0)?,
-                        provider_account_id: row.get(1)?,
-                        model_profile: row.get(2)?,
-                        reasoning_effort: row.get(3)?,
-                        updated_at: row.get(4)?,
-                    })
-                },
+                default_preference_from_row,
             )
             .optional()
             .map_err(StoreError::Sqlite)
@@ -368,12 +407,61 @@ impl NoemaStore {
         model_profile: &str,
         reasoning_effort: Option<&str>,
     ) -> Result<DefaultModelPreferenceRecord, StoreError> {
+        self.save_default_model_preference_inner(
+            provider_kind,
+            provider_account_id,
+            model_profile,
+            reasoning_effort,
+            None,
+        )
+        .await
+    }
+
+    /// Save Noema's default while retaining an exact provider readiness lease
+    /// through commit.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the account/provider pair, model profile,
+    /// reasoning effort, or exact readiness proof is invalid, or SQLite fails.
+    pub async fn save_default_model_preference_with_ready_selection(
+        &self,
+        provider_kind: &str,
+        provider_account_id: &str,
+        model_profile: &str,
+        reasoning_effort: Option<&str>,
+        ready_selection: &ProviderReadySelection,
+    ) -> Result<DefaultModelPreferenceRecord, StoreError> {
+        self.save_default_model_preference_inner(
+            provider_kind,
+            provider_account_id,
+            model_profile,
+            reasoning_effort,
+            Some(ready_selection),
+        )
+        .await
+    }
+
+    async fn save_default_model_preference_inner(
+        &self,
+        provider_kind: &str,
+        provider_account_id: &str,
+        model_profile: &str,
+        reasoning_effort: Option<&str>,
+        ready_selection: Option<&ProviderReadySelection>,
+    ) -> Result<DefaultModelPreferenceRecord, StoreError> {
         let provider_kind = provider_kind.trim().to_ascii_lowercase();
         let provider_account_id = provider_account_id.trim();
         let model_profile = model_profile.trim();
         if provider_kind.is_empty() || provider_account_id.is_empty() || model_profile.is_empty() {
             return Err(StoreError::InvariantViolation {
                 message: "default model provider, account, and model profile are required"
+                    .to_string(),
+            });
+        }
+        if provider_kind == "local_models" {
+            return Err(StoreError::InvariantViolation {
+                message: "activate a specific local-model installation to change the local default"
                     .to_string(),
             });
         }
@@ -389,61 +477,89 @@ impl NoemaStore {
             });
         }
 
-        self.with_connection(|conn| {
-            let account_provider: Option<String> = conn
-                .query_row(
-                    "SELECT provider_kind FROM provider_accounts WHERE provider_account_id = ?1 AND is_active = 1",
-                    [provider_account_id],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            if account_provider.as_deref() != Some(provider_kind.as_str()) {
-                return Err(StoreError::InvariantViolation {
-                    message: "default model provider account is unavailable or mismatched"
-                        .to_string(),
-                });
-            }
-            if provider_kind == "local_models" {
-                let installed: bool = conn.query_row(
-                    "SELECT EXISTS(SELECT 1 FROM local_model_installations WHERE model_id = ?1 AND status = 'installed')",
-                    [model_profile],
-                    |row| row.get(0),
-                )?;
-                if !installed {
-                    return Err(StoreError::InvariantViolation {
-                        message: format!("local model is not installed: {model_profile}"),
-                    });
-                }
-            }
-            conn.execute(
+        let reasoning_effort = reasoning_effort.and_then(ReasoningEffort::from_persistence_str);
+        let selection = ProviderSelectionSnapshot::explicit(
+            provider_kind,
+            provider_account_id,
+            model_profile,
+            reasoning_effort,
+            Some("default_model_preference".to_string()),
+        );
+        self.with_immediate_transaction_retry(|transaction| {
+            let selection =
+                resolve_new_canonical_selection_tx(transaction, &selection, ready_selection)?;
+            let provider_instance_key = selection
+                .provider_instance_key
+                .as_ref()
+                .ok_or(StoreError::ProviderInstanceKeyMissing)?;
+            transaction.execute(
                 r#"
                 INSERT INTO default_model_preference (
-                  preference_id, provider_kind, provider_account_id,
+                  preference_id, provider_kind, provider_account_id, provider_instance_key,
                   model_profile, reasoning_effort, updated_at
-                ) VALUES ('default', ?1, ?2, ?3, ?4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                ) VALUES ('default', ?1, ?2, ?3, ?4, ?5, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
                 ON CONFLICT(preference_id) DO UPDATE SET
                   provider_kind = excluded.provider_kind,
                   provider_account_id = excluded.provider_account_id,
+                  provider_instance_key = excluded.provider_instance_key,
                   model_profile = excluded.model_profile,
                   reasoning_effort = excluded.reasoning_effort,
                   updated_at = excluded.updated_at
                 "#,
                 params![
-                    provider_kind,
-                    provider_account_id,
-                    model_profile,
-                    reasoning_effort
+                    selection.provider_kind,
+                    selection.provider_account_id,
+                    provider_instance_key.as_str(),
+                    selection.model_profile,
+                    selection
+                        .reasoning_effort
+                        .map(ReasoningEffort::as_persistence_str)
                 ],
             )?;
-            Ok(())
+            default_preference_in_transaction(transaction)
         })
-        .await?;
-        self.get_default_model_preference()
-            .await?
-            .ok_or_else(|| StoreError::InvariantViolation {
-                message: "default model preference disappeared after save".to_string(),
-            })
+        .await
     }
+}
+
+fn default_preference_from_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<DefaultModelPreferenceRecord> {
+    Ok(DefaultModelPreferenceRecord {
+        provider_kind: row.get(0)?,
+        provider_account_id: row.get(1)?,
+        provider_instance_key: provider_instance_key_from_row(row, 2)?,
+        model_profile: row.get(3)?,
+        reasoning_effort: row.get(4)?,
+        updated_at: row.get(5)?,
+    })
+}
+
+fn default_preference_in_transaction(
+    transaction: &Transaction<'_>,
+) -> Result<DefaultModelPreferenceRecord, StoreError> {
+    transaction
+        .query_row(
+            r#"
+            SELECT provider_kind, provider_account_id, provider_instance_key,
+                   model_profile, reasoning_effort, updated_at
+            FROM default_model_preference
+            WHERE preference_id = 'default'
+            "#,
+            [],
+            default_preference_from_row,
+        )
+        .map_err(StoreError::Sqlite)
+}
+
+fn provider_instance_key_from_row(
+    row: &rusqlite::Row<'_>,
+    index: usize,
+) -> rusqlite::Result<ProviderInstanceKey> {
+    let value = row.get::<_, String>(index)?;
+    value.parse().map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(index, Type::Text, Box::new(error))
+    })
 }
 
 fn installation_in_transaction(

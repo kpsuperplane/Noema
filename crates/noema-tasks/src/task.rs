@@ -38,11 +38,11 @@ pub struct NewTask {
     pub created_by_agent_id: String,
     /// Provider call id that performed delegation, when available.
     pub creation_tool_call_id: Option<String>,
-    /// Exact pool entry chosen by the primary agent.
+    /// Advisory pool entry chosen by the primary agent.
     pub pool_entry_id: String,
-    /// Immutable executor model snapshot.
+    /// Advisory executor selection; persistence resolves the durable snapshot.
     pub executor_model: ProviderSelectionSnapshot,
-    /// Immutable reviewer model-request snapshot.
+    /// Advisory reviewer selection; persistence resolves the durable snapshot.
     pub reviewer_model: ProviderSelectionSnapshot,
     /// Initial review-round bound; defaults to three when omitted.
     pub max_review_rounds: Option<i64>,
@@ -107,8 +107,8 @@ impl NewTask {
             created_by_agent_id,
             creation_tool_call_id: normalize_optional(self.creation_tool_call_id.as_ref()),
             pool_entry_id,
-            executor_model: self.executor_model.normalized_for_persistence()?,
-            reviewer_model: self.reviewer_model.normalized_for_persistence()?,
+            executor_model: self.executor_model.normalized()?,
+            reviewer_model: self.reviewer_model.normalized()?,
             max_review_rounds: Some(max_review_rounds),
             criteria,
         })
@@ -186,7 +186,7 @@ fn normalize_optional(value: Option<&String>) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use noema_providers::{ProviderInstanceKey, ProviderSelectionSnapshot};
+    use noema_providers::ProviderSelectionSnapshot;
 
     use super::*;
 
@@ -242,21 +242,16 @@ mod tests {
     }
 
     #[test]
-    fn task_normalization_rejects_unpersistable_provider_instance_identity() {
-        let mut task = task_with(vec![NewTaskValidationCriterion {
+    fn task_normalization_accepts_unresolved_provider_hints() {
+        let task = task_with(vec![NewTaskValidationCriterion {
             criterion_id: None,
             ordinal: 1,
             description: "Result exists".to_string(),
             expected_evidence: None,
         }]);
-        task.executor_model.provider_instance_key =
-            Some(ProviderInstanceKey::new("openai:default:1").expect("valid transient key"));
 
-        assert!(matches!(
-            task.normalized(),
-            Err(TaskDomainError::Model(
-                noema_providers::ProviderSelectionError::DurableInstanceKeyUnsupported
-            ))
-        ));
+        let normalized = task.normalized().expect("advisory task selections");
+        assert!(normalized.executor_model.provider_instance_key.is_none());
+        assert!(normalized.reviewer_model.provider_instance_key.is_none());
     }
 }

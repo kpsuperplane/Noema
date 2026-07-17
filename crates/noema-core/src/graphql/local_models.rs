@@ -2,7 +2,7 @@ use std::{path::PathBuf, pin::Pin, str::FromStr};
 
 use async_graphql::{Enum, InputObject, Result, SimpleObject};
 use futures_util::{Stream, StreamExt};
-use noema_providers::ProviderKind;
+use noema_providers::{ProviderKind, ReasoningEffort};
 
 use super::{errors::graphql_error, schema::GraphqlState};
 use views::{
@@ -498,13 +498,34 @@ pub(super) async fn save_default_model_preference(
             "Activate a specific local model installation to change the local default",
         ));
     }
+    let reasoning_effort = input
+        .reasoning_effort
+        .as_deref()
+        .map(|value| {
+            ReasoningEffort::from_persistence_str(value).ok_or_else(|| {
+                async_graphql::Error::new(format!(
+                    "invalid default model reasoning effort: {value}"
+                ))
+            })
+        })
+        .transpose()?;
+    let ready_selection = super::provider_selection::prove_ready_selection(
+        state,
+        &input.provider_kind,
+        &input.provider_account_id,
+        &input.model_profile,
+        reasoning_effort,
+        "graphql_default_model_preference",
+    )
+    .await?;
     state
         .store()?
-        .save_default_model_preference(
+        .save_default_model_preference_with_ready_selection(
             &input.provider_kind,
             &input.provider_account_id,
             &input.model_profile,
             input.reasoning_effort.as_deref(),
+            &ready_selection,
         )
         .await
         .map(default_preference_view)
@@ -684,8 +705,17 @@ mod tests {
                 .await
                 .expect("installation transition");
         }
+        let mut selection = noema_providers::ProviderSelectionSnapshot::explicit(
+            "local_models",
+            noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
+            "ternary-bonsai-8b",
+            None,
+            Some("test_local_activation".to_string()),
+        );
+        selection.provider_instance_key = Some(created.provider_instance_key.clone());
+        let ready_selection = crate::test_support::ready_provider_selection(selection);
         store
-            .activate_local_model_as_system_default(installation_id)
+            .activate_local_model_as_system_default(installation_id, &ready_selection)
             .await
             .expect("activate installation");
         let manager =

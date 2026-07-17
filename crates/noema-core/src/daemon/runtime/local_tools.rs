@@ -8,8 +8,8 @@ use noema_capabilities::{
 };
 use noema_memory::{MemorySearchAuthority, execute_search_memory, is_search_memory_tool};
 use noema_providers::{
-    DEFAULT_TOOL_CLASSIFICATION_MODEL, EXA_FETCH_PROVIDER_ID, EXA_SEARCH_PROVIDER_ID,
-    ExaFetchClient, ExaSearchClient, ProviderCredential,
+    EXA_FETCH_PROVIDER_ID, EXA_SEARCH_PROVIDER_ID, ExaFetchClient, ExaSearchClient,
+    ProviderCredential,
 };
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
@@ -254,8 +254,14 @@ impl CodexRuntimeActor {
                 execute_task_inspect(&self.store, &context, call.call_id.clone(), &call.payload)
                     .await
             } else if is_resume {
-                execute_task_resume(&self.store, &context, call.call_id.clone(), &call.payload)
-                    .await
+                execute_task_resume(
+                    &self.store,
+                    self.provider_registry.as_ref(),
+                    &context,
+                    call.call_id.clone(),
+                    &call.payload,
+                )
+                .await
             } else {
                 execute_task_cancel(&self.store, &context, call.call_id.clone(), &call.payload)
                     .await
@@ -311,6 +317,7 @@ impl CodexRuntimeActor {
             let provider_selection = turn.provider_route.selection();
             let result = execute_task_delegate(
                 &self.store,
+                self.provider_registry.as_ref(),
                 &TaskDelegateRuntimeContext {
                     conversation_id: turn.conversation_id.clone(),
                     turn_id: turn.turn_id.clone(),
@@ -424,53 +431,18 @@ impl CodexRuntimeActor {
         &self,
         generation_priority: noema_providers::GenerationPriority,
     ) -> Result<FetchRuntimeContext, String> {
-        if let Some(preference) = self
-            .store
-            .get_auxiliary_model_preference(noema_store::WEB_FETCH_SUMMARIZER_TASK_ID)
-            .await
-            .map_err(|_| "web.fetch summarizer preference could not be read".to_string())?
-        {
-            let summarizer_route = Arc::new(
-                self.resolve_provider_route(noema_providers::ProviderSelectionSnapshot::explicit(
-                    preference.provider_kind.clone(),
-                    preference.provider_account_id,
-                    preference.model_profile.clone(),
-                    preference.reasoning_effort,
-                    Some("web_fetch_summarizer_preference".to_string()),
-                ))
-                .await
-                .map_err(|_| {
-                    format!(
-                        "web.fetch summarizer provider '{}' is not available in this daemon",
-                        preference.provider_kind
-                    )
-                })?,
-            );
-            return Ok(FetchRuntimeContext {
-                summarizer_route,
-                summarizer_model: preference.model_profile,
-                summarizer_reasoning_effort: preference.reasoning_effort,
-                generation_priority,
-            });
-        }
-
-        let summarizer_route = Arc::new(
-            self.resolve_provider_route(noema_providers::ProviderSelectionSnapshot::explicit(
-                self.default_provider_kind.clone(),
-                format!("provider_account:{}:default", self.default_provider_kind),
-                DEFAULT_TOOL_CLASSIFICATION_MODEL,
-                None,
-                Some("web_fetch_summarizer_default".to_string()),
-            ))
-            .await
-            .map_err(|_| {
-                "web.fetch summarizer provider is not available in this daemon".to_string()
-            })?,
-        );
+        let summarizer_route = Arc::new(self.web_summary_provider.resolve_route().await.map_err(
+            |_| "web.fetch summarizer provider is not available in this daemon".to_string(),
+        )?);
+        let selection = summarizer_route.selection();
+        let summarizer_model = selection.model_profile.clone().ok_or_else(|| {
+            "web.fetch summarizer selection has no concrete model profile".to_string()
+        })?;
+        let summarizer_reasoning_effort = selection.reasoning_effort;
         Ok(FetchRuntimeContext {
             summarizer_route,
-            summarizer_model: DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string(),
-            summarizer_reasoning_effort: None,
+            summarizer_model,
+            summarizer_reasoning_effort,
             generation_priority,
         })
     }
@@ -755,12 +727,30 @@ mod tests {
         CapabilityError, CapabilityFuture, CapabilityInvoker, CapabilityOutput,
     };
     use noema_providers::{
-        DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateActionItem, GenerateInput, GenerateRequest,
-        GenerateResponse, GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent,
-        ProviderCapabilityAccountReference, ProviderError, ProviderOperations,
-        ProviderToolCapabilities,
+        GenerateActionItem, GenerateInput, GenerateRequest, GenerateResponse, GenerateResponseItem,
+        GenerateResponseStatus, GenerateStreamEvent, ProviderCapabilityAccountReference,
+        ProviderError, ProviderOperations, ProviderToolCapabilities,
     };
     use serde_json::{Value, json};
+
+    async fn upsert_ready_auxiliary_model_preference(
+        store: &noema_store::NoemaStore,
+        preference: NewAuxiliaryModelPreference,
+    ) {
+        let ready_selection = crate::test_support::ready_provider_selection(
+            noema_providers::ProviderSelectionSnapshot::explicit(
+                &preference.provider_kind,
+                &preference.provider_account_id,
+                &preference.model_profile,
+                preference.reasoning_effort,
+                Some(format!("auxiliary_model_preference:{}", preference.task_id)),
+            ),
+        );
+        store
+            .upsert_auxiliary_model_preference_with_ready_selection(preference, &ready_selection)
+            .await
+            .expect("ready auxiliary model preference");
+    }
 
     #[derive(Debug)]
     struct LocalToolTestProvider {
@@ -1243,7 +1233,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn task_delegate_preserves_the_executing_route_account() {
+    async fn task_delegate_uses_the_initialized_reviewer_route() {
         let store = crate::test_support::test_store().await;
         store.ensure_default_actors().await.expect("actors");
         store
@@ -1273,8 +1263,12 @@ mod tests {
             )
             .await
             .expect("authenticate foundation account");
+        let provider_registry = crate::test_support::ready_test_provider_registry();
         let pool = store
-            .ensure_default_task_model_pool_settings("codex")
+            .ensure_default_task_model_pool_settings_with_readiness(
+                "codex",
+                provider_registry.as_ref(),
+            )
             .await
             .expect("task model settings")
             .into_iter()
@@ -1334,16 +1328,19 @@ mod tests {
             .await
             .expect("read task")
             .expect("created task");
-        assert_eq!(task.reviewer_model.provider_kind, "foundation_local");
-        assert_eq!(task.reviewer_model.provider_account_id, provider_account_id);
+        assert_eq!(task.reviewer_model.provider_kind, "codex");
+        assert_eq!(
+            task.reviewer_model.provider_account_id,
+            "provider_account:codex:default"
+        );
         assert_eq!(
             task.reviewer_model.model_profile.as_deref(),
-            Some("default")
+            Some("gpt-5.6-luna")
         );
         assert_eq!(task.reviewer_model.reasoning_effort, None);
         assert_eq!(
             task.reviewer_model.selection_source.as_deref(),
-            Some("primary:effective")
+            Some("agent:task-reviewer")
         );
     }
 
@@ -1453,15 +1450,25 @@ mod tests {
             .await
             .expect("foundation account");
         store
-            .upsert_auxiliary_model_preference(NewAuxiliaryModelPreference {
+            .update_provider_account_status(
+                &account.provider_account_id,
+                noema_providers::ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .expect("authenticate foundation");
+        upsert_ready_auxiliary_model_preference(
+            &store,
+            NewAuxiliaryModelPreference {
                 task_id: WEB_FETCH_SUMMARIZER_TASK_ID.to_string(),
                 provider_kind: "foundation_local".to_string(),
                 provider_account_id: account.provider_account_id,
-                model_profile: "custom-fetch-summary".to_string(),
+                model_profile: "default".to_string(),
                 reasoning_effort: None,
-            })
-            .await
-            .expect("preference");
+            },
+        )
+        .await;
         let actor = CodexRuntimeActor::new(
             "codex".to_string(),
             HashMap::from([
@@ -1491,7 +1498,7 @@ mod tests {
             context.summarizer_route.selection().provider_kind,
             "foundation_local",
         );
-        assert_eq!(context.summarizer_model, "custom-fetch-summary");
+        assert_eq!(context.summarizer_model, "default");
         assert_eq!(
             context.generation_priority,
             noema_providers::GenerationPriority::Foreground
@@ -1506,15 +1513,25 @@ mod tests {
             .await
             .expect("account");
         store
-            .upsert_auxiliary_model_preference(NewAuxiliaryModelPreference {
+            .update_provider_account_status(
+                &account.provider_account_id,
+                noema_providers::ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .expect("authenticate codex");
+        upsert_ready_auxiliary_model_preference(
+            &store,
+            NewAuxiliaryModelPreference {
                 task_id: WEB_FETCH_SUMMARIZER_TASK_ID.to_string(),
                 provider_kind: "codex".to_string(),
                 provider_account_id: account.provider_account_id,
                 model_profile: "gpt-5.5".to_string(),
                 reasoning_effort: Some(noema_providers::ReasoningEffort::Low),
-            })
-            .await
-            .expect("preference");
+            },
+        )
+        .await;
         let actor = CodexRuntimeActor::new(
             "codex".to_string(),
             HashMap::from([(
@@ -1551,15 +1568,25 @@ mod tests {
             .await
             .expect("foundation account");
         store
-            .upsert_auxiliary_model_preference(NewAuxiliaryModelPreference {
+            .update_provider_account_status(
+                &account.provider_account_id,
+                noema_providers::ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .expect("authenticate foundation");
+        upsert_ready_auxiliary_model_preference(
+            &store,
+            NewAuxiliaryModelPreference {
                 task_id: WEB_FETCH_SUMMARIZER_TASK_ID.to_string(),
                 provider_kind: "foundation_local".to_string(),
                 provider_account_id: account.provider_account_id,
                 model_profile: "default".to_string(),
                 reasoning_effort: None,
-            })
-            .await
-            .expect("preference");
+            },
+        )
+        .await;
         let actor = CodexRuntimeActor::new(
             "codex".to_string(),
             HashMap::from([(
@@ -1580,12 +1607,12 @@ mod tests {
 
         assert_eq!(
             message,
-            "web.fetch summarizer provider 'foundation_local' is not available in this daemon"
+            "web.fetch summarizer provider is not available in this daemon"
         );
     }
 
     #[tokio::test]
-    async fn web_fetch_runtime_context_no_preference_summarizes_with_spec_default_model() {
+    async fn web_fetch_runtime_context_uses_initialized_auxiliary_selection() {
         let store = crate::test_support::test_store().await;
         let requests = Arc::new(Mutex::new(Vec::new()));
         let actor = CodexRuntimeActor::new(
@@ -1619,13 +1646,10 @@ mod tests {
         .expect("summarization");
 
         assert_eq!(summary, "summarized page");
-        assert_eq!(context.summarizer_model, DEFAULT_TOOL_CLASSIFICATION_MODEL);
+        assert_eq!(context.summarizer_model, "gpt-5.6-luna");
         let requests = requests.lock().expect("requests");
         assert_eq!(requests.len(), 1);
-        assert_eq!(
-            requests[0].model.as_deref(),
-            Some(DEFAULT_TOOL_CLASSIFICATION_MODEL)
-        );
+        assert_eq!(requests[0].model.as_deref(), Some("gpt-5.6-luna"));
     }
 
     #[tokio::test]
@@ -1714,7 +1738,7 @@ mod tests {
             Some("provider account unauthenticated")
         );
         assert!(auth_failure_account_id.is_none());
-        assert_eq!(context.summarizer_model, DEFAULT_TOOL_CLASSIFICATION_MODEL);
+        assert_eq!(context.summarizer_model, "gpt-5.6-luna");
         assert_eq!(
             context.generation_priority,
             noema_providers::GenerationPriority::Foreground

@@ -82,14 +82,14 @@ impl CodexRuntimeActor {
         );
         let deadline = tokio::time::Instant::now() + max_active_duration;
         let provider_route = Arc::new(
-            self.resolve_provider_route(request.provider_selection.clone())
+            self.resolve_static_provider_route(request.provider_selection.clone())
                 .await?,
         );
+        let provider_selection = provider_route.selection();
         let provider = provider_route.operations();
-        let capabilities =
-            provider.tool_capabilities(request.provider_selection.model_profile.as_deref());
+        let capabilities = provider.tool_capabilities(provider_selection.model_profile.as_deref());
         let response_continuation =
-            provider.response_continuation(request.provider_selection.model_profile.as_deref());
+            provider.response_continuation(provider_selection.model_profile.as_deref());
         let model_tools = build_model_tools_for_role(
             &self.store,
             &self.capability_bindings,
@@ -120,12 +120,12 @@ impl CodexRuntimeActor {
                 provider,
                 GenerateRequest {
                     conversation_id: Some(conversation_id.clone()),
-                    model: request.provider_selection.model_profile.clone(),
+                    model: provider_selection.model_profile.clone(),
                     input: GenerateInput::Text(request.input.clone()),
                     instructions: Some(tool_instructions),
                     options: GenerateOptions {
                         require_noema_response: true,
-                        reasoning_effort: request.provider_selection.reasoning_effort,
+                        reasoning_effort: provider_selection.reasoning_effort,
                         max_output_tokens: Some(8_000),
                         store_response: response_continuation.store_response(),
                         ..GenerateOptions::default()
@@ -269,9 +269,9 @@ impl CodexRuntimeActor {
                 task_id: Some(request.task_id.clone()),
                 task_run_id: Some(request.run_id.clone()),
                 cwd: None,
-                provider_kind: request.provider_selection.provider_kind.clone(),
-                model: request.provider_selection.model_profile.clone(),
-                reasoning_effort: request.provider_selection.reasoning_effort,
+                provider_kind: provider_selection.provider_kind.clone(),
+                model: provider_selection.model_profile.clone(),
+                reasoning_effort: provider_selection.reasoning_effort,
                 provider_route: Arc::clone(&provider_route),
                 initial_stream_id: format!("task_stream:{}:{continuation_index}", request.run_id),
                 response: response.clone(),
@@ -408,8 +408,8 @@ impl CodexRuntimeActor {
                 }
                 result = context.compact_if_needed(
                     provider,
-                    request.provider_selection.model_profile.as_deref(),
-                    request.provider_selection.reasoning_effort,
+                    provider_selection.model_profile.as_deref(),
+                    provider_selection.reasoning_effort,
                     noema_providers::GenerationPriority::Background,
                     &request.input,
                 ) => result,
@@ -529,12 +529,12 @@ impl CodexRuntimeActor {
             );
             let continuation_request = GenerateRequest {
                 conversation_id: Some(conversation_id.clone()),
-                model: request.provider_selection.model_profile.clone(),
+                model: provider_selection.model_profile.clone(),
                 input: continuation_input.input,
                 instructions: Some(instructions.clone()),
                 options: GenerateOptions {
                     require_noema_response: true,
-                    reasoning_effort: request.provider_selection.reasoning_effort,
+                    reasoning_effort: provider_selection.reasoning_effort,
                     max_output_tokens: Some(8_000),
                     previous_response_id: continuation_input.previous_response_id.clone(),
                     store_response: response_continuation.store_response(),
@@ -573,12 +573,12 @@ impl CodexRuntimeActor {
                         provider,
                         GenerateRequest {
                             conversation_id: Some(conversation_id.clone()),
-                            model: request.provider_selection.model_profile.clone(),
+                            model: provider_selection.model_profile.clone(),
                             input: context.provider_input(capabilities.native_tool_results),
                             instructions: Some(instructions),
                             options: GenerateOptions {
                                 require_noema_response: true,
-                                reasoning_effort: request.provider_selection.reasoning_effort,
+                                reasoning_effort: provider_selection.reasoning_effort,
                                 max_output_tokens: Some(8_000),
                                 store_response: response_continuation.store_response(),
                                 ..GenerateOptions::default()

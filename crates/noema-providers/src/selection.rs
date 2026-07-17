@@ -223,19 +223,16 @@ impl ProviderSelectionSnapshot {
         }
     }
 
-    /// Normalize a snapshot before writing it to legacy durable task storage.
-    ///
-    /// Phase 10C adds exact provider instance identity to durable owner records.
-    /// Until then, accepting an instance key here would silently discard it.
+    /// Normalize a snapshot before writing it to durable task storage.
     ///
     /// # Errors
     ///
-    /// Returns [`ProviderSelectionError::DurableInstanceKeyUnsupported`] when
-    /// the snapshot contains a resolved instance key.
+    /// Returns [`ProviderSelectionError::DurableInstanceKeyRequired`] when the
+    /// snapshot has not been resolved to one exact provider instance.
     pub fn normalized_for_persistence(&self) -> Result<Self, ProviderSelectionError> {
         let normalized = self.normalized()?;
-        if normalized.provider_instance_key.is_some() {
-            return Err(ProviderSelectionError::DurableInstanceKeyUnsupported);
+        if normalized.provider_instance_key.is_none() {
+            return Err(ProviderSelectionError::DurableInstanceKeyRequired);
         }
         Ok(normalized)
     }
@@ -259,11 +256,9 @@ pub enum ProviderSelectionError {
         /// Rejected persistence value.
         value: String,
     },
-    /// Legacy durable task records cannot yet store exact provider instance keys.
-    #[error(
-        "durable provider selection cannot store an instance key until exact identity is supported"
-    )]
-    DurableInstanceKeyUnsupported,
+    /// Durable provider selections must resolve one exact provider instance.
+    #[error("durable provider selection requires an exact provider instance key")]
+    DurableInstanceKeyRequired,
     /// Explicit profile selection omitted its profile.
     #[error("explicit model selection requires a model profile")]
     ProfileRequired,
@@ -375,7 +370,19 @@ mod tests {
     }
 
     #[test]
-    fn legacy_persistence_rejects_a_resolved_instance_key() {
+    fn persistence_requires_and_retains_a_resolved_instance_key() {
+        let unresolved = ProviderSelectionSnapshot::explicit(
+            "openai",
+            "provider_account:openai:default",
+            "gpt-5.5",
+            None,
+            None,
+        );
+        assert_eq!(
+            unresolved.normalized_for_persistence(),
+            Err(ProviderSelectionError::DurableInstanceKeyRequired)
+        );
+
         let mut snapshot = ProviderSelectionSnapshot::explicit(
             "openai",
             "provider_account:openai:default",
@@ -386,9 +393,15 @@ mod tests {
         snapshot.provider_instance_key =
             Some(ProviderInstanceKey::new("openai:default:1").unwrap());
 
+        let persisted = snapshot
+            .normalized_for_persistence()
+            .expect("resolved durable selection");
         assert_eq!(
-            snapshot.normalized_for_persistence(),
-            Err(ProviderSelectionError::DurableInstanceKeyUnsupported)
+            persisted
+                .provider_instance_key
+                .as_ref()
+                .map(ProviderInstanceKey::as_str),
+            Some("openai:default:1")
         );
     }
 }

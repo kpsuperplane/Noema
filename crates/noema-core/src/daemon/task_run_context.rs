@@ -561,12 +561,14 @@ mod tests {
             )
             .await
             .expect("blocked");
+        let provider_registry = crate::test_support::ready_test_provider_registry();
         let (_, resumed_run) = store
-            .resume_task(
+            .resume_task_with_readiness(
                 &task.task_id,
                 "human:local",
                 "human:local",
                 Some("Exclude archived records from the result."),
+                provider_registry.as_ref(),
             )
             .await
             .expect("resumed");

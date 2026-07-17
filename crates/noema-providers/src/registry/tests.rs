@@ -4,7 +4,10 @@ use std::sync::{
 };
 
 use super::*;
-use crate::{GenerateRequest, GenerateResponse, ProviderOperationFuture, ProviderOperations};
+use crate::{
+    GenerateRequest, GenerateResponse, ProviderOperationFuture, ProviderOperations,
+    ProviderSelectionMode,
+};
 
 #[derive(Debug)]
 struct TrackedProvider {
@@ -234,5 +237,114 @@ fn registration_tokens_cannot_retire_another_registry() {
             .begin_retirement(&registration)
             .expect_err("foreign registration"),
         ProviderRegistryError::ForeignRegistration
+    );
+}
+
+#[test]
+fn durable_retirement_block_drains_current_generation_and_prevents_key_reuse() {
+    let registry = ProviderRegistry::new();
+    let instance_key = key("provider_account:local_models:claimed");
+    registry
+        .register(
+            instance_key.clone(),
+            provider("claimed", Arc::new(AtomicUsize::new(0))),
+        )
+        .expect("register claimed provider");
+    let lease = registry.lease(&instance_key).expect("lease before claim");
+
+    let retirement = registry
+        .block_for_retirement(instance_key.clone())
+        .expect("block key")
+        .expect("registered generation retirement");
+    assert!(matches!(
+        registry.lease(&instance_key),
+        Err(ProviderRegistryError::Retiring { .. })
+    ));
+    assert!(matches!(
+        registry.register(
+            instance_key.clone(),
+            provider("replacement", Arc::new(AtomicUsize::new(0)))
+        ),
+        Err(ProviderRegistryError::Retiring { .. })
+    ));
+    assert!(!retirement.is_drained());
+
+    drop(lease);
+    assert!(retirement.is_drained());
+    assert!(matches!(
+        registry.register(
+            instance_key,
+            provider("late", Arc::new(AtomicUsize::new(0)))
+        ),
+        Err(ProviderRegistryError::Retiring { .. })
+    ));
+}
+
+#[test]
+fn ready_selection_proof_holds_the_exact_generation_through_retirement() {
+    let registry = ProviderRegistry::new();
+    let instance_key = key("provider_account:local_models:ready-proof");
+    let registration = registry
+        .register(
+            instance_key.clone(),
+            provider("ready", Arc::new(AtomicUsize::new(0))),
+        )
+        .expect("register ready provider");
+    let proof = registry
+        .prove_ready_selection(ProviderSelectionSnapshot {
+            provider_kind: "local_models".to_string(),
+            provider_account_id: "provider_account:local_models:default".to_string(),
+            provider_instance_key: Some(instance_key.clone()),
+            selection_mode: ProviderSelectionMode::ExplicitProfile,
+            model_profile: Some("ready-model".to_string()),
+            reasoning_effort: None,
+            selection_source: Some("test".to_string()),
+        })
+        .expect("ready proof");
+
+    let retirement = registry
+        .begin_retirement(&registration)
+        .expect("begin retirement");
+    assert_eq!(proof.key(), &instance_key);
+    assert!(!retirement.is_drained());
+
+    drop(proof);
+
+    assert!(retirement.is_drained());
+}
+
+#[test]
+fn ready_selection_proof_rejects_unregistered_and_inexact_selections() {
+    let registry = ProviderRegistry::new();
+    let instance_key = key("provider_account:codex:missing");
+    let missing = registry
+        .prove_ready_selection(ProviderSelectionSnapshot {
+            provider_kind: "codex".to_string(),
+            provider_account_id: "provider_account:codex:missing".to_string(),
+            provider_instance_key: Some(instance_key.clone()),
+            selection_mode: ProviderSelectionMode::ProviderDefault,
+            model_profile: None,
+            reasoning_effort: None,
+            selection_source: None,
+        })
+        .expect_err("missing registry entry");
+    assert_eq!(
+        missing,
+        ProviderReadySelectionError::Registry(ProviderRegistryError::Missing { key: instance_key })
+    );
+
+    let inexact = registry
+        .prove_ready_selection(ProviderSelectionSnapshot::provider_default(
+            "codex",
+            "provider_account:codex:default",
+            None,
+            None,
+        ))
+        .expect_err("inexact selection");
+    assert_eq!(
+        inexact,
+        ProviderReadySelectionError::InvalidSelection(
+            ProviderSelectionError::DurableInstanceKeyRequired
+        )
     );
 }

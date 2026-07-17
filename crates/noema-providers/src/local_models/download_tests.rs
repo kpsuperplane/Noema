@@ -29,14 +29,14 @@ fn local_import(name: &str, path: std::path::PathBuf) -> LocalFileModelImport {
 }
 
 #[tokio::test]
-async fn local_file_import_is_verified_content_addressed_and_removable() {
+async fn local_file_import_is_verified_and_content_addressed() {
     let home = tempfile::tempdir().expect("Noema home");
     let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
     let source = home.path().join("user-model.gguf");
     tokio::fs::write(&source, b"GGUF small deterministic test payload")
         .await
         .expect("source model");
-    let (installer, persistence) = installer(&paths);
+    let (installer, _) = installer(&paths);
 
     let installed = installer
         .import_local_file(local_import("User model", source), CancellationToken::new())
@@ -49,17 +49,6 @@ async fn local_file_import_is_verified_content_addressed_and_removable() {
     assert_eq!(
         tokio::fs::read(&blob).await.expect("installed blob"),
         b"GGUF small deterministic test payload"
-    );
-
-    let removed = installer
-        .remove(&installed.installation_id)
-        .await
-        .expect("remove");
-    assert!(removed.unreferenced_blob_relative_path.is_some());
-    assert!(!blob.exists());
-    assert_eq!(
-        persistence.events().last().expect("removal event").kind,
-        LocalModelEventKind::Removed
     );
 }
 

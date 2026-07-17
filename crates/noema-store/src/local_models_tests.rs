@@ -1,6 +1,8 @@
 use noema_providers::{
-    LocalModelBackend, LocalModelEventKind, LocalModelInstallationStatus,
-    LocalModelInstallationUpdate, LocalModelSourceKind, NewLocalModelInstallation,
+    LOCAL_MODELS_PROVIDER_ACCOUNT_ID, LocalModelBackend, LocalModelEventKind,
+    LocalModelInstallationStatus, LocalModelInstallationUpdate, LocalModelSourceKind,
+    NewLocalModelInstallation, ProviderAccountStatus, ProviderReadySelection,
+    ProviderSelectionSnapshot, local_model_provider_instance_key, provider_account_instance_key,
 };
 
 fn installation() -> NewLocalModelInstallation {
@@ -66,6 +68,16 @@ async fn installation_updates_append_cursor_events() {
         .await
         .expect("create installation");
     assert_eq!(created.status, LocalModelInstallationStatus::Queued);
+    assert_eq!(
+        created.provider_instance_key,
+        local_model_provider_instance_key(
+            LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
+            &created.installation_id,
+            &created.model_id,
+        )
+        .expect("installation provider key")
+    );
+    assert_eq!(created.retirement_claimed_at, None);
 
     let updated = store
         .update_local_model_installation(
@@ -127,31 +139,23 @@ async fn cancellation_preserves_the_latest_durable_progress() {
 }
 
 #[tokio::test]
-async fn removal_returns_the_exact_deleted_blob_projection() {
+async fn terminal_cleanup_removes_only_cancelled_installations() {
     let store = crate::tests::test_store().await;
     let created = store
         .upsert_local_model_installation(installation())
         .await
         .expect("create installation");
-    mark_installed(&store, &created).await;
+    let cancelled = store
+        .cancel_local_model_installation(&created.installation_id)
+        .await
+        .expect("cancel installation");
 
     let removed = store
-        .remove_local_model_installation(&created.installation_id)
+        .remove_terminal_local_model_installation(&created.installation_id)
         .await
         .expect("remove");
 
-    assert_eq!(
-        removed.installation.status,
-        LocalModelInstallationStatus::Installed
-    );
-    assert_eq!(
-        removed.installation.blob_relative_path.as_deref(),
-        Some("models/blobs/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.gguf")
-    );
-    assert_eq!(
-        removed.unreferenced_blob_relative_path,
-        removed.installation.blob_relative_path
-    );
+    assert_eq!(removed.installation, cancelled);
 }
 
 #[tokio::test]
@@ -163,12 +167,18 @@ async fn activation_assigns_every_current_model_workload_atomically() {
         .expect("create installation");
     mark_installed(&store, &created).await;
 
-    let preference = store
-        .activate_local_model_as_system_default(&created.installation_id)
+    let ready_selection = ready_local_selection(&created);
+    let activated = store
+        .activate_local_model_as_system_default(&created.installation_id, &ready_selection)
         .await
         .expect("activate");
-    assert_eq!(preference.provider_kind, "local_models");
-    assert_eq!(preference.model_profile, created.model_id);
+    assert_eq!(activated.installation_id, created.installation_id);
+    assert_eq!(
+        activated.provider_instance_key,
+        created.provider_instance_key
+    );
+    assert!(activated.is_active);
+    assert_eq!(activated.runtime_retired_at, None);
 
     for agent_id in [
         "agent:primary",
@@ -209,6 +219,53 @@ async fn activation_assigns_every_current_model_workload_atomically() {
 }
 
 #[tokio::test]
+async fn changing_a_local_canonical_selection_requires_a_ready_registry_proof() {
+    let store = crate::tests::test_store().await;
+    let created = store
+        .upsert_local_model_installation(installation())
+        .await
+        .expect("create installation");
+    mark_installed(&store, &created).await;
+    let ready_selection = ready_local_selection(&created);
+    store
+        .activate_local_model_as_system_default(&created.installation_id, &ready_selection)
+        .await
+        .expect("activate");
+    let preference = crate::NewAgentRuntimePreference {
+        agent_id: "agent:primary".to_string(),
+        provider_kind: "local_models".to_string(),
+        provider_account_id: LOCAL_MODELS_PROVIDER_ACCOUNT_ID.to_string(),
+        model_profile: created.model_id.clone(),
+        reasoning_effort: None,
+    };
+
+    let unproved_error = store
+        .upsert_agent_runtime_preference(preference.clone())
+        .await
+        .expect_err("local selection must prove registry readiness");
+    assert!(matches!(
+        unproved_error,
+        crate::StoreError::ProviderInstanceUnavailable { .. }
+    ));
+
+    let mut exact_selection = ProviderSelectionSnapshot::explicit(
+        "local_models",
+        LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
+        &created.model_id,
+        None,
+        Some("test_ready_selection".to_string()),
+    );
+    exact_selection.provider_instance_key = Some(created.provider_instance_key.clone());
+    let ready_selection = crate::tests::ready_provider_selection(exact_selection);
+    let saved = store
+        .upsert_agent_runtime_preference_with_ready_selection(preference, &ready_selection)
+        .await
+        .expect("proved local selection");
+
+    assert_eq!(saved.provider_instance_key, created.provider_instance_key);
+}
+
+#[tokio::test]
 async fn adding_other_providers_does_not_replace_local_workload_selections() {
     let store = crate::tests::test_store().await;
     let created = store
@@ -216,8 +273,9 @@ async fn adding_other_providers_does_not_replace_local_workload_selections() {
         .await
         .expect("create installation");
     mark_installed(&store, &created).await;
+    let ready_selection = ready_local_selection(&created);
     store
-        .activate_local_model_as_system_default(&created.installation_id)
+        .activate_local_model_as_system_default(&created.installation_id, &ready_selection)
         .await
         .expect("activate");
 
@@ -255,16 +313,26 @@ async fn saving_a_default_does_not_rewrite_explicit_workload_selections() {
         .await
         .expect("create installation");
     mark_installed(&store, &created).await;
+    let ready_selection = ready_local_selection(&created);
     store
-        .activate_local_model_as_system_default(&created.installation_id)
+        .activate_local_model_as_system_default(&created.installation_id, &ready_selection)
         .await
         .expect("activate");
     store
         .ensure_default_provider_account()
         .await
         .expect("add Codex account");
+    store
+        .update_provider_account_status(
+            "provider_account:codex:default",
+            ProviderAccountStatus::Authenticated,
+            None,
+            None,
+        )
+        .await
+        .expect("authenticate Codex account");
 
-    let preference = store
+    let error = store
         .save_default_model_preference(
             "codex",
             "provider_account:codex:default",
@@ -272,8 +340,36 @@ async fn saving_a_default_does_not_rewrite_explicit_workload_selections() {
             Some("high"),
         )
         .await
+        .expect_err("authenticated metadata is not runtime readiness");
+    assert!(matches!(
+        error,
+        crate::StoreError::ProviderInstanceUnavailable { .. }
+    ));
+
+    let ready_selection =
+        crate::tests::ready_provider_selection(ProviderSelectionSnapshot::explicit(
+            "codex",
+            "provider_account:codex:default",
+            "gpt-5.6-luna",
+            Some(noema_providers::ReasoningEffort::High),
+            Some("default_preference_test".to_string()),
+        ));
+    let preference = store
+        .save_default_model_preference_with_ready_selection(
+            "codex",
+            "provider_account:codex:default",
+            "gpt-5.6-luna",
+            Some("high"),
+            &ready_selection,
+        )
+        .await
         .expect("save default");
     assert_eq!(preference.provider_kind, "codex");
+    assert_eq!(
+        preference.provider_instance_key,
+        provider_account_instance_key("provider_account:codex:default")
+            .expect("hosted provider key")
+    );
 
     let primary = store
         .get_agent_runtime_preference("agent:primary")
@@ -282,6 +378,39 @@ async fn saving_a_default_does_not_rewrite_explicit_workload_selections() {
         .expect("saved primary preference");
     assert_eq!(primary.provider_kind, "local_models");
     assert_eq!(primary.model_profile, "ternary-bonsai-8b");
+}
+
+fn ready_local_selection(
+    installation: &noema_providers::LocalModelInstallationRecord,
+) -> ProviderReadySelection {
+    let mut selection = ProviderSelectionSnapshot::explicit(
+        "local_models",
+        LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
+        &installation.model_id,
+        None,
+        Some("local_model_activation_test".to_string()),
+    );
+    selection.provider_instance_key = Some(installation.provider_instance_key.clone());
+    crate::tests::ready_provider_selection(selection)
+}
+
+#[tokio::test]
+async fn same_model_installations_receive_distinct_exact_instance_keys() {
+    let store = crate::tests::test_store().await;
+    let first = store
+        .upsert_local_model_installation(installation())
+        .await
+        .expect("first installation");
+    let mut second_input = installation();
+    second_input.installation_id = "local_model_installation:bonsai-second".to_string();
+    let second = store
+        .upsert_local_model_installation(second_input)
+        .await
+        .expect("second installation");
+
+    assert_eq!(first.model_id, second.model_id);
+    assert_ne!(first.installation_id, second.installation_id);
+    assert_ne!(first.provider_instance_key, second.provider_instance_key);
 }
 
 #[tokio::test]

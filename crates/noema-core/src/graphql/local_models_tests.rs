@@ -68,6 +68,15 @@ async fn default_preference_mutation_is_provider_neutral() {
         .ensure_default_provider_account()
         .await
         .expect("Codex provider account");
+    store
+        .update_provider_account_status(
+            "provider_account:codex:default",
+            noema_providers::ProviderAccountStatus::Authenticated,
+            None,
+            None,
+        )
+        .await
+        .expect("authenticated provider account");
     let schema = build_schema(GraphqlState::for_tests_with_store(store));
 
     let response = schema

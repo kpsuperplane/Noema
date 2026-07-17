@@ -1,4 +1,4 @@
-use super::{seed_task, test_store};
+use super::{ready_codex_registry, ready_provider_selection, seed_task, test_store};
 
 #[tokio::test]
 async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
@@ -17,6 +17,18 @@ async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
         )
         .await
         .expect("authenticated provider account");
+    let ready_selection =
+        ready_provider_selection(noema_providers::ProviderSelectionSnapshot::explicit(
+            "codex",
+            "provider_account:codex:default",
+            "gpt-5.6-luna",
+            None,
+            Some("test_configured_default".to_string()),
+        ));
+    store
+        .initialize_missing_provider_selections(ready_selection.selection(), Some(&ready_selection))
+        .await
+        .expect("initialized provider selections");
     let model = noema_providers::ProviderSelectionSnapshot::explicit(
         "codex",
         "provider_account:codex:default",
@@ -31,27 +43,31 @@ async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
         .into_iter()
         .find(|entry| entry.complexity == noema_tasks::TaskComplexity::Simple)
         .expect("simple task model");
+    let registry = ready_codex_registry();
     let (task, executor_run) = store
-        .create_task_with_executor(noema_tasks::NewTask {
-            task_id: None,
-            title: "Lifecycle task".to_string(),
-            request_markdown: "Produce a short result".to_string(),
-            complexity: noema_tasks::TaskComplexity::Simple,
-            owner_human_id: "human:local".to_string(),
-            source: noema_tasks::TaskSource::default(),
-            created_by_agent_id: "agent:primary".to_string(),
-            creation_tool_call_id: None,
-            pool_entry_id: pool.pool_entry_id,
-            executor_model: pool.model.clone(),
-            reviewer_model: model,
-            max_review_rounds: None,
-            criteria: vec![noema_tasks::NewTaskValidationCriterion {
-                criterion_id: None,
-                ordinal: 1,
-                description: "Result is present".to_string(),
-                expected_evidence: None,
-            }],
-        })
+        .create_task_with_executor_with_readiness(
+            noema_tasks::NewTask {
+                task_id: None,
+                title: "Lifecycle task".to_string(),
+                request_markdown: "Produce a short result".to_string(),
+                complexity: noema_tasks::TaskComplexity::Simple,
+                owner_human_id: "human:local".to_string(),
+                source: noema_tasks::TaskSource::default(),
+                created_by_agent_id: "agent:primary".to_string(),
+                creation_tool_call_id: None,
+                pool_entry_id: pool.pool_entry_id,
+                executor_model: pool.model.clone(),
+                reviewer_model: model,
+                max_review_rounds: None,
+                criteria: vec![noema_tasks::NewTaskValidationCriterion {
+                    criterion_id: None,
+                    ordinal: 1,
+                    description: "Result is present".to_string(),
+                    expected_evidence: None,
+                }],
+            },
+            &registry,
+        )
         .await
         .expect("task");
     assert_eq!(executor_run.run_kind, noema_tasks::RunKind::Executor);
@@ -155,8 +171,12 @@ async fn task_lifecycle_queues_review_and_completes_without_delivery_run() {
     let first_submission = submission_input.clone();
     let concurrent_submission = submission_input.clone();
     let (first_result, concurrent_result) = tokio::join!(
-        store.create_task_submission(first_submission, "lease:executor"),
-        store.create_task_submission(concurrent_submission, "lease:executor"),
+        store.create_task_submission_with_readiness(first_submission, "lease:executor", &registry,),
+        store.create_task_submission_with_readiness(
+            concurrent_submission,
+            "lease:executor",
+            &registry,
+        ),
     );
     let (submission, reviewer_run) = first_result.expect("submission");
     let (concurrent_submission, concurrent_reviewer) =
@@ -283,6 +303,18 @@ async fn failed_task_resume_queues_a_linked_attempt_with_current_snapshots() {
         )
         .await
         .expect("authenticated provider account");
+    let ready_selection =
+        ready_provider_selection(noema_providers::ProviderSelectionSnapshot::explicit(
+            "codex",
+            "provider_account:codex:default",
+            "gpt-5.6-luna",
+            None,
+            Some("test_configured_default".to_string()),
+        ));
+    store
+        .initialize_missing_provider_selections(ready_selection.selection(), Some(&ready_selection))
+        .await
+        .expect("initialized provider selections");
     let pool = store
         .ensure_default_task_model_pool_settings("codex")
         .await
@@ -290,27 +322,31 @@ async fn failed_task_resume_queues_a_linked_attempt_with_current_snapshots() {
         .into_iter()
         .find(|entry| entry.complexity == noema_tasks::TaskComplexity::Simple)
         .expect("simple task model");
+    let registry = ready_codex_registry();
     let (task, failed_run) = store
-        .create_task_with_executor(noema_tasks::NewTask {
-            task_id: None,
-            title: "Retry task".to_string(),
-            request_markdown: "Try once more".to_string(),
-            complexity: noema_tasks::TaskComplexity::Simple,
-            owner_human_id: "human:local".to_string(),
-            source: noema_tasks::TaskSource::default(),
-            created_by_agent_id: "agent:primary".to_string(),
-            creation_tool_call_id: None,
-            pool_entry_id: pool.pool_entry_id,
-            executor_model: pool.model.clone(),
-            reviewer_model: pool.model,
-            max_review_rounds: None,
-            criteria: vec![noema_tasks::NewTaskValidationCriterion {
-                criterion_id: None,
-                ordinal: 1,
-                description: "Completes".to_string(),
-                expected_evidence: None,
-            }],
-        })
+        .create_task_with_executor_with_readiness(
+            noema_tasks::NewTask {
+                task_id: None,
+                title: "Retry task".to_string(),
+                request_markdown: "Try once more".to_string(),
+                complexity: noema_tasks::TaskComplexity::Simple,
+                owner_human_id: "human:local".to_string(),
+                source: noema_tasks::TaskSource::default(),
+                created_by_agent_id: "agent:primary".to_string(),
+                creation_tool_call_id: None,
+                pool_entry_id: pool.pool_entry_id,
+                executor_model: pool.model.clone(),
+                reviewer_model: pool.model,
+                max_review_rounds: None,
+                criteria: vec![noema_tasks::NewTaskValidationCriterion {
+                    criterion_id: None,
+                    ordinal: 1,
+                    description: "Completes".to_string(),
+                    expected_evidence: None,
+                }],
+            },
+            &registry,
+        )
         .await
         .expect("task");
     store
@@ -326,11 +362,12 @@ async fn failed_task_resume_queues_a_linked_attempt_with_current_snapshots() {
         .await
         .expect("failed run");
     let (retried_task, retried_run) = store
-        .resume_task(
+        .resume_task_with_readiness(
             &task.task_id,
             "human:local",
             "human:local",
             Some("Continue with the corrected configuration"),
+            &registry,
         )
         .await
         .expect("retry task");
@@ -368,6 +405,7 @@ async fn failed_task_resume_queues_a_linked_attempt_with_current_snapshots() {
 async fn human_continuation_after_a_completed_review_queues_a_new_executor_revision() {
     let store = test_store().await;
     let (task, executor_run) = seed_task(&store, "Human-guided revision").await;
+    let registry = ready_codex_registry();
     store
         .with_connection(|conn| {
             conn.execute(
@@ -404,7 +442,7 @@ async fn human_continuation_after_a_completed_review_queues_a_new_executor_revis
         .criterion_id
         .clone();
     let (submission, reviewer_run) = store
-        .create_task_submission(
+        .create_task_submission_with_readiness(
             noema_tasks::NewTaskSubmission {
                 submission_id: None,
                 task_id: task.task_id.clone(),
@@ -419,6 +457,7 @@ async fn human_continuation_after_a_completed_review_queues_a_new_executor_revis
                 artifact_ids: Vec::new(),
             },
             "lease:executor",
+            &registry,
         )
         .await
         .expect("submission");
@@ -480,11 +519,12 @@ async fn human_continuation_after_a_completed_review_queues_a_new_executor_revis
     );
 
     let (resumed_task, child) = store
-        .resume_task(
+        .resume_task_with_readiness(
             &task.task_id,
             "human:local",
             "human:local",
             Some("Use the clarified interpretation"),
+            &registry,
         )
         .await
         .expect("resume with human guidance");

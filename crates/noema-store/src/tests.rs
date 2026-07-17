@@ -9,4 +9,6 @@ mod schema_support;
 mod support;
 mod task_lifecycle;
 
-pub(crate) use support::{seed_task, test_store};
+pub(crate) use support::{
+    ready_codex_registry, ready_provider_registry, ready_provider_selection, seed_task, test_store,
+};

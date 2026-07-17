@@ -1,3 +1,4 @@
+use noema_providers::ProviderRegistry;
 use noema_tasks::{
     AgentRunRecord, NewTaskSubmission, SubmissionCriterionEvidence, SubmissionState,
     TASK_REVIEWER_AGENT_ID, TaskSubmissionArtifactRecord, TaskSubmissionRecord, plan_submission,
@@ -7,8 +8,13 @@ use rusqlite::{OptionalExtension, params};
 use super::{
     events::{append_run_event_tx, append_task_event_tx},
     lifecycle::task_domain_error,
+    provider_selection::task_role_selection_tx,
 };
-use crate::{NoemaStore, StoreError, ids::allocate_id};
+use crate::{
+    NoemaStore, StoreError,
+    ids::allocate_id,
+    provider_selections::{SelectionEligibility, prove_selection_ready},
+};
 
 impl NoemaStore {
     /// Commit an executor submission and queue its reviewer in one transaction.
@@ -16,6 +22,28 @@ impl NoemaStore {
         &self,
         input: NewTaskSubmission,
         lease_token: &str,
+    ) -> Result<(TaskSubmissionRecord, AgentRunRecord), StoreError> {
+        self.create_task_submission_inner(input, lease_token, None)
+            .await
+    }
+
+    /// Commit a submission while proving the newly queued reviewer is
+    /// registered and ready through commit.
+    pub async fn create_task_submission_with_readiness(
+        &self,
+        input: NewTaskSubmission,
+        lease_token: &str,
+        registry: &ProviderRegistry,
+    ) -> Result<(TaskSubmissionRecord, AgentRunRecord), StoreError> {
+        self.create_task_submission_inner(input, lease_token, Some(registry))
+            .await
+    }
+
+    async fn create_task_submission_inner(
+        &self,
+        input: NewTaskSubmission,
+        lease_token: &str,
+        registry: Option<&ProviderRegistry>,
     ) -> Result<(TaskSubmissionRecord, AgentRunRecord), StoreError> {
         if lease_token.trim().is_empty() {
             return Err(StoreError::InvariantViolation {
@@ -54,8 +82,6 @@ impl NoemaStore {
             .ok_or_else(|| StoreError::InvariantViolation {
                 message: format!("executor run not found: {}", input.executor_run_id),
             })?;
-        self.validate_task_model_snapshot(&task.reviewer_model)
-            .await?;
         let submission_plan = plan_submission(
             input.clone(),
             &expected_criterion_ids,
@@ -81,21 +107,19 @@ impl NoemaStore {
             .clone()
             .unwrap_or_else(|| allocate_id("submission"));
         let reviewer_run_id = allocate_id("run");
-        let replay = self.with_connection(|conn| {
-            let tx = conn.transaction()?;
-            if let Some(replay) = existing_submission_replay(&tx, &input)? {
-                tx.commit()?;
-                return Ok(Some(replay));
+        let (replay, _ready_selection) = self.with_immediate_transaction_retry(|transaction| {
+            if let Some(replay) = existing_submission_replay(transaction, &input)? {
+                return Ok((Some(replay), None));
             }
             let persisted_criterion_ids = {
-                let mut statement = tx.prepare(
+                let mut statement = transaction.prepare(
                     "SELECT criterion_id FROM task_validation_criteria WHERE task_id = ?1 ORDER BY criterion_id",
                 )?;
                 statement
                     .query_map([input.task_id.as_str()], |row| row.get::<_, String>(0))?
                     .collect::<Result<Vec<_>, _>>()?
             };
-            let persisted_task_state = tx
+            let persisted_task_state = transaction
                 .query_row(
                     "SELECT status, revision_index, latest_run_id FROM tasks WHERE task_id = ?1",
                     [&input.task_id],
@@ -111,7 +135,7 @@ impl NoemaStore {
                 .ok_or_else(|| StoreError::InvariantViolation {
                     message: format!("task not found: {}", input.task_id),
                 })?;
-            let persisted_run_state = tx
+            let persisted_run_state = transaction
                 .query_row(
                     "SELECT task_id, run_kind, status, revision_index FROM agent_runs WHERE run_id = ?1",
                     [&input.executor_run_id],
@@ -149,7 +173,14 @@ impl NoemaStore {
                     message: format!("task changed while submitting: {}", input.task_id),
                 });
             }
-            let fenced = tx.execute(
+            let reviewer_selection = task_role_selection_tx(
+                transaction,
+                &input.task_id,
+                noema_tasks::RunKind::Reviewer,
+                SelectionEligibility::PreservedFutureReference,
+            )?;
+            let ready_selection = prove_selection_ready(&reviewer_selection, registry)?;
+            let fenced = transaction.execute(
                 "UPDATE agent_runs SET status = 'completed', ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, heartbeat_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND task_id = ?2 AND run_kind = 'executor' AND revision_index = ?3 AND lease_token = ?4 AND status = 'running' AND cancellation_requested = 0 AND EXISTS (SELECT 1 FROM tasks WHERE task_id = ?2 AND latest_run_id = ?1 AND status IN ('executing', 'revision_requested'))",
                 rusqlite::params![input.executor_run_id, input.task_id, input.revision_index, lease_token],
             )?;
@@ -161,43 +192,44 @@ impl NoemaStore {
                     ),
                 });
             }
-            tx.execute(
+            transaction.execute(
                 "INSERT INTO task_submissions (submission_id, task_id, executor_run_id, revision_index, summary, result_markdown) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 rusqlite::params![submission_id, input.task_id, input.executor_run_id, input.revision_index, input.summary.trim(), input.result_markdown.trim()],
             )?;
             for criterion in &input.criteria {
-                tx.execute(
+                transaction.execute(
                     "INSERT INTO task_submission_criteria (submission_id, criterion_id, evidence_markdown) VALUES (?1, ?2, ?3)",
                     rusqlite::params![submission_id, criterion.criterion_id, criterion.evidence_markdown.trim()],
                 )?;
             }
             for artifact in &artifacts {
-                tx.execute(
+                transaction.execute(
                     "INSERT INTO task_submission_artifacts (submission_id, artifact_id, artifact_version_id) VALUES (?1, ?2, ?3)",
                     rusqlite::params![submission_id, artifact.artifact.artifact_id, artifact.version.artifact_version_id],
                 )?;
             }
-            tx.execute(
-                "INSERT INTO agent_runs (run_id, task_id, run_kind, agent_id, attempt_index, revision_index, triggering_submission_id, provider_kind, provider_account_id, selection_mode, model_profile, reasoning_effort, selection_source, max_provider_continuations, max_tool_calls, max_active_minutes, progress_audit_interval, status) VALUES (?1, ?2, 'reviewer', ?3, 0, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 'queued')",
+            transaction.execute(
+                "INSERT INTO agent_runs (run_id, task_id, run_kind, agent_id, attempt_index, revision_index, triggering_submission_id, provider_kind, provider_account_id, provider_instance_key, selection_mode, model_profile, reasoning_effort, selection_source, max_provider_continuations, max_tool_calls, max_active_minutes, progress_audit_interval, status) VALUES (?1, ?2, 'reviewer', ?3, 0, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, 'queued')",
                 rusqlite::params![
                     reviewer_run_id,
                     task.task_id,
                     TASK_REVIEWER_AGENT_ID,
                     input.revision_index,
                     submission_id,
-                    task.reviewer_model.provider_kind,
-                    task.reviewer_model.provider_account_id,
-                    task.reviewer_model.selection_mode.as_str(),
-                    task.reviewer_model.model_profile,
-                    task.reviewer_model.reasoning_effort.map(noema_providers::ReasoningEffort::as_persistence_str),
-                    task.reviewer_model.selection_source,
+                    reviewer_selection.provider_kind,
+                    reviewer_selection.provider_account_id,
+                    reviewer_selection.provider_instance_key.as_ref().map(ToString::to_string),
+                    reviewer_selection.selection_mode.as_str(),
+                    reviewer_selection.model_profile,
+                    reviewer_selection.reasoning_effort.map(noema_providers::ReasoningEffort::as_persistence_str),
+                    reviewer_selection.selection_source,
                     execution_policy.max_provider_continuations,
                     execution_policy.max_tool_calls,
                     execution_policy.max_active_minutes,
                     execution_policy.progress_audit_interval,
                 ],
             )?;
-            tx.execute(
+            transaction.execute(
                 "INSERT INTO run_events (event_id, run_id, sequence_number, event_kind, actor_id, payload_json) VALUES (?1, ?2, 1, 'run.queued', ?3, ?4)",
                 rusqlite::params![
                     allocate_id("event"),
@@ -206,7 +238,7 @@ impl NoemaStore {
                     serde_json::json!({"run_kind": "reviewer", "revision_index": input.revision_index, "triggering_submission_id": submission_id}).to_string(),
                 ],
             )?;
-            let task_changed = tx.execute(
+            let task_changed = transaction.execute(
                 "UPDATE tasks SET status = 'reviewing', latest_run_id = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND latest_run_id = ?3 AND status IN ('executing', 'revision_requested')",
                 rusqlite::params![task.task_id, reviewer_run_id, input.executor_run_id],
             )?;
@@ -216,15 +248,14 @@ impl NoemaStore {
                 });
             }
             append_run_event_tx(
-                &tx,
+                transaction,
                 &input.executor_run_id,
                 "run.completed",
                 &input.executor_run_id,
                 serde_json::json!({"submission_id": submission_id}),
             )?;
-            append_task_event_tx(&tx, &task.task_id, "task.submission_created", &input.executor_run_id, serde_json::json!({"submission_id": submission_id, "reviewer_run_id": reviewer_run_id}))?;
-            tx.commit()?;
-            Ok(None)
+            append_task_event_tx(transaction, &task.task_id, "task.submission_created", &input.executor_run_id, serde_json::json!({"submission_id": submission_id, "reviewer_run_id": reviewer_run_id}))?;
+            Ok((None, Some(ready_selection)))
         }).await?;
         if let Some((submission_id, reviewer_run_id)) = replay {
             return load_submission_replay(self, &submission_id, &reviewer_run_id).await;

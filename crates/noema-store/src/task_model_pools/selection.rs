@@ -1,57 +1,126 @@
-use noema_providers::{ProviderAccountStatus, ProviderSelectionSnapshot, ReasoningEffort};
+use noema_providers::{ProviderReadySelection, ProviderSelectionSnapshot, ReasoningEffort};
 use noema_tasks::{NewTaskModelPoolEntry, TaskComplexity, TaskModelPoolEntry};
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
 
-use super::{NoemaStore, StoreError};
+use super::{NoemaStore, StoreError, rows::pool_entry_from_row};
+use crate::provider_selections::{
+    SelectionEligibility, resolve_new_canonical_selection_tx, validate_provider_selection_tx,
+};
 
 impl NoemaStore {
     /// Update an existing pool entry while retaining its stable id.
+    ///
+    /// Exact-route metadata edits and disabling are proof-free because they do
+    /// not establish a future reference. Enabling or redirecting an entry
+    /// requires [`Self::update_task_model_pool_entry_with_ready_selection`].
     pub async fn update_task_model_pool_entry(
         &self,
         pool_entry_id: &str,
         input: NewTaskModelPoolEntry,
+    ) -> Result<TaskModelPoolEntry, StoreError> {
+        self.update_task_model_pool_entry_inner(pool_entry_id, input, None)
+            .await
+    }
+
+    /// Update a pool entry while retaining a registry readiness lease through
+    /// commit. Enabling a disabled entry or redirecting an enabled entry must
+    /// use this API.
+    pub async fn update_task_model_pool_entry_with_ready_selection(
+        &self,
+        pool_entry_id: &str,
+        input: NewTaskModelPoolEntry,
+        ready_selection: &ProviderReadySelection,
+    ) -> Result<TaskModelPoolEntry, StoreError> {
+        self.update_task_model_pool_entry_inner(pool_entry_id, input, Some(ready_selection))
+            .await
+    }
+
+    async fn update_task_model_pool_entry_inner(
+        &self,
+        pool_entry_id: &str,
+        input: NewTaskModelPoolEntry,
+        ready_selection: Option<&ProviderReadySelection>,
     ) -> Result<TaskModelPoolEntry, StoreError> {
         let input = input
             .normalized()
             .map_err(|error| StoreError::InvariantViolation {
                 message: error.to_string(),
             })?;
-        self.validate_pool_account(&input.provider_kind, &input.provider_account_id)
-            .await?;
-        let existing = self
-            .get_task_model_pool_entry(pool_entry_id)
-            .await?
-            .ok_or_else(|| StoreError::InvariantViolation {
-                message: format!("task model pool entry not found: {pool_entry_id}"),
-            })?;
-        if !existing.is_global_setting() || existing.complexity != input.complexity {
+        if !noema_tasks::is_global_task_model_pool_setting_id(pool_entry_id) {
             return Err(StoreError::InvariantViolation {
                 message: "task model pool settings have stable complexity tiers".to_string(),
             });
         }
-        self.with_connection(|conn| {
-            conn.execute(
+        self.with_immediate_transaction_retry(|transaction| {
+            let existing = transaction
+                .query_row(
+                    r#"
+                    SELECT pool_entry_id, complexity, label, provider_kind,
+                           provider_account_id, provider_instance_key, model_profile,
+                           reasoning_effort, enabled, sort_order, created_at, updated_at
+                    FROM task_model_pool_entries
+                    WHERE pool_entry_id = ?1
+                    LIMIT 1
+                    "#,
+                    [pool_entry_id],
+                    pool_entry_from_row,
+                )
+                .optional()?
+                .ok_or_else(|| StoreError::InvariantViolation {
+                    message: format!("task model pool entry not found: {pool_entry_id}"),
+                })?;
+            if existing.complexity != input.complexity {
+                return Err(StoreError::InvariantViolation {
+                    message: "task model pool settings have stable complexity tiers".to_string(),
+                });
+            }
+            let unresolved = ProviderSelectionSnapshot::explicit(
+                input.provider_kind.clone(),
+                input.provider_account_id.clone(),
+                input.model_profile.clone(),
+                input.reasoning_effort,
+                Some("task_model_pool_setting".to_string()),
+            );
+            let retains_exact_route = requested_route_matches(&existing.model, &unresolved);
+            if !input.enabled && !retains_exact_route {
+                return Err(StoreError::InvariantViolation {
+                    message:
+                        "disabling a task model pool entry cannot also change its provider route"
+                            .to_string(),
+                });
+            }
+            let selection = if retains_exact_route && (existing.enabled || !input.enabled) {
+                existing.model
+            } else {
+                resolve_new_canonical_selection_tx(transaction, &unresolved, ready_selection)?
+            };
+            transaction.execute(
                 r#"
                 UPDATE task_model_pool_entries
                 SET complexity = ?2,
                     label = ?3,
                     provider_kind = ?4,
                     provider_account_id = ?5,
-                    model_profile = ?6,
-                    reasoning_effort = ?7,
-                    enabled = ?8,
-                    sort_order = ?9,
+                    provider_instance_key = ?6,
+                    model_profile = ?7,
+                    reasoning_effort = ?8,
+                    enabled = ?9,
+                    sort_order = ?10,
                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                 WHERE pool_entry_id = ?1
                 "#,
                 params![
-                    existing.pool_entry_id,
+                    pool_entry_id,
                     input.complexity.as_str(),
                     input.label,
-                    input.provider_kind,
-                    input.provider_account_id,
-                    input.model_profile,
-                    input
+                    selection.provider_kind,
+                    selection.provider_account_id,
+                    selection
+                        .provider_instance_key
+                        .as_ref()
+                        .map(ToString::to_string),
+                    selection.model_profile,
+                    selection
                         .reasoning_effort
                         .map(ReasoningEffort::as_persistence_str),
                     input.enabled,
@@ -103,73 +172,21 @@ impl NoemaStore {
         &self,
         model: &ProviderSelectionSnapshot,
     ) -> Result<(), StoreError> {
-        self.validate_usable_pool_account(
-            &model.provider_kind,
-            &model.provider_account_id,
-            model.model_profile.as_deref(),
-        )
+        self.with_immediate_transaction_retry(|transaction| {
+            validate_provider_selection_tx(transaction, model, SelectionEligibility::Canonical)
+                .map(|_| ())
+        })
         .await
     }
+}
 
-    async fn validate_pool_account(
-        &self,
-        provider_kind: &str,
-        provider_account_id: &str,
-    ) -> Result<(), StoreError> {
-        let account = self
-            .get_provider_account(provider_account_id)
-            .await?
-            .ok_or_else(|| StoreError::ProviderAccountNotFound {
-                provider_account_id: provider_account_id.to_string(),
-            })?;
-        if !account.is_active || account.provider_kind != provider_kind {
-            return Err(StoreError::InvariantViolation {
-                message: format!(
-                    "provider account {} is not an active {} account",
-                    provider_account_id, provider_kind
-                ),
-            });
-        }
-        Ok(())
-    }
-
-    async fn validate_usable_pool_account(
-        &self,
-        provider_kind: &str,
-        provider_account_id: &str,
-        model_profile: Option<&str>,
-    ) -> Result<(), StoreError> {
-        self.validate_pool_account(provider_kind, provider_account_id)
-            .await?;
-        let account = self
-            .get_provider_account(provider_account_id)
-            .await?
-            .ok_or_else(|| StoreError::ProviderAccountNotFound {
-                provider_account_id: provider_account_id.to_string(),
-            })?;
-        if account.status != ProviderAccountStatus::Authenticated {
-            return Err(StoreError::InvariantViolation {
-                message: format!(
-                    "provider account {provider_account_id} is not authenticated for task execution"
-                ),
-            });
-        }
-        if let Some(model_profile) = model_profile
-            && let Some(profiles) = account
-                .metadata
-                .get("profiles")
-                .and_then(serde_json::Value::as_array)
-            && !profiles.is_empty()
-            && !profiles.iter().any(|profile| {
-                profile.get("id").and_then(serde_json::Value::as_str) == Some(model_profile)
-            })
-        {
-            return Err(StoreError::InvariantViolation {
-                message: format!(
-                    "model profile {model_profile} is not available for provider account {provider_account_id}"
-                ),
-            });
-        }
-        Ok(())
-    }
+fn requested_route_matches(
+    existing: &ProviderSelectionSnapshot,
+    requested: &ProviderSelectionSnapshot,
+) -> bool {
+    existing.provider_kind == requested.provider_kind
+        && existing.provider_account_id == requested.provider_account_id
+        && existing.selection_mode == requested.selection_mode
+        && existing.model_profile == requested.model_profile
+        && existing.reasoning_effort == requested.reasoning_effort
 }

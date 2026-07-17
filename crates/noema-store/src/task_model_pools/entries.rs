@@ -13,7 +13,7 @@ impl NoemaStore {
             conn.query_row(
                 r#"
                 SELECT pool_entry_id, complexity, label, provider_kind,
-                       provider_account_id, model_profile, reasoning_effort,
+                       provider_account_id, provider_instance_key, model_profile, reasoning_effort,
                        enabled, sort_order, created_at, updated_at
                 FROM task_model_pool_entries
                 WHERE pool_entry_id = ?1
@@ -37,7 +37,7 @@ impl NoemaStore {
             let mut statement = conn.prepare(
                 r#"
                 SELECT pool_entry_id, complexity, label, provider_kind,
-                       provider_account_id, model_profile, reasoning_effort,
+                       provider_account_id, provider_instance_key, model_profile, reasoning_effort,
                        enabled, sort_order, created_at, updated_at
                 FROM task_model_pool_entries
                 WHERE (?1 IS NULL OR complexity = ?1)

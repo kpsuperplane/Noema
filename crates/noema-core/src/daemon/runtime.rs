@@ -13,8 +13,6 @@ pub(crate) mod model_tools;
 mod progress;
 pub(crate) mod progress_audit;
 mod prompt_context;
-#[allow(dead_code)]
-pub(crate) mod provider_routes;
 mod task_completion;
 mod task_continuation;
 mod task_transcript;
@@ -30,11 +28,13 @@ pub(crate) use background_task::BackgroundTaskGenerateRequest;
 pub(crate) use handle::CodexRuntimeHandle;
 #[cfg(test)]
 pub(crate) use handle::RuntimeProviderMap;
-pub(crate) use provider_routes::LegacyProviderRoutes;
 
 pub(crate) struct CodexRuntimeSpawnConfig {
-    pub(crate) default_provider_kind: String,
-    pub(crate) provider_routes: LegacyProviderRoutes,
+    pub(crate) primary_provider: noema_providers::ProviderRouteResolverHandle,
+    pub(crate) default_provider: noema_providers::ProviderRouteResolverHandle,
+    pub(crate) progress_audit_provider: noema_providers::ProviderRouteResolverHandle,
+    pub(crate) web_summary_provider: noema_providers::ProviderRouteResolverHandle,
+    pub(crate) provider_registry: noema_providers::ProviderRegistryHandle,
     pub(crate) store: noema_store::NoemaStore,
     pub(crate) artifact_operations: noema_artifacts::ArtifactOperationsHandle,
     pub(crate) system_errors: noema_home::SystemErrorLogger,

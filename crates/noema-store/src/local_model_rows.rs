@@ -1,14 +1,17 @@
 //! SQLite row decoding and numeric conversion for local-model persistence.
 
-use noema_providers::{LocalModelBackend, LocalModelEventRecord, LocalModelInstallationRecord};
+use noema_providers::{
+    LocalModelBackend, LocalModelEventRecord, LocalModelInstallationRecord, ProviderInstanceKey,
+};
 
 use super::StoreError;
 
 pub(super) const INSTALLATION_SELECT: &str = r#"
-SELECT installation_id, model_id, display_name, source_kind, source_repo,
-       source_revision, source_file, sha256, download_gb, expected_bytes,
-       downloaded_bytes, license, backend, status, blob_relative_path, is_active,
-       error_code, error_message, installed_at, created_at, updated_at
+SELECT installation_id, provider_instance_key, model_id, display_name, source_kind,
+       source_repo, source_revision, source_file, sha256, download_gb,
+       expected_bytes, downloaded_bytes, license, backend, status,
+       blob_relative_path, is_active, runtime_retired_at, retirement_claimed_at, error_code,
+       error_message, installed_at, created_at, updated_at
 FROM local_model_installations
 "#;
 
@@ -28,6 +31,7 @@ pub(super) type RawInstallation = (
     String,
     String,
     String,
+    String,
     Option<String>,
     Option<String>,
     Option<String>,
@@ -40,6 +44,8 @@ pub(super) type RawInstallation = (
     String,
     Option<String>,
     bool,
+    Option<String>,
+    Option<String>,
     Option<String>,
     Option<String>,
     Option<String>,
@@ -72,6 +78,9 @@ pub(super) fn raw_installation_from_row(
         row.get(18)?,
         row.get(19)?,
         row.get(20)?,
+        row.get(21)?,
+        row.get(22)?,
+        row.get(23)?,
     ))
 }
 
@@ -80,32 +89,40 @@ pub(super) fn installation_from_raw(
 ) -> Result<LocalModelInstallationRecord, StoreError> {
     Ok(LocalModelInstallationRecord {
         installation_id: raw.0,
-        model_id: raw.1,
-        display_name: raw.2,
-        source_kind: raw.3.parse().map_err(|_| StoreError::InvalidEnum {
+        provider_instance_key: raw.1.parse::<ProviderInstanceKey>().map_err(|_| {
+            StoreError::InvariantViolation {
+                message: "local-model installation has an invalid provider instance key"
+                    .to_string(),
+            }
+        })?,
+        model_id: raw.2,
+        display_name: raw.3,
+        source_kind: raw.4.parse().map_err(|_| StoreError::InvalidEnum {
             kind: "local model source kind",
-            value: raw.3.clone(),
+            value: raw.4.clone(),
         })?,
-        source_repo: raw.4,
-        source_revision: raw.5,
-        source_file: raw.6,
-        sha256: raw.7,
-        download_gb: raw.8,
-        expected_bytes: optional_i64_to_u64(raw.9, "expected bytes")?,
-        downloaded_bytes: i64_to_u64(raw.10, "downloaded bytes")?,
-        license: raw.11,
-        backend: parse_backend(&raw.12)?,
-        status: raw.13.parse().map_err(|_| StoreError::InvalidEnum {
+        source_repo: raw.5,
+        source_revision: raw.6,
+        source_file: raw.7,
+        sha256: raw.8,
+        download_gb: raw.9,
+        expected_bytes: optional_i64_to_u64(raw.10, "expected bytes")?,
+        downloaded_bytes: i64_to_u64(raw.11, "downloaded bytes")?,
+        license: raw.12,
+        backend: parse_backend(&raw.13)?,
+        status: raw.14.parse().map_err(|_| StoreError::InvalidEnum {
             kind: "local model installation status",
-            value: raw.13.clone(),
+            value: raw.14.clone(),
         })?,
-        blob_relative_path: raw.14,
-        is_active: raw.15,
-        error_code: raw.16,
-        error_message: raw.17,
-        installed_at: raw.18,
-        created_at: raw.19,
-        updated_at: raw.20,
+        blob_relative_path: raw.15,
+        is_active: raw.16,
+        runtime_retired_at: raw.17,
+        retirement_claimed_at: raw.18,
+        error_code: raw.19,
+        error_message: raw.20,
+        installed_at: raw.21,
+        created_at: raw.22,
+        updated_at: raw.23,
     })
 }
 

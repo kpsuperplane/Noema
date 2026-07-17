@@ -218,7 +218,12 @@ pub(super) fn map_persistence_error(
         crate::ProviderPersistenceError::ProtectedAccount { .. } => {
             ProviderAccountOperationError::ProtectedAccount
         }
-        crate::ProviderPersistenceError::Conflict { .. } => ProviderAccountOperationError::Conflict,
+        crate::ProviderPersistenceError::AccountInUse { .. }
+        | crate::ProviderPersistenceError::Conflict { .. }
+        | crate::ProviderPersistenceError::ProviderInstanceReferenced { .. }
+        | crate::ProviderPersistenceError::ProviderInstanceRetiring { .. } => {
+            ProviderAccountOperationError::Conflict
+        }
         crate::ProviderPersistenceError::InvalidRequest { .. }
         | crate::ProviderPersistenceError::InstallationNotFound { .. }
         | crate::ProviderPersistenceError::InvalidInstallationTransition { .. }

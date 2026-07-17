@@ -5,8 +5,8 @@ use noema_store::{NoemaStore, StoreConfig};
 use crate::{
     DEFAULT_NOEMA_CONFIG_YAML, DaemonError,
     daemon::{
-        CodexRuntimeHandle, CodexRuntimeSpawnConfig, LegacyProviderRoutes,
-        ProviderAccountRuntimeAccess, TaskRuntimeHandle,
+        CodexRuntimeHandle, CodexRuntimeSpawnConfig, ProviderAccountRuntimeAccess,
+        TaskRuntimeHandle,
     },
     mcp_completion::RuntimeMcpAutofillCompletionBridge,
 };
@@ -22,17 +22,19 @@ use noema_home::{
     NoemaHomeInitOptions, NoemaPathError, NoemaPaths, SystemErrorEvent, SystemErrorLogger,
     init_noema_home,
 };
-#[cfg(test)]
-use noema_memory::SaveMemoryServiceSettings;
 use noema_memory::{
     MemoryModelProxy, MemoryModelProxyConfig, MemoryRepositoryHandle, MemoryServiceAccessHandle,
-    MemoryServiceMode, MemoryServicePaths, MemoryServiceSettingsRecord, MnemosyneLifecycle,
-    MnemosyneMemoryService, MnemosyneMemoryServiceAccess, memory_provider_selection_loader,
+    MemoryServiceMode, MemoryServicePaths, MnemosyneLifecycle, MnemosyneMemoryService,
+    MnemosyneMemoryServiceAccess, memory_provider_selection_loader,
 };
+#[cfg(test)]
+use noema_memory::{MemoryServiceSettingsRecord, SaveMemoryServiceSettings};
 use noema_providers::{
-    DEFAULT_TOOL_CLASSIFICATION_MODEL, LocalModelActivationPersistenceHandle,
-    LocalModelInstallationPersistenceHandle, LocalModelManager, ProviderAccountOperationsHandle,
-    ProviderAccountService, ProviderConfig,
+    LocalModelActivationPersistenceHandle, LocalModelInstallationPersistenceHandle,
+    LocalModelLifecyclePersistenceHandle, LocalModelManager, ProviderAccountOperationsHandle,
+    ProviderAccountService, ProviderConfig, ProviderKind, ProviderRegistry, ProviderRegistryHandle,
+    ProviderRouteResolverHandle, ProviderSelectionSnapshot, RegistryProviderRouteResolver,
+    provider_account_instance_key,
 };
 use ring::rand::{SecureRandom, SystemRandom};
 use std::{path::PathBuf, sync::Arc};
@@ -80,7 +82,7 @@ impl NoemaRuntimeHost {
         provider: ProviderConfig,
         local_model_runtime_root: Option<PathBuf>,
     ) -> Result<Self, RuntimeHostError> {
-        let configured_provider_kind = provider.kind().as_str().to_string();
+        let configured_provider_model = provider.model().map(str::to_string);
         let paths = NoemaPaths::from_process_env()
             .map_err(|source| RuntimeHostError::DataFolder(source.to_string()))?;
         init_noema_home(
@@ -103,11 +105,11 @@ impl NoemaRuntimeHost {
             .await
             .map_err(|source| RuntimeHostError::Store(source.to_string()))?;
         store
-            .ensure_default_local_models_provider_account()
+            .ensure_default_openai_provider_account()
             .await
             .map_err(|source| RuntimeHostError::Store(source.to_string()))?;
         store
-            .ensure_default_task_model_pool_settings(&configured_provider_kind)
+            .ensure_default_local_models_provider_account()
             .await
             .map_err(|source| RuntimeHostError::Store(source.to_string()))?;
         let codex_oauth = match &provider {
@@ -126,31 +128,126 @@ impl NoemaRuntimeHost {
         let provider_credentials = provider_account_service.credentials();
         let local_model_manager_config =
             provider.local_model_manager_config(local_model_runtime_root, system_errors.clone());
-        let local_model_installations: LocalModelInstallationPersistenceHandle =
-            Arc::new(store.clone());
-        let local_model_activation: LocalModelActivationPersistenceHandle = Arc::new(store.clone());
-        let local_model_manager = LocalModelManager::new(
-            local_model_installations,
-            local_model_activation,
-            paths.clone(),
-            local_model_manager_config,
-        )
-        .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
-        local_model_manager
-            .start_active_installation()
-            .await
-            .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
-
-        let (default_provider_kind, _default_model_profile, providers) =
+        let (default_provider_kind, default_model_profile, providers) =
             CodexRuntimeHandle::provider_map_from_config(
                 provider,
                 system_errors.clone(),
                 provider_credentials.clone(),
             )
             .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
-        let provider_routes = LegacyProviderRoutes::new(providers.clone())
-            .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?
-            .with_local_models_route(local_model_manager.route_handle());
+        let provider_registry: ProviderRegistryHandle = Arc::new(ProviderRegistry::new());
+        register_hosted_providers(&provider_registry, &providers)
+            .map_err(RuntimeHostError::Runtime)?;
+        // Foundation Models is process-local and credential-free. OpenAI is
+        // constructed only from a complete configured secret. Codex retains
+        // its account-service authentication state.
+        store
+            .update_provider_account_status(
+                "provider_account:foundation_local:default",
+                noema_providers::ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .map_err(|source| RuntimeHostError::Store(source.to_string()))?;
+        if providers.contains_key(ProviderKind::OpenAi.as_str()) {
+            store
+                .update_provider_account_status(
+                    "provider_account:openai:default",
+                    noema_providers::ProviderAccountStatus::Authenticated,
+                    None,
+                    None,
+                )
+                .await
+                .map_err(|source| RuntimeHostError::Store(source.to_string()))?;
+        }
+        let local_model_installations: LocalModelInstallationPersistenceHandle =
+            Arc::new(store.clone());
+        let local_model_activation: LocalModelActivationPersistenceHandle = Arc::new(store.clone());
+        let local_model_lifecycle: LocalModelLifecyclePersistenceHandle = Arc::new(store.clone());
+        let local_model_manager = LocalModelManager::new(
+            local_model_installations,
+            local_model_activation,
+            local_model_lifecycle,
+            provider_registry.clone(),
+            paths.clone(),
+            local_model_manager_config,
+        )
+        .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
+        local_model_manager
+            .reconstruct_persisted_instances()
+            .await
+            .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
+        let configured_default = if store
+            .get_default_model_preference()
+            .await
+            .map_err(|source| RuntimeHostError::Store(source.to_string()))?
+            .is_some()
+        {
+            // Once initialized, SQLite is authoritative. In particular, a
+            // Settings activation may legitimately differ from stale YAML.
+            store
+                .default_provider_selection()
+                .await
+                .map_err(|source| RuntimeHostError::Store(source.to_string()))?
+        } else {
+            let configured_model_profile = default_model_profile
+                .or(configured_provider_model)
+                .ok_or_else(|| {
+                    RuntimeHostError::Runtime(
+                        "configured default provider has no concrete model profile".to_string(),
+                    )
+                })?;
+            let mut selection = ProviderSelectionSnapshot::explicit(
+                &default_provider_kind,
+                model_provider_account_id(&default_provider_kind)?,
+                configured_model_profile,
+                None,
+                Some("configured_default".to_string()),
+            );
+            let configured_key = if default_provider_kind == ProviderKind::LocalModels.as_str() {
+                let active = local_model_manager
+                    .installations()
+                    .await
+                    .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?
+                    .into_iter()
+                    .find(|installation| {
+                        installation.is_active
+                            && installation.model_id
+                                == selection.model_profile.as_deref().unwrap_or_default()
+                    })
+                    .ok_or_else(|| {
+                        RuntimeHostError::Runtime(
+                            "configured local default has no active installation".to_string(),
+                        )
+                    })?;
+                store
+                    .update_provider_account_status(
+                        noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
+                        noema_providers::ProviderAccountStatus::Authenticated,
+                        None,
+                        None,
+                    )
+                    .await
+                    .map_err(|source| RuntimeHostError::Store(source.to_string()))?;
+                active.provider_instance_key
+            } else {
+                provider_account_instance_key(&selection.provider_account_id)
+                    .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?
+            };
+            selection.provider_instance_key = Some(configured_key);
+            selection
+        };
+        let ready_configured_default = provider_registry
+            .prove_ready_selection(configured_default.clone())
+            .ok();
+        store
+            .initialize_missing_provider_selections(
+                &configured_default,
+                ready_configured_default.as_ref(),
+            )
+            .await
+            .map_err(|source| RuntimeHostError::Store(source.to_string()))?;
         let memory_repository: MemoryRepositoryHandle = Arc::new(store.clone());
         let memory_settings = memory_repository
             .memory_service_settings()
@@ -170,9 +267,7 @@ impl NoemaRuntimeHost {
             MemoryServiceMode::External => None,
             MemoryServiceMode::Managed => {
                 match memory_model_proxy_config_from_settings(
-                    &memory_settings,
-                    &default_provider_kind,
-                    provider_routes.clone(),
+                    provider_registry.clone(),
                     memory_repository.clone(),
                     generate_memory_model_proxy_api_key().map_err(RuntimeHostError::Runtime)?,
                     system_errors.clone(),
@@ -290,9 +385,28 @@ impl NoemaRuntimeHost {
         )
         .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
         let mcp_operations = mcp_service.operations();
+        let primary_provider = registry_route_resolver(
+            store.agent_provider_selection_loader("agent:primary"),
+            provider_registry.clone(),
+        );
+        let default_provider = registry_route_resolver(
+            store.default_provider_selection_loader(),
+            provider_registry.clone(),
+        );
+        let progress_audit_provider = registry_route_resolver(
+            store.auxiliary_provider_selection_loader(noema_store::TOOL_PROGRESS_AUDIT_TASK_ID),
+            provider_registry.clone(),
+        );
+        let web_summary_provider = registry_route_resolver(
+            store.auxiliary_provider_selection_loader(noema_store::WEB_FETCH_SUMMARIZER_TASK_ID),
+            provider_registry.clone(),
+        );
         let runtime = CodexRuntimeHandle::spawn(CodexRuntimeSpawnConfig {
-            default_provider_kind,
-            provider_routes,
+            primary_provider,
+            default_provider,
+            progress_audit_provider,
+            web_summary_provider,
+            provider_registry,
             store: store.clone(),
             artifact_operations: artifact_operations.clone(),
             system_errors: system_errors.clone(),
@@ -308,6 +422,7 @@ impl NoemaRuntimeHost {
         let task_runtime = TaskRuntimeHandle::start(
             store.clone(),
             runtime.clone(),
+            local_model_manager.registry(),
             system_errors.clone(),
             subscriptions.clone(),
         );
@@ -431,33 +546,64 @@ impl NoemaRuntimeHost {
 }
 
 async fn memory_model_proxy_config_from_settings(
-    settings: &MemoryServiceSettingsRecord,
-    default_provider_kind: &str,
-    provider_routes: LegacyProviderRoutes,
+    provider_registry: ProviderRegistryHandle,
     memory_repository: MemoryRepositoryHandle,
     api_key: String,
     system_errors: SystemErrorLogger,
 ) -> Result<MemoryModelProxyConfig, String> {
-    let route_resolver = provider_routes.bind(memory_provider_selection_loader(
-        memory_repository,
-        default_provider_kind,
-    ));
-    let route = route_resolver
-        .resolve_route()
+    let settings = memory_repository
+        .memory_service_settings()
         .await
-        .map_err(|error| format!("memory model provider is unavailable: {error}"))?;
-    let model_profile = settings
+        .map_err(|error| format!("memory model settings are unavailable: {error}"))?;
+    let selection = noema_memory::memory_provider_selection(&settings)
+        .map_err(|error| format!("memory model selection is unavailable: {error}"))?;
+    let route_resolver = registry_route_resolver(
+        memory_provider_selection_loader(memory_repository),
+        provider_registry,
+    );
+    let model_profile = selection
         .model_profile
-        .clone()
-        .or_else(|| route.selection().model_profile.clone())
-        .or_else(|| route.operations().default_tool_classification_model())
-        .unwrap_or_else(|| DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string());
+        .ok_or_else(|| "memory model selection has no model profile".to_string())?;
     Ok(MemoryModelProxyConfig {
         route_resolver,
         api_key,
         model_profile,
         system_errors: Some(system_errors),
     })
+}
+
+fn registry_route_resolver(
+    loader: noema_providers::ProviderSelectionLoaderHandle,
+    registry: ProviderRegistryHandle,
+) -> ProviderRouteResolverHandle {
+    Arc::new(RegistryProviderRouteResolver::new(loader, registry))
+}
+
+fn register_hosted_providers(
+    registry: &ProviderRegistryHandle,
+    providers: &std::collections::HashMap<String, noema_providers::ProviderHandle>,
+) -> Result<(), String> {
+    for (provider_kind, provider) in providers {
+        let account_id =
+            model_provider_account_id(provider_kind).map_err(|error| error.to_string())?;
+        let key = provider_account_instance_key(account_id).map_err(|error| error.to_string())?;
+        registry
+            .register(key, provider.clone())
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+fn model_provider_account_id(provider_kind: &str) -> Result<&'static str, RuntimeHostError> {
+    match provider_kind {
+        "codex" => Ok("provider_account:codex:default"),
+        "openai" => Ok("provider_account:openai:default"),
+        "foundation_local" => Ok("provider_account:foundation_local:default"),
+        "local_models" => Ok(noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID),
+        other => Err(RuntimeHostError::Runtime(format!(
+            "unsupported configured model provider: {other}"
+        ))),
+    }
 }
 
 fn generate_memory_model_proxy_api_key() -> Result<String, String> {
@@ -554,7 +700,8 @@ mod tests {
             port: None,
             provider_account_id: Some("provider_account:foundation_local:default".to_string()),
             provider_kind: Some("foundation_local".to_string()),
-            model_profile: Some("memory-profile".to_string()),
+            provider_instance_key: None,
+            model_profile: Some(noema_providers::DEFAULT_FOUNDATION_LOCAL_PROFILE.to_string()),
             reasoning_effort: Some(noema_providers::ReasoningEffort::Low),
         };
         let store = crate::test_support::test_store().await;
@@ -563,23 +710,42 @@ mod tests {
             .await
             .expect("foundation account");
         store
-            .save_memory_service_settings(SaveMemoryServiceSettings {
-                mode: settings.mode,
-                base_url: settings.base_url.clone(),
-                port: settings.port,
-                provider_account_id: settings.provider_account_id.clone(),
-                provider_kind: settings.provider_kind.clone(),
-                model_profile: settings.model_profile.clone(),
-                reasoning_effort: settings.reasoning_effort,
-            })
+            .update_provider_account_status(
+                "provider_account:foundation_local:default",
+                noema_providers::ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .expect("authenticate foundation account");
+        let ready_selection =
+            crate::test_support::ready_provider_selection(ProviderSelectionSnapshot::explicit(
+                "foundation_local",
+                "provider_account:foundation_local:default",
+                noema_providers::DEFAULT_FOUNDATION_LOCAL_PROFILE,
+                Some(noema_providers::ReasoningEffort::Low),
+                Some("memory_proxy_test".to_string()),
+            ));
+        store
+            .save_memory_service_settings_with_ready_selection(
+                SaveMemoryServiceSettings {
+                    mode: settings.mode,
+                    base_url: settings.base_url.clone(),
+                    port: settings.port,
+                    provider_account_id: settings.provider_account_id.clone(),
+                    provider_kind: settings.provider_kind.clone(),
+                    model_profile: settings.model_profile.clone(),
+                    reasoning_effort: settings.reasoning_effort,
+                },
+                &ready_selection,
+            )
             .await
             .expect("memory settings");
-        let routes = LegacyProviderRoutes::new(providers.clone()).expect("provider routes");
+        let registry: ProviderRegistryHandle = Arc::new(ProviderRegistry::new());
+        register_hosted_providers(&registry, &providers).expect("register providers");
 
         let config = memory_model_proxy_config_from_settings(
-            &settings,
-            "codex",
-            routes,
+            registry,
             Arc::new(store.clone()),
             "secret".to_string(),
             test_system_error_logger(),
@@ -592,7 +758,10 @@ mod tests {
             .await
             .expect("memory route");
 
-        assert_eq!(config.model_profile, "memory-profile");
+        assert_eq!(
+            config.model_profile,
+            noema_providers::DEFAULT_FOUNDATION_LOCAL_PROFILE
+        );
         assert_eq!(
             route.selection().reasoning_effort,
             Some(noema_providers::ReasoningEffort::Low)
@@ -610,15 +779,35 @@ mod tests {
             .await
             .expect("codex account");
         store
-            .save_memory_service_settings(SaveMemoryServiceSettings {
-                mode: MemoryServiceMode::Managed,
-                base_url: None,
-                port: None,
-                provider_account_id: Some("provider_account:codex:default".to_string()),
-                provider_kind: Some("codex".to_string()),
-                model_profile: Some("codex-memory".to_string()),
-                reasoning_effort: None,
-            })
+            .update_provider_account_status(
+                "provider_account:codex:default",
+                noema_providers::ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .expect("authenticate codex account");
+        let ready_selection =
+            crate::test_support::ready_provider_selection(ProviderSelectionSnapshot::explicit(
+                "codex",
+                "provider_account:codex:default",
+                "codex-memory",
+                None,
+                Some("memory_proxy_test".to_string()),
+            ));
+        store
+            .save_memory_service_settings_with_ready_selection(
+                SaveMemoryServiceSettings {
+                    mode: MemoryServiceMode::Managed,
+                    base_url: None,
+                    port: None,
+                    provider_account_id: Some("provider_account:codex:default".to_string()),
+                    provider_kind: Some("codex".to_string()),
+                    model_profile: Some("codex-memory".to_string()),
+                    reasoning_effort: None,
+                },
+                &ready_selection,
+            )
             .await
             .expect("updated memory settings");
         let refreshed = config
@@ -641,28 +830,38 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn memory_proxy_config_falls_back_to_default_provider_when_unset() {
+    async fn memory_proxy_config_uses_default_seeded_during_initialization() {
         let providers = crate::daemon::RuntimeProviderMap::from([(
             "codex".to_string(),
             Arc::new(DefaultModelProvider("codex-default")) as noema_providers::ProviderHandle,
         )]);
-        let settings = MemoryServiceSettingsRecord {
-            settings_id: "default".to_string(),
-            mode: MemoryServiceMode::Managed,
-            base_url: None,
-            port: None,
-            provider_account_id: None,
-            provider_kind: None,
-            model_profile: None,
-            reasoning_effort: None,
-        };
         let store = crate::test_support::test_store().await;
-        let routes = LegacyProviderRoutes::new(providers.clone()).expect("provider routes");
+        store
+            .ensure_default_provider_account()
+            .await
+            .expect("codex account");
+        let mut configured_default = ProviderSelectionSnapshot::explicit(
+            "codex",
+            "provider_account:codex:default",
+            "codex-default",
+            None,
+            Some("test_configured_default".to_string()),
+        );
+        configured_default.provider_instance_key = Some(
+            provider_account_instance_key("provider_account:codex:default").expect("provider key"),
+        );
+        let registry: ProviderRegistryHandle = Arc::new(ProviderRegistry::new());
+        register_hosted_providers(&registry, &providers).expect("register providers");
+        let ready_selection = registry
+            .prove_ready_selection(configured_default.clone())
+            .expect("ready configured selection");
+        store
+            .initialize_missing_provider_selections(&configured_default, Some(&ready_selection))
+            .await
+            .expect("initialize selections");
 
         let config = memory_model_proxy_config_from_settings(
-            &settings,
-            "codex",
-            routes,
+            registry,
             Arc::new(store),
             "secret".to_string(),
             test_system_error_logger(),
@@ -683,6 +882,46 @@ mod tests {
                 .as_deref(),
             Some("codex-default")
         );
+    }
+
+    #[tokio::test]
+    async fn memory_proxy_config_does_not_require_provider_readiness_at_startup() {
+        let store = crate::test_support::test_store().await;
+        store
+            .ensure_default_provider_account()
+            .await
+            .expect("codex account");
+        let configured_default = ProviderSelectionSnapshot::explicit(
+            "codex",
+            "provider_account:codex:default",
+            "codex-default",
+            None,
+            Some("test_configured_default".to_string()),
+        );
+        let ready_selection =
+            crate::test_support::ready_provider_selection(configured_default.clone());
+        store
+            .initialize_missing_provider_selections(
+                ready_selection.selection(),
+                Some(&ready_selection),
+            )
+            .await
+            .expect("initialize selections");
+
+        let config = memory_model_proxy_config_from_settings(
+            Arc::new(ProviderRegistry::new()),
+            Arc::new(store),
+            "secret".to_string(),
+            test_system_error_logger(),
+        )
+        .await
+        .expect("proxy config");
+
+        assert_eq!(config.model_profile, "codex-default");
+        assert!(matches!(
+            config.route_resolver.resolve_route().await,
+            Err(noema_providers::ProviderRouteError::InstanceMissing { .. })
+        ));
     }
 
     #[derive(Debug)]

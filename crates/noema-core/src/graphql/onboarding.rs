@@ -249,20 +249,13 @@ pub(super) async fn onboarding_status(state: &GraphqlState) -> Result<GraphqlOnb
         .active_accounts()
         .await
         .map_err(graphql_error)?;
-    let account = if let Some(preference) =
-        selected_preference.filter(|preference| preference.provider_kind != "local_models")
-    {
-        accounts
-            .iter()
-            .find(|account| account.provider_account_id == preference.provider_account_id)
-    } else {
-        let fallback_provider = state
-            .runtime()
-            .map_or("codex", crate::daemon::CodexRuntimeHandle::provider_kind);
-        accounts
-            .iter()
-            .find(|account| account.provider_kind == fallback_provider && account.is_default)
-    };
+    let account = selected_preference
+        .filter(|preference| preference.provider_kind != "local_models")
+        .and_then(|preference| {
+            accounts
+                .iter()
+                .find(|account| account.provider_account_id == preference.provider_account_id)
+        });
     let account = match account {
         Some(account) => Some(
             provider_account_operations

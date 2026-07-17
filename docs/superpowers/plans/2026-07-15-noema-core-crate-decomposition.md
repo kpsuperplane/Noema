@@ -1897,38 +1897,43 @@ and production SQLite-backed resolvers do not exist yet.
 
 ### Checkpoint 10C — Persist Exact Identity, Adopt Routing, And Enable Retirement
 
-- [ ] Apply the one explicitly approved pre-v1 bootstrap-schema rewrite, with no
+- [x] Apply the one explicitly approved pre-v1 bootstrap-schema rewrite, with no
   migration or compatibility layer. Persist a unique opaque
   `provider_instance_key` on `local_model_installations`,
   `default_model_preference`, `agent_runtime_preferences`,
   `auxiliary_model_preferences`, `memory_service_settings`,
   `task_model_pool_entries`, and `agent_runs`; add separate
   `executor_provider_instance_key` and `reviewer_provider_instance_key` columns
-  to `tasks`. Add a retirement-claim field to `local_model_installations`.
+  to `tasks`. Add a reversible runtime-retirement marker and a separate
+  monotonic removal-claim field to `local_model_installations`.
   Hosted keys are stable per account; local keys encode the exact
   `installation_id`, never `model_id` alone. Update semantic records, row
   adapters, fixtures, bootstrap version, bootstrap-text hash, schema-shape
   hash, and schema tests as one store-owned unit.
-- [ ] Add one store-owned `initialize_missing_provider_selections` writer
+- [x] Add one store-owned `initialize_missing_provider_selections` writer
   transaction, invoked after resolved provider configuration and ready hosted/
   reconstructed local instances are known. It preserves every existing row but
   fills absent default, built-in-agent, task-pool/reviewer, memory, audit, and
   web-summary selections from the resolved configured default, revalidating the
-  account/profile and writing its exact instance key. A fresh database cannot
+  account/profile, requiring a registry-held readiness proof, and writing its
+  exact instance key. If every canonical slot already exists, the transaction
+  performs no write and requires no new readiness proof. A fresh database cannot
   fall back to an in-memory `default_provider_kind`; an unresolvable configured
   default fails initialization with a typed configuration error. An existing
   exact selection whose provider is temporarily unavailable remains persisted
   and produces typed availability errors at use time, so recoverable local
   startup failure does not silently change routing.
-- [ ] Make SQLite authoritative for every route-affecting write. Default,
+- [x] Make SQLite authoritative for every route-affecting write. Default,
   agent, task-pool, memory, auxiliary, and local-activation persistence methods
   revalidate provider account/profile availability and active-local-model
   eligibility inside the same SQLite transaction that writes the selection;
   GraphQL prevalidation is only user feedback. Concurrent ordinary saves and
-  activation serialize by transaction commit order. Every persisted selection
-  writes and later returns its exact key; no read path re-derives a local
-  instance by choosing the active or newest row for a non-unique `model_id`.
-- [ ] Move selection capture for queued task runs, retries, and reviewer runs
+  activation serialize by transaction commit order. Every write that creates a
+  new future reference retains an opaque registry readiness proof through
+  commit. Every persisted selection writes and later returns its exact key; no
+  read path re-derives a local instance by choosing the active or newest row for
+  a non-unique `model_id`.
+- [x] Move selection capture for queued task runs, retries, and reviewer runs
   into the same SQLite writer transaction that inserts their durable execution
   snapshot. Begin the writer transaction before reading the applicable
   preference, revalidate local-instance eligibility there, and on `BUSY` or a
@@ -1936,7 +1941,7 @@ and production SQLite-backed resolvers do not exist yet.
   pre-transaction snapshot. A retry that deliberately preserves an earlier
   route establishes and validates that future lease reference in this
   transaction, rejecting an already-claimed instance.
-- [ ] Before switching any production consumer, use the Phase 10B manager to
+- [x] Before switching any production consumer, use the Phase 10B manager to
   inspect every unclaimed instance named by a canonical selection or
   future-lease-eligible durable snapshot. Missing installation metadata, an
   identity/key mismatch, or a persistently claimed key is a typed fatal
@@ -1945,12 +1950,12 @@ and production SQLite-backed resolvers do not exist yet.
   and is recorded as degraded/unavailable; use returns the typed availability
   error and startup may continue. A newly written or changed selection still
   requires a ready registered instance before its transaction commits.
-- [ ] Replace and delete Phase 5B's temporary legacy resolver implementation.
+- [x] Replace and delete Phase 5B's temporary legacy resolver implementation.
   Runtime, memory, task, audit, and web-summary consumers now receive bound
   `ProviderRouteResolverHandle`s backed by exact owner-repository snapshot
   loaders and the shared registry. The read-to-lease retry protocol lands in
   production only after the preceding reconstruction gate passes.
-- [ ] Treat each foreground user turn as a fresh canonical route. Remove
+- [x] Treat each foreground user turn as a fresh canonical route. Remove
   provider/model selection from long-lived active-conversation state; resolve
   and lease immediately before provider metadata lookup/compaction, then hold
   the lease through generation, tools, replay, and finalization. Foreground
@@ -1958,38 +1963,50 @@ and production SQLite-backed resolvers do not exist yet.
   interrupted turn terminal and never resumes its `previous_response_id`; the
   next input resolves a new selection. No foreground history row is counted as
   a future provider reference.
-- [ ] Pin the same exact route for each background run, while a distinct
+- [x] Pin the same exact route for each background run, while a distinct
   auxiliary audit/summary, next turn, task run, memory request, or web-summary
   request resolves its own fresh lease.
-- [ ] Treat `ProviderInstanceLease` as the provider-process retirement boundary.
+- [x] Treat `ProviderInstanceLease` as the provider-process retirement boundary.
   The persistence port classifies every canonical selection and durable state
   that can lawfully start, resume, or retry in the future; terminal history does
   not pin an instance because retry creation atomically establishes a new
   reference. Only an unreferenced instance enters retirement, and its process
   remains alive until current leases drain.
-- [ ] Give the provider persistence port one atomic
-  `claim_unreferenced_instance_for_retirement` operation. In a SQLite writer
-  transaction it compare-and-sets the inactive installation's persisted claim
-  only after proving no canonical selection or future-lease-eligible snapshot
-  names the exact key. Every preference and durable-snapshot writer rejects a
-  claimed key in its own writer transaction; registry retirement begins only
-  after the durable claim commits.
-- [ ] Run a bounded `LocalModelManager` retirement reaper at startup, after
-  activation, and periodically through an injected clock. It invokes the CAS,
-  mirrors committed claims into registry retirement, and removes/stops instances
-  after leases drain. A crash after the claim is reconciled from SQLite on
-  startup without making the claimed key leaseable.
-- [ ] Put explicit removal through the same retirement-claim protocol. Removal
-  fails with a typed reference conflict while any canonical selection or
-  future-lease-eligible snapshot names the installation; after a successful
-  claim it waits for leases to drain before deleting blob and row. Claimed keys
-  cannot be activated or resurrected.
-- [ ] Upgrade Phase 10B activation to commit the all-selection SQLite
+- [x] Give the provider persistence port an atomic
+  `retire_unreferenced_instance_runtime` operation. In a SQLite writer
+  transaction it compare-and-sets the inactive installation's reversible
+  runtime-retirement marker only after proving no canonical selection or
+  future-lease-eligible snapshot names the exact key. Every preference and
+  durable-snapshot writer rejects both runtime-retired and removal-claimed keys
+  in its own writer transaction. Registry retirement begins only after the
+  durable runtime marker commits; a later proof-held activation may clear that
+  marker, while it can never clear a removal claim.
+- [x] Run a bounded `LocalModelManager` retirement reaper at startup, after
+  activation, and periodically through an injected clock. It invokes the
+  runtime-retirement CAS, mirrors committed markers into registry retirement,
+  and stops the process after leases drain while preserving the installed row
+  and verified content-addressed blob for later reactivation. A crash after the
+  marker is reconciled from SQLite on startup without making the retired key
+  leaseable.
+- [x] Put explicit removal through a distinct monotonic removal-claim protocol.
+  Removal fails with a typed reference conflict while any canonical selection
+  or future-lease-eligible snapshot names the installation; after a successful
+  claim it cancels/drains owned workers, waits for leases to drain, and deletes
+  the installation row plus installation-scoped partials. Verified
+  content-addressed blobs remain orphaned until a future digest-aware garbage
+  collector can prove that no installation shares them. Claimed keys cannot be
+  activated or resurrected, and the registry key is unblocked for deterministic
+  reinstall only after durable row deletion commits.
+- [x] Upgrade Phase 10B activation to commit the all-selection SQLite
   transaction after the new instance is ready and registered. New chains read
   the committed selections and lease the new key; chains that already captured
-  old selections keep the old lease. If persistence fails, unregister and stop
-  only the new instance. On startup, reconstruct every referenced unclaimed
-  instance while completing cleanup for persistently claimed instances.
+  old selections keep the old lease. Activation passes the exact ready
+  selection proof into the all-selection transaction and returns its committed
+  installation projection, avoiding a fallible post-commit reread. If
+  persistence fails, unregister and stop only the new instance. On startup,
+  reconstruct every referenced unclaimed instance, reject a referenced or active
+  runtime-retired row as a typed fatal invariant, and complete cleanup for
+  persistently removal-claimed instances.
 
 **Checkpoint exit:** exact schema/store tests, initialization and reconstruction
 tests, multi-instance retirement tests, focused runtime and memory routing

@@ -13,6 +13,23 @@ use tempfile::TempDir;
 
 use super::{NoemaStore, StoreConfig};
 
+async fn insert_user_managed_codex_account(store: &NoemaStore, account_id: &str) {
+    let connection = store.connection_for_tests();
+    let connection = connection.lock().await;
+    connection
+        .execute(
+            r#"
+            INSERT INTO provider_accounts (
+              provider_account_id, provider_kind, account_key, display_name,
+              auth_method, is_active, is_default, status, metadata_json
+            ) VALUES (?1, 'codex', ?2, 'User managed Codex',
+                      'external_manual', 1, 0, 'authenticated', '{}')
+            "#,
+            rusqlite::params![account_id, account_id],
+        )
+        .expect("user-managed provider account");
+}
+
 #[tokio::test]
 async fn catalog_commit_merges_latest_metadata_and_status_atomically() {
     let store = super::tests::test_store().await;
@@ -268,6 +285,91 @@ async fn protected_account_delete_has_a_typed_error() {
             provider_account_id: account.provider_account_id
         }
     );
+}
+
+#[tokio::test]
+async fn referenced_account_delete_has_a_typed_port_error() {
+    let store = super::tests::test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let provider_account_id = "provider_account:codex:port-reference";
+    insert_user_managed_codex_account(&store, provider_account_id).await;
+    let ready_selection = super::tests::ready_provider_selection(
+        noema_providers::ProviderSelectionSnapshot::explicit(
+            "codex",
+            provider_account_id,
+            "gpt-test",
+            None,
+            Some("account_delete_port_test".to_string()),
+        ),
+    );
+    store
+        .upsert_agent_runtime_preference_with_ready_selection(
+            crate::NewAgentRuntimePreference {
+                agent_id: "agent:primary".to_string(),
+                provider_kind: "codex".to_string(),
+                provider_account_id: provider_account_id.to_string(),
+                model_profile: "gpt-test".to_string(),
+                reasoning_effort: None,
+            },
+            &ready_selection,
+        )
+        .await
+        .expect("canonical reference");
+
+    let error = ProviderAccountPersistence::delete_provider_account(&store, provider_account_id)
+        .await
+        .expect_err("referenced account must be retained");
+
+    assert_eq!(
+        error,
+        ProviderPersistenceError::AccountInUse {
+            provider_account_id: provider_account_id.to_string(),
+        }
+    );
+}
+
+#[tokio::test]
+async fn canonical_reference_write_and_account_delete_never_leave_a_dangling_selection() {
+    let home = TempDir::new().expect("temp store root");
+    let config = StoreConfig::new(home.path().join("db/noema.sqlite3"));
+    let writer = NoemaStore::open(&config).await.expect("writer");
+    let deleter = NoemaStore::open(&config).await.expect("deleter");
+    writer.ensure_default_actors().await.expect("actors");
+    let provider_account_id = "provider_account:codex:concurrent-reference";
+    insert_user_managed_codex_account(&writer, provider_account_id).await;
+
+    let preference = crate::NewAgentRuntimePreference {
+        agent_id: "agent:primary".to_string(),
+        provider_kind: "codex".to_string(),
+        provider_account_id: provider_account_id.to_string(),
+        model_profile: "gpt-test".to_string(),
+        reasoning_effort: None,
+    };
+    let ready_selection = super::tests::ready_provider_selection(
+        noema_providers::ProviderSelectionSnapshot::explicit(
+            "codex",
+            provider_account_id,
+            "gpt-test",
+            None,
+            Some("concurrent_account_reference".to_string()),
+        ),
+    );
+    let (_write_result, _delete_result) = tokio::join!(
+        writer.upsert_agent_runtime_preference_with_ready_selection(preference, &ready_selection,),
+        ProviderAccountPersistence::delete_provider_account(&deleter, provider_account_id),
+    );
+
+    let account_exists = writer
+        .get_provider_account(provider_account_id)
+        .await
+        .expect("account read")
+        .is_some();
+    let selection_exists = writer
+        .get_agent_runtime_preference("agent:primary")
+        .await
+        .expect("selection read")
+        .is_some();
+    assert!(!selection_exists || account_exists);
 }
 
 #[tokio::test]

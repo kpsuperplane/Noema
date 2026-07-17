@@ -25,8 +25,12 @@ pub use catalog::{
 };
 pub use error::ProviderPersistenceError;
 pub use local_models::{
-    LocalModelActivationPersistence, LocalModelActivationPersistenceHandle,
-    LocalModelInstallationPersistence, LocalModelInstallationPersistenceHandle,
+    ClaimedLocalModelInstallation, LocalModelActivationPersistence,
+    LocalModelActivationPersistenceHandle, LocalModelInstallationPersistence,
+    LocalModelInstallationPersistenceHandle, LocalModelInstanceReference,
+    LocalModelInstanceReferenceSource, LocalModelLifecyclePersistence,
+    LocalModelLifecyclePersistenceHandle, LocalModelReconstructionSnapshot,
+    LocalModelRetirementClaimResult, LocalModelRuntimeRetirementResult,
 };
 
 use std::{future::Future, pin::Pin};

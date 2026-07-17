@@ -163,6 +163,17 @@ impl GraphqlState {
         self
     }
 
+    /// Attach an explicit provider registry to existing test state.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn with_provider_registry(
+        mut self,
+        provider_registry: noema_providers::ProviderRegistryHandle,
+    ) -> Self {
+        self.runtime_state = self.runtime_state.with_provider_registry(provider_registry);
+        self
+    }
+
     /// Build state backed by the shared Noema runtime host.
     #[must_use]
     pub fn from_runtime_host(host: &crate::NoemaRuntimeHost) -> Self {
@@ -204,6 +215,10 @@ impl GraphqlState {
 
     pub(crate) fn local_model_manager(&self) -> Result<&noema_providers::LocalModelManager> {
         self.runtime_state.local_model_manager()
+    }
+
+    pub(crate) fn provider_registry(&self) -> Result<&noema_providers::ProviderRegistryHandle> {
+        self.runtime_state.provider_registry()
     }
 
     pub(crate) fn memory_repository(&self) -> Result<&noema_memory::MemoryRepositoryHandle> {
@@ -1693,7 +1708,7 @@ mod tests {
         {
             let requests = requests.lock().expect("requests");
             assert_eq!(requests.len(), 1);
-            assert_eq!(requests[0].model.as_deref(), None);
+            assert_eq!(requests[0].model.as_deref(), Some("gpt-5.6-luna"));
             match &requests[0].input {
                 noema_providers::GenerateInput::Text(prompt) => {
                     assert!(prompt.contains("Kevin prefers local-first tools"));
@@ -1769,15 +1784,40 @@ mod tests {
         let server_base_url = spawn_memory_graph_mnemosyne_server().await;
         let store = crate::test_support::test_store().await;
         store
-            .save_memory_service_settings(noema_memory::SaveMemoryServiceSettings {
-                mode: noema_memory::MemoryServiceMode::External,
-                base_url: Some(server_base_url),
-                port: None,
-                provider_account_id: Some("provider_account:codex:default".to_string()),
-                provider_kind: Some("codex".to_string()),
-                model_profile: Some("memory-writer".to_string()),
-                reasoning_effort: Some(noema_providers::ReasoningEffort::High),
-            })
+            .ensure_default_provider_account()
+            .await
+            .expect("provider account");
+        store
+            .update_provider_account_status(
+                "provider_account:codex:default",
+                noema_providers::ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .expect("authenticated provider account");
+        let ready_selection = crate::test_support::ready_provider_selection(
+            noema_providers::ProviderSelectionSnapshot::explicit(
+                "codex",
+                "provider_account:codex:default",
+                "memory-writer",
+                Some(noema_providers::ReasoningEffort::High),
+                Some("memory_article_test".to_string()),
+            ),
+        );
+        store
+            .save_memory_service_settings_with_ready_selection(
+                noema_memory::SaveMemoryServiceSettings {
+                    mode: noema_memory::MemoryServiceMode::External,
+                    base_url: Some(server_base_url),
+                    port: None,
+                    provider_account_id: Some("provider_account:codex:default".to_string()),
+                    provider_kind: Some("codex".to_string()),
+                    model_profile: Some("memory-writer".to_string()),
+                    reasoning_effort: Some(noema_providers::ReasoningEffort::High),
+                },
+                &ready_selection,
+            )
             .await
             .expect("settings");
         let citation = crate::graphql::memory::memory_citation_key("mem_1");
@@ -2450,13 +2490,34 @@ mod tests {
             .await
             .expect("foundation account");
         store
-            .upsert_agent_runtime_preference(noema_store::NewAgentRuntimePreference {
-                agent_id: "agent:primary".to_string(),
-                provider_kind: "foundation_local".to_string(),
-                provider_account_id: foundation.provider_account_id,
-                model_profile: "default".to_string(),
-                reasoning_effort: None,
-            })
+            .update_provider_account_status(
+                &foundation.provider_account_id,
+                noema_providers::ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .expect("authenticated foundation account");
+        let ready_selection = crate::test_support::ready_provider_selection(
+            noema_providers::ProviderSelectionSnapshot::explicit(
+                "foundation_local",
+                &foundation.provider_account_id,
+                "default",
+                None,
+                Some("agent_preference_test".to_string()),
+            ),
+        );
+        store
+            .upsert_agent_runtime_preference_with_ready_selection(
+                noema_store::NewAgentRuntimePreference {
+                    agent_id: "agent:primary".to_string(),
+                    provider_kind: "foundation_local".to_string(),
+                    provider_account_id: foundation.provider_account_id,
+                    model_profile: "default".to_string(),
+                    reasoning_effort: None,
+                },
+                &ready_selection,
+            )
             .await
             .expect("preference");
 
@@ -3420,13 +3481,34 @@ mod tests {
             .await
             .expect("foundation account");
         store
-            .upsert_agent_runtime_preference(noema_store::NewAgentRuntimePreference {
-                agent_id: "agent:primary".to_string(),
-                provider_kind: "foundation_local".to_string(),
-                provider_account_id: foundation.provider_account_id,
-                model_profile: "default".to_string(),
-                reasoning_effort: None,
-            })
+            .update_provider_account_status(
+                &foundation.provider_account_id,
+                noema_providers::ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .expect("authenticated foundation account");
+        let ready_selection = crate::test_support::ready_provider_selection(
+            noema_providers::ProviderSelectionSnapshot::explicit(
+                "foundation_local",
+                &foundation.provider_account_id,
+                "default",
+                None,
+                Some("primary_conversation_test".to_string()),
+            ),
+        );
+        store
+            .upsert_agent_runtime_preference_with_ready_selection(
+                noema_store::NewAgentRuntimePreference {
+                    agent_id: "agent:primary".to_string(),
+                    provider_kind: "foundation_local".to_string(),
+                    provider_account_id: foundation.provider_account_id,
+                    model_profile: "default".to_string(),
+                    reasoning_effort: None,
+                },
+                &ready_selection,
+            )
             .await
             .expect("preference");
 
@@ -5349,11 +5431,43 @@ mod tests {
             tool_classification_model: Some("old-classifier".to_string()),
             requests: old_requests.clone(),
         });
-        let routes = crate::daemon::LegacyProviderRoutes::new([("codex", old_provider)])
-            .expect("provider routes");
-        let runtime = crate::daemon::CodexRuntimeHandle::spawn_with_provider_routes_and_memory(
-            "codex".to_string(),
-            routes.clone(),
+        store
+            .ensure_default_provider_account()
+            .await
+            .expect("provider account");
+        store
+            .update_provider_account_status(
+                "provider_account:codex:default",
+                noema_providers::ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .expect("authenticate provider account");
+        let instance_key =
+            noema_providers::provider_account_instance_key("provider_account:codex:default")
+                .expect("provider instance key");
+        let mut configured_default = noema_providers::ProviderSelectionSnapshot::explicit(
+            "codex",
+            "provider_account:codex:default",
+            "gpt-test",
+            None,
+            Some("test_configured_default".to_string()),
+        );
+        configured_default.provider_instance_key = Some(instance_key.clone());
+        let registry = Arc::new(noema_providers::ProviderRegistry::new());
+        registry
+            .register(instance_key.clone(), old_provider)
+            .expect("register old provider");
+        let ready_selection = registry
+            .prove_ready_selection(configured_default.clone())
+            .expect("ready configured selection");
+        store
+            .initialize_missing_provider_selections(&configured_default, Some(&ready_selection))
+            .await
+            .expect("initialize provider selections");
+        let runtime = crate::daemon::CodexRuntimeHandle::spawn_with_provider_registry_and_memory(
+            registry.clone(),
             store.clone(),
             crate::test_support::artifact_operations(&store).expect("artifact operations"),
             crate::test_support::system_error_logger(),
@@ -5369,11 +5483,9 @@ mod tests {
                 tool_classification_model: Some("replacement-classifier".to_string()),
                 requests: replacement_requests.clone(),
             });
-        let publication = routes.begin_publication().await;
-        publication
-            .register("codex", replacement)
+        registry
+            .register(instance_key, replacement)
             .expect("publish replacement");
-        drop(publication);
         let schema = build_schema(GraphqlState::for_tests_with_store_and_runtime(
             store, runtime,
         ));
@@ -6107,34 +6219,42 @@ mod tests {
             )
             .await
             .expect("authenticated provider");
+        crate::test_support::initialize_codex_provider_selections(&store).await;
+        let provider_registry = crate::test_support::ready_test_provider_registry();
         let pool = store
-            .ensure_default_task_model_pool_settings("codex")
+            .ensure_default_task_model_pool_settings_with_readiness(
+                "codex",
+                provider_registry.as_ref(),
+            )
             .await
             .expect("task models")
             .into_iter()
             .find(|entry| entry.complexity == noema_tasks::TaskComplexity::Simple)
             .expect("simple task model");
         let (task, run) = store
-            .create_task_with_executor(noema_tasks::NewTask {
-                task_id: None,
-                title: "Subscription task".to_string(),
-                request_markdown: "Stream updates".to_string(),
-                complexity: noema_tasks::TaskComplexity::Simple,
-                owner_human_id: "human:local".to_string(),
-                source: noema_tasks::TaskSource::default(),
-                created_by_agent_id: "agent:primary".to_string(),
-                creation_tool_call_id: None,
-                pool_entry_id: pool.pool_entry_id,
-                executor_model: pool.model.clone(),
-                reviewer_model: pool.model,
-                max_review_rounds: None,
-                criteria: vec![noema_tasks::NewTaskValidationCriterion {
-                    criterion_id: None,
-                    ordinal: 1,
-                    description: "Completes".to_string(),
-                    expected_evidence: None,
-                }],
-            })
+            .create_task_with_executor_with_readiness(
+                noema_tasks::NewTask {
+                    task_id: None,
+                    title: "Subscription task".to_string(),
+                    request_markdown: "Stream updates".to_string(),
+                    complexity: noema_tasks::TaskComplexity::Simple,
+                    owner_human_id: "human:local".to_string(),
+                    source: noema_tasks::TaskSource::default(),
+                    created_by_agent_id: "agent:primary".to_string(),
+                    creation_tool_call_id: None,
+                    pool_entry_id: pool.pool_entry_id,
+                    executor_model: pool.model.clone(),
+                    reviewer_model: pool.model,
+                    max_review_rounds: None,
+                    criteria: vec![noema_tasks::NewTaskValidationCriterion {
+                        criterion_id: None,
+                        ordinal: 1,
+                        description: "Completes".to_string(),
+                        expected_evidence: None,
+                    }],
+                },
+                provider_registry.as_ref(),
+            )
             .await
             .expect("task");
         let state = GraphqlState::for_tests_with_store(store);

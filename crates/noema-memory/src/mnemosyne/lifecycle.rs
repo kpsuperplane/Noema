@@ -165,6 +165,7 @@ impl MnemosyneLifecycle {
                 port: None,
                 provider_account_id: None,
                 provider_kind: None,
+                provider_instance_key: None,
                 model_profile: None,
                 reasoning_effort: None,
             },

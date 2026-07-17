@@ -2,6 +2,8 @@
 
 use thiserror::Error;
 
+use crate::ProviderInstanceKey;
+
 /// Transport- and repository-neutral provider persistence failure.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ProviderPersistenceError {
@@ -23,6 +25,12 @@ pub enum ProviderPersistenceError {
         /// Protected provider account id.
         provider_account_id: String,
     },
+    /// A canonical or future-work selection still names the provider account.
+    #[error("provider account is still in use: {provider_account_id}")]
+    AccountInUse {
+        /// Referenced provider account id.
+        provider_account_id: String,
+    },
     /// The caller supplied an invalid provider persistence request.
     #[error("invalid provider persistence request: {kind}")]
     InvalidRequest {
@@ -42,6 +50,18 @@ pub enum ProviderPersistenceError {
     ActiveInstallationConflict {
         /// Active installation id.
         installation_id: String,
+    },
+    /// Durable future work still references an exact provider instance.
+    #[error("provider instance is still referenced: {provider_instance_key}")]
+    ProviderInstanceReferenced {
+        /// Referenced immutable instance identity.
+        provider_instance_key: ProviderInstanceKey,
+    },
+    /// A durable selection attempted to reference a claimed instance.
+    #[error("provider instance is claimed for retirement: {provider_instance_key}")]
+    ProviderInstanceRetiring {
+        /// Claimed immutable instance identity.
+        provider_instance_key: ProviderInstanceKey,
     },
     /// Concurrent persistence state prevented a guarded operation.
     #[error("provider persistence conflict during {operation}")]

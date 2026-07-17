@@ -4,11 +4,11 @@ use noema_capabilities::{CapabilityId, ToolName};
 
 use super::*;
 use crate::{
-    DefaultModelPreferenceRecord, LocalModelBackend, LocalModelEventRecord,
-    LocalModelInstallationRecord, LocalModelInstallationStatus, LocalModelInstallationUpdate,
-    LocalModelSourceKind, NewLocalModelInstallation, NewProviderAccount,
-    PersistedProviderAccountRecord, ProviderCapabilityAccountReference,
-    ProviderCapabilityAssignment, ProviderCapabilityAssignmentKey, RemovedLocalModelInstallation,
+    LocalModelBackend, LocalModelEventRecord, LocalModelInstallationRecord,
+    LocalModelInstallationStatus, LocalModelInstallationUpdate, LocalModelSourceKind,
+    NewLocalModelInstallation, NewProviderAccount, PersistedProviderAccountRecord,
+    ProviderCapabilityAccountReference, ProviderCapabilityAssignment,
+    ProviderCapabilityAssignmentKey, RemovedLocalModelInstallation,
 };
 
 fn unsupported<T>(operation: &'static str) -> ProviderPersistenceFuture<'static, T> {
@@ -146,11 +146,11 @@ impl LocalModelInstallationPersistence for InstallationFake {
         unsupported("cancel_local_model_installation")
     }
 
-    fn remove_local_model_installation<'a>(
+    fn remove_terminal_local_model_installation<'a>(
         &'a self,
         _installation_id: &'a str,
     ) -> ProviderPersistenceFuture<'a, RemovedLocalModelInstallation> {
-        unsupported("remove_local_model_installation")
+        unsupported("remove_terminal_local_model_installation")
     }
 
     fn local_model_events(
@@ -168,7 +168,8 @@ impl LocalModelActivationPersistence for ActivationFake {
     fn activate_local_model_as_system_default<'a>(
         &'a self,
         _installation_id: &'a str,
-    ) -> ProviderPersistenceFuture<'a, DefaultModelPreferenceRecord> {
+        _ready_selection: &'a crate::ProviderReadySelection,
+    ) -> ProviderPersistenceFuture<'a, LocalModelInstallationRecord> {
         unsupported("activate_local_model")
     }
 }
@@ -281,19 +282,13 @@ async fn every_persistence_port_is_object_safe_and_independently_erasable() {
     );
     assert!(
         installations
-            .remove_local_model_installation("id")
+            .remove_terminal_local_model_installation("id")
             .await
             .is_err()
     );
     assert!(installations.local_model_events(None, 1).await.is_err());
 
-    let activation: LocalModelActivationPersistenceHandle = Arc::new(ActivationFake);
-    assert!(
-        activation
-            .activate_local_model_as_system_default("id")
-            .await
-            .is_err()
-    );
+    let _activation: LocalModelActivationPersistenceHandle = Arc::new(ActivationFake);
 }
 
 fn local_model_installation() -> NewLocalModelInstallation {

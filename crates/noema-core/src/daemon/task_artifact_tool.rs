@@ -163,8 +163,9 @@ mod tests {
             .expect("criteria")[0]
             .criterion_id
             .clone();
+        let provider_registry = crate::test_support::ready_test_provider_registry();
         let (_, reviewer) = store
-            .create_task_submission(
+            .create_task_submission_with_readiness(
                 noema_tasks::NewTaskSubmission {
                     submission_id: None,
                     task_id: task.task_id.clone(),
@@ -179,6 +180,7 @@ mod tests {
                     artifact_ids: vec![artifact.artifact.artifact_id.clone()],
                 },
                 "lease:executor",
+                provider_registry.as_ref(),
             )
             .await
             .expect("submission");

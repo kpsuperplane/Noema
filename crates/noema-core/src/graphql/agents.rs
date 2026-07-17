@@ -238,14 +238,24 @@ pub(super) async fn save_agent_model_preference(
     let profiles = selectable_profiles_from_account(store, &account).await?;
     let profile = require_selectable_profile(&profiles, &input.model_profile)?;
     let reasoning_effort = validate_reasoning_effort_for_profile(profile, input.reasoning_effort)?;
+    let ready_selection = super::provider_selection::prove_ready_selection(
+        state,
+        &account.provider_kind,
+        &account.provider_account_id,
+        &input.model_profile,
+        reasoning_effort,
+        "graphql_agent_runtime_preference",
+    )
+    .await?;
+    let preference = NewAgentRuntimePreference {
+        agent_id: input.agent_id,
+        provider_kind: account.provider_kind,
+        provider_account_id: account.provider_account_id,
+        model_profile: input.model_profile,
+        reasoning_effort,
+    };
     let saved = store
-        .upsert_agent_runtime_preference(NewAgentRuntimePreference {
-            agent_id: input.agent_id,
-            provider_kind: account.provider_kind,
-            provider_account_id: account.provider_account_id,
-            model_profile: input.model_profile,
-            reasoning_effort,
-        })
+        .upsert_agent_runtime_preference_with_ready_selection(preference, &ready_selection)
         .await
         .map_err(graphql_error)?;
     Ok(GraphqlAgentModelPreference {
@@ -501,12 +511,27 @@ mod tests {
     #[tokio::test]
     async fn installed_active_local_model_is_selectable_and_saveable() {
         let store = crate::test_support::test_store().await;
-        let installation_id = seed_installed_bonsai(&store).await;
+        let (installation_id, provider_instance_key) = seed_installed_bonsai(&store).await;
+        let manager =
+            crate::test_support::local_model_manager(&store, crate::test_support::test_paths());
+        let mut selection = noema_providers::ProviderSelectionSnapshot::explicit(
+            "local_models",
+            noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
+            "ternary-bonsai-8b",
+            None,
+            Some("test_local_activation".to_string()),
+        );
+        selection.provider_instance_key = Some(provider_instance_key);
+        let ready_selection = crate::test_support::ready_provider_selection_in_registry(
+            selection,
+            manager.registry().as_ref(),
+        );
         store
-            .activate_local_model_as_system_default(&installation_id)
+            .activate_local_model_as_system_default(&installation_id, &ready_selection)
             .await
             .expect("activate Bonsai");
-        let state = GraphqlState::for_tests_with_store(store.clone());
+        let state =
+            GraphqlState::for_tests_with_store(store.clone()).with_local_model_manager(manager);
 
         let projected_agents = agents(&state).await.expect("agents");
         let primary = projected_agents
@@ -542,7 +567,9 @@ mod tests {
         assert_eq!(saved.model_profile, "ternary-bonsai-8b");
     }
 
-    async fn seed_installed_bonsai(store: &noema_store::NoemaStore) -> String {
+    async fn seed_installed_bonsai(
+        store: &noema_store::NoemaStore,
+    ) -> (String, noema_providers::ProviderInstanceKey) {
         let installation_id = "local_model_installation:catalog:ternary-bonsai-8b:test".to_string();
         let installation = store
             .upsert_local_model_installation(noema_providers::NewLocalModelInstallation {
@@ -583,6 +610,6 @@ mod tests {
                 .await
                 .expect("installation transition");
         }
-        installation_id
+        (installation_id, installation.provider_instance_key)
     }
 }

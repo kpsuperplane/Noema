@@ -357,6 +357,8 @@ pub struct NewLocalModelInstallation {
 pub struct LocalModelInstallationRecord {
     /// Stable installation identity.
     pub installation_id: String,
+    /// Exact provider instance backed by this installation.
+    pub provider_instance_key: ProviderInstanceKey,
     /// Provider-facing model profile.
     pub model_id: String,
     /// Product-facing model name.
@@ -387,6 +389,15 @@ pub struct LocalModelInstallationRecord {
     pub blob_relative_path: Option<String>,
     /// Whether this installation is Noema's active default local model.
     pub is_active: bool,
+    /// Timestamp at which automatic reaping durably retired this runtime.
+    ///
+    /// This intent is reversible: activation clears it atomically after a
+    /// replacement runtime is ready and before publishing durable references.
+    pub runtime_retired_at: Option<String>,
+    /// Timestamp at which explicit removal durably claimed this installation.
+    ///
+    /// Unlike runtime retirement, this claim is monotonic until row deletion.
+    pub retirement_claimed_at: Option<String>,
     /// Stable failure code, when failed.
     pub error_code: Option<String>,
     /// Human-readable failure detail, when failed.
@@ -444,6 +455,8 @@ pub struct DefaultModelPreferenceRecord {
     pub provider_kind: String,
     /// Provider account identity.
     pub provider_account_id: String,
+    /// Exact provider instance selected by this preference.
+    pub provider_instance_key: ProviderInstanceKey,
     /// Provider-facing model profile.
     pub model_profile: String,
     /// Optional provider reasoning-effort string.
@@ -457,8 +470,6 @@ pub struct DefaultModelPreferenceRecord {
 pub struct RemovedLocalModelInstallation {
     /// Projection that was removed.
     pub installation: LocalModelInstallationRecord,
-    /// Blob path that may be deleted after the transaction, when unreferenced.
-    pub unreferenced_blob_relative_path: Option<String>,
 }
 
 #[cfg(test)]

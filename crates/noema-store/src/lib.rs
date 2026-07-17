@@ -15,6 +15,9 @@ mod conversations;
 mod error;
 mod ids;
 mod local_model_activation;
+mod local_model_lifecycle;
+#[cfg(test)]
+mod local_model_lifecycle_tests;
 #[cfg(test)]
 mod local_model_port_tests;
 mod local_model_ports;
@@ -32,6 +35,9 @@ mod provider_capability_port;
 mod provider_catalog_port;
 #[cfg(test)]
 mod provider_persistence_port_tests;
+mod provider_selection_initialization;
+mod provider_selection_loaders;
+mod provider_selections;
 mod run_items;
 mod runtime;
 mod schema;

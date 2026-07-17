@@ -2,7 +2,7 @@ use serde::Deserialize;
 
 use noema_providers::{
     GenerateInput, GenerateOptions, GenerateRequest, GenerateResponseItem, GenerationPriority,
-    ProviderRouteLease, ProviderSelectionSnapshot,
+    ProviderRouteLease,
 };
 
 use super::actor::CodexRuntimeActor;
@@ -84,56 +84,26 @@ impl CodexRuntimeActor {
     }
 
     async fn progress_audit_model(&self) -> Result<ProgressAuditModel, ProgressAuditError> {
-        if let Some(preference) = self
-            .store
-            .get_auxiliary_model_preference(noema_store::TOOL_PROGRESS_AUDIT_TASK_ID)
+        let route = self
+            .progress_audit_provider
+            .resolve_route()
             .await
             .map_err(|_| {
                 ProgressAuditError::Unavailable(
-                    "progress audit preference could not be read".to_string(),
+                    "progress audit provider is not available".to_string(),
                 )
-            })?
-        {
-            let route = self
-                .resolve_provider_route(ProviderSelectionSnapshot::explicit(
-                    preference.provider_kind.clone(),
-                    preference.provider_account_id,
-                    preference.model_profile.clone(),
-                    preference.reasoning_effort,
-                    Some("tool_progress_audit_preference".to_string()),
-                ))
-                .await
-                .map_err(|_| {
-                    ProgressAuditError::Unavailable(format!(
-                        "progress audit provider '{}' is not available",
-                        preference.provider_kind
-                    ))
-                })?;
-            return Ok(ProgressAuditModel {
-                route,
-                model_profile: preference.model_profile,
-                reasoning_effort: preference.reasoning_effort,
-            });
-        }
-
-        let provider_kind = self.default_provider_kind.clone();
-        let route = self.default_provider().await.map_err(|_| {
-            ProgressAuditError::Unavailable(format!(
-                "progress audit default provider '{provider_kind}' is not available"
-            ))
-        })?;
-        let model_profile = route
-            .operations()
-            .default_tool_classification_model()
-            .ok_or_else(|| {
-                ProgressAuditError::Unavailable(format!(
-                    "progress audit default provider '{provider_kind}' has no tool-classification model"
-                ))
             })?;
+        let selection = route.selection();
+        let model_profile = route.selection().model_profile.clone().ok_or_else(|| {
+            ProgressAuditError::Unavailable(
+                "progress audit selection has no concrete model profile".to_string(),
+            )
+        })?;
+        let reasoning_effort = selection.reasoning_effort;
         Ok(ProgressAuditModel {
             route,
             model_profile,
-            reasoning_effort: None,
+            reasoning_effort,
         })
     }
 }
@@ -245,6 +215,25 @@ mod tests {
         pin::Pin,
         sync::{Arc, Mutex},
     };
+
+    async fn upsert_ready_auxiliary_model_preference(
+        store: &noema_store::NoemaStore,
+        preference: noema_store::NewAuxiliaryModelPreference,
+    ) {
+        let ready_selection = crate::test_support::ready_provider_selection(
+            noema_providers::ProviderSelectionSnapshot::explicit(
+                &preference.provider_kind,
+                &preference.provider_account_id,
+                &preference.model_profile,
+                preference.reasoning_effort,
+                Some(format!("auxiliary_model_preference:{}", preference.task_id)),
+            ),
+        );
+        store
+            .upsert_auxiliary_model_preference_with_ready_selection(preference, &ready_selection)
+            .await
+            .expect("ready auxiliary model preference");
+    }
 
     #[derive(Debug)]
     struct ProgressAuditTestProvider {
@@ -376,7 +365,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn audit_uses_default_provider_tool_model_without_saved_preference() {
+    async fn audit_uses_bound_auxiliary_selection_instead_of_provider_tool_default() {
         let provider = Arc::new(ProgressAuditTestProvider::new(Some("gpt-5.4-mini")));
         let actor = test_actor("codex", provider.clone()).await;
 
@@ -388,7 +377,7 @@ mod tests {
         assert_eq!(outcome.decision, ProgressAuditDecision::Continue);
         let requests = provider.requests.lock().expect("requests");
         assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0].model.as_deref(), Some("gpt-5.4-mini"));
+        assert_eq!(requests[0].model.as_deref(), Some("gpt-5.6-luna"));
         assert_eq!(
             requests[0].options.generation_priority,
             GenerationPriority::Background
@@ -419,15 +408,25 @@ mod tests {
             .await
             .expect("account");
         store
-            .upsert_auxiliary_model_preference(noema_store::NewAuxiliaryModelPreference {
+            .update_provider_account_status(
+                &account.provider_account_id,
+                noema_providers::ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .expect("authenticate codex");
+        upsert_ready_auxiliary_model_preference(
+            &store,
+            noema_store::NewAuxiliaryModelPreference {
                 task_id: noema_store::TOOL_PROGRESS_AUDIT_TASK_ID.to_string(),
                 provider_kind: "codex".to_string(),
                 provider_account_id: account.provider_account_id,
                 model_profile: "gpt-5.5".to_string(),
                 reasoning_effort: Some(noema_providers::ReasoningEffort::Medium),
-            })
-            .await
-            .expect("preference");
+            },
+        )
+        .await;
 
         let provider = Arc::new(ProgressAuditTestProvider::new(Some("gpt-5.4-mini")));
         let actor = CodexRuntimeActor::new(
@@ -450,6 +449,76 @@ mod tests {
         assert_eq!(
             provider.last_request().options.reasoning_effort,
             Some(noema_providers::ReasoningEffort::Medium)
+        );
+    }
+
+    #[tokio::test]
+    async fn progress_audit_route_is_independent_from_primary_and_default_routes() {
+        let store = crate::test_support::test_store().await;
+        let foundation_account = store
+            .ensure_default_foundation_local_provider_account()
+            .await
+            .expect("foundation account");
+        store
+            .update_provider_account_status(
+                &foundation_account.provider_account_id,
+                noema_providers::ProviderAccountStatus::Authenticated,
+                None,
+                None,
+            )
+            .await
+            .expect("authenticate foundation");
+        upsert_ready_auxiliary_model_preference(
+            &store,
+            noema_store::NewAuxiliaryModelPreference {
+                task_id: noema_store::TOOL_PROGRESS_AUDIT_TASK_ID.to_string(),
+                provider_kind: "foundation_local".to_string(),
+                provider_account_id: foundation_account.provider_account_id,
+                model_profile: "default".to_string(),
+                reasoning_effort: Some(noema_providers::ReasoningEffort::Low),
+            },
+        )
+        .await;
+
+        let primary = Arc::new(ProgressAuditTestProvider::new(Some("codex-classifier")));
+        let audit = Arc::new(ProgressAuditTestProvider::new(Some(
+            "foundation-classifier",
+        )));
+        let actor = CodexRuntimeActor::new(
+            "codex".to_string(),
+            HashMap::from([
+                (
+                    "codex".to_string(),
+                    primary.clone() as noema_providers::ProviderHandle,
+                ),
+                (
+                    "foundation_local".to_string(),
+                    audit.clone() as noema_providers::ProviderHandle,
+                ),
+            ]),
+            store,
+            crate::test_support::system_error_logger(),
+        )
+        .await
+        .expect("actor");
+
+        actor
+            .run_progress_audit(&test_digest())
+            .await
+            .expect("audit");
+
+        assert!(
+            primary
+                .requests
+                .lock()
+                .expect("primary requests")
+                .is_empty()
+        );
+        let request = audit.last_request();
+        assert_eq!(request.model.as_deref(), Some("default"));
+        assert_eq!(
+            request.options.reasoning_effort,
+            Some(noema_providers::ReasoningEffort::Low)
         );
     }
 }

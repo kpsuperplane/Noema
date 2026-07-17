@@ -1,5 +1,4 @@
 use crate::daemon::protocol::DaemonError;
-use noema_providers::ProviderSelectionSnapshot;
 
 use super::actor::{ActiveConversation, CodexRuntimeActor};
 
@@ -9,8 +8,6 @@ impl CodexRuntimeActor {
         conversation_id: &str,
         cwd_override: Option<String>,
     ) -> Result<ActiveConversation, DaemonError> {
-        let selection =
-            provider_selection_for_conversation(&self.store, &self.default_provider_kind).await?;
         let next_turn_index = self
             .store
             .next_conversation_turn_index(conversation_id)
@@ -21,7 +18,6 @@ impl CodexRuntimeActor {
                 .and_then(|conversation| conversation.cwd.clone())
         });
         let conversation = ActiveConversation {
-            provider_selection: selection,
             cwd,
             next_turn_index,
         };
@@ -31,23 +27,19 @@ impl CodexRuntimeActor {
     }
 }
 
-pub(super) async fn provider_selection_for_conversation(
-    store: &noema_store::NoemaStore,
-    default_provider_kind: &str,
-) -> Result<ProviderSelectionSnapshot, DaemonError> {
-    let Some(preference) = store.get_agent_runtime_preference("agent:primary").await? else {
-        return Ok(ProviderSelectionSnapshot::provider_default(
-            default_provider_kind,
-            format!("provider_account:{default_provider_kind}:default"),
-            None,
-            Some("runtime_default".to_string()),
-        ));
-    };
-    Ok(ProviderSelectionSnapshot::explicit(
-        preference.provider_kind,
-        preference.provider_account_id,
-        preference.model_profile,
-        preference.reasoning_effort,
-        Some("agent_runtime_preference".to_string()),
-    ))
+#[cfg(test)]
+mod tests {
+    use super::ActiveConversation;
+
+    #[test]
+    fn active_conversation_state_is_provider_route_agnostic() {
+        let conversation = ActiveConversation {
+            cwd: Some("/tmp/project".to_string()),
+            next_turn_index: 7,
+        };
+
+        let debug = format!("{conversation:?}");
+        assert!(debug.contains("next_turn_index: 7"));
+        assert!(!debug.contains("provider"));
+    }
 }

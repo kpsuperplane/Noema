@@ -45,6 +45,47 @@ impl NoemaStore {
             })
     }
 
+    /// Create or return the configured OpenAI provider account metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store write or read fails.
+    pub async fn ensure_default_openai_provider_account(
+        &self,
+    ) -> Result<PersistedProviderAccountRecord, StoreError> {
+        const ACCOUNT_ID: &str = "provider_account:openai:default";
+        self.with_connection(|conn| {
+            conn.execute(
+                r#"
+                INSERT INTO provider_accounts (
+                  provider_account_id, provider_kind, account_key, display_name,
+                  auth_method, is_active, is_default, status, metadata_json
+                )
+                VALUES (
+                  'provider_account:openai:default', 'openai', 'default', 'OpenAI',
+                  'external_manual', 1, 1, 'unknown', '{}'
+                )
+                ON CONFLICT(provider_account_id) DO UPDATE SET
+                  provider_kind = excluded.provider_kind,
+                  account_key = excluded.account_key,
+                  display_name = excluded.display_name,
+                  auth_method = excluded.auth_method,
+                  is_active = 1,
+                  is_default = 1,
+                  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                "#,
+                [],
+            )?;
+            Ok(())
+        })
+        .await?;
+        self.get_provider_account(ACCOUNT_ID).await?.ok_or_else(|| {
+            StoreError::ProviderAccountNotFound {
+                provider_account_id: ACCOUNT_ID.to_string(),
+            }
+        })
+    }
+
     /// Create or return the default Apple Foundation Models provider account metadata.
     ///
     /// # Errors
@@ -295,34 +336,52 @@ impl NoemaStore {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError`] when the account is missing, is a default account,
-    /// or the embedded store delete fails.
+    /// Returns [`StoreError`] when the account is protected or still referenced,
+    /// or when the embedded store delete fails. A missing account returns
+    /// `Ok(false)`.
     pub async fn delete_provider_account(
         &self,
         provider_account_id: &str,
     ) -> Result<bool, StoreError> {
-        let Some(account) = self.get_provider_account(provider_account_id).await? else {
-            return Ok(false);
-        };
-        if account.is_default {
-            return Err(StoreError::ProtectedProviderAccount {
-                provider_account_id: provider_account_id.to_string(),
-            });
-        }
+        self.with_immediate_transaction_retry(|transaction| {
+            let is_default = transaction
+                .query_row(
+                    "SELECT is_default FROM provider_accounts WHERE provider_account_id = ?1",
+                    [provider_account_id],
+                    |row| row.get::<_, bool>(0),
+                )
+                .optional()?;
+            let Some(is_default) = is_default else {
+                return Ok(false);
+            };
+            if is_default {
+                return Err(StoreError::ProtectedProviderAccount {
+                    provider_account_id: provider_account_id.to_string(),
+                });
+            }
+            if provider_account_is_referenced(transaction, provider_account_id)? {
+                return Err(StoreError::ProviderAccountInUse {
+                    provider_account_id: provider_account_id.to_string(),
+                });
+            }
 
-        self.with_connection(|conn| {
-            conn.execute(
+            transaction.execute(
                 "DELETE FROM provider_capability_bindings WHERE provider_account_id = ?1",
                 [provider_account_id],
             )?;
-            conn.execute(
-                "DELETE FROM provider_accounts WHERE provider_account_id = ?1",
+            let changed = transaction.execute(
+                "DELETE FROM provider_accounts WHERE provider_account_id = ?1 AND is_default = 0",
                 [provider_account_id],
             )?;
-            Ok(())
+            if changed != 1 {
+                return Err(StoreError::InvariantViolation {
+                    message: "guarded provider account delete changed an unexpected row count"
+                        .to_string(),
+                });
+            }
+            Ok(true)
         })
-        .await?;
-        Ok(true)
+        .await
     }
 
     /// Update safe provider account status metadata.
@@ -426,6 +485,60 @@ impl NoemaStore {
             .await?;
         rows.into_iter().map(provider_account_from_row).collect()
     }
+}
+
+/// Return whether any canonical selection or future-lease-eligible workload
+/// still names an account. This must be evaluated in the same immediate
+/// transaction as deletion so reference writers serialize with the guard.
+fn provider_account_is_referenced(
+    transaction: &rusqlite::Transaction<'_>,
+    provider_account_id: &str,
+) -> Result<bool, StoreError> {
+    transaction
+        .query_row(
+            r#"
+            SELECT EXISTS (
+              SELECT 1 FROM default_model_preference
+              WHERE provider_account_id = ?1
+              UNION ALL
+              SELECT 1 FROM agent_runtime_preferences
+              WHERE provider_account_id = ?1
+              UNION ALL
+              SELECT 1 FROM auxiliary_model_preferences
+              WHERE provider_account_id = ?1
+              UNION ALL
+              SELECT 1 FROM memory_service_settings
+              WHERE provider_account_id = ?1
+              UNION ALL
+              SELECT 1 FROM task_model_pool_entries
+              WHERE provider_account_id = ?1
+              UNION ALL
+              SELECT 1 FROM tasks
+              WHERE executor_provider_account_id = ?1
+                AND status NOT IN ('completed', 'failed', 'cancelled')
+              UNION ALL
+              SELECT 1 FROM tasks
+              WHERE reviewer_provider_account_id = ?1
+                AND status NOT IN ('completed', 'failed', 'cancelled')
+              UNION ALL
+              SELECT 1
+              FROM agent_runs
+              LEFT JOIN tasks ON tasks.task_id = agent_runs.task_id
+              WHERE agent_runs.provider_account_id = ?1
+                AND (
+                  agent_runs.status IN ('queued', 'leased', 'running', 'waiting_for_approval')
+                  OR (
+                    agent_runs.status = 'interrupted'
+                    AND agent_runs.cancellation_requested = 0
+                    AND tasks.status NOT IN ('completed', 'failed', 'cancelled')
+                  )
+                )
+            )
+            "#,
+            [provider_account_id],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(StoreError::Sqlite)
 }
 
 pub(super) const PROVIDER_ACCOUNT_SELECT: &str = r#"

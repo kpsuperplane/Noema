@@ -346,7 +346,10 @@ mod tests {
         .await;
         let actor = CodexRuntimeActor::new(
             "codex".to_string(),
-            HashMap::new(),
+            HashMap::from([(
+                "codex".to_string(),
+                crate::test_support::ready_test_provider(),
+            )]),
             store.clone(),
             crate::test_support::system_error_logger(),
         )
@@ -364,7 +367,10 @@ mod tests {
         let store = test_store().await;
         let actor = CodexRuntimeActor::new(
             "codex".to_string(),
-            HashMap::new(),
+            HashMap::from([(
+                "codex".to_string(),
+                crate::test_support::ready_test_provider(),
+            )]),
             store.clone(),
             crate::test_support::system_error_logger(),
         )

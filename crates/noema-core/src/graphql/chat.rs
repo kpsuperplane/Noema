@@ -547,8 +547,7 @@ pub(super) async fn primary_conversation(
     state: &GraphqlState,
 ) -> Result<Option<GraphqlPrimaryConversation>> {
     let store = state.store()?;
-    let runtime = state.runtime()?;
-    let provider_kind = primary_agent_provider_kind(store, runtime.provider_kind()).await?;
+    let provider_kind = primary_agent_provider_kind(store).await?;
     let conversation = store
         .primary_conversation_for_human("human:local")
         .await
@@ -565,7 +564,7 @@ pub(super) async fn ensure_primary_conversation(
 ) -> Result<GraphqlPrimaryConversation> {
     let store = state.store()?;
     let runtime = state.runtime()?;
-    let provider_kind = primary_agent_provider_kind(store, runtime.provider_kind()).await?;
+    let provider_kind = primary_agent_provider_kind(store).await?;
     let account = state
         .provider_account_operations()?
         .active_accounts()
@@ -653,16 +652,13 @@ async fn visible_conversation_transcript_page(
     })
 }
 
-async fn primary_agent_provider_kind(
-    store: &noema_store::NoemaStore,
-    default_provider_kind: &str,
-) -> Result<String> {
-    Ok(store
+async fn primary_agent_provider_kind(store: &noema_store::NoemaStore) -> Result<String> {
+    store
         .get_agent_runtime_preference("agent:primary")
         .await
         .map_err(graphql_error)?
         .map(|preference| preference.provider_kind)
-        .unwrap_or_else(|| default_provider_kind.to_string()))
+        .ok_or_else(|| async_graphql::Error::new("primary agent provider is not initialized"))
 }
 
 pub(super) async fn send_conversation_turn(

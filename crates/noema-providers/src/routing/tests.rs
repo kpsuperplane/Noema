@@ -164,6 +164,44 @@ async fn changed_snapshot_retries_onto_the_new_ready_instance() {
 }
 
 #[tokio::test]
+async fn successful_stale_lease_rechecks_the_canonical_selection() {
+    let registry = Arc::new(ProviderRegistry::new());
+    let old_key = key("openai:default:old");
+    let new_key = key("openai:default:new");
+    registry
+        .register(old_key.clone(), provider("old"))
+        .expect("register old");
+    let current = Arc::new(Mutex::new(selection(old_key)));
+    let (read_tx, read_rx) = oneshot::channel();
+    let (resume_tx, resume_rx) = oneshot::channel();
+    let resolver = resolver(
+        PausedSelectionLoader {
+            current: Arc::clone(&current),
+            first_read: AtomicBool::new(false),
+            read_tx: Mutex::new(Some(read_tx)),
+            resume_rx: Mutex::new(Some(resume_rx)),
+        },
+        Arc::clone(&registry),
+    );
+    let resolution = tokio::spawn(async move { resolver.resolve_route().await });
+
+    read_rx.await.expect("selection read paused");
+    let new_registration = registry
+        .register(new_key.clone(), provider("new"))
+        .expect("register new");
+    *current.lock().expect("current selection") = selection(new_key.clone());
+    resume_tx.send(()).expect("resume stale read");
+
+    let route = resolution
+        .await
+        .expect("resolver task")
+        .expect("resolved route");
+
+    assert_eq!(route.key(), &new_key);
+    assert_eq!(route.generation(), new_registration.generation());
+}
+
+#[tokio::test]
 async fn unchanged_retiring_selection_is_an_invariant() {
     let registry = Arc::new(ProviderRegistry::new());
     let instance_key = key("openai:default:retiring");
@@ -194,6 +232,22 @@ async fn unchanged_missing_selection_is_typed_unavailability() {
     assert_eq!(
         resolver.resolve_route().await.expect_err("missing"),
         ProviderRouteError::InstanceMissing { key: instance_key }
+    );
+}
+
+#[tokio::test]
+async fn unchanged_degraded_selection_is_typed_unready() {
+    let registry = Arc::new(ProviderRegistry::new());
+    let instance_key = key("openai:default:unready");
+    registry.mark_unready(instance_key.clone());
+    let resolver = resolver(
+        SequenceLoader::new([selection(instance_key.clone())]),
+        registry,
+    );
+
+    assert_eq!(
+        resolver.resolve_route().await.expect_err("unready"),
+        ProviderRouteError::InstanceUnready { key: instance_key }
     );
 }
 

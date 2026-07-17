@@ -1,19 +1,25 @@
-use noema_providers::ReasoningEffort;
+use noema_providers::{ProviderReadySelection, ProviderRegistry, ReasoningEffort};
 use noema_tasks::{
     AutomaticRecoveryInput, AutomaticRecoveryPlan, RunKind, TaskStatus, plan_automatic_recovery,
 };
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{OptionalExtension, Transaction, params};
 
 use super::{
     RUN_COLUMNS,
     events::{append_run_event, append_task_event},
 };
-use crate::{StoreError, agent_run_rows::run_from_row, ids::allocate_id};
+use crate::tasks::provider_selection::preserved_run_selection_tx;
+use crate::{
+    StoreError, agent_run_rows::run_from_row, ids::allocate_id,
+    provider_selections::prove_selection_ready,
+};
 
 pub(super) fn recover_expired_runs(
-    conn: &rusqlite::Connection,
+    conn: &Transaction<'_>,
     now: &str,
-) -> Result<(), StoreError> {
+    registry: Option<&ProviderRegistry>,
+) -> Result<Vec<ProviderReadySelection>, StoreError> {
+    let mut ready_selections = Vec::new();
     let expired_ids = {
         let mut statement = conn.prepare(
             "SELECT run_id FROM agent_runs WHERE status IN ('leased', 'running') AND lease_expires_at IS NOT NULL AND CAST(lease_expires_at AS INTEGER) <= CAST(?1 AS INTEGER) ORDER BY lease_expires_at, run_id",
@@ -96,16 +102,19 @@ pub(super) fn recover_expired_runs(
             continue;
         };
         let child_run_id = allocate_id("run");
+        let model = preserved_run_selection_tx(conn, &run_id)?;
+        ready_selections.push(prove_selection_ready(&model, registry)?);
         conn.execute(
             r#"INSERT INTO agent_runs (
                 run_id, task_id, run_kind, agent_id, attempt_index, revision_index,
                 parent_run_id, triggering_submission_id, triggering_review_id,
-                provider_kind, provider_account_id, selection_mode, model_profile,
-                reasoning_effort, selection_source, max_provider_continuations,
+                provider_kind, provider_account_id, provider_instance_key,
+                selection_mode, model_profile, reasoning_effort, selection_source,
+                max_provider_continuations,
                 max_tool_calls, max_active_minutes, progress_audit_interval,
                 status, priority, retry_count
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
-                ?13, ?14, ?15, ?16, ?17, ?18, ?19, 'queued', ?20, ?21)"#,
+                ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, 'queued', ?21, ?22)"#,
             params![
                 child_run_id,
                 run.task_id,
@@ -116,14 +125,18 @@ pub(super) fn recover_expired_runs(
                 run.run_id,
                 run.triggering_submission_id,
                 run.triggering_review_id,
-                run.model.provider_kind,
-                run.model.provider_account_id,
-                run.model.selection_mode.as_str(),
-                run.model.model_profile,
-                run.model
+                model.provider_kind,
+                model.provider_account_id,
+                model
+                    .provider_instance_key
+                    .as_ref()
+                    .map(ToString::to_string),
+                model.selection_mode.as_str(),
+                model.model_profile,
+                model
                     .reasoning_effort
                     .map(ReasoningEffort::as_persistence_str),
-                run.model.selection_source,
+                model.selection_source,
                 run.execution_policy.max_provider_continuations,
                 run.execution_policy.max_tool_calls,
                 run.execution_policy.max_active_minutes,
@@ -161,10 +174,14 @@ pub(super) fn recover_expired_runs(
             }),
         )?;
     }
-    Ok(())
+    Ok(ready_selections)
 }
 
-pub(super) fn recover_interrupted_runs(conn: &rusqlite::Connection) -> Result<(), StoreError> {
+pub(super) fn recover_interrupted_runs(
+    conn: &Transaction<'_>,
+    registry: Option<&ProviderRegistry>,
+) -> Result<Vec<ProviderReadySelection>, StoreError> {
+    let mut ready_selections = Vec::new();
     let interrupted = {
         let mut statement = conn.prepare(
             "SELECT r.run_id, r.task_id, r.run_kind, r.attempt_index, r.retry_count, r.cancellation_requested, t.status FROM agent_runs r JOIN tasks t ON t.task_id = r.task_id AND t.latest_run_id = r.run_id WHERE r.status = 'interrupted' AND r.cancellation_requested = 0 AND t.status NOT IN ('completed', 'failed', 'cancelled') ORDER BY r.updated_at, r.run_id",
@@ -244,17 +261,20 @@ pub(super) fn recover_interrupted_runs(conn: &rusqlite::Connection) -> Result<()
             continue;
         };
         let child_run_id = allocate_id("run");
+        let model = preserved_run_selection_tx(conn, &run_id)?;
+        ready_selections.push(prove_selection_ready(&model, registry)?);
         let inserted = conn.execute(
             r#"INSERT INTO agent_runs (
                 run_id, task_id, run_kind, agent_id, attempt_index, revision_index,
                 parent_run_id, triggering_submission_id, triggering_review_id,
-                provider_kind, provider_account_id, selection_mode, model_profile,
-                reasoning_effort, selection_source, max_provider_continuations,
+                provider_kind, provider_account_id, provider_instance_key,
+                selection_mode, model_profile, reasoning_effort, selection_source,
+                max_provider_continuations,
                 max_tool_calls, max_active_minutes, progress_audit_interval,
                 status, priority, retry_count
             ) SELECT ?2, task_id, run_kind, agent_id, ?3, revision_index,
                 run_id, triggering_submission_id, triggering_review_id,
-                provider_kind, provider_account_id, selection_mode, model_profile,
+                provider_kind, provider_account_id, provider_instance_key, selection_mode, model_profile,
                 reasoning_effort, selection_source, max_provider_continuations,
                 max_tool_calls, max_active_minutes, progress_audit_interval,
                 'queued', priority, ?4
@@ -294,5 +314,5 @@ pub(super) fn recover_interrupted_runs(conn: &rusqlite::Connection) -> Result<()
             }),
         )?;
     }
-    Ok(())
+    Ok(ready_selections)
 }

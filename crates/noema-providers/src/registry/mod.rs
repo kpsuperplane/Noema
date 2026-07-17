@@ -5,7 +5,7 @@
 //! requested.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt,
     sync::{
         Arc, Mutex, MutexGuard, Weak,
@@ -15,7 +15,10 @@ use std::{
 
 use thiserror::Error;
 
-use crate::{ProviderHandle, ProviderInstanceKey, ProviderOperations};
+use crate::{
+    ProviderHandle, ProviderInstanceKey, ProviderOperations, ProviderSelectionError,
+    ProviderSelectionSnapshot,
+};
 
 /// Shared provider registry handle used by runtime and auxiliary model callers.
 pub type ProviderRegistryHandle = Arc<ProviderRegistry>;
@@ -50,11 +53,15 @@ impl ProviderRegistry {
         provider: ProviderHandle,
     ) -> Result<ProviderRegistration, ProviderRegistryError> {
         let mut state = lock_state(&self.inner);
+        if let Some(generation) = state.blocked.get(&key).copied() {
+            return Err(ProviderRegistryError::Retiring { key, generation });
+        }
         let generation = state
             .next_generation
             .checked_add(1)
             .ok_or(ProviderRegistryError::GenerationExhausted)?;
         state.next_generation = generation;
+        state.unready.remove(&key);
 
         let entry = Arc::new(RegistryEntry {
             key: key.clone(),
@@ -92,7 +99,16 @@ impl ProviderRegistry {
         key: &ProviderInstanceKey,
     ) -> Result<ProviderInstanceLease, ProviderRegistryError> {
         let state = lock_state(&self.inner);
+        if let Some(generation) = state.blocked.get(key).copied() {
+            return Err(ProviderRegistryError::Retiring {
+                key: key.clone(),
+                generation,
+            });
+        }
         let Some(entry) = state.entries.get(key).cloned() else {
+            if state.unready.contains(key) {
+                return Err(ProviderRegistryError::Unready { key: key.clone() });
+            }
             return match state.retired.get(key).copied() {
                 Some(generation) => Err(ProviderRegistryError::Retiring {
                     key: key.clone(),
@@ -119,6 +135,31 @@ impl ProviderRegistry {
         drop(state);
 
         Ok(ProviderInstanceLease { entry })
+    }
+
+    /// Prove that one exact selection names a ready registered instance.
+    ///
+    /// The returned token retains the registry lease, so a persistence boundary
+    /// can borrow it through commit without racing instance retirement.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProviderReadySelectionError::InvalidSelection`] when the
+    /// selection is not an exact durable snapshot, or wraps the registry error
+    /// when its exact instance is not ready for a new lease.
+    pub fn prove_ready_selection(
+        &self,
+        selection: ProviderSelectionSnapshot,
+    ) -> Result<ProviderReadySelection, ProviderReadySelectionError> {
+        let selection = selection
+            .normalized_for_persistence()
+            .map_err(ProviderReadySelectionError::InvalidSelection)?;
+        let key = selection
+            .provider_instance_key
+            .as_ref()
+            .expect("normalized durable selections contain an instance key");
+        let lease = self.lease(key)?;
+        Ok(ProviderReadySelection { selection, lease })
     }
 
     /// Begin retirement of the exact generation represented by a registration.
@@ -157,6 +198,81 @@ impl ProviderRegistry {
             registry: registration.registry.clone(),
             entry: registration.entry.clone(),
         })
+    }
+
+    /// Permanently block an exact key after its durable retirement claim commits.
+    ///
+    /// When a ready generation exists, this also rejects new leases and returns
+    /// a guard that can be used to await its existing leases. A blocked key can
+    /// never be registered again in this registry.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProviderRegistryError::GenerationExhausted`] if an absent key
+    /// cannot be assigned a diagnostic retirement generation.
+    pub fn block_for_retirement(
+        &self,
+        key: ProviderInstanceKey,
+    ) -> Result<Option<ProviderRetirementGuard>, ProviderRegistryError> {
+        let mut state = lock_state(&self.inner);
+        if state.blocked.contains_key(&key) {
+            return Ok(None);
+        }
+        state.unready.remove(&key);
+        let entry = state.entries.get(&key).cloned();
+        let generation = if let Some(entry) = &entry {
+            entry.retiring.store(true, Ordering::Release);
+            entry.generation
+        } else {
+            let generation = state
+                .next_generation
+                .checked_add(1)
+                .ok_or(ProviderRegistryError::GenerationExhausted)?;
+            state.next_generation = generation;
+            generation
+        };
+        state.blocked.insert(key.clone(), generation);
+        drop(state);
+
+        let Some(entry) = entry else {
+            return Ok(None);
+        };
+        finalize_if_drained(&entry);
+        Ok(Some(ProviderRetirementGuard {
+            key,
+            generation,
+            registry: Arc::downgrade(&self.inner),
+            entry: Arc::downgrade(&entry),
+        }))
+    }
+
+    /// Release a durable-retirement tombstone after the owning installation row
+    /// has been deleted successfully.
+    ///
+    /// Until completion, the block prevents a failed cleanup from resurrecting
+    /// the exact key. Once persistence no longer contains the claimed row, a
+    /// deterministic reinstall may safely register a new generation.
+    #[cfg(feature = "local-models")]
+    pub(crate) fn unblock_after_completed_retirement(&self, key: &ProviderInstanceKey) {
+        let mut state = lock_state(&self.inner);
+        debug_assert!(
+            !state.entries.contains_key(key),
+            "a completed retirement must not retain a registered generation"
+        );
+        state.blocked.remove(key);
+        state.retired.remove(key);
+    }
+
+    /// Record a structurally valid exact instance that is temporarily unavailable.
+    ///
+    /// Successful registration clears this marker. Durable retirement takes
+    /// precedence and prevents a claimed key from becoming unready or ready.
+    pub fn mark_unready(&self, key: ProviderInstanceKey) {
+        let mut state = lock_state(&self.inner);
+        if state.blocked.contains_key(&key) || state.entries.contains_key(&key) {
+            return;
+        }
+        state.unready.insert(key);
     }
 }
 
@@ -255,6 +371,56 @@ impl Drop for ProviderInstanceLease {
     }
 }
 
+/// Opaque proof that one exact provider selection was ready when leased.
+///
+/// This token is intentionally non-clonable. Its registry lease stays alive
+/// until the persistence operation using the proof has completed.
+pub struct ProviderReadySelection {
+    selection: ProviderSelectionSnapshot,
+    lease: ProviderInstanceLease,
+}
+
+impl ProviderReadySelection {
+    /// Borrow the normalized exact selection covered by this proof.
+    #[must_use]
+    pub fn selection(&self) -> &ProviderSelectionSnapshot {
+        &self.selection
+    }
+
+    /// Return the exact ready instance key.
+    #[must_use]
+    pub fn key(&self) -> &ProviderInstanceKey {
+        self.lease.key()
+    }
+
+    /// Return the leased registry generation for diagnostics and tests.
+    #[must_use]
+    pub fn generation(&self) -> u64 {
+        self.lease.generation()
+    }
+}
+
+impl fmt::Debug for ProviderReadySelection {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProviderReadySelection")
+            .field("selection", &self.selection)
+            .field("generation", &self.generation())
+            .finish_non_exhaustive()
+    }
+}
+
+/// Failure to prove that an exact selection currently has a ready instance.
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+pub enum ProviderReadySelectionError {
+    /// The supplied selection was not a normalized exact durable selection.
+    #[error("invalid ready provider selection: {0}")]
+    InvalidSelection(ProviderSelectionError),
+    /// The exact instance could not issue a new registry lease.
+    #[error(transparent)]
+    Registry(#[from] ProviderRegistryError),
+}
+
 /// Guard for retirement of one exact provider generation.
 ///
 /// The guard does not retain the provider. Existing leases do; after the last
@@ -327,6 +493,12 @@ pub enum ProviderRegistryError {
         /// Missing immutable instance key.
         key: ProviderInstanceKey,
     },
+    /// Structurally valid instance is known but its runtime is unavailable.
+    #[error("provider instance is temporarily unavailable: {key}")]
+    Unready {
+        /// Unavailable immutable instance key.
+        key: ProviderInstanceKey,
+    },
     /// The selected generation is retiring and rejects new leases.
     #[error("provider instance is retiring: {key} generation {generation}")]
     Retiring {
@@ -360,6 +532,8 @@ struct RegistryInner {
 struct RegistryState {
     entries: HashMap<ProviderInstanceKey, Arc<RegistryEntry>>,
     retired: HashMap<ProviderInstanceKey, u64>,
+    blocked: HashMap<ProviderInstanceKey, u64>,
+    unready: HashSet<ProviderInstanceKey>,
     next_generation: u64,
 }
 

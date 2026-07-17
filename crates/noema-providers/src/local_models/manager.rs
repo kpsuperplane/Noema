@@ -3,11 +3,14 @@
 use std::{
     collections::HashMap,
     fmt,
+    future::Future,
     path::PathBuf,
+    pin::Pin,
     sync::{
         Arc, Mutex as StdMutex,
         atomic::{AtomicU8, Ordering},
     },
+    time::Duration,
 };
 
 use thiserror::Error;
@@ -21,20 +24,21 @@ use noema_home::{NoemaPaths, SystemErrorLogger};
 
 use crate::{
     LocalModelActivationPersistenceHandle, LocalModelEventRecord,
-    LocalModelInstallationPersistenceHandle, LocalModelInstallationRecord, ProviderInstanceKey,
-    ProviderPersistenceError, ProviderRegistration, ProviderRegistry, ProviderRegistryError,
-    ProviderRegistryHandle,
+    LocalModelInstallationPersistenceHandle, LocalModelInstallationRecord,
+    LocalModelLifecyclePersistenceHandle, ProviderInstanceKey, ProviderPersistenceError,
+    ProviderRegistration, ProviderRegistryError, ProviderRegistryHandle,
 };
 
 use super::{
     LocalHardwareProfile, LocalModelBuild, LocalModelCatalogEntry, LocalModelInstallError,
-    LocalModelInstaller, LocalModelRouteHandle, LocalModelRuntimeStatus,
+    LocalModelInstaller, LocalModelRuntimeStatus,
 };
 use process::{DefaultLocalModelProcessFactory, LocalModelProcess, LocalModelProcessFactory};
 
 mod events;
 mod lifecycle;
 mod process;
+mod reaper;
 mod workers;
 
 #[cfg(test)]
@@ -43,6 +47,8 @@ mod tests;
 const LIFECYCLE_RUNNING: u8 = 0;
 const LIFECYCLE_SHUTTING_DOWN: u8 = 1;
 const LIFECYCLE_STOPPED: u8 = 2;
+const DEFAULT_REAPER_INTERVAL: Duration = Duration::from_secs(30);
+const DEFAULT_REAPER_BATCH_SIZE: usize = 8;
 
 /// Runtime construction settings shared by every managed local instance.
 #[derive(Clone)]
@@ -88,6 +94,26 @@ pub struct ManagedLocalModelStatus {
     pub is_active: bool,
     /// Current supervised process state.
     pub runtime: LocalModelRuntimeStatus,
+}
+
+/// One structurally valid instance that could not be started during reconstruction.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DegradedLocalModelInstance {
+    /// Immutable provider instance identity.
+    pub key: ProviderInstanceKey,
+    /// Concrete installation identity.
+    pub installation_id: String,
+    /// Stable non-secret runtime failure summary.
+    pub message: String,
+}
+
+/// Result of reconstructing every persistently referenced local instance.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct LocalModelReconstructionReport {
+    /// Exact instances that are ready and registered.
+    pub ready: Vec<ProviderInstanceKey>,
+    /// Structurally valid instances that remain temporarily unavailable.
+    pub degraded: Vec<DegradedLocalModelInstance>,
 }
 
 /// Bundled catalog entries together with the machine profiles used for selection.
@@ -170,6 +196,38 @@ pub enum LocalModelManagerError {
         /// Stable, non-secret validation detail.
         reason: &'static str,
     },
+    /// A durable reference has no installation owner.
+    #[error("referenced local-model instance has no installation: {provider_instance_key}")]
+    ReferencedInstallationMissing {
+        /// Missing exact instance identity.
+        provider_instance_key: ProviderInstanceKey,
+    },
+    /// Persisted installation identity does not match its immutable provenance.
+    #[error(
+        "local-model installation `{installation_id}` has mismatched provider instance identity"
+    )]
+    InstallationIdentityMismatch {
+        /// Installation with malformed identity.
+        installation_id: String,
+    },
+    /// A durable future reference points at an already claimed installation.
+    #[error("referenced local-model instance is claimed for retirement: {provider_instance_key}")]
+    ReferencedInstallationClaimed {
+        /// Claimed exact instance identity.
+        provider_instance_key: ProviderInstanceKey,
+    },
+    /// A durable future reference points at a runtime-retired installation.
+    #[error("referenced local-model instance is runtime-retired: {provider_instance_key}")]
+    ReferencedInstallationRuntimeRetired {
+        /// Retired exact instance identity.
+        provider_instance_key: ProviderInstanceKey,
+    },
+    /// More than one installation owns the same immutable key.
+    #[error("duplicate local-model provider instance identity: {provider_instance_key}")]
+    DuplicateInstanceIdentity {
+        /// Duplicated exact instance identity.
+        provider_instance_key: ProviderInstanceKey,
+    },
     /// A process could not be started, health-checked, or stopped.
     #[error("local-model runtime operation `{operation}` failed: {message}")]
     Runtime {
@@ -219,16 +277,22 @@ pub struct LocalModelManager {
 
 struct ManagerInner {
     installer: LocalModelInstaller,
+    paths: NoemaPaths,
     installations: LocalModelInstallationPersistenceHandle,
     activation: LocalModelActivationPersistenceHandle,
+    lifecycle_persistence: LocalModelLifecyclePersistenceHandle,
     registry: ProviderRegistryHandle,
-    routes: LocalModelRouteHandle,
     process_factory: Arc<dyn LocalModelProcessFactory>,
     system_errors: Option<SystemErrorLogger>,
     control: Mutex<()>,
     instances: StdMutex<HashMap<ProviderInstanceKey, ManagedInstance>>,
     workers: Mutex<HashMap<String, InstallationWorker>>,
     active_status_forwarder: Mutex<Option<ActiveStatusForwarder>>,
+    reaper: Mutex<Option<ReaperWorker>>,
+    reaper_clock: Arc<dyn LocalModelReaperClock>,
+    reaper_interval: Duration,
+    reaper_batch_size: usize,
+    degraded: StdMutex<HashMap<ProviderInstanceKey, DegradedLocalModelInstance>>,
     runtime_status_tx: watch::Sender<LocalModelRuntimeStatus>,
     lifecycle_tx: watch::Sender<u8>,
     lifecycle: AtomicU8,
@@ -251,6 +315,24 @@ struct ActiveStatusForwarder {
     task: JoinHandle<()>,
 }
 
+struct ReaperWorker {
+    cancellation: CancellationToken,
+    trigger: Arc<tokio::sync::Notify>,
+    task: JoinHandle<()>,
+}
+
+trait LocalModelReaperClock: Send + Sync {
+    fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
+}
+
+struct TokioLocalModelReaperClock;
+
+impl LocalModelReaperClock for TokioLocalModelReaperClock {
+    fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(tokio::time::sleep(duration))
+    }
+}
+
 impl LocalModelManager {
     /// Creates a manager without starting the persisted active process.
     ///
@@ -261,6 +343,8 @@ impl LocalModelManager {
     pub fn new(
         installations: LocalModelInstallationPersistenceHandle,
         activation: LocalModelActivationPersistenceHandle,
+        lifecycle_persistence: LocalModelLifecyclePersistenceHandle,
+        registry: ProviderRegistryHandle,
         paths: NoemaPaths,
         config: LocalModelManagerConfig,
     ) -> Result<Self, LocalModelManagerError> {
@@ -270,6 +354,8 @@ impl LocalModelManager {
         Self::new_with_factory(
             installations,
             activation,
+            lifecycle_persistence,
+            registry,
             paths,
             process_factory,
             system_errors,
@@ -279,28 +365,61 @@ impl LocalModelManager {
     fn new_with_factory(
         installations: LocalModelInstallationPersistenceHandle,
         activation: LocalModelActivationPersistenceHandle,
+        lifecycle_persistence: LocalModelLifecyclePersistenceHandle,
+        registry: ProviderRegistryHandle,
         paths: NoemaPaths,
         process_factory: Arc<dyn LocalModelProcessFactory>,
         system_errors: Option<SystemErrorLogger>,
     ) -> Result<Self, LocalModelManagerError> {
-        let installer = LocalModelInstaller::new(Arc::clone(&installations), paths)?;
-        let registry = Arc::new(ProviderRegistry::new());
-        let routes = LocalModelRouteHandle::new(Arc::clone(&registry));
+        Self::new_with_factory_and_clock(
+            installations,
+            activation,
+            lifecycle_persistence,
+            registry,
+            paths,
+            process_factory,
+            system_errors,
+            Arc::new(TokioLocalModelReaperClock),
+            DEFAULT_REAPER_INTERVAL,
+            DEFAULT_REAPER_BATCH_SIZE,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn new_with_factory_and_clock(
+        installations: LocalModelInstallationPersistenceHandle,
+        activation: LocalModelActivationPersistenceHandle,
+        lifecycle_persistence: LocalModelLifecyclePersistenceHandle,
+        registry: ProviderRegistryHandle,
+        paths: NoemaPaths,
+        process_factory: Arc<dyn LocalModelProcessFactory>,
+        system_errors: Option<SystemErrorLogger>,
+        reaper_clock: Arc<dyn LocalModelReaperClock>,
+        reaper_interval: Duration,
+        reaper_batch_size: usize,
+    ) -> Result<Self, LocalModelManagerError> {
+        let installer = LocalModelInstaller::new(Arc::clone(&installations), paths.clone())?;
         let (runtime_status_tx, _) = watch::channel(LocalModelRuntimeStatus::Stopped);
         let (lifecycle_tx, _) = watch::channel(LIFECYCLE_RUNNING);
         Ok(Self {
             inner: Arc::new(ManagerInner {
                 installer,
+                paths,
                 installations,
                 activation,
+                lifecycle_persistence,
                 registry,
-                routes,
                 process_factory,
                 system_errors,
                 control: Mutex::new(()),
                 instances: StdMutex::new(HashMap::new()),
                 workers: Mutex::new(HashMap::new()),
                 active_status_forwarder: Mutex::new(None),
+                reaper: Mutex::new(None),
+                reaper_clock,
+                reaper_interval,
+                reaper_batch_size,
+                degraded: StdMutex::new(HashMap::new()),
                 runtime_status_tx,
                 lifecycle_tx,
                 lifecycle: AtomicU8::new(LIFECYCLE_RUNNING),
@@ -308,10 +427,10 @@ impl LocalModelManager {
         })
     }
 
-    /// Returns the exact-instance route handle shared with runtime consumers.
+    /// Returns the shared exact-instance registry used by runtime consumers.
     #[must_use]
-    pub fn route_handle(&self) -> LocalModelRouteHandle {
-        self.inner.routes.clone()
+    pub fn registry(&self) -> ProviderRegistryHandle {
+        Arc::clone(&self.inner.registry)
     }
 
     /// Returns the active process status without waiting for a change.
@@ -361,7 +480,6 @@ impl LocalModelManager {
     /// Returns status for every retained exact local-model process.
     #[must_use]
     pub async fn managed_instances(&self) -> Vec<ManagedLocalModelStatus> {
-        let active_key = self.inner.routes.active_key().await;
         let instances = self.inner.instances.lock().expect("instances lock");
         let mut statuses = instances
             .iter()
@@ -369,7 +487,7 @@ impl LocalModelManager {
                 key: key.clone(),
                 installation_id: instance.installation.installation_id.clone(),
                 model_id: instance.installation.model_id.clone(),
-                is_active: active_key.as_ref() == Some(key),
+                is_active: instance.installation.is_active,
                 runtime: instance.process.status(),
             })
             .collect::<Vec<_>>();

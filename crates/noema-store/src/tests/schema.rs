@@ -43,6 +43,41 @@ async fn empty_database_bootstraps_the_exact_current_schema() {
 }
 
 #[tokio::test]
+async fn current_schema_persists_every_exact_provider_identity_owner() {
+    let store = test_store().await;
+    let required_columns = [
+        ("agent_runtime_preferences", "provider_instance_key"),
+        ("auxiliary_model_preferences", "provider_instance_key"),
+        ("local_model_installations", "provider_instance_key"),
+        ("local_model_installations", "retirement_claimed_at"),
+        ("local_model_installations", "runtime_retired_at"),
+        ("default_model_preference", "provider_instance_key"),
+        ("memory_service_settings", "provider_instance_key"),
+        ("task_model_pool_entries", "provider_instance_key"),
+        ("tasks", "executor_provider_instance_key"),
+        ("tasks", "reviewer_provider_instance_key"),
+        ("agent_runs", "provider_instance_key"),
+    ];
+
+    store
+        .with_connection(|conn| {
+            for (table, required_column) in required_columns {
+                let mut statement = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+                let columns = statement
+                    .query_map([], |row| row.get::<_, String>(1))?
+                    .collect::<Result<Vec<_>, _>>()?;
+                assert!(
+                    columns.iter().any(|column| column == required_column),
+                    "{table} is missing {required_column}"
+                );
+            }
+            Ok(())
+        })
+        .await
+        .expect("inspect exact identity columns");
+}
+
+#[tokio::test]
 async fn exact_current_database_reopens_without_changing_marker_or_rows() {
     let home = TempDir::new().expect("temp store root");
     let config = store_config(home.path());

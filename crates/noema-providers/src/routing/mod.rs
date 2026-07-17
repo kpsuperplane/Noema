@@ -94,10 +94,17 @@ impl ProviderRouteResolver for RegistryProviderRouteResolver {
                     .ok_or(ProviderRouteError::MissingInstanceKey)?;
                 match self.registry.lease(key) {
                     Ok(instance) => {
-                        return ProviderRouteLease::try_new(selection, instance);
+                        let next = load_normalized_selection(self.loader.as_ref()).await?;
+                        if next != selection {
+                            drop(instance);
+                            selection = next;
+                            continue;
+                        }
+                        return ProviderRouteLease::try_new(next, instance);
                     }
                     Err(error @ ProviderRegistryError::Missing { .. })
-                    | Err(error @ ProviderRegistryError::Retiring { .. }) => {
+                    | Err(error @ ProviderRegistryError::Retiring { .. })
+                    | Err(error @ ProviderRegistryError::Unready { .. }) => {
                         let next = load_normalized_selection(self.loader.as_ref()).await?;
                         if next != selection {
                             selection = next;
@@ -132,6 +139,7 @@ async fn load_normalized_selection(
 fn route_availability_error(error: ProviderRegistryError) -> ProviderRouteError {
     match error {
         ProviderRegistryError::Missing { key } => ProviderRouteError::InstanceMissing { key },
+        ProviderRegistryError::Unready { key } => ProviderRouteError::InstanceUnready { key },
         ProviderRegistryError::Retiring { key, .. } => {
             ProviderRouteError::RetiringSelectionInvariant { key }
         }
@@ -182,7 +190,6 @@ impl ProviderRouteLease {
             instance,
         })
     }
-
     /// Return the canonical selection used for this route.
     #[must_use]
     pub fn selection(&self) -> &ProviderSelectionSnapshot {

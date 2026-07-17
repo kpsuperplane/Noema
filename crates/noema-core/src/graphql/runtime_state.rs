@@ -6,7 +6,7 @@ use noema_capabilities_mcp::McpControlPlaneHandle;
 use noema_home::NoemaPaths;
 use noema_home::{SystemErrorEvent, SystemErrorLogger};
 use noema_memory::{MemoryRepositoryHandle, MemoryServiceAccessHandle};
-use noema_providers::{LocalModelManager, ProviderAccountOperationsHandle};
+use noema_providers::{LocalModelManager, ProviderAccountOperationsHandle, ProviderRegistryHandle};
 
 use super::{ConversationSubscriptionRegistry, local_status::GraphqlMemoryStorageStatus};
 
@@ -20,6 +20,7 @@ pub struct GraphqlRuntimeState {
     provider_account_operations: Option<ProviderAccountOperationsHandle>,
     mcp_operations: Option<McpControlPlaneHandle>,
     local_model_manager: Option<LocalModelManager>,
+    provider_registry: Option<ProviderRegistryHandle>,
     memory_repository: Option<MemoryRepositoryHandle>,
     memory_service_access: Option<MemoryServiceAccessHandle>,
     memory_startup_error: Option<String>,
@@ -39,6 +40,7 @@ impl GraphqlRuntimeState {
             provider_account_operations: Some(host.provider_account_operations().clone()),
             mcp_operations: Some(host.mcp_operations().clone()),
             local_model_manager: Some(host.local_model_manager().clone()),
+            provider_registry: Some(host.local_model_manager().registry()),
             memory_repository: Some(host.memory_repository().clone()),
             memory_service_access: Some(host.memory_service_access().clone()),
             memory_startup_error: host.memory_startup_error().map(str::to_string),
@@ -58,6 +60,7 @@ impl GraphqlRuntimeState {
             provider_account_operations: None,
             mcp_operations: None,
             local_model_manager: None,
+            provider_registry: None,
             memory_repository: None,
             memory_service_access: None,
             memory_startup_error: None,
@@ -77,6 +80,7 @@ impl GraphqlRuntimeState {
             store: Some(store),
             provider_account_operations: Some(provider_account_operations),
             mcp_operations: Some(mcp_operations),
+            provider_registry: Some(crate::test_support::ready_test_provider_registry()),
             memory_repository: Some(memory_repository),
             ..Self::for_tests()
         }
@@ -97,6 +101,7 @@ impl GraphqlRuntimeState {
             store: Some(store),
             provider_account_operations: Some(provider_account_operations),
             mcp_operations: Some(mcp_operations),
+            provider_registry: Some(crate::test_support::ready_test_provider_registry()),
             memory_repository: Some(memory_repository),
             ..Self::for_tests()
         }
@@ -120,6 +125,7 @@ impl GraphqlRuntimeState {
             )),
             provider_account_operations: Some(provider_account_operations),
             mcp_operations: Some(mcp_operations),
+            provider_registry: Some(crate::test_support::ready_test_provider_registry()),
             memory_repository: Some(memory_repository),
             ..Self::for_tests()
         }
@@ -140,7 +146,19 @@ impl GraphqlRuntimeState {
         mut self,
         local_model_manager: LocalModelManager,
     ) -> Self {
+        self.provider_registry = Some(local_model_manager.registry());
         self.local_model_manager = Some(local_model_manager);
+        self
+    }
+
+    /// Attach an explicit provider registry to existing test state.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn with_provider_registry(
+        mut self,
+        provider_registry: ProviderRegistryHandle,
+    ) -> Self {
+        self.provider_registry = Some(provider_registry);
         self
     }
 
@@ -213,6 +231,12 @@ impl GraphqlRuntimeState {
         self.local_model_manager
             .as_ref()
             .ok_or_else(|| async_graphql::Error::new("Noema local-model service is unavailable"))
+    }
+
+    pub(crate) fn provider_registry(&self) -> async_graphql::Result<&ProviderRegistryHandle> {
+        self.provider_registry
+            .as_ref()
+            .ok_or_else(|| async_graphql::Error::new("Noema provider registry is unavailable"))
     }
 
     pub(crate) fn memory_repository(&self) -> async_graphql::Result<&MemoryRepositoryHandle> {

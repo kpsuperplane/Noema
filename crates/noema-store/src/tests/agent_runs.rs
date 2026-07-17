@@ -1,30 +1,52 @@
-use super::{seed_task, test_store};
+use super::{ready_codex_registry, ready_provider_registry, seed_task, test_store};
 
 #[tokio::test]
 async fn agent_run_items_round_trip_in_sequence_order() {
     let store = test_store().await;
     store.ensure_default_actors().await.expect("actors");
+    store
+        .ensure_default_provider_account()
+        .await
+        .expect("provider account");
+    store
+        .update_provider_account_status(
+            "provider_account:codex:default",
+            noema_providers::ProviderAccountStatus::Authenticated,
+            None,
+            None,
+        )
+        .await
+        .expect("authenticated provider account");
+    let mut model = noema_providers::ProviderSelectionSnapshot::explicit(
+        "codex",
+        "provider_account:codex:default",
+        "gpt-test",
+        None,
+        Some("test".to_string()),
+    );
+    model.provider_instance_key = Some(
+        noema_providers::provider_account_instance_key("provider_account:codex:default")
+            .expect("provider key"),
+    );
+    let registry = ready_provider_registry(&model);
     let run = store
-        .create_agent_run(noema_tasks::NewAgentRun {
-            run_id: Some("run:test".to_string()),
-            task_id: "task:test".to_string(),
-            run_kind: noema_tasks::RunKind::Executor,
-            agent_id: noema_tasks::TASK_EXECUTOR_AGENT_ID.to_string(),
-            revision_index: 0,
-            attempt_index: 0,
-            parent_run_id: None,
-            triggering_submission_id: None,
-            triggering_review_id: None,
-            model: noema_providers::ProviderSelectionSnapshot::explicit(
-                "codex",
-                "provider_account:codex:default",
-                "gpt-test",
-                None,
-                Some("test".to_string()),
-            ),
-            execution_policy: noema_tasks::TaskExecutionPolicy::default(),
-            priority: 0,
-        })
+        .create_agent_run_with_readiness(
+            noema_tasks::NewAgentRun {
+                run_id: Some("run:test".to_string()),
+                task_id: "task:test".to_string(),
+                run_kind: noema_tasks::RunKind::Executor,
+                agent_id: noema_tasks::TASK_EXECUTOR_AGENT_ID.to_string(),
+                revision_index: 0,
+                attempt_index: 0,
+                parent_run_id: None,
+                triggering_submission_id: None,
+                triggering_review_id: None,
+                model,
+                execution_policy: noema_tasks::TaskExecutionPolicy::default(),
+                priority: 0,
+            },
+            &registry,
+        )
         .await
         .expect("run");
     let leased = store
@@ -127,17 +149,30 @@ async fn agent_run_items_round_trip_in_sequence_order() {
 }
 
 #[tokio::test]
-async fn create_agent_run_rejects_unpersistable_provider_instance_identity() {
+async fn create_agent_run_rejects_a_mismatched_provider_instance_identity() {
     let store = test_store().await;
+    store
+        .ensure_default_provider_account()
+        .await
+        .expect("provider account");
+    store
+        .update_provider_account_status(
+            "provider_account:codex:default",
+            noema_providers::ProviderAccountStatus::Authenticated,
+            None,
+            None,
+        )
+        .await
+        .expect("authenticated provider account");
     let mut model = noema_providers::ProviderSelectionSnapshot::explicit(
-        "openai",
-        "provider_account:openai:default",
+        "codex",
+        "provider_account:codex:default",
         "gpt-5.5",
         None,
         None,
     );
     model.provider_instance_key =
-        Some(noema_providers::ProviderInstanceKey::new("openai:default:1").unwrap());
+        Some(noema_providers::ProviderInstanceKey::new("provider-account:v1:wrong").unwrap());
 
     let error = store
         .create_agent_run(noema_tasks::NewAgentRun {
@@ -155,12 +190,11 @@ async fn create_agent_run_rejects_unpersistable_provider_instance_identity() {
             priority: 0,
         })
         .await
-        .expect_err("legacy storage must reject exact instance identity");
+        .expect_err("mismatched exact identity");
 
     assert!(matches!(
         error,
-        crate::StoreError::InvariantViolation { message }
-            if message.contains("cannot store an instance key")
+        crate::StoreError::ProviderInstanceKeyMismatch { .. }
     ));
     assert!(
         store
@@ -234,12 +268,14 @@ async fn blocked_task_persists_context_and_resumes_as_a_child_run() {
         blocked.blocked_question.as_deref(),
         Some("Which account should I use?")
     );
+    let registry = ready_codex_registry();
     let (resumed, child) = store
-        .resume_task(
+        .resume_task_with_readiness(
             &task.task_id,
             "human:local",
             "human:local",
             Some("Use the personal account"),
+            &registry,
         )
         .await
         .expect("resume");
@@ -250,6 +286,15 @@ async fn blocked_task_persists_context_and_resumes_as_a_child_run() {
         child.resume_message.as_deref(),
         Some("Use the personal account")
     );
+    assert_eq!(
+        store
+            .get_agent_run(&run.run_id)
+            .await
+            .expect("parent run")
+            .expect("persisted parent")
+            .status,
+        noema_tasks::RunStatus::Completed
+    );
 }
 
 #[tokio::test]
@@ -257,21 +302,25 @@ async fn queue_leases_distinct_tasks_concurrently_without_overlapping_one_task()
     let store = test_store().await;
     let (first_task, first_run) = seed_task(&store, "First concurrent task").await;
     let (second_task, _) = seed_task(&store, "Second concurrent task").await;
+    let registry = ready_provider_registry(&first_run.model);
     store
-        .create_agent_run(noema_tasks::NewAgentRun {
-            run_id: None,
-            task_id: first_task.task_id.clone(),
-            run_kind: noema_tasks::RunKind::Executor,
-            agent_id: noema_tasks::TASK_EXECUTOR_AGENT_ID.to_string(),
-            revision_index: first_run.revision_index,
-            attempt_index: first_run.attempt_index + 1,
-            parent_run_id: Some(first_run.run_id.clone()),
-            triggering_submission_id: None,
-            triggering_review_id: None,
-            model: first_run.model.clone(),
-            execution_policy: first_run.execution_policy,
-            priority: first_run.priority,
-        })
+        .create_agent_run_with_readiness(
+            noema_tasks::NewAgentRun {
+                run_id: None,
+                task_id: first_task.task_id.clone(),
+                run_kind: noema_tasks::RunKind::Executor,
+                agent_id: noema_tasks::TASK_EXECUTOR_AGENT_ID.to_string(),
+                revision_index: first_run.revision_index,
+                attempt_index: first_run.attempt_index + 1,
+                parent_run_id: Some(first_run.run_id.clone()),
+                triggering_submission_id: None,
+                triggering_review_id: None,
+                model: first_run.model.clone(),
+                execution_policy: first_run.execution_policy,
+                priority: first_run.priority,
+            },
+            &registry,
+        )
         .await
         .expect("same-task queued run");
 
@@ -327,8 +376,9 @@ async fn expired_lease_interrupts_parent_and_claims_automatic_child() {
         })
         .await
         .expect("expire lease");
+    let registry = ready_codex_registry();
     let child = store
-        .claim_next_agent_run("worker:new", "lease:new", 120)
+        .claim_next_agent_run_with_readiness("worker:new", "lease:new", 120, &registry)
         .await
         .expect("recovery claim")
         .expect("child run");
@@ -378,8 +428,9 @@ async fn shutdown_interruption_is_recovered_as_a_linked_child() {
         .await
         .expect("shutdown interruption");
 
+    let registry = ready_codex_registry();
     let child = store
-        .claim_next_agent_run("worker:new", "lease:new", 120)
+        .claim_next_agent_run_with_readiness("worker:new", "lease:new", 120, &registry)
         .await
         .expect("recovery claim")
         .expect("child run");

@@ -1,6 +1,6 @@
 //! Stable memory settings, records, and service-neutral request models.
 
-use noema_providers::ReasoningEffort;
+use noema_providers::{ProviderInstanceKey, ReasoningEffort};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -78,6 +78,8 @@ pub struct MemoryServiceSettingsRecord {
     pub provider_account_id: Option<String>,
     /// Provider kind used for memory extraction.
     pub provider_kind: Option<String>,
+    /// Exact provider process used for memory model work.
+    pub provider_instance_key: Option<ProviderInstanceKey>,
     /// Model profile used for memory extraction.
     pub model_profile: Option<String>,
     /// Reasoning effort used for memory extraction.

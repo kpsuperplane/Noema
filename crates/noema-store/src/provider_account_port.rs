@@ -259,42 +259,17 @@ async fn delete_provider_account(
     store: &NoemaStore,
     provider_account_id: &str,
 ) -> Result<bool, ProviderPersistenceError> {
-    store
-        .with_connection(|conn| {
-            let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            let is_default = transaction
-                .query_row(
-                    "SELECT is_default FROM provider_accounts WHERE provider_account_id = ?1",
-                    [provider_account_id],
-                    |row| row.get::<_, bool>(0),
-                )
-                .optional()?;
-            let Some(is_default) = is_default else {
-                transaction.commit()?;
-                return Ok(false);
-            };
-            if is_default {
-                return Err(StoreError::ProtectedProviderAccount {
-                    provider_account_id: provider_account_id.to_string(),
-                });
-            }
-            transaction.execute(
-                "DELETE FROM provider_capability_bindings WHERE provider_account_id = ?1",
-                [provider_account_id],
-            )?;
-            let changed = transaction.execute(
-                "DELETE FROM provider_accounts WHERE provider_account_id = ?1 AND is_default = 0",
-                [provider_account_id],
-            )?;
-            require_single_account_change(changed)?;
-            transaction.commit()?;
-            Ok(true)
-        })
+    NoemaStore::delete_provider_account(store, provider_account_id)
         .await
         .map_err(|error| match error {
             StoreError::ProtectedProviderAccount {
                 provider_account_id,
             } => ProviderPersistenceError::ProtectedAccount {
+                provider_account_id,
+            },
+            StoreError::ProviderAccountInUse {
+                provider_account_id,
+            } => ProviderPersistenceError::AccountInUse {
                 provider_account_id,
             },
             StoreError::InvariantViolation { .. } | StoreError::Schema(_) => {

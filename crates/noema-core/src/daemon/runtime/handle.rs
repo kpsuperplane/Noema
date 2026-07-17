@@ -6,16 +6,13 @@ use noema_providers::ProviderError;
 use noema_providers::{
     CodexProviderConfig, DEFAULT_FOUNDATION_LOCAL_PROFILE, FoundationLocalProviderConfig,
     GenerateRequest, GenerateResponse, ProviderConfig, ProviderCredentialAccessHandle,
-    ProviderHandle, ProviderSelectionSnapshot, hosted_provider_from_config,
-    provider_bootstrap_from_config,
+    ProviderHandle, hosted_provider_from_config, provider_bootstrap_from_config,
 };
 #[cfg(test)]
 use noema_store::NoemaStore;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
-#[cfg(test)]
-use super::provider_routes::LegacyProviderRoutes;
 use super::{CodexRuntimeSpawnConfig, TaskCompletionDeliveryRequest, actor::CodexRuntimeActor};
 use crate::daemon::protocol::{DaemonError, StartedConversation, TurnStreamEvent};
 
@@ -26,7 +23,6 @@ type ConfiguredRuntimeProviderMap = (String, Option<String>, RuntimeProviderMap)
 pub(crate) struct CodexRuntimeHandle {
     sender: mpsc::Sender<CodexRuntimeCommand>,
     cancellation: Arc<RuntimeCancellation>,
-    default_provider_kind: String,
 }
 
 #[derive(Debug)]
@@ -75,20 +71,57 @@ impl CodexRuntimeHandle {
     }
 
     #[cfg(test)]
-    pub(crate) async fn spawn_with_provider_routes_and_memory(
+    pub(crate) async fn spawn_with_provider_map_and_memory(
         default_provider_kind: String,
-        provider_routes: LegacyProviderRoutes,
+        providers: RuntimeProviderMap,
         store: NoemaStore,
         artifact_operations: noema_artifacts::ArtifactOperationsHandle,
         system_errors: SystemErrorLogger,
         memory_operations: Option<noema_memory::MemoryOperationsHandle>,
         task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
     ) -> Result<Self, DaemonError> {
+        Self::spawn_with_provider_map_inner(
+            default_provider_kind,
+            providers,
+            store,
+            artifact_operations,
+            system_errors,
+            memory_operations,
+            task_subscriptions,
+        )
+        .await
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn spawn_with_provider_registry_and_memory(
+        provider_registry: noema_providers::ProviderRegistryHandle,
+        store: NoemaStore,
+        artifact_operations: noema_artifacts::ArtifactOperationsHandle,
+        system_errors: SystemErrorLogger,
+        memory_operations: Option<noema_memory::MemoryOperationsHandle>,
+        task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
+    ) -> Result<Self, DaemonError> {
+        use noema_providers::RegistryProviderRouteResolver;
+
+        let bind = |loader| -> noema_providers::ProviderRouteResolverHandle {
+            Arc::new(RegistryProviderRouteResolver::new(
+                loader,
+                Arc::clone(&provider_registry),
+            ))
+        };
         let provider_accounts = super::actor::test_provider_account_access(&store)?;
         let (capability_bindings, capability_invokers) = super::actor::test_capability_handles();
         Self::spawn(CodexRuntimeSpawnConfig {
-            default_provider_kind,
-            provider_routes,
+            primary_provider: bind(store.agent_provider_selection_loader("agent:primary")),
+            default_provider: bind(store.default_provider_selection_loader()),
+            progress_audit_provider: bind(
+                store.auxiliary_provider_selection_loader(noema_store::TOOL_PROGRESS_AUDIT_TASK_ID),
+            ),
+            web_summary_provider: bind(
+                store
+                    .auxiliary_provider_selection_loader(noema_store::WEB_FETCH_SUMMARIZER_TASK_ID),
+            ),
+            provider_registry,
             store,
             artifact_operations,
             system_errors,
@@ -105,17 +138,11 @@ impl CodexRuntimeHandle {
         let (sender, receiver) = mpsc::channel(16);
         let actor = CodexRuntimeActor::from_spawn_config(config).await?;
         let cancellation = Arc::new(RuntimeCancellation(actor.tasks.cancellation_token()));
-        let default_provider_kind = actor.default_provider_kind.clone();
         tokio::spawn(actor.run(receiver));
         Ok(Self {
             sender,
             cancellation,
-            default_provider_kind,
         })
-    }
-
-    pub(crate) fn provider_kind(&self) -> &str {
-        &self.default_provider_kind
     }
 
     #[cfg(test)]
@@ -192,7 +219,6 @@ impl CodexRuntimeHandle {
         Ok(Self {
             sender,
             cancellation,
-            default_provider_kind: provider_kind,
         })
     }
 
@@ -227,7 +253,6 @@ impl CodexRuntimeHandle {
         Ok(Self {
             sender,
             cancellation,
-            default_provider_kind: provider_kind,
         })
     }
 
@@ -271,12 +296,16 @@ impl CodexRuntimeHandle {
                 message: "default provider is not available in this daemon".to_string(),
             }));
         }
-        let provider_routes = LegacyProviderRoutes::new(providers)?;
+        let routing =
+            super::actor::test_provider_routing(&store, &default_provider_kind, providers).await?;
         let provider_accounts = super::actor::test_provider_account_access(&store)?;
         let (capability_bindings, capability_invokers) = super::actor::test_capability_handles();
         Self::spawn(CodexRuntimeSpawnConfig {
-            default_provider_kind,
-            provider_routes,
+            primary_provider: routing.primary,
+            default_provider: routing.default,
+            progress_audit_provider: routing.progress_audit,
+            web_summary_provider: routing.web_summary,
+            provider_registry: routing.registry,
             store,
             artifact_operations,
             system_errors,
@@ -382,36 +411,32 @@ impl CodexRuntimeHandle {
         &self,
         request: GenerateRequest,
     ) -> Result<GenerateResponse, DaemonError> {
-        let selection = provider_selection_for_generate_request(
-            &self.default_provider_kind,
-            &request,
-            "runtime_generate_once",
-        );
-        self.generate_once_with_provider_selection(selection, request)
-            .await
+        self.send_generate_once(
+            GenerateOnceRoute::Default,
+            request,
+            GenerateOnceModelPolicy::Selection,
+        )
+        .await
     }
 
-    pub(crate) async fn generate_once_with_provider_selection(
+    pub(crate) async fn generate_once_with_memory_provider(
         &self,
-        selection: ProviderSelectionSnapshot,
         request: GenerateRequest,
     ) -> Result<GenerateResponse, DaemonError> {
-        self.send_generate_once(selection, request, GenerateOnceModelPolicy::Selection)
-            .await
+        self.send_generate_once(
+            GenerateOnceRoute::Memory,
+            request,
+            GenerateOnceModelPolicy::Selection,
+        )
+        .await
     }
 
     pub(crate) async fn generate_once_with_tool_classification_model(
         &self,
         request: GenerateRequest,
     ) -> Result<GenerateResponse, DaemonError> {
-        let selection = ProviderSelectionSnapshot::provider_default(
-            self.default_provider_kind.clone(),
-            format!("provider_account:{}:default", self.default_provider_kind),
-            request.options.reasoning_effort,
-            Some("tool_classification_model".to_string()),
-        );
         self.send_generate_once(
-            selection,
+            GenerateOnceRoute::Default,
             request,
             GenerateOnceModelPolicy::ProviderToolClassification,
         )
@@ -420,14 +445,14 @@ impl CodexRuntimeHandle {
 
     async fn send_generate_once(
         &self,
-        selection: ProviderSelectionSnapshot,
+        route: GenerateOnceRoute,
         request: GenerateRequest,
         model_policy: GenerateOnceModelPolicy,
     ) -> Result<GenerateResponse, DaemonError> {
         let (reply, reply_rx) = oneshot::channel();
         self.sender
             .send(CodexRuntimeCommand::GenerateOnce {
-                selection,
+                route,
                 request,
                 model_policy,
                 reply,
@@ -488,34 +513,16 @@ fn default_foundation_local_config() -> FoundationLocalProviderConfig {
     }
 }
 
-#[cfg(test)]
-fn provider_selection_for_generate_request(
-    provider_kind: &str,
-    request: &GenerateRequest,
-    selection_source: &str,
-) -> ProviderSelectionSnapshot {
-    let provider_account_id = format!("provider_account:{provider_kind}:default");
-    match request.model.clone() {
-        Some(model_profile) => ProviderSelectionSnapshot::explicit(
-            provider_kind,
-            provider_account_id,
-            model_profile,
-            request.options.reasoning_effort,
-            Some(selection_source.to_string()),
-        ),
-        None => ProviderSelectionSnapshot::provider_default(
-            provider_kind,
-            provider_account_id,
-            request.options.reasoning_effort,
-            Some(selection_source.to_string()),
-        ),
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 pub(super) enum GenerateOnceModelPolicy {
     Selection,
     ProviderToolClassification,
+}
+
+#[derive(Debug)]
+pub(super) enum GenerateOnceRoute {
+    Default,
+    Memory,
 }
 
 #[derive(Debug)]
@@ -545,7 +552,7 @@ pub(super) enum CodexRuntimeCommand {
         reply: oneshot::Sender<Result<(), DaemonError>>,
     },
     GenerateOnce {
-        selection: ProviderSelectionSnapshot,
+        route: GenerateOnceRoute,
         request: GenerateRequest,
         model_policy: GenerateOnceModelPolicy,
         reply: oneshot::Sender<Result<GenerateResponse, DaemonError>>,

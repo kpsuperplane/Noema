@@ -82,14 +82,24 @@ pub(super) async fn save_tool_progress_audit_preference(
     let profiles = selectable_profiles_from_account(store, &account).await?;
     let profile = require_selectable_profile(&profiles, &input.model_profile)?;
     let reasoning_effort = validate_reasoning_effort_for_profile(profile, input.reasoning_effort)?;
+    let ready_selection = super::provider_selection::prove_ready_selection(
+        state,
+        &account.provider_kind,
+        &account.provider_account_id,
+        &input.model_profile,
+        reasoning_effort,
+        "graphql_progress_audit_preference",
+    )
+    .await?;
+    let preference = NewAuxiliaryModelPreference {
+        task_id: TOOL_PROGRESS_AUDIT_TASK_ID.to_string(),
+        provider_kind: account.provider_kind,
+        provider_account_id: account.provider_account_id,
+        model_profile: input.model_profile,
+        reasoning_effort,
+    };
     let saved = store
-        .upsert_auxiliary_model_preference(NewAuxiliaryModelPreference {
-            task_id: TOOL_PROGRESS_AUDIT_TASK_ID.to_string(),
-            provider_kind: account.provider_kind,
-            provider_account_id: account.provider_account_id,
-            model_profile: input.model_profile,
-            reasoning_effort,
-        })
+        .upsert_auxiliary_model_preference_with_ready_selection(preference, &ready_selection)
         .await
         .map_err(graphql_error)?;
     Ok(GraphqlAgentModelPreference {

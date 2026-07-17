@@ -1,9 +1,12 @@
-use noema_providers::ReasoningEffort;
+use noema_providers::{ProviderRegistry, ProviderSelectionSnapshot, ReasoningEffort};
 use noema_tasks::{TaskModelPoolEntry, provider_default_task_models};
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
 
 use super::{
     LEGACY_PROVIDER_DEFAULT_POOL_PREFIX, NoemaStore, StoreError, global_task_model_pool_setting_id,
+};
+use crate::provider_selections::{
+    SelectionEligibility, prove_selection_ready, resolve_provider_selection_tx,
 };
 
 impl NoemaStore {
@@ -16,14 +19,31 @@ impl NoemaStore {
         &self,
         default_provider_kind: &str,
     ) -> Result<Vec<TaskModelPoolEntry>, StoreError> {
-        let account = self
-            .active_provider_account(default_provider_kind)
-            .await?
-            .ok_or_else(|| StoreError::InvariantViolation {
-                message: format!(
-                    "default task model provider account is unavailable: {default_provider_kind}"
-                ),
-            })?;
+        self.ensure_default_task_model_pool_settings_inner(default_provider_kind, None)
+            .await
+    }
+
+    /// Ensure missing global executor settings while proving every newly
+    /// referenced exact provider route is ready through commit.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the provider defaults or registry readiness
+    /// are invalid, or when SQLite fails.
+    pub async fn ensure_default_task_model_pool_settings_with_readiness(
+        &self,
+        default_provider_kind: &str,
+        registry: &ProviderRegistry,
+    ) -> Result<Vec<TaskModelPoolEntry>, StoreError> {
+        self.ensure_default_task_model_pool_settings_inner(default_provider_kind, Some(registry))
+            .await
+    }
+
+    async fn ensure_default_task_model_pool_settings_inner(
+        &self,
+        default_provider_kind: &str,
+        registry: Option<&ProviderRegistry>,
+    ) -> Result<Vec<TaskModelPoolEntry>, StoreError> {
         let defaults = provider_default_task_models(default_provider_kind);
         if defaults.len() != 3 {
             return Err(StoreError::InvariantViolation {
@@ -32,88 +52,127 @@ impl NoemaStore {
                 ),
             });
         }
-        let existing = self.list_task_model_pool_entries(None).await?;
-        self.with_connection(|conn| {
-            let transaction = conn.transaction()?;
-            for default in defaults {
+        let (_, _ready_selections) = self.with_immediate_transaction_retry(|transaction| {
+            let mut ready_selections = Vec::new();
+            let account = transaction
+                .query_row(
+                    "SELECT provider_kind, provider_account_id FROM provider_accounts WHERE provider_kind = ?1 AND is_active = 1 AND is_default = 1 LIMIT 1",
+                    [default_provider_kind],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )
+                .optional()?
+                .ok_or_else(|| StoreError::InvariantViolation {
+                    message: format!(
+                        "default task model provider account is unavailable: {default_provider_kind}"
+                    ),
+                })?;
+            if account.0 == "local_models" {
+                return Err(StoreError::ProviderInstanceUnavailable {
+                    provider_instance_key: account.1,
+                });
+            }
+            let existing = {
+                let mut statement = transaction.prepare(
+                    "SELECT pool_entry_id, complexity, provider_account_id FROM task_model_pool_entries ORDER BY pool_entry_id",
+                )?;
+                statement
+                    .query_map([], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                        ))
+                    })?
+                    .collect::<Result<Vec<_>, _>>()?
+            };
+            for default in &defaults {
                 let pool_entry_id = global_task_model_pool_setting_id(default.complexity);
                 if existing
                     .iter()
-                    .any(|entry| entry.pool_entry_id == pool_entry_id)
+                    .any(|entry| entry.0 == pool_entry_id)
                 {
                     continue;
                 }
                 let migrated = existing
                     .iter()
                     .find(|entry| {
-                        entry.complexity == default.complexity
-                            && !entry
-                                .pool_entry_id
-                                .starts_with(LEGACY_PROVIDER_DEFAULT_POOL_PREFIX)
+                        entry.1 == default.complexity.as_str()
+                            && !entry.0.starts_with(LEGACY_PROVIDER_DEFAULT_POOL_PREFIX)
                     })
                     .or_else(|| {
                         existing.iter().find(|entry| {
-                            entry.complexity == default.complexity
-                                && entry.model.provider_account_id == account.provider_account_id
+                            entry.1 == default.complexity.as_str()
+                                && entry.2 == account.1
                         })
                     });
                 if let Some(migrated) = migrated {
                     transaction.execute(
                         "UPDATE tasks SET pool_entry_id = ?1 WHERE pool_entry_id = ?2",
-                        params![pool_entry_id, migrated.pool_entry_id],
+                        params![pool_entry_id, migrated.0],
                     )?;
                     transaction.execute(
                         "UPDATE task_model_pool_entries SET pool_entry_id = ?1, sort_order = 0, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE pool_entry_id = ?2",
-                        params![pool_entry_id, migrated.pool_entry_id],
+                        params![pool_entry_id, migrated.0],
                     )?;
                     continue;
                 }
+                let unresolved = ProviderSelectionSnapshot::explicit(
+                    account.0.clone(),
+                    account.1.clone(),
+                    default.model_profile,
+                    default.reasoning_effort,
+                    Some("task_model_pool_setting".to_string()),
+                );
+                let selection = resolve_provider_selection_tx(
+                    transaction,
+                    &unresolved,
+                    SelectionEligibility::Canonical,
+                )?;
+                ready_selections.push(prove_selection_ready(&selection, registry)?);
                 transaction.execute(
                     r#"
                     INSERT INTO task_model_pool_entries (
                       pool_entry_id, complexity, label, provider_kind,
-                      provider_account_id, model_profile, reasoning_effort,
+                      provider_account_id, provider_instance_key, model_profile, reasoning_effort,
                       enabled, sort_order
                     )
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0)
                     "#,
                     params![
                         pool_entry_id,
                         default.complexity.as_str(),
                         default.label,
-                        account.provider_kind,
-                        account.provider_account_id,
-                        default.model_profile,
-                        default
-                            .reasoning_effort
-                            .map(ReasoningEffort::as_persistence_str),
+                        selection.provider_kind,
+                        selection.provider_account_id,
+                        selection.provider_instance_key.as_ref().map(ToString::to_string),
+                        selection.model_profile,
+                        selection.reasoning_effort.map(ReasoningEffort::as_persistence_str),
                         true,
                     ],
                 )?;
             }
             for entry in &existing {
-                if entry.is_global_setting() {
+                if noema_tasks::is_global_task_model_pool_setting_id(&entry.0) {
                     continue;
                 }
                 let references: i64 = transaction.query_row(
                     "SELECT COUNT(*) FROM tasks WHERE pool_entry_id = ?1",
-                    [&entry.pool_entry_id],
+                    [&entry.0],
                     |row| row.get(0),
                 )?;
                 if references > 0 {
                     transaction.execute(
                         "UPDATE task_model_pool_entries SET enabled = 0, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE pool_entry_id = ?1",
-                        [&entry.pool_entry_id],
+                        [&entry.0],
                     )?;
                 } else {
                     transaction.execute(
                         "DELETE FROM task_model_pool_entries WHERE pool_entry_id = ?1",
-                        [&entry.pool_entry_id],
+                        [&entry.0],
                     )?;
                 }
             }
-            transaction.commit()?;
-            Ok(())
+            Ok(((), ready_selections))
         })
         .await?;
         self.list_task_model_pool_settings(None).await

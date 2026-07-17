@@ -4,7 +4,7 @@ use super::*;
 async fn mcp_control_plane_tables_bootstrap() {
     let store = test_store().await;
 
-    assert_eq!(store.schema_version().await.expect("schema version"), 1);
+    assert_eq!(store.schema_version().await.expect("schema version"), 2);
     store
         .with_connection(|conn| {
             conn.execute_batch(

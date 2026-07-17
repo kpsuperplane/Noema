@@ -4,7 +4,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use noema_capabilities::ToolSpec;
-use noema_providers::ProviderSelectionSnapshot;
+use noema_providers::{ProviderRegistry, ProviderSelectionSnapshot};
 use noema_store::NoemaStore;
 use noema_tasks::{
     NewTask, NewTaskValidationCriterion, TASK_REVIEWER_AGENT_ID, TaskComplexity,
@@ -332,11 +332,12 @@ pub(crate) fn task_delegate_tool_spec(
 /// Execute a delegation request and atomically create its task/run records.
 pub(crate) async fn execute_task_delegate(
     store: &NoemaStore,
+    provider_registry: &ProviderRegistry,
     context: &TaskDelegateRuntimeContext,
     call_id: Option<String>,
     payload: &Value,
 ) -> TaskToolResult {
-    let result = execute_inner(store, context, call_id.clone(), payload).await;
+    let result = execute_inner(store, provider_registry, context, call_id.clone(), payload).await;
     match result {
         Ok(payload) => TaskToolResult {
             call_id,
@@ -365,11 +366,12 @@ pub(crate) async fn execute_task_inspect(
 
 pub(crate) async fn execute_task_resume(
     store: &NoemaStore,
+    provider_registry: &ProviderRegistry,
     context: &TaskAccessRuntimeContext,
     call_id: Option<String>,
     payload: &Value,
 ) -> TaskToolResult {
-    let result = resume_inner(store, context, payload).await;
+    let result = resume_inner(store, provider_registry, context, payload).await;
     task_tool_result(TASK_RESUME_TOOL, call_id, result)
 }
 
@@ -574,16 +576,18 @@ async fn inspect_inner(
 
 async fn resume_inner(
     store: &NoemaStore,
+    provider_registry: &ProviderRegistry,
     context: &TaskAccessRuntimeContext,
     payload: &Value,
 ) -> Result<Value, String> {
     let arguments = resume_arguments(payload)?;
     let (task, run) = store
-        .resume_task(
+        .resume_task_with_readiness(
             arguments.task_id.trim(),
             &context.owner_human_id,
             &context.actor_id,
             arguments.message.as_deref(),
+            provider_registry,
         )
         .await
         .map_err(|error| error.to_string())?;
@@ -639,6 +643,7 @@ fn resume_arguments(payload: &Value) -> Result<ResumeArguments, String> {
 
 async fn execute_inner(
     store: &NoemaStore,
+    provider_registry: &ProviderRegistry,
     context: &TaskDelegateRuntimeContext,
     call_id: Option<String>,
     payload: &Value,
@@ -669,25 +674,28 @@ async fn execute_inner(
         })
         .collect();
     let (task, run) = store
-        .create_task_with_executor(NewTask {
-            task_id: None,
-            title: arguments.title,
-            request_markdown: arguments.request,
-            complexity: arguments.complexity,
-            owner_human_id: "human:local".to_string(),
-            source: TaskSource {
-                conversation_id: Some(context.conversation_id.clone()),
-                turn_id: Some(context.turn_id.clone()),
-                item_id: Some(context.user_item_id.clone()),
+        .create_task_with_executor_with_readiness(
+            NewTask {
+                task_id: None,
+                title: arguments.title,
+                request_markdown: arguments.request,
+                complexity: arguments.complexity,
+                owner_human_id: "human:local".to_string(),
+                source: TaskSource {
+                    conversation_id: Some(context.conversation_id.clone()),
+                    turn_id: Some(context.turn_id.clone()),
+                    item_id: Some(context.user_item_id.clone()),
+                },
+                created_by_agent_id: context.agent_id.clone(),
+                creation_tool_call_id: call_id.or_else(|| call_id_from_payload(payload)),
+                pool_entry_id: pool.pool_entry_id.clone(),
+                executor_model: pool.model.clone(),
+                reviewer_model: reviewer,
+                max_review_rounds: None,
+                criteria,
             },
-            created_by_agent_id: context.agent_id.clone(),
-            creation_tool_call_id: call_id.or_else(|| call_id_from_payload(payload)),
-            pool_entry_id: pool.pool_entry_id.clone(),
-            executor_model: pool.model.clone(),
-            reviewer_model: reviewer,
-            max_review_rounds: None,
-            criteria,
-        })
+            provider_registry,
+        )
         .await
         .map_err(|error| error.to_string())?;
     Ok(json!({
@@ -789,34 +797,39 @@ mod tests {
             )
             .await
             .expect("authenticated provider account");
+        crate::test_support::initialize_codex_provider_selections(&store).await;
+        let registry = crate::test_support::ready_test_provider_registry();
         let pool = store
-            .ensure_default_task_model_pool_settings("codex")
+            .ensure_default_task_model_pool_settings_with_readiness("codex", registry.as_ref())
             .await
             .expect("task model settings")
             .into_iter()
             .find(|entry| entry.complexity == TaskComplexity::Simple)
             .expect("simple task model");
         let (task, run) = store
-            .create_task_with_executor(NewTask {
-                task_id: None,
-                title: "Inspectable task".to_string(),
-                request_markdown: "Inspect me".to_string(),
-                complexity: TaskComplexity::Simple,
-                owner_human_id: "human:local".to_string(),
-                source: TaskSource::default(),
-                created_by_agent_id: "agent:primary".to_string(),
-                creation_tool_call_id: None,
-                pool_entry_id: pool.pool_entry_id,
-                executor_model: pool.model.clone(),
-                reviewer_model: pool.model,
-                max_review_rounds: None,
-                criteria: vec![NewTaskValidationCriterion {
-                    criterion_id: None,
-                    ordinal: 1,
-                    description: "Completes".to_string(),
-                    expected_evidence: None,
-                }],
-            })
+            .create_task_with_executor_with_readiness(
+                NewTask {
+                    task_id: None,
+                    title: "Inspectable task".to_string(),
+                    request_markdown: "Inspect me".to_string(),
+                    complexity: TaskComplexity::Simple,
+                    owner_human_id: "human:local".to_string(),
+                    source: TaskSource::default(),
+                    created_by_agent_id: "agent:primary".to_string(),
+                    creation_tool_call_id: None,
+                    pool_entry_id: pool.pool_entry_id,
+                    executor_model: pool.model.clone(),
+                    reviewer_model: pool.model,
+                    max_review_rounds: None,
+                    criteria: vec![NewTaskValidationCriterion {
+                        criterion_id: None,
+                        ordinal: 1,
+                        description: "Completes".to_string(),
+                        expected_evidence: None,
+                    }],
+                },
+                registry.as_ref(),
+            )
             .await
             .expect("task");
         let context = TaskAccessRuntimeContext {
@@ -849,7 +862,8 @@ mod tests {
             "model missing"
         );
 
-        let resumed = execute_task_resume(&store, &context, None, &arguments).await;
+        let resumed =
+            execute_task_resume(&store, registry.as_ref(), &context, None, &arguments).await;
         assert!(resumed.success);
         assert_eq!(resumed.payload["status"], "queued");
         assert_eq!(resumed.payload["attempt"], 1);
@@ -892,8 +906,9 @@ mod tests {
             .expect("criteria")[0]
             .criterion_id
             .clone();
+        let provider_registry = crate::test_support::ready_test_provider_registry();
         let (_, reviewer_run) = store
-            .create_task_submission(
+            .create_task_submission_with_readiness(
                 noema_tasks::NewTaskSubmission {
                     submission_id: None,
                     task_id: task.task_id.clone(),
@@ -908,6 +923,7 @@ mod tests {
                     artifact_ids: Vec::new(),
                 },
                 "lease:executor",
+                provider_registry.as_ref(),
             )
             .await
             .expect("submission");

@@ -39,6 +39,44 @@ const RESTART_CONTEXT_TEST_PHASE_ENV: &str = "NOEMA_RESTART_CONTEXT_TEST_PHASE";
 const RESTART_CONTEXT_TEST_HOME_ENV: &str = "NOEMA_RESTART_CONTEXT_TEST_HOME";
 const RESTART_CONTEXT_TEST_CONVERSATION_FILE: &str = "restart_context_conversation_id";
 
+async fn upsert_ready_agent_runtime_preference(
+    store: &noema_store::NoemaStore,
+    preference: noema_store::NewAgentRuntimePreference,
+) {
+    let ready_selection = crate::test_support::ready_provider_selection(
+        noema_providers::ProviderSelectionSnapshot::explicit(
+            &preference.provider_kind,
+            &preference.provider_account_id,
+            &preference.model_profile,
+            preference.reasoning_effort,
+            Some(format!("agent_runtime_preference:{}", preference.agent_id)),
+        ),
+    );
+    store
+        .upsert_agent_runtime_preference_with_ready_selection(preference, &ready_selection)
+        .await
+        .expect("ready agent runtime preference");
+}
+
+async fn upsert_ready_auxiliary_model_preference(
+    store: &noema_store::NoemaStore,
+    preference: noema_store::NewAuxiliaryModelPreference,
+) {
+    let ready_selection = crate::test_support::ready_provider_selection(
+        noema_providers::ProviderSelectionSnapshot::explicit(
+            &preference.provider_kind,
+            &preference.provider_account_id,
+            &preference.model_profile,
+            preference.reasoning_effort,
+            Some(format!("auxiliary_model_preference:{}", preference.task_id)),
+        ),
+    );
+    store
+        .upsert_auxiliary_model_preference_with_ready_selection(preference, &ready_selection)
+        .await
+        .expect("ready auxiliary model preference");
+}
+
 #[derive(Debug, Clone)]
 struct StaticWebSearchBackend {
     response: noema_capabilities::web::search::SearchResponse,
@@ -374,6 +412,7 @@ async fn task_supervisor_starts_distinct_tasks_concurrently() {
     let task_runtime = TaskRuntimeHandle::start(
         store.clone(),
         runtime.clone(),
+        crate::test_support::ready_test_provider_registry(),
         crate::test_support::system_error_logger(),
         subscriptions,
     );
@@ -402,8 +441,14 @@ async fn background_task_pins_local_provider_generation_across_replacement() {
     let store = crate::test_support::test_store().await;
     let (task, run) = crate::test_support::seed_task(&store, "Pinned provider generation").await;
     let lease_token = "lease:provider-generation";
+    let provider_registry = crate::test_support::ready_test_provider_registry();
     let claimed = store
-        .claim_next_agent_run("worker:provider-generation", lease_token, 120)
+        .claim_next_agent_run_with_readiness(
+            "worker:provider-generation",
+            lease_token,
+            120,
+            provider_registry.as_ref(),
+        )
         .await
         .expect("claim run")
         .expect("leased run");
@@ -426,14 +471,17 @@ async fn background_task_pins_local_provider_generation_across_replacement() {
         requests: Mutex::new(Vec::new()),
     });
     let replacement = Arc::new(CapturingProvider::default());
-    let routes = super::LegacyProviderRoutes::new([(
-        "local_models",
-        old_provider.clone() as noema_providers::ProviderHandle,
-    )])
-    .expect("provider routes");
-    let runtime = CodexRuntimeHandle::spawn_with_provider_routes_and_memory(
-        "local_models".to_string(),
-        routes.clone(),
+    let provider_key = noema_providers::ProviderInstanceKey::new("local-model:test-generation")
+        .expect("provider key");
+    let provider_registry = Arc::new(noema_providers::ProviderRegistry::new());
+    provider_registry
+        .register(
+            provider_key.clone(),
+            old_provider.clone() as noema_providers::ProviderHandle,
+        )
+        .expect("register old provider");
+    let runtime = CodexRuntimeHandle::spawn_with_provider_registry_and_memory(
+        provider_registry.clone(),
         store.clone(),
         crate::test_support::artifact_operations(&store).expect("artifact operations"),
         crate::test_support::system_error_logger(),
@@ -443,6 +491,7 @@ async fn background_task_pins_local_provider_generation_across_replacement() {
     .await
     .expect("runtime");
     let generation_runtime = runtime.clone();
+    let generation_provider_key = provider_key.clone();
     let generation = tokio::spawn(async move {
         generation_runtime
             .generate_background_task(super::runtime::BackgroundTaskGenerateRequest {
@@ -452,13 +501,17 @@ async fn background_task_pins_local_provider_generation_across_replacement() {
                 cancellation: tokio_util::sync::CancellationToken::new(),
                 agent_id: run.agent_id.clone(),
                 role: crate::agent_execution::ExecutionRole::TaskExecutor,
-                provider_selection: noema_providers::ProviderSelectionSnapshot::explicit(
-                    "local_models",
-                    "provider_account:local_models:default",
-                    "old-model",
-                    None,
-                    Some("provider_generation_test".to_string()),
-                ),
+                provider_selection: {
+                    let mut selection = noema_providers::ProviderSelectionSnapshot::explicit(
+                        "local_models",
+                        "provider_account:local_models:default",
+                        "old-model",
+                        None,
+                        Some("provider_generation_test".to_string()),
+                    );
+                    selection.provider_instance_key = Some(generation_provider_key);
+                    selection
+                },
                 execution_policy: run.execution_policy,
                 input: task.request_markdown.clone(),
                 instructions: "Complete the task and submit the result.".to_string(),
@@ -468,14 +521,12 @@ async fn background_task_pins_local_provider_generation_across_replacement() {
     });
 
     started_rx.await.expect("old provider started");
-    let publication = routes.begin_publication().await;
-    publication
+    provider_registry
         .register(
-            "local_models",
+            provider_key,
             replacement.clone() as noema_providers::ProviderHandle,
         )
         .expect("publish replacement");
-    drop(publication);
     release_tx.send(()).expect("release old provider");
 
     let response = generation
@@ -910,16 +961,18 @@ async fn primary_agent_runtime_preference_supplies_turn_model() {
         .ensure_default_foundation_local_provider_account()
         .await
         .expect("foundation account");
-    store
-        .upsert_agent_runtime_preference(noema_store::NewAgentRuntimePreference {
+    authenticate_provider_account(&store, &account.provider_account_id).await;
+    upsert_ready_agent_runtime_preference(
+        &store,
+        noema_store::NewAgentRuntimePreference {
             agent_id: "agent:primary".to_string(),
             provider_kind: "foundation_local".to_string(),
             provider_account_id: account.provider_account_id,
             model_profile: "default".to_string(),
             reasoning_effort: None,
-        })
-        .await
-        .expect("preference");
+        },
+    )
+    .await;
 
     let provider = Arc::new(CapturingProvider::default());
     let runtime =
@@ -955,16 +1008,18 @@ async fn primary_agent_runtime_preference_supplies_reasoning_effort() {
         .ensure_default_provider_account()
         .await
         .expect("codex account");
-    store
-        .upsert_agent_runtime_preference(noema_store::NewAgentRuntimePreference {
+    authenticate_provider_account(&store, &account.provider_account_id).await;
+    upsert_ready_agent_runtime_preference(
+        &store,
+        noema_store::NewAgentRuntimePreference {
             agent_id: "agent:primary".to_string(),
             provider_kind: "codex".to_string(),
             provider_account_id: account.provider_account_id,
             model_profile: "gpt-5.5".to_string(),
             reasoning_effort: Some(noema_providers::ReasoningEffort::High),
-        })
-        .await
-        .expect("preference");
+        },
+    )
+    .await;
 
     let codex_provider = Arc::new(CapturingProvider::default());
     let runtime =
@@ -1003,16 +1058,18 @@ async fn primary_agent_codex_preference_sends_reasoning_effort_to_codex_provider
         .ensure_default_provider_account()
         .await
         .expect("codex account");
-    store
-        .upsert_agent_runtime_preference(noema_store::NewAgentRuntimePreference {
+    authenticate_provider_account(&store, &account.provider_account_id).await;
+    upsert_ready_agent_runtime_preference(
+        &store,
+        noema_store::NewAgentRuntimePreference {
             agent_id: "agent:primary".to_string(),
             provider_kind: "codex".to_string(),
             provider_account_id: account.provider_account_id,
             model_profile: "gpt-5.5".to_string(),
             reasoning_effort: Some(noema_providers::ReasoningEffort::High),
-        })
-        .await
-        .expect("preference");
+        },
+    )
+    .await;
 
     let codex_provider = Arc::new(CapturingProvider::default());
     let openai_provider = Arc::new(CapturingProvider::default());
@@ -1066,16 +1123,18 @@ async fn primary_agent_openai_preference_sends_reasoning_effort_to_openai_provid
         .await
         .expect("foundation account")
         .provider_account_id;
-    store
-        .upsert_agent_runtime_preference(noema_store::NewAgentRuntimePreference {
+    authenticate_provider_account(&store, &provider_account_id).await;
+    upsert_ready_agent_runtime_preference(
+        &store,
+        noema_store::NewAgentRuntimePreference {
             agent_id: "agent:primary".to_string(),
             provider_kind: "foundation_local".to_string(),
             provider_account_id,
-            model_profile: "gpt-5.5".to_string(),
+            model_profile: "default".to_string(),
             reasoning_effort: Some(noema_providers::ReasoningEffort::Medium),
-        })
-        .await
-        .expect("preference");
+        },
+    )
+    .await;
 
     let codex_provider = Arc::new(CapturingProvider::default());
     let foundation_provider = Arc::new(CapturingProvider::default());
@@ -1477,7 +1536,7 @@ async fn prompt_context_uses_active_summary_and_post_checkpoint_items() {
         .insert_conversation_context_summary(noema_conversations::NewConversationContextSummary {
             conversation_id: started.conversation_id.clone(),
             provider_kind: "foundation_local".to_string(),
-            model_profile: None,
+            model_profile: Some("default".to_string()),
             summary_text: "Summary: the user approved rolling durable compaction.".to_string(),
             covered_item_start_sequence: 1,
             covered_item_end_sequence: 2,
@@ -1485,7 +1544,7 @@ async fn prompt_context_uses_active_summary_and_post_checkpoint_items() {
             input_token_estimate: 400,
             summary_token_estimate: 16,
             compaction_provider_kind: "foundation_local".to_string(),
-            compaction_model_profile: None,
+            compaction_model_profile: Some("default".to_string()),
             status: noema_conversations::ConversationContextSummaryStatus::Active,
             error_code: None,
             error_message: None,
@@ -1543,7 +1602,7 @@ async fn compacted_summary_is_replayed_as_input_checkpoint_not_instruction_text(
         .insert_conversation_context_summary(noema_conversations::NewConversationContextSummary {
             conversation_id: started.conversation_id.clone(),
             provider_kind: "foundation_local".to_string(),
-            model_profile: None,
+            model_profile: Some("default".to_string()),
             summary_text: "Summary: compacted checkpoint facts.".to_string(),
             covered_item_start_sequence: 1,
             covered_item_end_sequence: 2,
@@ -1551,7 +1610,7 @@ async fn compacted_summary_is_replayed_as_input_checkpoint_not_instruction_text(
             input_token_estimate: 400,
             summary_token_estimate: 16,
             compaction_provider_kind: "foundation_local".to_string(),
-            compaction_model_profile: None,
+            compaction_model_profile: Some("default".to_string()),
             status: noema_conversations::ConversationContextSummaryStatus::Active,
             error_code: None,
             error_message: None,
@@ -1820,7 +1879,7 @@ async fn foreground_context_compaction_runs_before_over_limit_turn() {
         .expect("summaries");
     assert!(summaries.iter().any(|summary| {
         summary.provider_kind == "foundation_local"
-            && summary.model_profile.is_none()
+            && summary.model_profile.as_deref() == Some("default")
             && summary.covered_item_end_sequence >= 2
             && summary.summary_text == "fake answer"
     }));
@@ -1954,7 +2013,11 @@ async fn background_context_compaction_creates_checkpoint_after_large_turn() {
         );
     }
     let active = store
-        .latest_active_context_summary(&started.conversation_id, "foundation_local", None)
+        .latest_active_context_summary(
+            &started.conversation_id,
+            "foundation_local",
+            Some("default"),
+        )
         .await
         .expect("active summary")
         .expect("active summary exists");
@@ -2037,16 +2100,18 @@ async fn primary_agent_runtime_preference_selects_provider_without_restart() {
         .ensure_default_foundation_local_provider_account()
         .await
         .expect("foundation account");
-    store
-        .upsert_agent_runtime_preference(noema_store::NewAgentRuntimePreference {
+    authenticate_provider_account(&store, &account.provider_account_id).await;
+    upsert_ready_agent_runtime_preference(
+        &store,
+        noema_store::NewAgentRuntimePreference {
             agent_id: "agent:primary".to_string(),
             provider_kind: "foundation_local".to_string(),
             provider_account_id: account.provider_account_id,
             model_profile: "default".to_string(),
             reasoning_effort: None,
-        })
-        .await
-        .expect("preference");
+        },
+    )
+    .await;
 
     let codex_provider = Arc::new(CapturingProvider::default());
     let foundation_provider = Arc::new(CapturingProvider::default());
@@ -2107,16 +2172,18 @@ async fn runtime_turn_refreshes_agent_preference_after_conversation_hydration() 
         .ensure_default_provider_account()
         .await
         .expect("codex account");
-    store
-        .upsert_agent_runtime_preference(noema_store::NewAgentRuntimePreference {
+    authenticate_provider_account(&store, &codex_account.provider_account_id).await;
+    upsert_ready_agent_runtime_preference(
+        &store,
+        noema_store::NewAgentRuntimePreference {
             agent_id: "agent:primary".to_string(),
             provider_kind: "codex".to_string(),
             provider_account_id: codex_account.provider_account_id,
             model_profile: "codex-initial".to_string(),
             reasoning_effort: None,
-        })
-        .await
-        .expect("initial preference");
+        },
+    )
+    .await;
 
     let codex_provider = Arc::new(CapturingProvider::default());
     let foundation_provider = Arc::new(CapturingProvider::default());
@@ -2145,16 +2212,18 @@ async fn runtime_turn_refreshes_agent_preference_after_conversation_hydration() 
         .ensure_default_foundation_local_provider_account()
         .await
         .expect("foundation account");
-    store
-        .upsert_agent_runtime_preference(noema_store::NewAgentRuntimePreference {
+    authenticate_provider_account(&store, &foundation_account.provider_account_id).await;
+    upsert_ready_agent_runtime_preference(
+        &store,
+        noema_store::NewAgentRuntimePreference {
             agent_id: "agent:primary".to_string(),
             provider_kind: "foundation_local".to_string(),
             provider_account_id: foundation_account.provider_account_id,
-            model_profile: "foundation-live".to_string(),
+            model_profile: "default".to_string(),
             reasoning_effort: None,
-        })
-        .await
-        .expect("updated preference");
+        },
+    )
+    .await;
 
     let (result, _events) =
         collect_turn_events(&runtime, started.conversation_id, "hello".to_string()).await;
@@ -2167,8 +2236,121 @@ async fn runtime_turn_refreshes_agent_preference_after_conversation_hydration() 
         foundation_requests
             .last()
             .and_then(|request| request.model.as_deref()),
-        Some("foundation-live")
+        Some("default")
     );
+}
+
+#[tokio::test]
+async fn primary_preference_change_applies_to_next_turn_without_rerouting_in_flight_turn() {
+    let store = crate::test_support::test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    store
+        .update_agent_display_name("agent:primary", "Noema")
+        .await
+        .expect("name primary");
+    let codex_account = store
+        .ensure_default_provider_account()
+        .await
+        .expect("codex account");
+    store
+        .update_provider_account_status(
+            &codex_account.provider_account_id,
+            noema_providers::ProviderAccountStatus::Authenticated,
+            None,
+            None,
+        )
+        .await
+        .expect("authenticate codex");
+    upsert_ready_agent_runtime_preference(
+        &store,
+        noema_store::NewAgentRuntimePreference {
+            agent_id: "agent:primary".to_string(),
+            provider_kind: "codex".to_string(),
+            provider_account_id: codex_account.provider_account_id,
+            model_profile: "codex-in-flight".to_string(),
+            reasoning_effort: None,
+        },
+    )
+    .await;
+    let foundation_account = store
+        .ensure_default_foundation_local_provider_account()
+        .await
+        .expect("foundation account");
+    store
+        .update_provider_account_status(
+            &foundation_account.provider_account_id,
+            noema_providers::ProviderAccountStatus::Authenticated,
+            None,
+            None,
+        )
+        .await
+        .expect("authenticate foundation");
+
+    let (started_tx, started_rx) = oneshot::channel();
+    let (release_tx, release_rx) = oneshot::channel();
+    let codex_provider = Arc::new(BlockingOnceProvider {
+        started: Mutex::new(Some(started_tx)),
+        release: Mutex::new(Some(release_rx)),
+    });
+    let foundation_provider = Arc::new(CapturingProvider::default());
+    let runtime = CodexRuntimeHandle::spawn_with_provider_map(
+        "codex",
+        vec![
+            (
+                "codex".to_string(),
+                codex_provider as noema_providers::ProviderHandle,
+            ),
+            (
+                "foundation_local".to_string(),
+                foundation_provider.clone() as noema_providers::ProviderHandle,
+            ),
+        ],
+        store.clone(),
+    )
+    .await
+    .expect("runtime");
+    let conversation_id = runtime
+        .start_primary_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+    let first_runtime = runtime.clone();
+    let first_conversation_id = conversation_id.clone();
+    let first_turn = tokio::spawn(async move {
+        collect_turn_events(&first_runtime, first_conversation_id, "first".to_string()).await
+    });
+
+    started_rx.await.expect("codex turn started");
+    upsert_ready_agent_runtime_preference(
+        &store,
+        noema_store::NewAgentRuntimePreference {
+            agent_id: "agent:primary".to_string(),
+            provider_kind: "foundation_local".to_string(),
+            provider_account_id: foundation_account.provider_account_id,
+            model_profile: "default".to_string(),
+            reasoning_effort: None,
+        },
+    )
+    .await;
+    release_tx.send(()).expect("release codex turn");
+    first_turn
+        .await
+        .expect("first turn task")
+        .0
+        .expect("first turn");
+
+    collect_turn_events(&runtime, conversation_id, "second".to_string())
+        .await
+        .0
+        .expect("second turn");
+    runtime.shutdown().await;
+
+    let foundation_requests = foundation_provider
+        .requests
+        .lock()
+        .expect("foundation requests");
+    assert_eq!(foundation_requests.len(), 1);
+    assert_eq!(foundation_requests[0].model.as_deref(), Some("default"));
 }
 
 #[tokio::test]
@@ -4143,16 +4325,18 @@ async fn hard_ceiling_gets_one_no_tools_finalization_attempt() {
         .ensure_default_provider_account()
         .await
         .expect("codex account");
-    store
-        .upsert_agent_runtime_preference(noema_store::NewAgentRuntimePreference {
+    authenticate_provider_account(&store, &codex.provider_account_id).await;
+    upsert_ready_agent_runtime_preference(
+        &store,
+        noema_store::NewAgentRuntimePreference {
             agent_id: "agent:primary".to_string(),
             provider_kind: "codex".to_string(),
             provider_account_id: codex.provider_account_id,
             model_profile: "gpt-5.5".to_string(),
             reasoning_effort: Some(noema_providers::ReasoningEffort::High),
-        })
-        .await
-        .expect("runtime preference");
+        },
+    )
+    .await;
     let conversation = handle.start_conversation(None).await.expect("conversation");
 
     collect_turn(
@@ -4204,16 +4388,17 @@ async fn audit_execution_failure_gets_one_no_tools_finalization_attempt() {
         .ensure_default_provider_account()
         .await
         .expect("codex account");
-    store
-        .upsert_auxiliary_model_preference(noema_store::NewAuxiliaryModelPreference {
+    upsert_ready_auxiliary_model_preference(
+        &store,
+        noema_store::NewAuxiliaryModelPreference {
             task_id: noema_store::TOOL_PROGRESS_AUDIT_TASK_ID.to_string(),
             provider_kind: "codex".to_string(),
             provider_account_id: codex.provider_account_id,
             model_profile: "gpt-5.4-mini".to_string(),
             reasoning_effort: None,
-        })
-        .await
-        .expect("audit preference");
+        },
+    )
+    .await;
     let conversation = handle.start_conversation(None).await.expect("conversation");
 
     collect_turn(
@@ -4729,6 +4914,18 @@ async fn test_runtime_handle(provider: FakeCodexProvider) -> CodexRuntimeHandle 
     test_runtime_handle_with_store(provider).await.0
 }
 
+async fn authenticate_provider_account(store: &noema_store::NoemaStore, account_id: &str) {
+    store
+        .update_provider_account_status(
+            account_id,
+            noema_providers::ProviderAccountStatus::Authenticated,
+            None,
+            None,
+        )
+        .await
+        .expect("authenticate provider account");
+}
+
 async fn test_runtime_handle_with_store(
     provider: FakeCodexProvider,
 ) -> (CodexRuntimeHandle, noema_store::NoemaStore) {
@@ -4746,14 +4943,12 @@ async fn test_runtime_handle_with_store_and_system_errors(
 ) {
     let store = crate::test_support::test_store().await;
     let system_errors = crate::test_support::system_error_logger();
-    let provider_routes = super::LegacyProviderRoutes::new([(
-        "codex",
-        Arc::new(provider) as noema_providers::ProviderHandle,
-    )])
-    .expect("provider routes");
-    let handle = CodexRuntimeHandle::spawn_with_provider_routes_and_memory(
+    let handle = CodexRuntimeHandle::spawn_with_provider_map_and_memory(
         "codex".to_string(),
-        provider_routes,
+        HashMap::from([(
+            "codex".to_string(),
+            Arc::new(provider) as noema_providers::ProviderHandle,
+        )]),
         store.clone(),
         crate::test_support::artifact_operations(&store).expect("artifact operations"),
         system_errors.clone(),
@@ -4777,10 +4972,6 @@ async fn test_runtime_handle_with_task_delegation(
         .await
         .expect("provider account");
     store
-        .ensure_default_task_model_pool_settings("codex")
-        .await
-        .expect("task model pool");
-    store
         .update_provider_account_status(
             "provider_account:codex:default",
             noema_providers::ProviderAccountStatus::Authenticated,
@@ -4789,6 +4980,23 @@ async fn test_runtime_handle_with_task_delegation(
         )
         .await
         .expect("authenticate provider account");
+    let configured_default = noema_providers::ProviderSelectionSnapshot::explicit(
+        "codex",
+        "provider_account:codex:default",
+        "gpt-5.6-luna",
+        None,
+        Some("test_configured_default".to_string()),
+    );
+    let ready_selection = crate::test_support::ready_provider_selection(configured_default.clone());
+    store
+        .initialize_missing_provider_selections(ready_selection.selection(), Some(&ready_selection))
+        .await
+        .expect("initialize provider selections");
+    let provider_registry = crate::test_support::ready_test_provider_registry();
+    store
+        .ensure_default_task_model_pool_settings_with_readiness("codex", provider_registry.as_ref())
+        .await
+        .expect("task model pool");
     std::mem::forget(home);
     let handle = CodexRuntimeHandle::spawn_with_provider(Arc::new(provider), store.clone())
         .await

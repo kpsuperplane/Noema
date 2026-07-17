@@ -51,7 +51,8 @@ pub use accounts::{
     CodexDeviceAuthRequest, NewProviderAccount, PersistedProviderAccountRecord,
     ProviderAccountCatalogEntry, ProviderAccountRecord, ProviderAccountStatus,
     ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderAuthMethod,
-    provider_account_catalog, provider_account_from_persisted, system_provider_accounts,
+    provider_account_catalog, provider_account_from_persisted, provider_account_instance_key,
+    system_provider_accounts,
 };
 #[cfg(feature = "adapters")]
 pub use adapters::{
@@ -96,11 +97,12 @@ pub use local_model::{
 };
 #[cfg(feature = "local-models")]
 pub use local_models::{
-    HuggingFaceLocalModelImport, LocalFileModelImport, LocalHardwareProfile, LocalModelBuild,
-    LocalModelCatalogEntry, LocalModelCatalogSnapshot, LocalModelCatalogSnapshotEntry,
-    LocalModelManager, LocalModelManagerConfig, LocalModelManagerError, LocalModelManagerEvent,
-    LocalModelManagerEventRecord, LocalModelManagerEventStream, LocalModelRouteHandle,
-    LocalModelRouteReadGuard, LocalModelRuntimeStatus, ManagedLocalModelStatus,
+    DegradedLocalModelInstance, HuggingFaceLocalModelImport, LocalFileModelImport,
+    LocalHardwareProfile, LocalModelBuild, LocalModelCatalogEntry, LocalModelCatalogSnapshot,
+    LocalModelCatalogSnapshotEntry, LocalModelManager, LocalModelManagerConfig,
+    LocalModelManagerError, LocalModelManagerEvent, LocalModelManagerEventRecord,
+    LocalModelManagerEventStream, LocalModelReconstructionReport, LocalModelRuntimeStatus,
+    ManagedLocalModelStatus,
 };
 #[cfg(feature = "local-model-evals")]
 pub use local_models::{
@@ -113,8 +115,12 @@ pub use operations::{
     ProviderHandle, ProviderOperationFuture, ProviderOperations, erase_model_provider,
 };
 pub use persistence::{
-    LocalModelActivationPersistence, LocalModelActivationPersistenceHandle,
-    LocalModelInstallationPersistence, LocalModelInstallationPersistenceHandle,
+    ClaimedLocalModelInstallation, LocalModelActivationPersistence,
+    LocalModelActivationPersistenceHandle, LocalModelInstallationPersistence,
+    LocalModelInstallationPersistenceHandle, LocalModelInstanceReference,
+    LocalModelInstanceReferenceSource, LocalModelLifecyclePersistence,
+    LocalModelLifecyclePersistenceHandle, LocalModelReconstructionSnapshot,
+    LocalModelRetirementClaimResult, LocalModelRuntimeRetirementResult,
     PersistProviderModelCatalogRequest, ProviderAccountPersistence,
     ProviderAccountPersistenceHandle, ProviderAccountStatusUpdate,
     ProviderCapabilityAccountReference, ProviderCapabilityAccountReferenceMode,
@@ -124,8 +130,9 @@ pub use persistence::{
     UpdateProviderAccountRequest, UpsertProviderCapabilityAssignmentRequest,
 };
 pub use registry::{
-    ProviderInstanceLease, ProviderRegistration, ProviderRegistry, ProviderRegistryError,
-    ProviderRegistryHandle, ProviderRetirementGuard,
+    ProviderInstanceLease, ProviderReadySelection, ProviderReadySelectionError,
+    ProviderRegistration, ProviderRegistry, ProviderRegistryError, ProviderRegistryHandle,
+    ProviderRetirementGuard,
 };
 pub use routing::{
     ProviderRouteError, ProviderRouteFuture, ProviderRouteLease, ProviderRouteResolver,

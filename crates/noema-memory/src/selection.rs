@@ -8,53 +8,71 @@ use noema_providers::{
 use crate::{model::MemoryServiceSettingsRecord, repository::MemoryRepositoryHandle};
 
 /// Derive the provider-owned route selection for memory model work.
-#[must_use]
+///
+/// # Errors
+///
+/// Returns [`ProviderRouteError::SelectionLoad`] until initialization has
+/// persisted a complete exact memory selection.
 pub fn memory_provider_selection(
     settings: &MemoryServiceSettingsRecord,
-    default_provider_kind: &str,
-) -> ProviderSelectionSnapshot {
-    let provider_kind = settings
-        .provider_kind
-        .as_deref()
-        .unwrap_or(default_provider_kind);
-    let provider_account_id = settings
-        .provider_account_id
-        .clone()
-        .unwrap_or_else(|| format!("provider_account:{provider_kind}:default"));
-    match settings.model_profile.clone() {
-        Some(model_profile) => ProviderSelectionSnapshot::explicit(
-            provider_kind,
-            provider_account_id,
-            model_profile,
-            settings.reasoning_effort,
-            Some("memory_service_settings".to_string()),
-        ),
-        None => ProviderSelectionSnapshot::provider_default(
-            provider_kind,
-            provider_account_id,
-            settings.reasoning_effort,
-            Some("memory_service_settings".to_string()),
-        ),
-    }
+) -> Result<ProviderSelectionSnapshot, ProviderRouteError> {
+    let provider_kind =
+        settings
+            .provider_kind
+            .as_deref()
+            .ok_or(ProviderRouteError::SelectionLoad {
+                operation: "load_memory_model_selection",
+            })?;
+    let provider_account_id =
+        settings
+            .provider_account_id
+            .as_deref()
+            .ok_or(ProviderRouteError::SelectionLoad {
+                operation: "load_memory_model_selection",
+            })?;
+    let model_profile =
+        settings
+            .model_profile
+            .as_deref()
+            .ok_or(ProviderRouteError::SelectionLoad {
+                operation: "load_memory_model_selection",
+            })?;
+    let provider_instance_key =
+        settings
+            .provider_instance_key
+            .clone()
+            .ok_or(ProviderRouteError::SelectionLoad {
+                operation: "load_memory_model_selection",
+            })?;
+    let mut selection = ProviderSelectionSnapshot::explicit(
+        provider_kind,
+        provider_account_id,
+        model_profile,
+        settings.reasoning_effort,
+        Some("memory_service_settings".to_string()),
+    );
+    selection.provider_instance_key = Some(provider_instance_key);
+    selection
+        .normalized_for_persistence()
+        .map_err(|_| ProviderRouteError::SelectionLoad {
+            operation: "load_memory_model_selection",
+        })
 }
 
 /// Build a fresh-per-resolution selection loader from the memory repository.
 #[must_use]
 pub fn memory_provider_selection_loader(
     repository: MemoryRepositoryHandle,
-    default_provider_kind: impl Into<String>,
 ) -> ProviderSelectionLoaderHandle {
-    let default_provider_kind = default_provider_kind.into();
     provider_selection_loader(move || {
         let repository = repository.clone();
-        let default_provider_kind = default_provider_kind.clone();
         Box::pin(async move {
             let settings = repository.memory_service_settings().await.map_err(|_| {
                 ProviderRouteError::SelectionLoad {
                     operation: "load_memory_model_selection",
                 }
             })?;
-            Ok(memory_provider_selection(&settings, &default_provider_kind))
+            memory_provider_selection(&settings)
         })
     })
 }
@@ -63,7 +81,7 @@ pub fn memory_provider_selection_loader(
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use noema_providers::{ProviderSelectionMode, ReasoningEffort};
+    use noema_providers::{ProviderSelectionMode, ReasoningEffort, provider_account_instance_key};
 
     use super::*;
     use crate::{
@@ -100,6 +118,7 @@ mod tests {
                 port: input.port,
                 provider_account_id: input.provider_account_id,
                 provider_kind: input.provider_kind,
+                provider_instance_key: None,
                 model_profile: input.model_profile,
                 reasoning_effort: input.reasoning_effort,
             };
@@ -135,6 +154,10 @@ mod tests {
             provider_account_id: provider_kind
                 .map(|kind| format!("provider_account:{kind}:default")),
             provider_kind: provider_kind.map(str::to_string),
+            provider_instance_key: provider_kind.map(|kind| {
+                provider_account_instance_key(&format!("provider_account:{kind}:default"))
+                    .expect("provider key")
+            }),
             model_profile: model_profile.map(str::to_string),
             reasoning_effort: Some(ReasoningEffort::Low),
         }
@@ -145,7 +168,7 @@ mod tests {
         let repository = Arc::new(FakeRepository {
             settings: Mutex::new(settings(Some("foundation_local"), Some("memory-v1"))),
         });
-        let loader = memory_provider_selection_loader(repository.clone(), "codex");
+        let loader = memory_provider_selection_loader(repository.clone());
 
         let first = loader.load_selection().await.expect("first selection");
         assert_eq!(first.provider_kind, "foundation_local");
@@ -164,14 +187,15 @@ mod tests {
     }
 
     #[test]
-    fn unset_model_uses_provider_default_selection() {
-        let selection = memory_provider_selection(&settings(None, None), "codex");
+    fn unset_model_is_an_initialization_error() {
+        let error = memory_provider_selection(&settings(None, None))
+            .expect_err("missing initialized memory selection");
 
-        assert_eq!(selection.provider_kind, "codex");
-        assert_eq!(
-            selection.selection_mode,
-            ProviderSelectionMode::ProviderDefault
-        );
-        assert_eq!(selection.model_profile, None);
+        assert!(matches!(
+            error,
+            ProviderRouteError::SelectionLoad {
+                operation: "load_memory_model_selection"
+            }
+        ));
     }
 }

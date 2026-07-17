@@ -5,17 +5,19 @@ use futures_util::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnord
 use noema_capabilities::{CapabilityBindingSourceHandle, CapabilityInvokerRegistration};
 use noema_home::SystemErrorLogger;
 use noema_providers::{
-    ProviderAccountOperationsHandle, ProviderCredentialAccessHandle, ProviderRouteLease,
-    ProviderSelectionSnapshot,
+    ProviderAccountOperationsHandle, ProviderCredentialAccessHandle, ProviderRegistryHandle,
+    ProviderRouteLease, ProviderRouteResolver, ProviderRouteResolverHandle,
+    ProviderSelectionSnapshot, RegistryProviderRouteResolver, provider_selection_loader,
 };
 #[cfg(test)]
-use noema_providers::{ProviderAccountService, ProviderHandle};
+use noema_providers::{
+    ProviderAccountService, ProviderHandle, ProviderRegistry, provider_account_instance_key,
+};
 use noema_store::NoemaStore;
 use tokio::sync::{mpsc, oneshot};
 
 use super::CodexRuntimeSpawnConfig;
-use super::handle::{CodexRuntimeCommand, GenerateOnceModelPolicy};
-use super::provider_routes::LegacyProviderRoutes;
+use super::handle::{CodexRuntimeCommand, GenerateOnceModelPolicy, GenerateOnceRoute};
 use super::tasks::RuntimeTaskGroup;
 use crate::daemon::protocol::DaemonError;
 
@@ -64,8 +66,11 @@ impl std::fmt::Debug for ProviderAccountRuntimeAccess {
 }
 
 pub(in crate::daemon) struct CodexRuntimeActor {
-    pub(in crate::daemon) default_provider_kind: String,
-    pub(in crate::daemon) provider_routes: LegacyProviderRoutes,
+    pub(in crate::daemon) primary_provider: ProviderRouteResolverHandle,
+    pub(in crate::daemon) default_provider: ProviderRouteResolverHandle,
+    pub(in crate::daemon) progress_audit_provider: ProviderRouteResolverHandle,
+    pub(in crate::daemon) web_summary_provider: ProviderRouteResolverHandle,
+    pub(in crate::daemon) provider_registry: ProviderRegistryHandle,
     pub(in crate::daemon) store: NoemaStore,
     pub(in crate::daemon) artifact_operations: noema_artifacts::ArtifactOperationsHandle,
     pub(in crate::daemon) system_errors: SystemErrorLogger,
@@ -84,8 +89,11 @@ impl std::fmt::Debug for CodexRuntimeActor {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("CodexRuntimeActor")
-            .field("default_provider_kind", &self.default_provider_kind)
-            .field("provider_routes", &self.provider_routes)
+            .field("primary_provider", &"[CONFIGURED]")
+            .field("default_provider", &"[CONFIGURED]")
+            .field("progress_audit_provider", &"[CONFIGURED]")
+            .field("web_summary_provider", &"[CONFIGURED]")
+            .field("provider_registry", &self.provider_registry)
             .field("store", &self.store)
             .field("artifact_operations", &"[CONFIGURED]")
             .field("system_errors", &self.system_errors)
@@ -135,12 +143,15 @@ impl CodexRuntimeActor {
         memory_operations: Option<noema_memory::MemoryOperationsHandle>,
         task_subscriptions: crate::graphql::ConversationSubscriptionRegistry,
     ) -> Result<Self, DaemonError> {
-        let provider_routes = LegacyProviderRoutes::new(providers)?;
+        let routing = test_provider_routing(&store, &default_provider_kind, providers).await?;
         let provider_accounts = test_provider_account_access(&store)?;
         let (capability_bindings, capability_invokers) = test_capability_handles();
         Self::from_spawn_config(CodexRuntimeSpawnConfig {
-            default_provider_kind,
-            provider_routes,
+            primary_provider: routing.primary,
+            default_provider: routing.default,
+            progress_audit_provider: routing.progress_audit,
+            web_summary_provider: routing.web_summary,
+            provider_registry: routing.registry,
             store,
             artifact_operations,
             system_errors,
@@ -157,8 +168,11 @@ impl CodexRuntimeActor {
         config: CodexRuntimeSpawnConfig,
     ) -> Result<Self, DaemonError> {
         Ok(Self {
-            default_provider_kind: config.default_provider_kind,
-            provider_routes: config.provider_routes,
+            primary_provider: config.primary_provider,
+            default_provider: config.default_provider,
+            progress_audit_provider: config.progress_audit_provider,
+            web_summary_provider: config.web_summary_provider,
+            provider_registry: config.provider_registry,
             store: config.store,
             artifact_operations: config.artifact_operations,
             system_errors: config.system_errors,
@@ -208,39 +222,57 @@ impl CodexRuntimeActor {
         Ok(actor)
     }
 
-    pub(in crate::daemon) async fn resolve_provider_route(
+    pub(in crate::daemon) async fn resolve_static_provider_route(
         &self,
         selection: ProviderSelectionSnapshot,
     ) -> Result<ProviderRouteLease, DaemonError> {
-        self.provider_routes
-            .resolve_snapshot_async(selection)
+        let loader = provider_selection_loader(move || {
+            let selection = selection.clone();
+            Box::pin(async move { Ok(selection) })
+        });
+        RegistryProviderRouteResolver::new(loader, Arc::clone(&self.provider_registry))
+            .resolve_route()
             .await
             .map_err(DaemonError::from)
     }
 
-    pub(in crate::daemon) async fn provider_for_kind(
+    pub(in crate::daemon) async fn resolve_primary_provider(
         &self,
-        provider_kind: &str,
     ) -> Result<ProviderRouteLease, DaemonError> {
-        self.resolve_provider_route(ProviderSelectionSnapshot::provider_default(
-            provider_kind,
-            format!("provider_account:{provider_kind}:default"),
-            None,
-            Some("legacy_runtime_route".to_string()),
-        ))
-        .await
+        self.primary_provider
+            .resolve_route()
+            .await
+            .map_err(DaemonError::from)
     }
 
-    pub(in crate::daemon) async fn default_provider(
+    pub(in crate::daemon) async fn resolve_default_provider(
         &self,
     ) -> Result<ProviderRouteLease, DaemonError> {
-        self.provider_for_kind(&self.default_provider_kind).await
+        self.default_provider
+            .resolve_route()
+            .await
+            .map_err(DaemonError::from)
+    }
+
+    pub(in crate::daemon) async fn resolve_memory_provider(
+        &self,
+    ) -> Result<ProviderRouteLease, DaemonError> {
+        RegistryProviderRouteResolver::new(
+            noema_memory::memory_provider_selection_loader(Arc::new(self.store.clone())),
+            Arc::clone(&self.provider_registry),
+        )
+        .resolve_route()
+        .await
+        .map_err(DaemonError::from)
     }
 
     pub(super) fn clone_for_background(&self) -> Self {
         Self {
-            default_provider_kind: self.default_provider_kind.clone(),
-            provider_routes: self.provider_routes.clone(),
+            primary_provider: Arc::clone(&self.primary_provider),
+            default_provider: Arc::clone(&self.default_provider),
+            progress_audit_provider: Arc::clone(&self.progress_audit_provider),
+            web_summary_provider: Arc::clone(&self.web_summary_provider),
+            provider_registry: Arc::clone(&self.provider_registry),
             store: self.store.clone(),
             artifact_operations: self.artifact_operations.clone(),
             system_errors: self.system_errors.clone(),
@@ -351,21 +383,27 @@ impl CodexRuntimeActor {
                     let _ = reply.send(result);
                 }
                 CodexRuntimeCommand::GenerateOnce {
-                    selection,
+                    route,
                     mut request,
                     model_policy,
                     reply,
                 } => {
-                    let provider = match self.resolve_provider_route(selection.clone()).await {
+                    let provider = match route {
+                        GenerateOnceRoute::Default => self.resolve_default_provider().await,
+                        GenerateOnceRoute::Memory => self.resolve_memory_provider().await,
+                    };
+                    let provider = match provider {
                         Ok(provider) => provider,
                         Err(error) => {
                             let _ = reply.send(Err(error));
                             continue;
                         }
                     };
+                    let selection = provider.selection();
                     match model_policy {
                         GenerateOnceModelPolicy::Selection => {
-                            request.model = selection.model_profile;
+                            request.model = selection.model_profile.clone();
+                            request.options.reasoning_effort = selection.reasoning_effort;
                         }
                         GenerateOnceModelPolicy::ProviderToolClassification => {
                             let Some(model) =
@@ -373,7 +411,7 @@ impl CodexRuntimeActor {
                             else {
                                 let _ = reply.send(Err(DaemonError::Provider(
                                     noema_providers::ProviderError::ProviderUnavailable {
-                                        provider: selection.provider_kind,
+                                        provider: selection.provider_kind.clone(),
                                         message: "provider has no tool-classification model"
                                             .to_string(),
                                     },
@@ -428,6 +466,95 @@ impl CodexRuntimeActor {
             let _ = reply.send(());
         }
     }
+}
+
+#[cfg(test)]
+pub(super) struct TestProviderRouting {
+    pub(super) primary: ProviderRouteResolverHandle,
+    pub(super) default: ProviderRouteResolverHandle,
+    pub(super) progress_audit: ProviderRouteResolverHandle,
+    pub(super) web_summary: ProviderRouteResolverHandle,
+    pub(super) registry: ProviderRegistryHandle,
+}
+
+#[cfg(test)]
+pub(super) async fn test_provider_routing(
+    store: &NoemaStore,
+    default_provider_kind: &str,
+    providers: HashMap<String, ProviderHandle>,
+) -> Result<TestProviderRouting, DaemonError> {
+    let default_account = match default_provider_kind {
+        "foundation_local" => {
+            store
+                .ensure_default_foundation_local_provider_account()
+                .await?
+        }
+        _ => store.ensure_default_provider_account().await?,
+    };
+    store
+        .update_provider_account_status(
+            &default_account.provider_account_id,
+            noema_providers::ProviderAccountStatus::Authenticated,
+            None,
+            None,
+        )
+        .await?;
+    store.ensure_default_actors().await?;
+
+    let default_kind = if default_provider_kind == "foundation_local" {
+        "foundation_local"
+    } else {
+        "codex"
+    };
+    let default_model = if default_kind == "foundation_local" {
+        noema_providers::DEFAULT_FOUNDATION_LOCAL_PROFILE
+    } else {
+        "gpt-5.6-luna"
+    };
+    let registry = Arc::new(ProviderRegistry::new());
+    for (provider_kind, provider) in providers {
+        let account_id = format!("provider_account:{provider_kind}:default");
+        let key = provider_account_instance_key(&account_id)
+            .map_err(|error| DaemonError::Protocol(error.to_string()))?;
+        registry
+            .register(key, provider)
+            .map_err(|error| DaemonError::Protocol(error.to_string()))?;
+    }
+    let mut configured_default = ProviderSelectionSnapshot::explicit(
+        default_kind,
+        &default_account.provider_account_id,
+        default_model,
+        None,
+        Some("test_runtime_default".to_string()),
+    );
+    configured_default.provider_instance_key = Some(
+        provider_account_instance_key(&default_account.provider_account_id)
+            .map_err(|error| DaemonError::Protocol(error.to_string()))?,
+    );
+    let ready_selection = registry
+        .prove_ready_selection(configured_default.clone())
+        .map_err(|error| DaemonError::Protocol(error.to_string()))?;
+    store
+        .initialize_missing_provider_selections(&configured_default, Some(&ready_selection))
+        .await?;
+
+    let bind = |loader| -> ProviderRouteResolverHandle {
+        Arc::new(RegistryProviderRouteResolver::new(
+            loader,
+            Arc::clone(&registry),
+        ))
+    };
+    Ok(TestProviderRouting {
+        primary: bind(store.agent_provider_selection_loader("agent:primary")),
+        default: bind(store.default_provider_selection_loader()),
+        progress_audit: bind(
+            store.auxiliary_provider_selection_loader(noema_store::TOOL_PROGRESS_AUDIT_TASK_ID),
+        ),
+        web_summary: bind(
+            store.auxiliary_provider_selection_loader(noema_store::WEB_FETCH_SUMMARIZER_TASK_ID),
+        ),
+        registry,
+    })
 }
 
 #[cfg(test)]
@@ -504,21 +631,6 @@ fn runtime_stopped() -> DaemonError {
 
 #[derive(Debug, Clone)]
 pub(in crate::daemon) struct ActiveConversation {
-    pub(in crate::daemon) provider_selection: noema_providers::ProviderSelectionSnapshot,
     pub(in crate::daemon) cwd: Option<String>,
     pub(in crate::daemon) next_turn_index: u64,
-}
-
-impl ActiveConversation {
-    pub(in crate::daemon) fn provider_kind(&self) -> &str {
-        &self.provider_selection.provider_kind
-    }
-
-    pub(in crate::daemon) fn model(&self) -> Option<&str> {
-        self.provider_selection.model_profile.as_deref()
-    }
-
-    pub(in crate::daemon) fn reasoning_effort(&self) -> Option<noema_providers::ReasoningEffort> {
-        self.provider_selection.reasoning_effort
-    }
 }

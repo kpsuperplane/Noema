@@ -1,8 +1,8 @@
 /// Current schema version for pre-stable local SQLite data.
-pub const STORE_SCHEMA_VERSION: i64 = 1;
+pub const STORE_SCHEMA_VERSION: i64 = 2;
 
 /// Stable marker row identifying the exact schema accepted by this binary.
-pub(super) const STORE_SCHEMA_MARKER: &str = "sqlite_store_v1";
+pub(super) const STORE_SCHEMA_MARKER: &str = "sqlite_store_v2";
 
 /// SQLite bootstrap used by the Noema store.
 pub const STORE_SCHEMA_SQL: &str = r#"
@@ -32,21 +32,29 @@ CREATE TABLE IF NOT EXISTS agent_runtime_preferences (
   agent_id TEXT PRIMARY KEY NOT NULL,
   provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models')),
   provider_account_id TEXT NOT NULL,
+  provider_instance_key TEXT NOT NULL CHECK (provider_instance_key <> ''),
   model_profile TEXT NOT NULL CHECK (model_profile <> ''),
   reasoning_effort TEXT CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
+CREATE INDEX IF NOT EXISTS agent_runtime_preferences_instance
+ON agent_runtime_preferences(provider_instance_key);
+
 CREATE TABLE IF NOT EXISTS auxiliary_model_preferences (
   task_id TEXT PRIMARY KEY NOT NULL CHECK (task_id IN ('web_fetch_summarizer', 'tool_progress_audit', 'memory_extraction')),
   provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models')),
   provider_account_id TEXT NOT NULL,
+  provider_instance_key TEXT NOT NULL CHECK (provider_instance_key <> ''),
   model_profile TEXT NOT NULL CHECK (model_profile <> ''),
   reasoning_effort TEXT CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
+
+CREATE INDEX IF NOT EXISTS auxiliary_model_preferences_instance
+ON auxiliary_model_preferences(provider_instance_key);
 
 CREATE TABLE IF NOT EXISTS provider_accounts (
   provider_account_id TEXT PRIMARY KEY NOT NULL,
@@ -79,6 +87,7 @@ CREATE TABLE IF NOT EXISTS provider_capability_bindings (
 
 CREATE TABLE IF NOT EXISTS local_model_installations (
   installation_id TEXT PRIMARY KEY NOT NULL,
+  provider_instance_key TEXT NOT NULL CHECK (provider_instance_key <> ''),
   model_id TEXT NOT NULL CHECK (model_id <> ''),
   display_name TEXT NOT NULL CHECK (display_name <> ''),
   source_kind TEXT NOT NULL CHECK (source_kind IN ('catalog', 'hugging_face', 'local_file')),
@@ -94,20 +103,29 @@ CREATE TABLE IF NOT EXISTS local_model_installations (
   status TEXT NOT NULL CHECK (status IN ('queued', 'downloading', 'verifying', 'installed', 'failed', 'cancelled')),
   blob_relative_path TEXT,
   is_active INTEGER NOT NULL DEFAULT 0 CHECK (is_active IN (0, 1)),
+  runtime_retired_at TEXT,
+  retirement_claimed_at TEXT,
   error_code TEXT,
   error_message TEXT,
   installed_at TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   CHECK (downloaded_bytes <= COALESCE(expected_bytes, downloaded_bytes)),
+  CHECK (is_active = 0 OR (runtime_retired_at IS NULL AND retirement_claimed_at IS NULL)),
   CHECK (status <> 'installed' OR (sha256 IS NOT NULL AND blob_relative_path IS NOT NULL AND installed_at IS NOT NULL)),
   CHECK (source_kind <> 'catalog' OR (source_repo IS NOT NULL AND source_revision IS NOT NULL AND source_file IS NOT NULL))
 );
 
 CREATE INDEX IF NOT EXISTS local_model_installations_model
 ON local_model_installations(model_id, status, updated_at);
+CREATE UNIQUE INDEX IF NOT EXISTS local_model_installations_provider_instance_key
+ON local_model_installations(provider_instance_key);
 CREATE UNIQUE INDEX IF NOT EXISTS local_model_installations_one_active
 ON local_model_installations(is_active) WHERE is_active = 1;
+CREATE INDEX IF NOT EXISTS local_model_installations_retirement_claim
+ON local_model_installations(retirement_claimed_at) WHERE retirement_claimed_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS local_model_installations_runtime_retired
+ON local_model_installations(runtime_retired_at) WHERE runtime_retired_at IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS local_model_events (
   cursor INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -126,11 +144,15 @@ CREATE TABLE IF NOT EXISTS default_model_preference (
   preference_id TEXT PRIMARY KEY NOT NULL CHECK (preference_id = 'default'),
   provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models')),
   provider_account_id TEXT NOT NULL,
+  provider_instance_key TEXT NOT NULL CHECK (provider_instance_key <> ''),
   model_profile TEXT NOT NULL CHECK (model_profile <> ''),
   reasoning_effort TEXT CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
+
+CREATE INDEX IF NOT EXISTS default_model_preference_instance
+ON default_model_preference(provider_instance_key);
 
 CREATE TABLE IF NOT EXISTS conversations (
   conversation_id TEXT PRIMARY KEY NOT NULL,
@@ -305,13 +327,23 @@ CREATE TABLE IF NOT EXISTS memory_service_settings (
   base_url TEXT,
   port INTEGER CHECK (port IS NULL OR (port > 0 AND port <= 65535)),
   provider_account_id TEXT,
+  provider_instance_key TEXT CHECK (provider_instance_key IS NULL OR provider_instance_key <> ''),
   provider_kind TEXT CHECK (provider_kind IS NULL OR provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models')),
   model_profile TEXT,
   reasoning_effort TEXT CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  CHECK (mode = 'managed' OR base_url IS NOT NULL)
+  CHECK (mode = 'managed' OR base_url IS NOT NULL),
+  CHECK (
+    (provider_account_id IS NULL AND provider_instance_key IS NULL AND provider_kind IS NULL AND model_profile IS NULL)
+    OR
+    (provider_account_id IS NOT NULL AND provider_instance_key IS NOT NULL AND provider_kind IS NOT NULL AND model_profile IS NOT NULL)
+  )
 );
+
+CREATE INDEX IF NOT EXISTS memory_service_settings_instance
+ON memory_service_settings(provider_instance_key)
+WHERE provider_instance_key IS NOT NULL;
 
 INSERT INTO memory_service_settings (settings_id, mode, base_url, port)
 VALUES ('default', 'managed', NULL, NULL)
@@ -335,6 +367,7 @@ CREATE TABLE IF NOT EXISTS task_model_pool_entries (
   label TEXT,
   provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models')),
   provider_account_id TEXT NOT NULL,
+  provider_instance_key TEXT NOT NULL CHECK (provider_instance_key <> ''),
   model_profile TEXT NOT NULL CHECK (model_profile <> ''),
   reasoning_effort TEXT CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
   enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
@@ -346,6 +379,9 @@ CREATE TABLE IF NOT EXISTS task_model_pool_entries (
 
 CREATE INDEX IF NOT EXISTS task_model_pool_entries_selection
 ON task_model_pool_entries(complexity, enabled, sort_order, label, pool_entry_id);
+CREATE INDEX IF NOT EXISTS task_model_pool_entries_instance
+ON task_model_pool_entries(provider_instance_key)
+WHERE enabled = 1;
 CREATE UNIQUE INDEX IF NOT EXISTS task_model_pool_entries_unique_selection
 ON task_model_pool_entries(
   complexity,
@@ -388,12 +424,14 @@ CREATE TABLE IF NOT EXISTS tasks (
   pool_entry_id TEXT NOT NULL,
   executor_provider_kind TEXT NOT NULL CHECK (executor_provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models')),
   executor_provider_account_id TEXT NOT NULL,
+  executor_provider_instance_key TEXT NOT NULL CHECK (executor_provider_instance_key <> ''),
   executor_selection_mode TEXT NOT NULL CHECK (executor_selection_mode IN ('explicit_profile', 'provider_default')),
   executor_model_profile TEXT,
   executor_reasoning_effort TEXT CHECK (executor_reasoning_effort IS NULL OR executor_reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
   executor_selection_source TEXT,
   reviewer_provider_kind TEXT NOT NULL CHECK (reviewer_provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models')),
   reviewer_provider_account_id TEXT NOT NULL,
+  reviewer_provider_instance_key TEXT NOT NULL CHECK (reviewer_provider_instance_key <> ''),
   reviewer_selection_mode TEXT NOT NULL CHECK (reviewer_selection_mode IN ('explicit_profile', 'provider_default')),
   reviewer_model_profile TEXT,
   reviewer_reasoning_effort TEXT CHECK (reviewer_reasoning_effort IS NULL OR reviewer_reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
@@ -416,6 +454,10 @@ CREATE INDEX IF NOT EXISTS tasks_status_queue
 ON tasks(status, updated_at, task_id);
 CREATE INDEX IF NOT EXISTS tasks_owner_source
 ON tasks(owner_human_id, source_conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS tasks_executor_instance
+ON tasks(executor_provider_instance_key, status);
+CREATE INDEX IF NOT EXISTS tasks_reviewer_instance
+ON tasks(reviewer_provider_instance_key, status);
 CREATE UNIQUE INDEX IF NOT EXISTS tasks_creation_call
 ON tasks(source_conversation_id, creation_tool_call_id)
 WHERE source_conversation_id IS NOT NULL AND creation_tool_call_id IS NOT NULL;
@@ -447,6 +489,7 @@ CREATE TABLE IF NOT EXISTS agent_runs (
   resume_message TEXT,
   provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models')),
   provider_account_id TEXT NOT NULL,
+  provider_instance_key TEXT NOT NULL CHECK (provider_instance_key <> ''),
   selection_mode TEXT NOT NULL CHECK (selection_mode IN ('explicit_profile', 'provider_default')),
   model_profile TEXT,
   reasoning_effort TEXT CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
@@ -485,6 +528,8 @@ CREATE TABLE IF NOT EXISTS agent_runs (
 
 CREATE INDEX IF NOT EXISTS agent_runs_queue
 ON agent_runs(status, priority DESC, queued_at, run_id);
+CREATE INDEX IF NOT EXISTS agent_runs_instance
+ON agent_runs(provider_instance_key, status);
 CREATE INDEX IF NOT EXISTS agent_runs_task_history
 ON agent_runs(task_id, created_at, run_id);
 CREATE INDEX IF NOT EXISTS agent_runs_expired_leases
@@ -600,6 +645,6 @@ CREATE INDEX IF NOT EXISTS run_events_run_sequence
 ON run_events(run_id, sequence_number, event_id);
 
 INSERT INTO schema_state (name, version, applied_at)
-VALUES ('sqlite_store_v1', 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+VALUES ('sqlite_store_v2', 2, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
 
 "#;

@@ -12,7 +12,6 @@ mod eval;
 mod hardware;
 mod manager;
 mod provider;
-mod routes;
 mod runtime;
 mod runtime_assets;
 
@@ -32,12 +31,12 @@ pub use eval::{
 };
 pub use hardware::detect_local_hardware_profiles;
 pub use manager::{
-    LocalModelCatalogSnapshot, LocalModelCatalogSnapshotEntry, LocalModelManager,
-    LocalModelManagerConfig, LocalModelManagerError, LocalModelManagerEvent,
-    LocalModelManagerEventRecord, LocalModelManagerEventStream, ManagedLocalModelStatus,
+    DegradedLocalModelInstance, LocalModelCatalogSnapshot, LocalModelCatalogSnapshotEntry,
+    LocalModelManager, LocalModelManagerConfig, LocalModelManagerError, LocalModelManagerEvent,
+    LocalModelManagerEventRecord, LocalModelManagerEventStream, LocalModelReconstructionReport,
+    ManagedLocalModelStatus,
 };
 pub use provider::LocalModelsProvider;
-pub use routes::{LocalModelRouteHandle, LocalModelRouteReadGuard};
 pub use runtime::{
     LlamaServerCandidate, LlamaServerConfig, LlamaServerError, LlamaServerSupervisor,
     LocalModelRuntimeStatus,

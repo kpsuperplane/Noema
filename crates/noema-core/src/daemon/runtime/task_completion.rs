@@ -157,6 +157,29 @@ impl CodexRuntimeActor {
         let conversation = self
             .hydrate_active_conversation(&request.conversation_id, None)
             .await?;
+        let provider = match self.resolve_primary_provider().await {
+            Ok(provider) => Some(provider),
+            Err(error) => {
+                self.system_errors.try_append(
+                    SystemErrorEvent::new(
+                        "task_completion_provider_unavailable",
+                        "Primary-agent task completion report provider is unavailable; using fallback",
+                    )
+                    .with_context(json!({
+                        "task_id": request.task_id,
+                        "delivery_id": request.delivery_id,
+                    }))
+                    .with_error_chain([error.to_string()]),
+                );
+                None
+            }
+        };
+        let model = provider
+            .as_ref()
+            .and_then(|route| route.selection().model_profile.clone());
+        let reasoning_effort = provider
+            .as_ref()
+            .and_then(|route| route.selection().reasoning_effort);
         let turn_index = conversation.next_turn_index;
         let (turn, _) = self
             .store
@@ -181,35 +204,14 @@ impl CodexRuntimeActor {
 
         self.publish_status(&request.conversation_id, PersistedAgentStatus::Thinking)
             .await;
-        let provider = match self
-            .resolve_provider_route(conversation.provider_selection.clone())
-            .await
-        {
-            Ok(provider) => Some(provider),
-            Err(error) => {
-                self.system_errors.try_append(
-                    SystemErrorEvent::new(
-                        "task_completion_provider_unavailable",
-                        "Primary-agent task completion report provider is unavailable; using fallback",
-                    )
-                    .with_context(json!({
-                        "task_id": request.task_id,
-                        "delivery_id": request.delivery_id,
-                        "provider_kind": conversation.provider_kind(),
-                    }))
-                    .with_error_chain([error.to_string()]),
-                );
-                None
-            }
-        };
         Ok(TaskCompletionDeliveryStart::Generate(Box::new(
             TaskCompletionGeneration {
                 request,
                 turn_id: turn.turn_id,
                 turn_index,
                 provider,
-                model: conversation.model().map(str::to_string),
-                reasoning_effort: conversation.reasoning_effort(),
+                model,
+                reasoning_effort,
                 subscriptions: self.task_subscriptions.clone(),
                 system_errors: self.system_errors.clone(),
             },

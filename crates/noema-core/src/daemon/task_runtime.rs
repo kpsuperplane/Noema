@@ -27,6 +27,7 @@ use crate::{
     },
 };
 use noema_home::{SystemErrorEvent, SystemErrorLogger};
+use noema_providers::ProviderRegistryHandle;
 
 const LEASE_SECONDS: i64 = 120;
 const POLL_INTERVAL: Duration = Duration::from_millis(300);
@@ -43,6 +44,15 @@ struct TaskRuntimeInner {
     join: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
+#[derive(Clone)]
+struct TaskRuntimeServices {
+    store: NoemaStore,
+    runtime: CodexRuntimeHandle,
+    provider_registry: ProviderRegistryHandle,
+    system_errors: SystemErrorLogger,
+    subscriptions: ConversationSubscriptionRegistry,
+}
+
 impl std::fmt::Debug for TaskRuntimeHandle {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -56,6 +66,7 @@ impl TaskRuntimeHandle {
     pub(crate) fn start(
         store: NoemaStore,
         runtime: CodexRuntimeHandle,
+        provider_registry: ProviderRegistryHandle,
         system_errors: SystemErrorLogger,
         subscriptions: ConversationSubscriptionRegistry,
     ) -> Self {
@@ -63,9 +74,16 @@ impl TaskRuntimeHandle {
             cancellation: CancellationToken::new(),
             join: std::sync::Mutex::new(None),
         });
+        let services = TaskRuntimeServices {
+            store,
+            runtime,
+            provider_registry,
+            system_errors,
+            subscriptions,
+        };
         let worker_inner = Arc::clone(&inner);
         let join = tokio::spawn(async move {
-            run_loop(store, runtime, system_errors, subscriptions, worker_inner).await;
+            run_loop(services, worker_inner).await;
         });
         *inner.join.lock().expect("task runtime join lock") = Some(join);
         Self { inner }
@@ -87,13 +105,7 @@ impl TaskRuntimeHandle {
     }
 }
 
-async fn run_loop(
-    store: NoemaStore,
-    runtime: CodexRuntimeHandle,
-    system_errors: SystemErrorLogger,
-    subscriptions: ConversationSubscriptionRegistry,
-    inner: Arc<TaskRuntimeInner>,
-) {
+async fn run_loop(services: TaskRuntimeServices, inner: Arc<TaskRuntimeInner>) {
     let worker_id = format!("task-worker:{}", std::process::id());
     let mut active_runs = tokio::task::JoinSet::new();
     loop {
@@ -106,32 +118,26 @@ async fn run_loop(
             && !inner.cancellation.is_cancelled()
         {
             let lease_token = format!("{}:{}", worker_id, uuid_fragment());
-            match store
-                .claim_next_agent_run(&worker_id, &lease_token, LEASE_SECONDS)
+            match services
+                .store
+                .claim_next_agent_run_with_readiness(
+                    &worker_id,
+                    &lease_token,
+                    LEASE_SECONDS,
+                    services.provider_registry.as_ref(),
+                )
                 .await
             {
                 Ok(Some(run)) => {
-                    let run_store = store.clone();
-                    let run_runtime = runtime.clone();
-                    let run_subscriptions = subscriptions.clone();
-                    let run_system_errors = system_errors.clone();
+                    let run_services = services.clone();
                     let shutdown = inner.cancellation.clone();
                     active_runs.spawn(async move {
-                        supervise_claimed_run(
-                            run_store,
-                            run_runtime,
-                            run_subscriptions,
-                            run_system_errors,
-                            run,
-                            lease_token,
-                            shutdown,
-                        )
-                        .await;
+                        supervise_claimed_run(run_services, run, lease_token, shutdown).await;
                     });
                 }
                 Ok(None) => queue_available = false,
                 Err(error) => {
-                    system_errors.try_append(
+                    services.system_errors.try_append(
                         SystemErrorEvent::new(
                             "task_runtime_claim_error",
                             "Background task queue could not be read",
@@ -143,12 +149,18 @@ async fn run_loop(
             }
         }
 
-        drain_task_status_outbox(&store, &runtime, &subscriptions, &system_errors).await;
+        drain_task_status_outbox(
+            &services.store,
+            &services.runtime,
+            &services.subscriptions,
+            &services.system_errors,
+        )
+        .await;
         tokio::select! {
             _ = inner.cancellation.cancelled() => break,
             completed = active_runs.join_next(), if !active_runs.is_empty() => {
                 if let Some(Err(error)) = completed {
-                    log_task_run_join_error(&system_errors, &error);
+                    log_task_run_join_error(&services.system_errors, &error);
                 }
             }
             _ = tokio::time::sleep(POLL_INTERVAL) => {}
@@ -157,26 +169,24 @@ async fn run_loop(
 
     while let Some(result) = active_runs.join_next().await {
         if let Err(error) = result {
-            log_task_run_join_error(&system_errors, &error);
+            log_task_run_join_error(&services.system_errors, &error);
         }
     }
 }
 
 async fn supervise_claimed_run(
-    store: NoemaStore,
-    runtime: CodexRuntimeHandle,
-    subscriptions: ConversationSubscriptionRegistry,
-    system_errors: SystemErrorLogger,
+    services: TaskRuntimeServices,
     run: noema_tasks::AgentRunRecord,
     lease_token: String,
     shutdown: CancellationToken,
 ) {
-    publish_task_changed(&subscriptions, &run.task_id);
+    publish_task_changed(&services.subscriptions, &run.task_id);
     let run_cancellation = CancellationToken::new();
     if let Err(error) = supervise_run(
-        &store,
-        &runtime,
-        &subscriptions,
+        &services.store,
+        &services.runtime,
+        &services.provider_registry,
+        &services.subscriptions,
         &run,
         &lease_token,
         &run_cancellation,
@@ -184,15 +194,22 @@ async fn supervise_claimed_run(
     )
     .await
     {
-        fail_run(&store, &subscriptions, &run, &lease_token, &error).await;
-        publish_task_changed(&subscriptions, &run.task_id);
-        system_errors.try_append(
+        fail_run(
+            &services.store,
+            &services.subscriptions,
+            &run,
+            &lease_token,
+            &error,
+        )
+        .await;
+        publish_task_changed(&services.subscriptions, &run.task_id);
+        services.system_errors.try_append(
             SystemErrorEvent::new("task_runtime_worker_error", "Background task run failed")
                 .with_context(json!({"run_id": run.run_id, "task_id": run.task_id}))
                 .with_error_chain([error]),
         );
     } else {
-        publish_task_changed(&subscriptions, &run.task_id);
+        publish_task_changed(&services.subscriptions, &run.task_id);
     }
 }
 
@@ -248,6 +265,7 @@ async fn drain_task_status_outbox(
 async fn supervise_run(
     store: &NoemaStore,
     runtime: &CodexRuntimeHandle,
+    provider_registry: &ProviderRegistryHandle,
     subscriptions: &ConversationSubscriptionRegistry,
     run: &noema_tasks::AgentRunRecord,
     lease_token: &str,
@@ -257,6 +275,7 @@ async fn supervise_run(
     let execution = execute_run(
         store,
         runtime,
+        provider_registry,
         subscriptions,
         run,
         lease_token,
@@ -437,6 +456,7 @@ fn task_error_code(error: &str) -> &'static str {
 async fn execute_run(
     store: &NoemaStore,
     runtime: &CodexRuntimeHandle,
+    provider_registry: &ProviderRegistryHandle,
     subscriptions: &ConversationSubscriptionRegistry,
     run: &noema_tasks::AgentRunRecord,
     lease_token: &str,
@@ -452,6 +472,7 @@ async fn execute_run(
             execute_executor(
                 store,
                 runtime,
+                provider_registry,
                 subscriptions,
                 run,
                 lease_token,
@@ -463,6 +484,7 @@ async fn execute_run(
             execute_reviewer(
                 store,
                 runtime,
+                provider_registry,
                 subscriptions,
                 run,
                 lease_token,
@@ -476,6 +498,7 @@ async fn execute_run(
 async fn execute_executor(
     store: &NoemaStore,
     runtime: &CodexRuntimeHandle,
+    provider_registry: &ProviderRegistryHandle,
     subscriptions: &ConversationSubscriptionRegistry,
     run: &noema_tasks::AgentRunRecord,
     lease_token: &str,
@@ -567,7 +590,7 @@ async fn execute_executor(
         })
         .collect();
     store
-        .create_task_submission(
+        .create_task_submission_with_readiness(
             NewTaskSubmission {
                 submission_id: None,
                 task_id: task.task_id.clone(),
@@ -579,6 +602,7 @@ async fn execute_executor(
                 artifact_ids: result.artifact_ids,
             },
             lease_token,
+            provider_registry.as_ref(),
         )
         .await
         .map_err(|error| error.to_string())?;
@@ -595,6 +619,7 @@ async fn execute_executor(
 async fn execute_reviewer(
     store: &NoemaStore,
     runtime: &CodexRuntimeHandle,
+    provider_registry: &ProviderRegistryHandle,
     subscriptions: &ConversationSubscriptionRegistry,
     run: &noema_tasks::AgentRunRecord,
     lease_token: &str,
@@ -662,7 +687,7 @@ async fn execute_reviewer(
         })
         .collect::<Result<Vec<_>, String>>()?;
     store
-        .create_task_review(
+        .create_task_review_with_readiness(
             NewTaskReview {
                 review_id: None,
                 task_id: task.task_id.clone(),
@@ -673,6 +698,7 @@ async fn execute_reviewer(
                 criteria: review_criteria,
             },
             lease_token,
+            provider_registry.as_ref(),
         )
         .await
         .map_err(|error| error.to_string())?;
