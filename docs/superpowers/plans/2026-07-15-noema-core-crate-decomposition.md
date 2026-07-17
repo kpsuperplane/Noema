@@ -1830,35 +1830,35 @@ retains the Phase 9 schema and the temporary legacy selection adapter, so no
 committed row can name an instance that the process manager cannot retain or
 reconstruct.
 
-- [ ] Move catalog, hardware recommendation, verified download/import,
+- [x] Move catalog, hardware recommendation, verified download/import,
   installation, runtime assets, and llama-server supervision.
-- [ ] Move the local provider adapter and implement the package's existing
+- [x] Move the local provider adapter and implement the package's existing
   `ModelProvider` contract without a second abstraction.
-- [ ] Keep provider-facing installation status, backend, model-selection, and
+- [x] Keep provider-facing installation status, backend, model-selection, and
   management types on a deliberate public provider surface. Keep process,
   download, hardware-probe, and llama-server types private or crate-private.
-- [ ] Consume the provider-owned persistence ports implemented by
+- [x] Consume the provider-owned persistence ports implemented by
   `noema-store`; do not add a provider-to-store dependency.
-- [ ] Move installation worker ownership, serialization, cancellation,
+- [x] Move installation worker ownership, serialization, cancellation,
   verification, retry, activation, event merging, runtime health, and
   supervisor replacement out of GraphQL/runtime code into a clonable public
   `LocalModelManager` handle. The manager receives persistence ports, resolved
   paths, and diagnostics at construction and publishes provider-owned status
   and event records.
-- [ ] Give each ready local installation an immutable `ProviderInstanceKey`
+- [x] Give each ready local installation an immutable `ProviderInstanceKey`
   derived from provider account plus concrete installation/model identity.
   Activation starts and health-checks the new instance, registers it beside
   existing keys instead of replacing or stopping them, and only then commits
   the existing Phase 9 active-installation state. Current chains retain their
   old leases; the legacy resolver sends new chains to the newly active key.
-- [ ] Keep retirement and explicit deletion conservative in this checkpoint.
+- [x] Keep retirement and explicit deletion conservative in this checkpoint.
   An instance made inactive during this running process remains registered and
   alive until manager shutdown; no reaper may infer zero durable references
   from the Phase 9 schema. On restart, only the Phase 9 active installation is
   required to reconstruct because no committed schema can yet persist an exact
   inactive key. Phase 10C adds exact references, restart reconstruction, and
   safe retirement together.
-- [ ] Preserve a safe transitional remove operation in 10B. Removing the active
+- [x] Preserve a safe transitional remove operation in 10B. Removing the active
   installation remains rejected. Removing an inactive installation first marks
   its in-process registry key retiring, rejects new leases, drains existing
   leases, stops the supervised process, and only then performs the current row
@@ -1866,26 +1866,26 @@ reconstruct.
   ephemeral ordering prevents deleting an executable or mapped model beneath a
   retained process, including on Windows; 10C replaces it with the persisted
   retirement-claim protocol.
-- [ ] If activation persistence fails after registration, unregister and stop
+- [x] If activation persistence fails after registration, unregister and stop
   only the new unreferenced instance; never replace or stop the old instance
   before the active-installation transaction commits.
-- [ ] Depend on `noema-home` for model paths and diagnostics without rebuilding
+- [x] Depend on `noema-home` for model paths and diagnostics without rebuilding
   Noema root logic, and move local-provider construction behind the public
   provider registry/factory. Host, runtime, API, and store cannot import the
   private implementation module.
-- [ ] Update desktop runtime preparation, resource-manifest paths, unit tests,
+- [x] Update desktop runtime preparation, resource-manifest paths, unit tests,
   CI, and packaged resource expectations in the same physical-move window.
-- [ ] Make the pure runtime-asset resolver accept an injected target platform.
+- [x] Make the pure runtime-asset resolver accept an injected target platform.
   Add a no-network table test over every manifest target/backend/asset-role
   combination, including Windows CUDA's adjacent runtime libraries.
-- [ ] Wire one shared `LocalModelManager` and registry into the current
+- [x] Wire one shared `LocalModelManager` and registry into the current
   `NoemaRuntimeHost`, GraphQL state, and runtime. Core directly enables
   `noema-providers/local-models` until Phase 12 transfers that feature to host.
-- [ ] Give the manager two-phase shutdown semantics. `begin_shutdown` rejects
+- [x] Give the manager two-phase shutdown semantics. `begin_shutdown` rejects
   new work and cancels/drains installation/import workers; after runtime and
   memory users stop, `shutdown` drains route leases, terminates every registered
   inference process, and drains manager events.
-- [ ] Split download, adapter, and manager modules according to the source-file
+- [x] Split download, adapter, and manager modules according to the source-file
   gate; compare resource hashes and run local-model unit tests only.
 
 **Checkpoint exit:** the schema-shape hash still matches Phase 9; activation
@@ -1999,11 +1999,11 @@ after restart.
 
 ### Checkpoint 10D — Close The Evaluation Surface Without Store Or Home Leakage
 
-- [ ] Expose an opaque `LocalModelEvalSession` under
+- [x] Expose an opaque `LocalModelEvalSession` under
   `noema-providers/local-model-evals`. `start` accepts an explicit verified model
   path/runtime root and reaches readiness; the session exposes only the erased
   provider handle, selected backend, sampling PID, and explicit async shutdown.
-- [ ] Under the same feature, expose a narrow
+- [x] Under the same feature, expose a narrow
   `materialize_verified_eval_model` operation accepting candidate provenance,
   expected byte count/digest, an explicit cache root, and cancellation. It
   reuses the private verified downloader and content-addressed blob logic,
@@ -2011,16 +2011,16 @@ after restart.
   path. It never opens `NoemaStore`, constructs `NoemaPaths`, creates production
   installation/event rows, activates a provider, or exposes downloader/runtime
   internals.
-- [ ] Rewrite `noema-model-evals::download` to use standard explicit paths plus
+- [x] Rewrite `noema-model-evals::download` to use standard explicit paths plus
   that materialization operation. Preserve eval-owned candidate selection and
   cache policy while removing its `noema-home`, `noema-store`, and core installer
   dependencies. Tests cover cache hit, digest mismatch cleanup, cancellation,
   and successful atomic materialization without a SQLite file.
-- [ ] In this checkpoint, add the eval crate's direct
+- [x] In this checkpoint, add the eval crate's direct
   `noema-providers = { default-features = false, features = ["local-model-evals"] }`
   dependency. This is the permanent evaluation-only feature exception declared
   in the dependency policy; do not rely on core or host feature unification.
-- [ ] Rewrite the still-core-owned eval runner to use `LocalModelEvalSession`,
+- [x] Rewrite the still-core-owned eval runner to use `LocalModelEvalSession`,
   and change core's `local-model-evals` feature to enable the provider eval
   feature only for its transitional runtime harness. Run
   `cargo test -p noema-model-evals`; Phase 11 later moves that harness, adds the

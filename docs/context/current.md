@@ -86,7 +86,7 @@ The next storage slice should stay small and concrete:
   enter chat.
 - First-party GGUF inference uses the built-in `local_models` provider over a
   supervised loopback-only llama.cpp server. The bundled catalog lives in
-  `crates/noema-core/resources/local-models/catalog.toml`; it contains only
+  `crates/noema-providers/resources/local-models/catalog.toml`; it contains only
   curated model/build data and generic RAM/VRAM/backend thresholds. Selection
   orders fitting models by priority and catalog order, then chooses the best
   available backend build for that model. Gemma 4 E4B IT is the only model to
@@ -185,10 +185,14 @@ The next storage slice should stay small and concrete:
   serving clients. A failed llama-server launch leaves Noema available, exposes
   the existing failed/retry state, and records a `local_model_runtime_unavailable`
   system error instead of presenting every healthy restart as inactive.
-- The daemon shares one local-model supervisor between provider dispatch and
-  runtime status. Activating a local model hot-swaps the managed Mnemosyne model
-  proxy route without restarting the sidecar, and memory requests use a
-  generation-sized timeout rather than the old three-second health-check bound.
+- The runtime host shares one provider-owned `LocalModelManager` between
+  provider dispatch, GraphQL management, runtime status, and Mnemosyne routing.
+  Each ready installation retains its own supervised process and immutable
+  provider instance key, so activation publishes a new route without invalidating
+  in-flight leases on the prior process. Activating a local model hot-swaps the
+  managed Mnemosyne model proxy route without restarting the sidecar, and memory
+  requests use a generation-sized timeout rather than the old three-second
+  health-check bound.
 - The standalone debug web shell passes the prepared
   `crates/noema-desktop/binaries/runtime` resource root into the shared runtime
   host, matching the desktop shell instead of looking beside the dev server
@@ -986,9 +990,25 @@ The next storage slice should stay small and concrete:
   bootstrap-text hash deliberately records the marker-last/pragmas split.
   Compatibility repair is deleted, 22 schema tests and the full Rust workspace
   are green, and adversarial review found no remaining Critical or Important
-  issue. Checkpoint 10B is next: move local-model lifecycle ownership into
-  `noema-providers` and establish multi-instance process retention without
-  changing the schema.
+  issue. Decomposition Checkpoints 10B and 10D completed together at
+  `a6d65c2ee`. `noema-providers` now owns the catalog, verified artifact
+  materialization, adapter, runtime assets, llama.cpp supervision, routing,
+  and a clonable multi-instance manager. Manager-owned activation and restart
+  are cancellation-safe after process registration; status forwarders are
+  joined across replacement; missing blobs and transient launches degrade
+  without preventing host startup; subscriptions emit their terminal status
+  and close; shutdown drains workers, leases, and every retained process.
+  Generic preference writes cannot select an inactive local installation, and
+  local-model resources retain their exact Phase 0 hashes. The production
+  provider surface exposes management records and handles without downloader,
+  probe, process, or supervisor internals. Evaluation code receives only an
+  opaque ready session plus a store-free, explicit-path verified materializer;
+  `noema-model-evals` no longer depends on `noema-home` or `noema-store`.
+  Schema shape and bootstrap hashes remain at the post-10A baseline, the full
+  Rust/frontend/policy gates are green, and two adversarial closure reviews
+  found no remaining Critical or Important issue. Checkpoint 10C is next:
+  persist exact provider instance identity and retirement claims, then replace
+  the temporary legacy resolver.
 
 - The bounded remediation program completed Phase 2 at `92,157` maintained
   source lines (`-1,767` from its baseline). Axum/tower-sessions now own the
