@@ -929,8 +929,24 @@ The next storage slice should stay small and concrete:
   adversarial reviewers' findings are resolved, core exports no task forwarding
   facade, and the crate/dependency/preservation/inventory, rustdoc, complete
   workspace, frontend, release-server, and model-eval unit gates are green.
-  Decomposition Phase 7 is next: extract MCP as the transport-bearing child of
-  `noema-capabilities` while keeping SQLite behind an injected repository port.
+  Decomposition Phase 7 completed at `575f84b8b`. The new
+  `noema-capabilities-mcp` child owns MCP models, operations, catalog and
+  invocation authority, setup/discovery, OAuth, atomic secret storage, stdio
+  and Streamable HTTP transports, deadlines, cancellation, and shutdown.
+  Its default feature surface is contract-only; concrete transport work is
+  behind `transport`, while core supplies the SQLite `McpRepository` adapter,
+  completion port, diagnostics, and host wiring. Generic runtime routing no
+  longer parses MCP names or joins MCP records. Per-server policy locks,
+  generation/fingerprint and secret-revision fences, atomic replacement and
+  compensation, bounded protocol input, descendant process cleanup, and fixed
+  safe API errors are covered by 29 contract-only and 102 transport tests.
+  Three adversarial review passes found no remaining P0/P1 blockers. The test
+  ownership gate also caught and closed preparation-failure status persistence
+  and legacy OAuth refresh regressions before the checkpoint. Crate/dependency,
+  GraphQL/SQLite preservation, frontend, inventory, clippy, and full-workspace
+  gates are green. Decomposition Phase 8 is next: extract memory and Mnemosyne
+  behind repository and operations handles while runtime retains observation
+  timing/context policy and host retains lifecycle composition.
 
 - The bounded remediation program completed Phase 2 at `92,157` maintained
   source lines (`-1,767` from its baseline). Axum/tower-sessions now own the

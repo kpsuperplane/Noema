@@ -1470,20 +1470,20 @@ capability interface while keeping persistence and diagnostics injectable.
 
 **Steps:**
 
-- [ ] Move server, tool, calibration, transport, auth, setup-attempt, and
+- [x] Move server, tool, calibration, transport, auth, setup-attempt, and
   discovered-tool models into the MCP child.
-- [ ] Define an object-safe boxed-future `McpRepository` port with task-oriented
+- [x] Define an object-safe boxed-future `McpRepository` port with task-oriented
   atomic operations rather than a mirror of store CRUD. It provides joined
   catalog and invocation snapshots, control-plane views, atomic ID allocation
   plus initial insertion, atomic discovery reconciliation and calibration
   invalidation, transactional batch calibration, fail-closed disable/delete,
   and typed failure-status recording. It returns `McpRepositoryError`, never
   `StoreError`.
-- [ ] Implement the port for the current core-owned `NoemaStore`; move that impl
+- [x] Implement the port for the current core-owned `NoemaStore`; move that impl
   with the store in Phase 9.
-- [ ] Move MCP secret-directory construction from `NoemaStore` into the MCP
+- [x] Move MCP secret-directory construction from `NoemaStore` into the MCP
   crate, rooted by `noema-home`.
-- [ ] Keep an always-compiled object-safe `McpOperations` contract,
+- [x] Keep an always-compiled object-safe `McpOperations` contract,
   `McpControlPlaneHandle = Arc<dyn McpOperations>`, command/result/view types,
   public safe errors, repository port, pure autofill, and eligibility logic.
   Behind `transport`, construct one root-bound `LocalMcpService` that owns setup
@@ -1492,55 +1492,55 @@ capability interface while keeping persistence and diagnostics injectable.
   capability binding source, and invoker share one inner state, per-server
   serialization, OAuth registry, transport factory, repository, secret store,
   diagnostics, cancellation, and shutdown lifecycle.
-- [ ] Replace current core GraphQL MCP manager/path/transport construction with
+- [x] Replace current core GraphQL MCP manager/path/transport construction with
   the control-plane handle in this phase, even though the GraphQL source files
   do not move until Phase 13. Server/desktop retain callback listener/HTTP
   ownership, but callback completion is a control-plane operation.
-- [ ] Implement the parent `CapabilityBindingSource` contract as an MCP catalog
+- [x] Implement the parent `CapabilityBindingSource` contract as an MCP catalog
   snapshot source. Each binding carries an opaque child-owned operation token
   that fixes server, tool, and the reviewed metadata fingerprint advertised for
   that provider request; runtime never joins MCP records or parses `mcp.*`.
   Invocation re-reads one joined snapshot and revalidates enabled, health, auth,
   current fingerprint, calibration, and read-only policy before remote work.
-- [ ] Implement the parent crate's `CapabilityInvoker` interface as
+- [x] Implement the parent crate's `CapabilityInvoker` interface as
   `McpCapabilityInvoker`.
-- [ ] Make the parent gateway route generically; it must not parse `mcp.*` names
+- [x] Make the parent gateway route generically; it must not parse `mcp.*` names
   or import the child crate.
-- [ ] Preserve runtime health/auth transitions, OAuth refresh persistence,
+- [x] Preserve runtime health/auth transitions, OAuth refresh persistence,
   metadata fingerprint checks, calibration readiness, and fail-closed
   write/export behavior.
-- [ ] Make transport preparation return typed refreshed credentials and persist
+- [x] Make transport preparation return typed refreshed credentials and persist
   them atomically before discovery or `tools/call`; a persistence failure must
   occur before any remote side effect. Tool-declared `isError` becomes a failed
   `CapabilityOutput`, while auth-required/unavailable/malformed/cancelled/
   timeout/protocol failures are typed internal transport errors mapped to safe
   operation/invocation errors and raw diagnostics.
-- [ ] Stage secret-file replacement atomically with private permissions and
+- [x] Stage secret-file replacement atomically with private permissions and
   redacted `Debug`. Serialize setup/reauth/delete/invoke per server, compensate
   cross-resource failures, clean abandoned staging on startup, and make delete
   first render the server uncallable before best-effort secret cleanup. Reuse
   `NoemaPaths::mcp_server_home`; do not duplicate path sanitization.
-- [ ] Use collision-resistant server/tool IDs and SHA-256 over a versioned
+- [x] Use collision-resistant server/tool IDs and SHA-256 over a versioned
   canonical metadata representation for reviewed authorization fingerprints;
   lossy names and non-cryptographic hashes cannot authorize a call.
-- [ ] Give OAuth attempts a TTL/capacity and one atomic state machine. Put
+- [x] Give OAuth attempts a TTL/capacity and one atomic state machine. Put
   deadlines and cancellation on transport work, guarantee stdio child
   termination, and expose `begin_shutdown` plus drain/abort semantics that
   reject new catalog/control/invocation work.
-- [ ] Make transport/session/factory test seams object-safe through boxed
+- [x] Make transport/session/factory test seams object-safe through boxed
   futures so fakes do not require test-only GraphQL enums.
-- [ ] If calibration autofill invokes a model, inject a narrow object-safe
+- [x] If calibration autofill invokes a model, inject a narrow object-safe
   completion port from core/host; MCP owns prompt construction, validation, and
   persistence but never depends on providers.
-- [ ] Move setup, discovery, OAuth, transport, autofill, eligibility, and gateway
+- [x] Move setup, discovery, OAuth, transport, autofill, eligibility, and gateway
   tests.
-- [ ] Put models, repository ports, eligibility inputs, and persisted status
+- [x] Put models, repository ports, eligibility inputs, and persisted status
   vocabulary, operations/catalog/invoker-facing contracts, and pure autofill in
   the always-compiled portion. Gate the concrete local service, filesystem
   secret store, OAuth implementation, `rmcp` clients, setup execution,
   discovery, and invocation behind the single `transport` feature described in
   the target graph.
-- [ ] Split `mcp/setup.rs` into setup state transitions, discovery/auth
+- [x] Split `mcp/setup.rs` into setup state transitions, discovery/auth
   orchestration, and transport-independent validation while moving it. Also
   split control-plane setup/discovery/calibration/delete, OAuth attempts and
   credentials, secret model/filesystem, client model/rmcp, stdio/HTTP transport,
@@ -1569,6 +1569,16 @@ capability interface while keeping persistence and diagnostics injectable.
   credential-rotation ordering, OAuth expiry/capacity, shutdown cancellation,
   stdio child cleanup, redacted secret debug output, collision-resistant
   identities, and raw-diagnostic versus model-visible separation.
+
+Completed at `575f84b8b`. `noema-capabilities-mcp` now has a contract-only
+default surface and a `transport` implementation feature; core supplies the
+SQLite repository adapter, diagnostics, completion port, and host composition.
+The final adversarial review found no P0/P1 blockers. Test-inventory review
+distinguished moved coverage from real gaps and caught two regressions before
+the checkpoint: preparation failures now persist typed health/auth state, and
+legacy expiring OAuth credentials without a receipt timestamp refresh when a
+refresh token is available. The final child crate has 29 contract-only and 102
+transport tests, and every moved production file is below 750 lines.
 
 **Suggested commit:** `refactor(mcp): extract mcp capability adapter`
 
