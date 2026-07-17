@@ -22,11 +22,22 @@ adapters = [
     "dep:tokio",
     "dep:url",
 ]
-local-models = []
+local-models = [
+    "dep:fs2",
+    "dep:futures-util",
+    "dep:reqwest",
+    "dep:ring",
+    "dep:tokio",
+    "dep:tokio-util",
+    "dep:toml",
+    "dep:url",
+]
+local-model-evals = ["local-models"]
 
 [dependencies]
 async-stream = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
+fs2 = { workspace = true, optional = true }
 futures-util = { workspace = true, optional = true }
 noema-capabilities = { path = "../noema-capabilities", default-features = false }
 noema-home = { path = "../noema-home", default-features = false }
@@ -38,6 +49,8 @@ serde.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
 thiserror.workspace = true
 tokio = { workspace = true, optional = true }
+tokio-util = { workspace = true, optional = true }
+toml = { workspace = true, optional = true }
 ts-rs.workspace = true
 url = { workspace = true, optional = true }
 

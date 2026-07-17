@@ -2753,7 +2753,6 @@ dependencies = [
  "cap-std",
  "chrono",
  "figment",
- "fs2",
  "futures-util",
  "http",
  "libc",
@@ -2766,7 +2765,6 @@ dependencies = [
  "noema-providers",
  "noema-store",
  "noema-tasks",
- "reqwest",
  "ring",
  "serde",
  "serde_json",
@@ -2776,9 +2774,7 @@ dependencies = [
  "time",
  "tokio",
  "tokio-util",
- "toml 1.1.2+spec-1.1.0",
  "ts-rs",
- "url",
 ]
 
 [[package]]
@@ -2831,9 +2827,7 @@ name = "noema-model-evals"
 version = "0.1.0"
 dependencies = [
  "noema-core",
- "noema-home",
  "noema-providers",
- "noema-store",
  "ring",
  "serde",
  "serde_json",
@@ -2848,6 +2842,7 @@ version = "0.1.0"
 dependencies = [
  "async-stream",
  "base64 0.22.1",
+ "fs2",
  "futures-util",
  "noema-capabilities",
  "noema-home",
@@ -2860,6 +2855,8 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-util",
+ "toml 1.1.2+spec-1.1.0",
  "ts-rs",
  "url",
 ]

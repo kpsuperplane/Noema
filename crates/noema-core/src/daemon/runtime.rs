@@ -27,7 +27,9 @@ mod web_tools;
 
 pub(crate) use actor::ProviderAccountRuntimeAccess;
 pub(crate) use background_task::BackgroundTaskGenerateRequest;
-pub(crate) use handle::{CodexRuntimeHandle, RuntimeProviderMap};
+pub(crate) use handle::CodexRuntimeHandle;
+#[cfg(test)]
+pub(crate) use handle::RuntimeProviderMap;
 pub(crate) use provider_routes::LegacyProviderRoutes;
 
 pub(crate) struct CodexRuntimeSpawnConfig {

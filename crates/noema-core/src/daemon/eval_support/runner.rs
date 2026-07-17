@@ -1,7 +1,9 @@
 use std::time::{Duration, Instant};
 
-use crate::{LLAMA_CPP_COMMIT, LLAMA_CPP_RELEASE_TAG, LocalModelsProvider};
-use noema_providers::{GenerateStreamEvent, LocalModelsProviderConfig, ModelProvider};
+use noema_providers::{
+    GenerateStreamEvent, LocalModelEvalSession, LocalModelEvalSessionConfig,
+    local_model_eval_runtime_version,
+};
 
 use super::{
     cases::evaluation_cases,
@@ -19,28 +21,25 @@ use super::{
 /// fixtures cannot be constructed. Runtime and per-case failures are retained
 /// in the returned report so an incompatible model cannot abort a matrix run.
 pub async fn run_provider_suite(config: ModelEvalConfig) -> Result<ModelEvalReport, String> {
-    let provider = LocalModelsProvider::new(LocalModelsProviderConfig {
-        default_model: config.model_id.clone(),
-        model_path: Some(config.model_path),
-        preferred_backend: None,
-        runtime_root: Some(config.runtime_root),
+    let version = local_model_eval_runtime_version();
+    let load_started = Instant::now();
+    let session = LocalModelEvalSession::start(LocalModelEvalSessionConfig {
+        model_id: config.model_id.clone(),
+        model_path: config.model_path,
+        runtime_root: config.runtime_root,
         context_window_tokens: config.context_window_tokens,
         timeout_seconds: config.timeout_seconds,
         startup_timeout_seconds: config.startup_timeout_seconds,
-        system_errors: None,
     })
-    .map_err(|error| error.to_string())?;
-
-    let load_started = Instant::now();
-    let endpoint = provider.runtime().ensure_ready().await;
+    .await;
     let runtime_load_ms = duration_ms(load_started.elapsed());
-    let endpoint = match endpoint {
-        Ok(endpoint) => endpoint,
+    let session = match session {
+        Ok(session) => session,
         Err(error) => {
             return Ok(ModelEvalReport {
                 model_id: config.model_id,
-                llama_cpp_release: LLAMA_CPP_RELEASE_TAG.to_string(),
-                llama_cpp_commit: LLAMA_CPP_COMMIT.to_string(),
+                llama_cpp_release: version.release_tag.to_string(),
+                llama_cpp_commit: version.commit.to_string(),
                 backend: None,
                 runtime_load_ms,
                 runtime_memory: None,
@@ -55,7 +54,8 @@ pub async fn run_provider_suite(config: ModelEvalConfig) -> Result<ModelEvalRepo
         }
     };
 
-    let process_id = provider.runtime().process_id();
+    let provider = session.provider();
+    let process_id = session.process_id();
     let memory_sampler = process_id.map(RuntimeMemorySampler::start);
 
     let cases = evaluation_cases(&config.model_id)?;
@@ -137,7 +137,7 @@ pub async fn run_provider_suite(config: ModelEvalConfig) -> Result<ModelEvalRepo
         Some(sampler) => sampler.finish().await,
         None => None,
     };
-    provider.runtime().shutdown().await;
+    session.shutdown().await;
 
     let total_cases = results.len();
     let passed_cases = results.iter().filter(|result| result.passed).count();
@@ -148,9 +148,9 @@ pub async fn run_provider_suite(config: ModelEvalConfig) -> Result<ModelEvalRepo
         .count();
     Ok(ModelEvalReport {
         model_id: config.model_id,
-        llama_cpp_release: LLAMA_CPP_RELEASE_TAG.to_string(),
-        llama_cpp_commit: LLAMA_CPP_COMMIT.to_string(),
-        backend: Some(endpoint.backend.display_name().to_string()),
+        llama_cpp_release: version.release_tag.to_string(),
+        llama_cpp_commit: version.commit.to_string(),
+        backend: Some(session.selected_backend().display_name().to_string()),
         runtime_load_ms,
         runtime_memory,
         resource_probe,

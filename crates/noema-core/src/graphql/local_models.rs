@@ -1,7 +1,8 @@
-use std::{path::PathBuf, pin::Pin};
+use std::{path::PathBuf, pin::Pin, str::FromStr};
 
 use async_graphql::{Enum, InputObject, Result, SimpleObject};
-use futures_util::Stream;
+use futures_util::{Stream, StreamExt};
+use noema_providers::ProviderKind;
 
 use super::{errors::graphql_error, schema::GraphqlState};
 use views::{
@@ -53,8 +54,8 @@ pub struct GraphqlLocalModelBuild {
     pub min_vram_gb: Option<i64>,
 }
 
-impl From<&crate::LocalModelBuild> for GraphqlLocalModelBuild {
-    fn from(value: &crate::LocalModelBuild) -> Self {
+impl From<&noema_providers::LocalModelBuild> for GraphqlLocalModelBuild {
+    fn from(value: &noema_providers::LocalModelBuild) -> Self {
         Self {
             file: value.file.clone(),
             sha256: value.sha256.clone(),
@@ -305,15 +306,12 @@ pub struct GraphqlLocalModelEvent {
 }
 
 pub(super) async fn local_model_setup(state: &GraphqlState) -> Result<GraphqlLocalModelSetup> {
-    let recommendations = load_catalog_views().await?;
+    let manager = state.local_model_manager()?;
+    let recommendations = load_catalog_views(manager).await?;
     let recommended_model = recommendations
         .into_iter()
         .find(|model| model.is_recommended);
-    let installations = state
-        .store()?
-        .list_local_model_installations()
-        .await
-        .map_err(graphql_error)?;
+    let installations = manager.installations().await.map_err(graphql_error)?;
     let installation = installations
         .iter()
         .find(|installation| installation.is_active)
@@ -326,13 +324,7 @@ pub(super) async fn local_model_setup(state: &GraphqlState) -> Result<GraphqlLoc
         })
         .cloned()
         .map(installation_view);
-    let runtime_status = match state.runtime() {
-        Ok(runtime) => runtime.local_model_runtime_status().await.map_or(
-            GraphqlLocalModelRuntimeStatus::Inactive,
-            runtime_status_view,
-        ),
-        Err(_) => GraphqlLocalModelRuntimeStatus::Inactive,
-    };
+    let runtime_status = runtime_status_view(manager.runtime_status());
     let is_ready = installation.as_ref().is_some_and(|installation| {
         installation.status == GraphqlLocalModelInstallationStatus::Installed
             && installation.is_active
@@ -347,16 +339,18 @@ pub(super) async fn local_model_setup(state: &GraphqlState) -> Result<GraphqlLoc
     })
 }
 
-pub(super) async fn local_model_catalog() -> Result<Vec<GraphqlLocalModelCatalogEntry>> {
-    load_catalog_views().await
+pub(super) async fn local_model_catalog(
+    state: &GraphqlState,
+) -> Result<Vec<GraphqlLocalModelCatalogEntry>> {
+    load_catalog_views(state.local_model_manager()?).await
 }
 
 pub(super) async fn local_model_installations(
     state: &GraphqlState,
 ) -> Result<Vec<GraphqlLocalModelInstallation>> {
     state
-        .store()?
-        .list_local_model_installations()
+        .local_model_manager()?
+        .installations()
         .await
         .map(|installations| installations.into_iter().map(installation_view).collect())
         .map_err(graphql_error)
@@ -377,113 +371,37 @@ pub(super) async fn install_local_model(
     state: &GraphqlState,
     input: GraphqlInstallLocalModelInput,
 ) -> Result<GraphqlLocalModelInstallation> {
-    let hardware = crate::detect_local_hardware_profiles().map_err(graphql_error)?;
-    let catalog = crate::LocalModelCatalog::bundled().map_err(graphql_error)?;
-    let selection = match input.file.as_deref() {
-        Some(file) => catalog.select_named_build(&input.model_id, file, &hardware),
-        None => catalog.select_build(&input.model_id, &hardware),
-    }
-    .ok_or_else(|| {
-        async_graphql::Error::new("the selected local model build does not fit this machine")
-    })?;
-    let model = selection.model.clone();
-    let build = selection.build.clone();
-    let backend = selection.hardware.backend;
-    let installer = crate::LocalModelInstaller::new(state.store()?.clone(), state.paths()?.clone())
-        .map_err(graphql_error)?;
-    let installation_id =
-        crate::LocalModelInstaller::catalog_installation_id(&model.id, &build.sha256);
-    if state.has_local_model_operation(&installation_id) {
-        return state
-            .store()?
-            .get_local_model_installation(&installation_id)
-            .await
-            .map_err(graphql_error)?
-            .map(installation_view)
-            .ok_or_else(|| async_graphql::Error::new("local-model installation is starting"));
-    }
-    let queued = installer
-        .queue_catalog_model(&model, &build, backend)
+    state
+        .local_model_manager()?
+        .install_catalog_model(&input.model_id, input.file.as_deref())
         .await
-        .map_err(graphql_error)?;
-    if queued.status == noema_providers::LocalModelInstallationStatus::Installed {
-        return activate_local_model(state, queued.installation_id).await;
-    }
-
-    let cancellation = tokio_util::sync::CancellationToken::new();
-    if !state
-        .try_retain_local_model_cancellation(queued.installation_id.clone(), cancellation.clone())
-    {
-        return Ok(installation_view(queued));
-    }
-    let task_state = state.clone();
-    let installation_id = queued.installation_id.clone();
-    tokio::spawn(async move {
-        let result = installer
-            .install_catalog_model(&model, &build, backend, false, cancellation)
-            .await;
-        if let Ok(installed) = result
-            && let Ok(runtime) = task_state.runtime()
-            && let Ok(paths) = task_state.paths()
-            && let Ok(store) = task_state.store()
-        {
-            let _ = runtime
-                .activate_installed_local_model(&installed, paths, store)
-                .await;
-        }
-        task_state.release_local_model_cancellation(&installation_id);
-    });
-    Ok(installation_view(queued))
+        .map(installation_view)
+        .map_err(graphql_error)
 }
 
 pub(super) async fn import_local_model(
     state: &GraphqlState,
     input: GraphqlImportLocalModelInput,
 ) -> Result<GraphqlLocalModelInstallation> {
-    let backend = crate::detect_local_hardware_profiles()
-        .map_err(graphql_error)?
-        .first()
-        .map_or(noema_providers::LocalModelBackend::Cpu, |profile| {
-            profile.backend
-        });
-    let installer = crate::LocalModelInstaller::new(state.store()?.clone(), state.paths()?.clone())
-        .map_err(graphql_error)?;
-    let cancellation = tokio_util::sync::CancellationToken::new();
+    let manager = state.local_model_manager()?;
+    let backend = manager.preferred_import_backend().map_err(graphql_error)?;
     let model_id = imported_model_id(&input.name);
-    enum ImportOperation {
-        LocalFile(crate::LocalFileModelImport),
-        HuggingFace(crate::HuggingFaceLocalModelImport),
-    }
-
-    let (queued, operation) = match input.source_kind {
+    let queued = match input.source_kind {
         GraphqlLocalModelSourceKind::LocalFile => {
-            let import = crate::LocalFileModelImport {
+            let import = noema_providers::LocalFileModelImport {
                 name: input.name,
                 model_id,
                 path: PathBuf::from(required_import_value(input.local_path, "localPath")?),
                 license: input.license,
                 backend,
             };
-            let installation_id = crate::LocalModelInstaller::local_file_installation_id(&import)
+            manager
+                .import_local_file(import)
                 .await
-                .map_err(graphql_error)?;
-            if state.has_local_model_operation(&installation_id) {
-                return state
-                    .store()?
-                    .get_local_model_installation(&installation_id)
-                    .await
-                    .map_err(graphql_error)?
-                    .map(installation_view)
-                    .ok_or_else(|| async_graphql::Error::new("local-model import is starting"));
-            }
-            let queued = installer
-                .queue_local_file(&import)
-                .await
-                .map_err(graphql_error)?;
-            (queued, ImportOperation::LocalFile(import))
+                .map_err(graphql_error)?
         }
         GraphqlLocalModelSourceKind::PublicGguf => {
-            let import = crate::HuggingFaceLocalModelImport {
+            let import = noema_providers::HuggingFaceLocalModelImport {
                 name: input.name,
                 model_id,
                 repo: required_import_value(input.repo, "repo")?,
@@ -493,23 +411,10 @@ pub(super) async fn import_local_model(
                 license: input.license,
                 backend,
             };
-            let installation_id =
-                crate::LocalModelInstaller::hugging_face_installation_id(&import.sha256)
-                    .map_err(graphql_error)?;
-            if state.has_local_model_operation(&installation_id) {
-                return state
-                    .store()?
-                    .get_local_model_installation(&installation_id)
-                    .await
-                    .map_err(graphql_error)?
-                    .map(installation_view)
-                    .ok_or_else(|| async_graphql::Error::new("local-model import is starting"));
-            }
-            let queued = installer
-                .queue_hugging_face(&import)
+            manager
+                .import_hugging_face(import)
                 .await
-                .map_err(graphql_error)?;
-            (queued, ImportOperation::HuggingFace(import))
+                .map_err(graphql_error)?
         }
         GraphqlLocalModelSourceKind::Catalog => {
             return Err(async_graphql::Error::new(
@@ -517,24 +422,6 @@ pub(super) async fn import_local_model(
             ));
         }
     };
-    if !state
-        .try_retain_local_model_cancellation(queued.installation_id.clone(), cancellation.clone())
-    {
-        return Ok(installation_view(queued));
-    }
-    let task_state = state.clone();
-    let installation_id = queued.installation_id.clone();
-    tokio::spawn(async move {
-        match operation {
-            ImportOperation::LocalFile(import) => {
-                let _ = installer.import_local_file(import, cancellation).await;
-            }
-            ImportOperation::HuggingFace(import) => {
-                let _ = installer.import_hugging_face(import, cancellation).await;
-            }
-        }
-        task_state.release_local_model_cancellation(&installation_id);
-    });
     Ok(installation_view(queued))
 }
 
@@ -542,10 +429,9 @@ pub(super) async fn cancel_local_model_install(
     state: &GraphqlState,
     installation_id: String,
 ) -> Result<GraphqlLocalModelInstallation> {
-    let _ = state.cancel_local_model_operation(&installation_id);
     state
-        .store()?
-        .cancel_local_model_installation(&installation_id)
+        .local_model_manager()?
+        .cancel_installation(&installation_id)
         .await
         .map(installation_view)
         .map_err(graphql_error)
@@ -583,8 +469,8 @@ pub(super) async fn remove_local_model(
     state: &GraphqlState,
     installation_id: String,
 ) -> Result<bool> {
-    crate::LocalModelInstaller::new(state.store()?.clone(), state.paths()?.clone())
-        .map_err(graphql_error)?
+    state
+        .local_model_manager()?
         .remove(&installation_id)
         .await
         .map_err(graphql_error)?;
@@ -595,30 +481,23 @@ pub(super) async fn activate_local_model(
     state: &GraphqlState,
     installation_id: String,
 ) -> Result<GraphqlLocalModelInstallation> {
-    let installation = state
-        .store()?
-        .get_local_model_installation(&installation_id)
+    state
+        .local_model_manager()?
+        .activate(&installation_id)
         .await
-        .map_err(graphql_error)?
-        .ok_or_else(|| async_graphql::Error::new("local-model installation is unavailable"))?;
-    let runtime = state.runtime()?;
-    runtime
-        .activate_installed_local_model(&installation, state.paths()?, state.store()?)
-        .await
-        .map_err(graphql_error)?;
-    let installation = state
-        .store()?
-        .get_local_model_installation(&installation_id)
-        .await
-        .map_err(graphql_error)?
-        .ok_or_else(|| async_graphql::Error::new("local-model installation is unavailable"))?;
-    Ok(installation_view(installation))
+        .map(installation_view)
+        .map_err(graphql_error)
 }
 
 pub(super) async fn save_default_model_preference(
     state: &GraphqlState,
     input: GraphqlSaveDefaultModelPreferenceInput,
 ) -> Result<GraphqlDefaultModelPreference> {
+    if ProviderKind::from_str(input.provider_kind.trim()) == Ok(ProviderKind::LocalModels) {
+        return Err(async_graphql::Error::new(
+            "Activate a specific local model installation to change the local default",
+        ));
+    }
     state
         .store()?
         .save_default_model_preference(
@@ -635,120 +514,55 @@ pub(super) async fn save_default_model_preference(
 pub(super) async fn retry_local_model_runtime(
     state: &GraphqlState,
 ) -> Result<GraphqlLocalModelRuntimeStatus> {
-    let installation = state
-        .store()?
-        .list_local_model_installations()
-        .await
-        .map_err(graphql_error)?
-        .into_iter()
-        .find(|installation| {
-            installation.is_active
-                && installation.status == noema_providers::LocalModelInstallationStatus::Installed
-        })
-        .ok_or_else(|| async_graphql::Error::new("no installed local model is active"))?;
-    let runtime = state.runtime()?;
-    runtime
-        .register_installed_local_model(&installation, state.paths()?)
-        .await
-        .map_err(graphql_error)?;
-    runtime
-        .local_model_runtime_status()
+    state
+        .local_model_manager()?
+        .retry_active_installation()
         .await
         .map(runtime_status_view)
-        .ok_or_else(|| async_graphql::Error::new("local model runtime is unavailable"))
+        .map_err(graphql_error)
 }
 
 pub(super) async fn local_model_events(
     state: &GraphqlState,
     after: Option<String>,
 ) -> Result<Pin<Box<dyn Stream<Item = Result<GraphqlLocalModelEvent>> + Send>>> {
-    let store = state.store()?.clone();
-    let runtime = state.runtime().ok().cloned();
-    let mut runtime_status = match &runtime {
-        Some(runtime) => runtime.subscribe_local_model_runtime_status().await,
-        None => None,
-    };
-    let mut cursor = match after {
-        Some(cursor) => parse_event_cursor(&cursor)?,
-        None => store
-            .list_local_model_events(None, 1_000)
-            .await
-            .map_err(graphql_error)?
-            .last()
-            .map_or(0, |event| event.cursor),
-    };
-    let mut runtime_sequence = 0_u64;
-
-    Ok(Box::pin(async_stream::stream! {
-        loop {
-            let mut runtime_closed = false;
-            if let Some(receiver) = runtime_status.as_mut() {
-                tokio::select! {
-                    changed = receiver.changed() => {
-                        if changed.is_ok() {
-                            runtime_sequence = runtime_sequence.saturating_add(1);
-                            let status = receiver.borrow().clone();
-                            yield Ok(GraphqlLocalModelEvent {
-                                cursor: format!("{cursor}:runtime:{runtime_sequence}"),
-                                kind: GraphqlLocalModelEventKind::RuntimeChanged,
-                                installation_id: None,
-                                model_id: None,
-                                installation: None,
-                                runtime_status: Some(runtime_status_view(status)),
-                                created_at: runtime_event_time(),
-                            });
-                        } else {
-                            runtime_closed = true;
-                        }
-                    }
-                    () = tokio::time::sleep(std::time::Duration::from_millis(250)) => {}
-                }
-            } else {
-                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-            }
-            if runtime_closed {
-                runtime_status = None;
-            }
-            let events = match store.list_local_model_events(Some(cursor), 256).await {
-                Ok(events) => events,
-                Err(error) => {
-                    yield Err(graphql_error(error));
-                    break;
-                }
-            };
-            for event in events {
-                cursor = event.cursor;
-                let activated = event.kind == noema_providers::LocalModelEventKind::Activated;
-                let installation = match store
-                    .get_local_model_installation(&event.installation_id)
-                    .await
-                {
-                    Ok(installation) => installation.map(installation_view),
-                    Err(error) => {
-                        yield Err(graphql_error(error));
-                        return;
-                    }
-                };
-                yield Ok(event_view(event, installation));
-                if activated {
-                    runtime_status = match &runtime {
-                        Some(runtime) => runtime.subscribe_local_model_runtime_status().await,
-                        None => None,
-                    };
-                }
-            }
-        }
-    }))
+    let stream = state
+        .local_model_manager()?
+        .subscribe_events(after.as_deref())
+        .await
+        .map_err(graphql_error)?;
+    Ok(Box::pin(stream.map(|event| {
+        event.map(manager_event_view).map_err(graphql_error)
+    })))
 }
 
-fn parse_event_cursor(cursor: &str) -> Result<u64> {
-    cursor
-        .trim()
-        .split(':')
-        .next()
-        .unwrap_or_default()
-        .parse::<u64>()
-        .map_err(|_| async_graphql::Error::new("invalid local-model event cursor"))
+fn manager_event_view(
+    record: noema_providers::LocalModelManagerEventRecord,
+) -> GraphqlLocalModelEvent {
+    match record.payload {
+        noema_providers::LocalModelManagerEvent::Durable {
+            event,
+            installation,
+        } => {
+            let mut view = event_view(
+                event,
+                installation.map(|installation| installation_view(*installation)),
+            );
+            view.cursor = record.cursor;
+            view
+        }
+        noema_providers::LocalModelManagerEvent::RuntimeChanged { status } => {
+            GraphqlLocalModelEvent {
+                cursor: record.cursor,
+                kind: GraphqlLocalModelEventKind::RuntimeChanged,
+                installation_id: None,
+                model_id: None,
+                installation: None,
+                runtime_status: Some(runtime_status_view(status)),
+                created_at: runtime_event_time(),
+            }
+        }
+    }
 }
 
 fn runtime_event_time() -> String {
@@ -760,6 +574,36 @@ fn runtime_event_time() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn generic_default_preference_rejects_ambiguous_local_model_selection() {
+        let store = crate::test_support::test_store().await;
+        let state = GraphqlState::for_tests_with_store(store.clone());
+
+        let error = save_default_model_preference(
+            &state,
+            GraphqlSaveDefaultModelPreferenceInput {
+                provider_kind: ProviderKind::LocalModels.as_str().to_string(),
+                provider_account_id: noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID.to_string(),
+                model_profile: "shared-model".to_string(),
+                reasoning_effort: None,
+            },
+        )
+        .await
+        .expect_err("local changes require an exact installation");
+
+        assert_eq!(
+            error.message,
+            "Activate a specific local model installation to change the local default"
+        );
+        assert!(
+            store
+                .get_default_model_preference()
+                .await
+                .expect("default preference")
+                .is_none()
+        );
+    }
 
     #[tokio::test]
     async fn setup_surfaces_recommended_installation_while_download_is_queued() {
@@ -781,7 +625,9 @@ mod tests {
             })
             .await
             .expect("queued installation");
-        let state = GraphqlState::for_tests_with_store(store);
+        let manager =
+            crate::test_support::local_model_manager(&store, crate::test_support::test_paths());
+        let state = GraphqlState::for_tests_with_store(store).with_local_model_manager(manager);
 
         let setup = local_model_setup(&state).await.expect("setup");
 
@@ -842,7 +688,9 @@ mod tests {
             .activate_local_model_as_system_default(installation_id)
             .await
             .expect("activate installation");
-        let state = GraphqlState::for_tests_with_store(store);
+        let manager =
+            crate::test_support::local_model_manager(&store, crate::test_support::test_paths());
+        let state = GraphqlState::for_tests_with_store(store).with_local_model_manager(manager);
 
         let setup = local_model_setup(&state).await.expect("setup");
 
@@ -855,26 +703,5 @@ mod tests {
             GraphqlLocalModelRuntimeStatus::Inactive
         );
         assert!(!setup.is_ready);
-    }
-
-    #[test]
-    fn one_local_model_operation_is_retained_per_installation() {
-        let state = GraphqlState::for_tests();
-        let installation_id = "installation:one".to_string();
-
-        assert!(state.try_retain_local_model_cancellation(
-            installation_id.clone(),
-            tokio_util::sync::CancellationToken::new(),
-        ));
-        assert!(!state.try_retain_local_model_cancellation(
-            installation_id.clone(),
-            tokio_util::sync::CancellationToken::new(),
-        ));
-        assert!(state.cancel_local_model_operation(&installation_id));
-        state.release_local_model_cancellation(&installation_id);
-        assert!(state.try_retain_local_model_cancellation(
-            installation_id,
-            tokio_util::sync::CancellationToken::new(),
-        ));
     }
 }

@@ -66,6 +66,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: mozilla-actions/sccache-action@v0.0.10
       - run: cargo check --workspace
+      - run: >-
+          cargo test -p noema-providers
+          --no-default-features
+          --features local-models
+          every_pinned_runtime_asset_resolves_for_its_injected_target_platform
 
   frontend-release:
     name: Frontend and release assets

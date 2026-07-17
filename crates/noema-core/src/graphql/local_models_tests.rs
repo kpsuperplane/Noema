@@ -6,7 +6,10 @@ use super::{GraphqlState, build_schema};
 #[tokio::test]
 async fn catalog_query_exposes_bundled_model_and_machine_fit() {
     let store = crate::test_support::test_store().await;
-    let schema = build_schema(GraphqlState::for_tests_with_store(store));
+    let manager =
+        crate::test_support::local_model_manager(&store, crate::test_support::test_paths());
+    let schema =
+        build_schema(GraphqlState::for_tests_with_store(store).with_local_model_manager(manager));
 
     let response = schema
         .execute(Request::new(

@@ -1,6 +1,7 @@
 use noema_home::{SystemErrorEvent, SystemErrorLogger};
 use serde_json::Value;
 
+#[cfg(feature = "adapters")]
 use crate::ProviderError;
 
 /// Diagnostic category for malformed provider responses.
@@ -69,6 +70,7 @@ impl StructuredResponseDiagnosticContext {
     }
 
     /// Record a malformed provider error with request context.
+    #[cfg(feature = "adapters")]
     pub fn log_malformed_error(&self, error: &ProviderError, request_id: Option<&str>, raw: Value) {
         if let Some(logger) = &self.logger {
             logger.try_append(

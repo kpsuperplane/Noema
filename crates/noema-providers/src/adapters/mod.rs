@@ -16,7 +16,7 @@ pub use account_service::{
     ProviderAccountService, ProviderCredential, ProviderCredentialAccess,
     ProviderCredentialAccessHandle, ProviderCredentialFuture,
 };
-pub use hosted::hosted_provider_from_config;
+pub use hosted::{ProviderBootstrap, hosted_provider_from_config, provider_bootstrap_from_config};
 pub use web::{
     EXA_FETCH_PROVIDER_ID, EXA_SEARCH_PROVIDER_ID, ExaFetchClient, ExaSearchClient,
     default_web_fetch_backend, default_web_search_backend, summarize_markdown,

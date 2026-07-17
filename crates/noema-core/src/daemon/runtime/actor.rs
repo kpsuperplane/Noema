@@ -213,9 +213,8 @@ impl CodexRuntimeActor {
         selection: ProviderSelectionSnapshot,
     ) -> Result<ProviderRouteLease, DaemonError> {
         self.provider_routes
-            .read()
+            .resolve_snapshot_async(selection)
             .await
-            .resolve_snapshot(selection)
             .map_err(DaemonError::from)
     }
 

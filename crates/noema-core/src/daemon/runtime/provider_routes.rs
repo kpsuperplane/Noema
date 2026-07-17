@@ -8,10 +8,11 @@
 use std::{fmt, str::FromStr, sync::Arc};
 
 use noema_providers::{
-    ProviderHandle, ProviderInstanceKey, ProviderKind, ProviderRegistration, ProviderRegistry,
-    ProviderRegistryError, ProviderRouteError, ProviderRouteFuture, ProviderRouteLease,
-    ProviderRouteResolver, ProviderRouteResolverHandle, ProviderSelectionError,
-    ProviderSelectionLoaderHandle, ProviderSelectionSnapshot,
+    LocalModelRouteHandle, LocalModelRouteReadGuard, ProviderHandle, ProviderInstanceKey,
+    ProviderKind, ProviderRegistration, ProviderRegistry, ProviderRegistryError,
+    ProviderRouteError, ProviderRouteFuture, ProviderRouteLease, ProviderRouteResolver,
+    ProviderRouteResolverHandle, ProviderSelectionError, ProviderSelectionLoaderHandle,
+    ProviderSelectionSnapshot,
 };
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 
@@ -23,6 +24,7 @@ const SUPPORTED_CODEX_PROVIDER_ACCOUNT_ID: &str = "provider_account:codex:defaul
 pub(crate) struct LegacyProviderRoutes {
     registry: Arc<ProviderRegistry>,
     publication_gate: Arc<RwLock<()>>,
+    local_models: Option<LocalModelRouteHandle>,
 }
 
 impl LegacyProviderRoutes {
@@ -35,11 +37,27 @@ impl LegacyProviderRoutes {
         let routes = Self {
             registry: Arc::new(ProviderRegistry::new()),
             publication_gate: Arc::new(RwLock::new(())),
+            local_models: None,
         };
         for (provider_kind, provider) in providers {
             routes.register(provider_kind.as_ref(), provider)?;
         }
         Ok(routes)
+    }
+
+    /// Attach the provider-owned exact-instance route for local models.
+    #[must_use]
+    pub(crate) fn with_local_models_route(mut self, route: LocalModelRouteHandle) -> Self {
+        self.local_models = Some(route);
+        self
+    }
+
+    /// Resolve through the provider-owned local route when configured.
+    pub(crate) async fn resolve_snapshot_async(
+        &self,
+        selection: ProviderSelectionSnapshot,
+    ) -> Result<ProviderRouteLease, ProviderRouteError> {
+        self.read().await.resolve_snapshot(selection)
     }
 
     /// Register or generation-safely replace the current provider for a kind.
@@ -97,8 +115,13 @@ impl LegacyProviderRoutes {
     /// registry generation between those two operations.
     pub(crate) async fn read(&self) -> LegacyProviderRouteReadGuard {
         let gate = Arc::clone(&self.publication_gate).read_owned().await;
+        let local_models = match &self.local_models {
+            Some(route) => Some(route.read().await),
+            None => None,
+        };
         LegacyProviderRouteReadGuard {
             routes: self.clone(),
+            local_models,
             _gate: gate,
         }
     }
@@ -131,6 +154,7 @@ impl LegacyProviderRoutes {
 /// Owned shared guard spanning one canonical selection read and route lease.
 pub(crate) struct LegacyProviderRouteReadGuard {
     routes: LegacyProviderRoutes,
+    local_models: Option<LocalModelRouteReadGuard>,
     _gate: OwnedRwLockReadGuard<()>,
 }
 
@@ -140,6 +164,14 @@ impl LegacyProviderRouteReadGuard {
         &self,
         selection: ProviderSelectionSnapshot,
     ) -> Result<ProviderRouteLease, ProviderRouteError> {
+        if selection
+            .provider_kind
+            .trim()
+            .eq_ignore_ascii_case(ProviderKind::LocalModels.as_str())
+            && let Some(route) = &self.local_models
+        {
+            return route.resolve_snapshot(selection);
+        }
         self.routes.resolve_snapshot(selection)
     }
 }

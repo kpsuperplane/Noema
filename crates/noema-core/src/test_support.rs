@@ -15,6 +15,29 @@ pub(crate) fn system_error_logger() -> noema_home::SystemErrorLogger {
     noema_home::SystemErrorLogger::from_paths(&test_paths())
 }
 
+pub(crate) fn local_model_manager(
+    store: &noema_store::NoemaStore,
+    paths: noema_home::NoemaPaths,
+) -> noema_providers::LocalModelManager {
+    let installations: noema_providers::LocalModelInstallationPersistenceHandle =
+        Arc::new(store.clone());
+    let activation: noema_providers::LocalModelActivationPersistenceHandle =
+        Arc::new(store.clone());
+    noema_providers::LocalModelManager::new(
+        installations,
+        activation,
+        paths.clone(),
+        noema_providers::LocalModelManagerConfig {
+            runtime_root: None,
+            context_window_tokens: noema_providers::DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS,
+            timeout_seconds: noema_providers::DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS,
+            startup_timeout_seconds: noema_providers::DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
+            system_errors: Some(noema_home::SystemErrorLogger::from_paths(&paths)),
+        },
+    )
+    .expect("test local-model manager")
+}
+
 pub(crate) async fn test_store() -> noema_store::NoemaStore {
     noema_store::test_support::open_ephemeral_store()
         .await

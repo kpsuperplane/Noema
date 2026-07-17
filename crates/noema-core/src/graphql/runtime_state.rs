@@ -2,9 +2,11 @@ use noema_store::NoemaStore;
 
 use crate::{NoemaRuntimeHost, daemon::CodexRuntimeHandle};
 use noema_capabilities_mcp::McpControlPlaneHandle;
-use noema_home::{NoemaPaths, SystemErrorEvent, SystemErrorLogger};
+#[cfg(test)]
+use noema_home::NoemaPaths;
+use noema_home::{SystemErrorEvent, SystemErrorLogger};
 use noema_memory::{MemoryRepositoryHandle, MemoryServiceAccessHandle};
-use noema_providers::ProviderAccountOperationsHandle;
+use noema_providers::{LocalModelManager, ProviderAccountOperationsHandle};
 
 use super::{ConversationSubscriptionRegistry, local_status::GraphqlMemoryStorageStatus};
 
@@ -17,7 +19,7 @@ pub struct GraphqlRuntimeState {
     artifact_diagnostics: ArtifactDiagnosticReporter,
     provider_account_operations: Option<ProviderAccountOperationsHandle>,
     mcp_operations: Option<McpControlPlaneHandle>,
-    paths: Option<NoemaPaths>,
+    local_model_manager: Option<LocalModelManager>,
     memory_repository: Option<MemoryRepositoryHandle>,
     memory_service_access: Option<MemoryServiceAccessHandle>,
     memory_startup_error: Option<String>,
@@ -36,7 +38,7 @@ impl GraphqlRuntimeState {
             artifact_diagnostics: ArtifactDiagnosticReporter::new(host.system_errors().clone()),
             provider_account_operations: Some(host.provider_account_operations().clone()),
             mcp_operations: Some(host.mcp_operations().clone()),
-            paths: Some(host.paths().clone()),
+            local_model_manager: Some(host.local_model_manager().clone()),
             memory_repository: Some(host.memory_repository().clone()),
             memory_service_access: Some(host.memory_service_access().clone()),
             memory_startup_error: host.memory_startup_error().map(str::to_string),
@@ -55,7 +57,7 @@ impl GraphqlRuntimeState {
             artifact_diagnostics: ArtifactDiagnosticReporter::default(),
             provider_account_operations: None,
             mcp_operations: None,
-            paths: None,
+            local_model_manager: None,
             memory_repository: None,
             memory_service_access: None,
             memory_startup_error: None,
@@ -119,7 +121,6 @@ impl GraphqlRuntimeState {
             provider_account_operations: Some(provider_account_operations),
             mcp_operations: Some(mcp_operations),
             memory_repository: Some(memory_repository),
-            paths: Some(paths),
             ..Self::for_tests()
         }
     }
@@ -129,6 +130,17 @@ impl GraphqlRuntimeState {
     #[must_use]
     pub(crate) fn with_mcp_operations(mut self, mcp_operations: McpControlPlaneHandle) -> Self {
         self.mcp_operations = Some(mcp_operations);
+        self
+    }
+
+    /// Attach explicit local-model control-plane operations to existing test state.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn with_local_model_manager(
+        mut self,
+        local_model_manager: LocalModelManager,
+    ) -> Self {
+        self.local_model_manager = Some(local_model_manager);
         self
     }
 
@@ -197,10 +209,10 @@ impl GraphqlRuntimeState {
             .ok_or_else(|| async_graphql::Error::new("Noema MCP service is unavailable"))
     }
 
-    pub(crate) fn paths(&self) -> async_graphql::Result<&NoemaPaths> {
-        self.paths
+    pub(crate) fn local_model_manager(&self) -> async_graphql::Result<&LocalModelManager> {
+        self.local_model_manager
             .as_ref()
-            .ok_or_else(|| async_graphql::Error::new("Noema paths are unavailable"))
+            .ok_or_else(|| async_graphql::Error::new("Noema local-model service is unavailable"))
     }
 
     pub(crate) fn memory_repository(&self) -> async_graphql::Result<&MemoryRepositoryHandle> {

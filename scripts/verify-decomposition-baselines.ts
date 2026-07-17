@@ -270,18 +270,12 @@ export function parseCliOptions(
       localModelCatalog: firstExisting(
         argumentValue(args, "--local-model-catalog") ??
           env.NOEMA_DECOMPOSITION_LOCAL_MODEL_CATALOG,
-        [
-          "crates/noema-providers/resources/local-models/catalog.toml",
-          "crates/noema-core/resources/local-models/catalog.toml",
-        ],
+        ["crates/noema-providers/resources/local-models/catalog.toml"],
       ),
       runtimeAssets: firstExisting(
         argumentValue(args, "--runtime-assets") ??
           env.NOEMA_DECOMPOSITION_RUNTIME_ASSETS,
-        [
-          "crates/noema-providers/resources/local-models/runtime-assets.json",
-          "crates/noema-core/resources/local-models/runtime-assets.json",
-        ],
+        ["crates/noema-providers/resources/local-models/runtime-assets.json"],
       ),
       sqliteBootstrap: resolve(sqliteBootstrap),
       sqliteSchemaShape: resolve(sqliteSchemaShape),

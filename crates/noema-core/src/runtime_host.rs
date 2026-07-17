@@ -30,9 +30,9 @@ use noema_memory::{
     MnemosyneMemoryService, MnemosyneMemoryServiceAccess, memory_provider_selection_loader,
 };
 use noema_providers::{
-    DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS, DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
-    DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS, DEFAULT_TOOL_CLASSIFICATION_MODEL,
-    ProviderAccountOperationsHandle, ProviderAccountService, ProviderConfig, erase_model_provider,
+    DEFAULT_TOOL_CLASSIFICATION_MODEL, LocalModelActivationPersistenceHandle,
+    LocalModelInstallationPersistenceHandle, LocalModelManager, ProviderAccountOperationsHandle,
+    ProviderAccountService, ProviderConfig,
 };
 use ring::rand::{SecureRandom, SystemRandom};
 use std::{path::PathBuf, sync::Arc};
@@ -50,6 +50,7 @@ pub struct NoemaRuntimeHost {
     mcp_operations: McpControlPlaneHandle,
     memory_repository: MemoryRepositoryHandle,
     memory_service_access: MemoryServiceAccessHandle,
+    local_model_manager: LocalModelManager,
     mnemosyne: Option<MnemosyneLifecycle>,
     memory_startup_error: Option<String>,
     system_errors: SystemErrorLogger,
@@ -123,102 +124,33 @@ impl NoemaRuntimeHost {
         .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
         let provider_account_operations = provider_account_service.operations();
         let provider_credentials = provider_account_service.credentials();
+        let local_model_manager_config =
+            provider.local_model_manager_config(local_model_runtime_root, system_errors.clone());
+        let local_model_installations: LocalModelInstallationPersistenceHandle =
+            Arc::new(store.clone());
+        let local_model_activation: LocalModelActivationPersistenceHandle = Arc::new(store.clone());
+        let local_model_manager = LocalModelManager::new(
+            local_model_installations,
+            local_model_activation,
+            paths.clone(),
+            local_model_manager_config,
+        )
+        .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
+        local_model_manager
+            .start_active_installation()
+            .await
+            .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
 
-        let provider = match provider {
-            ProviderConfig::LocalModels(mut config) => {
-                if config.runtime_root.is_none() {
-                    config.runtime_root = local_model_runtime_root.clone();
-                }
-                if config.model_path.is_none() {
-                    let installation = store
-                        .get_installed_local_model(&config.default_model)
-                        .await
-                        .map_err(|source| RuntimeHostError::Store(source.to_string()))?
-                        .ok_or_else(|| {
-                            RuntimeHostError::Runtime(format!(
-                                "local model `{}` is not installed",
-                                config.default_model
-                            ))
-                        })?;
-                    config.model_path = Some(
-                        paths
-                            .local_model_blob_path(installation.sha256.as_deref().ok_or_else(
-                                || {
-                                    RuntimeHostError::Runtime(format!(
-                                        "installed local model `{}` has no verified digest",
-                                        installation.model_id
-                                    ))
-                                },
-                            )?)
-                            .map_err(|source| RuntimeHostError::DataFolder(source.to_string()))?,
-                    );
-                    config.preferred_backend = Some(installation.backend);
-                }
-                ProviderConfig::LocalModels(config)
-            }
-            provider => provider,
-        };
-
-        let (default_provider_kind, mut providers, mut local_models_runtime) =
+        let (default_provider_kind, _default_model_profile, providers) =
             CodexRuntimeHandle::provider_map_from_config(
                 provider,
                 system_errors.clone(),
                 provider_credentials.clone(),
             )
             .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
-        if !providers.contains_key(noema_providers::ProviderKind::LocalModels.as_str())
-            && let Some(installation) = store
-                .list_local_model_installations()
-                .await
-                .map_err(|source| RuntimeHostError::Store(source.to_string()))?
-                .into_iter()
-                .find(|installation| {
-                    installation.is_active
-                        && installation.status
-                            == noema_providers::LocalModelInstallationStatus::Installed
-                })
-        {
-            let model_path = paths
-                .local_model_blob_path(installation.sha256.as_deref().ok_or_else(|| {
-                    RuntimeHostError::Runtime(format!(
-                        "installed local model `{}` has no verified digest",
-                        installation.model_id
-                    ))
-                })?)
-                .map_err(|source| RuntimeHostError::DataFolder(source.to_string()))?;
-            let provider =
-                crate::LocalModelsProvider::new(noema_providers::LocalModelsProviderConfig {
-                    default_model: installation.model_id,
-                    model_path: Some(model_path),
-                    preferred_backend: Some(installation.backend),
-                    runtime_root: local_model_runtime_root.clone(),
-                    context_window_tokens: DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS,
-                    timeout_seconds: DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS,
-                    startup_timeout_seconds: DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
-                    system_errors: Some(system_errors.clone()),
-                })
-                .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
-            local_models_runtime = Some(provider.runtime().clone());
-            providers.insert(
-                noema_providers::ProviderKind::LocalModels
-                    .as_str()
-                    .to_string(),
-                erase_model_provider(provider),
-            );
-        }
-        if let Some(runtime) = &local_models_runtime
-            && let Err(error) = runtime.retry().await
-        {
-            system_errors.try_append(
-                SystemErrorEvent::new(
-                    "local_model_runtime_unavailable",
-                    "The local model runtime could not start",
-                )
-                .with_error_chain([error.to_string()]),
-            );
-        }
         let provider_routes = LegacyProviderRoutes::new(providers.clone())
-            .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
+            .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?
+            .with_local_models_route(local_model_manager.route_handle());
         let memory_repository: MemoryRepositoryHandle = Arc::new(store.clone());
         let memory_settings = memory_repository
             .memory_service_settings()
@@ -240,12 +172,13 @@ impl NoemaRuntimeHost {
                 match memory_model_proxy_config_from_settings(
                     &memory_settings,
                     &default_provider_kind,
-                    &providers,
                     provider_routes.clone(),
                     memory_repository.clone(),
                     generate_memory_model_proxy_api_key().map_err(RuntimeHostError::Runtime)?,
                     system_errors.clone(),
-                ) {
+                )
+                .await
+                {
                     Ok(config) => match MemoryModelProxy::start(config).await {
                         Ok(proxy) => Some(proxy),
                         Err(error) => {
@@ -372,14 +305,6 @@ impl NoemaRuntimeHost {
         .await
         .map_err(|source| RuntimeHostError::Runtime(source.to_string()))?;
         mcp_completion.attach(runtime.clone());
-        runtime
-            .set_local_models_runtime_root(local_model_runtime_root)
-            .await;
-        if let Some(local_models_runtime) = local_models_runtime {
-            runtime
-                .attach_local_models_runtime(local_models_runtime)
-                .await;
-        }
         let task_runtime = TaskRuntimeHandle::start(
             store.clone(),
             runtime.clone(),
@@ -398,6 +323,7 @@ impl NoemaRuntimeHost {
             mcp_operations,
             memory_repository,
             memory_service_access,
+            local_model_manager,
             mnemosyne,
             memory_startup_error,
             system_errors,
@@ -458,6 +384,12 @@ impl NoemaRuntimeHost {
         &self.memory_service_access
     }
 
+    /// Provider-owned local-model lifecycle and management control plane.
+    #[must_use]
+    pub fn local_model_manager(&self) -> &LocalModelManager {
+        &self.local_model_manager
+    }
+
     /// Runtime-only managed memory service startup error, when startup failed.
     #[must_use]
     pub fn memory_startup_error(&self) -> Option<&str> {
@@ -473,11 +405,21 @@ impl NoemaRuntimeHost {
     /// Shut down runtime-owned work.
     pub async fn shutdown(self) {
         self.mcp_service.begin_shutdown();
+        self.local_model_manager.begin_shutdown().await;
         self.task_runtime.shutdown().await;
         if let Some(mnemosyne) = self.mnemosyne {
             mnemosyne.shutdown().await;
         }
         self.runtime.shutdown().await;
+        if let Err(error) = self.local_model_manager.shutdown().await {
+            self.system_errors.try_append(
+                SystemErrorEvent::new(
+                    "local_model_shutdown_failed",
+                    "A local model process did not stop cleanly",
+                )
+                .with_error_chain([error.to_string()]),
+            );
+        }
         if !self.mcp_service.shutdown().await {
             self.system_errors.try_append(SystemErrorEvent::new(
                 "mcp_shutdown_drain_timeout",
@@ -488,32 +430,28 @@ impl NoemaRuntimeHost {
     }
 }
 
-fn memory_model_proxy_config_from_settings(
+async fn memory_model_proxy_config_from_settings(
     settings: &MemoryServiceSettingsRecord,
     default_provider_kind: &str,
-    providers: &crate::daemon::RuntimeProviderMap,
     provider_routes: LegacyProviderRoutes,
     memory_repository: MemoryRepositoryHandle,
     api_key: String,
     system_errors: SystemErrorLogger,
 ) -> Result<MemoryModelProxyConfig, String> {
-    let provider_kind = settings
-        .provider_kind
-        .as_deref()
-        .unwrap_or(default_provider_kind);
-    let provider = providers
-        .get(provider_kind)
-        .cloned()
-        .ok_or_else(|| format!("memory model provider is unavailable: {provider_kind}"))?;
-    let model_profile = settings
-        .model_profile
-        .clone()
-        .or_else(|| provider.default_tool_classification_model())
-        .unwrap_or_else(|| DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string());
     let route_resolver = provider_routes.bind(memory_provider_selection_loader(
         memory_repository,
         default_provider_kind,
     ));
+    let route = route_resolver
+        .resolve_route()
+        .await
+        .map_err(|error| format!("memory model provider is unavailable: {error}"))?;
+    let model_profile = settings
+        .model_profile
+        .clone()
+        .or_else(|| route.selection().model_profile.clone())
+        .or_else(|| route.operations().default_tool_classification_model())
+        .unwrap_or_else(|| DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string());
     Ok(MemoryModelProxyConfig {
         route_resolver,
         api_key,
@@ -641,12 +579,12 @@ mod tests {
         let config = memory_model_proxy_config_from_settings(
             &settings,
             "codex",
-            &providers,
             routes,
             Arc::new(store.clone()),
             "secret".to_string(),
             test_system_error_logger(),
         )
+        .await
         .expect("proxy config");
         let route = config
             .route_resolver
@@ -724,12 +662,12 @@ mod tests {
         let config = memory_model_proxy_config_from_settings(
             &settings,
             "codex",
-            &providers,
             routes,
             Arc::new(store),
             "secret".to_string(),
             test_system_error_logger(),
         )
+        .await
         .expect("proxy config");
         let route = config
             .route_resolver

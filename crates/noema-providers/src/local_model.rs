@@ -5,8 +5,44 @@ use std::{fmt, str::FromStr};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::{ProviderInstanceKey, ProviderSelectionError};
+
 /// Stable built-in provider account used for local GGUF inference.
 pub const LOCAL_MODELS_PROVIDER_ACCOUNT_ID: &str = "provider_account:local_models:default";
+
+/// Derive the immutable provider-instance identity for one local installation.
+///
+/// Length-prefixed components keep the representation unambiguous without
+/// constraining provider, installation, or model identifiers to a second
+/// private grammar.
+///
+/// # Errors
+///
+/// Returns [`ProviderSelectionError`] only if the constructed key is invalid.
+pub fn local_model_provider_instance_key(
+    provider_account_id: &str,
+    installation_id: &str,
+    model_id: &str,
+) -> Result<ProviderInstanceKey, ProviderSelectionError> {
+    let provider_account_id = provider_account_id.trim();
+    let installation_id = installation_id.trim();
+    let model_id = model_id.trim();
+    for (field, value) in [
+        ("provider_account_id", provider_account_id),
+        ("installation_id", installation_id),
+        ("model_id", model_id),
+    ] {
+        if value.is_empty() {
+            return Err(ProviderSelectionError::EmptyField(field));
+        }
+    }
+    ProviderInstanceKey::new(format!(
+        "local-model:v1:{}:{provider_account_id}:{}:{installation_id}:{}:{model_id}",
+        provider_account_id.len(),
+        installation_id.len(),
+        model_id.len()
+    ))
+}
 
 /// Invalid stable local-model vocabulary value.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -430,6 +466,7 @@ mod tests {
     use super::{
         LocalModelBackend as Backend, LocalModelEventKind as EventKind,
         LocalModelInstallationStatus as Status, LocalModelSourceKind as SourceKind,
+        local_model_provider_instance_key,
     };
 
     #[test]
@@ -487,5 +524,39 @@ mod tests {
         assert!("unknown".parse::<SourceKind>().is_err());
         assert!("unknown".parse::<Status>().is_err());
         assert!("unknown".parse::<EventKind>().is_err());
+    }
+
+    #[test]
+    fn local_instance_keys_distinguish_same_model_installations_unambiguously() {
+        let first = local_model_provider_instance_key(
+            "provider_account:local_models:default",
+            "installation:a",
+            "shared-model",
+        )
+        .expect("first key");
+        let second = local_model_provider_instance_key(
+            "provider_account:local_models:default",
+            "installation:b",
+            "shared-model",
+        )
+        .expect("second key");
+        let delimiter_variant =
+            local_model_provider_instance_key("provider:a", "b:c", "shared-model")
+                .expect("delimiter variant");
+        let differently_partitioned =
+            local_model_provider_instance_key("provider:a:b", "c", "shared-model")
+                .expect("differently partitioned key");
+
+        assert_ne!(first, second);
+        assert_ne!(delimiter_variant, differently_partitioned);
+        assert_eq!(
+            first,
+            local_model_provider_instance_key(
+                "provider_account:local_models:default",
+                "installation:a",
+                "shared-model",
+            )
+            .expect("stable first key")
+        );
     }
 }

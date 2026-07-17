@@ -4,28 +4,30 @@ use async_graphql::Result;
 
 use super::*;
 
-pub(super) async fn load_catalog_views() -> Result<Vec<GraphqlLocalModelCatalogEntry>> {
-    tokio::task::spawn_blocking(catalog_views)
-        .await
-        .map_err(|error| {
-            async_graphql::Error::new(format!("local-model hardware probe failed: {error}"))
-        })?
+pub(super) async fn load_catalog_views(
+    manager: &noema_providers::LocalModelManager,
+) -> Result<Vec<GraphqlLocalModelCatalogEntry>> {
+    let manager = manager.clone();
+    tokio::task::spawn_blocking(move || {
+        manager
+            .catalog_snapshot()
+            .map(catalog_views)
+            .map_err(graphql_error)
+    })
+    .await
+    .map_err(|error| {
+        async_graphql::Error::new(format!("local-model hardware probe failed: {error}"))
+    })?
 }
 
-fn catalog_views() -> Result<Vec<GraphqlLocalModelCatalogEntry>> {
-    let catalog = crate::LocalModelCatalog::bundled()
-        .map_err(|error| async_graphql::Error::new(error.to_string()))?;
-    let hardware = crate::local_models::detect_local_hardware_profiles()
-        .map_err(|error| async_graphql::Error::new(error.to_string()))?;
-    let recommended_model_id = catalog
-        .recommend_with_fallback(&hardware)
-        .map(|recommendation| recommendation.model.id.as_str());
-
-    Ok(catalog
-        .models()
-        .iter()
-        .map(|model| {
-            let selection = catalog.select_build(&model.id, &hardware);
+fn catalog_views(
+    snapshot: noema_providers::LocalModelCatalogSnapshot,
+) -> Vec<GraphqlLocalModelCatalogEntry> {
+    snapshot
+        .entries
+        .into_iter()
+        .map(|entry| {
+            let model = entry.model;
             GraphqlLocalModelCatalogEntry {
                 model_id: model.id.clone(),
                 name: model.name.clone(),
@@ -34,19 +36,23 @@ fn catalog_views() -> Result<Vec<GraphqlLocalModelCatalogEntry>> {
                 repo: model.repo.clone(),
                 revision: model.revision.clone(),
                 builds: model.builds.iter().map(Into::into).collect(),
-                selected_build: selection.map(|selection| selection.build.into()),
-                compatible_backend: selection.map(|selection| selection.hardware.backend.into()),
-                hardware_fit: selection.map(|selection| GraphqlLocalModelHardwareFit {
-                    backend: selection.hardware.backend.into(),
-                    ram_gb: unsigned_to_graphql_int(selection.hardware.ram_gb),
-                    vram_gb: selection.hardware.vram_gb.map(unsigned_to_graphql_int),
-                    unified_memory: selection.hardware.unified_memory,
-                    explanation: selection.explanation(),
+                selected_build: entry.selected_build.as_ref().map(Into::into),
+                compatible_backend: entry
+                    .compatible_hardware
+                    .map(|hardware| hardware.backend.into()),
+                hardware_fit: entry.compatible_hardware.map(|hardware| {
+                    GraphqlLocalModelHardwareFit {
+                        backend: hardware.backend.into(),
+                        ram_gb: unsigned_to_graphql_int(hardware.ram_gb),
+                        vram_gb: hardware.vram_gb.map(unsigned_to_graphql_int),
+                        unified_memory: hardware.unified_memory,
+                        explanation: entry.compatibility_explanation.unwrap_or_default(),
+                    }
                 }),
-                is_recommended: recommended_model_id == Some(model.id.as_str()),
+                is_recommended: entry.is_recommended,
             }
         })
-        .collect())
+        .collect()
 }
 
 pub(super) fn installation_view(
@@ -159,20 +165,20 @@ fn unsigned_to_graphql_int(value: u64) -> i64 {
 }
 
 pub(super) fn runtime_status_view(
-    status: crate::local_models::LocalModelRuntimeStatus,
+    status: noema_providers::LocalModelRuntimeStatus,
 ) -> GraphqlLocalModelRuntimeStatus {
     match status {
-        crate::local_models::LocalModelRuntimeStatus::Stopped => {
+        noema_providers::LocalModelRuntimeStatus::Stopped => {
             GraphqlLocalModelRuntimeStatus::Inactive
         }
-        crate::local_models::LocalModelRuntimeStatus::Starting { .. }
-        | crate::local_models::LocalModelRuntimeStatus::Retrying { .. } => {
+        noema_providers::LocalModelRuntimeStatus::Starting { .. }
+        | noema_providers::LocalModelRuntimeStatus::Retrying { .. } => {
             GraphqlLocalModelRuntimeStatus::Starting
         }
-        crate::local_models::LocalModelRuntimeStatus::Ready { .. } => {
+        noema_providers::LocalModelRuntimeStatus::Ready { .. } => {
             GraphqlLocalModelRuntimeStatus::Running
         }
-        crate::local_models::LocalModelRuntimeStatus::Failed { .. } => {
+        noema_providers::LocalModelRuntimeStatus::Failed { .. } => {
             GraphqlLocalModelRuntimeStatus::Failed
         }
     }

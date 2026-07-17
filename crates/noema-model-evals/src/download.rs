@@ -1,10 +1,11 @@
-use std::path::{Path, PathBuf};
-
-use noema_core::{
-    HuggingFaceLocalModelImport, LocalModelInstaller, detect_local_hardware_profiles,
+use std::{
+    env,
+    path::{Path, PathBuf},
 };
-use noema_home::NoemaPaths;
-use noema_store::{NoemaStore, StoreConfig};
+
+use noema_providers::{
+    MaterializeVerifiedEvalModelRequest, VerifiedEvalModelSource, materialize_verified_eval_model,
+};
 use ring::digest::{Context, SHA256};
 use tokio::{fs, io::AsyncReadExt};
 use tokio_util::sync::CancellationToken;
@@ -15,19 +16,16 @@ pub(crate) async fn resolve_candidate(
     candidate: &ModelCandidate,
     eval_home: &Path,
 ) -> Result<PathBuf, String> {
-    let eval_paths =
-        NoemaPaths::from_noema_home(eval_home.to_path_buf()).map_err(|error| error.to_string())?;
-    let eval_blob = eval_paths
-        .local_model_blob_path(&candidate.sha256)
-        .map_err(|error| error.to_string())?;
+    let eval_cache = eval_home.join("models/blobs");
+    let eval_blob = eval_cache.join(format!("{}.gguf", candidate.sha256));
     if verified_file(&eval_blob, &candidate.sha256).await? {
         return Ok(eval_blob);
     }
 
-    if let Ok(user_paths) = NoemaPaths::from_process_env() {
-        let user_blob = user_paths
-            .local_model_blob_path(&candidate.sha256)
-            .map_err(|error| error.to_string())?;
+    if let Some(user_root) = user_noema_root() {
+        let user_blob = user_root
+            .join("models/blobs")
+            .join(format!("{}.gguf", candidate.sha256));
         if verified_file(&user_blob, &candidate.sha256).await? {
             return Ok(user_blob);
         }
@@ -40,40 +38,21 @@ pub(crate) async fn resolve_candidate(
         candidate.repo,
         candidate.revision
     );
-    let store = NoemaStore::open(&StoreConfig::new(eval_paths.sqlite_db_path()))
-        .await
-        .map_err(|error| error.to_string())?;
-    let installer =
-        LocalModelInstaller::new(store, eval_paths.clone()).map_err(|error| error.to_string())?;
-    let backend = detect_local_hardware_profiles()
-        .map_err(|error| error.to_string())?
-        .into_iter()
-        .next()
-        .ok_or_else(|| "no local inference backend was detected".to_string())?
-        .backend;
-    let record = installer
-        .import_hugging_face(
-            HuggingFaceLocalModelImport {
-                name: candidate.name.clone(),
-                model_id: candidate.id.clone(),
+    let path = materialize_verified_eval_model(
+        MaterializeVerifiedEvalModelRequest {
+            source: VerifiedEvalModelSource {
                 repo: candidate.repo.clone(),
                 revision: candidate.revision.clone(),
                 file: candidate.file.clone(),
-                sha256: candidate.sha256.clone(),
-                license: Some(candidate.license.clone()),
-                backend,
             },
-            CancellationToken::new(),
-        )
-        .await
-        .map_err(|error| error.to_string())?;
-    let relative = record.blob_relative_path.ok_or_else(|| {
-        format!(
-            "download for {} completed without a blob path",
-            candidate.id
-        )
-    })?;
-    let path = eval_paths.root().join(relative);
+            expected_bytes: candidate.bytes,
+            sha256: candidate.sha256.clone(),
+            cache_root: eval_cache,
+        },
+        CancellationToken::new(),
+    )
+    .await
+    .map_err(|error| error.to_string())?;
     if !verified_file(&path, &candidate.sha256).await? {
         return Err(format!(
             "downloaded artifact for {} disappeared or failed verification",
@@ -81,6 +60,17 @@ pub(crate) async fn resolve_candidate(
         ));
     }
     Ok(path)
+}
+
+fn user_noema_root() -> Option<PathBuf> {
+    match env::var_os("NOEMA_HOME") {
+        Some(path) if !path.is_empty() => Some(PathBuf::from(path)),
+        Some(_) => None,
+        None => env::var_os("HOME")
+            .filter(|path| !path.is_empty())
+            .map(PathBuf::from)
+            .map(|home| home.join(".noema")),
+    }
 }
 
 async fn verified_file(path: &Path, expected: &str) -> Result<bool, String> {

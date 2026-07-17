@@ -3,11 +3,13 @@
 use std::path::{Path, PathBuf};
 
 use super::LlamaServerCandidate;
-use noema_providers::LocalModelBackend;
+use crate::LocalModelBackend;
 
 /// Immutable upstream llama.cpp release bundled with this Noema runtime.
+#[cfg(any(test, feature = "local-model-evals"))]
 pub const LLAMA_CPP_RELEASE_TAG: &str = "b10015";
 /// Upstream commit referenced by [`LLAMA_CPP_RELEASE_TAG`].
+#[cfg(any(test, feature = "local-model-evals"))]
 pub const LLAMA_CPP_COMMIT: &str = "12127defda4f41b7679cb2477a4b0d65ee6a0c8f";
 /// Development/test-only override for the `llama-server` executable.
 pub const NOEMA_LLAMA_SERVER_PATH_ENV: &str = "NOEMA_LLAMA_SERVER_PATH";
@@ -15,6 +17,7 @@ pub const NOEMA_LLAMA_SERVER_PATH_ENV: &str = "NOEMA_LLAMA_SERVER_PATH";
 pub const LLAMA_SERVER_SIDECAR_BASENAME: &str = "noema-llama-server";
 
 /// Role of one archive in a bundled llama.cpp runtime candidate.
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LlamaCppRuntimeAssetRole {
     /// Archive containing `llama-server` and backend libraries.
@@ -24,6 +27,7 @@ pub enum LlamaCppRuntimeAssetRole {
 }
 
 /// Immutable upstream archive required to materialize a bundled sidecar.
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LlamaCppRuntimeAsset {
     /// Rust target triple for the packaged application.
@@ -39,6 +43,7 @@ pub struct LlamaCppRuntimeAsset {
 }
 
 /// Complete pinned upstream runtime asset manifest for V1 desktop targets.
+#[cfg(test)]
 pub const LLAMA_CPP_RUNTIME_ASSETS: &[LlamaCppRuntimeAsset] = &[
     LlamaCppRuntimeAsset {
         target_triple: "aarch64-apple-darwin",
@@ -98,18 +103,81 @@ pub const LLAMA_CPP_RUNTIME_ASSETS: &[LlamaCppRuntimeAsset] = &[
     },
 ];
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RuntimeTargetOs {
+    MacOs,
+    Linux,
+    Windows,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct RuntimeTargetPlatform<'a> {
+    target_triple: &'a str,
+    os: RuntimeTargetOs,
+}
+
+impl<'a> RuntimeTargetPlatform<'a> {
+    fn from_target_triple(target_triple: &'a str) -> Option<Self> {
+        let os = if target_triple.ends_with("-apple-darwin") {
+            RuntimeTargetOs::MacOs
+        } else if target_triple.ends_with("-unknown-linux-gnu") {
+            RuntimeTargetOs::Linux
+        } else if target_triple.ends_with("-pc-windows-msvc") {
+            RuntimeTargetOs::Windows
+        } else {
+            return None;
+        };
+        Some(Self { target_triple, os })
+    }
+
+    const fn default_backend(self) -> LocalModelBackend {
+        match self.os {
+            RuntimeTargetOs::MacOs => LocalModelBackend::Metal,
+            RuntimeTargetOs::Linux => LocalModelBackend::Vulkan,
+            RuntimeTargetOs::Windows => LocalModelBackend::Cuda,
+        }
+    }
+
+    const fn upstream_server_name(self) -> &'static str {
+        match self.os {
+            RuntimeTargetOs::Windows => "llama-server.exe",
+            RuntimeTargetOs::MacOs | RuntimeTargetOs::Linux => "llama-server",
+        }
+    }
+
+    const fn installed_sidecar_extension(self) -> &'static str {
+        match self.os {
+            RuntimeTargetOs::Windows => ".exe",
+            RuntimeTargetOs::MacOs | RuntimeTargetOs::Linux => "",
+        }
+    }
+
+    const fn supported_backends(self) -> &'static [LocalModelBackend] {
+        match self.os {
+            RuntimeTargetOs::MacOs => &[LocalModelBackend::Metal, LocalModelBackend::Cpu],
+            RuntimeTargetOs::Linux => &[LocalModelBackend::Vulkan, LocalModelBackend::Cpu],
+            RuntimeTargetOs::Windows => &[
+                LocalModelBackend::Cuda,
+                LocalModelBackend::Vulkan,
+                LocalModelBackend::Cpu,
+            ],
+        }
+    }
+
+    const fn sidecar_backend(self, backend: LocalModelBackend) -> LocalModelBackend {
+        if matches!(self.os, RuntimeTargetOs::MacOs) && matches!(backend, LocalModelBackend::Cpu) {
+            LocalModelBackend::Metal
+        } else {
+            backend
+        }
+    }
+}
+
 /// Resolves backend-specific bundled runtime sidecars in fallback order.
 ///
 /// Installed builds only resolve sidecars adjacent to the Noema executable.
 /// Debug and test builds may opt into [`NOEMA_LLAMA_SERVER_PATH_ENV`] to use a
 /// developer-built runtime; ambient `PATH` is never consulted.
-#[must_use]
-pub fn bundled_llama_server_candidates(
-    preferred_backend: Option<LocalModelBackend>,
-) -> Vec<LlamaServerCandidate> {
-    bundled_llama_server_candidates_in(preferred_backend, None)
-}
-
 /// Resolves backend-specific runtime candidates from a packaged resource root.
 ///
 /// The root contains one target-triple directory whose backend directories
@@ -119,12 +187,19 @@ pub fn bundled_llama_server_candidates_in(
     preferred_backend: Option<LocalModelBackend>,
     runtime_root: Option<&Path>,
 ) -> Vec<LlamaServerCandidate> {
+    let Some(target) = RuntimeTargetPlatform::from_target_triple(current_target_triple()) else {
+        return Vec::new();
+    };
+
     #[cfg(any(test, debug_assertions))]
-    if let Some(path) = std::env::var_os(NOEMA_LLAMA_SERVER_PATH_ENV)
+    if let Some(path) = runtime_root
+        .is_none()
+        .then(|| std::env::var_os(NOEMA_LLAMA_SERVER_PATH_ENV))
+        .flatten()
         .filter(|path| !path.is_empty())
         .map(PathBuf::from)
     {
-        let preferred = preferred_backend.unwrap_or(default_platform_backend());
+        let preferred = preferred_backend.unwrap_or(target.default_backend());
         let mut candidates = vec![LlamaServerCandidate::new(preferred, path.clone())];
         if preferred != LocalModelBackend::Cpu {
             candidates.push(LlamaServerCandidate::new(LocalModelBackend::Cpu, path));
@@ -138,26 +213,36 @@ pub fn bundled_llama_server_candidates_in(
             .and_then(|path| path.parent().map(ToOwned::to_owned))
             .unwrap_or_default()
     });
-    platform_backends(preferred_backend)
+
+    resolve_llama_server_candidates(
+        preferred_backend,
+        target,
+        runtime_root,
+        adjacent_directory.as_deref(),
+    )
+}
+
+fn resolve_llama_server_candidates(
+    preferred_backend: Option<LocalModelBackend>,
+    target: RuntimeTargetPlatform<'_>,
+    runtime_root: Option<&Path>,
+    adjacent_directory: Option<&Path>,
+) -> Vec<LlamaServerCandidate> {
+    platform_backends(preferred_backend, target)
         .into_iter()
         .map(|backend| {
-            let sidecar_backend = if cfg!(target_os = "macos") && backend == LocalModelBackend::Cpu
-            {
-                LocalModelBackend::Metal
-            } else {
-                backend
-            };
+            let sidecar_backend = target.sidecar_backend(backend);
             let executable_path = runtime_root.map_or_else(
                 || {
                     adjacent_directory
                         .as_ref()
                         .expect("adjacent runtime directory")
-                        .join(installed_sidecar_name(sidecar_backend))
+                        .join(installed_sidecar_name(sidecar_backend, target))
                 },
                 |root| {
-                    root.join(current_target_triple())
+                    root.join(target.target_triple)
                         .join(backend_slug(sidecar_backend))
-                        .join(upstream_server_name())
+                        .join(target.upstream_server_name())
                 },
             );
             LlamaServerCandidate::new(backend, executable_path)
@@ -170,32 +255,22 @@ pub fn bundled_llama_server_candidates_in(
 /// Packaging places this file under `crates/noema-desktop/binaries/` and
 /// configures `binaries/noema-llama-server-<backend>` in `externalBin`.
 #[must_use]
+#[cfg(test)]
 pub fn tauri_sidecar_input_name(backend: LocalModelBackend, target_triple: &str) -> String {
-    let extension = if target_triple.contains("windows") {
-        ".exe"
-    } else {
-        ""
-    };
+    let extension = RuntimeTargetPlatform::from_target_triple(target_triple)
+        .map_or("", RuntimeTargetPlatform::installed_sidecar_extension);
     format!(
         "{LLAMA_SERVER_SIDECAR_BASENAME}-{}-{target_triple}{extension}",
         backend_slug(backend)
     )
 }
 
-fn installed_sidecar_name(backend: LocalModelBackend) -> String {
-    let extension = if cfg!(windows) { ".exe" } else { "" };
+fn installed_sidecar_name(backend: LocalModelBackend, target: RuntimeTargetPlatform<'_>) -> String {
+    let extension = target.installed_sidecar_extension();
     format!(
         "{LLAMA_SERVER_SIDECAR_BASENAME}-{}{extension}",
         backend_slug(backend)
     )
-}
-
-const fn upstream_server_name() -> &'static str {
-    if cfg!(windows) {
-        "llama-server.exe"
-    } else {
-        "llama-server"
-    }
 }
 
 const fn current_target_triple() -> &'static str {
@@ -221,18 +296,11 @@ const fn backend_slug(backend: LocalModelBackend) -> &'static str {
     }
 }
 
-fn platform_backends(preferred: Option<LocalModelBackend>) -> Vec<LocalModelBackend> {
-    let supported: &[LocalModelBackend] = if cfg!(target_os = "macos") {
-        &[LocalModelBackend::Metal, LocalModelBackend::Cpu]
-    } else if cfg!(target_os = "windows") {
-        &[
-            LocalModelBackend::Cuda,
-            LocalModelBackend::Vulkan,
-            LocalModelBackend::Cpu,
-        ]
-    } else {
-        &[LocalModelBackend::Vulkan, LocalModelBackend::Cpu]
-    };
+fn platform_backends(
+    preferred: Option<LocalModelBackend>,
+    target: RuntimeTargetPlatform<'_>,
+) -> Vec<LocalModelBackend> {
+    let supported = target.supported_backends();
     let mut backends = Vec::with_capacity(supported.len());
     if let Some(preferred) = preferred.filter(|backend| supported.contains(backend)) {
         backends.push(preferred);
@@ -243,16 +311,6 @@ fn platform_backends(preferred: Option<LocalModelBackend>) -> Vec<LocalModelBack
         }
     }
     backends
-}
-
-const fn default_platform_backend() -> LocalModelBackend {
-    if cfg!(target_os = "macos") {
-        LocalModelBackend::Metal
-    } else if cfg!(target_os = "windows") {
-        LocalModelBackend::Cuda
-    } else {
-        LocalModelBackend::Vulkan
-    }
 }
 
 #[cfg(test)]
@@ -273,18 +331,80 @@ mod tests {
 
     #[test]
     fn packaged_runtime_candidates_use_target_and_backend_directories() {
-        let candidates = bundled_llama_server_candidates_in(
-            Some(default_platform_backend()),
+        let target = RuntimeTargetPlatform::from_target_triple(current_target_triple())
+            .expect("supported test target");
+        let candidates = resolve_llama_server_candidates(
+            Some(target.default_backend()),
+            target,
             Some(Path::new("/app/resources/binaries/runtime")),
+            None,
         );
 
         assert_eq!(
             candidates[0].executable_path,
             Path::new("/app/resources/binaries/runtime")
                 .join(current_target_triple())
-                .join(backend_slug(default_platform_backend()))
-                .join(upstream_server_name())
+                .join(backend_slug(target.default_backend()))
+                .join(target.upstream_server_name())
         );
+    }
+
+    #[test]
+    fn every_pinned_runtime_asset_resolves_for_its_injected_target_platform() {
+        use LlamaCppRuntimeAssetRole::{RuntimeLibraries, ServerBundle};
+        use LocalModelBackend::{Cpu, Cuda, Metal, Vulkan};
+
+        let expected = [
+            ("aarch64-apple-darwin", Metal, ServerBundle),
+            ("x86_64-apple-darwin", Metal, ServerBundle),
+            ("x86_64-unknown-linux-gnu", Vulkan, ServerBundle),
+            ("x86_64-unknown-linux-gnu", Cpu, ServerBundle),
+            ("x86_64-pc-windows-msvc", Cuda, ServerBundle),
+            ("x86_64-pc-windows-msvc", Cuda, RuntimeLibraries),
+            ("x86_64-pc-windows-msvc", Vulkan, ServerBundle),
+            ("x86_64-pc-windows-msvc", Cpu, ServerBundle),
+        ];
+        let actual = LLAMA_CPP_RUNTIME_ASSETS
+            .iter()
+            .map(|asset| (asset.target_triple, asset.backend, asset.role))
+            .collect::<Vec<_>>();
+        assert_eq!(actual, expected);
+
+        let runtime_root = Path::new("/app/resources/binaries/runtime");
+        for (target_triple, backend, role) in expected {
+            let target = RuntimeTargetPlatform::from_target_triple(target_triple)
+                .expect("manifest target must be supported");
+            let assets = LLAMA_CPP_RUNTIME_ASSETS
+                .iter()
+                .filter(|asset| asset.target_triple == target_triple && asset.backend == backend)
+                .collect::<Vec<_>>();
+            assert!(assets.iter().any(|asset| asset.role == role));
+
+            let candidates =
+                resolve_llama_server_candidates(Some(backend), target, Some(runtime_root), None);
+            let candidate = candidates
+                .iter()
+                .find(|candidate| candidate.backend == backend)
+                .expect("manifest backend must resolve for its target");
+            assert_eq!(
+                candidate.executable_path,
+                runtime_root
+                    .join(target_triple)
+                    .join(backend_slug(target.sidecar_backend(backend)))
+                    .join(target.upstream_server_name())
+            );
+
+            if role == RuntimeLibraries {
+                assert_eq!(target.os, RuntimeTargetOs::Windows);
+                assert_eq!(backend, Cuda);
+                let adjacent_library_directory =
+                    runtime_root.join(target_triple).join(backend_slug(backend));
+                assert_eq!(
+                    candidate.executable_path.parent(),
+                    Some(adjacent_library_directory.as_path())
+                );
+            }
+        }
     }
 
     #[test]

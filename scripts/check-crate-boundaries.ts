@@ -379,10 +379,10 @@ function validateInternalFeatureActivation(
   }
 
   if (featureKey === "noema-providers/local-model-evals") {
-    const evaluationOwner = packageNames.has("noema-runtime")
-      ? "noema-model-evals"
-      : "noema-core";
-    if (source.name !== evaluationOwner) {
+    const allowed =
+      source.name === "noema-model-evals" ||
+      (!packageNames.has("noema-runtime") && source.name === "noema-core");
+    if (!allowed) {
       errors.add(`${source.name} may not enable evaluation feature ${featureKey}`);
     }
     return;
@@ -623,19 +623,44 @@ export function validateMetadata(metadata: CargoMetadata): string[] {
         "noema-providers/local-model-evals must imply noema-providers/local-models",
       );
     }
-    const evaluationOwner = packageNames.has("noema-runtime")
-      ? "noema-model-evals"
-      : "noema-core";
-    if (
-      !directlyEnablesFeature(
-        packagesByName.get(evaluationOwner),
-        "noema-providers",
-        "local-model-evals",
-      )
-    ) {
-      errors.add(
-        `${evaluationOwner} must directly enable evaluation feature noema-providers/local-model-evals`,
-      );
+    if (packageNames.has("noema-runtime")) {
+      if (
+        !directlyEnablesFeature(
+          packagesByName.get("noema-model-evals"),
+          "noema-providers",
+          "local-model-evals",
+        )
+      ) {
+        errors.add(
+          "noema-model-evals must directly enable evaluation feature noema-providers/local-model-evals",
+        );
+      }
+    } else {
+      const core = packagesByName.get("noema-core");
+      if (
+        !core ||
+        !localFeatureForwardsDependencyFeature(
+          core,
+          "local-model-evals",
+          "noema-providers",
+          "local-model-evals",
+        )
+      ) {
+        errors.add(
+          "noema-core/local-model-evals must forward noema-providers/local-model-evals",
+        );
+      }
+      if (
+        !directlyEnablesFeature(
+          packagesByName.get("noema-model-evals"),
+          "noema-providers",
+          "local-model-evals",
+        )
+      ) {
+        errors.add(
+          "noema-model-evals must directly enable evaluation feature noema-providers/local-model-evals",
+        );
+      }
     }
   } else if (packageNames.has("noema-runtime") && providers) {
     errors.add("noema-providers must declare evaluation feature local-model-evals");

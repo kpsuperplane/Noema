@@ -17,8 +17,11 @@ pub mod capabilities;
 pub mod config;
 /// Provider generation contracts.
 pub mod generation;
-/// Durable local-model installation vocabulary.
-pub mod local_models;
+/// Durable local-model installation and control-plane vocabulary.
+pub mod local_model;
+/// First-party local GGUF provider implementation.
+#[cfg(feature = "local-models")]
+mod local_models;
 /// Provider model profile metadata.
 pub mod model_profiles;
 /// Object-safe provider generation operations.
@@ -29,7 +32,7 @@ pub mod persistence;
 pub mod registry;
 /// Structured response support shared by hosted and local provider adapters.
 #[cfg(any(feature = "adapters", feature = "local-models"))]
-pub mod response_support;
+mod response_support;
 /// Provider selection-to-instance route resolution.
 pub mod routing;
 /// Immutable provider selection provenance.
@@ -53,10 +56,10 @@ pub use accounts::{
 #[cfg(feature = "adapters")]
 pub use adapters::{
     EXA_FETCH_PROVIDER_ID, EXA_SEARCH_PROVIDER_ID, ExaFetchClient, ExaSearchClient,
-    ProviderAccountService, ProviderCredential, ProviderCredentialAccess,
+    ProviderAccountService, ProviderBootstrap, ProviderCredential, ProviderCredentialAccess,
     ProviderCredentialAccessHandle, ProviderCredentialFuture, default_web_fetch_backend,
-    default_web_search_backend, hosted_provider_from_config, summarize_markdown,
-    web_fetch_summarizer_prompt,
+    default_web_search_backend, hosted_provider_from_config, provider_bootstrap_from_config,
+    summarize_markdown, web_fetch_summarizer_prompt,
 };
 pub use capabilities::{
     ProviderCapability, ProviderCapabilityAssignment, ProviderCapabilityStatus,
@@ -85,11 +88,25 @@ pub use generation::{
     ReasoningEffort, TokenUsage, noema_response_from_text, output_items_from_text,
     required_noema_response_from_text, required_noema_response_from_text_with_native_tool_calls,
 };
-pub use local_models::{
+pub use local_model::{
     DefaultModelPreferenceRecord, LOCAL_MODELS_PROVIDER_ACCOUNT_ID, LocalModelBackend,
     LocalModelCodecError, LocalModelEventKind, LocalModelEventRecord, LocalModelInstallationRecord,
     LocalModelInstallationStatus, LocalModelInstallationUpdate, LocalModelSourceKind,
-    NewLocalModelInstallation, RemovedLocalModelInstallation,
+    NewLocalModelInstallation, RemovedLocalModelInstallation, local_model_provider_instance_key,
+};
+#[cfg(feature = "local-models")]
+pub use local_models::{
+    HuggingFaceLocalModelImport, LocalFileModelImport, LocalHardwareProfile, LocalModelBuild,
+    LocalModelCatalogEntry, LocalModelCatalogSnapshot, LocalModelCatalogSnapshotEntry,
+    LocalModelManager, LocalModelManagerConfig, LocalModelManagerError, LocalModelManagerEvent,
+    LocalModelManagerEventRecord, LocalModelManagerEventStream, LocalModelRouteHandle,
+    LocalModelRouteReadGuard, LocalModelRuntimeStatus, ManagedLocalModelStatus,
+};
+#[cfg(feature = "local-model-evals")]
+pub use local_models::{
+    LocalModelEvalError, LocalModelEvalRuntimeVersion, LocalModelEvalSession,
+    LocalModelEvalSessionConfig, MaterializeVerifiedEvalModelRequest, VerifiedEvalModelSource,
+    local_model_eval_runtime_version, materialize_verified_eval_model,
 };
 pub use model_profiles::ProviderModelProfile;
 pub use operations::{

@@ -19,8 +19,6 @@ pub mod config;
 pub mod daemon;
 /// GraphQL client API facade.
 pub mod graphql;
-/// Curated local-model catalog and hardware-fit recommendation.
-pub mod local_models;
 mod mcp_completion;
 /// Onboarding status derived from provider account readiness.
 pub mod onboarding;
@@ -41,16 +39,6 @@ pub use daemon::{
     AgentStatus, DaemonError, StartedConversation, TurnActivityStatus, TurnTranscriptItem,
 };
 pub use graphql::RequestPrincipal;
-pub use local_models::{
-    HuggingFaceLocalModelImport, LLAMA_CPP_COMMIT, LLAMA_CPP_RELEASE_TAG, LLAMA_CPP_RUNTIME_ASSETS,
-    LLAMA_SERVER_SIDECAR_BASENAME, LlamaCppRuntimeAsset, LlamaCppRuntimeAssetRole,
-    LlamaServerCandidate, LlamaServerConfig, LlamaServerEndpoint, LlamaServerError,
-    LlamaServerSupervisor, LocalFileModelImport, LocalHardwareProbeError, LocalHardwareProfile,
-    LocalModelBuild, LocalModelCatalog, LocalModelCatalogEntry, LocalModelCatalogError,
-    LocalModelInstallError, LocalModelInstaller, LocalModelRecommendation, LocalModelRuntimeStatus,
-    LocalModelsProvider, NOEMA_LLAMA_SERVER_PATH_ENV, bundled_llama_server_candidates,
-    bundled_llama_server_candidates_in, detect_local_hardware_profiles, tauri_sidecar_input_name,
-};
 pub use noema_capabilities_mcp::{McpCalibrationStatus, McpTransportKind, McpTrustClassification};
 pub use onboarding::{
     OnboardingStatus, OnboardingStep, OnboardingStepStatus, onboarding_status_from_account,

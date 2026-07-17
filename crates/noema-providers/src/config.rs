@@ -359,6 +359,37 @@ impl ProviderConfig {
             Self::LocalModels(config) => Some(config.default_model.as_str()),
         }
     }
+
+    /// Resolve process-manager settings for provider-owned local inference.
+    ///
+    /// The selected local-model configuration supplies its explicit tuning.
+    /// Other configured defaults still construct the dormant local-model
+    /// control plane with product defaults so an installed local model can be
+    /// activated later without restarting the host.
+    #[cfg(feature = "local-models")]
+    #[must_use]
+    pub fn local_model_manager_config(
+        &self,
+        packaged_runtime_root: Option<PathBuf>,
+        system_errors: SystemErrorLogger,
+    ) -> crate::LocalModelManagerConfig {
+        match self {
+            Self::LocalModels(config) => crate::LocalModelManagerConfig {
+                runtime_root: config.runtime_root.clone().or(packaged_runtime_root),
+                context_window_tokens: config.context_window_tokens,
+                timeout_seconds: config.timeout_seconds,
+                startup_timeout_seconds: config.startup_timeout_seconds,
+                system_errors: Some(system_errors),
+            },
+            _ => crate::LocalModelManagerConfig {
+                runtime_root: packaged_runtime_root,
+                context_window_tokens: DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS,
+                timeout_seconds: DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS,
+                startup_timeout_seconds: DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
+                system_errors: Some(system_errors),
+            },
+        }
+    }
 }
 
 impl fmt::Debug for ProviderConfig {

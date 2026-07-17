@@ -1,9 +1,7 @@
 use std::time::{Duration, Instant};
 
-use noema_providers::{GenerateOptions, GenerateRequest, ModelProvider};
+use noema_providers::{GenerateOptions, GenerateRequest, ProviderHandle};
 use tokio::time::sleep;
-
-use crate::LocalModelsProvider;
 
 use super::{memory::resident_bytes, runner::duration_ms, types::ModelEvalResourceProbe};
 
@@ -14,7 +12,7 @@ const POST_TURN_SETTLE: Duration = Duration::from_millis(50);
 const PROBE_INSTRUCTIONS: &str = "Reply with READY and nothing else.";
 
 pub(super) async fn run_resource_probe(
-    provider: &LocalModelsProvider,
+    provider: &ProviderHandle,
     model_id: &str,
     process_id: Option<u32>,
     context_window_tokens: u32,
@@ -86,7 +84,7 @@ pub(super) async fn run_resource_probe(
 }
 
 async fn calibrated_input(
-    provider: &LocalModelsProvider,
+    provider: &ProviderHandle,
     model_id: &str,
     target_input_tokens: u32,
 ) -> Result<String, String> {

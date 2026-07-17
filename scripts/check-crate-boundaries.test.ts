@@ -105,12 +105,31 @@ describe("crate boundary metadata policy", () => {
       metadata([
         {
           name: "noema-core",
-          features: { "local-model-evals": ["dep:sysinfo"] },
+          features: {
+            "local-model-evals": [
+              "dep:sysinfo",
+              "noema-providers/local-model-evals",
+            ],
+          },
           dependencies: [
             { name: "figment" },
             { name: "rmcp" },
             { name: "rusqlite" },
+            {
+              name: "noema-providers",
+              features: ["adapters", "local-models"],
+              usesDefaultFeatures: false,
+            },
           ],
+        },
+        {
+          name: "noema-providers",
+          features: {
+            default: [],
+            adapters: [],
+            "local-models": [],
+            "local-model-evals": ["local-models"],
+          },
         },
         {
           name: "noema-server",
@@ -129,7 +148,14 @@ describe("crate boundary metadata policy", () => {
         },
         {
           name: "noema-model-evals",
-          dependencies: [{ name: "noema-core", features: ["local-model-evals"] }],
+          dependencies: [
+            { name: "noema-core", features: ["local-model-evals"] },
+            {
+              name: "noema-providers",
+              features: ["local-model-evals"],
+              usesDefaultFeatures: false,
+            },
+          ],
         },
       ]),
     );
@@ -933,11 +959,13 @@ describe("crate boundary metadata policy", () => {
       metadata([
         {
           name: "noema-core",
-          features: { "local-model-evals": [] },
+          features: {
+            "local-model-evals": ["noema-providers/local-model-evals"],
+          },
           dependencies: [
             {
               name: "noema-providers",
-              features: ["adapters", "local-models", "local-model-evals"],
+              features: ["adapters", "local-models"],
               usesDefaultFeatures: false,
             },
           ],
@@ -955,6 +983,11 @@ describe("crate boundary metadata policy", () => {
           name: "noema-model-evals",
           dependencies: [
             { name: "noema-core", features: ["local-model-evals"] },
+            {
+              name: "noema-providers",
+              features: ["local-model-evals"],
+              usesDefaultFeatures: false,
+            },
           ],
         },
       ]),
@@ -965,16 +998,18 @@ describe("crate boundary metadata policy", () => {
     );
   });
 
-  test("allows the temporary core-owned provider evaluation feature", () => {
+  test("allows transitional core forwarding alongside the eval owner", () => {
     const errors = validateMetadata(
       metadata([
         {
           name: "noema-core",
-          features: { "local-model-evals": [] },
+          features: {
+            "local-model-evals": ["noema-providers/local-model-evals"],
+          },
           dependencies: [
             {
               name: "noema-providers",
-              features: ["adapters", "local-models", "local-model-evals"],
+              features: ["adapters", "local-models"],
               usesDefaultFeatures: false,
             },
           ],
@@ -992,6 +1027,11 @@ describe("crate boundary metadata policy", () => {
           name: "noema-model-evals",
           dependencies: [
             { name: "noema-core", features: ["local-model-evals"] },
+            {
+              name: "noema-providers",
+              features: ["local-model-evals"],
+              usesDefaultFeatures: false,
+            },
           ],
         },
       ]),

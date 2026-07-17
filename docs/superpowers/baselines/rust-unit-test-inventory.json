@@ -1024,6 +1024,10 @@
     "uncalibrated_mcp_tool_call_returns_disabled_server_result": [
       "uncalibrated_mcp_tool_call_is_rejected_as_unadvertised_and_continues",
       "unavailable_capability_remains_unadvertised_and_denied"
+    ],
+    "verified_import_replaces_corrupt_existing_content_addressed_blob": [
+      "verified_import_preserves_a_corrupt_shared_blob_and_fails_closed",
+      "verified_import_repairs_an_unreferenced_corrupt_blob"
     ]
   }
 }

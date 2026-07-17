@@ -1,11 +1,9 @@
 use async_graphql::{Context, Object, Result, Schema, Subscription};
 use futures_util::Stream;
+#[cfg(test)]
 use noema_home::NoemaPaths;
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex, PoisonError},
-};
-use tokio_util::sync::CancellationToken;
+#[cfg(test)]
+use std::sync::{Arc, Mutex};
 
 use super::{
     ConversationSubscriptionRegistry, GraphqlRuntimeState, TaskLiveEvent,
@@ -71,7 +69,6 @@ pub type GraphqlSchema = Schema<QueryRoot, MutationRoot, SubscriptionRoot>;
 #[derive(Clone)]
 pub struct GraphqlState {
     runtime_state: GraphqlRuntimeState,
-    local_model_cancellations: Arc<Mutex<HashMap<String, CancellationToken>>>,
 }
 
 impl GraphqlState {
@@ -80,7 +77,6 @@ impl GraphqlState {
     pub fn for_tests() -> Self {
         Self {
             runtime_state: GraphqlRuntimeState::for_tests(),
-            local_model_cancellations: Arc::default(),
         }
     }
 
@@ -90,7 +86,6 @@ impl GraphqlState {
     pub fn for_tests_with_store(store: noema_store::NoemaStore) -> Self {
         Self {
             runtime_state: GraphqlRuntimeState::for_tests_with_store(store),
-            local_model_cancellations: Arc::default(),
         }
     }
 
@@ -103,7 +98,6 @@ impl GraphqlState {
     ) -> Self {
         Self {
             runtime_state: GraphqlRuntimeState::for_tests_with_store_and_paths(store, paths),
-            local_model_cancellations: Arc::default(),
         }
     }
 
@@ -117,7 +111,6 @@ impl GraphqlState {
             runtime_state: GraphqlRuntimeState::for_tests_with_provider_account_operations(
                 provider_account_operations,
             ),
-            local_model_cancellations: Arc::default(),
         }
     }
 
@@ -130,7 +123,6 @@ impl GraphqlState {
     ) -> Self {
         Self {
             runtime_state: GraphqlRuntimeState::for_tests_with_store_and_runtime(store, runtime),
-            local_model_cancellations: Arc::default(),
         }
     }
 
@@ -158,62 +150,29 @@ impl GraphqlState {
         self
     }
 
+    /// Attach explicit local-model control-plane operations to existing test state.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn with_local_model_manager(
+        mut self,
+        local_model_manager: noema_providers::LocalModelManager,
+    ) -> Self {
+        self.runtime_state = self
+            .runtime_state
+            .with_local_model_manager(local_model_manager);
+        self
+    }
+
     /// Build state backed by the shared Noema runtime host.
     #[must_use]
     pub fn from_runtime_host(host: &crate::NoemaRuntimeHost) -> Self {
         Self {
             runtime_state: GraphqlRuntimeState::from_host(host),
-            local_model_cancellations: Arc::default(),
         }
     }
 
     pub(crate) fn runtime(&self) -> Result<&crate::daemon::CodexRuntimeHandle> {
         self.runtime_state.runtime()
-    }
-
-    pub(crate) fn try_retain_local_model_cancellation(
-        &self,
-        installation_id: String,
-        cancellation: CancellationToken,
-    ) -> bool {
-        let mut operations = self
-            .local_model_cancellations
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        if operations.contains_key(&installation_id) {
-            return false;
-        }
-        operations.insert(installation_id, cancellation);
-        true
-    }
-
-    #[must_use]
-    pub(crate) fn has_local_model_operation(&self, installation_id: &str) -> bool {
-        self.local_model_cancellations
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .contains_key(installation_id)
-    }
-
-    #[must_use]
-    pub(crate) fn cancel_local_model_operation(&self, installation_id: &str) -> bool {
-        let cancellation = self
-            .local_model_cancellations
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(installation_id)
-            .cloned();
-        cancellation.is_some_and(|cancellation| {
-            cancellation.cancel();
-            true
-        })
-    }
-
-    pub(crate) fn release_local_model_cancellation(&self, installation_id: &str) {
-        self.local_model_cancellations
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .remove(installation_id);
     }
 
     pub(crate) fn store(&self) -> Result<&noema_store::NoemaStore> {
@@ -243,8 +202,8 @@ impl GraphqlState {
         self.runtime_state.mcp_operations()
     }
 
-    pub(crate) fn paths(&self) -> Result<&NoemaPaths> {
-        self.runtime_state.paths()
+    pub(crate) fn local_model_manager(&self) -> Result<&noema_providers::LocalModelManager> {
+        self.runtime_state.local_model_manager()
     }
 
     pub(crate) fn memory_repository(&self) -> Result<&noema_memory::MemoryRepositoryHandle> {
@@ -305,7 +264,8 @@ impl QueryRoot {
         &self,
         _ctx: &Context<'_>,
     ) -> Result<Vec<GraphqlLocalModelCatalogEntry>> {
-        local_models::local_model_catalog().await
+        let state = _ctx.data_unchecked::<GraphqlState>();
+        local_models::local_model_catalog(state).await
     }
 
     /// List durable local-model installations and transfer state.

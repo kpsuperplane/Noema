@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use noema_providers::LocalModelBackend;
+use crate::LocalModelBackend;
 use serde::Deserialize;
 use thiserror::Error;
 
@@ -130,6 +130,7 @@ impl LocalModelCatalog {
 
     /// Recommends the highest-priority model fitting one backend profile.
     #[must_use]
+    #[cfg(test)]
     pub fn recommend(
         &self,
         hardware: LocalHardwareProfile,

@@ -21,7 +21,7 @@ use tokio::{
 };
 use url::Url;
 
-use noema_providers::{GenerationPriority, LocalModelBackend};
+use crate::{GenerationPriority, LocalModelBackend};
 
 use super::hardware::detect_ram_gb;
 use generation_arbiter::{GenerationArbiter, GenerationPermit};
@@ -56,13 +56,6 @@ impl LlamaServerCandidate {
             executable_path: executable_path.into(),
             extra_args: Vec::new(),
         }
-    }
-
-    /// Adds backend-specific arguments to the candidate.
-    #[must_use]
-    pub fn with_extra_args(mut self, extra_args: impl IntoIterator<Item = String>) -> Self {
-        self.extra_args.extend(extra_args);
-        self
     }
 }
 
@@ -281,6 +274,7 @@ impl LlamaServerSupervisor {
 
     /// Returns the active llama-server process id when the runtime is ready.
     #[must_use]
+    #[cfg(feature = "local-model-evals")]
     pub fn process_id(&self) -> Option<u32> {
         let state = self.inner.state.try_lock().ok()?;
         state.running.as_ref()?.child.id()
@@ -360,6 +354,8 @@ impl LlamaServerSupervisor {
     ///
     /// Returns [`LlamaServerError::Unavailable`] when all retry candidates fail,
     /// or [`LlamaServerError::GenerationGateClosed`] after permanent shutdown.
+    #[cfg(any(test, feature = "local-model-evals"))]
+    #[cfg(test)]
     pub async fn retry(&self) -> Result<LlamaServerEndpoint, LlamaServerError> {
         if self.inner.generation_arbiter.is_closed() {
             return Err(LlamaServerError::GenerationGateClosed);

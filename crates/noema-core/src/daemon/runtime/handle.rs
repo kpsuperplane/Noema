@@ -1,44 +1,32 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
-use crate::LocalModelsProvider;
 use noema_home::SystemErrorLogger;
 #[cfg(test)]
 use noema_providers::ProviderError;
 use noema_providers::{
     CodexProviderConfig, DEFAULT_FOUNDATION_LOCAL_PROFILE, FoundationLocalProviderConfig,
-    GenerateRequest, GenerateResponse, LocalModelsProviderConfig, ProviderConfig,
-    ProviderCredentialAccessHandle, ProviderHandle, ProviderKind, ProviderSelectionSnapshot,
-    erase_model_provider, hosted_provider_from_config,
+    GenerateRequest, GenerateResponse, ProviderConfig, ProviderCredentialAccessHandle,
+    ProviderHandle, ProviderSelectionSnapshot, hosted_provider_from_config,
+    provider_bootstrap_from_config,
 };
 #[cfg(test)]
 use noema_store::NoemaStore;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
-use super::{
-    CodexRuntimeSpawnConfig, TaskCompletionDeliveryRequest, actor::CodexRuntimeActor,
-    provider_routes::LegacyProviderRoutes,
-};
+#[cfg(test)]
+use super::provider_routes::LegacyProviderRoutes;
+use super::{CodexRuntimeSpawnConfig, TaskCompletionDeliveryRequest, actor::CodexRuntimeActor};
 use crate::daemon::protocol::{DaemonError, StartedConversation, TurnStreamEvent};
 
-mod local_models;
-
 pub(crate) type RuntimeProviderMap = HashMap<String, ProviderHandle>;
-type ConfiguredRuntimeProvider = (String, ProviderHandle, Option<crate::LlamaServerSupervisor>);
-type ConfiguredRuntimeProviderMap = (
-    String,
-    RuntimeProviderMap,
-    Option<crate::LlamaServerSupervisor>,
-);
+type ConfiguredRuntimeProviderMap = (String, Option<String>, RuntimeProviderMap);
 
 #[derive(Debug, Clone)]
 pub(crate) struct CodexRuntimeHandle {
     sender: mpsc::Sender<CodexRuntimeCommand>,
     cancellation: Arc<RuntimeCancellation>,
     default_provider_kind: String,
-    provider_routes: LegacyProviderRoutes,
-    local_models_runtime: Arc<tokio::sync::RwLock<Option<crate::LlamaServerSupervisor>>>,
-    local_models_runtime_root: Arc<tokio::sync::RwLock<Option<PathBuf>>>,
 }
 
 #[derive(Debug)]
@@ -56,13 +44,17 @@ impl CodexRuntimeHandle {
         system_errors: SystemErrorLogger,
         provider_credentials: ProviderCredentialAccessHandle,
     ) -> Result<ConfiguredRuntimeProviderMap, DaemonError> {
-        let (default_provider_kind, default_provider, local_models_runtime) = provider_from_config(
+        let bootstrap = provider_bootstrap_from_config(
             provider_config,
-            system_errors.clone(),
             provider_credentials.clone(),
+            system_errors.clone(),
         )?;
+        let default_provider_kind = bootstrap.default_provider_kind().to_string();
+        let default_model_profile = bootstrap.default_model_profile().map(str::to_string);
         let mut providers = HashMap::new();
-        providers.insert(default_provider_kind.clone(), default_provider);
+        if let Some((provider_kind, provider)) = bootstrap.into_hosted_provider() {
+            providers.insert(provider_kind, provider);
+        }
         if !providers.contains_key("codex") {
             let (provider_kind, provider) = hosted_provider_from_config(
                 ProviderConfig::Codex(CodexProviderConfig::default()),
@@ -79,7 +71,7 @@ impl CodexRuntimeHandle {
             )?;
             providers.insert(provider_kind, provider);
         }
-        Ok((default_provider_kind, providers, local_models_runtime))
+        Ok((default_provider_kind, default_model_profile, providers))
     }
 
     #[cfg(test)]
@@ -114,15 +106,11 @@ impl CodexRuntimeHandle {
         let actor = CodexRuntimeActor::from_spawn_config(config).await?;
         let cancellation = Arc::new(RuntimeCancellation(actor.tasks.cancellation_token()));
         let default_provider_kind = actor.default_provider_kind.clone();
-        let provider_routes = actor.provider_routes.clone();
         tokio::spawn(actor.run(receiver));
         Ok(Self {
             sender,
             cancellation,
             default_provider_kind,
-            provider_routes,
-            local_models_runtime: Arc::new(tokio::sync::RwLock::new(None)),
-            local_models_runtime_root: Arc::new(tokio::sync::RwLock::new(None)),
         })
     }
 
@@ -200,15 +188,11 @@ impl CodexRuntimeHandle {
         )
         .await?;
         let cancellation = Arc::new(RuntimeCancellation(actor.tasks.cancellation_token()));
-        let provider_routes = actor.provider_routes.clone();
         tokio::spawn(actor.run(receiver));
         Ok(Self {
             sender,
             cancellation,
             default_provider_kind: provider_kind,
-            provider_routes,
-            local_models_runtime: Arc::new(tokio::sync::RwLock::new(None)),
-            local_models_runtime_root: Arc::new(tokio::sync::RwLock::new(None)),
         })
     }
 
@@ -239,15 +223,11 @@ impl CodexRuntimeHandle {
         )
         .await?;
         let cancellation = Arc::new(RuntimeCancellation(actor.tasks.cancellation_token()));
-        let provider_routes = actor.provider_routes.clone();
         tokio::spawn(actor.run(receiver));
         Ok(Self {
             sender,
             cancellation,
             default_provider_kind: provider_kind,
-            provider_routes,
-            local_models_runtime: Arc::new(tokio::sync::RwLock::new(None)),
-            local_models_runtime_root: Arc::new(tokio::sync::RwLock::new(None)),
         })
     }
 
@@ -497,32 +477,6 @@ impl CodexRuntimeHandle {
             .send(CodexRuntimeCommand::Shutdown { reply })
             .await;
         let _ = reply_rx.await;
-        if let Some(runtime) = self.local_models_runtime.write().await.take() {
-            runtime.shutdown().await;
-        }
-    }
-}
-
-fn provider_from_config(
-    provider_config: ProviderConfig,
-    system_errors: SystemErrorLogger,
-    provider_credentials: ProviderCredentialAccessHandle,
-) -> Result<ConfiguredRuntimeProvider, DaemonError> {
-    match provider_config {
-        ProviderConfig::LocalModels(config) => {
-            let provider = LocalModelsProvider::new(local_models_config(config, system_errors))?;
-            let runtime = provider.runtime().clone();
-            Ok((
-                ProviderKind::LocalModels.as_str().to_string(),
-                erase_model_provider(provider),
-                Some(runtime),
-            ))
-        }
-        hosted => {
-            let (provider_kind, provider) =
-                hosted_provider_from_config(hosted, provider_credentials, system_errors)?;
-            Ok((provider_kind, provider, None))
-        }
     }
 }
 
@@ -532,14 +486,6 @@ fn default_foundation_local_config() -> FoundationLocalProviderConfig {
         bridge_path: None,
         system_errors: None,
     }
-}
-
-fn local_models_config(
-    mut config: LocalModelsProviderConfig,
-    system_errors: SystemErrorLogger,
-) -> LocalModelsProviderConfig {
-    config.system_errors = Some(system_errors);
-    config
 }
 
 #[cfg(test)]
