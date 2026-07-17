@@ -2,6 +2,9 @@
 
 /// Shared execution roles and role-aware tool dispatch policy.
 pub mod agent_execution;
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub mod contract_test_support;
 mod daemon;
 #[cfg(feature = "eval-support")]
 pub mod eval_support;

@@ -1,0 +1,12 @@
+{
+  "name": "@noema/desktop",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:no-bundle": "tauri build --no-bundle",
+    "test:runtime-mapper": "bun test scripts/prepare-local-runtime.test.ts"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.4"
+  }
+}

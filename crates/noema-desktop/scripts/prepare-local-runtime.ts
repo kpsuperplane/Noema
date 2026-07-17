@@ -12,18 +12,33 @@ import {
 } from "node:fs";
 import { basename, join, resolve } from "node:path";
 
-type Backend = "metal" | "cuda" | "vulkan" | "cpu";
-type RuntimeAsset = {
+export type Backend = "metal" | "cuda" | "vulkan" | "cpu";
+export type RuntimeAsset = {
   target_triple: string;
   backend: Backend;
   archive_name: string;
   sha256: string;
   role: "server_bundle" | "runtime_libraries";
 };
-type RuntimeManifest = {
+export type RuntimeManifest = {
   release_tag: string;
   commit: string;
   assets: RuntimeAsset[];
+};
+
+export type RuntimePreparationStep = {
+  asset: RuntimeAsset;
+  destinationBackend: Backend;
+};
+
+export type RuntimePreparationPlan = {
+  targetTriple: string;
+  serverName: string;
+  steps: RuntimePreparationStep[];
+};
+
+export type PrepareLocalRuntimeOptions = {
+  targetTriple?: string;
 };
 
 const desktopRoot = resolve(import.meta.dir, "..");
@@ -36,15 +51,15 @@ const runtimeRoot = resolve(desktopRoot, "binaries/runtime");
 const cacheRoot = resolve(workspaceRoot, "target/noema-local-runtime-cache");
 const releaseBaseUrl = "https://github.com/ggml-org/llama.cpp/releases/download";
 
-export async function prepareLocalRuntime() {
+export async function prepareLocalRuntime(options: PrepareLocalRuntimeOptions = {}) {
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as RuntimeManifest;
-  const targetTriple = requestedTargetTriple();
-  const assets = manifest.assets.filter((asset) => asset.target_triple === targetTriple);
-  if (assets.length === 0) {
-    throw new Error(`No pinned llama.cpp runtime is available for ${targetTriple}.`);
-  }
+  const plan = runtimePreparationPlan(
+    manifest,
+    options.targetTriple ?? requestedTargetTriple()
+  );
+  const assets = plan.steps.map(({ asset }) => asset);
 
-  const targetRoot = join(runtimeRoot, targetTriple);
+  const targetRoot = join(runtimeRoot, plan.targetTriple);
   const expectedStamp = JSON.stringify(
     { release_tag: manifest.release_tag, commit: manifest.commit, assets },
     null,
@@ -54,19 +69,20 @@ export async function prepareLocalRuntime() {
   if (
     existsSync(stampPath) &&
     readFileSync(stampPath, "utf8") === expectedStamp &&
-    serverBundlesExist(targetRoot, assets)
+    runtimePlanIsPrepared(targetRoot, plan)
   ) {
     return;
   }
 
   mkdirSync(runtimeRoot, { recursive: true });
   mkdirSync(cacheRoot, { recursive: true });
-  const temporaryTarget = join(runtimeRoot, `.${targetTriple}.tmp-${process.pid}`);
+  const temporaryTarget = join(runtimeRoot, `.${plan.targetTriple}.tmp-${process.pid}`);
   rmSync(temporaryTarget, { recursive: true, force: true });
   mkdirSync(temporaryTarget, { recursive: true });
 
   try {
-    for (const [index, asset] of assets.entries()) {
+    for (const [index, step] of plan.steps.entries()) {
+      const { asset } = step;
       const archivePath = await verifiedArchive(manifest.release_tag, asset);
       const extractRoot = join(cacheRoot, `extract-${process.pid}-${index}`);
       rmSync(extractRoot, { recursive: true, force: true });
@@ -79,14 +95,14 @@ export async function prepareLocalRuntime() {
         if (extraction.exitCode !== 0) {
           throw new Error(`Could not extract ${asset.archive_name}.`);
         }
-        copyRuntimeFiles(extractRoot, join(temporaryTarget, asset.backend));
+        stageRuntimeAsset(extractRoot, temporaryTarget, step, plan.serverName);
       } finally {
         rmSync(extractRoot, { recursive: true, force: true });
       }
     }
 
-    if (!serverBundlesExist(temporaryTarget, assets)) {
-      throw new Error(`Pinned llama.cpp archives did not contain every required llama-server.`);
+    if (!runtimePlanIsPrepared(temporaryTarget, plan)) {
+      throw new Error(`Pinned llama.cpp archives did not contain every required runtime file.`);
     }
     writeFileSync(join(temporaryTarget, ".manifest.json"), expectedStamp);
     rmSync(targetRoot, { recursive: true, force: true });
@@ -95,6 +111,24 @@ export async function prepareLocalRuntime() {
     rmSync(temporaryTarget, { recursive: true, force: true });
     throw error;
   }
+}
+
+export function runtimePreparationPlan(
+  manifest: RuntimeManifest,
+  targetTriple: string
+): RuntimePreparationPlan {
+  const assets = manifest.assets.filter((asset) => asset.target_triple === targetTriple);
+  if (assets.length === 0) {
+    throw new Error(`No pinned llama.cpp runtime is available for ${targetTriple}.`);
+  }
+  return {
+    targetTriple,
+    serverName: serverNameForTarget(targetTriple),
+    steps: assets.map((asset) => ({
+      asset,
+      destinationBackend: asset.backend
+    }))
+  };
 }
 
 async function verifiedArchive(releaseTag: string, asset: RuntimeAsset) {
@@ -121,19 +155,48 @@ function hashFile(path: string) {
   return new Bun.CryptoHasher("sha256").update(readFileSync(path)).digest("hex");
 }
 
-function copyRuntimeFiles(sourceRoot: string, destinationRoot: string) {
+export function copyRuntimeFiles(
+  sourceRoot: string,
+  destinationRoot: string,
+  serverName: string
+) {
   mkdirSync(destinationRoot, { recursive: true });
+  const copiedFiles: string[] = [];
   for (const source of recursiveFiles(sourceRoot)) {
     const name = basename(source);
-    if (!isRuntimeFile(name)) {
+    if (!isRuntimeFile(name, serverName)) {
       continue;
     }
     const destination = join(destinationRoot, name);
     copyFileSync(source, destination);
-    if (name === serverName()) {
+    copiedFiles.push(name);
+    if (name.toLowerCase() === serverName.toLowerCase()) {
       chmodSync(destination, 0o755);
     }
   }
+  return copiedFiles;
+}
+
+export function stageRuntimeAsset(
+  sourceRoot: string,
+  targetRoot: string,
+  step: RuntimePreparationStep,
+  serverName: string
+) {
+  const backendRoot = join(targetRoot, step.destinationBackend);
+  const files = copyRuntimeFiles(sourceRoot, backendRoot, serverName);
+  writeFileSync(
+    join(backendRoot, assetStampName(step.asset)),
+    JSON.stringify(
+      {
+        archive_name: step.asset.archive_name,
+        sha256: step.asset.sha256,
+        files
+      },
+      null,
+      2
+    )
+  );
 }
 
 function recursiveFiles(root: string): string[] {
@@ -149,10 +212,10 @@ function recursiveFiles(root: string): string[] {
   return files;
 }
 
-function isRuntimeFile(name: string) {
+function isRuntimeFile(name: string, serverName: string) {
   const lower = name.toLowerCase();
   return (
-    lower === serverName() ||
+    lower === serverName.toLowerCase() ||
     lower === "license" ||
     lower.endsWith(".dll") ||
     lower.endsWith(".dylib") ||
@@ -160,15 +223,50 @@ function isRuntimeFile(name: string) {
   );
 }
 
-function serverBundlesExist(targetRoot: string, assets: RuntimeAsset[]) {
-  const backends = new Set(
-    assets.filter((asset) => asset.role === "server_bundle").map((asset) => asset.backend)
-  );
-  return [...backends].every((backend) => existsSync(join(targetRoot, backend, serverName())));
+export function runtimePlanIsPrepared(targetRoot: string, plan: RuntimePreparationPlan) {
+  return plan.steps.every((step) => {
+    const backendRoot = join(targetRoot, step.destinationBackend);
+    const stampPath = join(backendRoot, assetStampName(step.asset));
+    if (!existsSync(stampPath)) {
+      return false;
+    }
+    try {
+      const stamp = JSON.parse(readFileSync(stampPath, "utf8")) as {
+        archive_name?: string;
+        sha256?: string;
+        files?: string[];
+      };
+      if (
+        stamp.archive_name !== step.asset.archive_name ||
+        stamp.sha256 !== step.asset.sha256 ||
+        !Array.isArray(stamp.files) ||
+        !stamp.files.every(
+          (file) => basename(file) === file && existsSync(join(backendRoot, file))
+        )
+      ) {
+        return false;
+      }
+      if (step.asset.role === "server_bundle") {
+        return stamp.files.includes(plan.serverName);
+      }
+      return stamp.files.some(isRuntimeLibraryFile);
+    } catch {
+      return false;
+    }
+  });
 }
 
-function serverName() {
-  return process.platform === "win32" ? "llama-server.exe" : "llama-server";
+function assetStampName(asset: RuntimeAsset) {
+  return `.asset-${asset.sha256}.json`;
+}
+
+function isRuntimeLibraryFile(name: string) {
+  const lower = name.toLowerCase();
+  return lower.endsWith(".dll") || lower.endsWith(".dylib") || lower.includes(".so");
+}
+
+function serverNameForTarget(targetTriple: string) {
+  return targetTriple.includes("-windows-") ? "llama-server.exe" : "llama-server";
 }
 
 function requestedTargetTriple() {

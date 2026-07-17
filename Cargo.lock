@@ -2685,6 +2685,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "noema-api"
+version = "0.1.0"
+dependencies = [
+ "async-graphql",
+ "async-stream",
+ "base64 0.22.1",
+ "chrono",
+ "futures-util",
+ "noema-artifacts",
+ "noema-capabilities",
+ "noema-capabilities-mcp",
+ "noema-conversations",
+ "noema-host",
+ "noema-memory",
+ "noema-providers",
+ "noema-runtime",
+ "noema-store",
+ "noema-tasks",
+ "ring",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "tokio-util",
+ "ts-rs",
+]
+
+[[package]]
 name = "noema-artifacts"
 version = "0.1.0"
 dependencies = [
@@ -2746,34 +2776,6 @@ dependencies = [
 [[package]]
 name = "noema-core"
 version = "0.1.0"
-dependencies = [
- "async-graphql",
- "async-stream",
- "base64 0.22.1",
- "chrono",
- "futures-util",
- "http",
- "noema-artifacts",
- "noema-capabilities",
- "noema-capabilities-mcp",
- "noema-conversations",
- "noema-home",
- "noema-host",
- "noema-memory",
- "noema-providers",
- "noema-runtime",
- "noema-store",
- "noema-tasks",
- "ring",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "time",
- "tokio",
- "tokio-util",
- "ts-rs",
-]
 
 [[package]]
 name = "noema-desktop"
@@ -2781,7 +2783,7 @@ version = "0.1.0"
 dependencies = [
  "async-graphql",
  "futures-util",
- "noema-core",
+ "noema-api",
  "noema-host",
  "open",
  "serde",
@@ -2916,8 +2918,8 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "futures-util",
+ "noema-api",
  "noema-artifacts",
- "noema-core",
  "noema-host",
  "reqwest",
  "ring",

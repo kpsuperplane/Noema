@@ -2,7 +2,7 @@
 
 use std::{collections::HashMap, path::PathBuf};
 
-use noema_core::graphql::{self, GraphqlSchema};
+use noema_api::graphql::{self, GraphqlSchema};
 use noema_host::{
     NoemaHost, RuntimeHostError, start_from_process_env_with_local_model_runtime_root,
 };

@@ -7,7 +7,7 @@
     "beforeDevCommand": "bun run scripts/desktop.ts dev",
     "beforeBuildCommand": "bun run scripts/desktop.ts build",
     "devUrl": "http://127.0.0.1:5173",
-    "frontendDist": "../noema-core/web/dist-tauri"
+    "frontendDist": "../../apps/web/dist-tauri"
   },
   "app": {
     "windows": [

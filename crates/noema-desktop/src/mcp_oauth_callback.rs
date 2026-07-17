@@ -1,6 +1,6 @@
 //! Local loopback callback server for desktop MCP OAuth setup.
 
-use noema_core::graphql::GraphqlState;
+use noema_api::graphql::GraphqlState;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -75,7 +75,7 @@ async fn handle_connection(
     };
     let callback_url = request.callback_url();
     let result =
-        noema_core::graphql::complete_mcp_server_oauth_setup(&state, &attempt_id, &callback_url)
+        noema_api::graphql::complete_mcp_server_oauth_setup(&state, &attempt_id, &callback_url)
             .await;
     match result {
         Ok(attempt) if attempt.status == "completed" => {

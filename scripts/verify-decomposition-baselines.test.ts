@@ -80,7 +80,7 @@ describe("decomposition preservation baselines", () => {
         {},
       );
       expect(options.artifactPaths?.graphqlSdl).toMatch(
-        /crates\/noema-core\/web\/src\/generated\/schema\.graphql$/,
+        /apps\/web\/src\/generated\/schema\.graphql$/,
       );
       expect(options.artifactPaths?.localModelCatalog).toMatch(
         /crates\/noema-providers\/resources\/local-models\/catalog\.toml$/,

@@ -66,7 +66,7 @@ async fn main() {
 
 async fn run() -> Result<(), DevError> {
     let repo_root = repo_root();
-    let web_dir = repo_root.join("crates/noema-core/web");
+    let web_dir = repo_root.join("apps/web");
 
     generate_graphql_schema(&repo_root)?;
     let mnemosyne_sidecar_command = mnemosyne::ensure_dev_sidecar(&repo_root).await?;
@@ -193,7 +193,7 @@ fn dev_rust_target_dir(repo_root: &Path) -> PathBuf {
 
 fn web_server_watch_ignore_globs() -> [&'static str; 3] {
     [
-        "crates/noema-core/web/**",
+        "apps/web/**",
         "crates/noema-memory/mnemosyne-sidecar/**",
         "crates/noema-server/target/web-assets/**",
     ]
@@ -238,7 +238,7 @@ fn foundation_bridge_watch_args(package_dir: &Path) -> Vec<String> {
 }
 
 fn graphql_schema_output_path(repo_root: &Path) -> PathBuf {
-    repo_root.join("crates/noema-core/web/src/generated/schema.graphql")
+    repo_root.join("apps/web/src/generated/schema.graphql")
 }
 
 fn generate_graphql_schema(repo_root: &Path) -> Result<(), DevError> {
@@ -247,8 +247,7 @@ fn generate_graphql_schema(repo_root: &Path) -> Result<(), DevError> {
         std::fs::create_dir_all(parent).map_err(|source| DevError::GenerateSchema { source })?;
     }
 
-    let schema = noema_core::graphql::build_schema(noema_core::graphql::GraphqlState::for_tests());
-    std::fs::write(&output_path, schema.sdl())
+    std::fs::write(&output_path, noema_api::graphql::schema_sdl())
         .map_err(|source| DevError::GenerateSchema { source })?;
     eprintln!("wrote {}", output_path.display());
     Ok(())
@@ -378,7 +377,7 @@ fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
-        .expect("noema-core lives under crates/noema-core")
+        .expect("noema-server lives under crates/noema-server")
         .to_path_buf()
 }
 
@@ -408,7 +407,7 @@ mod tests {
         assert_eq!(
             web_server_watch_ignore_globs(),
             [
-                "crates/noema-core/web/**",
+                "apps/web/**",
                 "crates/noema-memory/mnemosyne-sidecar/**",
                 "crates/noema-server/target/web-assets/**",
             ]
@@ -427,7 +426,7 @@ mod tests {
     fn graphql_schema_output_path_targets_web_generated_dir() {
         assert_eq!(
             graphql_schema_output_path(Path::new("/workspace")),
-            PathBuf::from("/workspace/crates/noema-core/web/src/generated/schema.graphql")
+            PathBuf::from("/workspace/apps/web/src/generated/schema.graphql")
         );
     }
 

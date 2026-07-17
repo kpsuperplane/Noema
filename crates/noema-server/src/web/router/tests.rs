@@ -16,7 +16,7 @@ use super::*;
 
 const TEST_AUTHORITY: &str = "127.0.0.1:3737";
 
-fn web_state(graphql_state: noema_core::graphql::GraphqlState) -> WebState {
+fn web_state(graphql_state: noema_api::graphql::GraphqlState) -> WebState {
     WebState::new(
         graphql_state,
         authority::CanonicalAuthority::from_socket_addr(
@@ -28,12 +28,12 @@ fn web_state(graphql_state: noema_core::graphql::GraphqlState) -> WebState {
 }
 
 fn test_router() -> Router {
-    build_router(web_state(noema_core::graphql::GraphqlState::for_tests()))
+    build_router(web_state(noema_api::graphql::GraphqlState::for_tests()))
 }
 
 fn test_router_without_auth() -> Router {
     build_router(WebState::new(
-        noema_core::graphql::GraphqlState::for_tests(),
+        noema_api::graphql::GraphqlState::for_tests(),
         authority::CanonicalAuthority::from_socket_addr(
             TEST_AUTHORITY.parse().expect("test authority"),
         ),
@@ -242,7 +242,7 @@ async fn authenticated_http_and_websocket_ignore_client_identity_metadata() {
     let address = listener.local_addr().expect("test server address");
     let authority = authority::CanonicalAuthority::from_socket_addr(address);
     let state = WebState::new(
-        noema_core::graphql::GraphqlState::for_tests(),
+        noema_api::graphql::GraphqlState::for_tests(),
         authority,
         session::SessionSecurity::for_tests("ws-test-capability"),
         WebAuthMode::Required,
@@ -534,7 +534,7 @@ async fn artifact_download_rejects_missing_session() {
 
 #[tokio::test]
 async fn artifact_download_adapter_sanitizes_response_headers() {
-    let response = artifact_download_response(noema_core::graphql::AuthorizedArtifactDownload {
+    let response = artifact_download_response(noema_api::graphql::AuthorizedArtifactDownload {
         filename: "report\"\r\nx-injected: yes.md".to_owned(),
         media_type: "text/markdown\r\nx-injected: yes".to_owned(),
         bytes: b"report".to_vec(),

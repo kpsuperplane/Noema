@@ -29,7 +29,7 @@ and StyleX for Noema-specific layout and state styling.
 
 ## Addressable Route Matrix
 
-Routes describe states implemented by `crates/noema-core/web/src/app/routes.ts`
+Routes describe states implemented by `apps/web/src/app/routes.ts`
 and TanStack Router file routes. Unknown browser paths fall back to the chat
 home route. They do not imply primary navigation priority.
 

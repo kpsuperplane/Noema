@@ -128,12 +128,12 @@ async fn graphql_ws(
 }
 
 fn with_request_principal(request: async_graphql::Request) -> async_graphql::Request {
-    request.data(noema_core::graphql::RequestPrincipal::local())
+    request.data(noema_api::RequestPrincipal::local())
 }
 
 fn request_principal_data() -> Data {
     let mut data = Data::default();
-    data.insert(noema_core::graphql::RequestPrincipal::local());
+    data.insert(noema_api::RequestPrincipal::local());
     data
 }
 
@@ -180,7 +180,7 @@ async fn mcp_oauth_callback(State(state): State<WebState>, RawQuery(query): RawQ
     };
     let callback_url = oauth_callback_url(state.authority(), &query);
 
-    match noema_core::graphql::complete_mcp_server_oauth_setup(
+    match noema_api::graphql::complete_mcp_server_oauth_setup(
         state.graphql_state(),
         &attempt_id,
         &callback_url,
@@ -246,10 +246,10 @@ async fn download_artifact_id(
 
 async fn download_artifact(
     state: &WebState,
-    principal: &noema_core::graphql::RequestPrincipal,
+    principal: &noema_api::RequestPrincipal,
     artifact_version_id: &str,
 ) -> Response {
-    let download = match noema_core::graphql::authorized_artifact_download(
+    let download = match noema_api::graphql::authorized_artifact_download(
         state.graphql_state(),
         principal,
         artifact_version_id,
@@ -264,7 +264,7 @@ async fn download_artifact(
 }
 
 fn artifact_download_response(
-    download: noema_core::graphql::AuthorizedArtifactDownload,
+    download: noema_api::graphql::AuthorizedArtifactDownload,
 ) -> Response {
     let content_type = safe_header_value(&download.media_type);
     let content_disposition =

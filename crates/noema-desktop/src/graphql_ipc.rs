@@ -40,7 +40,7 @@ pub async fn graphql_execute(
         .map_err(|_| "Noema lost connection to its local app service.".to_string())?;
     let schema = state.schema().await?;
     let response: Response = schema
-        .execute(request.data(noema_core::RequestPrincipal::local()))
+        .execute(request.data(noema_api::RequestPrincipal::local()))
         .await;
     serde_json::to_value(response)
         .map_err(|_| "Noema lost connection to its local app service.".to_string())
@@ -61,7 +61,7 @@ pub async fn graphql_subscribe(
     require_main_window_label(window.label())?;
     let request: Request = serde_json::from_value(request_json)
         .map_err(|_| "Noema lost connection to its local app service.".to_string())?;
-    let request = request.data(noema_core::RequestPrincipal::local());
+    let request = request.data(noema_api::RequestPrincipal::local());
     let schema = state.schema().await?;
     let (generation_tx, generation_rx) = oneshot::channel();
     let event_id = subscription_id.clone();

@@ -177,9 +177,9 @@ tasks, approvals, runs, or reviews that a user needs an attention surface.
 
 The current repository implements only a narrow slice:
 
-- `NoemaRuntimeHost` initializes the Noema directory, opens embedded SurrealDB,
+- `noema-host` initializes the Noema directory, opens the SQLite-backed store,
   and owns the local runtime used by web and desktop surfaces.
-- The React web shell in `crates/noema-core/web` uses GraphQL queries,
+- The React web shell in `apps/web` uses GraphQL queries,
   mutations, and subscriptions for chat, memory, settings, and MCP setup.
 - The Tauri desktop app in `crates/noema-desktop` hosts the same React UI and
   talks to the runtime through Tauri IPC/events rather than a local HTTP server.
@@ -191,8 +191,8 @@ The current repository implements only a narrow slice:
   owner/admin memory and graph read models for frontend inspection surfaces.
 - Runtime transcript events already carry activity notices and an `A2uiCard`
   placeholder for future structured UI cards.
-- The first implemented frontend shell is the core-hosted React chat in
-  `crates/noema-core/web`, built and linted with Bun.
+- The first implemented frontend shell is the shared React chat app in
+  `apps/web`, built and linted with Bun.
 
 The frontend plan intentionally includes target surfaces that are not fully
 backed by current Rust tables yet. Those surfaces should be staged and revealed

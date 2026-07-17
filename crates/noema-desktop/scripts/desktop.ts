@@ -8,7 +8,7 @@ if (mode !== "build" && mode !== "dev") {
 }
 
 await prepareLocalRuntime();
-const webRoot = resolve(import.meta.dir, "../../noema-core/web");
+const webRoot = resolve(import.meta.dir, "../../../apps/web");
 const frontend = Bun.spawn(["bun", "run", mode === "build" ? "build:tauri" : "dev:tauri"], {
   cwd: webRoot,
   stdin: "inherit",

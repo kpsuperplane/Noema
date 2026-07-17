@@ -24,7 +24,7 @@ pub async fn run_daemon_web(host: NoemaHost) -> Result<(), WebServerError> {
         WebServerError::Protocol("failed to generate the browser bootstrap capability".to_string())
     })?;
     let auth_mode = web::WebAuthMode::from_build();
-    let graphql_state = noema_core::graphql::GraphqlState::from_host_services(host.services());
+    let graphql_state = noema_api::graphql::GraphqlState::from_host_services(host.services());
     let web_state = WebState::new(
         graphql_state,
         authority.clone(),

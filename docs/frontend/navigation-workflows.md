@@ -626,7 +626,7 @@ tombstoned or deleted data without explicit conflict approval.
 ## Current Route Support Matrix
 
 Routes may exist before they are primary navigation. This table tracks routes
-implemented by `crates/noema-core/web/src/routes.ts`; unknown paths fall back to
+implemented by `apps/web/src/app/routes.ts`; unknown paths fall back to
 the chat home route. The route contract is about addressability and backing,
 not what the first shell emphasizes.
 

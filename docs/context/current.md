@@ -513,8 +513,13 @@ The next storage slice should stay small and concrete:
   cursor-based visible item windows, and the frontend renders loaded transcript
   rows through TanStack Virtual while keeping live updates on
   `conversationEvents`.
-- Frontend build and lint use Bun from `crates/noema-core/web`.
+- The React product UI lives independently of the Rust crates at `apps/web`;
+  its production build writes the release assets owned by `noema-server`, while
+  the desktop build writes its separate Tauri asset tree.
+- Frontend build and lint use Bun from `apps/web`.
 - Web GraphQL schema and operation types are generated with `bun run gen:types`.
+  The schema command invokes the `noema-api` exporter with an explicit output
+  path under `apps/web`; the API crate never owns or infers a frontend tree.
   TanStack Router file routes are generated with `bun run gen:routes`, and the
   normal dev/build/lint scripts run both generators before Vite or TypeScript.
 - The web UI uses Astryx as its component foundation, with a Noema-owned
@@ -523,7 +528,7 @@ The next storage slice should stay small and concrete:
   provenance, approvals, tools, runs, settings, and object detail semantics.
   shadcn/Base UI/Tailwind are no longer part of the frontend foundation.
 - Production frontend changes should translate relevant brand intent into the
-  active Astryx/StyleX patterns in `crates/noema-core/web` rather than copying
+  active Astryx/StyleX patterns in `apps/web` rather than copying
   design-kit demo components or CDN assumptions. (The former `design/` prototype
   kit and `mocks/` static IA prototype have been removed as dead scaffolding.)
 - The route-derived L0 to L1 Settings navigation has landed from
@@ -648,7 +653,7 @@ The next storage slice should stay small and concrete:
   Mnemosyne owns durable memory behavior. Provider-neutral contracts, account
   metadata, response support, and concrete hosted adapters now live in
   `noema-providers`; core's former `provider` module has been retired.
-- `crates/noema-core/web/tests` has been removed; web validation should use
+- `apps/web/tests` has been removed; web validation should use
   `bun run lint`, `bun run build`, and local browser smoke checks.
 - Agent memory reads are explicit `search_memory` tool-only calls. Noema
   validates arguments, maps trusted active scopes to Mnemosyne user/run filters
@@ -1043,8 +1048,7 @@ The next storage slice should stay small and concrete:
   before waiting, closing the setup race without changing cursor semantics.
   GraphQL SDL is byte-identical, the normalized test inventory is preserved,
   and focused replay, live invalidation, overflow, strict Clippy, and core tests
-  are green. Task query/subscription cursor handoff remains explicit Phase 13
-  API/client work.
+  are green. Phase 13 completed the task query/subscription cursor handoff.
   Decomposition Checkpoint 11C is complete. `noema-runtime` now owns the
   transport-neutral foreground/background execution kernel, prompts, context
   and compaction, capability dispatch, transcript persistence, task workers,
@@ -1076,8 +1080,25 @@ The next storage slice should stay small and concrete:
   unchanged when their runtime is degraded. Isolated tests exercise both
   first-run entrypoints and preserve the exact default YAML bytes. The full
   Rust workspace, strict Clippy, 50 host tests, provider/memory feature slices,
-  policy scripts, and normalized test inventory are green. Phase 13 is next:
-  extract GraphQL into `noema-api` and relocate the web application.
+  policy scripts, and normalized test inventory are green.
+  Decomposition Phase 13 is complete. `noema-api` now owns the transport-neutral
+  GraphQL schema, authorization, replay, subscriptions, API models, and an
+  explicit-output SDL exporter; it has no direct home, Axum, Tauri, session,
+  static-asset, or concrete composition edge. Test-only state is
+  feature-gated, while the exporter and development supervisor share the
+  API-owned `schema_sdl` surface. Server and desktop consume the same schema and
+  principal contract, while HTTP sessions, authority checks, OAuth transport,
+  and artifact response construction remain server-owned. The React app now
+  lives at `apps/web` as `@noema/web`; generation, CI, Vite, Tauri, active docs,
+  and baseline tooling all use the new path. Task subscriptions resume from a
+  shared durable cursor or zero. Every API production and test Rust file is
+  below 750 lines. Desktop runtime preparation is target-injected and covered
+  across every pinned target/backend/asset role, including Windows CUDA
+  `cudart`; the desktop owns a locked Tauri CLI 2.11.4 command, and its real
+  `build --no-bundle` gate passed. SDL/generated artifacts, schema baselines,
+  normalized unit-test ownership, frontend tests/builds, release server assets,
+  full workspace tests, and strict Clippy are green. Phase 14 is next: remove
+  the empty transitional `noema-core` package and every physical remnant.
 
 - The bounded remediation program completed Phase 2 at `92,157` maintained
   source lines (`-1,767` from its baseline). Axum/tower-sessions now own the
@@ -1169,7 +1190,7 @@ cargo test --workspace --no-fail-fast
 
 For frontend or UI work:
 
-- Run `bun run gen:types`, `bun run lint`, and `bun run build` in `crates/noema-core/web`.
+- Run `bun run gen:types`, `bun run lint`, and `bun run build` in `apps/web`.
 - Do not add frontend unit tests or browser automation unless explicitly requested.
 
 Before commit/push:

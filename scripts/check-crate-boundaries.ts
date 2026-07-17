@@ -144,9 +144,9 @@ const KNOWN_INTERNAL_FEATURES = new Map<string, ReadonlySet<string>>([
   ["noema-capabilities-mcp", new Set(["transport"])],
   ["noema-memory", new Set(["service"])],
   ["noema-store", new Set(["test-support"])],
-  ["noema-runtime", new Set(["eval-support"])],
+  ["noema-runtime", new Set(["eval-support", "test-support"])],
   ["noema-host", new Set(["composition"])],
-  ["noema-api", new Set()],
+  ["noema-api", new Set(["test-support"])],
   ["noema-server", new Set(["dev-no-auth"])],
   ["noema-desktop", new Set()],
   ["noema-model-evals", new Set()],
@@ -392,6 +392,22 @@ function validateInternalFeatureActivation(
     if (source.name !== "noema-model-evals") {
       errors.add(`${source.name} may not enable evaluation feature ${featureKey}`);
     }
+    return;
+  }
+
+  if (
+    featureKey === "noema-runtime/test-support" &&
+    dependency.kind !== "dev"
+  ) {
+    errors.add(`${source.name} enables noema-runtime/test-support outside dev-dependencies`);
+    return;
+  }
+
+  if (
+    featureKey === "noema-api/test-support" &&
+    dependency.kind !== "dev"
+  ) {
+    errors.add(`${source.name} enables noema-api/test-support outside dev-dependencies`);
     return;
   }
 

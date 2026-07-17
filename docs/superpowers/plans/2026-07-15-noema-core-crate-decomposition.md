@@ -2368,45 +2368,45 @@ or API behavior.
 
 **Steps:**
 
-- [ ] Move `RequestPrincipal`, schema/state construction, queries, mutations,
+- [x] Move `RequestPrincipal`, schema/state construction, queries, mutations,
   subscriptions, replay, settings surfaces, and artifact authorization.
-- [ ] Remove `NoemaPaths`, `SystemErrorLogger`, and `GraphqlState::paths` from
+- [x] Remove `NoemaPaths`, `SystemErrorLogger`, and `GraphqlState::paths` from
   GraphQL state before moving it. Provider secret/account/catalog operations
   use `ProviderAccountService`; MCP setup/secrets/transports use
   `McpControlPlane`; artifact read/diagnostic operations use
   `ArtifactOperationsHandle`; onboarding/auth uses host's
   `OnboardingService`; local models use `LocalModelManager`.
-- [ ] Keep resolvers thin: they may use store read models, runtime commands,
+- [x] Keep resolvers thin: they may use store read models, runtime commands,
   provider/auth services, and host state, but never raw SQLite connections.
-- [ ] Route-affecting settings mutations call the dedicated transactional store
+- [x] Route-affecting settings mutations call the dedicated transactional store
   APIs hardened in Phase 10 and do not mutate `ProviderRegistryHandle`.
   Resolvers return the committed record; runtime/memory/task/audit/web consumers
   re-read that canonical selection when their next independent chain begins.
-- [ ] Keep HTTP session, Host/Origin, and download response construction in
+- [x] Keep HTTP session, Host/Origin, and download response construction in
   `noema-server`.
-- [ ] Expose a transport-neutral authorized artifact-download descriptor from
+- [x] Expose a transport-neutral authorized artifact-download descriptor from
   API/host services so server can build the HTTP response without a direct
   store dependency.
-- [ ] Update server and desktop to import `noema-api` directly.
-- [ ] Update desktop IPC to inject `noema_api::RequestPrincipal`.
-- [ ] Move API tests and preserve their test-only host/state constructors.
-- [ ] Move local-model resolvers as thin adapters over
+- [x] Update server and desktop to import `noema-api` directly.
+- [x] Update desktop IPC to inject `noema_api::RequestPrincipal`.
+- [x] Move API tests and preserve their test-only host/state constructors.
+- [x] Move local-model resolvers as thin adapters over
   `LocalModelManager`; no installation worker, cancellation token, supervisor,
   activation transaction, retry loop, or event merge state remains in API.
-- [ ] Finish subscription cursor handoff without changing the GraphQL SDL:
+- [x] Finish subscription cursor handoff without changing the GraphQL SDL:
   conversation `SubscriptionReadyEvent` already triggers client transcript
   resynchronization after operation registration and broadcast lag; make task
   query-plus-subscription consumers resume from a durable cursor (or zero)
   instead of `after: null`.
-- [ ] Split the schema and domain resolver hotspots according to the
+- [x] Split the schema and domain resolver hotspots according to the
   source-file split gate.
-- [ ] Make the exporter require `--output <path>` (resolved from the caller's
+- [x] Make the exporter require `--output <path>` (resolved from the caller's
   working directory) or emit SDL on stdout; it must never derive a frontend
   destination from `CARGO_MANIFEST_DIR`. Add a temp-directory test for the
   explicit output contract and reject a missing destination when not using
   stdout.
-- [ ] Generate SDL and compare it byte-for-byte with the Phase 0 baseline.
-- [ ] Update the still-current `crates/noema-core/web/package.json`
+- [x] Generate SDL and compare it byte-for-byte with the Phase 0 baseline.
+- [x] Update the still-current `crates/noema-core/web/package.json`
   `gen:schema` command to invoke the new `noema-api` exporter with
   `--output src/generated/schema.graphql` in this same integration window. From
   that directory the manifest path is `../../noema-api/Cargo.toml`. Make
@@ -2427,42 +2427,42 @@ or API behavior.
 
 ### Checkpoint 13B — Move `apps/web` And Update Product Surfaces
 
-- [ ] Move `crates/noema-core/web` to `apps/web` without changing frontend
+- [x] Move `crates/noema-core/web` to `apps/web` without changing frontend
   source structure or design.
-- [ ] Rename the package identity from `@noema/core-web` to `@noema/web` and
+- [x] Rename the package identity from `@noema/core-web` to `@noema/web` and
   update the lockfile; no active package name should imply core ownership.
-- [ ] Preserve the already-updated `noema-api` schema-generation command after
+- [x] Preserve the already-updated `noema-api` schema-generation command after
   the directory move, changing its manifest path to
   `../../crates/noema-api/Cargo.toml` while retaining
   `--output src/generated/schema.graphql`.
-- [ ] Change `apps/web/vite.config.ts` production output to
+- [x] Change `apps/web/vite.config.ts` production output to
   `../../crates/noema-server/target/web-assets`. Inspect
   `noema-server/build.rs`; its package-relative `target/web-assets` input is
   expected to remain unchanged unless inspection proves otherwise.
-- [ ] Update `noema_dev` web watcher and GraphQL schema output paths and their
+- [x] Update `noema_dev` web watcher and GraphQL schema output paths and their
   unit-test expectations; verify the already-relocated Mnemosyne and Swift
   paths remain correct.
-- [ ] Update Tauri `frontendDist` to `../../apps/web/dist-tauri`, desktop
+- [x] Update Tauri `frontendDist` to `../../apps/web/dist-tauri`, desktop
   scripts, and resource-preparation paths.
-- [ ] Update CI working directories and generated-file checks.
-- [ ] Add `bun run test` to the frontend package/CI gate. Make
+- [x] Update CI working directories and generated-file checks.
+- [x] Add `bun run test` to the frontend package/CI gate. Make
   `check:generated` first assert that `src/generated/schema.graphql` exists and
   was produced by the explicit-output command, then fail on modified, deleted,
   or untracked output anywhere under `src/generated` or for
   `src/routeTree.gen.ts`; assert no stray
   `crates/noema-api/web` output directory exists.
-- [ ] Update active frontend docs and `docs/context/current.md`; do not rewrite
+- [x] Update active frontend docs and `docs/context/current.md`; do not rewrite
   historical completed plans solely to replace old paths.
-- [ ] Run frontend generation, `check:generated`, scoped unit tests, lint,
+- [x] Run frontend generation, `check:generated`, scoped unit tests, lint,
   normal build, and Tauri frontend build plus server/desktop unit tests.
-- [ ] Build release server assets with `cargo build -p noema-server --release`;
+- [x] Build release server assets with `cargo build -p noema-server --release`;
   this verifies the Vite manifest is found and embedded from the real output.
-- [ ] Refactor the desktop preparation mapper to accept an injected target and
+- [x] Refactor the desktop preparation mapper to accept an injected target and
   add no-network tests over every manifest target/backend/asset-role
   combination beneath synthetic packaged roots, especially Windows CUDA plus
   `cudart`. Run the provider and desktop mapper tests in the macOS, Windows, and
   Linux CI matrix; keep host detection as a thin production wrapper.
-- [ ] Establish one reproducible Tauri v2 CLI invocation for the repository,
+- [x] Establish one reproducible Tauri v2 CLI invocation for the repository,
   then run its host-platform `build --no-bundle` command from
   `crates/noema-desktop`. Let Tauri execute the configured
   `beforeBuildCommand`, which already performs runtime preparation and the

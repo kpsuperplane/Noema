@@ -80,7 +80,7 @@ function targetFeatures(name: string): Record<string, string[]> {
     case "noema-store":
       return { default: [], "test-support": [] };
     case "noema-runtime":
-      return { default: [], "eval-support": [] };
+      return { default: [], "eval-support": [], "test-support": [] };
     case "noema-host":
       return {
         default: [],
@@ -92,6 +92,8 @@ function targetFeatures(name: string): Record<string, string[]> {
           "noema-memory/service",
         ],
       };
+    case "noema-api":
+      return { default: [], "test-support": [] };
     case "noema-server":
       return { "dev-no-auth": [] };
     default:
@@ -786,6 +788,80 @@ describe("crate boundary metadata policy", () => {
       ]),
     );
     expect(valid).toEqual([]);
+  });
+
+  test("reserves runtime test support for dev dependencies", () => {
+    const runtime = {
+      name: "noema-runtime",
+      features: { default: [], "eval-support": [], "test-support": [] },
+    };
+    const dependency = {
+      name: "noema-runtime",
+      features: ["test-support"],
+      usesDefaultFeatures: false,
+    };
+
+    const errors = validateMetadata(
+      metadata([
+        { name: "noema-core" },
+        runtime,
+        { name: "noema-api", dependencies: [dependency] },
+      ]),
+    );
+    expect(errors).toContain(
+      "noema-api enables noema-runtime/test-support outside dev-dependencies",
+    );
+
+    const valid = validateMetadata(
+      metadata([
+        { name: "noema-core" },
+        runtime,
+        {
+          name: "noema-api",
+          dependencies: [{ ...dependency, kind: "dev" }],
+        },
+      ]),
+    );
+    expect(valid).not.toContain(
+      "noema-api enables noema-runtime/test-support outside dev-dependencies",
+    );
+  });
+
+  test("reserves API test support for dev dependencies", () => {
+    const api = {
+      name: "noema-api",
+      features: { default: [], "test-support": [] },
+    };
+    const dependency = {
+      name: "noema-api",
+      features: ["test-support"],
+      usesDefaultFeatures: false,
+    };
+
+    const errors = validateMetadata(
+      metadata([
+        { name: "noema-core" },
+        api,
+        { name: "noema-server", dependencies: [dependency] },
+      ]),
+    );
+    expect(errors).toContain(
+      "noema-server enables noema-api/test-support outside dev-dependencies",
+    );
+
+    const valid = validateMetadata(
+      metadata([
+        { name: "noema-core" },
+        api,
+        {
+          name: "noema-server",
+          dependencies: [{ ...dependency, kind: "dev" }],
+        },
+      ]),
+    );
+    expect(valid).not.toContain(
+      "noema-server enables noema-api/test-support outside dev-dependencies",
+    );
   });
 
   test("does not require provider local models before that milestone is declared", () => {

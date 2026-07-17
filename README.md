@@ -11,7 +11,7 @@ This repository currently contains the active Rust product paths:
   embedded web assets, and standalone web development entrypoints.
 - `noema-desktop`: a macOS Tauri app that starts the Noema runtime host inside
   the desktop process and talks to it through Tauri IPC/events.
-- `crates/noema-core/web`: the React product UI used by the web and desktop
+- `apps/web`: the React product UI used by the web and desktop
   surfaces.
 
 The old multi-command Noema CLI surface has been removed. For standalone local
@@ -142,7 +142,7 @@ Frontend assets are built with Bun. The web build is emitted under
 `noema-server`, which validates and embeds those assets in release builds:
 
 ```bash
-cd crates/noema-core/web
+cd apps/web
 bun install --frozen-lockfile
 bun run check:generated
 bun run lint
@@ -170,23 +170,25 @@ For frontend development against the desktop app, run the Tauri-oriented Vite
 build/watch task:
 
 ```bash
-cd crates/noema-core/web
+cd apps/web
 bun run dev:tauri
 ```
 
-For an unsigned macOS desktop bundle, install frontend dependencies exactly
-from the lockfile and run the Tauri build from the desktop crate. Tauri's build
-hook creates the desktop frontend assets:
+For a local desktop build without installer bundles, install frontend and
+desktop CLI dependencies exactly from their lockfiles. Tauri's build hook
+creates the desktop frontend assets:
 
 ```bash
-cd crates/noema-core/web
+cd apps/web
+bun install --frozen-lockfile
+cd ../../crates/noema-desktop
 bun install --frozen-lockfile
 ```
 
 Then, from the repository root:
 
 ```bash
-cd crates/noema-desktop && cargo tauri build
+cd crates/noema-desktop && bun run build:no-bundle
 ```
 
 The current desktop bundle is developer-only, not a clean-machine
@@ -207,7 +209,7 @@ cargo test -p noema-desktop
 
 ```text
 crates/noema-core/       Rust runtime, store, providers, and GraphQL
-crates/noema-core/web/   React UI and GraphQL operation generation
+apps/web/                React UI and GraphQL operation generation
 crates/noema-server/     Loopback HTTP transport and release web-asset owner
 crates/noema-desktop/    Tauri desktop app
 docs/                    Current design notes and historical plans/specs

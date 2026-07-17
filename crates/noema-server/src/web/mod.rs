@@ -36,8 +36,8 @@ impl WebAuthMode {
 
 #[derive(Clone)]
 pub(crate) struct WebState {
-    graphql_state: noema_core::graphql::GraphqlState,
-    graphql_schema: noema_core::graphql::GraphqlSchema,
+    graphql_state: noema_api::graphql::GraphqlState,
+    graphql_schema: noema_api::graphql::GraphqlSchema,
     authority: authority::CanonicalAuthority,
     sessions: session::SessionSecurity,
     auth_mode: WebAuthMode,
@@ -46,12 +46,12 @@ pub(crate) struct WebState {
 impl WebState {
     #[must_use]
     pub(super) fn new(
-        graphql_state: noema_core::graphql::GraphqlState,
+        graphql_state: noema_api::graphql::GraphqlState,
         authority: authority::CanonicalAuthority,
         sessions: session::SessionSecurity,
         auth_mode: WebAuthMode,
     ) -> Self {
-        let graphql_schema = noema_core::graphql::build_schema(graphql_state.clone());
+        let graphql_schema = noema_api::graphql::build_schema(graphql_state.clone());
         Self {
             graphql_state,
             graphql_schema,
@@ -61,10 +61,10 @@ impl WebState {
         }
     }
 
-    pub(crate) fn graphql_state(&self) -> &noema_core::graphql::GraphqlState {
+    pub(crate) fn graphql_state(&self) -> &noema_api::graphql::GraphqlState {
         &self.graphql_state
     }
-    pub(crate) fn graphql_schema(&self) -> &noema_core::graphql::GraphqlSchema {
+    pub(crate) fn graphql_schema(&self) -> &noema_api::graphql::GraphqlSchema {
         &self.graphql_schema
     }
     fn authority(&self) -> &authority::CanonicalAuthority {

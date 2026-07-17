@@ -246,26 +246,17 @@ export function parseCliOptions(
       graphqlSdl: firstExisting(
         argumentValue(args, "--graphql-sdl") ??
           env.NOEMA_DECOMPOSITION_GRAPHQL_SDL,
-        [
-          "apps/web/src/generated/schema.graphql",
-          "crates/noema-core/web/src/generated/schema.graphql",
-        ],
+        ["apps/web/src/generated/schema.graphql"],
       ),
       graphqlTypes: firstExisting(
         argumentValue(args, "--graphql-types") ??
           env.NOEMA_DECOMPOSITION_GRAPHQL_TYPES,
-        [
-          "apps/web/src/generated/graphql.ts",
-          "crates/noema-core/web/src/generated/graphql.ts",
-        ],
+        ["apps/web/src/generated/graphql.ts"],
       ),
       routeTree: firstExisting(
         argumentValue(args, "--route-tree") ??
           env.NOEMA_DECOMPOSITION_ROUTE_TREE,
-        [
-          "apps/web/src/routeTree.gen.ts",
-          "crates/noema-core/web/src/routeTree.gen.ts",
-        ],
+        ["apps/web/src/routeTree.gen.ts"],
       ),
       localModelCatalog: firstExisting(
         argumentValue(args, "--local-model-catalog") ??
