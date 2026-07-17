@@ -975,9 +975,20 @@ The next storage slice should stay small and concrete:
   warm core-only baseline where store edits could not be isolated. The full
   Rust workspace, strict Clippy, frontend generation/tests/lint/builds,
   dependency policies, preservation baselines, and normalized test inventory
-  are green. Decomposition Phase 10 is next: harden the pre-v1 schema handshake,
-  move local-model lifecycle ownership into `noema-providers`, persist exact
-  provider-instance routing and retirement, and close the evaluation surface.
+  are green. Decomposition Checkpoint 10A completed at `b4a82310c`.
+  Store startup now inspects the complete SQLite schema and marker set before
+  any writable pragma, bootstraps only an empty database in one transaction,
+  and returns typed incompatibility for legacy, future, partial, unknown, or
+  unreadable files without mutating rejected database families. WAL and hot
+  rollback-journal crash state is recovered only in a private inspection copy;
+  the original family is opened for recovery only after its recovered schema
+  is accepted. The effective Phase 9 schema hash remains unchanged, while the
+  bootstrap-text hash deliberately records the marker-last/pragmas split.
+  Compatibility repair is deleted, 22 schema tests and the full Rust workspace
+  are green, and adversarial review found no remaining Critical or Important
+  issue. Checkpoint 10B is next: move local-model lifecycle ownership into
+  `noema-providers` and establish multi-instance process retention without
+  changing the schema.
 
 - The bounded remediation program completed Phase 2 at `92,157` maintained
   source lines (`-1,767` from its baseline). Axum/tower-sessions now own the

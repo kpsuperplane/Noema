@@ -1785,19 +1785,19 @@ without creating another Cargo package or model-call facade.
 
 ### Checkpoint 10A — Harden The Current Schema Boundary Before Rewriting It
 
-- [ ] Against the unchanged Phase 9 schema, replace the unconditional
+- [x] Against the unchanged Phase 9 schema, replace the unconditional
   `CREATE TABLE IF NOT EXISTS` plus `schema_state` upsert with a strict schema
   handshake that runs before bootstrap SQL. An empty database creates the
   complete Phase 9 schema transactionally and records its version only after
   success; an exact Phase 9 database opens idempotently. Older, future, unknown,
   or partially matching schemas return typed `IncompatibleSchema` without
   altering tables, marker state, or file contents.
-- [ ] Delete `schema_upgrade.rs`, remove its startup invocation, and delete its
+- [x] Delete `schema_upgrade.rs`, remove its startup invocation, and delete its
   compatibility-rebuild tests. This project does not retain an implicit
   migration path: fixtures that previously triggered task/runtime table repair
   now fail the handshake non-mutatingly and require an explicit fresh path or
   separately confirmed destructive reset.
-- [ ] Separate connection-local/runtime pragmas from transactional schema DDL so
+- [x] Separate connection-local/runtime pragmas from transactional schema DDL so
   the empty-database bootstrap is actually atomic. Test empty/current/old/
   partial/future fixtures and byte-level non-mutation on rejection.
 
