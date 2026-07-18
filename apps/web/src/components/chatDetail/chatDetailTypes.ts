@@ -17,5 +17,3 @@ export function taskDetailTarget(taskId: string | null | undefined): ChatDetailT
   const trimmed = taskId?.trim();
   return trimmed ? { type: "task", taskId: trimmed } : null;
 }
-
-export type { TaskDetail } from "./task/taskTypes";

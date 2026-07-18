@@ -9,6 +9,7 @@ export type SettingsSection =
 
 export type AppRoute =
   | { kind: "chat" }
+  | { kind: "work" }
   | { kind: "memory" }
   | { kind: "settings"; section: SettingsSection };
 
@@ -16,6 +17,7 @@ export type NonSettingsAppRoute = Exclude<AppRoute, { kind: "settings" }>;
 
 export type AppPath =
   | "/"
+  | "/work"
   | "/memory"
   | "/settings/agents"
   | "/settings/models"
@@ -26,6 +28,9 @@ export type AppPath =
   | "/settings/system/providers";
 
 export function routeFromPathname(pathname: string): AppRoute {
+  if (pathname === "/work" || pathname.startsWith("/work/")) {
+    return { kind: "work" };
+  }
   if (pathname === "/memory") {
     return { kind: "memory" };
   }
@@ -54,6 +59,9 @@ export function routeFromPathname(pathname: string): AppRoute {
 }
 
 export function pathForRoute(route: AppRoute): AppPath {
+  if (route.kind === "work") {
+    return "/work";
+  }
   if (route.kind === "memory") {
     return "/memory";
   }

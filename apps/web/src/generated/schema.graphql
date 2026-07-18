@@ -17,6 +17,28 @@ type A2UiCard {
 }
 
 """
+Accept an approved task result.
+"""
+input AcceptTaskInput {
+	"""
+	Task target.
+	"""
+	taskId: String!
+	"""
+	Expected current revision.
+	"""
+	expectedRevision: Int!
+	"""
+	Expected execution generation.
+	"""
+	expectedGeneration: Int!
+	"""
+	Caller idempotency key.
+	"""
+	clientMutationId: String!
+}
+
+"""
 Activity transcript item.
 """
 type Activity {
@@ -200,6 +222,72 @@ type AgentStatusEvent {
 	Current agent status.
 	"""
 	status: AgentStatus!
+}
+
+"""
+Resolve a human gate.
+"""
+input AnswerTaskInput {
+	"""
+	Task target.
+	"""
+	taskId: String!
+	"""
+	Current open gate.
+	"""
+	gateId: String!
+	"""
+	Expected current revision.
+	"""
+	expectedRevision: Int!
+	"""
+	Expected execution generation.
+	"""
+	expectedGeneration: Int!
+	"""
+	Human answer Markdown.
+	"""
+	answerMarkdown: String!
+	"""
+	Required for Approval gates.
+	"""
+	approvalDecision: ApprovalDecision
+	"""
+	Caller idempotency key.
+	"""
+	clientMutationId: String!
+}
+
+"""
+Structured approval decision for an Approval gate.
+"""
+enum ApprovalDecision {
+	"""
+	Explicitly approve the gated action.
+	"""
+	APPROVED
+	"""
+	Explicitly decline the gated action.
+	"""
+	DECLINED
+}
+
+"""
+Project archive input.
+"""
+input ArchiveProjectInput {
+	"""
+	Project target.
+	"""
+	projectId: String!
+	"""
+	Expected project revision.
+	"""
+	expectedRevision: Int!
+	"""
+	Caller idempotency key.
+	"""
+	clientMutationId: String!
 }
 
 """
@@ -458,12 +546,64 @@ type AutofillToolCalibrationsResult {
 	suggestions: [ToolCalibrationSuggestion!]!
 }
 
+"""
+Cancel a task.
+"""
+input CancelTaskInput {
+	"""
+	Task target.
+	"""
+	taskId: String!
+	"""
+	Expected current revision.
+	"""
+	expectedRevision: Int!
+	"""
+	Expected execution generation.
+	"""
+	expectedGeneration: Int!
+	"""
+	Optional safe cancellation reason.
+	"""
+	reason: String
+	"""
+	Caller idempotency key.
+	"""
+	clientMutationId: String!
+}
+
 type CapabilityFeatures {
 	citations: Boolean!
 	directUrlFetch: Boolean!
 	jsRendering: Boolean!
 	authenticatedContext: Boolean!
 	resultPersistence: String!
+}
+
+"""
+Capture a task in Inbox.
+"""
+input CaptureTaskInput {
+	"""
+	Workspace target.
+	"""
+	workspaceId: String!
+	"""
+	Optional project association.
+	"""
+	projectId: String
+	"""
+	Concise title.
+	"""
+	title: String!
+	"""
+	Fuller capture description.
+	"""
+	description: String! = ""
+	"""
+	Caller idempotency key.
+	"""
+	clientMutationId: String!
 }
 
 """
@@ -663,12 +803,76 @@ input CreateMcpServerInput {
 }
 
 """
+New project input.
+"""
+input CreateProjectInput {
+	"""
+	Workspace owning the project.
+	"""
+	workspaceId: String!
+	"""
+	Nonblank project name.
+	"""
+	name: String!
+	"""
+	Descriptive project text.
+	"""
+	description: String! = ""
+	"""
+	Caller idempotency key.
+	"""
+	clientMutationId: String!
+}
+
+"""
 Input for creating a provider account.
 """
 input CreateProviderAccountInput {
 	providerKind: String!
 	displayName: String
 	secret: String!
+}
+
+"""
+Current run projection, intentionally separate from task stage.
+"""
+type CurrentRunSummary {
+	"""
+	Run identity.
+	"""
+	runId: String!
+	"""
+	Planner, Executor, or Reviewer.
+	"""
+	kind: TaskRunKind!
+	"""
+	Run-local queue/lease status.
+	"""
+	status: TaskRunStatus!
+	"""
+	Lineage attempt.
+	"""
+	attemptIndex: Int!
+	"""
+	Contract identity, absent for Planner.
+	"""
+	contractId: String
+	"""
+	Queue timestamp.
+	"""
+	queuedAt: String!
+	"""
+	Start timestamp.
+	"""
+	startedAt: String
+	"""
+	Last update timestamp.
+	"""
+	updatedAt: String!
+	"""
+	Safe activity label.
+	"""
+	activityLabel: String!
 }
 
 """
@@ -1827,19 +2031,63 @@ type MutationRoot {
 	"""
 	retryLocalModelRuntime: LocalModelRuntimeStatus!
 	"""
-	Continue one failed or human-blocked task from its durable context.
+	Create a project through the semantic Work command service.
 	"""
-	resumeTask(taskId: String!, message: String): TaskDetail!
+	createProject(input: CreateProjectInput!): ProjectCommandPayload!
 	"""
-	Cancel one owner-authorized queued, active, or blocked task.
+	Update a project through the semantic Work command service.
 	"""
-	cancelTask(taskId: String!): TaskDetail!
+	updateProject(input: UpdateProjectInput!): ProjectCommandPayload!
+	"""
+	Archive a project through the semantic Work command service.
+	"""
+	archiveProject(input: ArchiveProjectInput!): ProjectCommandPayload!
+	"""
+	Reopen a project through the semantic Work command service.
+	"""
+	reopenProject(input: ReopenProjectInput!): ProjectCommandPayload!
+	"""
+	Capture a task in Inbox through the semantic Work command service.
+	"""
+	captureTask(input: CaptureTaskInput!): TaskCommandPayload!
+	"""
+	Edit Inbox capture fields through the semantic Work command service.
+	"""
+	updateInboxTask(input: UpdateInboxTaskInput!): TaskCommandPayload!
+	"""
+	Queue an Inbox task through the semantic Work command service.
+	"""
+	queueTask(input: QueueTaskInput!): TaskCommandPayload!
+	"""
+	Resolve a clarification, approval, or recovery gate.
+	"""
+	answerTask(input: AnswerTaskInput!): TaskCommandPayload!
+	"""
+	Retry an eligible recovery gate.
+	"""
+	retryTask(input: RetryTaskInput!): TaskCommandPayload!
+	"""
+	Accept a reviewer-approved task result.
+	"""
+	acceptTask(input: AcceptTaskInput!): TaskCommandPayload!
+	"""
+	Request changes to an approved result.
+	"""
+	requestTaskChanges(input: RequestTaskChangesInput!): TaskCommandPayload!
+	"""
+	Cancel a nonterminal task.
+	"""
+	cancelTask(input: CancelTaskInput!): TaskCommandPayload!
+	"""
+	Reopen terminal task history into Inbox.
+	"""
+	reopenTask(input: ReopenTaskInput!): TaskCommandPayload!
 	"""
 	Replace one human-controlled executor model-pool entry.
 	"""
 	updateTaskModelPoolEntry(poolEntryId: String!, input: TaskModelPoolEntryInput!): TaskModelPoolEntry!
 	"""
-	Replace provider-independent task safety limits for future/resumed runs.
+	Replace user-controlled task safety limits while retaining Work-owned bounds.
 	"""
 	updateTaskExecutionPolicy(input: TaskExecutionPolicyInput!): TaskExecutionPolicy!
 	"""
@@ -2007,6 +2255,20 @@ enum OnboardingStepStatus {
 }
 
 """
+Standard connection metadata.
+"""
+type PageInfo {
+	"""
+	Cursor for the final edge in this page.
+	"""
+	endCursor: String
+	"""
+	Whether another page exists.
+	"""
+	hasNextPage: Boolean!
+}
+
+"""
 Primary conversation identity.
 """
 type PrimaryConversation {
@@ -2022,6 +2284,108 @@ type PrimaryConversation {
 	Latest visible transcript page for this conversation.
 	"""
 	latestTranscriptPage(limit: Int): ConversationTranscriptPage!
+}
+
+"""
+Owner-authorized project projection.
+"""
+type Project {
+	"""
+	Opaque project identity.
+	"""
+	projectId: String!
+	"""
+	Owning workspace.
+	"""
+	workspaceId: String!
+	"""
+	Project name.
+	"""
+	name: String!
+	"""
+	Project description.
+	"""
+	description: String!
+	"""
+	Optimistic project revision.
+	"""
+	revision: Int!
+	"""
+	Archive timestamp, if archived.
+	"""
+	archivedAt: String
+	"""
+	Creation timestamp.
+	"""
+	createdAt: String!
+	"""
+	Last update timestamp.
+	"""
+	updatedAt: String!
+}
+
+"""
+Project mutation payload.
+"""
+type ProjectCommandPayload {
+	"""
+	Authoritative project projection.
+	"""
+	project: Project!
+	"""
+	Cursor for the event committed by the command.
+	"""
+	eventCursor: String!
+	"""
+	Echoed caller idempotency key.
+	"""
+	clientMutationId: String!
+}
+
+"""
+Project connection.
+"""
+type ProjectConnection {
+	"""
+	Ordered project edges.
+	"""
+	edges: [ProjectEdge!]!
+	"""
+	Pagination metadata.
+	"""
+	pageInfo: PageInfo!
+}
+
+"""
+Bounded project context captured by a contract.
+"""
+type ProjectContextSnapshot {
+	"""
+	Project identity.
+	"""
+	projectId: String!
+	"""
+	Project name.
+	"""
+	name: String!
+	"""
+	Project description.
+	"""
+	description: String!
+}
+
+"""
+Project edge.
+"""
+type ProjectEdge {
+	"""
+	Opaque keyset cursor.
+	"""
+	cursor: String!
+	"""
+	Project node.
+	"""
+	node: Project!
 }
 
 """
@@ -2235,6 +2599,14 @@ input ProviderSecretInput {
 	secret: String!
 }
 
+"""
+Immutable provider-selection mode.
+"""
+enum ProviderSelectionMode {
+	EXPLICIT_PROFILE
+	PROVIDER_DEFAULT
+}
+
 type QueryRoot {
 	"""
 	Return local Noema status.
@@ -2277,21 +2649,41 @@ type QueryRoot {
 	"""
 	agents: [Agent!]!
 	"""
-	Return one owner-authorized durable background task detail.
+	Return one owner-authorized Work task detail.
 	"""
-	task(taskId: String!): TaskDetail
+	task(taskId: String!): TaskDetail!
+	"""
+	List owner-authorized projects in stable update order.
+	"""
+	projects(workspaceId: String!, includeArchived: Boolean, first: Int, after: String): ProjectConnection!
+	"""
+	Return one coherent board bootstrap projection.
+	"""
+	workOverview(workspaceId: String!, projectId: String): WorkOverview!
+	"""
+	List board/list tasks through one bounded batch-hydrated Store query.
+	"""
+	workTasks(input: WorkTasksInput!, first: Int, after: String): TaskConnection!
+	"""
+	Return unresolved gate/review attention cards.
+	"""
+	needsYou(workspaceId: String!, projectId: String, first: Int, after: String): TaskAttentionConnection!
+	"""
+	Return the durable Work activity ledger for a scope.
+	"""
+	workActivity(workspaceId: String!, projectId: String, taskId: String, first: Int, after: String): WorkEventConnection!
+	"""
+	Return completed/cancelled task history through the terminal scope.
+	"""
+	completedTasks(workspaceId: String!, projectId: String, kind: TerminalTaskKind, text: String, first: Int, after: String): TaskConnection!
 	"""
 	Return a newest-page, owner-authorized task-run transcript connection.
 	"""
-	taskRunItems(runId: String!, after: String, first: Int): TaskRunItemsConnection!
+	taskRunItems(runId: String!, first: Int, after: String): TaskRunItemConnection!
 	"""
 	Return human-controlled executor model-pool entries.
 	"""
 	taskModelPools(complexity: TaskComplexity): [TaskModelPoolEntry!]!
-	"""
-	Alias for clients that prefer the storage-oriented pool-entry name.
-	"""
-	taskModelPoolEntries(complexity: TaskComplexity): [TaskModelPoolEntry!]!
 	"""
 	Return provider-independent safety limits shared by every task tier.
 	"""
@@ -2350,6 +2742,28 @@ type QueryRoot {
 	artifactVersionDetail(artifactVersionId: String!): ArtifactVersionDetail
 }
 
+"""
+Queue a captured task.
+"""
+input QueueTaskInput {
+	"""
+	Task target.
+	"""
+	taskId: String!
+	"""
+	Expected current revision.
+	"""
+	expectedRevision: Int!
+	"""
+	Expected execution generation.
+	"""
+	expectedGeneration: Int!
+	"""
+	Caller idempotency key.
+	"""
+	clientMutationId: String!
+}
+
 enum ReasoningEffort {
 	NONE
 	MINIMAL
@@ -2357,6 +2771,114 @@ enum ReasoningEffort {
 	MEDIUM
 	HIGH
 	XHIGH
+}
+
+"""
+Project reopen input.
+"""
+input ReopenProjectInput {
+	"""
+	Project target.
+	"""
+	projectId: String!
+	"""
+	Expected project revision.
+	"""
+	expectedRevision: Int!
+	"""
+	Caller idempotency key.
+	"""
+	clientMutationId: String!
+}
+
+"""
+Reopen terminal task history.
+"""
+input ReopenTaskInput {
+	"""
+	Task target.
+	"""
+	taskId: String!
+	"""
+	Expected current revision.
+	"""
+	expectedRevision: Int!
+	"""
+	Expected execution generation.
+	"""
+	expectedGeneration: Int!
+	"""
+	Caller idempotency key.
+	"""
+	clientMutationId: String!
+}
+
+"""
+Human request for a changed result.
+"""
+input RequestTaskChangesInput {
+	"""
+	Task target.
+	"""
+	taskId: String!
+	"""
+	Expected current revision.
+	"""
+	expectedRevision: Int!
+	"""
+	Expected execution generation.
+	"""
+	expectedGeneration: Int!
+	"""
+	Nonblank feedback.
+	"""
+	feedbackMarkdown: String!
+	"""
+	Optional replacement request.
+	"""
+	requestMarkdown: String
+	"""
+	Complete replacement criteria set.
+	"""
+	replacementCriteria: [TaskValidationCriterionInput!]
+	"""
+	Optional replacement complexity.
+	"""
+	complexity: TaskComplexity
+	"""
+	Caller idempotency key.
+	"""
+	clientMutationId: String!
+}
+
+"""
+Retry an eligible Recovery gate.
+"""
+input RetryTaskInput {
+	"""
+	Task target.
+	"""
+	taskId: String!
+	"""
+	Current open gate.
+	"""
+	gateId: String!
+	"""
+	Expected current revision.
+	"""
+	expectedRevision: Int!
+	"""
+	Expected execution generation.
+	"""
+	expectedGeneration: Int!
+	"""
+	Optional bounded retry note.
+	"""
+	retryNote: String
+	"""
+	Caller idempotency key.
+	"""
+	clientMutationId: String!
 }
 
 """
@@ -2619,14 +3141,166 @@ type SubscriptionRoot {
 	"""
 	conversationEvents(conversationId: String!): ConversationEvent!
 	"""
-	Stream owner-authorized durable task updates with reconnect backfill.
+	Replay and stream the workspace-scoped durable Work ledger.
 	"""
-	taskEvents(taskId: String!, after: String): TaskEvent!
+	workEvents(workspaceId: String!, after: String): WorkEvent!
+	"""
+	Stream the task-filtered projection of the same durable Work ledger.
+	"""
+	taskEvents(taskId: String!, after: String): WorkEvent!
+}
+
+type TaskArtifactConnection {
+	"""
+	Ordered history edges.
+	"""
+	edges: [TaskArtifactEdge!]!
+	"""
+	Pagination metadata.
+	"""
+	pageInfo: PageInfo!
+}
+
+type TaskArtifactEdge {
+	"""
+	Opaque history cursor.
+	"""
+	cursor: String!
+	"""
+	History node.
+	"""
+	node: Artifact!
 }
 
 """
-Complexity tier used by the primary agent when selecting an executor pool
-entry.
+Derived human attention, never persisted as task state.
+"""
+type TaskAttention {
+	"""
+	Clarification, approval, recovery, or review readiness.
+	"""
+	kind: TaskAttentionKind!
+	"""
+	Stable UI title.
+	"""
+	title: String!
+	"""
+	Safe summary.
+	"""
+	summary: String!
+	"""
+	Complete related gate evidence, when any.
+	"""
+	gate: TaskGate
+	"""
+	Complete related review evidence, when any.
+	"""
+	review: TaskReview
+	"""
+	Authoritative task card without recursively embedding attention.
+	"""
+	task: TaskCard!
+	"""
+	Server-authorized actions.
+	"""
+	validActions: [ValidTaskAction!]!
+}
+
+"""
+Derived attention connection.
+"""
+type TaskAttentionConnection {
+	"""
+	Ordered attention edges.
+	"""
+	edges: [TaskAttentionEdge!]!
+	"""
+	Pagination metadata.
+	"""
+	pageInfo: PageInfo!
+}
+
+"""
+Derived attention edge.
+"""
+type TaskAttentionEdge {
+	"""
+	Opaque attention cursor.
+	"""
+	cursor: String!
+	"""
+	Attention node.
+	"""
+	node: TaskAttention!
+}
+
+"""
+Why a task currently needs the owner.
+"""
+enum TaskAttentionKind {
+	"""
+	Missing or ambiguous information is required.
+	"""
+	CLARIFICATION_REQUIRED
+	"""
+	A governed human decision is required.
+	"""
+	APPROVAL_REQUIRED
+	"""
+	Automated work requires a recovery choice.
+	"""
+	RECOVERY_REQUIRED
+	"""
+	A reviewed result is ready for acceptance.
+	"""
+	REVIEW_READY
+}
+
+"""
+Authoritative task card embedded by a Needs You item.
+
+This deliberately excludes `attention`: the surrounding `TaskAttention`
+already is that projection, so including it again would make the response
+graph recursive while adding no task authority.
+"""
+type TaskCard {
+	taskId: String!
+	workspace: Workspace!
+	project: Project
+	title: String!
+	descriptionPreview: String!
+	stage: WorkflowStage!
+	revision: Int!
+	generation: Int!
+	createdAt: String!
+	updatedAt: String!
+	completedAt: String
+	currentRun: CurrentRunSummary
+	activeGate: TaskGate
+	latestReview: TaskReviewSummary
+	validActions: [ValidTaskAction!]!
+}
+
+"""
+Task mutation payload.
+"""
+type TaskCommandPayload {
+	"""
+	Authoritative task projection.
+	"""
+	task: TaskDetail!
+	"""
+	Cursor for the event committed by the command.
+	"""
+	eventCursor: String!
+	"""
+	Echoed caller idempotency key.
+	"""
+	clientMutationId: String!
+}
+
+"""
+Complexity selected for a new execution contract.
 """
 enum TaskComplexity {
 	"""
@@ -2644,207 +3318,228 @@ enum TaskComplexity {
 }
 
 """
-Full read model used by the task detail rail.
+Task connection.
 """
-type TaskDetail {
+type TaskConnection {
 	"""
-	Stable task id.
+	Ordered task edges.
 	"""
-	taskId: String!
+	edges: [TaskEdge!]!
 	"""
-	Human-visible title.
+	Pagination metadata.
 	"""
-	title: String!
-	"""
-	Immutable executor request Markdown.
-	"""
-	requestMarkdown: String!
-	"""
-	Selected complexity tier.
-	"""
-	complexity: TaskComplexity!
-	"""
-	Canonical task status.
-	"""
-	status: String!
-	"""
-	Source human owning the task.
-	"""
-	ownerHumanId: String!
-	"""
-	Source provenance.
-	"""
-	source: TaskSource!
-	"""
-	Agent that created the task.
-	"""
-	createdByAgentId: String!
-	"""
-	Delegation tool call id, when available.
-	"""
-	creationToolCallId: String
-	"""
-	Selected executor pool entry.
-	"""
-	poolEntryId: String!
-	"""
-	Immutable executor model snapshot.
-	"""
-	executorModel: TaskModelSnapshot!
-	"""
-	Immutable reviewer model snapshot.
-	"""
-	reviewerModel: TaskModelSnapshot!
-	"""
-	Current revision index.
-	"""
-	revisionIndex: Int!
-	"""
-	Maximum number of reviewed submissions.
-	"""
-	maxReviewRounds: Int!
-	"""
-	Approved submission id, when complete.
-	"""
-	finalSubmissionId: String
-	"""
-	Latest queued/running run id.
-	"""
-	latestRunId: String
-	"""
-	Safe terminal reason.
-	"""
-	terminalReason: String
-	"""
-	Safe failure code.
-	"""
-	errorCode: String
-	"""
-	Safe failure message.
-	"""
-	errorMessage: String
-	"""
-	Creation timestamp.
-	"""
-	createdAt: String!
-	"""
-	Last update timestamp.
-	"""
-	updatedAt: String!
-	"""
-	Completion timestamp.
-	"""
-	completedAt: String
-	"""
-	Whether the owner can continue this task from its durable context.
-	"""
-	resumable: Boolean!
-	"""
-	Whether the owner can cancel this task.
-	"""
-	cancellable: Boolean!
-	"""
-	Blocking question awaiting a human answer, when present.
-	"""
-	blockingQuestion: String
-	"""
-	Immutable validation criteria.
-	"""
-	criteria: [TaskValidationCriterion!]!
-	"""
-	Executor submissions in revision order.
-	"""
-	submissions: [TaskSubmission!]!
-	"""
-	Adversarial reviews in creation order.
-	"""
-	reviews: [TaskReview!]!
-	"""
-	Safe run history.
-	"""
-	runs: [TaskRun!]!
+	pageInfo: PageInfo!
 }
 
 """
-One durable owner-authorized task event.
+Origin of an immutable task contract.
 """
-type TaskEvent {
+enum TaskContractOrigin {
+	DELEGATED
+	PLANNED
+	HUMAN_REVISION
+}
+
+"""
+Immutable outcome for one contract criterion.
+"""
+enum TaskCriterionOutcome {
+	PASS
+	FAIL
+	UNCERTAIN
+}
+
+type TaskDetail {
+	taskId: String!
+	workspace: Workspace!
+	project: Project
+	title: String!
+	description: String!
+	descriptionPreview: String!
+	stage: WorkflowStage!
+	revision: Int!
+	generation: Int!
+	createdAt: String!
+	updatedAt: String!
+	completedAt: String
+	source: TaskSource!
+	workflow: Workflow!
+	currentContract: TaskExecutionContract
+	currentRun: CurrentRunSummary
+	activeGate: TaskGate
+	latestSubmission: TaskSubmission
+	acceptedResult: TaskSubmission
+	latestReview: TaskReviewSummary
+	attention: TaskAttention
+	validActions: [ValidTaskAction!]!
 	"""
-	Exclusive cursor for reconnect/backfill.
+	Return immutable contract history, newest first.
+	"""
+	contracts(first: Int, after: String): TaskExecutionContractConnection!
+	"""
+	Return immutable gate history, newest first.
+	"""
+	gates(first: Int, after: String): TaskGateConnection!
+	"""
+	Return immutable human-message history, newest first.
+	"""
+	messages(first: Int, after: String): TaskMessageConnection!
+	"""
+	Return immutable run history, newest first.
+	"""
+	runs(first: Int, after: String): TaskRunConnection!
+	"""
+	Return immutable submission history, newest first.
+	"""
+	submissions(first: Int, after: String): TaskSubmissionConnection!
+	"""
+	Return immutable review history, newest first.
+	"""
+	reviews(first: Int, after: String): TaskReviewConnection!
+	"""
+	Return immutable task-owned artifact evidence, newest first.
+	"""
+	artifacts(first: Int, after: String): TaskArtifactConnection!
+	"""
+	Return durable task activity, newest first.
+	"""
+	activity(first: Int, after: String): WorkEventConnection!
+}
+
+"""
+Task edge.
+"""
+type TaskEdge {
+	"""
+	Opaque keyset cursor.
 	"""
 	cursor: String!
 	"""
-	Typed event category.
+	Task node.
 	"""
-	kind: TaskEventKind!
+	node: TaskSummary!
+}
+
+"""
+Immutable task execution contract.
+"""
+type TaskExecutionContract {
 	"""
-	Task whose durable projection changed.
+	Contract identity.
 	"""
-	taskId: String!
+	contractId: String!
 	"""
-	Run affected by the event, when applicable.
+	Contract version.
 	"""
-	runId: String
+	version: Int!
 	"""
-	Current task or run status, when applicable.
+	Task generation fenced by this contract.
 	"""
-	status: String
+	taskGeneration: Int!
 	"""
-	Appended or updated transcript item, when applicable.
+	Superseded contract, when any.
 	"""
-	item: TaskRunItem
+	supersedesContractId: String
 	"""
-	Current durable run projection, when the event is associated with a run.
+	Contract origin.
 	"""
-	run: TaskRun
+	origin: TaskContractOrigin!
 	"""
-	Durable event creation timestamp.
+	Immutable request Markdown.
+	"""
+	requestMarkdown: String!
+	"""
+	Planner guidance, when present.
+	"""
+	executionPlanMarkdown: String
+	"""
+	Exact criteria.
+	"""
+	criteria: [TaskValidationCriterion!]!
+	"""
+	Complexity tier.
+	"""
+	complexity: TaskComplexity!
+	"""
+	Executor selection snapshot.
+	"""
+	executorModel: TaskModelSnapshot!
+	"""
+	Reviewer selection snapshot.
+	"""
+	reviewerModel: TaskModelSnapshot!
+	"""
+	Execution policy snapshot.
+	"""
+	executionPolicy: TaskExecutionPolicy!
+	"""
+	Workspace context snapshot.
+	"""
+	workspaceContext: WorkspaceContextSnapshot!
+	"""
+	Optional project context snapshot.
+	"""
+	projectContext: ProjectContextSnapshot
+	"""
+	Contract creation timestamp.
 	"""
 	createdAt: String!
 }
 
-"""
-Durable task subscription event category.
-"""
-enum TaskEventKind {
+type TaskExecutionContractConnection {
 	"""
-	Task lifecycle/read-model state changed.
+	Ordered history edges.
 	"""
-	TASK_UPDATED
+	edges: [TaskExecutionContractEdge!]!
 	"""
-	One durable task run changed.
+	Pagination metadata.
 	"""
-	RUN_UPDATED
+	pageInfo: PageInfo!
+}
+
+type TaskExecutionContractEdge {
 	"""
-	One task-run transcript item was inserted or updated.
+	Opaque history cursor.
 	"""
-	RUN_ITEM_UPSERTED
+	cursor: String!
+	"""
+	History node.
+	"""
+	node: TaskExecutionContract!
 }
 
 """
-Global provider-independent safety limits applied to every task model tier.
+Immutable execution policy snapshot.
 """
 type TaskExecutionPolicy {
 	"""
-	Maximum provider continuations before terminal-only finalization.
+	Provider continuation bound.
 	"""
 	maxProviderContinuations: Int!
 	"""
-	Maximum tool calls before terminal-only finalization.
+	Tool-call bound.
 	"""
 	maxToolCalls: Int!
 	"""
-	Maximum active execution time in minutes, excluding queue time.
+	Active-minute bound.
 	"""
 	maxActiveMinutes: Int!
 	"""
-	Continuation interval between progress audits.
+	Progress-audit interval.
 	"""
 	progressAuditInterval: Int!
+	"""
+	Automatic retry bound.
+	"""
+	maxAutomaticRetries: Int!
+	"""
+	Review-round bound.
+	"""
+	maxReviewRounds: Int!
 }
 
 """
-Input for replacing the global Task Executor safety limits.
+Input for replacing the four user-controlled Task Executor runtime limits.
 """
 input TaskExecutionPolicyInput {
 	"""
@@ -2863,6 +3558,189 @@ input TaskExecutionPolicyInput {
 	Continuation interval between progress audits.
 	"""
 	progressAuditInterval: Int!
+}
+
+"""
+Task gate category.
+"""
+type TaskGate {
+	"""
+	Gate identity.
+	"""
+	gateId: String!
+	"""
+	Task generation.
+	"""
+	taskGeneration: Int!
+	"""
+	Gate kind.
+	"""
+	kind: TaskGateKind!
+	"""
+	Gate state.
+	"""
+	state: TaskGateState!
+	"""
+	Recovery reason, when any.
+	"""
+	recoveryReason: TaskRecoveryReason
+	"""
+	Explicit recovery continuation role, when any.
+	"""
+	retryRunKind: TaskRunKind
+	"""
+	Human prompt.
+	"""
+	prompt: String!
+	"""
+	Bounded context.
+	"""
+	contextMarkdown: String!
+	"""
+	Opener actor.
+	"""
+	openedBy: String!
+	"""
+	Opening run, when any.
+	"""
+	originatingRunId: String
+	"""
+	Open timestamp.
+	"""
+	openedAt: String!
+	"""
+	Resolver actor, when resolved.
+	"""
+	resolvedBy: String
+	"""
+	Resolution timestamp, when resolved.
+	"""
+	resolvedAt: String
+	"""
+	Resolution message identity, when resolved.
+	"""
+	resolution: String
+}
+
+type TaskGateConnection {
+	"""
+	Ordered history edges.
+	"""
+	edges: [TaskGateEdge!]!
+	"""
+	Pagination metadata.
+	"""
+	pageInfo: PageInfo!
+}
+
+type TaskGateEdge {
+	"""
+	Opaque history cursor.
+	"""
+	cursor: String!
+	"""
+	History node.
+	"""
+	node: TaskGate!
+}
+
+"""
+Human gate category.
+"""
+enum TaskGateKind {
+	CLARIFICATION
+	APPROVAL
+	RECOVERY
+}
+
+"""
+Human gate lifecycle.
+"""
+enum TaskGateState {
+	OPEN
+	RESOLVED
+	SUPERSEDED
+}
+
+"""
+Human message in the immutable task history.
+"""
+type TaskMessage {
+	"""
+	Message identity.
+	"""
+	messageId: String!
+	"""
+	Task generation.
+	"""
+	taskGeneration: Int!
+	"""
+	Message kind.
+	"""
+	kind: TaskMessageKind!
+	"""
+	Safe Markdown body.
+	"""
+	bodyMarkdown: String!
+	"""
+	Author actor.
+	"""
+	author: String!
+	"""
+	Associated gate, when any.
+	"""
+	gateId: String
+	"""
+	Associated contract, when any.
+	"""
+	contractId: String
+	"""
+	Structured approval decision, when any.
+	"""
+	approvalDecision: ApprovalDecision
+	"""
+	Consumer run, when consumed.
+	"""
+	consumedByRunId: String
+	"""
+	Consumption timestamp, when consumed.
+	"""
+	consumedAt: String
+	"""
+	Creation timestamp.
+	"""
+	createdAt: String!
+}
+
+type TaskMessageConnection {
+	"""
+	Ordered history edges.
+	"""
+	edges: [TaskMessageEdge!]!
+	"""
+	Pagination metadata.
+	"""
+	pageInfo: PageInfo!
+}
+
+type TaskMessageEdge {
+	"""
+	Opaque history cursor.
+	"""
+	cursor: String!
+	"""
+	History node.
+	"""
+	node: TaskMessage!
+}
+
+"""
+Kind of immutable human task message.
+"""
+enum TaskMessageKind {
+	HUMAN_ANSWER
+	HUMAN_CHANGE_REQUEST
+	RETRY_NOTE
 }
 
 """
@@ -2916,7 +3794,7 @@ type TaskModelPoolEntry {
 }
 
 """
-Input for creating or replacing one human-controlled executor pool entry.
+Input for replacing one human-controlled executor pool entry.
 """
 input TaskModelPoolEntryInput {
 	"""
@@ -2954,33 +3832,48 @@ input TaskModelPoolEntryInput {
 }
 
 """
-Immutable model-selection provenance captured on a task or run.
+Immutable provider/model selection captured in a contract or run.
 """
 type TaskModelSnapshot {
 	"""
-	Provider family selected for the run.
+	Provider family.
 	"""
 	providerKind: String!
 	"""
-	Concrete provider account selected for the run.
+	Provider account identity.
 	"""
 	providerAccountId: String!
 	"""
-	`explicit_profile` or `provider_default`.
+	Exact process/provider instance identity.
 	"""
-	selectionMode: String!
+	providerInstanceKey: String
 	"""
-	Provider-specific model/profile when explicitly selected.
+	Selection mode.
+	"""
+	selectionMode: ProviderSelectionMode!
+	"""
+	Explicit model profile, when used.
 	"""
 	modelProfile: String
 	"""
-	Explicit reasoning effort, when present.
+	Reasoning effort, when selected.
 	"""
 	reasoningEffort: ReasoningEffort
 	"""
-	Source of the model selection, when recorded.
+	Selection provenance.
 	"""
 	selectionSource: String
+}
+
+"""
+Closed reason for a Recovery gate.
+"""
+enum TaskRecoveryReason {
+	INFRASTRUCTURE_RETRIES_EXHAUSTED
+	REVIEW_ROUNDS_EXHAUSTED
+	UNSAFE_EFFECT_UNCERTAIN
+	CONFIGURATION_UNAVAILABLE
+	INVARIANT_FAULT
 }
 
 """
@@ -2996,9 +3889,9 @@ type TaskReference {
 	"""
 	title: String!
 	"""
-	Canonical task status string from [`crate::TaskStatus::as_str`].
+	Canonical workflow stage id captured in the task reference.
 	"""
-	status: String!
+	stageId: String!
 	"""
 	Executor revision represented by this reference.
 	"""
@@ -3006,31 +3899,43 @@ type TaskReference {
 }
 
 """
-Immutable adversarial review for one executor submission.
+Immutable reviewer decision.
 """
 type TaskReview {
 	"""
-	Stable review id.
+	Review identity.
 	"""
 	reviewId: String!
 	"""
-	Reviewer run that produced the review.
+	Contract evaluated.
+	"""
+	contractId: String!
+	"""
+	Reviewer run.
 	"""
 	reviewerRunId: String!
 	"""
-	Submission under review.
+	Submission evaluated.
 	"""
 	reviewedSubmissionId: String!
 	"""
-	Canonical `approve`, `request_changes`, or `needs_human` verdict.
+	Review attempt for the submission.
 	"""
-	overallVerdict: String!
+	reviewAttemptIndex: Int!
 	"""
-	Safe overall reviewer feedback.
+	Prior needs-human review, when any.
 	"""
-	overallFeedback: String!
+	supersedesReviewId: String
 	"""
-	Per-criterion outcomes and feedback.
+	Approve, request_changes, or needs_human.
+	"""
+	verdict: TaskReviewVerdict!
+	"""
+	Safe reviewer feedback.
+	"""
+	feedback: String!
+	"""
+	Criterion outcomes.
 	"""
 	criteria: [TaskReviewCriterion!]!
 	"""
@@ -3039,76 +3944,157 @@ type TaskReview {
 	createdAt: String!
 }
 
+type TaskReviewConnection {
+	"""
+	Ordered history edges.
+	"""
+	edges: [TaskReviewEdge!]!
+	"""
+	Pagination metadata.
+	"""
+	pageInfo: PageInfo!
+}
+
 """
-One reviewer criterion outcome.
+Immutable reviewer criterion outcome.
 """
 type TaskReviewCriterion {
 	"""
-	Criterion being evaluated.
+	Criterion identity.
 	"""
 	criterionId: String!
 	"""
-	Canonical `pass`, `fail`, or `uncertain` outcome.
+	Pass, fail, or uncertain.
 	"""
-	outcome: String!
+	outcome: TaskCriterionOutcome!
 	"""
-	Evidence considered by the reviewer.
+	Evidence Markdown.
 	"""
 	evidenceMarkdown: String
 	"""
-	Feedback for a requested executor revision.
+	Reviewer feedback.
 	"""
 	feedback: String
 }
 
+type TaskReviewEdge {
+	"""
+	Opaque history cursor.
+	"""
+	cursor: String!
+	"""
+	History node.
+	"""
+	node: TaskReview!
+}
+
 """
-Safe audit projection of one executor or reviewer run.
+Compact review projection used by task cards.
+"""
+type TaskReviewSummary {
+	"""
+	Review identity.
+	"""
+	reviewId: String!
+	"""
+	Submission evaluated.
+	"""
+	reviewedSubmissionId: String!
+	"""
+	Review attempt.
+	"""
+	reviewAttemptIndex: Int!
+	"""
+	Prior review, when any.
+	"""
+	supersedesReviewId: String
+	"""
+	Verdict.
+	"""
+	verdict: TaskReviewVerdict!
+	"""
+	Safe feedback.
+	"""
+	feedback: String!
+	"""
+	Creation timestamp.
+	"""
+	createdAt: String!
+}
+
+"""
+Immutable reviewer disposition.
+"""
+enum TaskReviewVerdict {
+	APPROVE
+	REQUEST_CHANGES
+	NEEDS_HUMAN
+}
+
+"""
+Safe audit projection of one run.
 """
 type TaskRun {
 	"""
-	Stable run id.
+	Run identity.
 	"""
 	runId: String!
 	"""
-	Canonical `executor` or `reviewer` kind.
+	Run role.
 	"""
-	runKind: String!
+	kind: TaskRunKind!
 	"""
-	Built-in agent identity used by the run.
+	Run-local status.
+	"""
+	status: TaskRunStatus!
+	"""
+	Agent identity.
 	"""
 	agentId: String!
 	"""
-	Revision represented by this run.
+	Task generation.
 	"""
-	revisionIndex: Int!
+	taskGeneration: Int!
 	"""
-	Continuation or infrastructure-recovery attempt within the revision.
+	Contract identity, absent for Planner.
+	"""
+	contractId: String
+	"""
+	Attempt index.
 	"""
 	attemptIndex: Int!
 	"""
-	Canonical durable run status.
+	Review round.
 	"""
-	status: String!
+	reviewRound: Int!
+	"""
+	Parent run, when any.
+	"""
+	parentRunId: String
+	"""
+	Submission trigger, when any.
+	"""
+	triggeringSubmissionId: String
+	"""
+	Review trigger, when any.
+	"""
+	triggeringReviewId: String
 	"""
 	Requested model snapshot.
 	"""
 	model: TaskModelSnapshot!
 	"""
-	Provider family that actually answered, when recorded.
+	Safe actual provider family.
 	"""
 	actualProviderKind: String
 	"""
-	Provider model/profile that actually answered, when recorded.
+	Safe actual model profile.
 	"""
 	actualModelProfile: String
 	"""
-	Submission that triggered a reviewer run, when applicable.
+	Immutable policy snapshot.
 	"""
-	triggeringSubmissionId: String
-	"""
-	Review that triggered a revision run, when applicable.
-	"""
-	triggeringReviewId: String
+	executionPolicy: TaskExecutionPolicy!
 	"""
 	Safe terminal error code.
 	"""
@@ -3117,10 +4103,6 @@ type TaskRun {
 	Safe terminal error message.
 	"""
 	errorMessage: String
-	"""
-	Immutable execution-policy snapshot.
-	"""
-	executionPolicy: TaskExecutionPolicy!
 	"""
 	Completed provider calls.
 	"""
@@ -3167,52 +4149,74 @@ type TaskRun {
 	updatedAt: String!
 }
 
-"""
-Live transcript/activity item for one background run.
-"""
-type TaskRunItem {
+type TaskRunConnection {
 	"""
-	Stable item id.
+	Ordered history edges.
 	"""
-	itemId: String!
+	edges: [TaskRunEdge!]!
 	"""
-	Owning run id.
+	Pagination metadata.
 	"""
-	runId: String!
+	pageInfo: PageInfo!
+}
+
+type TaskRunEdge {
 	"""
-	Opaque durable pagination/subscription cursor.
+	Opaque history cursor.
 	"""
 	cursor: String!
 	"""
-	Monotonic display order within the run.
+	History node.
+	"""
+	node: TaskRun!
+}
+
+"""
+Bounded transcript item for a selected run.
+"""
+type TaskRunItem {
+	"""
+	Item identity.
+	"""
+	itemId: String!
+	"""
+	Run identity.
+	"""
+	runId: String!
+	"""
+	Opaque transcript cursor.
+	"""
+	cursor: String!
+	"""
+	Sequence index.
 	"""
 	sequenceIndex: Int!
 	"""
-	Zero-based provider round that emitted the item.
+	Provider round.
 	"""
 	roundIndex: Int!
 	"""
-	Transcript kind, such as `assistant_output`, `tool_call`, or `tool_result`.
+	Transcript kind.
 	"""
-	kind: String!
+	kind: TaskRunItemKind!
 	"""
-	Canonical pending/running/completed/failed/cancelled/skipped state.
+	Item status.
 	"""
-	status: String!
+	status: TaskRunItemStatus!
 	"""
-	Provider/tool correlation id, when present.
+	Correlation identity, when present.
 	"""
 	correlationId: String
 	"""
-	Parent transcript item id, when present.
+	Parent item, when present.
 	"""
 	parentItemId: String
 	"""
-	Human-readable activity text.
+	Safe content text.
 	"""
 	contentText: String
 	"""
-	Structured event payload.
+	Safe structured payload.
 	"""
 	payload: JSON!
 	"""
@@ -3225,70 +4229,134 @@ type TaskRunItem {
 	updatedAt: String!
 }
 
-"""
-A newest-first page stream for one task-run transcript.
-"""
-type TaskRunItemsConnection {
+type TaskRunItemConnection {
 	"""
-	Items in chronological display order within this page.
+	Ordered history edges.
 	"""
-	items: [TaskRunItem!]!
+	edges: [TaskRunItemEdge!]!
 	"""
-	Pagination state for loading the next older page.
+	Pagination metadata.
 	"""
-	pageInfo: TaskRunItemsPageInfo!
+	pageInfo: PageInfo!
+}
+
+type TaskRunItemEdge {
+	"""
+	Opaque history cursor.
+	"""
+	cursor: String!
+	"""
+	History node.
+	"""
+	node: TaskRunItem!
 }
 
 """
-Cursor metadata for one page of task-run transcript items.
+Closed durable task-run transcript item kind.
 """
-type TaskRunItemsPageInfo {
-	"""
-	Cursor to pass as `after` to load the next older page.
-	"""
-	endCursor: String
-	"""
-	Whether another older page exists.
-	"""
-	hasNextPage: Boolean!
+enum TaskRunItemKind {
+	MODEL_INPUT
+	ASSISTANT_OUTPUT
+	TOOL_CALL
+	TOOL_RESULT
+	PROGRESS_NOTICE
+	CONTEXT_CHECKPOINT
+	TASK_SUBMISSION
+	TASK_REVIEW
+	ARTIFACT_REFERENCE
+	FAILURE
+	CANCELLATION
 }
 
 """
-Source provenance for a delegated task.
+Closed durable task-run transcript item status.
+"""
+enum TaskRunItemStatus {
+	PENDING
+	RUNNING
+	COMPLETED
+	FAILED
+	CANCELLED
+	SKIPPED
+}
+
+"""
+Role of one bounded task run.
+"""
+enum TaskRunKind {
+	PLANNER
+	EXECUTOR
+	REVIEWER
+}
+
+"""
+Run-local queue and lease status.
+"""
+enum TaskRunStatus {
+	QUEUED
+	LEASED
+	RUNNING
+	COMPLETED
+	WAITING_FOR_APPROVAL
+	INTERRUPTED
+	FAILED
+	CANCELLED
+}
+
+"""
+Safe task provenance.
 """
 type TaskSource {
 	"""
-	Source conversation id, when delegated from chat.
+	Source classification.
+	"""
+	sourceKind: TaskSourceKind!
+	"""
+	Source conversation.
 	"""
 	conversationId: String
 	"""
-	Source turn id, when known.
+	Source turn.
 	"""
 	turnId: String
 	"""
-	Source transcript item id, when known.
+	Source transcript item.
 	"""
 	itemId: String
 }
 
 """
-Immutable executor output for one revision.
+Durable task provenance category.
+"""
+enum TaskSourceKind {
+	CHAT_CAPTURE
+	CHAT_DELEGATE
+	WORK_UI
+	SYSTEM
+}
+
+"""
+Immutable submission evidence.
 """
 type TaskSubmission {
 	"""
-	Stable submission id.
+	Submission identity.
 	"""
 	submissionId: String!
 	"""
-	Executor run that produced the submission.
+	Contract evaluated.
+	"""
+	contractId: String!
+	"""
+	Executor run.
 	"""
 	executorRunId: String!
 	"""
-	Revision represented by the submission.
+	Review round.
 	"""
-	revisionIndex: Int!
+	reviewRound: Int!
 	"""
-	Short result summary.
+	Short summary.
 	"""
 	summary: String!
 	"""
@@ -3296,11 +4364,11 @@ type TaskSubmission {
 	"""
 	resultMarkdown: String!
 	"""
-	Criterion evidence captured with the output.
+	Criterion evidence.
 	"""
-	criteria: [TaskSubmissionCriterionEvidence!]!
+	criteria: [TaskSubmissionCriterion!]!
 	"""
-	Ordered artifact snapshots attached to the output.
+	Linked immutable artifact versions.
 	"""
 	artifacts: [TaskSubmissionArtifact!]!
 	"""
@@ -3310,77 +4378,209 @@ type TaskSubmission {
 }
 
 """
-Governed artifact snapshot returned by one executor submission.
+Immutable artifact link shown with a submission.
 """
 type TaskSubmissionArtifact {
 	"""
-	Stable artifact id.
+	Artifact identity.
 	"""
 	artifactId: String!
 	"""
-	Immutable linked version id.
+	Artifact version identity.
 	"""
 	artifactVersionId: String!
 	"""
-	Human-readable title.
+	Artifact title.
 	"""
 	title: String!
 	"""
-	Product-defined artifact kind.
+	Artifact kind.
 	"""
 	artifactKind: String!
 	"""
-	Canonical storage kind.
+	Storage kind.
 	"""
-	storageKind: String!
+	storageKind: ArtifactStorageKind!
 	"""
-	Optional media type.
+	Media type, when present.
 	"""
 	mediaType: String
 	"""
-	Local download route when stored in Noema.
+	Local download route, when present.
 	"""
 	downloadUrl: String
 	"""
-	External URL when externally hosted.
+	External URL, when present.
 	"""
 	externalUrl: String
 }
 
-"""
-Evidence attached to one executor submission criterion.
-"""
-type TaskSubmissionCriterionEvidence {
+type TaskSubmissionConnection {
 	"""
-	Criterion being addressed.
+	Ordered history edges.
+	"""
+	edges: [TaskSubmissionEdge!]!
+	"""
+	Pagination metadata.
+	"""
+	pageInfo: PageInfo!
+}
+
+"""
+Submission criterion evidence.
+"""
+type TaskSubmissionCriterion {
+	"""
+	Criterion identity.
 	"""
 	criterionId: String!
 	"""
-	Evidence supplied by the executor.
+	Evidence Markdown.
 	"""
 	evidenceMarkdown: String!
 }
 
+type TaskSubmissionEdge {
+	"""
+	Opaque history cursor.
+	"""
+	cursor: String!
+	"""
+	History node.
+	"""
+	node: TaskSubmission!
+}
+
 """
-One immutable criterion that the reviewer must evaluate.
+Board/list task summary.
+"""
+type TaskSummary {
+	"""
+	Task identity.
+	"""
+	taskId: String!
+	"""
+	Workspace placement.
+	"""
+	workspace: Workspace!
+	"""
+	Nullable project placement.
+	"""
+	project: Project
+	"""
+	Human title.
+	"""
+	title: String!
+	"""
+	Bounded description preview.
+	"""
+	descriptionPreview: String!
+	"""
+	The only task-level state.
+	"""
+	stage: WorkflowStage!
+	"""
+	Optimistic revision.
+	"""
+	revision: Int!
+	"""
+	Execution generation fence.
+	"""
+	generation: Int!
+	"""
+	Creation timestamp.
+	"""
+	createdAt: String!
+	"""
+	Last update timestamp.
+	"""
+	updatedAt: String!
+	"""
+	Acceptance timestamp, when any.
+	"""
+	completedAt: String
+	"""
+	Current run projection.
+	"""
+	currentRun: CurrentRunSummary
+	"""
+	Open gate projection.
+	"""
+	activeGate: TaskGate
+	"""
+	Latest review projection.
+	"""
+	latestReview: TaskReviewSummary
+	"""
+	Derived attention.
+	"""
+	attention: TaskAttention
+	"""
+	Server-authorized actions.
+	"""
+	validActions: [ValidTaskAction!]!
+}
+
+"""
+One immutable contract criterion.
 """
 type TaskValidationCriterion {
 	"""
-	Stable criterion id.
+	Criterion identity.
 	"""
 	criterionId: String!
 	"""
-	One-based display order.
+	One-based order.
 	"""
 	ordinal: Int!
 	"""
-	Condition the executor must satisfy.
+	Criterion description.
+	"""
+	description: String!
+	"""
+	Optional expected evidence.
+	"""
+	expectedEvidence: String
+}
+
+"""
+One replacement validation criterion.
+"""
+input TaskValidationCriterionInput {
+	"""
+	Optional stable criterion identity.
+	"""
+	criterionId: String
+	"""
+	One-based ordinal.
+	"""
+	ordinal: Int!
+	"""
+	Criterion description.
 	"""
 	description: String!
 	"""
 	Optional evidence guidance.
 	"""
 	expectedEvidence: String
+}
+
+"""
+Terminal history filter.
+"""
+enum TerminalTaskKind {
+	"""
+	Accepted tasks only.
+	"""
+	ACCEPTED
+	"""
+	Cancelled tasks only.
+	"""
+	CANCELLED
+	"""
+	Both terminal kinds.
+	"""
+	ALL
 }
 
 """
@@ -3517,6 +4717,70 @@ type TurnCompletedEvent {
 }
 
 """
+Inbox task edit input.
+"""
+input UpdateInboxTaskInput {
+	"""
+	Task target.
+	"""
+	taskId: String!
+	"""
+	Expected current revision.
+	"""
+	expectedRevision: Int!
+	"""
+	Expected execution generation.
+	"""
+	expectedGeneration: Int!
+	"""
+	Optional replacement title.
+	"""
+	title: String
+	"""
+	Optional replacement description.
+	"""
+	description: String
+	"""
+	Optional project assignment. Null means omitted unless `clearProject` is true.
+	"""
+	projectId: String
+	"""
+	Explicitly clear the project association.
+	"""
+	clearProject: Boolean
+	"""
+	Caller idempotency key.
+	"""
+	clientMutationId: String!
+}
+
+"""
+Existing project update input.
+"""
+input UpdateProjectInput {
+	"""
+	Project target.
+	"""
+	projectId: String!
+	"""
+	Expected project revision.
+	"""
+	expectedRevision: Int!
+	"""
+	Optional replacement name.
+	"""
+	name: String
+	"""
+	Optional replacement description.
+	"""
+	description: String
+	"""
+	Caller idempotency key.
+	"""
+	clientMutationId: String!
+}
+
+"""
 Safety usage settings safe to expose in Settings.
 """
 type UsageSettings {
@@ -3534,6 +4798,44 @@ type UserText {
 	Text authored by the user.
 	"""
 	text: String!
+}
+
+"""
+Closed server-authorized task action.
+"""
+enum ValidTaskAction {
+	"""
+	Edit Inbox capture fields.
+	"""
+	EDIT
+	"""
+	Authorize dispatch.
+	"""
+	QUEUE
+	"""
+	Answer a gate.
+	"""
+	ANSWER
+	"""
+	Retry a recovery gate.
+	"""
+	RETRY
+	"""
+	Accept an approved result.
+	"""
+	ACCEPT
+	"""
+	Request changed work.
+	"""
+	REQUEST_CHANGES
+	"""
+	Cancel work.
+	"""
+	CANCEL
+	"""
+	Reopen terminal history.
+	"""
+	REOPEN
 }
 
 """
@@ -3586,6 +4888,313 @@ type WebToolProviderOption {
 type WebToolSettings {
 	search: WebToolBindingSettings!
 	fetch: WebToolBindingSettings!
+}
+
+"""
+Durable Work ledger event projection.
+"""
+type WorkEvent {
+	"""
+	Opaque global event cursor.
+	"""
+	cursor: String!
+	"""
+	Event identity.
+	"""
+	eventId: String!
+	"""
+	Closed dotted event kind.
+	"""
+	kind: String!
+	"""
+	Event timestamp.
+	"""
+	occurredAt: String!
+	"""
+	Workspace linkage.
+	"""
+	workspaceId: String!
+	"""
+	Project linkage.
+	"""
+	projectId: String
+	"""
+	Task linkage.
+	"""
+	taskId: String
+	"""
+	Run linkage.
+	"""
+	runId: String
+	"""
+	Safe audit actor.
+	"""
+	actor: String!
+	"""
+	Causation identity.
+	"""
+	causationId: String
+	"""
+	Correlation identity.
+	"""
+	correlationId: String!
+	"""
+	Bounded safe JSON payload.
+	"""
+	payload: JSON!
+}
+
+"""
+Work event connection.
+"""
+type WorkEventConnection {
+	"""
+	Ordered event edges.
+	"""
+	edges: [WorkEventEdge!]!
+	"""
+	Pagination metadata.
+	"""
+	pageInfo: PageInfo!
+}
+
+"""
+Event edge.
+"""
+type WorkEventEdge {
+	"""
+	Opaque event cursor.
+	"""
+	cursor: String!
+	"""
+	Event node.
+	"""
+	node: WorkEvent!
+}
+
+"""
+Transactionally coherent board bootstrap projection.
+"""
+type WorkOverview {
+	"""
+	Authorized workspace metadata.
+	"""
+	workspace: Workspace!
+	"""
+	Default workflow and all ordered stages.
+	"""
+	workflow: Workflow!
+	"""
+	Board-visible active columns in workflow order.
+	"""
+	activeColumns: [WorkStageColumn!]!
+	"""
+	Bounded recent active task cards.
+	"""
+	recentTasks: TaskConnection!
+	"""
+	Active cards requiring human attention.
+	"""
+	needsYouCount: Int!
+}
+
+"""
+One workflow-driven active board column and its authoritative count.
+"""
+type WorkStageColumn {
+	"""
+	Stage metadata used to render the column.
+	"""
+	stage: WorkflowStage!
+	"""
+	Number of active tasks in this stage and project scope.
+	"""
+	taskCount: Int!
+}
+
+"""
+Scope of a Work task connection.
+"""
+enum WorkTaskScope {
+	"""
+	Nonterminal workflow stages.
+	"""
+	ACTIVE
+	"""
+	Completed and cancelled history.
+	"""
+	TERMINAL
+	"""
+	Both active and terminal tasks.
+	"""
+	ALL
+}
+
+"""
+Board/list task filter input.
+"""
+input WorkTasksInput {
+	"""
+	Workspace scope.
+	"""
+	workspaceId: String!
+	"""
+	Optional project scope.
+	"""
+	projectId: String
+	"""
+	Optional explicit stage identities.
+	"""
+	stageIds: [String!]
+	"""
+	Optional semantic stage behavior filter.
+	"""
+	stageBehaviors: [WorkflowStageBehavior!]
+	"""
+	Case-insensitive title/description search.
+	"""
+	text: String
+	"""
+	Restrict results to unresolved human attention.
+	"""
+	attentionOnly: Boolean! = false
+	"""
+	Active, terminal, or combined scope.
+	"""
+	scope: WorkTaskScope! = ACTIVE
+}
+
+"""
+Workflow definition with its available stage metadata.
+"""
+type Workflow {
+	"""
+	Opaque workflow identity.
+	"""
+	workflowId: String!
+	"""
+	Workflow name.
+	"""
+	name: String!
+	"""
+	Stage definitions in display order.
+	"""
+	stages: [WorkflowStage!]!
+}
+
+"""
+Workflow stage behavior is data-driven rather than inferred from display text.
+"""
+type WorkflowStage {
+	"""
+	Opaque stage identity.
+	"""
+	stageId: String!
+	"""
+	Owning workflow.
+	"""
+	workflowId: String!
+	"""
+	Machine-stable key.
+	"""
+	key: String!
+	"""
+	Human-facing stage name.
+	"""
+	name: String!
+	"""
+	Display ordering.
+	"""
+	displayOrder: Int!
+	"""
+	Closed runtime behavior.
+	"""
+	behavior: WorkflowStageBehavior!
+}
+
+"""
+Runtime behavior of one workflow stage.
+"""
+enum WorkflowStageBehavior {
+	"""
+	Captured work not yet authorized to run.
+	"""
+	INTAKE
+	"""
+	Authorized work awaiting a worker.
+	"""
+	DISPATCH
+	"""
+	Planning, execution, or automated review is active.
+	"""
+	ACTIVE
+	"""
+	A human gate is open.
+	"""
+	HUMAN_GATE
+	"""
+	A reviewer-approved result awaits acceptance.
+	"""
+	ACCEPTANCE
+	"""
+	Human-accepted terminal work.
+	"""
+	TERMINAL_SUCCESS
+	"""
+	Human-cancelled terminal work.
+	"""
+	TERMINAL_CANCELLED
+}
+
+"""
+Owner-authorized workspace projection.
+"""
+type Workspace {
+	"""
+	Opaque workspace identity.
+	"""
+	workspaceId: String!
+	"""
+	Human-readable name.
+	"""
+	name: String!
+	"""
+	Descriptive text.
+	"""
+	description: String!
+	"""
+	Whether this is the Personal workspace.
+	"""
+	isPersonal: Boolean!
+	"""
+	Membership role for the authenticated owner.
+	"""
+	membershipRole: WorkspaceMembershipRole!
+}
+
+"""
+Bounded workspace context captured by a contract.
+"""
+type WorkspaceContextSnapshot {
+	"""
+	Workspace identity.
+	"""
+	workspaceId: String!
+	"""
+	Workspace name.
+	"""
+	name: String!
+	"""
+	Workspace description.
+	"""
+	description: String!
+}
+
+"""
+Membership role for the Personal workspace owner.
+"""
+enum WorkspaceMembershipRole {
+	OWNER
 }
 
 """

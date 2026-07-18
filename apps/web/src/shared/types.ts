@@ -5,16 +5,6 @@ export type ConversationAgentStatus = AgentStatus | "connecting" | "closed";
 
 export type TranscriptEntrySource = "replay";
 
-export type TaskReferenceStatus =
-  | "queued"
-  | "executing"
-  | "reviewing"
-  | "revision_requested"
-  | "waiting_for_human"
-  | "completed"
-  | "failed"
-  | "cancelled";
-
 export type TurnTranscriptItem =
   | { kind: "user_text"; text: string }
   | { kind: "assistant_text"; text: string }
@@ -55,7 +45,7 @@ export type TurnTranscriptItem =
       kind: "task_reference";
       task_id: string;
       title: string;
-      status: TaskReferenceStatus;
+      stage_id: string;
       revision: number;
     }
   | { kind: "error_notice"; message: string; recoverable: boolean };

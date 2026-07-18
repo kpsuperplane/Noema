@@ -2,7 +2,7 @@ import type {
   ConversationEventsSubscription,
   ConversationTranscriptPageQuery
 } from "@/generated/graphql";
-import type { TaskReferenceStatus, TranscriptEntry, TurnTranscriptItem } from "@/shared/types";
+import type { TranscriptEntry, TurnTranscriptItem } from "@/shared/types";
 
 type ReplayItem = ConversationTranscriptPageQuery["conversationTranscriptPage"]["items"][number];
 export type ConversationEvent = ConversationEventsSubscription["conversationEvents"];
@@ -348,25 +348,9 @@ function transcriptItemFromGraphql(item: GraphqlTranscriptItem): TurnTranscriptI
       kind: "task_reference",
       task_id: item.taskId,
       title: item.title,
-      status: parseTaskReferenceStatus(item.taskStatus),
+      stage_id: item.stageId,
       revision: item.revision
     };
   }
   return null;
-}
-
-function parseTaskReferenceStatus(value: string): TaskReferenceStatus {
-  switch (value) {
-    case "queued":
-    case "executing":
-    case "reviewing":
-    case "revision_requested":
-    case "waiting_for_human":
-    case "completed":
-    case "failed":
-    case "cancelled":
-      return value;
-    default:
-      return "queued";
-  }
 }

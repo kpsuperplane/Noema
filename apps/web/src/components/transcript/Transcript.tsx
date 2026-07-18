@@ -334,7 +334,7 @@ function renderTranscriptEntry(
       <TranscriptRow lane="assistant" reserveAvatarSpace={reserveAvatarSpace} showAvatar={showAvatar}>
         <TaskReferenceCard
           revision={entry.item.revision}
-          status={entry.item.status}
+          stageId={entry.item.stage_id}
           taskId={entry.item.task_id}
           title={entry.item.title}
           onOpenDetail={onOpenDetail}

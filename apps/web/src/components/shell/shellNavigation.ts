@@ -8,7 +8,8 @@ import {
   House,
   PlugZap,
   ServerCog,
-  Settings
+  Settings,
+  SquareKanban
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { AppRoute, NonSettingsAppRoute, SettingsSection } from "@/app/routes";
@@ -17,6 +18,7 @@ export type ShellMenuLevelId = "l0" | "settings";
 
 export type ShellMenuItemId =
   | "home"
+  | "work"
   | "memory"
   | "settings"
   | "settings.agents"
@@ -130,7 +132,10 @@ export const shellSettingsSections = shellSettingsEntries.flatMap((entry) =>
 
 export function activeL0ItemId(
   route: NonSettingsAppRoute
-): Extract<ShellMenuItemId, "home" | "memory"> {
+): Extract<ShellMenuItemId, "home" | "work" | "memory"> {
+  if (route.kind === "work") {
+    return "work";
+  }
   return route.kind === "memory" ? "memory" : "home";
 }
 
@@ -182,6 +187,16 @@ export function shellMenuLevelForRoute(route: AppRoute): ShellMenuLevel {
       {
         kind: "item",
         item: {
+          itemId: "work",
+          label: "Work",
+          route: { kind: "work" },
+          action: "navigate",
+          icon: SquareKanban
+        }
+      },
+      {
+        kind: "item",
+        item: {
           itemId: "home",
           label: "Home",
           route: { kind: "chat" },
@@ -219,6 +234,9 @@ export function breadcrumbForRoute(route: AppRoute): ShellBreadcrumb {
     return { parent: "Settings", current };
   }
 
+  if (route.kind === "work") {
+    return { current: "Work" };
+  }
   return { current: route.kind === "memory" ? "Memory" : "Home" };
 }
 

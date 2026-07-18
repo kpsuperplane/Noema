@@ -1,6 +1,6 @@
 import { useQuery } from "@apollo/client/react";
 import * as React from "react";
-import { TaskRunItemsDocument, type TaskRunItemsQuery } from "@/generated/graphql";
+import { WorkTaskRunItemsDocument, type WorkTaskRunItemsQuery } from "@/generated/graphql";
 import { Transcript } from "@/components/Transcript";
 import { TranscriptSystemNotice } from "@/components/transcript/TranscriptSystemNotice";
 import {
@@ -8,20 +8,23 @@ import {
   mergeTaskRunItems,
   taskRunItemsToTranscriptEntries
 } from "./taskRunItemMapper";
-import type { TaskRun, TaskRunItem } from "./taskTypes";
+import type { TaskRunItem, TaskRunRole } from "./taskTypes";
+import type { WorkTaskRun } from "@/components/work/workTypes";
 
-type RunItemNode = TaskRunItemsQuery["taskRunItems"]["items"][number];
+type RunItemNode = WorkTaskRunItemsQuery["taskRunItems"]["edges"][number]["node"];
 
 export function TaskRunTranscript({
   run,
   liveItems = []
 }: {
-  run: TaskRun;
+  run: WorkTaskRun;
   liveItems?: readonly TaskRunItem[];
 }) {
-  const { data, error, loading, fetchMore } = useQuery(TaskRunItemsDocument, {
+  const runId = run.runId;
+  const role = runRole(run);
+  const { data, error, loading, fetchMore } = useQuery(WorkTaskRunItemsDocument, {
     fetchPolicy: "cache-and-network",
-    variables: { runId: run.id, first: 50 }
+    variables: { runId, first: 50 }
   });
   const [olderItems, setOlderItems] = React.useState<readonly TaskRunItem[]>([]);
   const [pageInfoOverride, setPageInfoOverride] = React.useState<{
@@ -32,10 +35,9 @@ export function TaskRunTranscript({
   const [olderPageError, setOlderPageError] = React.useState<string | null>(null);
   const [expandedActivities, setExpandedActivities] = React.useState<Set<string>>(() => new Set());
   const pageInfo = pageInfoOverride ?? data?.taskRunItems.pageInfo ?? null;
-
   const currentItems = React.useMemo(
-    () => data?.taskRunItems.items.map((item) => mapNode(item, run)) ?? [],
-    [data?.taskRunItems.items, run]
+    () => data?.taskRunItems.edges.map((edge) => mapNode(edge.node, role)) ?? [],
+    [data?.taskRunItems.edges, role]
   );
   const items = React.useMemo(
     () => mergeTaskRunItems(olderItems, currentItems, liveItems),
@@ -45,38 +47,33 @@ export function TaskRunTranscript({
   const toggleActivity = React.useCallback((id: string) => {
     setExpandedActivities((previous) => {
       const next = new Set(previous);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }, []);
   const loadOlder = React.useCallback(async () => {
-    if (!pageInfo?.hasNextPage || loadingOlder) {
-      return;
-    }
+    if (!pageInfo?.hasNextPage || loadingOlder) return;
     setLoadingOlder(true);
     setOlderPageError(null);
     try {
       const result = await fetchMore({
-        variables: { runId: run.id, after: pageInfo.endCursor, first: 50 }
+        variables: { runId, after: pageInfo.endCursor, first: 50 }
       });
       const next = result.data?.taskRunItems;
-      if (!next) {
-        return;
-      }
+      if (!next) return;
       setOlderItems((previous) =>
-        mergeTaskRunItems(next.items.map((item) => mapNode(item, run)), previous)
+        mergeTaskRunItems(next.edges.map((edge) => mapNode(edge.node, role)), currentItems, previous)
       );
       setPageInfoOverride(next.pageInfo);
     } catch (caught) {
-      setOlderPageError(caught instanceof Error ? caught.message : "Older transcript items could not be loaded.");
+      setOlderPageError(
+        caught instanceof Error ? caught.message : "Older transcript items could not be loaded."
+      );
     } finally {
       setLoadingOlder(false);
     }
-  }, [fetchMore, loadingOlder, pageInfo, run]);
+  }, [currentItems, fetchMore, loadingOlder, pageInfo, role, runId]);
 
   if (loading && entries.length === 0) {
     return <TranscriptSystemNotice label="Loading">Agent transcript...</TranscriptSystemNotice>;
@@ -94,7 +91,7 @@ export function TaskRunTranscript({
 
   return (
     <Transcript
-      ariaLabel={`${runRoleLabel(run)} agent transcript`}
+      ariaLabel={`${roleLabel(role)} agent transcript`}
       agentStatus="IDLE"
       awaitingAssistantTurn={false}
       density="embedded"
@@ -113,10 +110,14 @@ export function TaskRunTranscript({
   );
 }
 
-function mapNode(node: RunItemNode, run: TaskRun): TaskRunItem {
-  return mapTaskRunItem(node, run.role);
+function mapNode(node: RunItemNode, role: TaskRunRole): TaskRunItem {
+  return mapTaskRunItem(node, role);
 }
 
-function runRoleLabel(run: TaskRun): string {
-  return run.role === "reviewer" ? "Reviewer" : "Executor";
+function runRole(run: WorkTaskRun): TaskRunRole {
+  return run.kind.toLowerCase() as TaskRunRole;
+}
+
+function roleLabel(role: TaskRunRole): string {
+  return role.charAt(0).toUpperCase() + role.slice(1);
 }

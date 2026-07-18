@@ -1,32 +1,29 @@
 import React from "react";
-import { Button } from "@astryxdesign/core/Button";
-import { Selector } from "@astryxdesign/core/Selector";
 import * as stylex from "@stylexjs/stylex";
-import { X } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import {
   ArtifactDetailPanel,
   ArtifactDownloadAction,
   type ArtifactDetail
 } from "./ArtifactDetailPanel";
 import type { ChatDetailTarget } from "./chatDetailTypes";
-import { TaskDetailQueryPanel } from "./task/TaskDetailQueryPanel";
+import { WorkTaskDetailContainer } from "@/components/work/detail/WorkTaskDetailContainer";
+import { ArtifactVersionSelector } from "./ArtifactVersionSelector";
+import { ChatDetailCloseButton } from "./ChatDetailCloseButton";
+import { normalizeWorkSearch } from "@/components/work/workTypes";
 
 export function ChatDetailRail({
   target,
   motionState,
   onChangeVersion,
   onClose,
-  onMotionEnd,
-  onCancelTask,
-  onResumeTask
+  onMotionEnd
 }: {
   target: ChatDetailTarget;
   motionState: "opening" | "entering" | "open" | "exiting";
   onChangeVersion: (version: string) => void;
   onClose: () => void;
   onMotionEnd: () => void;
-  onCancelTask?: (taskId: string) => void | Promise<void>;
-  onResumeTask?: (taskId: string, message?: string) => void | Promise<void>;
 }) {
   const railRef = React.useRef<HTMLElement>(null);
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
@@ -146,7 +143,10 @@ export function ChatDetailRail({
           {target.type === "task" ? (
             <div {...stylex.props(styles.taskTitleRow)}>
               <h2 {...stylex.props(styles.title)}>{title}</h2>
-              <CloseButton closeButtonRef={closeButtonRef} onClose={onClose} />
+              <div {...stylex.props(styles.actions)}>
+                <Link to="/work/tasks/$taskId" params={{ taskId: target.taskId }} search={(current) => normalizeWorkSearch(current)} {...stylex.props(styles.workLink)}>Open in Work</Link>
+                <ChatDetailCloseButton closeButtonRef={closeButtonRef} onClose={onClose} />
+              </div>
             </div>
           ) : (
             <>
@@ -160,7 +160,7 @@ export function ChatDetailRail({
                 </div>
                 <div {...stylex.props(styles.actions)}>
                   <ArtifactDownloadAction detail={artifactDetail} />
-                  <CloseButton closeButtonRef={closeButtonRef} onClose={onClose} />
+                  <ChatDetailCloseButton closeButtonRef={closeButtonRef} onClose={onClose} />
                 </div>
               </div>
               <h2 {...stylex.props(styles.title)}>{title}</h2>
@@ -171,10 +171,9 @@ export function ChatDetailRail({
           {target.type === "artifact" ? (
             <ArtifactDetailPanel version={target.version} onDetailChange={updateArtifactDetail} />
           ) : (
-            <TaskDetailQueryPanel
+            <WorkTaskDetailContainer
+              compact
               onTitleChange={handleTaskTitleChange}
-              onCancelTask={onCancelTask}
-              onResumeTask={onResumeTask}
               taskId={target.taskId}
             />
           )}
@@ -193,62 +192,6 @@ function focusableElements(root: HTMLElement | null): HTMLElement[] {
       'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
     )
   ).filter((element) => element.getAttribute("aria-hidden") !== "true");
-}
-
-function CloseButton({
-  closeButtonRef,
-  onClose
-}: {
-  closeButtonRef: React.RefObject<HTMLButtonElement | null>;
-  onClose: () => void;
-}) {
-  return (
-    <Button
-      ref={closeButtonRef}
-      type="button"
-      variant="ghost"
-      size="sm"
-      label="Close detail"
-      icon={<X aria-hidden="true" size={16} />}
-      isIconOnly
-      onClick={onClose}
-    />
-  );
-}
-
-function ArtifactVersionSelector({
-  detail,
-  selectedVersion,
-  onChangeVersion
-}: {
-  detail: ArtifactDetail | null;
-  selectedVersion: string;
-  onChangeVersion: (version: string) => void;
-}) {
-  if (!detail || detail.versions.length === 0) {
-    return null;
-  }
-
-  const options = detail.versions.map((version) => ({
-    value: version.artifactVersionId,
-    label: `Version ${version.versionIndex}`
-  }));
-
-  return (
-    <div {...stylex.props(styles.versionSelector)}>
-      <Selector
-        isDisabled={detail.versions.length <= 1}
-        isLabelHidden
-        label="Artifact version"
-        onChange={onChangeVersion}
-        options={options}
-        placement="below"
-        size="sm"
-        value={selectedVersion}
-        width={128}
-      />
-    </div>
-  );
 }
 
 const styles = stylex.create({
@@ -308,6 +251,15 @@ const styles = stylex.create({
     alignItems: "start",
     gap: 8
   },
+  workLink: {
+    minHeight: 30,
+    display: "inline-flex",
+    alignItems: "center",
+    color: "var(--noema-pine-700)",
+    fontSize: 12,
+    fontWeight: 650,
+    textDecoration: "none"
+  },
   title: {
     margin: 0,
     color: "var(--noema-text-primary)",
@@ -315,10 +267,6 @@ const styles = stylex.create({
     fontWeight: 650,
     lineHeight: 1.25,
     overflowWrap: "anywhere"
-  },
-  versionSelector: {
-    alignSelf: "start",
-    width: 128
   },
   body: {
     minHeight: 0,

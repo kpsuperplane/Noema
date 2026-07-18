@@ -1,0 +1,57 @@
+import * as React from "react";
+import { Button } from "@astryxdesign/core/Button";
+import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import * as stylex from "@stylexjs/stylex";
+import type { WorkProject } from "./workTypes";
+import type { TaskCommandDraft, TaskCommandSubject } from "./useTaskCommands";
+import { taskActionLabel } from "./taskActionModel";
+
+export function TaskActionDialog({ action, task, projects, busy, acknowledging, requiresAcknowledgement, actionUnavailable, error, onAcknowledge, onClose, onSubmit }: { action: string | null; task: TaskCommandSubject; projects: readonly WorkProject[]; busy: boolean; acknowledging: boolean; requiresAcknowledgement: boolean; actionUnavailable: boolean; error: string | null; onAcknowledge: () => void; onClose: () => void; onSubmit: (draft: TaskCommandDraft) => Promise<void> }) {
+  const [message, setMessage] = React.useState("");
+  const [title, setTitle] = React.useState(task.title);
+  const [description, setDescription] = React.useState(task.description ?? "");
+  const [projectId, setProjectId] = React.useState(task.project?.projectId ?? "");
+  const [approvalDecision, setApprovalDecision] = React.useState<"APPROVED" | "DECLINED">("APPROVED");
+  if (!action) return null;
+  const requiresMessage = action === "ANSWER" || action === "REQUEST_CHANGES";
+  const approval = action === "ANSWER" && task.activeGate?.kind === "APPROVAL";
+  return (
+    <Dialog isOpen onOpenChange={(open) => !open && onClose()} purpose="form" width={560} aria-label={actionTitle(action)}>
+      <div {...stylex.props(styles.dialog)}>
+        <DialogHeader title={actionTitle(action)} subtitle={actionDescription(action)} onOpenChange={(open) => !open && onClose()} />
+        <form {...stylex.props(styles.form)} onSubmit={(event) => { event.preventDefault(); void onSubmit({ message, title, description, projectId: projectId || null, approvalDecision: approval ? approvalDecision : undefined }).catch(() => undefined); }}>
+          {action === "EDIT" ? <><label {...stylex.props(styles.field)}><span>Title</span><input autoFocus value={title} required {...stylex.props(styles.input)} onChange={(event) => setTitle(event.currentTarget.value)} /></label><label {...stylex.props(styles.field)}><span>Description</span><textarea value={description} rows={5} {...stylex.props(styles.input, styles.textarea)} onChange={(event) => setDescription(event.currentTarget.value)} /></label><label {...stylex.props(styles.field)}><span>Project</span><select value={projectId} {...stylex.props(styles.input)} onChange={(event) => setProjectId(event.currentTarget.value)}><option value="">No project</option>{task.project && !projects.some((project) => project.projectId === task.project?.projectId) ? <option value={task.project.projectId}>{task.project.name ?? "Current project"}</option> : null}{projects.filter((project) => !project.archivedAt || project.projectId === task.project?.projectId).map((project) => <option key={project.projectId} value={project.projectId}>{project.name}</option>)}</select></label></> : null}
+          {approval ? <label {...stylex.props(styles.field)}><span>Decision</span><select value={approvalDecision} {...stylex.props(styles.input)} onChange={(event) => setApprovalDecision(event.currentTarget.value as "APPROVED" | "DECLINED")}><option value="APPROVED">Approve</option><option value="DECLINED">Decline</option></select></label> : null}
+          {action === "ANSWER" || action === "RETRY" || action === "REQUEST_CHANGES" || action === "CANCEL" ? <label {...stylex.props(styles.field)}><span>{messageLabel(action)}</span><textarea autoFocus value={message} required={requiresMessage} rows={5} {...stylex.props(styles.input, styles.textarea)} onChange={(event) => setMessage(event.currentTarget.value)} /></label> : null}
+          {requiresAcknowledgement ? <div role="alert" {...stylex.props(styles.stale)}><span>This task changed while the dialog was open. Review the latest command target before submitting your saved draft.</span><Button type="button" size="sm" variant="secondary" label="Review latest task" isLoading={acknowledging} isDisabled={busy || acknowledging} onClick={onAcknowledge} /></div> : null}
+          {actionUnavailable ? <p role="alert" {...stylex.props(styles.error)}>This action is no longer available for the latest task version. Your draft remains available until you close the dialog.</p> : null}
+          {error ? <p role="alert" {...stylex.props(styles.error)}>{error}</p> : null}
+          <div {...stylex.props(styles.actions)}><Button type="button" size="sm" variant="ghost" label="Cancel" isDisabled={busy} onClick={onClose} /><Button type="submit" size="sm" variant={action === "CANCEL" ? "destructive" : "primary"} label={action === "REQUEST_CHANGES" ? "Request changes" : taskActionLabel(action, false)} isLoading={busy} isDisabled={busy || requiresAcknowledgement || actionUnavailable || (requiresMessage && !message.trim()) || (action === "EDIT" && !title.trim())} /></div>
+        </form>
+      </div>
+    </Dialog>
+  );
+}
+
+function actionTitle(action: string): string {
+  const labels: Record<string, string> = { EDIT: "Edit Inbox task", QUEUE: "Queue this task?", ANSWER: "Answer this request", RETRY: "Retry this task", ACCEPT: "Accept this result?", REQUEST_CHANGES: "Request changes", CANCEL: "Cancel this task?", REOPEN: "Reopen this task?" };
+  return labels[action] ?? "Update task";
+}
+
+function actionDescription(action: string): string {
+  if (action === "QUEUE") return "This confirms the current Inbox version and authorizes planning.";
+  if (action === "REOPEN") return "Historic runs and evidence stay intact; the new cycle starts in Inbox.";
+  if (action === "CANCEL") return "Active work is fenced immediately. Historic evidence remains available.";
+  return "Noema will apply this command to the task version shown when the dialog opened.";
+}
+
+function messageLabel(action: string): string {
+  if (action === "ANSWER") return "Response";
+  if (action === "REQUEST_CHANGES") return "Feedback";
+  if (action === "RETRY") return "Retry guidance (optional)";
+  return "Reason (optional)";
+}
+
+const styles = stylex.create({
+  dialog: { display: "grid" }, form: { display: "grid", gap: 16, padding: 20 }, field: { display: "grid", gap: 6, color: "var(--foreground)", fontSize: 13, fontWeight: 600 }, input: { width: "100%", minHeight: 38, borderWidth: 1, borderStyle: "solid", borderColor: "var(--border)", borderRadius: 8, backgroundColor: "var(--background)", paddingBlock: 8, paddingInline: 10, color: "var(--foreground)", font: "inherit", ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--ring)", outlineOffset: 2 } }, textarea: { resize: "vertical", lineHeight: 1.5 }, stale: { display: "grid", justifyItems: "start", gap: 8, borderRadius: 9, backgroundColor: "var(--clay-50)", padding: 10, color: "var(--clay-700)", fontSize: 12, lineHeight: 1.45 }, error: { margin: 0, color: "var(--destructive)", fontSize: 13, lineHeight: 1.45 }, actions: { display: "flex", justifyContent: "flex-end", gap: 8 }
+});

@@ -6,6 +6,7 @@ import type { ChatDetailTarget } from "./chatDetail/chatDetailTypes";
 import { Composer } from "./Composer";
 import { Transcript } from "./Transcript";
 import { TranscriptLoadingSkeleton } from "./transcript/TranscriptLoadingSkeleton";
+import { ChatWorkPanel } from "./work/ChatWorkPanel";
 import {
   type ShellSurfaceVisibility,
   useShellSurface
@@ -85,6 +86,7 @@ export function ChatSurface({
   const composerDockRef = React.useRef<HTMLDivElement>(null);
   const [composerDockHeight, setComposerDockHeight] = React.useState(96);
   const [detailTarget, setDetailTarget] = React.useState<ChatDetailTarget | null>(null);
+  const [workPanelOpen, setWorkPanelOpen] = React.useState(false);
   const [detailMotionState, setDetailMotionState] = React.useState<DetailMotionState>("open");
   const detailReservesSpace = detailTarget && (detailMotionState === "entering" || detailMotionState === "open");
   const detailRail = useResizable({
@@ -187,6 +189,7 @@ export function ChatSurface({
       aria-label="Noema chat"
     >
       <div data-slot="chat-main-pane" {...stylex.props(styles.mainPane, detailReservesSpace && styles.mainPaneWithDetail)}>
+        <ChatWorkPanel open={workPanelOpen} onToggle={() => setWorkPanelOpen((value) => !value)} onOpenDetail={openDetail} />
         <div {...stylex.props(styles.contentLayer)}>
           {loadingInitialTranscript || transcript.length === 0 ? (
             <TranscriptLoadingSkeleton />

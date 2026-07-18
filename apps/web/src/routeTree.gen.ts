@@ -9,18 +9,26 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as WorkRouteImport } from './routes/work'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as MemoryRouteImport } from './routes/memory'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as WorkIndexRouteImport } from './routes/work/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as SettingsModelsRouteImport } from './routes/settings/models'
 import { Route as SettingsMemoryRouteImport } from './routes/settings/memory'
 import { Route as SettingsAgentsRouteImport } from './routes/settings/agents'
+import { Route as WorkTasksTaskIdRouteImport } from './routes/work/tasks/$taskId'
 import { Route as SettingsToolsWebRouteImport } from './routes/settings/tools/web'
 import { Route as SettingsToolsMcpsRouteImport } from './routes/settings/tools/mcps'
 import { Route as SettingsSystemProvidersRouteImport } from './routes/settings/system/providers'
 import { Route as SettingsSafetyUsageRouteImport } from './routes/settings/safety/usage'
 
+const WorkRoute = WorkRouteImport.update({
+  id: '/work',
+  path: '/work',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -35,6 +43,11 @@ const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const WorkIndexRoute = WorkIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WorkRoute,
 } as any)
 const SettingsIndexRoute = SettingsIndexRouteImport.update({
   id: '/',
@@ -55,6 +68,11 @@ const SettingsAgentsRoute = SettingsAgentsRouteImport.update({
   id: '/agents',
   path: '/agents',
   getParentRoute: () => SettingsRoute,
+} as any)
+const WorkTasksTaskIdRoute = WorkTasksTaskIdRouteImport.update({
+  id: '/tasks/$taskId',
+  path: '/tasks/$taskId',
+  getParentRoute: () => WorkRoute,
 } as any)
 const SettingsToolsWebRoute = SettingsToolsWebRouteImport.update({
   id: '/tools/web',
@@ -81,14 +99,17 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/memory': typeof MemoryRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/work': typeof WorkRouteWithChildren
   '/settings/agents': typeof SettingsAgentsRoute
   '/settings/memory': typeof SettingsMemoryRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/': typeof SettingsIndexRoute
+  '/work/': typeof WorkIndexRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
   '/settings/system/providers': typeof SettingsSystemProvidersRoute
   '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
   '/settings/tools/web': typeof SettingsToolsWebRoute
+  '/work/tasks/$taskId': typeof WorkTasksTaskIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -97,24 +118,29 @@ export interface FileRoutesByTo {
   '/settings/memory': typeof SettingsMemoryRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings': typeof SettingsIndexRoute
+  '/work': typeof WorkIndexRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
   '/settings/system/providers': typeof SettingsSystemProvidersRoute
   '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
   '/settings/tools/web': typeof SettingsToolsWebRoute
+  '/work/tasks/$taskId': typeof WorkTasksTaskIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/memory': typeof MemoryRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/work': typeof WorkRouteWithChildren
   '/settings/agents': typeof SettingsAgentsRoute
   '/settings/memory': typeof SettingsMemoryRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/': typeof SettingsIndexRoute
+  '/work/': typeof WorkIndexRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
   '/settings/system/providers': typeof SettingsSystemProvidersRoute
   '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
   '/settings/tools/web': typeof SettingsToolsWebRoute
+  '/work/tasks/$taskId': typeof WorkTasksTaskIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -122,14 +148,17 @@ export interface FileRouteTypes {
     | '/'
     | '/memory'
     | '/settings'
+    | '/work'
     | '/settings/agents'
     | '/settings/memory'
     | '/settings/models'
     | '/settings/'
+    | '/work/'
     | '/settings/safety/usage'
     | '/settings/system/providers'
     | '/settings/tools/mcps'
     | '/settings/tools/web'
+    | '/work/tasks/$taskId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -138,33 +167,46 @@ export interface FileRouteTypes {
     | '/settings/memory'
     | '/settings/models'
     | '/settings'
+    | '/work'
     | '/settings/safety/usage'
     | '/settings/system/providers'
     | '/settings/tools/mcps'
     | '/settings/tools/web'
+    | '/work/tasks/$taskId'
   id:
     | '__root__'
     | '/'
     | '/memory'
     | '/settings'
+    | '/work'
     | '/settings/agents'
     | '/settings/memory'
     | '/settings/models'
     | '/settings/'
+    | '/work/'
     | '/settings/safety/usage'
     | '/settings/system/providers'
     | '/settings/tools/mcps'
     | '/settings/tools/web'
+    | '/work/tasks/$taskId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   MemoryRoute: typeof MemoryRoute
   SettingsRoute: typeof SettingsRouteWithChildren
+  WorkRoute: typeof WorkRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/work': {
+      id: '/work'
+      path: '/work'
+      fullPath: '/work'
+      preLoaderRoute: typeof WorkRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings': {
       id: '/settings'
       path: '/settings'
@@ -185,6 +227,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/work/': {
+      id: '/work/'
+      path: '/'
+      fullPath: '/work/'
+      preLoaderRoute: typeof WorkIndexRouteImport
+      parentRoute: typeof WorkRoute
     }
     '/settings/': {
       id: '/settings/'
@@ -213,6 +262,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings/agents'
       preLoaderRoute: typeof SettingsAgentsRouteImport
       parentRoute: typeof SettingsRoute
+    }
+    '/work/tasks/$taskId': {
+      id: '/work/tasks/$taskId'
+      path: '/tasks/$taskId'
+      fullPath: '/work/tasks/$taskId'
+      preLoaderRoute: typeof WorkTasksTaskIdRouteImport
+      parentRoute: typeof WorkRoute
     }
     '/settings/tools/web': {
       id: '/settings/tools/web'
@@ -271,10 +327,23 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
   SettingsRouteChildren,
 )
 
+interface WorkRouteChildren {
+  WorkIndexRoute: typeof WorkIndexRoute
+  WorkTasksTaskIdRoute: typeof WorkTasksTaskIdRoute
+}
+
+const WorkRouteChildren: WorkRouteChildren = {
+  WorkIndexRoute: WorkIndexRoute,
+  WorkTasksTaskIdRoute: WorkTasksTaskIdRoute,
+}
+
+const WorkRouteWithChildren = WorkRoute._addFileChildren(WorkRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   MemoryRoute: MemoryRoute,
   SettingsRoute: SettingsRouteWithChildren,
+  WorkRoute: WorkRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

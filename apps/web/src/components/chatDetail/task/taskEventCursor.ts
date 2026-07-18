@@ -1,17 +1,16 @@
 import * as React from "react";
 
-const initialTaskEventCursor = "0";
 const taskEventCursorByTask = new Map<string, string>();
 
-export function taskEventCursor(taskId: string): string {
-  return taskEventCursorByTask.get(taskId) ?? initialTaskEventCursor;
+export function taskEventCursor(taskId: string): string | undefined {
+  return taskEventCursorByTask.get(taskId);
 }
 
 export function recordTaskEventCursor(taskId: string, cursor: string): void {
   taskEventCursorByTask.set(taskId, cursor);
 }
 
-export function useTaskEventCursor(taskId: string): readonly [string, (cursor: string) => void] {
+export function useTaskEventCursor(taskId: string): readonly [string | undefined, (cursor: string) => void] {
   const [localCursor, setLocalCursor] = React.useState(() => ({
     taskId,
     cursor: taskEventCursor(taskId)
