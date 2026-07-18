@@ -1,27 +1,35 @@
-use noema_workspaces::{ProjectId, WorkspaceId};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::{
-    ContractOrigin, RunKind, TaskComplexity, TaskContractId, TaskGateId, TaskGateKind, TaskId,
+    ContractOrigin, RunKind, TaskComplexity, TaskContractId, TaskGateId, TaskGateKind,
     TaskMessageId, TaskMessageKind, TaskRecoveryReason, TaskReviewVerdict, TaskSourceKind,
-    WorkDomainError, WorkEventId, WorkflowStageId, error::invalid_input,
+    WorkDomainError, WorkflowStageId, error::invalid_input,
 };
 
+#[path = "event_kind.rs"]
 mod event_kind;
+#[path = "event_schema.rs"]
 mod event_schema;
+#[path = "event_validation.rs"]
 mod event_validation;
+#[path = "event/record.rs"]
+mod record;
 
 pub use event_kind::{SafeErrorCode, WorkEventKind};
+pub use record::{WorkEventContext, WorkEventRecord};
 
 macro_rules! closed_event_enum {
     ($name:ident, $field:literal, { $( $variant:ident => $wire:literal ),+ $(,)? }) => {
+        #[doc = concat!("Closed persisted vocabulary for `", stringify!($name), "`.")]
+        #[allow(missing_docs)]
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
         pub enum $name {
             $(#[serde(rename = $wire)] $variant,)+
         }
 
         impl $name {
+            #[doc = concat!("Return the exact persisted value for `", stringify!($name), "`.")]
             #[must_use]
             pub const fn as_str(self) -> &'static str {
                 match self { $(Self::$variant => $wire,)+ }
@@ -147,6 +155,12 @@ impl WorkEventPayload {
 
     /// Reconstruct a persisted payload through the same closed schema checks
     /// used by typed constructors.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when the JSON exceeds the ledger size
+    /// limit, contains unsafe or kind-incompatible fields, or violates the
+    /// selected event kind's versioned schema.
     pub fn from_persisted(kind: WorkEventKind, value: Value) -> Result<Self, WorkDomainError> {
         Self::new(kind, value)
     }
@@ -157,7 +171,10 @@ impl WorkEventPayload {
     }
 
     /// Payload for `project.created`.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when `revision` is zero.
     pub fn project_created(revision: u64) -> Result<Self, WorkDomainError> {
         Self::new(
             WorkEventKind::ProjectCreated,
@@ -166,7 +183,11 @@ impl WorkEventPayload {
     }
 
     /// Payload for `project.updated`.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when `revision` is zero or changed fields
+    /// are empty or duplicated.
     pub fn project_updated(
         revision: u64,
         changed_fields: Vec<ProjectChangedField>,
@@ -178,7 +199,11 @@ impl WorkEventPayload {
     }
 
     /// Payload for project archive/reopen events.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when `kind` is not ProjectArchived or
+    /// ProjectReopened, or when `revision` is zero.
     pub fn project_lifecycle(kind: WorkEventKind, revision: u64) -> Result<Self, WorkDomainError> {
         if matches!(
             kind,
@@ -194,7 +219,10 @@ impl WorkEventPayload {
     }
 
     /// Payload for `task.captured`.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when revision or generation is zero.
     pub fn task_captured(
         revision: u64,
         generation: u64,
@@ -208,7 +236,11 @@ impl WorkEventPayload {
     }
 
     /// Payload for `task.updated`.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when revision or generation is zero, or
+    /// changed fields are empty or duplicated.
     pub fn task_updated(
         revision: u64,
         generation: u64,
@@ -221,7 +253,11 @@ impl WorkEventPayload {
     }
 
     /// Payload for `task.queued`.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when revision or generation is zero, or
+    /// contract presence is incompatible with the next run role.
     pub fn task_queued(
         revision: u64,
         generation: u64,
@@ -235,7 +271,10 @@ impl WorkEventPayload {
     }
 
     /// Payload for `task.stage_changed`.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when revision or generation is zero.
     pub fn task_stage_changed(
         revision: u64,
         generation: u64,
@@ -250,7 +289,10 @@ impl WorkEventPayload {
     }
 
     /// Payload for `task.cancelled`.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when revision or generation is zero.
     pub fn task_cancelled(
         revision: u64,
         generation: u64,
@@ -263,7 +305,10 @@ impl WorkEventPayload {
     }
 
     /// Payload for `task.reopened`.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when revision or generation is zero.
     pub fn task_reopened(
         revision: u64,
         generation: u64,
@@ -276,7 +321,11 @@ impl WorkEventPayload {
     }
 
     /// Payload for `task.accepted`.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when revision or generation is zero, or
+    /// submission and review identities are not valid prefixed identifiers.
     pub fn task_accepted(
         revision: u64,
         generation: u64,
@@ -290,7 +339,10 @@ impl WorkEventPayload {
     }
 
     /// Payload for `contract.created`.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when version, generation, or criterion count is zero.
     pub fn contract_created(
         contract_id: TaskContractId,
         version: u32,
@@ -307,7 +359,12 @@ impl WorkEventPayload {
     }
 
     /// Payload for `gate.opened`.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when generation is zero, the originating
+    /// run identity is malformed, or gate kind, recovery reason, and retry role
+    /// are inconsistent.
     pub fn gate_opened(
         gate_id: TaskGateId,
         generation: u64,
@@ -323,7 +380,10 @@ impl WorkEventPayload {
     }
 
     /// Payload for `gate.resolved`.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when generation is zero.
     pub fn gate_resolved(
         gate_id: TaskGateId,
         generation: u64,
@@ -338,7 +398,10 @@ impl WorkEventPayload {
     }
 
     /// Payload for `gate.superseded`.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when generation is zero.
     pub fn gate_superseded(
         gate_id: TaskGateId,
         generation: u64,
@@ -352,7 +415,10 @@ impl WorkEventPayload {
     }
 
     /// Payload for `task.message_appended`.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when generation is zero.
     pub fn task_message_appended(
         message_id: TaskMessageId,
         generation: u64,
@@ -367,7 +433,11 @@ impl WorkEventPayload {
     }
 
     /// Payload for `task.message_consumed`.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when generation is zero or the consuming
+    /// run identity is not a valid `run:` identifier.
     pub fn task_message_consumed(
         message_id: TaskMessageId,
         generation: u64,
@@ -380,7 +450,11 @@ impl WorkEventPayload {
     }
 
     /// Payload for `run.queued`.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when generation, review round, contract
+    /// presence, or parent run identity is incompatible with the queued role.
     pub fn run_queued(
         run_kind: RunKind,
         generation: u64,
@@ -396,7 +470,11 @@ impl WorkEventPayload {
     }
 
     /// Payload for run claimed/started events.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when `kind` is not RunClaimed or RunStarted,
+    /// generation is zero, or review round is incompatible with the run role.
     pub fn run_lifecycle(
         kind: WorkEventKind,
         run_kind: RunKind,
@@ -418,7 +496,10 @@ impl WorkEventPayload {
     }
 
     /// Payload for `run.heartbeat`.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when generation is zero.
     pub fn run_heartbeat(
         run_kind: RunKind,
         generation: u64,
@@ -433,7 +514,11 @@ impl WorkEventPayload {
     }
 
     /// Payload for `run.completed`.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when generation is zero or the terminal kind
+    /// is incompatible with the run role.
     pub fn run_completed(
         run_kind: RunKind,
         generation: u64,
@@ -446,7 +531,10 @@ impl WorkEventPayload {
     }
 
     /// Payload for `run.waiting_for_approval`.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when generation is zero.
     pub fn run_waiting_for_approval(
         run_kind: RunKind,
         generation: u64,
@@ -460,7 +548,11 @@ impl WorkEventPayload {
     }
 
     /// Payload for run interrupted/failed events.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when `kind` is not RunInterrupted or
+    /// RunFailed, or when generation is zero.
     pub fn run_failure(
         kind: WorkEventKind,
         run_kind: RunKind,
@@ -486,7 +578,11 @@ impl WorkEventPayload {
     }
 
     /// Payload for run cancellation events.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when `kind` is not RunCancelRequested or
+    /// RunCancelled, or when generation is zero.
     pub fn run_cancelled(
         kind: WorkEventKind,
         run_kind: RunKind,
@@ -510,7 +606,11 @@ impl WorkEventPayload {
     }
 
     /// Payload for `submission.created`.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when the submission identity is malformed,
+    /// or review round or criterion count is zero.
     pub fn submission_created(
         submission_id: String,
         contract_id: TaskContractId,
@@ -525,7 +625,12 @@ impl WorkEventPayload {
     }
 
     /// Payload for `review.created`.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when review or submission identities are
+    /// malformed, review round or attempt index is zero, or the superseded
+    /// review identity is malformed.
     pub fn review_created(
         review_id: String,
         submission_id: String,
@@ -541,171 +646,61 @@ impl WorkEventPayload {
         )
     }
 
-    /// Payload for notification queue/delivery/failure events.
-    #[must_use]
-    pub fn notification(
-        kind: WorkEventKind,
+    /// Payload for `notification.queued`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when the notification identity or source
+    /// event sequence is invalid.
+    pub fn notification_queued(
         notification_id: String,
         source_event_sequence: u64,
         notification_kind: NotificationKind,
-        destination_kind: Option<NotificationDestination>,
-        attempt_count: Option<u32>,
-        error_code: Option<SafeErrorCode>,
-        retryable: Option<bool>,
+        destination_kind: NotificationDestination,
     ) -> Result<Self, WorkDomainError> {
-        let value = match kind {
-            WorkEventKind::NotificationQueued => {
-                json!({"v": 1, "notification_id": notification_id, "source_event_sequence": source_event_sequence, "notification_kind": notification_kind, "destination_kind": destination_kind})
-            }
-            WorkEventKind::NotificationDelivered => {
-                json!({"v": 1, "notification_id": notification_id, "source_event_sequence": source_event_sequence, "notification_kind": notification_kind, "attempt_count": attempt_count})
-            }
-            WorkEventKind::NotificationFailed => {
-                json!({"v": 1, "notification_id": notification_id, "source_event_sequence": source_event_sequence, "notification_kind": notification_kind, "attempt_count": attempt_count, "error_code": error_code, "retryable": retryable})
-            }
-            _ => {
-                return Err(invalid_input(
-                    "event.kind",
-                    "notification payload requires a notification kind",
-                ));
-            }
-        };
-        Self::new(kind, value)
+        Self::new(
+            WorkEventKind::NotificationQueued,
+            json!({"v": 1, "notification_id": notification_id, "source_event_sequence": source_event_sequence, "notification_kind": notification_kind, "destination_kind": destination_kind}),
+        )
     }
-}
 
-/// Immutable event appended to the global Work ledger.  `non_exhaustive`
-/// prevents downstream crates from constructing an arbitrary kind/payload pair
-/// with a struct literal; use [`WorkEventRecord::new`] and a typed
-/// [`WorkEventPayload`] instead.
-#[non_exhaustive]
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct WorkEventRecord {
-    /// Stable event identity.
-    pub event_id: WorkEventId,
-    /// Monotonic SQLite ledger cursor.
-    pub event_sequence: u64,
-    /// Closed event vocabulary value.
-    pub kind: WorkEventKind,
-    /// Owning workspace.
-    pub workspace_id: WorkspaceId,
-    /// Optional project affected by the event.
-    pub project_id: Option<ProjectId>,
-    /// Optional task affected by the event.
-    pub task_id: Option<TaskId>,
-    /// Optional run affected by the event.
-    pub run_id: Option<String>,
-    /// Actor/component that caused the event.
-    pub actor_id: String,
-    /// Direct causation identifier.
-    pub causation_id: Option<String>,
-    /// Required cross-run/user correlation identifier.
-    pub correlation_id: String,
-    /// Redacted UI-safe payload beginning with `{"v": 1}`.
-    pub safe_payload: Value,
-    /// Creation timestamp.
-    pub created_at: String,
-    /// Constructor provenance retained outside the public wire shape.
-    #[serde(skip)]
-    constructed_kind: WorkEventKind,
-}
-
-impl WorkEventRecord {
-    /// Construct an event from a typed, kind-matched payload.
-    pub fn new(
-        event_id: WorkEventId,
-        event_sequence: u64,
-        workspace_id: WorkspaceId,
-        project_id: Option<ProjectId>,
-        task_id: Option<TaskId>,
-        run_id: Option<String>,
-        actor_id: String,
-        causation_id: Option<String>,
-        correlation_id: String,
-        payload: WorkEventPayload,
-        created_at: String,
+    /// Payload for `notification.delivered`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when the notification identity, source
+    /// event sequence, or delivery attempt count is invalid.
+    pub fn notification_delivered(
+        notification_id: String,
+        source_event_sequence: u64,
+        notification_kind: NotificationKind,
+        attempt_count: u32,
     ) -> Result<Self, WorkDomainError> {
-        let record = Self {
-            event_id,
-            event_sequence,
-            kind: payload.kind,
-            workspace_id,
-            project_id,
-            task_id,
-            run_id,
-            actor_id,
-            causation_id,
-            correlation_id,
-            safe_payload: payload.value,
-            created_at,
-            constructed_kind: payload.kind,
-        };
-        record.validate()?;
-        Ok(record)
+        Self::new(
+            WorkEventKind::NotificationDelivered,
+            json!({"v": 1, "notification_id": notification_id, "source_event_sequence": source_event_sequence, "notification_kind": notification_kind, "attempt_count": attempt_count}),
+        )
     }
-}
 
-impl WorkEventRecord {
-    /// Validate event identity and causal metadata.
-    pub fn validate(&self) -> Result<(), WorkDomainError> {
-        if self.kind != self.constructed_kind {
-            return Err(invalid_input(
-                "work_event.kind",
-                "public kind does not match the typed constructor kind",
-            ));
-        }
-        if self.event_sequence == 0 {
-            return Err(invalid_input(
-                "work_event.event_sequence",
-                "sequence must be positive",
-            ));
-        }
-        if self.actor_id.trim().is_empty() || self.correlation_id.trim().is_empty() {
-            return Err(invalid_input(
-                "work_event",
-                "actor and correlation cannot be blank",
-            ));
-        }
-        validate_record_identifier(&self.actor_id, "work_event.actor_id", &["actor:"])?;
-        validate_record_identifier(
-            &self.correlation_id,
-            "work_event.correlation_id",
-            &["correlation:"],
-        )?;
-        if let Some(causation_id) = &self.causation_id {
-            validate_record_identifier(
-                causation_id,
-                "work_event.causation_id",
-                &["event:", "command:", "run:"],
-            )?;
-        }
-        if let Some(run_id) = &self.run_id {
-            validate_record_identifier(run_id, "work_event.run_id", &["run:"])?;
-        }
-        if self.created_at.trim().is_empty() {
-            return Err(invalid_input(
-                "work_event.created_at",
-                "timestamp cannot be blank",
-            ));
-        }
-        event_validation::validate_payload(self.kind, &self.safe_payload)?;
-        Ok(())
+    /// Payload for `notification.failed`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when the notification identity, source
+    /// event sequence, delivery attempt count, or safe failure code is invalid.
+    pub fn notification_failed(
+        notification_id: String,
+        source_event_sequence: u64,
+        notification_kind: NotificationKind,
+        attempt_count: u32,
+        error_code: SafeErrorCode,
+        retryable: bool,
+    ) -> Result<Self, WorkDomainError> {
+        Self::new(
+            WorkEventKind::NotificationFailed,
+            json!({"v": 1, "notification_id": notification_id, "source_event_sequence": source_event_sequence, "notification_kind": notification_kind, "attempt_count": attempt_count, "error_code": error_code, "retryable": retryable}),
+        )
     }
-}
-
-fn validate_record_identifier(
-    value: &str,
-    field: &'static str,
-    prefixes: &[&str],
-) -> Result<(), WorkDomainError> {
-    if value.len() > 255
-        || value.trim().is_empty()
-        || value.chars().any(char::is_control)
-        || !prefixes.iter().any(|prefix| value.starts_with(prefix))
-    {
-        return Err(invalid_input(field, "identifier has an invalid shape"));
-    }
-    Ok(())
 }
 
 #[cfg(test)]

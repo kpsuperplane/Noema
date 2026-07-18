@@ -57,6 +57,12 @@ impl Default for TaskExecutionPolicy {
 
 impl TaskExecutionPolicy {
     /// Validate all persisted safety bounds.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when a configured limit exceeds its hard
+    /// bound, a positive limit is zero, or the audit interval exceeds the
+    /// provider continuation limit.
     pub fn validated(self) -> Result<Self, WorkDomainError> {
         if !(1..=MAX_TASK_PROVIDER_CONTINUATIONS).contains(&self.max_provider_continuations) {
             return Err(invalid_input(

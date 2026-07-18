@@ -38,7 +38,7 @@ pub use error::WorkDomainError;
 pub use event::{
     GateResolutionKind, GateSupersessionReason, NotificationDestination, NotificationKind,
     ProjectChangedField, RunCancellationReason, RunTerminalKind, SafeErrorCode, TaskChangedField,
-    TaskStageChangeReason, WorkEventKind, WorkEventPayload, WorkEventRecord,
+    TaskStageChangeReason, WorkEventContext, WorkEventKind, WorkEventPayload, WorkEventRecord,
 };
 pub use gate::{
     ApprovalDecision, TaskGateAnswer, TaskGateKind, TaskGateRecord, TaskGateState, TaskMessageKind,
@@ -53,7 +53,7 @@ pub use model_pool::{
 };
 pub use planning::{
     WorkFailedRunFacts, WorkReconciliationAction, WorkReconciliationSnapshot, WorkTransition,
-    WorkTransitionPlan, plan_reconciliation_action, plan_work_transition,
+    WorkTransitionPlan, plan_reconciliation_action, plan_work_transition, reported_failure_facts,
 };
 pub use policy::{
     DEFAULT_TASK_MAX_ACTIVE_MINUTES, DEFAULT_TASK_MAX_AUTOMATIC_RETRIES,

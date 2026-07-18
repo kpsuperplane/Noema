@@ -177,6 +177,11 @@ pub struct NewAgentRun {
 
 impl NewAgentRun {
     /// Validate role/contract lineage before persistence.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when generation, agent identity, role and
+    /// trigger lineage, provider selection, or execution policy is invalid.
     pub fn validated(mut self) -> Result<Self, WorkDomainError> {
         if self.task_generation == 0 {
             return Err(invalid_input(
@@ -281,6 +286,11 @@ pub struct AgentRunRecord {
 
 impl AgentRunRecord {
     /// Validate the role/contract invariant on a persisted run.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when the run role, contract, review round,
+    /// trigger identities, and built-in agent identity are inconsistent.
     pub fn validate_contract_lineage(&self) -> Result<(), WorkDomainError> {
         validate_run_lineage(
             self.run_kind,

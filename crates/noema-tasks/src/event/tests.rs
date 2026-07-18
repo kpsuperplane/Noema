@@ -3,7 +3,7 @@ use std::str::FromStr;
 use noema_workspaces::{ProjectId, WorkspaceId};
 use serde_json::json;
 
-use super::{WorkEventKind, WorkEventPayload, WorkEventRecord};
+use super::{WorkEventContext, WorkEventKind, WorkEventPayload, WorkEventRecord};
 use crate::{
     ContractOrigin, GateResolutionKind, GateSupersessionReason, NotificationDestination,
     NotificationKind, ProjectChangedField, RunCancellationReason, RunKind, RunTerminalKind,
@@ -30,13 +30,15 @@ fn record(payload: WorkEventPayload) -> WorkEventRecord {
     WorkEventRecord::new(
         WorkEventId::new("event:1").unwrap(),
         1,
-        WorkspaceId::new("workspace:personal").unwrap(),
-        Some(ProjectId::new("project:alpha").unwrap()),
-        Some(TaskId::new("task:one").unwrap()),
-        None,
-        "actor:system".to_string(),
-        None,
-        "correlation:one".to_string(),
+        WorkEventContext {
+            workspace_id: WorkspaceId::new("workspace:personal").unwrap(),
+            project_id: Some(ProjectId::new("project:alpha").unwrap()),
+            task_id: Some(TaskId::new("task:one").unwrap()),
+            run_id: None,
+            actor_id: "actor:system".to_string(),
+            causation_id: None,
+            correlation_id: "correlation:one".to_string(),
+        },
         payload,
         "2026-01-01T00:00:00Z".to_string(),
     )
@@ -82,6 +84,67 @@ fn persisted_payload_reconstruction_roundtrips_and_fails_closed() {
     invalid_value["v"] = json!(2);
     assert!(
         WorkEventPayload::from_persisted(WorkEventKind::ProjectCreated, invalid_value).is_err()
+    );
+}
+
+#[test]
+fn notification_constructors_preserve_exact_persisted_shapes() {
+    let queued = WorkEventPayload::notification_queued(
+        "notification:one".to_string(),
+        7,
+        NotificationKind::TaskCreated,
+        NotificationDestination::HumanPrimaryConversation,
+    )
+    .unwrap();
+    assert_eq!(
+        queued.as_value(),
+        &json!({
+            "v": 1,
+            "notification_id": "notification:one",
+            "source_event_sequence": 7,
+            "notification_kind": "task_created",
+            "destination_kind": "human_primary_conversation"
+        })
+    );
+
+    let delivered = WorkEventPayload::notification_delivered(
+        "notification:one".to_string(),
+        7,
+        NotificationKind::TaskReviewReady,
+        2,
+    )
+    .unwrap();
+    assert_eq!(
+        delivered.as_value(),
+        &json!({
+            "v": 1,
+            "notification_id": "notification:one",
+            "source_event_sequence": 7,
+            "notification_kind": "task_review_ready",
+            "attempt_count": 2
+        })
+    );
+
+    let failed = WorkEventPayload::notification_failed(
+        "notification:one".to_string(),
+        7,
+        NotificationKind::TaskRecovery,
+        2,
+        SafeErrorCode::new("timeout").unwrap(),
+        false,
+    )
+    .unwrap();
+    assert_eq!(
+        failed.as_value(),
+        &json!({
+            "v": 1,
+            "notification_id": "notification:one",
+            "source_event_sequence": 7,
+            "notification_kind": "task_recovery",
+            "attempt_count": 2,
+            "error_code": "timeout",
+            "retryable": false
+        })
     );
 }
 
@@ -294,43 +357,33 @@ fn typed_payloads() -> Vec<(WorkEventKind, WorkEventPayload)> {
         ),
         (
             K::NotificationQueued,
-            WorkEventPayload::notification(
-                K::NotificationQueued,
+            WorkEventPayload::notification_queued(
                 "notification:one".to_string(),
                 1,
                 NotificationKind::TaskCreated,
-                Some(NotificationDestination::HumanPrimaryConversation),
-                None,
-                None,
-                None,
+                NotificationDestination::HumanPrimaryConversation,
             )
             .unwrap(),
         ),
         (
             K::NotificationDelivered,
-            WorkEventPayload::notification(
-                K::NotificationDelivered,
+            WorkEventPayload::notification_delivered(
                 "notification:one".to_string(),
                 1,
                 NotificationKind::TaskReviewReady,
-                None,
-                Some(1),
-                None,
-                None,
+                1,
             )
             .unwrap(),
         ),
         (
             K::NotificationFailed,
-            WorkEventPayload::notification(
-                K::NotificationFailed,
+            WorkEventPayload::notification_failed(
                 "notification:one".to_string(),
                 1,
                 NotificationKind::TaskRecovery,
-                None,
-                Some(1),
-                Some(safe_code()),
-                Some(false),
+                1,
+                safe_code(),
+                false,
             )
             .unwrap(),
         ),

@@ -25,6 +25,11 @@ pub struct ProjectRecord {
 
 impl ProjectRecord {
     /// Normalize and validate project-owned fields.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkspaceInputError`] when the name or timestamps are blank,
+    /// or when the persisted revision is zero.
     pub fn normalized(mut self) -> Result<Self, WorkspaceInputError> {
         self.name = self.name.trim().to_owned();
         if self.name.is_empty() {

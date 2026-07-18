@@ -7,7 +7,7 @@ use crate::{
 };
 
 /// Durable source/provenance classification for a captured task.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskSourceKind {
     /// Captured from the primary conversation without execution authorization.
@@ -17,13 +17,8 @@ pub enum TaskSourceKind {
     /// Created through Work UI.
     WorkUi,
     /// Created by a system/reconciliation action.
+    #[default]
     System,
-}
-
-impl Default for TaskSourceKind {
-    fn default() -> Self {
-        Self::System
-    }
 }
 
 impl TaskSourceKind {
@@ -81,6 +76,10 @@ pub struct TaskProvenance {
 
 impl TaskProvenance {
     /// Normalize optional references and validate the actor identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when the creating actor identity is blank.
     pub fn normalized(&self) -> Result<Self, WorkDomainError> {
         let created_by_actor_id = required(
             &self.created_by_actor_id,
@@ -147,6 +146,11 @@ pub struct TaskRecord {
 impl TaskRecord {
     /// Normalize and retain task-owned text/provenance instead of discarding
     /// the normalized values after validation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when title, provenance, generation,
+    /// revision, or required timestamps are invalid.
     pub fn normalized(&self) -> Result<Self, WorkDomainError> {
         let mut normalized = self.clone();
         normalized.title = required(&normalized.title, "task.title")?;
@@ -168,6 +172,10 @@ impl TaskRecord {
     }
 
     /// Validate task-owned invariants without consulting persistence.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] under the same conditions as [`Self::normalized`].
     pub fn validate(&self) -> Result<(), WorkDomainError> {
         self.normalized().map(|_| ())
     }

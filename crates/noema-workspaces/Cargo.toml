@@ -9,6 +9,9 @@ rust-version = "1.96"
 [lints]
 workspace = true
 
+[features]
+default = []
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"

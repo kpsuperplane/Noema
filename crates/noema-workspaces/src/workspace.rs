@@ -2,7 +2,7 @@ use std::{fmt, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{ProjectId, WorkspaceId, WorkspaceInputError};
+use crate::{WorkspaceId, WorkspaceInputError};
 
 /// The one exposed workspace in the first release.
 pub const PERSONAL_WORKSPACE_ID: &str = "workspace:personal";
@@ -72,6 +72,11 @@ pub struct WorkspaceRecord {
 
 impl WorkspaceRecord {
     /// Normalize and validate record-owned text and invariants.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkspaceInputError`] for blank required fields, a zero
+    /// revision, or an archived Personal workspace.
     pub fn normalized(mut self) -> Result<Self, WorkspaceInputError> {
         self.name = non_empty(self.name, "workspace.name")?;
         if self.revision == 0 {
@@ -110,6 +115,11 @@ pub struct WorkspaceMembership {
 
 impl WorkspaceMembership {
     /// Validate membership-owned fields.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkspaceInputError`] when the human identity or creation
+    /// timestamp is blank.
     pub fn normalized(mut self) -> Result<Self, WorkspaceInputError> {
         self.human_id = non_empty(self.human_id, "workspace_membership.human_id")?;
         if self.created_at.trim().is_empty() {
@@ -182,7 +192,10 @@ mod tests {
             role: WorkspaceRole::Member,
             created_at: "2026-01-01T00:00:00Z".to_string(),
         };
-        assert_eq!(membership.normalized().unwrap().human_id, "human:one");
+        assert_eq!(
+            membership.clone().normalized().unwrap().human_id,
+            "human:one"
+        );
 
         let mut blank_human = membership;
         blank_human.human_id = " ".to_string();
@@ -193,7 +206,7 @@ mod tests {
             role: WorkspaceRole::Owner,
             created_at: " ".to_string(),
         };
-        assert!(blank_timestamp.normalized().is_err());
+        assert!(blank_timestamp.clone().normalized().is_err());
         blank_timestamp.created_at = "2026-01-01T00:00:00Z".to_string();
         assert!(blank_timestamp.normalized().is_ok());
     }

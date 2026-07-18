@@ -346,7 +346,7 @@ fn required<'a>(
         .ok_or_else(|| invalid_input("work_event.safe_payload", format!("missing field {field}")))
 }
 
-fn string(value: &Value, field: &'static str) -> Result<&str, WorkDomainError> {
+fn string<'a>(value: &'a Value, field: &'static str) -> Result<&'a str, WorkDomainError> {
     value
         .as_str()
         .ok_or_else(|| invalid_input(field, "value must be a string"))

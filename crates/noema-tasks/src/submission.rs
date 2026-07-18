@@ -39,6 +39,12 @@ pub struct NewTaskSubmission {
 
 impl NewTaskSubmission {
     /// Normalize the submission and enforce exact criterion coverage.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when required text or review round is
+    /// invalid, criterion coverage is not exact, or artifact identities are
+    /// blank, duplicated, or exceed the submission limit.
     pub fn normalized(&self, expected_criterion_ids: &[String]) -> Result<Self, WorkDomainError> {
         if self.review_round == 0 {
             return Err(invalid_input(
@@ -106,7 +112,7 @@ impl NewTaskSubmission {
 }
 
 /// Immutable persisted executor submission.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TaskSubmissionRecord {
     /// Stable submission identity.
     pub submission_id: String,
@@ -131,7 +137,7 @@ pub struct TaskSubmissionRecord {
 }
 
 /// One immutable artifact-version link captured by a submission.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TaskSubmissionArtifactRecord {
     /// One-based artifact order.
     pub ordinal: u32,

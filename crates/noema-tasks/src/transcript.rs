@@ -205,7 +205,7 @@ pub struct NewAgentRunItem {
 }
 
 /// Persisted transcript item for one background run.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentRunItemRecord {
     /// Stable item id.
     pub item_id: String,

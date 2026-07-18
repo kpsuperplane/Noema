@@ -53,6 +53,12 @@ macro_rules! semantic_id {
 
         impl $name {
             /// Construct and validate an identifier.
+            ///
+            /// # Errors
+            ///
+            /// Returns [`WorkspaceInputError`] when the value is blank, too
+            /// long, contains control characters, or has the wrong semantic
+            /// prefix.
             pub fn new(value: impl Into<String>) -> Result<Self, WorkspaceInputError> {
                 Ok(Self(validate_id(value.into(), $kind, $prefix)?))
             }

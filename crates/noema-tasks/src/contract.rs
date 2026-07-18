@@ -117,6 +117,12 @@ pub struct TaskExecutionContract {
 
 impl TaskExecutionContract {
     /// Normalize and validate all immutable contract fields.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when versioning, request or plan text,
+    /// criteria, provider selections, execution policy, context, actor, or
+    /// timestamp fields violate the immutable contract invariants.
     pub fn normalized(mut self) -> Result<Self, WorkDomainError> {
         if self.version == 0 || self.task_generation == 0 {
             return Err(invalid_input(
@@ -189,6 +195,11 @@ pub struct TaskContractAmendment {
 
 impl TaskContractAmendment {
     /// Normalize amendment input before a new contract is assembled.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when feedback or replacement request text
+    /// is blank, or replacement criteria are empty, malformed, or non-unique.
     pub fn normalized(&self) -> Result<Self, WorkDomainError> {
         let feedback_markdown =
             required(&self.feedback_markdown, "change_request.feedback_markdown")?;

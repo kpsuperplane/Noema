@@ -2,9 +2,9 @@ use noema_workspaces::{ProjectId, WorkspaceId};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ContractOrigin, NewTaskValidationCriterion, TaskComplexity, TaskContractAmendment,
-    TaskContractId, TaskGateAnswer, TaskGateId, TaskId, TaskProvenance, WorkDomainError,
-    WorkEventId, criteria::normalize_new_criteria, error::invalid_input,
+    NewTaskValidationCriterion, TaskComplexity, TaskContractAmendment, TaskContractId,
+    TaskGateAnswer, TaskGateId, TaskId, TaskProvenance, WorkDomainError, WorkEventId,
+    criteria::normalize_new_criteria, error::invalid_input,
 };
 
 /// Common causality and idempotency metadata for every mutation.
@@ -22,6 +22,10 @@ pub struct CommandMeta {
 
 impl CommandMeta {
     /// Normalize and validate metadata before command dispatch.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when the actor or correlation identity is blank.
     pub fn normalized(&self) -> Result<Self, WorkDomainError> {
         let actor_id = required(&self.actor_id, "command.actor_id")?;
         let correlation_id = required(&self.correlation_id, "command.correlation_id")?;
@@ -47,6 +51,10 @@ pub struct TaskPrecondition {
 
 impl TaskPrecondition {
     /// Validate positive version fences.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when either revision or generation is zero.
     pub fn validate(&self) -> Result<(), WorkDomainError> {
         if self.expected_revision == 0 || self.expected_generation == 0 {
             return Err(invalid_input(
@@ -69,6 +77,10 @@ pub struct ProjectPrecondition {
 
 impl ProjectPrecondition {
     /// Validate a positive revision fence.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when the expected revision is zero.
     pub fn validate(&self) -> Result<(), WorkDomainError> {
         if self.expected_revision == 0 {
             return Err(invalid_input(
@@ -324,6 +336,11 @@ impl WorkCommand {
     /// reaches a store.  The store still rechecks durable preconditions inside
     /// its transaction, but no unchecked text or partial intent crosses this
     /// domain seam.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when command metadata, optimistic fences,
+    /// command-owned text, provenance, criteria, or intent combinations are invalid.
     pub fn normalized(self) -> Result<Self, WorkDomainError> {
         match self {
             Self::CaptureTask(mut command) => {
@@ -438,6 +455,10 @@ impl WorkCommand {
     }
 
     /// Validate without retaining the normalized value.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] under the same conditions as [`Self::normalized`].
     pub fn validate(&self) -> Result<(), WorkDomainError> {
         self.clone().normalized().map(|_| ())
     }
@@ -445,6 +466,11 @@ impl WorkCommand {
 
 impl DelegateExecutionIntent {
     /// Normalize and validate a complete delegated execution intent.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when the request or optional plan is blank,
+    /// or when the supplied criterion set is empty, malformed, or non-unique.
     pub fn normalized(mut self) -> Result<Self, WorkDomainError> {
         self.request_markdown = required(&self.request_markdown, "delegate.request_markdown")?;
         self.criteria = normalize_new_criteria(&self.criteria)?;
@@ -489,12 +515,6 @@ pub struct WorkCommandResult {
     pub event_id: WorkEventId,
     /// Last committed global event sequence.
     pub event_sequence: u64,
-}
-
-/// Internal helper preserving the ContractOrigin in delegated intent assembly.
-#[must_use]
-pub const fn delegated_origin() -> ContractOrigin {
-    ContractOrigin::Delegated
 }
 
 fn required(value: &str, field: &'static str) -> Result<String, WorkDomainError> {
@@ -660,8 +680,9 @@ mod tests {
         ];
 
         for command in commands {
+            let name = command.name();
             let normalized = command.normalized().unwrap();
-            assert_eq!(normalized.name(), command.name());
+            assert_eq!(normalized.name(), name);
             assert!(normalized.validate().is_ok());
         }
     }

@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::{WorkDomainError, error::invalid_input};
 
 /// Closed event vocabulary for the single global Work ledger.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WorkEventKind {
     #[serde(rename = "project.created")]
@@ -172,6 +173,11 @@ pub struct SafeErrorCode(String);
 
 impl SafeErrorCode {
     /// Validate a lower-snake-case error code without prose or secrets.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when the code is empty, longer than 64
+    /// bytes, or is not canonical lower snake case.
     pub fn new(value: impl Into<String>) -> Result<Self, WorkDomainError> {
         let value = value.into();
         if value.is_empty()

@@ -53,6 +53,12 @@ macro_rules! semantic_id {
 
         impl $name {
             /// Construct and validate an identifier.
+            ///
+            /// # Errors
+            ///
+            /// Returns [`WorkDomainError`] when the identifier is blank,
+            /// oversized, contains control characters, has the wrong prefix,
+            /// or has no value after its prefix.
             pub fn new(value: impl Into<String>) -> Result<Self, WorkDomainError> {
                 Ok(Self(validate_id(value.into(), $kind, $prefix)?))
             }

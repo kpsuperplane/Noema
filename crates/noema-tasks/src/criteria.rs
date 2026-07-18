@@ -19,6 +19,11 @@ pub struct TaskValidationCriterion {
 
 impl TaskValidationCriterion {
     /// Validate and normalize one criterion.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when the identity or description is blank,
+    /// or the ordinal is zero.
     pub fn normalized(&self) -> Result<Self, WorkDomainError> {
         let criterion_id = non_empty(&self.criterion_id, "criterion_id")?;
         let description = non_empty(&self.description, "description")?;
@@ -52,6 +57,10 @@ pub struct NewTaskValidationCriterion {
 
 impl NewTaskValidationCriterion {
     /// Normalize caller input while leaving id allocation to persistence.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when the description is blank or the ordinal is zero.
     pub fn normalized(&self) -> Result<Self, WorkDomainError> {
         if self.ordinal == 0 {
             return Err(invalid_input(
@@ -96,13 +105,13 @@ pub(crate) fn normalize_new_criteria(
                 "criterion ordinals must be unique",
             ));
         }
-        if let Some(criterion_id) = &criterion.criterion_id {
-            if !ids.insert(criterion_id) {
-                return Err(invalid_input(
-                    "criteria.criterion_id",
-                    "criterion IDs must be unique",
-                ));
-            }
+        if let Some(criterion_id) = &criterion.criterion_id
+            && !ids.insert(criterion_id)
+        {
+            return Err(invalid_input(
+                "criteria.criterion_id",
+                "criterion IDs must be unique",
+            ));
         }
         if !descriptions.insert(&criterion.description) {
             return Err(invalid_input(

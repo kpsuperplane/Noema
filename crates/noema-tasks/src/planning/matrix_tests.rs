@@ -1,4 +1,90 @@
 use super::*;
+use crate::SafeErrorCode;
+
+#[test]
+fn reported_failure_matrix_preserves_recovery_authority() {
+    struct Case {
+        error_code: &'static str,
+        retryable: bool,
+        retries_exhausted: bool,
+        expected: WorkReconciliationAction,
+    }
+
+    let cases = [
+        Case {
+            error_code: "temporary_transport",
+            retryable: true,
+            retries_exhausted: false,
+            expected: WorkReconciliationAction::QueueRun {
+                run_kind: RunKind::Executor,
+            },
+        },
+        Case {
+            error_code: "temporary_transport",
+            retryable: true,
+            retries_exhausted: true,
+            expected: WorkReconciliationAction::OpenRecoveryGate {
+                reason: TaskRecoveryReason::InfrastructureRetriesExhausted,
+                retry_run_kind: Some(RunKind::Executor),
+            },
+        },
+        Case {
+            error_code: "unsafe_effect_uncertain",
+            retryable: true,
+            retries_exhausted: false,
+            expected: WorkReconciliationAction::OpenRecoveryGate {
+                reason: TaskRecoveryReason::UnsafeEffectUncertain,
+                retry_run_kind: Some(RunKind::Executor),
+            },
+        },
+        Case {
+            error_code: "configuration_unavailable",
+            retryable: true,
+            retries_exhausted: false,
+            expected: WorkReconciliationAction::OpenRecoveryGate {
+                reason: TaskRecoveryReason::ConfigurationUnavailable,
+                retry_run_kind: Some(RunKind::Executor),
+            },
+        },
+        Case {
+            error_code: "invariant_fault",
+            retryable: true,
+            retries_exhausted: false,
+            expected: WorkReconciliationAction::OpenRecoveryGate {
+                reason: TaskRecoveryReason::InvariantFault,
+                retry_run_kind: None,
+            },
+        },
+        Case {
+            error_code: "unclassified_permanent_failure",
+            retryable: false,
+            retries_exhausted: false,
+            expected: WorkReconciliationAction::OpenRecoveryGate {
+                reason: TaskRecoveryReason::InvariantFault,
+                retry_run_kind: None,
+            },
+        },
+    ];
+
+    for case in cases {
+        let error_code = SafeErrorCode::new(case.error_code).expect("safe error code");
+        let facts = reported_failure_facts(
+            RunKind::Executor,
+            RunStatus::Failed,
+            &error_code,
+            case.retryable,
+            case.retries_exhausted,
+        );
+        let action = plan_reconciliation_action(WorkReconciliationSnapshot {
+            stage_behavior: WorkflowStageBehavior::Active,
+            has_current_contract: true,
+            failed_run: Some(facts),
+            ..Default::default()
+        })
+        .expect("reported failure should produce one safe action");
+        assert_eq!(action, case.expected, "error code {}", case.error_code);
+    }
+}
 
 #[test]
 fn reconciliation_failure_and_gate_matrix_is_fail_closed() {

@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    RunKind, TaskContractId, TaskGateId, TaskId, TaskMessageId, WorkDomainError,
-    error::invalid_input,
+    GateResolutionKind, RunKind, TaskContractId, TaskGateId, TaskId, TaskMessageId,
+    WorkDomainError, error::invalid_input,
 };
 
 /// Structured result of an Approval gate.
@@ -68,6 +68,48 @@ impl TaskGateKind {
             Self::Approval => "approval",
             Self::Recovery => "recovery",
         }
+    }
+
+    /// Whether this gate authorizes one resolution kind.
+    ///
+    /// The recovery reason and continuation role are part of the authority:
+    /// callers must not infer permission from the gate category alone.
+    #[must_use]
+    pub const fn allows_resolution(
+        self,
+        recovery_reason: Option<TaskRecoveryReason>,
+        retry_run_kind: Option<RunKind>,
+        resolution: GateResolutionKind,
+    ) -> bool {
+        matches!(
+            (self, recovery_reason, retry_run_kind, resolution),
+            (
+                Self::Clarification | Self::Approval,
+                None,
+                None,
+                GateResolutionKind::Answer,
+            ) | (
+                Self::Recovery,
+                Some(TaskRecoveryReason::InfrastructureRetriesExhausted),
+                Some(_),
+                GateResolutionKind::Answer | GateResolutionKind::Retry,
+            ) | (
+                Self::Recovery,
+                Some(TaskRecoveryReason::ReviewRoundsExhausted),
+                Some(RunKind::Executor),
+                GateResolutionKind::Answer | GateResolutionKind::Retry,
+            ) | (
+                Self::Recovery,
+                Some(TaskRecoveryReason::UnsafeEffectUncertain),
+                Some(_),
+                GateResolutionKind::Answer,
+            ) | (
+                Self::Recovery,
+                Some(TaskRecoveryReason::ConfigurationUnavailable),
+                Some(_),
+                GateResolutionKind::Retry,
+            )
+        )
     }
 }
 
@@ -204,6 +246,11 @@ pub struct TaskGateAnswer {
 
 impl TaskGateAnswer {
     /// Validate answer requirements for one gate kind.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when the answer is blank, an Approval gate
+    /// omits a decision, or another gate kind supplies a decision.
     pub fn normalized_for(&self, kind: TaskGateKind) -> Result<Self, WorkDomainError> {
         let message_markdown = self.message_markdown.trim();
         if message_markdown.is_empty() {
@@ -270,6 +317,12 @@ pub struct TaskGateRecord {
 
 impl TaskGateRecord {
     /// Validate closed gate/recovery combinations and required fields.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when required gate fields are invalid, the
+    /// recovery reason and continuation role disagree, or lifecycle state and
+    /// resolution fields are inconsistent.
     pub fn validate(&self) -> Result<(), WorkDomainError> {
         if self.task_generation == 0 {
             return Err(invalid_input(

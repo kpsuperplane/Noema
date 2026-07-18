@@ -138,6 +138,12 @@ pub struct NewTaskReview {
 
 impl NewTaskReview {
     /// Normalize a review and enforce exact criterion/verdict consistency.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when the attempt index or required text is
+    /// invalid, criterion coverage is not exact, or the verdict disagrees with
+    /// the criterion outcomes and human-gate selection.
     pub fn normalized(&self, expected_criterion_ids: &[String]) -> Result<Self, WorkDomainError> {
         if self.review_attempt_index == 0 {
             return Err(invalid_input(
@@ -194,6 +200,12 @@ impl NewTaskReview {
 }
 
 /// Validate verdict, criterion outcomes, and human-gate requirements.
+///
+/// # Errors
+///
+/// Returns [`WorkDomainError`] when approval includes a failed or uncertain
+/// criterion, requested changes lack a definite failure, or human review lacks
+/// uncertainty and a Clarification or Approval gate.
 pub fn validate_review_verdict(
     verdict: TaskReviewVerdict,
     human_gate_kind: Option<TaskGateKind>,

@@ -118,6 +118,11 @@ pub struct WorkflowDefinition {
 
 impl WorkflowDefinition {
     /// Validate definition-owned fields.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when the name or timestamps are blank or
+    /// the optimistic revision is zero.
     pub fn validate(&self) -> Result<(), WorkDomainError> {
         if self.name.trim().is_empty() {
             return Err(invalid_input("workflow.name", "name cannot be blank"));
@@ -159,6 +164,11 @@ pub struct WorkflowStage {
 
 impl WorkflowStage {
     /// Validate stage definition invariants independent of persistence.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when names are blank, ordinal is zero, or
+    /// board visibility disagrees with the closed stage behavior.
     pub fn validate(&self) -> Result<(), WorkDomainError> {
         if self.stable_key.trim().is_empty() || self.display_name.trim().is_empty() {
             return Err(WorkDomainError::InvalidInput {
@@ -183,6 +193,10 @@ impl WorkflowStage {
     }
 
     /// Validate that a task stage belongs to the supplied workflow.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError::WorkflowMismatch`] when the workflow identities differ.
     pub fn belongs_to(&self, workflow_id: &WorkflowId) -> Result<(), WorkDomainError> {
         if &self.workflow_id == workflow_id {
             Ok(())
@@ -193,6 +207,7 @@ impl WorkflowStage {
 }
 
 /// Return the seven fixed Personal stage definitions in ordinal order.
+#[must_use]
 pub fn personal_stages() -> Vec<WorkflowStage> {
     let workflow_id = WorkflowId::new(PERSONAL_WORKFLOW_ID).expect("fixed workflow id");
     [
