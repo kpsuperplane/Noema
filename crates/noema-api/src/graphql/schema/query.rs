@@ -3,6 +3,167 @@ use super::*;
 
 pub struct QueryRoot;
 
+struct CompletedTasksContext {
+    state: GraphqlState,
+    principal_subject: Option<&'static str>,
+}
+
+fn completed_tasks_arg<T: async_graphql::InputType>(
+    name: &str,
+    registry: &mut async_graphql::registry::Registry,
+) -> async_graphql::registry::MetaInputValue {
+    async_graphql::registry::MetaInputValue {
+        name: name.to_string(),
+        description: None,
+        ty: <T as async_graphql::InputType>::create_type_info(registry),
+        deprecation: async_graphql::registry::Deprecation::default(),
+        default_value: None,
+        visible: None,
+        inaccessible: false,
+        tags: Vec::new(),
+        is_secret: false,
+        directive_invocations: Vec::new(),
+    }
+}
+
+impl async_graphql::resolver_utils::ContainerType for CompletedTasksContext {
+    async fn resolve_field(
+        &self,
+        ctx: &Context<'_>,
+    ) -> async_graphql::ServerResult<Option<async_graphql::Value>> {
+        if ctx.item.node.name.node != "completedTasks" {
+            return Ok(None);
+        }
+
+        let (_, workspace_id) = ctx.param_value::<String>("workspaceId", None)?;
+        let (_, project_id) = ctx.param_value::<Option<String>>("projectId", None)?;
+        let (_, kind) = ctx.param_value::<Option<GraphqlTerminalTaskKind>>("kind", None)?;
+        let (_, text) = ctx.param_value::<Option<String>>("text", None)?;
+        let (_, first) = ctx.param_value::<Option<i32>>("first", None)?;
+        let (_, after) = ctx.param_value::<Option<String>>("after", None)?;
+
+        let principal_subject = self
+            .principal_subject
+            .ok_or_else(|| async_graphql::Error::new("request is unauthenticated"))
+            .map_err(|err| err.into_server_error(ctx.item.pos))?;
+        let value = tasks::completed_tasks(tasks::CompletedTasksRequest {
+            state: &self.state,
+            principal_subject,
+            workspace_id,
+            project_id,
+            kind: kind.unwrap_or(GraphqlTerminalTaskKind::All),
+            text,
+            first,
+            after,
+        })
+        .await
+        .map_err(|err| Into::<async_graphql::Error>::into(err).into_server_error(ctx.item.pos))?;
+        let ctx_obj = ctx.with_selection_set(&ctx.item.node.selection_set);
+        async_graphql::OutputType::resolve(&value, &ctx_obj, ctx.item)
+            .await
+            .map(Some)
+    }
+}
+
+impl async_graphql::OutputType for CompletedTasksContext {
+    fn type_name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("CompletedTasksContext")
+    }
+
+    fn create_type_info(registry: &mut async_graphql::registry::Registry) -> String {
+        registry.create_output_type::<Self, _>(
+            async_graphql::registry::MetaTypeId::Object,
+            |registry| async_graphql::registry::MetaType::Object {
+                name: "CompletedTasksContext".to_string(),
+                description: None,
+                fields: {
+                    let mut fields = async_graphql::indexmap::IndexMap::new();
+                    fields.insert(
+                        "completedTasks".to_string(),
+                        async_graphql::registry::MetaField {
+                            name: "completedTasks".to_string(),
+                            description: Some(
+                                "Return completed/cancelled task history through the terminal scope."
+                                    .to_string(),
+                            ),
+                            args: {
+                                let mut args = async_graphql::indexmap::IndexMap::new();
+                                args.insert(
+                                    "workspaceId".to_string(),
+                                    completed_tasks_arg::<String>("workspaceId", registry),
+                                );
+                                args.insert(
+                                    "projectId".to_string(),
+                                    completed_tasks_arg::<Option<String>>("projectId", registry),
+                                );
+                                args.insert(
+                                    "kind".to_string(),
+                                    completed_tasks_arg::<Option<GraphqlTerminalTaskKind>>(
+                                        "kind", registry,
+                                    ),
+                                );
+                                args.insert(
+                                    "text".to_string(),
+                                    completed_tasks_arg::<Option<String>>("text", registry),
+                                );
+                                args.insert(
+                                    "first".to_string(),
+                                    completed_tasks_arg::<Option<i32>>("first", registry),
+                                );
+                                args.insert(
+                                    "after".to_string(),
+                                    completed_tasks_arg::<Option<String>>("after", registry),
+                                );
+                                args
+                            },
+                            ty: <GraphqlTaskConnection as async_graphql::OutputType>::create_type_info(
+                                registry,
+                            ),
+                            deprecation: async_graphql::registry::Deprecation::default(),
+                            cache_control: async_graphql::CacheControl::default(),
+                            external: false,
+                            provides: None,
+                            requires: None,
+                            shareable: false,
+                            inaccessible: false,
+                            tags: Vec::new(),
+                            override_from: None,
+                            visible: None,
+                            compute_complexity: None,
+                            directive_invocations: Vec::new(),
+                            requires_scopes: Vec::new(),
+                        },
+                    );
+                    fields
+                },
+                cache_control: async_graphql::CacheControl::default(),
+                extends: false,
+                shareable: false,
+                resolvable: true,
+                inaccessible: false,
+                interface_object: false,
+                tags: Vec::new(),
+                keys: None,
+                visible: None,
+                is_subscription: false,
+                rust_typename: Some(std::any::type_name::<Self>()),
+                directive_invocations: Vec::new(),
+                requires_scopes: Vec::new(),
+            },
+        )
+    }
+
+    async fn resolve(
+        &self,
+        ctx: &async_graphql::ContextSelectionSet<'_>,
+        _field: &async_graphql::Positioned<async_graphql::parser::types::Field>,
+    ) -> async_graphql::ServerResult<async_graphql::Value> {
+        async_graphql::resolver_utils::resolve_container(ctx, self).await
+    }
+}
+
+impl async_graphql::ObjectType for CompletedTasksContext {}
+
 #[Object]
 impl QueryRoot {
     #[cfg(any(test, feature = "test-support"))]
@@ -88,11 +249,107 @@ impl QueryRoot {
         agents::agents(state).await
     }
 
-    /// Return one owner-authorized durable background task detail.
-    async fn task(&self, ctx: &Context<'_>, task_id: String) -> Result<Option<GraphqlTaskDetail>> {
+    /// Return one owner-authorized Work task detail.
+    async fn task(&self, ctx: &Context<'_>, task_id: String) -> Result<GraphqlTaskDetail> {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
         tasks::task(state, principal, task_id).await
+    }
+
+    /// List owner-authorized projects in stable update order.
+    async fn projects(
+        &self,
+        ctx: &Context<'_>,
+        workspace_id: String,
+        include_archived: Option<bool>,
+        first: Option<i32>,
+        after: Option<String>,
+    ) -> Result<GraphqlProjectConnection> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        tasks::projects(
+            state,
+            principal,
+            workspace_id,
+            include_archived.unwrap_or(false),
+            first,
+            after,
+        )
+        .await
+    }
+
+    /// Return one coherent board bootstrap projection.
+    async fn work_overview(
+        &self,
+        ctx: &Context<'_>,
+        workspace_id: String,
+        project_id: Option<String>,
+    ) -> Result<GraphqlWorkOverview> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        tasks::work_overview(state, principal, workspace_id, project_id).await
+    }
+
+    /// List board/list tasks through one bounded batch-hydrated Store query.
+    async fn work_tasks(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlWorkTasksInput,
+        first: Option<i32>,
+        after: Option<String>,
+    ) -> Result<GraphqlTaskConnection> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        tasks::work_tasks(state, principal, input, first, after).await
+    }
+
+    /// Return unresolved gate/review attention cards.
+    async fn needs_you(
+        &self,
+        ctx: &Context<'_>,
+        workspace_id: String,
+        project_id: Option<String>,
+        first: Option<i32>,
+        after: Option<String>,
+    ) -> Result<GraphqlTaskAttentionConnection> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        tasks::needs_you(state, principal, workspace_id, project_id, first, after).await
+    }
+
+    /// Return the durable Work activity ledger for a scope.
+    async fn work_activity(
+        &self,
+        ctx: &Context<'_>,
+        workspace_id: String,
+        project_id: Option<String>,
+        task_id: Option<String>,
+        first: Option<i32>,
+        after: Option<String>,
+    ) -> Result<GraphqlWorkEventConnection> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        tasks::work_activity(
+            state,
+            principal,
+            workspace_id,
+            project_id,
+            task_id,
+            first,
+            after,
+        )
+        .await
+    }
+
+    /// Expose terminal task history with request-scoped context.
+    #[graphql(flatten)]
+    async fn work_query_fields(&self, ctx: &Context<'_>) -> CompletedTasksContext {
+        CompletedTasksContext {
+            state: ctx.data_unchecked::<GraphqlState>().clone(),
+            principal_subject: ctx
+                .data_opt::<crate::graphql::RequestPrincipal>()
+                .map(crate::graphql::RequestPrincipal::subject_id),
+        }
     }
 
     /// Return a newest-page, owner-authorized task-run transcript connection.
@@ -100,9 +357,9 @@ impl QueryRoot {
         &self,
         ctx: &Context<'_>,
         run_id: String,
-        after: Option<String>,
         first: Option<i32>,
-    ) -> Result<GraphqlTaskRunItemsConnection> {
+        after: Option<String>,
+    ) -> Result<GraphqlTaskRunItemConnection> {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
         tasks::task_run_items(state, principal, run_id, after, first).await
@@ -110,16 +367,6 @@ impl QueryRoot {
 
     /// Return human-controlled executor model-pool entries.
     async fn task_model_pools(
-        &self,
-        ctx: &Context<'_>,
-        complexity: Option<GraphqlTaskComplexity>,
-    ) -> Result<Vec<GraphqlTaskModelPoolEntry>> {
-        let state = ctx.data_unchecked::<GraphqlState>();
-        tasks::task_model_pools(state, complexity).await
-    }
-
-    /// Alias for clients that prefer the storage-oriented pool-entry name.
-    async fn task_model_pool_entries(
         &self,
         ctx: &Context<'_>,
         complexity: Option<GraphqlTaskComplexity>,

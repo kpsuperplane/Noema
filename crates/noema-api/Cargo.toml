@@ -29,6 +29,7 @@ noema-providers = { path = "../noema-providers", default-features = false }
 noema-runtime = { path = "../noema-runtime", default-features = false }
 noema-store = { path = "../noema-store", default-features = false }
 noema-tasks = { path = "../noema-tasks", default-features = false }
+noema-workspaces = { path = "../noema-workspaces", default-features = false }
 ring.workspace = true
 serde.workspace = true
 serde_json.workspace = true

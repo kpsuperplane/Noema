@@ -73,58 +73,6 @@
     }
 
     #[tokio::test]
-    async fn task_events_backfills_from_durable_cursor() {
-        let store = crate::test_support::test_store().await;
-        let (task, run) = crate::test_support::seed_task(&store, "Subscription task").await;
-        let state = GraphqlState::for_tests_with_store(store.clone());
-        let runtime_events = state.subscriptions().clone();
-        let schema = build_schema(state);
-        let mut stream = schema.execute_stream(async_graphql::Request::new(format!(
-            r#"subscription {{
-              taskEvents(taskId: "{}", after: "0") {{
-                cursor kind taskId status
-                run {{ runId providerCallCount }}
-              }}
-            }}"#,
-            task.task_id
-        )));
-        let response = stream.next().await.expect("task event response");
-        let data = response.data.into_json().expect("task event json");
-        assert_json_fields!(data,
-            "/taskEvents/taskId" => task.task_id,
-            "/taskEvents/cursor" => "1",
-            "/taskEvents/kind" => "TASK_UPDATED",
-            "/taskEvents/run/runId" => run.run_id,
-            "/taskEvents/run/providerCallCount" => 0,
-        );
-
-        store
-            .append_task_event(noema_tasks::NewTaskEvent {
-                event_id: None,
-                task_id: task.task_id.clone(),
-                event_kind: noema_tasks::TaskEventKind::new("task.live_test")
-                    .expect("valid event kind"),
-                actor_id: "runtime:test".to_string(),
-                causation_id: None,
-                correlation_id: None,
-                payload: serde_json::json!({}),
-            })
-            .await
-            .expect("append live task event");
-        runtime_events.publish_task(TaskRuntimeEvent::Changed {
-            task_id: task.task_id.clone(),
-        });
-
-        let response = stream.next().await.expect("live task event response");
-        let data = response.data.into_json().expect("live task event json");
-        assert_json_fields!(data,
-            "/taskEvents/cursor" => "2",
-            "/taskEvents/kind" => "TASK_UPDATED",
-            "/taskEvents/status" => "queued",
-        );
-    }
-
-    #[tokio::test]
     async fn subscription_projects_live_delta_and_conversation_item_events() {
         let (state, subscriptions, conversation_id) =
             local_conversation_subscription_fixture().await;

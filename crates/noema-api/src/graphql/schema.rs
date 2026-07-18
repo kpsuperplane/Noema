@@ -1,13 +1,10 @@
 #[cfg(test)]
 use crate::test_support::TestEnvironment;
-use async_graphql::{Context, Object, Result, Schema, Subscription};
-use futures_util::Stream;
+use async_graphql::{Context, Object, Result, Schema};
 #[cfg(test)]
 use noema_runtime::RuntimeEventRegistry;
 #[cfg(test)]
 use std::sync::Arc;
-
-use noema_runtime::TaskRuntimeEvent;
 
 mod mutation;
 mod query;
@@ -59,9 +56,16 @@ use super::{
         GraphqlProviderSecretInput,
     },
     tasks::{
-        self, GraphqlTaskComplexity, GraphqlTaskDetail, GraphqlTaskExecutionPolicy,
-        GraphqlTaskExecutionPolicyInput, GraphqlTaskModelPoolEntry, GraphqlTaskModelPoolEntryInput,
-        GraphqlTaskRunItemsConnection,
+        self, GraphqlAcceptTaskInput, GraphqlAnswerTaskInput, GraphqlArchiveProjectInput,
+        GraphqlCancelTaskInput, GraphqlCaptureTaskInput, GraphqlCreateProjectInput,
+        GraphqlProjectCommandPayload, GraphqlProjectConnection, GraphqlQueueTaskInput,
+        GraphqlReopenProjectInput, GraphqlReopenTaskInput, GraphqlRequestTaskChangesInput,
+        GraphqlRetryTaskInput, GraphqlTaskAttentionConnection, GraphqlTaskCommandPayload,
+        GraphqlTaskComplexity, GraphqlTaskConnection, GraphqlTaskDetail,
+        GraphqlTaskExecutionPolicy, GraphqlTaskExecutionPolicyInput, GraphqlTaskModelPoolEntry,
+        GraphqlTaskModelPoolEntryInput, GraphqlTaskRunItemConnection, GraphqlTerminalTaskKind,
+        GraphqlUpdateInboxTaskInput, GraphqlUpdateProjectInput, GraphqlWorkEvent,
+        GraphqlWorkEventConnection, GraphqlWorkOverview, GraphqlWorkTasksInput,
     },
     usage_settings::{self, GraphqlSaveToolProgressAuditPreferenceInput, GraphqlUsageSettings},
     web_fetch_settings::{

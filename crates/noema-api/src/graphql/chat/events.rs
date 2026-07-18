@@ -159,9 +159,9 @@ pub(super) fn mark_graphql_published_turn_event(
             item,
             ..
         } => {
-            let (item_kind, activity_kind, status) = match item.as_ref() {
-                TurnTranscriptItem::UserText { .. } => ("user_text", None, None),
-                TurnTranscriptItem::AssistantText { .. } => ("assistant_text", None, None),
+            let (item_kind, activity_kind, status, stage_id) = match item.as_ref() {
+                TurnTranscriptItem::UserText { .. } => ("user_text", None, None, None),
+                TurnTranscriptItem::AssistantText { .. } => ("assistant_text", None, None, None),
                 TurnTranscriptItem::Activity {
                     activity_kind,
                     status,
@@ -170,20 +170,23 @@ pub(super) fn mark_graphql_published_turn_event(
                     "activity",
                     Some(activity_kind.as_str()),
                     Some(activity_status_label(*status)),
+                    None,
                 ),
                 TurnTranscriptItem::A2uiCard { schema, .. } => {
-                    ("a2ui_card", Some(schema.as_str()), None)
+                    ("a2ui_card", Some(schema.as_str()), None, None)
                 }
                 TurnTranscriptItem::MultipleChoicePrompt { .. } => {
-                    ("multiple_choice_prompt", None, None)
+                    ("multiple_choice_prompt", None, None, None)
                 }
                 TurnTranscriptItem::MultipleChoiceSelection { .. } => {
-                    ("multiple_choice_selection", None, None)
+                    ("multiple_choice_selection", None, None, None)
                 }
-                TurnTranscriptItem::ErrorNotice { .. } => ("error_notice", None, None),
-                TurnTranscriptItem::ArtifactReference { .. } => ("artifact_reference", None, None),
-                TurnTranscriptItem::TaskReference { status, .. } => {
-                    ("task_reference", None, Some(status.as_str()))
+                TurnTranscriptItem::ErrorNotice { .. } => ("error_notice", None, None, None),
+                TurnTranscriptItem::ArtifactReference { .. } => {
+                    ("artifact_reference", None, None, None)
+                }
+                TurnTranscriptItem::TaskReference { stage_id, .. } => {
+                    ("task_reference", None, None, Some(stage_id.as_str()))
                 }
             };
             mark_turn_timing_event(
@@ -196,6 +199,7 @@ pub(super) fn mark_graphql_published_turn_event(
                     "item_kind": item_kind,
                     "activity_kind": activity_kind,
                     "status": status,
+                    "stage_id": stage_id,
                 }),
             );
         }

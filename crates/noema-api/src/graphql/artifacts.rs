@@ -341,18 +341,25 @@ pub async fn create_conversation_external_artifact(
     graphql_artifact_from_store(created)
 }
 
-fn graphql_artifact_from_store(
+pub(crate) fn graphql_artifact_from_store(
     artifact: noema_artifacts::ArtifactWithVersions,
 ) -> Result<GraphqlArtifact> {
+    graphql_artifact_from_current(artifact.artifact, artifact.current_version)
+}
+
+pub(crate) fn graphql_artifact_from_current(
+    artifact: noema_artifacts::ArtifactRecord,
+    current_version: noema_artifacts::ArtifactVersionRecord,
+) -> Result<GraphqlArtifact> {
     Ok(GraphqlArtifact {
-        artifact_id: artifact.artifact.artifact_id,
-        owner_object_type: artifact.artifact.owner.object_type,
-        owner_object_id: artifact.artifact.owner.object_id,
-        title: artifact.artifact.title,
-        description: artifact.artifact.description,
-        artifact_kind: artifact.artifact.artifact_kind,
-        storage_kind: artifact.artifact.storage_kind.into(),
-        current_version: graphql_artifact_version_from_store(artifact.current_version)?,
+        artifact_id: artifact.artifact_id,
+        owner_object_type: artifact.owner.object_type,
+        owner_object_id: artifact.owner.object_id,
+        title: artifact.title,
+        description: artifact.description,
+        artifact_kind: artifact.artifact_kind,
+        storage_kind: artifact.storage_kind.into(),
+        current_version: graphql_artifact_version_from_store(current_version)?,
     })
 }
 

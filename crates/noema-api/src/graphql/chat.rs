@@ -212,8 +212,8 @@ pub struct GraphqlTaskReference {
     pub task_id: String,
     /// Display title captured when the reference was written.
     pub title: String,
-    /// Canonical task status string from [`crate::TaskStatus::as_str`].
-    pub status: String,
+    /// Canonical workflow stage id captured in the task reference.
+    pub stage_id: String,
     /// Executor revision represented by this reference.
     pub revision: i64,
 }
@@ -326,12 +326,12 @@ impl From<TurnTranscriptItem> for GraphqlTranscriptItem {
             TurnTranscriptItem::TaskReference {
                 task_id,
                 title,
-                status,
+                stage_id,
                 revision,
             } => Self::TaskReference(GraphqlTaskReference {
                 task_id,
                 title,
-                status,
+                stage_id,
                 revision,
             }),
         }

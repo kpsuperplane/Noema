@@ -105,21 +105,10 @@ fn turn_transcript_item_from_record(
         }
         ConversationItemKind::TaskReference => {
             let payload: ReplayTaskReferencePayload = replay_payload(record)?;
-            let status = payload
-                .status
-                .parse::<noema_tasks::TaskStatus>()
-                .map_err(|error| {
-                    RuntimeError::Protocol(format!(
-                        "invalid task reference status for {}: {error}",
-                        payload.task_id
-                    ))
-                })?
-                .as_str()
-                .to_string();
             Ok(Some(TurnTranscriptItem::TaskReference {
                 task_id: payload.task_id,
                 title: payload.title,
-                status,
+                stage_id: payload.stage_id,
                 revision: payload.revision,
             }))
         }
@@ -214,6 +203,6 @@ struct ReplayArtifactReferencePayload {
 struct ReplayTaskReferencePayload {
     task_id: String,
     title: String,
-    status: String,
+    stage_id: String,
     revision: i64,
 }

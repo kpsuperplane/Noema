@@ -46,11 +46,12 @@ mod tests {
             )
             .await;
         assert_eq!(query_response.errors.len(), 3);
-        assert!(query_response.errors.iter().all(|error| {
-            error
-                .message
-                .contains("request is unauthenticated")
-        }));
+        assert!(
+            query_response
+                .errors
+                .iter()
+                .all(|error| { error.message.contains("request is unauthenticated") })
+        );
 
         let mutation_response = schema
             .execute(
@@ -159,5 +160,15 @@ mod tests {
     mod subscriptions {
         use super::*;
         include!("schema_tests/subscriptions.rs");
+    }
+
+    mod work_graphql {
+        use super::*;
+        include!("schema_tests/work_graphql.rs");
+    }
+
+    mod work_graphql_corrections {
+        use super::*;
+        include!("schema_tests/work_graphql_corrections.rs");
     }
 }

@@ -70,23 +70,147 @@ impl MutationRoot {
         local_models::retry_local_model_runtime(state).await
     }
 
-    /// Continue one failed or human-blocked task from its durable context.
-    async fn resume_task(
+    /// Create a project through the semantic Work command service.
+    async fn create_project(
         &self,
         ctx: &Context<'_>,
-        task_id: String,
-        message: Option<String>,
-    ) -> Result<GraphqlTaskDetail> {
+        input: GraphqlCreateProjectInput,
+    ) -> Result<GraphqlProjectCommandPayload> {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
-        tasks::resume_task(state, principal, task_id, message).await
+        tasks::create_project(state, principal, input).await
     }
 
-    /// Cancel one owner-authorized queued, active, or blocked task.
-    async fn cancel_task(&self, ctx: &Context<'_>, task_id: String) -> Result<GraphqlTaskDetail> {
+    /// Update a project through the semantic Work command service.
+    async fn update_project(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlUpdateProjectInput,
+    ) -> Result<GraphqlProjectCommandPayload> {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
-        tasks::cancel_task(state, principal, task_id).await
+        tasks::update_project(state, principal, input).await
+    }
+
+    /// Archive a project through the semantic Work command service.
+    async fn archive_project(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlArchiveProjectInput,
+    ) -> Result<GraphqlProjectCommandPayload> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        tasks::archive_project(state, principal, input).await
+    }
+
+    /// Reopen a project through the semantic Work command service.
+    async fn reopen_project(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlReopenProjectInput,
+    ) -> Result<GraphqlProjectCommandPayload> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        tasks::reopen_project(state, principal, input).await
+    }
+
+    /// Capture a task in Inbox through the semantic Work command service.
+    async fn capture_task(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlCaptureTaskInput,
+    ) -> Result<GraphqlTaskCommandPayload> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        tasks::capture_task(state, principal, input).await
+    }
+
+    /// Edit Inbox capture fields through the semantic Work command service.
+    async fn update_inbox_task(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlUpdateInboxTaskInput,
+    ) -> Result<GraphqlTaskCommandPayload> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        tasks::update_inbox_task(state, principal, input).await
+    }
+
+    /// Queue an Inbox task through the semantic Work command service.
+    async fn queue_task(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlQueueTaskInput,
+    ) -> Result<GraphqlTaskCommandPayload> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        tasks::queue_task(state, principal, input).await
+    }
+
+    /// Resolve a clarification, approval, or recovery gate.
+    async fn answer_task(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlAnswerTaskInput,
+    ) -> Result<GraphqlTaskCommandPayload> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        tasks::answer_task(state, principal, input).await
+    }
+
+    /// Retry an eligible recovery gate.
+    async fn retry_task(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlRetryTaskInput,
+    ) -> Result<GraphqlTaskCommandPayload> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        tasks::retry_task(state, principal, input).await
+    }
+
+    /// Accept a reviewer-approved task result.
+    async fn accept_task(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlAcceptTaskInput,
+    ) -> Result<GraphqlTaskCommandPayload> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        tasks::accept_task(state, principal, input).await
+    }
+
+    /// Request changes to an approved result.
+    async fn request_task_changes(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlRequestTaskChangesInput,
+    ) -> Result<GraphqlTaskCommandPayload> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        tasks::request_task_changes(state, principal, input).await
+    }
+
+    /// Cancel a nonterminal task.
+    async fn cancel_task(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlCancelTaskInput,
+    ) -> Result<GraphqlTaskCommandPayload> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        tasks::cancel_task(state, principal, input).await
+    }
+
+    /// Reopen terminal task history into Inbox.
+    async fn reopen_task(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlReopenTaskInput,
+    ) -> Result<GraphqlTaskCommandPayload> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        tasks::reopen_task(state, principal, input).await
     }
 
     /// Replace one human-controlled executor model-pool entry.
@@ -101,7 +225,7 @@ impl MutationRoot {
         tasks::update_task_model_pool_entry(state, principal, pool_entry_id, input).await
     }
 
-    /// Replace provider-independent task safety limits for future/resumed runs.
+    /// Replace user-controlled task safety limits while retaining Work-owned bounds.
     async fn update_task_execution_policy(
         &self,
         ctx: &Context<'_>,

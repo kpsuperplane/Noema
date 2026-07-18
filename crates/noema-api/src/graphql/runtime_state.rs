@@ -4,6 +4,8 @@ use noema_capabilities_mcp::McpControlPlaneHandle;
 use noema_memory::{MemoryRepositoryHandle, MemoryServiceAccessHandle};
 use noema_providers::{LocalModelManager, ProviderAccountOperationsHandle, ProviderRegistryHandle};
 use noema_runtime::{RuntimeEventRegistry, RuntimeHandle};
+#[cfg(test)]
+use std::{future::Future, pin::Pin, sync::Arc};
 
 use super::local_status::GraphqlMemoryStorageStatus;
 
@@ -34,7 +36,13 @@ pub struct GraphqlState {
     memory_startup_error: Option<String>,
     subscriptions: RuntimeEventRegistry,
     memory_storage: GraphqlMemoryStorageStatus,
+    #[cfg(test)]
+    work_subscription_handoff: Option<WorkSubscriptionHandoff>,
 }
+
+#[cfg(test)]
+type WorkSubscriptionHandoff =
+    Arc<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 impl GraphqlState {
     /// Build state from a real runtime host.
@@ -55,6 +63,8 @@ impl GraphqlState {
             memory_startup_error: services.memory_startup_error.clone(),
             subscriptions: services.runtime_events.clone(),
             memory_storage: GraphqlMemoryStorageStatus::Ready,
+            #[cfg(test)]
+            work_subscription_handoff: None,
         }
     }
 
@@ -185,6 +195,18 @@ impl GraphqlState {
         self
     }
 
+    /// Install a deterministic test callback at the subscription handoff.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn with_work_subscription_handoff<F, Fut>(mut self, callback: F) -> Self
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        self.work_subscription_handoff = Some(Arc::new(move || Box::pin(callback())));
+        self
+    }
+
     required_service_accessors! {
         runtime => runtime: RuntimeHandle = "Noema runtime is unavailable";
         store => store: NoemaStore = "Noema store is unavailable";
@@ -218,6 +240,16 @@ impl GraphqlState {
     pub(crate) fn subscriptions(&self) -> &RuntimeEventRegistry {
         &self.subscriptions
     }
+
+    #[cfg(test)]
+    pub(crate) async fn run_work_subscription_handoff(&self) {
+        if let Some(callback) = self.work_subscription_handoff.as_ref() {
+            callback().await;
+        }
+    }
+
+    #[cfg(not(test))]
+    pub(crate) async fn run_work_subscription_handoff(&self) {}
 
     pub(crate) fn memory_storage(&self) -> GraphqlMemoryStorageStatus {
         self.memory_storage
