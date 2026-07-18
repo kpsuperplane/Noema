@@ -145,6 +145,12 @@ impl WorkEventPayload {
         self.value
     }
 
+    /// Reconstruct a persisted payload through the same closed schema checks
+    /// used by typed constructors.
+    pub fn from_persisted(kind: WorkEventKind, value: Value) -> Result<Self, WorkDomainError> {
+        Self::new(kind, value)
+    }
+
     fn new(kind: WorkEventKind, value: Value) -> Result<Self, WorkDomainError> {
         event_validation::validate_payload(kind, &value)?;
         Ok(Self { kind, value })

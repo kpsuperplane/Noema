@@ -63,6 +63,28 @@ fn typed_payloads_cover_every_kind_and_revalidate_after_mutation() {
     assert_eq!(seen.len(), 32);
 }
 
+#[test]
+fn persisted_payload_reconstruction_roundtrips_and_fails_closed() {
+    let original = WorkEventPayload::project_created(1).unwrap();
+    let value = original.into_value();
+    let restored =
+        WorkEventPayload::from_persisted(WorkEventKind::ProjectCreated, value.clone()).unwrap();
+    assert_eq!(restored.kind(), WorkEventKind::ProjectCreated);
+    assert_eq!(restored.as_value(), &value);
+
+    let mut restored_record = record(restored);
+    assert!(restored_record.validate().is_ok());
+    restored_record.kind = WorkEventKind::ProjectArchived;
+    assert!(restored_record.validate().is_err());
+
+    assert!(WorkEventPayload::from_persisted(WorkEventKind::TaskCaptured, value.clone()).is_err());
+    let mut invalid_value = value;
+    invalid_value["v"] = json!(2);
+    assert!(
+        WorkEventPayload::from_persisted(WorkEventKind::ProjectCreated, invalid_value).is_err()
+    );
+}
+
 fn typed_payloads() -> Vec<(WorkEventKind, WorkEventPayload)> {
     use WorkEventKind as K;
 

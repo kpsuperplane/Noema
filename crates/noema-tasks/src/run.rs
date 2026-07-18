@@ -241,8 +241,6 @@ pub struct AgentRunRecord {
     pub execution_policy: TaskExecutionPolicy,
     /// Current queue/lease status.
     pub status: RunStatus,
-    /// Optional resume message admitted at a safe boundary.
-    pub resume_message: Option<String>,
     /// Queue timestamp.
     pub queued_at: String,
     /// Lease owner.
