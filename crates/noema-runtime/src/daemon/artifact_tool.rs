@@ -174,21 +174,22 @@ async fn execute_artifact_create_local_file_inner(
     let arguments = parse_arguments(payload)?;
     let task = match (&context.task_id, &context.task_run_id) {
         (Some(task_id), Some(run_id)) => {
-            let task = store.get_task(task_id).await?.ok_or_else(|| {
-                ArtifactToolError::InvalidArguments("task context is unavailable".to_string())
-            })?;
-            let run = store.get_agent_run(run_id).await?.ok_or_else(|| {
-                ArtifactToolError::InvalidArguments("task run context is unavailable".to_string())
-            })?;
-            if run.task_id != task.task_id
+            let envelope = store
+                .get_work_run_execution_context(run_id)
+                .await?
+                .ok_or_else(|| {
+                    ArtifactToolError::InvalidArguments(
+                        "task run context is unavailable".to_string(),
+                    )
+                })?;
+            let task = envelope.task;
+            let run = envelope.run;
+            if run.task_id.as_str() != task_id
                 || run.agent_id != context.created_by_actor_id
                 || run.run_kind != noema_tasks::RunKind::Executor
                 || run.status != noema_tasks::RunStatus::Running
                 || run.cancellation_requested
-                || !matches!(
-                    task.status,
-                    noema_tasks::TaskStatus::Executing | noema_tasks::TaskStatus::RevisionRequested
-                )
+                || envelope.stage.system_behavior != noema_tasks::WorkflowStageBehavior::Active
             {
                 return Err(ArtifactToolError::InvalidArguments(
                     "task artifact context does not match the active executor".to_string(),
@@ -210,9 +211,9 @@ async fn execute_artifact_create_local_file_inner(
             item_id: Some(context.user_item_id.clone()),
         },
         |task| ArtifactSource {
-            conversation_id: task.source.conversation_id.clone(),
-            turn_id: task.source.turn_id.clone(),
-            item_id: task.source.item_id.clone(),
+            conversation_id: task.provenance.conversation_id.clone(),
+            turn_id: task.provenance.turn_id.clone(),
+            item_id: task.provenance.item_id.clone(),
         },
     );
     let mut versions = arguments.versions.into_iter();
@@ -221,7 +222,7 @@ async fn execute_artifact_create_local_file_inner(
     })?;
     let owner = task.as_ref().map_or_else(
         || ArtifactOwnerRef::conversation(&context.conversation_id),
-        |task| ArtifactOwnerRef::task(&task.task_id),
+        |task| ArtifactOwnerRef::task(task.task_id.as_str()),
     );
     let metadata = task.as_ref().map_or_else(
         || json!({"created_by_tool": ARTIFACT_CREATE_LOCAL_FILE_TOOL}),

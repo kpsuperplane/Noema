@@ -61,13 +61,16 @@ fn task_delegate_tool_call(id: &str, title: &str, valid: bool) -> GenerateToolCa
     let arguments = if valid {
         json!({
             "title": title,
-            "request": format!("Complete {title} and report the result."),
-            "complexity": "simple",
-            "executor_model_pool_entry_id": "task_pool:setting:simple",
-            "validation_criteria": [{
-                "description": format!("{title} is complete"),
-                "evidence_required": "A concise sourced result"
-            }]
+            "description": format!("Complete {title} and report the result."),
+            "execution_intent": {
+                "request_markdown": format!("Complete {title} and report the result."),
+                "complexity": "simple",
+                "criteria": [{
+                    "description": format!("{title} is complete"),
+                    "expected_evidence": "A concise sourced result"
+                }],
+                "execution_plan_markdown": format!("Complete the bounded {title} task.")
+            }
         })
     } else {
         json!({"title": title})

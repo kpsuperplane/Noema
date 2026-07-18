@@ -211,18 +211,15 @@ impl RuntimeActor {
                 TurnTranscriptItem::TaskReference {
                     task_id,
                     title,
-                    status,
+                    stage_id,
                     revision,
                 } => {
-                    let status = status
-                        .parse::<noema_tasks::TaskStatus>()
-                        .map_err(|error| {
-                            RuntimeError::Protocol(format!(
-                                "invalid task reference status for {task_id}: {error}"
-                            ))
-                        })?
-                        .as_str()
-                        .to_string();
+                    let stage_id = stage_id.trim().to_string();
+                    if stage_id.is_empty() {
+                        return Err(RuntimeError::Protocol(format!(
+                            "task reference stage_id is empty for {task_id}"
+                        )));
+                    }
                     (
                         ConversationItemKind::TaskReference,
                         ConversationItemStatus::Completed,
@@ -233,7 +230,7 @@ impl RuntimeActor {
                         json!({
                             "task_id": task_id,
                             "title": title,
-                            "status": status,
+                            "stage_id": stage_id,
                             "revision": revision,
                         }),
                         json!({ "turn_index": context.turn_index }),

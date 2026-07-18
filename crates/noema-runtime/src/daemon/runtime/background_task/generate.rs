@@ -4,15 +4,14 @@ impl RuntimeActor {
         request: BackgroundTaskGenerateRequest,
     ) -> Result<GenerateResponse, RuntimeError> {
         let started_at = Instant::now();
+        let run_fence = request.work_run_fence();
         let max_continuations =
             usize::try_from(request.execution_policy.max_provider_continuations)
                 .unwrap_or(usize::MAX);
         let max_tool_calls =
             usize::try_from(request.execution_policy.max_tool_calls).unwrap_or(usize::MAX);
         let max_active_duration = Duration::from_secs(
-            u64::try_from(request.execution_policy.max_active_minutes)
-                .unwrap_or(u64::MAX)
-                .saturating_mul(60),
+            u64::from(request.execution_policy.max_active_minutes).saturating_mul(60),
         );
         let deadline = tokio::time::Instant::now() + max_active_duration;
         let provider_route = Arc::new(
@@ -79,6 +78,8 @@ impl RuntimeActor {
                 &request.run_id,
                 &request.task_id,
                 &request.lease_token,
+                request.task_generation,
+                request.contract_id.as_ref(),
                 0,
                 deadline,
                 &request.cancellation,
@@ -259,14 +260,15 @@ impl RuntimeActor {
                         &model_tools.tool_policy,
                     ) => result,
                 };
-                self.store
-                    .record_agent_run_progress(
-                        &request.run_id,
-                        &request.lease_token,
-                        1,
-                        i64::try_from(tool_started_at.elapsed().as_millis()).unwrap_or(i64::MAX),
-                    )
-                    .await?;
+                self.persist_progress_notice(
+                    &request,
+                    &format!(
+                        "Tool call {} completed in {} ms.",
+                        call.name,
+                        tool_started_at.elapsed().as_millis()
+                    ),
+                )
+                .await;
                 self.persist_task_run_item(
                     &request.task_id,
                     &request.runtime_events,
@@ -288,7 +290,7 @@ impl RuntimeActor {
                         content_text: Some(result.name.clone()),
                         payload: task_tool_result_transcript_payload(&result),
                     },
-                    &request.lease_token,
+                    &run_fence,
                 )
                 .await;
                 self.persist_task_run_item(
@@ -315,7 +317,7 @@ impl RuntimeActor {
                             "arguments": result.persisted.arguments.clone().unwrap_or_else(super::task_transcript::omitted_capability_payload),
                         }),
                     },
-                    &request.lease_token,
+                    &run_fence,
                 )
                 .await;
                 results.push(result);
@@ -494,6 +496,8 @@ impl RuntimeActor {
                     &request.run_id,
                     &request.task_id,
                     &request.lease_token,
+                    request.task_generation,
+                    request.contract_id.as_ref(),
                     continuation_step as i64,
                     deadline,
                     &request.cancellation,
@@ -533,6 +537,8 @@ impl RuntimeActor {
                         &request.run_id,
                         &request.task_id,
                         &request.lease_token,
+                        request.task_generation,
+                        request.contract_id.as_ref(),
                         continuation_step as i64,
                         deadline,
                         &request.cancellation,

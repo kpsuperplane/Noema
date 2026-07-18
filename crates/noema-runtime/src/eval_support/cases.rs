@@ -2,10 +2,19 @@ use noema_capabilities::ToolSpec;
 use noema_memory::search_memory_tool_spec;
 use noema_providers::{
     GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
-    GenerateRequest, GenerateToolCallInput, GenerateToolResultInput, NoemaToolChoice,
-    ProviderSelectionSnapshot, ProviderToolTransport,
+    GenerateRequest, GenerateToolCallInput, GenerateToolResultInput,
+    LOCAL_MODELS_PROVIDER_ACCOUNT_ID, NoemaToolChoice, ProviderSelectionSnapshot,
+    ProviderToolTransport, local_model_provider_instance_key,
 };
-use noema_tasks::{TaskComplexity, TaskSource, TaskStatus, TaskValidationCriterion};
+use noema_store::WorkRunExecutionContext;
+use noema_tasks::{
+    AgentRunRecord, ContractOrigin, PERSONAL_DOING_STAGE_ID, PERSONAL_WORKFLOW_ID, RunKind,
+    RunStatus, SubmissionCriterionEvidence, TASK_EXECUTOR_AGENT_ID, TASK_REVIEWER_AGENT_ID,
+    TaskComplexity, TaskContractId, TaskExecutionContract, TaskExecutionPolicy, TaskId,
+    TaskProvenance, TaskRecord, TaskSourceKind, TaskSubmissionRecord, TaskValidationCriterion,
+    WorkflowDefinition, WorkflowId, WorkflowStageId, personal_stages,
+};
+use noema_workspaces::WorkspaceId;
 use serde_json::json;
 
 use crate::daemon::{
@@ -20,21 +29,15 @@ use crate::daemon::{
             AgentIdentityContext, ModelContextState, RuntimeEnvironmentContext,
             ToolVisibilityContext,
         },
-        model_tools::prompt_rows,
+        model_tools::{prompt_rows, task_role_builtin_tool_specs},
         progress_audit::build_progress_audit_prompt,
     },
-    task_run_context::{format_executor_prompt, format_reviewer_prompt},
-    task_tool::{
-        task_report_blocked_tool_spec, task_submit_result_tool_spec, task_submit_review_tool_spec,
-    },
+    task_run_context::{TaskRolePrompt, build_task_role_prompt},
 };
 
 use super::types::{EvalCase, EvalExpectation};
 
 const MODEL_ID: &str = "__MODEL_ID__";
-const EXECUTOR_INSTRUCTIONS: &str = "You are Noema's background task executor. Work autonomously with the role-approved tools. When finished, call task.submit_result exactly once. If safe progress genuinely requires human input, call task.report_blocked exactly once. Do not return the task result as ordinary assistant text.";
-const REVIEWER_INSTRUCTIONS: &str = "You are Noema's adversarial task reviewer. Inspect the submission and call task.submit_review exactly once with the typed verdict. Do not return review JSON as ordinary assistant text.";
-
 pub(super) fn evaluation_cases(model_id: &str) -> Result<Vec<EvalCase>, String> {
     let identity = AgentPromptIdentity {
         agent_id: "agent:primary".to_string(),
@@ -311,21 +314,20 @@ fn task_cases(model_id: &str) -> Result<Vec<EvalCase>, String> {
             expected_evidence: Some("The result must contain **ORBIT-52**.".to_string()),
         },
     ];
-    let task = fixture_task();
-    let submit = task_submit_result_tool_spec().map_err(|error| error.to_string())?;
-    let blocked = task_report_blocked_tool_spec().map_err(|error| error.to_string())?;
-    let review = task_submit_review_tool_spec().map_err(|error| error.to_string())?;
-
-    let executor_request = terminal_tool_request(
-        model_id,
-        format_executor_prompt(&task, &criteria, 0),
-        EXECUTOR_INSTRUCTIONS,
-        vec![submit.clone(), blocked.clone()],
+    let planner_context = fixture_work_context(
+        "Return the launch code",
+        "State that the launch code is **ORBIT-52** using that exact Markdown bold syntax. Convert this complete request into an execution contract; do not perform the work.",
+        Vec::new(),
+        RunKind::Planner,
     );
-    let mut blocked_fixture = fixture_task();
-    blocked_fixture.title = "Prepare the regional deployment".to_string();
-    blocked_fixture.request_markdown = "Prepare a deployment command for the user's required region. The user has not supplied a region, and no default is authorized. Ask one blocking question rather than inventing a region."
-        .to_string();
+    let planner_request = terminal_tool_request(model_id, &planner_context)?;
+    let executor_context = fixture_work_context(
+        "Return the launch code",
+        "State that the launch code is **ORBIT-52** using that exact Markdown bold syntax. All required information is present; do not ask a question.",
+        criteria.clone(),
+        RunKind::Executor,
+    );
+    let executor_request = terminal_tool_request(model_id, &executor_context)?;
     let blocked_criteria = vec![TaskValidationCriterion {
         criterion_id: "criterion:region".to_string(),
         ordinal: 1,
@@ -333,20 +335,29 @@ fn task_cases(model_id: &str) -> Result<Vec<EvalCase>, String> {
             .to_string(),
         expected_evidence: Some("Quote the user-supplied region.".to_string()),
     }];
-    let blocked_request = terminal_tool_request(
-        model_id,
-        format_executor_prompt(&blocked_fixture, &blocked_criteria, 0),
-        EXECUTOR_INSTRUCTIONS,
-        vec![submit, blocked],
+    let blocked_context = fixture_work_context(
+        "Prepare the regional deployment",
+        "Prepare a deployment command for the user's required region. The user has not supplied a region, and no default is authorized. Ask one blocking question rather than inventing a region.",
+        blocked_criteria,
+        RunKind::Executor,
     );
-    let reviewer_request = terminal_tool_request(
-        model_id,
-        format_reviewer_prompt(&task, &fixture_submission(), &criteria, &[]),
-        REVIEWER_INSTRUCTIONS,
-        vec![review],
+    let blocked_request = terminal_tool_request(model_id, &blocked_context)?;
+    let reviewer_context = fixture_work_context(
+        "Return the launch code",
+        "State that the launch code is **ORBIT-52** using that exact Markdown bold syntax. All required information is present; do not ask a question.",
+        criteria,
+        RunKind::Reviewer,
     );
+    let reviewer_request = terminal_tool_request(model_id, &reviewer_context)?;
 
     Ok(vec![
+        EvalCase {
+            id: "task_planner_contract",
+            category: "tasks",
+            critical: true,
+            request: planner_request,
+            expectation: EvalExpectation::PlannerPlan,
+        },
         EvalCase {
             id: "task_executor_submission",
             category: "tasks",
@@ -373,11 +384,15 @@ fn task_cases(model_id: &str) -> Result<Vec<EvalCase>, String> {
 
 fn terminal_tool_request(
     model_id: &str,
-    input: String,
-    instructions: &str,
-    tools: Vec<noema_capabilities::ToolSpec>,
-) -> GenerateRequest {
-    GenerateRequest {
+    context: &WorkRunExecutionContext,
+) -> Result<GenerateRequest, String> {
+    let TaskRolePrompt {
+        role,
+        input,
+        instructions,
+    } = build_task_role_prompt(context)?;
+    let tools = task_role_builtin_tool_specs(role).map_err(|error| error.to_string())?;
+    Ok(GenerateRequest {
         conversation_id: None,
         model: Some(model_id.to_string()),
         input: GenerateInput::Text(input),
@@ -391,7 +406,7 @@ fn terminal_tool_request(
         tools,
         tool_choice: NoemaToolChoice::Required,
         parallel_tool_calls: false,
-    }
+    })
 }
 
 fn auxiliary_cases(model_id: &str) -> Vec<EvalCase> {
@@ -453,83 +468,232 @@ fn auxiliary_cases(model_id: &str) -> Vec<EvalCase> {
     ]
 }
 
-fn fixture_task() -> noema_tasks::TaskRecord {
-    let model = ProviderSelectionSnapshot::explicit(
+fn fixture_model() -> ProviderSelectionSnapshot {
+    let mut model = ProviderSelectionSnapshot::explicit(
         "local_models",
-        "provider_account:local_models",
+        LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
         MODEL_ID,
         None,
         Some("evaluation".to_string()),
     );
-    noema_tasks::TaskRecord {
-        task_id: "task:evaluation".to_string(),
-        title: "Return the launch code".to_string(),
-        request_markdown: "State that the launch code is **ORBIT-52** using that exact Markdown bold syntax. All required information is present; do not ask a question."
-            .to_string(),
+    model.provider_instance_key = Some(
+        local_model_provider_instance_key(
+            LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
+            "local_model_installation:evaluation",
+            MODEL_ID,
+        )
+        .expect("fixture local model provider key"),
+    );
+    model
+}
+
+fn fixture_work_context(
+    title: &str,
+    request_markdown: &str,
+    criteria: Vec<TaskValidationCriterion>,
+    run_kind: RunKind,
+) -> WorkRunExecutionContext {
+    let task_id = TaskId::new("task:evaluation").expect("fixture task id");
+    let workspace_id = WorkspaceId::new("workspace:personal").expect("fixture workspace id");
+    let workflow_id = WorkflowId::new(PERSONAL_WORKFLOW_ID).expect("fixture workflow id");
+    let stage_id =
+        WorkflowStageId::new(PERSONAL_DOING_STAGE_ID).expect("fixture workflow stage id");
+    let contract_id = TaskContractId::new("contract:evaluation").expect("fixture contract id");
+    let execution_policy = TaskExecutionPolicy::default();
+    let model = fixture_model();
+    let workspace = noema_tasks::WorkspaceContextSnapshot {
+        workspace_id: workspace_id.clone(),
+        name: "Personal".to_string(),
+        description: "The user's personal workspace.".to_string(),
+    };
+    let contract = (run_kind != RunKind::Planner).then(|| TaskExecutionContract {
+        contract_id: contract_id.clone(),
+        task_id: task_id.clone(),
+        version: 1,
+        task_generation: 1,
+        supersedes_contract_id: None,
+        origin: ContractOrigin::Delegated,
+        request_markdown: request_markdown.to_string(),
+        execution_plan_markdown: Some(
+            "Produce the requested result and attach evidence for every criterion.".to_string(),
+        ),
+        criteria: criteria.clone(),
         complexity: TaskComplexity::Simple,
-        status: TaskStatus::Executing,
-        owner_human_id: "human:local".to_string(),
-        source: TaskSource::default(),
-        created_by_agent_id: "agent:primary".to_string(),
-        creation_tool_call_id: None,
-        pool_entry_id: "pool:evaluation".to_string(),
         executor_model: model.clone(),
-        reviewer_model: model,
-        revision_index: 0,
-        max_review_rounds: 3,
-        final_submission_id: None,
-        latest_run_id: None,
-        blocked_question: None,
-        blocked_context: None,
-        terminal_reason: None,
+        reviewer_model: model.clone(),
+        execution_policy,
+        workspace_context: workspace.clone(),
+        project_context: None,
+        created_by_actor_id: "actor:agent:primary".to_string(),
+        created_at: "2026-07-15T00:00:00Z".to_string(),
+    });
+    let latest_submission = (run_kind == RunKind::Reviewer)
+        .then(|| fixture_submission(&task_id, &contract_id, &criteria));
+    let latest_submission_id = latest_submission
+        .as_ref()
+        .map(|submission| submission.submission_id.clone());
+    let (run_id, agent_id, parent_run_id) = match run_kind {
+        RunKind::Planner => (
+            "run:evaluation:planner".to_string(),
+            TASK_EXECUTOR_AGENT_ID.to_string(),
+            None,
+        ),
+        RunKind::Executor => (
+            "run:evaluation:executor".to_string(),
+            TASK_EXECUTOR_AGENT_ID.to_string(),
+            None,
+        ),
+        RunKind::Reviewer => (
+            "run:evaluation:reviewer".to_string(),
+            TASK_REVIEWER_AGENT_ID.to_string(),
+            Some("run:evaluation:executor".to_string()),
+        ),
+    };
+    let task = TaskRecord {
+        task_id: task_id.clone(),
+        workspace_id: workspace_id.clone(),
+        project_id: None,
+        workflow_id: workflow_id.clone(),
+        stage_id: stage_id.clone(),
+        title: title.to_string(),
+        description_markdown: request_markdown.to_string(),
+        provenance: TaskProvenance {
+            source_kind: TaskSourceKind::System,
+            created_by_actor_id: "actor:agent:primary".to_string(),
+            ..TaskProvenance::default()
+        },
+        generation: 1,
+        revision: 1,
+        current_contract_id: contract
+            .as_ref()
+            .map(|contract| contract.contract_id.clone()),
+        active_gate_id: None,
+        latest_run_id: Some(run_id.clone()),
+        latest_submission_id: latest_submission_id.clone(),
+        latest_review_id: None,
+        accepted_submission_id: None,
+        queued_at: Some("2026-07-15T00:00:00Z".to_string()),
+        created_at: "2026-07-15T00:00:00Z".to_string(),
+        updated_at: "2026-07-15T00:00:01Z".to_string(),
+        completed_at: None,
+        cancelled_at: None,
+    };
+    let run = AgentRunRecord {
+        run_id,
+        task_id,
+        task_generation: 1,
+        contract_id: contract
+            .as_ref()
+            .map(|contract| contract.contract_id.clone()),
+        run_kind,
+        agent_id,
+        attempt_index: 0,
+        review_round: match run_kind {
+            RunKind::Planner => 0,
+            RunKind::Executor | RunKind::Reviewer => 1,
+        },
+        parent_run_id,
+        triggering_submission_id: if run_kind == RunKind::Reviewer {
+            latest_submission_id
+        } else {
+            None
+        },
+        triggering_review_id: None,
+        model,
+        actual_provider_kind: Some("local_models".to_string()),
+        actual_model_profile: Some(MODEL_ID.to_string()),
+        execution_policy,
+        status: RunStatus::Running,
+        queued_at: "2026-07-15T00:00:00Z".to_string(),
+        lease_owner: Some("runtime:evaluation".to_string()),
+        lease_token: Some("lease:evaluation".to_string()),
+        lease_expires_at: Some("2026-07-15T00:05:00Z".to_string()),
+        heartbeat_at: Some("2026-07-15T00:00:01Z".to_string()),
+        started_at: Some("2026-07-15T00:00:01Z".to_string()),
+        ended_at: None,
+        cancellation_requested: false,
         error_code: None,
         error_message: None,
+        provider_call_count: 0,
+        tool_call_count: 0,
+        input_tokens: 0,
+        cached_input_tokens: 0,
+        output_tokens: 0,
+        active_milliseconds: 0,
+        created_at: "2026-07-15T00:00:00Z".to_string(),
+        updated_at: "2026-07-15T00:00:01Z".to_string(),
+    };
+    let workflow = WorkflowDefinition {
+        workflow_id,
+        workspace_id,
+        name: "Personal".to_string(),
+        revision: 1,
+        is_default: true,
         created_at: "2026-07-15T00:00:00Z".to_string(),
         updated_at: "2026-07-15T00:00:00Z".to_string(),
-        completed_at: None,
+    };
+    let stage = personal_stages()
+        .into_iter()
+        .find(|stage| stage.stage_id == stage_id)
+        .expect("fixture workflow stage");
+
+    task.validate().expect("valid fixture task");
+    run.validate_contract_lineage()
+        .expect("valid fixture run lineage");
+    if let Some(contract) = contract.as_ref() {
+        contract
+            .clone()
+            .normalized()
+            .expect("valid fixture execution contract");
+    }
+    workflow.validate().expect("valid fixture workflow");
+    stage.validate().expect("valid fixture workflow stage");
+
+    WorkRunExecutionContext {
+        run,
+        task,
+        workflow,
+        stage,
+        contract,
+        workspace,
+        project: None,
+        active_gate: None,
+        relevant_gates: Vec::new(),
+        messages: Vec::new(),
+        latest_submission,
+        latest_review: None,
+        lineage: Vec::new(),
     }
 }
 
-fn fixture_submission() -> noema_tasks::TaskSubmissionRecord {
-    noema_tasks::TaskSubmissionRecord {
+fn fixture_submission(
+    task_id: &TaskId,
+    contract_id: &TaskContractId,
+    criteria: &[TaskValidationCriterion],
+) -> TaskSubmissionRecord {
+    TaskSubmissionRecord {
         submission_id: "submission:evaluation".to_string(),
-        task_id: "task:evaluation".to_string(),
-        executor_run_id: "run:evaluation".to_string(),
-        revision_index: 0,
+        task_id: task_id.clone(),
+        contract_id: contract_id.clone(),
+        executor_run_id: "run:evaluation:executor".to_string(),
+        review_round: 1,
         summary: "Launch code supplied.".to_string(),
         result_markdown: "The launch code is **ORBIT-52**.".to_string(),
-        criteria: Vec::new(),
+        criteria: criteria
+            .iter()
+            .map(|criterion| SubmissionCriterionEvidence {
+                criterion_id: criterion.criterion_id.clone(),
+                evidence_markdown: format!(
+                    "The submitted result contains **ORBIT-52** and addresses: {}",
+                    criterion.description
+                ),
+            })
+            .collect(),
         artifacts: Vec::new(),
         created_at: "2026-07-15T00:00:00Z".to_string(),
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn onboarding_case_requires_the_name_tool_for_an_unnamed_agent() {
-        let cases = evaluation_cases("local-model").expect("cases");
-        assert_eq!(cases.len(), 12, "qualification request contract changed");
-        let request = &cases
-            .iter()
-            .find(|case| case.id == "agent_onboarding_name")
-            .expect("onboarding case")
-            .request;
-        let GenerateInput::Messages(messages) = &request.input else {
-            panic!("onboarding case should use message input");
-        };
-
-        assert_eq!(
-            messages.last().map(|message| message.content.as_str()),
-            Some("Momo!")
-        );
-        assert!(messages[0].content.contains("display_name"));
-        assert!(messages[0].content.contains("null"));
-        assert!(messages[2].content.contains("update_own_name"));
-        assert_eq!(request.tools.len(), 1);
-        assert_eq!(request.tools[0].name.as_str(), "update_own_name");
-        assert_eq!(request.tool_choice, NoemaToolChoice::Required);
-    }
-}
+#[path = "cases/tests.rs"]
+mod tests;

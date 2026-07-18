@@ -183,57 +183,6 @@ impl noema_providers::ProviderOperations for BlockingOnceProvider {
     }
 }
 
-impl noema_providers::ProviderOperations for BlockingTaskCompletionProvider {
-    fn generate_streaming<'a>(
-        &'a self,
-        request: GenerateRequest,
-        _on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
-    ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
-        Box::pin(async move {
-            let answer = if request.options.generation_priority
-                == noema_providers::GenerationPriority::Background
-            {
-                if let Some(started) = self
-                    .completion_started
-                    .lock()
-                    .expect("completion started lock")
-                    .take()
-                {
-                    let _ = started.send(());
-                }
-                let release = self
-                    .release_completion
-                    .lock()
-                    .expect("completion release lock")
-                    .take()
-                    .expect("completion release receiver");
-                release
-                    .await
-                    .map_err(|_| ProviderError::ProviderUnavailable {
-                        provider: "test".to_string(),
-                        message: "completion release signal dropped".to_string(),
-                    })?;
-                "completion answer"
-            } else {
-                if let Some(started) = self
-                    .primary_started
-                    .lock()
-                    .expect("primary started lock")
-                    .take()
-                {
-                    let _ = started.send(());
-                }
-                "foreground answer"
-            };
-            Ok(fake_generate_response(
-                assistant_with_no_memories(answer),
-                "test",
-                "blocking-task-completion".to_string(),
-            ))
-        })
-    }
-}
-
 impl noema_providers::ProviderOperations for ConcurrentTaskProvider {
     fn generate_streaming<'a>(
         &'a self,

@@ -217,13 +217,10 @@ async fn task_delegate_uses_the_initialized_reviewer_route() {
         .await
         .expect("authenticate foundation account");
     let provider_registry = crate::test_support::ready_test_provider_registry();
-    let pool = store
+    let _pool = store
         .ensure_default_task_model_pool_settings_with_readiness("codex", provider_registry.as_ref())
         .await
-        .expect("task model settings")
-        .into_iter()
-        .find(|entry| entry.complexity == noema_tasks::TaskComplexity::Simple)
-        .expect("simple task model");
+        .expect("task model settings");
     let actor = RuntimeActor::new(
         "codex".to_string(),
         HashMap::from([("codex".to_string(), local_tool_test_provider())]),
@@ -251,12 +248,15 @@ async fn task_delegate_uses_the_initialized_reviewer_route() {
                 crate::daemon::task_tool::TASK_DELEGATE_TOOL,
                 json!({
                     "title": "Preserve the source account",
-                    "request": "Verify exact task delegation provenance.",
-                    "complexity": "simple",
-                    "executor_model_pool_entry_id": pool.pool_entry_id,
-                    "validation_criteria": [{
-                        "description": "The reviewer retains the source provider account."
-                    }]
+                    "description": "Verify exact task delegation provenance.",
+                    "execution_intent": {
+                        "request_markdown": "Verify exact task delegation provenance.",
+                        "complexity": "simple",
+                        "criteria": [{
+                            "description": "The reviewer retains the source provider account."
+                        }],
+                        "execution_plan_markdown": "Inspect the immutable reviewer selection."
+                    }
                 }),
             ),
         )
@@ -264,24 +264,25 @@ async fn task_delegate_uses_the_initialized_reviewer_route() {
         .expect("runtime task delegate");
 
     assert!(result.success, "task delegation failed: {}", result.payload);
-    let task_id = result.payload["task_id"].as_str().expect("task id");
+    let task_id = result.payload["task"]["task_id"].as_str().expect("task id");
     let task = store
-        .get_task(task_id)
+        .get_work_task(&noema_tasks::TaskId::new(task_id).expect("task id"))
         .await
         .expect("read task")
         .expect("created task");
-    assert_eq!(task.reviewer_model.provider_kind, "codex");
+    let contract = task.current_contract.expect("created contract");
+    assert_eq!(contract.reviewer_model.provider_kind, "codex");
     assert_eq!(
-        task.reviewer_model.provider_account_id,
+        contract.reviewer_model.provider_account_id,
         "provider_account:codex:default"
     );
     assert_eq!(
-        task.reviewer_model.model_profile.as_deref(),
+        contract.reviewer_model.model_profile.as_deref(),
         Some("gpt-5.6-luna")
     );
-    assert_eq!(task.reviewer_model.reasoning_effort, None);
+    assert_eq!(contract.reviewer_model.reasoning_effort, None);
     assert_eq!(
-        task.reviewer_model.selection_source.as_deref(),
+        contract.reviewer_model.selection_source.as_deref(),
         Some("agent:task-reviewer")
     );
 }

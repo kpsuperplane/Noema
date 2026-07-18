@@ -35,7 +35,7 @@ use super::{
 use crate::daemon::prompts::build_role_tool_result_continuation_system_prompt;
 use tokio_util::sync::CancellationToken;
 
-/// Provider request for one background executor or reviewer run.
+/// Provider request for one background Planner, Executor, or Reviewer run.
 #[derive(Debug, Clone)]
 pub(crate) struct BackgroundTaskGenerateRequest {
     /// Durable run id used as the stateless provider conversation id.
@@ -44,6 +44,10 @@ pub(crate) struct BackgroundTaskGenerateRequest {
     pub task_id: String,
     /// Active lease token fencing every durable run write.
     pub lease_token: String,
+    /// Task generation captured when this run was claimed.
+    pub task_generation: u64,
+    /// Contract captured when this run was claimed.
+    pub contract_id: Option<noema_tasks::TaskContractId>,
     /// Per-run cancellation propagated through provider and tool futures.
     pub cancellation: CancellationToken,
     /// Built-in agent identity that owns this run.
@@ -60,6 +64,17 @@ pub(crate) struct BackgroundTaskGenerateRequest {
     pub instructions: String,
     /// Runtime event registry for live task-detail refreshes.
     pub runtime_events: RuntimeEventRegistry,
+}
+
+impl BackgroundTaskGenerateRequest {
+    pub(crate) fn work_run_fence(&self) -> noema_store::WorkRunFence {
+        noema_store::WorkRunFence {
+            run_id: self.run_id.clone(),
+            lease_token: self.lease_token.clone(),
+            task_generation: self.task_generation,
+            contract_id: self.contract_id.clone(),
+        }
+    }
 }
 
 include!("background_task/generate.rs");

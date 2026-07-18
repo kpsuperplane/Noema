@@ -20,148 +20,6 @@ async fn runtime_actor_allocates_distinct_conversation_ids() {
 }
 
 #[tokio::test]
-async fn task_completion_delivery_writes_primary_assistant_item_without_human_input() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::Simple)).await;
-    let conversation = handle
-        .start_conversation(None)
-        .await
-        .expect("conversation")
-        .conversation_id;
-
-    let request = super::runtime::TaskCompletionDeliveryRequest {
-        request_markdown: "Find the result".to_string(),
-        summary: Some("The result is ready.".to_string()),
-        result_markdown: Some("A durable result.".to_string()),
-        artifacts: vec![super::runtime::TaskCompletionArtifact {
-            artifact_id: "artifact:task-report".to_string(),
-            artifact_version_id: "artifact_version:task-report".to_string(),
-            title: "Task report".to_string(),
-            artifact_kind: "document".to_string(),
-            storage_kind: "local_file".to_string(),
-            external_url: None,
-            download_url: Some("/artifacts/versions/task-report/download".to_string()),
-            media_type: Some("text/markdown".to_string()),
-        }],
-        review_feedback: Some("All criteria passed.".to_string()),
-        ..task_completion_request("completion", "Research the result", conversation.clone())
-    };
-    handle
-        .deliver_task_completion(request.clone())
-        .await
-        .expect("completion delivery");
-    handle
-        .deliver_task_completion(request)
-        .await
-        .expect("idempotent completion delivery");
-
-    let items = store
-        .list_conversation_items(&conversation, ReplayMode::Audit)
-        .await
-        .expect("conversation items");
-    assert!(items.iter().any(|item| {
-        item.item_id == "item:task_completion:event:completion"
-            && item.kind == ConversationItemKind::AssistantText
-            && item.content_text.as_deref() == Some("fake answer")
-    }));
-    assert!(
-        !items
-            .iter()
-            .any(|item| item.kind == ConversationItemKind::UserText)
-    );
-    assert_eq!(
-        items
-            .iter()
-            .filter(|item| item.item_id == "item:task_completion:event:completion")
-            .count(),
-        1
-    );
-    assert_eq!(
-        items
-            .iter()
-            .filter(|item| item.kind == ConversationItemKind::ArtifactReference)
-            .count(),
-        1
-    );
-
-    handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn blocked_task_completion_generation_does_not_block_a_primary_turn() {
-    let (completion_started_tx, completion_started_rx) = oneshot::channel();
-    let (primary_started_tx, primary_started_rx) = oneshot::channel();
-    let (release_completion_tx, release_completion_rx) = oneshot::channel();
-    let provider = BlockingTaskCompletionProvider {
-        completion_started: Mutex::new(Some(completion_started_tx)),
-        primary_started: Mutex::new(Some(primary_started_tx)),
-        release_completion: Mutex::new(Some(release_completion_rx)),
-    };
-    let store = crate::test_support::test_store().await;
-    let handle = RuntimeHandle::spawn_with_provider(Arc::new(provider), store.clone())
-        .await
-        .expect("runtime");
-    let conversation_id = handle
-        .start_conversation(None)
-        .await
-        .expect("conversation")
-        .conversation_id;
-    let completion_handle = handle.clone();
-    let completion_conversation_id = conversation_id.clone();
-    let pending_completion = tokio::spawn(async move {
-        completion_handle
-            .deliver_task_completion(task_completion_request(
-                "blocked-completion",
-                "Blocked completion",
-                completion_conversation_id,
-            ))
-            .await
-    });
-
-    completion_started_rx
-        .await
-        .expect("completion provider started");
-    let turn_handle = handle.clone();
-    let turn_conversation_id = conversation_id.clone();
-    let pending_turn = tokio::spawn(async move {
-        collect_turn(
-            &turn_handle,
-            turn_conversation_id,
-            "foreground question".to_string(),
-        )
-        .await
-    });
-
-    tokio::time::timeout(Duration::from_secs(1), primary_started_rx)
-        .await
-        .expect("primary turn should reach the provider while completion generation is blocked")
-        .expect("primary provider started");
-    release_completion_tx
-        .send(())
-        .expect("release completion provider");
-
-    let turn_items = pending_turn
-        .await
-        .expect("turn task")
-        .expect("primary turn");
-    pending_completion
-        .await
-        .expect("completion task")
-        .expect("completion delivery");
-    let transcript = store
-        .list_conversation_items(&conversation_id, ReplayMode::Audit)
-        .await
-        .expect("conversation items");
-    handle.shutdown().await;
-
-    assert_eq!(assistant_text(&turn_items), "foreground answer");
-    assert!(transcript.iter().any(|item| {
-        item.item_id == "item:task_completion:event:blocked-completion"
-            && item.content_text.as_deref() == Some("completion answer")
-    }));
-}
-
-#[tokio::test]
 async fn runtime_handle_generate_once_does_not_block_subsequent_commands() {
     let (started_tx, started_rx) = oneshot::channel();
     let (release_tx, release_rx) = oneshot::channel();
@@ -198,10 +56,202 @@ async fn runtime_handle_generate_once_does_not_block_subsequent_commands() {
 }
 
 #[tokio::test]
+async fn notification_delivery_waits_for_foreground_turn_and_publishes_exact_item() {
+    let store = crate::test_support::test_store().await;
+    let conversation = store
+        .get_or_create_primary_conversation("human:local", None, None)
+        .await
+        .expect("primary conversation");
+    let notification = seed_waiting_notification(&store).await;
+    let expected_task_id = notification.payload["task_id"]
+        .as_str()
+        .expect("notification task id")
+        .to_string();
+    let (started_tx, started_rx) = oneshot::channel();
+    let (release_tx, release_rx) = oneshot::channel();
+    let provider = BlockingOnceProvider {
+        started: Mutex::new(Some(started_tx)),
+        release: Mutex::new(Some(release_rx)),
+    };
+    let events = crate::daemon::RuntimeEventRegistry::default();
+    let mut conversation_events = events.subscribe_conversation(&conversation.conversation_id);
+    let mut work_events = events.subscribe_work("workspace:personal");
+    let runtime = RuntimeHandle::spawn_with_provider_map_and_memory(
+        "codex".to_string(),
+        HashMap::from([(
+            "codex".to_string(),
+            Arc::new(provider) as noema_providers::ProviderHandle,
+        )]),
+        store.clone(),
+        crate::test_support::artifact_operations(&store).expect("artifact operations"),
+        crate::test_support::system_error_logger(),
+        None,
+        events,
+    )
+    .await
+    .expect("runtime");
+    let turn_runtime = runtime.clone();
+    let turn_conversation_id = conversation.conversation_id.clone();
+    let turn = tokio::spawn(async move {
+        let (items, _receiver) = mpsc::unbounded_channel();
+        turn_runtime
+            .turn(turn_conversation_id, "hold foreground".to_string(), items)
+            .await
+    });
+    started_rx.await.expect("foreground provider started");
+
+    let delivery_runtime = runtime.clone();
+    let notification_id = notification.notification_id.clone();
+    let expected_notification_id = notification_id.clone();
+    let delivery_conversation_id = conversation.conversation_id.clone();
+    let work_event = WorkRuntimeEvent::Committed {
+        workspace_id: "workspace:personal".to_string(),
+        task_id: Some(expected_task_id.clone()),
+    };
+    let mut delivery = tokio::spawn(async move {
+        delivery_runtime
+            .deliver_work_notification(
+                noema_store::CompleteWorkNotification {
+                    notification_id,
+                    lease_token: notification.lease_token,
+                    conversation_id: delivery_conversation_id,
+                },
+                work_event,
+            )
+            .await
+    });
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), &mut delivery)
+            .await
+            .is_err(),
+        "notification must stay queued behind the active foreground turn"
+    );
+
+    release_tx.send(()).expect("release foreground turn");
+    turn.await
+        .expect("turn task")
+        .expect("foreground turn completes");
+    delivery
+        .await
+        .expect("delivery task")
+        .expect("notification delivery");
+    let event = tokio::time::timeout(Duration::from_secs(1), conversation_events.recv())
+        .await
+        .expect("notification wakeup")
+        .expect("conversation event");
+    let crate::daemon::ConversationRuntimeEvent::Turn { event, .. } = event else {
+        panic!("expected notification turn event");
+    };
+    let TurnStreamEvent::ConversationItem {
+        conversation_id,
+        cursor,
+        metadata,
+        item,
+        ..
+    } = event.as_ref()
+    else {
+        panic!("expected notification conversation item");
+    };
+    let TurnTranscriptItem::TaskReference {
+        task_id,
+        stage_id,
+        revision,
+        ..
+    } = item.as_ref()
+    else {
+        panic!("expected task reference");
+    };
+    assert_eq!(conversation_id, &conversation.conversation_id);
+    assert!(
+        cursor.is_some(),
+        "notification event must expose durable cursor"
+    );
+    assert_eq!(metadata["notification_kind"].as_str(), Some("task_waiting"));
+    assert_eq!(
+        metadata["notification_id"].as_str(),
+        Some(expected_notification_id.as_str())
+    );
+    assert_eq!(
+        metadata["work_notification"]["task_id"].as_str(),
+        Some(task_id.as_str())
+    );
+    assert_eq!(stage_id, "stage:personal:waiting");
+    assert!(*revision > 0);
+    let work_event = tokio::time::timeout(Duration::from_secs(1), work_events.recv())
+        .await
+        .expect("Work notification wakeup")
+        .expect("Work event");
+    let WorkRuntimeEvent::Committed {
+        workspace_id,
+        task_id,
+    } = work_event;
+    assert_eq!(workspace_id, "workspace:personal");
+    assert_eq!(task_id.as_deref(), Some(expected_task_id.as_str()));
+
+    runtime.shutdown().await;
+}
+
+pub(crate) async fn seed_waiting_notification(
+    store: &noema_store::NoemaStore,
+) -> noema_store::ClaimedWorkNotification {
+    let (_task, queued_run) = crate::test_support::seed_task(store, "Waiting notification").await;
+    let service = noema_store::WorkCommandService::new(
+        store.clone(),
+        crate::test_support::ready_test_provider_registry(),
+    );
+    let claimed = service
+        .claim_next_work_run("worker:notification-test", 120, &[])
+        .await
+        .expect("claim executor")
+        .expect("executor run");
+    assert_eq!(claimed.run.run_id, queued_run.run_id);
+    let fence = noema_store::WorkRunFence {
+        run_id: claimed.run.run_id.clone(),
+        lease_token: claimed.lease_token,
+        task_generation: claimed.run.task_generation,
+        contract_id: claimed.run.contract_id,
+    };
+    service
+        .start_work_run(&fence, "actor:test", None, "correlation:notification-test")
+        .await
+        .expect("start executor");
+    service
+        .record_work_run_terminal(
+            noema_store::WorkRunTerminal::Blocked(noema_store::ReportTaskBlocked {
+                fence,
+                gate_kind: noema_tasks::TaskGateKind::Clarification,
+                prompt_markdown: "Which region?".to_string(),
+                context_markdown: "A region is required.".to_string(),
+            }),
+            "actor:test",
+            None,
+            "correlation:notification-test",
+        )
+        .await
+        .expect("block executor");
+    let notifications = store
+        .claim_work_notifications(noema_store::WorkNotificationLeaseRequest {
+            worker_id: "worker:notification-test".to_string(),
+            lease_seconds: 120,
+            limit: 10,
+        })
+        .await
+        .expect("claim notification");
+    notifications
+        .into_iter()
+        .find(|notification| {
+            notification.notification_kind == noema_tasks::NotificationKind::TaskWaiting
+        })
+        .expect("waiting notification")
+}
+
+#[tokio::test]
 async fn task_supervisor_starts_distinct_tasks_concurrently() {
     let store = crate::test_support::test_store().await;
-    let (_, first_run) = crate::test_support::seed_task(&store, "Concurrent task one").await;
-    let (_, second_run) = crate::test_support::seed_task(&store, "Concurrent task two").await;
+    let (_first_task, first_run) =
+        crate::test_support::seed_task(&store, "Concurrent task one").await;
+    let (_second_task, second_run) =
+        crate::test_support::seed_task(&store, "Concurrent task two").await;
     let (started_tx, mut started_rx) = mpsc::unbounded_channel();
     let runtime = RuntimeHandle::spawn_with_provider(
         Arc::new(ConcurrentTaskProvider {
@@ -243,28 +293,37 @@ async fn task_supervisor_starts_distinct_tasks_concurrently() {
 async fn background_task_pins_local_provider_generation_across_replacement() {
     let store = crate::test_support::test_store().await;
     let (task, run) = crate::test_support::seed_task(&store, "Pinned provider generation").await;
-    let lease_token = "lease:provider-generation";
-    let provider_registry = crate::test_support::ready_test_provider_registry();
-    let claimed = store
-        .claim_next_agent_run_with_readiness(
-            "worker:provider-generation",
-            lease_token,
-            120,
-            provider_registry.as_ref(),
-        )
+    let command_service = noema_store::WorkCommandService::new(
+        store.clone(),
+        crate::test_support::ready_test_provider_registry(),
+    );
+    let claimed = command_service
+        .claim_next_work_run("worker:provider-generation", 120, &[])
         .await
         .expect("claim run")
         .expect("leased run");
-    assert_eq!(claimed.run_id, run.run_id);
-    store
-        .transition_agent_run(
-            &run.run_id,
-            noema_tasks::RunStatus::Running,
-            Some(lease_token),
+    assert_eq!(claimed.run.run_id, run.run_id);
+    let fence = noema_store::WorkRunFence {
+        run_id: claimed.run.run_id.clone(),
+        lease_token: claimed.lease_token.clone(),
+        task_generation: claimed.run.task_generation,
+        contract_id: claimed.run.contract_id.clone(),
+    };
+    command_service
+        .start_work_run(
+            &fence,
+            "actor:test:runtime",
             None,
+            "correlation:provider-generation",
         )
         .await
-        .expect("running run");
+        .expect("start run");
+    let detail = store
+        .get_work_task(&task.task_id)
+        .await
+        .expect("read task detail")
+        .expect("task detail");
+    let contract = detail.current_contract.expect("execution contract");
 
     let (started_tx, started_rx) = oneshot::channel();
     let (release_tx, release_rx) = oneshot::channel();
@@ -293,16 +352,24 @@ async fn background_task_pins_local_provider_generation_across_replacement() {
     )
     .await
     .expect("runtime");
+    let claimed_run_id = claimed.run.run_id.clone();
+    let claimed_lease_token = claimed.lease_token.clone();
+    let claimed_task_generation = claimed.run.task_generation;
+    let claimed_contract_id = claimed.run.contract_id.clone();
+    let claimed_agent_id = claimed.run.agent_id.clone();
+    let claimed_execution_policy = claimed.run.execution_policy;
     let generation_runtime = runtime.clone();
     let generation_provider_key = provider_key.clone();
     let generation = tokio::spawn(async move {
         generation_runtime
             .generate_background_task(super::runtime::BackgroundTaskGenerateRequest {
-                run_id: run.run_id.clone(),
-                task_id: task.task_id.clone(),
-                lease_token: lease_token.to_string(),
+                run_id: claimed_run_id,
+                task_id: task.task_id.to_string(),
+                lease_token: claimed_lease_token,
+                task_generation: claimed_task_generation,
+                contract_id: claimed_contract_id,
                 cancellation: tokio_util::sync::CancellationToken::new(),
-                agent_id: run.agent_id.clone(),
+                agent_id: claimed_agent_id,
                 role: crate::agent_execution::ExecutionRole::TaskExecutor,
                 provider_selection: {
                     let mut selection = noema_providers::ProviderSelectionSnapshot::explicit(
@@ -315,8 +382,8 @@ async fn background_task_pins_local_provider_generation_across_replacement() {
                     selection.provider_instance_key = Some(generation_provider_key);
                     selection
                 },
-                execution_policy: run.execution_policy,
-                input: task.request_markdown.clone(),
+                execution_policy: claimed_execution_policy,
+                input: contract.request_markdown.clone(),
                 instructions: "Complete the task and submit the result.".to_string(),
                 runtime_events: crate::daemon::RuntimeEventRegistry::default(),
             })
@@ -337,10 +404,11 @@ async fn background_task_pins_local_provider_generation_across_replacement() {
         .expect("background generation task")
         .expect("background generation");
     let updated_run = store
-        .get_agent_run(&claimed.run_id)
+        .get_work_run_execution_context(&claimed.run.run_id)
         .await
         .expect("load run")
-        .expect("run");
+        .expect("run")
+        .run;
     runtime.shutdown().await;
 
     assert_eq!(response.provider, "old-local");
@@ -370,55 +438,6 @@ async fn background_task_pins_local_provider_generation_across_replacement() {
 async fn runtime_shutdown_cancels_generate_once_and_inline_turn() {
     assert_shutdown_cancels_blocked_operation(false).await;
     assert_shutdown_cancels_blocked_operation(true).await;
-}
-
-#[tokio::test]
-async fn runtime_shutdown_cancels_blocked_task_completion_generation() {
-    let (completion_started_tx, completion_started_rx) = oneshot::channel();
-    let (primary_started_tx, _primary_started_rx) = oneshot::channel();
-    let (release_completion_tx, release_completion_rx) = oneshot::channel();
-    let provider = BlockingTaskCompletionProvider {
-        completion_started: Mutex::new(Some(completion_started_tx)),
-        primary_started: Mutex::new(Some(primary_started_tx)),
-        release_completion: Mutex::new(Some(release_completion_rx)),
-    };
-    let store = crate::test_support::test_store().await;
-    let handle = RuntimeHandle::spawn_with_provider(Arc::new(provider), store)
-        .await
-        .expect("runtime");
-    let conversation_id = handle
-        .start_conversation(None)
-        .await
-        .expect("conversation")
-        .conversation_id;
-    let completion_handle = handle.clone();
-    let pending_completion = tokio::spawn(async move {
-        completion_handle
-            .deliver_task_completion(task_completion_request(
-                "shutdown-completion",
-                "Shutdown completion",
-                conversation_id,
-            ))
-            .await
-    });
-
-    completion_started_rx
-        .await
-        .expect("completion provider started");
-    tokio::time::timeout(Duration::from_secs(1), handle.shutdown())
-        .await
-        .expect("shutdown should cancel completion generation");
-    let error = tokio::time::timeout(Duration::from_secs(1), pending_completion)
-        .await
-        .expect("completion delivery reply should resolve")
-        .expect("completion task")
-        .expect_err("cancelled completion should fail");
-
-    assert!(error.to_string().contains("daemon runtime stopped"));
-    assert!(
-        release_completion_tx.send(()).is_err(),
-        "completion provider future was not dropped"
-    );
 }
 
 async fn assert_shutdown_cancels_blocked_operation(inline_turn: bool) {
@@ -488,27 +507,5 @@ async fn assert_shutdown_cancels_blocked_operation(inline_turn: bool) {
             noema_conversations::ConversationTurnStatus::Cancelled
         );
         assert_eq!(status.agent_status, noema_conversations::AgentStatus::Idle);
-    }
-}
-
-fn task_completion_request(
-    suffix: &str,
-    title: &str,
-    conversation_id: String,
-) -> super::runtime::TaskCompletionDeliveryRequest {
-    super::runtime::TaskCompletionDeliveryRequest {
-        delivery_id: format!("event:{suffix}"),
-        task_id: format!("task:{suffix}"),
-        conversation_id,
-        source_item_id: None,
-        title: title.to_string(),
-        status: "completed".to_string(),
-        request_markdown: format!("Complete {title}"),
-        summary: None,
-        result_markdown: None,
-        artifacts: Vec::new(),
-        review_feedback: None,
-        criteria: Vec::new(),
-        detail: None,
     }
 }

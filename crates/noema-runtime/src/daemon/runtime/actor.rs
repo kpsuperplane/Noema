@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use futures_util::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use noema_capabilities::{CapabilityBindingSourceHandle, CapabilityInvokerRegistration};
+use noema_conversations::{ConversationItemKind, ConversationItemRecord};
 use noema_home::SystemErrorLogger;
 #[cfg(test)]
 use noema_providers::{ProviderHandle, ProviderRegistry, provider_account_instance_key};
@@ -11,20 +11,14 @@ use noema_providers::{
     ProviderSelectionSnapshot, RegistryProviderRouteResolver, provider_selection_loader,
 };
 use noema_store::NoemaStore;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 
 use super::RuntimeSpawnConfig;
 use super::handle::{GenerateOnceModelPolicy, GenerateOnceRoute, RuntimeCommand};
 use super::tasks::RuntimeTaskGroup;
-use crate::daemon::protocol::RuntimeError;
-
-type PendingTaskCompletion = BoxFuture<
-    'static,
-    (
-        super::task_completion::GeneratedTaskCompletion,
-        oneshot::Sender<Result<(), RuntimeError>>,
-    ),
->;
+use crate::daemon::{
+    ConversationRuntimeEvent, TurnStreamEvent, TurnTranscriptItem, protocol::RuntimeError,
+};
 
 pub(in crate::daemon) struct RuntimeActor {
     pub(in crate::daemon) primary_provider: ProviderRouteResolverHandle,
@@ -179,20 +173,8 @@ impl RuntimeActor {
 
     pub(super) async fn run(mut self, mut receiver: mpsc::Receiver<RuntimeCommand>) {
         let mut shutdown_reply = None;
-        let mut task_completions: FuturesUnordered<PendingTaskCompletion> = FuturesUnordered::new();
         loop {
-            let command = if task_completions.is_empty() {
-                receiver.recv().await
-            } else {
-                tokio::select! {
-                    command = receiver.recv() => command,
-                    Some((completion, reply)) = task_completions.next() => {
-                        let result = self.finish_task_completion_delivery(completion).await;
-                        let _ = reply.send(result);
-                        continue;
-                    }
-                }
-            };
+            let command = receiver.recv().await;
             let Some(command) = command else {
                 break;
             };
@@ -316,21 +298,21 @@ impl RuntimeActor {
                         let _ = reply.send(result);
                     });
                 }
-                RuntimeCommand::TaskCompletionDelivery { request, reply } => {
-                    match self.start_task_completion_delivery(request).await {
-                        Ok(super::task_completion::TaskCompletionDeliveryStart::Delivered) => {
-                            let _ = reply.send(Ok(()));
+                RuntimeCommand::DeliverWorkNotification {
+                    completion,
+                    work_event,
+                    reply,
+                } => {
+                    let result = match self.store.complete_work_notification(completion).await {
+                        Ok(item) => {
+                            self.runtime_events.publish_work(work_event);
+                            notification_conversation_event(item).map(|event| {
+                                self.runtime_events.publish_conversation(event);
+                            })
                         }
-                        Ok(super::task_completion::TaskCompletionDeliveryStart::Generate(
-                            generation,
-                        )) => {
-                            task_completions
-                                .push(async move { (generation.generate().await, reply) }.boxed());
-                        }
-                        Err(error) => {
-                            let _ = reply.send(Err(error));
-                        }
-                    }
+                        Err(error) => Err(RuntimeError::from(error)),
+                    };
+                    let _ = reply.send(result);
                 }
                 RuntimeCommand::Shutdown { reply } => {
                     shutdown_reply = Some(reply);
@@ -343,6 +325,60 @@ impl RuntimeActor {
             let _ = reply.send(());
         }
     }
+}
+
+fn notification_conversation_event(
+    item: ConversationItemRecord,
+) -> Result<ConversationRuntimeEvent, RuntimeError> {
+    if item.kind != ConversationItemKind::TaskReference {
+        return Err(RuntimeError::Protocol(format!(
+            "notification item {} is not a task reference",
+            item.item_id
+        )));
+    }
+    let task_id = notification_field(&item, "task_id")?;
+    let title = notification_field(&item, "title")?;
+    let stage_id = notification_field(&item, "stage_id")?;
+    let revision = item
+        .payload_json
+        .get("revision")
+        .and_then(serde_json::Value::as_i64)
+        .ok_or_else(|| {
+            RuntimeError::Protocol(format!(
+                "notification item {} has no exact task revision",
+                item.item_id
+            ))
+        })?;
+    Ok(ConversationRuntimeEvent::Turn {
+        client_message_id: None,
+        event: Box::new(TurnStreamEvent::ConversationItem {
+            conversation_id: item.conversation_id,
+            item_id: item.item_id,
+            cursor: Some(item.cursor),
+            turn_id: item.turn_id,
+            metadata: item.metadata,
+            item: Box::new(TurnTranscriptItem::TaskReference {
+                task_id,
+                title,
+                stage_id,
+                revision,
+            }),
+        }),
+    })
+}
+
+fn notification_field(
+    item: &ConversationItemRecord,
+    field: &'static str,
+) -> Result<String, RuntimeError> {
+    item.payload_json
+        .get(field)
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            RuntimeError::Protocol(format!("notification item {} has no {field}", item.item_id))
+        })
 }
 
 #[cfg(test)]

@@ -109,8 +109,8 @@ pub enum TurnTranscriptItem {
         task_id: String,
         /// Display title captured when the reference was written.
         title: String,
-        /// Canonical [`noema_tasks::TaskStatus::as_str`] value.
-        status: String,
+        /// Canonical workflow-stage identifier at the time of the reference.
+        stage_id: String,
         /// Current executor revision at the time of the reference.
         revision: i64,
     },

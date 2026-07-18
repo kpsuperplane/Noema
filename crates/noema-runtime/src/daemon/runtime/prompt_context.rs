@@ -187,7 +187,7 @@ pub(super) fn input_item_from_transcript_item(
         ConversationItemKind::ModelContextUpdate => {
             text_message_item(item, GenerateMessageRole::Developer)
         }
-        ConversationItemKind::TaskReference => task_status_message_item(item),
+        ConversationItemKind::TaskReference => work_notification_message_item(item),
         ConversationItemKind::Activity
         | ConversationItemKind::A2uiCard
         | ConversationItemKind::ApprovalRequest
@@ -197,23 +197,29 @@ pub(super) fn input_item_from_transcript_item(
     }
 }
 
-fn task_status_message_item(item: &ConversationItemRecord) -> Option<GenerateInputItem> {
-    if item.metadata.get("source").and_then(Value::as_str) != Some("background_task_status") {
-        return None;
-    }
+fn work_notification_message_item(item: &ConversationItemRecord) -> Option<GenerateInputItem> {
+    let notification_kind = action_string(&item.metadata, "notification_kind")?;
+    let notification_id = action_string(&item.metadata, "notification_id")?;
     let task_id = action_string(&item.payload_json, "task_id")?;
     let title = action_string(&item.payload_json, "title")
         .or_else(|| item.content_text.clone())
         .unwrap_or_else(|| "Delegated task".to_string());
-    let status = action_string(&item.payload_json, "status")?;
-    let mut content = format!("Noema task update: {title} ({task_id}) is {status}.");
-    if let Some(question) = action_string(&item.payload_json, "blocking_question") {
-        content.push_str(" Blocking question: ");
-        content.push_str(&question);
-    }
-    if let Some(error) = action_string(&item.payload_json, "error_message") {
-        content.push_str(" Error: ");
-        content.push_str(&error);
+    let stage_id = action_string(&item.payload_json, "stage_id")
+        .or_else(|| action_string(item.payload_json.get("stage")?, "stage_id"))?;
+    let revision = item.payload_json.get("revision")?.as_i64()?;
+    let mut content = format!(
+        "Noema Work notification {notification_kind} ({notification_id}): {title} ({task_id}) is in {stage_id} at revision {revision}."
+    );
+    if let Some(details) = item.metadata.get("work_notification") {
+        for (field, label) in [
+            ("gate_id", "Gate"),
+            ("review_id", "Review"),
+            ("submission_id", "Submission"),
+        ] {
+            if let Some(value) = action_string(details, field) {
+                content.push_str(&format!(" {label}: {value}."));
+            }
+        }
     }
     Some(GenerateInputItem::Message(GenerateMessage {
         role: GenerateMessageRole::Developer,
@@ -379,7 +385,7 @@ mod tests {
     }
 
     #[test]
-    fn structured_task_status_updates_are_visible_to_the_primary_context() {
+    fn current_work_notifications_are_visible_to_the_primary_context() {
         let item = ConversationItemRecord {
             item_id: "item:task-status".to_string(),
             conversation_id: "conversation:1".to_string(),
@@ -392,10 +398,18 @@ mod tests {
             payload_json: serde_json::json!({
                 "task_id": "task:1",
                 "title": "Research task",
-                "status": "waiting_for_human",
-                "blocking_question": "Which region?"
+                "stage_id": "stage:personal:waiting",
+                "revision": 7
             }),
-            metadata: serde_json::json!({"source": "background_task_status"}),
+            metadata: serde_json::json!({
+                "notification_kind": "task_waiting",
+                "notification_id": "notification:1",
+                "work_notification": {
+                    "task_id": "task:1",
+                    "title": "Research task",
+                    "gate_id": "gate:1"
+                }
+            }),
         };
 
         let Some(GenerateInputItem::Message(message)) = input_item_from_transcript_item(&item)
@@ -404,7 +418,33 @@ mod tests {
         };
         assert_eq!(message.role, GenerateMessageRole::Developer);
         assert!(message.content.contains("task:1"));
-        assert!(message.content.contains("Which region?"));
+        assert!(message.content.contains("stage:personal:waiting"));
+        assert!(message.content.contains("revision 7"));
+        assert!(message.content.contains("gate:1"));
+        assert!(message.content.contains("task_waiting"));
+        assert!(message.content.contains("notification:1"));
+    }
+
+    #[test]
+    fn obsolete_background_status_metadata_has_no_prompt_authority() {
+        let item = ConversationItemRecord {
+            item_id: "item:legacy-task-status".to_string(),
+            conversation_id: "conversation:1".to_string(),
+            turn_id: None,
+            sequence_index: 2,
+            cursor: "conversation_item:2".to_string(),
+            kind: ConversationItemKind::TaskReference,
+            status: ConversationItemStatus::Completed,
+            content_text: Some("Research task".to_string()),
+            payload_json: serde_json::json!({
+                "task_id": "task:1",
+                "title": "Research task",
+                "stage_id": "stage:personal:waiting",
+            }),
+            metadata: serde_json::json!({"source": "background_task_status"}),
+        };
+
+        assert!(input_item_from_transcript_item(&item).is_none());
     }
 
     #[test]

@@ -38,6 +38,21 @@ pub enum TaskRuntimeEvent {
     },
 }
 
+/// Live invalidation for one committed Work event.
+///
+/// The event contains no derived task state. Consumers use it only as a wake
+/// signal and refill their projection from the durable Work ledger/store.
+#[derive(Clone, Debug)]
+pub enum WorkRuntimeEvent {
+    /// A Work event committed for a workspace.
+    Committed {
+        /// Workspace whose durable event changed.
+        workspace_id: String,
+        /// Affected task, when the event is task-scoped.
+        task_id: Option<String>,
+    },
+}
+
 impl ConversationRuntimeEvent {
     /// Return the durable conversation id for this event.
     #[must_use]
@@ -56,6 +71,7 @@ impl ConversationRuntimeEvent {
 pub struct RuntimeEventRegistry {
     conversations: Arc<Mutex<HashMap<String, broadcast::Sender<ConversationRuntimeEvent>>>>,
     tasks: Arc<Mutex<HashMap<String, broadcast::Sender<TaskRuntimeEvent>>>>,
+    workspaces: Arc<Mutex<HashMap<String, broadcast::Sender<WorkRuntimeEvent>>>>,
 }
 
 impl RuntimeEventRegistry {
@@ -88,6 +104,20 @@ impl RuntimeEventRegistry {
         let _ = self.task_sender(task_id).send(event);
     }
 
+    /// Subscribe to committed Work invalidations for one workspace.
+    #[must_use]
+    pub fn subscribe_work(&self, workspace_id: &str) -> broadcast::Receiver<WorkRuntimeEvent> {
+        self.work_sender(workspace_id).subscribe()
+    }
+
+    /// Publish one Work invalidation after its durable transaction commits.
+    pub fn publish_work(&self, event: WorkRuntimeEvent) {
+        let workspace_id = match &event {
+            WorkRuntimeEvent::Committed { workspace_id, .. } => workspace_id,
+        };
+        let _ = self.work_sender(workspace_id).send(event);
+    }
+
     fn conversation_sender(
         &self,
         conversation_id: &str,
@@ -109,6 +139,17 @@ impl RuntimeEventRegistry {
             .expect("runtime task event registry poisoned");
         tasks
             .entry(task_id.to_string())
+            .or_insert_with(|| broadcast::channel(256).0)
+            .clone()
+    }
+
+    fn work_sender(&self, workspace_id: &str) -> broadcast::Sender<WorkRuntimeEvent> {
+        let mut workspaces = self
+            .workspaces
+            .lock()
+            .expect("runtime Work event registry poisoned");
+        workspaces
+            .entry(workspace_id.to_string())
             .or_insert_with(|| broadcast::channel(256).0)
             .clone()
     }
@@ -144,5 +185,16 @@ mod tests {
         assert!(
             matches!(receiver.recv().await, Ok(TaskRuntimeEvent::Changed { task_id }) if task_id == "task_1")
         );
+
+        let mut receiver = registry.subscribe_work("workspace:personal");
+        registry.publish_work(WorkRuntimeEvent::Committed {
+            workspace_id: "workspace:personal".to_string(),
+            task_id: Some("task_1".to_string()),
+        });
+        assert!(matches!(
+            receiver.recv().await,
+            Ok(WorkRuntimeEvent::Committed { workspace_id, task_id })
+                if workspace_id == "workspace:personal" && task_id.as_deref() == Some("task_1")
+        ));
     }
 }

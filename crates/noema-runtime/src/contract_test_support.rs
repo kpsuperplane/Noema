@@ -25,8 +25,14 @@ use noema_providers::{
     WebFetchContext, WebFetchError, WebOperationFuture, WebSearchBackend, WebSearchBackendHandle,
     WebSearchError, provider_account_instance_key,
 };
-use noema_store::{NoemaStore, TOOL_PROGRESS_AUDIT_TASK_ID, WEB_FETCH_SUMMARIZER_TASK_ID};
-use noema_tasks::{AgentRunRecord, TaskRecord};
+use noema_store::{
+    NoemaStore, TOOL_PROGRESS_AUDIT_TASK_ID, WEB_FETCH_SUMMARIZER_TASK_ID, WorkCommandService,
+};
+use noema_tasks::{
+    AgentRunRecord, CommandMeta, DelegateExecutionIntent, DelegateTask, NewTaskValidationCriterion,
+    TaskComplexity, TaskProvenance, TaskRecord, TaskSourceKind, WorkCommand,
+};
+use noema_workspaces::WorkspaceId;
 
 use crate::{
     RuntimeError, RuntimeEventRegistry, RuntimeHandle, RuntimeSpawnConfig, WebBackendFuture,
@@ -120,11 +126,52 @@ pub async fn initialize_codex_provider_selections(store: &NoemaStore) {
         .expect("initialized provider selections");
 }
 
-/// Seed a simple task and its executor run.
+/// Seed a simple task and its executor run through the semantic Work writer.
 pub async fn seed_task(store: &NoemaStore, title: &str) -> (TaskRecord, AgentRunRecord) {
-    noema_store::test_support::seed_task(store, title)
+    initialize_codex_provider_selections(store).await;
+    let service = WorkCommandService::new(store.clone(), ready_test_provider_registry());
+    let seed_id = NEXT_DIAGNOSTIC_ID.fetch_add(1, Ordering::Relaxed);
+    let result = service
+        .execute(WorkCommand::DelegateTask(DelegateTask {
+            meta: CommandMeta {
+                actor_id: "actor:test:runtime".to_string(),
+                causation_id: None,
+                correlation_id: format!("correlation:seed-task:{seed_id}"),
+                idempotency_key: Some(format!("idempotency:seed-task:{seed_id}")),
+            },
+            workspace_id: WorkspaceId::new("workspace:personal").expect("personal workspace"),
+            title: title.to_string(),
+            description_markdown: format!("Seeded runtime task: {title}"),
+            project_id: None,
+            provenance: TaskProvenance {
+                source_kind: TaskSourceKind::ChatDelegate,
+                created_by_actor_id: "actor:test:runtime".to_string(),
+                ..TaskProvenance::default()
+            },
+            complexity_hint: None,
+            execution_intent: Some(DelegateExecutionIntent {
+                request_markdown: title.to_string(),
+                criteria: vec![NewTaskValidationCriterion {
+                    criterion_id: None,
+                    ordinal: 1,
+                    description: "The seeded runtime task has a complete execution result."
+                        .to_string(),
+                    expected_evidence: None,
+                }],
+                complexity: TaskComplexity::Simple,
+                execution_plan_markdown: Some("Run the seeded task fixture.".to_string()),
+            }),
+        }))
         .await
-        .expect("task")
+        .expect("task");
+    let task = result.task.expect("delegated task");
+    let detail = store
+        .get_work_task(&task.task_id)
+        .await
+        .expect("read delegated task")
+        .expect("delegated task exists");
+    let run = detail.current_run.expect("executor run");
+    (task, run)
 }
 
 /// Create a persisted Exa account for a contract test.

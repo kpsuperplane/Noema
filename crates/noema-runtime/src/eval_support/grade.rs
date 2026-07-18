@@ -4,6 +4,9 @@ use noema_providers::{GenerateResponse, GenerateResponseItem, GenerateResponseSt
 use serde_json::Value;
 
 use crate::daemon::runtime::progress_audit::grade_finalize_response;
+use crate::daemon::task_run_context::{
+    ExecutorBlockedResponse, ExecutorSubmissionResponse, PlannerPlanResponse, ReviewerResponse,
+};
 
 use super::types::EvalExpectation;
 
@@ -28,6 +31,7 @@ pub(super) fn grade_response(
         EvalExpectation::AgentNameUpdate => agent_name_update(response),
         EvalExpectation::MemoryLookup => memory_lookup(response),
         EvalExpectation::MemoryContinuation => memory_continuation(response),
+        EvalExpectation::PlannerPlan => planner_plan(response),
         EvalExpectation::ExecutorSubmission => executor_submission(response),
         EvalExpectation::ReviewerApproval => reviewer_approval(response),
         EvalExpectation::BlockedTask => blocked_task(response),
@@ -133,8 +137,33 @@ fn memory_continuation(response: &GenerateResponse) -> Result<(), String> {
     require_text(response, &["skyward-19"])
 }
 
+fn planner_plan(response: &GenerateResponse) -> Result<(), String> {
+    let payload = only_tool_payload(response, "task.submit_plan")?;
+    serde_json::from_value::<PlannerPlanResponse>(payload.clone())
+        .map_err(|error| format!("planner payload failed production decoding: {error}"))?;
+    required_nonempty_string(payload, "request_markdown")?;
+    required_nonempty_string(payload, "execution_plan_markdown")?;
+    required_nonempty_string(payload, "complexity")?;
+    let criteria = payload
+        .get("criteria")
+        .and_then(Value::as_array)
+        .filter(|criteria| !criteria.is_empty())
+        .ok_or_else(|| "planner criteria was missing or empty".to_string())?;
+    if criteria.iter().any(|criterion| {
+        criterion
+            .get("description")
+            .and_then(Value::as_str)
+            .is_none_or(|description| description.trim().is_empty())
+    }) {
+        return Err("planner emitted an empty validation criterion".to_string());
+    }
+    Ok(())
+}
+
 fn executor_submission(response: &GenerateResponse) -> Result<(), String> {
     let payload = only_tool_payload(response, "task.submit_result")?;
+    serde_json::from_value::<ExecutorSubmissionResponse>(payload.clone())
+        .map_err(|error| format!("executor payload failed production decoding: {error}"))?;
     required_nonempty_string(payload, "summary")?;
     let result = required_nonempty_string(payload, "result_markdown")?;
     if !result.to_ascii_lowercase().contains("orbit-52") {
@@ -157,6 +186,8 @@ fn executor_submission(response: &GenerateResponse) -> Result<(), String> {
 
 fn reviewer_approval(response: &GenerateResponse) -> Result<(), String> {
     let payload = only_tool_payload(response, "task.submit_review")?;
+    serde_json::from_value::<ReviewerResponse>(payload.clone())
+        .map_err(|error| format!("reviewer payload failed production decoding: {error}"))?;
     if payload.get("overall_verdict").and_then(Value::as_str) != Some("approve") {
         return Err(format!(
             "reviewer did not approve the unambiguously correct result: {:?}",
@@ -179,13 +210,14 @@ fn reviewer_approval(response: &GenerateResponse) -> Result<(), String> {
 
 fn blocked_task(response: &GenerateResponse) -> Result<(), String> {
     let payload = only_tool_payload(response, "task.report_blocked")?;
+    serde_json::from_value::<ExecutorBlockedResponse>(payload.clone())
+        .map_err(|error| format!("blocked payload failed production decoding: {error}"))?;
     let question = required_nonempty_string(payload, "question")?;
     if !contains_any(question, &["region", "where", "location"]) {
         return Err(format!(
             "blocking question did not ask for the region: {question:?}"
         ));
     }
-    required_nonempty_string(payload, "work_summary")?;
     Ok(())
 }
 
@@ -354,6 +386,24 @@ mod tests {
             memory_lookup(&response),
             Err("memory call did not use human:local scope".to_string())
         );
+    }
+
+    #[test]
+    fn planner_grade_uses_the_production_terminal_payload() {
+        let response = tool_response(
+            "task.submit_plan",
+            serde_json::json!({
+                "request_markdown": "Return the launch code.",
+                "complexity": "simple",
+                "criteria": [{
+                    "description": "The result includes the launch code.",
+                    "expected_evidence": "Quote the code."
+                }],
+                "execution_plan_markdown": "Produce and verify the result."
+            }),
+        );
+
+        assert_eq!(planner_plan(&response), Ok(()));
     }
 
     #[test]

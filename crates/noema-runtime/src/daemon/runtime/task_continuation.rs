@@ -15,6 +15,9 @@ use super::{
 
 pub(super) fn is_valid_terminal_tool(role: ExecutionRole, name: &str) -> bool {
     match role {
+        ExecutionRole::TaskPlanner => {
+            is_task_submit_plan_tool(name) || is_task_report_blocked_tool(name)
+        }
         ExecutionRole::TaskExecutor => {
             is_task_submit_result_tool(name) || is_task_report_blocked_tool(name)
         }
@@ -125,9 +128,14 @@ pub(super) fn task_tool_result_transcript_payload(result: &LocalToolResult) -> s
 }
 
 pub(super) fn is_task_terminal_tool(name: &str) -> bool {
-    is_task_submit_result_tool(name)
+    is_task_submit_plan_tool(name)
+        || is_task_submit_result_tool(name)
         || is_task_submit_review_tool(name)
         || is_task_report_blocked_tool(name)
+}
+
+fn is_task_submit_plan_tool(name: &str) -> bool {
+    name == crate::daemon::task_tool::TASK_SUBMIT_PLAN_TOOL
 }
 
 pub(super) fn build_task_finalization_prompt(
@@ -136,6 +144,9 @@ pub(super) fn build_task_finalization_prompt(
     original_input: &str,
 ) -> String {
     let terminal_instruction = match role {
+        ExecutionRole::TaskPlanner => {
+            "Call task.submit_plan exactly once with a complete immutable execution contract, or task.report_blocked exactly once with a focused human gate."
+        }
         ExecutionRole::TaskExecutor => {
             if reason.contains("human input") {
                 "Call task.report_blocked exactly once with the blocking question and the work completed so far."

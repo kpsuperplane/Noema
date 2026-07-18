@@ -13,6 +13,8 @@ pub enum ExecutionRole {
     /// The primary agent responding in a human conversation.
     PrimaryConversation,
     /// A background task executor producing a task submission.
+    TaskPlanner,
+    /// A background task executor producing a task submission.
     TaskExecutor,
     /// A background reviewer validating a task submission.
     TaskReviewer,
@@ -99,7 +101,7 @@ impl ToolPolicy {
     pub const fn allows_class(&self, class: ToolAccessClass) -> bool {
         match self.role {
             ExecutionRole::PrimaryConversation => true,
-            ExecutionRole::TaskExecutor => matches!(
+            ExecutionRole::TaskPlanner | ExecutionRole::TaskExecutor => matches!(
                 class,
                 ToolAccessClass::ReadOnly
                     | ToolAccessClass::TaskOwnedWrite

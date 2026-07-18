@@ -11,6 +11,7 @@ use std::{
 
 use tokio_util::sync::CancellationToken;
 
+use noema_store::{WorkCommandService, WorkRunFence, WorkRunProgress};
 use noema_tasks::NewAgentRunItem;
 
 use crate::daemon::{RuntimeError, RuntimeEventRegistry, TaskRuntimeEvent};
@@ -34,6 +35,8 @@ impl RuntimeActor {
         run_id: &str,
         task_id: &str,
         lease_token: &str,
+        task_generation: u64,
+        contract_id: Option<&noema_tasks::TaskContractId>,
         round_index: i64,
         deadline: tokio::time::Instant,
         cancellation: &CancellationToken,
@@ -44,7 +47,13 @@ impl RuntimeActor {
         let store = self.store.clone();
         let run_id_for_writer = run_id.to_string();
         let task_id_for_writer = task_id.to_string();
-        let lease_token_for_writer = lease_token.to_string();
+        let fence = WorkRunFence {
+            run_id: run_id.to_string(),
+            lease_token: lease_token.to_string(),
+            task_generation,
+            contract_id: contract_id.cloned(),
+        };
+        let fence_for_writer = fence.clone();
         let subscriptions_for_writer = subscriptions.clone();
         let saw_assistant_delta = Arc::new(AtomicBool::new(false));
         let saw_assistant_delta_for_emit = Arc::clone(&saw_assistant_delta);
@@ -77,7 +86,7 @@ impl RuntimeActor {
                                 noema_tasks::AgentRunItemStatus::Running,
                             );
                             if store
-                                .upsert_agent_run_item(item, &lease_token_for_writer)
+                                .upsert_agent_run_item(item, &fence_for_writer)
                                 .await
                                 .is_ok()
                             {
@@ -98,7 +107,7 @@ impl RuntimeActor {
                     noema_tasks::AgentRunItemStatus::Completed,
                 );
                 if store
-                    .upsert_agent_run_item(item, &lease_token_for_writer)
+                    .upsert_agent_run_item(item, &fence_for_writer)
                     .await
                     .is_ok()
                 {
@@ -123,23 +132,70 @@ impl RuntimeActor {
         drop(event_tx);
         let _ = writer.await;
         if let Ok(response) = result.as_ref() {
+            let active_milliseconds =
+                u64::try_from(provider_started_at.elapsed().as_millis()).unwrap_or(u64::MAX);
+            let tool_call_count_delta = u32::try_from(response.tool_calls.len()).map_err(|_| {
+                RuntimeError::Protocol(
+                    "provider tool-call count exceeds the supported range".to_string(),
+                )
+            })?;
+            WorkCommandService::new(self.store.clone(), self.provider_registry.clone())
+                .record_work_run_progress(WorkRunProgress {
+                    fence: fence.clone(),
+                    actual_provider_kind: Some(response.provider.clone()),
+                    actual_model_profile: Some(response.model.clone()),
+                    provider_call_count_delta: 1,
+                    tool_call_count_delta,
+                    input_tokens_delta: response
+                        .usage
+                        .as_ref()
+                        .map_or(0, |usage| usage.input_tokens),
+                    cached_input_tokens_delta: response
+                        .usage
+                        .as_ref()
+                        .and_then(|usage| usage.cached_input_tokens)
+                        .unwrap_or(0),
+                    output_tokens_delta: response
+                        .usage
+                        .as_ref()
+                        .map_or(0, |usage| usage.output_tokens),
+                    active_milliseconds_delta: active_milliseconds,
+                })
+                .await?;
+            let duration_ms = i64::try_from(active_milliseconds).unwrap_or(i64::MAX);
             self.store
-                .record_agent_run_observation(
-                    run_id,
-                    lease_token,
-                    &response.provider,
-                    &response.model,
-                    response.usage.as_ref(),
+                .append_agent_run_item(
+                    NewAgentRunItem {
+                        item_id: Some(format!(
+                            "run_item:provider_observation:{run_id}:{round_index}"
+                        )),
+                        run_id: run_id.to_string(),
+                        round_index,
+                        kind: noema_tasks::AgentRunItemKind::ProgressNotice,
+                        status: noema_tasks::AgentRunItemStatus::Completed,
+                        correlation_id: Some(format!("provider:{round_index}")),
+                        parent_item_id: None,
+                        content_text: Some("Provider response received.".to_string()),
+                        payload: serde_json::json!({
+                            "phase": "provider_response",
+                            "provider": response.provider,
+                            "model": response.model,
+                            "response_id": response.response_id,
+                            "duration_ms": duration_ms,
+                            "usage": response.usage.as_ref().map(|usage| serde_json::json!({
+                                "input_tokens": usage.input_tokens,
+                                "output_tokens": usage.output_tokens,
+                                "total_tokens": usage.total_tokens,
+                                "cached_input_tokens": usage.cached_input_tokens,
+                            })),
+                        }),
+                    },
+                    &fence,
                 )
                 .await?;
-            self.store
-                .record_agent_run_progress(
-                    run_id,
-                    lease_token,
-                    0,
-                    i64::try_from(provider_started_at.elapsed().as_millis()).unwrap_or(i64::MAX),
-                )
-                .await?;
+            subscriptions.publish_task(TaskRuntimeEvent::Changed {
+                task_id: task_id.to_string(),
+            });
             if !saw_assistant_delta.load(Ordering::Relaxed) {
                 let assistant_text = response.assistant_text();
                 if !assistant_text.is_empty() {
@@ -157,7 +213,7 @@ impl RuntimeActor {
                             content_text: Some(assistant_text),
                             payload: serde_json::json!({"source": "response"}),
                         },
-                        lease_token,
+                        &fence,
                     )
                     .await;
                 }
@@ -190,7 +246,7 @@ impl RuntimeActor {
                             "arguments": arguments,
                         }),
                     },
-                    lease_token,
+                    &fence,
                 )
                 .await;
             }
@@ -203,14 +259,9 @@ impl RuntimeActor {
         task_id: &str,
         subscriptions: &RuntimeEventRegistry,
         item: NewAgentRunItem,
-        lease_token: &str,
+        fence: &WorkRunFence,
     ) {
-        if self
-            .store
-            .append_agent_run_item(item, lease_token)
-            .await
-            .is_ok()
-        {
+        if self.store.append_agent_run_item(item, fence).await.is_ok() {
             subscriptions.publish_task(TaskRuntimeEvent::Changed {
                 task_id: task_id.to_string(),
             });
@@ -224,6 +275,7 @@ impl RuntimeActor {
         calls: &[LocalToolCall],
         reason: &str,
     ) {
+        let fence = request.work_run_fence();
         for call in calls {
             let correlation_id = call
                 .provider_call_id
@@ -250,7 +302,7 @@ impl RuntimeActor {
                         "reason": reason,
                     }),
                 },
-                &request.lease_token,
+                &fence,
             )
             .await;
         }

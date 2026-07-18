@@ -78,13 +78,6 @@ struct BlockingOnceProvider {
 }
 
 #[derive(Debug)]
-struct BlockingTaskCompletionProvider {
-    completion_started: Mutex<Option<oneshot::Sender<()>>>,
-    primary_started: Mutex<Option<oneshot::Sender<()>>>,
-    release_completion: Mutex<Option<oneshot::Receiver<()>>>,
-}
-
-#[derive(Debug)]
 struct ConcurrentTaskProvider {
     started: mpsc::UnboundedSender<String>,
 }

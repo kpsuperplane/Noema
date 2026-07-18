@@ -15,7 +15,7 @@ use noema_store::NoemaStore;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
-use super::{RuntimeSpawnConfig, TaskCompletionDeliveryRequest, actor::RuntimeActor};
+use super::{RuntimeSpawnConfig, actor::RuntimeActor};
 use crate::daemon::protocol::{RuntimeError, StartedConversation, TurnStreamEvent};
 
 #[derive(Debug, Clone)]
@@ -387,14 +387,17 @@ impl RuntimeHandle {
             .await
     }
 
-    /// Queue a primary-agent completion report behind any active foreground
-    /// turn for the originating conversation.
-    pub(crate) async fn deliver_task_completion(
+    pub(crate) async fn deliver_work_notification(
         &self,
-        request: TaskCompletionDeliveryRequest,
+        completion: noema_store::CompleteWorkNotification,
+        work_event: crate::daemon::WorkRuntimeEvent,
     ) -> Result<(), RuntimeError> {
-        self.request(|reply| RuntimeCommand::TaskCompletionDelivery { request, reply })
-            .await
+        self.request(|reply| RuntimeCommand::DeliverWorkNotification {
+            completion,
+            work_event,
+            reply,
+        })
+        .await
     }
 
     async fn request<T>(
@@ -470,8 +473,9 @@ pub(super) enum RuntimeCommand {
         request: super::BackgroundTaskGenerateRequest,
         reply: oneshot::Sender<Result<GenerateResponse, RuntimeError>>,
     },
-    TaskCompletionDelivery {
-        request: TaskCompletionDeliveryRequest,
+    DeliverWorkNotification {
+        completion: noema_store::CompleteWorkNotification,
+        work_event: crate::daemon::WorkRuntimeEvent,
         reply: oneshot::Sender<Result<(), RuntimeError>>,
     },
     Shutdown {

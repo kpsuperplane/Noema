@@ -1,308 +1,328 @@
-async fn execute_run(
-    store: &NoemaStore,
-    runtime: &RuntimeHandle,
-    provider_registry: &ProviderRegistryHandle,
-    subscriptions: &RuntimeEventRegistry,
+//! One fenced Planner, Executor, or Reviewer run.
+
+use noema_store::{
+    CompletePlan, PlanTerminal, ReportTaskBlocked, SubmitPlan, SubmitTaskResult, SubmitTaskReview,
+    WorkCommandService, WorkRunExecutionContext, WorkRunFence, WorkRunTerminal,
+};
+use noema_tasks::{
+    CriterionOutcome, NewTaskReview, NewTaskSubmission, NewTaskValidationCriterion, RunKind,
+    TaskReviewCriterion, TaskReviewVerdict,
+};
+use tokio_util::sync::CancellationToken;
+
+use crate::{
+    daemon::runtime::BackgroundTaskGenerateRequest,
+    daemon::task_run_context::{
+        ExecutorBlockedResponse, ExecutorSubmissionResponse, PlannerBlockedResponse,
+        PlannerPlanResponse, ReviewerResponse, TaskRolePrompt, build_task_role_prompt,
+    },
+    daemon::{RuntimeEventRegistry, RuntimeHandle, TaskRuntimeEvent, WorkRuntimeEvent},
+};
+
+use super::TaskRuntimeServices;
+
+pub(super) async fn execute_run(
+    services: &TaskRuntimeServices,
     run: &noema_tasks::AgentRunRecord,
-    lease_token: &str,
+    fence: &WorkRunFence,
     cancellation: &CancellationToken,
 ) -> Result<(), String> {
-    store
-        .transition_agent_run(&run.run_id, RunStatus::Running, Some(lease_token), None)
+    let command_service =
+        WorkCommandService::new(services.store.clone(), services.provider_registry.clone());
+    command_service
+        .start_work_run(
+            fence,
+            super::WORK_RUNTIME_ACTOR_ID,
+            Some(run.run_id.as_str()),
+            &format!("correlation:run:{}", run.run_id),
+        )
         .await
         .map_err(|error| error.to_string())?;
-    publish_task_changed(subscriptions, &run.task_id);
+    let admission = command_service
+        .admit_work_run_execution_context(
+            fence,
+            super::WORK_RUNTIME_ACTOR_ID,
+            Some(run.run_id.as_str()),
+            &format!("correlation:run:{}", run.run_id),
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+    let context = admission.context;
+    let prompt = build_task_role_prompt(&context)?;
+    let response = generate_once(
+        &services.runtime,
+        run,
+        fence,
+        cancellation,
+        prompt,
+        &services.subscriptions,
+    )
+    .await?;
+    let terminal = parse_terminal(run, &context, response.tool_calls.as_slice())?;
+    command_service
+        .record_work_run_terminal(
+            terminal,
+            super::WORK_RUNTIME_ACTOR_ID,
+            Some(run.run_id.as_str()),
+            &format!("correlation:run:{}", run.run_id),
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+    publish_committed(&services.subscriptions, &context);
+    Ok(())
+}
+
+fn parse_terminal(
+    run: &noema_tasks::AgentRunRecord,
+    context: &WorkRunExecutionContext,
+    calls: &[noema_providers::GenerateToolCall],
+) -> Result<WorkRunTerminal, String> {
+    if calls.len() != 1 {
+        return Err("Work role must return exactly one terminal tool call".to_string());
+    }
+    let call = &calls[0];
+    let fence = WorkRunFence {
+        run_id: run.run_id.clone(),
+        lease_token: run.lease_token.clone().unwrap_or_default(),
+        task_generation: run.task_generation,
+        contract_id: run.contract_id.clone(),
+    };
     match run.run_kind {
+        RunKind::Planner => {
+            if call.name == "task.submit_plan" {
+                let plan: PlannerPlanResponse = serde_json::from_value(call.payload.clone())
+                    .map_err(|error| format!("invalid Planner terminal payload: {error}"))?;
+                let criteria = plan
+                    .criteria
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, criterion)| {
+                        Ok(NewTaskValidationCriterion {
+                            criterion_id: None,
+                            ordinal: criterion_ordinal(index)?,
+                            description: criterion.description,
+                            expected_evidence: criterion.expected_evidence,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+                Ok(WorkRunTerminal::Plan(SubmitPlan {
+                    fence,
+                    terminal: PlanTerminal::Complete(CompletePlan {
+                        request_markdown: plan.request_markdown,
+                        execution_plan_markdown: plan.execution_plan_markdown,
+                        criteria,
+                        complexity: plan.complexity,
+                    }),
+                }))
+            } else if call.name == "task.report_blocked" {
+                let blocked: PlannerBlockedResponse = serde_json::from_value(call.payload.clone())
+                    .map_err(|error| format!("invalid Planner gate payload: {error}"))?;
+                let context_markdown = if blocked.suggested_answers.is_empty() {
+                    blocked.context_markdown
+                } else {
+                    format!(
+                        "{}\n\nSuggested answers:\n{}",
+                        blocked.context_markdown,
+                        blocked
+                            .suggested_answers
+                            .iter()
+                            .map(|answer| format!("- {answer}"))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    )
+                };
+                Ok(WorkRunTerminal::Plan(SubmitPlan {
+                    fence,
+                    terminal: PlanTerminal::BlockingQuestion {
+                        prompt_markdown: blocked.question,
+                        context_markdown,
+                        gate_kind: blocked.gate_kind,
+                    },
+                }))
+            } else {
+                Err("Planner returned a role-inappropriate terminal tool".to_string())
+            }
+        }
         RunKind::Executor => {
-            execute_executor(
-                store,
-                runtime,
-                provider_registry,
-                subscriptions,
-                run,
-                lease_token,
-                cancellation,
-            )
-            .await
+            if call.name == "task.submit_result" {
+                let result: ExecutorSubmissionResponse =
+                    serde_json::from_value(call.payload.clone())
+                        .map_err(|error| format!("invalid Executor terminal payload: {error}"))?;
+                let contract = context
+                    .contract
+                    .as_ref()
+                    .ok_or_else(|| "Executor terminal has no contract".to_string())?;
+                let submission = NewTaskSubmission {
+                    submission_id: None,
+                    task_id: context.task.task_id.clone(),
+                    contract_id: contract.contract_id.clone(),
+                    executor_run_id: run.run_id.clone(),
+                    review_round: run.review_round,
+                    summary: result.summary,
+                    result_markdown: result.result_markdown,
+                    criteria: result
+                        .criteria
+                        .into_iter()
+                        .map(|criterion| noema_tasks::SubmissionCriterionEvidence {
+                            criterion_id: criterion.criterion_id,
+                            evidence_markdown: criterion.evidence_markdown,
+                        })
+                        .collect(),
+                    artifact_ids: result.artifact_ids,
+                };
+                Ok(WorkRunTerminal::TaskResult(SubmitTaskResult {
+                    fence,
+                    submission,
+                }))
+            } else if call.name == "task.report_blocked" {
+                let blocked: ExecutorBlockedResponse = serde_json::from_value(call.payload.clone())
+                    .map_err(|error| format!("invalid Executor gate payload: {error}"))?;
+                let context_markdown = if blocked.suggested_answers.is_empty() {
+                    blocked.context_markdown
+                } else {
+                    format!(
+                        "{}\n\nSuggested answers:\n{}",
+                        blocked.context_markdown,
+                        blocked
+                            .suggested_answers
+                            .iter()
+                            .map(|answer| format!("- {answer}"))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    )
+                };
+                Ok(WorkRunTerminal::Blocked(ReportTaskBlocked {
+                    fence,
+                    gate_kind: blocked.gate_kind,
+                    prompt_markdown: blocked.question,
+                    context_markdown,
+                }))
+            } else {
+                Err("Executor returned a role-inappropriate terminal tool".to_string())
+            }
         }
         RunKind::Reviewer => {
-            execute_reviewer(
-                store,
-                runtime,
-                provider_registry,
-                subscriptions,
-                run,
-                lease_token,
-                cancellation,
-            )
-            .await
+            if call.name != "task.submit_review" {
+                return Err("Reviewer returned a role-inappropriate terminal tool".to_string());
+            }
+            let parsed: ReviewerResponse = serde_json::from_value(call.payload.clone())
+                .map_err(|error| format!("invalid Reviewer terminal payload: {error}"))?;
+            let verdict = parsed
+                .overall_verdict
+                .parse::<TaskReviewVerdict>()
+                .map_err(|error| format!("invalid reviewer verdict: {error}"))?;
+            let criteria = parsed
+                .criteria
+                .into_iter()
+                .map(|criterion| {
+                    Ok(TaskReviewCriterion {
+                        criterion_id: criterion.criterion_id,
+                        outcome: criterion
+                            .outcome
+                            .parse::<CriterionOutcome>()
+                            .map_err(|error| format!("invalid criterion outcome: {error}"))?,
+                        evidence_markdown: criterion.evidence_markdown,
+                        feedback: criterion.feedback,
+                    })
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            let contract = context
+                .contract
+                .as_ref()
+                .ok_or_else(|| "Reviewer terminal has no contract".to_string())?;
+            let submission = context
+                .latest_submission
+                .as_ref()
+                .ok_or_else(|| "Reviewer terminal has no submission".to_string())?;
+            let review = NewTaskReview {
+                review_id: None,
+                task_id: context.task.task_id.clone(),
+                contract_id: contract.contract_id.clone(),
+                reviewer_run_id: run.run_id.clone(),
+                reviewed_submission_id: submission.submission_id.clone(),
+                review_attempt_index: context
+                    .latest_review
+                    .as_ref()
+                    .filter(|review| review.reviewed_submission_id == submission.submission_id)
+                    .map_or(1, |review| review.review_attempt_index.saturating_add(1)),
+                supersedes_review_id: context
+                    .latest_review
+                    .as_ref()
+                    .filter(|review| review.reviewed_submission_id == submission.submission_id)
+                    .map(|review| review.review_id.clone()),
+                overall_verdict: verdict,
+                human_gate_kind: parsed.human_gate_kind,
+                overall_feedback: parsed
+                    .human_question
+                    .as_deref()
+                    .filter(|question| !question.trim().is_empty())
+                    .map_or(parsed.overall_feedback.clone(), |question| {
+                        format!(
+                            "{}\n\nReviewer context:\n{}",
+                            question.trim(),
+                            parsed.overall_feedback
+                        )
+                    }),
+                criteria,
+            };
+            if verdict == TaskReviewVerdict::NeedsHuman
+                && parsed
+                    .human_question
+                    .as_deref()
+                    .unwrap_or("")
+                    .trim()
+                    .is_empty()
+            {
+                return Err("needs_human review requires a human question".to_string());
+            }
+            Ok(WorkRunTerminal::Review(SubmitTaskReview { fence, review }))
         }
     }
-}
-
-async fn execute_executor(
-    store: &NoemaStore,
-    runtime: &RuntimeHandle,
-    provider_registry: &ProviderRegistryHandle,
-    subscriptions: &RuntimeEventRegistry,
-    run: &noema_tasks::AgentRunRecord,
-    lease_token: &str,
-    cancellation: &CancellationToken,
-) -> Result<(), String> {
-    let task = store
-        .get_task(&run.task_id)
-        .await
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "task disappeared before executor run".to_string())?;
-    if task.status == TaskStatus::Queued || task.status == TaskStatus::RevisionRequested {
-        store
-            .transition_task(
-                &task.task_id,
-                TaskStatus::Executing,
-                Some("executor_started"),
-            )
-            .await
-            .map_err(|error| error.to_string())?;
-        publish_task_changed(subscriptions, &task.task_id);
-    }
-    let criteria = store
-        .list_task_validation_criteria(&task.task_id)
-        .await
-        .map_err(|error| error.to_string())?;
-    let prompt = with_resume_context(
-        store,
-        run,
-        format_executor_prompt(&task, &criteria, run.revision_index),
-    )
-    .await?;
-    let response = generate_once(
-        runtime,
-        run,
-        lease_token,
-        cancellation,
-        prompt,
-        "You are Noema's background task executor. Work autonomously with the role-approved tools. When finished, call task.submit_result exactly once. If safe progress genuinely requires human input, call task.report_blocked exactly once. Do not return the task result as ordinary assistant text.",
-        subscriptions,
-    )
-    .await?;
-    if let Some(call) = response
-        .tool_calls
-        .iter()
-        .find(|call| call.name == TASK_REPORT_BLOCKED_TOOL)
-    {
-        let blocked: ExecutorBlockedResponse = serde_json::from_value(call.payload.clone())
-            .map_err(|error| format!("invalid executor blocked contract: {error}"))?;
-        let blocked_context = match blocked.resume_context {
-            Some(resume_context) if !resume_context.trim().is_empty() => format!(
-                "{}\n\nResume context:\n{}",
-                blocked.work_summary.trim(),
-                resume_context.trim()
-            ),
-            _ => blocked.work_summary.trim().to_string(),
-        };
-        store
-            .report_task_blocked(
-                &task.task_id,
-                &run.run_id,
-                lease_token,
-                blocked.question.trim(),
-                &blocked_context,
-            )
-            .await
-            .map_err(|error| error.to_string())?;
-        publish_task_changed(subscriptions, &task.task_id);
-        let _ = crate::daemon::task_delivery::deliver_task_status_event(
-            store,
-            subscriptions,
-            &task.task_id,
-        )
-        .await;
-        return Ok(());
-    }
-    let call = response
-        .tool_calls
-        .iter()
-        .find(|call| call.name == TASK_SUBMIT_RESULT_TOOL)
-        .ok_or_else(|| "executor terminal contract missing".to_string())?;
-    let result: ExecutorSubmissionResponse = serde_json::from_value(call.payload.clone())
-        .map_err(|error| format!("invalid executor submission contract: {error}"))?;
-    let evidence = result
-        .criteria
-        .into_iter()
-        .map(|criterion| SubmissionCriterionEvidence {
-            criterion_id: criterion.criterion_id,
-            evidence_markdown: criterion.evidence_markdown,
-        })
-        .collect();
-    store
-        .create_task_submission_with_readiness(
-            NewTaskSubmission {
-                submission_id: None,
-                task_id: task.task_id.clone(),
-                executor_run_id: run.run_id.clone(),
-                revision_index: run.revision_index,
-                summary: result.summary,
-                result_markdown: result.result_markdown,
-                criteria: evidence,
-                artifact_ids: result.artifact_ids,
-            },
-            lease_token,
-            provider_registry.as_ref(),
-        )
-        .await
-        .map_err(|error| error.to_string())?;
-    publish_task_changed(subscriptions, &task.task_id);
-    let _ = crate::daemon::task_delivery::deliver_task_status_event(
-        store,
-        subscriptions,
-        &task.task_id,
-    )
-    .await;
-    Ok(())
-}
-
-async fn execute_reviewer(
-    store: &NoemaStore,
-    runtime: &RuntimeHandle,
-    provider_registry: &ProviderRegistryHandle,
-    subscriptions: &RuntimeEventRegistry,
-    run: &noema_tasks::AgentRunRecord,
-    lease_token: &str,
-    cancellation: &CancellationToken,
-) -> Result<(), String> {
-    let task = store
-        .get_task(&run.task_id)
-        .await
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "task disappeared before reviewer run".to_string())?;
-    let submission_id = run
-        .triggering_submission_id
-        .as_deref()
-        .ok_or_else(|| "reviewer run has no submission".to_string())?;
-    let submission = store
-        .get_task_submission(submission_id)
-        .await
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "submission disappeared before review".to_string())?;
-    let criteria = store
-        .list_task_validation_criteria(&task.task_id)
-        .await
-        .map_err(|error| error.to_string())?;
-    let human_context = human_continuation_context_for_submission(store, &submission).await?;
-    let prompt = with_resume_context(
-        store,
-        run,
-        format_reviewer_prompt(&task, &submission, &criteria, &human_context),
-    )
-    .await?;
-    let response = generate_once(
-        runtime,
-        run,
-        lease_token,
-        cancellation,
-        prompt,
-        "You are Noema's adversarial task reviewer. Inspect the submission and call task.submit_review exactly once with the typed verdict. Do not return review JSON as ordinary assistant text.",
-        subscriptions,
-    )
-    .await?;
-    let call = response
-        .tool_calls
-        .iter()
-        .find(|call| call.name == TASK_SUBMIT_REVIEW_TOOL)
-        .ok_or_else(|| "reviewer terminal contract missing".to_string())?;
-    let parsed: ReviewerResponse = serde_json::from_value(call.payload.clone())
-        .map_err(|error| format!("invalid reviewer contract: {error}"))?;
-    let verdict = parsed
-        .overall_verdict
-        .parse::<TaskReviewVerdict>()
-        .map_err(|_| "reviewer verdict was invalid".to_string())?;
-    let review_criteria = parsed
-        .criteria
-        .into_iter()
-        .map(|criterion| {
-            Ok(TaskReviewCriterion {
-                criterion_id: criterion.criterion_id,
-                outcome: criterion
-                    .outcome
-                    .parse::<CriterionOutcome>()
-                    .map_err(|_| "review criterion outcome was invalid")?,
-                evidence_markdown: criterion.evidence_markdown,
-                feedback: criterion.feedback,
-            })
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    store
-        .create_task_review_with_readiness(
-            NewTaskReview {
-                review_id: None,
-                task_id: task.task_id.clone(),
-                reviewer_run_id: run.run_id.clone(),
-                reviewed_submission_id: submission_id.to_string(),
-                overall_verdict: verdict,
-                overall_feedback: parsed.overall_feedback,
-                criteria: review_criteria,
-            },
-            lease_token,
-            provider_registry.as_ref(),
-        )
-        .await
-        .map_err(|error| error.to_string())?;
-    publish_task_changed(subscriptions, &task.task_id);
-    let _ = crate::daemon::task_delivery::deliver_task_status_event(
-        store,
-        subscriptions,
-        &task.task_id,
-    )
-    .await;
-    Ok(())
 }
 
 async fn generate_once(
     runtime: &RuntimeHandle,
     run: &noema_tasks::AgentRunRecord,
-    lease_token: &str,
+    fence: &WorkRunFence,
     cancellation: &CancellationToken,
-    input: String,
-    instructions: &str,
+    prompt: TaskRolePrompt,
     subscriptions: &RuntimeEventRegistry,
 ) -> Result<noema_providers::GenerateResponse, String> {
-    let request = background_task_generate_request(
-        run,
-        lease_token,
-        cancellation,
-        input,
-        instructions,
-        subscriptions,
-    );
+    let request = BackgroundTaskGenerateRequest {
+        run_id: run.run_id.clone(),
+        task_id: run.task_id.to_string(),
+        lease_token: fence.lease_token.clone(),
+        task_generation: fence.task_generation,
+        contract_id: fence.contract_id.clone(),
+        cancellation: cancellation.clone(),
+        agent_id: run.agent_id.clone(),
+        role: prompt.role,
+        provider_selection: run.model.clone(),
+        execution_policy: run.execution_policy,
+        input: prompt.input,
+        instructions: prompt.instructions.to_string(),
+        runtime_events: subscriptions.clone(),
+    };
     runtime
         .generate_background_task(request)
         .await
         .map_err(|error| error.to_string())
 }
 
-fn background_task_generate_request(
-    run: &noema_tasks::AgentRunRecord,
-    lease_token: &str,
-    cancellation: &CancellationToken,
-    input: String,
-    instructions: &str,
-    subscriptions: &RuntimeEventRegistry,
-) -> BackgroundTaskGenerateRequest {
-    BackgroundTaskGenerateRequest {
-        run_id: run.run_id.clone(),
-        task_id: run.task_id.clone(),
-        lease_token: lease_token.to_string(),
-        cancellation: cancellation.clone(),
-        agent_id: run.agent_id.clone(),
-        role: if run.run_kind == RunKind::Reviewer {
-            ExecutionRole::TaskReviewer
-        } else {
-            ExecutionRole::TaskExecutor
-        },
-        provider_selection: run.model.clone(),
-        execution_policy: run.execution_policy,
-        input,
-        instructions: instructions.to_string(),
-        runtime_events: subscriptions.clone(),
-    }
+fn publish_committed(subscriptions: &RuntimeEventRegistry, context: &WorkRunExecutionContext) {
+    let task_id = context.task.task_id.to_string();
+    subscriptions.publish_task(TaskRuntimeEvent::Changed {
+        task_id: task_id.clone(),
+    });
+    subscriptions.publish_work(WorkRuntimeEvent::Committed {
+        workspace_id: context.task.workspace_id.to_string(),
+        task_id: Some(task_id),
+    });
+}
+
+fn criterion_ordinal(index: usize) -> Result<u32, String> {
+    index
+        .checked_add(1)
+        .and_then(|ordinal| u32::try_from(ordinal).ok())
+        .ok_or_else(|| "criterion count exceeds the supported bound".to_string())
 }

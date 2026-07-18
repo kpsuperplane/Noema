@@ -7,10 +7,10 @@ use crate::{
         artifact_tool::artifact_create_local_file_tool_spec,
         task_artifact_tool::{TASK_READ_ARTIFACT_TOOL, task_read_artifact_tool_spec},
         task_tool::{
-            TASK_CANCEL_TOOL, TASK_INSPECT_TOOL, TASK_REPORT_BLOCKED_TOOL, TASK_RESUME_TOOL,
-            TASK_SUBMIT_RESULT_TOOL, TASK_SUBMIT_REVIEW_TOOL, task_cancel_tool_spec,
-            task_delegate_tool_spec, task_inspect_tool_spec, task_report_blocked_tool_spec,
-            task_resume_tool_spec, task_submit_result_tool_spec, task_submit_review_tool_spec,
+            TASK_ANSWER_TOOL, TASK_CANCEL_TOOL, TASK_LIST_TOOL, TASK_REPORT_BLOCKED_TOOL,
+            TASK_SUBMIT_PLAN_TOOL, TASK_SUBMIT_RESULT_TOOL, TASK_SUBMIT_REVIEW_TOOL,
+            primary_task_tool_specs, task_list_scoped_tool_spec, task_report_blocked_tool_spec,
+            task_submit_plan_tool_spec, task_submit_result_tool_spec, task_submit_review_tool_spec,
         },
     },
     search::tool::web_search_tool_spec,
@@ -73,7 +73,7 @@ pub(super) async fn build_model_tools(
 /// Background execution should call this role-aware entry point and pass the
 /// resulting policy to dispatch as well as to the provider request builder.
 pub(super) async fn build_model_tools_for_role(
-    store: &NoemaStore,
+    _store: &NoemaStore,
     capability_bindings: &CapabilityBindingSourceHandle,
     role: ExecutionRole,
     include_agent_name_tool: bool,
@@ -101,30 +101,7 @@ pub(super) async fn build_model_tools_for_role(
         });
     }
 
-    let mut builtin_tools = match role {
-        ExecutionRole::TaskExecutor => {
-            vec![
-                task_submit_result_tool_spec()?,
-                task_report_blocked_tool_spec()?,
-            ]
-        }
-        ExecutionRole::TaskReviewer => vec![task_submit_review_tool_spec()?],
-        ExecutionRole::PrimaryConversation => Vec::new(),
-    };
-    builtin_tools.extend(builtin_tool_specs(include_agent_name_tool)?);
-    if role == ExecutionRole::PrimaryConversation {
-        builtin_tools.push(task_resume_tool_spec()?);
-        builtin_tools.push(task_cancel_tool_spec()?);
-        let pool_entries = store
-            .list_usable_task_model_pool_entries()
-            .await
-            .map_err(store_tool_error)?;
-        if !pool_entries.is_empty() {
-            builtin_tools.push(task_delegate_tool_spec(&pool_entries)?);
-        }
-    } else if role == ExecutionRole::TaskReviewer {
-        builtin_tools.push(task_read_artifact_tool_spec()?);
-    }
+    let builtin_tools = role_builtin_tool_specs(role, include_agent_name_tool)?;
     let web_search_tool = web_search_tool_spec()?;
     let web_fetch_tool = web_fetch_tool_spec()?;
     let mut tool_policy = ToolPolicy::for_role(role);
@@ -135,10 +112,14 @@ pub(super) async fn build_model_tools_for_role(
             declared_builtin_tools.push((tool, class));
         }
     }
-    let declared_web_tools = [web_search_tool, web_fetch_tool]
-        .into_iter()
-        .filter(|tool| tool_policy.declare_tool(tool.name.as_str(), ToolAccessClass::ReadOnly))
-        .collect::<Vec<_>>();
+    let declared_web_tools = if role == ExecutionRole::TaskPlanner {
+        Vec::new()
+    } else {
+        [web_search_tool, web_fetch_tool]
+            .into_iter()
+            .filter(|tool| tool_policy.declare_tool(tool.name.as_str(), ToolAccessClass::ReadOnly))
+            .collect::<Vec<_>>()
+    };
 
     let mut catalog = CapabilityCatalogBuilder::new();
     let mut prompt_kinds = BTreeMap::new();
@@ -169,6 +150,9 @@ pub(super) async fn build_model_tools_for_role(
         .filter_map(|notice| notice.capability.as_ref().map(ToolName::as_str))
         .collect::<std::collections::HashSet<_>>();
     for binding in capability_catalog.snapshot.iter() {
+        if role == ExecutionRole::TaskPlanner {
+            continue;
+        }
         let callable = !unavailable_capabilities.contains(binding.spec().name.as_str());
         let Some(access_class) = capability_access_class(binding.access()) else {
             continue;
@@ -202,6 +186,60 @@ pub(super) async fn build_model_tools_for_role(
         prompt_kinds,
         tool_policy,
     })
+}
+
+fn role_builtin_tool_specs(
+    role: ExecutionRole,
+    include_agent_name_tool: bool,
+) -> Result<Vec<ToolSpec>, ToolContractError> {
+    let mut tools = match role {
+        ExecutionRole::TaskPlanner => {
+            vec![
+                task_submit_plan_tool_spec()?,
+                task_report_blocked_tool_spec()?,
+            ]
+        }
+        ExecutionRole::TaskExecutor => {
+            vec![
+                task_submit_result_tool_spec()?,
+                task_report_blocked_tool_spec()?,
+                task_list_scoped_tool_spec()?,
+            ]
+        }
+        ExecutionRole::TaskReviewer => vec![
+            task_submit_review_tool_spec()?,
+            task_list_scoped_tool_spec()?,
+        ],
+        ExecutionRole::PrimaryConversation => Vec::new(),
+    };
+    if role != ExecutionRole::TaskPlanner {
+        tools.extend(builtin_tool_specs(include_agent_name_tool)?);
+    }
+    if role == ExecutionRole::PrimaryConversation {
+        tools.extend(primary_task_tool_specs()?);
+    } else if matches!(
+        role,
+        ExecutionRole::TaskExecutor | ExecutionRole::TaskReviewer
+    ) {
+        tools.push(task_read_artifact_tool_spec()?);
+    }
+    Ok(tools)
+}
+
+#[cfg(feature = "eval-support")]
+pub(crate) fn task_role_builtin_tool_specs(
+    role: ExecutionRole,
+) -> Result<Vec<ToolSpec>, ToolContractError> {
+    let mut policy = ToolPolicy::for_role(role);
+    Ok(role_builtin_tool_specs(role, false)?
+        .into_iter()
+        .filter(|tool| {
+            policy.declare_tool(
+                tool.name.as_str(),
+                builtin_tool_access_class(role, tool.name.as_str()),
+            )
+        })
+        .collect())
 }
 
 impl ModelTools {
@@ -291,14 +329,23 @@ fn builtin_tool_access_class(role: ExecutionRole, name: &str) -> ToolAccessClass
     match name {
         // This tool is read-only and can be safely used by executor/reviewer
         // roles once their scope context is supplied by the task runtime.
-        "search_memory" | TASK_INSPECT_TOOL | TASK_READ_ARTIFACT_TOOL => ToolAccessClass::ReadOnly,
+        "search_memory" | TASK_LIST_TOOL | TASK_READ_ARTIFACT_TOOL => ToolAccessClass::ReadOnly,
+        "artifact.create_local_file"
+            if matches!(
+                role,
+                ExecutionRole::TaskPlanner | ExecutionRole::TaskReviewer
+            ) =>
+        {
+            ToolAccessClass::ConversationWrite
+        }
         "artifact.create_local_file" if role == ExecutionRole::TaskExecutor => {
             ToolAccessClass::TaskOwnedWrite
         }
         "artifact.create_local_file" => ToolAccessClass::ConversationWrite,
         // Renaming the primary identity is a foreground-only control action.
-        "update_own_name" | TASK_RESUME_TOOL | TASK_CANCEL_TOOL => ToolAccessClass::Internal,
-        TASK_SUBMIT_RESULT_TOOL | TASK_REPORT_BLOCKED_TOOL => ToolAccessClass::ExecutorTerminal,
+        "update_own_name" | TASK_ANSWER_TOOL | TASK_CANCEL_TOOL => ToolAccessClass::Internal,
+        TASK_SUBMIT_PLAN_TOOL | TASK_REPORT_BLOCKED_TOOL => ToolAccessClass::ExecutorTerminal,
+        TASK_SUBMIT_RESULT_TOOL => ToolAccessClass::ExecutorTerminal,
         TASK_SUBMIT_REVIEW_TOOL => ToolAccessClass::ReviewerTerminal,
         _ => ToolAccessClass::Internal,
     }
@@ -319,7 +366,7 @@ fn capability_access_class(access: CapabilityAccess) -> Option<ToolAccessClass> 
 }
 
 fn builtin_tool_specs(include_agent_name_tool: bool) -> Result<Vec<ToolSpec>, ToolContractError> {
-    let mut specs = vec![search_memory_tool_spec()?, task_inspect_tool_spec()?];
+    let mut specs = vec![search_memory_tool_spec()?];
     if include_agent_name_tool {
         specs.push(update_own_name_tool_spec()?);
     }
@@ -438,10 +485,6 @@ fn add_binding(
     catalog.add(binding).map_err(|_| {
         ToolContractError::InvalidSchema("duplicate canonical capability binding".to_string())
     })
-}
-
-fn store_tool_error(_error: noema_store::StoreError) -> ToolContractError {
-    ToolContractError::InvalidSchema("capability catalog is unavailable".to_string())
 }
 
 fn binding_source_tool_error(_error: CapabilityBindingSourceError) -> ToolContractError {

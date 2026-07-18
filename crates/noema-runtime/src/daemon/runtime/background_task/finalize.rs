@@ -11,6 +11,7 @@ impl RuntimeActor {
         deadline: tokio::time::Instant,
         mut aggregate_usage: Option<TokenUsage>,
     ) -> Result<GenerateResponse, RuntimeError> {
+        let run_fence = request.work_run_fence();
         let now = tokio::time::Instant::now();
         let deadline = task_finalization_deadline(deadline, now);
         let terminal_tools = terminal_contract_tools(model_tools);
@@ -71,7 +72,9 @@ impl RuntimeActor {
                 &request.run_id,
                 &request.task_id,
                 &request.lease_token,
-                request.execution_policy.max_provider_continuations,
+                request.task_generation,
+                request.contract_id.as_ref(),
+                i64::from(request.execution_policy.max_provider_continuations),
                 deadline,
                 &request.cancellation,
                 &request.runtime_events,
@@ -107,7 +110,9 @@ impl RuntimeActor {
                     &request.run_id,
                     &request.task_id,
                     &request.lease_token,
-                    request.execution_policy.max_provider_continuations,
+                    request.task_generation,
+                    request.contract_id.as_ref(),
+                    i64::from(request.execution_policy.max_provider_continuations),
                     deadline,
                     &request.cancellation,
                     &request.runtime_events,
@@ -136,7 +141,7 @@ impl RuntimeActor {
             .clone()
             .or_else(|| terminal_call.id.clone())
             .unwrap_or_else(|| "terminal".to_string());
-        let round_index = request.execution_policy.max_provider_continuations;
+        let round_index = i64::from(request.execution_policy.max_provider_continuations);
         let tool_call_item_id = format!(
             "run_item:tool_call:{}:{}:{}",
             request.run_id, round_index, correlation_id
@@ -160,7 +165,7 @@ impl RuntimeActor {
                     "arguments": persisted_capability_arguments(&terminal_bindings, &terminal_call.name, &terminal_call.payload),
                 }),
             },
-            &request.lease_token,
+            &run_fence,
         )
         .await;
         self.persist_task_run_item(
@@ -180,7 +185,7 @@ impl RuntimeActor {
                 content_text: Some(terminal_call.name.clone()),
                 payload: serde_json::json!({"accepted": true}),
             },
-            &request.lease_token,
+            &run_fence,
         )
         .await;
         Ok(response)
@@ -191,6 +196,7 @@ impl RuntimeActor {
         request: &BackgroundTaskGenerateRequest,
         message: &str,
     ) {
+        let run_fence = request.work_run_fence();
         self.persist_task_run_item(
             &request.task_id,
             &request.runtime_events,
@@ -205,7 +211,7 @@ impl RuntimeActor {
                 content_text: Some(message.to_string()),
                 payload: serde_json::json!({}),
             },
-            &request.lease_token,
+            &run_fence,
         )
         .await;
     }

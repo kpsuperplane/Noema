@@ -16,7 +16,7 @@ mod web_fetch;
 pub use daemon::{
     AgentStatus, ConversationRuntimeEvent, RuntimeError, RuntimeEventRegistry, RuntimeHandle,
     RuntimeSpawnConfig, StartedConversation, TaskRuntimeEvent, TaskRuntimeHandle,
-    TurnActivityStatus, TurnStreamEvent, TurnTranscriptItem, deliver_task_status_event,
+    TurnActivityStatus, TurnStreamEvent, TurnTranscriptItem, WorkRuntimeEvent,
     mark_turn_timing_event,
 };
 pub use web_backend::{

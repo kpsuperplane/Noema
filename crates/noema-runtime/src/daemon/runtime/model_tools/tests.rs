@@ -242,11 +242,24 @@ async fn complete_catalog_is_stable_for_native_and_envelope_transports() {
                 .collect::<Vec<_>>(),
             vec![
                 "search_memory",
-                "task.inspect",
                 "update_own_name",
                 "artifact.create_local_file",
-                "task.resume",
+                "task.capture",
+                "task.list",
+                "task.update",
+                "task.queue",
+                "task.delegate",
+                "task.answer",
+                "task.retry",
+                "task.accept",
+                "task.request_changes",
                 "task.cancel",
+                "task.reopen",
+                "project.create",
+                "project.list",
+                "project.update",
+                "project.archive",
+                "project.reopen",
                 "web.search",
                 "web.fetch",
                 "mcp.mcp:docs.read",
@@ -277,6 +290,40 @@ async fn complete_catalog_is_stable_for_native_and_envelope_transports() {
             );
         }
     }
+}
+
+#[tokio::test]
+async fn planner_catalog_is_terminal_only() {
+    let store = crate::test_support::test_store().await;
+    let (_, capability_bindings) = ready_mcp_source();
+    let tools = build_model_tools_for_role(
+        &store,
+        &capability_bindings,
+        ExecutionRole::TaskPlanner,
+        true,
+        ProviderToolCapabilities {
+            tool_transport: ProviderToolTransport::Native,
+            native_tool_results: true,
+            ..ProviderToolCapabilities::default()
+        },
+    )
+    .await
+    .expect("planner tools");
+    assert_eq!(
+        tools
+            .provider_tools()
+            .iter()
+            .map(|tool| tool.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["task.submit_plan", "task.report_blocked"]
+    );
+    assert!(tools.tool_policy.allows_tool(TASK_SUBMIT_PLAN_TOOL));
+    assert!(tools.tool_policy.allows_tool(TASK_REPORT_BLOCKED_TOOL));
+    assert!(!tools.tool_policy.allows_tool(TASK_LIST_TOOL));
+    assert!(!tools.tool_policy.allows_tool("search_memory"));
+    assert!(!tools.tool_policy.allows_tool("web.fetch"));
+    assert!(!tools.tool_policy.allows_tool("mcp.mcp:docs.read"));
+    assert!(!tools.tool_policy.allows_tool("artifact.create_local_file"));
 }
 
 #[tokio::test]
@@ -376,11 +423,11 @@ async fn background_roles_expose_read_tools_and_terminal_contracts_across_transp
                 assert!(tools.tool_policy.allows_tool(terminal));
             }
             assert!(tools.tool_policy.allows_tool("web.fetch"));
-            assert!(tools.tool_policy.allows_tool(TASK_INSPECT_TOOL));
-            assert!(!tools.tool_policy.allows_tool(TASK_RESUME_TOOL));
+            assert!(tools.tool_policy.allows_tool(TASK_LIST_TOOL));
+            assert!(!tools.tool_policy.allows_tool(TASK_ANSWER_TOOL));
             if role == ExecutionRole::TaskExecutor {
                 assert!(tools.tool_policy.allows_tool("artifact.create_local_file"));
-                assert!(!tools.tool_policy.allows_tool(TASK_READ_ARTIFACT_TOOL));
+                assert!(tools.tool_policy.allows_tool(TASK_READ_ARTIFACT_TOOL));
             } else {
                 assert!(!tools.tool_policy.allows_tool("artifact.create_local_file"));
                 assert!(tools.tool_policy.allows_tool(TASK_READ_ARTIFACT_TOOL));

@@ -25,10 +25,9 @@ use crate::daemon::{
         TaskArtifactReadContext, execute_task_read_artifact, is_task_read_artifact_tool,
     },
     task_tool::{
-        TaskAccessRuntimeContext, TaskDelegateRuntimeContext, execute_task_cancel,
-        execute_task_delegate, execute_task_inspect, execute_task_resume, is_task_cancel_tool,
-        is_task_delegate_tool, is_task_inspect_tool, is_task_report_blocked_tool,
-        is_task_resume_tool, is_task_submit_result_tool, is_task_submit_review_tool,
+        TASK_LIST_TOOL, TaskDelegateRuntimeContext, execute_primary_task_tool,
+        execute_scoped_task_list_tool, is_primary_task_tool, is_task_report_blocked_tool,
+        is_task_submit_plan_tool, is_task_submit_result_tool, is_task_submit_review_tool,
     },
 };
 use crate::search::tool::{WebSearchToolResult, execute_web_search, is_web_search_tool};
@@ -208,48 +207,64 @@ impl RuntimeActor {
                 Err(error) => (false, json!({"error": error})),
             };
             LocalToolResult::from_call(call, LocalToolKind::Gateway, success, payload, true)
-        } else if is_task_inspect_tool(&call.name)
-            || is_task_resume_tool(&call.name)
-            || is_task_cancel_tool(&call.name)
-        {
-            let is_resume = is_task_resume_tool(&call.name);
-            let is_cancel = is_task_cancel_tool(&call.name);
-            let context = TaskAccessRuntimeContext {
-                owner_human_id: "human:local".to_string(),
-                actor_id: agent_identity.agent_id.clone(),
-            };
-            let result = if is_task_inspect_tool(&call.name) {
-                execute_task_inspect(&self.store, &context, call.call_id.clone(), &call.payload)
+        } else if call.name == TASK_LIST_TOOL && turn.task_run_id.is_some() {
+            let result = match turn.task_id.as_deref() {
+                Some(task_id) => {
+                    execute_scoped_task_list_tool(
+                        &self.store,
+                        task_id,
+                        call.call_id.clone(),
+                        &call.payload,
+                    )
                     .await
-            } else if is_resume {
-                execute_task_resume(
-                    &self.store,
-                    self.provider_registry.as_ref(),
-                    &context,
-                    call.call_id.clone(),
-                    &call.payload,
-                )
-                .await
-            } else {
-                execute_task_cancel(&self.store, &context, call.call_id.clone(), &call.payload)
-                    .await
+                }
+                None => crate::daemon::task_tool::TaskToolResult {
+                    call_id: call.call_id.clone(),
+                    name: call.name.clone(),
+                    success: false,
+                    payload: json!({"code": "invalid_context", "message": "background task context is unavailable"}),
+                },
             };
+            LocalToolResult::from_call(
+                call,
+                LocalToolKind::Gateway,
+                result.success,
+                result.payload,
+                true,
+            )
+        } else if is_primary_task_tool(&call.name) {
+            let result = execute_primary_task_tool(
+                &self.store,
+                &self.provider_registry,
+                &TaskDelegateRuntimeContext {
+                    conversation_id: turn.conversation_id.clone(),
+                    turn_id: turn.turn_id.clone(),
+                    user_item_id: turn.user_item_id.clone(),
+                    agent_id: agent_identity.agent_id.clone(),
+                    workspace_id: "workspace:personal".to_string(),
+                    owner_human_id: "human:local".to_string(),
+                },
+                &call.name,
+                call.call_id.clone(),
+                &call.payload,
+            )
+            .await;
             if result.success
-                && (is_resume || is_cancel)
-                && let Some(task_id) = result.payload.get("task_id").and_then(Value::as_str)
+                && let Some(task_id) = result
+                    .payload
+                    .get("task")
+                    .and_then(|task| task.get("task_id"))
+                    .and_then(Value::as_str)
             {
                 self.runtime_events
                     .publish_task(crate::daemon::TaskRuntimeEvent::Changed {
                         task_id: task_id.to_string(),
                     });
-                if is_cancel {
-                    let _ = crate::daemon::task_delivery::deliver_task_status_event(
-                        &self.store,
-                        &self.runtime_events,
-                        task_id,
-                    )
-                    .await;
-                }
+                self.runtime_events
+                    .publish_work(crate::daemon::WorkRuntimeEvent::Committed {
+                        workspace_id: "workspace:personal".to_string(),
+                        task_id: Some(task_id.to_string()),
+                    });
             }
             LocalToolResult::from_call(
                 call,
@@ -258,7 +273,8 @@ impl RuntimeActor {
                 result.payload,
                 true,
             )
-        } else if is_task_submit_result_tool(&call.name)
+        } else if is_task_submit_plan_tool(&call.name)
+            || is_task_submit_result_tool(&call.name)
             || is_task_submit_review_tool(&call.name)
             || is_task_report_blocked_tool(&call.name)
         {
@@ -268,32 +284,6 @@ impl RuntimeActor {
                 true,
                 call.payload.clone(),
                 false,
-            )
-        } else if is_task_delegate_tool(&call.name) {
-            let provider_selection = turn.provider_route.selection();
-            let result = execute_task_delegate(
-                &self.store,
-                self.provider_registry.as_ref(),
-                &TaskDelegateRuntimeContext {
-                    conversation_id: turn.conversation_id.clone(),
-                    turn_id: turn.turn_id.clone(),
-                    user_item_id: turn.user_item_id.clone(),
-                    agent_id: agent_identity.agent_id.clone(),
-                    provider_kind: provider_selection.provider_kind.clone(),
-                    provider_account_id: provider_selection.provider_account_id.clone(),
-                    model_profile: provider_selection.model_profile.clone(),
-                    reasoning_effort: provider_selection.reasoning_effort,
-                },
-                call.call_id.clone(),
-                &call.payload,
-            )
-            .await;
-            LocalToolResult::from_call(
-                call,
-                LocalToolKind::Gateway,
-                result.success,
-                result.payload,
-                true,
             )
         } else if is_web_search_tool(&call.name) {
             let result = match self.web_search_runtime_provider_resolution().await {
@@ -331,9 +321,9 @@ impl RuntimeActor {
                 ExecutionRole::PrimaryConversation => {
                     noema_providers::GenerationPriority::Foreground
                 }
-                ExecutionRole::TaskExecutor | ExecutionRole::TaskReviewer => {
-                    noema_providers::GenerationPriority::Background
-                }
+                ExecutionRole::TaskPlanner
+                | ExecutionRole::TaskExecutor
+                | ExecutionRole::TaskReviewer => noema_providers::GenerationPriority::Background,
             };
             let result = match self
                 .web_fetch_runtime_execution_context(generation_priority)
