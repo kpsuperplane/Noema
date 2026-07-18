@@ -263,82 +263,71 @@ The next storage slice should stay small and concrete:
   Markdown and plain-text local file versions render inline through GraphQL
   `artifactVersionDetail`; download is a secondary action in the rail, and there
   is intentionally no artifact URL route in this slice.
-- The first one-off background task slice is durable and supervised. The primary
-  agent's `task.delegate` tool validates one of the three global
-  simple/medium/difficult executor model settings, persists the request and immutable validation
-  criteria, and queues an executor run. The host worker supervises up to eight
-  independently leased task runs concurrently while the store prevents active
-  run overlap within one task. Each run executes role-gated native tools,
-  records canonical agent/tool transcripts and
-  cumulative usage, creates a typed submission, queues an adversarial reviewer,
-  and either requests revision, pauses for human input, or approves the task.
-  Task status is delivered idempotently as a structured conversation event, and
-  terminal outcomes also enter a durable completion outbox. The primary runtime
-  serializes each completion report behind any active foreground turn, invokes
-  the primary agent with tools disabled, and persists one event-derived
-  `assistant_text` item with a deterministic id; provider failures fall back to
-  a deterministic report so approved work is still visible after restart.
-  Reviewer configuration is stored through the normal agent model preference surface for
-  `agent:task-reviewer`; executor selection is snapshotted per task.
-  Task executors share exactly three global model settings: one each for simple,
-  medium, and the highest-complexity work. The configured provider supplies the
-  initial values, while Settings edits persist as user overrides. Codex defaults to
-  GPT-5.6-Luna/medium for simple work, GPT-5.6-Luna/xhigh (shown as max) for
-  medium work, and GPT-5.6-Sol/high for the highest tier. Only enabled entries
-  backed by an authenticated provider account are advertised to the primary.
-  Settings nests these three model controls inside the Task Executor agent card;
-  the executor identity exists for run ownership and audit but has no independent
-  agent model preference. Complexity selects only the model/reasoning tier. All
-  task runs use the same provider-independent execution policy, currently 80
-  provider continuations, 400 tool calls, 120 active minutes, and a progress
-  audit every 20 steps; each run snapshots that policy. Delegation, revision,
-  and continuation revalidate authenticated provider accounts and reject exact
-  model profiles that are absent from an available provider catalog before a
-  run is queued.
-- Task references are first-class transcript items. The web chat renders a
-  marker and opens a GraphQL-backed detail rail showing the request, criteria,
-  revisions, executor/reviewer runs, model snapshots, submissions, reviews, and
-  final result. The detail rail subscribes to cursor-bearing GraphQL task and
-  run-item events rather than polling, upserts streaming items, and pages older
-  transcript rows directly from SQLite. Background roles reuse the primary
-  runtime's prompt, provider continuation, progress audit, repetition detection,
-  tool dispatch, and finalization primitives while replacing interactive user
-  input with typed terminal contracts: `task.submit_result`,
-  `task.submit_review`, and `task.report_blocked`. Response-capable providers
-  continue foreground and background tool rounds with `previous_response_id`
-  plus only the latest tool outputs, while Noema retains the complete ordered
-  context locally for audit, compaction, and automatic stateless replay when a
-  provider does not support chaining or rejects a retained response id.
-  Revision executors receive the exact prior submission and reviewer verdict,
-  criterion evidence, and feedback, while reviewer inspection targets the
-  executor run linked to the submission instead of the reviewer run itself.
-  Lease heartbeats and cancellation interrupt active provider/tool futures;
-  expired leases have bounded automatic recovery.
-  Human-blocked and failed tasks resume only as linked child runs with reconstructed
-  lineage and an optional answer—there is no fresh retry path. A continuation
-  after a committed reviewer verdict starts a new executor revision linked to
-  that review; only a reviewer blocked before committing a verdict resumes as a
-  reviewer. The worker also rejects any execution path that returns while its
-  run remains active, so terminal persistence bugs fail immediately instead of
-  idling until lease recovery. Agents can inspect, resume, and cancel owner-scoped
-  tasks through canonical task tools, and the UI offers the same
-  continue/answer/cancel controls. Terminal task events form a
-  durable delivery outbox, and deterministic conversation item ids make crash
-  recovery idempotent. Transcript persistence redacts secret-shaped fields and
-  all opaque MCP arguments/results while retaining full payloads only in the
-  live provider continuation. The task runtime exposes read-only search, fetch,
-  memory, task inspection, and calibrated MCP tools to background roles.
-  Executors can also create multiple task-owned local artifacts through the
-  governed artifact tool and attach their ids to `task.submit_result`; submission
-  rows snapshot linked versions and reject missing, duplicate, or foreign
-  artifacts. Reviewers receive the manifest and can read only linked bounded
-  UTF-8 content through `task.read_artifact`. Approved artifacts appear in task
-  detail and are delivered as artifact-reference cards beside the primary
-  agent's completion update in the originating conversation. Reviewer prompts
-  also reconstruct question-and-answer guidance from the task's causal run
-  history through the submitted executor and treat human answers as authoritative
-  clarifications that may refine the original request or validation criteria. Richer
-  workspace/project orchestration remains a later milestone.
+- Work is the durable task system. V1 seeds one Personal workspace, its sole
+  human owner, one executable workflow, and seven closed stage behaviors:
+  Intake, Dispatch, Active, HumanGate, Acceptance, TerminalSuccess, and
+  TerminalCancelled. Optional projects organize tasks without changing their
+  execution policy. `tasks.stage_id` is the only workflow-state authority;
+  current run, gate, review, attention, and completion labels are derived
+  projections rather than copied status fields.
+- SQLite uses the intentionally incompatible `sqlite_store_v3` / version `3`
+  bootstrap. Immutable contracts and criteria, gates and correlated human
+  messages, Planner/Executor/Reviewer runs, submissions, reviews, command
+  receipts, notification outbox rows, and one globally monotonic `work_events`
+  ledger replace the old task/run status ledgers. Capture, update, queue,
+  answer, retry, accept, request-changes, cancel, reopen, project, and tool-only
+  delegate commands are revision- and generation-fenced semantic transactions.
+  Each successful command updates projections, appends its validated event,
+  queues any required notification, and stores its canonical request receipt in
+  the same transaction, so replay is exact and divergent idempotency reuse fails
+  closed.
+- The Work supervisor reconciles durable state at startup and after committed
+  events, then runs Planner, Executor, and Reviewer roles under one global
+  eight-run cap. A task can have only one runnable database run, and the
+  supervisor excludes task IDs whose cancelled predecessor futures are still
+  settling before claiming replacements. Runs retain leases, generation and
+  contract fences, cancellation propagation, bounded recovery, cumulative
+  usage, and canonical transcripts. Planner produces the first immutable
+  execution contract or opens a clarification gate; Executor produces exact
+  criterion evidence and artifact-backed submissions; Reviewer independently
+  approves, requests an automated revision, or opens a human-review gate.
+  Model, provider, and execution-policy selections are snapshotted when their
+  governing contract or run is created, so later Settings changes cannot
+  rewrite history. The local-model qualification suite contains 13 production-
+  shaped cases, including a Planner terminal contract case alongside Executor
+  and Reviewer cases.
+- Human answers, change requests, retries, and lease recovery create bounded
+  child contexts from admitted durable messages and the exact causal run chain.
+  Context checkpoints freeze the admitted answer across repeated recovery, and
+  background roles receive role-specific terminal tools instead of authority
+  through model prose. Foreground Work tools cover capture, listing, Inbox
+  update, queueing, delegation, gate answers, retry, acceptance, changes,
+  cancellation, reopen, and project management; Planner, Executor, and Reviewer
+  receive only their exact submit/block/read tools. Runtime stage changes still
+  enter the same Store command/reconciliation boundary.
+- Work notifications generalize the old completion-only path. Task creation,
+  gates, review-ready results, recoveries, and terminal outcomes use leased,
+  retryable outbox rows and deterministic conversation-item identities. Delivery
+  is serialized behind an active foreground turn, success/failure appends a Work
+  event and wakes live subscriptions, and provider failure falls back to a
+  deterministic report. Executors may create task-owned artifacts, but reads
+  and submission accept only immutable versions linked to the exact fenced run,
+  current generation and contract, executor identity, and artifact role;
+  reviewers receive that validated manifest and bounded UTF-8 reads.
+- Task references remain first-class transcript items, but chat and `/work` now
+  consume the same GraphQL task projection. Work exposes bounded overview,
+  board/list, Needs You, activity, completed, project, detail-history, semantic
+  mutation, and cursor subscription contracts. The web shell adds `/work` and
+  `/work/tasks/$taskId`, a compact live Work panel beside chat, reusable task
+  detail rail, independent cursor pagination for contracts, gates/messages,
+  runs, submissions/reviews, artifacts, and activity, plus explicit loading,
+  empty, unavailable, conflict, and command-error states.
+- The Work release gate is green: the complete Rust format, check, strict
+  Clippy, workspace unit-test, crate-boundary, focused dependency-tree, schema
+  decomposition, and closed-world test-inventory checks pass. Generated GraphQL
+  and route artifacts are current, and direct TypeScript, ESLint, web Vite, and
+  desktop Vite builds pass; the frontend was validated without adding or
+  running browser or UI tests.
 - Task run transcripts reuse the shared chat `Transcript` renderer and scroller.
   The task adapter maps run items into the common assistant/activity entry model,
   uses an embedded density without mounting a composer, so task conversations
@@ -456,7 +445,10 @@ The next storage slice should stay small and concrete:
 - Derived search/vector indexes are rebuildable projections.
 - Graph or fuzzy retrieval can suggest candidates, but policy gates inclusion.
 - Pre-stable schema changes do not need migrations or backwards compatibility unless explicitly requested.
-- The initial frontend should start with chat, memory, and inspection before exposing full workspaces, tasks, agents, tools, or governance.
+- The product frontend remains chat-led, with memory and settings as secondary
+  surfaces and Work as the first full governed-object workspace. The Personal
+  workspace is implicit in V1; there is no workspace picker or multi-workspace
+  navigation.
 - The first-party product API direction is GraphQL, with Apollo Client on the
   React web frontend and backend-exported schema/types feeding frontend codegen.
 - GraphQL is the first-party client API for Noema web, desktop, and future
@@ -560,7 +552,7 @@ The next storage slice should stay small and concrete:
   The placeholder Audit settings surface has been removed until audit event
   persistence lands. Agent management actions are not exposed yet.
 - Frontend docs now distinguish currently addressable routes from target
-  surfaces: TanStack Router owns `/`, `/settings`, and
+  surfaces: TanStack Router owns `/`, `/work`, `/work/tasks/$taskId`, `/settings`, and
   `/settings/{agents,models,memory,tools/web,tools/mcps,safety/usage,system/providers}`.
   `/memory` redirects to `/settings/memory`; `/memory/graph` is not a current
   route.

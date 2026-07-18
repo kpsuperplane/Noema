@@ -127,7 +127,7 @@ The command does not alter the capture title, description, project, workspace, o
 | Allowed start | Inbox, Queue, Doing, Waiting, or Review. |
 | Required input | Task precondition and optional safe cancellation reason. |
 | Version fence | Exact task revision and generation. |
-| Transaction writes | Increment generation and revision; move task to Cancelled; set `cancelled_at`; clear `queued_at`; supersede any open gate. Every queued, leased, or running run becomes `cancelled`; in-flight holders also receive `cancellation_requested = 1` and a runtime cancellation signal. |
+| Transaction writes | Increment generation and revision; move task to Cancelled; set `cancelled_at`; clear current contract/evidence/run/gate pointers and `queued_at`; supersede any open gate. Every queued, leased, running, or approval-waiting run becomes `cancelled`; in-flight holders also receive `cancellation_requested = 1` and a runtime cancellation signal. |
 | Events | `run.cancel_requested` and `run.cancelled` for in-flight holders, `run.cancelled` for queued runs, `gate.superseded` when relevant, `task.cancelled`, and `task.stage_changed`. |
 | Runs | No new run. A worker that races with cancellation fails its generation/lease predicate and cannot create evidence or change stage. |
 | Replay | Returns the terminal task produced by the original cancellation. |

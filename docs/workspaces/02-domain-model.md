@@ -340,7 +340,7 @@ An Approval gate requires `TaskGateAnswer.approval_decision`; the persisted answ
 
 `RunKind` becomes `Planner | Executor | Reviewer`. `RunStatus` remains the current lease-local vocabulary (`Queued`, `Leased`, `Running`, `Completed`, `WaitingForApproval`, `Interrupted`, `Failed`, `Cancelled`) and may not be projected back into a task field. Each run gains `task_generation` and optional `contract_id`:
 
-- Planner runs have no contract ID, use the executor identity and an exact model snapshot, and may only submit a complete plan or a blocking question.
+- Planner runs have no contract ID, use the executor identity and exact model/policy snapshots, and may only submit a complete plan or a blocking question.
 - Executor and reviewer runs require a contract ID and copy its model/policy snapshots into the immutable run record.
 - Every run terminal write compares its lease token, run status, `task_generation`, and the task’s current generation. A stale run can add no submission, review, gate, stage transition, or notification.
 

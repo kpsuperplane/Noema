@@ -7,20 +7,20 @@ first workspace, project, and task-management release. It expands the existing
 background-task system into a chat-first Work system without introducing a
 second task object or importing coding-project assumptions into Noema's core.
 
-The documents describe the target contract. Until the implementation packets
-land, the current `TaskStatus`-based background-task implementation remains the
-running code.
+The documents describe the implemented contract. The accepted packets replace
+the former `TaskStatus`-based background-task implementation with one Work
+domain shared by chat, runtime orchestration, GraphQL, and the `/work` surface.
 
 | Area | Contract revision | Implementation |
 | --- | --- | --- |
 | Product contract | Frozen | Not applicable |
 | Workspace/project/task domain | Frozen | Accepted |
-| SQLite and event ledger | Frozen | Not started |
-| Commands and reconciliation | Frozen | Not started |
-| Runtime and chat integration | Frozen | Not started |
-| GraphQL contract | Frozen | Not started |
-| Work UI | Frozen | Not started |
-| Validation and rollout | Frozen | Not started |
+| SQLite and event ledger | Frozen | Accepted |
+| Commands and reconciliation | Frozen | Accepted |
+| Runtime and chat integration | Frozen | Accepted |
+| GraphQL contract | Frozen | Accepted |
+| Work UI | Frozen | Accepted |
+| Validation and rollout | Frozen | Accepted |
 
 Update this table only when an implementation packet has passed its acceptance
 gate. "In progress" means an agent owns the packet; it does not mean partially
@@ -79,9 +79,9 @@ of those authorities. They must never become another mutable task-status field.
 10. [Future roadmap](09-future-roadmap.md) sequences deferred orchestration,
     planning, collaboration, context, and integration work.
 
-Implementation begins with the [multi-agent program](implementation/README.md).
-Each packet is self-contained, owns disjoint files, and ends with a concrete
-handoff and validation gate.
+Implementation followed the [multi-agent program](implementation/README.md).
+Each accepted packet owned disjoint files and ended with a concrete handoff and
+validation gate.
 
 ## Relationship To Existing Documentation
 
@@ -105,8 +105,8 @@ contracts:
   location.
 
 If this package conflicts with a general security, capability, or trust rule,
-the stricter general rule wins. If it conflicts with the current task schema or
-API, this package describes the deliberate pre-V1 replacement.
+the stricter general rule wins. For Work-specific schema and API behavior, this
+package records the accepted pre-V1 contract.
 
 ## Claude-Kanban Mapping
 

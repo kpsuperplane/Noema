@@ -380,6 +380,8 @@ CREATE TABLE agent_runs (
   progress_audit_interval INTEGER NOT NULL CHECK (
     progress_audit_interval >= 1 AND progress_audit_interval <= max_provider_continuations
   ),
+  max_automatic_retries INTEGER NOT NULL CHECK (max_automatic_retries BETWEEN 0 AND 20),
+  max_review_rounds INTEGER NOT NULL CHECK (max_review_rounds BETWEEN 1 AND 20),
   status TEXT NOT NULL CHECK (status IN (
     'queued', 'leased', 'running', 'completed', 'waiting_for_approval',
     'interrupted', 'failed', 'cancelled'
@@ -435,7 +437,10 @@ WHERE contract_id IS NOT NULL;
 CREATE TABLE agent_run_items (
   item_id TEXT PRIMARY KEY NOT NULL CHECK (item_id GLOB 'run_item:*'),
   run_id TEXT NOT NULL,
-  sequence_index INTEGER NOT NULL CHECK (sequence_index >= 1),
+  sequence_index INTEGER NOT NULL CHECK (
+    (kind = 'context_checkpoint' AND sequence_index = 0)
+    OR (kind <> 'context_checkpoint' AND sequence_index >= 1)
+  ),
   round_index INTEGER NOT NULL DEFAULT 0 CHECK (round_index >= 0),
   kind TEXT NOT NULL CHECK (kind IN (
     'model_input', 'assistant_output', 'tool_call', 'tool_result', 'progress_notice',
@@ -609,7 +614,7 @@ CREATE TABLE work_notification_outbox (
   lease_owner TEXT,
   lease_token TEXT,
   lease_expires_at TEXT,
-  attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+  attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count BETWEEN 0 AND 4294967295),
   last_error_code TEXT,
   last_error_message TEXT,
   delivered_at TEXT,
