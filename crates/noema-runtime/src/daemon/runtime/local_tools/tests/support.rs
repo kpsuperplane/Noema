@@ -1,7 +1,5 @@
 use std::{
     collections::HashMap,
-    future::Future,
-    pin::Pin,
     sync::{Arc, Mutex},
 };
 
@@ -16,9 +14,8 @@ use crate::daemon::{
 };
 use noema_capabilities::{CapabilityError, CapabilityFuture, CapabilityInvoker, CapabilityOutput};
 use noema_providers::{
-    GenerateActionItem, GenerateInput, GenerateRequest, GenerateResponse, GenerateResponseItem,
-    GenerateResponseStatus, GenerateStreamEvent, ProviderCapabilityAccountReference, ProviderError,
-    ProviderOperations, ProviderToolCapabilities,
+    GenerateActionItem, GenerateInput, GenerateResponse, GenerateResponseStatus,
+    ProviderCapabilityAccountReference, ProviderToolCapabilities,
 };
 use serde_json::{Value, json};
 
@@ -39,12 +36,6 @@ async fn upsert_ready_auxiliary_model_preference(
         .upsert_auxiliary_model_preference_with_ready_selection(preference, &ready_selection)
         .await
         .expect("ready auxiliary model preference");
-}
-
-#[derive(Debug)]
-struct LocalToolTestProvider {
-    default_tool_model: Option<String>,
-    requests: Arc<Mutex<Vec<GenerateRequest>>>,
 }
 
 struct RecordingCapabilityInvoker {
@@ -83,77 +74,20 @@ impl CapabilityInvoker for RecordingCapabilityInvoker {
     }
 }
 
-impl ProviderOperations for LocalToolTestProvider {
-    fn default_tool_classification_model(&self) -> Option<String> {
-        self.default_tool_model.clone()
-    }
-
-    fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
-        ProviderToolCapabilities::default()
-    }
-
-    fn generate_streaming<'a>(
-        &'a self,
-        request: GenerateRequest,
-        _on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
-    ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
-        Box::pin(async move {
-            self.requests
-                .lock()
-                .expect("requests")
-                .push(request.clone());
-            Ok(GenerateResponse {
-                responses: vec![GenerateResponseItem::Text {
-                    phase: None,
-                    text: "summarized page".to_string(),
-                }],
-                tool_calls: Vec::new(),
-                reasoning_items: Vec::new(),
-                response_status: GenerateResponseStatus::Final,
-                provider: "test".to_string(),
-                model: request
-                    .model
-                    .unwrap_or_else(|| "missing-test-model".to_string()),
-                response_id: None,
-                usage: None,
-            })
-        })
-    }
+fn local_tool_test_provider() -> noema_providers::ProviderHandle {
+    crate::contract_test_support::fixed_response_provider("summarized page")
 }
 
 async fn test_actor() -> RuntimeActor {
     let store = crate::test_support::test_store().await;
     RuntimeActor::new(
         "codex".to_string(),
-        HashMap::from([(
-            "codex".to_string(),
-            Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
-                as noema_providers::ProviderHandle,
-        )]),
+        HashMap::from([("codex".to_string(), local_tool_test_provider())]),
         store.clone(),
         crate::test_support::system_error_logger(),
     )
     .await
     .expect("actor")
-}
-
-impl LocalToolTestProvider {
-    fn new(default_tool_model: Option<&str>) -> Self {
-        Self {
-            default_tool_model: default_tool_model.map(str::to_string),
-            requests: Arc::new(Mutex::new(Vec::new())),
-        }
-    }
-
-    fn with_requests(
-        default_tool_model: Option<&str>,
-        requests: Arc<Mutex<Vec<GenerateRequest>>>,
-    ) -> Self {
-        Self {
-            default_tool_model: default_tool_model.map(str::to_string),
-            requests,
-        }
-    }
 }
 
 fn test_turn() -> SuccessfulProviderTurn {
@@ -185,10 +119,7 @@ fn test_turn_with_selection(
         provider_kind: provider_kind.clone(),
         model: model.clone(),
         reasoning_effort,
-        provider_route: crate::test_support::provider_route(
-            selection,
-            Arc::new(LocalToolTestProvider::new(Some("codex-tool-default"))),
-        ),
+        provider_route: crate::test_support::provider_route(selection, local_tool_test_provider()),
         initial_stream_id: "stream:test".to_string(),
         response: GenerateResponse {
             responses: Vec::new(),

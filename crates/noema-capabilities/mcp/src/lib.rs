@@ -6,9 +6,11 @@
 //! filesystem secrets, OAuth, protocol clients, setup, and invocation.
 
 mod autofill;
+#[cfg(any(feature = "transport", test))]
 mod catalog;
 mod completion;
 mod diagnostics;
+#[cfg(any(feature = "transport", test))]
 mod eligibility;
 mod identity;
 mod limits;
@@ -18,13 +20,19 @@ mod operations;
 mod repository;
 mod secret_model;
 mod setup_model;
+#[cfg(test)]
+mod test_fixture;
 
 #[cfg(feature = "transport")]
 mod client;
 #[cfg(feature = "transport")]
+mod connection_url;
+#[cfg(feature = "transport")]
 mod control;
 #[cfg(feature = "transport")]
 mod http;
+#[cfg(feature = "transport")]
+mod http_body;
 #[cfg(feature = "transport")]
 mod invocation;
 #[cfg(feature = "transport")]
@@ -40,10 +48,7 @@ mod setup;
 #[cfg(feature = "transport")]
 mod stdio;
 
-pub use autofill::{
-    McpAutofillError, McpToolCalibrationSuggestion, build_autofill_prompt, parse_autofill_response,
-};
-pub use catalog::{MCP_INVOKER_KEY, McpBindingSource, McpOperationAuthority};
+pub use autofill::McpToolCalibrationSuggestion;
 #[cfg(feature = "transport")]
 pub use client::{
     McpClientError, McpClientFuture, McpClientResult, McpPreparedSession, McpRequestContext,
@@ -56,11 +61,7 @@ pub use completion::{
 };
 pub use diagnostics::{
     McpDiagnosticEvent, McpDiagnosticHandle, McpDiagnosticKind, McpDiagnosticSink,
-    NoopMcpDiagnostics, SystemErrorMcpDiagnostics,
-};
-pub use eligibility::{
-    McpToolIneligibility, mcp_tool_catalog_ineligibility, mcp_tool_ineligibility,
-    prompt_safe_mcp_tool_description,
+    SystemErrorMcpDiagnostics,
 };
 #[cfg(feature = "transport")]
 pub use http::{
@@ -74,10 +75,9 @@ pub use model::{
     McpTrustClassification, NewMcpServer, NewToolCalibration, ToolCalibrationRecord,
 };
 #[cfg(feature = "transport")]
-pub use oauth::{
-    McpOAuthAttemptContext, McpOAuthCompletion, McpOAuthError, McpOAuthErrorKind, McpOAuthRegistry,
-    McpOAuthRegistryConfig, McpOAuthStartRequest,
-};
+pub(crate) use oauth::{McpOAuthAttemptContext, McpOAuthStartRequest};
+#[cfg(feature = "transport")]
+pub use oauth::{McpOAuthError, McpOAuthErrorKind, McpOAuthRegistry, McpOAuthRegistryConfig};
 pub use oauth_model::{
     CompleteMcpOAuthSetupCommand, McpOAuthSetupAttemptQuery, McpOAuthSetupAttemptStatus,
     McpOAuthSetupAttemptView, McpOAuthSetupFailure, StartMcpOAuthReauthenticationCommand,
@@ -98,7 +98,7 @@ pub use secret_model::{McpOAuthClientCredentials, McpOAuthStoredCredentials, Mcp
 #[cfg(feature = "transport")]
 pub use secrets::{
     FilesystemMcpSecretStore, McpSecretCommit, McpSecretStage, McpSecretStore, McpSecretStoreError,
-    McpSecretStoreHandle, McpSecretStoreOperation,
+    McpSecretStoreHandle,
 };
 #[cfg(feature = "transport")]
 pub use service::{LocalMcpService, LocalMcpServiceConfig, LocalMcpServiceConstructionError};

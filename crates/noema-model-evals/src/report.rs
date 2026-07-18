@@ -86,7 +86,7 @@ impl MatrixReport {
                 .iter()
                 .filter(|entry| entry.candidate_id == candidate.id)
             {
-                match &entry.report {
+                let columns = match &entry.report {
                     Some(report) if report.runtime_error.is_none() => {
                         let mut latencies = report
                             .cases
@@ -98,11 +98,8 @@ impl MatrixReport {
                             .get(latencies.len().saturating_sub(1) / 2)
                             .copied()
                             .unwrap_or(0);
-                        let _ = writeln!(
-                            output,
-                            "| {} (run {}) | {} | {}/{} | {}/{} | {:.2}s | {} | {:.2}s | {} |",
-                            candidate.name,
-                            entry.repetition,
+                        format!(
+                            "{} | {}/{} | {}/{} | {:.2}s | {} | {:.2}s | {}",
                             report.backend.as_deref().unwrap_or("unknown"),
                             report.passed_critical_cases,
                             report.total_critical_cases,
@@ -118,7 +115,7 @@ impl MatrixReport {
                             ),
                             median as f64 / 1_000.0,
                             resource_probe_label(report),
-                        );
+                        )
                     }
                     Some(report) => {
                         let error = report
@@ -126,14 +123,10 @@ impl MatrixReport {
                             .as_deref()
                             .unwrap_or("unknown runtime failure")
                             .replace('|', "\\|");
-                        let _ = writeln!(
-                            output,
-                            "| {} (run {}) | incompatible: {} | 0/0 | 0/0 | {:.2}s | - | - | - |",
-                            candidate.name,
-                            entry.repetition,
-                            error,
-                            report.runtime_load_ms as f64 / 1_000.0,
-                        );
+                        format!(
+                            "incompatible: {error} | 0/0 | 0/0 | {:.2}s | - | - | -",
+                            report.runtime_load_ms as f64 / 1_000.0
+                        )
                     }
                     None => {
                         let error = entry
@@ -141,13 +134,14 @@ impl MatrixReport {
                             .as_deref()
                             .unwrap_or("worker failed")
                             .replace('|', "\\|");
-                        let _ = writeln!(
-                            output,
-                            "| {} (run {}) | worker error: {} | 0/0 | 0/0 | - | - | - | - |",
-                            candidate.name, entry.repetition, error,
-                        );
+                        format!("worker error: {error} | 0/0 | 0/0 | - | - | - | -")
                     }
-                }
+                };
+                let _ = writeln!(
+                    output,
+                    "| {} (run {}) | {columns} |",
+                    candidate.name, entry.repetition
+                );
             }
         }
         output.push_str("\nCorrectness gates are deterministic typed/sentinel predicates. Speed is reported separately and does not raise a model's correctness score.\n");

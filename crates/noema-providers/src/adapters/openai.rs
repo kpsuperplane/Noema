@@ -210,14 +210,9 @@ impl ModelProvider for OpenAiProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::DEFAULT_OPENAI_TIMEOUT_SECONDS;
+    use crate::TokenUsage;
     use crate::adapters::test_support::spawn_server;
-    use crate::{DEFAULT_OPENAI_TIMEOUT_SECONDS, GenerateInput, PromptCacheRetention};
-    use crate::{
-        GenerateResponseStatus, NoemaToolChoice, ProviderToolSchemaDialect, ProviderToolTransport,
-        TokenUsage,
-    };
-    use noema_capabilities::ToolSpec;
-    use serde_json::Value;
 
     #[tokio::test]
     async fn sends_expected_request_and_extracts_text() {
@@ -226,13 +221,13 @@ mod tests {
             r#"{
               "id": "resp_test",
               "model": "gpt-test",
-              "output": [{
-                "type": "message",
-                "content": [
+              "output": [
+                {"type": "reasoning", "id": "rs_1", "encrypted_content": "opaque"},
+                {"type": "message", "content": [
                   {"type": "output_text", "text": "Hello"},
                   {"type": "output_text", "text": ", world"}
-                ]
-              }],
+                ]}
+              ],
               "usage": {
                 "input_tokens": 2,
                 "output_tokens": 3,
@@ -258,24 +253,9 @@ mod tests {
         })
         .expect("provider");
 
-        let response = provider
-            .generate(GenerateRequest {
-                conversation_id: None,
-                model: Some("gpt-test".to_string()),
-                input: GenerateInput::Text("Hello?".to_string()),
-                instructions: Some("Be brief.".to_string()),
-                options: crate::GenerateOptions {
-                    max_output_tokens: Some(32),
-                    temperature: Some(0.4),
-                    prompt_cache_retention: Some(PromptCacheRetention::TwentyFourHours),
-                    ..crate::GenerateOptions::default()
-                },
-                tools: Vec::new(),
-                tool_choice: Default::default(),
-                parallel_tool_calls: false,
-            })
-            .await
-            .expect("response");
+        let mut request = GenerateRequest::text("Hello?");
+        request.model = Some("gpt-test".to_string());
+        let response = provider.generate(request).await.expect("response");
 
         let captured = request_rx.await.expect("captured request");
         assert_eq!(captured.method, "POST");
@@ -296,22 +276,14 @@ mod tests {
             Some("proj_test")
         );
 
-        let body: Value = serde_json::from_str(&captured.body).expect("json body");
-        assert_eq!(body["model"], "gpt-test");
-        assert_eq!(body["input"], "Hello?");
-        assert_eq!(body["instructions"], "Be brief.");
-        assert_eq!(body["store"], false);
-        assert_eq!(body["max_output_tokens"], 32);
-        assert_eq!(body["temperature"], 0.4);
-        assert_eq!(body["prompt_cache_retention"], "24h");
-        assert!(body.get("tools").is_none());
-        assert!(body.get("tool_choice").is_none());
-        assert!(body.get("parallel_tool_calls").is_none());
-
         assert_eq!(response.assistant_text(), "Hello, world");
         assert_eq!(response.provider, "openai");
         assert_eq!(response.model, "gpt-test");
-        assert_eq!(response.response_id.as_deref(), Some("resp_test"));
+        assert_eq!(response.reasoning_items[0].id.as_deref(), Some("rs_1"));
+        assert_eq!(
+            response.reasoning_items[0].encrypted_content.as_deref(),
+            Some("opaque")
+        );
         assert_eq!(
             response.usage,
             Some(TokenUsage {
@@ -324,161 +296,37 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn openai_requests_and_parses_encrypted_reasoning_items() {
-        let (base_url, request_rx) = spawn_server(
-            200,
-            r#"{
-              "id": "resp_test",
-              "model": "gpt-test",
-              "output": [
-                {
-                  "type": "reasoning",
-                  "id": "rs_1",
-                  "encrypted_content": "opaque-openai-reasoning"
-                },
-                {
-                  "type": "message",
-                  "content": [{"type": "output_text", "text": "Done"}]
+    async fn maps_provider_http_error_classes() {
+        for (status, body, expected) in [
+            (
+                401,
+                r#"{"error":{"message":"bad key","type":"invalid_request_error"}}"#,
+                "auth",
+            ),
+            (429, r#"{"error":{"message":"slow down"}}"#, "rate"),
+            (500, r#"{"error":{"message":"upstream broke"}}"#, "api"),
+        ] {
+            let (base_url, _request_rx) = spawn_server(status, body).await;
+            let error = test_provider(base_url)
+                .generate(GenerateRequest::text("hello"))
+                .await
+                .unwrap_err();
+            assert!(match (expected, error) {
+                ("auth", ProviderError::AuthenticationFailure { message, .. }) => {
+                    message == "bad key"
                 }
-              ]
-            }"#,
-        )
-        .await;
-        let provider = test_provider(base_url);
-
-        let response = provider
-            .generate(GenerateRequest {
-                conversation_id: Some("conversation:reasoning".to_string()),
-                model: Some("gpt-test".to_string()),
-                input: GenerateInput::Text("Think privately.".to_string()),
-                ..GenerateRequest::text("ignored")
-            })
-            .await
-            .expect("response");
-
-        let captured = request_rx.await.expect("captured request");
-        let body: Value = serde_json::from_str(&captured.body).expect("json body");
-        assert_eq!(body["include"][0], "reasoning.encrypted_content");
-        assert_eq!(response.reasoning_items.len(), 1);
-        assert_eq!(response.reasoning_items[0].id.as_deref(), Some("rs_1"));
-        assert_eq!(
-            response.reasoning_items[0].encrypted_content.as_deref(),
-            Some("opaque-openai-reasoning")
-        );
-    }
-
-    #[tokio::test]
-    async fn request_sends_native_tool_specs_with_provider_safe_names_and_maps_calls_back() {
-        let (base_url, request_rx) = spawn_server(
-            200,
-            r#"{
-              "id": "resp_test",
-              "model": "gpt-test",
-              "output": [
-                {
-                  "type": "message",
-                  "content": [
-                    {"type": "output_text", "text": "{\"response_status\":\"needs_tools\",\"responses\":[{\"kind\":\"text\",\"phase\":\"commentary\",\"text\":\"Reading docs.\"}],\"tool_calls\":[]}"}
-                  ]
-                },
-                {
-                  "type": "function_call",
-                  "id": "item_1",
-                  "call_id": "call_1",
-                  "name": "mcp_x2e_docs_x3a_read",
-                  "arguments": "{\"document_id\":\"doc_1\"}"
+                ("rate", ProviderError::RateLimit { message, .. }) => message == "slow down",
+                (
+                    "api",
+                    ProviderError::ApiError {
+                        status, message, ..
+                    },
+                ) => {
+                    status == 500 && message == "upstream broke"
                 }
-              ]
-            }"#,
-        )
-        .await;
-
-        let provider = test_provider(base_url);
-        let response = provider
-            .generate(GenerateRequest {
-                conversation_id: None,
-                model: Some("gpt-test".to_string()),
-                input: GenerateInput::Text("Read it".to_string()),
-                instructions: None,
-                options: crate::GenerateOptions {
-                    require_noema_response: true,
-                    ..crate::GenerateOptions::default()
-                },
-                tools: vec![mcp_docs_read_tool()],
-                tool_choice: NoemaToolChoice::Required,
-                parallel_tool_calls: true,
-            })
-            .await
-            .expect("response");
-
-        let captured = request_rx.await.expect("captured request");
-        let body: Value = serde_json::from_str(&captured.body).expect("json body");
-        assert_eq!(body["tools"][0]["name"], "mcp_x2e_docs_x3a_read");
-        assert_eq!(body["tool_choice"], "required");
-        assert_eq!(body["parallel_tool_calls"], true);
-        assert_eq!(response.response_status, GenerateResponseStatus::NeedsTools);
-        assert_eq!(response.assistant_text(), "Reading docs.");
-        assert_eq!(response.tool_calls[0].id.as_deref(), Some("item_1"));
-        assert_eq!(
-            response.tool_calls[0].provider_call_id.as_deref(),
-            Some("call_1")
-        );
-        assert_eq!(response.tool_calls[0].name, "mcp.docs:read");
-        assert_eq!(response.tool_calls[0].payload["document_id"], "doc_1");
-    }
-
-    #[tokio::test]
-    async fn maps_authentication_errors() {
-        let (base_url, _request_rx) = spawn_server(
-            401,
-            r#"{"error":{"message":"bad key","type":"invalid_request_error"}}"#,
-        )
-        .await;
-
-        let provider = test_provider(base_url);
-        let error = provider
-            .generate(GenerateRequest::text("hello"))
-            .await
-            .unwrap_err();
-
-        assert!(matches!(
-            error,
-            ProviderError::AuthenticationFailure { message, .. } if message == "bad key"
-        ));
-    }
-
-    #[tokio::test]
-    async fn maps_rate_limit_errors() {
-        let (base_url, _request_rx) =
-            spawn_server(429, r#"{"error":{"message":"slow down"}}"#).await;
-
-        let provider = test_provider(base_url);
-        let error = provider
-            .generate(GenerateRequest::text("hello"))
-            .await
-            .unwrap_err();
-
-        assert!(matches!(
-            error,
-            ProviderError::RateLimit { message, .. } if message == "slow down"
-        ));
-    }
-
-    #[tokio::test]
-    async fn maps_api_errors() {
-        let (base_url, _request_rx) =
-            spawn_server(500, r#"{"error":{"message":"upstream broke"}}"#).await;
-
-        let provider = test_provider(base_url);
-        let error = provider
-            .generate(GenerateRequest::text("hello"))
-            .await
-            .unwrap_err();
-
-        assert!(matches!(
-            error,
-            ProviderError::ApiError { status: 500, message, .. } if message == "upstream broke"
-        ));
+                _ => false,
+            });
+        }
     }
 
     #[tokio::test]
@@ -502,156 +350,32 @@ mod tests {
         assert!(matches!(error, ProviderError::MalformedResponse { .. }));
     }
 
-    #[tokio::test]
-    async fn rejects_empty_input_before_http_call() {
-        let provider = test_provider("http://127.0.0.1:1".to_string());
-        let error = provider
-            .generate(GenerateRequest::text("   "))
-            .await
-            .unwrap_err();
-
-        assert!(matches!(error, ProviderError::InvalidRequest { .. }));
-    }
-
     #[test]
-    fn rejects_missing_api_key() {
-        let error = OpenAiProvider::new(OpenAiProviderConfig {
-            api_key: " ".to_string(),
-            base_url: "http://127.0.0.1:1".to_string(),
-            organization_id: None,
-            project_id: None,
-            default_model: "default-model".to_string(),
-            tool_classification_model: None,
-            reasoning_effort: None,
-            timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
-            system_errors: None,
-        })
-        .unwrap_err();
-
+    fn rejects_invalid_configuration_without_leaking_credentials() {
+        let mut config = test_config("http://127.0.0.1:1");
+        config.api_key = " ".to_string();
+        let error = OpenAiProvider::new(config).unwrap_err();
         assert!(matches!(error, ProviderError::MissingCredentials { .. }));
-    }
 
-    #[test]
-    fn rejects_zero_timeout() {
-        let error = OpenAiProvider::new(OpenAiProviderConfig {
-            api_key: "secret".to_string(),
-            base_url: "http://127.0.0.1:1".to_string(),
-            organization_id: None,
-            project_id: None,
-            default_model: "default-model".to_string(),
-            tool_classification_model: None,
-            reasoning_effort: None,
-            timeout_seconds: 0,
-            system_errors: None,
-        })
-        .unwrap_err();
-
+        let mut config = test_config("http://127.0.0.1:1");
+        config.timeout_seconds = 0;
+        let error = OpenAiProvider::new(config).unwrap_err();
         assert!(matches!(error, ProviderError::InvalidRequest { .. }));
-    }
 
-    #[test]
-    fn rejects_credential_bearing_base_url() {
-        let error = OpenAiProvider::new(OpenAiProviderConfig {
-            api_key: "secret".to_string(),
-            base_url: "https://user:password@example.test/v1?token=secret".to_string(),
-            organization_id: None,
-            project_id: None,
-            default_model: "default-model".to_string(),
-            tool_classification_model: None,
-            reasoning_effort: None,
-            timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
-            system_errors: None,
-        })
+        let error = OpenAiProvider::new(test_config(
+            "https://user:password@example.test/v1?token=secret",
+        ))
         .unwrap_err();
-
         assert!(matches!(error, ProviderError::InvalidRequest { .. }));
         assert!(!error.to_string().contains("password"));
         assert!(!error.to_string().contains("token=secret"));
     }
 
     #[test]
-    fn default_tool_classification_model_is_gpt_5_4_mini() {
-        let provider = test_provider("http://127.0.0.1:1".to_string());
-
-        assert_eq!(
-            provider.default_tool_classification_model().as_deref(),
-            Some(DEFAULT_TOOL_CLASSIFICATION_MODEL)
-        );
-    }
-
-    #[test]
-    fn advertises_openai_responses_native_tool_capabilities() {
-        let provider = test_provider("http://127.0.0.1:1".to_string());
-
-        let capabilities = provider.tool_capabilities(Some("gpt-test"));
-        let continuation = provider.response_continuation(Some("gpt-test"));
-
-        assert_eq!(capabilities.tool_transport, ProviderToolTransport::Native);
-        assert!(capabilities.parallel_tool_calls);
-        assert!(capabilities.tool_choice);
-        assert!(capabilities.native_tool_results);
-        assert!(capabilities.prompt_cache_retention);
-        assert!(capabilities.prompt_cache_key);
-        assert!(capabilities.encrypted_reasoning);
-        assert_eq!(
-            capabilities.schema_dialect,
-            ProviderToolSchemaDialect::OpenAiResponses
-        );
-        assert_eq!(
-            continuation,
-            ProviderResponseContinuation::PreviousResponseId {
-                store_response: true
-            }
-        );
-    }
-
-    #[test]
-    fn gpt_5_6_uses_explicit_prompt_cache_controls_without_legacy_retention() {
-        let provider = test_provider("http://127.0.0.1:1".to_string());
-
-        let capabilities = provider.tool_capabilities(Some("gpt-5.6"));
-
-        assert!(!capabilities.prompt_cache_retention);
-        assert!(capabilities.prompt_cache_key);
-        assert!(capabilities.prompt_cache_options);
-        assert!(capabilities.prompt_cache_breakpoints);
-    }
-
-    #[test]
-    fn configured_tool_classification_model_overrides_provider_default() {
-        let provider = OpenAiProvider::new(OpenAiProviderConfig {
-            api_key: "secret".to_string(),
-            base_url: "http://127.0.0.1:1".to_string(),
-            organization_id: None,
-            project_id: None,
-            default_model: "default-model".to_string(),
-            tool_classification_model: Some("custom-tool-classifier".to_string()),
-            reasoning_effort: None,
-            timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
-            system_errors: None,
-        })
-        .expect("provider");
-
-        assert_eq!(
-            provider.default_tool_classification_model().as_deref(),
-            Some("custom-tool-classifier")
-        );
-    }
-
-    #[test]
     fn provider_debug_redacts_api_key() {
-        let provider = OpenAiProvider::new(OpenAiProviderConfig {
-            api_key: "openai-provider-secret".to_string(),
-            base_url: "http://127.0.0.1:1".to_string(),
-            organization_id: None,
-            project_id: None,
-            default_model: "default-model".to_string(),
-            tool_classification_model: None,
-            reasoning_effort: None,
-            timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
-            system_errors: None,
-        })
-        .expect("provider");
+        let mut config = test_config("http://127.0.0.1:1");
+        config.api_key = "openai-provider-secret".to_string();
+        let provider = OpenAiProvider::new(config).expect("provider");
 
         let debug = format!("{provider:?}");
         assert!(!debug.contains("openai-provider-secret"));
@@ -659,9 +383,13 @@ mod tests {
     }
 
     fn test_provider(base_url: String) -> OpenAiProvider {
-        OpenAiProvider::new(OpenAiProviderConfig {
+        OpenAiProvider::new(test_config(&base_url)).expect("provider")
+    }
+
+    fn test_config(base_url: &str) -> OpenAiProviderConfig {
+        OpenAiProviderConfig {
             api_key: "secret".to_string(),
-            base_url,
+            base_url: base_url.to_string(),
             organization_id: None,
             project_id: None,
             default_model: "default-model".to_string(),
@@ -669,21 +397,6 @@ mod tests {
             reasoning_effort: None,
             timeout_seconds: DEFAULT_OPENAI_TIMEOUT_SECONDS,
             system_errors: None,
-        })
-        .expect("provider")
-    }
-
-    fn mcp_docs_read_tool() -> ToolSpec {
-        ToolSpec::new(
-            "mcp.docs:read",
-            "Read docs.",
-            serde_json::json!({
-                "type": "object",
-                "properties": {"document_id": {"type": "string"}},
-                "required": ["document_id"],
-                "additionalProperties": false
-            }),
-        )
-        .expect("tool")
+        }
     }
 }

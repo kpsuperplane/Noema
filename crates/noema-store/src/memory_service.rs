@@ -285,11 +285,11 @@ fn memory_selection_from_input(
 fn to_sqlite_from_provider_selection_failure(
     error: noema_providers::ProviderSelectionError,
 ) -> rusqlite::Error {
-    rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, Box::new(error))
+    sqlite::conversion_failure(6, rusqlite::types::Type::Text, error)
 }
 
 fn to_sqlite_from_sql_conversion_failure(
     error: noema_memory::MemorySettingsError,
 ) -> rusqlite::Error {
-    rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(error))
+    sqlite::conversion_failure(0, rusqlite::types::Type::Text, error)
 }

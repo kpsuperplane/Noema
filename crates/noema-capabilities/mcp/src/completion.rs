@@ -51,15 +51,3 @@ pub trait McpAutofillCompletion: Send + Sync {
 
 /// Shared calibration-autofill completion handle.
 pub type McpAutofillCompletionHandle = Arc<dyn McpAutofillCompletion>;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn completion_trait_remains_dyn_compatible() {
-        fn accepts_object_safe_port(_port: Option<&dyn McpAutofillCompletion>) {}
-
-        accepts_object_safe_port(None);
-    }
-}

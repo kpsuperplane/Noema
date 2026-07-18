@@ -120,22 +120,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn safe_artifact_filename_rejects_path_traversal() {
+    fn safe_artifact_filename_rejects_unsafe_cross_platform_path_and_header_components() {
         assert!(safe_artifact_filename("report.md").is_ok());
-        assert!(safe_artifact_filename("../report.md").is_err());
-        assert!(safe_artifact_filename("nested/report.md").is_err());
-        assert!(safe_artifact_filename("").is_err());
-    }
-
-    #[test]
-    fn safe_artifact_filename_rejects_header_unsafe_characters() {
-        assert!(safe_artifact_filename("report\".md").is_err());
-        assert!(safe_artifact_filename("report\r.md").is_err());
-        assert!(safe_artifact_filename("report\n.md").is_err());
-    }
-
-    #[test]
-    fn safe_artifact_filename_rejects_windows_aliases_and_forbidden_characters() {
+        for filename in [
+            "",
+            "../report.md",
+            "nested/report.md",
+            "report\".md",
+            "report\r.md",
+            "report\n.md",
+        ] {
+            assert!(safe_artifact_filename(filename).is_err(), "{filename:?}");
+        }
         for filename in [
             "report:stream.txt",
             "report<draft>.txt",
@@ -162,47 +158,31 @@ mod tests {
     }
 
     #[test]
-    fn conversation_artifact_version_dir_lives_under_conversation_artifacts() {
-        let path = artifact_version_dir(
-            Path::new("/tmp/noema"),
-            &ArtifactOwnerRef::conversation("conversation:abc"),
-            "artifact:def",
-            2,
-        )
-        .expect("path");
-        assert_eq!(
-            path,
-            PathBuf::from(
-                "/tmp/noema/conversations/conversation_abc/artifacts/artifact_def/versions/2"
-            )
-        );
+    fn artifact_version_dirs_stay_below_supported_owner_roots() {
+        for (owner, expected) in [
+            (
+                ArtifactOwnerRef::conversation("conversation:abc"),
+                "/tmp/noema/conversations/conversation_abc/artifacts/artifact_def/versions/2",
+            ),
+            (
+                ArtifactOwnerRef::task("task:abc"),
+                "/tmp/noema/tasks/task_abc/artifacts/artifact_def/versions/2",
+            ),
+        ] {
+            assert_eq!(
+                artifact_version_dir(Path::new("/tmp/noema"), &owner, "artifact:def", 2)
+                    .expect("path"),
+                PathBuf::from(expected)
+            );
+        }
     }
 
     #[test]
-    fn task_artifact_version_dir_lives_under_task_artifacts() {
-        let path = artifact_version_dir(
-            Path::new("/tmp/noema"),
-            &ArtifactOwnerRef::task("task:abc"),
-            "artifact:def",
-            2,
-        )
-        .expect("path");
-        assert_eq!(
-            path,
-            PathBuf::from("/tmp/noema/tasks/task_abc/artifacts/artifact_def/versions/2")
-        );
-    }
-
-    #[test]
-    fn artifact_download_url_uses_public_version_slug() {
+    fn artifact_download_route_uses_and_validates_public_version_slugs() {
         assert_eq!(
             artifact_download_url("artifact_version:18c0aa78b3e7c5e86"),
             "/artifacts/versions/18c0aa78b3e7c5e86/download"
         );
-    }
-
-    #[test]
-    fn artifact_version_slug_resolves_to_canonical_id() {
         assert_eq!(
             artifact_version_id_from_download_slug("18c0aa78b3e7c5e86"),
             Some("artifact_version:18c0aa78b3e7c5e86".to_string())

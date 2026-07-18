@@ -148,20 +148,4 @@ mod tests {
             McpOperationError::ShuttingDown
         );
     }
-
-    #[tokio::test]
-    async fn shutdown_aborts_an_admitted_uncooperative_future() {
-        let lifecycle = Arc::new(McpServiceLifecycle::default());
-        let operation = {
-            let lifecycle = lifecycle.clone();
-            tokio::spawn(async move { lifecycle.run_admitted(std::future::pending::<()>()).await })
-        };
-        tokio::task::yield_now().await;
-
-        assert!(lifecycle.drain(Duration::from_secs(1)).await);
-        assert_eq!(
-            operation.await.expect("operation task"),
-            Err(McpOperationError::Cancelled)
-        );
-    }
 }

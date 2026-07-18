@@ -20,7 +20,6 @@ use noema_providers::{
 use super::{
     actor::RuntimeActor,
     continuation_context::ContinuationContext,
-    local_tools::LocalToolResult,
     model_tools::{ModelTools, build_model_tools_for_role},
     progress::{ContinuationProgressTracker, DeterministicProgressStop},
     progress_audit::ProgressAuditDecision,
@@ -109,5 +108,18 @@ fn binding_snapshot_for_specs(
 }
 
 #[cfg(test)]
-#[path = "background_task/tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compaction_provider_error_is_preserved_for_task_failure_finalization() {
+        let error = ProviderError::ProviderUnavailable {
+            provider: "test-provider".to_string(),
+            message: "continuation compaction failed".to_string(),
+        };
+
+        let error = propagate_compaction_result(Err(error)).expect_err("propagate error");
+        assert!(matches!(error, RuntimeError::Provider(_)));
+        assert!(error.to_string().contains("continuation compaction failed"));
+    }
+}

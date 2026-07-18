@@ -201,13 +201,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn verified_model_blob_path_rejects_tampered_blob() {
+    async fn verified_model_blob_path_rejects_missing_and_tampered_blob() {
         let temp = tempfile::tempdir().expect("tempdir");
         let paths = NoemaPaths::from_noema_home(temp.path()).expect("paths");
         let installation = installed_record(MODEL_BYTES);
         let blob = paths
             .local_model_blob_path(installation.sha256.as_deref().expect("digest"))
             .expect("blob path");
+        assert!(matches!(
+            verified_model_blob_path(&paths, &installation).await,
+            Err(LocalModelManagerError::Runtime {
+                operation: "verify_model_blob",
+                message,
+            }) if message == "installed model blob is unavailable"
+        ));
         fs::create_dir_all(blob.parent().expect("blob parent")).expect("create blob parent");
         fs::write(&blob, b"tampered model bytes").expect("write tampered blob");
 

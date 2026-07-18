@@ -6,7 +6,11 @@ use noema_tasks::{NewRunEvent, NewTaskEvent, TaskEventKind, TaskEventRecord};
 use rusqlite::OptionalExtension;
 use serde_json::Value;
 
-use super::{NoemaStore, StoreError, ids::allocate_id};
+use super::{
+    NoemaStore, StoreError,
+    ids::allocate_id,
+    sqlite::{json_column, parse_column},
+};
 
 impl NoemaStore {
     /// Return the blocking question recorded for one task run, when present.
@@ -98,28 +102,12 @@ impl NoemaStore {
             let rows = statement.query_map(
                 rusqlite::params![task_id, after_sequence.unwrap_or(0).max(0), limit],
                 |row| {
-                    let payload = serde_json::from_str::<Value>(&row.get::<_, String>(7)?)
-                        .map_err(|error| {
-                            rusqlite::Error::FromSqlConversionFailure(
-                                7,
-                                rusqlite::types::Type::Text,
-                                Box::new(error),
-                            )
-                        })?;
+                    let payload = json_column(row, 7)?;
                     Ok(TaskEventRecord {
                         event_id: row.get(0)?,
                         task_id: row.get(1)?,
                         sequence_number: row.get(2)?,
-                        event_kind: row
-                            .get::<_, String>(3)?
-                            .parse::<TaskEventKind>()
-                            .map_err(|error| {
-                                rusqlite::Error::FromSqlConversionFailure(
-                                    3,
-                                    rusqlite::types::Type::Text,
-                                    Box::new(error),
-                                )
-                            })?,
+                        event_kind: parse_column(row, 3)?,
                         actor_id: row.get(4)?,
                         causation_id: row.get(5)?,
                         correlation_id: row.get(6)?,

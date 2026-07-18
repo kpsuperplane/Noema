@@ -1,4 +1,4 @@
-use std::{fmt, sync::Arc};
+use std::{fmt, ops::Deref, sync::Arc};
 
 use noema_capabilities::web::search::{SearchRequest, SearchResponse};
 
@@ -51,26 +51,13 @@ impl WebSearchBackendHandle {
     pub fn new(backend: impl WebSearchBackend + 'static) -> Self {
         Self(Arc::new(backend))
     }
+}
 
-    /// Erase an existing shared web search backend.
-    #[must_use]
-    pub fn from_arc(backend: Arc<dyn WebSearchBackend>) -> Self {
-        Self(backend)
-    }
+impl Deref for WebSearchBackendHandle {
+    type Target = dyn WebSearchBackend;
 
-    /// Return the stable provider backend identifier.
-    #[must_use]
-    pub fn backend_id(&self) -> &str {
-        self.0.backend_id()
-    }
-
-    /// Execute one validated search request.
-    ///
-    /// # Errors
-    ///
-    /// Returns a typed provider backend failure.
-    pub async fn search(&self, request: &SearchRequest) -> Result<SearchResponse, WebSearchError> {
-        self.0.search(request).await
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref()
     }
 }
 
@@ -80,53 +67,5 @@ impl fmt::Debug for WebSearchBackendHandle {
             .debug_tuple("WebSearchBackendHandle")
             .field(&"[CONFIGURED]")
             .finish()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    struct EchoSearch;
-
-    impl WebSearchBackend for EchoSearch {
-        fn backend_id(&self) -> &str {
-            "echo"
-        }
-
-        fn search<'a>(
-            &'a self,
-            request: &'a SearchRequest,
-        ) -> WebOperationFuture<'a, SearchResponse, WebSearchError> {
-            Box::pin(async move {
-                Ok(SearchResponse {
-                    provider: "echo".to_string(),
-                    query: request.query.clone(),
-                    results: Vec::new(),
-                    summary: "No web results found".to_string(),
-                    provider_contract: "test".to_string(),
-                })
-            })
-        }
-    }
-
-    #[tokio::test]
-    async fn search_handle_is_object_safe_and_redacted() {
-        let handle = WebSearchBackendHandle::new(EchoSearch);
-        let response = handle
-            .search(&SearchRequest {
-                query: "Noema".to_string(),
-                reason: None,
-                max_results: 5,
-            })
-            .await
-            .expect("search");
-
-        assert_eq!(response.query, "Noema");
-        assert_eq!(handle.backend_id(), "echo");
-        assert_eq!(
-            format!("{handle:?}"),
-            "WebSearchBackendHandle(\"[CONFIGURED]\")"
-        );
     }
 }

@@ -8,6 +8,7 @@ use noema_capabilities_mcp::{
 use rusqlite::{Connection, OptionalExtension, Row, params, types::Type};
 
 use super::repo_sql_error;
+use crate::sqlite::conversion_failure;
 
 pub(super) struct ExistingTool {
     pub(super) mcp_tool_id: String,
@@ -188,9 +189,8 @@ fn server_record_from_row(row: &Row<'_>) -> rusqlite::Result<McpServerRecord> {
         enabled: row.get::<_, i64>(4)? != 0,
         health_status: parse_persisted(row.get::<_, String>(5)?, 5)?,
         auth_status: parse_persisted(row.get::<_, String>(6)?, 6)?,
-        tool_count: usize::try_from(tool_count).map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(7, Type::Integer, Box::new(error))
-        })?,
+        tool_count: usize::try_from(tool_count)
+            .map_err(|error| conversion_failure(7, Type::Integer, error))?,
         authority_generation: row.get(8)?,
     })
 }
@@ -254,15 +254,13 @@ where
     T: FromStr,
     T::Err: std::error::Error + Send + Sync + 'static,
 {
-    value.parse().map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(index, Type::Text, Box::new(error))
-    })
+    value
+        .parse()
+        .map_err(|error| conversion_failure(index, Type::Text, error))
 }
 
 fn parse_json(value: String, index: usize) -> rusqlite::Result<serde_json::Value> {
-    serde_json::from_str(&value).map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(index, Type::Text, Box::new(error))
-    })
+    serde_json::from_str(&value).map_err(|error| conversion_failure(index, Type::Text, error))
 }
 
 const SERVER_RECORD_SQL: &str = r#"

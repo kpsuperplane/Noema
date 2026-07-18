@@ -7,7 +7,7 @@ use noema_providers::{
     ProviderReadySelectionError, ProviderRegistry, ProviderRegistryError,
     ProviderSelectionSnapshot, provider_account_instance_key,
 };
-use rusqlite::{ErrorCode, OptionalExtension, Transaction, TransactionBehavior};
+use rusqlite::{ErrorCode, OptionalExtension, Transaction, TransactionBehavior, params};
 
 use crate::{NoemaStore, StoreError};
 
@@ -22,6 +22,13 @@ pub(crate) enum SelectionEligibility {
     Canonical,
     /// A durable retry may preserve an inactive route until retirement wins.
     PreservedFutureReference,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum CanonicalPreferenceOwner<'a> {
+    Default,
+    Agent(&'a str),
+    Auxiliary(&'a str),
 }
 
 impl NoemaStore {
@@ -109,6 +116,114 @@ pub(crate) fn resolve_new_canonical_selection_tx(
         })?;
     validate_ready_selection_proof(&selection, ready_selection)?;
     Ok(selection)
+}
+
+pub(crate) fn write_preference_tx(
+    transaction: &Transaction<'_>,
+    owner: CanonicalPreferenceOwner<'_>,
+    selection: &ProviderSelectionSnapshot,
+    overwrite: bool,
+) -> Result<(), StoreError> {
+    let (table, owner_column, owner_id) = match owner {
+        CanonicalPreferenceOwner::Default => {
+            ("default_model_preference", "preference_id", "default")
+        }
+        CanonicalPreferenceOwner::Agent(agent_id) => {
+            ("agent_runtime_preferences", "agent_id", agent_id)
+        }
+        CanonicalPreferenceOwner::Auxiliary(task_id) => {
+            ("auxiliary_model_preferences", "task_id", task_id)
+        }
+    };
+    let key = selection
+        .provider_instance_key
+        .as_ref()
+        .ok_or(StoreError::ProviderInstanceKeyMissing)?;
+    let conflict = if overwrite {
+        "DO UPDATE SET provider_kind = excluded.provider_kind, provider_account_id = excluded.provider_account_id, provider_instance_key = excluded.provider_instance_key, model_profile = excluded.model_profile, reasoning_effort = excluded.reasoning_effort, updated_at = excluded.updated_at"
+    } else {
+        "DO NOTHING"
+    };
+    transaction.execute(
+        &format!(
+            "INSERT INTO {table} ({owner_column}, provider_kind, provider_account_id, provider_instance_key, model_profile, reasoning_effort, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) \
+             ON CONFLICT({owner_column}) {conflict}"
+        ),
+        params![
+            owner_id,
+            selection.provider_kind,
+            selection.provider_account_id,
+            key.as_str(),
+            selection.model_profile,
+            selection.reasoning_effort.map(noema_providers::ReasoningEffort::as_persistence_str),
+        ],
+    )?;
+    Ok(())
+}
+
+pub(crate) fn write_task_pool_preference_tx(
+    transaction: &Transaction<'_>,
+    pool_entry_id: &str,
+    complexity: &str,
+    selection: &ProviderSelectionSnapshot,
+    overwrite: bool,
+) -> Result<(), StoreError> {
+    let key = selection
+        .provider_instance_key
+        .as_ref()
+        .ok_or(StoreError::ProviderInstanceKeyMissing)?;
+    let conflict = if overwrite {
+        "DO UPDATE SET provider_kind = excluded.provider_kind, provider_account_id = excluded.provider_account_id, provider_instance_key = excluded.provider_instance_key, model_profile = excluded.model_profile, reasoning_effort = excluded.reasoning_effort, enabled = 1, sort_order = 0, updated_at = excluded.updated_at"
+    } else {
+        "DO NOTHING"
+    };
+    transaction.execute(
+        &format!(
+            "INSERT INTO task_model_pool_entries (pool_entry_id, complexity, label, provider_kind, provider_account_id, provider_instance_key, model_profile, reasoning_effort, enabled, sort_order, updated_at) \
+             VALUES (?1, ?2, NULL, ?3, ?4, ?5, ?6, ?7, 1, 0, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) \
+             ON CONFLICT(pool_entry_id) {conflict}"
+        ),
+        params![
+            pool_entry_id,
+            complexity,
+            selection.provider_kind,
+            selection.provider_account_id,
+            key.as_str(),
+            selection.model_profile,
+            selection.reasoning_effort.map(noema_providers::ReasoningEffort::as_persistence_str),
+        ],
+    )?;
+    Ok(())
+}
+
+pub(crate) fn write_memory_preference_tx(
+    transaction: &Transaction<'_>,
+    selection: &ProviderSelectionSnapshot,
+    overwrite: bool,
+) -> Result<(), StoreError> {
+    let key = selection
+        .provider_instance_key
+        .as_ref()
+        .ok_or(StoreError::ProviderInstanceKeyMissing)?;
+    let missing = if overwrite {
+        ""
+    } else {
+        "AND provider_kind IS NULL AND provider_account_id IS NULL AND provider_instance_key IS NULL AND model_profile IS NULL"
+    };
+    transaction.execute(
+        &format!(
+            "UPDATE memory_service_settings SET provider_kind = ?1, provider_account_id = ?2, provider_instance_key = ?3, model_profile = ?4, reasoning_effort = ?5, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE settings_id = 'default' {missing}"
+        ),
+        params![
+            selection.provider_kind,
+            selection.provider_account_id,
+            key.as_str(),
+            selection.model_profile,
+            selection.reasoning_effort.map(noema_providers::ReasoningEffort::as_persistence_str),
+        ],
+    )?;
+    Ok(())
 }
 
 /// Verify that an opaque registry proof covers this exact normalized snapshot.

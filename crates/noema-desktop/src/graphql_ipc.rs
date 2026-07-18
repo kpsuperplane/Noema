@@ -30,7 +30,7 @@ fn require_main_window_label(label: &str) -> Result<(), String> {
 ///
 /// Returns a user-facing error if the request cannot be decoded or executed.
 #[tauri::command]
-pub async fn graphql_execute(
+pub(crate) async fn graphql_execute(
     window: Window,
     state: State<'_, DesktopState>,
     request_json: Value,
@@ -52,7 +52,7 @@ pub async fn graphql_execute(
 ///
 /// Returns a user-facing error if the subscription cannot be decoded or started.
 #[tauri::command]
-pub async fn graphql_subscribe(
+pub(crate) async fn graphql_subscribe(
     window: Window,
     state: State<'_, DesktopState>,
     subscription_id: String,
@@ -105,7 +105,7 @@ pub async fn graphql_subscribe(
 ///
 /// This command currently does not fail.
 #[tauri::command]
-pub async fn graphql_unsubscribe(
+pub(crate) async fn graphql_unsubscribe(
     window: Window,
     state: State<'_, DesktopState>,
     subscription_id: String,
@@ -120,7 +120,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn subscription_event_payload_serializes_frontend_wire_key() {
+    fn ipc_boundary_preserves_frontend_wire_key_and_main_window_authority() {
         let payload = SubscriptionEventPayload {
             subscription_id: "sub_1".to_string(),
             response: serde_json::json!({"data": {"ok": true}}),
@@ -132,10 +132,6 @@ mod tests {
         assert_eq!(serialized["subscriptionId"], "sub_1");
         assert!(serialized.get("subscription_id").is_none());
         assert_eq!(serialized["response"]["data"]["ok"], true);
-    }
-
-    #[test]
-    fn only_main_window_is_authorized() {
         assert!(require_main_window_label("main").is_ok());
         assert!(require_main_window_label("secondary").is_err());
         assert!(require_main_window_label("").is_err());

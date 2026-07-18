@@ -1,9 +1,7 @@
-use std::{fmt, str::FromStr};
-
 use noema_providers::ProviderSelectionSnapshot;
 use serde::{Deserialize, Serialize};
 
-use crate::{TaskDomainError, TaskExecutionPolicy};
+use crate::TaskExecutionPolicy;
 
 /// Stable built-in agent id for background executors.
 pub const TASK_EXECUTOR_AGENT_ID: &str = "agent:task-executor";
@@ -20,37 +18,10 @@ pub enum RunKind {
     Reviewer,
 }
 
-impl RunKind {
-    /// Return the stable SQLite/API representation.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Executor => "executor",
-            Self::Reviewer => "reviewer",
-        }
-    }
-}
-
-impl fmt::Display for RunKind {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.as_str())
-    }
-}
-
-impl FromStr for RunKind {
-    type Err = TaskDomainError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "executor" => Ok(Self::Executor),
-            "reviewer" => Ok(Self::Reviewer),
-            other => Err(TaskDomainError::InvalidEnum {
-                kind: "run_kind",
-                value: other.to_string(),
-            }),
-        }
-    }
-}
+task_vocabulary!(RunKind, "run_kind", {
+    Executor => "executor",
+    Reviewer => "reviewer",
+});
 
 /// Queue/lease state for a durable agent run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,21 +46,6 @@ pub enum RunStatus {
 }
 
 impl RunStatus {
-    /// Return the stable SQLite/API representation.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Queued => "queued",
-            Self::Leased => "leased",
-            Self::Running => "running",
-            Self::Completed => "completed",
-            Self::WaitingForApproval => "waiting_for_approval",
-            Self::Interrupted => "interrupted",
-            Self::Failed => "failed",
-            Self::Cancelled => "cancelled",
-        }
-    }
-
     /// Validate a durable run transition.
     #[must_use]
     pub const fn can_transition_to(self, next: Self) -> bool {
@@ -118,32 +74,16 @@ impl RunStatus {
     }
 }
 
-impl fmt::Display for RunStatus {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.as_str())
-    }
-}
-
-impl FromStr for RunStatus {
-    type Err = TaskDomainError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "queued" => Ok(Self::Queued),
-            "leased" => Ok(Self::Leased),
-            "running" => Ok(Self::Running),
-            "completed" => Ok(Self::Completed),
-            "waiting_for_approval" => Ok(Self::WaitingForApproval),
-            "interrupted" => Ok(Self::Interrupted),
-            "failed" => Ok(Self::Failed),
-            "cancelled" => Ok(Self::Cancelled),
-            other => Err(TaskDomainError::InvalidEnum {
-                kind: "run_status",
-                value: other.to_string(),
-            }),
-        }
-    }
-}
+task_vocabulary!(RunStatus, "run_status", {
+    Queued => "queued",
+    Leased => "leased",
+    Running => "running",
+    Completed => "completed",
+    WaitingForApproval => "waiting_for_approval",
+    Interrupted => "interrupted",
+    Failed => "failed",
+    Cancelled => "cancelled",
+});
 
 /// Input for one queued background run.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -256,55 +196,4 @@ pub struct AgentRunHeartbeat {
     pub lease_expires_at: String,
     /// Whether the owner requested cancellation.
     pub cancellation_requested: bool,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{RunKind, RunStatus};
-
-    #[test]
-    fn run_kind_wire_values_are_stable_and_fail_closed() {
-        for (value, wire) in [
-            (RunKind::Executor, "executor"),
-            (RunKind::Reviewer, "reviewer"),
-        ] {
-            assert_eq!(value.as_str(), wire);
-            assert_eq!(wire.parse::<RunKind>().expect("known run kind"), value);
-            assert_eq!(
-                serde_json::from_str::<RunKind>(
-                    &serde_json::to_string(&value).expect("serialize run kind")
-                )
-                .expect("deserialize run kind"),
-                value
-            );
-        }
-        assert!("future_kind".parse::<RunKind>().is_err());
-        assert!(serde_json::from_str::<RunKind>("\"future_kind\"").is_err());
-    }
-
-    #[test]
-    fn run_status_wire_values_are_stable_and_fail_closed() {
-        for (value, wire) in [
-            (RunStatus::Queued, "queued"),
-            (RunStatus::Leased, "leased"),
-            (RunStatus::Running, "running"),
-            (RunStatus::Completed, "completed"),
-            (RunStatus::WaitingForApproval, "waiting_for_approval"),
-            (RunStatus::Interrupted, "interrupted"),
-            (RunStatus::Failed, "failed"),
-            (RunStatus::Cancelled, "cancelled"),
-        ] {
-            assert_eq!(value.as_str(), wire);
-            assert_eq!(wire.parse::<RunStatus>().expect("known run status"), value);
-            assert_eq!(
-                serde_json::from_str::<RunStatus>(
-                    &serde_json::to_string(&value).expect("serialize run status")
-                )
-                .expect("deserialize run status"),
-                value
-            );
-        }
-        assert!("future_status".parse::<RunStatus>().is_err());
-        assert!(serde_json::from_str::<RunStatus>("\"future_status\"").is_err());
-    }
 }

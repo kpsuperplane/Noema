@@ -26,6 +26,6 @@ pub use router::{
     CapabilityDispatch, CapabilityDispatchFailure, CapabilityError, CapabilityFuture,
     CapabilityInvocation, CapabilityInvoker, CapabilityInvokerHandle,
     CapabilityInvokerRegistration, CapabilityOutput, CapabilityRegistryRouter, CapabilityRouter,
-    CapabilityRouterConstructionError, CapabilityRouterHandle, InvokerKey,
+    CapabilityRouterConstructionError, InvokerKey,
 };
 pub use tool::{ToolContractError, ToolName, ToolSchema, ToolSpec};

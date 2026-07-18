@@ -6,10 +6,56 @@ use crate::{
     sqlite::{json_from_string, json_to_string},
 };
 use noema_providers::{
-    NewProviderAccount, PersistedProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod,
+    NewProviderAccount, PersistedProviderAccountRecord, ProviderAccountStatus,
+    ProviderAccountStatusUpdate, ProviderAuthMethod,
 };
 
 use super::{NoemaStore, StoreError};
+
+#[derive(Clone, Copy)]
+struct BuiltinProviderAccount {
+    id: &'static str,
+    kind: &'static str,
+    display_name: &'static str,
+    auth_method: &'static str,
+    metadata_json: &'static str,
+    refresh_on_conflict: bool,
+}
+
+impl BuiltinProviderAccount {
+    const CODEX: Self = Self {
+        id: "provider_account:codex:default",
+        kind: "codex",
+        display_name: "Codex",
+        auth_method: "oauth_device_code",
+        metadata_json: "{}",
+        refresh_on_conflict: false,
+    };
+    const OPENAI: Self = Self {
+        id: "provider_account:openai:default",
+        kind: "openai",
+        display_name: "OpenAI",
+        auth_method: "external_manual",
+        metadata_json: "{}",
+        refresh_on_conflict: true,
+    };
+    const FOUNDATION_LOCAL: Self = Self {
+        id: "provider_account:foundation_local:default",
+        kind: "foundation_local",
+        display_name: "Apple Foundation Models",
+        auth_method: "none",
+        metadata_json: r#"{"profiles":[{"id":"default","label":"Default on-device"}]}"#,
+        refresh_on_conflict: false,
+    };
+    const LOCAL_MODELS: Self = Self {
+        id: "provider_account:local_models:default",
+        kind: "local_models",
+        display_name: "Local models",
+        auth_method: "none",
+        metadata_json: "{}",
+        refresh_on_conflict: true,
+    };
+}
 
 impl NoemaStore {
     /// Create or return the default Codex provider account metadata.
@@ -20,29 +66,8 @@ impl NoemaStore {
     pub async fn ensure_default_provider_account(
         &self,
     ) -> Result<PersistedProviderAccountRecord, StoreError> {
-        self.with_connection(|conn| {
-            conn.execute(
-                r#"
-                INSERT INTO provider_accounts (
-                  provider_account_id, provider_kind, account_key, display_name,
-                  auth_method, is_active, is_default, status, metadata_json
-                )
-                VALUES (
-                  'provider_account:codex:default', 'codex', 'default', 'Codex',
-                  'oauth_device_code', 1, 1, 'unknown', '{}'
-                )
-                ON CONFLICT(provider_account_id) DO NOTHING
-                "#,
-                [],
-            )?;
-            Ok(())
-        })
-        .await?;
-        self.get_provider_account("provider_account:codex:default")
-            .await?
-            .ok_or_else(|| StoreError::ProviderAccountNotFound {
-                provider_account_id: "provider_account:codex:default".to_string(),
-            })
+        self.ensure_builtin_provider_account(BuiltinProviderAccount::CODEX)
+            .await
     }
 
     /// Create or return the configured OpenAI provider account metadata.
@@ -53,37 +78,8 @@ impl NoemaStore {
     pub async fn ensure_default_openai_provider_account(
         &self,
     ) -> Result<PersistedProviderAccountRecord, StoreError> {
-        const ACCOUNT_ID: &str = "provider_account:openai:default";
-        self.with_connection(|conn| {
-            conn.execute(
-                r#"
-                INSERT INTO provider_accounts (
-                  provider_account_id, provider_kind, account_key, display_name,
-                  auth_method, is_active, is_default, status, metadata_json
-                )
-                VALUES (
-                  'provider_account:openai:default', 'openai', 'default', 'OpenAI',
-                  'external_manual', 1, 1, 'unknown', '{}'
-                )
-                ON CONFLICT(provider_account_id) DO UPDATE SET
-                  provider_kind = excluded.provider_kind,
-                  account_key = excluded.account_key,
-                  display_name = excluded.display_name,
-                  auth_method = excluded.auth_method,
-                  is_active = 1,
-                  is_default = 1,
-                  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                "#,
-                [],
-            )?;
-            Ok(())
-        })
-        .await?;
-        self.get_provider_account(ACCOUNT_ID).await?.ok_or_else(|| {
-            StoreError::ProviderAccountNotFound {
-                provider_account_id: ACCOUNT_ID.to_string(),
-            }
-        })
+        self.ensure_builtin_provider_account(BuiltinProviderAccount::OPENAI)
+            .await
     }
 
     /// Create or return the default Apple Foundation Models provider account metadata.
@@ -94,37 +90,8 @@ impl NoemaStore {
     pub async fn ensure_default_foundation_local_provider_account(
         &self,
     ) -> Result<PersistedProviderAccountRecord, StoreError> {
-        const ACCOUNT_ID: &str = "provider_account:foundation_local:default";
-        self.with_connection(|conn| {
-            conn.execute(
-                r#"
-                INSERT INTO provider_accounts (
-                  provider_account_id, provider_kind, account_key, display_name,
-                  auth_method, is_active, is_default, status, metadata_json
-                )
-                VALUES (
-                  'provider_account:foundation_local:default',
-                  'foundation_local',
-                  'default',
-                  'Apple Foundation Models',
-                  'none',
-                  1,
-                  1,
-                  'unknown',
-                  '{"profiles":[{"id":"default","label":"Default on-device"}]}'
-                )
-                ON CONFLICT(provider_account_id) DO NOTHING
-                "#,
-                [],
-            )?;
-            Ok(())
-        })
-        .await?;
-        self.get_provider_account(ACCOUNT_ID).await?.ok_or_else(|| {
-            StoreError::ProviderAccountNotFound {
-                provider_account_id: ACCOUNT_ID.to_string(),
-            }
-        })
+        self.ensure_builtin_provider_account(BuiltinProviderAccount::FOUNDATION_LOCAL)
+            .await
     }
 
     /// Create or return the built-in local-model provider account metadata.
@@ -138,25 +105,21 @@ impl NoemaStore {
     pub async fn ensure_default_local_models_provider_account(
         &self,
     ) -> Result<PersistedProviderAccountRecord, StoreError> {
-        const ACCOUNT_ID: &str = "provider_account:local_models:default";
+        self.ensure_builtin_provider_account(BuiltinProviderAccount::LOCAL_MODELS)
+            .await
+    }
+
+    async fn ensure_builtin_provider_account(
+        &self,
+        account: BuiltinProviderAccount,
+    ) -> Result<PersistedProviderAccountRecord, StoreError> {
         self.with_connection(|conn| {
             conn.execute(
                 r#"
                 INSERT INTO provider_accounts (
                   provider_account_id, provider_kind, account_key, display_name,
                   auth_method, is_active, is_default, status, metadata_json
-                )
-                VALUES (
-                  'provider_account:local_models:default',
-                  'local_models',
-                  'default',
-                  'Local models',
-                  'none',
-                  1,
-                  1,
-                  'unknown',
-                  '{}'
-                )
+                ) VALUES (?1, ?2, 'default', ?3, ?4, 1, 1, 'unknown', ?5)
                 ON CONFLICT(provider_account_id) DO UPDATE SET
                   provider_kind = excluded.provider_kind,
                   account_key = excluded.account_key,
@@ -165,54 +128,25 @@ impl NoemaStore {
                   is_active = 1,
                   is_default = 1,
                   updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE ?6
                 "#,
-                [],
+                params![
+                    account.id,
+                    account.kind,
+                    account.display_name,
+                    account.auth_method,
+                    account.metadata_json,
+                    account.refresh_on_conflict,
+                ],
             )?;
             Ok(())
         })
         .await?;
-        self.get_provider_account(ACCOUNT_ID).await?.ok_or_else(|| {
+        self.get_provider_account(account.id).await?.ok_or_else(|| {
             StoreError::ProviderAccountNotFound {
-                provider_account_id: ACCOUNT_ID.to_string(),
+                provider_account_id: account.id.to_string(),
             }
         })
-    }
-
-    /// Return the active default account for one provider.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError`] when the embedded store read fails or a stored
-    /// enum is invalid.
-    pub async fn active_provider_account(
-        &self,
-        provider_kind: &str,
-    ) -> Result<Option<PersistedProviderAccountRecord>, StoreError> {
-        let row = self
-            .with_connection(|conn| {
-                conn.query_row(
-                    format!("{PROVIDER_ACCOUNT_SELECT} WHERE provider_kind = ?1 AND is_active = 1 AND is_default = 1 LIMIT 1").as_str(),
-                    [provider_kind],
-                    provider_account_row,
-                )
-                .optional()
-                .map_err(StoreError::Sqlite)
-            })
-            .await?;
-        row.map(provider_account_from_row).transpose()
-    }
-
-    /// Return all active default provider accounts in stable Settings order.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError`] when the embedded store read fails or a stored
-    /// enum is invalid.
-    pub async fn active_default_provider_accounts(
-        &self,
-    ) -> Result<Vec<PersistedProviderAccountRecord>, StoreError> {
-        self.provider_account_rows("WHERE is_active = 1 AND is_default = 1 ORDER BY provider_kind")
-            .await
     }
 
     /// Return all active created provider accounts in stable Settings order.
@@ -228,19 +162,6 @@ impl NoemaStore {
             "WHERE is_active = 1 ORDER BY provider_kind, display_name, account_key",
         )
         .await
-    }
-
-    /// Return all durable provider accounts in stable Settings order.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError`] when the embedded store read fails or a stored
-    /// enum is invalid.
-    pub async fn list_provider_accounts(
-        &self,
-    ) -> Result<Vec<PersistedProviderAccountRecord>, StoreError> {
-        self.provider_account_rows("ORDER BY provider_kind, display_name, account_key")
-            .await
     }
 
     /// Create a user-managed provider account.
@@ -397,41 +318,17 @@ impl NoemaStore {
         error_code: Option<&str>,
         error_message: Option<&str>,
     ) -> Result<(), StoreError> {
-        let Some(account) = self.get_provider_account(provider_account_id).await? else {
-            return Err(StoreError::ProviderAccountNotFound {
-                provider_account_id: provider_account_id.to_string(),
-            });
-        };
-        let checked_at = now_string();
-        let last_authenticated_at = if status == ProviderAccountStatus::Authenticated {
-            Some(checked_at.clone())
-        } else {
-            account.last_authenticated_at
-        };
-        self.with_connection(|conn| {
-            conn.execute(
-                r#"
-                UPDATE provider_accounts
-                SET status = ?2,
-                    last_checked_at = ?3,
-                    last_authenticated_at = ?4,
-                    last_error_code = ?5,
-                    last_error_message = ?6,
-                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                WHERE provider_account_id = ?1
-                "#,
-                params![
-                    provider_account_id,
-                    provider_status_str(status),
-                    checked_at,
-                    last_authenticated_at,
-                    error_code,
-                    error_message,
-                ],
-            )?;
-            Ok(())
-        })
+        self.update_provider_account_fields(
+            provider_account_id,
+            Some(&ProviderAccountStatusUpdate {
+                status,
+                error_code: error_code.map(str::to_string),
+                error_message: error_message.map(str::to_string),
+            }),
+            None,
+        )
         .await
+        .map(|_| ())
     }
 
     /// Replace safe non-secret provider account metadata.
@@ -445,27 +342,80 @@ impl NoemaStore {
         provider_account_id: &str,
         metadata: Value,
     ) -> Result<(), StoreError> {
-        if self
-            .get_provider_account(provider_account_id)
-            .await?
-            .is_none()
-        {
-            return Err(StoreError::ProviderAccountNotFound {
-                provider_account_id: provider_account_id.to_string(),
-            });
-        }
-        let metadata_json = json_to_string(&metadata)?;
-        self.with_connection(|conn| {
-            conn.execute(
+        self.update_provider_account_fields(provider_account_id, None, Some(&metadata))
+            .await
+            .map(|_| ())
+    }
+
+    pub(super) async fn update_provider_account_fields(
+        &self,
+        provider_account_id: &str,
+        status: Option<&ProviderAccountStatusUpdate>,
+        metadata: Option<&Value>,
+    ) -> Result<PersistedProviderAccountRecord, StoreError> {
+        let metadata_json = metadata.map(json_to_string).transpose()?;
+        self.with_immediate_transaction_retry(|transaction| {
+            let current = transaction
+                .query_row(
+                    format!("{PROVIDER_ACCOUNT_SELECT} WHERE provider_account_id = ?1 LIMIT 1")
+                        .as_str(),
+                    [provider_account_id],
+                    provider_account_row,
+                )
+                .optional()?
+                .ok_or_else(|| StoreError::ProviderAccountNotFound {
+                    provider_account_id: provider_account_id.to_string(),
+                })?;
+            let current = provider_account_from_row(current)?;
+            let checked_at = status.map(|_| now_string());
+            let resulting_status = status.map_or(current.status, |update| update.status);
+            let last_authenticated_at =
+                if resulting_status == ProviderAccountStatus::Authenticated && status.is_some() {
+                    checked_at.as_deref()
+                } else {
+                    current.last_authenticated_at.as_deref()
+                };
+            let error_code = status
+                .map(|update| update.error_code.as_deref())
+                .unwrap_or(current.last_error_code.as_deref());
+            let error_message = status
+                .map(|update| update.error_message.as_deref())
+                .unwrap_or(current.last_error_message.as_deref());
+            let changed = transaction.execute(
                 r#"
                 UPDATE provider_accounts
-                SET metadata_json = ?2,
+                SET status = ?2,
+                    last_checked_at = COALESCE(?3, last_checked_at),
+                    last_authenticated_at = ?4,
+                    last_error_code = ?5,
+                    last_error_message = ?6,
+                    metadata_json = COALESCE(?7, metadata_json),
                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                 WHERE provider_account_id = ?1
                 "#,
-                params![provider_account_id, metadata_json],
+                params![
+                    provider_account_id,
+                    provider_status_str(resulting_status),
+                    checked_at,
+                    last_authenticated_at,
+                    error_code,
+                    error_message,
+                    metadata_json,
+                ],
             )?;
-            Ok(())
+            if changed != 1 {
+                return Err(StoreError::InvariantViolation {
+                    message: "guarded provider account update changed an unexpected row count"
+                        .to_string(),
+                });
+            }
+            let updated = transaction.query_row(
+                format!("{PROVIDER_ACCOUNT_SELECT} WHERE provider_account_id = ?1 LIMIT 1")
+                    .as_str(),
+                [provider_account_id],
+                provider_account_row,
+            )?;
+            provider_account_from_row(updated)
         })
         .await
     }

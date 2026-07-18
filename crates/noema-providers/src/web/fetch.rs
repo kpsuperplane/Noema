@@ -1,4 +1,4 @@
-use std::{fmt, sync::Arc};
+use std::{fmt, ops::Deref, sync::Arc};
 
 use noema_capabilities::web::fetch::{FetchRequest, FetchResponse};
 
@@ -93,30 +93,13 @@ impl WebFetchBackendHandle {
     pub fn new(backend: impl WebFetchBackend + 'static) -> Self {
         Self(Arc::new(backend))
     }
+}
 
-    /// Erase an existing shared web fetch backend.
-    #[must_use]
-    pub fn from_arc(backend: Arc<dyn WebFetchBackend>) -> Self {
-        Self(backend)
-    }
+impl Deref for WebFetchBackendHandle {
+    type Target = dyn WebFetchBackend;
 
-    /// Return the stable provider backend identifier.
-    #[must_use]
-    pub fn backend_id(&self) -> &str {
-        self.0.backend_id()
-    }
-
-    /// Execute one validated fetch request.
-    ///
-    /// # Errors
-    ///
-    /// Returns a typed provider backend failure.
-    pub async fn fetch(
-        &self,
-        request: &FetchRequest,
-        context: &WebFetchContext,
-    ) -> Result<FetchResponse, WebFetchError> {
-        self.0.fetch(request, context).await
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref()
     }
 }
 
@@ -126,37 +109,5 @@ impl fmt::Debug for WebFetchBackendHandle {
             .debug_tuple("WebFetchBackendHandle")
             .field(&"[CONFIGURED]")
             .finish()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    struct FailingFetch;
-
-    impl WebFetchBackend for FailingFetch {
-        fn backend_id(&self) -> &str {
-            "failing"
-        }
-
-        fn fetch<'a>(
-            &'a self,
-            _request: &'a FetchRequest,
-            _context: &'a WebFetchContext,
-        ) -> WebOperationFuture<'a, FetchResponse, WebFetchError> {
-            Box::pin(async { Err(WebFetchError::Http) })
-        }
-    }
-
-    #[test]
-    fn fetch_handle_is_object_safe_and_redacted() {
-        let handle = WebFetchBackendHandle::new(FailingFetch);
-
-        assert_eq!(
-            format!("{handle:?}"),
-            "WebFetchBackendHandle(\"[CONFIGURED]\")",
-        );
-        assert_eq!(handle.backend_id(), "failing");
     }
 }

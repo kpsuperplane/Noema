@@ -18,11 +18,11 @@ pub mod onboarding;
 pub mod runtime_host;
 
 #[cfg(feature = "composition")]
-pub use config::{Config, ConfigError, ConfigOverrides};
+pub use config::{Config, ConfigError};
 pub use config::{DEFAULT_NOEMA_CONFIG_YAML, HostConfig, WebConfig};
 pub use onboarding::{
     OnboardingService, OnboardingServiceError, OnboardingStatus, OnboardingStep,
-    OnboardingStepStatus, onboarding_status_from_account, onboarding_status_from_options,
+    OnboardingStepStatus,
 };
 pub use runtime_host::{
     ArtifactDiagnosticHandle, ArtifactDiagnosticOperations, HostServices, NoemaHost,

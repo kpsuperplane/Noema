@@ -1,16 +1,15 @@
 //! MCP capability invocation with live authority and policy revalidation.
 
-use noema_capabilities::{
-    CapabilityError, CapabilityFuture, CapabilityInvocation, CapabilityInvoker, CapabilityOutput,
-};
-use serde_json::Value;
-
 use crate::{
     LocalMcpService, McpClientError, McpDiagnosticEvent, McpDiagnosticKind, McpFailureStatus,
-    McpOperationAuthority, McpServerAuthStatus, McpServerHealthStatus, McpToolCallOutput,
-    mcp_tool_ineligibility,
+    McpServerAuthStatus, McpServerHealthStatus, McpToolCallOutput,
+    catalog::McpOperationAuthority,
+    eligibility::mcp_tool_ineligibility,
     service::map_client_operation_error,
     setup::{auth_status_for_secrets, secret_material_matches_server},
+};
+use noema_capabilities::{
+    CapabilityError, CapabilityFuture, CapabilityInvocation, CapabilityInvoker, CapabilityOutput,
 };
 
 impl CapabilityInvoker for LocalMcpService {
@@ -104,7 +103,7 @@ impl LocalMcpService {
             Ok(preparation) => preparation,
             Err(error) => {
                 return Err(self
-                    .record_invocation_client_failure(&snapshot, &invocation.arguments, &error)
+                    .record_invocation_client_failure(&snapshot, &error)
                     .await);
             }
         };
@@ -178,7 +177,7 @@ impl LocalMcpService {
                 Ok(capability_output(output))
             }
             Err(error) => Err(self
-                .record_invocation_client_failure(&snapshot, &invocation.arguments, &error)
+                .record_invocation_client_failure(&snapshot, &error)
                 .await),
         }
     }
@@ -186,18 +185,28 @@ impl LocalMcpService {
     async fn record_invocation_client_failure(
         &self,
         snapshot: &crate::McpInvocationSnapshot,
-        arguments: &Value,
         error: &McpClientError,
     ) -> CapabilityError {
-        self.record_invocation_failure(snapshot, arguments, error);
-        self.record_invocation_failure_status(snapshot, error).await;
+        self.record_invocation_failure(snapshot, error);
+        let auth_status = if matches!(error, McpClientError::AuthenticationRequired(_)) {
+            McpServerAuthStatus::NeedsAuth
+        } else {
+            snapshot.server.auth_status
+        };
+        self.record_status(
+            snapshot,
+            McpServerHealthStatus::Unavailable,
+            auth_status,
+            "status/failure",
+            "MCP invocation status could not be recorded",
+        )
+        .await;
         capability_error_from_client(error)
     }
 
     fn record_invocation_failure(
         &self,
         snapshot: &crate::McpInvocationSnapshot,
-        _arguments: &Value,
         error: &McpClientError,
     ) {
         self.inner.diagnostics.record(McpDiagnosticEvent {
@@ -215,33 +224,6 @@ impl LocalMcpService {
         });
     }
 
-    async fn record_invocation_failure_status(
-        &self,
-        snapshot: &crate::McpInvocationSnapshot,
-        error: &McpClientError,
-    ) {
-        let auth_status = if matches!(error, McpClientError::AuthenticationRequired(_)) {
-            McpServerAuthStatus::NeedsAuth
-        } else {
-            snapshot.server.auth_status
-        };
-        let status = McpFailureStatus {
-            mcp_server_id: snapshot.server.mcp_server_id.clone(),
-            expected_authority_generation: snapshot.server.authority_generation.clone(),
-            health_status: McpServerHealthStatus::Unavailable,
-            auth_status,
-        };
-        if let Err(repository_error) = self.inner.repository.record_failure_status(status).await {
-            self.inner.record_failure(
-                Some(&snapshot.server.mcp_server_id),
-                Some(&snapshot.tool.name),
-                "status/failure",
-                "MCP invocation status could not be recorded",
-                &repository_error,
-            );
-        }
-    }
-
     async fn record_missing_secret_failure(&self, snapshot: &crate::McpInvocationSnapshot) {
         self.inner.record_failure(
             Some(&snapshot.server.mcp_server_id),
@@ -250,21 +232,14 @@ impl LocalMcpService {
             "MCP credentials are missing or inconsistent",
             &"persisted secret material did not match the active connection",
         );
-        let status = McpFailureStatus {
-            mcp_server_id: snapshot.server.mcp_server_id.clone(),
-            expected_authority_generation: snapshot.server.authority_generation.clone(),
-            health_status: McpServerHealthStatus::Unavailable,
-            auth_status: McpServerAuthStatus::NeedsAuth,
-        };
-        if let Err(error) = self.inner.repository.record_failure_status(status).await {
-            self.inner.record_failure(
-                Some(&snapshot.server.mcp_server_id),
-                Some(&snapshot.tool.name),
-                "status/credentials",
-                "MCP credential failure status could not be recorded",
-                &error,
-            );
-        }
+        self.record_status(
+            snapshot,
+            McpServerHealthStatus::Unavailable,
+            McpServerAuthStatus::NeedsAuth,
+            "status/credentials",
+            "MCP credential failure status could not be recorded",
+        )
+        .await;
     }
 
     async fn record_invocation_success(
@@ -272,18 +247,36 @@ impl LocalMcpService {
         snapshot: &crate::McpInvocationSnapshot,
         secrets: &crate::McpSecretMaterial,
     ) {
+        self.record_status(
+            snapshot,
+            McpServerHealthStatus::Healthy,
+            auth_status_for_secrets(secrets),
+            "status/success",
+            "MCP invocation status could not be recorded",
+        )
+        .await;
+    }
+
+    async fn record_status(
+        &self,
+        snapshot: &crate::McpInvocationSnapshot,
+        health_status: McpServerHealthStatus,
+        auth_status: McpServerAuthStatus,
+        operation: &'static str,
+        message: &'static str,
+    ) {
         let status = McpFailureStatus {
             mcp_server_id: snapshot.server.mcp_server_id.clone(),
             expected_authority_generation: snapshot.server.authority_generation.clone(),
-            health_status: McpServerHealthStatus::Healthy,
-            auth_status: auth_status_for_secrets(secrets),
+            health_status,
+            auth_status,
         };
         if let Err(repository_error) = self.inner.repository.record_failure_status(status).await {
             self.inner.record_failure(
                 Some(&snapshot.server.mcp_server_id),
                 Some(&snapshot.tool.name),
-                "status/success",
-                "MCP invocation status could not be recorded",
+                operation,
+                message,
                 &repository_error,
             );
         }

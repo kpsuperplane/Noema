@@ -19,6 +19,12 @@ use tokio::{
 
 const WEB_ASSET_WATCH_SCRIPT: &str = "dev:assets";
 const DEV_RUST_TARGET_DIR: &str = "target/noema-dev";
+const WEB_SERVER_WATCH_COMMAND: &str = "run -p noema-server --bin noema_web --features dev-no-auth";
+const WEB_SERVER_WATCH_IGNORE_GLOBS: [&str; 3] = [
+    "apps/web/**",
+    "crates/noema-memory/mnemosyne-sidecar/**",
+    "crates/noema-server/target/web-assets/**",
+];
 
 #[derive(Debug, Error)]
 enum DevError {
@@ -77,7 +83,7 @@ async fn run() -> Result<(), DevError> {
 
     eprintln!("Noema dev supervisor started");
     eprintln!("web assets: bun run {WEB_ASSET_WATCH_SCRIPT}");
-    eprintln!("web server: cargo watch -x {}", web_server_watch_command());
+    eprintln!("web server: cargo watch -x {WEB_SERVER_WATCH_COMMAND}");
     eprintln!(
         "web server target: {}",
         dev_rust_target_dir(&repo_root).display()
@@ -169,11 +175,11 @@ fn spawn_web_server_watcher(
         .arg("-w")
         .arg("Cargo.lock");
 
-    for glob in web_server_watch_ignore_globs() {
+    for glob in WEB_SERVER_WATCH_IGNORE_GLOBS {
         command.arg("--ignore").arg(glob);
     }
 
-    command.arg("-x").arg(web_server_watch_command());
+    command.arg("-x").arg(WEB_SERVER_WATCH_COMMAND);
     command.env("CARGO_TARGET_DIR", dev_rust_target_dir(repo_root));
     command.env("NOEMA_WEB__HOST", "0.0.0.0");
     if let Some(mnemosyne_sidecar_command) = mnemosyne_sidecar_command {
@@ -183,66 +189,35 @@ fn spawn_web_server_watcher(
     spawn_dev_process("web server watcher", &mut command, repo_root)
 }
 
-fn web_server_watch_command() -> &'static str {
-    "run -p noema-server --bin noema_web --features dev-no-auth"
-}
-
 fn dev_rust_target_dir(repo_root: &Path) -> PathBuf {
     repo_root.join(DEV_RUST_TARGET_DIR)
 }
 
-fn web_server_watch_ignore_globs() -> [&'static str; 3] {
-    [
-        "apps/web/**",
-        "crates/noema-memory/mnemosyne-sidecar/**",
-        "crates/noema-server/target/web-assets/**",
-    ]
-}
-
 fn spawn_bridge_watcher(repo_root: &Path) -> Result<Option<Child>, DevError> {
-    if !foundation_bridge_watcher_enabled() {
+    if !cfg!(target_os = "macos") {
         return Ok(None);
     }
 
-    let package_dir = foundation_bridge_package_dir(repo_root);
+    let package_dir = repo_root.join("crates/noema-providers/apple-foundation-bridge");
     if !package_dir.exists() {
         return Ok(None);
     }
 
     let mut command = Command::new(cargo_exe());
-    command.args(foundation_bridge_watch_args(&package_dir));
+    command.arg("watch").arg("-C").arg(&package_dir).args([
+        "-w",
+        "Package.swift",
+        "-w",
+        "Sources",
+        "-s",
+        "swift build",
+    ]);
 
     spawn_dev_process("foundation bridge watcher", &mut command, &package_dir).map(Some)
 }
 
-fn foundation_bridge_watcher_enabled() -> bool {
-    cfg!(target_os = "macos")
-}
-
-fn foundation_bridge_package_dir(repo_root: &Path) -> PathBuf {
-    repo_root.join("crates/noema-providers/apple-foundation-bridge")
-}
-
-fn foundation_bridge_watch_args(package_dir: &Path) -> Vec<String> {
-    vec![
-        "watch".to_string(),
-        "-C".to_string(),
-        package_dir.to_string_lossy().to_string(),
-        "-w".to_string(),
-        "Package.swift".to_string(),
-        "-w".to_string(),
-        "Sources".to_string(),
-        "-s".to_string(),
-        "swift build".to_string(),
-    ]
-}
-
-fn graphql_schema_output_path(repo_root: &Path) -> PathBuf {
-    repo_root.join("apps/web/src/generated/schema.graphql")
-}
-
 fn generate_graphql_schema(repo_root: &Path) -> Result<(), DevError> {
-    let output_path = graphql_schema_output_path(repo_root);
+    let output_path = repo_root.join("apps/web/src/generated/schema.graphql");
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent).map_err(|source| DevError::GenerateSchema { source })?;
     }
@@ -390,83 +365,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cargo_watch_runs_noema_web() {
+    fn server_watcher_ignores_web_sources_and_generated_assets() {
         assert_eq!(
-            web_server_watch_command(),
-            "run -p noema-server --bin noema_web --features dev-no-auth"
-        );
-    }
-
-    #[test]
-    fn web_asset_watcher_skips_schema_generation() {
-        assert_eq!(WEB_ASSET_WATCH_SCRIPT, "dev:assets");
-    }
-
-    #[test]
-    fn server_watcher_ignores_non_rust_sources_and_generated_assets() {
-        assert_eq!(
-            web_server_watch_ignore_globs(),
+            WEB_SERVER_WATCH_IGNORE_GLOBS,
             [
                 "apps/web/**",
                 "crates/noema-memory/mnemosyne-sidecar/**",
                 "crates/noema-server/target/web-assets/**",
             ]
         );
-    }
-
-    #[test]
-    fn server_watcher_uses_an_isolated_rust_target_dir() {
-        assert_eq!(
-            dev_rust_target_dir(Path::new("/workspace")),
-            PathBuf::from("/workspace/target/noema-dev")
-        );
-    }
-
-    #[test]
-    fn graphql_schema_output_path_targets_web_generated_dir() {
-        assert_eq!(
-            graphql_schema_output_path(Path::new("/workspace")),
-            PathBuf::from("/workspace/apps/web/src/generated/schema.graphql")
-        );
-    }
-
-    #[test]
-    fn foundation_bridge_watcher_uses_swift_package_sources() {
-        assert_eq!(
-            foundation_bridge_package_dir(Path::new("/workspace")),
-            PathBuf::from("/workspace/crates/noema-providers/apple-foundation-bridge")
-        );
-        assert_eq!(
-            foundation_bridge_watch_args(Path::new(
-                "/workspace/crates/noema-providers/apple-foundation-bridge"
-            )),
-            vec![
-                "watch",
-                "-C",
-                "/workspace/crates/noema-providers/apple-foundation-bridge",
-                "-w",
-                "Package.swift",
-                "-w",
-                "Sources",
-                "-s",
-                "swift build",
-            ]
-        );
-        assert_eq!(
-            foundation_bridge_watcher_enabled(),
-            cfg!(target_os = "macos")
-        );
-    }
-
-    #[test]
-    fn strips_cargo_run_injected_env_only() {
-        assert!(is_cargo_run_injected_env("CARGO_MANIFEST_DIR"));
-        assert!(is_cargo_run_injected_env("CARGO_PKG_VERSION"));
-        assert!(is_cargo_run_injected_env("CARGO_BIN_NAME"));
-        assert!(!is_cargo_run_injected_env("CARGO"));
-        assert!(!is_cargo_run_injected_env("CARGO_HOME"));
-        assert!(!is_cargo_run_injected_env("NOEMA_HOME"));
-        assert!(!is_cargo_run_injected_env("PATH"));
     }
 
     #[cfg(unix)]

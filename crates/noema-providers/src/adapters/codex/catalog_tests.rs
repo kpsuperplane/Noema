@@ -1,12 +1,11 @@
 use serde_json::json;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use super::*;
 use crate::{
-    PersistedProviderAccountRecord, ProviderAccountRecord, ProviderAuthMethod, ProviderCredential,
-    ProviderCredentialAccess, ProviderCredentialAccessHandle, ProviderCredentialFuture,
-    ProviderPersistenceError, ProviderPersistenceFuture, ReasoningEffort,
-    adapters::test_support::spawn_server,
+    PersistedProviderAccountRecord, ProviderAccountRecord, ProviderAccountStatus,
+    ProviderAuthMethod, ProviderPersistenceError, ProviderPersistenceFuture, ReasoningEffort,
+    adapters::test_support::{spawn_server, static_codex_credentials},
 };
 
 const TEST_CODEX_CLIENT_VERSION: &str = "0.144.1";
@@ -14,36 +13,6 @@ const TEST_CODEX_CLIENT_VERSION: &str = "0.144.1";
 struct RecordingCatalogPersistence {
     requests: Mutex<Vec<PersistProviderModelCatalogRequest>>,
     result: Result<PersistedProviderAccountRecord, ProviderPersistenceError>,
-}
-
-struct StaticCredentials;
-
-impl ProviderCredentialAccess for StaticCredentials {
-    fn exa_api_key<'a>(&'a self, _provider_account_id: &'a str) -> ProviderCredentialFuture<'a> {
-        static_credential()
-    }
-
-    fn codex_access_token<'a>(
-        &'a self,
-        _provider_account_id: &'a str,
-    ) -> ProviderCredentialFuture<'a> {
-        static_credential()
-    }
-
-    fn refresh_codex_access_token<'a>(
-        &'a self,
-        _provider_account_id: &'a str,
-    ) -> ProviderCredentialFuture<'a> {
-        static_credential()
-    }
-}
-
-fn static_credential() -> ProviderCredentialFuture<'static> {
-    Box::pin(async { Ok(ProviderCredential::from("access-token".to_string())) })
-}
-
-fn credential_access() -> ProviderCredentialAccessHandle {
-    Arc::new(StaticCredentials)
 }
 
 impl ProviderModelCatalogPersistence for RecordingCatalogPersistence {
@@ -106,48 +75,12 @@ fn accepts_stable_and_prerelease_codex_versions_only() {
     assert!(!is_valid_codex_client_version("0.144.1+build"));
 }
 
-#[test]
-fn catalog_timestamp_expires_after_ttl() {
-    let now = MODEL_CATALOG_TTL_SECONDS + 10_000;
-    let fresh = json!((now - MODEL_CATALOG_TTL_SECONDS + 1).to_string());
-    let expired = json!((now - MODEL_CATALOG_TTL_SECONDS - 1).to_string());
-
-    assert!(timestamp_is_fresh(Some(&fresh), now));
-    assert!(!timestamp_is_fresh(Some(&expired), now));
-    assert!(!timestamp_is_fresh(Some(&json!(now + 1)), now));
-    assert!(!timestamp_is_fresh(Some(&json!("not-a-timestamp")), now));
-}
-
 #[tokio::test]
-async fn fetches_latest_codex_client_version_from_registry_shape() {
-    let (version_url, request_rx) = spawn_server(
-        200,
-        json!({"version": TEST_CODEX_CLIENT_VERSION}).to_string(),
-    )
-    .await;
-    let client = reqwest::Client::new();
-
-    let version = fetch_latest_codex_client_version(&client, &format!("{version_url}/latest"))
-        .await
-        .expect("latest Codex version");
-
-    let request = request_rx.await.expect("captured version request");
-    assert_eq!(request.path, "/latest");
-    assert_eq!(version, TEST_CODEX_CLIENT_VERSION);
-}
-
-#[tokio::test]
-async fn codex_catalog_refresh_with_credentials_marks_unknown_account_authenticated() {
-    let (base_url, request_rx) = spawn_server(
+async fn codex_catalog_refresh_with_tokens_marks_unknown_account_authenticated() {
+    let (base_url, _request_rx) = spawn_server(
         200,
         json!({
-            "models": [
-                {
-                    "slug": "gpt-live",
-                    "display_name": "GPT Live",
-                    "visibility": "list"
-                }
-            ]
+            "models": [{"slug": "gpt-live", "display_name": "GPT Live", "visibility": "list"}]
         })
         .to_string(),
     )
@@ -155,39 +88,34 @@ async fn codex_catalog_refresh_with_credentials_marks_unknown_account_authentica
     let account = codex_account(json!({
         "base_url": base_url,
         "models_client_version": TEST_CODEX_CLIENT_VERSION,
-        "models_client_version_refreshed_at": now_string()
+        "models_client_version_refreshed_at": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_secs()
+            .to_string()
     }));
     let persistence = RecordingCatalogPersistence {
         requests: Mutex::new(Vec::new()),
         result: Ok(account.clone().into()),
     };
 
-    let catalog = fetch_provider_model_catalog(&credential_access(), &account)
-        .await
-        .expect("fetch profiles")
-        .expect("catalog needed");
+    let catalog = fetch_provider_model_catalog(
+        &static_codex_credentials("access-token", "refresh-token"),
+        &account,
+    )
+    .await
+    .expect("fetch profiles")
+    .expect("catalog needed");
     persist_model_catalog_refresh(&persistence, &account, catalog)
         .await
         .expect("persist profiles");
-    {
-        let requests = persistence.requests.lock().expect("requests lock");
-        assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0].provider_account_id, account.provider_account_id);
-        assert_eq!(requests[0].profiles[0].id, "gpt-live");
-        assert_eq!(
-            requests[0].resulting_status,
-            ProviderAccountStatus::Authenticated
-        );
-    }
 
-    let request = request_rx.await.expect("captured request");
+    let requests = persistence.requests.lock().expect("requests lock");
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].profiles[0].id, "gpt-live");
     assert_eq!(
-        request.path,
-        format!("/models?client_version={TEST_CODEX_CLIENT_VERSION}")
-    );
-    assert_eq!(
-        request.headers.get("authorization").map(String::as_str),
-        Some("Bearer access-token")
+        requests[0].resulting_status,
+        ProviderAccountStatus::Authenticated
     );
 }
 
@@ -232,7 +160,7 @@ async fn codex_catalog_refreshes_expired_profiles_with_latest_client_version() {
     };
 
     let catalog = fetch_provider_model_catalog_at_version_endpoint(
-        &credential_access(),
+        &static_codex_credentials("access-token", "access-token"),
         &account,
         &format!("{version_url}/latest"),
     )

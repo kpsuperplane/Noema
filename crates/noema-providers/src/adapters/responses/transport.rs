@@ -7,7 +7,7 @@ use reqwest::{
     StatusCode,
     header::{HeaderMap, HeaderValue},
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value;
 
 use super::{ResponsesDiagnosticContext, ResponsesResponse, sse::SseAccumulator};
@@ -68,24 +68,13 @@ impl ResponsesTransport {
     where
         T: Serialize,
     {
-        if bearer_token.trim().is_empty() {
-            return Err(ProviderError::MissingCredentials {
-                provider: "responses".to_string(),
-                credential: "bearer_token".to_string(),
-            });
-        }
-
-        let mut builder = self
-            .client
-            .post(&self.responses_url)
-            .bearer_auth(bearer_token);
-        for (name, value) in &extra_headers {
-            builder = builder.header(name, value);
-        }
-
-        let response = builder.json(&body).send().await.map_err(|source| {
-            reqwest_transport_error(&diagnostics.provider_kind, "send_generation", &source)
-        })?;
+        let response = self
+            .request(bearer_token, body, &extra_headers)?
+            .send()
+            .await
+            .map_err(|source| {
+                reqwest_transport_error(&diagnostics.provider_kind, "send_generation", &source)
+            })?;
         let status = response.status();
         let request_id = request_id(response.headers());
         let body_text = response.text().await.map_err(|source| {
@@ -141,28 +130,17 @@ impl ResponsesTransport {
     where
         T: Serialize,
     {
-        if bearer_token.trim().is_empty() {
-            return Err(ProviderError::MissingCredentials {
-                provider: "responses".to_string(),
-                credential: "bearer_token".to_string(),
-            });
-        }
-
-        let mut builder = self
-            .client
-            .post(&self.responses_url)
-            .bearer_auth(bearer_token);
-        for (name, value) in &extra_headers {
-            builder = builder.header(name, value);
-        }
-
-        let response = builder.json(&body).send().await.map_err(|source| {
-            reqwest_transport_error(
-                &diagnostics.provider_kind,
-                "send_streaming_generation",
-                &source,
-            )
-        })?;
+        let response = self
+            .request(bearer_token, body, &extra_headers)?
+            .send()
+            .await
+            .map_err(|source| {
+                reqwest_transport_error(
+                    &diagnostics.provider_kind,
+                    "send_streaming_generation",
+                    &source,
+                )
+            })?;
         let status = response.status();
         let request_id = request_id(response.headers());
 
@@ -188,6 +166,27 @@ impl ResponsesTransport {
         }
 
         accumulator.finish(on_event)
+    }
+
+    fn request(
+        &self,
+        bearer_token: &str,
+        body: impl Serialize,
+        extra_headers: &HeaderMap,
+    ) -> Result<reqwest::RequestBuilder, ProviderError> {
+        if bearer_token.trim().is_empty() {
+            return Err(ProviderError::MissingCredentials {
+                provider: "responses".to_string(),
+                credential: "bearer_token".to_string(),
+            });
+        }
+        Ok(extra_headers.iter().fold(
+            self.client
+                .post(&self.responses_url)
+                .bearer_auth(bearer_token)
+                .json(&body),
+            |request, (name, value)| request.header(name, value),
+        ))
     }
 }
 
@@ -238,28 +237,21 @@ pub fn header_value(value: &str, label: &str) -> Result<HeaderValue, ProviderErr
     })
 }
 
-#[derive(Debug, Deserialize)]
-struct ResponsesErrorResponse {
-    error: Option<ResponsesErrorBody>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ResponsesErrorBody {
-    message: Option<String>,
-}
-
 fn error_from_status(
     status: StatusCode,
     request_id: Option<String>,
     body_text: &str,
 ) -> ProviderError {
-    let message = serde_json::from_str::<ResponsesErrorResponse>(body_text)
+    let message = serde_json::from_str::<Value>(body_text)
         .ok()
-        .and_then(|body| body.error)
-        .and_then(|error| error.message)
+        .and_then(|body| body.pointer("/error/message")?.as_str().map(str::to_string))
         .filter(|message| !message.trim().is_empty())
-        .unwrap_or_else(|| body_text.trim().to_string())
-        .if_empty_then(|| status.canonical_reason().unwrap_or("API error").to_string());
+        .unwrap_or_else(|| body_text.trim().to_string());
+    let message = if message.is_empty() {
+        status.canonical_reason().unwrap_or("API error").to_string()
+    } else {
+        message
+    };
 
     match status {
         StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => ProviderError::AuthenticationFailure {
@@ -283,14 +275,4 @@ fn request_id(headers: &HeaderMap) -> Option<String> {
         .get("x-request-id")
         .and_then(|value| value.to_str().ok())
         .map(ToString::to_string)
-}
-
-trait EmptyStringExt {
-    fn if_empty_then(self, fallback: impl FnOnce() -> String) -> String;
-}
-
-impl EmptyStringExt for String {
-    fn if_empty_then(self, fallback: impl FnOnce() -> String) -> String {
-        if self.is_empty() { fallback() } else { self }
-    }
 }

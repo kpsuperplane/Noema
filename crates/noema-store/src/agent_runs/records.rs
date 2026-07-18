@@ -13,25 +13,12 @@ use crate::{
 };
 
 impl NoemaStore {
-    /// Queue a new background run.
-    pub async fn create_agent_run(&self, input: NewAgentRun) -> Result<AgentRunRecord, StoreError> {
-        self.create_agent_run_inner(input, None).await
-    }
-
     /// Queue a run while proving its newly referenced exact instance is ready
     /// and retaining that proof through commit.
     pub async fn create_agent_run_with_readiness(
         &self,
         input: NewAgentRun,
         registry: &ProviderRegistry,
-    ) -> Result<AgentRunRecord, StoreError> {
-        self.create_agent_run_inner(input, Some(registry)).await
-    }
-
-    async fn create_agent_run_inner(
-        &self,
-        input: NewAgentRun,
-        registry: Option<&ProviderRegistry>,
     ) -> Result<AgentRunRecord, StoreError> {
         let model = input.model.normalized_for_persistence().map_err(|error| {
             StoreError::InvariantViolation {
@@ -63,7 +50,7 @@ impl NoemaStore {
                     &model,
                     SelectionEligibility::PreservedFutureReference,
                 )?;
-                let ready_selection = prove_selection_ready(&model, registry)?;
+                let ready_selection = prove_selection_ready(&model, Some(registry))?;
                 transaction.execute(
                     r#"INSERT INTO agent_runs (
                     run_id, task_id, run_kind, agent_id, attempt_index, revision_index,

@@ -78,30 +78,9 @@ impl RuntimeActor {
     ) -> Result<Self, RuntimeError> {
         let artifact_operations =
             crate::test_support::artifact_operations(&store).map_err(RuntimeError::Protocol)?;
-        Self::new_with_memory(
-            default_provider_kind,
-            providers,
-            store,
-            artifact_operations,
-            system_errors,
-            None,
-            crate::daemon::RuntimeEventRegistry::default(),
-        )
-        .await
-    }
-
-    #[cfg(test)]
-    pub(in crate::daemon) async fn new_with_memory(
-        default_provider_kind: String,
-        providers: HashMap<String, ProviderHandle>,
-        store: NoemaStore,
-        artifact_operations: noema_artifacts::ArtifactOperationsHandle,
-        system_errors: SystemErrorLogger,
-        memory_operations: Option<noema_memory::MemoryOperationsHandle>,
-        runtime_events: crate::daemon::RuntimeEventRegistry,
-    ) -> Result<Self, RuntimeError> {
         let routing = test_provider_routing(&store, &default_provider_kind, providers).await?;
-        let (capability_bindings, capability_invokers) = test_capability_handles();
+        let (capability_bindings, capability_invokers) =
+            crate::contract_test_support::empty_capability_handles();
         let web_backends = crate::test_support::web_backends_for_store(&store);
         Self::from_spawn_config(RuntimeSpawnConfig {
             primary_provider: routing.primary,
@@ -112,8 +91,8 @@ impl RuntimeActor {
             store,
             artifact_operations,
             system_errors,
-            memory_operations,
-            runtime_events,
+            memory_operations: None,
+            runtime_events: crate::daemon::RuntimeEventRegistry::default(),
             web_backends,
             capability_bindings,
             capability_invokers,
@@ -143,43 +122,6 @@ impl RuntimeActor {
         })
     }
 
-    #[cfg(test)]
-    pub(in crate::daemon) async fn new_with_search_provider(
-        default_provider_kind: String,
-        providers: HashMap<String, ProviderHandle>,
-        store: NoemaStore,
-        system_errors: SystemErrorLogger,
-        search_provider: crate::search::types::SearchRuntimeProvider,
-    ) -> Result<Self, RuntimeError> {
-        let mut actor = Self::new(default_provider_kind, providers, store, system_errors).await?;
-        actor.web_backends = crate::test_support::web_backends_with_search(search_provider);
-        Ok(actor)
-    }
-
-    #[cfg(test)]
-    pub(in crate::daemon) async fn new_with_search_and_fetch_provider(
-        default_provider_kind: String,
-        providers: HashMap<String, ProviderHandle>,
-        store: NoemaStore,
-        system_errors: SystemErrorLogger,
-        search_provider: crate::search::types::SearchRuntimeProvider,
-        web_fetch_provider: crate::web_fetch::types::WebFetchRuntimeProvider,
-    ) -> Result<Self, RuntimeError> {
-        let mut actor = Self::new_with_search_provider(
-            default_provider_kind,
-            providers,
-            store,
-            system_errors,
-            search_provider.clone(),
-        )
-        .await?;
-        actor.web_backends = crate::test_support::web_backends_with_search_and_fetch(
-            search_provider,
-            web_fetch_provider,
-        );
-        Ok(actor)
-    }
-
     pub(in crate::daemon) async fn resolve_static_provider_route(
         &self,
         selection: ProviderSelectionSnapshot,
@@ -198,15 +140,6 @@ impl RuntimeActor {
         &self,
     ) -> Result<ProviderRouteLease, RuntimeError> {
         self.primary_provider
-            .resolve_route()
-            .await
-            .map_err(RuntimeError::from)
-    }
-
-    pub(in crate::daemon) async fn resolve_default_provider(
-        &self,
-    ) -> Result<ProviderRouteLease, RuntimeError> {
-        self.default_provider
             .resolve_route()
             .await
             .map_err(RuntimeError::from)
@@ -242,22 +175,6 @@ impl RuntimeActor {
             tasks: RuntimeTaskGroup::default(),
             runtime_events: self.runtime_events.clone(),
         }
-    }
-
-    #[allow(dead_code)]
-    pub(in crate::daemon) async fn resolved_web_search_provider(
-        &self,
-    ) -> Result<super::web_tools::ResolvedWebProvider, noema_providers::ProviderPersistenceError>
-    {
-        super::web_tools::resolve_web_search_provider(&self.store).await
-    }
-
-    #[allow(dead_code)]
-    pub(in crate::daemon) async fn resolved_web_fetch_provider(
-        &self,
-    ) -> Result<super::web_tools::ResolvedWebProvider, noema_providers::ProviderPersistenceError>
-    {
-        super::web_tools::resolve_web_fetch_provider(&self.store).await
     }
 
     pub(super) async fn run(mut self, mut receiver: mpsc::Receiver<RuntimeCommand>) {
@@ -345,7 +262,11 @@ impl RuntimeActor {
                     reply,
                 } => {
                     let provider = match route {
-                        GenerateOnceRoute::Default => self.resolve_default_provider().await,
+                        GenerateOnceRoute::Default => self
+                            .default_provider
+                            .resolve_route()
+                            .await
+                            .map_err(RuntimeError::from),
                         GenerateOnceRoute::Memory => self.resolve_memory_provider().await,
                     };
                     let provider = match provider {
@@ -511,56 +432,6 @@ pub(super) async fn test_provider_routing(
         ),
         registry,
     })
-}
-
-#[cfg(test)]
-#[derive(Debug)]
-struct EmptyCapabilityBindingSource;
-
-#[cfg(test)]
-impl noema_capabilities::CapabilityBindingSource for EmptyCapabilityBindingSource {
-    fn catalog(
-        &self,
-    ) -> noema_capabilities::CapabilityFuture<
-        '_,
-        Result<
-            noema_capabilities::CapabilityCatalogResult,
-            noema_capabilities::CapabilityBindingSourceError,
-        >,
-    > {
-        Box::pin(async { Ok(noema_capabilities::CapabilityCatalogResult::default()) })
-    }
-}
-
-#[cfg(test)]
-#[derive(Debug)]
-struct EmptyCapabilityInvoker;
-
-#[cfg(test)]
-impl noema_capabilities::CapabilityInvoker for EmptyCapabilityInvoker {
-    fn invoke(
-        &self,
-        _invocation: noema_capabilities::CapabilityInvocation,
-    ) -> noema_capabilities::CapabilityFuture<
-        '_,
-        Result<noema_capabilities::CapabilityOutput, noema_capabilities::CapabilityError>,
-    > {
-        Box::pin(async { Err(noema_capabilities::CapabilityError::UnknownOperation) })
-    }
-}
-
-#[cfg(test)]
-pub(super) fn test_capability_handles() -> (
-    CapabilityBindingSourceHandle,
-    Arc<[CapabilityInvokerRegistration]>,
-) {
-    (
-        Arc::new(EmptyCapabilityBindingSource),
-        Arc::from([CapabilityInvokerRegistration::new(
-            noema_capabilities::InvokerKey::new("test-external"),
-            Arc::new(EmptyCapabilityInvoker),
-        )]),
-    )
 }
 
 fn runtime_stopped() -> RuntimeError {

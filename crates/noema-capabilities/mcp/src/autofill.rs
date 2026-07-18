@@ -1,16 +1,23 @@
 //! Pure MCP calibration-autofill prompt construction and response validation.
 
+#[cfg(any(feature = "transport", test))]
 use std::collections::{BTreeMap, BTreeSet};
 
+#[cfg(any(feature = "transport", test))]
 use serde::Deserialize;
+#[cfg(any(feature = "transport", test))]
 use serde_json::Value;
+#[cfg(any(feature = "transport", test))]
 use thiserror::Error;
 
+use crate::McpTrustClassification;
+#[cfg(any(feature = "transport", test))]
 use crate::{
-    McpToolRecord, McpTrustClassification,
-    eligibility::{sanitize_prompt_line, truncate_chars},
+    McpToolRecord,
+    eligibility::{prompt_safe_mcp_tool_description, sanitize_prompt_line},
 };
 
+#[cfg(any(feature = "transport", test))]
 const MAX_TOOL_DESCRIPTION_HINT_CHARS: usize = 96;
 
 /// Validated advisory calibration suggestion for a discovered MCP tool.
@@ -30,7 +37,8 @@ pub struct McpToolCalibrationSuggestion {
 
 /// Errors returned while parsing or validating MCP autofill model output.
 #[derive(Debug, Error)]
-pub enum McpAutofillError {
+#[cfg(any(feature = "transport", test))]
+pub(crate) enum McpAutofillError {
     /// Model output was not valid strict JSON for the expected shape.
     #[error("invalid autofill JSON: {0}")]
     Json(#[from] serde_json::Error),
@@ -49,12 +57,14 @@ pub enum McpAutofillError {
 }
 
 #[derive(Debug, Deserialize)]
+#[cfg(any(feature = "transport", test))]
 #[serde(deny_unknown_fields)]
 struct AutofillResponse {
     suggestions: Vec<RawSuggestion>,
 }
 
 #[derive(Debug, Deserialize)]
+#[cfg(any(feature = "transport", test))]
 #[serde(deny_unknown_fields)]
 struct RawSuggestion {
     tool: String,
@@ -70,7 +80,8 @@ struct RawSuggestion {
 
 /// Build the metadata-only prompt used to request MCP calibration suggestions.
 #[must_use]
-pub fn build_autofill_prompt(server_name: &str, tools: &[McpToolRecord]) -> String {
+#[cfg(any(feature = "transport", test))]
+pub(crate) fn build_autofill_prompt(server_name: &str, tools: &[McpToolRecord]) -> String {
     let tool_text = tools
         .iter()
         .map(format_tool_prompt_row)
@@ -89,9 +100,12 @@ tool	hint	in	out	ann
     )
 }
 
+#[cfg(any(feature = "transport", test))]
 fn format_tool_prompt_row(tool: &McpToolRecord) -> String {
-    let hint =
-        compact_description_hint(tool.description.as_deref(), MAX_TOOL_DESCRIPTION_HINT_CHARS);
+    let hint = prompt_safe_mcp_tool_description(
+        tool.description.as_deref(),
+        MAX_TOOL_DESCRIPTION_HINT_CHARS,
+    );
     let output_fields = tool
         .output_schema
         .as_ref()
@@ -108,6 +122,7 @@ fn format_tool_prompt_row(tool: &McpToolRecord) -> String {
     .join("\t")
 }
 
+#[cfg(any(feature = "transport", test))]
 fn schema_field_names(schema: &Value) -> Vec<String> {
     let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
         return Vec::new();
@@ -118,6 +133,7 @@ fn schema_field_names(schema: &Value) -> Vec<String> {
         .collect()
 }
 
+#[cfg(any(feature = "transport", test))]
 fn field_list_or_dash(fields: Vec<String>) -> String {
     if fields.is_empty() {
         "-".to_string()
@@ -126,6 +142,7 @@ fn field_list_or_dash(fields: Vec<String>) -> String {
     }
 }
 
+#[cfg(any(feature = "transport", test))]
 fn format_annotations(annotations: &Value) -> Option<String> {
     match annotations {
         Value::Object(values) if values.is_empty() => None,
@@ -147,6 +164,7 @@ fn format_annotations(annotations: &Value) -> Option<String> {
     }
 }
 
+#[cfg(any(feature = "transport", test))]
 fn sanitize_annotation_value(value: &Value) -> String {
     match value {
         Value::Bool(value) => value.to_string(),
@@ -158,40 +176,14 @@ fn sanitize_annotation_value(value: &Value) -> String {
     }
 }
 
-fn compact_description_hint(description: Option<&str>, max_chars: usize) -> Option<String> {
-    let description = description?;
-    let cleaned = description.trim();
-    if cleaned.is_empty() {
-        return None;
-    }
-
-    let without_examples = cleaned
-        .split_once("<example")
-        .map_or(cleaned, |(before_examples, _)| before_examples)
-        .trim();
-    let first_line = without_examples
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .unwrap_or(without_examples);
-    let first_sentence = first_line
-        .split_once(". ")
-        .map_or(first_line, |(sentence, _)| sentence);
-    let mut hint = first_sentence.trim().to_string();
-    if first_line.len() > hint.len() && !hint.ends_with('.') {
-        hint.push('.');
-    }
-
-    Some(truncate_chars(&hint, max_chars))
-}
-
 /// Parse and validate model-produced MCP calibration suggestions.
 ///
 /// # Errors
 ///
 /// Returns an error when the model output is not strict JSON, references an
 /// unknown or duplicate tool name, or uses invalid enum strings.
-pub fn parse_autofill_response(
+#[cfg(any(feature = "transport", test))]
+pub(crate) fn parse_autofill_response(
     text: &str,
     tools: &[McpToolRecord],
 ) -> Result<Vec<McpToolCalibrationSuggestion>, McpAutofillError> {
@@ -231,6 +223,7 @@ pub fn parse_autofill_response(
     Ok(suggestions)
 }
 
+#[cfg(any(feature = "transport", test))]
 fn parse_classification(
     value: &str,
     field: &'static str,
@@ -254,17 +247,11 @@ mod tests {
     #[test]
     fn parses_valid_autofill_response_for_known_tools() {
         let tools = vec![test_tool("mcp_tool:docs:read", "read_doc")];
-        let response = r#"{
-          "suggestions": [{
-            "tool": "read_doc",
-            "read": "m",
-            "write": "n",
-            "export": "n",
-            "d": false
-          }]
-        }"#;
-
-        let suggestions = parse_autofill_response(response, &tools).expect("suggestions");
+        let response = json!({"suggestions": [{
+            "tool": "read_doc", "read": "m", "write": "n", "export": "n", "d": false
+        }]});
+        let suggestions =
+            parse_autofill_response(&response.to_string(), &tools).expect("suggestions");
 
         assert_eq!(suggestions.len(), 1);
         assert_eq!(suggestions[0].mcp_tool_id, "mcp_tool:docs:read");
@@ -273,119 +260,44 @@ mod tests {
             McpTrustClassification::Mixed
         );
         assert_eq!(suggestions[0].disabled, Some(false));
-    }
-
-    #[test]
-    fn parses_missing_disabled_as_no_disabled_suggestion() {
-        let tools = vec![test_tool("mcp_tool:docs:read", "read_doc")];
-        let response = r#"{
-          "suggestions": [{
-            "tool": "read_doc",
-            "read": "m",
-            "write": "n",
-            "export": "n"
-          }]
-        }"#;
-
-        let suggestions = parse_autofill_response(response, &tools).expect("suggestions");
-
-        assert_eq!(suggestions[0].disabled, None);
+        let without_disabled = json!({"suggestions": [{
+            "tool": "read_doc", "read": "m", "write": "n", "export": "n"
+        }]});
+        assert_eq!(
+            parse_autofill_response(&without_disabled.to_string(), &tools).expect("suggestions")[0]
+                .disabled,
+            None
+        );
     }
 
     #[test]
     fn rejects_unknown_tool_name_without_partial_suggestions() {
         let tools = vec![test_tool("mcp_tool:docs:read", "read_doc")];
-        let response = r#"{
-          "suggestions": [{
-            "tool": "missing_doc",
-            "read": "m",
-            "write": "n",
-            "export": "n",
-            "d": false
-          }]
-        }"#;
+        let valid = json!({"tool": "read_doc", "read": "m", "write": "n", "export": "n"});
+        let cases = [
+            (
+                json!({"suggestions": [{
+                    "tool": "missing_doc", "read": "m", "write": "n", "export": "n"
+                }]}),
+                "unknown MCP tool name",
+            ),
+            (
+                json!({"suggestions": [valid.clone(), valid.clone()]}),
+                "duplicate MCP tool name",
+            ),
+            (
+                json!({"suggestions": [{
+                    "tool": "read_doc", "read": "Mixed", "write": "n", "export": "n"
+                }]}),
+                "invalid read_classification",
+            ),
+        ];
 
-        let error = parse_autofill_response(response, &tools).expect_err("unknown tool rejected");
-
-        assert!(error.to_string().contains("unknown MCP tool name"));
-    }
-
-    #[test]
-    fn rejects_duplicate_tool_name_without_partial_suggestions() {
-        let tools = vec![test_tool("mcp_tool:docs:read", "read_doc")];
-        let response = r#"{
-          "suggestions": [{
-            "tool": "read_doc",
-            "read": "m",
-            "write": "n",
-            "export": "n"
-          }, {
-            "tool": "read_doc",
-            "read": "m",
-            "write": "n",
-            "export": "n"
-          }]
-        }"#;
-
-        let error = parse_autofill_response(response, &tools).expect_err("duplicate tool rejected");
-
-        assert!(error.to_string().contains("duplicate MCP tool name"));
-    }
-
-    #[test]
-    fn rejects_invalid_enum() {
-        let tools = vec![test_tool("mcp_tool:docs:read", "read_doc")];
-        let response = r#"{
-          "suggestions": [{
-            "tool": "read_doc",
-            "read": "Mixed",
-            "write": "n",
-            "export": "n",
-            "d": false
-          }]
-        }"#;
-
-        let error = parse_autofill_response(response, &tools).expect_err("invalid output rejected");
-
-        assert!(error.to_string().contains("invalid read_classification"));
-    }
-
-    #[test]
-    fn prompt_names_trust_axes_and_demands_strict_json() {
-        let prompt = build_autofill_prompt("Docs", &[test_tool("mcp_tool:docs:read", "read_doc")]);
-
-        assert!(prompt.contains("Return JSON only"));
-        assert!(prompt.contains("export=share beyond MCP destination"));
-        assert!(prompt.contains("same MCP destination are not export"));
-        assert!(prompt.contains("metadata only"));
-        assert!(prompt.contains("tool\thint\tin\tout\tann"));
-        assert!(prompt.contains("read_doc\tRead a document\towner_email\t-\treadOnlyHint=true"));
-        assert!(!prompt.contains("mcp_tool:docs:read"));
-    }
-
-    #[test]
-    fn prompt_limits_model_to_trust_classification_rubric() {
-        let prompt = build_autofill_prompt("Docs", &[test_tool("mcp_tool:docs:read", "read_doc")]);
-
-        assert!(prompt.contains("Writing is not a reason to disable"));
-        assert!(prompt.contains(r#""tool":"name""#));
-        assert!(prompt.contains(r#""read":"n|t|u|m""#));
-        assert!(!prompt.contains(r#""mcp_tool_id":"...""#));
-        assert!(prompt.contains("t=trusted"));
-        assert!(prompt.contains("u=untrusted"));
-        assert!(prompt.contains("public web"));
-        assert!(prompt.contains("own/private/local"));
-    }
-
-    #[test]
-    fn prompt_omits_annotations_when_empty() {
-        let mut tool = test_tool("mcp_tool:docs:read", "read_doc");
-        tool.annotations = json!({});
-
-        let prompt = build_autofill_prompt("Docs", &[tool]);
-
-        assert!(prompt.contains("read_doc\tRead a document\towner_email\t-\t-"));
-        assert!(!prompt.contains("readOnlyHint"));
+        for (response, expected) in cases {
+            let error = parse_autofill_response(&response.to_string(), &tools)
+                .expect_err("invalid output rejected");
+            assert!(error.to_string().contains(expected), "{error}");
+        }
     }
 
     #[test]

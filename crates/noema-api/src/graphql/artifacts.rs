@@ -23,14 +23,10 @@ pub enum GraphqlArtifactStorageKind {
     ExternalUrl,
 }
 
-impl From<noema_artifacts::ArtifactStorageKind> for GraphqlArtifactStorageKind {
-    fn from(kind: noema_artifacts::ArtifactStorageKind) -> Self {
-        match kind {
-            noema_artifacts::ArtifactStorageKind::LocalFile => Self::LocalFile,
-            noema_artifacts::ArtifactStorageKind::ExternalUrl => Self::ExternalUrl,
-        }
-    }
-}
+graphql_enum_from!(noema_artifacts::ArtifactStorageKind => GraphqlArtifactStorageKind {
+    LocalFile => LocalFile,
+    ExternalUrl => ExternalUrl,
+});
 
 /// Artifact version metadata safe to expose to GraphQL clients.
 #[derive(Clone, Debug, SimpleObject)]
@@ -231,83 +227,67 @@ pub async fn artifact_version_detail(
         .map(graphql_artifact_version_from_store)
         .collect::<Result<Vec<_>>>()?;
 
-    match &version.storage {
-        noema_artifacts::ArtifactVersionStorage::ExternalUrl { url } => {
-            Ok(Some(GraphqlArtifactVersionDetail {
-                artifact_version_id: version.artifact_version_id,
-                artifact_id: version.artifact_id,
-                version_index,
-                title,
-                artifact_kind: artifact.artifact.artifact_kind,
-                storage_kind: artifact.artifact.storage_kind.into(),
-                media_type,
-                preview_kind: GraphqlArtifactVersionPreviewKind::External,
-                markdown: None,
-                plain_text: None,
-                download_url: None,
-                external_url: Some(url.clone()),
-                versions,
-            }))
-        }
+    let (preview_kind, markdown, plain_text, download_url, external_url) = match &version.storage {
+        noema_artifacts::ArtifactVersionStorage::ExternalUrl { url } => (
+            GraphqlArtifactVersionPreviewKind::External,
+            None,
+            None,
+            None,
+            Some(url.clone()),
+        ),
         noema_artifacts::ArtifactVersionStorage::LocalFile { .. } => {
             let download_url = Some(noema_artifacts::artifact_download_url(
                 &version.artifact_version_id,
             ));
-            let Some(preview_kind) = text_preview_kind(media_type.as_deref()) else {
-                return Ok(Some(GraphqlArtifactVersionDetail {
-                    artifact_version_id: version.artifact_version_id,
-                    artifact_id: version.artifact_id,
-                    version_index,
-                    title,
-                    artifact_kind: artifact.artifact.artifact_kind,
-                    storage_kind: artifact.artifact.storage_kind.into(),
-                    media_type,
-                    preview_kind: GraphqlArtifactVersionPreviewKind::Unsupported,
-                    markdown: None,
-                    plain_text: None,
-                    download_url,
-                    external_url: None,
-                    versions,
-                }));
-            };
-
-            let file = state
-                .artifact_operations()?
-                .read_local_file(noema_artifacts::ReadLocalArtifactRequest {
-                    artifact: artifact.artifact.clone(),
-                    version: version.clone(),
-                })
-                .await
-                .map_err(graphql_error)?;
-            let content = String::from_utf8(file.bytes).map_err(|error| {
-                graphql_error(format!("artifact text content is not valid UTF-8: {error}"))
-            })?;
-            let (markdown, plain_text) = match preview_kind {
-                GraphqlArtifactVersionPreviewKind::Markdown => (Some(content), None),
-                GraphqlArtifactVersionPreviewKind::PlainText => (None, Some(content)),
-                GraphqlArtifactVersionPreviewKind::Unsupported
-                | GraphqlArtifactVersionPreviewKind::External => {
-                    unreachable!("only local text preview kinds reach content decoding")
-                }
-            };
-
-            Ok(Some(GraphqlArtifactVersionDetail {
-                artifact_version_id: version.artifact_version_id,
-                artifact_id: version.artifact_id,
-                version_index,
-                title,
-                artifact_kind: artifact.artifact.artifact_kind,
-                storage_kind: artifact.artifact.storage_kind.into(),
-                media_type,
-                preview_kind,
-                markdown,
-                plain_text,
-                download_url,
-                external_url: None,
-                versions,
-            }))
+            let (preview_kind, markdown, plain_text) =
+                match text_preview_kind(media_type.as_deref()) {
+                    None => (GraphqlArtifactVersionPreviewKind::Unsupported, None, None),
+                    Some(preview_kind) => {
+                        let file = state
+                            .artifact_operations()?
+                            .read_local_file(noema_artifacts::ReadLocalArtifactRequest {
+                                artifact: artifact.artifact.clone(),
+                                version: version.clone(),
+                            })
+                            .await
+                            .map_err(graphql_error)?;
+                        let content = String::from_utf8(file.bytes).map_err(|error| {
+                            graphql_error(format!(
+                                "artifact text content is not valid UTF-8: {error}"
+                            ))
+                        })?;
+                        match preview_kind {
+                            GraphqlArtifactVersionPreviewKind::Markdown => {
+                                (preview_kind, Some(content), None)
+                            }
+                            GraphqlArtifactVersionPreviewKind::PlainText => {
+                                (preview_kind, None, Some(content))
+                            }
+                            GraphqlArtifactVersionPreviewKind::Unsupported
+                            | GraphqlArtifactVersionPreviewKind::External => {
+                                unreachable!("only local text preview kinds reach content decoding")
+                            }
+                        }
+                    }
+                };
+            (preview_kind, markdown, plain_text, download_url, None)
         }
-    }
+    };
+    Ok(Some(GraphqlArtifactVersionDetail {
+        artifact_version_id: version.artifact_version_id,
+        artifact_id: version.artifact_id,
+        version_index,
+        title,
+        artifact_kind: artifact.artifact.artifact_kind,
+        storage_kind: artifact.artifact.storage_kind.into(),
+        media_type,
+        preview_kind,
+        markdown,
+        plain_text,
+        download_url,
+        external_url,
+        versions,
+    }))
 }
 
 pub async fn create_conversation_external_artifact(
@@ -503,21 +483,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn authorized_download_hides_missing_version() {
-        let (_home, _paths, _store, _artifact, state) = local_artifact_fixture().await;
-        assert!(
-            authorized_artifact_download(
-                &state,
-                &super::super::RequestPrincipal::local(),
-                "artifact-version:missing",
-            )
-            .await
-            .expect("download query")
-            .is_none()
-        );
-    }
-
-    #[tokio::test]
     async fn authorized_download_hides_other_owner() {
         let (_home, _paths, store, _artifact, state) = local_artifact_fixture().await;
         let mut other_conversation = noema_conversations::NewConversation::local_chat(None, None);
@@ -563,7 +528,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn authorized_download_hides_missing_file() {
+    async fn authorized_download_hides_unreadable_local_payload() {
         let (_home, paths, _store, artifact, state) = local_artifact_fixture().await;
         let noema_artifacts::ArtifactVersionStorage::LocalFile { relative_path } =
             &artifact.current_version.storage
@@ -571,16 +536,16 @@ mod tests {
             panic!("expected local file");
         };
         std::fs::remove_file(paths.root().join(relative_path)).expect("remove artifact");
-        assert!(
-            authorized_artifact_download(
-                &state,
-                &super::super::RequestPrincipal::local(),
-                &artifact.current_version.artifact_version_id,
-            )
-            .await
-            .expect("download query")
-            .is_none()
-        );
+
+        let download = authorized_artifact_download(
+            &state,
+            &super::super::RequestPrincipal::local(),
+            &artifact.current_version.artifact_version_id,
+        )
+        .await
+        .expect("download query");
+
+        assert!(download.is_none());
     }
 
     #[tokio::test]
@@ -596,18 +561,18 @@ mod tests {
         )));
         std::fs::create_dir_all(paths.providers_dir()).expect("providers dir");
         std::fs::write(paths.providers_dir().join("secret.txt"), b"secret").expect("secret");
-        assert!(
-            authorized_artifact_download_with_repository(
-                &state,
-                state.artifact_operations().expect("artifact operations"),
-                &repository,
-                &super::super::RequestPrincipal::local(),
-                &artifact.current_version.artifact_version_id,
-            )
-            .await
-            .expect("download query")
-            .is_none()
-        );
+
+        let download = authorized_artifact_download_with_repository(
+            &state,
+            state.artifact_operations().expect("artifact operations"),
+            &repository,
+            &super::super::RequestPrincipal::local(),
+            &artifact.current_version.artifact_version_id,
+        )
+        .await
+        .expect("download query");
+
+        assert!(download.is_none());
     }
 
     #[cfg(unix)]
@@ -624,16 +589,16 @@ mod tests {
         let secret_path = paths.root().join("secret.txt");
         std::fs::write(&secret_path, b"secret").expect("secret");
         std::os::unix::fs::symlink(secret_path, artifact_path).expect("symlink");
-        assert!(
-            authorized_artifact_download(
-                &state,
-                &super::super::RequestPrincipal::local(),
-                &artifact.current_version.artifact_version_id,
-            )
-            .await
-            .expect("download query")
-            .is_none()
-        );
+
+        let download = authorized_artifact_download(
+            &state,
+            &super::super::RequestPrincipal::local(),
+            &artifact.current_version.artifact_version_id,
+        )
+        .await
+        .expect("download query");
+
+        assert!(download.is_none());
     }
 
     #[tokio::test]

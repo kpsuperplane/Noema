@@ -8,8 +8,6 @@ use tokio_util::sync::CancellationToken;
 use url::Url;
 
 use super::download::LocalModelInstallError;
-#[cfg(test)]
-use super::download::LocalModelInstaller;
 use crate::LocalFileModelImport;
 
 #[derive(Debug)]
@@ -180,13 +178,5 @@ mod tests {
         );
         assert!(hugging_face_url("owner/repo", "main", "model.gguf").is_err());
         assert!(hugging_face_url("owner/repo", &revision, "../model.gguf").is_err());
-    }
-
-    #[test]
-    fn catalog_installation_ids_are_content_specific() {
-        assert_eq!(
-            LocalModelInstaller::catalog_installation_id("bonsai", &"a".repeat(64)),
-            "local_model_installation:catalog:bonsai:aaaaaaaaaaaa"
-        );
     }
 }

@@ -2,17 +2,13 @@ use std::{fs, sync::Arc, time::Duration};
 
 use noema_home::{NoemaPaths, SystemErrorLogger};
 use serde_json::json;
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::{TcpListener, TcpStream},
-    sync::oneshot,
-    time::timeout,
-};
+use tokio::{sync::oneshot, time::timeout};
 
 use super::{FakePersistence, ServiceFixture, auth_attempt, codex_account, tokens};
 use crate::adapters::{
     auth::ProviderAuthAttemptRuntime,
     codex::oauth::{CodexDeviceAuthOutcome, CodexTokenStore},
+    test_support::spawn_scripted_server,
 };
 use crate::{
     CodexOAuthConfig, ProviderAccountOperationError, ProviderAccountOperations,
@@ -30,7 +26,21 @@ async fn service_uses_selected_codex_oauth_endpoints_and_client_id() {
     let persistence = Arc::new(FakePersistence::with_account(account));
     let accounts: ProviderAccountPersistenceHandle = persistence.clone();
     let catalogs: ProviderModelCatalogPersistenceHandle = persistence.clone();
-    let (base_url, requests) = spawn_recording_oauth_server().await;
+    let (base_url, requests) = spawn_scripted_server([
+        (
+            200,
+            r#"{"device_auth_id":"device-secret","user_code":"ABCD-EFGH","interval":0}"#,
+        ),
+        (
+            200,
+            r#"{"authorization_code":"authorization-secret","code_verifier":"verifier-secret"}"#,
+        ),
+        (
+            200,
+            r#"{"access_token":"access-secret","refresh_token":"refresh-secret"}"#,
+        ),
+    ])
+    .await;
     let oauth = CodexOAuthConfig {
         issuer: base_url.clone(),
         client_id: "custom-client".to_string(),
@@ -62,12 +72,12 @@ async fn service_uses_selected_codex_oauth_endpoints_and_client_id() {
     let completed = wait_for_auth_terminal(&service, &attempt.attempt_id).await;
 
     assert_eq!(completed.status, ProviderAuthAttemptStatus::Completed);
-    assert!(requests[0].starts_with("POST /api/accounts/deviceauth/usercode "));
-    assert!(requests[0].contains(r#""client_id":"custom-client""#));
-    assert!(requests[1].starts_with("POST /api/accounts/deviceauth/token "));
-    assert!(requests[2].starts_with("POST /custom/token "));
-    assert!(requests[2].contains("client_id=custom-client"));
-    assert!(requests[2].contains("redirect_uri="));
+    assert_eq!(requests[0].path, "/api/accounts/deviceauth/usercode");
+    assert!(requests[0].body.contains(r#""client_id":"custom-client""#));
+    assert_eq!(requests[1].path, "/api/accounts/deviceauth/token");
+    assert_eq!(requests[2].path, "/custom/token");
+    assert!(requests[2].body.contains("client_id=custom-client"));
+    assert!(requests[2].body.contains("redirect_uri="));
     let updated = persistence.account(&account_id).expect("updated account");
     assert_eq!(updated.status, ProviderAccountStatus::Authenticated);
     assert_eq!(updated.metadata["credentialRevision"], json!(3));
@@ -80,45 +90,33 @@ async fn service_uses_selected_codex_oauth_endpoints_and_client_id() {
 async fn start_auth_validates_active_provider_kind_and_method() {
     let mut mismatched_kind = codex_account();
     mismatched_kind.provider_kind = "exa".to_string();
-    let fixture = ServiceFixture::with_account(mismatched_kind.clone());
-    let error = fixture
-        .service
-        .start_auth(StartProviderAuthRequest {
-            provider_kind: "codex".to_string(),
-            provider_account_id: mismatched_kind.provider_account_id,
-            method: ProviderAuthMethod::OauthDeviceCode,
-        })
-        .await
-        .expect_err("provider mismatch");
-    assert_eq!(error, ProviderAccountOperationError::ProviderMismatch);
-
     let mut inactive = codex_account();
     inactive.is_active = false;
-    let fixture = ServiceFixture::with_account(inactive.clone());
-    let error = fixture
-        .service
-        .start_auth(StartProviderAuthRequest {
-            provider_kind: "codex".to_string(),
-            provider_account_id: inactive.provider_account_id,
-            method: ProviderAuthMethod::OauthDeviceCode,
-        })
-        .await
-        .expect_err("inactive account");
-    assert_eq!(error, ProviderAccountOperationError::AccountInactive);
-
     let mut mismatched_method = codex_account();
     mismatched_method.auth_method = ProviderAuthMethod::SecretInput;
-    let fixture = ServiceFixture::with_account(mismatched_method.clone());
-    let error = fixture
-        .service
-        .start_auth(StartProviderAuthRequest {
-            provider_kind: "codex".to_string(),
-            provider_account_id: mismatched_method.provider_account_id,
-            method: ProviderAuthMethod::OauthDeviceCode,
-        })
-        .await
-        .expect_err("auth method mismatch");
-    assert_eq!(error, ProviderAccountOperationError::AuthMethodMismatch);
+    for (account, expected) in [
+        (
+            mismatched_kind,
+            ProviderAccountOperationError::ProviderMismatch,
+        ),
+        (inactive, ProviderAccountOperationError::AccountInactive),
+        (
+            mismatched_method,
+            ProviderAccountOperationError::AuthMethodMismatch,
+        ),
+    ] {
+        let fixture = ServiceFixture::with_account(account.clone());
+        let error = fixture
+            .service
+            .start_auth(StartProviderAuthRequest {
+                provider_kind: "codex".to_string(),
+                provider_account_id: account.provider_account_id,
+                method: ProviderAuthMethod::OauthDeviceCode,
+            })
+            .await
+            .expect_err("invalid account must be rejected");
+        assert_eq!(error, expected);
+    }
 }
 
 #[tokio::test]
@@ -171,19 +169,7 @@ async fn oauth_publication_rejects_a_stale_credential_revision_before_writing() 
 
 #[tokio::test]
 async fn cancelled_attempt_cannot_publish_returned_tokens_and_is_durable() {
-    let mut account = codex_account();
-    account.status = ProviderAccountStatus::Unauthenticated;
-    let fixture = ServiceFixture::with_account(account.clone());
-    let attempt = auth_attempt(&account, "cancel-before-publication");
-    let (cancel, _cancelled) = oneshot::channel();
-    assert!(
-        fixture
-            .service
-            .inner
-            .auth
-            .register_attempt(attempt.clone(), ProviderAuthAttemptRuntime::new(cancel))
-            .await
-    );
+    let (fixture, account, attempt) = registered_attempt("cancel-before-publication").await;
     fixture
         .service
         .inner
@@ -221,19 +207,7 @@ async fn cancelled_attempt_cannot_publish_returned_tokens_and_is_durable() {
 
 #[tokio::test]
 async fn failed_attempt_persists_safe_terminal_account_state() {
-    let mut account = codex_account();
-    account.status = ProviderAccountStatus::Unauthenticated;
-    let fixture = ServiceFixture::with_account(account.clone());
-    let attempt = auth_attempt(&account, "failed-terminal");
-    let (cancel, _cancelled) = oneshot::channel();
-    assert!(
-        fixture
-            .service
-            .inner
-            .auth
-            .register_attempt(attempt.clone(), ProviderAuthAttemptRuntime::new(cancel))
-            .await
-    );
+    let (fixture, account, attempt) = registered_attempt("failed-terminal").await;
 
     fixture
         .service
@@ -312,27 +286,16 @@ async fn service_shutdown_cancels_and_drains_registered_auth_tasks() {
 
 #[tokio::test]
 async fn stale_terminal_outcome_does_not_clobber_newer_account_state() {
-    let mut account = codex_account();
-    account.status = ProviderAccountStatus::Unauthenticated;
-    let fixture = ServiceFixture::with_account(account.clone());
-    let attempt = auth_attempt(&account, "stale-terminal");
-    let (cancel, _cancelled) = oneshot::channel();
-    assert!(
-        fixture
-            .service
-            .inner
-            .auth
-            .register_attempt(attempt.clone(), ProviderAuthAttemptRuntime::new(cancel))
-            .await
-    );
+    let (fixture, account, attempt) = registered_attempt("stale-terminal").await;
     fixture
         .persistence
         .set_credential_revision(&account.provider_account_id, 3);
     {
         let mut state = fixture.persistence.state.lock().expect("fake state");
         let current = state
-            .accounts
-            .get_mut(&account.provider_account_id)
+            .account
+            .as_mut()
+            .filter(|current| current.provider_account_id == account.provider_account_id)
             .expect("account");
         current.status = ProviderAccountStatus::Authenticated;
         current.last_error_code = None;
@@ -362,6 +325,29 @@ async fn stale_terminal_outcome_does_not_clobber_newer_account_state() {
     assert_eq!(durable.last_error_code, None);
 }
 
+async fn registered_attempt(
+    attempt_id: &str,
+) -> (
+    ServiceFixture,
+    crate::ProviderAccountRecord,
+    crate::ProviderAuthAttemptView,
+) {
+    let mut account = codex_account();
+    account.status = ProviderAccountStatus::Unauthenticated;
+    let fixture = ServiceFixture::with_account(account.clone());
+    let attempt = auth_attempt(&account, attempt_id);
+    let (cancel, _cancelled) = oneshot::channel();
+    assert!(
+        fixture
+            .service
+            .inner
+            .auth
+            .register_attempt(attempt.clone(), ProviderAuthAttemptRuntime::new(cancel))
+            .await
+    );
+    (fixture, account, attempt)
+}
+
 async fn wait_for_auth_terminal(
     service: &super::ProviderAccountService,
     attempt_id: &str,
@@ -387,60 +373,4 @@ async fn wait_for_auth_terminal(
     })
     .await
     .expect("auth attempt did not finish")
-}
-
-async fn spawn_recording_oauth_server() -> (String, oneshot::Receiver<Vec<String>>) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
-    let address = listener.local_addr().expect("address");
-    let (requests_tx, requests_rx) = oneshot::channel();
-    tokio::spawn(async move {
-        let responses = [
-            r#"{"device_auth_id":"device-secret","user_code":"ABCD-EFGH","interval":0}"#,
-            r#"{"authorization_code":"authorization-secret","code_verifier":"verifier-secret"}"#,
-            r#"{"access_token":"access-secret","refresh_token":"refresh-secret"}"#,
-        ];
-        let mut requests = Vec::new();
-        for body in responses {
-            let (mut stream, _) = listener.accept().await.expect("accept");
-            requests.push(read_http_request(&mut stream).await);
-            stream
-                .write_all(
-                    format!(
-                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-                        body.len()
-                    )
-                    .as_bytes(),
-                )
-                .await
-                .expect("write response");
-        }
-        requests_tx.send(requests).expect("captured requests");
-    });
-    (format!("http://{address}"), requests_rx)
-}
-
-async fn read_http_request(stream: &mut TcpStream) -> String {
-    let mut bytes = Vec::new();
-    let mut buffer = [0_u8; 1024];
-    loop {
-        let read = stream.read(&mut buffer).await.expect("read request");
-        assert_ne!(read, 0, "client closed before request completed");
-        bytes.extend_from_slice(&buffer[..read]);
-        let Some(header_end) = bytes.windows(4).position(|window| window == b"\r\n\r\n") else {
-            continue;
-        };
-        let headers = String::from_utf8_lossy(&bytes[..header_end]);
-        let content_length = headers
-            .lines()
-            .find_map(|line| {
-                let (name, value) = line.split_once(':')?;
-                name.eq_ignore_ascii_case("content-length")
-                    .then(|| value.trim().parse::<usize>().ok())
-                    .flatten()
-            })
-            .unwrap_or(0);
-        if bytes.len() >= header_end + 4 + content_length {
-            return String::from_utf8_lossy(&bytes).into_owned();
-        }
-    }
 }

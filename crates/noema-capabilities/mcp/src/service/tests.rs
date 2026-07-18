@@ -1,18 +1,13 @@
-use noema_capabilities::{CapabilityBindingSource, CapabilityError, CapabilityInvoker};
+use noema_capabilities::{CapabilityBindingSource, CapabilityError};
 
 use crate::{McpOperationError, McpOperations};
 
-use super::test_support::{TestHarness, advertised_invocation};
+use super::test_support::TestHarness;
 
 #[tokio::test]
 async fn shutdown_cancels_admitted_transport_work_and_rejects_new_work() {
     let harness = TestHarness::new();
-    harness.sessions.block_calls();
-    let invocation = advertised_invocation(&harness).await;
-    let service = harness.service.clone();
-    let invoking =
-        tokio::spawn(async move { CapabilityInvoker::invoke(&service, invocation).await });
-    harness.sessions.wait_for_call().await;
+    let invoking = harness.start_blocked_invocation().await;
 
     assert!(harness.service.shutdown().await);
     assert_eq!(

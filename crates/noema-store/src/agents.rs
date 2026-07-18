@@ -1,6 +1,20 @@
 use rusqlite::{OptionalExtension, params};
 
-use super::{NoemaStore, StoreError};
+use super::{NoemaStore, StoreError, sqlite::conversion_failure};
+
+pub(super) const BUILTIN_AGENTS: [(&str, Option<&str>, &str); 3] = [
+    ("agent:primary", None, "primary"),
+    (
+        "agent:task-executor",
+        Some("Task Executor"),
+        "task_executor",
+    ),
+    (
+        "agent:task-reviewer",
+        Some("Task Reviewer"),
+        "task_reviewer",
+    ),
+];
 
 /// Explicit built-in role for an agent row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,16 +28,6 @@ pub enum AgentSystemRole {
 }
 
 impl AgentSystemRole {
-    /// Return the stable SQLite representation.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Primary => "primary",
-            Self::TaskExecutor => "task_executor",
-            Self::TaskReviewer => "task_reviewer",
-        }
-    }
-
     fn parse(value: &str) -> Result<Self, StoreError> {
         match value {
             "primary" => Ok(Self::Primary),
@@ -35,26 +39,6 @@ impl AgentSystemRole {
             }),
         }
     }
-}
-
-/// Input for creating a durable agent row.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NewAgent {
-    /// Durable concrete agent id.
-    pub agent_id: String,
-    /// Optional human-visible agent name.
-    pub display_name: Option<String>,
-}
-
-/// Persisted human identity.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HumanRecord {
-    /// Durable concrete human id.
-    pub human_id: String,
-    /// Human-visible name.
-    pub display_name: String,
-    /// Default conversation id, when one has been created.
-    pub primary_conversation_id: Option<String>,
 }
 
 /// Persisted agent identity.
@@ -84,85 +68,19 @@ impl NoemaStore {
                 "#,
                 [],
             )?;
-            conn.execute(
-                r#"
-                INSERT INTO agents (agent_id, display_name, system_role)
-                VALUES ('agent:primary', NULL, 'primary')
-                ON CONFLICT(agent_id) DO UPDATE SET system_role = 'primary', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                "#,
-                [],
-            )?;
-            conn.execute(
-                r#"
-                INSERT INTO agents (agent_id, display_name, system_role)
-                VALUES ('agent:task-executor', 'Task Executor', 'task_executor')
-                ON CONFLICT(agent_id) DO UPDATE SET system_role = 'task_executor', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                "#,
-                [],
-            )?;
-            conn.execute(
-                r#"
-                INSERT INTO agents (agent_id, display_name, system_role)
-                VALUES ('agent:task-reviewer', 'Task Reviewer', 'task_reviewer')
-                ON CONFLICT(agent_id) DO UPDATE SET system_role = 'task_reviewer', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                "#,
-                [],
-            )?;
+            for (agent_id, display_name, system_role) in BUILTIN_AGENTS {
+                conn.execute(
+                    r#"
+                    INSERT INTO agents (agent_id, display_name, system_role)
+                    VALUES (?1, ?2, ?3)
+                    ON CONFLICT(agent_id) DO UPDATE SET
+                      system_role = excluded.system_role,
+                      updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                    "#,
+                    params![agent_id, display_name, system_role],
+                )?;
+            }
             Ok(())
-        })
-        .await
-    }
-
-    /// Create one durable agent row.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError`] when the embedded store write or read fails.
-    pub async fn create_agent(&self, agent: NewAgent) -> Result<AgentRecord, StoreError> {
-        let display_name = normalize_agent_display_name(agent.display_name.as_deref())?;
-        self.with_connection(|conn| {
-            conn.execute(
-                r#"
-                INSERT INTO agents (agent_id, display_name)
-                VALUES (?1, ?2)
-                "#,
-                params![agent.agent_id, display_name],
-            )?;
-            Ok(())
-        })
-        .await?;
-        self.get_agent(&agent.agent_id)
-            .await?
-            .ok_or(StoreError::AgentNotFound {
-                agent_id: agent.agent_id,
-            })
-    }
-
-    /// Return one human by durable id.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError`] when the embedded store read fails.
-    pub async fn get_human(&self, human_id: &str) -> Result<Option<HumanRecord>, StoreError> {
-        self.with_connection(|conn| {
-            conn.query_row(
-                r#"
-                SELECT human_id, display_name, primary_conversation_id
-                FROM humans
-                WHERE human_id = ?1
-                LIMIT 1
-                "#,
-                [human_id],
-                |row| {
-                    Ok(HumanRecord {
-                        human_id: row.get(0)?,
-                        display_name: row.get(1)?,
-                        primary_conversation_id: row.get(2)?,
-                    })
-                },
-            )
-            .optional()
-            .map_err(StoreError::Sqlite)
         })
         .await
     }
@@ -269,13 +187,7 @@ fn agent_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRecord> {
             .as_deref()
             .map(AgentSystemRole::parse)
             .transpose()
-            .map_err(|error| {
-                rusqlite::Error::FromSqlConversionFailure(
-                    2,
-                    rusqlite::types::Type::Text,
-                    Box::new(error),
-                )
-            })?,
+            .map_err(|error| conversion_failure(2, rusqlite::types::Type::Text, error))?,
     })
 }
 

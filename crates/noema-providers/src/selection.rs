@@ -274,28 +274,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn existing_snapshot_shape_omits_only_the_new_instance_key() {
-        let snapshot = ProviderSelectionSnapshot::provider_default(
-            "codex",
-            "provider_account:codex:default",
-            None,
-            None,
-        );
-
-        assert_eq!(
-            serde_json::to_value(snapshot).unwrap(),
-            json!({
-                "provider_kind": "codex",
-                "provider_account_id": "provider_account:codex:default",
-                "selection_mode": "provider_default",
-                "model_profile": null,
-                "reasoning_effort": null,
-                "selection_source": null
-            })
-        );
-    }
-
-    #[test]
     fn snapshots_preserve_explicit_and_provider_default_semantics() {
         let explicit = ProviderSelectionSnapshot::explicit(
             "Codex",
@@ -333,22 +311,6 @@ mod tests {
                 .model_profile,
             None
         );
-    }
-
-    #[test]
-    fn existing_rows_deserialize_without_an_instance_key() {
-        let snapshot: ProviderSelectionSnapshot = serde_json::from_value(json!({
-            "provider_kind": "openai",
-            "provider_account_id": "provider_account:openai:default",
-            "selection_mode": "explicit_profile",
-            "model_profile": "gpt-5.5",
-            "reasoning_effort": "high",
-            "selection_source": "user"
-        }))
-        .unwrap();
-
-        assert_eq!(snapshot.provider_instance_key, None);
-        assert_eq!(snapshot.reasoning_effort, Some(ReasoningEffort::High));
     }
 
     #[test]

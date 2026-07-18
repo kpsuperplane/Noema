@@ -20,7 +20,8 @@ enum FailureStage {
 }
 
 #[tokio::test]
-async fn forged_and_stale_authority_never_reach_the_transport() {
+async fn authority_policy_and_serialization_contracts() {
+    // Case: forged_and_stale_authority_never_reach_the_transport.
     let harness = TestHarness::new();
     let invocation = advertised_invocation(&harness).await;
     let forged = CapabilityInvocation {
@@ -43,10 +44,8 @@ async fn forged_and_stale_authority_never_reach_the_transport() {
         Err(CapabilityError::UnknownOperation)
     );
     assert_eq!(harness.sessions.call_count(), 0);
-}
 
-#[tokio::test]
-async fn live_read_is_callable_but_write_and_export_changes_fail_closed() {
+    // Case: live_read_is_callable_but_write_and_export_changes_fail_closed.
     let harness = TestHarness::new();
     let invocation = advertised_invocation(&harness).await;
 
@@ -78,10 +77,8 @@ async fn live_read_is_callable_but_write_and_export_changes_fail_closed() {
         Err(CapabilityError::Denied)
     );
     assert_eq!(harness.sessions.call_count(), 1);
-}
 
-#[tokio::test]
-async fn refreshed_credentials_commit_before_the_remote_tool_call() {
+    // Case: refreshed_credentials_commit_before_the_remote_tool_call.
     let harness = TestHarness::new();
     harness.sessions.set_refreshed(McpOAuthStoredCredentials {
         client_id: "private-client".to_string(),
@@ -93,7 +90,7 @@ async fn refreshed_credentials_commit_before_the_remote_tool_call() {
         .await
         .expect("invocation");
 
-    let events = harness.events.lock().expect("events").clone();
+    let events = harness.events.snapshot();
     let committed = position(&events, "secret_commit");
     let called = position(&events, "tool_call");
     assert!(committed < called, "events: {events:?}");
@@ -104,10 +101,8 @@ async fn refreshed_credentials_commit_before_the_remote_tool_call() {
             .oauth_credentials
             .is_some()
     );
-}
 
-#[tokio::test]
-async fn missing_required_secret_material_fences_the_server_before_transport() {
+    // Case: missing_required_secret_material_fences_the_server_before_transport.
     let harness = TestHarness::new();
     let invocation = advertised_invocation(&harness).await;
     let mut snapshot = harness.repository.snapshot();
@@ -127,24 +122,11 @@ async fn missing_required_secret_material_fences_the_server_before_transport() {
     );
     assert_eq!(harness.sessions.call_count(), 0);
     assert!(harness.repository.events().contains(&"record_status"));
-    assert!(
-        !harness
-            .events
-            .lock()
-            .expect("events")
-            .contains(&"session_prepare")
-    );
-}
+    assert!(!harness.events.contains("session_prepare"));
 
-#[tokio::test]
-async fn delete_waits_for_in_flight_invocation_on_the_same_server() {
+    // Case: delete_waits_for_in_flight_invocation_on_the_same_server.
     let harness = TestHarness::new();
-    harness.sessions.block_calls();
-    let invocation = advertised_invocation(&harness).await;
-    let service = harness.service.clone();
-    let invoking =
-        tokio::spawn(async move { CapabilityInvoker::invoke(&service, invocation).await });
-    harness.sessions.wait_for_call().await;
+    let invoking = harness.start_blocked_invocation().await;
 
     let attempted = Arc::new(Semaphore::new(0));
     let deleting = {
@@ -179,17 +161,10 @@ async fn delete_waits_for_in_flight_invocation_on_the_same_server() {
             .deleted
     );
     assert!(harness.repository.events().contains(&"begin_delete"));
-}
 
-#[tokio::test]
-async fn calibration_revocation_waits_for_in_flight_call_then_fences_the_next_call() {
+    // Case: calibration_revocation_waits_for_in_flight_call_then_fences_the_next_call.
     let harness = TestHarness::new();
-    harness.sessions.block_calls();
-    let invocation = advertised_invocation(&harness).await;
-    let service = harness.service.clone();
-    let invoking =
-        tokio::spawn(async move { CapabilityInvoker::invoke(&service, invocation).await });
-    harness.sessions.wait_for_call().await;
+    let invoking = harness.start_blocked_invocation().await;
 
     let saving = {
         let service = harness.service.clone();
@@ -230,10 +205,8 @@ async fn calibration_revocation_waits_for_in_flight_call_then_fences_the_next_ca
         CapabilityInvoker::invoke(&harness.service, advertised_invocation(&harness).await).await,
         Err(CapabilityError::Denied)
     );
-}
 
-#[tokio::test]
-async fn policy_mutation_for_an_unrelated_server_is_not_globally_serialized() {
+    // Case: policy_mutation_for_an_unrelated_server_is_not_globally_serialized.
     let harness = TestHarness::new();
     let context = harness
         .service
@@ -259,7 +232,8 @@ async fn policy_mutation_for_an_unrelated_server_is_not_globally_serialized() {
 }
 
 #[tokio::test]
-async fn raw_transport_detail_is_diagnostic_only() {
+async fn transport_failure_status_and_diagnostic_contracts() {
+    // Case: raw_transport_detail_is_diagnostic_only.
     let harness = TestHarness::new();
     harness.sessions.set_call_error(McpClientError::Unavailable(
         "private backend socket and credential detail".to_string(),
@@ -281,10 +255,8 @@ async fn raw_transport_detail_is_diagnostic_only() {
     assert!(diagnostic.error_chain[0].contains("private backend"));
     assert_eq!(diagnostic.raw, Some(json!({"arguments_omitted": true})));
     assert!(!format!("{diagnostic:?}").contains("private user payload"));
-}
 
-#[tokio::test]
-async fn typed_authentication_failure_marks_auth_required_at_every_transport_stage() {
+    // Case: typed_authentication_failure_marks_auth_required_at_every_transport_stage.
     for stage in [FailureStage::Preparation, FailureStage::ToolCall] {
         assert_failure_status(
             stage,
@@ -293,31 +265,20 @@ async fn typed_authentication_failure_marks_auth_required_at_every_transport_sta
         )
         .await;
     }
-}
 
-#[tokio::test]
-async fn ordinary_unavailable_failure_preserves_the_prior_auth_status() {
-    for stage in [FailureStage::Preparation, FailureStage::ToolCall] {
-        assert_failure_status(
-            stage,
-            McpClientError::Unavailable("backend socket closed".to_string()),
-            McpServerAuthStatus::None,
-        )
-        .await;
-    }
-}
-
-#[tokio::test]
-async fn auth_shaped_unavailable_detail_does_not_change_auth_status() {
-    for stage in [FailureStage::Preparation, FailureStage::ToolCall] {
-        assert_failure_status(
-            stage,
-            McpClientError::Unavailable(
-                "MCP authentication is required: credential rejected".to_string(),
-            ),
-            McpServerAuthStatus::None,
-        )
-        .await;
+    // Case: unavailable_failure_detail_never_changes_the_prior_auth_status.
+    for detail in [
+        "backend socket closed",
+        "MCP authentication is required: credential rejected",
+    ] {
+        for stage in [FailureStage::Preparation, FailureStage::ToolCall] {
+            assert_failure_status(
+                stage,
+                McpClientError::Unavailable(detail.to_string()),
+                McpServerAuthStatus::None,
+            )
+            .await;
+        }
     }
 }
 

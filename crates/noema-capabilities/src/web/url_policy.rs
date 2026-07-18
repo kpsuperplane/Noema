@@ -72,7 +72,7 @@ pub fn url_has_sensitive_components(url: &Url) -> bool {
 
 /// Return whether a hostname is reserved for local/internal use.
 #[must_use]
-pub fn is_blocked_hostname(host: &str) -> bool {
+fn is_blocked_hostname(host: &str) -> bool {
     let normalized = host.trim_matches('.').to_ascii_lowercase();
     normalized == "localhost"
         || normalized.ends_with(".localhost")
@@ -175,7 +175,12 @@ mod tests {
             "file:///etc/passwd",
             "http://localhost/",
             "http://127.0.0.1/",
+            "http://10.0.0.1/",
+            "http://172.16.0.1/",
+            "http://192.168.0.1/",
             "http://[::1]/",
+            "http://[fc00::1]/",
+            "http://[fe80::1]/",
             "http://2130706433/",
             "http://0x7f000001/",
             "http://017700000001/",
@@ -193,76 +198,6 @@ mod tests {
             "https://example.com/path#secret",
         ] {
             assert!(validate_public_url(url).is_err(), "expected blocked: {url}");
-        }
-    }
-
-    #[test]
-    fn accepts_ordinary_public_https_url() {
-        assert!(validate_public_url("https://www.rust-lang.org/learn").is_ok());
-    }
-
-    #[test]
-    fn rejects_non_http_schemes() {
-        assert_eq!(
-            validate_public_url("file:///etc/passwd"),
-            Err(PublicUrlError::UnsupportedScheme)
-        );
-    }
-
-    #[test]
-    fn rejects_localhost_name() {
-        assert_eq!(
-            validate_public_url("http://localhost/"),
-            Err(PublicUrlError::BlockedTarget)
-        );
-    }
-
-    #[test]
-    fn rejects_ipv4_loopback_and_private_ranges() {
-        for url in [
-            "http://127.0.0.1/",
-            "http://10.0.0.1/",
-            "http://172.16.0.1/",
-            "http://192.168.0.1/",
-        ] {
-            assert_eq!(
-                validate_public_url(url),
-                Err(PublicUrlError::BlockedTarget),
-                "expected blocked: {url}"
-            );
-        }
-    }
-
-    #[test]
-    fn rejects_ipv6_local_ranges() {
-        for url in ["http://[::1]/", "http://[fc00::1]/", "http://[fe80::1]/"] {
-            assert_eq!(
-                validate_public_url(url),
-                Err(PublicUrlError::BlockedTarget),
-                "expected blocked: {url}"
-            );
-        }
-    }
-
-    #[test]
-    fn rejects_integer_encoded_loopback_host() {
-        assert_eq!(
-            validate_public_url("http://2130706433/"),
-            Err(PublicUrlError::BlockedTarget)
-        );
-    }
-
-    #[test]
-    fn rejects_credentials_and_fragments() {
-        for url in [
-            "https://user:secret@www.rust-lang.org/",
-            "https://www.rust-lang.org/learn#secret",
-        ] {
-            assert_eq!(
-                validate_public_url(url),
-                Err(PublicUrlError::BlockedTarget),
-                "expected blocked: {url}"
-            );
         }
     }
 }

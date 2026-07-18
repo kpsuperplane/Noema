@@ -3,6 +3,20 @@
 /// Runtime state reached an invariant violation.
 pub const SYSTEM_ERROR_RUNTIME_INVARIANT: &str = "runtime_invariant_violation";
 
+pub(crate) fn log_system_error(
+    logger: &noema_home::SystemErrorLogger,
+    code: &'static str,
+    message: &'static str,
+    context: Option<serde_json::Value>,
+    error: impl ToString,
+) {
+    let mut event = noema_home::SystemErrorEvent::new(code, message);
+    if let Some(context) = context {
+        event = event.with_context(context);
+    }
+    logger.try_append(event.with_error_chain([error.to_string()]));
+}
+
 pub(crate) mod agent_name_tool;
 pub(crate) mod agent_onboarding;
 mod artifact_tool;

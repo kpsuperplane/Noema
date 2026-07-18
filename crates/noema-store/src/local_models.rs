@@ -1,12 +1,12 @@
 //! SQLite persistence for local-model installations and global activation.
 
-use rusqlite::{OptionalExtension, Transaction, params, types::Type};
+use rusqlite::{OptionalExtension, Transaction, params};
 
 use noema_providers::{
     DefaultModelPreferenceRecord, LOCAL_MODELS_PROVIDER_ACCOUNT_ID, LocalModelEventKind,
     LocalModelEventRecord, LocalModelInstallationRecord, LocalModelInstallationStatus,
     LocalModelInstallationUpdate, LocalModelSourceKind, NewLocalModelInstallation,
-    ProviderInstanceKey, ProviderReadySelection, ProviderSelectionSnapshot, ReasoningEffort,
+    ProviderReadySelection, ProviderSelectionSnapshot, ReasoningEffort,
     RemovedLocalModelInstallation, local_model_provider_instance_key,
 };
 
@@ -14,7 +14,13 @@ use super::local_model_rows::{
     INSTALLATION_SELECT, backend_str, event_from_raw, installation_from_raw, optional_u64_to_i64,
     raw_event_from_row, raw_installation_from_row, u64_to_i64,
 };
-use super::{NoemaStore, StoreError, provider_selections::resolve_new_canonical_selection_tx};
+use super::{
+    NoemaStore, StoreError,
+    provider_selections::{
+        CanonicalPreferenceOwner, resolve_new_canonical_selection_tx, write_preference_tx,
+    },
+    sqlite::parse_column,
+};
 
 impl NoemaStore {
     /// Create or refresh queued installation provenance.
@@ -149,7 +155,7 @@ impl NoemaStore {
     /// # Errors
     ///
     /// Returns [`StoreError`] when SQLite or stored vocabulary decoding fails.
-    pub async fn get_local_model_installation(
+    pub(crate) async fn get_local_model_installation(
         &self,
         installation_id: &str,
     ) -> Result<Option<LocalModelInstallationRecord>, StoreError> {
@@ -158,35 +164,6 @@ impl NoemaStore {
                 conn.query_row(
                     &format!("{INSTALLATION_SELECT} WHERE installation_id = ?1 LIMIT 1"),
                     [installation_id],
-                    raw_installation_from_row,
-                )
-                .optional()
-                .map_err(StoreError::Sqlite)
-            })
-            .await?;
-        raw.map(installation_from_raw).transpose()
-    }
-
-    /// Return the newest installed artifact for a provider-facing model id.
-    ///
-    /// The active row wins when multiple advanced imports share a model id.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError`] when SQLite or stored vocabulary decoding fails.
-    pub async fn get_installed_local_model(
-        &self,
-        model_id: &str,
-    ) -> Result<Option<LocalModelInstallationRecord>, StoreError> {
-        let raw = self
-            .with_connection(|conn| {
-                conn.query_row(
-                    &format!(
-                        "{INSTALLATION_SELECT} WHERE model_id = ?1 AND status = 'installed' \
-                         AND retirement_claimed_at IS NULL \
-                         ORDER BY is_active DESC, updated_at DESC, installation_id LIMIT 1"
-                    ),
-                    [model_id],
                     raw_installation_from_row,
                 )
                 .optional()
@@ -341,7 +318,7 @@ impl NoemaStore {
     /// # Errors
     ///
     /// Returns [`StoreError`] when SQLite or stored vocabulary decoding fails.
-    pub async fn list_local_model_events(
+    pub(crate) async fn list_local_model_events(
         &self,
         after_cursor: Option<u64>,
         limit: u32,
@@ -393,30 +370,6 @@ impl NoemaStore {
         .await
     }
 
-    /// Save Noema's default for new workloads without changing existing
-    /// workload-specific selections.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError`] when the account/provider pair is invalid, the
-    /// model profile or reasoning effort is invalid, or SQLite fails.
-    pub async fn save_default_model_preference(
-        &self,
-        provider_kind: &str,
-        provider_account_id: &str,
-        model_profile: &str,
-        reasoning_effort: Option<&str>,
-    ) -> Result<DefaultModelPreferenceRecord, StoreError> {
-        self.save_default_model_preference_inner(
-            provider_kind,
-            provider_account_id,
-            model_profile,
-            reasoning_effort,
-            None,
-        )
-        .await
-    }
-
     /// Save Noema's default while retaining an exact provider readiness lease
     /// through commit.
     ///
@@ -431,24 +384,6 @@ impl NoemaStore {
         model_profile: &str,
         reasoning_effort: Option<&str>,
         ready_selection: &ProviderReadySelection,
-    ) -> Result<DefaultModelPreferenceRecord, StoreError> {
-        self.save_default_model_preference_inner(
-            provider_kind,
-            provider_account_id,
-            model_profile,
-            reasoning_effort,
-            Some(ready_selection),
-        )
-        .await
-    }
-
-    async fn save_default_model_preference_inner(
-        &self,
-        provider_kind: &str,
-        provider_account_id: &str,
-        model_profile: &str,
-        reasoning_effort: Option<&str>,
-        ready_selection: Option<&ProviderReadySelection>,
     ) -> Result<DefaultModelPreferenceRecord, StoreError> {
         let provider_kind = provider_kind.trim().to_ascii_lowercase();
         let provider_account_id = provider_account_id.trim();
@@ -487,34 +422,12 @@ impl NoemaStore {
         );
         self.with_immediate_transaction_retry(|transaction| {
             let selection =
-                resolve_new_canonical_selection_tx(transaction, &selection, ready_selection)?;
-            let provider_instance_key = selection
-                .provider_instance_key
-                .as_ref()
-                .ok_or(StoreError::ProviderInstanceKeyMissing)?;
-            transaction.execute(
-                r#"
-                INSERT INTO default_model_preference (
-                  preference_id, provider_kind, provider_account_id, provider_instance_key,
-                  model_profile, reasoning_effort, updated_at
-                ) VALUES ('default', ?1, ?2, ?3, ?4, ?5, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-                ON CONFLICT(preference_id) DO UPDATE SET
-                  provider_kind = excluded.provider_kind,
-                  provider_account_id = excluded.provider_account_id,
-                  provider_instance_key = excluded.provider_instance_key,
-                  model_profile = excluded.model_profile,
-                  reasoning_effort = excluded.reasoning_effort,
-                  updated_at = excluded.updated_at
-                "#,
-                params![
-                    selection.provider_kind,
-                    selection.provider_account_id,
-                    provider_instance_key.as_str(),
-                    selection.model_profile,
-                    selection
-                        .reasoning_effort
-                        .map(ReasoningEffort::as_persistence_str)
-                ],
+                resolve_new_canonical_selection_tx(transaction, &selection, Some(ready_selection))?;
+            write_preference_tx(
+                transaction,
+                CanonicalPreferenceOwner::Default,
+                &selection,
+                true,
             )?;
             default_preference_in_transaction(transaction)
         })
@@ -528,7 +441,7 @@ fn default_preference_from_row(
     Ok(DefaultModelPreferenceRecord {
         provider_kind: row.get(0)?,
         provider_account_id: row.get(1)?,
-        provider_instance_key: provider_instance_key_from_row(row, 2)?,
+        provider_instance_key: parse_column(row, 2)?,
         model_profile: row.get(3)?,
         reasoning_effort: row.get(4)?,
         updated_at: row.get(5)?,
@@ -550,16 +463,6 @@ fn default_preference_in_transaction(
             default_preference_from_row,
         )
         .map_err(StoreError::Sqlite)
-}
-
-fn provider_instance_key_from_row(
-    row: &rusqlite::Row<'_>,
-    index: usize,
-) -> rusqlite::Result<ProviderInstanceKey> {
-    let value = row.get::<_, String>(index)?;
-    value.parse().map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(index, Type::Text, Box::new(error))
-    })
 }
 
 fn installation_in_transaction(

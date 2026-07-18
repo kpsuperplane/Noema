@@ -19,13 +19,13 @@ pub const MAX_URL_CHARS: usize = 2048;
 /// Hard reason length ceiling.
 pub const MAX_REASON_CHARS: usize = 500;
 /// Largest page returned without model summarization.
-pub const RAW_MARKDOWN_LIMIT_CHARS: usize = 8_000;
+const RAW_MARKDOWN_LIMIT_CHARS: usize = 8_000;
 /// Largest page summarized in one model call.
-pub const SINGLE_PASS_SUMMARY_LIMIT_CHARS: usize = 250_000;
+const SINGLE_PASS_SUMMARY_LIMIT_CHARS: usize = 250_000;
 /// Largest page summarized through bounded chunks.
-pub const CHUNKED_SUMMARY_LIMIT_CHARS: usize = 1_000_000;
+const CHUNKED_SUMMARY_LIMIT_CHARS: usize = 1_000_000;
 /// Bounded raw excerpt retained beside summarized content.
-pub const RAW_EXCERPT_CHARS: usize = 2_000;
+const RAW_EXCERPT_CHARS: usize = 2_000;
 
 /// Normalized fetch request.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -376,16 +376,13 @@ mod tests {
     }
 
     #[test]
-    fn sensitive_url_is_redacted_before_persistence() {
+    fn sensitive_urls_are_redacted_at_every_persisted_position() {
         let sanitized = sanitize_payload_for_storage(&json!({
             "url":"https://user:secret@example.com/path#token"
         }));
         assert_eq!(sanitized["url"], REDACTED_SENSITIVE_URL);
         assert_eq!(sanitized["__noema_rejected_sensitive_url"], true);
-    }
 
-    #[test]
-    fn nested_sensitive_final_url_and_malformed_display_value_are_redacted() {
         let sanitized = sanitize_payload_for_storage(&json!({
             "result": {
                 "url":"https://example.com/safe",
@@ -423,7 +420,7 @@ mod tests {
         );
         assert_eq!(
             summary_strategy_for_chars(RAW_MARKDOWN_LIMIT_CHARS + 1),
-            FetchSummaryDecision::Summarize(FetchSummaryStrategy::SinglePass,),
+            FetchSummaryDecision::Summarize(FetchSummaryStrategy::SinglePass),
         );
         assert_eq!(
             summary_strategy_for_chars(SINGLE_PASS_SUMMARY_LIMIT_CHARS + 1),
@@ -436,6 +433,47 @@ mod tests {
         assert_eq!(
             raw_excerpt(&"x".repeat(RAW_EXCERPT_CHARS + 1)).len(),
             RAW_EXCERPT_CHARS,
+        );
+    }
+
+    #[test]
+    fn parser_normalizes_nested_arguments_and_enforces_bounds() {
+        let parsed = parse_arguments(&json!({
+            "arguments": {
+                "url": "  https://example.com/page  ",
+                "reason": "  source  ",
+                "max_chars": 1
+            }
+        }))
+        .expect("valid nested arguments");
+        assert_eq!(
+            parsed,
+            FetchRequest {
+                url: "https://example.com/page".to_string(),
+                reason: Some("source".to_string()),
+                max_chars: 1000,
+            }
+        );
+        for payload in [
+            json!({"url": "  "}),
+            json!({"url": REDACTED_SENSITIVE_URL, "__noema_rejected_sensitive_url": true}),
+        ] {
+            assert!(parse_arguments(&payload).is_err());
+        }
+        assert_eq!(
+            parse_arguments(&json!({"url": "https://example.com"}))
+                .expect("default max chars")
+                .max_chars,
+            DEFAULT_MAX_CHARS
+        );
+        assert_eq!(
+            parse_arguments(&json!({
+                "arguments": {"url": "https://example.com"},
+                "operation_token": "forged"
+            }))
+            .expect_err("outer authority rejected")
+            .message(),
+            "nested arguments payload cannot include outer fields"
         );
     }
 }

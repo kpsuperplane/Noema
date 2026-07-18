@@ -415,7 +415,7 @@ mod tests {
     }
 
     #[test]
-    fn incremental_sse_parser_buffers_utf8_split_across_byte_chunks() {
+    fn incremental_sse_parser_buffers_utf8_and_delimiter_splits() {
         let accent = "\u{00e9}";
         let payload = format!(
             "event: response.output_text.delta\n\
@@ -424,33 +424,8 @@ mod tests {
              data: {{\"type\":\"response.completed\",\"response\":{{\"id\":\"resp_test\",\"status\":\"completed\"}}}}\n\n"
         );
         let split_at = payload.find(accent).expect("accent byte offset") + 1;
-        let bytes = payload.as_bytes();
-        let mut events = Vec::new();
-        let mut accumulator = SseAccumulator::new(test_diagnostics());
+        assert_split_payload(payload.as_bytes(), split_at, &format!("caf{accent}"));
 
-        accumulator
-            .push_bytes(&bytes[..split_at], &mut |event| events.push(event))
-            .expect("first partial byte chunk");
-        accumulator
-            .push_bytes(&bytes[split_at..], &mut |event| events.push(event))
-            .expect("second partial byte chunk");
-
-        assert_eq!(
-            events,
-            vec![GenerateStreamEvent::AssistantTextDelta {
-                response_index: 0,
-                delta: format!("caf{accent}")
-            }]
-        );
-        let response = accumulator.finish(&mut |_| {}).expect("response");
-        assert_eq!(
-            response.output_text().expect("output text"),
-            format!("caf{accent}")
-        );
-    }
-
-    #[test]
-    fn incremental_sse_parser_buffers_delimiter_split_across_byte_chunks() {
         let payload = b"event: response.output_text.delta\r\n\
                         data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hi\"}\r\n\
                         \r\n\
@@ -461,7 +436,10 @@ mod tests {
             .windows(4)
             .position(|window| window == b"\r\n\r\n")
             .expect("delimiter");
-        let split_at = first_delimiter + 2;
+        assert_split_payload(payload, first_delimiter + 2, "Hi");
+    }
+
+    fn assert_split_payload(payload: &[u8], split_at: usize, expected: &str) {
         let mut events = Vec::new();
         let mut accumulator = SseAccumulator::new(test_diagnostics());
 
@@ -476,12 +454,12 @@ mod tests {
             events,
             vec![GenerateStreamEvent::AssistantTextDelta {
                 response_index: 0,
-                delta: "Hi".to_string()
+                delta: expected.to_string()
             }]
         );
         let response = accumulator.finish(&mut |_| {}).expect("response");
         assert_eq!(response.id.as_deref(), Some("resp_test"));
-        assert_eq!(response.output_text().expect("output text"), "Hi");
+        assert_eq!(response.output_text().expect("output text"), expected);
     }
 
     fn response_from_sse(text: &str) -> Result<ResponsesResponse, ProviderError> {

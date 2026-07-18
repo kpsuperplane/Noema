@@ -8,10 +8,10 @@ use noema_tasks::TaskStatus;
 use noema_store::NoemaStore;
 
 use crate::daemon::{
-    ConversationRuntimeEvent, RuntimeEventRegistry, RuntimeHandle,
+    ConversationRuntimeEvent, RuntimeEventRegistry, RuntimeHandle, log_system_error,
     runtime::{TaskCompletionArtifact, TaskCompletionCriterion, TaskCompletionDeliveryRequest},
 };
-use noema_home::{SystemErrorEvent, SystemErrorLogger};
+use noema_home::SystemErrorLogger;
 
 use super::{TurnStreamEvent, TurnTranscriptItem};
 
@@ -24,12 +24,12 @@ pub(crate) async fn drain_task_completion_outbox(
     let completion_deliveries = match store.list_pending_task_completion_deliveries(32).await {
         Ok(deliveries) => deliveries,
         Err(error) => {
-            system_errors.try_append(
-                SystemErrorEvent::new(
-                    "task_completion_outbox_read_failed",
-                    "Task completion delivery queue could not be read",
-                )
-                .with_error_chain([error.to_string()]),
+            log_system_error(
+                system_errors,
+                "task_completion_outbox_read_failed",
+                "Task completion delivery queue could not be read",
+                None,
+                error,
             );
             return;
         }
@@ -39,13 +39,12 @@ pub(crate) async fn drain_task_completion_outbox(
         {
             Ok(request) => request,
             Err(error) => {
-                system_errors.try_append(
-                    SystemErrorEvent::new(
-                        "task_completion_context_failed",
-                        "Task completion context could not be assembled",
-                    )
-                    .with_context(serde_json::json!({ "task_id": task_id }))
-                    .with_error_chain([error]),
+                log_system_error(
+                    system_errors,
+                    "task_completion_context_failed",
+                    "Task completion context could not be assembled",
+                    Some(serde_json::json!({ "task_id": task_id })),
+                    error,
                 );
                 continue;
             }
@@ -53,13 +52,12 @@ pub(crate) async fn drain_task_completion_outbox(
             continue;
         };
         if let Err(error) = runtime.deliver_task_completion(request).await {
-            system_errors.try_append(
-                SystemErrorEvent::new(
-                    "task_completion_delivery_failed",
-                    "Primary-agent task completion report could not be delivered",
-                )
-                .with_context(serde_json::json!({ "task_id": task_id }))
-                .with_error_chain([error.to_string()]),
+            log_system_error(
+                system_errors,
+                "task_completion_delivery_failed",
+                "Primary-agent task completion report could not be delivered",
+                Some(serde_json::json!({ "task_id": task_id })),
+                error,
             );
         }
     }

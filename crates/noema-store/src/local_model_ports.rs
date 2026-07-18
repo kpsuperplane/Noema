@@ -9,50 +9,36 @@ use noema_providers::{
     RemovedLocalModelInstallation,
 };
 
-use super::{NoemaStore, StoreError};
+use super::{NoemaStore, StoreError, provider_account_port::provider_error};
 
 impl LocalModelInstallationPersistence for NoemaStore {
     fn upsert_local_model_installation(
         &self,
         input: NewLocalModelInstallation,
     ) -> ProviderPersistenceFuture<'_, LocalModelInstallationRecord> {
-        Box::pin(async move {
-            NoemaStore::upsert_local_model_installation(self, input)
-                .await
-                .map_err(|error| local_model_error(error, "upsert_local_model_installation"))
-        })
+        local_model_future(
+            NoemaStore::upsert_local_model_installation(self, input),
+            "upsert_local_model_installation",
+        )
     }
 
     fn local_model_installation<'a>(
         &'a self,
         installation_id: &'a str,
     ) -> ProviderPersistenceFuture<'a, Option<LocalModelInstallationRecord>> {
-        Box::pin(async move {
-            NoemaStore::get_local_model_installation(self, installation_id)
-                .await
-                .map_err(|error| local_model_error(error, "local_model_installation"))
-        })
-    }
-
-    fn installed_local_model<'a>(
-        &'a self,
-        model_id: &'a str,
-    ) -> ProviderPersistenceFuture<'a, Option<LocalModelInstallationRecord>> {
-        Box::pin(async move {
-            NoemaStore::get_installed_local_model(self, model_id)
-                .await
-                .map_err(|error| local_model_error(error, "installed_local_model"))
-        })
+        local_model_future(
+            NoemaStore::get_local_model_installation(self, installation_id),
+            "local_model_installation",
+        )
     }
 
     fn local_model_installations(
         &self,
     ) -> ProviderPersistenceFuture<'_, Vec<LocalModelInstallationRecord>> {
-        Box::pin(async move {
-            NoemaStore::list_local_model_installations(self)
-                .await
-                .map_err(|error| local_model_error(error, "local_model_installations"))
-        })
+        local_model_future(
+            NoemaStore::list_local_model_installations(self),
+            "local_model_installations",
+        )
     }
 
     fn update_local_model_installation<'a>(
@@ -60,35 +46,30 @@ impl LocalModelInstallationPersistence for NoemaStore {
         installation_id: &'a str,
         update: LocalModelInstallationUpdate,
     ) -> ProviderPersistenceFuture<'a, LocalModelInstallationRecord> {
-        Box::pin(async move {
-            NoemaStore::update_local_model_installation(self, installation_id, update)
-                .await
-                .map_err(|error| local_model_error(error, "update_local_model_installation"))
-        })
+        local_model_future(
+            NoemaStore::update_local_model_installation(self, installation_id, update),
+            "update_local_model_installation",
+        )
     }
 
     fn cancel_local_model_installation<'a>(
         &'a self,
         installation_id: &'a str,
     ) -> ProviderPersistenceFuture<'a, LocalModelInstallationRecord> {
-        Box::pin(async move {
-            NoemaStore::cancel_local_model_installation(self, installation_id)
-                .await
-                .map_err(|error| local_model_error(error, "cancel_local_model_installation"))
-        })
+        local_model_future(
+            NoemaStore::cancel_local_model_installation(self, installation_id),
+            "cancel_local_model_installation",
+        )
     }
 
     fn remove_terminal_local_model_installation<'a>(
         &'a self,
         installation_id: &'a str,
     ) -> ProviderPersistenceFuture<'a, RemovedLocalModelInstallation> {
-        Box::pin(async move {
-            NoemaStore::remove_terminal_local_model_installation(self, installation_id)
-                .await
-                .map_err(|error| {
-                    local_model_error(error, "remove_terminal_local_model_installation")
-                })
-        })
+        local_model_future(
+            NoemaStore::remove_terminal_local_model_installation(self, installation_id),
+            "remove_terminal_local_model_installation",
+        )
     }
 
     fn local_model_events(
@@ -96,11 +77,10 @@ impl LocalModelInstallationPersistence for NoemaStore {
         after_cursor: Option<u64>,
         limit: u32,
     ) -> ProviderPersistenceFuture<'_, Vec<LocalModelEventRecord>> {
-        Box::pin(async move {
-            NoemaStore::list_local_model_events(self, after_cursor, limit)
-                .await
-                .map_err(|error| local_model_error(error, "local_model_events"))
-        })
+        local_model_future(
+            NoemaStore::list_local_model_events(self, after_cursor, limit),
+            "local_model_events",
+        )
     }
 }
 
@@ -110,15 +90,14 @@ impl LocalModelActivationPersistence for NoemaStore {
         installation_id: &'a str,
         ready_selection: &'a ProviderReadySelection,
     ) -> ProviderPersistenceFuture<'a, LocalModelInstallationRecord> {
-        Box::pin(async move {
+        local_model_future(
             NoemaStore::activate_local_model_as_system_default(
                 self,
                 installation_id,
                 ready_selection,
-            )
-            .await
-            .map_err(|error| local_model_error(error, "activate_local_model"))
-        })
+            ),
+            "activate_local_model",
+        )
     }
 }
 
@@ -126,47 +105,52 @@ impl LocalModelLifecyclePersistence for NoemaStore {
     fn local_model_reconstruction_snapshot(
         &self,
     ) -> ProviderPersistenceFuture<'_, LocalModelReconstructionSnapshot> {
-        Box::pin(async move {
-            NoemaStore::local_model_reconstruction_snapshot(self)
-                .await
-                .map_err(|error| local_model_error(error, "local_model_reconstruction_snapshot"))
-        })
+        local_model_future(
+            NoemaStore::local_model_reconstruction_snapshot(self),
+            "local_model_reconstruction_snapshot",
+        )
     }
 
     fn retire_unreferenced_instance_runtime<'a>(
         &'a self,
         provider_instance_key: &'a ProviderInstanceKey,
     ) -> ProviderPersistenceFuture<'a, LocalModelRuntimeRetirementResult> {
-        Box::pin(async move {
-            NoemaStore::retire_unreferenced_instance_runtime(self, provider_instance_key)
-                .await
-                .map_err(|error| local_model_error(error, "retire_unreferenced_instance_runtime"))
-        })
+        local_model_future(
+            NoemaStore::retire_unreferenced_instance_runtime(self, provider_instance_key),
+            "retire_unreferenced_instance_runtime",
+        )
     }
 
     fn claim_unreferenced_instance_for_retirement<'a>(
         &'a self,
         provider_instance_key: &'a ProviderInstanceKey,
     ) -> ProviderPersistenceFuture<'a, LocalModelRetirementClaimResult> {
-        Box::pin(async move {
-            NoemaStore::claim_unreferenced_instance_for_retirement(self, provider_instance_key)
-                .await
-                .map_err(|error| {
-                    local_model_error(error, "claim_unreferenced_instance_for_retirement")
-                })
-        })
+        local_model_future(
+            NoemaStore::claim_unreferenced_instance_for_retirement(self, provider_instance_key),
+            "claim_unreferenced_instance_for_retirement",
+        )
     }
 
     fn complete_claimed_local_model_removal<'a>(
         &'a self,
         provider_instance_key: &'a ProviderInstanceKey,
     ) -> ProviderPersistenceFuture<'a, RemovedLocalModelInstallation> {
-        Box::pin(async move {
-            NoemaStore::complete_claimed_local_model_removal(self, provider_instance_key)
-                .await
-                .map_err(|error| local_model_error(error, "complete_claimed_local_model_removal"))
-        })
+        local_model_future(
+            NoemaStore::complete_claimed_local_model_removal(self, provider_instance_key),
+            "complete_claimed_local_model_removal",
+        )
     }
+}
+
+fn local_model_future<'a, T: 'a>(
+    future: impl std::future::Future<Output = Result<T, StoreError>> + Send + 'a,
+    operation: &'static str,
+) -> ProviderPersistenceFuture<'a, T> {
+    Box::pin(async move {
+        future
+            .await
+            .map_err(|error| local_model_error(error, operation))
+    })
 }
 
 fn local_model_error(error: StoreError, operation: &'static str) -> ProviderPersistenceError {
@@ -212,10 +196,6 @@ fn local_model_error(error: StoreError, operation: &'static str) -> ProviderPers
         StoreError::LocalModelRetirementConflict { operation } => {
             ProviderPersistenceError::Conflict { operation }
         }
-        StoreError::InvalidEnum { .. } | StoreError::Schema(_) => {
-            ProviderPersistenceError::Invariant { operation }
-        }
-        StoreError::InvariantViolation { .. } => ProviderPersistenceError::Invariant { operation },
-        _ => ProviderPersistenceError::Persistence { operation },
+        error => provider_error(error, operation),
     }
 }

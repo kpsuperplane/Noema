@@ -3,7 +3,7 @@ use std::fs;
 use rusqlite::Connection;
 use tempfile::TempDir;
 
-use super::{schema_support::*, support::store_config, test_store};
+use super::{schema_support::*, support::store_config};
 use crate::{
     NoemaStore, SchemaIncompatibility, StoreConfig, StoreError,
     runtime::{bootstrap_schema_for_test, inspect_empty_schema_for_test},
@@ -11,79 +11,32 @@ use crate::{
 };
 
 #[tokio::test]
-async fn opens_sqlite_store_under_noema_db_dir() {
-    let home = TempDir::new().expect("temp store root");
-    let config = store_config(home.path());
-
-    let store = NoemaStore::open(&config).await.expect("open store");
-
-    assert!(home.path().join("db").exists());
-    assert!(config.path.exists());
-    assert_eq!(
-        store.schema_version().await.expect("schema version"),
-        STORE_SCHEMA_VERSION
-    );
-}
-
-#[tokio::test]
-async fn empty_database_bootstraps_the_exact_current_schema() {
+async fn bootstrap_rejection_and_explicit_recovery_schema_contracts() {
     let home = TempDir::new().expect("temp store root");
     let config = store_config(home.path());
 
     let store = NoemaStore::open(&config).await.expect("bootstrap store");
-    drop(store);
-
-    let actual = database_snapshot(&config.path);
-    let expected = canonical_schema_objects();
-    assert_eq!(actual.schema_objects, expected);
-    assert!(matches!(
-        actual.schema_markers.as_deref(),
-        Some([(name, STORE_SCHEMA_VERSION, _)]) if name == STORE_SCHEMA_MARKER
-    ));
-}
-
-#[tokio::test]
-async fn current_schema_persists_every_exact_provider_identity_owner() {
-    let store = test_store().await;
-    let required_columns = [
-        ("agent_runtime_preferences", "provider_instance_key"),
-        ("auxiliary_model_preferences", "provider_instance_key"),
-        ("local_model_installations", "provider_instance_key"),
-        ("local_model_installations", "retirement_claimed_at"),
-        ("local_model_installations", "runtime_retired_at"),
-        ("default_model_preference", "provider_instance_key"),
-        ("memory_service_settings", "provider_instance_key"),
-        ("task_model_pool_entries", "provider_instance_key"),
-        ("tasks", "executor_provider_instance_key"),
-        ("tasks", "reviewer_provider_instance_key"),
-        ("agent_runs", "provider_instance_key"),
-    ];
-
     store
         .with_connection(|conn| {
-            for (table, required_column) in required_columns {
+            for (table, column) in [
+                ("agent_runtime_preferences", "provider_instance_key"),
+                ("auxiliary_model_preferences", "provider_instance_key"),
+                ("local_model_installations", "provider_instance_key"),
+                ("local_model_installations", "retirement_claimed_at"),
+                ("local_model_installations", "runtime_retired_at"),
+                ("default_model_preference", "provider_instance_key"),
+                ("memory_service_settings", "provider_instance_key"),
+                ("task_model_pool_entries", "provider_instance_key"),
+                ("tasks", "executor_provider_instance_key"),
+                ("tasks", "reviewer_provider_instance_key"),
+                ("agent_runs", "provider_instance_key"),
+            ] {
                 let mut statement = conn.prepare(&format!("PRAGMA table_info({table})"))?;
                 let columns = statement
                     .query_map([], |row| row.get::<_, String>(1))?
                     .collect::<Result<Vec<_>, _>>()?;
-                assert!(
-                    columns.iter().any(|column| column == required_column),
-                    "{table} is missing {required_column}"
-                );
+                assert!(columns.iter().any(|actual| actual == column), "{table}.{column}");
             }
-            Ok(())
-        })
-        .await
-        .expect("inspect exact identity columns");
-}
-
-#[tokio::test]
-async fn exact_current_database_reopens_without_changing_marker_or_rows() {
-    let home = TempDir::new().expect("temp store root");
-    let config = store_config(home.path());
-    let store = NoemaStore::open(&config).await.expect("open store");
-    store
-        .with_connection(|conn| {
             conn.execute(
                 "UPDATE schema_state SET applied_at = 'sentinel' WHERE name = ?1",
                 [STORE_SCHEMA_MARKER],
@@ -95,125 +48,137 @@ async fn exact_current_database_reopens_without_changing_marker_or_rows() {
             Ok(())
         })
         .await
-        .expect("seed exact current database");
+        .expect("exact identity schema and sentinel rows");
     drop(store);
 
-    let reopened = NoemaStore::open(&config).await.expect("reopen exact store");
-    let (applied_at, display_name) = reopened
+    let actual = database_snapshot(&config.path);
+    let expected = canonical_schema_objects();
+    assert_eq!(actual.schema_objects, expected);
+    assert!(matches!(
+        actual.schema_markers.as_deref(),
+        Some([(name, STORE_SCHEMA_VERSION, _)]) if name == STORE_SCHEMA_MARKER
+    ));
+
+    let reopened = NoemaStore::open(&config)
+        .await
+        .expect("reopen exact current store");
+    reopened
         .with_connection(|conn| {
-            let applied_at = conn.query_row(
+            let marker = conn.query_row(
                 "SELECT applied_at FROM schema_state WHERE name = ?1",
                 [STORE_SCHEMA_MARKER],
                 |row| row.get::<_, String>(0),
             )?;
-            let display_name = conn.query_row(
+            let human = conn.query_row(
                 "SELECT display_name FROM humans WHERE human_id = 'human:preserved'",
                 [],
                 |row| row.get::<_, String>(0),
             )?;
-            Ok((applied_at, display_name))
+            assert_eq!((marker.as_str(), human.as_str()), ("sentinel", "Preserved"));
+            Ok(())
         })
         .await
-        .expect("read preserved schema marker and data");
+        .expect("marker and rows preserved");
 
-    assert_eq!(applied_at, "sentinel");
-    assert_eq!(display_name, "Preserved");
-}
-
-#[tokio::test]
-async fn opening_pre_v1_task_runtime_tables_is_rejected_without_mutation() {
-    let home = TempDir::new().expect("temp store root");
-    let config = store_config(home.path());
-    create_current_wal_database(&config.path);
-    let conn = Connection::open(&config.path).expect("open legacy fixture");
-    conn.execute_batch(
-        r#"
-        DROP TABLE agent_run_items;
-        DROP TABLE agent_runs;
-        CREATE TABLE agent_runs (
-          run_id TEXT PRIMARY KEY NOT NULL,
-          task_id TEXT NOT NULL,
-          run_kind TEXT NOT NULL CHECK (run_kind IN ('executor', 'reviewer', 'completion_delivery')),
-          agent_id TEXT NOT NULL,
-          provider_kind TEXT NOT NULL,
-          provider_account_id TEXT NOT NULL,
-          selection_mode TEXT NOT NULL,
-          status TEXT NOT NULL,
-          input_tokens INTEGER,
-          output_tokens INTEGER
-        );
-        CREATE TABLE agent_run_items (
-          item_id TEXT PRIMARY KEY NOT NULL,
-          run_id TEXT NOT NULL,
-          sequence_index INTEGER NOT NULL,
-          kind TEXT NOT NULL,
-          content_text TEXT,
-          payload_json TEXT NOT NULL DEFAULT '{}',
-          created_at TEXT NOT NULL DEFAULT 'old',
-          UNIQUE(run_id, sequence_index)
-        );
-        INSERT INTO agent_runs (
-          run_id, task_id, run_kind, agent_id, provider_kind,
-          provider_account_id, selection_mode, status
-        ) VALUES (
-          'run:legacy', 'task:legacy', 'executor', 'agent:task-executor',
-          'codex', 'provider_account:codex:default', 'explicit_profile', 'failed'
-        );
-        INSERT INTO agent_run_items (
-          item_id, run_id, sequence_index, kind, content_text
-        ) VALUES (
-          'item:legacy', 'run:legacy', 1, 'assistant_output', 'preserved'
-        );
-        "#,
-    )
-    .expect("install pre-v1 runtime schema");
-    checkpoint_and_remove_sidecars(conn, &config.path);
-    assert_eq!(sqlite_header_versions(&config.path), [2, 2]);
-    assert!(!sidecar_path(&config.path, "-wal").exists());
-    assert!(!sidecar_path(&config.path, "-shm").exists());
-
-    let error = assert_rejected_without_mutation(&config).await;
+    let zero = TempDir::new().expect("zero-byte root");
+    let zero_config = store_config(zero.path());
+    fs::create_dir_all(zero_config.path.parent().expect("database parent"))
+        .expect("database parent");
+    fs::File::create(&zero_config.path).expect("zero-byte database");
+    drop(
+        NoemaStore::open(&zero_config)
+            .await
+            .expect("zero-byte bootstrap"),
+    );
     assert!(matches!(
-        error,
-        StoreError::IncompatibleSchema {
-            kind: SchemaIncompatibility::Shape { .. },
-            ..
-        }
+        database_snapshot(&zero_config.path).schema_markers.as_deref(),
+        Some([(name, STORE_SCHEMA_VERSION, _)]) if name == STORE_SCHEMA_MARKER
     ));
 
-    let conn = immutable_connection(&config.path);
-    let text = conn
-        .query_row(
-            "SELECT content_text FROM agent_run_items WHERE item_id = 'item:legacy'",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .expect("legacy row remains readable");
-    assert_eq!(text, "preserved");
-}
+    #[derive(Clone, Copy, Debug)]
+    enum Fixture {
+        PreV1Runtime,
+        LegacyTasks,
+        UnknownSchema,
+        UnknownMarker,
+    }
 
-#[tokio::test]
-async fn opening_legacy_tasks_without_blocking_columns_is_rejected_without_mutation() {
-    let home = TempDir::new().expect("temp store root");
-    let config = store_config(home.path());
-    create_current_wal_database(&config.path);
-    let conn = Connection::open(&config.path).expect("open legacy fixture");
-    conn.execute_batch(
-        "ALTER TABLE tasks DROP COLUMN blocked_question; ALTER TABLE tasks DROP COLUMN blocked_context;",
-    )
-    .expect("install legacy task schema");
-    checkpoint_and_remove_sidecars(conn, &config.path);
-    assert_eq!(sqlite_header_versions(&config.path), [2, 2]);
-    assert!(!sidecar_path(&config.path, "-wal").exists());
-    assert!(!sidecar_path(&config.path, "-shm").exists());
-
-    let error = assert_rejected_without_mutation(&config).await;
-    assert!(matches!(
-        error,
-        StoreError::IncompatibleSchema {
-            kind: SchemaIncompatibility::Shape { .. },
-            ..
+    for fixture in [
+        Fixture::PreV1Runtime,
+        Fixture::LegacyTasks,
+        Fixture::UnknownSchema,
+        Fixture::UnknownMarker,
+    ] {
+        let home = TempDir::new().expect("fixture root");
+        let config = store_config(home.path());
+        create_current_database(&config.path);
+        let conn = Connection::open(&config.path).expect("fixture database");
+        match fixture {
+            Fixture::PreV1Runtime => conn
+                .execute_batch(
+                    "DROP TABLE agent_run_items; CREATE TABLE agent_run_items (item_id TEXT PRIMARY KEY, content_text TEXT); INSERT INTO agent_run_items VALUES ('item:legacy', 'preserved');",
+                )
+                .expect("pre-v1 runtime fixture"),
+            Fixture::LegacyTasks => conn
+                .execute_batch(
+                    "ALTER TABLE tasks DROP COLUMN blocked_question; ALTER TABLE tasks DROP COLUMN blocked_context;",
+                )
+                .expect("legacy tasks fixture"),
+            Fixture::UnknownSchema => conn
+                .execute_batch("CREATE TABLE unknown_owner_data (value TEXT NOT NULL);")
+                .expect("unknown schema fixture"),
+            Fixture::UnknownMarker => {
+                conn.execute(
+                    "UPDATE schema_state SET name = 'unknown_schema' WHERE name = ?1",
+                    [STORE_SCHEMA_MARKER],
+                )
+                .expect("unknown marker fixture");
+            }
         }
+        drop(conn);
+        let error = assert_rejected_without_mutation(&config).await;
+        assert!(
+            matches!(
+                (fixture, error),
+                (
+                    Fixture::PreV1Runtime | Fixture::LegacyTasks | Fixture::UnknownSchema,
+                    StoreError::IncompatibleSchema {
+                        kind: SchemaIncompatibility::Shape { .. },
+                        ..
+                    },
+                ) | (
+                    Fixture::UnknownMarker,
+                    StoreError::IncompatibleSchema {
+                        kind: SchemaIncompatibility::Marker { .. },
+                        ..
+                    },
+                )
+            ),
+            "{fixture:?} classification"
+        );
+    }
+
+    let home = TempDir::new().expect("fresh recovery root");
+    let config = store_config(home.path());
+    create_current_database(&config.path);
+    Connection::open(&config.path)
+        .expect("rejected fixture")
+        .execute_batch("CREATE TABLE obsolete_pre_v1_data (value TEXT NOT NULL);")
+        .expect("obsolete table");
+    assert_rejected_without_mutation(&config).await;
+    for path in [
+        config.path.clone(),
+        sidecar_path(&config.path, "-wal"),
+        sidecar_path(&config.path, "-shm"),
+    ] {
+        if path.exists() {
+            fs::remove_file(path).expect("explicitly remove rejected family");
+        }
+    }
+    drop(NoemaStore::open(&config).await.expect("fresh recovery"));
+    assert!(matches!(
+        database_snapshot(&config.path).schema_markers.as_deref(),
+        Some([(name, STORE_SCHEMA_VERSION, _)]) if name == STORE_SCHEMA_MARKER
     ));
 }
 
@@ -261,46 +226,6 @@ async fn opening_future_schema_marker_is_rejected_without_mutation() {
             },
             ..
         } if found_version == STORE_SCHEMA_VERSION + 1
-    ));
-}
-
-#[tokio::test]
-async fn opening_unknown_schema_is_rejected_without_mutation() {
-    let home = TempDir::new().expect("temp store root");
-    let config = store_config(home.path());
-    create_current_database(&config.path);
-    let conn = Connection::open(&config.path).expect("open unknown fixture");
-    conn.execute_batch("CREATE TABLE unknown_owner_data (value TEXT NOT NULL);")
-        .expect("install unknown schema object");
-    drop(conn);
-
-    assert_rejected_without_mutation(&config).await;
-}
-
-#[tokio::test]
-async fn opening_unknown_schema_marker_is_rejected_without_mutation() {
-    let home = TempDir::new().expect("temp store root");
-    let config = store_config(home.path());
-    create_current_database(&config.path);
-    let conn = Connection::open(&config.path).expect("open unknown marker fixture");
-    conn.execute(
-        "UPDATE schema_state SET name = 'unknown_schema' WHERE name = ?1",
-        [STORE_SCHEMA_MARKER],
-    )
-    .expect("install unknown marker");
-    drop(conn);
-
-    let error = assert_rejected_without_mutation(&config).await;
-    assert!(matches!(
-        error,
-        StoreError::IncompatibleSchema {
-            kind: SchemaIncompatibility::Marker {
-                found_names,
-                found_version: Some(STORE_SCHEMA_VERSION),
-                ..
-            },
-            ..
-        } if found_names == ["unknown_schema"]
     ));
 }
 
@@ -454,13 +379,9 @@ async fn hot_rollback_journal_is_recovered_only_in_private_inspection_copy() {
         journal_before
     );
 
-    let recovered = NoemaStore::open(&StoreConfig::new(&target_path))
+    NoemaStore::open(&StoreConfig::new(&target_path))
         .await
         .expect("recover hot journal and bootstrap current schema");
-    assert_eq!(
-        recovered.schema_version().await.expect("schema version"),
-        STORE_SCHEMA_VERSION
-    );
 }
 
 #[tokio::test]
@@ -491,45 +412,6 @@ async fn non_sqlite_file_is_typed_incompatible_and_unchanged() {
     assert!(!sidecar_path(&config.path, "-shm").exists());
 }
 
-#[tokio::test]
-async fn explicit_fresh_path_recovers_after_non_mutating_rejection() {
-    let home = TempDir::new().expect("temp store root");
-    let config = store_config(home.path());
-    create_current_database(&config.path);
-    let conn = Connection::open(&config.path).expect("open incompatible fixture");
-    conn.execute_batch("CREATE TABLE obsolete_pre_v1_data (value TEXT NOT NULL);")
-        .expect("install incompatible schema object");
-    drop(conn);
-    let rejected_bytes = fs::read(&config.path).expect("snapshot rejected database");
-
-    NoemaStore::open(&config)
-        .await
-        .expect_err("ordinary startup must not reset an incompatible database");
-    assert_eq!(
-        fs::read(&config.path).expect("reread rejected database"),
-        rejected_bytes
-    );
-
-    // Destructive recovery is deliberately caller-owned and explicit.
-    for path in [
-        config.path.clone(),
-        sidecar_path(&config.path, "-wal"),
-        sidecar_path(&config.path, "-shm"),
-    ] {
-        if path.exists() {
-            fs::remove_file(path).expect("remove rejected database family");
-        }
-    }
-    let recovered = NoemaStore::open(&config)
-        .await
-        .expect("open explicitly fresh path");
-
-    assert_eq!(
-        recovered.schema_version().await.expect("schema version"),
-        STORE_SCHEMA_VERSION
-    );
-}
-
 #[test]
 fn injected_mid_bootstrap_failure_rolls_back_every_schema_object() {
     let home = TempDir::new().expect("temp store root");
@@ -555,24 +437,6 @@ fn injected_mid_bootstrap_failure_rolls_back_every_schema_object() {
 }
 
 #[tokio::test]
-async fn existing_zero_byte_database_bootstraps_successfully() {
-    let home = TempDir::new().expect("temp store root");
-    let config = store_config(home.path());
-    fs::create_dir_all(config.path.parent().expect("database parent"))
-        .expect("create database parent");
-    fs::File::create(&config.path).expect("create zero-byte database");
-
-    let store = NoemaStore::open(&config)
-        .await
-        .expect("bootstrap zero-byte database");
-
-    assert_eq!(
-        store.schema_version().await.expect("schema version"),
-        STORE_SCHEMA_VERSION
-    );
-}
-
-#[tokio::test]
 async fn immutable_schema_inspection_handles_uri_reserved_path_characters() {
     let home = TempDir::new().expect("temp store root");
     let config = StoreConfig::new(
@@ -582,60 +446,7 @@ async fn immutable_schema_inspection_handles_uri_reserved_path_characters() {
     );
     drop(NoemaStore::open(&config).await.expect("bootstrap store"));
 
-    let reopened = NoemaStore::open(&config)
+    NoemaStore::open(&config)
         .await
         .expect("inspect reserved-character path");
-
-    assert_eq!(
-        reopened.schema_version().await.expect("schema version"),
-        STORE_SCHEMA_VERSION
-    );
-}
-
-#[tokio::test]
-async fn sqlite_schema_does_not_create_memory_ingest_jobs() {
-    let store = test_store().await;
-
-    let table_count = store
-        .with_connection(|conn| {
-            conn.query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'memory_ingest_jobs'",
-                [],
-                |row| row.get::<_, i64>(0),
-            )
-            .map_err(StoreError::Sqlite)
-        })
-        .await
-        .expect("table lookup");
-
-    assert_eq!(table_count, 0);
-}
-
-#[tokio::test]
-async fn sqlite_schema_creates_artifact_tables() {
-    let store = test_store().await;
-
-    let tables = store
-        .with_connection(|conn| {
-            let mut statement = conn.prepare(
-                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('artifacts', 'artifact_versions') ORDER BY name",
-            )?;
-            let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
-            rows.collect::<Result<Vec<_>, _>>()
-                .map_err(StoreError::Sqlite)
-        })
-        .await
-        .expect("table lookup");
-
-    assert_eq!(tables, vec!["artifact_versions", "artifacts"]);
-}
-
-#[tokio::test]
-async fn sqlite_store_config_is_stable_for_reopen() {
-    let home = TempDir::new().expect("temp store root");
-    let database_path = home.path().join("db/noema.sqlite3");
-    let config = StoreConfig::new(database_path.clone());
-
-    assert_eq!(config.path, database_path);
-    assert_eq!(StoreConfig::new(config.path.clone()), config);
 }

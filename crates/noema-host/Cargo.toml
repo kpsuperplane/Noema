@@ -38,10 +38,10 @@ ring = { workspace = true, optional = true }
 serde.workspace = true
 serde_json = { workspace = true, optional = true }
 thiserror.workspace = true
-ts-rs.workspace = true
 
 [dev-dependencies]
 noema-store = { path = "../noema-store", default-features = false, features = ["test-support"] }
+noema-tasks = { path = "../noema-tasks", default-features = false }
 serde_json.workspace = true
 tempfile.workspace = true
 tokio.workspace = true

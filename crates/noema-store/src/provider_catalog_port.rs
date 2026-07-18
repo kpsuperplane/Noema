@@ -10,6 +10,7 @@ use serde_json::Value;
 use super::{
     NoemaStore, StoreError,
     ids::now_string,
+    provider_account_port::provider_error,
     provider_accounts::{
         PROVIDER_ACCOUNT_SELECT, provider_account_from_row, provider_account_row,
         provider_status_str,
@@ -142,14 +143,6 @@ async fn persist_model_catalog(
             } => ProviderPersistenceError::AccountNotFound {
                 provider_account_id,
             },
-            StoreError::Json(_)
-            | StoreError::InvalidEnum { .. }
-            | StoreError::InvariantViolation { .. }
-            | StoreError::Schema(_) => ProviderPersistenceError::Invariant {
-                operation: "persist_provider_model_catalog",
-            },
-            _ => ProviderPersistenceError::Persistence {
-                operation: "persist_provider_model_catalog",
-            },
+            error => provider_error(error, "persist_provider_model_catalog"),
         })
 }

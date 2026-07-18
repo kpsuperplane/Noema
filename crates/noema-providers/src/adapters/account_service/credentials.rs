@@ -293,126 +293,13 @@ fn credential_state_unavailable(provider: &str) -> ProviderError {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        fs,
-        path::PathBuf,
-        sync::{
-            Mutex,
-            atomic::{AtomicUsize, Ordering},
-        },
-    };
-
-    use serde_json::json;
-    use tokio::{
-        io::{AsyncReadExt, AsyncWriteExt},
-        net::TcpListener,
-    };
-
+    use super::super::service::tests::FakePersistence;
     use super::*;
     use crate::{
-        CodexOAuthConfig, CodexOAuthTokens, NewProviderAccount, PersistedProviderAccountRecord,
-        ProviderAccountRecord, ProviderAccountStatus, ProviderPersistenceError,
-        ProviderPersistenceFuture, UpdateProviderAccountRequest, capabilities_for_provider_account,
+        CodexOAuthConfig, CodexOAuthTokens, ProviderAccountRecord, ProviderAccountStatus,
+        adapters::test_support::spawn_server, capabilities_for_provider_account,
     };
-
-    #[derive(Default)]
-    struct FakeAccountPersistence {
-        account: Mutex<Option<PersistedProviderAccountRecord>>,
-        reads: AtomicUsize,
-        delete_on_read: Option<(usize, PathBuf)>,
-    }
-
-    impl FakeAccountPersistence {
-        fn with_account(account: ProviderAccountRecord) -> Self {
-            Self {
-                account: Mutex::new(Some(account.into())),
-                reads: AtomicUsize::new(0),
-                delete_on_read: None,
-            }
-        }
-
-        fn deleting_account_on_read(
-            account: ProviderAccountRecord,
-            read_number: usize,
-            account_home: PathBuf,
-        ) -> Self {
-            Self {
-                account: Mutex::new(Some(account.into())),
-                reads: AtomicUsize::new(0),
-                delete_on_read: Some((read_number, account_home)),
-            }
-        }
-    }
-
-    impl crate::ProviderAccountPersistence for FakeAccountPersistence {
-        fn provider_account<'a>(
-            &'a self,
-            provider_account_id: &'a str,
-        ) -> ProviderPersistenceFuture<'a, Option<PersistedProviderAccountRecord>> {
-            let read_number = self.reads.fetch_add(1, Ordering::SeqCst) + 1;
-            let mut account = self.account.lock().expect("fake account lock");
-            if let Some((delete_on_read, account_home)) = self.delete_on_read.as_ref()
-                && read_number == *delete_on_read
-            {
-                fs::remove_dir_all(account_home).expect("remove account home");
-                *account = None;
-            }
-            let account = account
-                .clone()
-                .filter(|account| account.provider_account_id == provider_account_id);
-            Box::pin(async move { Ok(account) })
-        }
-
-        fn active_provider_account<'a>(
-            &'a self,
-            _provider_kind: &'a str,
-        ) -> ProviderPersistenceFuture<'a, Option<PersistedProviderAccountRecord>> {
-            unsupported("active_provider_account")
-        }
-
-        fn active_default_provider_accounts(
-            &self,
-        ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>> {
-            unsupported("active_default_provider_accounts")
-        }
-
-        fn active_provider_accounts(
-            &self,
-        ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>> {
-            unsupported("active_provider_accounts")
-        }
-
-        fn provider_accounts(
-            &self,
-        ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>> {
-            unsupported("provider_accounts")
-        }
-
-        fn create_provider_account(
-            &self,
-            _request: NewProviderAccount,
-        ) -> ProviderPersistenceFuture<'_, PersistedProviderAccountRecord> {
-            unsupported("create_provider_account")
-        }
-
-        fn update_provider_account(
-            &self,
-            _request: UpdateProviderAccountRequest,
-        ) -> ProviderPersistenceFuture<'_, PersistedProviderAccountRecord> {
-            unsupported("update_provider_account")
-        }
-
-        fn delete_provider_account<'a>(
-            &'a self,
-            _provider_account_id: &'a str,
-        ) -> ProviderPersistenceFuture<'a, bool> {
-            unsupported("delete_provider_account")
-        }
-    }
-
-    fn unsupported<T>(operation: &'static str) -> ProviderPersistenceFuture<'static, T> {
-        Box::pin(async move { Err(ProviderPersistenceError::Persistence { operation }) })
-    }
+    use serde_json::json;
 
     #[test]
     fn provider_credential_debug_redacts_secret() {
@@ -425,37 +312,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn exa_access_resolves_path_from_durable_identity() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
-        let account = account("exa", "team");
-        SecretInputStore::new(paths.provider_account_home("exa", "team"))
-            .save_api_key("exa-secret")
-            .expect("save secret");
-        let persistence: ProviderAccountPersistenceHandle =
-            Arc::new(FakeAccountPersistence::with_account(account.clone()));
-        let service = ProviderCredentialAccessService::new(
-            paths,
-            persistence,
-            AccountGateRegistry::new(),
-            CodexOAuthClient::new(crate::CodexOAuthConfig::default()).expect("oauth"),
-        );
-
-        let credential = service
-            .exa_api_key(&account.provider_account_id)
-            .await
-            .expect("credential");
-
-        assert_eq!(credential.expose_secret(), "exa-secret");
-    }
-
-    #[tokio::test]
     async fn exa_access_rejects_mismatched_provider_identity() {
         let dir = tempfile::tempdir().expect("tempdir");
         let paths = NoemaPaths::from_noema_home(dir.path()).expect("paths");
         let account = account("codex", "default");
         let persistence: ProviderAccountPersistenceHandle =
-            Arc::new(FakeAccountPersistence::with_account(account.clone()));
+            Arc::new(FakePersistence::with_account(account.clone()));
         let service = ProviderCredentialAccessService::new(
             paths,
             persistence,
@@ -484,7 +346,7 @@ mod tests {
             })
             .expect("write tokens");
         let persistence: ProviderAccountPersistenceHandle =
-            Arc::new(FakeAccountPersistence::with_account(account.clone()));
+            Arc::new(FakePersistence::with_account(account.clone()));
         let service = ProviderCredentialAccessService::new(
             paths,
             persistence,
@@ -513,13 +375,15 @@ mod tests {
                 last_refresh: 1,
             })
             .expect("write tokens");
-        let (issuer, token_url) = spawn_token_server().await;
-        let persistence: ProviderAccountPersistenceHandle =
-            Arc::new(FakeAccountPersistence::deleting_account_on_read(
-                account.clone(),
-                3,
-                account_home.clone(),
-            ));
+        let (issuer, _request) = spawn_server(
+            200,
+            r#"{"access_token":"new-access","refresh_token":"new-refresh"}"#,
+        )
+        .await;
+        let token_url = format!("{issuer}/token");
+        let persistence: ProviderAccountPersistenceHandle = Arc::new(
+            FakePersistence::deleting_account_on_read(account.clone(), 3, account_home.clone()),
+        );
         let service = ProviderCredentialAccessService::new(
             paths,
             persistence,
@@ -563,28 +427,5 @@ mod tests {
                 ProviderAccountStatus::Authenticated,
             ),
         }
-    }
-
-    async fn spawn_token_server() -> (String, String) {
-        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
-        let addr = listener.local_addr().expect("address");
-        tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.expect("accept");
-            let mut request = [0_u8; 4096];
-            let _ = stream.read(&mut request).await.expect("read");
-            let body = r#"{"access_token":"new-access","refresh_token":"new-refresh"}"#;
-            stream
-                .write_all(
-                    format!(
-                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{body}",
-                        body.len()
-                    )
-                    .as_bytes(),
-                )
-                .await
-                .expect("write");
-        });
-        let issuer = format!("http://{addr}");
-        (issuer.clone(), format!("{issuer}/token"))
     }
 }

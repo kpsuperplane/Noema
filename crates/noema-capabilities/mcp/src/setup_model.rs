@@ -2,6 +2,7 @@
 
 use std::{collections::BTreeMap, fmt};
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
@@ -10,24 +11,28 @@ use crate::{McpServerRecord, McpTransportKind};
 use crate::secret_model::McpSecretMaterial;
 
 /// Safe stdio connection configuration supplied during setup.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct McpStdioSetupConfig {
     /// Executable name or path.
     pub command: String,
     /// Executable arguments.
+    #[serde(default)]
     pub args: Vec<String>,
     /// Optional child working directory.
+    #[serde(default)]
     pub cwd: Option<String>,
     /// Non-secret environment entries safe to persist in structured storage.
+    #[serde(default)]
     pub env: BTreeMap<String, String>,
 }
 
 /// Safe Streamable HTTP connection configuration supplied during setup.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct McpStreamableHttpSetupConfig {
     /// MCP endpoint URL.
     pub url: String,
     /// Non-secret headers safe to persist in structured storage.
+    #[serde(default)]
     pub headers: BTreeMap<String, String>,
 }
 
@@ -54,17 +59,10 @@ impl McpSetupTransportConfig {
     #[must_use]
     pub fn safe_config(&self) -> Value {
         match self {
-            Self::Stdio(config) => serde_json::json!({
-                "command": config.command,
-                "args": config.args,
-                "cwd": config.cwd,
-                "env": config.env,
-            }),
-            Self::StreamableHttp(config) => serde_json::json!({
-                "url": config.url,
-                "headers": config.headers,
-            }),
+            Self::Stdio(config) => serde_json::to_value(config),
+            Self::StreamableHttp(config) => serde_json::to_value(config),
         }
+        .expect("MCP setup configuration is serializable")
     }
 }
 

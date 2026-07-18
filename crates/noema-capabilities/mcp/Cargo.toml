@@ -17,7 +17,6 @@ transport = [
     "dep:futures-util",
     "dep:http",
     "dep:libc",
-    "dep:nix",
     "dep:process-wrap",
     "dep:reqwest",
     "dep:rmcp",
@@ -50,7 +49,6 @@ url = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true, optional = true }
-nix = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true

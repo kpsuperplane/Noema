@@ -131,7 +131,10 @@ mod tests {
             }),
         };
 
-        let debug = format!("{material:?}");
+        let debug = format!(
+            "{material:?} {:?} {:?}",
+            material.oauth_client_credentials, material.oauth_credentials
+        );
 
         for secret in [
             "env-secret",
@@ -146,30 +149,5 @@ mod tests {
         }
         assert!(debug.contains(REDACTED));
         assert!(material.has_secret_material());
-    }
-
-    #[test]
-    fn nested_credential_debug_implementations_are_redacted() {
-        let client = McpOAuthClientCredentials {
-            client_id: "client-id".to_string(),
-            client_secret: "client-secret".to_string(),
-            scopes: vec!["scope".to_string()],
-        };
-        let stored = McpOAuthStoredCredentials {
-            client_id: "stored-client".to_string(),
-            token_response: json!({"access_token": "stored-token"}),
-            token_received_at: None,
-        };
-
-        let debug = format!("{client:?} {stored:?}");
-
-        for secret in [
-            "client-id",
-            "client-secret",
-            "stored-client",
-            "stored-token",
-        ] {
-            assert!(!debug.contains(secret), "debug output leaked {secret:?}");
-        }
     }
 }

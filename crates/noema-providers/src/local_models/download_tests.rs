@@ -1,5 +1,3 @@
-mod fake;
-
 use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
@@ -8,13 +6,11 @@ use crate::{
     LocalFileModelImport, LocalModelBackend, LocalModelEventKind, LocalModelInstallationStatus,
 };
 
+use super::manager::tests::fakes::FakeRepository;
 use super::{LocalModelInstallError, LocalModelInstaller};
-use fake::FakeInstallationPersistence;
 
-fn installer(
-    paths: &noema_home::NoemaPaths,
-) -> (LocalModelInstaller, Arc<FakeInstallationPersistence>) {
-    let persistence = Arc::new(FakeInstallationPersistence::default());
+fn installer(paths: &noema_home::NoemaPaths) -> (LocalModelInstaller, Arc<FakeRepository>) {
+    let persistence = Arc::new(FakeRepository::default());
     let installer =
         LocalModelInstaller::new(persistence.clone(), paths.clone()).expect("installer");
     (installer, persistence)
@@ -176,7 +172,7 @@ async fn cancelled_local_import_persists_terminal_state_and_can_retry() {
     assert!(matches!(error, LocalModelInstallError::Cancelled));
     assert_eq!(
         persistence
-            .installation(&installation_id)
+            .record(&installation_id)
             .expect("cancelled row")
             .status,
         LocalModelInstallationStatus::Cancelled

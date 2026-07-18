@@ -73,9 +73,7 @@ impl RuntimeActor {
         policy: &ToolPolicy,
     ) -> LocalToolResult {
         let snapshot = &turn.initial_model_tools.bindings;
-        if snapshot.resolve(&call.name).is_none()
-            || !policy.strict_for_dispatch().allows_tool(&call.name)
-        {
+        if snapshot.resolve(&call.name).is_none() || !policy.allows_tool(&call.name) {
             let failure = CapabilityDispatchFailure::from_snapshot(
                 snapshot,
                 &call.name,
@@ -109,23 +107,17 @@ impl RuntimeActor {
             .await
         {
             Ok(dispatch) => {
-                if let Some(mut result) = runtime_invoker.take_result() {
-                    result.set_persisted(dispatch.persisted);
-                    result
+                if let Some(result) = runtime_invoker.take_result() {
+                    result.with_persisted(dispatch.persisted)
                 } else {
-                    LocalToolResult::Gateway {
-                        call_id: call.call_id.clone(),
-                        provider_call_id: call.provider_call_id.clone(),
-                        provider_name: call.provider_name.clone(),
-                        name: call.name.clone(),
-                        arguments: call.payload.clone(),
-                        persisted: dispatch.persisted,
-                        result: RuntimeCapabilityResult {
-                            success: dispatch.output.success,
-                            payload: dispatch.output.payload,
-                            requires_provider_continuation: true,
-                        },
-                    }
+                    LocalToolResult::from_call(
+                        call,
+                        LocalToolKind::Gateway,
+                        dispatch.output.success,
+                        dispatch.output.payload,
+                        true,
+                    )
+                    .with_persisted(dispatch.persisted)
                 }
             }
             Err(failure) => gateway_failure_result(call, failure),
@@ -143,38 +135,34 @@ impl RuntimeActor {
                 &turn.conversation_id,
                 project_scope_from_cwd(turn.cwd.as_deref()),
             );
-            LocalToolResult::Memory {
-                call_id: call.call_id.clone(),
-                provider_call_id: call.provider_call_id.clone(),
-                provider_name: call.provider_name.clone(),
-                arguments: call.payload.clone(),
-                persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
-                result: execute_search_memory(
-                    self.memory_operations.as_deref(),
-                    &authority,
-                    call.call_id.clone(),
-                    &call.payload,
-                )
-                .await,
-            }
+            let result = execute_search_memory(
+                self.memory_operations.as_deref(),
+                &authority,
+                call.call_id.clone(),
+                &call.payload,
+            )
+            .await;
+            LocalToolResult::from_call(
+                call,
+                LocalToolKind::Memory,
+                result.success,
+                result.payload,
+                true,
+            )
         } else if is_update_own_name_tool(&call.name) {
             let context = AgentNameToolRuntimeContext {
                 agent_id: agent_identity.agent_id.clone(),
             };
-            LocalToolResult::AgentName {
-                call_id: call.call_id.clone(),
-                provider_call_id: call.provider_call_id.clone(),
-                provider_name: call.provider_name.clone(),
-                arguments: call.payload.clone(),
-                persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
-                result: execute_update_own_name(
-                    &self.store,
-                    &context,
-                    call.call_id.clone(),
-                    &call.payload,
-                )
-                .await,
-            }
+            let result =
+                execute_update_own_name(&self.store, &context, call.call_id.clone(), &call.payload)
+                    .await;
+            LocalToolResult::from_call(
+                call,
+                LocalToolKind::AgentName,
+                result.success,
+                result.payload,
+                true,
+            )
         } else if is_artifact_create_local_file_tool(&call.name) {
             let context = ArtifactToolRuntimeContext {
                 conversation_id: turn.conversation_id.clone(),
@@ -184,21 +172,21 @@ impl RuntimeActor {
                 task_id: turn.task_id.clone(),
                 task_run_id: turn.task_run_id.clone(),
             };
-            LocalToolResult::Artifact {
-                call_id: call.call_id.clone(),
-                provider_call_id: call.provider_call_id.clone(),
-                provider_name: call.provider_name.clone(),
-                arguments: call.payload.clone(),
-                persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
-                result: execute_artifact_create_local_file(
-                    &self.store,
-                    &self.artifact_operations,
-                    &context,
-                    call.call_id.clone(),
-                    &call.payload,
-                )
-                .await,
-            }
+            let result = execute_artifact_create_local_file(
+                &self.store,
+                &self.artifact_operations,
+                &context,
+                call.call_id.clone(),
+                &call.payload,
+            )
+            .await;
+            LocalToolResult::from_call(
+                call,
+                LocalToolKind::Artifact,
+                result.success,
+                result.payload,
+                true,
+            )
         } else if is_task_read_artifact_tool(&call.name) {
             let result = match (&turn.task_id, &turn.task_run_id) {
                 (Some(task_id), Some(run_id)) => {
@@ -215,26 +203,11 @@ impl RuntimeActor {
                 }
                 _ => Err("task artifact context is unavailable".to_string()),
             };
-            LocalToolResult::Gateway {
-                call_id: call.call_id.clone(),
-                provider_call_id: call.provider_call_id.clone(),
-                provider_name: call.provider_name.clone(),
-                name: call.name.clone(),
-                arguments: call.payload.clone(),
-                persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
-                result: match result {
-                    Ok(payload) => RuntimeCapabilityResult {
-                        success: true,
-                        payload,
-                        requires_provider_continuation: true,
-                    },
-                    Err(error) => RuntimeCapabilityResult {
-                        success: false,
-                        payload: json!({"error": error}),
-                        requires_provider_continuation: true,
-                    },
-                },
-            }
+            let (success, payload) = match result {
+                Ok(payload) => (true, payload),
+                Err(error) => (false, json!({"error": error})),
+            };
+            LocalToolResult::from_call(call, LocalToolKind::Gateway, success, payload, true)
         } else if is_task_inspect_tool(&call.name)
             || is_task_resume_tool(&call.name)
             || is_task_cancel_tool(&call.name)
@@ -278,36 +251,24 @@ impl RuntimeActor {
                     .await;
                 }
             }
-            LocalToolResult::Gateway {
-                call_id: result.call_id,
-                provider_call_id: call.provider_call_id.clone(),
-                provider_name: call.provider_name.clone(),
-                name: result.name,
-                arguments: call.payload.clone(),
-                persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
-                result: RuntimeCapabilityResult {
-                    success: result.success,
-                    payload: result.payload,
-                    requires_provider_continuation: true,
-                },
-            }
+            LocalToolResult::from_call(
+                call,
+                LocalToolKind::Gateway,
+                result.success,
+                result.payload,
+                true,
+            )
         } else if is_task_submit_result_tool(&call.name)
             || is_task_submit_review_tool(&call.name)
             || is_task_report_blocked_tool(&call.name)
         {
-            LocalToolResult::Gateway {
-                call_id: call.call_id.clone(),
-                provider_call_id: call.provider_call_id.clone(),
-                provider_name: call.provider_name.clone(),
-                name: call.name.clone(),
-                arguments: call.payload.clone(),
-                persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
-                result: RuntimeCapabilityResult {
-                    success: true,
-                    payload: call.payload.clone(),
-                    requires_provider_continuation: false,
-                },
-            }
+            LocalToolResult::from_call(
+                call,
+                LocalToolKind::Gateway,
+                true,
+                call.payload.clone(),
+                false,
+            )
         } else if is_task_delegate_tool(&call.name) {
             let provider_selection = turn.provider_route.selection();
             let result = execute_task_delegate(
@@ -327,19 +288,13 @@ impl RuntimeActor {
                 &call.payload,
             )
             .await;
-            LocalToolResult::Gateway {
-                call_id: result.call_id,
-                provider_call_id: call.provider_call_id.clone(),
-                provider_name: call.provider_name.clone(),
-                name: result.name,
-                arguments: call.payload.clone(),
-                persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
-                result: RuntimeCapabilityResult {
-                    success: result.success,
-                    payload: result.payload,
-                    requires_provider_continuation: true,
-                },
-            }
+            LocalToolResult::from_call(
+                call,
+                LocalToolKind::Gateway,
+                result.success,
+                result.payload,
+                true,
+            )
         } else if is_web_search_tool(&call.name) {
             let result = match self.web_search_runtime_provider_resolution().await {
                 Ok((provider, fallback_from, fallback_reason, auth_failure_target)) => {
@@ -364,14 +319,13 @@ impl RuntimeActor {
                     payload: json!({ "error": message }),
                 },
             };
-            LocalToolResult::WebSearch {
-                call_id: call.call_id.clone(),
-                provider_call_id: call.provider_call_id.clone(),
-                provider_name: call.provider_name.clone(),
-                arguments: call.payload.clone(),
-                persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
-                result,
-            }
+            LocalToolResult::from_call(
+                call,
+                LocalToolKind::WebSearch,
+                result.success,
+                result.payload,
+                true,
+            )
         } else if is_web_fetch_tool(&call.name) {
             let generation_priority = match turn.initial_model_tools.tool_policy.role() {
                 ExecutionRole::PrimaryConversation => {
@@ -408,14 +362,13 @@ impl RuntimeActor {
                     payload: json!({ "error": message }),
                 },
             };
-            LocalToolResult::WebFetch {
-                call_id: call.call_id.clone(),
-                provider_call_id: call.provider_call_id.clone(),
-                provider_name: call.provider_name.clone(),
-                arguments: call.payload.clone(),
-                persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
-                result,
-            }
+            LocalToolResult::from_call(
+                call,
+                LocalToolKind::WebFetch,
+                result.success,
+                result.payload,
+                true,
+            )
         } else {
             return Err(CapabilityError::UnknownOperation);
         };
@@ -455,8 +408,7 @@ impl RuntimeActor {
         ),
         String,
     > {
-        let resolved = self
-            .resolved_web_fetch_provider()
+        let resolved = super::web_tools::resolve_web_fetch_provider(&self.store)
             .await
             .map_err(|_| "web.fetch provider binding could not be resolved".to_string())?;
         let context = self.web_fetch_runtime_context(generation_priority).await?;
@@ -512,8 +464,7 @@ impl RuntimeActor {
         ),
         String,
     > {
-        let resolved = self
-            .resolved_web_search_provider()
+        let resolved = super::web_tools::resolve_web_search_provider(&self.store)
             .await
             .map_err(|_| "web.search provider binding could not be resolved".to_string())?;
         let target = ProviderAuthFailureTarget {
@@ -645,10 +596,10 @@ impl CapabilityInvoker for RuntimeExecutionInvoker<'_> {
                 .actor
                 .execute_bound_runtime_tool(self.turn, self.agent_identity, self.call)
                 .await?;
-            let output = if result.success() {
-                CapabilityOutput::success(result.payload().clone())
+            let output = if result.success {
+                CapabilityOutput::success(result.payload.clone())
             } else {
-                CapabilityOutput::failed(result.payload().clone())
+                CapabilityOutput::failed(result.payload.clone())
             };
             *self.result.lock().expect("runtime result lock") = Some(result);
             Ok(output)
@@ -660,19 +611,14 @@ fn gateway_failure_result(
     call: &LocalToolCall,
     failure: CapabilityDispatchFailure,
 ) -> LocalToolResult {
-    LocalToolResult::Gateway {
-        call_id: call.call_id.clone(),
-        provider_call_id: call.provider_call_id.clone(),
-        provider_name: call.provider_name.clone(),
-        name: call.name.clone(),
-        arguments: call.payload.clone(),
-        persisted: failure.persisted,
-        result: RuntimeCapabilityResult {
-            success: false,
-            payload: json!({"error": failure.error.to_string()}),
-            requires_provider_continuation: true,
-        },
-    }
+    LocalToolResult::from_call(
+        call,
+        LocalToolKind::Gateway,
+        false,
+        json!({"error": failure.error.to_string()}),
+        true,
+    )
+    .with_persisted(failure.persisted)
 }
 
 fn insert_web_tool_fallback_metadata(
@@ -711,7 +657,7 @@ fn is_provider_account_unauthenticated_payload(payload: &Value) -> bool {
 }
 
 pub(super) use super::local_tool_results::{
-    LocalToolResult, RuntimeCapabilityResult, agent_identity_after_local_tools,
+    LocalToolKind, LocalToolResult, agent_identity_after_local_tools,
     local_tool_artifact_reference_item, local_tool_result_action_item,
     local_tool_result_continuation_input, local_tool_task_reference_item,
 };

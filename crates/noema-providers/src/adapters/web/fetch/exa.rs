@@ -1,6 +1,6 @@
 //! Exa hosted web fetch provider.
 
-use super::super::exa_transport::{EXA_API_BASE_URL, production_http_client};
+use super::super::exa_transport::ExaClient;
 use crate::{WebFetchBackend, WebFetchContext, WebFetchError, WebOperationFuture};
 use noema_capabilities::web::fetch::{
     FetchContentKind, FetchRequest, FetchResponse, FetchSummaryStrategy, sanitized_display_url,
@@ -8,58 +8,14 @@ use noema_capabilities::web::fetch::{
 use noema_capabilities::web::url_policy::PublicUrlError;
 use serde::Serialize;
 use serde_json::Value;
-use std::fmt;
 
 /// Stable provider identifier for Exa web fetch.
 pub const EXA_FETCH_PROVIDER_ID: &str = "exa";
 /// Extraction label for Exa's hosted contents API.
-pub const EXA_EXTRACTION: &str = "exa_contents";
+const EXA_EXTRACTION: &str = "exa_contents";
 
 /// Exa hosted contents client.
-#[derive(Clone)]
-pub struct ExaFetchClient {
-    base_url: String,
-    api_key: String,
-    http: reqwest::Client,
-}
-
-impl ExaFetchClient {
-    /// Build a production Exa fetch client.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`WebFetchError::Http`] when the configured HTTP client cannot
-    /// be built.
-    pub fn new(api_key: String) -> Result<Self, WebFetchError> {
-        let http = production_http_client().map_err(|_| WebFetchError::Http)?;
-        Ok(Self::with_client(
-            EXA_API_BASE_URL.to_string(),
-            api_key,
-            http,
-        ))
-    }
-
-    /// Build an Exa fetch client with an injected endpoint and HTTP transport.
-    #[must_use]
-    pub fn with_client(base_url: String, api_key: String, http: reqwest::Client) -> Self {
-        Self {
-            base_url,
-            api_key,
-            http,
-        }
-    }
-}
-
-impl fmt::Debug for ExaFetchClient {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("ExaFetchClient")
-            .field("base_url", &self.base_url)
-            .field("api_key", &"[REDACTED]")
-            .field("http", &"[CONFIGURED]")
-            .finish()
-    }
-}
+pub type ExaFetchClient = ExaClient;
 
 impl WebFetchBackend for ExaFetchClient {
     fn backend_id(&self) -> &str {
@@ -88,12 +44,7 @@ async fn fetch_exa(
     noema_capabilities::web::url_policy::validate_public_url(&request.url)
         .map_err(map_public_url_error)?;
     let response = client
-        .http
-        .post(format!(
-            "{}/contents",
-            client.base_url.trim_end_matches('/')
-        ))
-        .header("x-api-key", &client.api_key)
+        .post("/contents")
         .json(&ExaContentsRequest {
             urls: [&request.url],
             text: true,
@@ -227,32 +178,6 @@ mod tests {
             response.final_url,
             noema_capabilities::web::fetch::REDACTED_SENSITIVE_URL
         );
-    }
-
-    #[test]
-    fn exa_fetch_debug_redacts_api_key() {
-        let client = ExaFetchClient::with_client(
-            "https://example.test".to_string(),
-            "exa-fetch-secret".to_string(),
-            reqwest::Client::new(),
-        );
-        let debug = format!("{client:?}");
-
-        assert!(!debug.contains("exa-fetch-secret"));
-        assert!(debug.contains("[REDACTED]"));
-
-        let runtime = crate::WebFetchBackendHandle::new(client);
-        assert_eq!(
-            format!("{runtime:?}"),
-            "WebFetchBackendHandle(\"[CONFIGURED]\")"
-        );
-    }
-
-    #[test]
-    fn production_constructor_owns_exa_endpoint_policy() {
-        let client = ExaFetchClient::new("secret".to_string()).expect("client");
-
-        assert_eq!(client.base_url, EXA_API_BASE_URL);
     }
 
     #[tokio::test]

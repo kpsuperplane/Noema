@@ -561,10 +561,10 @@ impl RuntimeActor {
                     json!({
                         "phase": "continuation",
                         "continuation_step": continuation_step,
-                        "tool_name": result.name(),
+                        "tool_name": result.name,
                         "duration_ms": tool_started_at.elapsed().as_millis(),
-                        "success": result.success(),
-                        "requires_provider_continuation": result.requires_provider_continuation(),
+                        "success": result.success,
+                        "requires_provider_continuation": result.requires_provider_continuation,
                     }),
                 );
                 self.persist_provider_action_item(
@@ -601,8 +601,8 @@ impl RuntimeActor {
                     json!({
                         "phase": "continuation",
                         "continuation_step": continuation_step,
-                        "tool_name": result.name(),
-                        "success": result.success(),
+                        "tool_name": result.name,
+                        "success": result.success,
                     }),
                 );
                 next_output_index += 1;
@@ -624,7 +624,7 @@ impl RuntimeActor {
             } else {
                 local_tool_results
                     .iter()
-                    .filter(|result| result.requires_provider_continuation())
+                    .filter(|result| result.requires_provider_continuation)
                     .cloned()
                     .collect::<Vec<_>>()
             };

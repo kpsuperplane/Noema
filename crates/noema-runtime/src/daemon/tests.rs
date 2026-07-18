@@ -2,30 +2,27 @@ use super::*;
 use super::{protocol::TurnStreamEvent, runtime::RuntimeHandle};
 use noema_conversations::{ActorRef, ConversationItemKind, ConversationItemStatus, ReplayMode};
 use noema_home::NoemaPaths;
+use noema_memory::{
+    AddMemoryRequest, ListMemoriesRequest, ListMemoriesResponse, MemoryOperationFuture,
+    MemoryOperations, MemoryServiceReadiness, SearchMemoriesRequest, SearchMemoriesResponse,
+};
 use noema_providers::{
     AssistantTextPhase, GenerateActionItem, GenerateInput, GenerateInputItem,
     GenerateReasoningItem, GenerateRequest, GenerateResponse, GenerateResponseItem,
     GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall, MultipleChoiceOption,
     MultipleChoiceSelectionMode, ProviderError, ProviderResponseContinuation,
-    ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport, WebFetchBackend,
-    WebFetchBackendHandle, WebFetchContext, WebFetchError, WebOperationFuture, WebSearchBackend,
-    WebSearchBackendHandle, WebSearchError,
+    ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport,
 };
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
     future::Future,
-    path::{Path, PathBuf},
+    path::Path,
     pin::Pin,
-    process::Command,
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
-    sync::{Mutex as AsyncMutex, Notify, mpsc, oneshot},
-};
+use tokio::sync::{Mutex as AsyncMutex, Notify, mpsc, oneshot};
 
 fn read_system_error_events(path: &Path) -> Vec<Value> {
     std::fs::read_to_string(path)
@@ -34,10 +31,6 @@ fn read_system_error_events(path: &Path) -> Vec<Value> {
         .map(|line| serde_json::from_str(line).expect("system error event"))
         .collect()
 }
-
-const RESTART_CONTEXT_TEST_PHASE_ENV: &str = "NOEMA_RESTART_CONTEXT_TEST_PHASE";
-const RESTART_CONTEXT_TEST_HOME_ENV: &str = "NOEMA_RESTART_CONTEXT_TEST_HOME";
-const RESTART_CONTEXT_TEST_CONVERSATION_FILE: &str = "restart_context_conversation_id";
 
 async fn upsert_ready_agent_runtime_preference(
     store: &noema_store::NoemaStore,
@@ -75,92 +68,6 @@ async fn upsert_ready_auxiliary_model_preference(
         .upsert_auxiliary_model_preference_with_ready_selection(preference, &ready_selection)
         .await
         .expect("ready auxiliary model preference");
-}
-
-#[derive(Debug, Clone)]
-struct StaticWebSearchBackend {
-    response: noema_capabilities::web::search::SearchResponse,
-}
-
-impl WebSearchBackend for StaticWebSearchBackend {
-    fn backend_id(&self) -> &str {
-        &self.response.provider
-    }
-
-    fn search<'a>(
-        &'a self,
-        request: &'a noema_capabilities::web::search::SearchRequest,
-    ) -> WebOperationFuture<'a, noema_capabilities::web::search::SearchResponse, WebSearchError>
-    {
-        Box::pin(async move {
-            let mut response = self.response.clone();
-            response.query = request.query.clone();
-            response.results.truncate(request.max_results);
-            response.summary = match response.results.len() {
-                0 => "No web results found".to_string(),
-                1 => "Found 1 web result".to_string(),
-                count => format!("Found {count} web results"),
-            };
-            Ok(response)
-        })
-    }
-}
-
-fn static_web_search_backend(
-    response: noema_capabilities::web::search::SearchResponse,
-) -> WebSearchBackendHandle {
-    WebSearchBackendHandle::new(StaticWebSearchBackend { response })
-}
-
-#[derive(Debug, Clone)]
-struct StaticWebFetchBackend {
-    response: noema_capabilities::web::fetch::FetchResponse,
-}
-
-impl WebFetchBackend for StaticWebFetchBackend {
-    fn backend_id(&self) -> &str {
-        &self.response.provider
-    }
-
-    fn fetch<'a>(
-        &'a self,
-        request: &'a noema_capabilities::web::fetch::FetchRequest,
-        _context: &'a WebFetchContext,
-    ) -> WebOperationFuture<'a, noema_capabilities::web::fetch::FetchResponse, WebFetchError> {
-        Box::pin(async move {
-            let mut response = self.response.clone();
-            response.url = request.url.clone();
-            response.returned_chars = response.content.chars().count();
-            Ok(response)
-        })
-    }
-}
-
-fn static_web_fetch_backend(
-    response: noema_capabilities::web::fetch::FetchResponse,
-) -> WebFetchBackendHandle {
-    WebFetchBackendHandle::new(StaticWebFetchBackend { response })
-}
-
-#[derive(Debug, Clone)]
-enum GenerateOutputItem {
-    AssistantText {
-        phase: Option<AssistantTextPhase>,
-        text: String,
-    },
-    MultipleChoice {
-        phase: Option<AssistantTextPhase>,
-        prompt: String,
-        selection_mode: MultipleChoiceSelectionMode,
-        options: Vec<MultipleChoiceOption>,
-    },
-    ToolCall {
-        id: Option<String>,
-        provider_call_id: Option<String>,
-        provider_name: Option<String>,
-        name: String,
-        payload: serde_json::Value,
-    },
 }
 
 include!("tests/runtime_lifecycle.rs");

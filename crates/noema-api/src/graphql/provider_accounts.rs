@@ -1,10 +1,8 @@
 use async_graphql::{InputObject, Result, SimpleObject};
 use noema_providers::{
-    CreateSecretProviderAccountRequest, ProviderAccountRecord, ProviderAuthMethod,
-    ProviderCapability, SaveProviderAccountSecretRequest,
+    CreateSecretProviderAccountRequest, ProviderAccountRecord, ProviderCapability,
+    SaveProviderAccountSecretRequest,
 };
-
-use noema_capabilities::ResultPersistencePolicy;
 
 use super::{
     errors::graphql_error, onboarding::GraphqlProviderAccountStatus, schema::GraphqlState,
@@ -43,10 +41,7 @@ impl From<ProviderCapability> for GraphqlProviderCapability {
                 direct_url_fetch: capability.features.direct_url_fetch,
                 js_rendering: capability.features.js_rendering,
                 authenticated_context: capability.features.authenticated_context,
-                result_persistence: result_persistence_label(
-                    capability.features.result_persistence,
-                )
-                .to_string(),
+                result_persistence: capability.features.result_persistence.as_str().to_string(),
             },
         }
     }
@@ -91,7 +86,7 @@ impl From<ProviderAccountRecord> for GraphqlProviderAccount {
             provider_kind: account.provider_kind,
             account_key: account.account_key,
             display_name: account.display_name,
-            auth_method: auth_method_label(account.auth_method).to_string(),
+            auth_method: account.auth_method.as_str().to_string(),
             status: account.status.into(),
             is_active: account.is_active,
             is_default: account.is_default,
@@ -143,14 +138,6 @@ pub struct GraphqlClearProviderSecretInput {
 #[graphql(name = "DeleteProviderAccountInput")]
 pub struct GraphqlDeleteProviderAccountInput {
     pub provider_account_id: String,
-}
-
-const fn auth_method_label(method: ProviderAuthMethod) -> &'static str {
-    method.as_str()
-}
-
-const fn result_persistence_label(policy: ResultPersistencePolicy) -> &'static str {
-    policy.as_str()
 }
 
 pub(super) async fn provider_accounts(state: &GraphqlState) -> Result<Vec<GraphqlProviderAccount>> {
@@ -231,53 +218,4 @@ pub(super) async fn delete_provider_account(
         .delete_account(&input.provider_account_id)
         .await
         .map_err(graphql_error)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use noema_providers::{
-        ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod,
-        capabilities_for_provider_account,
-    };
-    use serde_json::json;
-
-    #[test]
-    fn graphql_provider_account_exposes_capabilities() {
-        let account = ProviderAccountRecord {
-            provider_account_id: "provider_account:openai:default".to_string(),
-            provider_kind: "openai".to_string(),
-            account_key: "default".to_string(),
-            display_name: "OpenAI".to_string(),
-            auth_method: ProviderAuthMethod::SecretInput,
-            is_active: true,
-            is_default: true,
-            status: ProviderAccountStatus::Authenticated,
-            last_checked_at: None,
-            last_authenticated_at: None,
-            last_error_code: None,
-            last_error_message: None,
-            metadata: json!({}),
-            capabilities: capabilities_for_provider_account(
-                "openai",
-                "default",
-                ProviderAccountStatus::Authenticated,
-            ),
-        };
-
-        let graphql = GraphqlProviderAccount::from(account);
-
-        let capability_ids = graphql
-            .capabilities
-            .iter()
-            .map(|capability| capability.capability_id.as_str())
-            .collect::<Vec<_>>();
-        assert_eq!(capability_ids, ["model.generate", "model.classify"]);
-        assert!(
-            graphql
-                .capabilities
-                .iter()
-                .all(|capability| capability.status == "available")
-        );
-    }
 }

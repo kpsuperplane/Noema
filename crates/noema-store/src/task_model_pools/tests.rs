@@ -1,7 +1,8 @@
 use noema_providers::{ProviderAccountStatus, ReasoningEffort, provider_account_instance_key};
-use noema_tasks::{NewTaskModelPoolEntry, TaskComplexity, TaskModelPoolEntry};
+use noema_tasks::{
+    NewTaskModelPoolEntry, TaskComplexity, TaskModelPoolEntry, is_global_task_model_pool_setting_id,
+};
 
-use super::LEGACY_PROVIDER_DEFAULT_POOL_PREFIX;
 use crate::tests::{ready_codex_registry, ready_provider_selection, test_store};
 
 async fn authenticate_default_account(store: &crate::NoemaStore, provider_kind: &str) {
@@ -33,9 +34,27 @@ async fn authenticate_default_account(store: &crate::NoemaStore, provider_kind: 
 }
 
 #[tokio::test]
-async fn provider_defaults_seed_one_global_setting_per_tier_idempotently() {
+async fn usable_defaults_require_an_authenticated_provider() {
     let store = test_store().await;
+    store
+        .ensure_default_provider_account()
+        .await
+        .expect("codex account");
+    assert!(matches!(
+        store
+            .ensure_default_task_model_pool_settings("codex")
+            .await
+            .expect_err("unready provider"),
+        crate::StoreError::ProviderInstanceUnavailable { .. }
+    ));
     authenticate_default_account(&store, "codex").await;
+    assert!(matches!(
+        store
+            .ensure_default_task_model_pool_settings("codex")
+            .await
+            .expect_err("authenticated metadata is not runtime readiness"),
+        crate::StoreError::ProviderInstanceUnavailable { .. }
+    ));
     let registry = ready_codex_registry();
 
     let first = store
@@ -49,7 +68,11 @@ async fn provider_defaults_seed_one_global_setting_per_tier_idempotently() {
 
     assert_eq!(first, second);
     assert_eq!(first.len(), 3);
-    assert!(first.iter().all(TaskModelPoolEntry::is_global_setting));
+    assert!(
+        first
+            .iter()
+            .all(|entry| is_global_task_model_pool_setting_id(&entry.pool_entry_id))
+    );
     assert!(
         first
             .iter()
@@ -77,53 +100,6 @@ async fn provider_defaults_seed_one_global_setting_per_tier_idempotently() {
             && entry.model.model_profile.as_deref() == Some("gpt-5.6-sol")
             && entry.model.reasoning_effort == Some(ReasoningEffort::High)
     }));
-}
-
-#[tokio::test]
-async fn default_pool_creation_requires_an_authenticated_provider() {
-    let store = test_store().await;
-    store
-        .ensure_default_provider_account()
-        .await
-        .expect("codex account");
-    let error = store
-        .ensure_default_task_model_pool_settings("codex")
-        .await
-        .expect_err("unknown provider must not gain future task references");
-    assert!(matches!(
-        error,
-        crate::StoreError::ProviderInstanceUnavailable { .. }
-    ));
-
-    store
-        .update_provider_account_status(
-            "provider_account:codex:default",
-            ProviderAccountStatus::Authenticated,
-            None,
-            None,
-        )
-        .await
-        .expect("authenticated account");
-
-    let error = store
-        .ensure_default_task_model_pool_settings("codex")
-        .await
-        .expect_err("authenticated metadata is not runtime readiness");
-    assert!(matches!(
-        error,
-        crate::StoreError::ProviderInstanceUnavailable { .. }
-    ));
-    let registry = ready_codex_registry();
-    store
-        .ensure_default_task_model_pool_settings_with_readiness("codex", &registry)
-        .await
-        .expect("registered defaults");
-    let usable = store
-        .list_usable_task_model_pool_entries()
-        .await
-        .expect("usable defaults");
-    assert_eq!(usable.len(), 3);
-    assert!(usable.iter().all(|entry| entry.enabled));
 }
 
 #[tokio::test]
@@ -217,126 +193,7 @@ async fn ensuring_defaults_preserves_user_edits() {
 }
 
 #[tokio::test]
-async fn provider_scoped_defaults_are_consolidated_into_three_global_settings() {
-    let store = test_store().await;
-    authenticate_default_account(&store, "codex").await;
-    authenticate_default_account(&store, "foundation_local").await;
-    store
-            .with_connection(|conn| {
-                for (provider_kind, account_id, profile, effort) in [
-                    (
-                        "codex",
-                        "provider_account:codex:default",
-                        "gpt-5.6-luna",
-                        Some("medium"),
-                    ),
-                    (
-                        "foundation_local",
-                        "provider_account:foundation_local:default",
-                        "default",
-                        None,
-                    ),
-                ] {
-                    for complexity in ["simple", "medium", "difficult"] {
-                        let provider_instance_key = provider_account_instance_key(account_id)
-                            .expect("hosted instance key");
-                        conn.execute(
-                            "INSERT INTO task_model_pool_entries (pool_entry_id, complexity, provider_kind, provider_account_id, provider_instance_key, model_profile, reasoning_effort, enabled, sort_order) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, 0)",
-                            rusqlite::params![
-                                format!("{LEGACY_PROVIDER_DEFAULT_POOL_PREFIX}{account_id}:{complexity}"),
-                                complexity,
-                                provider_kind,
-                                account_id,
-                                provider_instance_key.as_str(),
-                                profile,
-                                effort,
-                            ],
-                        )?;
-                    }
-                }
-                Ok(())
-            })
-            .await
-            .expect("legacy defaults");
-
-    let settings = store
-        .ensure_default_task_model_pool_settings("codex")
-        .await
-        .expect("global settings");
-    let all_entries = store
-        .list_task_model_pool_entries(None)
-        .await
-        .expect("all entries");
-
-    assert_eq!(settings.len(), 3);
-    assert_eq!(all_entries, settings);
-    assert!(
-        settings
-            .iter()
-            .all(|entry| entry.model.provider_kind == "codex")
-    );
-}
-
-#[tokio::test]
-async fn stale_hosted_route_can_be_edited_and_disabled_without_readiness() {
-    let store = test_store().await;
-    authenticate_default_account(&store, "codex").await;
-    let registry = ready_codex_registry();
-    let simple = store
-        .ensure_default_task_model_pool_settings_with_readiness("codex", &registry)
-        .await
-        .expect("seed defaults")
-        .into_iter()
-        .find(|entry| entry.complexity == TaskComplexity::Simple)
-        .expect("simple setting");
-    drop(registry);
-
-    let renamed = store
-        .update_task_model_pool_entry(
-            &simple.pool_entry_id,
-            pool_update(&simple, true, Some("Unavailable but named")),
-        )
-        .await
-        .expect("metadata-only edit retains the exact future reference");
-    assert!(renamed.enabled);
-    assert_eq!(renamed.model, simple.model);
-
-    let mut redirected_disable = pool_update(&renamed, false, Some("Ambiguous redirect"));
-    redirected_disable.model_profile = "gpt-different".to_string();
-    let error = store
-        .update_task_model_pool_entry(&renamed.pool_entry_id, redirected_disable)
-        .await
-        .expect_err("disabling cannot silently redirect the stored route");
-    assert!(matches!(
-        error,
-        crate::StoreError::InvariantViolation { .. }
-    ));
-
-    let disabled = store
-        .update_task_model_pool_entry(
-            &renamed.pool_entry_id,
-            pool_update(&renamed, false, Some("Disabled stale route")),
-        )
-        .await
-        .expect("disabling removes the future reference");
-    assert!(!disabled.enabled);
-    assert_eq!(disabled.model, renamed.model);
-
-    let error = store
-        .update_task_model_pool_entry(
-            &disabled.pool_entry_id,
-            pool_update(&disabled, true, Some("Cannot re-enable")),
-        )
-        .await
-        .expect_err("re-enabling establishes a future reference");
-    assert!(matches!(
-        error,
-        crate::StoreError::ProviderInstanceUnavailable { .. }
-    ));
-}
-
-#[tokio::test]
-async fn runtime_retired_local_route_can_be_disabled_without_readiness() {
+async fn unavailable_exact_route_edits_cannot_redirect_or_reenable_it() {
     let store = test_store().await;
     store
         .ensure_default_local_models_provider_account()
@@ -400,17 +257,66 @@ async fn runtime_retired_local_route_can_be_disabled_without_readiness() {
         .expect("pool read")
         .expect("local setting");
 
-    let disabled = store
+    assert_unavailable_route_edit_rules(&store, existing, "different-model").await;
+
+    let hosted = test_store().await;
+    authenticate_default_account(&hosted, "codex").await;
+    let registry = ready_codex_registry();
+    let simple = hosted
+        .ensure_default_task_model_pool_settings_with_readiness("codex", &registry)
+        .await
+        .expect("hosted defaults")
+        .into_iter()
+        .find(|entry| entry.complexity == TaskComplexity::Simple)
+        .expect("hosted simple setting");
+    drop(registry);
+    assert_unavailable_route_edit_rules(&hosted, simple, "gpt-different").await;
+}
+
+async fn assert_unavailable_route_edit_rules(
+    store: &crate::NoemaStore,
+    existing: TaskModelPoolEntry,
+    redirected_profile: &str,
+) {
+    let renamed = store
         .update_task_model_pool_entry(
             &existing.pool_entry_id,
-            pool_update(&existing, false, Some("Retired local route")),
+            pool_update(&existing, true, Some("Unavailable but named")),
+        )
+        .await
+        .expect("metadata-only edit retains the exact future reference");
+    assert_eq!(renamed.model, existing.model);
+
+    let mut redirected_disable = pool_update(&renamed, false, Some("Ambiguous redirect"));
+    redirected_disable.model_profile = redirected_profile.to_string();
+    assert!(matches!(
+        store
+            .update_task_model_pool_entry(&renamed.pool_entry_id, redirected_disable)
+            .await
+            .expect_err("disabling cannot redirect the route"),
+        crate::StoreError::InvariantViolation { .. }
+    ));
+
+    let disabled = store
+        .update_task_model_pool_entry(
+            &renamed.pool_entry_id,
+            pool_update(&renamed, false, Some("Retired local route")),
         )
         .await
         .expect("retired local route can be disabled");
 
     assert!(!disabled.enabled);
-    assert_eq!(disabled.model, existing.model);
-    assert_eq!(disabled.model.provider_instance_key.as_ref(), Some(&key));
+    assert_eq!(disabled.model, renamed.model);
+    assert!(matches!(
+        store
+            .update_task_model_pool_entry(
+                &disabled.pool_entry_id,
+                pool_update(&disabled, true, Some("Cannot re-enable")),
+            )
+            .await
+            .expect_err("re-enabling establishes a future reference"),
+        crate::StoreError::ProviderInstanceUnavailable { .. }
+    ));
 }
 
 fn pool_update(

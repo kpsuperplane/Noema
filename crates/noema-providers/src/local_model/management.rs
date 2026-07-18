@@ -1,6 +1,6 @@
 //! Runtime-independent local-model management contract.
 
-use std::{fmt, future::Future, path::PathBuf, pin::Pin, sync::Arc};
+use std::{fmt, future::Future, ops::Deref, path::PathBuf, pin::Pin, sync::Arc};
 
 use noema_home::SystemErrorLogger;
 use thiserror::Error;
@@ -113,21 +113,6 @@ pub enum LocalModelRuntimeStatus {
         /// Combined candidate failures.
         message: String,
     },
-}
-
-/// Runtime state for one exact managed installation.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ManagedLocalModelStatus {
-    /// Immutable provider instance identity.
-    pub key: ProviderInstanceKey,
-    /// Concrete installation identity.
-    pub installation_id: String,
-    /// Provider-facing model profile.
-    pub model_id: String,
-    /// Whether this exact instance is currently published for new work.
-    pub is_active: bool,
-    /// Current supervised process state.
-    pub runtime: LocalModelRuntimeStatus,
 }
 
 /// One structurally valid instance that could not be started during reconstruction.
@@ -295,8 +280,6 @@ pub trait LocalModelManagement: Send + Sync {
         after_cursor: Option<u64>,
         limit: u32,
     ) -> LocalModelManagementFuture<'_, Result<Vec<LocalModelEventRecord>, LocalModelManagerError>>;
-    /// Returns status for every retained exact local-model process.
-    fn managed_instances(&self) -> LocalModelManagementFuture<'_, Vec<ManagedLocalModelStatus>>;
     /// Returns the bundled catalog and machine compatibility projections.
     ///
     /// # Errors
@@ -371,194 +354,17 @@ pub struct LocalModelManager {
 impl LocalModelManager {
     /// Creates a handle over an externally supplied management implementation.
     #[must_use]
-    pub fn from_operations(operations: Arc<dyn LocalModelManagement>) -> Self {
+    #[cfg(feature = "local-models")]
+    pub(crate) fn from_operations(operations: Arc<dyn LocalModelManagement>) -> Self {
         Self { operations }
     }
+}
 
-    /// Returns the shared exact-instance registry used by runtime consumers.
-    #[must_use]
-    pub fn registry(&self) -> ProviderRegistryHandle {
-        self.operations.registry()
-    }
+impl Deref for LocalModelManager {
+    type Target = dyn LocalModelManagement;
 
-    /// Returns the active process status without waiting for a change.
-    #[must_use]
-    pub fn runtime_status(&self) -> LocalModelRuntimeStatus {
-        self.operations.runtime_status()
-    }
-
-    /// Lists durable installations in repository presentation order.
-    ///
-    /// # Errors
-    ///
-    /// Returns errors reported by the configured management implementation.
-    pub async fn installations(
-        &self,
-    ) -> Result<Vec<LocalModelInstallationRecord>, LocalModelManagerError> {
-        self.operations.installations().await
-    }
-
-    /// Returns durable installation events after an optional exclusive cursor.
-    ///
-    /// # Errors
-    ///
-    /// Returns errors reported by the configured management implementation.
-    pub async fn events(
-        &self,
-        after_cursor: Option<u64>,
-        limit: u32,
-    ) -> Result<Vec<LocalModelEventRecord>, LocalModelManagerError> {
-        self.operations.events(after_cursor, limit).await
-    }
-
-    /// Returns status for every retained exact local-model process.
-    pub async fn managed_instances(&self) -> Vec<ManagedLocalModelStatus> {
-        self.operations.managed_instances().await
-    }
-
-    /// Returns the bundled catalog and machine compatibility projections.
-    ///
-    /// # Errors
-    ///
-    /// Returns errors reported by the configured management implementation.
-    pub fn catalog_snapshot(&self) -> Result<LocalModelCatalogSnapshot, LocalModelManagerError> {
-        self.operations.catalog_snapshot()
-    }
-
-    /// Returns the platform-preferred backend for an imported GGUF.
-    ///
-    /// # Errors
-    ///
-    /// Returns errors reported by the configured management implementation.
-    pub fn preferred_import_backend(&self) -> Result<LocalModelBackend, LocalModelManagerError> {
-        self.operations.preferred_import_backend()
-    }
-
-    /// Queues and activates one compatible catalog artifact.
-    ///
-    /// # Errors
-    ///
-    /// Returns errors reported by the configured management implementation.
-    pub async fn install_catalog_model(
-        &self,
-        model_id: &str,
-        file: Option<&str>,
-    ) -> Result<LocalModelInstallationRecord, LocalModelManagerError> {
-        self.operations
-            .install_catalog_model(model_id.to_string(), file.map(str::to_string))
-            .await
-    }
-
-    /// Queues one pinned public Hugging Face GGUF import.
-    ///
-    /// # Errors
-    ///
-    /// Returns errors reported by the configured management implementation.
-    pub async fn import_hugging_face(
-        &self,
-        input: HuggingFaceLocalModelImport,
-    ) -> Result<LocalModelInstallationRecord, LocalModelManagerError> {
-        self.operations.import_hugging_face(input).await
-    }
-
-    /// Queues one existing local GGUF import.
-    ///
-    /// # Errors
-    ///
-    /// Returns errors reported by the configured management implementation.
-    pub async fn import_local_file(
-        &self,
-        input: LocalFileModelImport,
-    ) -> Result<LocalModelInstallationRecord, LocalModelManagerError> {
-        self.operations.import_local_file(input).await
-    }
-
-    /// Cancels an installation worker and durably marks it cancelled.
-    ///
-    /// # Errors
-    ///
-    /// Returns errors reported by the configured management implementation.
-    pub async fn cancel_installation(
-        &self,
-        installation_id: &str,
-    ) -> Result<LocalModelInstallationRecord, LocalModelManagerError> {
-        self.operations
-            .cancel_installation(installation_id.to_string())
-            .await
-    }
-
-    /// Removes one inactive installation and its unreferenced artifact.
-    ///
-    /// # Errors
-    ///
-    /// Returns errors reported by the configured management implementation.
-    pub async fn remove(
-        &self,
-        installation_id: &str,
-    ) -> Result<RemovedLocalModelInstallation, LocalModelManagerError> {
-        self.operations.remove(installation_id.to_string()).await
-    }
-
-    /// Activates one verified installation as the system default.
-    ///
-    /// # Errors
-    ///
-    /// Returns errors reported by the configured management implementation.
-    pub async fn activate(
-        &self,
-        installation_id: &str,
-    ) -> Result<LocalModelInstallationRecord, LocalModelManagerError> {
-        self.operations.activate(installation_id.to_string()).await
-    }
-
-    /// Retries the active installation after a transient runtime failure.
-    ///
-    /// # Errors
-    ///
-    /// Returns errors reported by the configured management implementation.
-    pub async fn retry_active_installation(
-        &self,
-    ) -> Result<LocalModelRuntimeStatus, LocalModelManagerError> {
-        self.operations.retry_active_installation().await
-    }
-
-    /// Reconstructs exact local-model instances referenced by durable future work.
-    ///
-    /// # Errors
-    ///
-    /// Returns errors reported by the configured management implementation.
-    pub async fn reconstruct_persisted_instances(
-        &self,
-    ) -> Result<LocalModelReconstructionReport, LocalModelManagerError> {
-        self.operations.reconstruct_persisted_instances().await
-    }
-
-    /// Subscribes to merged durable and active-runtime events.
-    ///
-    /// # Errors
-    ///
-    /// Returns errors reported by the configured management implementation.
-    pub async fn subscribe_events(
-        &self,
-        after: Option<&str>,
-    ) -> Result<LocalModelManagerEventStream, LocalModelManagerError> {
-        self.operations
-            .subscribe_events(after.map(str::to_string))
-            .await
-    }
-
-    /// Rejects new work and drains manager-owned installation workers.
-    pub async fn begin_shutdown(&self) {
-        self.operations.begin_shutdown().await;
-    }
-
-    /// Drains exact leases and stops every retained process.
-    ///
-    /// # Errors
-    ///
-    /// Returns errors reported by the configured management implementation.
-    pub async fn shutdown(&self) -> Result<(), LocalModelManagerError> {
-        self.operations.shutdown().await
+    fn deref(&self) -> &Self::Target {
+        self.operations.as_ref()
     }
 }
 

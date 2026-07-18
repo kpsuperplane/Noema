@@ -1,210 +1,74 @@
 //! Local capability result representation and transcript projections.
 
-use crate::{
-    daemon::{
-        agent_name_tool::AgentNameToolResult, agent_onboarding::AgentPromptIdentity,
-        artifact_tool::ArtifactToolResult, protocol::TurnTranscriptItem,
-    },
-    search::tool::WebSearchToolResult,
-    web_fetch::tool::WebFetchToolResult,
-};
-use noema_memory::MemoryToolResult;
+use crate::daemon::{agent_onboarding::AgentPromptIdentity, protocol::TurnTranscriptItem};
 use noema_providers::GenerateActionItem;
 use serde_json::{Value, json};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum LocalToolKind {
+    Memory,
+    AgentName,
+    Artifact,
+    WebSearch,
+    WebFetch,
+    Gateway,
+}
+
+/// One normalized result envelope for every runtime-owned capability.
 #[derive(Debug, Clone)]
-pub(super) struct RuntimeCapabilityResult {
+pub(super) struct LocalToolResult {
+    pub(super) call_id: Option<String>,
+    pub(super) provider_call_id: Option<String>,
+    pub(super) provider_name: Option<String>,
+    pub(super) name: String,
+    pub(super) arguments: Value,
+    pub(super) persisted: noema_capabilities::PersistedCapabilityPayload,
     pub(super) success: bool,
     pub(super) payload: Value,
     pub(super) requires_provider_continuation: bool,
-}
-
-#[derive(Debug, Clone)]
-pub(super) enum LocalToolResult {
-    Memory {
-        call_id: Option<String>,
-        provider_call_id: Option<String>,
-        provider_name: Option<String>,
-        arguments: Value,
-        persisted: noema_capabilities::PersistedCapabilityPayload,
-        result: MemoryToolResult,
-    },
-    AgentName {
-        call_id: Option<String>,
-        provider_call_id: Option<String>,
-        provider_name: Option<String>,
-        arguments: Value,
-        persisted: noema_capabilities::PersistedCapabilityPayload,
-        result: AgentNameToolResult,
-    },
-    Artifact {
-        call_id: Option<String>,
-        provider_call_id: Option<String>,
-        provider_name: Option<String>,
-        arguments: Value,
-        persisted: noema_capabilities::PersistedCapabilityPayload,
-        result: ArtifactToolResult,
-    },
-    WebSearch {
-        call_id: Option<String>,
-        provider_call_id: Option<String>,
-        provider_name: Option<String>,
-        arguments: Value,
-        persisted: noema_capabilities::PersistedCapabilityPayload,
-        result: WebSearchToolResult,
-    },
-    WebFetch {
-        call_id: Option<String>,
-        provider_call_id: Option<String>,
-        provider_name: Option<String>,
-        arguments: Value,
-        persisted: noema_capabilities::PersistedCapabilityPayload,
-        result: WebFetchToolResult,
-    },
-    Gateway {
-        call_id: Option<String>,
-        provider_call_id: Option<String>,
-        provider_name: Option<String>,
-        name: String,
-        arguments: Value,
-        persisted: noema_capabilities::PersistedCapabilityPayload,
-        result: RuntimeCapabilityResult,
-    },
+    pub(super) kind: LocalToolKind,
 }
 
 impl LocalToolResult {
-    pub(super) fn persisted(&self) -> &noema_capabilities::PersistedCapabilityPayload {
-        match self {
-            Self::Memory { persisted, .. }
-            | Self::AgentName { persisted, .. }
-            | Self::Artifact { persisted, .. }
-            | Self::WebSearch { persisted, .. }
-            | Self::WebFetch { persisted, .. }
-            | Self::Gateway { persisted, .. } => persisted,
+    pub(super) fn from_call(
+        call: &super::tool_lifecycle::LocalToolCall,
+        kind: LocalToolKind,
+        success: bool,
+        payload: Value,
+        requires_provider_continuation: bool,
+    ) -> Self {
+        Self {
+            call_id: call.call_id.clone(),
+            provider_call_id: call.provider_call_id.clone(),
+            provider_name: call.provider_name.clone(),
+            name: call.name.clone(),
+            arguments: call.payload.clone(),
+            persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
+            success,
+            payload,
+            requires_provider_continuation,
+            kind,
         }
     }
 
-    pub(super) fn set_persisted(&mut self, views: noema_capabilities::PersistedCapabilityPayload) {
-        match self {
-            Self::Memory { persisted, .. }
-            | Self::AgentName { persisted, .. }
-            | Self::Artifact { persisted, .. }
-            | Self::WebSearch { persisted, .. }
-            | Self::WebFetch { persisted, .. }
-            | Self::Gateway { persisted, .. } => *persisted = views,
-        }
-    }
-
-    pub(super) fn call_id(&self) -> Option<&String> {
-        match self {
-            Self::Memory { call_id, .. }
-            | Self::AgentName { call_id, .. }
-            | Self::Artifact { call_id, .. }
-            | Self::WebSearch { call_id, .. }
-            | Self::WebFetch { call_id, .. }
-            | Self::Gateway { call_id, .. } => call_id.as_ref(),
-        }
-    }
-
-    pub(super) fn provider_call_id(&self) -> Option<&String> {
-        match self {
-            Self::Memory {
-                provider_call_id, ..
-            }
-            | Self::AgentName {
-                provider_call_id, ..
-            }
-            | Self::Artifact {
-                provider_call_id, ..
-            }
-            | Self::WebSearch {
-                provider_call_id, ..
-            }
-            | Self::WebFetch {
-                provider_call_id, ..
-            }
-            | Self::Gateway {
-                provider_call_id, ..
-            } => provider_call_id.as_ref(),
-        }
-    }
-
-    pub(super) fn provider_name(&self) -> Option<&String> {
-        match self {
-            Self::Memory { provider_name, .. }
-            | Self::AgentName { provider_name, .. }
-            | Self::Artifact { provider_name, .. }
-            | Self::WebSearch { provider_name, .. }
-            | Self::WebFetch { provider_name, .. }
-            | Self::Gateway { provider_name, .. } => provider_name.as_ref(),
-        }
-    }
-
-    pub(super) fn arguments(&self) -> &Value {
-        match self {
-            Self::Memory { arguments, .. }
-            | Self::AgentName { arguments, .. }
-            | Self::Artifact { arguments, .. }
-            | Self::WebSearch { arguments, .. }
-            | Self::WebFetch { arguments, .. }
-            | Self::Gateway { arguments, .. } => arguments,
-        }
-    }
-
-    pub(super) fn name(&self) -> &str {
-        match self {
-            Self::Memory { result, .. } => &result.name,
-            Self::AgentName { result, .. } => &result.name,
-            Self::Artifact { result, .. } => &result.name,
-            Self::WebSearch { result, .. } => &result.name,
-            Self::WebFetch { result, .. } => &result.name,
-            Self::Gateway { name, .. } => name,
-        }
-    }
-
-    pub(super) fn success(&self) -> bool {
-        match self {
-            Self::Memory { result, .. } => result.success,
-            Self::AgentName { result, .. } => result.success,
-            Self::Artifact { result, .. } => result.success,
-            Self::WebSearch { result, .. } => result.success,
-            Self::WebFetch { result, .. } => result.success,
-            Self::Gateway { result, .. } => result.success,
-        }
-    }
-
-    pub(super) fn payload(&self) -> &Value {
-        match self {
-            Self::Memory { result, .. } => &result.payload,
-            Self::AgentName { result, .. } => &result.payload,
-            Self::Artifact { result, .. } => &result.payload,
-            Self::WebSearch { result, .. } => &result.payload,
-            Self::WebFetch { result, .. } => &result.payload,
-            Self::Gateway { result, .. } => &result.payload,
-        }
+    pub(super) fn with_persisted(
+        mut self,
+        persisted: noema_capabilities::PersistedCapabilityPayload,
+    ) -> Self {
+        self.persisted = persisted;
+        self
     }
 
     pub(super) fn transcript_payload(&self) -> Value {
         json!({
-            "call_id": self.call_id(),
-            "provider_call_id": self.provider_call_id(),
-            "provider_name": self.provider_name(),
-            "name": self.name(),
-            "arguments": self.arguments(),
-            "success": self.success(),
-            "payload": self.payload(),
+            "call_id": self.call_id,
+            "provider_call_id": self.provider_call_id,
+            "provider_name": self.provider_name,
+            "name": self.name,
+            "arguments": self.arguments,
+            "success": self.success,
+            "payload": self.payload,
         })
-    }
-
-    pub(super) fn requires_provider_continuation(&self) -> bool {
-        match self {
-            Self::Memory { .. }
-            | Self::Artifact { .. }
-            | Self::WebSearch { .. }
-            | Self::WebFetch { .. }
-            | Self::AgentName { .. } => true,
-            Self::Gateway { result, .. } => result.requires_provider_continuation,
-        }
     }
 }
 
@@ -214,10 +78,7 @@ pub(super) fn agent_identity_after_local_tools(
 ) -> AgentPromptIdentity {
     let mut agent_identity = current.clone();
     for result in results {
-        let LocalToolResult::AgentName { result, .. } = result else {
-            continue;
-        };
-        if result.success {
+        if result.kind == LocalToolKind::AgentName && result.success {
             agent_identity.display_name = result
                 .payload
                 .get("display_name")
@@ -237,33 +98,33 @@ pub(super) fn local_tool_result_continuation_input(results: &[&LocalToolResult])
 
 fn local_tool_result_payload(result: &LocalToolResult) -> Value {
     json!({
-        "call_id": result.call_id(),
-        "provider_call_id": result.provider_call_id(),
-        "provider_name": result.provider_name(),
-        "name": result.name(),
-        "success": result.success(),
-        "payload": result.payload(),
+        "call_id": result.call_id,
+        "provider_call_id": result.provider_call_id,
+        "provider_name": result.provider_name,
+        "name": result.name,
+        "success": result.success,
+        "payload": result.payload,
     })
 }
 
 pub(super) fn local_tool_result_action_item(result: &LocalToolResult) -> GenerateActionItem {
     GenerateActionItem::ToolResult {
-        call_id: result.call_id().cloned(),
-        provider_call_id: result.provider_call_id().cloned(),
-        provider_name: result.provider_name().cloned(),
-        name: Some(result.name().to_string()),
-        success: Some(result.success()),
-        payload: result.payload().clone(),
+        call_id: result.call_id.clone(),
+        provider_call_id: result.provider_call_id.clone(),
+        provider_name: result.provider_name.clone(),
+        name: Some(result.name.clone()),
+        success: Some(result.success),
+        payload: result.payload.clone(),
     }
 }
 
 pub(super) fn local_tool_artifact_reference_item(
     result: &LocalToolResult,
 ) -> Option<TurnTranscriptItem> {
-    if !matches!(result, LocalToolResult::Artifact { .. }) || !result.success() {
+    if result.kind != LocalToolKind::Artifact || !result.success {
         return None;
     }
-    let payload = result.payload();
+    let payload = &result.payload;
     Some(TurnTranscriptItem::ArtifactReference {
         artifact_id: payload.get("artifact_id")?.as_str()?.to_string(),
         artifact_version_id: payload
@@ -289,15 +150,15 @@ pub(super) fn local_tool_task_reference_item(
     result: &LocalToolResult,
 ) -> Option<TurnTranscriptItem> {
     if !matches!(
-        result.name(),
+        result.name.as_str(),
         crate::daemon::task_tool::TASK_DELEGATE_TOOL
             | crate::daemon::task_tool::TASK_RESUME_TOOL
             | crate::daemon::task_tool::TASK_CANCEL_TOOL
-    ) || !result.success()
+    ) || !result.success
     {
         return None;
     }
-    let payload = result.payload();
+    let payload = &result.payload;
     let status = payload
         .get("status")
         .and_then(Value::as_str)

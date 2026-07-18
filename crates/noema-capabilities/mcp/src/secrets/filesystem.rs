@@ -14,11 +14,11 @@ use cap_std::{
     fs::{Dir, File, Metadata, OpenOptions, Permissions},
 };
 use noema_home::sanitize_path_segment;
-use ring::rand::{SecureRandom, SystemRandom};
 #[cfg(unix)]
 use std::os::unix::fs::{MetadataExt as StdMetadataExt, PermissionsExt};
 
 use super::{BACKUP_PREFIX, RESTORE_PREFIX, SECRET_FILE, STAGING_DIR};
+use crate::identity::random_hex_id;
 
 const MCP_DIR: &str = "mcp";
 
@@ -533,16 +533,7 @@ fn combined_io_error(primary: io::Error, recovery: io::Error) -> io::Error {
 }
 
 fn random_hex_io() -> io::Result<String> {
-    let mut bytes = [0_u8; 16];
-    SystemRandom::new()
-        .fill(&mut bytes)
-        .map_err(|_| io::Error::other("secure random generation failed"))?;
-    let mut output = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        use std::fmt::Write as _;
-        let _ = write!(output, "{byte:02x}");
-    }
-    Ok(output)
+    random_hex_id().map_err(|_| io::Error::other("secure random generation failed"))
 }
 
 fn invalid(message: &'static str) -> io::Error {

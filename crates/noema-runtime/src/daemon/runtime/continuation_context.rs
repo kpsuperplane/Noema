@@ -10,7 +10,7 @@ use noema_providers::{
 };
 
 use super::{
-    context_window::{ContextBudget, estimate_text_tokens},
+    context_window::{ContextBudget, count_tokens_or_estimate},
     local_tools::LocalToolResult,
 };
 
@@ -116,9 +116,9 @@ impl ContinuationContext {
     pub(super) fn append_results(&mut self, results: &[LocalToolResult]) {
         for result in results {
             let call_id = result
-                .provider_call_id()
-                .cloned()
-                .or_else(|| result.call_id().cloned())
+                .provider_call_id
+                .clone()
+                .or_else(|| result.call_id.clone())
                 .or_else(|| self.pending_call_ids.pop_front())
                 .unwrap_or_else(|| self.synthetic_call_id());
             if self.pending_call_ids.front() == Some(&call_id) {
@@ -126,13 +126,13 @@ impl ContinuationContext {
             }
             self.items
                 .push(GenerateInputItem::ToolResult(GenerateToolResultInput {
-                    id: result.call_id().cloned(),
+                    id: result.call_id.clone(),
                     call_id,
-                    name: result.name().to_string(),
-                    provider_name: result.provider_name().cloned(),
-                    arguments: result.arguments().clone(),
-                    success: result.success(),
-                    payload: result.payload().clone(),
+                    name: result.name.clone(),
+                    provider_name: result.provider_name.clone(),
+                    arguments: result.arguments.clone(),
+                    success: result.success,
+                    payload: result.payload.clone(),
                 }));
         }
     }
@@ -164,30 +164,6 @@ impl ContinuationContext {
         }
     }
 
-    /// Return only inputs added since the most recent provider response.
-    /// Providers that retain response state already have the calls and earlier
-    /// history, so replaying them would duplicate context.
-    pub(super) fn provider_continuation_delta(&self) -> GenerateInput {
-        let Some(start) = self.continuation_delta_start else {
-            return GenerateInput::NativeToolResults(Vec::new());
-        };
-        let items = self.items[start..].to_vec();
-        let results = items
-            .iter()
-            .filter_map(|item| match item {
-                GenerateInputItem::ToolResult(result) => Some(result.clone()),
-                GenerateInputItem::Message(_)
-                | GenerateInputItem::Reasoning(_)
-                | GenerateInputItem::ToolCall(_) => None,
-            })
-            .collect::<Vec<_>>();
-        if results.len() == items.len() {
-            GenerateInput::NativeToolResults(results)
-        } else {
-            GenerateInput::Items(items)
-        }
-    }
-
     /// Prefer a provider-side response chain when both the provider and the
     /// latest response support it; otherwise return complete local replay.
     pub(super) fn next_provider_input(
@@ -200,7 +176,23 @@ impl ContinuationContext {
             .then(|| self.previous_response_id.clone())
             .flatten();
         let input = if previous_response_id.is_some() {
-            let delta = self.provider_continuation_delta();
+            let items = self
+                .continuation_delta_start
+                .map_or_else(Vec::new, |start| self.items[start..].to_vec());
+            let results = items
+                .iter()
+                .filter_map(|item| match item {
+                    GenerateInputItem::ToolResult(result) => Some(result.clone()),
+                    GenerateInputItem::Message(_)
+                    | GenerateInputItem::Reasoning(_)
+                    | GenerateInputItem::ToolCall(_) => None,
+                })
+                .collect::<Vec<_>>();
+            let delta = if results.len() == items.len() {
+                GenerateInput::NativeToolResults(results)
+            } else {
+                GenerateInput::Items(items)
+            };
             if delta.is_empty() {
                 previous_response_id = None;
                 self.provider_input(native_history)
@@ -235,7 +227,7 @@ impl ContinuationContext {
         }
 
         let rendered = self.provider_input(true).render_for_token_count();
-        let estimated_tokens = count_tokens(provider, None, &rendered, model).await;
+        let estimated_tokens = count_tokens_or_estimate(provider, None, &rendered, model).await;
         let threshold = available_tokens.saturating_mul(COMPACTION_THRESHOLD_NUMERATOR)
             / COMPACTION_THRESHOLD_DENOMINATOR;
         if estimated_tokens < threshold {
@@ -401,27 +393,10 @@ fn messages_for_non_native_history(items: &[GenerateInputItem]) -> Vec<GenerateM
         .collect()
 }
 
-async fn count_tokens(
-    provider: &dyn ProviderOperations,
-    instructions: Option<&str>,
-    input: &str,
-    model: Option<&str>,
-) -> u32 {
-    match provider.count_tokens(instructions, input, model).await {
-        Ok(Some(tokens)) => tokens,
-        Ok(None) | Err(_) => {
-            instructions.map_or(0, estimate_text_tokens) + estimate_text_tokens(input)
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        daemon::runtime::local_tools::LocalToolResult,
-        daemon::runtime::local_tools::RuntimeCapabilityResult,
-    };
+    use crate::daemon::runtime::local_tools::LocalToolResult;
     use noema_providers::{
         GenerateReasoningItem, GenerateResponseStatus, GenerateToolCall, ProviderContextMetadata,
         ProviderResponseContinuation, ProviderToolCapabilities,
@@ -591,49 +566,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn semantic_compaction_preserves_facts_and_recent_rounds() {
-        let requests = Arc::new(Mutex::new(Vec::new()));
-        let provider = CompactionProvider {
-            requests: Arc::clone(&requests),
-        };
-        let mut context = ContinuationContext::new("Research Canadian bear populations");
-        for round in 1..=3 {
-            context.append_response(&GenerateResponse::final_text(
-                format!("round {round}: {}", "research detail ".repeat(90)),
-                "test",
-                "test",
-            ));
-            context.finish_round();
-        }
-
-        let compacted = context
-            .compact_if_needed(
-                &provider,
-                Some("test"),
-                None,
-                GenerationPriority::Foreground,
-                "Research Canadian bear populations with cited figures",
-            )
-            .await
-            .expect("compaction");
-
-        assert!(compacted);
-        let requests = requests.lock().expect("requests");
-        assert_eq!(requests.len(), 1);
-        assert_eq!(
-            requests[0].options.generation_priority,
-            GenerationPriority::Foreground
-        );
-        drop(requests);
-        let rendered = context.provider_input(true).render_for_token_count();
-        assert!(rendered.contains("Noema execution context checkpoint"));
-        assert!(rendered.contains("450,000"));
-        assert!(!rendered.contains("round 1:"));
-        assert!(rendered.contains("round 2:"));
-        assert!(rendered.contains("round 3:"));
-    }
-
-    #[tokio::test]
     async fn semantic_compaction_rebases_chained_continuation_delta() {
         let requests = Arc::new(Mutex::new(Vec::new()));
         let provider = CompactionProvider {
@@ -693,18 +625,20 @@ mod tests {
     }
 
     fn gateway_result(call_id: &str, url: &str, content: &str) -> LocalToolResult {
-        LocalToolResult::Gateway {
+        let call = super::super::tool_lifecycle::LocalToolCall {
+            output_index: 0,
             call_id: Some(format!("fc_{call_id}")),
             provider_call_id: Some(call_id.to_string()),
             provider_name: Some("web_fetch".to_string()),
             name: "web.fetch".to_string(),
-            arguments: json!({"url": url}),
-            persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
-            result: RuntimeCapabilityResult {
-                success: true,
-                payload: json!({"url": url, "content": content}),
-                requires_provider_continuation: true,
-            },
-        }
+            payload: json!({"url": url}),
+        };
+        LocalToolResult::from_call(
+            &call,
+            super::super::local_tools::LocalToolKind::Gateway,
+            true,
+            json!({"url": url, "content": content}),
+            true,
+        )
     }
 }

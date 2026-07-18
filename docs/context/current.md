@@ -25,6 +25,14 @@ The next storage slice should stay small and concrete:
 
 ## Settled Decisions
 
+- The 2026-07-17 workspace consolidation reduced physical Rust source from
+  143,891 to 117,177 lines and source unit-test declarations from 1,282 to 608.
+  The retained portfolio has 606 compiled tests in both default and all-feature
+  workspace builds, with 603 unique leaf names. A closed-world inventory now
+  owns every source declaration and every crate/target-qualified compiled test;
+  future test additions, removals, or renames must update that baseline. The
+  final portfolio passed adversarial review plus formatting, inventory, check,
+  strict all-target Clippy, and the full workspace unit-test suite.
 - SQLite is the target canonical structured store for the always-on personal
   server. The Noema server process is the only process that opens the SQLite
   database; desktop, web, and future mobile clients use Noema APIs.

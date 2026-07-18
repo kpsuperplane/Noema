@@ -12,7 +12,7 @@ pub use records::{
     ConversationItemPage, ConversationItemRecord, ConversationRecord, ConversationRuntimeStatus,
     ConversationTurnRecord, NewConversation, NewConversationItem, NewConversationTurn, ReplayMode,
 };
-pub use references::{ActorKind, ActorRef, ConversationOwnerKind, ConversationOwnerRef};
+pub use references::{ActorRef, ConversationOwnerKind, ConversationOwnerRef};
 pub use status::{
     AgentStatus, ConversationContextSummaryStatus, ConversationItemKind, ConversationItemStatus,
     ConversationTurnStatus,

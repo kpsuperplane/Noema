@@ -21,16 +21,24 @@ use super::{WebState, assets::embedded_asset, authority, session};
 const MAX_GRAPHQL_BODY_BYTES: usize = 64 * 1024;
 const NOT_FOUND: &str = "not found";
 
+macro_rules! get_only {
+    ($handler:expr) => {
+        get($handler)
+            .head(method_not_found)
+            .fallback(method_not_found)
+    };
+}
+
 /// Build the single application router served by the daemon.
 pub(crate) fn build_router(state: WebState) -> Router {
-    let authority = state.authority().clone();
+    let authority = state.authority.clone();
     let session_layer = SessionManagerLayer::new(MemoryStore::default())
         .with_name("noema.sid")
         .with_http_only(true)
         .with_same_site(SameSite::Strict)
         .with_path("/")
         .with_secure(false)
-        .with_private(state.sessions().key());
+        .with_private(state.sessions.key());
 
     Router::new()
         .route(
@@ -41,41 +49,13 @@ pub(crate) fn build_router(state: WebState) -> Router {
                 .fallback(method_not_found)
                 .layer(RequestBodyLimitLayer::new(MAX_GRAPHQL_BODY_BYTES)),
         )
-        .route(
-            "/graphql/schema.graphql",
-            get(graphql_schema)
-                .head(method_not_found)
-                .fallback(method_not_found),
-        )
-        .route(
-            "/graphql/ws",
-            get(graphql_ws)
-                .head(method_not_found)
-                .fallback(method_not_found),
-        )
-        .route(
-            "/__noema/bootstrap/{capability}",
-            get(bootstrap)
-                .head(method_not_found)
-                .fallback(method_not_found),
-        )
-        .route(
-            "/mcp/oauth/callback",
-            get(mcp_oauth_callback)
-                .head(method_not_found)
-                .fallback(method_not_found),
-        )
+        .route("/graphql/schema.graphql", get_only!(graphql_schema))
+        .route("/graphql/ws", get_only!(graphql_ws))
+        .route("/__noema/bootstrap/{capability}", get_only!(bootstrap))
+        .route("/mcp/oauth/callback", get_only!(mcp_oauth_callback))
         .route(
             "/artifacts/versions/{artifact_version_slug}/download",
-            get(download_artifact_slug)
-                .head(method_not_found)
-                .fallback(method_not_found),
-        )
-        .route(
-            "/artifacts/{artifact_version_id}/download",
-            get(download_artifact_id)
-                .head(method_not_found)
-                .fallback(method_not_found),
+            get_only!(download_artifact_slug),
         )
         .fallback(asset_or_not_found)
         .layer(SetResponseHeaderLayer::if_not_present(
@@ -95,12 +75,12 @@ async fn graphql(
     session: Session,
     request: GraphQLRequest,
 ) -> Response {
-    if state.auth_mode().requires_session() && !session::is_authenticated(&session).await {
+    if needs_authentication(&state, &session).await {
         return StatusCode::UNAUTHORIZED.into_response();
     }
     GraphQLResponse::from(
         state
-            .graphql_schema()
+            .graphql_schema
             .execute(with_request_principal(request.into_inner()))
             .await,
     )
@@ -113,10 +93,10 @@ async fn graphql_ws(
     protocol: GraphQLProtocol,
     upgrade: WebSocketUpgrade,
 ) -> Response {
-    if state.auth_mode().requires_session() && !session::is_authenticated(&session).await {
+    if needs_authentication(&state, &session).await {
         return StatusCode::UNAUTHORIZED.into_response();
     }
-    let schema = state.graphql_schema().clone();
+    let schema = state.graphql_schema.clone();
     upgrade
         .protocols(ALL_WEBSOCKET_PROTOCOLS)
         .on_upgrade(move |socket| {
@@ -137,8 +117,12 @@ fn request_principal_data() -> Data {
     data
 }
 
+async fn needs_authentication(state: &WebState, session: &Session) -> bool {
+    state.auth_mode.requires_session() && !session::is_authenticated(session).await
+}
+
 async fn graphiql(State(state): State<WebState>, session: Session) -> Response {
-    if state.auth_mode().requires_session() && !session::is_authenticated(&session).await {
+    if needs_authentication(&state, &session).await {
         return StatusCode::UNAUTHORIZED.into_response();
     }
     Html(
@@ -151,10 +135,10 @@ async fn graphiql(State(state): State<WebState>, session: Session) -> Response {
 }
 
 async fn graphql_schema(State(state): State<WebState>, session: Session) -> Response {
-    if state.auth_mode().requires_session() && !session::is_authenticated(&session).await {
+    if needs_authentication(&state, &session).await {
         return StatusCode::UNAUTHORIZED.into_response();
     }
-    plain_response(StatusCode::OK, state.graphql_schema().sdl())
+    plain_response(StatusCode::OK, state.graphql_schema.sdl())
 }
 
 async fn bootstrap(
@@ -162,7 +146,7 @@ async fn bootstrap(
     Path(capability): Path<String>,
     session_value: Session,
 ) -> Response {
-    if !state.sessions().consume(&capability) {
+    if !state.sessions.consume(&capability) {
         return not_found();
     }
     if session::authenticate(&session_value).await.is_err() {
@@ -178,10 +162,10 @@ async fn mcp_oauth_callback(State(state): State<WebState>, RawQuery(query): RawQ
     let Some(attempt_id) = query_value(&query, "attemptId") else {
         return plain_response(StatusCode::BAD_REQUEST, "missing MCP OAuth attempt id");
     };
-    let callback_url = oauth_callback_url(state.authority(), &query);
+    let callback_url = oauth_callback_url(&state.authority, &query);
 
     match noema_api::graphql::complete_mcp_server_oauth_setup(
-        state.graphql_state(),
+        &state.graphql_state,
         &attempt_id,
         &callback_url,
     )
@@ -219,7 +203,7 @@ async fn download_artifact_slug(
     Path(artifact_version_slug): Path<String>,
 ) -> Response {
     let Some(principal) =
-        session::request_principal(&session_value, state.auth_mode().requires_session()).await
+        session::request_principal(&session_value, state.auth_mode.requires_session()).await
     else {
         return StatusCode::UNAUTHORIZED.into_response();
     };
@@ -231,26 +215,13 @@ async fn download_artifact_slug(
     download_artifact(&state, &principal, &artifact_version_id).await
 }
 
-async fn download_artifact_id(
-    State(state): State<WebState>,
-    session_value: Session,
-    Path(artifact_version_id): Path<String>,
-) -> Response {
-    let Some(principal) =
-        session::request_principal(&session_value, state.auth_mode().requires_session()).await
-    else {
-        return StatusCode::UNAUTHORIZED.into_response();
-    };
-    download_artifact(&state, &principal, &artifact_version_id).await
-}
-
 async fn download_artifact(
     state: &WebState,
     principal: &noema_api::RequestPrincipal,
     artifact_version_id: &str,
 ) -> Response {
     let download = match noema_api::graphql::authorized_artifact_download(
-        state.graphql_state(),
+        &state.graphql_state,
         principal,
         artifact_version_id,
     )

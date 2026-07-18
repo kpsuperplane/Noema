@@ -1,55 +1,15 @@
 //! SQLite row adapters for durable task agent runs.
 
-use noema_providers::{ProviderInstanceKey, ProviderSelectionSnapshot, ReasoningEffort};
-use noema_tasks::{AgentRunRecord, RunKind, RunStatus, TaskExecutionPolicy};
+use noema_providers::ProviderSelectionSnapshot;
+use noema_tasks::{AgentRunRecord, TaskExecutionPolicy};
+
+use crate::sqlite::{parse_column, reasoning_column};
 
 pub(super) fn run_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRunRecord> {
-    let run_kind = row
-        .get::<_, String>(2)?
-        .parse::<RunKind>()
-        .map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(
-                2,
-                rusqlite::types::Type::Text,
-                Box::new(error),
-            )
-        })?;
-    let selection_mode = row
-        .get::<_, String>(13)?
-        .parse::<noema_providers::ProviderSelectionMode>()
-        .map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(
-                13,
-                rusqlite::types::Type::Text,
-                Box::new(error),
-            )
-        })?;
-    let reasoning_effort = row
-        .get::<_, Option<String>>(15)?
-        .as_deref()
-        .map(|value| {
-            ReasoningEffort::from_persistence_str(value).ok_or_else(|| {
-                rusqlite::Error::FromSqlConversionFailure(
-                    15,
-                    rusqlite::types::Type::Text,
-                    Box::new(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "invalid reasoning effort",
-                    )),
-                )
-            })
-        })
-        .transpose()?;
-    let status = row
-        .get::<_, String>(23)?
-        .parse::<RunStatus>()
-        .map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(
-                23,
-                rusqlite::types::Type::Text,
-                Box::new(error),
-            )
-        })?;
+    let run_kind = parse_column(row, 2)?;
+    let selection_mode = parse_column(row, 13)?;
+    let reasoning_effort = reasoning_column(row, 15)?;
+    let status = parse_column(row, 23)?;
     Ok(AgentRunRecord {
         run_id: row.get(0)?,
         task_id: row.get(1)?,
@@ -62,15 +22,7 @@ pub(super) fn run_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRun
         triggering_review_id: row.get(8)?,
         resume_message: row.get(9)?,
         model: ProviderSelectionSnapshot {
-            provider_instance_key: Some(
-                ProviderInstanceKey::new(row.get::<_, String>(12)?).map_err(|error| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        12,
-                        rusqlite::types::Type::Text,
-                        Box::new(error),
-                    )
-                })?,
-            ),
+            provider_instance_key: Some(parse_column(row, 12)?),
             provider_kind: row.get(10)?,
             provider_account_id: row.get(11)?,
             selection_mode,

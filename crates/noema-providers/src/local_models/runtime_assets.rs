@@ -8,103 +8,16 @@ use super::LlamaServerCandidate;
 use crate::LocalModelBackend;
 
 /// Immutable upstream llama.cpp release bundled with this Noema runtime.
-#[cfg(any(test, feature = "local-model-evals"))]
+#[cfg(feature = "local-model-evals")]
 pub const LLAMA_CPP_RELEASE_TAG: &str = "b10015";
 /// Upstream commit referenced by [`LLAMA_CPP_RELEASE_TAG`].
-#[cfg(any(test, feature = "local-model-evals"))]
+#[cfg(feature = "local-model-evals")]
 pub const LLAMA_CPP_COMMIT: &str = "12127defda4f41b7679cb2477a4b0d65ee6a0c8f";
 /// Development/test-only override for the `llama-server` executable.
 #[cfg(any(test, debug_assertions))]
-pub const NOEMA_LLAMA_SERVER_PATH_ENV: &str = "NOEMA_LLAMA_SERVER_PATH";
+const NOEMA_LLAMA_SERVER_PATH_ENV: &str = "NOEMA_LLAMA_SERVER_PATH";
 /// Base name used for Tauri external sidecars and installed runtime binaries.
-pub const LLAMA_SERVER_SIDECAR_BASENAME: &str = "noema-llama-server";
-
-/// Role of one archive in a bundled llama.cpp runtime candidate.
-#[cfg(test)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum LlamaCppRuntimeAssetRole {
-    /// Archive containing `llama-server` and backend libraries.
-    ServerBundle,
-    /// Additional vendor runtime libraries required by the server bundle.
-    RuntimeLibraries,
-}
-
-/// Immutable upstream archive required to materialize a bundled sidecar.
-#[cfg(test)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct LlamaCppRuntimeAsset {
-    /// Rust target triple for the packaged application.
-    pub target_triple: &'static str,
-    /// Inference backend supplied by this archive.
-    pub backend: LocalModelBackend,
-    /// Upstream GitHub release asset filename.
-    pub archive_name: &'static str,
-    /// Verified lowercase SHA-256 digest for the complete archive.
-    pub sha256: &'static str,
-    /// Whether the archive supplies the server or companion runtime libraries.
-    pub role: LlamaCppRuntimeAssetRole,
-}
-
-/// Complete pinned upstream runtime asset manifest for V1 desktop targets.
-#[cfg(test)]
-pub const LLAMA_CPP_RUNTIME_ASSETS: &[LlamaCppRuntimeAsset] = &[
-    LlamaCppRuntimeAsset {
-        target_triple: "aarch64-apple-darwin",
-        backend: LocalModelBackend::Metal,
-        archive_name: "llama-b10015-bin-macos-arm64.tar.gz",
-        sha256: "8d3144eb71a4b9b5b9ed50512f659d1cbcd5772e30aca75e6f9a0d7d68c311a7",
-        role: LlamaCppRuntimeAssetRole::ServerBundle,
-    },
-    LlamaCppRuntimeAsset {
-        target_triple: "x86_64-apple-darwin",
-        backend: LocalModelBackend::Metal,
-        archive_name: "llama-b10015-bin-macos-x64.tar.gz",
-        sha256: "295a51dad3feafaafed8aa8fba9d9429fcaca8a2e7e66c73d839076fdf3fec6f",
-        role: LlamaCppRuntimeAssetRole::ServerBundle,
-    },
-    LlamaCppRuntimeAsset {
-        target_triple: "x86_64-unknown-linux-gnu",
-        backend: LocalModelBackend::Vulkan,
-        archive_name: "llama-b10015-bin-ubuntu-vulkan-x64.tar.gz",
-        sha256: "cdd2fed8d96dcb584f6f7907df67c3787454e1f44e176580ae2da34fc79d63a0",
-        role: LlamaCppRuntimeAssetRole::ServerBundle,
-    },
-    LlamaCppRuntimeAsset {
-        target_triple: "x86_64-unknown-linux-gnu",
-        backend: LocalModelBackend::Cpu,
-        archive_name: "llama-b10015-bin-ubuntu-x64.tar.gz",
-        sha256: "fc9c641c5ab5ce74b01d3a95123ff76ad488e1d46122d602f20604100ceae834",
-        role: LlamaCppRuntimeAssetRole::ServerBundle,
-    },
-    LlamaCppRuntimeAsset {
-        target_triple: "x86_64-pc-windows-msvc",
-        backend: LocalModelBackend::Cuda,
-        archive_name: "llama-b10015-bin-win-cuda-12.4-x64.zip",
-        sha256: "336104b92b9b6a53a39eb7a373003d6256c1f20af3fc8213f65c2c3c11716469",
-        role: LlamaCppRuntimeAssetRole::ServerBundle,
-    },
-    LlamaCppRuntimeAsset {
-        target_triple: "x86_64-pc-windows-msvc",
-        backend: LocalModelBackend::Cuda,
-        archive_name: "cudart-llama-bin-win-cuda-12.4-x64.zip",
-        sha256: "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6",
-        role: LlamaCppRuntimeAssetRole::RuntimeLibraries,
-    },
-    LlamaCppRuntimeAsset {
-        target_triple: "x86_64-pc-windows-msvc",
-        backend: LocalModelBackend::Vulkan,
-        archive_name: "llama-b10015-bin-win-vulkan-x64.zip",
-        sha256: "e2b63eba0fb124e51c93159540e11a861236f3701636d417b92504209a315210",
-        role: LlamaCppRuntimeAssetRole::ServerBundle,
-    },
-    LlamaCppRuntimeAsset {
-        target_triple: "x86_64-pc-windows-msvc",
-        backend: LocalModelBackend::Cpu,
-        archive_name: "llama-b10015-bin-win-cpu-x64.zip",
-        sha256: "b850b461695b4c3e3811757fe20ae218bce06018a7f274c6c56485cf23adf980",
-        role: LlamaCppRuntimeAssetRole::ServerBundle,
-    },
-];
+const LLAMA_SERVER_SIDECAR_BASENAME: &str = "noema-llama-server";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum RuntimeTargetOs {
@@ -254,21 +167,6 @@ fn resolve_llama_server_candidates(
         .collect()
 }
 
-/// Returns the Tauri build-input filename for one target/backend pair.
-///
-/// Packaging places this file under `crates/noema-desktop/binaries/` and
-/// configures `binaries/noema-llama-server-<backend>` in `externalBin`.
-#[must_use]
-#[cfg(test)]
-pub fn tauri_sidecar_input_name(backend: LocalModelBackend, target_triple: &str) -> String {
-    let extension = RuntimeTargetPlatform::from_target_triple(target_triple)
-        .map_or("", RuntimeTargetPlatform::installed_sidecar_extension);
-    format!(
-        "{LLAMA_SERVER_SIDECAR_BASENAME}-{}-{target_triple}{extension}",
-        backend_slug(backend)
-    )
-}
-
 fn installed_sidecar_name(backend: LocalModelBackend, target: RuntimeTargetPlatform<'_>) -> String {
     let extension = target.installed_sidecar_extension();
     format!(
@@ -322,134 +220,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tauri_input_names_follow_target_triple_contract() {
-        assert_eq!(
-            tauri_sidecar_input_name(LocalModelBackend::Metal, "aarch64-apple-darwin"),
-            "noema-llama-server-metal-aarch64-apple-darwin"
-        );
-        assert_eq!(
-            tauri_sidecar_input_name(LocalModelBackend::Cuda, "x86_64-pc-windows-msvc"),
-            "noema-llama-server-cuda-x86_64-pc-windows-msvc.exe"
-        );
-    }
-
-    #[test]
-    fn packaged_runtime_candidates_use_target_and_backend_directories() {
-        let target = RuntimeTargetPlatform::from_target_triple(current_target_triple())
-            .expect("supported test target");
-        let candidates = resolve_llama_server_candidates(
-            Some(target.default_backend()),
-            target,
-            Some(Path::new("/app/resources/binaries/runtime")),
-            None,
-        );
-
-        assert_eq!(
-            candidates[0].executable_path,
-            Path::new("/app/resources/binaries/runtime")
-                .join(current_target_triple())
-                .join(backend_slug(target.default_backend()))
-                .join(target.upstream_server_name())
-        );
-    }
-
-    #[test]
     fn every_pinned_runtime_asset_resolves_for_its_injected_target_platform() {
-        use LlamaCppRuntimeAssetRole::{RuntimeLibraries, ServerBundle};
-        use LocalModelBackend::{Cpu, Cuda, Metal, Vulkan};
-
-        let expected = [
-            ("aarch64-apple-darwin", Metal, ServerBundle),
-            ("x86_64-apple-darwin", Metal, ServerBundle),
-            ("x86_64-unknown-linux-gnu", Vulkan, ServerBundle),
-            ("x86_64-unknown-linux-gnu", Cpu, ServerBundle),
-            ("x86_64-pc-windows-msvc", Cuda, ServerBundle),
-            ("x86_64-pc-windows-msvc", Cuda, RuntimeLibraries),
-            ("x86_64-pc-windows-msvc", Vulkan, ServerBundle),
-            ("x86_64-pc-windows-msvc", Cpu, ServerBundle),
-        ];
-        let actual = LLAMA_CPP_RUNTIME_ASSETS
-            .iter()
-            .map(|asset| (asset.target_triple, asset.backend, asset.role))
-            .collect::<Vec<_>>();
-        assert_eq!(actual, expected);
-
-        let runtime_root = Path::new("/app/resources/binaries/runtime");
-        for (target_triple, backend, role) in expected {
-            let target = RuntimeTargetPlatform::from_target_triple(target_triple)
-                .expect("manifest target must be supported");
-            let assets = LLAMA_CPP_RUNTIME_ASSETS
-                .iter()
-                .filter(|asset| asset.target_triple == target_triple && asset.backend == backend)
-                .collect::<Vec<_>>();
-            assert!(assets.iter().any(|asset| asset.role == role));
-
-            let candidates =
-                resolve_llama_server_candidates(Some(backend), target, Some(runtime_root), None);
-            let candidate = candidates
-                .iter()
-                .find(|candidate| candidate.backend == backend)
-                .expect("manifest backend must resolve for its target");
-            assert_eq!(
-                candidate.executable_path,
-                runtime_root
-                    .join(target_triple)
-                    .join(backend_slug(target.sidecar_backend(backend)))
-                    .join(target.upstream_server_name())
-            );
-
-            if role == RuntimeLibraries {
-                assert_eq!(target.os, RuntimeTargetOs::Windows);
-                assert_eq!(backend, Cuda);
-                let adjacent_library_directory =
-                    runtime_root.join(target_triple).join(backend_slug(backend));
-                assert_eq!(
-                    candidate.executable_path.parent(),
-                    Some(adjacent_library_directory.as_path())
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn runtime_manifest_uses_the_pinned_release_and_valid_hashes() {
-        assert_eq!(LLAMA_CPP_RELEASE_TAG, "b10015");
-        assert!(LLAMA_CPP_RUNTIME_ASSETS.iter().all(|asset| {
-            asset.archive_name.contains(LLAMA_CPP_RELEASE_TAG)
-                || asset.role == LlamaCppRuntimeAssetRole::RuntimeLibraries
-        }));
-        assert!(LLAMA_CPP_RUNTIME_ASSETS.iter().all(|asset| {
-            asset.sha256.len() == 64
-                && asset
-                    .sha256
-                    .bytes()
-                    .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
-        }));
-    }
-
-    #[test]
-    fn desktop_packaging_manifest_matches_runtime_contract() {
-        let packaging: serde_json::Value = serde_json::from_str(include_str!(
+        let manifest: serde_json::Value = serde_json::from_str(include_str!(
             "../../resources/local-models/runtime-assets.json"
         ))
-        .expect("packaging manifest");
-        assert_eq!(packaging["release_tag"], LLAMA_CPP_RELEASE_TAG);
-        assert_eq!(packaging["commit"], LLAMA_CPP_COMMIT);
-        let assets = packaging["assets"].as_array().expect("packaging assets");
-        assert_eq!(assets.len(), LLAMA_CPP_RUNTIME_ASSETS.len());
+        .expect("runtime manifest");
+        let root = Path::new("/app/resources/binaries/runtime");
 
-        for runtime in LLAMA_CPP_RUNTIME_ASSETS {
-            let role = match runtime.role {
-                LlamaCppRuntimeAssetRole::ServerBundle => "server_bundle",
-                LlamaCppRuntimeAssetRole::RuntimeLibraries => "runtime_libraries",
+        for asset in manifest["assets"].as_array().expect("assets") {
+            let target_triple = asset["target_triple"].as_str().expect("target");
+            let backend = match asset["backend"].as_str().expect("backend") {
+                "metal" => LocalModelBackend::Metal,
+                "cuda" => LocalModelBackend::Cuda,
+                "vulkan" => LocalModelBackend::Vulkan,
+                "cpu" => LocalModelBackend::Cpu,
+                value => panic!("unknown manifest backend {value}"),
             };
-            assert!(assets.iter().any(|asset| {
-                asset["target_triple"] == runtime.target_triple
-                    && asset["backend"] == backend_slug(runtime.backend)
-                    && asset["archive_name"] == runtime.archive_name
-                    && asset["sha256"] == runtime.sha256
-                    && asset["role"] == role
-            }));
+            let target =
+                RuntimeTargetPlatform::from_target_triple(target_triple).expect("supported target");
+            let candidate =
+                resolve_llama_server_candidates(Some(backend), target, Some(root), None)
+                    .into_iter()
+                    .find(|candidate| candidate.backend == backend)
+                    .expect("asset backend resolves");
+            assert_eq!(
+                candidate.executable_path,
+                root.join(target_triple)
+                    .join(backend_slug(target.sidecar_backend(backend)))
+                    .join(target.upstream_server_name()),
+                "{target_triple}/{backend:?}"
+            );
         }
     }
 }

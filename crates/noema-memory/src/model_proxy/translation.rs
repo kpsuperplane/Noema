@@ -16,7 +16,6 @@ use super::MemoryModelProxyError;
 
 #[derive(Debug, Deserialize)]
 pub(super) struct OpenAiChatCompletionRequest {
-    model: Option<String>,
     messages: Vec<OpenAiChatMessage>,
     #[serde(default)]
     tools: Vec<OpenAiChatTool>,
@@ -27,8 +26,6 @@ pub(super) struct OpenAiChatCompletionRequest {
     #[serde(default)]
     max_completion_tokens: Option<u32>,
     #[serde(default)]
-    temperature: Option<f32>,
-    #[serde(default)]
     pub(super) stream: Option<bool>,
 }
 
@@ -37,8 +34,6 @@ impl OpenAiChatCompletionRequest {
         self,
         route: &ProviderRouteLease,
     ) -> Result<GenerateRequest, MemoryModelProxyError> {
-        let _requested_model = self.model;
-        let _ignored_temperature = self.temperature;
         let mut instructions = Vec::new();
         let mut items = Vec::new();
         for message in self.messages {

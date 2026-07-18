@@ -24,10 +24,6 @@ struct FakeBackend {
 }
 
 impl McpOAuthBackend for FakeBackend {
-    fn authorization_supported<'a>(&'a self, _: &'a str) -> OAuthFuture<'a, bool> {
-        Box::pin(async { Ok(true) })
-    }
-
     fn start<'a>(&'a self, _: &'a str, _: &'a str) -> OAuthFuture<'a, McpOAuthStarted> {
         let runtime = FakeRuntime {
             callback_count: Arc::clone(&self.callback_count),
@@ -91,7 +87,8 @@ fn start_request(label: &str) -> McpOAuthStartRequest {
 }
 
 #[tokio::test]
-async fn callback_is_consumed_exactly_once() {
+async fn registry_attempt_lifecycle_contracts() {
+    // Case: callback_is_consumed_exactly_once.
     let (registry, count) = test_registry(McpOAuthRegistryConfig::default());
     let view = registry
         .start_attempt(start_request("Docs"))
@@ -118,10 +115,8 @@ async fn callback_is_consumed_exactly_once() {
         completion.context,
         McpOAuthAttemptContext::PendingCreate(_)
     ));
-}
 
-#[tokio::test]
-async fn capacity_evicts_oldest_and_ttl_expires_entries() {
+    // Case: capacity_evicts_oldest_and_ttl_expires_entries.
     let (registry, _) = test_registry(McpOAuthRegistryConfig {
         capacity: 1,
         ..McpOAuthRegistryConfig::default()
@@ -147,10 +142,8 @@ async fn capacity_evicts_oldest_and_ttl_expires_entries() {
         .expect("start");
     tokio::time::sleep(Duration::from_millis(5)).await;
     assert!(expiring.attempt(&view.attempt_id).await.is_none());
-}
 
-#[tokio::test]
-async fn completing_attempt_is_not_expired_or_evicted_before_terminal_transition() {
+    // Case: completing_attempt_is_not_expired_or_evicted_before_terminal_transition.
     let config = McpOAuthRegistryConfig {
         attempt_ttl: Duration::from_millis(1),
         capacity: 1,
@@ -181,21 +174,15 @@ async fn completing_attempt_is_not_expired_or_evicted_before_terminal_transition
     );
 
     registry
-        .finish_failure(
-            &completion,
-            McpOAuthSetupFailure::DiscoveryFailed,
-            "test failure",
-        )
+        .finish_failure(&completion, McpOAuthSetupFailure::DiscoveryFailed)
         .await
         .expect("terminal transition");
     registry
         .start_attempt(start_request("After terminal"))
         .await
         .expect("terminal attempt can be evicted");
-}
 
-#[tokio::test]
-async fn abandoned_completion_expires_and_releases_capacity() {
+    // Case: abandoned_completion_expires_and_releases_capacity.
     let config = McpOAuthRegistryConfig {
         attempt_ttl: Duration::from_secs(60),
         in_flight_ttl: Duration::from_millis(10),
@@ -224,7 +211,8 @@ async fn abandoned_completion_expires_and_releases_capacity() {
 }
 
 #[tokio::test]
-async fn unsafe_browser_urls_are_rejected_and_removed() {
+async fn oauth_protocol_safety_timeout_and_redaction_contracts() {
+    // Case: browser_oauth_rejects_unsafe_authorization_redirect_and_endpoint_urls.
     for authorization_url in [
         "javascript:alert(1)",
         "file:///tmp/authorize",
@@ -249,10 +237,7 @@ async fn unsafe_browser_urls_are_rejected_and_removed() {
         assert_eq!(error.kind(), McpOAuthErrorKind::Unavailable);
         assert!(registry.state.lock().await.attempts.is_empty());
     }
-}
 
-#[tokio::test]
-async fn redirect_and_oauth_endpoint_require_secure_or_loopback_urls() {
     let (registry, _) = test_registry(McpOAuthRegistryConfig::default());
     let mut remote_redirect = start_request("Remote callback");
     remote_redirect.redirect_uri = "https://callback.example/oauth".to_string();
@@ -265,18 +250,24 @@ async fn redirect_and_oauth_endpoint_require_secure_or_loopback_urls() {
         McpOAuthErrorKind::InvalidInput
     );
 
+    let mut insecure_endpoint = start_request("Insecure endpoint");
+    let McpOAuthAttemptContext::PendingCreate(command) = &mut insecure_endpoint.context else {
+        panic!("create context")
+    };
+    let McpSetupTransportConfig::StreamableHttp(config) = &mut command.transport else {
+        panic!("HTTP transport")
+    };
+    config.url = "http://mcp.example/mcp".to_string();
     assert_eq!(
         registry
-            .authorization_supported("http://mcp.example/mcp")
+            .start_attempt(insecure_endpoint)
             .await
             .expect_err("remote OAuth endpoint must use HTTPS")
             .kind(),
         McpOAuthErrorKind::InvalidInput
     );
-}
 
-#[tokio::test]
-async fn deadline_and_cancellation_fail_closed() {
+    // Case: deadline_and_cancellation_fail_closed.
     let count = Arc::new(AtomicUsize::new(0));
     let registry = McpOAuthRegistry::with_backend(
         McpOAuthRegistryConfig {
@@ -324,16 +315,14 @@ async fn deadline_and_cancellation_fail_closed() {
     );
     assert_eq!(
         cancelled
-            .authorization_supported("https://mcp.example/mcp")
+            .start_attempt(start_request("Cancelled"))
             .await
             .expect_err("cancelled")
             .kind(),
         McpOAuthErrorKind::Cancelled
     );
-}
 
-#[test]
-fn debug_redacts_urls_ids_credentials_and_diagnostics() {
+    // Case: debug_redacts_urls_ids_credentials_and_diagnostics.
     let request = start_request("private-display");
     let completion = McpOAuthCompletion {
         attempt_id: "private-attempt".to_string(),
@@ -360,10 +349,8 @@ fn debug_redacts_urls_ids_credentials_and_diagnostics() {
         assert!(!debug.contains(secret), "debug leaked {secret}");
     }
     assert!(debug.contains(REDACTED));
-}
 
-#[tokio::test]
-async fn metadata_probe_sends_current_protocol_version() {
+    // Case: metadata_probe_sends_current_protocol_version.
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("listener");
@@ -393,10 +380,8 @@ async fn metadata_probe_sends_current_protocol_version() {
 
     assert!(fetch_metadata(&url).await.is_some());
     server.await.expect("server task");
-}
 
-#[test]
-fn protected_resource_metadata_is_origin_scoped() {
+    // Case: protected_resource_metadata_discovery_is_origin_scoped.
     let endpoint = Url::parse("https://mcp.example/mcp").expect("url");
     let accepted = json!({
         "resource": "https://mcp.example/",
@@ -412,11 +397,6 @@ fn protected_resource_metadata_is_origin_scoped() {
         Some("https://mcp.example/")
     );
     assert_eq!(metadata_resource(&endpoint, &rejected), None);
-}
-
-#[test]
-fn protected_resource_metadata_candidates_include_path_then_origin() {
-    let endpoint = Url::parse("https://mcp.example/mcp").expect("url");
 
     assert_eq!(
         metadata_candidates(&endpoint)
@@ -428,10 +408,6 @@ fn protected_resource_metadata_candidates_include_path_then_origin() {
             "https://mcp.example/.well-known/oauth-protected-resource",
         ]
     );
-}
-
-#[test]
-fn challenge_resource_metadata_url_must_remain_on_the_endpoint_origin() {
     let endpoint = Url::parse("https://mcp.example:8443/mcp").expect("url");
 
     assert_eq!(

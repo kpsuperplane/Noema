@@ -485,56 +485,61 @@ mod tests {
 
     #[test]
     fn noema_assistant_text_delta_extractor_decodes_escaped_visible_text() {
-        let mut extractor = NoemaAssistantTextDeltaExtractor::default();
-        let mut events = Vec::new();
-        extractor.push_delta(
-            r#"{"response_status":"final","responses":[{"kind":"text","text":"Hi"#,
-            &mut |event| events.push(event),
-        );
-        extractor.push_delta("\\nthere\\u00", &mut |event| events.push(event));
-        extractor.push_delta("21\"}],\"tool_calls\":[]}", &mut |event| events.push(event));
+        let cases: &[(&str, &[&str], &str)] = &[
+            (
+                "escaped text",
+                &[
+                    r#"{"response_status":"final","responses":[{"kind":"text","text":"Hi"#,
+                    "\\nthere\\u00",
+                    "21\"}],\"tool_calls\":[]}",
+                ],
+                "Hi\nthere!",
+            ),
+            (
+                "text before kind",
+                &[
+                    r#"{"response_status":"final","responses":[{"text":"Hel"#,
+                    r#"lo","kind":"text"}],"tool_calls":[]}"#,
+                ],
+                "Hello",
+            ),
+            (
+                "phase metadata",
+                &[
+                    r#"{"response_status":"needs_tools","responses":[{"kind":"text","phase":"commentary","text":"Checking"#,
+                    r#" now."}],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{}}]} "#,
+                ],
+                "Checking now.",
+            ),
+            (
+                "multiple text items",
+                &[
+                    r#"{"response_status":"final","responses":[{"kind":"text","text":"Hel"#,
+                    r#"lo"},{"kind":"text","text":" again"}],"tool_calls":[]}"#,
+                ],
+                "Hello again",
+            ),
+            (
+                "duplicate envelope",
+                &[
+                    r#"{"response_status":"final","responses":[{"kind":"text","text":"same"}],"tool_calls":[]}"#,
+                    r#"{"response_status":"final","responses":[{"kind":"text","text":"same"}],"tool_calls":[]}"#,
+                ],
+                "same",
+            ),
+            (
+                "nested payload",
+                &[
+                    r#"{"response_status":"final","responses":[{"kind":"structured","schema":"test","payload":{"responses":[{"kind":"text","text":"also wrong"}]}}"#,
+                    r#",{"text":"right","kind":"text"}],"tool_calls":[]}"#,
+                ],
+                "right",
+            ),
+        ];
 
-        let streamed_text = assistant_text_from_events(&events);
-        assert_eq!(streamed_text, "Hi\nthere!");
-    }
-
-    #[test]
-    fn noema_assistant_text_delta_extractor_handles_text_before_kind() {
-        let streamed_text = extract_streamed_text(&[
-            r#"{"response_status":"final","responses":[{"text":"Hel"#,
-            r#"lo","kind":"text"}],"tool_calls":[]}"#,
-        ]);
-
-        assert_eq!(streamed_text, "Hello");
-    }
-
-    #[test]
-    fn noema_assistant_text_delta_extractor_ignores_assistant_text_phase() {
-        let mut extractor = NoemaAssistantTextDeltaExtractor::default();
-        let mut events = Vec::new();
-        extractor.push_delta(
-            r#"{"response_status":"needs_tools","responses":[{"kind":"text","phase":"commentary","text":"Checking"#,
-            &mut |event| events.push(event),
-        );
-        extractor.push_delta(
-            r#" now."}],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{}}]} "#,
-            &mut |event| events.push(event),
-        );
-
-        assert_eq!(
-            assistant_text_from_events(&events),
-            "Checking now.".to_string()
-        );
-    }
-
-    #[test]
-    fn noema_assistant_text_delta_extractor_streams_multiple_assistant_items() {
-        let streamed_text = extract_streamed_text(&[
-            r#"{"response_status":"final","responses":[{"kind":"text","text":"Hel"#,
-            r#"lo"},{"kind":"text","text":" again"}],"tool_calls":[]}"#,
-        ]);
-
-        assert_eq!(streamed_text, "Hello again");
+        for (case, chunks, expected) in cases {
+            assert_eq!(extract_streamed_text(chunks), *expected, "{case}");
+        }
     }
 
     #[test]
@@ -558,24 +563,6 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(deltas, vec![(0, "one".to_string()), (1, "two".to_string())]);
-    }
-
-    #[test]
-    fn noema_assistant_text_delta_extractor_ignores_duplicate_top_level_envelope() {
-        let duplicate = r#"{"response_status":"final","responses":[{"kind":"text","text":"same"}],"tool_calls":[]}"#;
-        let streamed_text = extract_streamed_text(&[duplicate, duplicate]);
-
-        assert_eq!(streamed_text, "same");
-    }
-
-    #[test]
-    fn noema_assistant_text_delta_extractor_ignores_nested_payload_text() {
-        let streamed_text = extract_streamed_text(&[
-            r#"{"response_status":"final","responses":[{"kind":"structured","schema":"test","payload":{"responses":[{"kind":"text","text":"also wrong"}]}}"#,
-            r#",{"text":"right","kind":"text"}],"tool_calls":[]}"#,
-        ]);
-
-        assert_eq!(streamed_text, "right");
     }
 
     #[test]

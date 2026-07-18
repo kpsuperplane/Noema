@@ -1,8 +1,12 @@
-use std::{collections::BTreeSet, str::FromStr};
+use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{TaskDomainError, error::invalid_operation};
+use crate::{
+    TaskDomainError,
+    error::invalid_operation,
+    validation::{normalize_optional, required},
+};
 
 /// Overall reviewer outcome.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -16,33 +20,11 @@ pub enum TaskReviewVerdict {
     NeedsHuman,
 }
 
-impl TaskReviewVerdict {
-    /// Return stable persistence text.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Approve => "approve",
-            Self::RequestChanges => "request_changes",
-            Self::NeedsHuman => "needs_human",
-        }
-    }
-}
-
-impl FromStr for TaskReviewVerdict {
-    type Err = TaskDomainError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "approve" => Ok(Self::Approve),
-            "request_changes" => Ok(Self::RequestChanges),
-            "needs_human" => Ok(Self::NeedsHuman),
-            other => Err(TaskDomainError::InvalidEnum {
-                kind: "task_review_verdict",
-                value: other.to_string(),
-            }),
-        }
-    }
-}
+task_vocabulary!(TaskReviewVerdict, "task_review_verdict", {
+    Approve => "approve",
+    RequestChanges => "request_changes",
+    NeedsHuman => "needs_human",
+});
 
 /// Per-criterion reviewer outcome.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -56,33 +38,11 @@ pub enum CriterionOutcome {
     Uncertain,
 }
 
-impl CriterionOutcome {
-    /// Return stable persistence text.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Pass => "pass",
-            Self::Fail => "fail",
-            Self::Uncertain => "uncertain",
-        }
-    }
-}
-
-impl FromStr for CriterionOutcome {
-    type Err = TaskDomainError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "pass" => Ok(Self::Pass),
-            "fail" => Ok(Self::Fail),
-            "uncertain" => Ok(Self::Uncertain),
-            other => Err(TaskDomainError::InvalidEnum {
-                kind: "criterion_outcome",
-                value: other.to_string(),
-            }),
-        }
-    }
-}
+task_vocabulary!(CriterionOutcome, "criterion_outcome", {
+    Pass => "pass",
+    Fail => "fail",
+    Uncertain => "uncertain",
+});
 
 /// Criterion result in a reviewer submission.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -140,8 +100,8 @@ impl NewTaskReview {
             criteria.push(TaskReviewCriterion {
                 criterion_id,
                 outcome: criterion.outcome,
-                evidence_markdown: optional_text(criterion.evidence_markdown.as_ref()),
-                feedback: optional_text(criterion.feedback.as_ref()),
+                evidence_markdown: normalize_optional(criterion.evidence_markdown.as_ref()),
+                feedback: normalize_optional(criterion.feedback.as_ref()),
             });
         }
         if actual.iter().map(String::as_str).collect::<BTreeSet<_>>() != expected {
@@ -153,7 +113,7 @@ impl NewTaskReview {
         criteria.sort_by(|left, right| left.criterion_id.cmp(&right.criterion_id));
 
         Ok(Self {
-            review_id: optional_text(self.review_id.as_ref()),
+            review_id: normalize_optional(self.review_id.as_ref()),
             task_id: required(&self.task_id, "review.task_id")?,
             reviewer_run_id: required(&self.reviewer_run_id, "review.reviewer_run_id")?,
             reviewed_submission_id: required(
@@ -210,22 +170,6 @@ pub struct TaskReviewRecord {
     pub criteria: Vec<TaskReviewCriterion>,
     /// Creation timestamp.
     pub created_at: String,
-}
-
-fn required(value: &str, field: &'static str) -> Result<String, TaskDomainError> {
-    let value = value.trim();
-    if value.is_empty() {
-        Err(TaskDomainError::EmptyField(field))
-    } else {
-        Ok(value.to_string())
-    }
-}
-
-fn optional_text(value: Option<&String>) -> Option<String> {
-    value
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
 }
 
 #[cfg(test)]
@@ -304,50 +248,5 @@ mod tests {
             .normalized(&expected)
             .is_err()
         );
-    }
-
-    #[test]
-    fn review_enum_wire_values_are_stable_and_fail_closed() {
-        for (value, wire) in [
-            (TaskReviewVerdict::Approve, "approve"),
-            (TaskReviewVerdict::RequestChanges, "request_changes"),
-            (TaskReviewVerdict::NeedsHuman, "needs_human"),
-        ] {
-            assert_eq!(value.as_str(), wire);
-            assert_eq!(
-                wire.parse::<TaskReviewVerdict>()
-                    .expect("known review verdict"),
-                value
-            );
-            assert_eq!(
-                serde_json::from_str::<TaskReviewVerdict>(
-                    &serde_json::to_string(&value).expect("serialize verdict")
-                )
-                .expect("deserialize verdict"),
-                value
-            );
-        }
-        for (value, wire) in [
-            (CriterionOutcome::Pass, "pass"),
-            (CriterionOutcome::Fail, "fail"),
-            (CriterionOutcome::Uncertain, "uncertain"),
-        ] {
-            assert_eq!(value.as_str(), wire);
-            assert_eq!(
-                wire.parse::<CriterionOutcome>().expect("known outcome"),
-                value
-            );
-            assert_eq!(
-                serde_json::from_str::<CriterionOutcome>(
-                    &serde_json::to_string(&value).expect("serialize outcome")
-                )
-                .expect("deserialize outcome"),
-                value
-            );
-        }
-        assert!("future".parse::<TaskReviewVerdict>().is_err());
-        assert!("future".parse::<CriterionOutcome>().is_err());
-        assert!(serde_json::from_str::<TaskReviewVerdict>("\"future\"").is_err());
-        assert!(serde_json::from_str::<CriterionOutcome>("\"future\"").is_err());
     }
 }

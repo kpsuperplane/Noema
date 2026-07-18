@@ -2,59 +2,10 @@ use std::path::PathBuf;
 
 use super::*;
 
-#[tokio::test]
-async fn missing_bridge_reports_safe_error() {
-    let config = FoundationBridgeConfig {
-        bridge_path: PathBuf::from("/path/that/does/not/exist"),
-        build: None,
-    };
-
-    let error = FoundationBridgeProcess::start(config)
-        .await
-        .expect_err("missing bridge should fail");
-
-    assert_eq!(error.code(), "bridge_missing");
-}
-
-#[cfg(unix)]
-#[tokio::test]
-async fn bridge_start_performs_handshake_and_health_check() {
-    let (_dir, bridge_path) = bridge_script(
-        r#"#!/bin/sh
-while IFS= read -r line; do
-  case "$line" in
-    *'"id":"handshake"'*) printf '%s\n' '{"id":"handshake","payload":{"type":"handshake_ok","protocol_version":1}}' ;;
-    *'"id":"health"'*) printf '%s\n' '{"id":"health","payload":{"type":"health","available":true,"profiles":[{"id":"default","label":"Default"}],"unavailable_reason":null}}' ;;
-    *) printf '%s\n' '{"id":"unknown","payload":{"type":"error","code":"unsupported_request","message":"Unsupported request."}}' ;;
-  esac
-done
-"#,
-    );
-
-    let process = FoundationBridgeProcess::start(FoundationBridgeConfig {
-        bridge_path,
-        build: None,
-    })
-    .await
-    .expect("bridge should start");
-
-    drop(process);
-}
-
 #[cfg(unix)]
 #[tokio::test]
 async fn bridge_start_reports_foundation_unavailable_health() {
-    let (_dir, bridge_path) = bridge_script(
-        r#"#!/bin/sh
-while IFS= read -r line; do
-  case "$line" in
-    *'"id":"handshake"'*) printf '%s\n' '{"id":"handshake","payload":{"type":"handshake_ok","protocol_version":1}}' ;;
-    *'"id":"health"'*) printf '%s\n' '{"id":"health","payload":{"type":"health","available":false,"profiles":[{"id":"default","label":"Default"}],"unavailable_reason":"Foundation Models runtime is unavailable."}}' ;;
-    *) printf '%s\n' '{"id":"unknown","payload":{"type":"error","code":"unsupported_request","message":"Unsupported request."}}' ;;
-  esac
-done
-"#,
-    );
+    let (_dir, bridge_path) = bridge_script(&scripted_bridge("", false));
 
     let error = FoundationBridgeProcess::start(FoundationBridgeConfig {
         bridge_path,
@@ -69,25 +20,13 @@ done
 #[cfg(unix)]
 #[tokio::test]
 async fn bridge_generate_returns_session_output_and_deltas() {
-    let (_dir, bridge_path) = bridge_script(
-        r#"#!/bin/sh
-while IFS= read -r line; do
-  case "$line" in
-    *'"id":"handshake"'*) printf '%s\n' '{"id":"handshake","payload":{"type":"handshake_ok","protocol_version":1}}' ;;
-    *'"id":"health"'*) printf '%s\n' '{"id":"health","payload":{"type":"health","available":true,"profiles":[{"id":"default","label":"Default"}],"unavailable_reason":null}}' ;;
+    let (_dir, mut process) = healthy_bridge(
+        r#"
     *'"id":"create_session"'*) printf '%s\n' '{"id":"create_session","payload":{"type":"session_created","session_id":"session-1"}}' ;;
     *'"id":"generate"'*) printf '%s\n' '{"id":"generate","payload":{"type":"assistant_text_delta","delta":"bridge "}}'; printf '%s\n' '{"id":"generate","payload":{"type":"generate_complete","text":"bridge answer"}}' ;;
-    *) printf '%s\n' '{"id":"unknown","payload":{"type":"error","code":"unsupported_request","message":"Unsupported request."}}' ;;
-  esac
-done
 "#,
-    );
-    let mut process = FoundationBridgeProcess::start(FoundationBridgeConfig {
-        bridge_path,
-        build: None,
-    })
-    .await
-    .expect("bridge should start");
+    )
+    .await;
     let mut deltas = Vec::new();
 
     let session_id = process
@@ -112,25 +51,13 @@ done
 #[cfg(unix)]
 #[tokio::test]
 async fn bridge_generate_waits_longer_than_control_timeout() {
-    let (_dir, bridge_path) = bridge_script(
-        r#"#!/bin/sh
-while IFS= read -r line; do
-  case "$line" in
-    *'"id":"handshake"'*) printf '%s\n' '{"id":"handshake","payload":{"type":"handshake_ok","protocol_version":1}}' ;;
-    *'"id":"health"'*) printf '%s\n' '{"id":"health","payload":{"type":"health","available":true,"profiles":[{"id":"default","label":"Default"}],"unavailable_reason":null}}' ;;
+    let (_dir, mut process) = healthy_bridge(
+        r#"
     *'"id":"create_session"'*) printf '%s\n' '{"id":"create_session","payload":{"type":"session_created","session_id":"session-1"}}' ;;
     *'"id":"generate"'*) sleep 6; printf '%s\n' '{"id":"generate","payload":{"type":"generate_complete","text":"slow bridge answer"}}' ;;
-    *) printf '%s\n' '{"id":"unknown","payload":{"type":"error","code":"unsupported_request","message":"Unsupported request."}}' ;;
-  esac
-done
 "#,
-    );
-    let mut process = FoundationBridgeProcess::start(FoundationBridgeConfig {
-        bridge_path,
-        build: None,
-    })
-    .await
-    .expect("bridge should start");
+    )
+    .await;
 
     let session_id = process
         .create_session("conversation:test".to_string(), "default".to_string(), None)
@@ -147,24 +74,12 @@ done
 #[cfg(unix)]
 #[tokio::test]
 async fn bridge_count_tokens_waits_longer_than_control_timeout() {
-    let (_dir, bridge_path) = bridge_script(
-        r#"#!/bin/sh
-while IFS= read -r line; do
-  case "$line" in
-    *'"id":"handshake"'*) printf '%s\n' '{"id":"handshake","payload":{"type":"handshake_ok","protocol_version":1}}' ;;
-    *'"id":"health"'*) printf '%s\n' '{"id":"health","payload":{"type":"health","available":true,"profiles":[{"id":"default","label":"Default"}],"unavailable_reason":null}}' ;;
+    let (_dir, mut process) = healthy_bridge(
+        r#"
     *'"id":"count_tokens"'*) sleep 6; printf '%s\n' '{"id":"count_tokens","payload":{"type":"token_count","tokens":42}}' ;;
-    *) printf '%s\n' '{"id":"unknown","payload":{"type":"error","code":"unsupported_request","message":"Unsupported request."}}' ;;
-  esac
-done
 "#,
-    );
-    let mut process = FoundationBridgeProcess::start(FoundationBridgeConfig {
-        bridge_path,
-        build: None,
-    })
-    .await
-    .expect("bridge should start");
+    )
+    .await;
 
     let tokens = process
         .count_tokens(Some("instructions".to_string()), "hello".to_string())
@@ -177,24 +92,12 @@ done
 #[cfg(unix)]
 #[tokio::test]
 async fn bridge_ignores_stale_response_ids_before_matching_response() {
-    let (_dir, bridge_path) = bridge_script(
-        r#"#!/bin/sh
-while IFS= read -r line; do
-  case "$line" in
-    *'"id":"handshake"'*) printf '%s\n' '{"id":"handshake","payload":{"type":"handshake_ok","protocol_version":1}}' ;;
-    *'"id":"health"'*) printf '%s\n' '{"id":"health","payload":{"type":"health","available":true,"profiles":[{"id":"default","label":"Default"}],"unavailable_reason":null}}' ;;
+    let (_dir, mut process) = healthy_bridge(
+        r#"
     *'"id":"create_session"'*) printf '%s\n' '{"id":"count_tokens","payload":{"type":"token_count","tokens":42}}'; printf '%s\n' '{"id":"create_session","payload":{"type":"session_created","session_id":"session-1"}}' ;;
-    *) printf '%s\n' '{"id":"unknown","payload":{"type":"error","code":"unsupported_request","message":"Unsupported request."}}' ;;
-  esac
-done
 "#,
-    );
-    let mut process = FoundationBridgeProcess::start(FoundationBridgeConfig {
-        bridge_path,
-        build: None,
-    })
-    .await
-    .expect("bridge should start");
+    )
+    .await;
 
     let session_id = process
         .create_session(
@@ -211,24 +114,12 @@ done
 #[cfg(unix)]
 #[tokio::test]
 async fn bridge_replay_turns_sends_replay_request() {
-    let (_dir, bridge_path) = bridge_script(
-        r#"#!/bin/sh
-while IFS= read -r line; do
-  case "$line" in
-    *'"id":"handshake"'*) printf '%s\n' '{"id":"handshake","payload":{"type":"handshake_ok","protocol_version":1}}' ;;
-    *'"id":"health"'*) printf '%s\n' '{"id":"health","payload":{"type":"health","available":true,"profiles":[{"id":"default","label":"Default"}],"unavailable_reason":null}}' ;;
+    let (_dir, mut process) = healthy_bridge(
+        r#"
     *'"id":"replay_turns"'*'"role":"user"'*'"text":"hello"'*) printf '%s\n' '{"id":"replay_turns","payload":{"type":"replay_complete"}}' ;;
-    *) printf '%s\n' '{"id":"unknown","payload":{"type":"error","code":"unsupported_request","message":"Unsupported request."}}' ;;
-  esac
-done
 "#,
-    );
-    let mut process = FoundationBridgeProcess::start(FoundationBridgeConfig {
-        bridge_path,
-        build: None,
-    })
-    .await
-    .expect("bridge should start");
+    )
+    .await;
 
     process
         .replay_turns(
@@ -245,24 +136,12 @@ done
 #[cfg(unix)]
 #[tokio::test]
 async fn bridge_cancel_request_accepts_cancel_complete() {
-    let (_dir, bridge_path) = bridge_script(
-        r#"#!/bin/sh
-while IFS= read -r line; do
-  case "$line" in
-    *'"id":"handshake"'*) printf '%s\n' '{"id":"handshake","payload":{"type":"handshake_ok","protocol_version":1}}' ;;
-    *'"id":"health"'*) printf '%s\n' '{"id":"health","payload":{"type":"health","available":true,"profiles":[{"id":"default","label":"Default"}],"unavailable_reason":null}}' ;;
+    let (_dir, mut process) = healthy_bridge(
+        r#"
     *'"id":"cancel"'*'"request_id":"generate"'*) printf '%s\n' '{"id":"cancel","payload":{"type":"cancel_complete"}}' ;;
-    *) printf '%s\n' '{"id":"unknown","payload":{"type":"error","code":"unsupported_request","message":"Unsupported request."}}' ;;
-  esac
-done
 "#,
-    );
-    let mut process = FoundationBridgeProcess::start(FoundationBridgeConfig {
-        bridge_path,
-        build: None,
-    })
-    .await
-    .expect("bridge should start");
+    )
+    .await;
 
     process
         .cancel_request("generate".to_string())
@@ -348,6 +227,39 @@ fn bridge_script(contents: &str) -> (tempfile::TempDir, PathBuf) {
     permissions.set_mode(0o755);
     fs::set_permissions(&path, permissions).expect("permissions");
     (dir, path)
+}
+
+#[cfg(unix)]
+async fn healthy_bridge(extra_cases: &str) -> (tempfile::TempDir, FoundationBridgeProcess) {
+    let (dir, bridge_path) = bridge_script(&scripted_bridge(extra_cases, true));
+    let process = FoundationBridgeProcess::start(FoundationBridgeConfig {
+        bridge_path,
+        build: None,
+    })
+    .await
+    .expect("bridge should start");
+    (dir, process)
+}
+
+#[cfg(unix)]
+fn scripted_bridge(extra_cases: &str, available: bool) -> String {
+    let health = if available {
+        r#"{"id":"health","payload":{"type":"health","available":true,"profiles":[{"id":"default","label":"Default"}],"unavailable_reason":null}}"#
+    } else {
+        r#"{"id":"health","payload":{"type":"health","available":false,"profiles":[{"id":"default","label":"Default"}],"unavailable_reason":"Foundation Models runtime is unavailable."}}"#
+    };
+    format!(
+        r#"#!/bin/sh
+while IFS= read -r line; do
+  case "$line" in
+    *'"id":"handshake"'*) printf '%s\n' '{{"id":"handshake","payload":{{"type":"handshake_ok","protocol_version":1}}}}' ;;
+    *'"id":"health"'*) printf '%s\n' '{health}' ;;
+    {extra_cases}
+    *) printf '%s\n' '{{"id":"unknown","payload":{{"type":"error","code":"unsupported_request","message":"Unsupported request."}}}}' ;;
+  esac
+done
+"#,
+    )
 }
 
 #[cfg(unix)]

@@ -12,26 +12,11 @@ async fn runtime_actor_allocates_distinct_conversation_ids() {
         .expect("second conversation");
 
     assert_ne!(first.conversation_id, second.conversation_id);
-
-    let items = collect_turn(&handle, first.conversation_id.clone(), "hello".to_string())
+    let items = collect_turn(&handle, first.conversation_id, "hello".to_string())
         .await
         .expect("turn response");
     assert_eq!(assistant_text(&items), "fake answer");
-
     handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn runtime_handle_generate_once_uses_provider_without_conversation() {
-    let handle = test_runtime_handle(fake_provider(FakeCodexScenario::Simple)).await;
-
-    let response = handle
-        .generate_once(GenerateRequest::text("hello"))
-        .await
-        .expect("generate once");
-    handle.shutdown().await;
-
-    assert_eq!(response.assistant_text(), "fake answer");
 }
 
 #[tokio::test]
@@ -45,12 +30,6 @@ async fn task_completion_delivery_writes_primary_assistant_item_without_human_in
         .conversation_id;
 
     let request = super::runtime::TaskCompletionDeliveryRequest {
-        delivery_id: "event:completion".to_string(),
-        task_id: "task:completion".to_string(),
-        conversation_id: conversation.clone(),
-        source_item_id: None,
-        title: "Research the result".to_string(),
-        status: "completed".to_string(),
         request_markdown: "Find the result".to_string(),
         summary: Some("The result is ready.".to_string()),
         result_markdown: Some("A durable result.".to_string()),
@@ -65,8 +44,7 @@ async fn task_completion_delivery_writes_primary_assistant_item_without_human_in
             media_type: Some("text/markdown".to_string()),
         }],
         review_feedback: Some("All criteria passed.".to_string()),
-        criteria: Vec::new(),
-        detail: None,
+        ..task_completion_request("completion", "Research the result", conversation.clone())
     };
     handle
         .deliver_task_completion(request.clone())
@@ -132,21 +110,11 @@ async fn blocked_task_completion_generation_does_not_block_a_primary_turn() {
     let completion_conversation_id = conversation_id.clone();
     let pending_completion = tokio::spawn(async move {
         completion_handle
-            .deliver_task_completion(super::runtime::TaskCompletionDeliveryRequest {
-                delivery_id: "event:blocked-completion".to_string(),
-                task_id: "task:blocked-completion".to_string(),
-                conversation_id: completion_conversation_id,
-                source_item_id: None,
-                title: "Blocked completion".to_string(),
-                status: "completed".to_string(),
-                request_markdown: "Complete in the background".to_string(),
-                summary: Some("Background work finished".to_string()),
-                result_markdown: None,
-                artifacts: Vec::new(),
-                review_feedback: None,
-                criteria: Vec::new(),
-                detail: None,
-            })
+            .deliver_task_completion(task_completion_request(
+                "blocked-completion",
+                "Blocked completion",
+                completion_conversation_id,
+            ))
             .await
     });
 
@@ -399,8 +367,9 @@ async fn background_task_pins_local_provider_generation_across_replacement() {
 }
 
 #[tokio::test]
-async fn runtime_shutdown_cancels_and_drains_generate_once() {
+async fn runtime_shutdown_cancels_generate_once_and_inline_turn() {
     assert_shutdown_cancels_blocked_operation(false).await;
+    assert_shutdown_cancels_blocked_operation(true).await;
 }
 
 #[tokio::test]
@@ -425,21 +394,11 @@ async fn runtime_shutdown_cancels_blocked_task_completion_generation() {
     let completion_handle = handle.clone();
     let pending_completion = tokio::spawn(async move {
         completion_handle
-            .deliver_task_completion(super::runtime::TaskCompletionDeliveryRequest {
-                delivery_id: "event:shutdown-completion".to_string(),
-                task_id: "task:shutdown-completion".to_string(),
+            .deliver_task_completion(task_completion_request(
+                "shutdown-completion",
+                "Shutdown completion",
                 conversation_id,
-                source_item_id: None,
-                title: "Shutdown completion".to_string(),
-                status: "completed".to_string(),
-                request_markdown: "Complete before shutdown".to_string(),
-                summary: None,
-                result_markdown: None,
-                artifacts: Vec::new(),
-                review_feedback: None,
-                criteria: Vec::new(),
-                detail: None,
-            })
+            ))
             .await
     });
 
@@ -460,11 +419,6 @@ async fn runtime_shutdown_cancels_blocked_task_completion_generation() {
         release_completion_tx.send(()).is_err(),
         "completion provider future was not dropped"
     );
-}
-
-#[tokio::test]
-async fn runtime_shutdown_interrupts_inline_turn() {
-    assert_shutdown_cancels_blocked_operation(true).await;
 }
 
 async fn assert_shutdown_cancels_blocked_operation(inline_turn: bool) {
@@ -534,5 +488,27 @@ async fn assert_shutdown_cancels_blocked_operation(inline_turn: bool) {
             noema_conversations::ConversationTurnStatus::Cancelled
         );
         assert_eq!(status.agent_status, noema_conversations::AgentStatus::Idle);
+    }
+}
+
+fn task_completion_request(
+    suffix: &str,
+    title: &str,
+    conversation_id: String,
+) -> super::runtime::TaskCompletionDeliveryRequest {
+    super::runtime::TaskCompletionDeliveryRequest {
+        delivery_id: format!("event:{suffix}"),
+        task_id: format!("task:{suffix}"),
+        conversation_id,
+        source_item_id: None,
+        title: title.to_string(),
+        status: "completed".to_string(),
+        request_markdown: format!("Complete {title}"),
+        summary: None,
+        result_markdown: None,
+        artifacts: Vec::new(),
+        review_feedback: None,
+        criteria: Vec::new(),
+        detail: None,
     }
 }

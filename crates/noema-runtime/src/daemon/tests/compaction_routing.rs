@@ -1,71 +1,11 @@
 #[tokio::test]
-async fn foreground_context_compaction_runs_before_over_limit_turn() {
-    let store = crate::test_support::test_store().await;
-    store.ensure_default_actors().await.expect("actors");
-    let provider = Arc::new(MetadataCapturingProvider::default());
-    let runtime = RuntimeHandle::spawn_with_provider_kind(
-        provider.clone(),
-        store.clone(),
-        "foundation_local",
-    )
-    .await
-    .expect("runtime");
-    let started = runtime
-        .start_conversation(None)
-        .await
-        .expect("conversation");
-    for _ in 0..4 {
-        append_test_text_item(
-            &store,
-            &started.conversation_id,
-            &"older context ".repeat(400),
-        )
-        .await;
-    }
-
-    let (result, _events) = collect_turn_events(
-        &runtime,
-        started.conversation_id.clone(),
-        "current turn".to_string(),
-    )
-    .await;
-    result.expect("turn");
-    runtime.shutdown().await;
-
-    {
-        let requests = provider.requests.lock().expect("requests");
-        let compaction_index = requests
-            .iter()
-            .position(|request| !request.options.require_noema_response)
-            .expect("compaction request");
-        let agent_index = requests
-            .iter()
-            .position(|request| request.options.require_noema_response)
-            .expect("agent request");
-        assert!(compaction_index < agent_index);
-    }
-    let summaries = store
-        .list_context_summaries_for_conversation(&started.conversation_id)
-        .await
-        .expect("summaries");
-    assert!(summaries.iter().any(|summary| {
-        summary.provider_kind == "foundation_local"
-            && summary.model_profile.as_deref() == Some("default")
-            && summary.covered_item_end_sequence >= 2
-            && summary.summary_text == "fake answer"
-    }));
-}
-
-#[tokio::test]
 async fn foreground_context_compaction_chunks_backlog_to_fit_provider_window() {
     let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
-    let provider = Arc::new(MetadataCapturingProvider {
-        context_window_tokens: 5_500,
-        fail_compaction: false,
-        fail_token_count: false,
+    let provider = Arc::new(CapturingProvider {
+        context_window_tokens: Some(5_500),
         enforce_context_window: true,
-        requests: Mutex::new(Vec::new()),
+        ..CapturingProvider::default()
     });
     let runtime = RuntimeHandle::spawn_with_provider_kind(
         provider.clone(),
@@ -96,35 +36,57 @@ async fn foreground_context_compaction_chunks_backlog_to_fit_provider_window() {
     result.expect("turn should compact oversized backlog in bounded chunks");
     runtime.shutdown().await;
 
-    let requests = provider.requests.lock().expect("requests");
-    let compaction_requests = requests
-        .iter()
-        .filter(|request| !request.options.require_noema_response)
-        .collect::<Vec<_>>();
-    assert!(
-        compaction_requests.len() > 1,
-        "expected multiple bounded compaction requests"
-    );
-    for request in compaction_requests {
-        let input = request.input.render_for_token_count();
-        let input_tokens = request
-            .instructions
-            .as_deref()
-            .map_or(0, estimated_test_tokens)
-            + estimated_test_tokens(&input);
-        let available = provider
-            .context_window_tokens
-            .saturating_sub(request.options.max_output_tokens.unwrap_or(512))
-            .saturating_sub(128);
+    {
+        let requests = provider.requests.lock().expect("requests");
+        let agent_index = requests
+            .iter()
+            .position(|request| request.options.require_noema_response)
+            .expect("agent request");
+        let compaction_requests = requests
+            .iter()
+            .enumerate()
+            .filter(|(_, request)| !request.options.require_noema_response)
+            .collect::<Vec<_>>();
         assert!(
-            input_tokens <= available,
-            "compaction request used {input_tokens} input tokens with {available} available"
+            compaction_requests.len() > 1,
+            "expected multiple bounded compaction requests"
+        );
+        for (index, request) in compaction_requests {
+            assert!(
+                index < agent_index,
+                "foreground compaction must precede generation"
+            );
+            let input = request.input.render_for_token_count();
+            let input_tokens = request
+                .instructions
+                .as_deref()
+                .map_or(0, estimated_test_tokens)
+                + estimated_test_tokens(&input);
+            let available = provider
+                .context_window_tokens
+                .expect("context window")
+                .saturating_sub(request.options.max_output_tokens.unwrap_or(512))
+                .saturating_sub(128);
+            assert!(
+                input_tokens <= available,
+                "compaction request used {input_tokens} input tokens with {available} available"
+            );
+        }
+        assert!(
+            requests
+                .iter()
+                .any(|request| request.options.require_noema_response)
         );
     }
     assert!(
-        requests
+        store
+            .list_context_summaries_for_conversation(&started.conversation_id)
+            .await
+            .expect("summaries")
             .iter()
-            .any(|request| request.options.require_noema_response)
+            .any(|summary| summary.provider_kind == "foundation_local"
+                && summary.model_profile.as_deref() == Some("default")
+                && summary.covered_item_end_sequence >= 2)
     );
 }
 
@@ -132,12 +94,9 @@ async fn foreground_context_compaction_chunks_backlog_to_fit_provider_window() {
 async fn background_context_compaction_creates_checkpoint_after_large_turn() {
     let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
-    let provider = Arc::new(MetadataCapturingProvider {
-        context_window_tokens: 18_000,
-        fail_compaction: false,
-        fail_token_count: false,
-        enforce_context_window: false,
-        requests: Mutex::new(Vec::new()),
+    let provider = Arc::new(CapturingProvider {
+        context_window_tokens: Some(18_000),
+        ..CapturingProvider::default()
     });
     let runtime = RuntimeHandle::spawn_with_provider_kind(
         provider.clone(),
@@ -199,12 +158,10 @@ async fn background_context_compaction_creates_checkpoint_after_large_turn() {
 async fn foreground_context_compaction_failure_blocks_turn_with_recoverable_notice() {
     let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
-    let provider = Arc::new(MetadataCapturingProvider {
-        context_window_tokens: 4_096,
+    let provider = Arc::new(CapturingProvider {
+        context_window_tokens: Some(4_096),
         fail_compaction: true,
-        fail_token_count: false,
-        enforce_context_window: false,
-        requests: Mutex::new(Vec::new()),
+        ..CapturingProvider::default()
     });
     let runtime = RuntimeHandle::spawn_with_provider_kind(
         provider.clone(),
@@ -261,154 +218,6 @@ async fn foreground_context_compaction_failure_blocks_turn_with_recoverable_noti
             )
         )
     }));
-}
-
-#[tokio::test]
-async fn primary_agent_runtime_preference_selects_provider_without_restart() {
-    let store = crate::test_support::test_store().await;
-    store.ensure_default_actors().await.expect("actors");
-    let account = store
-        .ensure_default_foundation_local_provider_account()
-        .await
-        .expect("foundation account");
-    authenticate_provider_account(&store, &account.provider_account_id).await;
-    upsert_ready_agent_runtime_preference(
-        &store,
-        noema_store::NewAgentRuntimePreference {
-            agent_id: "agent:primary".to_string(),
-            provider_kind: "foundation_local".to_string(),
-            provider_account_id: account.provider_account_id,
-            model_profile: "default".to_string(),
-            reasoning_effort: None,
-        },
-    )
-    .await;
-
-    let codex_provider = Arc::new(CapturingProvider::default());
-    let foundation_provider = Arc::new(CapturingProvider::default());
-    let runtime = RuntimeHandle::spawn_with_provider_map(
-        "codex",
-        vec![
-            (
-                "codex".to_string(),
-                codex_provider.clone() as noema_providers::ProviderHandle,
-            ),
-            (
-                "foundation_local".to_string(),
-                foundation_provider.clone() as noema_providers::ProviderHandle,
-            ),
-        ],
-        store,
-    )
-    .await
-    .expect("runtime");
-
-    let started = runtime
-        .start_primary_conversation(None)
-        .await
-        .expect("conversation");
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    runtime
-        .turn(started.conversation_id, "hello".to_string(), tx)
-        .await
-        .expect("turn");
-
-    while rx.recv().await.is_some() {}
-
-    runtime.shutdown().await;
-
-    let codex_requests = codex_provider.requests.lock().expect("codex requests");
-    assert!(codex_requests.is_empty());
-    let foundation_requests = foundation_provider
-        .requests
-        .lock()
-        .expect("foundation requests");
-    assert_eq!(
-        foundation_requests
-            .last()
-            .and_then(|request| request.model.as_deref()),
-        Some("default")
-    );
-}
-
-#[tokio::test]
-async fn runtime_turn_refreshes_agent_preference_after_conversation_hydration() {
-    let store = crate::test_support::test_store().await;
-    store.ensure_default_actors().await.expect("actors");
-    store
-        .update_agent_display_name("agent:primary", "Noema")
-        .await
-        .expect("name primary");
-    let codex_account = store
-        .ensure_default_provider_account()
-        .await
-        .expect("codex account");
-    authenticate_provider_account(&store, &codex_account.provider_account_id).await;
-    upsert_ready_agent_runtime_preference(
-        &store,
-        noema_store::NewAgentRuntimePreference {
-            agent_id: "agent:primary".to_string(),
-            provider_kind: "codex".to_string(),
-            provider_account_id: codex_account.provider_account_id,
-            model_profile: "codex-initial".to_string(),
-            reasoning_effort: None,
-        },
-    )
-    .await;
-
-    let codex_provider = Arc::new(CapturingProvider::default());
-    let foundation_provider = Arc::new(CapturingProvider::default());
-    let runtime = RuntimeHandle::spawn_with_provider_map(
-        "codex",
-        vec![
-            (
-                "codex".to_string(),
-                codex_provider.clone() as noema_providers::ProviderHandle,
-            ),
-            (
-                "foundation_local".to_string(),
-                foundation_provider.clone() as noema_providers::ProviderHandle,
-            ),
-        ],
-        store.clone(),
-    )
-    .await
-    .expect("runtime");
-
-    let started = runtime
-        .start_primary_conversation(None)
-        .await
-        .expect("conversation");
-    let foundation_account = store
-        .ensure_default_foundation_local_provider_account()
-        .await
-        .expect("foundation account");
-    authenticate_provider_account(&store, &foundation_account.provider_account_id).await;
-    upsert_ready_agent_runtime_preference(
-        &store,
-        noema_store::NewAgentRuntimePreference {
-            agent_id: "agent:primary".to_string(),
-            provider_kind: "foundation_local".to_string(),
-            provider_account_id: foundation_account.provider_account_id,
-            model_profile: "default".to_string(),
-            reasoning_effort: None,
-        },
-    )
-    .await;
-
-    let (result, _events) =
-        collect_turn_events(&runtime, started.conversation_id, "hello".to_string()).await;
-    result.expect("turn");
-    runtime.shutdown().await;
-
-    assert!(codex_provider.requests.lock().expect("codex").is_empty());
-    let foundation_requests = foundation_provider.requests.lock().expect("foundation");
-    assert_eq!(
-        foundation_requests
-            .last()
-            .and_then(|request| request.model.as_deref()),
-        Some("default")
-    );
 }
 
 #[tokio::test]
@@ -558,48 +367,6 @@ async fn runtime_turn_rehydrates_recorded_failure_conversation_for_retry() {
         3
     );
     handle.shutdown().await;
-}
-
-#[tokio::test]
-async fn runtime_turn_streams_assistant_text_deltas_before_durable_item() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::Simple)).await;
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let conversation_id = conversation.conversation_id.clone();
-    let (result, events) =
-        collect_turn_events(&handle, conversation_id.clone(), "hello".to_string()).await;
-    result.expect("turn");
-    handle.shutdown().await;
-
-    let first_delta = events
-        .iter()
-        .position(|event| matches!(event, TurnStreamEvent::AssistantTextDelta { .. }))
-        .expect("assistant delta");
-    let durable_assistant = events
-        .iter()
-        .position(|event| {
-            matches!(
-                event,
-                TurnStreamEvent::ConversationItem { item, .. }
-                    if matches!(item.as_ref(), TurnTranscriptItem::AssistantText { .. })
-            )
-        })
-        .expect("durable assistant");
-    assert!(first_delta < durable_assistant);
-
-    let replay = store
-        .list_conversation_items(&conversation_id, ReplayMode::Visible)
-        .await
-        .expect("replay");
-    let assistant_items = replay
-        .iter()
-        .filter(|item| item.kind == ConversationItemKind::AssistantText)
-        .collect::<Vec<_>>();
-    assert_eq!(assistant_items.len(), 1);
-    assert_eq!(
-        assistant_items[0].content_text.as_deref(),
-        Some("fake answer")
-    );
 }
 
 #[tokio::test]

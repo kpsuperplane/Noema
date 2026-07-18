@@ -1,22 +1,3 @@
-#[test]
-fn failed_agent_name_tool_result_still_continues_to_provider() {
-    let result = super::LocalToolResult::AgentName {
-        call_id: Some("call:name".to_string()),
-        provider_call_id: Some("provider_call:name".to_string()),
-        provider_name: Some("update_own_name".to_string()),
-        arguments: json!({"name": ""}),
-        persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
-        result: crate::daemon::agent_name_tool::AgentNameToolResult {
-            call_id: Some("call:name".to_string()),
-            name: "update_own_name".to_string(),
-            success: false,
-            payload: json!({"error": "name is required"}),
-        },
-    };
-
-    assert!(result.requires_provider_continuation());
-}
-
 #[tokio::test]
 async fn injected_capability_invoker_receives_the_opaque_advertised_target() {
     let mut actor = test_actor().await;
@@ -42,8 +23,8 @@ async fn injected_capability_invoker_receives_the_opaque_advertised_target() {
         )
         .await;
 
-    assert!(result.success());
-    assert_eq!(result.payload(), &json!({"document": "contents"}));
+    assert!(result.success);
+    assert_eq!(result.payload, json!({"document": "contents"}));
     let invocations = invoker.invocations.lock().expect("invocation lock");
     assert_eq!(invocations.len(), 1);
     assert_eq!(invocations[0].operation.as_str(), TEST_CAPABILITY_NAME);
@@ -52,30 +33,6 @@ async fn injected_capability_invoker_receives_the_opaque_advertised_target() {
         "opaque-child-authority"
     );
     assert_eq!(invocations[0].arguments, call.payload);
-}
-
-#[tokio::test]
-async fn unadvertised_capability_call_returns_a_sanitized_failure_and_continues() {
-    let result = test_actor()
-        .await
-        .execute_local_tool(
-            &test_turn(),
-            &AgentPromptIdentity {
-                agent_id: "agent:primary".to_string(),
-                display_name: None,
-            },
-            &test_tool_call("forged.operation", json!({"secret": "do not persist"})),
-        )
-        .await;
-
-    assert!(!result.success());
-    assert_eq!(
-        result.payload()["error"],
-        "capability operation is unavailable"
-    );
-    assert_eq!(result.persisted().arguments, None);
-    assert_eq!(result.persisted().output, None);
-    assert!(result.requires_provider_continuation());
 }
 
 #[tokio::test]
@@ -106,14 +63,14 @@ async fn unavailable_capability_remains_unadvertised_and_denied() {
         )
         .await;
 
-    assert!(!result.success());
+    assert!(!result.success);
     assert_eq!(
-        result.payload(),
-        &json!({"error": "capability operation is unavailable"})
+        result.payload,
+        json!({"error": "capability operation is unavailable"})
     );
-    assert_eq!(result.persisted().arguments, None);
-    assert_eq!(result.persisted().output, None);
-    assert!(result.requires_provider_continuation());
+    assert_eq!(result.persisted.arguments, None);
+    assert_eq!(result.persisted.output, None);
+    assert!(result.requires_provider_continuation);
     assert!(
         invoker
             .invocations
@@ -121,6 +78,26 @@ async fn unavailable_capability_remains_unadvertised_and_denied() {
             .expect("invocation lock")
             .is_empty()
     );
+
+    let forged = test_actor()
+        .await
+        .execute_local_tool(
+            &test_turn(),
+            &AgentPromptIdentity {
+                agent_id: "agent:primary".to_string(),
+                display_name: None,
+            },
+            &test_tool_call("forged.operation", json!({"secret": "do not persist"})),
+        )
+        .await;
+    assert!(!forged.success, "unadvertised forged call must fail");
+    assert_eq!(
+        forged.payload["error"], "capability operation is unavailable",
+        "unadvertised forged call must expose only the sanitized failure"
+    );
+    assert_eq!(forged.persisted.arguments, None);
+    assert_eq!(forged.persisted.output, None);
+    assert!(forged.requires_provider_continuation);
 }
 
 #[tokio::test]
@@ -152,17 +129,17 @@ async fn advertised_capability_failure_is_sanitized_and_continues_to_provider() 
         )
         .await;
 
-    assert!(!result.success());
+    assert!(!result.success);
     assert_eq!(
-        result.payload(),
-        &json!({"error": "capability invocation failed"})
+        result.payload,
+        json!({"error": "capability invocation failed"})
     );
     assert_eq!(
-        result.persisted().arguments,
+        result.persisted.arguments,
         Some(json!({"document_id": "document:1", "api_key": "[REDACTED]"}))
     );
-    assert_eq!(result.persisted().output, Some(json!({"error": "failed"})));
-    assert!(result.requires_provider_continuation());
+    assert_eq!(result.persisted.output, Some(json!({"error": "failed"})));
+    assert!(result.requires_provider_continuation);
 }
 
 #[tokio::test]
@@ -195,17 +172,17 @@ async fn tool_declared_failed_capability_output_is_persisted_as_failed() {
         )
         .await;
 
-    assert!(!result.success());
-    assert_eq!(result.payload()["isError"], true);
+    assert!(!result.success);
+    assert_eq!(result.payload["isError"], true);
     assert_eq!(
-        result.persisted().output,
+        result.persisted.output,
         Some(json!({
             "isError": true,
             "error": "document rejected",
             "password": "[REDACTED]"
         }))
     );
-    assert!(result.requires_provider_continuation());
+    assert!(result.requires_provider_continuation);
 }
 
 #[tokio::test]
@@ -249,11 +226,7 @@ async fn task_delegate_uses_the_initialized_reviewer_route() {
         .expect("simple task model");
     let actor = RuntimeActor::new(
         "codex".to_string(),
-        HashMap::from([(
-            "codex".to_string(),
-            Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
-                as noema_providers::ProviderHandle,
-        )]),
+        HashMap::from([("codex".to_string(), local_tool_test_provider())]),
         store.clone(),
         crate::test_support::system_error_logger(),
     )
@@ -290,12 +263,8 @@ async fn task_delegate_uses_the_initialized_reviewer_route() {
         .await
         .expect("runtime task delegate");
 
-    assert!(
-        result.success(),
-        "task delegation failed: {}",
-        result.payload()
-    );
-    let task_id = result.payload()["task_id"].as_str().expect("task id");
+    assert!(result.success, "task delegation failed: {}", result.payload);
+    let task_id = result.payload["task_id"].as_str().expect("task id");
     let task = store
         .get_task(task_id)
         .await
@@ -335,13 +304,13 @@ async fn forged_background_call_is_unknown_and_omits_persistence() {
         )
         .await;
 
-    assert!(!result.success());
+    assert!(!result.success);
     assert_eq!(
-        result.payload()["error"],
+        result.payload["error"],
         "capability operation is unavailable"
     );
-    assert_eq!(result.persisted().arguments, None);
-    assert_eq!(result.persisted().output, None);
+    assert_eq!(result.persisted.arguments, None);
+    assert_eq!(result.persisted.output, None);
 }
 
 #[tokio::test]
@@ -365,16 +334,13 @@ async fn known_background_call_denied_by_role_policy_uses_binding_persistence() 
         )
         .await;
 
-    assert!(!result.success());
+    assert!(!result.success);
+    assert_eq!(result.payload["error"], "capability invocation was denied");
     assert_eq!(
-        result.payload()["error"],
-        "capability invocation was denied"
-    );
-    assert_eq!(
-        result.persisted().arguments,
+        result.persisted.arguments,
         Some(json!({"query": "safe", "api_key": "[REDACTED]"}))
     );
-    assert_eq!(result.persisted().output, Some(json!({"error": "denied"})));
+    assert_eq!(result.persisted.output, Some(json!({"error": "denied"})));
 }
 
 async fn ensure_provider_account_without_web_capabilities(

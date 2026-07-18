@@ -17,7 +17,7 @@ pub use accounts::{
 pub use capabilities::{
     ProviderCapabilityAccountReference, ProviderCapabilityAccountReferenceMode,
     ProviderCapabilityAssignmentKey, ProviderCapabilityAssignmentPersistence,
-    ProviderCapabilityAssignmentPersistenceHandle, UpsertProviderCapabilityAssignmentRequest,
+    UpsertProviderCapabilityAssignmentRequest,
 };
 pub use catalog::{
     PersistProviderModelCatalogRequest, ProviderModelCatalogPersistence,
@@ -38,6 +38,3 @@ use std::{future::Future, pin::Pin};
 /// Boxed future returned by object-safe provider persistence contracts.
 pub type ProviderPersistenceFuture<'a, T> =
     Pin<Box<dyn Future<Output = Result<T, ProviderPersistenceError>> + Send + 'a>>;
-
-#[cfg(test)]
-mod tests;

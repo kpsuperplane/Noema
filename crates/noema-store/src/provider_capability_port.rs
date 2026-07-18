@@ -6,22 +6,24 @@ use noema_providers::{
     UpsertProviderCapabilityAssignmentRequest,
 };
 
-use super::{NoemaStore, StoreError};
+use super::{
+    NoemaStore, StoreError,
+    provider_account_port::{provider_error, provider_future},
+};
 
 impl ProviderCapabilityAssignmentPersistence for NoemaStore {
     fn provider_capability_assignment<'a>(
         &'a self,
         key: &'a ProviderCapabilityAssignmentKey,
     ) -> ProviderPersistenceFuture<'a, Option<ProviderCapabilityAssignment>> {
-        Box::pin(async move {
+        provider_future(
             NoemaStore::provider_capability_binding(
                 self,
                 key.tool_name_str(),
                 key.capability_id_str(),
-            )
-            .await
-            .map_err(capability_read_error)
-        })
+            ),
+            "provider_capability_assignment",
+        )
     }
 
     fn upsert_provider_capability_assignment(
@@ -41,20 +43,6 @@ impl ProviderCapabilityAssignmentPersistence for NoemaStore {
     }
 }
 
-fn capability_read_error(error: StoreError) -> ProviderPersistenceError {
-    match error {
-        StoreError::Json(_)
-        | StoreError::InvalidEnum { .. }
-        | StoreError::InvariantViolation { .. }
-        | StoreError::Schema(_) => ProviderPersistenceError::Invariant {
-            operation: "provider_capability_assignment",
-        },
-        _ => ProviderPersistenceError::Persistence {
-            operation: "provider_capability_assignment",
-        },
-    }
-}
-
 fn capability_write_error(error: StoreError) -> ProviderPersistenceError {
     match error {
         StoreError::ProviderAccountNotFound {
@@ -62,18 +50,6 @@ fn capability_write_error(error: StoreError) -> ProviderPersistenceError {
         } => ProviderPersistenceError::AccountNotFound {
             provider_account_id,
         },
-        StoreError::Json(_) | StoreError::InvalidEnum { .. } => {
-            ProviderPersistenceError::Invariant {
-                operation: "upsert_provider_capability_assignment",
-            }
-        }
-        StoreError::InvariantViolation { .. } | StoreError::Schema(_) => {
-            ProviderPersistenceError::Invariant {
-                operation: "upsert_provider_capability_assignment",
-            }
-        }
-        _ => ProviderPersistenceError::Persistence {
-            operation: "upsert_provider_capability_assignment",
-        },
+        error => provider_error(error, "upsert_provider_capability_assignment"),
     }
 }

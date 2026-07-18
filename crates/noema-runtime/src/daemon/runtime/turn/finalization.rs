@@ -134,7 +134,7 @@ impl RuntimeActor {
     ) -> Result<(), RuntimeError> {
         let delegation_results = results
             .iter()
-            .filter(|result| is_task_delegate_tool(result.name()))
+            .filter(|result| is_task_delegate_tool(&result.name))
             .cloned()
             .collect::<Vec<_>>();
         if delegation_results.is_empty() {
@@ -151,8 +151,8 @@ impl RuntimeActor {
             "reconciled_stream_ids": reconciled_stream_ids,
             "phase": "final_answer",
             "source": "task_delegation_receipt",
-            "delegation_success_count": delegation_results.iter().filter(|result| result.success()).count(),
-            "delegation_failure_count": delegation_results.iter().filter(|result| !result.success()).count(),
+            "delegation_success_count": delegation_results.iter().filter(|result| result.success).count(),
+            "delegation_failure_count": delegation_results.iter().filter(|result| !result.success).count(),
         });
         let assistant_item = self
             .store
@@ -178,10 +178,7 @@ impl RuntimeActor {
         Ok(())
     }
 
-    async fn agent_identity_for_conversation(
-        &self,
-        _conversation_id: &str,
-    ) -> Result<AgentPromptIdentity, RuntimeError> {
+    async fn agent_identity_for_conversation(&self) -> Result<AgentPromptIdentity, RuntimeError> {
         let agent_id = "agent:primary".to_string();
         let agent = self
             .store

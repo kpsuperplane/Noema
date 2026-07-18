@@ -3,68 +3,14 @@
 use noema_providers::{
     LOCAL_MODELS_PROVIDER_ACCOUNT_ID, LocalModelActivationPersistence, LocalModelBackend,
     LocalModelInstallationPersistence, LocalModelInstallationStatus, LocalModelInstallationUpdate,
-    LocalModelSourceKind, NewLocalModelInstallation, ProviderInstanceKey, ProviderPersistenceError,
-    ProviderReadySelection, ProviderSelectionSnapshot,
+    NewLocalModelInstallation, ProviderInstanceKey, ProviderPersistenceError,
+    ProviderReadySelection,
 };
 
-#[tokio::test]
-async fn active_local_model_removal_has_a_typed_conflict() {
-    let store = super::tests::test_store().await;
-    let created =
-        LocalModelInstallationPersistence::upsert_local_model_installation(&store, installation())
-            .await
-            .expect("create installation");
-    for status in [
-        LocalModelInstallationStatus::Downloading,
-        LocalModelInstallationStatus::Verifying,
-        LocalModelInstallationStatus::Installed,
-    ] {
-        LocalModelInstallationPersistence::update_local_model_installation(
-            &store,
-            &created.installation_id,
-            LocalModelInstallationUpdate {
-                status,
-                downloaded_bytes: if status == LocalModelInstallationStatus::Downloading {
-                    50
-                } else {
-                    100
-                },
-                expected_bytes: Some(100),
-                sha256: None,
-                blob_relative_path: (status == LocalModelInstallationStatus::Installed)
-                    .then(|| "models/blobs/model.gguf".to_string()),
-                error_code: None,
-                error_message: None,
-            },
-        )
-        .await
-        .expect("advance installation");
-    }
-    let ready_selection = ready_local_selection(&created.model_id, &created.provider_instance_key);
-    LocalModelActivationPersistence::activate_local_model_as_system_default(
-        &store,
-        &created.installation_id,
-        &ready_selection,
-    )
-    .await
-    .expect("activate installation");
-
-    let error = LocalModelInstallationPersistence::remove_terminal_local_model_installation(
-        &store,
-        &created.installation_id,
-    )
-    .await
-    .expect_err("active installation cannot be removed");
-    assert_eq!(
-        error,
-        ProviderPersistenceError::ActiveInstallationConflict {
-            installation_id: created.installation_id
-        }
-    );
-}
+use crate::tests::mark_local_model_installed;
 
 #[tokio::test]
-async fn local_model_port_returns_committed_state_and_classifies_invalid_input() {
+async fn installation_state_rolls_back_when_event_append_fails() {
     let store = super::tests::test_store().await;
     let created =
         LocalModelInstallationPersistence::upsert_local_model_installation(&store, installation())
@@ -76,40 +22,29 @@ async fn local_model_port_returns_committed_state_and_classifies_invalid_input()
             &created.installation_id
         )
         .await
-        .expect("read")
-        .expect("installation"),
-        created
+        .expect("committed read"),
+        Some(created.clone())
     );
-    let error = LocalModelInstallationPersistence::update_local_model_installation(
-        &store,
-        &created.installation_id,
-        LocalModelInstallationUpdate {
-            status: LocalModelInstallationStatus::Downloading,
-            downloaded_bytes: 101,
-            expected_bytes: Some(100),
-            sha256: None,
-            blob_relative_path: None,
-            error_code: None,
-            error_message: None,
-        },
-    )
-    .await
-    .expect_err("invalid byte count");
     assert_eq!(
-        error,
+        LocalModelInstallationPersistence::update_local_model_installation(
+            &store,
+            &created.installation_id,
+            LocalModelInstallationUpdate {
+                status: LocalModelInstallationStatus::Downloading,
+                downloaded_bytes: 101,
+                expected_bytes: Some(100),
+                sha256: None,
+                blob_relative_path: None,
+                error_code: None,
+                error_message: None,
+            },
+        )
+        .await
+        .expect_err("invalid byte count"),
         ProviderPersistenceError::InvalidRequest {
             kind: "downloaded_bytes_exceed_expected_bytes"
         }
     );
-}
-
-#[tokio::test]
-async fn installation_state_rolls_back_when_event_append_fails() {
-    let store = super::tests::test_store().await;
-    let created =
-        LocalModelInstallationPersistence::upsert_local_model_installation(&store, installation())
-            .await
-            .expect("create installation");
     {
         let connection = store.connection_for_tests();
         let connection = connection.lock().await;
@@ -149,18 +84,45 @@ async fn installation_state_rolls_back_when_event_append_fails() {
         }
     );
 
-    let installation = LocalModelInstallationPersistence::local_model_installation(
+    let persisted = LocalModelInstallationPersistence::local_model_installation(
         &store,
         &created.installation_id,
     )
     .await
     .expect("read installation")
     .expect("installation");
-    assert_eq!(installation.status, LocalModelInstallationStatus::Queued);
+    assert_eq!(persisted.status, LocalModelInstallationStatus::Queued);
     let events = LocalModelInstallationPersistence::local_model_events(&store, None, 10)
         .await
         .expect("read events");
     assert_eq!(events.len(), 1);
+
+    let active_store = super::tests::test_store().await;
+    let active = LocalModelInstallationPersistence::upsert_local_model_installation(
+        &active_store,
+        installation(),
+    )
+    .await
+    .expect("active installation");
+    mark_local_model_installed(&active_store, &active).await;
+    LocalModelActivationPersistence::activate_local_model_as_system_default(
+        &active_store,
+        &active.installation_id,
+        &ready_local_selection(&active.model_id, &active.provider_instance_key),
+    )
+    .await
+    .expect("activate");
+    assert_eq!(
+        LocalModelInstallationPersistence::remove_terminal_local_model_installation(
+            &active_store,
+            &active.installation_id,
+        )
+        .await
+        .expect_err("active removal conflict"),
+        ProviderPersistenceError::ActiveInstallationConflict {
+            installation_id: active.installation_id
+        }
+    );
 }
 
 #[tokio::test]
@@ -170,32 +132,7 @@ async fn activation_failure_rolls_back_every_earlier_write() {
         LocalModelInstallationPersistence::upsert_local_model_installation(&store, installation())
             .await
             .expect("create installation");
-    for status in [
-        LocalModelInstallationStatus::Downloading,
-        LocalModelInstallationStatus::Verifying,
-        LocalModelInstallationStatus::Installed,
-    ] {
-        LocalModelInstallationPersistence::update_local_model_installation(
-            &store,
-            &created.installation_id,
-            LocalModelInstallationUpdate {
-                status,
-                downloaded_bytes: if status == LocalModelInstallationStatus::Downloading {
-                    50
-                } else {
-                    100
-                },
-                expected_bytes: Some(100),
-                sha256: None,
-                blob_relative_path: (status == LocalModelInstallationStatus::Installed)
-                    .then(|| "models/blobs/model.gguf".to_string()),
-                error_code: None,
-                error_message: None,
-            },
-        )
-        .await
-        .expect("advance installation");
-    }
+    mark_local_model_installed(&store, &created).await;
     let event_count_before =
         LocalModelInstallationPersistence::local_model_events(&store, None, 20)
             .await
@@ -302,30 +239,19 @@ async fn activation_rejects_an_instance_key_that_does_not_own_the_installation()
 }
 
 fn ready_local_selection(model_id: &str, key: &ProviderInstanceKey) -> ProviderReadySelection {
-    let mut selection = ProviderSelectionSnapshot::explicit(
+    crate::tests::ready_provider_selection(crate::tests::exact_provider_selection(
         "local_models",
         LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
         model_id,
-        None,
-        Some("local_model_activation_port_test".to_string()),
-    );
-    selection.provider_instance_key = Some(key.clone());
-    crate::tests::ready_provider_selection(selection)
+        key.clone(),
+        "local_model_activation_port_test",
+    ))
 }
 
 fn installation() -> NewLocalModelInstallation {
-    NewLocalModelInstallation {
-        installation_id: "local_model_installation:port-test".to_string(),
-        model_id: "port-test-model".to_string(),
-        display_name: "Port Test".to_string(),
-        source_kind: LocalModelSourceKind::Catalog,
-        source_repo: Some("example/model".to_string()),
-        source_revision: Some("a".repeat(40)),
-        source_file: Some("model.gguf".to_string()),
-        sha256: Some("b".repeat(64)),
-        download_gb: 1.0,
-        expected_bytes: Some(100),
-        license: Some("Apache-2.0".to_string()),
-        backend: LocalModelBackend::Cpu,
-    }
+    crate::tests::local_model_installation(
+        "local_model_installation:port-test",
+        "port-test-model",
+        LocalModelBackend::Cpu,
+    )
 }

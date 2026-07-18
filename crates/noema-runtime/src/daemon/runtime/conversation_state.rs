@@ -26,20 +26,3 @@ impl RuntimeActor {
         Ok(conversation)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::ActiveConversation;
-
-    #[test]
-    fn active_conversation_state_is_provider_route_agnostic() {
-        let conversation = ActiveConversation {
-            cwd: Some("/tmp/project".to_string()),
-            next_turn_index: 7,
-        };
-
-        let debug = format!("{conversation:?}");
-        assert!(debug.contains("next_turn_index: 7"));
-        assert!(!debug.contains("provider"));
-    }
-}

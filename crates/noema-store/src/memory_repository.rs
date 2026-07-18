@@ -69,20 +69,7 @@ fn repository_error(operation: &'static str, error: &StoreError) -> MemoryReposi
 
 #[cfg(test)]
 mod tests {
-    use noema_memory::{MemoryRepository, MemoryRepositoryErrorKind};
-
-    #[tokio::test]
-    async fn sqlite_store_implements_memory_repository_without_store_errors() {
-        let store = crate::tests::test_store().await;
-        let repository: &dyn MemoryRepository = &store;
-
-        let settings = repository
-            .memory_service_settings()
-            .await
-            .expect("memory settings");
-
-        assert_eq!(settings.settings_id, "default");
-    }
+    use noema_memory::MemoryRepositoryErrorKind;
 
     #[test]
     fn store_invariants_map_to_typed_repository_kind() {

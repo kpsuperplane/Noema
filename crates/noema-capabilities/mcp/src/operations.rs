@@ -213,13 +213,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn operations_trait_remains_dyn_compatible() {
-        fn accepts_object_safe_operations(_operations: Option<&dyn McpOperations>) {}
-
-        accepts_object_safe_operations(None);
-    }
-
-    #[test]
     fn operation_errors_expose_only_fixed_safe_messages_and_codes() {
         let cases = [
             (

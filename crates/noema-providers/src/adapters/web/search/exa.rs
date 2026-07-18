@@ -1,62 +1,18 @@
 //! Exa hosted web search provider.
 
-use super::super::exa_transport::{EXA_API_BASE_URL, production_http_client};
+use super::super::exa_transport::ExaClient;
 use crate::{WebOperationFuture, WebSearchBackend, WebSearchError};
 use noema_capabilities::web::search::{SearchRequest, SearchResponse, SearchResult};
 use serde::Serialize;
 use serde_json::Value;
-use std::fmt;
 
 /// Stable provider identifier for Exa web search.
 pub const EXA_SEARCH_PROVIDER_ID: &str = "exa";
 /// Reliability contract label for Exa's hosted search API.
-pub const EXA_SEARCH_CONTRACT: &str = "hosted_provider";
+const EXA_SEARCH_CONTRACT: &str = "hosted_provider";
 
 /// Exa hosted search client.
-#[derive(Clone)]
-pub struct ExaSearchClient {
-    base_url: String,
-    api_key: String,
-    http: reqwest::Client,
-}
-
-impl ExaSearchClient {
-    /// Build a production Exa search client.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`WebSearchError::Http`] when the configured HTTP client cannot
-    /// be built.
-    pub fn new(api_key: String) -> Result<Self, WebSearchError> {
-        let http = production_http_client().map_err(|_| WebSearchError::Http)?;
-        Ok(Self::with_client(
-            EXA_API_BASE_URL.to_string(),
-            api_key,
-            http,
-        ))
-    }
-
-    /// Build an Exa search client with an injected endpoint and HTTP transport.
-    #[must_use]
-    pub fn with_client(base_url: String, api_key: String, http: reqwest::Client) -> Self {
-        Self {
-            base_url,
-            api_key,
-            http,
-        }
-    }
-}
-
-impl fmt::Debug for ExaSearchClient {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("ExaSearchClient")
-            .field("base_url", &self.base_url)
-            .field("api_key", &"[REDACTED]")
-            .field("http", &"[CONFIGURED]")
-            .finish()
-    }
-}
+pub type ExaSearchClient = ExaClient;
 
 impl WebSearchBackend for ExaSearchClient {
     fn backend_id(&self) -> &str {
@@ -83,9 +39,7 @@ async fn search_exa(
     request: &SearchRequest,
 ) -> Result<SearchResponse, WebSearchError> {
     let response = client
-        .http
-        .post(format!("{}/search", client.base_url.trim_end_matches('/')))
-        .header("x-api-key", &client.api_key)
+        .post("/search")
         .json(&ExaSearchRequest {
             query: &request.query,
             num_results: request.max_results,
@@ -207,32 +161,6 @@ mod tests {
             response.results[0].snippet,
             "A language empowering everyone"
         );
-    }
-
-    #[test]
-    fn exa_search_debug_redacts_api_key() {
-        let client = ExaSearchClient::with_client(
-            "https://example.test".to_string(),
-            "exa-search-secret".to_string(),
-            reqwest::Client::new(),
-        );
-        let debug = format!("{client:?}");
-
-        assert!(!debug.contains("exa-search-secret"));
-        assert!(debug.contains("[REDACTED]"));
-
-        let runtime = crate::WebSearchBackendHandle::new(client);
-        assert_eq!(
-            format!("{runtime:?}"),
-            "WebSearchBackendHandle(\"[CONFIGURED]\")"
-        );
-    }
-
-    #[test]
-    fn production_constructor_owns_exa_endpoint_policy() {
-        let client = ExaSearchClient::new("secret".to_string()).expect("client");
-
-        assert_eq!(client.base_url, EXA_API_BASE_URL);
     }
 
     #[tokio::test]

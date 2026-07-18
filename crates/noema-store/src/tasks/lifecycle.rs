@@ -1,42 +1,27 @@
-use noema_providers::{
-    ProviderInstanceKey, ProviderRegistry, ProviderSelectionSnapshot, ReasoningEffort,
-};
+use noema_providers::{ProviderRegistry, ProviderSelectionSnapshot, ReasoningEffort};
 use noema_tasks::{
     AgentRunRecord, DEFAULT_TASK_MAX_REVIEW_ROUNDS, NewTask, TASK_EXECUTOR_AGENT_ID,
-    TaskComplexity, TaskDomainError, TaskRecord, TaskSource, TaskStatus, TaskValidationCriterion,
+    TaskDomainError, TaskRecord, TaskSource, TaskStatus, TaskValidationCriterion,
 };
 use rusqlite::{OptionalExtension, params};
 
 use super::provider_selection::{pool_selection_tx, reviewer_preference_tx};
-use crate::{NoemaStore, StoreError, ids::allocate_id, provider_selections::prove_selection_ready};
+use crate::{
+    NoemaStore, StoreError,
+    ids::allocate_id,
+    provider_selections::prove_selection_ready,
+    sqlite::{parse_column, reasoning_column},
+};
 
 const TASK_COLUMNS: &str = "task_id, title, request_markdown, complexity, status, owner_human_id, source_conversation_id, source_turn_id, source_item_id, created_by_agent_id, creation_tool_call_id, pool_entry_id, executor_provider_kind, executor_provider_account_id, executor_provider_instance_key, executor_selection_mode, executor_model_profile, executor_reasoning_effort, executor_selection_source, reviewer_provider_kind, reviewer_provider_account_id, reviewer_provider_instance_key, reviewer_selection_mode, reviewer_model_profile, reviewer_reasoning_effort, reviewer_selection_source, revision_index, max_review_rounds, final_submission_id, latest_run_id, blocked_question, blocked_context, terminal_reason, error_code, error_message, created_at, updated_at, completed_at";
 
 impl NoemaStore {
-    /// Create a task, criteria, initial executor run, and creation event in one
-    /// SQLite transaction.
-    pub async fn create_task_with_executor(
-        &self,
-        input: NewTask,
-    ) -> Result<(TaskRecord, AgentRunRecord), StoreError> {
-        self.create_task_with_executor_inner(input, None).await
-    }
-
     /// Create a task while proving every newly referenced executor and reviewer
     /// instance is registered and ready through commit.
     pub async fn create_task_with_executor_with_readiness(
         &self,
         input: NewTask,
         registry: &ProviderRegistry,
-    ) -> Result<(TaskRecord, AgentRunRecord), StoreError> {
-        self.create_task_with_executor_inner(input, Some(registry))
-            .await
-    }
-
-    async fn create_task_with_executor_inner(
-        &self,
-        input: NewTask,
-        registry: Option<&ProviderRegistry>,
     ) -> Result<(TaskRecord, AgentRunRecord), StoreError> {
         let input = input.normalized().map_err(task_domain_error)?;
         let execution_policy = self.get_task_execution_policy().await?;
@@ -87,8 +72,8 @@ impl NoemaStore {
             )?;
             let reviewer = reviewer_preference_tx(transaction)?;
             let ready_selections = vec![
-                prove_selection_ready(&executor, registry)?,
-                prove_selection_ready(&reviewer, registry)?,
+                prove_selection_ready(&executor, Some(registry))?,
+                prove_selection_ready(&reviewer, Some(registry))?,
             ];
             transaction.execute(
                 r#"INSERT INTO tasks (
@@ -198,21 +183,6 @@ impl NoemaStore {
         Ok((task, run))
     }
 
-    /// Find a task created by one source delegation call.
-    pub async fn find_task_by_creation_call(
-        &self,
-        conversation_id: &str,
-        call_id: &str,
-    ) -> Result<Option<TaskRecord>, StoreError> {
-        self.with_connection(|conn| {
-            conn.query_row(
-                &format!("SELECT {TASK_COLUMNS} FROM tasks WHERE source_conversation_id = ?1 AND creation_tool_call_id = ?2 LIMIT 1"),
-                params![conversation_id, call_id],
-                task_from_row,
-            ).optional().map_err(StoreError::Sqlite)
-        }).await
-    }
-
     /// Return one task by id.
     pub async fn get_task(&self, task_id: &str) -> Result<Option<TaskRecord>, StoreError> {
         self.with_connection(|conn| {
@@ -273,48 +243,12 @@ pub(super) fn task_domain_error(error: TaskDomainError) -> StoreError {
 }
 
 fn task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRecord> {
-    let complexity = row
-        .get::<_, String>(3)?
-        .parse::<TaskComplexity>()
-        .map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(
-                3,
-                rusqlite::types::Type::Text,
-                Box::new(error),
-            )
-        })?;
-    let status = row
-        .get::<_, String>(4)?
-        .parse::<TaskStatus>()
-        .map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(
-                4,
-                rusqlite::types::Type::Text,
-                Box::new(error),
-            )
-        })?;
-    let executor_selection_mode = row
-        .get::<_, String>(15)?
-        .parse::<noema_providers::ProviderSelectionMode>()
-        .map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(
-                15,
-                rusqlite::types::Type::Text,
-                Box::new(error),
-            )
-        })?;
-    let reviewer_selection_mode = row
-        .get::<_, String>(22)?
-        .parse::<noema_providers::ProviderSelectionMode>()
-        .map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(
-                22,
-                rusqlite::types::Type::Text,
-                Box::new(error),
-            )
-        })?;
-    let executor_reasoning_effort = parse_reasoning(row.get::<_, Option<String>>(17)?.as_deref())?;
-    let reviewer_reasoning_effort = parse_reasoning(row.get::<_, Option<String>>(24)?.as_deref())?;
+    let complexity = parse_column(row, 3)?;
+    let status = parse_column(row, 4)?;
+    let executor_selection_mode = parse_column(row, 15)?;
+    let reviewer_selection_mode = parse_column(row, 22)?;
+    let executor_reasoning_effort = reasoning_column(row, 17)?;
+    let reviewer_reasoning_effort = reasoning_column(row, 24)?;
     Ok(TaskRecord {
         task_id: row.get(0)?,
         title: row.get(1)?,
@@ -331,15 +265,7 @@ fn task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRecord> {
         creation_tool_call_id: row.get(10)?,
         pool_entry_id: row.get(11)?,
         executor_model: ProviderSelectionSnapshot {
-            provider_instance_key: Some(
-                ProviderInstanceKey::new(row.get::<_, String>(14)?).map_err(|error| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        14,
-                        rusqlite::types::Type::Text,
-                        Box::new(error),
-                    )
-                })?,
-            ),
+            provider_instance_key: Some(parse_column(row, 14)?),
             provider_kind: row.get(12)?,
             provider_account_id: row.get(13)?,
             selection_mode: executor_selection_mode,
@@ -348,15 +274,7 @@ fn task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRecord> {
             selection_source: row.get(18)?,
         },
         reviewer_model: ProviderSelectionSnapshot {
-            provider_instance_key: Some(
-                ProviderInstanceKey::new(row.get::<_, String>(21)?).map_err(|error| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        21,
-                        rusqlite::types::Type::Text,
-                        Box::new(error),
-                    )
-                })?,
-            ),
+            provider_instance_key: Some(parse_column(row, 21)?),
             provider_kind: row.get(19)?,
             provider_account_id: row.get(20)?,
             selection_mode: reviewer_selection_mode,
@@ -377,21 +295,4 @@ fn task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRecord> {
         updated_at: row.get(36)?,
         completed_at: row.get(37)?,
     })
-}
-
-fn parse_reasoning(value: Option<&str>) -> rusqlite::Result<Option<ReasoningEffort>> {
-    value
-        .map(|value| {
-            ReasoningEffort::from_persistence_str(value).ok_or_else(|| {
-                rusqlite::Error::FromSqlConversionFailure(
-                    0,
-                    rusqlite::types::Type::Text,
-                    Box::new(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "invalid reasoning effort",
-                    )),
-                )
-            })
-        })
-        .transpose()
 }

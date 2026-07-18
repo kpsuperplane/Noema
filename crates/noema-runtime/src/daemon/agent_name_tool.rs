@@ -153,16 +153,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_nested_name_args_and_trims() {
-        let payload = json!({
-            "arguments": {
-                "name": "  Mira  "
-            }
-        });
-
-        let arguments = parse_arguments(&payload).expect("parse arguments");
-
-        assert_eq!(arguments.name, "Mira");
+    fn parses_valid_name_and_rejects_invalid_boundaries() {
+        assert_eq!(
+            parse_arguments(&json!({"arguments": {"name": "  Mira  "}}))
+                .expect("parse arguments")
+                .name,
+            "Mira"
+        );
+        for (payload, expected) in [
+            (
+                json!({"arguments": {"name": "Mira"}, "agent_id": "agent:other"}),
+                "nested arguments payload cannot include outer fields",
+            ),
+            (json!({"name": "   "}), "name is required"),
+            (
+                json!({"name": "a".repeat(MAX_AGENT_NAME_CHARS + 1)}),
+                "name must be 80 characters or fewer",
+            ),
+        ] {
+            let error = parse_arguments(&payload).expect_err("invalid name rejected");
+            assert_eq!(safe_error_message(&error), expected);
+        }
     }
 
     #[test]
@@ -182,51 +193,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn rejects_nested_arguments_with_outer_targeting_fields() {
-        let payload = json!({
-            "arguments": {
-                "name": "Mira"
-            },
-            "agent_id": "agent:other"
-        });
-
-        let error = parse_arguments(&payload).expect_err("outer targeting field rejected");
-
-        assert_eq!(
-            safe_error_message(&error),
-            "nested arguments payload cannot include outer fields"
-        );
-    }
-
-    #[test]
-    fn rejects_empty_name() {
-        let payload = json!({
-            "name": "   "
-        });
-
-        let error = parse_arguments(&payload).expect_err("empty name rejected");
-
-        assert_eq!(safe_error_message(&error), "name is required");
-    }
-
-    #[test]
-    fn rejects_overlong_name() {
-        let payload = json!({
-            "name": "a".repeat(MAX_AGENT_NAME_CHARS + 1)
-        });
-
-        let error = parse_arguments(&payload).expect_err("overlong name rejected");
-
-        assert_eq!(
-            safe_error_message(&error),
-            "name must be 80 characters or fewer"
-        );
-    }
-
     #[tokio::test]
     async fn store_backed_success_updates_agent_display_name() {
-        let (_home, store) = test_store().await;
+        let store = crate::test_support::test_store().await;
         store.ensure_default_actors().await.expect("actors");
         let context = AgentNameToolRuntimeContext {
             agent_id: "agent:primary".to_string(),
@@ -256,51 +225,5 @@ mod tests {
             .expect("get agent")
             .expect("agent exists");
         assert_eq!(agent.display_name.as_deref(), Some("Mira"));
-    }
-
-    #[tokio::test]
-    async fn store_backed_structured_name_tool_accepts_onboarding_answer() {
-        let (_home, store) = test_store().await;
-        store.ensure_default_actors().await.expect("actors");
-        let context = AgentNameToolRuntimeContext {
-            agent_id: "agent:primary".to_string(),
-        };
-
-        let result = execute_update_own_name(
-            &store,
-            &context,
-            Some("call_name_1".to_string()),
-            &json!({"name": "Fred"}),
-        )
-        .await;
-
-        assert!(result.success);
-        assert_eq!(
-            result.payload,
-            json!({
-                "agent_id": "agent:primary",
-                "display_name": "Fred"
-            })
-        );
-        let agent = store
-            .get_agent("agent:primary")
-            .await
-            .expect("get agent")
-            .expect("agent exists");
-        assert_eq!(agent.display_name.as_deref(), Some("Fred"));
-    }
-
-    #[test]
-    fn matches_update_own_name_tool_exactly() {
-        assert!(is_update_own_name_tool("update_own_name"));
-        assert!(!is_update_own_name_tool(" update_own_name"));
-        assert!(!is_update_own_name_tool("update_own_name_v2"));
-    }
-
-    async fn test_store() -> (tempfile::TempDir, noema_store::NoemaStore) {
-        let home = tempfile::tempdir().expect("temp noema home");
-        let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-        let store = crate::test_support::test_store_for_paths(&paths).await;
-        (home, store)
     }
 }

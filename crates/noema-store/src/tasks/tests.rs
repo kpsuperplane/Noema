@@ -8,7 +8,9 @@ use noema_tasks::{
 
 use crate::{
     NewAgentRuntimePreference, StoreError,
-    tests::{ready_provider_registry, ready_provider_selection, test_store},
+    tests::{
+        exact_provider_selection, ready_provider_registry, ready_provider_selection, test_store,
+    },
 };
 
 async fn initialized_task_store() -> crate::NoemaStore {
@@ -54,52 +56,46 @@ async fn initialized_local_task_store() -> (
     store.ensure_default_actors().await.expect("actors");
     let installation_id = "local_model_installation:task-readiness";
     let model_id = "task-readiness-model";
-    let key = noema_providers::local_model_provider_instance_key(
-        noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
-        installation_id,
-        model_id,
-    )
-    .expect("local key");
-    {
-        let connection = store.connection_for_tests();
-        let connection = connection.lock().await;
-        connection
-            .execute(
-                r#"
-                INSERT INTO provider_accounts (
-                  provider_account_id, provider_kind, account_key, display_name,
-                  auth_method, is_active, is_default, status, metadata_json
-                ) VALUES (?1, 'local_models', 'default', 'Local models', 'none',
-                          1, 1, 'authenticated', '{}')
-                "#,
-                [noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID],
-            )
-            .expect("local account");
-        connection
-            .execute(
-                r#"
-                INSERT INTO local_model_installations (
-                  installation_id, provider_instance_key, model_id, display_name,
-                  source_kind, source_file, sha256, download_gb, expected_bytes,
-                  downloaded_bytes, backend, status, blob_relative_path, is_active,
-                  installed_at
-                ) VALUES (?1, ?2, ?3, 'Task readiness model', 'local_file',
-                          'task-readiness.gguf', ?4, 1.0, 1, 1, 'metal', 'installed',
-                          'models/blobs/task-readiness.gguf', 1,
-                          strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-                "#,
-                rusqlite::params![installation_id, key.as_str(), model_id, "b".repeat(64)],
-            )
-            .expect("local installation");
-    }
-    let mut selection = ProviderSelectionSnapshot::explicit(
+    store
+        .ensure_default_local_models_provider_account()
+        .await
+        .expect("local account");
+    store
+        .update_provider_account_status(
+            noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
+            ProviderAccountStatus::Authenticated,
+            None,
+            None,
+        )
+        .await
+        .expect("authenticate local account");
+    let installation = store
+        .upsert_local_model_installation(crate::tests::local_model_installation(
+            installation_id,
+            model_id,
+            noema_providers::LocalModelBackend::Metal,
+        ))
+        .await
+        .expect("local installation");
+    crate::tests::mark_local_model_installed(&store, &installation).await;
+    let key = installation.provider_instance_key;
+    store
+        .with_connection(|connection| {
+            connection.execute(
+                "UPDATE local_model_installations SET is_active = 1 WHERE provider_instance_key = ?1",
+                [key.as_str()],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("activate local installation fixture");
+    let selection = exact_provider_selection(
         "local_models",
         noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
         model_id,
-        None,
-        Some("test_local_default".to_string()),
+        key,
+        "test_local_default",
     );
-    selection.provider_instance_key = Some(key);
     let registry = ready_provider_registry(&selection);
     let ready_selection = registry
         .prove_ready_selection(selection.clone())
@@ -111,21 +107,23 @@ async fn initialized_local_task_store() -> (
     (store, registry, selection)
 }
 
-#[tokio::test]
-async fn task_creation_requires_and_retains_local_readiness_proofs() {
-    let (store, registry, selection) = initialized_local_task_store().await;
-    let input = NewTask {
-        task_id: Some("task:local-readiness".to_string()),
-        title: "Local readiness".to_string(),
-        request_markdown: "Prove local readiness before queuing.".to_string(),
+fn readiness_task(
+    task_id: &str,
+    pool_entry_id: String,
+    model: ProviderSelectionSnapshot,
+) -> NewTask {
+    NewTask {
+        task_id: Some(task_id.to_string()),
+        title: "Provider readiness".to_string(),
+        request_markdown: "Prove runtime readiness before queuing.".to_string(),
         complexity: TaskComplexity::Simple,
         owner_human_id: "human:local".to_string(),
         source: TaskSource::default(),
         created_by_agent_id: "agent:primary".to_string(),
         creation_tool_call_id: None,
-        pool_entry_id: "task_pool:setting:simple".to_string(),
-        executor_model: selection.clone(),
-        reviewer_model: selection,
+        pool_entry_id,
+        executor_model: model.clone(),
+        reviewer_model: model,
         max_review_rounds: None,
         criteria: vec![NewTaskValidationCriterion {
             criterion_id: None,
@@ -133,14 +131,26 @@ async fn task_creation_requires_and_retains_local_readiness_proofs() {
             description: "The route was proved ready".to_string(),
             expected_evidence: None,
         }],
-    };
+    }
+}
 
-    let unproved = store
-        .create_task_with_executor(input.clone())
-        .await
-        .expect_err("unproved local task route");
+#[tokio::test]
+async fn task_creation_retains_proved_local_instance_snapshots() {
+    let (store, registry, selection) = initialized_local_task_store().await;
+    let input = readiness_task(
+        "task:local-readiness",
+        "task_pool:setting:simple".to_string(),
+        selection,
+    );
+
     assert!(matches!(
-        unproved,
+        store
+            .create_task_with_executor_with_readiness(
+                input.clone(),
+                &noema_providers::ProviderRegistry::new(),
+            )
+            .await
+            .expect_err("unproved local task route"),
         StoreError::ProviderInstanceUnavailable { .. }
     ));
 
@@ -149,6 +159,31 @@ async fn task_creation_requires_and_retains_local_readiness_proofs() {
         .await
         .expect("proved local task route");
     assert_eq!(task.latest_run_id.as_deref(), Some(run.run_id.as_str()));
+
+    let hosted = initialized_task_store().await;
+    let pool = hosted
+        .get_task_model_pool_entry("task_pool:setting:simple")
+        .await
+        .expect("pool read")
+        .expect("simple pool");
+    let hosted_input = readiness_task("task:hosted-readiness", pool.pool_entry_id, pool.model);
+    assert!(matches!(
+        hosted
+            .create_task_with_executor_with_readiness(
+                hosted_input,
+                &noema_providers::ProviderRegistry::new(),
+            )
+            .await
+            .expect_err("authenticated metadata is not runtime readiness"),
+        StoreError::ProviderInstanceUnavailable { .. }
+    ));
+    assert!(
+        hosted
+            .get_task("task:hosted-readiness")
+            .await
+            .expect("task read")
+            .is_none()
+    );
 }
 
 #[tokio::test]
@@ -260,82 +295,36 @@ async fn task_creation_captures_pool_and_reviewer_inside_writer_transaction() {
 }
 
 #[tokio::test]
-async fn authenticated_hosted_metadata_cannot_create_future_work_without_registration() {
-    let store = initialized_task_store().await;
-    let pool = store
-        .get_task_model_pool_entry("task_pool:setting:simple")
-        .await
-        .expect("pool read")
-        .expect("simple pool");
-    let input = NewTask {
-        task_id: Some("task:hosted-readiness".to_string()),
-        title: "Hosted readiness".to_string(),
-        request_markdown: "Require a registered hosted runtime.".to_string(),
-        complexity: TaskComplexity::Simple,
-        owner_human_id: "human:local".to_string(),
-        source: TaskSource::default(),
-        created_by_agent_id: "agent:primary".to_string(),
-        creation_tool_call_id: None,
-        pool_entry_id: pool.pool_entry_id,
-        executor_model: pool.model.clone(),
-        reviewer_model: pool.model,
-        max_review_rounds: None,
-        criteria: vec![NewTaskValidationCriterion {
-            criterion_id: None,
-            ordinal: 1,
-            description: "The hosted route is registered".to_string(),
-            expected_evidence: None,
-        }],
-    };
-
-    let error = store
-        .create_task_with_executor(input)
-        .await
-        .expect_err("authenticated metadata is not runtime readiness");
-
-    assert!(matches!(
-        error,
-        StoreError::ProviderInstanceUnavailable { .. }
-    ));
-    assert!(
-        store
-            .get_task("task:hosted-readiness")
-            .await
-            .expect("task read")
-            .is_none()
-    );
-}
-
-#[tokio::test]
 async fn durable_run_creation_rejects_a_mismatched_exact_key() {
     let store = initialized_task_store().await;
-    let mut model = ProviderSelectionSnapshot::explicit(
+    let model = exact_provider_selection(
         "codex",
         "provider_account:codex:default",
         "gpt-5.6-luna",
-        None,
-        Some("mismatched_test".to_string()),
-    );
-    model.provider_instance_key = Some(
         ProviderInstanceKey::new("provider-account:v1:5:wrong")
             .expect("syntactically valid wrong key"),
+        "mismatched_test",
     );
+    let registry = ready_provider_registry(&model);
 
     let error = store
-        .create_agent_run(noema_tasks::NewAgentRun {
-            run_id: Some("run:mismatched-key".to_string()),
-            task_id: "task:not-created".to_string(),
-            run_kind: noema_tasks::RunKind::Executor,
-            agent_id: noema_tasks::TASK_EXECUTOR_AGENT_ID.to_string(),
-            revision_index: 0,
-            attempt_index: 0,
-            parent_run_id: None,
-            triggering_submission_id: None,
-            triggering_review_id: None,
-            model,
-            execution_policy: noema_tasks::TaskExecutionPolicy::default(),
-            priority: 0,
-        })
+        .create_agent_run_with_readiness(
+            noema_tasks::NewAgentRun {
+                run_id: Some("run:mismatched-key".to_string()),
+                task_id: "task:not-created".to_string(),
+                run_kind: noema_tasks::RunKind::Executor,
+                agent_id: noema_tasks::TASK_EXECUTOR_AGENT_ID.to_string(),
+                revision_index: 0,
+                attempt_index: 0,
+                parent_run_id: None,
+                triggering_submission_id: None,
+                triggering_review_id: None,
+                model,
+                execution_policy: noema_tasks::TaskExecutionPolicy::default(),
+                priority: 0,
+            },
+            &registry,
+        )
         .await
         .expect_err("mismatched key must be rejected before queue insertion");
 
@@ -389,30 +378,33 @@ async fn preserved_run_creation_rejects_a_claimed_local_instance() {
         })
         .await
         .expect("claimed installation");
-    let mut model = ProviderSelectionSnapshot::explicit(
+    let model = exact_provider_selection(
         "local_models",
         noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
         "model:claimed",
-        None,
-        Some("preserved_retry".to_string()),
+        key.clone(),
+        "preserved_retry",
     );
-    model.provider_instance_key = Some(key.clone());
+    let registry = ready_provider_registry(&model);
 
     let error = store
-        .create_agent_run(noema_tasks::NewAgentRun {
-            run_id: Some("run:claimed-key".to_string()),
-            task_id: "task:not-created".to_string(),
-            run_kind: noema_tasks::RunKind::Executor,
-            agent_id: noema_tasks::TASK_EXECUTOR_AGENT_ID.to_string(),
-            revision_index: 0,
-            attempt_index: 1,
-            parent_run_id: Some("run:parent".to_string()),
-            triggering_submission_id: None,
-            triggering_review_id: None,
-            model,
-            execution_policy: noema_tasks::TaskExecutionPolicy::default(),
-            priority: 0,
-        })
+        .create_agent_run_with_readiness(
+            noema_tasks::NewAgentRun {
+                run_id: Some("run:claimed-key".to_string()),
+                task_id: "task:not-created".to_string(),
+                run_kind: noema_tasks::RunKind::Executor,
+                agent_id: noema_tasks::TASK_EXECUTOR_AGENT_ID.to_string(),
+                revision_index: 0,
+                attempt_index: 1,
+                parent_run_id: Some("run:parent".to_string()),
+                triggering_submission_id: None,
+                triggering_review_id: None,
+                model,
+                execution_policy: noema_tasks::TaskExecutionPolicy::default(),
+                priority: 0,
+            },
+            &registry,
+        )
         .await
         .expect_err("claimed route must not gain a future retry reference");
 

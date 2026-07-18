@@ -3,27 +3,22 @@ use crate::{
     GenerateOptions, GenerateRequest, ModelProvider,
 };
 
-use super::{super::FoundationLocalProvider, support::bridge_script};
+use super::{
+    super::FoundationLocalProvider,
+    support::{bridge_script, healthy_bridge_script},
+};
 
 #[tokio::test]
 async fn generate_reuses_bridge_session_for_canonical_required_response() {
     let log = tempfile::NamedTempFile::new().expect("log");
     let log_path = log.path().to_string_lossy().to_string();
-    let (_dir, bridge_path) = bridge_script(&format!(
-        r#"#!/bin/sh
-LOG_PATH="{}"
-while IFS= read -r line; do
-  case "$line" in
-    *'"id":"handshake"'*) printf '%s\n' '{{"id":"handshake","payload":{{"type":"handshake_ok","protocol_version":1}}}}' ;;
-    *'"id":"health"'*) printf '%s\n' '{{"id":"health","payload":{{"type":"health","available":true,"profiles":[{{"id":"default","label":"Default"}}],"unavailable_reason":null}}}}' ;;
-    *'"id":"create_session"'*) printf '%s\n' "create_session" >> "$LOG_PATH"; printf '%s\n' '{{"id":"create_session","payload":{{"type":"session_created","session_id":"session-1"}}}}' ;;
+    let (_dir, bridge_path) = bridge_script(&healthy_bridge_script(&format!(
+        r#"
+    *'"id":"create_session"'*) printf '%s\n' "create_session" >> "{}"; printf '%s\n' '{{"id":"create_session","payload":{{"type":"session_created","session_id":"session-1"}}}}' ;;
     *'"id":"generate"'*) printf '%s\n' '{{"id":"generate","payload":{{"type":"generate_complete","text":"{{\"response_status\":\"final\",\"responses\":[{{\"kind\":\"text\",\"phase\":\"final_answer\",\"text\":\"bridge answer\"}}],\"tool_calls\":[]}}"}}}}' ;;
-    *) printf '%s\n' '{{"id":"unknown","payload":{{"type":"error","code":"unsupported_request","message":"Unsupported request."}}}}' ;;
-  esac
-done
 "#,
         log_path
-    ));
+    )));
     let provider = provider(bridge_path);
 
     for input in [
@@ -64,22 +59,14 @@ done
 async fn generate_recreates_bridge_session_when_static_instructions_change() {
     let log = tempfile::NamedTempFile::new().expect("log");
     let log_path = log.path().to_string_lossy().to_string();
-    let (_dir, bridge_path) = bridge_script(&format!(
-        r#"#!/bin/sh
-LOG_PATH="{}"
-while IFS= read -r line; do
-  case "$line" in
-    *'"id":"handshake"'*) printf '%s\n' '{{"id":"handshake","payload":{{"type":"handshake_ok","protocol_version":1}}}}' ;;
-    *'"id":"health"'*) printf '%s\n' '{{"id":"health","payload":{{"type":"health","available":true,"profiles":[{{"id":"default","label":"Default"}}],"unavailable_reason":null}}}}' ;;
-    *'"id":"create_session"'*) printf '%s\n' "$line" >> "$LOG_PATH"; printf '%s\n' '{{"id":"create_session","payload":{{"type":"session_created","session_id":"session-1"}}}}' ;;
+    let (_dir, bridge_path) = bridge_script(&healthy_bridge_script(&format!(
+        r#"
+    *'"id":"create_session"'*) printf '%s\n' "$line" >> "{}"; printf '%s\n' '{{"id":"create_session","payload":{{"type":"session_created","session_id":"session-1"}}}}' ;;
     *'"id":"close_session"'*) printf '%s\n' '{{"id":"close_session","payload":{{"type":"replay_complete"}}}}' ;;
     *'"id":"generate"'*) printf '%s\n' '{{"id":"generate","payload":{{"type":"generate_complete","text":"bridge answer"}}}}' ;;
-    *) printf '%s\n' '{{"id":"unknown","payload":{{"type":"error","code":"unsupported_request","message":"Unsupported request."}}}}' ;;
-  esac
-done
 "#,
         log_path
-    ));
+    )));
     let provider = provider(bridge_path);
 
     for instructions in ["be concise", "be expansive"] {
@@ -108,23 +95,15 @@ done
 async fn generate_reuses_exact_history_and_resets_on_divergence() {
     let log = tempfile::NamedTempFile::new().expect("log");
     let log_path = log.path().to_string_lossy().to_string();
-    let (_dir, bridge_path) = bridge_script(&format!(
-        r#"#!/bin/sh
-LOG_PATH="{}"
-while IFS= read -r line; do
-  case "$line" in
-    *'"id":"handshake"'*) printf '%s\n' '{{"id":"handshake","payload":{{"type":"handshake_ok","protocol_version":1}}}}' ;;
-    *'"id":"health"'*) printf '%s\n' '{{"id":"health","payload":{{"type":"health","available":true,"profiles":[{{"id":"default","label":"Default"}}],"unavailable_reason":null}}}}' ;;
+    let (_dir, bridge_path) = bridge_script(&healthy_bridge_script(&format!(
+        r#"
     *'"id":"create_session"'*) printf '%s\n' '{{"id":"create_session","payload":{{"type":"session_created","session_id":"session-1"}}}}' ;;
     *'"id":"close_session"'*) printf '%s\n' '{{"id":"close_session","payload":{{"type":"replay_complete"}}}}' ;;
-    *'"id":"replay_turns"'*) printf '%s\n' "$line" >> "$LOG_PATH"; printf '%s\n' '{{"id":"replay_turns","payload":{{"type":"replay_complete"}}}}' ;;
+    *'"id":"replay_turns"'*) printf '%s\n' "$line" >> "{}"; printf '%s\n' '{{"id":"replay_turns","payload":{{"type":"replay_complete"}}}}' ;;
     *'"id":"generate"'*) printf '%s\n' '{{"id":"generate","payload":{{"type":"generate_complete","text":"bridge answer"}}}}' ;;
-    *) printf '%s\n' '{{"id":"unknown","payload":{{"type":"error","code":"unsupported_request","message":"Unsupported request."}}}}' ;;
-  esac
-done
 "#,
         log_path
-    ));
+    )));
     let provider = provider(bridge_path);
 
     provider

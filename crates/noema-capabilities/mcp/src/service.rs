@@ -1,16 +1,16 @@
 //! Root-bound local MCP service composition and shared lifecycle.
 
 use noema_capabilities::{
-    CapabilityBindingSourceHandle, CapabilityInvokerHandle, CapabilityInvokerRegistration,
-    InvokerKey,
+    CapabilityBindingSourceHandle, CapabilityInvokerRegistration, InvokerKey,
 };
 use std::{collections::HashMap, fmt, future::Future, sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::{Mutex, OwnedMutexGuard, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 
+use crate::catalog::{MCP_INVOKER_KEY, catalog_from_servers, map_repository_error};
 use crate::{
-    McpAutofillCompletionHandle, McpBindingSource, McpClientError, McpControlPlaneHandle,
-    McpDiagnosticEvent, McpDiagnosticHandle, McpDiagnosticKind, McpOAuthError, McpOAuthRegistry,
+    McpAutofillCompletionHandle, McpClientError, McpControlPlaneHandle, McpDiagnosticEvent,
+    McpDiagnosticHandle, McpDiagnosticKind, McpOAuthError, McpOAuthRegistry,
     McpOAuthRegistryConfig, McpOperationError, McpPreparedSession, McpRepositoryError,
     McpRepositoryErrorKind, McpRepositoryHandle, McpRequestContext, McpSecretStoreError,
     McpSecretStoreHandle, McpSessionFactoryHandle, lifecycle::McpServiceLifecycle,
@@ -152,16 +152,10 @@ impl LocalMcpService {
         Arc::new(self.clone())
     }
 
-    /// Return the MCP capability invoker sharing this service lifecycle.
-    #[must_use]
-    pub fn invoker(&self) -> CapabilityInvokerHandle {
-        Arc::new(self.clone())
-    }
-
     /// Return the keyed registration consumed by a generic capability router.
     #[must_use]
     pub fn invoker_registration(&self) -> CapabilityInvokerRegistration {
-        CapabilityInvokerRegistration::new(InvokerKey::new(crate::MCP_INVOKER_KEY), self.invoker())
+        CapabilityInvokerRegistration::new(InvokerKey::new(MCP_INVOKER_KEY), Arc::new(self.clone()))
     }
 
     /// Reject new work and cancel admitted transport/OAuth work.
@@ -198,15 +192,7 @@ impl LocalMcpServiceInner {
                 .or_insert_with(|| Arc::new(Mutex::new(())))
                 .clone()
         };
-        let deadline = tokio::time::Instant::from_std(context.deadline());
-        let cancellation = context.cancellation_token();
-        tokio::select! {
-            biased;
-            () = cancellation.cancelled() => Err(McpOperationError::Cancelled),
-            result = tokio::time::timeout_at(deadline, lock.lock_owned()) => {
-                result.map_err(|_| McpOperationError::TimedOut)
-            }
-        }
+        Self::lock_with_context(context, lock.lock_owned()).await
     }
 
     pub(crate) async fn lock_policy_read(
@@ -221,15 +207,7 @@ impl LocalMcpServiceInner {
                 .or_insert_with(|| Arc::new(RwLock::new(())))
                 .clone()
         };
-        let deadline = tokio::time::Instant::from_std(context.deadline());
-        let cancellation = context.cancellation_token();
-        tokio::select! {
-            biased;
-            () = cancellation.cancelled() => Err(McpOperationError::Cancelled),
-            result = tokio::time::timeout_at(deadline, lock.read_owned()) => {
-                result.map_err(|_| McpOperationError::TimedOut)
-            }
-        }
+        Self::lock_with_context(context, lock.read_owned()).await
     }
 
     pub(crate) async fn lock_policy_write(
@@ -251,20 +229,25 @@ impl LocalMcpServiceInner {
                 })
                 .collect::<Vec<_>>()
         };
-        let deadline = tokio::time::Instant::from_std(context.deadline());
-        let cancellation = context.cancellation_token();
         let mut guards = Vec::with_capacity(locks.len());
         for lock in locks {
-            let guard = tokio::select! {
-                biased;
-                () = cancellation.cancelled() => return Err(McpOperationError::Cancelled),
-                result = tokio::time::timeout_at(deadline, lock.write_owned()) => {
-                    result.map_err(|_| McpOperationError::TimedOut)?
-                }
-            };
-            guards.push(guard);
+            guards.push(Self::lock_with_context(context, lock.write_owned()).await?);
         }
         Ok(guards)
+    }
+
+    async fn lock_with_context<T>(
+        context: &McpRequestContext,
+        lock: impl Future<Output = T>,
+    ) -> Result<T, McpOperationError> {
+        let cancellation = context.cancellation_token();
+        tokio::select! {
+            biased;
+            () = cancellation.cancelled() => Err(McpOperationError::Cancelled),
+            result = tokio::time::timeout_at(
+                tokio::time::Instant::from_std(context.deadline()), lock
+            ) => result.map_err(|_| McpOperationError::TimedOut),
+        }
     }
 
     pub(crate) async fn close_session(
@@ -335,7 +318,7 @@ pub(crate) fn map_oauth_operation_error(error: &McpOAuthError) -> McpOperationEr
 
     match error.kind() {
         McpOAuthErrorKind::InvalidInput => McpOperationError::InvalidInput,
-        McpOAuthErrorKind::NotFound | McpOAuthErrorKind::Expired => McpOperationError::NotFound,
+        McpOAuthErrorKind::NotFound => McpOperationError::NotFound,
         McpOAuthErrorKind::Capacity => McpOperationError::Unavailable,
         McpOAuthErrorKind::Conflict => McpOperationError::Conflict,
         McpOAuthErrorKind::Authentication => McpOperationError::AuthenticationRequired,
@@ -359,10 +342,13 @@ impl noema_capabilities::CapabilityBindingSource for LocalMcpService {
             self.inner
                 .lifecycle
                 .run_admitted(async {
-                    noema_capabilities::CapabilityBindingSource::catalog(&McpBindingSource::new(
-                        self.inner.repository.clone(),
-                    ))
-                    .await
+                    let servers = self
+                        .inner
+                        .repository
+                        .control_plane_catalog()
+                        .await
+                        .map_err(map_repository_error)?;
+                    catalog_from_servers(&servers)
                 })
                 .await
                 .map_err(|_| noema_capabilities::CapabilityBindingSourceError::Unavailable)?

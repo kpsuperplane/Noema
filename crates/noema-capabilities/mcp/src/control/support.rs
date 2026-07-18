@@ -166,14 +166,13 @@ pub(super) fn validate_id(id: String) -> Result<String, McpOperationError> {
 }
 
 pub(super) fn streamable_http_url(server: &McpServerRecord) -> Option<String> {
-    (server.transport_kind == McpTransportKind::StreamableHttp)
-        .then(|| {
-            server
-                .safe_config
-                .get("url")
-                .and_then(serde_json::Value::as_str)
-        })
-        .flatten()
+    if server.transport_kind != McpTransportKind::StreamableHttp {
+        return None;
+    }
+    server
+        .safe_config
+        .get("url")
+        .and_then(serde_json::Value::as_str)
         .map(str::to_string)
 }
 

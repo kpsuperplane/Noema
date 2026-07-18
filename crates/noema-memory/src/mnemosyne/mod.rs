@@ -8,8 +8,7 @@ mod service;
 #[cfg(test)]
 mod tests;
 
-pub use client::{MnemosyneClient, MnemosyneClientError};
-pub use endpoint::{MnemosyneConnection, allocate_loopback_port};
+pub use endpoint::MnemosyneConnection;
 pub use lifecycle::{
     MnemosyneLifecycle, MnemosyneLifecycleError, NOEMA_MNEMOSYNE_SIDECAR_COMMAND_ENV,
 };

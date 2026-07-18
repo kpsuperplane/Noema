@@ -181,14 +181,8 @@ mod tests {
         assert_eq!(events[0]["raw"]["provider_text"], "line one\nline two");
         assert_eq!(events[1]["category"], "second_failure");
         assert_eq!(events[1]["error_chain"], json!(["outer", "inner"]));
-    }
 
-    #[test]
-    fn try_append_swallows_write_failures() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let logger = SystemErrorLogger::new(dir.path());
-
-        logger.try_append(SystemErrorEvent::new(
+        SystemErrorLogger::new(dir.path()).try_append(SystemErrorEvent::new(
             "expected_test_failure",
             "cannot append to a directory",
         ));

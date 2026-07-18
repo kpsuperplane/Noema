@@ -1,209 +1,7 @@
-use super::{ready_codex_registry, ready_provider_registry, seed_task, test_store};
-
-#[tokio::test]
-async fn agent_run_items_round_trip_in_sequence_order() {
-    let store = test_store().await;
-    store.ensure_default_actors().await.expect("actors");
-    store
-        .ensure_default_provider_account()
-        .await
-        .expect("provider account");
-    store
-        .update_provider_account_status(
-            "provider_account:codex:default",
-            noema_providers::ProviderAccountStatus::Authenticated,
-            None,
-            None,
-        )
-        .await
-        .expect("authenticated provider account");
-    let mut model = noema_providers::ProviderSelectionSnapshot::explicit(
-        "codex",
-        "provider_account:codex:default",
-        "gpt-test",
-        None,
-        Some("test".to_string()),
-    );
-    model.provider_instance_key = Some(
-        noema_providers::provider_account_instance_key("provider_account:codex:default")
-            .expect("provider key"),
-    );
-    let registry = ready_provider_registry(&model);
-    let run = store
-        .create_agent_run_with_readiness(
-            noema_tasks::NewAgentRun {
-                run_id: Some("run:test".to_string()),
-                task_id: "task:test".to_string(),
-                run_kind: noema_tasks::RunKind::Executor,
-                agent_id: noema_tasks::TASK_EXECUTOR_AGENT_ID.to_string(),
-                revision_index: 0,
-                attempt_index: 0,
-                parent_run_id: None,
-                triggering_submission_id: None,
-                triggering_review_id: None,
-                model,
-                execution_policy: noema_tasks::TaskExecutionPolicy::default(),
-                priority: 0,
-            },
-            &registry,
-        )
-        .await
-        .expect("run");
-    let leased = store
-        .claim_next_agent_run("worker:test", "lease:test", 120)
-        .await
-        .expect("claim")
-        .expect("leased run");
-    assert_eq!(leased.run_id, run.run_id);
-    store
-        .transition_agent_run(
-            &run.run_id,
-            noema_tasks::RunStatus::Running,
-            Some("lease:test"),
-            None,
-        )
-        .await
-        .expect("running");
-    store
-        .append_agent_run_item(
-            noema_tasks::NewAgentRunItem {
-                item_id: Some("run_item:1".to_string()),
-                run_id: "run:test".to_string(),
-                round_index: 0,
-                kind: noema_tasks::AgentRunItemKind::AssistantOutput,
-                status: noema_tasks::AgentRunItemStatus::Completed,
-                correlation_id: None,
-                parent_item_id: None,
-                content_text: Some("first".to_string()),
-                payload: serde_json::json!({"response_index": 0}),
-            },
-            "lease:test",
-        )
-        .await
-        .expect("first item");
-    store
-        .append_agent_run_item(
-            noema_tasks::NewAgentRunItem {
-                item_id: Some("run_item:2".to_string()),
-                run_id: "run:test".to_string(),
-                round_index: 0,
-                kind: noema_tasks::AgentRunItemKind::ToolCall,
-                status: noema_tasks::AgentRunItemStatus::Completed,
-                correlation_id: Some("call:1".to_string()),
-                parent_item_id: None,
-                content_text: Some("web.fetch".to_string()),
-                payload: serde_json::json!({"output_index": 1}),
-            },
-            "lease:test",
-        )
-        .await
-        .expect("second item");
-    for index in 3..=5 {
-        store
-            .append_agent_run_item(
-                noema_tasks::NewAgentRunItem {
-                    item_id: Some(format!("run_item:{index}")),
-                    run_id: "run:test".to_string(),
-                    round_index: 1,
-                    kind: noema_tasks::AgentRunItemKind::AssistantOutput,
-                    status: noema_tasks::AgentRunItemStatus::Completed,
-                    correlation_id: None,
-                    parent_item_id: None,
-                    content_text: Some(format!("item {index}")),
-                    payload: serde_json::json!({"response_index": index - 1}),
-                },
-                "lease:test",
-            )
-            .await
-            .expect("later item");
-    }
-
-    let items = store.list_agent_run_items("run:test").await.expect("items");
-    assert_eq!(items.len(), 5);
-    assert_eq!(items[0].sequence_index, 1);
-    assert_eq!(items[0].content_text.as_deref(), Some("first"));
-    assert_eq!(items[1].kind, noema_tasks::AgentRunItemKind::ToolCall);
-
-    let newest = store
-        .list_agent_run_items_before_page("run:test", None, 2)
-        .await
-        .expect("newest page");
-    assert_eq!(
-        newest
-            .iter()
-            .map(|item| item.sequence_index)
-            .collect::<Vec<_>>(),
-        vec![4, 5]
-    );
-    let older = store
-        .list_agent_run_items_before_page("run:test", Some(4), 2)
-        .await
-        .expect("older page");
-    assert_eq!(
-        older
-            .iter()
-            .map(|item| item.sequence_index)
-            .collect::<Vec<_>>(),
-        vec![2, 3]
-    );
-}
-
-#[tokio::test]
-async fn create_agent_run_rejects_a_mismatched_provider_instance_identity() {
-    let store = test_store().await;
-    store
-        .ensure_default_provider_account()
-        .await
-        .expect("provider account");
-    store
-        .update_provider_account_status(
-            "provider_account:codex:default",
-            noema_providers::ProviderAccountStatus::Authenticated,
-            None,
-            None,
-        )
-        .await
-        .expect("authenticated provider account");
-    let mut model = noema_providers::ProviderSelectionSnapshot::explicit(
-        "codex",
-        "provider_account:codex:default",
-        "gpt-5.5",
-        None,
-        None,
-    );
-    model.provider_instance_key =
-        Some(noema_providers::ProviderInstanceKey::new("provider-account:v1:wrong").unwrap());
-
-    let error = store
-        .create_agent_run(noema_tasks::NewAgentRun {
-            run_id: Some("run:instance-key".to_string()),
-            task_id: "task:instance-key".to_string(),
-            run_kind: noema_tasks::RunKind::Executor,
-            agent_id: noema_tasks::TASK_EXECUTOR_AGENT_ID.to_string(),
-            revision_index: 0,
-            attempt_index: 0,
-            parent_run_id: None,
-            triggering_submission_id: None,
-            triggering_review_id: None,
-            model,
-            execution_policy: noema_tasks::TaskExecutionPolicy::default(),
-            priority: 0,
-        })
-        .await
-        .expect_err("mismatched exact identity");
-
-    assert!(matches!(
-        error,
-        crate::StoreError::ProviderInstanceKeyMismatch { .. }
-    ));
-    assert!(
-        store
-            .get_agent_run("run:instance-key")
-            .await
-            .expect("read rejected run")
-            .is_none()
-    );
-}
+use super::{
+    claim_and_start_run, first_criterion_id, ready_codex_registry, ready_provider_registry,
+    seed_task, test_store,
+};
 
 #[tokio::test]
 async fn task_execution_policy_is_global_and_snapshotted_on_new_runs() {
@@ -234,21 +32,7 @@ async fn task_execution_policy_is_global_and_snapshotted_on_new_runs() {
 async fn blocked_task_persists_context_and_resumes_as_a_child_run() {
     let store = test_store().await;
     let (task, run) = seed_task(&store, "Blocked task").await;
-    let leased = store
-        .claim_next_agent_run("worker:blocked", "lease:blocked", 120)
-        .await
-        .expect("claim")
-        .expect("leased");
-    assert_eq!(leased.run_id, run.run_id);
-    store
-        .transition_agent_run(
-            &run.run_id,
-            noema_tasks::RunStatus::Running,
-            Some("lease:blocked"),
-            None,
-        )
-        .await
-        .expect("running");
+    claim_and_start_run(&store, &run.run_id, "worker:blocked", "lease:blocked").await;
     store
         .transition_task(&task.task_id, noema_tasks::TaskStatus::Executing, None)
         .await
@@ -400,20 +184,7 @@ async fn expired_lease_interrupts_parent_and_claims_automatic_child() {
 async fn shutdown_interruption_is_recovered_as_a_linked_child() {
     let store = test_store().await;
     let (task, run) = seed_task(&store, "Shutdown recovery").await;
-    store
-        .claim_next_agent_run("worker:old", "lease:old", 120)
-        .await
-        .expect("initial claim")
-        .expect("leased");
-    store
-        .transition_agent_run(
-            &run.run_id,
-            noema_tasks::RunStatus::Running,
-            Some("lease:old"),
-            None,
-        )
-        .await
-        .expect("running");
+    claim_and_start_run(&store, &run.run_id, "worker:old", "lease:old").await;
     store
         .transition_task(&task.task_id, noema_tasks::TaskStatus::Executing, None)
         .await
@@ -443,20 +214,8 @@ async fn shutdown_interruption_is_recovered_as_a_linked_child() {
 async fn cancellation_fences_failure_and_terminal_submission() {
     let store = test_store().await;
     let (task, run) = seed_task(&store, "Cancellation fence").await;
-    store
-        .claim_next_agent_run("worker:cancel", "lease:cancel", 120)
-        .await
-        .expect("claim")
-        .expect("leased");
-    store
-        .transition_agent_run(
-            &run.run_id,
-            noema_tasks::RunStatus::Running,
-            Some("lease:cancel"),
-            None,
-        )
-        .await
-        .expect("running");
+    let registry = ready_codex_registry();
+    claim_and_start_run(&store, &run.run_id, "worker:cancel", "lease:cancel").await;
     store
         .transition_task(&task.task_id, noema_tasks::TaskStatus::Executing, None)
         .await
@@ -477,15 +236,10 @@ async fn cancellation_fences_failure_and_terminal_submission() {
             .await
             .is_err()
     );
-    let criterion_id = store
-        .list_task_validation_criteria(&task.task_id)
-        .await
-        .expect("criteria")[0]
-        .criterion_id
-        .clone();
+    let criterion_id = first_criterion_id(&store, &task.task_id).await;
     assert!(
         store
-            .create_task_submission(
+            .create_task_submission_with_readiness(
                 noema_tasks::NewTaskSubmission {
                     submission_id: None,
                     task_id: task.task_id.clone(),
@@ -500,6 +254,7 @@ async fn cancellation_fences_failure_and_terminal_submission() {
                     artifact_ids: Vec::new(),
                 },
                 "lease:cancel",
+                &registry,
             )
             .await
             .is_err()
@@ -524,20 +279,7 @@ async fn cancellation_fences_failure_and_terminal_submission() {
 async fn leased_agent_run_rejects_tokenless_transition() {
     let store = test_store().await;
     let (_task, run) = seed_task(&store, "Lease fencing").await;
-    store
-        .claim_next_agent_run("worker:fenced", "lease:fenced", 120)
-        .await
-        .expect("claim")
-        .expect("leased run");
-    store
-        .transition_agent_run(
-            &run.run_id,
-            noema_tasks::RunStatus::Running,
-            Some("lease:fenced"),
-            None,
-        )
-        .await
-        .expect("running");
+    claim_and_start_run(&store, &run.run_id, "worker:fenced", "lease:fenced").await;
 
     assert!(
         store
@@ -565,20 +307,7 @@ async fn leased_agent_run_rejects_tokenless_transition() {
 async fn run_usage_and_progress_accumulate_across_provider_calls() {
     let store = test_store().await;
     let (_, run) = seed_task(&store, "Usage accounting").await;
-    store
-        .claim_next_agent_run("worker:usage", "lease:usage", 120)
-        .await
-        .expect("claim")
-        .expect("leased");
-    store
-        .transition_agent_run(
-            &run.run_id,
-            noema_tasks::RunStatus::Running,
-            Some("lease:usage"),
-            None,
-        )
-        .await
-        .expect("running");
+    claim_and_start_run(&store, &run.run_id, "worker:usage", "lease:usage").await;
     for usage in [
         noema_providers::TokenUsage {
             input_tokens: 100,

@@ -180,12 +180,6 @@ impl McpSessionPreparation {
         }
     }
 
-    /// Borrow refreshed credentials so orchestration can persist them first.
-    #[must_use]
-    pub const fn refreshed_oauth_credentials(&self) -> Option<&McpOAuthStoredCredentials> {
-        self.refreshed_oauth_credentials.as_ref()
-    }
-
     /// Split the preparation into its session and unpersisted credentials.
     #[must_use]
     pub fn into_parts(

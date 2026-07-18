@@ -150,21 +150,12 @@ fn venv_create_command(repo_root: &Path, base_python: &Path) -> Command {
 fn install_command(repo_root: &Path) -> Command {
     let mut command = Command::new(venv_python(repo_root));
     command
-        .args(install_args(repo_root))
+        .args(["-m", "pip", "install", "--editable"])
+        .arg(source_dir(repo_root))
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
     command
-}
-
-fn install_args(repo_root: &Path) -> Vec<String> {
-    vec![
-        "-m".to_string(),
-        "pip".to_string(),
-        "install".to_string(),
-        "--editable".to_string(),
-        source_dir(repo_root).display().to_string(),
-    ]
 }
 
 fn source_dir(repo_root: &Path) -> PathBuf {
@@ -211,23 +202,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dev_paths_follow_the_memory_crate() {
+    fn mnemosyne_dev_paths_target_generated_venv() {
+        let root = Path::new("/workspace");
         assert_eq!(
-            source_dir(Path::new("/workspace")),
+            source_dir(root),
             PathBuf::from("/workspace/crates/noema-memory/mnemosyne-sidecar")
         );
         assert_eq!(
-            venv_dir(Path::new("/workspace")),
-            PathBuf::from("/workspace/crates/noema-memory/target/mnemosyne-sidecar-venv")
-        );
-        assert_eq!(
-            venv_python(Path::new("/workspace")),
+            venv_python(root),
             PathBuf::from(
                 "/workspace/crates/noema-memory/target/mnemosyne-sidecar-venv/bin/python"
             )
         );
         assert_eq!(
-            install_stamp_path(Path::new("/workspace")),
+            install_stamp_path(root),
             PathBuf::from(
                 "/workspace/crates/noema-memory/target/mnemosyne-sidecar-venv/.noema-install.stamp"
             )
@@ -235,7 +223,7 @@ mod tests {
     }
 
     #[test]
-    fn sidecar_command_uses_local_environment_contract() {
+    fn mnemosyne_dev_sidecar_command_uses_asgi_factory() {
         assert_eq!(SIDECAR_COMMAND_ENV, "NOEMA_MNEMOSYNE_SIDECAR_COMMAND");
         assert_eq!(
             sidecar_uvicorn_command(Path::new("/workspace/.venv/bin/python")),
@@ -244,10 +232,19 @@ mod tests {
     }
 
     #[test]
-    fn dev_install_uses_the_moved_editable_package() {
+    fn mnemosyne_dev_install_uses_editable_source_package() {
+        let command = install_command(Path::new("/workspace"));
         assert_eq!(
-            install_args(Path::new("/workspace")),
-            vec![
+            command.as_std().get_program(),
+            "/workspace/crates/noema-memory/target/mnemosyne-sidecar-venv/bin/python"
+        );
+        assert_eq!(
+            command
+                .as_std()
+                .get_args()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect::<Vec<_>>(),
+            [
                 "-m",
                 "pip",
                 "install",

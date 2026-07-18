@@ -3,10 +3,9 @@ use noema_capabilities_mcp::{
     CompleteMcpOAuthSetupCommand, ContinueMcpServerSetupCommand, McpAutofillCalibrationsCommand,
     McpDeleteServerCommand, McpDiscoveryStatus, McpListToolsCommand, McpOAuthSetupAttemptQuery,
     McpOAuthSetupAttemptStatus, McpOAuthSetupAttemptView, McpSaveCalibrationsCommand,
-    McpSecretMaterial, McpServerAuthStatus, McpServerHealthStatus, McpServerRecord,
-    McpServerSetupResult, McpSetupAuthDetails, McpSetupStatus, McpToolCalibrationSuggestion,
-    McpToolRecord, McpTransportKind, StartMcpOAuthReauthenticationCommand,
-    StartMcpOAuthSetupCommand, ToolCalibrationRecord,
+    McpSecretMaterial, McpServerRecord, McpServerSetupResult, McpSetupAuthDetails, McpSetupStatus,
+    McpToolCalibrationSuggestion, McpToolRecord, McpTransportKind,
+    StartMcpOAuthReauthenticationCommand, StartMcpOAuthSetupCommand, ToolCalibrationRecord,
 };
 use serde_json::Value;
 
@@ -263,8 +262,8 @@ impl From<McpServerRecord> for GraphqlMcpServer {
             display_name: server.display_name,
             transport_kind: server.transport_kind.as_str().to_string(),
             enabled: server.enabled,
-            health_status: health_status_label(server.health_status).to_string(),
-            auth_status: auth_status_label(server.auth_status).to_string(),
+            health_status: server.health_status.as_str().to_string(),
+            auth_status: server.auth_status.as_str().to_string(),
             tool_count: server.tool_count,
             browser_oauth_reauthentication_supported,
         }
@@ -375,23 +374,6 @@ pub struct GraphqlSaveToolCalibrationInput {
     pub reviewed_by: Option<String>,
     /// Tool metadata fingerprint reviewed by the actor.
     pub reviewed_metadata_fingerprint: Option<String>,
-}
-
-const fn health_status_label(status: McpServerHealthStatus) -> &'static str {
-    match status {
-        McpServerHealthStatus::Unknown => "unknown",
-        McpServerHealthStatus::Healthy => "healthy",
-        McpServerHealthStatus::Unavailable => "unavailable",
-    }
-}
-
-const fn auth_status_label(status: McpServerAuthStatus) -> &'static str {
-    match status {
-        McpServerAuthStatus::None => "none",
-        McpServerAuthStatus::NeedsAuth => "needs_auth",
-        McpServerAuthStatus::Authenticated => "authenticated",
-        McpServerAuthStatus::Unavailable => "unavailable",
-    }
 }
 
 const fn setup_status_label(status: McpSetupStatus) -> &'static str {

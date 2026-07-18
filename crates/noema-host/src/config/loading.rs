@@ -1,7 +1,4 @@
-use super::{
-    HostConfig, error::ConfigError, file::validate_file_config, overrides::ConfigOverrides,
-    raw::RawConfig,
-};
+use super::{HostConfig, error::ConfigError, file::validate_file_config, raw::RawConfig};
 use figment::{
     Figment,
     providers::{Env, Format, Serialized, Yaml},
@@ -41,29 +38,22 @@ pub(super) const CONFIG_ENV_KEYS: &[&str] = &[
 pub struct Config;
 
 impl Config {
-    /// Load the configured provider from defaults, config file, environment, and overrides.
+    /// Load the configured provider from defaults, config file, and environment.
     ///
     /// # Errors
     ///
     /// Returns [`ConfigError`] when path resolution fails, the config file is
     /// missing or invalid, environment values are invalid, credentials are
     /// missing for the selected provider, or the provider is unsupported.
-    pub fn load(
-        path_override: Option<PathBuf>,
-        overrides: ConfigOverrides,
-    ) -> Result<HostConfig, ConfigError> {
-        let raw = load_raw_config(path_override, overrides)?;
+    pub fn load(path_override: Option<PathBuf>) -> Result<HostConfig, ConfigError> {
+        let raw = load_raw_config(path_override)?;
         raw.resolve()
     }
 }
 
-fn load_raw_config(
-    path_override: Option<PathBuf>,
-    overrides: ConfigOverrides,
-) -> Result<RawConfig, ConfigError> {
+fn load_raw_config(path_override: Option<PathBuf>) -> Result<RawConfig, ConfigError> {
     load_raw_config_from_sources(
         path_override,
-        overrides,
         default_config_path()?,
         Figment::from(config_env_provider()),
     )
@@ -71,7 +61,6 @@ fn load_raw_config(
 
 pub(super) fn load_raw_config_from_sources(
     path_override: Option<PathBuf>,
-    overrides: ConfigOverrides,
     default_config_path: Option<PathBuf>,
     env: Figment,
 ) -> Result<RawConfig, ConfigError> {
@@ -83,7 +72,6 @@ pub(super) fn load_raw_config_from_sources(
     }
 
     figment = figment.merge(env);
-    figment = figment.merge(Serialized::defaults(overrides));
 
     Ok(figment.extract()?)
 }

@@ -323,39 +323,6 @@ impl NoemaStore {
         rows.into_iter().map(conversation_item_from_row).collect()
     }
 
-    /// Return text transcript items after a compacted context checkpoint.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError`] when the conversation is missing, the embedded
-    /// store read fails, or stored enums are invalid.
-    pub async fn list_conversation_items_after_sequence_for_context(
-        &self,
-        conversation_id: &str,
-        after_sequence_index: i64,
-        limit: i64,
-    ) -> Result<Vec<ConversationItemRecord>, StoreError> {
-        self.require_conversation(conversation_id).await?;
-        let limit = limit.clamp(1, 80);
-        let rows = self
-            .with_connection(|conn| {
-                collect_conversation_item_rows(
-                    conn,
-                    r#"
-                    WHERE conversation_id = ?1
-                      AND deleted_at IS NULL
-                      AND sequence_index > ?2
-                      AND kind IN ('user_text', 'assistant_text')
-                    ORDER BY sequence_index ASC
-                    LIMIT ?3
-                    "#,
-                    params![conversation_id, after_sequence_index, limit],
-                )
-            })
-            .await?;
-        rows.into_iter().map(conversation_item_from_row).collect()
-    }
-
     /// Return all transcript items after a compacted context checkpoint that
     /// can contribute to model context.
     ///

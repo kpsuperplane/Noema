@@ -202,56 +202,6 @@ async fn successful_stale_lease_rechecks_the_canonical_selection() {
 }
 
 #[tokio::test]
-async fn unchanged_retiring_selection_is_an_invariant() {
-    let registry = Arc::new(ProviderRegistry::new());
-    let instance_key = key("openai:default:retiring");
-    let registration = registry
-        .register(instance_key.clone(), provider("old"))
-        .expect("register");
-    registry.begin_retirement(&registration).expect("retire");
-    let resolver = resolver(
-        SequenceLoader::new([selection(instance_key.clone())]),
-        registry,
-    );
-
-    assert_eq!(
-        resolver.resolve_route().await.expect_err("invariant"),
-        ProviderRouteError::RetiringSelectionInvariant { key: instance_key }
-    );
-}
-
-#[tokio::test]
-async fn unchanged_missing_selection_is_typed_unavailability() {
-    let registry = Arc::new(ProviderRegistry::new());
-    let instance_key = key("openai:default:missing");
-    let resolver = resolver(
-        SequenceLoader::new([selection(instance_key.clone())]),
-        registry,
-    );
-
-    assert_eq!(
-        resolver.resolve_route().await.expect_err("missing"),
-        ProviderRouteError::InstanceMissing { key: instance_key }
-    );
-}
-
-#[tokio::test]
-async fn unchanged_degraded_selection_is_typed_unready() {
-    let registry = Arc::new(ProviderRegistry::new());
-    let instance_key = key("openai:default:unready");
-    registry.mark_unready(instance_key.clone());
-    let resolver = resolver(
-        SequenceLoader::new([selection(instance_key.clone())]),
-        registry,
-    );
-
-    assert_eq!(
-        resolver.resolve_route().await.expect_err("unready"),
-        ProviderRouteError::InstanceUnready { key: instance_key }
-    );
-}
-
-#[tokio::test]
 async fn continuous_selection_churn_is_bounded() {
     let registry = Arc::new(ProviderRegistry::new());
     let snapshots = (0..=MAX_SELECTION_RETRIES)
@@ -278,12 +228,65 @@ async fn strict_resolver_never_guesses_a_missing_instance_key() {
         None,
         None,
     );
-    let resolver = resolver(SequenceLoader::new([unresolved]), registry);
+    let unresolved_resolver = resolver(SequenceLoader::new([unresolved]), registry);
 
     assert_eq!(
-        resolver.resolve_route().await.expect_err("missing key"),
+        unresolved_resolver
+            .resolve_route()
+            .await
+            .expect_err("missing key"),
         ProviderRouteError::MissingInstanceKey
     );
+
+    let registry = Arc::new(ProviderRegistry::new());
+    let retiring_key = key("openai:default:retiring");
+    let registration = registry
+        .register(retiring_key.clone(), provider("old"))
+        .expect("register retiring");
+    registry.begin_retirement(&registration).expect("retire");
+    assert_eq!(
+        resolver(
+            SequenceLoader::new([selection(retiring_key.clone())]),
+            Arc::clone(&registry),
+        )
+        .resolve_route()
+        .await
+        .expect_err("unchanged retiring selection"),
+        ProviderRouteError::RetiringSelectionInvariant { key: retiring_key }
+    );
+
+    for (label, key, expected) in [
+        (
+            "unchanged missing selection",
+            key("openai:default:missing"),
+            false,
+        ),
+        #[cfg(feature = "local-models")]
+        (
+            "unchanged degraded selection",
+            key("openai:default:unready"),
+            true,
+        ),
+    ] {
+        let registry = Arc::new(ProviderRegistry::new());
+        #[cfg(feature = "local-models")]
+        if expected {
+            registry.mark_unready(key.clone());
+        }
+        let error = resolver(SequenceLoader::new([selection(key.clone())]), registry)
+            .resolve_route()
+            .await
+            .expect_err(label);
+        assert_eq!(
+            error,
+            if expected {
+                ProviderRouteError::InstanceUnready { key }
+            } else {
+                ProviderRouteError::InstanceMissing { key }
+            },
+            "{label}"
+        );
+    }
 }
 
 #[test]

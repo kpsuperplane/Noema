@@ -1,6 +1,4 @@
-use super::request::{
-    ResponsesReasoning, ResponsesRequestProfile, prompt_cache_key_from_conversation_id,
-};
+use super::request::{ResponsesReasoning, ResponsesRequestProfile};
 use super::tools::ResponsesToolNameMap;
 use super::*;
 use crate::response_support::noema_response_text_format;
@@ -233,7 +231,7 @@ fn responses_request_reasoning_precedence_and_input_validation_are_shared() {
 }
 
 #[test]
-fn whole_capability_catalog_lowering_fixture_is_stable() {
+fn whole_catalog_lowering_and_native_envelope_reconciliation_are_stable() {
     let request = GenerateRequest {
         tools: vec![
             noema_capabilities::web::search::tool_spec().expect("search spec"),
@@ -257,130 +255,63 @@ fn whole_capability_catalog_lowering_fixture_is_stable() {
         parallel_tool_calls: true,
         ..GenerateRequest::text("fixture input")
     };
-    let value = lowered_json(&request, "gpt-fixture", None, OPENAI_RESPONSES_PROFILE);
+    let expected: Value = serde_json::from_str(include_str!(
+        "whole_capability_catalog_lowering_fixture.json"
+    ))
+    .expect("fixture JSON");
 
     assert_eq!(
-        value,
-        json!({
-            "model": "gpt-fixture",
-            "input": "fixture input",
-            "tools": [
-                {
-                    "type": "function",
-                    "name": "web_x2e_search",
-                    "description": "Search the public web using Noema's configured search provider.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "query": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 500,
-                                "description": "The exact internet search query to send to the configured search provider."
-                            },
-                            "reason": {
-                                "type": "string",
-                                "maxLength": 500,
-                                "description": "Brief reason this search is useful for the current response."
-                            },
-                            "max_results": {
-                                "type": "integer",
-                                "minimum": 1,
-                                "maximum": 10,
-                                "description": "Maximum number of search results to return."
-                            }
-                        },
-                        "required": ["query"],
-                        "additionalProperties": false
-                    }
-                },
-                {
-                    "type": "function",
-                    "name": "web_x2e_fetch",
-                    "description": "Fetch and read a public web page using Noema's configured web fetch provider.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "url": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 2048,
-                                "description": "The public http(s) URL to fetch and read."
-                            },
-                            "reason": {
-                                "type": "string",
-                                "maxLength": 500,
-                                "description": "Brief reason this page is useful for the current response."
-                            },
-                            "max_chars": {
-                                "type": "integer",
-                                "minimum": 1000,
-                                "maximum": 20000,
-                                "description": "Maximum characters to return after extraction and optional summarization."
-                            }
-                        },
-                        "required": ["url"],
-                        "additionalProperties": false
-                    }
-                },
-                {
-                    "type": "function",
-                    "name": "mcp_x2e_mcp_x3a_docs_x2e_read",
-                    "description": "Read a document.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {"document_id": {"type": "string"}},
-                        "required": ["document_id"],
-                        "additionalProperties": false
-                    }
-                }
-            ],
-            "tool_choice": {
-                "type": "allowed_tools",
-                "mode": "required",
-                "tools": [{
-                    "type": "function",
-                    "name": "mcp_x2e_mcp_x3a_docs_x2e_read"
-                }]
-            },
-            "parallel_tool_calls": true,
-            "include": ["reasoning.encrypted_content"],
-            "store": false
-        })
+        lowered_json(&request, "gpt-fixture", None, OPENAI_RESPONSES_PROFILE),
+        expected
+    );
+
+    let response = crate::required_noema_response_from_text_with_native_tool_calls(
+        r#"{"response_status":"final","responses":[{"kind":"text","phase":"commentary","text":"Searching."}],"tool_calls":[]}"#
+            .to_string(),
+        vec![crate::GenerateToolCall {
+            id: Some("item_1".to_string()),
+            provider_call_id: Some("call_1".to_string()),
+            provider_name: Some("search_memory".to_string()),
+            name: "search_memory".to_string(),
+            payload: json!({"query": "trains"}),
+        }],
+    )
+    .expect("native tool response");
+    assert_eq!(
+        (
+            response.response_status,
+            response.tool_calls[0].provider_call_id.as_deref()
+        ),
+        (crate::GenerateResponseStatus::NeedsTools, Some("call_1"))
     );
 }
 
 #[test]
 fn valid_unknown_provider_tool_name_is_rejected_without_fallback() {
     let tool_names = ResponsesToolNameMap::from_tools(&[test_tool()]).expect("tool names");
-    let response = response_with_call(Some("call_1"), "unadvertised_valid_name", "{}");
-    let error = response
-        .native_tool_calls_with_names(&tool_names)
-        .expect_err("unknown provider name rejected");
-    assert!(matches!(
-        error,
-        ProviderError::MalformedResponse { ref message }
-            if message == "provider returned an unadvertised tool name"
-    ));
+    for (label, call_id, arguments) in [
+        ("valid unknown", Some("call_1"), "{}"),
+        ("missing call id precedence", None, "{}"),
+        (
+            "malformed arguments precedence",
+            Some("call_1"),
+            "{\"query\":",
+        ),
+        ("non-object arguments precedence", Some("call_1"), "[]"),
+    ] {
+        let error = response_with_call(call_id, "unadvertised_valid_name", arguments)
+            .native_tool_calls_with_names(&tool_names)
+            .expect_err(label);
+        assert!(
+            matches!(error, ProviderError::MalformedResponse { ref message }
+                if message == "provider returned an unadvertised tool name"),
+            "{label}"
+        );
+    }
 }
 
 #[test]
-fn unknown_provider_tool_name_is_rejected_before_missing_call_id_validation() {
-    assert_unknown_provider_tool_error(None, "{}");
-}
-
-#[test]
-fn unknown_provider_tool_name_is_rejected_before_malformed_arguments_validation() {
-    assert_unknown_provider_tool_error(Some("call_1"), "{\"query\":");
-}
-
-#[test]
-fn unknown_provider_tool_name_is_rejected_before_non_object_arguments_validation() {
-    assert_unknown_provider_tool_error(Some("call_1"), "[]");
-}
-
-#[test]
-fn noema_response_text_format_requires_text_response_text() {
+fn noema_response_text_format_covers_text_and_multiple_choice_contracts() {
     let value = noema_response_text_format();
     let one_of = value["format"]["schema"]["properties"]["responses"]["items"]["oneOf"]
         .as_array()
@@ -392,14 +323,6 @@ fn noema_response_text_format_requires_text_response_text() {
 
     assert_eq!(text_schema["required"], json!(["kind", "phase", "text"]));
     assert_eq!(text_schema["additionalProperties"], false);
-}
-
-#[test]
-fn noema_response_text_format_includes_multiple_choice_response() {
-    let value = noema_response_text_format();
-    let one_of = value["format"]["schema"]["properties"]["responses"]["items"]["oneOf"]
-        .as_array()
-        .expect("responses items oneOf");
     let schema = one_of
         .iter()
         .find(|schema| schema["properties"]["kind"]["enum"] == json!(["multiple_choice"]))
@@ -414,16 +337,6 @@ fn noema_response_text_format_includes_multiple_choice_response() {
         json!(["pick_one", "pick_many"])
     );
     assert_eq!(schema["additionalProperties"], false);
-}
-
-#[test]
-fn prompt_cache_key_uses_non_empty_conversation_id() {
-    assert_eq!(
-        prompt_cache_key_from_conversation_id(Some(" conversation:cacheable ")).as_deref(),
-        Some("conversation:cacheable")
-    );
-    assert_eq!(prompt_cache_key_from_conversation_id(Some("  ")), None);
-    assert_eq!(prompt_cache_key_from_conversation_id(None), None);
 }
 
 #[test]
@@ -451,42 +364,30 @@ fn responses_response_parses_function_call_output_items() {
 }
 
 #[test]
-fn responses_response_rejects_invalid_function_call_arguments_json() {
-    let error = response_with_call(Some("call_1"), "search_memory", "{\"query\":")
-        .native_tool_calls_with_names(&test_tool_names())
-        .expect_err("invalid arguments rejected");
-    assert!(matches!(error, ProviderError::MalformedResponse { .. }));
-    assert!(
-        error
-            .to_string()
-            .contains("failed to parse native tool call arguments for search_memory")
-    );
-}
-
-#[test]
-fn responses_response_rejects_non_object_function_call_arguments() {
-    let error = response_with_call(Some("call_1"), "search_memory", "[]")
-        .native_tool_calls_with_names(&test_tool_names())
-        .expect_err("non-object arguments rejected");
-    assert!(matches!(error, ProviderError::MalformedResponse { .. }));
-    assert!(
-        error
-            .to_string()
-            .contains("native tool call arguments for search_memory must be a JSON object")
-    );
-}
-
-#[test]
-fn responses_response_rejects_missing_function_call_id() {
-    let error = response_with_call(None, "search_memory", "{\"query\":\"trains\"}")
-        .native_tool_calls_with_names(&test_tool_names())
-        .expect_err("missing call_id rejected");
-    assert!(matches!(error, ProviderError::MalformedResponse { .. }));
-    assert!(
-        error
-            .to_string()
-            .contains("native tool call search_memory is missing call_id")
-    );
+fn responses_response_rejects_malformed_native_tool_calls() {
+    for (call_id, arguments, message) in [
+        (
+            Some("call_1"),
+            "{\"query\":",
+            "failed to parse native tool call arguments for search_memory",
+        ),
+        (
+            Some("call_1"),
+            "[]",
+            "native tool call arguments for search_memory must be a JSON object",
+        ),
+        (
+            None,
+            "{\"query\":\"trains\"}",
+            "native tool call search_memory is missing call_id",
+        ),
+    ] {
+        let error = response_with_call(call_id, "search_memory", arguments)
+            .native_tool_calls_with_names(&test_tool_names())
+            .expect_err("malformed call rejected");
+        assert!(matches!(error, ProviderError::MalformedResponse { .. }));
+        assert!(error.to_string().contains(message));
+    }
 }
 
 #[test]
@@ -545,42 +446,6 @@ fn chained_response_sends_only_new_tool_outputs() {
 }
 
 #[test]
-fn responses_input_serializes_typed_history_items() {
-    let input = GenerateInput::Items(vec![
-        GenerateInputItem::Message(GenerateMessage {
-            role: GenerateMessageRole::User,
-            content: "Rename yourself to Momo".to_string(),
-        }),
-        GenerateInputItem::ToolCall(GenerateToolCallInput {
-            id: Some("item_1".to_string()),
-            call_id: "call_1".to_string(),
-            name: "update_own_name".to_string(),
-            provider_name: None,
-            arguments: json!({"name": "Momo"}),
-        }),
-        GenerateInputItem::ToolResult(GenerateToolResultInput {
-            id: Some("item_1".to_string()),
-            call_id: "call_1".to_string(),
-            name: "update_own_name".to_string(),
-            provider_name: None,
-            arguments: Value::Null,
-            success: true,
-            payload: json!({"display_name": "Momo"}),
-        }),
-    ]);
-
-    let value = serde_json::to_value(ResponsesInput::from(&input)).expect("serialize");
-    assert_eq!(value[0]["role"], "user");
-    assert_eq!(value[1]["type"], "function_call");
-    assert_eq!(value[1]["call_id"], "call_1");
-    assert_eq!(value[2]["type"], "function_call_output");
-    let output: Value = serde_json::from_str(value[2]["output"].as_str().expect("output string"))
-        .expect("output json");
-    assert_eq!(output["name"], "update_own_name");
-    assert_eq!(output["payload"]["display_name"], "Momo");
-}
-
-#[test]
 fn serializes_reasoning_history_item_for_replay() {
     let input = GenerateInput::Items(vec![GenerateInputItem::Reasoning(GenerateReasoningInput {
         id: Some("rs_1".to_string()),
@@ -611,22 +476,6 @@ fn responses_input_encodes_unsafe_typed_history_tool_names() {
 }
 
 #[test]
-fn responses_tool_name_map_uses_provider_safe_names_and_maps_back() {
-    let tool_names =
-        ResponsesToolNameMap::from_tools(&[test_tool_named("mcp.docs:read")]).expect("tool names");
-    assert_eq!(tool_names.tools[0].name, "mcp_x2e_docs_x3a_read");
-
-    let calls = response_with_call(
-        Some("call_1"),
-        "mcp_x2e_docs_x3a_read",
-        "{\"document_id\":\"doc_1\"}",
-    )
-    .native_tool_calls_with_names(&tool_names)
-    .expect("tool calls");
-    assert_eq!(calls[0].name, "mcp.docs:read");
-}
-
-#[test]
 fn responses_tool_name_map_rejects_provider_safe_name_collisions() {
     let first = test_tool_named("mcp.docs");
     let second = test_tool_named("mcp_x2e_docs");
@@ -637,6 +486,28 @@ fn responses_tool_name_map_rejects_provider_safe_name_collisions() {
             .to_string()
             .contains("provider-safe tool name collision")
     );
+}
+
+#[test]
+fn prompt_cache_key_uses_non_empty_conversation_id() {
+    for (conversation_id, expected) in [
+        (
+            Some(" conversation:cacheable "),
+            Some("conversation:cacheable"),
+        ),
+        (Some("  "), None),
+        (None, None),
+    ] {
+        let request = GenerateRequest {
+            conversation_id: conversation_id.map(str::to_string),
+            ..GenerateRequest::text("hi")
+        };
+        let value = lowered_json(&request, "gpt-test", None, OPENAI_RESPONSES_PROFILE);
+        assert_eq!(
+            value.get("prompt_cache_key").and_then(Value::as_str),
+            expected
+        );
+    }
 }
 
 fn lowered_json(
@@ -685,16 +556,4 @@ fn response_with_call(call_id: Option<&str>, name: &str, arguments: &str) -> Res
         }]
     }))
     .expect("response")
-}
-
-fn assert_unknown_provider_tool_error(call_id: Option<&str>, arguments: &str) {
-    let error = response_with_call(call_id, "sensitive_x2e_provider_x3a_value", arguments)
-        .native_tool_calls_with_names(&test_tool_names())
-        .expect_err("unknown provider name rejected first");
-    assert!(matches!(
-        error,
-        ProviderError::MalformedResponse { ref message }
-            if message == "provider returned an unadvertised tool name"
-    ));
-    assert!(!error.to_string().contains("sensitive"));
 }

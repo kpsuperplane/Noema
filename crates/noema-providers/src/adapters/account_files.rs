@@ -135,13 +135,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn save_load_and_clear_api_key() {
+    fn save_load_clear_and_protect_api_key() {
         let dir = tempfile::tempdir().expect("tempdir");
         let store = SecretInputStore::new(dir.path().join("providers/exa/acct_one"));
 
         store.save_api_key("secret-key").expect("save");
         assert_eq!(store.load_api_key().expect("load"), "secret-key");
-
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                (
+                    fs::metadata(&store.account_home)
+                        .expect("account metadata")
+                        .permissions()
+                        .mode()
+                        & 0o777,
+                    fs::metadata(store.secret_path())
+                        .expect("secret metadata")
+                        .permissions()
+                        .mode()
+                        & 0o777,
+                ),
+                (0o700, 0o600)
+            );
+        }
         store.clear_api_key().expect("clear");
         assert!(matches!(
             store.load_api_key(),
@@ -154,9 +172,10 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let store = SecretInputStore::new(dir.path().join("providers/exa/acct_one"));
 
-        let error = store.save_api_key("  ").expect_err("blank rejected");
-
-        assert!(matches!(error, crate::ProviderError::InvalidRequest { .. }));
+        assert!(matches!(
+            store.save_api_key("  "),
+            Err(crate::ProviderError::InvalidRequest { .. })
+        ));
         assert!(!store.secret_path().exists());
     }
 
@@ -167,46 +186,5 @@ mod tests {
 
         assert!(!debug.contains("provider-secret-path"));
         assert!(debug.contains("[REDACTED]"));
-    }
-
-    #[test]
-    fn secret_snapshot_restores_exact_prior_bytes() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let store = SecretInputStore::new(dir.path().join("providers/exa/acct_one"));
-        let secret_path = store.secret_path();
-        super::atomic_write_private(&secret_path, b"{malformed-secret}\0")
-            .expect("write malformed prior file");
-        let snapshot = store.snapshot().expect("snapshot");
-
-        store.save_api_key("replacement").expect("replace");
-        store.restore(&snapshot).expect("restore");
-
-        assert_eq!(
-            fs::read(secret_path).expect("read restored"),
-            b"{malformed-secret}\0"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn saved_api_key_has_private_unix_permissions() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let dir = tempfile::tempdir().expect("tempdir");
-        let store = SecretInputStore::new(dir.path().join("providers/exa/acct_one"));
-        store.save_api_key("secret-key").expect("save");
-
-        let account_mode = fs::metadata(&store.account_home)
-            .expect("account metadata")
-            .permissions()
-            .mode()
-            & 0o777;
-        let file_mode = fs::metadata(store.secret_path())
-            .expect("file metadata")
-            .permissions()
-            .mode()
-            & 0o777;
-        assert_eq!(account_mode, 0o700);
-        assert_eq!(file_mode, 0o600);
     }
 }

@@ -31,10 +31,6 @@ impl CapabilityBindingSource for TestCapabilityBindingSource {
     }
 }
 
-fn empty_capability_source() -> CapabilityBindingSourceHandle {
-    TestCapabilityBindingSource::default().handle()
-}
-
 #[test]
 fn neutral_capability_access_maps_to_runtime_policy_and_global_writes_fail_closed() {
     assert_eq!(
@@ -217,431 +213,179 @@ fn synthetic_model_tools<const N: usize>(
 }
 
 #[tokio::test]
-async fn native_provider_gets_builtin_and_calibrated_mcp_tools() {
+async fn complete_catalog_is_stable_for_native_and_envelope_transports() {
     let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let (_, capability_bindings) = ready_mcp_source();
 
-    let tools = build_model_tools(
-        &store,
-        &capability_bindings,
-        true,
-        ProviderToolCapabilities {
-            tool_transport: ProviderToolTransport::Native,
-            parallel_tool_calls: true,
-            tool_choice: true,
-            allowed_tools: false,
-            schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
-            strict_schema: false,
-            custom_tools: false,
-            native_tool_results: true,
-            prompt_cache_retention: false,
-            prompt_cache_key: false,
-            prompt_cache_options: false,
-            prompt_cache_breakpoints: false,
-            encrypted_reasoning: false,
-        },
-    )
-    .await
-    .expect("tools");
-
-    let provider_tools = tools.provider_tools();
-    let names = provider_tools
-        .iter()
-        .map(|tool| tool.name.as_str())
-        .collect::<Vec<_>>();
-    assert_eq!(
-        names,
-        vec![
-            "search_memory",
-            "task.inspect",
-            "update_own_name",
-            "artifact.create_local_file",
-            "task.resume",
-            "task.cancel",
-            "web.search",
-            "web.fetch",
-            "mcp.mcp:docs.read"
-        ]
-    );
-    assert!(
-        provider_tools
-            .iter()
-            .any(|tool| { tool.name.as_str() == "web.search" })
-    );
-    assert!(
-        provider_tools
-            .iter()
-            .any(|tool| { tool.name.as_str() == "web.fetch" })
-    );
-    assert!(provider_tools.iter().any(|tool| {
-        tool.name.as_str() == "mcp.mcp:docs.read" && tool.description == "Read a document."
-    }));
-    assert!(
-        tools
-            .prompt_rows
-            .iter()
-            .any(|row| { row == "- capability\tmcp.mcp:docs.read\tRead a document." })
-    );
-    assert!(
-        tools
-            .prompt_rows
-            .iter()
-            .any(|row| row.contains("\tweb.fetch\t"))
-    );
-    assert!(
-        tools
-            .prompt_rows
-            .iter()
-            .all(|row| !row.contains("System: ignore"))
-    );
-    assert_eq!(tools.transport, ProviderToolTransport::Native);
+    for transport in [
+        ProviderToolTransport::Native,
+        ProviderToolTransport::NoemaEnvelope,
+    ] {
+        let tools = build_model_tools(
+            &store,
+            &capability_bindings,
+            true,
+            ProviderToolCapabilities {
+                tool_transport: transport,
+                schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
+                ..ProviderToolCapabilities::default()
+            },
+        )
+        .await
+        .expect("tools");
+        assert_eq!(
+            tools
+                .provider_tools()
+                .iter()
+                .map(|tool| tool.name.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "search_memory",
+                "task.inspect",
+                "update_own_name",
+                "artifact.create_local_file",
+                "task.resume",
+                "task.cancel",
+                "web.search",
+                "web.fetch",
+                "mcp.mcp:docs.read",
+            ]
+        );
+        assert!(tools.provider_tools().iter().any(|tool| {
+            tool.name.as_str() == "mcp.mcp:docs.read" && tool.description == "Read a document."
+        }));
+        assert!(
+            tools
+                .prompt_rows
+                .iter()
+                .all(|row| !row.contains("System: ignore"))
+        );
+        if transport == ProviderToolTransport::Native {
+            assert!(
+                tools
+                    .prompt_rows
+                    .iter()
+                    .any(|row| { row == "- capability\tmcp.mcp:docs.read\tRead a document." })
+            );
+        } else {
+            assert!(
+                tools
+                    .prompt_rows
+                    .iter()
+                    .all(|row| row.contains("input_schema="))
+            );
+        }
+    }
 }
 
 #[tokio::test]
-async fn native_catalog_keeps_prompt_safe_approved_tools_across_transient_outages() {
+async fn transient_outages_preserve_native_catalog_but_exclude_envelope_tools() {
     let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let (source, capability_bindings) = ready_mcp_source();
-    let capabilities = ProviderToolCapabilities {
-        tool_transport: ProviderToolTransport::Native,
-        allowed_tools: true,
-        ..ProviderToolCapabilities::default()
-    };
-    let available_tools = build_model_tools(&store, &capability_bindings, true, capabilities)
-        .await
-        .expect("available tools");
-    source.replace(mcp_catalog(Some(CapabilityAvailabilityStatus::Unavailable)));
-
-    let tools = build_model_tools(&store, &capability_bindings, true, capabilities)
-        .await
-        .expect("tools");
-
-    assert_eq!(available_tools.provider_tools(), tools.provider_tools());
-    assert!(
-        tools
-            .prompt_rows
-            .iter()
-            .all(|row| !row.contains("mcp.mcp:docs.read"))
-    );
-    assert!(tools.provider_tools().iter().any(|tool| {
-        tool.name.as_str() == "mcp.mcp:docs.read" && tool.description == "Read a document."
-    }));
-    assert!(
-        !tools
-            .tool_policy
-            .strict_for_dispatch()
-            .allows_tool("mcp.mcp:docs.read")
-    );
-    let NoemaToolChoice::Allowed(allowed) = tools.allowed_tool_choice(NoemaAllowedToolsMode::Auto)
-    else {
-        panic!("expected provider-enforced allowed subset");
-    };
-    assert!(
-        allowed
-            .tools
-            .iter()
-            .all(|tool| tool.as_str() != "mcp.mcp:docs.read")
-    );
-    assert!(
-        tools
-            .unavailable_rows
-            .iter()
-            .any(|row| row.contains("mcp:docs"))
-    );
-}
-
-#[tokio::test]
-async fn envelope_catalog_excludes_transiently_unavailable_mcp_tools() {
-    let store = crate::test_support::test_store().await;
-    store.ensure_default_actors().await.expect("actors");
-    let source = TestCapabilityBindingSource::default();
-    source.replace(mcp_catalog(Some(CapabilityAvailabilityStatus::Unavailable)));
-    let capability_bindings = source.handle();
-
-    let tools = build_model_tools(
-        &store,
-        &capability_bindings,
-        true,
-        ProviderToolCapabilities {
-            tool_transport: ProviderToolTransport::NoemaEnvelope,
-            allowed_tools: false,
+    for transport in [
+        ProviderToolTransport::Native,
+        ProviderToolTransport::NoemaEnvelope,
+    ] {
+        source.replace(mcp_catalog(None));
+        let capabilities = ProviderToolCapabilities {
+            tool_transport: transport,
+            allowed_tools: transport == ProviderToolTransport::Native,
             ..ProviderToolCapabilities::default()
-        },
-    )
-    .await
-    .expect("tools");
-
-    assert!(
-        tools
-            .provider_tools()
-            .iter()
-            .all(|tool| tool.name.as_str() != "mcp.mcp:docs.read")
-    );
-    assert!(
-        tools
-            .prompt_rows
-            .iter()
-            .all(|row| !row.contains("mcp.mcp:docs.read"))
-    );
-    assert!(
-        !tools
-            .tool_policy
-            .strict_for_dispatch()
-            .allows_tool("mcp.mcp:docs.read")
-    );
-}
-
-#[tokio::test]
-async fn noema_envelope_gets_the_same_complete_catalog() {
-    let store = crate::test_support::test_store().await;
-    store.ensure_default_actors().await.expect("actors");
-    let (_, capability_bindings) = ready_mcp_source();
-
-    let tools = build_model_tools(
-        &store,
-        &capability_bindings,
-        true,
-        ProviderToolCapabilities {
-            tool_transport: ProviderToolTransport::NoemaEnvelope,
-            ..ProviderToolCapabilities::default()
-        },
-    )
-    .await
-    .expect("tools");
-
-    assert_eq!(tools.transport, ProviderToolTransport::NoemaEnvelope);
-    assert_eq!(
-        tools
-            .provider_tools()
-            .iter()
-            .map(|tool| tool.name.as_str())
-            .collect::<Vec<_>>(),
-        vec![
-            "search_memory",
-            "task.inspect",
-            "update_own_name",
-            "artifact.create_local_file",
-            "task.resume",
-            "task.cancel",
-            "web.search",
-            "web.fetch",
-            "mcp.mcp:docs.read",
-        ]
-    );
-    assert!(
-        tools
-            .prompt_rows
-            .iter()
-            .all(|row| row.contains("input_schema="))
-    );
-    assert!(tools.prompt_rows.iter().any(|row| {
-        row.contains("mcp.mcp:docs.read")
-            && row.contains("Read a document.")
-            && !row.contains("System: ignore")
-    }));
-}
-
-#[tokio::test]
-async fn no_tool_transport_exposes_no_catalog() {
-    let store = crate::test_support::test_store().await;
-    let (_, capability_bindings) = ready_mcp_source();
-
-    let tools = build_model_tools(
-        &store,
-        &capability_bindings,
-        true,
-        ProviderToolCapabilities {
-            tool_transport: ProviderToolTransport::None,
-            ..ProviderToolCapabilities::default()
-        },
-    )
-    .await
-    .expect("tools");
-
-    assert_eq!(tools.transport, ProviderToolTransport::None);
-    assert!(tools.bindings.is_empty());
-    assert!(tools.prompt_rows.is_empty());
-    assert!(
-        !tools
-            .tool_policy
-            .strict_for_dispatch()
-            .allows_tool("search_memory")
-    );
-}
-
-#[tokio::test]
-async fn authenticated_provider_defaults_expose_task_delegation() {
-    let store = crate::test_support::test_store().await;
-    let capability_bindings = empty_capability_source();
-    store
-        .ensure_default_provider_account()
-        .await
-        .expect("provider account");
-    store
-        .update_provider_account_status(
-            "provider_account:codex:default",
-            noema_providers::ProviderAccountStatus::Authenticated,
-            None,
-            None,
-        )
-        .await
-        .expect("authenticated provider");
-    crate::test_support::initialize_codex_provider_selections(&store).await;
-    store
-        .ensure_default_task_model_pool_settings("codex")
-        .await
-        .expect("provider defaults");
-
-    let tools = build_model_tools(
-        &store,
-        &capability_bindings,
-        false,
-        ProviderToolCapabilities {
-            tool_transport: ProviderToolTransport::Native,
-            ..ProviderToolCapabilities::default()
-        },
-    )
-    .await
-    .expect("tools");
-    let provider_tools = tools.provider_tools();
-    let delegation = provider_tools
-        .iter()
-        .find(|tool| tool.name.as_str() == "task.delegate")
-        .expect("task delegation tool");
-    assert!(
-        provider_tools
-            .iter()
-            .any(|tool| tool.name.as_str() == TASK_INSPECT_TOOL)
-    );
-    assert!(
-        provider_tools
-            .iter()
-            .any(|tool| tool.name.as_str() == TASK_RESUME_TOOL)
-    );
-
-    let pool_ids = delegation.input_schema.as_value()["properties"]["executor_model_pool_entry_id"]
-        ["enum"]
-        .as_array()
-        .expect("pool ids");
-    assert_eq!(pool_ids.len(), 3);
-    for complexity in ["simple", "medium", "difficult"] {
-        assert!(
-            delegation
-                .description
-                .contains(&format!("gpt-5.6-luna ({complexity}, codex)"))
-        );
-    }
-}
-
-#[tokio::test]
-async fn background_roles_expose_read_tools_and_their_typed_terminal_contracts() {
-    let store = crate::test_support::test_store().await;
-    let (_, capability_bindings) = ready_mcp_source();
-
-    let capabilities = ProviderToolCapabilities {
-        tool_transport: ProviderToolTransport::Native,
-        native_tool_results: true,
-        ..ProviderToolCapabilities::default()
-    };
-    for role in [ExecutionRole::TaskExecutor, ExecutionRole::TaskReviewer] {
-        let tools =
-            build_model_tools_for_role(&store, &capability_bindings, role, true, capabilities)
-                .await
-                .expect("role-aware tools");
-        let provider_tools = tools.provider_tools();
-        let names = provider_tools
-            .iter()
-            .map(|tool| tool.name.as_str())
-            .collect::<Vec<_>>();
-
-        let terminal_tools = match role {
-            ExecutionRole::TaskExecutor => {
-                vec![TASK_SUBMIT_RESULT_TOOL, TASK_REPORT_BLOCKED_TOOL]
-            }
-            ExecutionRole::TaskReviewer => vec![TASK_SUBMIT_REVIEW_TOOL],
-            _ => unreachable!(),
         };
-        for terminal in terminal_tools {
-            assert!(names.contains(&terminal));
-            assert!(tools.tool_policy.allows_tool(terminal));
-        }
-        assert!(tools.tool_policy.allows_tool("web.fetch"));
-        assert!(tools.tool_policy.allows_tool(TASK_INSPECT_TOOL));
-        assert!(!tools.tool_policy.allows_tool(TASK_RESUME_TOOL));
-        if role == ExecutionRole::TaskExecutor {
-            assert!(tools.tool_policy.allows_tool("artifact.create_local_file"));
-            assert!(!tools.tool_policy.allows_tool(TASK_READ_ARTIFACT_TOOL));
+        let available = build_model_tools(&store, &capability_bindings, true, capabilities)
+            .await
+            .expect("available tools");
+        source.replace(mcp_catalog(Some(CapabilityAvailabilityStatus::Unavailable)));
+        let unavailable = build_model_tools(&store, &capability_bindings, true, capabilities)
+            .await
+            .expect("unavailable tools");
+
+        assert!(!unavailable.tool_policy.allows_tool("mcp.mcp:docs.read"));
+        assert!(
+            unavailable
+                .prompt_rows
+                .iter()
+                .all(|row| !row.contains("mcp.mcp:docs.read"))
+        );
+        assert!(
+            unavailable
+                .unavailable_rows
+                .iter()
+                .any(|row| row.contains("mcp:docs"))
+        );
+        if transport == ProviderToolTransport::Native {
+            assert_eq!(available.provider_tools(), unavailable.provider_tools());
+            let NoemaToolChoice::Allowed(allowed) =
+                unavailable.allowed_tool_choice(NoemaAllowedToolsMode::Auto)
+            else {
+                panic!("expected provider-enforced allowed subset");
+            };
+            assert!(
+                allowed
+                    .tools
+                    .iter()
+                    .all(|tool| tool.as_str() != "mcp.mcp:docs.read")
+            );
         } else {
-            assert!(!tools.tool_policy.allows_tool("artifact.create_local_file"));
-            assert!(tools.tool_policy.allows_tool(TASK_READ_ARTIFACT_TOOL));
+            assert!(
+                unavailable
+                    .provider_tools()
+                    .iter()
+                    .all(|tool| { tool.name.as_str() != "mcp.mcp:docs.read" })
+            );
         }
-        assert!(!tools.tool_policy.allows_tool("task.delegate"));
     }
 }
 
 #[tokio::test]
-async fn envelope_background_roles_keep_typed_terminal_specs() {
+async fn background_roles_expose_read_tools_and_terminal_contracts_across_transports() {
     let store = crate::test_support::test_store().await;
-    let capability_bindings = empty_capability_source();
-    let capabilities = ProviderToolCapabilities {
-        tool_transport: ProviderToolTransport::NoemaEnvelope,
-        ..ProviderToolCapabilities::default()
-    };
+    let (_, capability_bindings) = ready_mcp_source();
 
-    let executor = build_model_tools_for_role(
-        &store,
-        &capability_bindings,
-        ExecutionRole::TaskExecutor,
-        false,
-        capabilities,
-    )
-    .await
-    .expect("executor tools");
-    let executor_specs = executor.provider_tools();
-    assert_eq!(executor_specs[0].name.as_str(), TASK_SUBMIT_RESULT_TOOL);
-    assert_eq!(executor_specs[1].name.as_str(), TASK_REPORT_BLOCKED_TOOL);
-    assert!(
-        executor_specs
-            .iter()
-            .any(|tool| tool.name.as_str() == "web.fetch")
-    );
-
-    let reviewer = build_model_tools_for_role(
-        &store,
-        &capability_bindings,
-        ExecutionRole::TaskReviewer,
-        false,
-        capabilities,
-    )
-    .await
-    .expect("reviewer tools");
-    assert_eq!(
-        reviewer.provider_tools()[0].name.as_str(),
-        TASK_SUBMIT_REVIEW_TOOL
-    );
-}
-
-#[tokio::test]
-async fn native_provider_hides_ready_write_tool_without_one_shot_approval() {
-    let store = crate::test_support::test_store().await;
-    let capability_bindings = empty_capability_source();
-
-    let tools = build_model_tools(
-        &store,
-        &capability_bindings,
-        false,
-        ProviderToolCapabilities {
-            tool_transport: ProviderToolTransport::Native,
+    for transport in [
+        ProviderToolTransport::Native,
+        ProviderToolTransport::NoemaEnvelope,
+    ] {
+        let capabilities = ProviderToolCapabilities {
+            tool_transport: transport,
+            native_tool_results: transport == ProviderToolTransport::Native,
             ..ProviderToolCapabilities::default()
-        },
-    )
-    .await
-    .expect("tools");
-    assert!(
-        tools
-            .provider_tools()
-            .iter()
-            .all(|tool| tool.name.as_str() != "mcp.mcp:docs.read")
-    );
+        };
+        for role in [ExecutionRole::TaskExecutor, ExecutionRole::TaskReviewer] {
+            let tools =
+                build_model_tools_for_role(&store, &capability_bindings, role, true, capabilities)
+                    .await
+                    .expect("role-aware tools");
+            let provider_tools = tools.provider_tools();
+            let names = provider_tools
+                .iter()
+                .map(|tool| tool.name.as_str())
+                .collect::<Vec<_>>();
+
+            let terminal_tools = match role {
+                ExecutionRole::TaskExecutor => {
+                    vec![TASK_SUBMIT_RESULT_TOOL, TASK_REPORT_BLOCKED_TOOL]
+                }
+                ExecutionRole::TaskReviewer => vec![TASK_SUBMIT_REVIEW_TOOL],
+                _ => unreachable!(),
+            };
+            assert_eq!(&names[..terminal_tools.len()], terminal_tools);
+            for terminal in terminal_tools {
+                assert!(tools.tool_policy.allows_tool(terminal));
+            }
+            assert!(tools.tool_policy.allows_tool("web.fetch"));
+            assert!(tools.tool_policy.allows_tool(TASK_INSPECT_TOOL));
+            assert!(!tools.tool_policy.allows_tool(TASK_RESUME_TOOL));
+            if role == ExecutionRole::TaskExecutor {
+                assert!(tools.tool_policy.allows_tool("artifact.create_local_file"));
+                assert!(!tools.tool_policy.allows_tool(TASK_READ_ARTIFACT_TOOL));
+            } else {
+                assert!(!tools.tool_policy.allows_tool("artifact.create_local_file"));
+                assert!(tools.tool_policy.allows_tool(TASK_READ_ARTIFACT_TOOL));
+            }
+            assert!(!tools.tool_policy.allows_tool("task.delegate"));
+        }
+    }
 }

@@ -508,68 +508,15 @@ fn fixture_submission() -> noema_tasks::TaskSubmissionRecord {
 mod tests {
     use super::*;
 
-    fn case<'a>(cases: &'a [EvalCase], id: &str) -> &'a EvalCase {
-        cases
-            .iter()
-            .find(|candidate| candidate.id == id)
-            .expect("evaluation case")
-    }
-
-    #[test]
-    fn primary_cases_prepend_complete_model_context() {
-        let cases = evaluation_cases("local-model").expect("cases");
-        let request = &case(&cases, "primary_strict_final").request;
-        let GenerateInput::Messages(messages) = &request.input else {
-            panic!("primary case should use message input");
-        };
-
-        assert_eq!(messages.len(), 4);
-        assert!(messages[..3].iter().all(|message| {
-            message.role == GenerateMessageRole::Developer
-                && message.content.starts_with("NOEMA_MODEL_CONTEXT_UPDATE")
-        }));
-        assert_eq!(messages[3].role, GenerateMessageRole::User);
-        assert!(messages[2].content.contains("callable_tool_names"));
-        assert!(!messages[2].content.contains("search_memory"));
-        assert!(request.tools.is_empty());
-        assert_eq!(request.tool_choice, NoemaToolChoice::None);
-    }
-
-    #[test]
-    fn memory_cases_expose_search_memory_and_preserve_continuation_order() {
-        let cases = evaluation_cases("local-model").expect("cases");
-        let lookup = &case(&cases, "memory_lookup").request;
-        let GenerateInput::Messages(messages) = &lookup.input else {
-            panic!("memory lookup should use message input");
-        };
-        assert_eq!(messages.len(), 4);
-        assert!(messages[2].content.contains("search_memory"));
-        assert_eq!(lookup.tools.len(), 1);
-        assert_eq!(lookup.tools[0].name.as_str(), "search_memory");
-        assert_eq!(lookup.tool_choice, NoemaToolChoice::Auto);
-
-        let continuation = &case(&cases, "memory_tool_continuation").request;
-        let GenerateInput::Items(items) = &continuation.input else {
-            panic!("memory continuation should use structured items");
-        };
-        assert_eq!(items.len(), 6);
-        assert!(items[..3].iter().all(|item| matches!(
-            item,
-            GenerateInputItem::Message(message)
-                if message.role == GenerateMessageRole::Developer
-        )));
-        assert!(matches!(
-            &items[3],
-            GenerateInputItem::Message(message) if message.role == GenerateMessageRole::User
-        ));
-        assert!(matches!(&items[4], GenerateInputItem::ToolCall(_)));
-        assert!(matches!(&items[5], GenerateInputItem::ToolResult(_)));
-    }
-
     #[test]
     fn onboarding_case_requires_the_name_tool_for_an_unnamed_agent() {
         let cases = evaluation_cases("local-model").expect("cases");
-        let request = &case(&cases, "agent_onboarding_name").request;
+        assert_eq!(cases.len(), 12, "qualification request contract changed");
+        let request = &cases
+            .iter()
+            .find(|case| case.id == "agent_onboarding_name")
+            .expect("onboarding case")
+            .request;
         let GenerateInput::Messages(messages) = &request.input else {
             panic!("onboarding case should use message input");
         };

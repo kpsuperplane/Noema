@@ -55,7 +55,8 @@ pub enum GenerateStreamEvent {
 impl GenerateResponse {
     /// Build a provider response from a parsed Noema response object.
     #[must_use]
-    pub fn from_parsed(
+    #[cfg(any(feature = "adapters", feature = "local-models"))]
+    pub(crate) fn from_parsed(
         parsed: ParsedNoemaResponse,
         provider: impl Into<String>,
         model: impl Into<String>,
@@ -94,13 +95,6 @@ impl GenerateResponse {
             response_id: None,
             usage: None,
         }
-    }
-
-    /// Attach provider-encrypted reasoning items to this response.
-    #[must_use]
-    pub fn with_reasoning_items(mut self, reasoning_items: Vec<GenerateReasoningItem>) -> Self {
-        self.reasoning_items = reasoning_items;
-        self
     }
 
     /// Return all text response items concatenated in order.
@@ -306,7 +300,8 @@ pub enum GenerateActionItem {
 
 /// Parsed provider-facing Noema response object before metadata is attached.
 #[derive(Debug, Clone, PartialEq)]
-pub struct ParsedNoemaResponse {
+#[cfg(any(test, feature = "adapters", feature = "local-models"))]
+pub(crate) struct ParsedNoemaResponse {
     /// User-visible response items returned by the provider.
     pub responses: Vec<GenerateResponseItem>,
     /// Tool calls requested by the provider.
@@ -315,16 +310,14 @@ pub struct ParsedNoemaResponse {
     pub response_status: GenerateResponseStatus,
 }
 
+#[cfg(test)]
 impl ParsedNoemaResponse {
-    /// Return all text response items concatenated in order.
-    #[must_use]
-    pub fn assistant_text(&self) -> String {
+    pub(crate) fn assistant_text(&self) -> String {
         self.responses
             .iter()
             .filter_map(|item| match item {
                 GenerateResponseItem::Text { text, .. } => Some(text.as_str()),
-                GenerateResponseItem::MultipleChoice { .. }
-                | GenerateResponseItem::Structured { .. } => None,
+                _ => None,
             })
             .collect()
     }

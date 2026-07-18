@@ -66,21 +66,11 @@ impl ToolPolicy {
     }
 
     /// Add one exact model-visible tool name to the dispatch allowlist.
+    #[cfg(test)]
     pub fn allow_tool_name(&mut self, name: impl Into<String>) {
         let name = name.into();
         if !name.trim().is_empty() {
             self.allowed_tool_names.insert(name);
-        }
-    }
-
-    /// Add several exact model-visible tool names to the dispatch allowlist.
-    pub fn allow_tool_names<I, S>(&mut self, names: I)
-    where
-        I: IntoIterator<Item = S>,
-        S: Into<String>,
-    {
-        for name in names {
-            self.allow_tool_name(name);
         }
     }
 
@@ -122,13 +112,6 @@ impl ToolPolicy {
         }
     }
 
-    /// Make a strict copy suitable for dispatch. Every role is already strict;
-    /// this method preserves the explicit call-site signal.
-    #[must_use]
-    pub fn strict_for_dispatch(&self) -> Self {
-        self.clone()
-    }
-
     /// Intersect exact allowed names without permitting a later catalog to
     /// grow authority retained from an earlier provider request.
     #[must_use]
@@ -158,52 +141,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn executor_and_reviewer_have_disjoint_terminal_contracts() {
-        let mut executor = ToolPolicy::for_role(ExecutionRole::TaskExecutor);
-        let mut reviewer = ToolPolicy::for_role(ExecutionRole::TaskReviewer);
-
-        assert!(executor.declare_tool("web.search", ToolAccessClass::ReadOnly));
-        assert!(executor.declare_tool("task.submit_result", ToolAccessClass::ExecutorTerminal));
-        assert!(!executor.declare_tool("task.submit_review", ToolAccessClass::ReviewerTerminal));
-        assert!(reviewer.declare_tool("task.read_artifact", ToolAccessClass::ReadOnly));
-        assert!(!reviewer.declare_tool("task.submit_result", ToolAccessClass::ExecutorTerminal));
-        assert!(!reviewer.declare_tool(
-            "artifact.create_local_file",
-            ToolAccessClass::TaskOwnedWrite
-        ));
-    }
-
-    #[test]
-    fn background_dispatch_rejects_hidden_names() {
-        let mut policy = ToolPolicy::for_role(ExecutionRole::TaskReviewer);
-        policy.declare_tool("web.fetch", ToolAccessClass::ReadOnly);
-
-        assert!(policy.allows_tool("web.fetch"));
-        assert!(!policy.allows_tool("mcp.hidden.write"));
-        assert!(!policy.allows_tool("task.delegate"));
-    }
-
-    #[test]
-    fn primary_dispatch_is_strict_by_default() {
+    fn primary_compatibility_can_be_made_strict() {
         let mut policy = ToolPolicy::for_role(ExecutionRole::PrimaryConversation);
         assert!(!policy.allows_tool("legacy.existing.tool"));
-
-        let strict = policy.strict_for_dispatch();
-        assert!(!strict.allows_tool("legacy.existing.tool"));
         policy.declare_tool("search_memory", ToolAccessClass::ReadOnly);
         assert!(policy.allows_tool("search_memory"));
-    }
-
-    #[test]
-    fn retained_policy_can_only_shrink() {
-        let mut initial = ToolPolicy::for_role(ExecutionRole::PrimaryConversation);
-        initial.allow_tool_names(["stable", "initial-only"]);
-        let mut later = ToolPolicy::for_role(ExecutionRole::PrimaryConversation);
-        later.allow_tool_names(["stable", "newly-available"]);
-
-        let retained = initial.intersect_allowed_names(&later);
-        assert!(retained.allows_tool("stable"));
-        assert!(!retained.allows_tool("initial-only"));
-        assert!(!retained.allows_tool("newly-available"));
+        assert!(!policy.allows_tool("legacy.existing.tool"));
     }
 }

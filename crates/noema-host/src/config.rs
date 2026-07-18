@@ -8,8 +8,6 @@ mod file;
 #[cfg(feature = "composition")]
 mod loading;
 #[cfg(feature = "composition")]
-mod overrides;
-#[cfg(feature = "composition")]
 mod raw;
 mod web;
 
@@ -18,9 +16,7 @@ pub use defaults::DEFAULT_NOEMA_CONFIG_YAML;
 pub use error::ConfigError;
 #[cfg(feature = "composition")]
 pub use loading::Config;
-#[cfg(feature = "composition")]
-pub use overrides::{ConfigOpenAiOverrides, ConfigOverrides};
-pub use web::{DEFAULT_WEB_HOST, DEFAULT_WEB_PORT, WebConfig};
+pub use web::WebConfig;
 
 use std::path::PathBuf;
 
@@ -50,13 +46,6 @@ impl HostConfig {
     #[must_use]
     pub const fn web(&self) -> &WebConfig {
         &self.web
-    }
-
-    /// Attach a shell-packaged llama.cpp resource root.
-    #[must_use]
-    pub fn with_local_model_runtime_root(mut self, root: impl Into<PathBuf>) -> Self {
-        self.local_model_runtime_root = Some(root.into());
-        self
     }
 }
 

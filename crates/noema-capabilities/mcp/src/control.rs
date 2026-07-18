@@ -14,7 +14,8 @@ use crate::{
     McpOperationFuture, McpOperationResult, McpOperations, McpSaveCalibrationsCommand,
     McpSaveCalibrationsResult, McpSecretMaterial, McpServerList, McpServerSetupResult,
     McpSetupStatus, McpToolList, StartMcpOAuthReauthenticationCommand, StartMcpOAuthSetupCommand,
-    build_autofill_prompt, parse_autofill_response, setup::validate_create_command,
+    autofill::{build_autofill_prompt, parse_autofill_response},
+    setup::validate_create_command,
 };
 
 use support::{map_completion_error, streamable_http_url, validate_id};
@@ -181,36 +182,24 @@ impl McpOperations for LocalMcpService {
                     .await
                 }
             };
-            match result {
-                Ok(result) if result.setup_status == McpSetupStatus::ReadyForCalibration => self
-                    .inner
-                    .oauth
-                    .finish_success(&completion, result)
-                    .await
-                    .map_err(|error| self.oauth_error(None, "finish_oauth_setup", &error)),
-                Ok(_) => self
-                    .inner
-                    .oauth
-                    .finish_failure(
-                        &completion,
-                        McpOAuthSetupFailure::DiscoveryFailed,
-                        "OAuth credentials were accepted but MCP discovery did not complete",
-                    )
-                    .await
-                    .map_err(|error| self.oauth_error(None, "finish_oauth_setup", &error)),
-                Err(error) => self
-                    .inner
-                    .oauth
-                    .finish_failure(
-                        &completion,
-                        error.oauth_failure,
-                        error.operation.to_string(),
-                    )
-                    .await
-                    .map_err(|oauth_error| {
-                        self.oauth_error(None, "finish_oauth_setup", &oauth_error)
-                    }),
-            }
+            let finished = match result {
+                Ok(result) if result.setup_status == McpSetupStatus::ReadyForCalibration => {
+                    self.inner.oauth.finish_success(&completion, result).await
+                }
+                Ok(_) => {
+                    self.inner
+                        .oauth
+                        .finish_failure(&completion, McpOAuthSetupFailure::DiscoveryFailed)
+                        .await
+                }
+                Err(error) => {
+                    self.inner
+                        .oauth
+                        .finish_failure(&completion, error.oauth_failure)
+                        .await
+                }
+            };
+            finished.map_err(|error| self.oauth_error(None, "finish_oauth_setup", &error))
         }))
     }
 

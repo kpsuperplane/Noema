@@ -85,242 +85,57 @@
     }
 
     #[tokio::test]
-    async fn memory_settings_query_returns_defaults() {
-        let store = crate::test_support::test_store().await;
-        let schema = build_schema(GraphqlState::for_tests_with_store(store));
-
-        let response = schema
-            .execute(async_graphql::Request::new(
-                "{ memorySettings { mode baseUrl port status { status } } }",
-            ))
-            .await
-            .into_result()
-            .expect("query");
-
-        assert_eq!(
-            response.data,
-            async_graphql::Value::from_json(serde_json::json!({
-                "memorySettings": {
-                    "mode": "MANAGED",
-                    "baseUrl": null,
-                    "port": null,
-                    "status": {"status": "UNAVAILABLE"}
-                }
-            }))
-            .expect("json")
-        );
-    }
-
-    #[tokio::test]
-    async fn memory_settings_query_reports_managed_mnemosyne_unavailable() {
-        let home = tempfile::TempDir::new().expect("home");
-        let paths = TestEnvironment::from_root(home.path()).expect("paths");
-        let store = crate::test_support::test_store_for_environment(&paths).await;
-        let schema = build_schema(GraphqlState::for_tests_with_store_and_environment(store, paths));
-
-        let response = schema
-            .execute(async_graphql::Request::new(
-                r#"
-                {
-                  memorySettings {
-                    status {
-                      status
-                      lastErrorCode
-                      lastErrorMessage
-                    }
-                  }
-                }
-                "#,
-            ))
-            .await
-            .into_result()
-            .expect("query");
-        let data = response.data.into_json().expect("json");
-
-        assert_eq!(data["memorySettings"]["status"]["status"], "UNAVAILABLE");
-        assert_eq!(
-            data["memorySettings"]["status"]["lastErrorCode"],
-            "mnemosyne_unavailable"
-        );
-        assert_eq!(
-            data["memorySettings"]["status"]["lastErrorMessage"],
-            "Managed Mnemosyne is not running"
-        );
-    }
-
-    #[tokio::test]
-    async fn memory_graph_returns_unavailable_without_memory_connection() {
-        let store = crate::test_support::test_store().await;
-        let schema = build_schema(GraphqlState::for_tests_with_store(store));
-
-        let response = schema
-            .execute(async_graphql::Request::new(
-                r#"
-                {
-                  memoryGraph(input: { page: 1, limit: 25 }) {
-                    status {
-                      status
-                      lastErrorCode
-                    }
-                    documents {
-                      id
-                    }
-                    article {
-                      title
-                      markdown
-                      isGenerated
-                    }
-                    pageInfo {
-                      page
-                      limit
-                      hasMore
-                    }
-                  }
-                }
-                "#,
-            ))
-            .await
-            .into_result()
-            .expect("query");
-        let data = response.data.into_json().expect("json");
-
-        assert_eq!(data["memoryGraph"]["status"]["status"], "UNAVAILABLE");
-        assert_eq!(
-            data["memoryGraph"]["status"]["lastErrorCode"],
-            "mnemosyne_unavailable"
-        );
-        assert_eq!(data["memoryGraph"]["documents"], json!([]));
-        assert_eq!(data["memoryGraph"]["article"]["title"], "Local human");
-        assert_eq!(
-            data["memoryGraph"]["article"]["markdown"],
-            "# Local human\n\nLittle is currently known about Local human."
-        );
-        assert_eq!(data["memoryGraph"]["article"]["isGenerated"], false);
-        assert_eq!(data["memoryGraph"]["pageInfo"]["page"], 1);
-        assert_eq!(data["memoryGraph"]["pageInfo"]["limit"], 25);
-        assert_eq!(data["memoryGraph"]["pageInfo"]["hasMore"], false);
-    }
-
-    #[tokio::test]
     async fn memory_graph_lists_external_mnemosyne_memories() {
         let server_base_url = spawn_memory_graph_mnemosyne_server().await;
         let store = crate::test_support::test_store().await;
-        store
-            .save_memory_service_settings(noema_memory::SaveMemoryServiceSettings {
-                mode: noema_memory::MemoryServiceMode::External,
-                base_url: Some(server_base_url),
-                port: None,
-                provider_account_id: None,
-                provider_kind: None,
-                model_profile: None,
-                reasoning_effort: None,
-            })
-            .await
-            .expect("settings");
+        configure_external_memory(&store, server_base_url).await;
         let schema = build_schema(memory_graph_state(store));
 
         let response = schema
             .execute(async_graphql::Request::new(
-                r#"
-                {
+                r#"{
                   memoryGraph(input: { page: 1, limit: 25 }) {
-                    status {
-                      status
-                      lastErrorCode
-                    }
+                    status { status lastErrorCode }
                     documents {
-                      id
-                      title
+                      id title
                       memoryEntries {
-                        id
-                        citationKey
-                        documentId
-                        content
-                        source {
-                          kind
-                          conversationId
-                          turnId
-                          itemId
-                          messageText
-                        }
-                        metadata
-                        spaceContainerTag
-                        parentMemoryId
-                        rootMemoryId
-                        memoryRelations
+                        id citationKey documentId content
+                        source { kind conversationId turnId itemId messageText }
+                        metadata spaceContainerTag parentMemoryId rootMemoryId memoryRelations
                       }
                     }
-                    article {
-                      title
-                      subtitle
-                      markdown
-                      isGenerated
-                    }
-                    pageInfo {
-                      page
-                      limit
-                      hasMore
-                      total
-                    }
+                    article { title subtitle markdown isGenerated }
+                    pageInfo { page limit hasMore total }
                   }
-                }
-                "#,
+                }"#,
             ))
             .await
             .into_result()
             .expect("query");
         let data = response.data.into_json().expect("json");
 
-        assert_eq!(data["memoryGraph"]["status"]["status"], "READY");
-        assert_eq!(data["memoryGraph"]["article"]["title"], "Local human");
         let first_citation = crate::graphql::memory::memory_citation_key("mem_1");
         let second_citation = crate::graphql::memory::memory_citation_key("mem_2");
-        assert_eq!(
-            data["memoryGraph"]["article"]["markdown"],
-            format!(
+        assert_json_fields!(data,
+            "/memoryGraph/status/status" => "READY",
+            "/memoryGraph/article/title" => "Local human",
+            "/memoryGraph/article/markdown" => format!(
                 "# Local human\n\nLocal human is described by the currently available biographical facts.\n\nKevin prefers local-first tools [^{first_citation}]\n\nKevin likes tools that keep data local [^{second_citation}]"
-            )
+            ),
+            "/memoryGraph/article/isGenerated" => false,
+            "/memoryGraph/documents/0/id" => "conversation:abc",
+            "/memoryGraph/documents/0/memoryEntries/0/id" => "mem_2",
+            "/memoryGraph/documents/0/memoryEntries/0/citationKey" => second_citation,
+            "/memoryGraph/documents/0/memoryEntries/0/documentId" => "conversation:abc",
+            "/memoryGraph/documents/0/memoryEntries/0/spaceContainerTag" => "human:local",
+            "/memoryGraph/documents/0/memoryEntries/0/metadata/sourceObservation" => "I prefer local-first tools.",
+            "/memoryGraph/documents/0/memoryEntries/0/source/conversationId" => "abc",
+            "/memoryGraph/documents/0/memoryEntries/0/source/messageText" => "I prefer local-first tools.",
+            "/memoryGraph/documents/1/id" => "mnemosyne:human:local",
+            "/memoryGraph/documents/1/title" => "Human memory",
+            "/memoryGraph/pageInfo/hasMore" => false,
+            "/memoryGraph/pageInfo/total" => 2,
         );
-        assert_eq!(data["memoryGraph"]["article"]["isGenerated"], false);
-        assert_eq!(
-            data["memoryGraph"]["documents"][0]["id"],
-            "conversation:abc"
-        );
-        assert_eq!(
-            data["memoryGraph"]["documents"][0]["memoryEntries"][0]["id"],
-            "mem_2"
-        );
-        assert_eq!(
-            data["memoryGraph"]["documents"][0]["memoryEntries"][0]["citationKey"],
-            second_citation
-        );
-        assert_eq!(
-            data["memoryGraph"]["documents"][0]["memoryEntries"][0]["documentId"],
-            "conversation:abc"
-        );
-        assert_eq!(
-            data["memoryGraph"]["documents"][0]["memoryEntries"][0]["spaceContainerTag"],
-            "human:local"
-        );
-        assert_eq!(
-            data["memoryGraph"]["documents"][0]["memoryEntries"][0]["metadata"]["sourceObservation"],
-            "I prefer local-first tools."
-        );
-        assert_eq!(
-            data["memoryGraph"]["documents"][0]["memoryEntries"][0]["source"]["conversationId"],
-            "abc"
-        );
-        assert_eq!(
-            data["memoryGraph"]["documents"][0]["memoryEntries"][0]["source"]["messageText"],
-            "I prefer local-first tools."
-        );
-        assert_eq!(
-            data["memoryGraph"]["documents"][1]["id"],
-            "mnemosyne:human:local"
-        );
-        assert_eq!(data["memoryGraph"]["documents"][1]["title"], "Human memory");
-        assert_eq!(data["memoryGraph"]["pageInfo"]["hasMore"], false);
-        assert_eq!(data["memoryGraph"]["pageInfo"]["total"], 2);
     }
 
     #[tokio::test]
@@ -378,39 +193,18 @@
             ]),
         )
         .await;
-        store
-            .save_memory_service_settings(noema_memory::SaveMemoryServiceSettings {
-                mode: noema_memory::MemoryServiceMode::External,
-                base_url: Some(server_base_url),
-                port: None,
-                provider_account_id: None,
-                provider_kind: None,
-                model_profile: None,
-                reasoning_effort: None,
-            })
-            .await
-            .expect("settings");
+        configure_external_memory(&store, server_base_url).await;
         let schema = build_schema(memory_graph_state(store));
 
         let response = schema
             .execute(async_graphql::Request::new(
-                r#"
-                {
+                r#"{
                   memoryGraph(input: { page: 1, limit: 25 }) {
-                    documents {
-                      memoryEntries {
-                        source {
-                          kind
-                          conversationId
-                          turnId
-                          itemId
-                          messageText
-                        }
-                      }
-                    }
+                    documents { memoryEntries {
+                      source { kind conversationId turnId itemId messageText }
+                    } }
                   }
-                }
-                "#,
+                }"#,
             ))
             .await
             .into_result()

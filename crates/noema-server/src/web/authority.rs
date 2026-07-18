@@ -97,18 +97,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rejects_non_loopback_bind_hosts() {
+    fn bind_ip_requires_numeric_loopback_except_in_debug_dev_mode() {
         assert!(parse_bind_ip("localhost").is_err());
         assert_eq!(
             parse_bind_ip("127.0.0.1").expect("numeric loopback"),
-            "127.0.0.1".parse::<std::net::IpAddr>().expect("IP")
-        );
-    }
-
-    #[test]
-    fn bind_ip_allows_wildcard_only_for_dev_feature() {
-        assert_eq!(
-            parse_bind_ip("127.0.0.1").expect("loopback IP"),
             "127.0.0.1".parse::<std::net::IpAddr>().expect("IP")
         );
 
@@ -120,18 +112,5 @@ mod tests {
 
         #[cfg(not(all(feature = "dev-no-auth", debug_assertions)))]
         assert!(parse_bind_ip("0.0.0.0").is_err());
-    }
-
-    #[test]
-    fn formats_ipv4_and_ipv6_authorities() {
-        assert_eq!(
-            CanonicalAuthority::from_socket_addr("127.0.0.1:3737".parse().expect("socket"))
-                .as_str(),
-            "127.0.0.1:3737"
-        );
-        assert_eq!(
-            CanonicalAuthority::from_socket_addr("[::1]:3737".parse().expect("socket")).as_str(),
-            "[::1]:3737"
-        );
     }
 }

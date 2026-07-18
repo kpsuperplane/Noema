@@ -39,31 +39,6 @@ impl LocalModelCatalog {
         &self.models
     }
 
-    /// Recommends the highest-priority model fitting one backend profile.
-    #[must_use]
-    #[cfg(test)]
-    pub fn recommend(
-        &self,
-        hardware: LocalHardwareProfile,
-    ) -> Option<LocalModelRecommendation<'_>> {
-        self.models
-            .iter()
-            .enumerate()
-            .filter_map(|(catalog_index, model)| {
-                model
-                    .builds
-                    .iter()
-                    .find(|build| build.fits(hardware))
-                    .map(|build| (catalog_index, model, build))
-            })
-            .min_by_key(|(catalog_index, model, _)| (u32::MAX - model.priority, *catalog_index))
-            .map(|(_, model, build)| LocalModelRecommendation {
-                model,
-                build,
-                hardware,
-            })
-    }
-
     /// Tries usable backends in preference order and falls back when no build
     /// fits an earlier backend.
     #[must_use]
@@ -96,7 +71,7 @@ impl LocalModelCatalog {
 
     /// Selects a named artifact when it fits one of the usable backends.
     #[must_use]
-    pub fn select_named_build(
+    pub(super) fn select_named_build(
         &self,
         model_id: &str,
         file: &str,

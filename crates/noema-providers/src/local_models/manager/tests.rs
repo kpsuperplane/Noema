@@ -1,4 +1,4 @@
-mod fakes;
+pub(in crate::local_models) mod fakes;
 
 use std::{
     future::Future,
@@ -20,11 +20,75 @@ use crate::{
 };
 
 use super::{
-    LocalModelManagerConfig, LocalModelManagerError, LocalModelManagerEvent,
-    LocalModelManagerService, LocalModelReaperClock, LocalModelRuntimeStatus,
+    LocalModelManagerError, LocalModelManagerEvent, LocalModelManagerService,
+    LocalModelReaperClock, LocalModelRuntimeStatus,
 };
 use crate::LocalFileModelImport;
 use fakes::{FakeProcessFactory, FakeRepository, installed_record};
+
+type ManagerFixture = (
+    tempfile::TempDir,
+    Arc<FakeRepository>,
+    Arc<FakeProcessFactory>,
+    LocalModelManagerService,
+);
+
+fn manager_fixture(
+    records: impl IntoIterator<Item = crate::LocalModelInstallationRecord>,
+) -> ManagerFixture {
+    let home = tempfile::tempdir().expect("home");
+    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let repository = Arc::new(FakeRepository::default());
+    records
+        .into_iter()
+        .for_each(|record| repository.insert(record));
+    let factory = Arc::new(FakeProcessFactory::new(repository.log()));
+    let manager = manager(Arc::clone(&repository), Arc::clone(&factory), &paths);
+    (home, repository, factory, manager)
+}
+
+fn two_installation_fixture() -> ManagerFixture {
+    manager_fixture([
+        installed_record("first", "shared-model", 'a', false),
+        installed_record("second", "shared-model", 'b', false),
+    ])
+}
+
+async fn write_large_gguf(home: &std::path::Path, name: &str) -> std::path::PathBuf {
+    let path = home.join(name);
+    let mut bytes = vec![0_u8; 4 * 1024 * 1024];
+    bytes[..4].copy_from_slice(b"GGUF");
+    tokio::fs::write(&path, bytes).await.expect("model fixture");
+    path
+}
+
+fn local_import(name: &str, model_id: &str, path: std::path::PathBuf) -> LocalFileModelImport {
+    LocalFileModelImport {
+        name: name.to_string(),
+        model_id: model_id.to_string(),
+        path,
+        license: None,
+        backend: LocalModelBackend::Cpu,
+    }
+}
+
+async fn wait_for_installed(manager: &LocalModelManagerService, expected: usize) {
+    timeout(Duration::from_secs(3), async {
+        loop {
+            let records = manager.installations().await.expect("installations");
+            if records.len() == expected
+                && records
+                    .iter()
+                    .all(|record| record.status == LocalModelInstallationStatus::Installed)
+            {
+                break;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("workers completed");
+}
 
 fn manager(
     repository: Arc<FakeRepository>,
@@ -108,24 +172,19 @@ fn manager_with_clock(
 }
 
 #[tokio::test]
-async fn two_same_model_installations_keep_distinct_keys_and_old_leases() {
-    let home = tempfile::tempdir().expect("home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let repository = Arc::new(FakeRepository::default());
-    repository.insert(installed_record("first", "shared-model", 'a', false));
-    repository.insert(installed_record("second", "shared-model", 'b', false));
-    let factory = Arc::new(FakeProcessFactory::new(repository.log()));
-    let first_key = repository
-        .record("first")
-        .expect("first")
-        .provider_instance_key;
-    let second_key = repository
-        .record("second")
-        .expect("second")
-        .provider_instance_key;
-    let manager = manager(repository, Arc::clone(&factory), &paths);
-
-    manager.activate("first").await.expect("first activation");
+async fn activation_and_route_replacement_contracts() {
+    eprintln!("case: two_same_model_installations_keep_distinct_keys_and_old_leases");
+    let (_home, repository, factory, manager) = two_installation_fixture();
+    repository.allow_installation_reads(2);
+    let first_key = repository.record_key("first");
+    let second_key = repository.record_key("second");
+    assert!(
+        manager
+            .activate("first")
+            .await
+            .expect("first activation")
+            .is_active
+    );
     let old_lease = manager.registry().lease(&first_key).expect("old lease");
     manager.activate("second").await.expect("second activation");
     let new_lease = manager.registry().lease(&second_key).expect("new lease");
@@ -133,29 +192,17 @@ async fn two_same_model_installations_keep_distinct_keys_and_old_leases() {
     assert_ne!(old_lease.key(), new_lease.key());
     assert!(old_lease.key().as_str().contains("first"));
     assert!(new_lease.key().as_str().contains("second"));
-    assert_eq!(manager.managed_instances().await.len(), 2);
+    assert_eq!(manager.managed_instance_count(), 2);
     assert_eq!(factory.process("first").shutdowns(), 0);
 
     drop(old_lease);
     drop(new_lease);
     manager.shutdown().await.expect("shutdown");
-}
-
-#[tokio::test]
-async fn failed_activation_stops_only_new_process_and_preserves_old_route() {
-    let home = tempfile::tempdir().expect("home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let repository = Arc::new(FakeRepository::default());
-    repository.insert(installed_record("first", "shared-model", 'a', false));
-    repository.insert(installed_record("second", "shared-model", 'b', false));
-    let factory = Arc::new(FakeProcessFactory::new(repository.log()));
-    let manager = manager(Arc::clone(&repository), Arc::clone(&factory), &paths);
+    eprintln!("case: failed_activation_stops_only_new_process_and_preserves_old_route");
+    let (_home, repository, factory, manager) = two_installation_fixture();
 
     manager.activate("first").await.expect("first activation");
-    let old_key = repository
-        .record("first")
-        .expect("first")
-        .provider_instance_key;
+    let old_key = repository.record_key("first");
     repository.fail_next_activation();
     let error = manager
         .activate("second")
@@ -166,40 +213,11 @@ async fn failed_activation_stops_only_new_process_and_preserves_old_route() {
     assert!(manager.registry().lease(&old_key).is_ok());
     assert_eq!(factory.process("first").shutdowns(), 0);
     assert_eq!(factory.process("second").shutdowns(), 1);
-    assert_eq!(manager.managed_instances().await.len(), 1);
+    assert_eq!(manager.managed_instance_count(), 1);
 
     manager.shutdown().await.expect("shutdown");
-}
-
-#[tokio::test]
-async fn activation_success_does_not_depend_on_a_post_commit_installation_read() {
-    let home = tempfile::tempdir().expect("home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let repository = Arc::new(FakeRepository::default());
-    repository.insert(installed_record("activate", "activate-model", '7', false));
-    repository.fail_read_after_next_activation();
-    let factory = Arc::new(FakeProcessFactory::new(repository.log()));
-    let manager = manager(Arc::clone(&repository), factory, &paths);
-
-    let activated = manager
-        .activate("activate")
-        .await
-        .expect("committed activation returns its installation projection");
-
-    assert!(activated.is_active);
-    assert_eq!(activated.installation_id, "activate");
-    manager.shutdown().await.expect("shutdown");
-}
-
-#[tokio::test]
-async fn aborted_activation_remains_manager_owned_and_shutdown_stops_it() {
-    let home = tempfile::tempdir().expect("home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let repository = Arc::new(FakeRepository::default());
-    repository.insert(installed_record("first", "shared-model", 'a', false));
-    repository.insert(installed_record("second", "shared-model", 'b', false));
-    let factory = Arc::new(FakeProcessFactory::new(repository.log()));
-    let manager = manager(Arc::clone(&repository), Arc::clone(&factory), &paths);
+    eprintln!("case: aborted_activation_remains_manager_owned_and_shutdown_stops_it");
+    let (_home, repository, factory, manager) = two_installation_fixture();
 
     manager.activate("first").await.expect("first activation");
     repository.pause_next_activation();
@@ -221,17 +239,8 @@ async fn aborted_activation_remains_manager_owned_and_shutdown_stops_it() {
 
     assert_eq!(factory.process("first").shutdowns(), 1);
     assert_eq!(factory.process("second").shutdowns(), 1);
-}
-
-#[tokio::test]
-async fn activation_that_commits_during_shutdown_finishes_before_retirement() {
-    let home = tempfile::tempdir().expect("home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let repository = Arc::new(FakeRepository::default());
-    repository.insert(installed_record("first", "shared-model", 'a', false));
-    repository.insert(installed_record("second", "shared-model", 'b', false));
-    let factory = Arc::new(FakeProcessFactory::new(repository.log()));
-    let manager = manager(Arc::clone(&repository), Arc::clone(&factory), &paths);
+    eprintln!("case: activation_that_commits_during_shutdown_finishes_before_retirement");
+    let (_home, repository, factory, manager) = two_installation_fixture();
 
     manager.activate("first").await.expect("first activation");
     repository.pause_next_activation();
@@ -261,17 +270,8 @@ async fn activation_that_commits_during_shutdown_finishes_before_retirement() {
     );
     assert_eq!(factory.process("first").shutdowns(), 1);
     assert_eq!(factory.process("second").shutdowns(), 1);
-}
-
-#[tokio::test]
-async fn replacement_status_cannot_be_overwritten_by_retired_forwarder() {
-    let home = tempfile::tempdir().expect("home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let repository = Arc::new(FakeRepository::default());
-    repository.insert(installed_record("first", "shared-model", 'a', false));
-    repository.insert(installed_record("second", "shared-model", 'b', false));
-    let factory = Arc::new(FakeProcessFactory::new(repository.log()));
-    let manager = manager(repository, Arc::clone(&factory), &paths);
+    eprintln!("case: replacement_status_cannot_be_overwritten_by_retired_forwarder");
+    let (_home, _repository, factory, manager) = two_installation_fixture();
 
     manager.activate("first").await.expect("first activation");
     let first = factory.process("first");
@@ -291,25 +291,23 @@ async fn replacement_status_cannot_be_overwritten_by_retired_forwarder() {
 }
 
 #[tokio::test]
-async fn inactive_remove_drains_before_delete_and_same_key_can_be_reinstalled() {
-    let home = tempfile::tempdir().expect("home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let repository = Arc::new(FakeRepository::default());
-    repository.insert(installed_record("first", "shared-model", 'a', false));
-    repository.insert(installed_record("second", "shared-model", 'b', false));
-    let factory = Arc::new(FakeProcessFactory::new(repository.log()));
-    let manager = manager(Arc::clone(&repository), Arc::clone(&factory), &paths);
+async fn removal_retirement_and_cleanup_contracts() {
+    eprintln!("case: inactive_remove_drains_before_delete_and_same_key_can_be_reinstalled");
+    let (_home, repository, _factory, retirement_manager) = two_installation_fixture();
 
-    manager.activate("first").await.expect("first activation");
-    let first_key = repository
-        .record("first")
-        .expect("first")
-        .provider_instance_key;
-    let old_lease = manager.registry().lease(&first_key).expect("old lease");
+    retirement_manager
+        .activate("first")
+        .await
+        .expect("first activation");
+    let first_key = repository.record_key("first");
+    let old_lease = retirement_manager
+        .registry()
+        .lease(&first_key)
+        .expect("old lease");
     let old_generation = old_lease.generation();
     repository.deactivate_all_and_clear_references();
     repository.set_active("second");
-    let removing_manager = manager.clone();
+    let removing_manager = retirement_manager.clone();
     let removal = tokio::spawn(async move { removing_manager.remove("first").await });
 
     sleep(Duration::from_millis(30)).await;
@@ -333,39 +331,36 @@ async fn inactive_remove_drains_before_delete_and_same_key_can_be_reinstalled() 
     }
     assert!(repository.record("first").is_none());
     assert!(matches!(
-        manager.remove("second").await,
+        retirement_manager.remove("second").await,
         Err(LocalModelManagerError::ActiveInstallation { .. })
     ));
 
     repository.insert(installed_record("first", "shared-model", 'a', false));
-    manager
+    retirement_manager
         .activate("first")
         .await
         .expect("reinstall and reactivate deterministic identity");
-    let replacement = manager
+    let replacement = retirement_manager
         .registry()
         .lease(&first_key)
         .expect("replacement generation is ready");
     assert!(replacement.generation() > old_generation);
     drop(replacement);
 
-    manager.shutdown().await.expect("shutdown");
-}
+    retirement_manager.shutdown().await.expect("shutdown");
+    eprintln!("case: stop_failure_preserves_claimed_inactive_row");
+    let (_home, repository, factory, failure_manager) = two_installation_fixture();
 
-#[tokio::test]
-async fn stop_failure_preserves_claimed_inactive_row() {
-    let home = tempfile::tempdir().expect("home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let repository = Arc::new(FakeRepository::default());
-    repository.insert(installed_record("first", "shared-model", 'a', false));
-    repository.insert(installed_record("second", "shared-model", 'b', false));
-    let factory = Arc::new(FakeProcessFactory::new(repository.log()));
-    let manager = manager(Arc::clone(&repository), Arc::clone(&factory), &paths);
-
-    manager.activate("first").await.expect("first activation");
-    manager.activate("second").await.expect("second activation");
+    failure_manager
+        .activate("first")
+        .await
+        .expect("first activation");
+    failure_manager
+        .activate("second")
+        .await
+        .expect("second activation");
     factory.process("first").fail_shutdown();
-    let error = manager
+    let error = failure_manager
         .remove("first")
         .await
         .expect_err("injected stop failure");
@@ -380,10 +375,9 @@ async fn stop_failure_preserves_claimed_inactive_row() {
             .iter()
             .any(|entry| entry == "remove:first")
     );
-}
-
-#[tokio::test]
-async fn explicit_removal_deletes_row_before_best_effort_partial_cleanup_and_retains_blob() {
+    eprintln!(
+        "case: explicit_removal_deletes_row_before_best_effort_partial_cleanup_and_retains_blob"
+    );
     let home = tempfile::tempdir().expect("home");
     let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
     let repository = Arc::new(FakeRepository::default());
@@ -426,7 +420,8 @@ async fn explicit_removal_deletes_row_before_best_effort_partial_cleanup_and_ret
 }
 
 #[tokio::test]
-async fn restart_reconstructs_only_active_and_transient_failure_keeps_manager_usable() {
+async fn reconstruction_reaping_and_retry_contracts() {
+    eprintln!("case: restart_reconstructs_only_active_and_transient_failure_keeps_manager_usable");
     let home = tempfile::tempdir().expect("home");
     let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
     let repository = Arc::new(FakeRepository::default());
@@ -462,22 +457,54 @@ async fn restart_reconstructs_only_active_and_transient_failure_keeps_manager_us
         .await
         .expect("retry active installation");
     assert_eq!(factory.started_ids(), vec!["active"]);
-    assert_eq!(manager.managed_instances().await.len(), 1);
+    assert_eq!(manager.managed_instance_count(), 1);
 
     manager.shutdown().await.expect("shutdown");
-}
 
-#[tokio::test]
-async fn reconstruction_starts_every_referenced_instance_and_keeps_transient_failures_degraded() {
     let home = tempfile::tempdir().expect("home");
     let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let diagnostics_path = home.path().join("missing-blob-errors.log");
     let repository = Arc::new(FakeRepository::default());
+    repository.insert(installed_record("active", "shared-model", 'a', true));
+    let installations: Arc<dyn crate::LocalModelInstallationPersistence> = repository.clone();
+    let activation: Arc<dyn crate::LocalModelActivationPersistence> = repository.clone();
+    let lifecycle: Arc<dyn crate::LocalModelLifecyclePersistence> = repository;
+    let manager = LocalModelManagerService::new(
+        installations,
+        activation,
+        lifecycle,
+        Arc::new(ProviderRegistry::new()),
+        paths,
+        crate::LocalModelManagerConfig {
+            runtime_root: None,
+            context_window_tokens: 8_192,
+            timeout_seconds: 30,
+            startup_timeout_seconds: 30,
+            system_errors: Some(noema_home::SystemErrorLogger::new(diagnostics_path.clone())),
+        },
+    )
+    .expect("manager");
+
+    manager
+        .reconstruct_persisted_instances()
+        .await
+        .expect("missing blob remains recoverable");
+    assert!(matches!(
+        manager.runtime_status(),
+        LocalModelRuntimeStatus::Failed { .. }
+    ));
+    let diagnostics = std::fs::read_to_string(diagnostics_path).expect("diagnostic");
+    assert!(diagnostics.contains("\"category\":\"local_model_runtime_unavailable\""));
+    assert!(diagnostics.contains("installed model blob is unavailable"));
+    manager.shutdown().await.expect("shutdown");
+    eprintln!(
+        "case: reconstruction_starts_every_referenced_instance_and_keeps_transient_failures_degraded"
+    );
     let first = installed_record("first", "first-model", 'a', false);
     let first_key = first.provider_instance_key.clone();
     let second = installed_record("second", "second-model", 'b', false);
     let second_key = second.provider_instance_key.clone();
-    repository.insert(first);
-    repository.insert(second);
+    let (_home, repository, factory, manager) = manager_fixture([first, second]);
     repository.reference(
         first_key.clone(),
         LocalModelInstanceReferenceSource::DefaultModelPreference,
@@ -488,9 +515,7 @@ async fn reconstruction_starts_every_referenced_instance_and_keeps_transient_fai
             task_id: "task:1".to_string(),
         },
     );
-    let factory = Arc::new(FakeProcessFactory::new(repository.log()));
     factory.fail_start("second");
-    let manager = manager(repository, factory, &paths);
 
     let report = manager
         .reconstruct_persisted_instances()
@@ -506,26 +531,19 @@ async fn reconstruction_starts_every_referenced_instance_and_keeps_transient_fai
         ProviderRegistryError::Unready { key: second_key }
     );
     manager.shutdown().await.expect("shutdown");
-}
-
-#[tokio::test]
-async fn reconstruction_rejects_missing_and_claimed_referenced_instances_before_starting_any() {
-    let home = tempfile::tempdir().expect("home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let repository = Arc::new(FakeRepository::default());
+    eprintln!(
+        "case: reconstruction_rejects_missing_and_claimed_referenced_instances_before_starting_any"
+    );
     let mut claimed = installed_record("claimed", "claimed-model", 'a', false);
     claimed.retirement_claimed_at = Some("2026-07-16T00:00:00Z".to_string());
     let claimed_key = claimed.provider_instance_key.clone();
-    repository.insert(claimed);
+    let (_home, repository, factory, manager) = manager_fixture([claimed]);
     repository.reference(
         claimed_key.clone(),
         LocalModelInstanceReferenceSource::AgentRunSnapshot {
             run_id: "run:1".to_string(),
         },
     );
-    let factory = Arc::new(FakeProcessFactory::new(repository.log()));
-    let manager = manager(Arc::clone(&repository), Arc::clone(&factory), &paths);
-
     assert!(matches!(
         manager.reconstruct_persisted_instances().await,
         Err(LocalModelManagerError::ReferencedInstallationClaimed {
@@ -569,19 +587,11 @@ async fn reconstruction_rejects_missing_and_claimed_referenced_instances_before_
     ));
     assert!(factory.started_ids().is_empty());
     manager.shutdown().await.expect("shutdown");
-}
-
-#[tokio::test]
-async fn startup_reaper_never_claims_an_in_progress_installation() {
-    let home = tempfile::tempdir().expect("home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let repository = Arc::new(FakeRepository::default());
+    eprintln!("case: startup_reaper_never_claims_an_in_progress_installation");
     let mut downloading = installed_record("downloading", "future-model", 'd', false);
     downloading.status = LocalModelInstallationStatus::Downloading;
     downloading.retirement_claimed_at = None;
-    repository.insert(downloading);
-    let factory = Arc::new(FakeProcessFactory::new(repository.log()));
-    let manager = manager(Arc::clone(&repository), factory, &paths);
+    let (_home, repository, _factory, manager) = manager_fixture([downloading]);
 
     manager
         .reconstruct_persisted_instances()
@@ -594,10 +604,7 @@ async fn startup_reaper_never_claims_an_in_progress_installation() {
     assert_eq!(retained.status, LocalModelInstallationStatus::Downloading);
     assert!(retained.retirement_claimed_at.is_none());
     manager.shutdown().await.expect("shutdown");
-}
-
-#[tokio::test]
-async fn periodic_reaper_stops_runtime_but_preserves_installed_row_and_blob() {
+    eprintln!("case: periodic_reaper_stops_runtime_but_preserves_installed_row_and_blob");
     let home = tempfile::tempdir().expect("home");
     let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
     let repository = Arc::new(FakeRepository::default());
@@ -642,56 +649,9 @@ async fn periodic_reaper_stops_runtime_but_preserves_installed_row_and_blob() {
     ));
 
     manager.shutdown().await.expect("shutdown");
-}
-
-#[tokio::test]
-async fn restart_with_missing_blob_is_nonfatal_and_diagnostic() {
-    let home = tempfile::tempdir().expect("home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let diagnostics_path = home.path().join("errors.log");
-    let repository = Arc::new(FakeRepository::default());
-    repository.insert(installed_record("active", "shared-model", 'a', true));
-    let installations: Arc<dyn crate::LocalModelInstallationPersistence> = repository.clone();
-    let activation: Arc<dyn crate::LocalModelActivationPersistence> = repository.clone();
-    let lifecycle: Arc<dyn crate::LocalModelLifecyclePersistence> = repository;
-    let manager = LocalModelManagerService::new(
-        installations,
-        activation,
-        lifecycle,
-        Arc::new(ProviderRegistry::new()),
-        paths,
-        LocalModelManagerConfig {
-            runtime_root: None,
-            context_window_tokens: 8_192,
-            timeout_seconds: 30,
-            startup_timeout_seconds: 30,
-            system_errors: Some(noema_home::SystemErrorLogger::new(diagnostics_path.clone())),
-        },
-    )
-    .expect("manager");
-
-    manager
-        .reconstruct_persisted_instances()
-        .await
-        .expect("missing blob remains recoverable");
-    assert!(matches!(
-        manager.runtime_status(),
-        LocalModelRuntimeStatus::Failed { .. }
-    ));
-    let diagnostics = std::fs::read_to_string(diagnostics_path).expect("runtime diagnostic");
-    assert!(diagnostics.contains("\"category\":\"local_model_runtime_unavailable\""));
-    assert!(diagnostics.contains("installed model blob is unavailable"));
-    manager.shutdown().await.expect("shutdown");
-}
-
-#[tokio::test]
-async fn retry_replaces_a_failed_retained_process_and_preserves_the_exact_route() {
-    let home = tempfile::tempdir().expect("home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let repository = Arc::new(FakeRepository::default());
-    repository.insert(installed_record("active", "shared-model", 'a', true));
-    let factory = Arc::new(FakeProcessFactory::new(repository.log()));
-    let manager = manager(repository, Arc::clone(&factory), &paths);
+    eprintln!("case: retry_replaces_a_failed_retained_process_and_preserves_the_exact_route");
+    let (_home, repository, factory, manager) =
+        manager_fixture([installed_record("active", "shared-model", 'a', true)]);
 
     manager
         .reconstruct_persisted_instances()
@@ -712,13 +672,7 @@ async fn retry_replaces_a_failed_retained_process_and_preserves_the_exact_route(
     assert!(!Arc::ptr_eq(&failed, &replacement));
     assert_eq!(failed.shutdowns(), 1);
     assert_eq!(replacement.shutdowns(), 0);
-    let active_key = manager
-        .managed_instances()
-        .await
-        .into_iter()
-        .find(|instance| instance.installation_id == "active")
-        .expect("active instance")
-        .key;
+    let active_key = repository.record_key("active");
     let lease = manager
         .registry()
         .lease(&active_key)
@@ -730,19 +684,10 @@ async fn retry_replaces_a_failed_retained_process_and_preserves_the_exact_route(
 }
 
 #[tokio::test]
-async fn shutdown_rejects_new_work_drains_lease_and_stops_every_process() {
-    let home = tempfile::tempdir().expect("home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let repository = Arc::new(FakeRepository::default());
-    repository.insert(installed_record("first", "shared-model", 'a', false));
-    repository.insert(installed_record("second", "shared-model", 'b', false));
-    let factory = Arc::new(FakeProcessFactory::new(repository.log()));
-    let first_key = repository
-        .record("first")
-        .expect("first")
-        .provider_instance_key;
-    let manager = manager(repository, Arc::clone(&factory), &paths);
-
+async fn worker_serialization_cancellation_and_shutdown_contracts() {
+    eprintln!("case: shutdown_rejects_new_work_drains_lease_and_stops_every_process");
+    let (_home, repository, factory, manager) = two_installation_fixture();
+    let first_key = repository.record_key("first");
     manager.activate("first").await.expect("first activation");
     let old_lease = manager.registry().lease(&first_key).expect("old lease");
     manager.activate("second").await.expect("second activation");
@@ -765,16 +710,9 @@ async fn shutdown_rejects_new_work_drains_lease_and_stops_every_process() {
     assert_eq!(factory.process("first").shutdowns(), 1);
     assert_eq!(factory.process("second").shutdowns(), 1);
     assert_eq!(manager.runtime_status(), LocalModelRuntimeStatus::Stopped);
-}
-
-#[tokio::test]
-async fn distinct_install_workers_never_overlap_global_artifact_mutation() {
-    let home = tempfile::tempdir().expect("home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let repository = Arc::new(FakeRepository::default());
+    eprintln!("case: distinct_install_workers_never_overlap_global_artifact_mutation");
+    let (home, repository, _factory, manager) = manager_fixture([]);
     repository.delay_mutations();
-    let factory = Arc::new(FakeProcessFactory::new(repository.log()));
-    let manager = manager(Arc::clone(&repository), factory, &paths);
     let first_path = home.path().join("first.gguf");
     let second_path = home.path().join("second.gguf");
     tokio::fs::write(&first_path, b"GGUF first")
@@ -785,65 +723,21 @@ async fn distinct_install_workers_never_overlap_global_artifact_mutation() {
         .expect("second model");
 
     let (first, second) = tokio::join!(
-        manager.import_local_file(LocalFileModelImport {
-            name: "First".to_string(),
-            model_id: "first".to_string(),
-            path: first_path,
-            license: None,
-            backend: LocalModelBackend::Cpu,
-        }),
-        manager.import_local_file(LocalFileModelImport {
-            name: "Second".to_string(),
-            model_id: "second".to_string(),
-            path: second_path,
-            license: None,
-            backend: LocalModelBackend::Cpu,
-        })
+        manager.import_local_file(local_import("First", "first", first_path)),
+        manager.import_local_file(local_import("Second", "second", second_path))
     );
     first.expect("first queued");
     second.expect("second queued");
 
-    timeout(Duration::from_secs(3), async {
-        loop {
-            let records = manager.installations().await.expect("installations");
-            if records.len() == 2
-                && records
-                    .iter()
-                    .all(|record| record.status == LocalModelInstallationStatus::Installed)
-            {
-                break;
-            }
-            sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .expect("workers completed");
+    wait_for_installed(&manager, 2).await;
 
     assert_eq!(repository.max_active_mutations(), 1);
     manager.shutdown().await.expect("shutdown");
-}
-
-#[tokio::test]
-async fn one_local_model_operation_is_retained_per_installation() {
-    let home = tempfile::tempdir().expect("home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let repository = Arc::new(FakeRepository::default());
+    eprintln!("case: one_local_model_operation_is_retained_per_installation");
+    let (home, repository, _factory, manager) = manager_fixture([]);
     repository.pause_next_upsert();
-    let factory = Arc::new(FakeProcessFactory::new(repository.log()));
-    let manager = manager(Arc::clone(&repository), factory, &paths);
-    let model_path = home.path().join("duplicate.gguf");
-    let mut model_bytes = vec![0_u8; 4 * 1024 * 1024];
-    model_bytes[..4].copy_from_slice(b"GGUF");
-    tokio::fs::write(&model_path, model_bytes)
-        .await
-        .expect("model fixture");
-    let input = LocalFileModelImport {
-        name: "Duplicate".to_string(),
-        model_id: "duplicate".to_string(),
-        path: model_path,
-        license: None,
-        backend: LocalModelBackend::Cpu,
-    };
+    let model_path = write_large_gguf(home.path(), "duplicate.gguf").await;
+    let input = local_import("Duplicate", "duplicate", model_path);
 
     let first_manager = manager.clone();
     let first_input = input.clone();
@@ -860,48 +754,19 @@ async fn one_local_model_operation_is_retained_per_installation() {
         .expect("duplicate import");
 
     assert_eq!(first.installation_id, second.installation_id);
-    timeout(Duration::from_secs(3), async {
-        loop {
-            if manager
-                .installations()
-                .await
-                .expect("installations")
-                .iter()
-                .any(|record| record.status == LocalModelInstallationStatus::Installed)
-            {
-                break;
-            }
-            sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .expect("worker completed");
+    wait_for_installed(&manager, 1).await;
     manager.shutdown().await.expect("shutdown");
     assert_eq!(repository.copying_transitions(), 1);
-}
-
-#[tokio::test]
-async fn remove_cancels_and_drains_owned_worker_before_terminal_row_deletion() {
-    let home = tempfile::tempdir().expect("home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let repository = Arc::new(FakeRepository::default());
+    eprintln!("case: remove_cancels_and_drains_owned_worker_before_terminal_row_deletion");
+    let (home, repository, _factory, manager) = manager_fixture([]);
     repository.delay_mutations();
-    let factory = Arc::new(FakeProcessFactory::new(repository.log()));
-    let manager = manager(Arc::clone(&repository), factory, &paths);
-    let model_path = home.path().join("remove-owned-worker.gguf");
-    let mut model_bytes = vec![0_u8; 4 * 1024 * 1024];
-    model_bytes[..4].copy_from_slice(b"GGUF");
-    tokio::fs::write(&model_path, model_bytes)
-        .await
-        .expect("model fixture");
+    let model_path = write_large_gguf(home.path(), "remove-owned-worker.gguf").await;
     let queued = manager
-        .import_local_file(LocalFileModelImport {
-            name: "Remove owned worker".to_string(),
-            model_id: "remove-owned-worker".to_string(),
-            path: model_path,
-            license: None,
-            backend: LocalModelBackend::Cpu,
-        })
+        .import_local_file(local_import(
+            "Remove owned worker",
+            "remove-owned-worker",
+            model_path,
+        ))
         .await
         .expect("queue import");
 
@@ -921,31 +786,13 @@ async fn remove_cancels_and_drains_owned_worker_before_terminal_row_deletion() {
         "completed worker must not recreate the deleted row"
     );
     manager.shutdown().await.expect("shutdown");
-}
-
-#[tokio::test]
-async fn begin_shutdown_cancels_and_drains_an_in_flight_import_worker() {
-    let home = tempfile::tempdir().expect("home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let repository = Arc::new(FakeRepository::default());
+    eprintln!("case: begin_shutdown_cancels_and_drains_an_in_flight_import_worker");
+    let (home, repository, _factory, manager) = manager_fixture([]);
     repository.delay_mutations();
-    let factory = Arc::new(FakeProcessFactory::new(repository.log()));
-    let manager = manager(Arc::clone(&repository), factory, &paths);
-    let model_path = home.path().join("cancellable.gguf");
-    let mut model_bytes = vec![0_u8; 4 * 1024 * 1024];
-    model_bytes[..4].copy_from_slice(b"GGUF");
-    tokio::fs::write(&model_path, model_bytes)
-        .await
-        .expect("model fixture");
+    let model_path = write_large_gguf(home.path(), "cancellable.gguf").await;
 
     let queued = manager
-        .import_local_file(LocalFileModelImport {
-            name: "Cancellable".to_string(),
-            model_id: "cancellable".to_string(),
-            path: model_path,
-            license: None,
-            backend: LocalModelBackend::Cpu,
-        })
+        .import_local_file(local_import("Cancellable", "cancellable", model_path))
         .await
         .expect("queue import");
     timeout(Duration::from_secs(1), async {
@@ -971,14 +818,11 @@ async fn begin_shutdown_cancels_and_drains_an_in_flight_import_worker() {
 }
 
 #[tokio::test]
-async fn merged_events_backfill_before_runtime_and_reconnect_from_runtime_cursor() {
-    let home = tempfile::tempdir().expect("home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let repository = Arc::new(FakeRepository::default());
-    repository.insert(installed_record("active", "shared-model", 'a', true));
+async fn event_subscription_lifecycle_contracts() {
+    eprintln!("case: merged_events_backfill_before_runtime_and_reconnect_from_runtime_cursor");
+    let (_home, repository, factory, manager) =
+        manager_fixture([installed_record("active", "shared-model", 'a', true)]);
     repository.append_event("active", LocalModelEventKind::Installed);
-    let factory = Arc::new(FakeProcessFactory::new(repository.log()));
-    let manager = manager(Arc::clone(&repository), Arc::clone(&factory), &paths);
     manager
         .reconstruct_persisted_instances()
         .await
@@ -1036,16 +880,9 @@ async fn merged_events_backfill_before_runtime_and_reconnect_from_runtime_cursor
     drop(events);
     drop(reconnected);
     manager.shutdown().await.expect("shutdown");
-}
-
-#[tokio::test]
-async fn event_stream_drains_final_runtime_status_and_closes_on_shutdown() {
-    let home = tempfile::tempdir().expect("home");
-    let paths = noema_home::NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let repository = Arc::new(FakeRepository::default());
-    repository.insert(installed_record("active", "shared-model", 'a', false));
-    let factory = Arc::new(FakeProcessFactory::new(repository.log()));
-    let manager = manager(repository, factory, &paths);
+    eprintln!("case: event_stream_drains_final_runtime_status_and_closes_on_shutdown");
+    let (_home, _repository, _factory, manager) =
+        manager_fixture([installed_record("active", "shared-model", 'a', false)]);
     let mut events = manager
         .subscribe_events(None)
         .await

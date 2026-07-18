@@ -40,19 +40,15 @@ pub enum GraphqlAgentStatus {
     Error,
 }
 
-impl From<AgentStatus> for GraphqlAgentStatus {
-    fn from(status: AgentStatus) -> Self {
-        match status {
-            AgentStatus::Idle => Self::Idle,
-            AgentStatus::InputReceived => Self::InputReceived,
-            AgentStatus::Thinking => Self::Thinking,
-            AgentStatus::ToolRunning => Self::ToolRunning,
-            AgentStatus::WaitingForPreviousTurnCompletion => Self::WaitingForPreviousTurnCompletion,
-            AgentStatus::Interrupting => Self::Interrupting,
-            AgentStatus::Error => Self::Error,
-        }
-    }
-}
+graphql_enum_from!(AgentStatus => GraphqlAgentStatus {
+    Idle => Idle,
+    InputReceived => InputReceived,
+    Thinking => Thinking,
+    ToolRunning => ToolRunning,
+    WaitingForPreviousTurnCompletion => WaitingForPreviousTurnCompletion,
+    Interrupting => Interrupting,
+    Error => Error,
+});
 
 /// Turn activity status exposed through GraphQL.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
@@ -66,15 +62,11 @@ pub enum GraphqlTurnActivityStatus {
     Failed,
 }
 
-impl From<TurnActivityStatus> for GraphqlTurnActivityStatus {
-    fn from(status: TurnActivityStatus) -> Self {
-        match status {
-            TurnActivityStatus::Started => Self::Started,
-            TurnActivityStatus::Completed => Self::Completed,
-            TurnActivityStatus::Failed => Self::Failed,
-        }
-    }
-}
+graphql_enum_from!(TurnActivityStatus => GraphqlTurnActivityStatus {
+    Started => Started,
+    Completed => Completed,
+    Failed => Failed,
+});
 
 /// User text transcript item.
 #[derive(Clone, Debug, SimpleObject)]
@@ -132,14 +124,10 @@ pub enum GraphqlMultipleChoiceSelectionMode {
     PickMany,
 }
 
-impl From<noema_providers::MultipleChoiceSelectionMode> for GraphqlMultipleChoiceSelectionMode {
-    fn from(mode: noema_providers::MultipleChoiceSelectionMode) -> Self {
-        match mode {
-            noema_providers::MultipleChoiceSelectionMode::PickOne => Self::PickOne,
-            noema_providers::MultipleChoiceSelectionMode::PickMany => Self::PickMany,
-        }
-    }
-}
+graphql_enum_from!(noema_providers::MultipleChoiceSelectionMode => GraphqlMultipleChoiceSelectionMode {
+    PickOne => PickOne,
+    PickMany => PickMany,
+});
 
 /// One multiple-choice option.
 #[derive(Clone, Debug, SimpleObject)]

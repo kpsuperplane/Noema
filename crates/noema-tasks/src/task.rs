@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     DEFAULT_TASK_MAX_REVIEW_ROUNDS, NewTaskValidationCriterion, TaskComplexity, TaskDomainError,
     TaskStatus,
+    validation::{normalize_optional, required},
 };
 
 /// Provenance linking a task to its originating conversation turn.
@@ -166,22 +167,6 @@ pub struct TaskRecord {
     pub updated_at: String,
     /// Completion timestamp.
     pub completed_at: Option<String>,
-}
-
-fn required(value: &str, field: &'static str) -> Result<String, TaskDomainError> {
-    let value = value.trim();
-    if value.is_empty() {
-        Err(TaskDomainError::EmptyField(field))
-    } else {
-        Ok(value.to_string())
-    }
-}
-
-fn normalize_optional(value: Option<&String>) -> Option<String> {
-    value
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
 }
 
 #[cfg(test)]

@@ -10,6 +10,7 @@ pub(crate) const MAX_TOOL_NAME_BYTES: usize = 256;
 pub(crate) const MAX_TOOL_DESCRIPTION_BYTES: usize = 8 * 1024;
 #[cfg(feature = "transport")]
 pub(crate) const MAX_PAGINATION_CURSOR_BYTES: usize = 8 * 1024;
+#[cfg(any(feature = "transport", test))]
 pub(crate) const MAX_SCHEMA_BYTES: usize = 64 * 1024;
 #[cfg(feature = "transport")]
 pub(crate) const MAX_ANNOTATIONS_BYTES: usize = 16 * 1024;
@@ -56,6 +57,7 @@ pub(crate) fn bounded_diagnostic_text(value: impl AsRef<str>) -> String {
     bounded
 }
 
+#[cfg(any(feature = "transport", test))]
 pub(crate) fn bounded_provider_schema(schema: &Value) -> Option<Value> {
     json_within_limits(schema, MAX_SCHEMA_BYTES).then(|| schema.clone())
 }

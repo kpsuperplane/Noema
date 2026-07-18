@@ -41,7 +41,7 @@ impl ProviderModelProfile {
     /// Invalid optional values are ignored independently. A missing, non-string,
     /// or blank label falls back to the normalized profile id.
     #[must_use]
-    pub fn from_metadata_value(value: &Value) -> Option<Self> {
+    fn from_metadata_value(value: &Value) -> Option<Self> {
         let id = value.get("id")?.as_str()?.trim();
         if id.is_empty() {
             return None;
@@ -114,33 +114,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn minimal_profile_serializes_to_the_existing_exact_shape() {
-        let profile = ProviderModelProfile {
+    fn profile_json_preserves_minimal_shape_and_metadata_field_order() {
+        let minimal = ProviderModelProfile {
             id: "default".to_string(),
             label: "Default on-device".to_string(),
             reasoning_efforts: Vec::new(),
             default_reasoning_effort: None,
         };
-
         assert_eq!(
-            serde_json::to_string(&profile).unwrap(),
-            r#"{"id":"default","label":"Default on-device"}"#
+            serde_json::to_string(&minimal).unwrap(),
+            r#"{"id":"default","label":"Default on-device"}"#,
+            "minimal profile shape"
         );
-    }
 
-    #[test]
-    fn persisted_value_uses_the_existing_metadata_field_order() {
-        let profile = ProviderModelProfile {
+        let complete = ProviderModelProfile {
             id: "gpt-5.5".to_string(),
             label: "GPT-5.5".to_string(),
             reasoning_efforts: vec![ReasoningEffort::Low, ReasoningEffort::High],
             default_reasoning_effort: Some(ReasoningEffort::High),
         };
-        let persisted = serde_json::to_value(profile).unwrap();
-
         assert_eq!(
-            serde_json::to_string(&persisted).unwrap(),
-            r#"{"id":"gpt-5.5","label":"GPT-5.5","reasoning_efforts":["low","high"],"default_reasoning_effort":"high"}"#
+            serde_json::to_string(&serde_json::to_value(complete).unwrap()).unwrap(),
+            r#"{"id":"gpt-5.5","label":"GPT-5.5","reasoning_efforts":["low","high"],"default_reasoning_effort":"high"}"#,
+            "complete metadata field order"
         );
     }
 

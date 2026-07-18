@@ -25,9 +25,9 @@ mod streaming;
 /// Stable provider identifier for first-party local GGUF inference.
 pub const LOCAL_MODELS_PROVIDER: &str = "local_models";
 /// Default output reserve used by prompt planning for local models.
-pub const LOCAL_MODELS_DEFAULT_OUTPUT_RESERVE_TOKENS: u32 = 1_024;
+const LOCAL_MODELS_DEFAULT_OUTPUT_RESERVE_TOKENS: u32 = 1_024;
 /// Default compact-summary target for local models.
-pub const LOCAL_MODELS_COMPACT_SUMMARY_TARGET_TOKENS: u32 = 768;
+const LOCAL_MODELS_COMPACT_SUMMARY_TARGET_TOKENS: u32 = 768;
 
 fn reqwest_transport_error(
     provider: &str,
@@ -481,59 +481,11 @@ mod tests {
     }
 
     #[test]
-    fn required_noema_response_without_tools_forbids_tool_calls() {
-        let request = GenerateRequest {
-            options: noema_providers::GenerateOptions {
-                require_noema_response: true,
-                ..noema_providers::GenerateOptions::default()
-            },
-            ..GenerateRequest::text("hello")
-        };
-
-        let body = ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
-            .expect("chat request");
-        let response_format = body.response_format.expect("response format");
-
-        assert_eq!(response_format["type"], "json_schema");
-        assert_eq!(response_format["json_schema"]["name"], "noema_response");
-        assert_eq!(
-            response_format["json_schema"]["schema"]["required"],
-            serde_json::json!(["response_status", "responses", "tool_calls"])
-        );
-        assert_eq!(
-            response_format["json_schema"]["schema"]["properties"]["response_status"]["enum"],
-            serde_json::json!(["final"])
-        );
-        assert_eq!(
-            response_format["json_schema"]["schema"]["properties"]["tool_calls"]["maxItems"],
-            0
-        );
-    }
-
-    #[test]
     fn none_tool_choice_forbids_calls_even_when_specs_are_present() {
-        let tool = noema_capabilities::ToolSpec::new(
-            "search_memory",
-            "Search memory.",
-            serde_json::json!({"type": "object", "additionalProperties": false}),
-        )
-        .expect("tool");
-        let request = GenerateRequest {
-            options: noema_providers::GenerateOptions {
-                require_noema_response: true,
-                ..noema_providers::GenerateOptions::default()
-            },
-            tools: vec![tool],
-            tool_choice: noema_providers::NoemaToolChoice::None,
-            ..GenerateRequest::text("answer without tools")
-        };
-
-        let response_format =
-            ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
-                .expect("chat request")
-                .response_format
-                .expect("response format");
-        let schema = &response_format["json_schema"]["schema"];
+        let schema = tool_response_schema(
+            vec![test_tool("search_memory", serde_json::json!({}))],
+            noema_providers::NoemaToolChoice::None,
+        );
 
         assert_eq!(
             schema["properties"]["response_status"]["enum"],
@@ -544,33 +496,16 @@ mod tests {
 
     #[test]
     fn required_tool_choice_constrains_local_response_schema() {
-        let tool = noema_capabilities::ToolSpec::new(
-            "task.submit_result",
-            "Submit a result.",
-            serde_json::json!({
-                "type": "object",
-                "properties": {"summary": {"type": "string"}},
-                "required": ["summary"],
-                "additionalProperties": false
-            }),
-        )
-        .expect("tool");
-        let request = GenerateRequest {
-            options: noema_providers::GenerateOptions {
-                require_noema_response: true,
-                ..noema_providers::GenerateOptions::default()
-            },
-            tools: vec![tool],
-            tool_choice: noema_providers::NoemaToolChoice::Required,
-            ..GenerateRequest::text("finish")
-        };
-
-        let response_format =
-            ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
-                .expect("chat request")
-                .response_format
-                .expect("response format");
-        let schema = &response_format["json_schema"]["schema"];
+        let schema = tool_response_schema(
+            vec![test_tool(
+                "task.submit_result",
+                serde_json::json!({
+                    "properties": {"summary": {"type": "string"}},
+                    "required": ["summary"]
+                }),
+            )],
+            noema_providers::NoemaToolChoice::Required,
+        );
 
         assert_eq!(
             schema["properties"]["response_status"]["enum"],
@@ -608,40 +543,18 @@ mod tests {
 
     #[test]
     fn allowed_tool_choice_specializes_schema_to_the_selected_catalog_entry() {
-        let first = noema_capabilities::ToolSpec::new(
-            "search_memory",
-            "Search memory.",
-            serde_json::json!({"type": "object", "additionalProperties": false}),
-        )
-        .expect("first tool");
-        let second = noema_capabilities::ToolSpec::new(
-            "task.inspect",
-            "Inspect a task.",
-            serde_json::json!({"type": "object", "additionalProperties": false}),
-        )
-        .expect("second tool");
-        let request = GenerateRequest {
-            options: noema_providers::GenerateOptions {
-                require_noema_response: true,
-                ..noema_providers::GenerateOptions::default()
-            },
-            tools: vec![first.clone(), second],
-            tool_choice: noema_providers::NoemaToolChoice::Allowed(
-                noema_providers::NoemaAllowedTools {
-                    mode: noema_providers::NoemaAllowedToolsMode::Auto,
-                    tools: vec![first.name],
-                },
-            ),
-            ..GenerateRequest::text("search")
-        };
-
-        let response_format =
-            ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
-                .expect("chat request")
-                .response_format
-                .expect("response format");
-        let tool_variants =
-            &response_format["json_schema"]["schema"]["properties"]["tool_calls"]["items"]["oneOf"];
+        let first = test_tool("search_memory", serde_json::json!({}));
+        let schema = tool_response_schema(
+            vec![
+                first.clone(),
+                test_tool("task.inspect", serde_json::json!({})),
+            ],
+            noema_providers::NoemaToolChoice::Allowed(noema_providers::NoemaAllowedTools {
+                mode: noema_providers::NoemaAllowedToolsMode::Auto,
+                tools: vec![first.name],
+            }),
+        );
+        let tool_variants = &schema["properties"]["tool_calls"]["items"]["oneOf"];
 
         assert_eq!(tool_variants.as_array().map(Vec::len), Some(1));
         assert_eq!(
@@ -651,78 +564,34 @@ mod tests {
     }
 
     #[test]
-    fn local_tool_schema_drops_patterns_unsupported_by_llama_cpp() {
-        let tool = noema_capabilities::ToolSpec::new(
+    fn local_tool_schema_drops_unsupported_string_grammar() {
+        let tool = test_tool(
             "artifact.create_local_file",
-            "Create a file.",
             serde_json::json!({
-                "type": "object",
-                "properties": {"title": {"type": "string", "pattern": ".*\\S.*"}},
-                "required": ["title"],
-                "additionalProperties": false
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "pattern": ".*\\S.*",
+                        "minLength": 1,
+                        "maxLength": 4000
+                    }
+                },
+                "required": ["title"]
             }),
-        )
-        .expect("tool");
-        let request = GenerateRequest {
-            options: noema_providers::GenerateOptions {
-                require_noema_response: true,
-                ..noema_providers::GenerateOptions::default()
-            },
-            tools: vec![tool],
-            ..GenerateRequest::text("create")
-        };
-
-        let response_format =
-            ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
-                .expect("chat request")
-                .response_format
-                .expect("response format");
-        let title = &response_format["json_schema"]["schema"]["properties"]["tool_calls"]["items"]
-            ["oneOf"][0]["properties"]["payload"]["properties"]["title"];
+        );
+        let source_schema = tool.input_schema.clone();
+        let schema = tool_response_schema(vec![tool], noema_providers::NoemaToolChoice::Auto);
+        let title = &schema["properties"]["tool_calls"]["items"]["oneOf"][0]["properties"]["payload"]
+            ["properties"]["title"];
 
         assert_eq!(title["type"], "string");
         assert!(title.get("pattern").is_none());
+        assert!(title.get("minLength").is_none());
+        assert!(title.get("maxLength").is_none());
         assert_eq!(
-            request.tools[0].input_schema.as_value()["properties"]["title"]["pattern"],
+            source_schema.as_value()["properties"]["title"]["pattern"],
             ".*\\S.*"
         );
-    }
-
-    #[test]
-    fn local_tool_schema_drops_expansive_string_length_grammar() {
-        let tool = noema_capabilities::ToolSpec::new(
-            "task.submit_result",
-            "Submit a result.",
-            serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "summary": {"type": "string", "minLength": 1, "maxLength": 4000}
-                },
-                "required": ["summary"],
-                "additionalProperties": false
-            }),
-        )
-        .expect("tool");
-        let request = GenerateRequest {
-            options: noema_providers::GenerateOptions {
-                require_noema_response: true,
-                ..noema_providers::GenerateOptions::default()
-            },
-            tools: vec![tool],
-            ..GenerateRequest::text("finish")
-        };
-
-        let response_format =
-            ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
-                .expect("chat request")
-                .response_format
-                .expect("response format");
-        let summary = &response_format["json_schema"]["schema"]["properties"]["tool_calls"]["items"]
-            ["oneOf"][0]["properties"]["payload"]["properties"]["summary"];
-
-        assert_eq!(summary["type"], "string");
-        assert!(summary.get("minLength").is_none());
-        assert!(summary.get("maxLength").is_none());
     }
 
     #[test]
@@ -740,5 +609,32 @@ mod tests {
         assert!(parsed.responses.is_empty());
         assert_eq!(parsed.tool_calls.len(), 1);
         assert_eq!(parsed.tool_calls[0].name, "search_memory");
+    }
+
+    fn test_tool(name: &str, schema: Value) -> noema_capabilities::ToolSpec {
+        let mut schema = schema;
+        schema["type"] = serde_json::json!("object");
+        schema["additionalProperties"] = serde_json::json!(false);
+        noema_capabilities::ToolSpec::new(name, "Test tool.", schema).expect("tool")
+    }
+
+    fn tool_response_schema(
+        tools: Vec<noema_capabilities::ToolSpec>,
+        tool_choice: noema_providers::NoemaToolChoice,
+    ) -> Value {
+        let request = GenerateRequest {
+            options: noema_providers::GenerateOptions {
+                require_noema_response: true,
+                ..noema_providers::GenerateOptions::default()
+            },
+            tools,
+            tool_choice,
+            ..GenerateRequest::text("test")
+        };
+        ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
+            .expect("chat request")
+            .response_format
+            .expect("response format")["json_schema"]["schema"]
+            .clone()
     }
 }

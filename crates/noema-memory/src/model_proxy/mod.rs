@@ -1,14 +1,16 @@
 //! Private OpenAI-compatible model proxy for managed memory services.
 
-mod protocol;
+pub(crate) mod protocol;
 mod server;
 mod translation;
 
 #[cfg(test)]
+pub(crate) mod test_support;
+#[cfg(test)]
 mod tests;
 
 use noema_home::{SystemErrorEvent, SystemErrorLogger};
-use noema_providers::{ProviderError, ProviderRouteResolverHandle};
+use noema_providers::ProviderRouteResolverHandle;
 use thiserror::Error;
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 
@@ -129,7 +131,4 @@ pub enum MemoryModelProxyError {
     /// Request or protocol validation failed.
     #[error("memory model proxy protocol error: {0}")]
     Protocol(String),
-    /// Provider generation failed.
-    #[error("memory model proxy provider failed: {0}")]
-    Provider(#[from] ProviderError),
 }

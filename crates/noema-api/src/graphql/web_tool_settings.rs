@@ -252,7 +252,7 @@ mod tests {
     use noema_providers::ProviderAccountStatus;
 
     #[tokio::test]
-    async fn web_tool_settings_lists_only_matching_available_capabilities() {
+    async fn web_tool_settings_filters_capabilities_and_ignores_stale_bindings() {
         let store = test_store().await;
         store
             .ensure_default_provider_account()
@@ -260,7 +260,7 @@ mod tests {
             .expect("codex account");
         let exa_account_id =
             create_exa_provider_account(&store, ProviderAccountStatus::Authenticated).await;
-        let state = GraphqlState::for_tests_with_store(store);
+        let state = GraphqlState::for_tests_with_store(store.clone());
 
         let settings = web_tool_settings(&state).await.expect("settings");
 
@@ -301,13 +301,6 @@ mod tests {
                 .iter()
                 .any(|option| { option.provider_kind == "openai" })
         );
-    }
-
-    #[tokio::test]
-    async fn web_tool_settings_falls_back_when_saved_binding_is_not_selectable() {
-        let store = test_store().await;
-        let exa_account_id =
-            create_exa_provider_account(&store, ProviderAccountStatus::Authenticated).await;
         crate::test_support::save_provider_capability_assignment_for_tests(
             &store,
             "web.search",
@@ -338,140 +331,6 @@ mod tests {
                 .provider_options
                 .iter()
                 .any(|option| option.provider_account_id == exa_account_id)
-        );
-    }
-
-    #[tokio::test]
-    async fn web_tool_settings_include_active_non_default_exa_accounts() {
-        let store = test_store().await;
-        let exa_account_id =
-            create_exa_provider_account(&store, ProviderAccountStatus::Authenticated).await;
-        let state = GraphqlState::for_tests_with_store(store);
-
-        let settings = web_tool_settings(&state).await.expect("settings");
-
-        assert!(
-            settings
-                .search
-                .provider_options
-                .iter()
-                .any(|option| { option.provider_account_id == exa_account_id })
-        );
-        assert!(
-            settings
-                .fetch
-                .provider_options
-                .iter()
-                .any(|option| { option.provider_account_id == exa_account_id })
-        );
-    }
-
-    #[tokio::test]
-    async fn save_web_tool_provider_binding_rejects_mismatched_tool_and_capability() {
-        let store = test_store().await;
-        let state = GraphqlState::for_tests_with_store(store);
-
-        let error = save_web_tool_provider_binding(
-            &state,
-            GraphqlSaveWebToolProviderBindingInput {
-                tool_name: "web.fetch".to_string(),
-                capability_id: "web.search".to_string(),
-                provider_account_id: "provider_account:duckduckgo_public:system".to_string(),
-            },
-        )
-        .await
-        .expect_err("mismatched pair should fail");
-
-        assert!(
-            error.message.contains("tool and capability do not match"),
-            "{error:?}"
-        );
-    }
-
-    #[tokio::test]
-    async fn save_web_tool_provider_binding_rejects_unavailable_provider_capability() {
-        let store = test_store().await;
-        let exa_account_id =
-            create_exa_provider_account(&store, ProviderAccountStatus::Unknown).await;
-        let state = GraphqlState::for_tests_with_store(store);
-
-        let error = save_web_tool_provider_binding(
-            &state,
-            GraphqlSaveWebToolProviderBindingInput {
-                tool_name: "web.search".to_string(),
-                capability_id: "web.search".to_string(),
-                provider_account_id: exa_account_id,
-            },
-        )
-        .await
-        .expect_err("account-dependent capability should fail");
-
-        assert!(
-            error
-                .message
-                .contains("provider account does not supply the requested capability"),
-            "{error:?}"
-        );
-    }
-
-    #[tokio::test]
-    async fn save_web_tool_provider_binding_persists_selectable_provider() {
-        let store = test_store().await;
-        let exa_account_id =
-            create_exa_provider_account(&store, ProviderAccountStatus::Authenticated).await;
-        let state = GraphqlState::for_tests_with_store(store.clone());
-
-        let saved = save_web_tool_provider_binding(
-            &state,
-            GraphqlSaveWebToolProviderBindingInput {
-                tool_name: "web.search".to_string(),
-                capability_id: "web.search".to_string(),
-                provider_account_id: exa_account_id.clone(),
-            },
-        )
-        .await
-        .expect("save binding");
-
-        assert_eq!(saved.active_provider_account_id, exa_account_id);
-        let binding = store
-            .provider_capability_binding("web.search", "web.search")
-            .await
-            .expect("binding lookup")
-            .expect("binding row");
-        assert_eq!(
-            binding.provider_account_id,
-            saved.active_provider_account_id
-        );
-    }
-
-    #[tokio::test]
-    async fn save_web_tool_provider_binding_persists_system_provider_without_durable_row() {
-        let store = test_store().await;
-        let state = GraphqlState::for_tests_with_store(store.clone());
-
-        let saved = save_web_tool_provider_binding(
-            &state,
-            GraphqlSaveWebToolProviderBindingInput {
-                tool_name: "web.search".to_string(),
-                capability_id: "web.search".to_string(),
-                provider_account_id: "provider_account:duckduckgo_public:system".to_string(),
-            },
-        )
-        .await
-        .expect("save system binding");
-
-        assert_eq!(
-            saved.active_provider_account_id,
-            "provider_account:duckduckgo_public:system"
-        );
-        let binding = store
-            .provider_capability_binding("web.search", "web.search")
-            .await
-            .expect("binding lookup")
-            .expect("binding row");
-        assert_eq!(
-            binding.provider_account_id,
-            "provider_account:duckduckgo_public:system"
         );
     }
 

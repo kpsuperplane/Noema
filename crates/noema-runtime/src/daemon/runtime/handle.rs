@@ -28,6 +28,15 @@ pub struct RuntimeHandle {
 #[derive(Debug)]
 struct RuntimeCancellation(CancellationToken);
 
+#[cfg(test)]
+struct TestRuntimeServices {
+    artifact_operations: noema_artifacts::ArtifactOperationsHandle,
+    system_errors: SystemErrorLogger,
+    memory_operations: Option<noema_memory::MemoryOperationsHandle>,
+    runtime_events: crate::daemon::RuntimeEventRegistry,
+    web_backends: crate::WebBackendResolverHandle,
+}
+
 impl Drop for RuntimeCancellation {
     fn drop(&mut self) {
         self.0.cancel();
@@ -49,10 +58,13 @@ impl RuntimeHandle {
             default_provider_kind,
             providers,
             store,
-            artifact_operations,
-            system_errors,
-            memory_operations,
-            runtime_events,
+            TestRuntimeServices {
+                artifact_operations,
+                system_errors,
+                memory_operations,
+                runtime_events,
+                web_backends: crate::test_support::web_backends(),
+            },
         )
         .await
     }
@@ -74,7 +86,8 @@ impl RuntimeHandle {
                 Arc::clone(&provider_registry),
             ))
         };
-        let (capability_bindings, capability_invokers) = super::actor::test_capability_handles();
+        let (capability_bindings, capability_invokers) =
+            crate::contract_test_support::empty_capability_handles();
         Self::spawn(RuntimeSpawnConfig {
             primary_provider: bind(store.agent_provider_selection_loader("agent:primary")),
             default_provider: bind(store.default_provider_selection_loader()),
@@ -136,10 +149,13 @@ impl RuntimeHandle {
             provider_kind.clone(),
             HashMap::from([(provider_kind, provider)]),
             store,
-            artifact_operations,
-            system_errors,
-            memory_operations,
-            crate::daemon::RuntimeEventRegistry::default(),
+            TestRuntimeServices {
+                artifact_operations,
+                system_errors,
+                memory_operations,
+                runtime_events: crate::daemon::RuntimeEventRegistry::default(),
+                web_backends: crate::test_support::web_backends(),
+            },
         )
         .await
     }
@@ -160,72 +176,6 @@ impl RuntimeHandle {
     }
 
     #[cfg(test)]
-    pub(crate) async fn spawn_with_provider_and_search_provider(
-        provider: ProviderHandle,
-        store: NoemaStore,
-        search_provider: crate::search::types::SearchRuntimeProvider,
-    ) -> Result<Self, RuntimeError> {
-        let provider_kind = "codex".to_string();
-        let system_errors = crate::test_support::system_error_logger();
-        let providers = HashMap::from([(provider_kind.clone(), provider)]);
-        if !providers.contains_key(&provider_kind) {
-            return Err(RuntimeError::Provider(ProviderError::ProviderUnavailable {
-                provider: provider_kind,
-                message: "default provider is not available in this daemon".to_string(),
-            }));
-        }
-        let (sender, receiver) = mpsc::channel(16);
-        let actor = RuntimeActor::new_with_search_provider(
-            provider_kind.clone(),
-            providers,
-            store,
-            system_errors,
-            search_provider,
-        )
-        .await?;
-        let cancellation = Arc::new(RuntimeCancellation(actor.tasks.cancellation_token()));
-        tokio::spawn(actor.run(receiver));
-        Ok(Self {
-            sender,
-            cancellation,
-        })
-    }
-
-    #[cfg(test)]
-    pub(crate) async fn spawn_with_provider_and_search_fetch_providers(
-        provider: ProviderHandle,
-        store: NoemaStore,
-        search_provider: crate::search::types::SearchRuntimeProvider,
-        web_fetch_provider: crate::web_fetch::types::WebFetchRuntimeProvider,
-    ) -> Result<Self, RuntimeError> {
-        let provider_kind = "codex".to_string();
-        let system_errors = crate::test_support::system_error_logger();
-        let providers = HashMap::from([(provider_kind.clone(), provider)]);
-        if !providers.contains_key(&provider_kind) {
-            return Err(RuntimeError::Provider(ProviderError::ProviderUnavailable {
-                provider: provider_kind,
-                message: "default provider is not available in this daemon".to_string(),
-            }));
-        }
-        let (sender, receiver) = mpsc::channel(16);
-        let actor = RuntimeActor::new_with_search_and_fetch_provider(
-            provider_kind.clone(),
-            providers,
-            store,
-            system_errors,
-            search_provider,
-            web_fetch_provider,
-        )
-        .await?;
-        let cancellation = Arc::new(RuntimeCancellation(actor.tasks.cancellation_token()));
-        tokio::spawn(actor.run(receiver));
-        Ok(Self {
-            sender,
-            cancellation,
-        })
-    }
-
-    #[cfg(test)]
     pub(crate) async fn spawn_with_provider_map<I>(
         default_provider_kind: impl Into<String>,
         providers: I,
@@ -241,10 +191,13 @@ impl RuntimeHandle {
             default_provider_kind.into(),
             providers.into_iter().collect(),
             store,
-            artifact_operations,
-            system_errors,
-            None,
-            crate::daemon::RuntimeEventRegistry::default(),
+            TestRuntimeServices {
+                artifact_operations,
+                system_errors,
+                memory_operations: None,
+                runtime_events: crate::daemon::RuntimeEventRegistry::default(),
+                web_backends: crate::test_support::web_backends(),
+            },
         )
         .await
     }
@@ -254,10 +207,7 @@ impl RuntimeHandle {
         default_provider_kind: String,
         providers: HashMap<String, ProviderHandle>,
         store: NoemaStore,
-        artifact_operations: noema_artifacts::ArtifactOperationsHandle,
-        system_errors: SystemErrorLogger,
-        memory_operations: Option<noema_memory::MemoryOperationsHandle>,
-        runtime_events: crate::daemon::RuntimeEventRegistry,
+        services: TestRuntimeServices,
     ) -> Result<Self, RuntimeError> {
         if !providers.contains_key(&default_provider_kind) {
             return Err(RuntimeError::Provider(ProviderError::ProviderUnavailable {
@@ -267,7 +217,8 @@ impl RuntimeHandle {
         }
         let routing =
             super::actor::test_provider_routing(&store, &default_provider_kind, providers).await?;
-        let (capability_bindings, capability_invokers) = super::actor::test_capability_handles();
+        let (capability_bindings, capability_invokers) =
+            crate::contract_test_support::empty_capability_handles();
         Self::spawn(RuntimeSpawnConfig {
             primary_provider: routing.primary,
             default_provider: routing.default,
@@ -275,11 +226,11 @@ impl RuntimeHandle {
             web_summary_provider: routing.web_summary,
             provider_registry: routing.registry,
             store,
-            artifact_operations,
-            system_errors,
-            memory_operations,
-            runtime_events,
-            web_backends: crate::test_support::web_backends(),
+            artifact_operations: services.artifact_operations,
+            system_errors: services.system_errors,
+            memory_operations: services.memory_operations,
+            runtime_events: services.runtime_events,
+            web_backends: services.web_backends,
             capability_bindings,
             capability_invokers,
         })
@@ -291,14 +242,8 @@ impl RuntimeHandle {
         &self,
         cwd: Option<String>,
     ) -> Result<StartedConversation, RuntimeError> {
-        let (reply, reply_rx) = oneshot::channel();
-        self.sender
-            .send(RuntimeCommand::StartConversation { cwd, reply })
+        self.request(|reply| RuntimeCommand::StartConversation { cwd, reply })
             .await
-            .map_err(|_| RuntimeError::Protocol("daemon runtime stopped".to_string()))?;
-        reply_rx
-            .await
-            .map_err(|_| RuntimeError::Protocol("daemon runtime stopped".to_string()))?
     }
 
     /// Start or hydrate the primary agent's durable conversation.
@@ -310,14 +255,8 @@ impl RuntimeHandle {
         &self,
         cwd: Option<String>,
     ) -> Result<StartedConversation, RuntimeError> {
-        let (reply, reply_rx) = oneshot::channel();
-        self.sender
-            .send(RuntimeCommand::StartPrimaryConversation { cwd, reply })
+        self.request(|reply| RuntimeCommand::StartPrimaryConversation { cwd, reply })
             .await
-            .map_err(|_| RuntimeError::Protocol("daemon runtime stopped".to_string()))?;
-        reply_rx
-            .await
-            .map_err(|_| RuntimeError::Protocol("daemon runtime stopped".to_string()))?
     }
 
     #[cfg(test)]
@@ -343,20 +282,14 @@ impl RuntimeHandle {
         item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
         client_message_id: Option<String>,
     ) -> Result<(), RuntimeError> {
-        let (reply, reply_rx) = oneshot::channel();
-        self.sender
-            .send(RuntimeCommand::Turn {
-                conversation_id,
-                input,
-                item_tx,
-                client_message_id,
-                reply,
-            })
-            .await
-            .map_err(|_| RuntimeError::Protocol("daemon runtime stopped".to_string()))?;
-        reply_rx
-            .await
-            .map_err(|_| RuntimeError::Protocol("daemon runtime stopped".to_string()))?
+        self.request(|reply| RuntimeCommand::Turn {
+            conversation_id,
+            input,
+            item_tx,
+            client_message_id,
+            reply,
+        })
+        .await
     }
 
     /// Submit a response to a durable multiple-choice prompt.
@@ -373,21 +306,15 @@ impl RuntimeHandle {
         item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
         client_message_id: Option<String>,
     ) -> Result<(), RuntimeError> {
-        let (reply, reply_rx) = oneshot::channel();
-        self.sender
-            .send(RuntimeCommand::SelectMultipleChoice {
-                conversation_id,
-                prompt_item_id,
-                selected_option_ids,
-                item_tx,
-                client_message_id,
-                reply,
-            })
-            .await
-            .map_err(|_| RuntimeError::Protocol("daemon runtime stopped".to_string()))?;
-        reply_rx
-            .await
-            .map_err(|_| RuntimeError::Protocol("daemon runtime stopped".to_string()))?
+        self.request(|reply| RuntimeCommand::SelectMultipleChoice {
+            conversation_id,
+            prompt_item_id,
+            selected_option_ids,
+            item_tx,
+            client_message_id,
+            reply,
+        })
+        .await
     }
 
     #[cfg(test)]
@@ -443,33 +370,21 @@ impl RuntimeHandle {
         request: GenerateRequest,
         model_policy: GenerateOnceModelPolicy,
     ) -> Result<GenerateResponse, RuntimeError> {
-        let (reply, reply_rx) = oneshot::channel();
-        self.sender
-            .send(RuntimeCommand::GenerateOnce {
-                route,
-                request,
-                model_policy,
-                reply,
-            })
-            .await
-            .map_err(|_| RuntimeError::Protocol("daemon runtime stopped".to_string()))?;
-        reply_rx
-            .await
-            .map_err(|_| RuntimeError::Protocol("daemon runtime stopped".to_string()))?
+        self.request(|reply| RuntimeCommand::GenerateOnce {
+            route,
+            request,
+            model_policy,
+            reply,
+        })
+        .await
     }
 
     pub(crate) async fn generate_background_task(
         &self,
         request: super::BackgroundTaskGenerateRequest,
     ) -> Result<GenerateResponse, RuntimeError> {
-        let (reply, reply_rx) = oneshot::channel();
-        self.sender
-            .send(RuntimeCommand::BackgroundTask { request, reply })
+        self.request(|reply| RuntimeCommand::BackgroundTask { request, reply })
             .await
-            .map_err(|_| RuntimeError::Protocol("daemon runtime stopped".to_string()))?;
-        reply_rx
-            .await
-            .map_err(|_| RuntimeError::Protocol("daemon runtime stopped".to_string()))?
     }
 
     /// Queue a primary-agent completion report behind any active foreground
@@ -478,14 +393,20 @@ impl RuntimeHandle {
         &self,
         request: TaskCompletionDeliveryRequest,
     ) -> Result<(), RuntimeError> {
+        self.request(|reply| RuntimeCommand::TaskCompletionDelivery { request, reply })
+            .await
+    }
+
+    async fn request<T>(
+        &self,
+        command: impl FnOnce(oneshot::Sender<Result<T, RuntimeError>>) -> RuntimeCommand,
+    ) -> Result<T, RuntimeError> {
         let (reply, reply_rx) = oneshot::channel();
         self.sender
-            .send(RuntimeCommand::TaskCompletionDelivery { request, reply })
+            .send(command(reply))
             .await
-            .map_err(|_| RuntimeError::Protocol("daemon runtime stopped".to_string()))?;
-        reply_rx
-            .await
-            .map_err(|_| RuntimeError::Protocol("daemon runtime stopped".to_string()))?
+            .map_err(|_| runtime_stopped())?;
+        reply_rx.await.map_err(|_| runtime_stopped())?
     }
 
     /// Cancel active work and wait for the runtime actor to stop.
@@ -495,6 +416,10 @@ impl RuntimeHandle {
         let _ = self.sender.send(RuntimeCommand::Shutdown { reply }).await;
         let _ = reply_rx.await;
     }
+}
+
+fn runtime_stopped() -> RuntimeError {
+    RuntimeError::Protocol("daemon runtime stopped".to_string())
 }
 
 #[derive(Debug, Clone, Copy)]

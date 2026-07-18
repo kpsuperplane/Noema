@@ -417,16 +417,6 @@ impl NoemaStore {
         .await?;
         self.get_task(task_id).await?.ok_or_else(task_unavailable)
     }
-
-    /// Compatibility spelling used by the runtime supervisor.
-    pub async fn request_task_cancellation(
-        &self,
-        task_id: &str,
-        owner_human_id: &str,
-        actor_id: &str,
-    ) -> Result<TaskRecord, StoreError> {
-        self.cancel_task(task_id, owner_human_id, actor_id).await
-    }
 }
 
 fn required<'a>(value: &'a str, label: &str) -> Result<&'a str, StoreError> {

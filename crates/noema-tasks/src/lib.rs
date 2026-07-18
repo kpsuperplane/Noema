@@ -4,6 +4,40 @@
 //! execution, delivery, and API presentation remain in their respective
 //! infrastructure crates.
 
+macro_rules! task_vocabulary {
+    ($type:ident, $kind:literal, {$($variant:ident => $wire:literal),+ $(,)?}) => {
+        impl $type {
+            /// Return the stable SQLite/API representation.
+            #[must_use]
+            pub const fn as_str(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $wire,)+
+                }
+            }
+        }
+
+        impl std::fmt::Display for $type {
+            fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str(self.as_str())
+            }
+        }
+
+        impl std::str::FromStr for $type {
+            type Err = crate::TaskDomainError;
+
+            fn from_str(value: &str) -> Result<Self, Self::Err> {
+                match value {
+                    $($wire => Ok(Self::$variant),)+
+                    other => Err(crate::TaskDomainError::InvalidEnum {
+                        kind: $kind,
+                        value: other.to_string(),
+                    }),
+                }
+            }
+        }
+    };
+}
+
 mod criteria;
 mod error;
 mod event;
@@ -16,6 +50,7 @@ mod state;
 mod submission;
 mod task;
 mod transcript;
+mod validation;
 
 pub use criteria::{NewTaskValidationCriterion, TaskValidationCriterion};
 pub use error::TaskDomainError;
@@ -49,3 +84,119 @@ pub use submission::{
 };
 pub use task::{NewTask, TaskRecord, TaskSource};
 pub use transcript::{AgentRunItemKind, AgentRunItemRecord, AgentRunItemStatus, NewAgentRunItem};
+
+#[cfg(test)]
+mod wire_tests {
+    use std::fmt::Debug;
+
+    use serde::{Serialize, de::DeserializeOwned};
+
+    use super::*;
+
+    #[test]
+    fn durable_enum_wire_vocabularies_are_stable_and_fail_closed() {
+        assert_wire(
+            &[
+                (TaskComplexity::Simple, "simple"),
+                (TaskComplexity::Medium, "medium"),
+                (TaskComplexity::Difficult, "difficult"),
+            ],
+            TaskComplexity::as_str,
+        );
+        assert_wire(
+            &[
+                (TaskStatus::Queued, "queued"),
+                (TaskStatus::Executing, "executing"),
+                (TaskStatus::Reviewing, "reviewing"),
+                (TaskStatus::RevisionRequested, "revision_requested"),
+                (TaskStatus::WaitingForHuman, "waiting_for_human"),
+                (TaskStatus::Completed, "completed"),
+                (TaskStatus::Failed, "failed"),
+                (TaskStatus::Cancelled, "cancelled"),
+            ],
+            TaskStatus::as_str,
+        );
+        assert_wire(
+            &[
+                (RunKind::Executor, "executor"),
+                (RunKind::Reviewer, "reviewer"),
+            ],
+            RunKind::as_str,
+        );
+        assert_wire(
+            &[
+                (RunStatus::Queued, "queued"),
+                (RunStatus::Leased, "leased"),
+                (RunStatus::Running, "running"),
+                (RunStatus::Completed, "completed"),
+                (RunStatus::WaitingForApproval, "waiting_for_approval"),
+                (RunStatus::Interrupted, "interrupted"),
+                (RunStatus::Failed, "failed"),
+                (RunStatus::Cancelled, "cancelled"),
+            ],
+            RunStatus::as_str,
+        );
+        assert_wire(
+            &[
+                (AgentRunItemKind::ModelInput, "model_input"),
+                (AgentRunItemKind::AssistantOutput, "assistant_output"),
+                (AgentRunItemKind::ToolCall, "tool_call"),
+                (AgentRunItemKind::ToolResult, "tool_result"),
+                (AgentRunItemKind::ProgressNotice, "progress_notice"),
+                (AgentRunItemKind::ContextCheckpoint, "context_checkpoint"),
+                (AgentRunItemKind::TaskSubmission, "task_submission"),
+                (AgentRunItemKind::TaskReview, "task_review"),
+                (AgentRunItemKind::ArtifactReference, "artifact_reference"),
+                (AgentRunItemKind::Failure, "failure"),
+                (AgentRunItemKind::Cancellation, "cancellation"),
+            ],
+            AgentRunItemKind::as_str,
+        );
+        assert_wire(
+            &[
+                (AgentRunItemStatus::Pending, "pending"),
+                (AgentRunItemStatus::Running, "running"),
+                (AgentRunItemStatus::Completed, "completed"),
+                (AgentRunItemStatus::Failed, "failed"),
+                (AgentRunItemStatus::Cancelled, "cancelled"),
+                (AgentRunItemStatus::Skipped, "skipped"),
+            ],
+            AgentRunItemStatus::as_str,
+        );
+        assert_wire(
+            &[
+                (TaskReviewVerdict::Approve, "approve"),
+                (TaskReviewVerdict::RequestChanges, "request_changes"),
+                (TaskReviewVerdict::NeedsHuman, "needs_human"),
+            ],
+            TaskReviewVerdict::as_str,
+        );
+        assert_wire(
+            &[
+                (CriterionOutcome::Pass, "pass"),
+                (CriterionOutcome::Fail, "fail"),
+                (CriterionOutcome::Uncertain, "uncertain"),
+            ],
+            CriterionOutcome::as_str,
+        );
+    }
+
+    fn assert_wire<T>(values: &[(T, &'static str)], as_str: impl Fn(T) -> &'static str)
+    where
+        T: Copy + Debug + PartialEq + Serialize + DeserializeOwned + std::str::FromStr,
+        T::Err: Debug,
+    {
+        for &(value, wire) in values {
+            assert_eq!(as_str(value), wire);
+            assert_eq!(wire.parse::<T>().expect("known wire value"), value);
+            let serialized = serde_json::to_string(&value).expect("serialize wire");
+            assert_eq!(serialized, format!("\"{wire}\""));
+            assert_eq!(
+                serde_json::from_str::<T>(&serialized).expect("deserialize wire"),
+                value
+            );
+        }
+        assert!("__unknown__".parse::<T>().is_err());
+        assert!(serde_json::from_str::<T>("\"__unknown__\"").is_err());
+    }
+}

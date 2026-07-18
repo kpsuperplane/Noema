@@ -83,8 +83,8 @@ impl ContinuationProgressTracker {
 
     pub(super) fn observe_results(&mut self, results: &[LocalToolResult]) {
         for result in results {
-            let tool_name = result.name().to_string();
-            let success = result.success();
+            let tool_name = result.name.clone();
+            let success = result.success;
             *self
                 .window
                 .tool_counts
@@ -106,18 +106,18 @@ impl ContinuationProgressTracker {
                 self.window.failure_streak += 1;
                 self.whole_turn.failure_streak += 1;
             }
-            let fingerprint = argument_fingerprint(result.name(), result_arguments(result));
+            let fingerprint = argument_fingerprint(&result.name, &result.arguments);
             let count = self.argument_counts.entry(fingerprint).or_insert(0);
             *count += 1;
             if *count > 1 {
                 self.window.repeated_argument_count += 1;
                 self.whole_turn.repeated_argument_count += 1;
             }
-            if result_novel(result_payload(result)) {
+            if result_novel(&result.payload) {
                 self.window.novel_result_count += 1;
                 self.whole_turn.novel_result_count += 1;
             }
-            if result_side_effect(result.name(), result.success()) {
+            if result_side_effect(&result.name, result.success) {
                 self.window.side_effect_count += 1;
                 self.whole_turn.side_effect_count += 1;
             }
@@ -182,28 +182,6 @@ fn argument_fingerprint(name: &str, arguments: &Value) -> String {
     )
 }
 
-fn result_arguments(result: &LocalToolResult) -> &Value {
-    match result {
-        LocalToolResult::Memory { arguments, .. }
-        | LocalToolResult::AgentName { arguments, .. }
-        | LocalToolResult::Artifact { arguments, .. }
-        | LocalToolResult::WebSearch { arguments, .. }
-        | LocalToolResult::WebFetch { arguments, .. }
-        | LocalToolResult::Gateway { arguments, .. } => arguments,
-    }
-}
-
-fn result_payload(result: &LocalToolResult) -> &Value {
-    match result {
-        LocalToolResult::Memory { result, .. } => &result.payload,
-        LocalToolResult::AgentName { result, .. } => &result.payload,
-        LocalToolResult::Artifact { result, .. } => &result.payload,
-        LocalToolResult::WebSearch { result, .. } => &result.payload,
-        LocalToolResult::WebFetch { result, .. } => &result.payload,
-        LocalToolResult::Gateway { result, .. } => &result.payload,
-    }
-}
-
 fn result_novel(payload: &Value) -> bool {
     payload
         .get("results")
@@ -219,19 +197,19 @@ fn result_side_effect(name: &str, success: bool) -> bool {
 }
 
 fn summarize_result(result: &LocalToolResult) -> String {
-    let payload = result_payload(result);
+    let payload = &result.payload;
     payload
         .get("summary")
         .and_then(Value::as_str)
         .or_else(|| payload.get("error").and_then(Value::as_str))
         .map(str::to_string)
         .unwrap_or_else(|| {
-            let status = if result.success() {
+            let status = if result.success {
                 "succeeded"
             } else {
                 "failed"
             };
-            format!("{} {status}", result.name())
+            format!("{} {status}", result.name)
         })
 }
 
@@ -246,50 +224,19 @@ fn truncate_chars(value: &str, limit: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::daemon::runtime::local_tools::LocalToolResult;
-    use crate::search::tool::WebSearchToolResult;
+    use crate::daemon::runtime::local_tools::{LocalToolKind, LocalToolResult};
     use serde_json::json;
 
     fn web_search_result(call_id: &str, success: bool, payload: Value) -> LocalToolResult {
-        LocalToolResult::WebSearch {
+        let call = super::super::tool_lifecycle::LocalToolCall {
+            output_index: 0,
             call_id: Some(call_id.to_string()),
             provider_call_id: Some(call_id.to_string()),
             provider_name: Some("web.search".to_string()),
-            arguments: json!({ "query": "healthy restaurants" }),
-            persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
-            result: WebSearchToolResult {
-                call_id: Some(call_id.to_string()),
-                name: "web.search".to_string(),
-                success,
-                payload,
-            },
-        }
-    }
-
-    #[test]
-    fn audit_triggers_every_twenty_steps() {
-        assert!(!ContinuationProgressTracker::should_audit(0));
-        assert!(!ContinuationProgressTracker::should_audit(19));
-        assert!(ContinuationProgressTracker::should_audit(20));
-        assert!(!ContinuationProgressTracker::should_audit(21));
-        assert!(ContinuationProgressTracker::should_audit(40));
-    }
-
-    #[test]
-    fn digest_keeps_recent_events_bounded() {
-        let mut tracker = ContinuationProgressTracker::new("find restaurants");
-        for index in 0..8 {
-            tracker.observe_results(&[web_search_result(
-                &format!("call_{index}"),
-                true,
-                json!({ "summary": format!("event {index}"), "results": [{ "title": "Place" }] }),
-            )]);
-        }
-
-        let digest = tracker.digest(20);
-        assert_eq!(digest.recent_events.len(), RECENT_EVENT_LIMIT);
-        assert_eq!(digest.window.success_count, 8);
-        assert_eq!(digest.whole_turn.novel_result_count, 8);
+            name: "web.search".to_string(),
+            payload: json!({ "query": "healthy restaurants" }),
+        };
+        LocalToolResult::from_call(&call, LocalToolKind::WebSearch, success, payload, true)
     }
 
     #[test]

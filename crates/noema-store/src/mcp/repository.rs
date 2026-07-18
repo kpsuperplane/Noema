@@ -30,35 +30,26 @@ impl McpRepository for NoemaStore {
         &self,
         input: McpInitialDiscoveryCommit,
     ) -> RepositoryFuture<'_, McpRepositoryResult<McpControlPlaneServer>> {
-        Box::pin(async move {
-            with_repository_connection(self, move |connection| {
-                commit_initial_discovery_on_connection(connection, input)
-            })
-            .await
-        })
+        Box::pin(with_repository_connection(self, move |connection| {
+            commit_initial_discovery_on_connection(connection, input)
+        }))
     }
 
     fn control_plane_server(
         &self,
         mcp_server_id: String,
     ) -> RepositoryFuture<'_, McpRepositoryResult<Option<McpControlPlaneServer>>> {
-        Box::pin(async move {
-            with_repository_connection(self, move |connection| {
-                rows::control_plane_server_on_connection(connection, &mcp_server_id)
-            })
-            .await
-        })
+        Box::pin(with_repository_connection(self, move |connection| {
+            rows::control_plane_server_on_connection(connection, &mcp_server_id)
+        }))
     }
 
     fn control_plane_catalog(
         &self,
     ) -> RepositoryFuture<'_, McpRepositoryResult<Vec<McpControlPlaneServer>>> {
-        Box::pin(async move {
-            with_repository_connection(self, |connection| {
-                rows::control_plane_catalog_on_connection(connection)
-            })
-            .await
-        })
+        Box::pin(with_repository_connection(self, |connection| {
+            rows::control_plane_catalog_on_connection(connection)
+        }))
     }
 
     fn invocation_snapshot(
@@ -66,84 +57,63 @@ impl McpRepository for NoemaStore {
         mcp_server_id: String,
         mcp_tool_id: String,
     ) -> RepositoryFuture<'_, McpRepositoryResult<Option<McpInvocationSnapshot>>> {
-        Box::pin(async move {
-            with_repository_connection(self, move |connection| {
-                rows::invocation_snapshot_on_connection(connection, &mcp_server_id, &mcp_tool_id)
-            })
-            .await
-        })
+        Box::pin(with_repository_connection(self, move |connection| {
+            rows::invocation_snapshot_on_connection(connection, &mcp_server_id, &mcp_tool_id)
+        }))
     }
 
     fn replace_connection(
         &self,
         input: McpConnectionReplacement,
     ) -> RepositoryFuture<'_, McpRepositoryResult<McpServerRecord>> {
-        Box::pin(async move {
-            with_repository_connection(self, move |connection| {
-                replace_connection_on_connection(connection, input)
-            })
-            .await
-        })
+        Box::pin(with_repository_connection(self, move |connection| {
+            replace_connection_on_connection(connection, input)
+        }))
     }
 
     fn commit_discovery(
         &self,
         input: McpDiscoveryCommit,
     ) -> RepositoryFuture<'_, McpRepositoryResult<McpControlPlaneServer>> {
-        Box::pin(async move {
-            with_repository_connection(self, move |connection| {
-                commit_discovery_on_connection(connection, input)
-            })
-            .await
-        })
+        Box::pin(with_repository_connection(self, move |connection| {
+            commit_discovery_on_connection(connection, input)
+        }))
     }
 
     fn record_failure_status(
         &self,
         input: McpFailureStatus,
     ) -> RepositoryFuture<'_, McpRepositoryResult<bool>> {
-        Box::pin(async move {
-            with_repository_connection(self, move |connection| {
-                record_failure_status_on_connection(connection, input)
-            })
-            .await
-        })
+        Box::pin(with_repository_connection(self, move |connection| {
+            record_failure_status_on_connection(connection, input)
+        }))
     }
 
     fn save_calibrations(
         &self,
         calibrations: Vec<NewToolCalibration>,
     ) -> RepositoryFuture<'_, McpRepositoryResult<Vec<ToolCalibrationRecord>>> {
-        Box::pin(async move {
-            with_repository_connection(self, move |connection| {
-                calibrations::save_calibrations_on_connection(connection, calibrations)
-            })
-            .await
-        })
+        Box::pin(with_repository_connection(self, move |connection| {
+            calibrations::save_calibrations_on_connection(connection, calibrations)
+        }))
     }
 
     fn begin_delete(
         &self,
         mcp_server_id: String,
     ) -> RepositoryFuture<'_, McpRepositoryResult<Option<McpDeleteTicket>>> {
-        Box::pin(async move {
-            with_repository_connection(self, move |connection| {
-                begin_delete_on_connection(connection, &mcp_server_id)
-            })
-            .await
-        })
+        Box::pin(with_repository_connection(self, move |connection| {
+            begin_delete_on_connection(connection, &mcp_server_id)
+        }))
     }
 
     fn finish_delete(
         &self,
         ticket: McpDeleteTicket,
     ) -> RepositoryFuture<'_, McpRepositoryResult<bool>> {
-        Box::pin(async move {
-            with_repository_connection(self, move |connection| {
-                finish_delete_on_connection(connection, ticket)
-            })
-            .await
-        })
+        Box::pin(with_repository_connection(self, move |connection| {
+            finish_delete_on_connection(connection, ticket)
+        }))
     }
 }
 

@@ -48,7 +48,15 @@ impl ResponsesResponse {
                 return Ok(self.generate_response(parsed, diagnostics));
             }
             Err(error @ ProviderError::MalformedResponse { .. }) => {
-                diagnostics.log_malformed_error(&error, self.id.as_deref(), self.raw_payload());
+                let payload = self.raw.clone().unwrap_or_else(|| {
+                    serde_json::json!({
+                        "id": self.id.clone(),
+                        "model": self.model.clone(),
+                        "output": self.output.clone(),
+                        "usage": self.usage.clone(),
+                    })
+                });
+                diagnostics.log_malformed_error(&error, self.id.as_deref(), payload);
                 return Err(error);
             }
             Err(error) => return Err(error),
@@ -88,27 +96,15 @@ impl ResponsesResponse {
         diagnostics: &ResponsesDiagnosticContext,
     ) -> GenerateResponse {
         let reasoning_items = self.reasoning_items();
-        GenerateResponse::from_parsed(
+        let mut response = GenerateResponse::from_parsed(
             parsed,
             diagnostics.provider_kind.clone(),
             self.model.unwrap_or_else(|| diagnostics.model.clone()),
             self.id,
             self.usage.map(Into::into),
-        )
-        .with_reasoning_items(reasoning_items)
-    }
-
-    /// Return the raw provider payload preserved for developer diagnostics.
-    #[must_use]
-    pub fn raw_payload(&self) -> Value {
-        self.raw.clone().unwrap_or_else(|| {
-            serde_json::json!({
-                "id": self.id.clone(),
-                "model": self.model.clone(),
-                "output": self.output.clone(),
-                "usage": self.usage.clone(),
-            })
-        })
+        );
+        response.reasoning_items = reasoning_items;
+        response
     }
 
     /// Collect assistant output text in provider order.

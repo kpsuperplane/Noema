@@ -68,7 +68,7 @@ impl RuntimeActor {
         provider_route: Arc<ProviderRouteLease>,
     ) -> Result<(), RuntimeError> {
         let agent_identity = self
-            .agent_identity_for_conversation(conversation_id)
+            .agent_identity_for_conversation()
             .await?;
         if agent_identity.display_name.is_some() {
             return Ok(());

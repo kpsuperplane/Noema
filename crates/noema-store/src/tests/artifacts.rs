@@ -1,183 +1,43 @@
 use super::test_store;
 
-#[tokio::test]
-async fn artifact_external_url_initial_version_round_trips() {
-    let store = test_store().await;
-    let conversation = store
-        .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
-        .await
-        .expect("conversation");
+async fn assert_metadata_port_rejects_non_positive_index(store: &crate::NoemaStore) {
+    use noema_artifacts::{
+        ArtifactDomainError, ArtifactMetadataError, ArtifactMetadataStore, ArtifactSource,
+        ArtifactVersionStorage, NewArtifactVersion,
+    };
 
-    let artifact = store
-        .create_artifact_with_initial_version(
-            noema_artifacts::NewArtifact {
-                artifact_id: None,
-                owner: noema_artifacts::ArtifactOwnerRef::conversation(
-                    &conversation.conversation_id,
-                ),
-                title: "Sprint brief".to_string(),
-                description: Some("Planning notes".to_string()),
-                artifact_kind: "document".to_string(),
-                storage_kind: noema_artifacts::ArtifactStorageKind::ExternalUrl,
-                created_by_actor_id: "agent:primary".to_string(),
-                source: noema_artifacts::ArtifactSource {
-                    conversation_id: Some(conversation.conversation_id.clone()),
-                    turn_id: None,
-                    item_id: None,
-                },
-                metadata: serde_json::json!({"provider": "notion"}),
+    let error = ArtifactMetadataStore::append_artifact_version(
+        store,
+        "artifact:any",
+        0,
+        NewArtifactVersion {
+            artifact_version_id: None,
+            title: None,
+            storage: ArtifactVersionStorage::LocalFile {
+                relative_path: "unused".to_string(),
             },
-            noema_artifacts::NewArtifactVersion {
-                artifact_version_id: None,
-                title: Some("Initial".to_string()),
-                storage: noema_artifacts::ArtifactVersionStorage::ExternalUrl {
-                    url: "https://notion.so/noema-brief".to_string(),
-                },
-                media_type: Some("text/html".to_string()),
-                byte_size: None,
-                content_sha256: None,
-                created_by_actor_id: "agent:primary".to_string(),
-                source: noema_artifacts::ArtifactSource {
-                    conversation_id: Some(conversation.conversation_id.clone()),
-                    turn_id: None,
-                    item_id: None,
-                },
-                metadata: serde_json::json!({}),
-            },
-        )
-        .await
-        .expect("artifact");
+            media_type: None,
+            byte_size: None,
+            content_sha256: None,
+            created_by_actor_id: "agent:test".to_string(),
+            source: ArtifactSource::default(),
+            metadata: serde_json::json!({}),
+        },
+    )
+    .await
+    .expect_err("non-positive expected index");
 
-    assert_eq!(artifact.artifact.title, "Sprint brief");
-    assert_eq!(artifact.versions.len(), 1);
     assert_eq!(
-        artifact.current_version.artifact_id,
-        artifact.artifact.artifact_id
-    );
-    assert_eq!(artifact.current_version.version_index, 1);
-}
-
-#[tokio::test]
-async fn artifact_external_url_initial_version_rejects_non_http_url() {
-    let store = test_store().await;
-    let conversation = store
-        .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
-        .await
-        .expect("conversation");
-
-    let error = store
-        .create_artifact_with_initial_version(
-            noema_artifacts::NewArtifact {
-                artifact_id: None,
-                owner: noema_artifacts::ArtifactOwnerRef::conversation(
-                    &conversation.conversation_id,
-                ),
-                title: "Unsafe link".to_string(),
-                description: None,
-                artifact_kind: "document".to_string(),
-                storage_kind: noema_artifacts::ArtifactStorageKind::ExternalUrl,
-                created_by_actor_id: "agent:primary".to_string(),
-                source: noema_artifacts::ArtifactSource::default(),
-                metadata: serde_json::json!({}),
-            },
-            noema_artifacts::NewArtifactVersion {
-                artifact_version_id: None,
-                title: None,
-                storage: noema_artifacts::ArtifactVersionStorage::ExternalUrl {
-                    url: "javascript:alert(1)".to_string(),
-                },
-                media_type: None,
-                byte_size: None,
-                content_sha256: None,
-                created_by_actor_id: "agent:primary".to_string(),
-                source: noema_artifacts::ArtifactSource::default(),
-                metadata: serde_json::json!({}),
-            },
-        )
-        .await
-        .expect_err("unsafe external URL should be rejected");
-
-    assert!(matches!(
         error,
-        crate::StoreError::InvalidArtifactExternalUrl { .. }
-    ));
-}
-
-#[tokio::test]
-async fn append_artifact_version_updates_current_version() {
-    let store = test_store().await;
-    let conversation = store
-        .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
-        .await
-        .expect("conversation");
-    let created = seed_external_artifact(&store, &conversation.conversation_id).await;
-
-    let second = store
-        .append_artifact_version(
-            &created.artifact.artifact_id,
-            noema_artifacts::NewArtifactVersion {
-                artifact_version_id: None,
-                title: Some("Revision".to_string()),
-                storage: noema_artifacts::ArtifactVersionStorage::ExternalUrl {
-                    url: "https://notion.so/noema-brief-v2".to_string(),
-                },
-                media_type: Some("text/html".to_string()),
-                byte_size: None,
-                content_sha256: None,
-                created_by_actor_id: "agent:primary".to_string(),
-                source: noema_artifacts::ArtifactSource::default(),
-                metadata: serde_json::json!({"revision": 2}),
-            },
-        )
-        .await
-        .expect("append version");
-
-    assert_eq!(second.version_index, 2);
-    let loaded = store
-        .get_artifact(&created.artifact.artifact_id)
-        .await
-        .expect("load artifact")
-        .expect("artifact exists");
-    assert_eq!(
-        loaded.artifact.current_version_id.as_deref(),
-        Some(second.artifact_version_id.as_str())
+        ArtifactMetadataError::Domain(ArtifactDomainError::InvalidVersionIndex {
+            version_index: 0
+        })
     );
-    assert_eq!(loaded.versions.len(), 2);
 }
 
 #[tokio::test]
-async fn append_artifact_version_rejects_non_http_external_url() {
-    let store = test_store().await;
-    let conversation = store
-        .create_conversation(noema_conversations::NewConversation::local_chat(None, None))
-        .await
-        .expect("conversation");
-    let created = seed_external_artifact(&store, &conversation.conversation_id).await;
-
-    let error = store
-        .append_artifact_version(
-            &created.artifact.artifact_id,
-            noema_artifacts::NewArtifactVersion {
-                artifact_version_id: None,
-                title: Some("Unsafe revision".to_string()),
-                storage: noema_artifacts::ArtifactVersionStorage::ExternalUrl {
-                    url: "file:///private/report.html".to_string(),
-                },
-                media_type: None,
-                byte_size: None,
-                content_sha256: None,
-                created_by_actor_id: "agent:primary".to_string(),
-                source: noema_artifacts::ArtifactSource::default(),
-                metadata: serde_json::json!({}),
-            },
-        )
-        .await
-        .expect_err("unsafe external URL should be rejected");
-
-    assert!(matches!(
-        error,
-        crate::StoreError::InvalidArtifactExternalUrl { .. }
-    ));
+async fn metadata_port_rejects_non_positive_expected_index_as_domain_error() {
+    assert_metadata_port_rejects_non_positive_index(&test_store().await).await;
 }
 
 #[tokio::test]

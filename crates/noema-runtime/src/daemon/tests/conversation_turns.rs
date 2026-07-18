@@ -10,6 +10,22 @@ async fn runtime_turn_streams_durable_assistant_item_and_idle_status() {
     result.expect("turn");
     handle.shutdown().await;
 
+    let first_delta = events
+        .iter()
+        .position(|event| matches!(event, TurnStreamEvent::AssistantTextDelta { .. }))
+        .expect("assistant delta");
+    let durable_assistant = events
+        .iter()
+        .position(|event| {
+            matches!(
+                event,
+                TurnStreamEvent::ConversationItem { item, .. }
+                    if matches!(item.as_ref(), TurnTranscriptItem::AssistantText { .. })
+            )
+        })
+        .expect("durable assistant");
+    assert!(first_delta < durable_assistant);
+
     assert!(events.iter().any(|event| {
         matches!(
             event,
@@ -68,6 +84,29 @@ async fn runtime_turn_streams_durable_assistant_item_and_idle_status() {
         item.item_id == assistant_item_id
             && item.kind == ConversationItemKind::AssistantText
             && item.status == ConversationItemStatus::Completed
+    }));
+}
+
+#[tokio::test]
+async fn runtime_turn_passes_conversation_id_to_provider_request() {
+    let provider = Arc::new(fake_provider(FakeCodexScenario::Simple));
+    let store = crate::test_support::test_store().await;
+    let handle = RuntimeHandle::spawn_with_provider(provider.clone(), store)
+        .await
+        .expect("runtime");
+    let conversation_id = handle
+        .start_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+
+    collect_turn(&handle, conversation_id.clone(), "hello".to_string())
+        .await
+        .expect("turn");
+    handle.shutdown().await;
+
+    assert!(provider.requests().iter().any(|request| {
+        request.conversation_id.as_deref() == Some(conversation_id.as_str())
     }));
 }
 
@@ -154,6 +193,29 @@ async fn multiple_choice_selection_pick_one_appends_user_item() {
         .await
         .expect("selection turn");
     while rx.recv().await.is_some() {}
+
+    let invalid_prompt_item_id = append_test_multiple_choice_prompt(
+        &store,
+        &conversation.conversation_id,
+        MultipleChoiceSelectionMode::PickOne,
+    )
+    .await;
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let error = handle
+        .select_multiple_choice_with_client_message_id(
+            conversation.conversation_id.clone(),
+            invalid_prompt_item_id.clone(),
+            vec!["missing".to_string()],
+            tx,
+            None,
+        )
+        .await
+        .expect_err("invalid id");
+    assert!(
+        error
+            .to_string()
+            .contains("multiple-choice option id is not in the prompt")
+    );
     handle.shutdown().await;
 
     let replay = store
@@ -166,115 +228,95 @@ async fn multiple_choice_selection_pick_one_appends_user_item() {
             && item.payload_json["prompt_item_id"] == prompt_item_id
             && item.payload_json["selected_options"][0]["id"] == "ship"
     }));
-}
-
-#[tokio::test]
-async fn multiple_choice_selection_rejects_invalid_option_id() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::Simple)).await;
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let prompt_item_id = append_test_multiple_choice_prompt(
-        &store,
-        &conversation.conversation_id,
-        MultipleChoiceSelectionMode::PickOne,
-    )
-    .await;
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-    let error = handle
-        .select_multiple_choice_with_client_message_id(
-            conversation.conversation_id.clone(),
-            prompt_item_id,
-            vec!["missing".to_string()],
-            tx,
-            None,
-        )
-        .await
-        .expect_err("invalid id");
-    handle.shutdown().await;
-
     assert!(
-        error
-            .to_string()
-            .contains("multiple-choice option id is not in the prompt")
-    );
-    let replay = store
-        .list_conversation_items(&conversation.conversation_id, ReplayMode::Visible)
-        .await
-        .expect("conversation replay");
-    assert!(
-        !replay
-            .iter()
-            .any(|item| item.kind == ConversationItemKind::MultipleChoiceSelection)
+        replay.iter().all(|item| item.kind
+            != ConversationItemKind::MultipleChoiceSelection
+            || item.payload_json["prompt_item_id"] != invalid_prompt_item_id)
     );
 }
 
 #[tokio::test]
-async fn slash_remember_is_ordinary_chat_text() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::Simple)).await;
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let conversation_id = conversation.conversation_id.clone();
-    collect_turn(
-        &handle,
-        conversation_id.clone(),
-        "/remember I like trains".to_string(),
-    )
-    .await
-    .expect("turn response");
-    handle.shutdown().await;
-
-    let items = store
-        .list_visible_conversation_item_page(&conversation_id, None, 20)
-        .await
-        .expect("items");
-    assert!(
-        items
-            .items
-            .iter()
-            .any(|item| item.content_text.as_deref() == Some("/remember I like trains"))
-    );
-    assert!(!items.items.iter().any(|item| {
-        item.payload_json
-            .get("activity_kind")
-            .and_then(serde_json::Value::as_str)
-            == Some("memory_save")
-    }));
-    assert!(!items.items.iter().any(|item| {
-        item.payload_json
-            .get("activity_kind")
-            .and_then(serde_json::Value::as_str)
-            == Some("memory_extraction")
-    }));
+async fn primary_agent_preferences_route_model_and_reasoning_by_provider_kind() {
+    for (provider_kind, model_profile, reasoning_effort) in [
+        (
+            "codex",
+            "gpt-5.5",
+            Some(noema_providers::ReasoningEffort::High),
+        ),
+        (
+            "foundation_local",
+            "default",
+            Some(noema_providers::ReasoningEffort::Medium),
+        ),
+        ("codex", "gpt-5.6-luna", None),
+    ] {
+        assert_primary_preference_routes(provider_kind, model_profile, reasoning_effort).await;
+    }
 }
 
-#[tokio::test]
-async fn primary_agent_runtime_preference_supplies_turn_model() {
+async fn assert_primary_preference_routes(
+    provider_kind: &str,
+    model_profile: &str,
+    reasoning_effort: Option<noema_providers::ReasoningEffort>,
+) {
     let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
-    let account = store
-        .ensure_default_foundation_local_provider_account()
-        .await
-        .expect("foundation account");
-    authenticate_provider_account(&store, &account.provider_account_id).await;
-    upsert_ready_agent_runtime_preference(
-        &store,
-        noema_store::NewAgentRuntimePreference {
-            agent_id: "agent:primary".to_string(),
-            provider_kind: "foundation_local".to_string(),
-            provider_account_id: account.provider_account_id,
-            model_profile: "default".to_string(),
-            reasoning_effort: None,
-        },
-    )
-    .await;
-
-    let provider = Arc::new(CapturingProvider::default());
-    let runtime =
-        RuntimeHandle::spawn_with_provider_kind(provider.clone(), store, "foundation_local")
+    let provider_account_id = match provider_kind {
+        "codex" => store
+            .ensure_default_provider_account()
             .await
-            .expect("runtime");
+            .expect("codex account")
+            .provider_account_id,
+        "foundation_local" => store
+            .ensure_default_foundation_local_provider_account()
+            .await
+            .expect("foundation account")
+            .provider_account_id,
+        _ => unreachable!("unsupported test provider"),
+    };
+    authenticate_provider_account(&store, &provider_account_id).await;
+    if reasoning_effort.is_some() {
+        upsert_ready_agent_runtime_preference(
+            &store,
+            noema_store::NewAgentRuntimePreference {
+                agent_id: "agent:primary".to_string(),
+                provider_kind: provider_kind.to_string(),
+                provider_account_id,
+                model_profile: model_profile.to_string(),
+                reasoning_effort,
+            },
+        )
+        .await;
+    }
+
+    let selected_provider = Arc::new(CapturingProvider::default());
+    let other_provider = Arc::new(CapturingProvider::default());
+    let other_kind = if provider_kind == "codex" {
+        "foundation_local"
+    } else {
+        "codex"
+    };
+    let default_kind = if reasoning_effort.is_some() {
+        other_kind
+    } else {
+        provider_kind
+    };
+    let runtime = RuntimeHandle::spawn_with_provider_map(
+        default_kind,
+        vec![
+            (
+                provider_kind.to_string(),
+                selected_provider.clone() as noema_providers::ProviderHandle,
+            ),
+            (
+                other_kind.to_string(),
+                other_provider.clone() as noema_providers::ProviderHandle,
+            ),
+        ],
+        store,
+    )
+    .await
+    .expect("runtime");
 
     let started = runtime
         .start_primary_conversation(None)
@@ -287,224 +329,19 @@ async fn primary_agent_runtime_preference_supplies_turn_model() {
         .expect("turn");
 
     while rx.recv().await.is_some() {}
+
     runtime.shutdown().await;
 
-    let requests = provider.requests.lock().expect("requests");
+    assert!(other_provider.requests.lock().expect("other").is_empty());
+    let requests = selected_provider.requests.lock().expect("selected requests");
     assert_eq!(
         requests.last().and_then(|request| request.model.as_deref()),
-        Some("default")
+        Some(model_profile)
     );
-}
-
-#[tokio::test]
-async fn primary_agent_runtime_preference_supplies_reasoning_effort() {
-    let store = crate::test_support::test_store().await;
-    store.ensure_default_actors().await.expect("actors");
-    let account = store
-        .ensure_default_provider_account()
-        .await
-        .expect("codex account");
-    authenticate_provider_account(&store, &account.provider_account_id).await;
-    upsert_ready_agent_runtime_preference(
-        &store,
-        noema_store::NewAgentRuntimePreference {
-            agent_id: "agent:primary".to_string(),
-            provider_kind: "codex".to_string(),
-            provider_account_id: account.provider_account_id,
-            model_profile: "gpt-5.5".to_string(),
-            reasoning_effort: Some(noema_providers::ReasoningEffort::High),
-        },
-    )
-    .await;
-
-    let codex_provider = Arc::new(CapturingProvider::default());
-    let runtime = RuntimeHandle::spawn_with_provider_kind(codex_provider.clone(), store, "codex")
-        .await
-        .expect("runtime");
-
-    let started = runtime
-        .start_primary_conversation(None)
-        .await
-        .expect("conversation");
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    runtime
-        .turn(started.conversation_id, "hello".to_string(), tx)
-        .await
-        .expect("turn");
-
-    while rx.recv().await.is_some() {}
-
-    runtime.shutdown().await;
-
-    let requests = codex_provider.requests.lock().expect("codex requests");
     assert_eq!(
         requests
             .last()
             .and_then(|request| request.options.reasoning_effort),
-        Some(noema_providers::ReasoningEffort::High)
-    );
-}
-
-#[tokio::test]
-async fn primary_agent_codex_preference_sends_reasoning_effort_to_codex_provider_kind() {
-    let store = crate::test_support::test_store().await;
-    store.ensure_default_actors().await.expect("actors");
-    let account = store
-        .ensure_default_provider_account()
-        .await
-        .expect("codex account");
-    authenticate_provider_account(&store, &account.provider_account_id).await;
-    upsert_ready_agent_runtime_preference(
-        &store,
-        noema_store::NewAgentRuntimePreference {
-            agent_id: "agent:primary".to_string(),
-            provider_kind: "codex".to_string(),
-            provider_account_id: account.provider_account_id,
-            model_profile: "gpt-5.5".to_string(),
-            reasoning_effort: Some(noema_providers::ReasoningEffort::High),
-        },
-    )
-    .await;
-
-    let codex_provider = Arc::new(CapturingProvider::default());
-    let openai_provider = Arc::new(CapturingProvider::default());
-    let runtime = RuntimeHandle::spawn_with_provider_map(
-        "openai",
-        vec![
-            (
-                "codex".to_string(),
-                codex_provider.clone() as noema_providers::ProviderHandle,
-            ),
-            (
-                "openai".to_string(),
-                openai_provider.clone() as noema_providers::ProviderHandle,
-            ),
-        ],
-        store,
-    )
-    .await
-    .expect("runtime");
-
-    let started = runtime
-        .start_primary_conversation(None)
-        .await
-        .expect("conversation");
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    runtime
-        .turn(started.conversation_id, "hello".to_string(), tx)
-        .await
-        .expect("turn");
-
-    while rx.recv().await.is_some() {}
-
-    runtime.shutdown().await;
-
-    assert!(openai_provider.requests.lock().expect("openai").is_empty());
-    let codex_requests = codex_provider.requests.lock().expect("codex requests");
-    assert_eq!(
-        codex_requests
-            .last()
-            .and_then(|request| request.options.reasoning_effort),
-        Some(noema_providers::ReasoningEffort::High)
-    );
-}
-
-#[tokio::test]
-async fn primary_agent_openai_preference_sends_reasoning_effort_to_openai_provider_kind() {
-    let store = crate::test_support::test_store().await;
-    store.ensure_default_actors().await.expect("actors");
-    let provider_account_id = store
-        .ensure_default_foundation_local_provider_account()
-        .await
-        .expect("foundation account")
-        .provider_account_id;
-    authenticate_provider_account(&store, &provider_account_id).await;
-    upsert_ready_agent_runtime_preference(
-        &store,
-        noema_store::NewAgentRuntimePreference {
-            agent_id: "agent:primary".to_string(),
-            provider_kind: "foundation_local".to_string(),
-            provider_account_id,
-            model_profile: "default".to_string(),
-            reasoning_effort: Some(noema_providers::ReasoningEffort::Medium),
-        },
-    )
-    .await;
-
-    let codex_provider = Arc::new(CapturingProvider::default());
-    let foundation_provider = Arc::new(CapturingProvider::default());
-    let runtime = RuntimeHandle::spawn_with_provider_map(
-        "codex",
-        vec![
-            (
-                "codex".to_string(),
-                codex_provider.clone() as noema_providers::ProviderHandle,
-            ),
-            (
-                "foundation_local".to_string(),
-                foundation_provider.clone() as noema_providers::ProviderHandle,
-            ),
-        ],
-        store,
-    )
-    .await
-    .expect("runtime");
-
-    let started = runtime
-        .start_primary_conversation(None)
-        .await
-        .expect("conversation");
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    runtime
-        .turn(started.conversation_id, "hello".to_string(), tx)
-        .await
-        .expect("turn");
-
-    while rx.recv().await.is_some() {}
-
-    runtime.shutdown().await;
-
-    assert!(codex_provider.requests.lock().expect("codex").is_empty());
-    let foundation_requests = foundation_provider
-        .requests
-        .lock()
-        .expect("foundation requests");
-    assert_eq!(
-        foundation_requests
-            .last()
-            .and_then(|request| request.options.reasoning_effort),
-        Some(noema_providers::ReasoningEffort::Medium)
-    );
-}
-
-#[tokio::test]
-async fn primary_agent_default_provider_sends_no_reasoning_effort() {
-    let store = crate::test_support::test_store().await;
-    store.ensure_default_actors().await.expect("actors");
-    let codex_provider = Arc::new(CapturingProvider::default());
-    let runtime = RuntimeHandle::spawn_with_provider_kind(codex_provider.clone(), store, "codex")
-        .await
-        .expect("runtime");
-
-    let started = runtime
-        .start_primary_conversation(None)
-        .await
-        .expect("conversation");
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    runtime
-        .turn(started.conversation_id, "hello".to_string(), tx)
-        .await
-        .expect("turn");
-
-    while rx.recv().await.is_some() {}
-
-    runtime.shutdown().await;
-
-    let requests = codex_provider.requests.lock().expect("codex requests");
-    assert_eq!(
-        requests
-            .last()
-            .and_then(|request| request.options.reasoning_effort),
-        None
+        reasoning_effort
     );
 }

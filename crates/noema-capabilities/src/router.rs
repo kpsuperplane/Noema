@@ -78,9 +78,7 @@ pub struct CapabilityDispatchFailure {
 }
 
 impl CapabilityDispatchFailure {
-    /// Build a policy/control-plane failure through the exact binding's
-    /// persistence policy. If the name is unadvertised, the returned error is
-    /// [`CapabilityError::UnknownOperation`] and both views are omitted.
+    /// Build a failure through the exact binding's persistence policy.
     #[must_use]
     pub fn from_snapshot(
         snapshot: &CapabilityCatalogSnapshot,
@@ -207,9 +205,6 @@ pub trait CapabilityRouter: Send + Sync {
         arguments: Value,
     ) -> CapabilityFuture<'_, Result<CapabilityDispatch, CapabilityDispatchFailure>>;
 }
-
-/// Clonable router handle.
-pub type CapabilityRouterHandle = Arc<dyn CapabilityRouter>;
 
 /// Router construction error.
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
@@ -437,7 +432,7 @@ mod tests {
             invoker.clone() as CapabilityInvokerHandle,
         )])
         .expect("router");
-        let router: CapabilityRouterHandle = Arc::new(router);
+        let router: Arc<dyn CapabilityRouter> = Arc::new(router);
         let snapshot = snapshot();
 
         let success = poll_ready(router.dispatch(
@@ -478,48 +473,47 @@ mod tests {
         assert_eq!(error.persisted, PersistedCapabilityPayload::omitted());
     }
 
-    #[test]
-    fn omit_policy_applies_to_control_plane_failure() {
+    fn control_plane_failure(
+        sanitizer: Arc<dyn PayloadSanitizer>,
+        arguments: Value,
+    ) -> CapabilityDispatchFailure {
         let router = CapabilityRegistryRouter::new([(
             InvokerKey::new("mcp"),
             Arc::new(FixedInvoker(Err(CapabilityError::Unavailable))) as CapabilityInvokerHandle,
         )])
         .expect("router");
-        let failure = poll_ready(CapabilityRouter::dispatch(
+        poll_ready(CapabilityRouter::dispatch(
             &router,
             snapshot_with(
                 InvokerKey::new("mcp"),
                 OperationToken::new("reviewed:1"),
-                Arc::new(OmitPayloadSanitizer),
+                sanitizer,
             ),
             "mcp.docs.read".to_string(),
-            json!({"private":"workspace"}),
+            arguments,
         ))
-        .expect_err("control-plane failure");
-        assert_eq!(failure.error, CapabilityError::Unavailable);
-        assert_eq!(failure.persisted, PersistedCapabilityPayload::omitted());
+        .expect_err("control-plane failure")
     }
 
     #[test]
-    fn redacting_policy_applies_to_fixed_control_plane_error_payload() {
-        let router = CapabilityRegistryRouter::new([(
-            InvokerKey::new("mcp"),
-            Arc::new(FixedInvoker(Err(CapabilityError::Unavailable))) as CapabilityInvokerHandle,
-        )])
-        .expect("router");
-        let failure = poll_ready(CapabilityRouter::dispatch(
-            &router,
-            snapshot(),
-            "mcp.docs.read".to_string(),
+    fn binding_policy_applies_to_every_control_plane_failure_view() {
+        let omitted = control_plane_failure(
+            Arc::new(OmitPayloadSanitizer),
+            json!({"private":"workspace"}),
+        );
+        assert_eq!(omitted.error, CapabilityError::Unavailable);
+        assert_eq!(omitted.persisted, PersistedCapabilityPayload::omitted());
+
+        let redacted = control_plane_failure(
+            Arc::new(RedactingPayloadSanitizer),
             json!({"api_key":"private", "query":"safe"}),
-        ))
-        .expect_err("control-plane failure");
+        );
         assert_eq!(
-            failure.persisted.arguments,
+            redacted.persisted.arguments,
             Some(json!({"api_key":"[REDACTED]", "query":"safe"}))
         );
         assert_eq!(
-            failure.persisted.output,
+            redacted.persisted.output,
             Some(json!({"error":"unavailable"}))
         );
     }

@@ -225,7 +225,8 @@ pub struct GenerateToolResultInput {
 impl GenerateToolResultInput {
     /// Render the result body expected inside provider-native function output.
     #[must_use]
-    pub fn output_json_string(&self) -> String {
+    #[cfg(feature = "adapters")]
+    pub(crate) fn output_json_string(&self) -> String {
         serde_json::json!({
             "call_id": self.call_id,
             "name": self.name,

@@ -13,16 +13,6 @@ use super::{
 use crate::{NoemaStore, StoreError, ids::allocate_id, provider_selections::prove_selection_ready};
 
 impl NoemaStore {
-    /// Commit an adversarial review and derive the next task state.
-    pub async fn create_task_review(
-        &self,
-        input: NewTaskReview,
-        lease_token: &str,
-    ) -> Result<TaskRecord, StoreError> {
-        self.create_task_review_inner(input, lease_token, None)
-            .await
-    }
-
     /// Commit a review while proving any newly queued executor is registered
     /// and ready through commit.
     pub async fn create_task_review_with_readiness(
@@ -30,16 +20,6 @@ impl NoemaStore {
         input: NewTaskReview,
         lease_token: &str,
         registry: &ProviderRegistry,
-    ) -> Result<TaskRecord, StoreError> {
-        self.create_task_review_inner(input, lease_token, Some(registry))
-            .await
-    }
-
-    async fn create_task_review_inner(
-        &self,
-        input: NewTaskReview,
-        lease_token: &str,
-        registry: Option<&ProviderRegistry>,
     ) -> Result<TaskRecord, StoreError> {
         if lease_token.trim().is_empty() {
             return Err(StoreError::InvariantViolation {
@@ -146,7 +126,7 @@ impl NoemaStore {
             };
             let ready_selection = next_run_model
                 .as_ref()
-                .map(|selection| prove_selection_ready(selection, registry))
+                .map(|selection| prove_selection_ready(selection, Some(registry)))
                 .transpose()?;
             let fenced = transaction.execute(
                 "UPDATE agent_runs SET status = 'completed', ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, heartbeat_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND task_id = ?2 AND run_kind = 'reviewer' AND triggering_submission_id = ?3 AND lease_token = ?4 AND status = 'running' AND cancellation_requested = 0 AND EXISTS (SELECT 1 FROM tasks WHERE task_id = ?2 AND latest_run_id = ?1 AND status = 'reviewing')",

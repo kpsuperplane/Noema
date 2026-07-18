@@ -1,24 +1,19 @@
 //! Stdio MCP session preparation.
 
 use std::{
-    collections::BTreeMap,
     ffi::{OsStr, OsString},
     fmt,
 };
 
-#[cfg(unix)]
-use process_wrap::tokio::CommandWrapper;
 use process_wrap::tokio::{CommandWrap, KillOnDrop};
 use rmcp::ServiceExt;
-use serde_json::{Map, Value};
 use tokio::process::Command;
 
 use crate::{
-    McpDiagnosticHandle, McpSecretMaterial, McpServerRecord, McpTransportKind,
+    McpDiagnosticHandle, McpSecretMaterial, McpServerRecord, McpStdioSetupConfig, McpTransportKind,
     client::{
-        McpClientError, McpClientFuture, McpClientResult, McpPreparedSession, McpRequestContext,
-        McpSessionFactory, McpSessionPreparation, RmcpPreparedSession, initialize_error,
-        run_with_context,
+        McpClientError, McpClientFuture, McpClientResult, McpRequestContext, McpSessionFactory,
+        McpSessionPreparation, RmcpPreparedSession, initialize_error, run_with_context,
     },
 };
 
@@ -59,18 +54,10 @@ impl McpSessionFactory for StdioMcpSessionFactory {
         Box::pin(async move {
             context.check("initialize")?;
             let config = stdio_config_from_server(server, secrets)?;
-            #[cfg(unix)]
-            let process_group_capture = ProcessGroupCapture::new();
-            let command = wrapped_stdio_command(
-                stdio_command(&config, std::env::vars_os()),
-                #[cfg(unix)]
-                process_group_capture.clone(),
-            );
+            let command = wrapped_stdio_command(stdio_command(&config, std::env::vars_os()));
             let transport = transport::spawn(command).map_err(|error| {
                 McpClientError::Unavailable(format!("failed to start MCP stdio command: {error}"))
             })?;
-            #[cfg(unix)]
-            let process_group = process_group_capture.guard()?;
             let service_cancellation = context.cancellation_token().child_token();
             let initialize = ().serve_with_ct(transport, service_cancellation.clone());
             let service = match run_with_context(context, "initialize", async {
@@ -92,31 +79,16 @@ impl McpSessionFactory for StdioMcpSessionFactory {
                 server.mcp_server_id.clone(),
                 TRANSPORT_KIND,
             );
-            #[cfg(unix)]
-            let session = StdioPreparedSession::new(session, process_group);
             Ok(McpSessionPreparation::new(Box::new(session), None))
         })
     }
 }
 
-struct StdioConfig {
-    command: String,
-    args: Vec<String>,
-    cwd: Option<String>,
-    env: BTreeMap<String, String>,
-}
-
-fn wrapped_stdio_command(
-    command: Command,
-    #[cfg(unix)] process_group_capture: ProcessGroupCapture,
-) -> CommandWrap {
+fn wrapped_stdio_command(command: Command) -> CommandWrap {
     let mut command = CommandWrap::from(command);
     command.wrap(KillOnDrop);
     #[cfg(unix)]
-    {
-        command.wrap(process_wrap::tokio::ProcessGroup::leader());
-        command.wrap(process_group_capture);
-    }
+    command.wrap(process_wrap::tokio::ProcessGroup::leader());
     #[cfg(windows)]
     {
         command.wrap(process_wrap::tokio::JobObject);
@@ -124,132 +96,8 @@ fn wrapped_stdio_command(
     command
 }
 
-#[cfg(unix)]
-#[derive(Clone, Debug)]
-struct ProcessGroupCapture {
-    pid: std::sync::Arc<std::sync::atomic::AtomicU32>,
-}
-
-#[cfg(unix)]
-impl ProcessGroupCapture {
-    fn new() -> Self {
-        Self {
-            pid: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0)),
-        }
-    }
-
-    fn guard(&self) -> McpClientResult<ProcessGroupGuard> {
-        let pgid = self.pid.load(std::sync::atomic::Ordering::Acquire);
-        if pgid == 0 || i32::try_from(pgid).is_err() {
-            return Err(McpClientError::Unavailable(
-                "failed to capture MCP stdio process group".to_string(),
-            ));
-        }
-        Ok(ProcessGroupGuard { pgid, armed: true })
-    }
-}
-
-#[cfg(unix)]
-impl CommandWrapper for ProcessGroupCapture {
-    fn post_spawn(
-        &mut self,
-        _command: &mut Command,
-        child: &mut tokio::process::Child,
-        _core: &CommandWrap,
-    ) -> std::io::Result<()> {
-        let pid = child
-            .id()
-            .ok_or_else(|| std::io::Error::other("spawned MCP stdio child has no process ID"))?;
-        self.pid.store(pid, std::sync::atomic::Ordering::Release);
-        Ok(())
-    }
-}
-
-#[cfg(unix)]
-struct ProcessGroupGuard {
-    pgid: u32,
-    armed: bool,
-}
-
-#[cfg(unix)]
-impl ProcessGroupGuard {
-    fn terminate(&mut self) {
-        if !self.armed {
-            return;
-        }
-        self.armed = false;
-        let Ok(pgid) = i32::try_from(self.pgid) else {
-            return;
-        };
-        let _ = nix::sys::signal::killpg(
-            nix::unistd::Pid::from_raw(pgid),
-            nix::sys::signal::Signal::SIGKILL,
-        );
-    }
-}
-
-#[cfg(unix)]
-impl Drop for ProcessGroupGuard {
-    fn drop(&mut self) {
-        self.terminate();
-    }
-}
-
-#[cfg(unix)]
-struct StdioPreparedSession {
-    inner: Option<RmcpPreparedSession>,
-    process_group: ProcessGroupGuard,
-}
-
-#[cfg(unix)]
-impl StdioPreparedSession {
-    fn new(inner: RmcpPreparedSession, process_group: ProcessGroupGuard) -> Self {
-        Self {
-            inner: Some(inner),
-            process_group,
-        }
-    }
-}
-
-#[cfg(unix)]
-impl McpPreparedSession for StdioPreparedSession {
-    fn discover_tools<'a>(
-        &'a mut self,
-        context: &'a McpRequestContext,
-    ) -> McpClientFuture<'a, Vec<crate::McpDiscoveredTool>> {
-        self.inner
-            .as_mut()
-            .expect("stdio session remains present until close")
-            .discover_tools(context)
-    }
-
-    fn call_tool<'a>(
-        &'a mut self,
-        tool_name: &'a str,
-        arguments: Value,
-        context: &'a McpRequestContext,
-    ) -> McpClientFuture<'a, crate::client::McpToolCallOutput> {
-        self.inner
-            .as_mut()
-            .expect("stdio session remains present until close")
-            .call_tool(tool_name, arguments, context)
-    }
-
-    fn close(mut self: Box<Self>) -> McpClientFuture<'static, ()> {
-        let inner = self
-            .inner
-            .take()
-            .expect("stdio session remains present until close");
-        Box::pin(async move {
-            let result = Box::new(inner).close().await;
-            self.process_group.terminate();
-            result
-        })
-    }
-}
-
 fn stdio_command(
-    config: &StdioConfig,
+    config: &McpStdioSetupConfig,
     inherited: impl IntoIterator<Item = (OsString, OsString)>,
 ) -> Command {
     let mut command = Command::new(&config.command);
@@ -287,101 +135,21 @@ fn inherited_env_allowed(key: &OsStr) -> bool {
 fn stdio_config_from_server(
     server: &McpServerRecord,
     secrets: &McpSecretMaterial,
-) -> McpClientResult<StdioConfig> {
+) -> McpClientResult<McpStdioSetupConfig> {
     if server.transport_kind != McpTransportKind::Stdio {
         return Err(McpClientError::Malformed(
             "MCP server is not configured for stdio".to_string(),
         ));
     }
-    let object = server.safe_config.as_object().ok_or_else(|| {
-        McpClientError::Malformed("MCP stdio config must be an object".to_string())
-    })?;
-    let command = string_field(object, "command")?;
-    if command.trim().is_empty() || command.chars().any(char::is_control) {
+    let mut config: McpStdioSetupConfig = serde_json::from_value(server.safe_config.clone())
+        .map_err(|_| McpClientError::Malformed("MCP stdio config is invalid".to_string()))?;
+    if config.command.trim().is_empty() || config.command.chars().any(char::is_control) {
         return Err(McpClientError::Malformed(
             "MCP stdio command is invalid".to_string(),
         ));
     }
-    let args = string_array_field(object, "args")?;
-    let cwd = optional_string_field(object, "cwd")?;
-    let mut env = string_map_field(object, "env")?;
-    env.extend(secrets.env.clone());
-    Ok(StdioConfig {
-        command,
-        args,
-        cwd,
-        env,
-    })
-}
-
-fn string_field(object: &Map<String, Value>, field: &'static str) -> McpClientResult<String> {
-    object
-        .get(field)
-        .and_then(Value::as_str)
-        .map(ToString::to_string)
-        .ok_or_else(|| {
-            McpClientError::Malformed(format!("MCP config field {field} must be a string"))
-        })
-}
-
-fn optional_string_field(
-    object: &Map<String, Value>,
-    field: &'static str,
-) -> McpClientResult<Option<String>> {
-    match object.get(field) {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::String(value)) => Ok(Some(value.clone())),
-        Some(_) => Err(McpClientError::Malformed(format!(
-            "MCP config field {field} must be a string"
-        ))),
-    }
-}
-
-fn string_array_field(
-    object: &Map<String, Value>,
-    field: &'static str,
-) -> McpClientResult<Vec<String>> {
-    match object.get(field) {
-        None => Ok(Vec::new()),
-        Some(Value::Array(values)) => values
-            .iter()
-            .map(|value| {
-                value.as_str().map(ToString::to_string).ok_or_else(|| {
-                    McpClientError::Malformed(format!(
-                        "MCP config field {field} must contain strings"
-                    ))
-                })
-            })
-            .collect(),
-        Some(_) => Err(McpClientError::Malformed(format!(
-            "MCP config field {field} must be an array"
-        ))),
-    }
-}
-
-fn string_map_field(
-    object: &Map<String, Value>,
-    field: &'static str,
-) -> McpClientResult<BTreeMap<String, String>> {
-    match object.get(field) {
-        None | Some(Value::Null) => Ok(BTreeMap::new()),
-        Some(Value::Object(map)) => map
-            .iter()
-            .map(|(key, value)| {
-                value
-                    .as_str()
-                    .map(|value| (key.clone(), value.to_string()))
-                    .ok_or_else(|| {
-                        McpClientError::Malformed(format!(
-                            "MCP config field {field} must contain string values"
-                        ))
-                    })
-            })
-            .collect(),
-        Some(_) => Err(McpClientError::Malformed(format!(
-            "MCP config field {field} must be an object"
-        ))),
-    }
+    config.env.extend(secrets.env.clone());
+    Ok(config)
 }
 
 #[cfg(test)]
@@ -392,25 +160,15 @@ mod tests {
         time::Duration,
     };
 
-    use serde_json::json;
+    use serde_json::{Value, json};
     use tempfile::tempdir;
     use tokio_util::sync::CancellationToken;
 
     use super::*;
-    use crate::{McpServerAuthStatus, McpServerHealthStatus};
+    use crate::test_fixture::server_record;
 
     fn server(safe_config: Value) -> McpServerRecord {
-        McpServerRecord {
-            mcp_server_id: "mcp:stdio".to_string(),
-            display_name: "Local".to_string(),
-            transport_kind: McpTransportKind::Stdio,
-            safe_config,
-            enabled: true,
-            health_status: McpServerHealthStatus::Unknown,
-            auth_status: McpServerAuthStatus::None,
-            tool_count: 0,
-            authority_generation: "generation".to_string(),
-        }
+        server_record("mcp:stdio", McpTransportKind::Stdio, safe_config)
     }
 
     #[test]
@@ -438,7 +196,7 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn command_inherits_only_minimal_allowlist_plus_declared_environment() {
-        let config = StdioConfig {
+        let config = McpStdioSetupConfig {
             command: "/bin/sh".to_string(),
             args: vec![
                 "-c".to_string(),

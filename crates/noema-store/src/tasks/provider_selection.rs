@@ -1,14 +1,13 @@
 //! Transaction-local provider selection readers for durable task snapshots.
 
-use noema_providers::{
-    ProviderInstanceKey, ProviderSelectionMode, ProviderSelectionSnapshot, ReasoningEffort,
-};
+use noema_providers::{ProviderInstanceKey, ProviderSelectionSnapshot, ReasoningEffort};
 use noema_tasks::{RunKind, TASK_REVIEWER_AGENT_ID, TaskComplexity};
 use rusqlite::{OptionalExtension, Transaction};
 
 use crate::{
     StoreError,
     provider_selections::{SelectionEligibility, validate_provider_selection_tx},
+    sqlite::{parse_column, reasoning_column},
 };
 
 /// Load and validate the exact enabled pool selection inside its writer transaction.
@@ -192,35 +191,9 @@ fn explicit_selection(
 }
 
 fn selection_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProviderSelectionSnapshot> {
-    let key = ProviderInstanceKey::new(row.get::<_, String>(2)?).map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(error))
-    })?;
-    let selection_mode = row
-        .get::<_, String>(3)?
-        .parse::<ProviderSelectionMode>()
-        .map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(
-                3,
-                rusqlite::types::Type::Text,
-                Box::new(error),
-            )
-        })?;
-    let reasoning_effort = row
-        .get::<_, Option<String>>(5)?
-        .as_deref()
-        .map(|value| {
-            ReasoningEffort::from_persistence_str(value).ok_or_else(|| {
-                rusqlite::Error::FromSqlConversionFailure(
-                    5,
-                    rusqlite::types::Type::Text,
-                    Box::new(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "invalid reasoning effort",
-                    )),
-                )
-            })
-        })
-        .transpose()?;
+    let key = parse_column(row, 2)?;
+    let selection_mode = parse_column(row, 3)?;
+    let reasoning_effort = reasoning_column(row, 5)?;
     Ok(ProviderSelectionSnapshot {
         provider_kind: row.get(0)?,
         provider_account_id: row.get(1)?,

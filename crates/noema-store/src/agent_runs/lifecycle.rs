@@ -250,25 +250,4 @@ impl NoemaStore {
             cancellation_requested,
         })
     }
-
-    /// Check the durable cancellation flag for an active run.
-    pub async fn agent_run_cancellation_requested(
-        &self,
-        run_id: &str,
-        lease_token: &str,
-    ) -> Result<bool, StoreError> {
-        self.with_connection(|conn| {
-            conn.query_row(
-                "SELECT cancellation_requested FROM agent_runs WHERE run_id = ?1 AND lease_token = ?2 AND status IN ('leased', 'running')",
-                params![run_id, lease_token],
-                |row| Ok(row.get::<_, i64>(0)? != 0),
-            )
-            .optional()
-            .map_err(StoreError::Sqlite)?
-            .ok_or_else(|| StoreError::InvariantViolation {
-                message: format!("agent run lease changed while checking cancellation: {run_id}"),
-            })
-        })
-        .await
-    }
 }

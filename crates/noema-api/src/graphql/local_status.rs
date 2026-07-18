@@ -19,10 +19,11 @@ pub enum GraphqlAssistantConnection {
 }
 
 /// Memory storage readiness shown by clients.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Enum)]
 #[graphql(name = "MemoryStorageStatus")]
 pub enum GraphqlMemoryStorageStatus {
     /// The local memory service is ready.
+    #[default]
     Ready,
     /// The local memory service is initializing.
     Initializing,

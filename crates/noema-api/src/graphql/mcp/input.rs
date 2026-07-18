@@ -189,9 +189,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rejects_removed_sse_transport_kind() {
+    fn rejects_invalid_boundary_enums() {
         let error = parse_graphql_transport_kind("sse").expect_err("SSE must be rejected");
 
         assert!(error.message.contains("stdio, streamable_http"));
+
+        let error = parse_save_tool_calibration_input(GraphqlSaveToolCalibrationInput {
+            calibration_id: "calibration:read".to_string(),
+            mcp_tool_id: "tool:read".to_string(),
+            read_classification: "Mixed".to_string(),
+            write_classification: "none".to_string(),
+            export_classification: "none".to_string(),
+            status: "blocked_unresolved_ownership".to_string(),
+            reviewed_by: None,
+            reviewed_metadata_fingerprint: None,
+        })
+        .expect_err("GraphQL enums use canonical lower-case storage values");
+        assert!(error.message.contains("invalid readClassification"));
     }
 }

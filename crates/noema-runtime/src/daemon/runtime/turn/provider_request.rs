@@ -44,7 +44,7 @@ impl RuntimeActor {
         let tool_capabilities = provider.tool_capabilities(model_profile);
         let response_continuation = provider.response_continuation(model_profile);
         let agent_identity = self
-            .agent_identity_for_conversation(&conversation_id)
+            .agent_identity_for_conversation()
             .await?;
         let tools_started_at = std::time::Instant::now();
         let model_tools = self.model_tools(true, tool_capabilities).await?;
@@ -195,7 +195,7 @@ impl RuntimeActor {
         } else {
             None
         };
-        if super::context_compaction::should_compact_foreground(&planned_context) {
+        if !planned_context.fits {
             let compaction_started_at = std::time::Instant::now();
             timing.mark("runtime_foreground_compaction_started", json!({}));
             let compaction_result = super::context_compaction::compact_context_with_retry(

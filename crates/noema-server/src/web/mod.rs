@@ -60,22 +60,6 @@ impl WebState {
             auth_mode,
         }
     }
-
-    pub(crate) fn graphql_state(&self) -> &noema_api::graphql::GraphqlState {
-        &self.graphql_state
-    }
-    pub(crate) fn graphql_schema(&self) -> &noema_api::graphql::GraphqlSchema {
-        &self.graphql_schema
-    }
-    fn authority(&self) -> &authority::CanonicalAuthority {
-        &self.authority
-    }
-    fn sessions(&self) -> &session::SessionSecurity {
-        &self.sessions
-    }
-    fn auth_mode(&self) -> WebAuthMode {
-        self.auth_mode
-    }
 }
 
 pub(super) use router::build_router;
@@ -90,21 +74,4 @@ pub(super) async fn bind_listener(config: &WebConfig) -> Result<TcpListener, Web
                 config.host, config.port
             ))
         })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn build_auth_mode_is_only_disabled_for_debug_dev_feature() {
-        #[cfg(all(feature = "dev-no-auth", debug_assertions))]
-        assert_eq!(
-            WebAuthMode::from_build(),
-            WebAuthMode::DisabledForDevelopment
-        );
-
-        #[cfg(not(all(feature = "dev-no-auth", debug_assertions)))]
-        assert_eq!(WebAuthMode::from_build(), WebAuthMode::Required);
-    }
 }

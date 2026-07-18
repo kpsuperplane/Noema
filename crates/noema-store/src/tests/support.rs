@@ -1,84 +1,162 @@
-use tempfile::TempDir;
-
-use crate::StoreConfig;
-
-#[derive(Debug)]
-struct ReadyTestProvider;
-
-impl noema_providers::ProviderOperations for ReadyTestProvider {
-    fn generate_streaming<'a>(
-        &'a self,
-        _request: noema_providers::GenerateRequest,
-        _on_event: &'a mut (dyn FnMut(noema_providers::GenerateStreamEvent) + Send),
-    ) -> noema_providers::ProviderOperationFuture<'a, noema_providers::GenerateResponse> {
-        Box::pin(async {
-            Ok(noema_providers::GenerateResponse::final_text(
-                "ready",
-                "store-test",
-                "store-test",
-            ))
-        })
-    }
-}
+use crate::{StoreConfig, test_support};
 
 pub(super) fn store_config(root: &std::path::Path) -> StoreConfig {
     StoreConfig::new(root.join("db/noema.sqlite3"))
 }
 
 pub(crate) async fn test_store() -> crate::NoemaStore {
-    let home = TempDir::new().expect("temp store root");
-    let store = crate::NoemaStore::open(&store_config(home.path()))
+    test_support::open_ephemeral_store()
         .await
-        .expect("open store");
-    std::mem::forget(home);
-    store
+        .expect("open store")
 }
 
 pub(crate) fn ready_provider_selection(
     selection: noema_providers::ProviderSelectionSnapshot,
 ) -> noema_providers::ProviderReadySelection {
-    let registry = ready_provider_registry(&selection);
-    let mut selection = selection;
-    if selection.provider_instance_key.is_none() && selection.provider_kind != "local_models" {
-        selection.provider_instance_key = Some(
-            noema_providers::provider_account_instance_key(&selection.provider_account_id)
-                .expect("hosted provider key"),
-        );
-    }
-    registry
-        .prove_ready_selection(selection)
-        .expect("prove ready selection")
+    test_support::ready_provider_selection(selection).expect("prove ready selection")
 }
 
 pub(crate) fn ready_provider_registry(
     selection: &noema_providers::ProviderSelectionSnapshot,
 ) -> noema_providers::ProviderRegistry {
-    let key = selection
-        .provider_instance_key
-        .clone()
-        .or_else(|| {
-            (selection.provider_kind != "local_models")
-                .then(|| {
-                    noema_providers::provider_account_instance_key(&selection.provider_account_id)
-                })
-                .transpose()
-                .expect("hosted provider key")
-        })
-        .expect("ready selection requires an exact key");
-    let registry = noema_providers::ProviderRegistry::new();
-    registry
-        .register(key, std::sync::Arc::new(ReadyTestProvider))
-        .expect("register test provider");
-    registry
+    test_support::ready_provider_registry(selection).expect("register test provider")
+}
+
+pub(crate) fn provider_selection(
+    provider_kind: &str,
+    provider_account_id: &str,
+    model_profile: &str,
+    source: &str,
+) -> noema_providers::ProviderSelectionSnapshot {
+    noema_providers::ProviderSelectionSnapshot::explicit(
+        provider_kind,
+        provider_account_id,
+        model_profile,
+        None,
+        Some(source.to_string()),
+    )
+}
+
+pub(crate) fn exact_provider_selection(
+    provider_kind: &str,
+    provider_account_id: &str,
+    model_profile: &str,
+    provider_instance_key: noema_providers::ProviderInstanceKey,
+    source: &str,
+) -> noema_providers::ProviderSelectionSnapshot {
+    let mut selection =
+        provider_selection(provider_kind, provider_account_id, model_profile, source);
+    selection.provider_instance_key = Some(provider_instance_key);
+    selection
 }
 
 pub(crate) fn ready_codex_registry() -> noema_providers::ProviderRegistry {
-    ready_provider_registry(&noema_providers::ProviderSelectionSnapshot::explicit(
+    ready_provider_registry(&provider_selection(
         "codex",
         "provider_account:codex:default",
         "gpt-5.6-luna",
-        None,
-        Some("store_test_runtime".to_string()),
+        "store_test_runtime",
+    ))
+}
+
+pub(crate) async fn claim_and_start_run(
+    store: &crate::NoemaStore,
+    run_id: &str,
+    worker_id: &str,
+    lease_token: &str,
+) -> noema_tasks::AgentRunRecord {
+    let run = store
+        .claim_next_agent_run(worker_id, lease_token, 120)
+        .await
+        .expect("claim run")
+        .expect("queued run");
+    assert_eq!(run.run_id, run_id);
+    store
+        .transition_agent_run(
+            run_id,
+            noema_tasks::RunStatus::Running,
+            Some(lease_token),
+            None,
+        )
+        .await
+        .expect("start run");
+    run
+}
+
+pub(crate) async fn first_criterion_id(store: &crate::NoemaStore, task_id: &str) -> String {
+    store
+        .list_task_validation_criteria(task_id)
+        .await
+        .expect("criteria")[0]
+        .criterion_id
+        .clone()
+}
+
+pub(crate) fn local_model_installation(
+    installation_id: &str,
+    model_id: &str,
+    backend: noema_providers::LocalModelBackend,
+) -> noema_providers::NewLocalModelInstallation {
+    noema_providers::NewLocalModelInstallation {
+        installation_id: installation_id.to_string(),
+        model_id: model_id.to_string(),
+        display_name: "Test local model".to_string(),
+        source_kind: noema_providers::LocalModelSourceKind::Catalog,
+        source_repo: Some("example/model".to_string()),
+        source_revision: Some("a".repeat(40)),
+        source_file: Some("model.gguf".to_string()),
+        sha256: Some("b".repeat(64)),
+        download_gb: 1.0,
+        expected_bytes: Some(100),
+        license: Some("Apache-2.0".to_string()),
+        backend,
+    }
+}
+
+pub(crate) async fn mark_local_model_installed(
+    store: &crate::NoemaStore,
+    installation: &noema_providers::LocalModelInstallationRecord,
+) {
+    for status in [
+        noema_providers::LocalModelInstallationStatus::Downloading,
+        noema_providers::LocalModelInstallationStatus::Verifying,
+        noema_providers::LocalModelInstallationStatus::Installed,
+    ] {
+        store
+            .update_local_model_installation(
+                &installation.installation_id,
+                noema_providers::LocalModelInstallationUpdate {
+                    status,
+                    downloaded_bytes: if status
+                        == noema_providers::LocalModelInstallationStatus::Downloading
+                    {
+                        50
+                    } else {
+                        100
+                    },
+                    expected_bytes: Some(100),
+                    sha256: None,
+                    blob_relative_path: (status
+                        == noema_providers::LocalModelInstallationStatus::Installed)
+                        .then(|| "models/blobs/model.gguf".to_string()),
+                    error_code: None,
+                    error_message: None,
+                },
+            )
+            .await
+            .expect("advance local-model installation");
+    }
+}
+
+pub(crate) fn ready_local_selection(
+    installation: &noema_providers::LocalModelInstallationRecord,
+) -> noema_providers::ProviderReadySelection {
+    ready_provider_selection(exact_provider_selection(
+        "local_models",
+        noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
+        &installation.model_id,
+        installation.provider_instance_key.clone(),
+        "local_model_test",
     ))
 }
 
@@ -86,64 +164,7 @@ pub(crate) async fn seed_task(
     store: &crate::NoemaStore,
     title: &str,
 ) -> (noema_tasks::TaskRecord, noema_tasks::AgentRunRecord) {
-    store.ensure_default_actors().await.expect("actors");
-    store
-        .ensure_default_provider_account()
-        .await
-        .expect("provider account");
-    store
-        .update_provider_account_status(
-            "provider_account:codex:default",
-            noema_providers::ProviderAccountStatus::Authenticated,
-            None,
-            None,
-        )
-        .await
-        .expect("authenticated provider account");
-    let ready_selection =
-        ready_provider_selection(noema_providers::ProviderSelectionSnapshot::explicit(
-            "codex",
-            "provider_account:codex:default",
-            "gpt-5.6-luna",
-            None,
-            Some("test_configured_default".to_string()),
-        ));
-    store
-        .initialize_missing_provider_selections(ready_selection.selection(), Some(&ready_selection))
-        .await
-        .expect("initialized provider selections");
-    let pool = store
-        .ensure_default_task_model_pool_settings("codex")
-        .await
-        .expect("task model settings")
-        .into_iter()
-        .find(|entry| entry.complexity == noema_tasks::TaskComplexity::Simple)
-        .expect("simple task model");
-    let registry = ready_codex_registry();
-    store
-        .create_task_with_executor_with_readiness(
-            noema_tasks::NewTask {
-                task_id: None,
-                title: title.to_string(),
-                request_markdown: "Complete the task".to_string(),
-                complexity: noema_tasks::TaskComplexity::Simple,
-                owner_human_id: "human:local".to_string(),
-                source: noema_tasks::TaskSource::default(),
-                created_by_agent_id: "agent:primary".to_string(),
-                creation_tool_call_id: None,
-                pool_entry_id: pool.pool_entry_id,
-                executor_model: pool.model.clone(),
-                reviewer_model: pool.model,
-                max_review_rounds: None,
-                criteria: vec![noema_tasks::NewTaskValidationCriterion {
-                    criterion_id: None,
-                    ordinal: 1,
-                    description: "Task is complete".to_string(),
-                    expected_evidence: None,
-                }],
-            },
-            &registry,
-        )
+    crate::test_support::seed_task(store, title)
         .await
         .expect("task")
 }

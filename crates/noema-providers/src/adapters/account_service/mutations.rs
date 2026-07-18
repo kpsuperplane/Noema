@@ -154,55 +154,35 @@ impl ProviderAccountService {
         &self,
         request: SaveProviderAccountSecretRequest,
     ) -> Result<ProviderAccountRecord, ProviderAccountOperationError> {
-        let gate = self.inner.gates.gate(&request.provider_account_id);
-        let _guard = gate.lock().await;
-        let account = self
-            .secret_input_account(&request.provider_account_id)
-            .await?;
-        let secret_store = self.secret_store(&account);
-        let snapshot = secret_store
-            .snapshot()
-            .map_err(|_| ProviderAccountOperationError::ProviderUnavailable)?;
-        if secret_store.save_api_key(&request.secret.0).is_err() {
-            return if secret_store.restore(&snapshot).is_err() {
-                self.log_compensation_failure("save_provider_secret", &account.provider_account_id);
-                Err(ProviderAccountOperationError::CompensationFailed)
-            } else {
-                Err(ProviderAccountOperationError::ProviderUnavailable)
-            };
-        }
-        match self
-            .inner
-            .accounts
-            .update_provider_account(UpdateProviderAccountRequest {
-                provider_account_id: account.provider_account_id.clone(),
-                status: Some(authenticated_status()),
-                metadata: Some(metadata_with_credential_state(
-                    &account,
-                    "secretConfigured",
-                    true,
-                )),
-            })
-            .await
-        {
-            Ok(account) => Ok(provider_account_from_persisted(account)),
-            Err(error) => {
-                if secret_store.restore(&snapshot).is_err() {
-                    self.log_compensation_failure(
-                        "save_provider_secret",
-                        &account.provider_account_id,
-                    );
-                    Err(ProviderAccountOperationError::CompensationFailed)
-                } else {
-                    Err(map_persistence_error(error))
-                }
-            }
-        }
+        let secret = request.secret.0;
+        self.mutate_secret(
+            &request.provider_account_id,
+            "save_provider_secret",
+            true,
+            |store| store.save_api_key(&secret),
+        )
+        .await
     }
 
     pub(super) async fn clear_secret_impl(
         &self,
         provider_account_id: &str,
+    ) -> Result<ProviderAccountRecord, ProviderAccountOperationError> {
+        self.mutate_secret(
+            provider_account_id,
+            "clear_provider_secret",
+            false,
+            SecretInputStore::clear_api_key,
+        )
+        .await
+    }
+
+    async fn mutate_secret(
+        &self,
+        provider_account_id: &str,
+        operation: &'static str,
+        configured: bool,
+        mutate: impl FnOnce(&SecretInputStore) -> Result<(), crate::ProviderError>,
     ) -> Result<ProviderAccountRecord, ProviderAccountOperationError> {
         let gate = self.inner.gates.gate(provider_account_id);
         let _guard = gate.lock().await;
@@ -211,43 +191,57 @@ impl ProviderAccountService {
         let snapshot = secret_store
             .snapshot()
             .map_err(|_| ProviderAccountOperationError::ProviderUnavailable)?;
-        if secret_store.clear_api_key().is_err() {
-            return if secret_store.restore(&snapshot).is_err() {
-                self.log_compensation_failure(
-                    "clear_provider_secret",
-                    &account.provider_account_id,
-                );
-                Err(ProviderAccountOperationError::CompensationFailed)
-            } else {
-                Err(ProviderAccountOperationError::ProviderUnavailable)
-            };
+        if mutate(&secret_store).is_err() {
+            return Err(self.secret_mutation_error(
+                &secret_store,
+                &snapshot,
+                operation,
+                &account.provider_account_id,
+                ProviderAccountOperationError::ProviderUnavailable,
+            ));
         }
         match self
             .inner
             .accounts
             .update_provider_account(UpdateProviderAccountRequest {
                 provider_account_id: account.provider_account_id.clone(),
-                status: Some(unauthenticated_status()),
+                status: Some(if configured {
+                    authenticated_status()
+                } else {
+                    unauthenticated_status()
+                }),
                 metadata: Some(metadata_with_credential_state(
                     &account,
                     "secretConfigured",
-                    false,
+                    configured,
                 )),
             })
             .await
         {
             Ok(account) => Ok(provider_account_from_persisted(account)),
-            Err(error) => {
-                if secret_store.restore(&snapshot).is_err() {
-                    self.log_compensation_failure(
-                        "clear_provider_secret",
-                        &account.provider_account_id,
-                    );
-                    Err(ProviderAccountOperationError::CompensationFailed)
-                } else {
-                    Err(map_persistence_error(error))
-                }
-            }
+            Err(error) => Err(self.secret_mutation_error(
+                &secret_store,
+                &snapshot,
+                operation,
+                &account.provider_account_id,
+                map_persistence_error(error),
+            )),
+        }
+    }
+
+    fn secret_mutation_error(
+        &self,
+        store: &SecretInputStore,
+        snapshot: &FileSnapshot,
+        operation: &'static str,
+        provider_account_id: &str,
+        primary: ProviderAccountOperationError,
+    ) -> ProviderAccountOperationError {
+        if store.restore(snapshot).is_ok() {
+            primary
+        } else {
+            self.log_compensation_failure(operation, provider_account_id);
+            ProviderAccountOperationError::CompensationFailed
         }
     }
 

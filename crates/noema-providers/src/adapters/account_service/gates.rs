@@ -60,52 +60,32 @@ impl AccountGateRegistry {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use super::*;
-
-    #[test]
-    fn same_account_reuses_live_gate() {
-        let registry = AccountGateRegistry::new();
-
-        let first = registry.gate("provider_account:exa:first");
-        let second = registry.gate("provider_account:exa:first");
-
-        assert!(Arc::ptr_eq(&first, &second));
-    }
-
-    #[test]
-    fn different_accounts_receive_different_gates() {
-        let registry = AccountGateRegistry::new();
-
-        let first = registry.gate("provider_account:exa:first");
-        let second = registry.gate("provider_account:exa:second");
-
-        assert!(!Arc::ptr_eq(&first, &second));
-    }
-
-    #[test]
-    fn released_gate_is_replaced_without_retaining_account_key() {
-        let registry = AccountGateRegistry::new();
-        let first = registry.gate("provider_account:exa:first");
-        let first_weak = Arc::downgrade(&first);
-        drop(first);
-
-        let replacement = registry.gate("provider_account:exa:first");
-
-        assert!(first_weak.upgrade().is_none());
-        assert_eq!(Arc::strong_count(&replacement), 1);
-    }
 
     #[tokio::test]
     async fn live_gate_serializes_account_operations() {
         let registry = AccountGateRegistry::new();
         let first = registry.gate("provider_account:exa:first");
         let second = registry.gate("provider_account:exa:first");
+        let other = registry.gate("provider_account:exa:second");
+        assert!(
+            !Arc::ptr_eq(&first, &other),
+            "different accounts must receive different gates"
+        );
         let guard = first.lock().await;
 
         assert!(second.try_lock().is_err());
         drop(guard);
         assert!(second.try_lock().is_ok());
+
+        let released = registry.gate("provider_account:exa:released");
+        let released_weak = Arc::downgrade(&released);
+        drop(released);
+        let replacement = registry.gate("provider_account:exa:released");
+        assert!(
+            released_weak.upgrade().is_none(),
+            "released gate must not retain the account key"
+        );
+        assert_eq!(Arc::strong_count(&replacement), 1);
     }
 }

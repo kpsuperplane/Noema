@@ -2,12 +2,9 @@
 
 use noema_providers::{
     LocalModelManager, LocalModelRuntimeStatus, ProviderAccountOperationsHandle,
-    ProviderAccountRecord, ProviderAccountStatus, ProviderAuthAttemptView, ProviderAuthMethod,
-    StartProviderAuthRequest,
+    ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod,
 };
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use ts_rs::TS;
 
 const PROVIDER_LOGIN_STEP_ID: &str = "connect_provider_account";
 const LOCAL_MODEL_STEP_ID: &str = "install_local_model";
@@ -17,9 +14,7 @@ const DEFAULT_CODEX_ACCOUNT_KEY: &str = "default";
 const DEFAULT_CODEX_DISPLAY_NAME: &str = "Codex";
 
 /// Status of one onboarding step.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OnboardingStepStatus {
     /// The step is complete.
     Complete,
@@ -28,40 +23,28 @@ pub enum OnboardingStepStatus {
 }
 
 /// One frontend-visible onboarding step.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OnboardingStep {
     /// Stable onboarding step id.
     pub id: String,
     /// Current step completion state.
     pub status: OnboardingStepStatus,
     /// Provider family connected by this step, such as `codex`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub provider_kind: Option<String>,
     /// Stable provider account id connected by this step.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub provider_account_id: Option<String>,
     /// Provider-local account key connected by this step.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub account_key: Option<String>,
     /// Human-readable provider account name connected by this step.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub display_name: Option<String>,
     /// Last known provider account readiness status.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub provider_account_status: Option<ProviderAccountStatus>,
     /// Authentication method expected for this provider account.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
     pub auth_method: Option<ProviderAuthMethod>,
 }
 
 /// Frontend-visible onboarding status.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OnboardingStatus {
     /// Whether the user can proceed past onboarding.
     pub is_user_onboarded: bool,
@@ -127,43 +110,14 @@ impl OnboardingService {
             ),
             None => None,
         };
-        let local_model_ready = matches!(
-            self.local_models.runtime_status(),
-            LocalModelRuntimeStatus::Ready { .. }
-        );
+        let local_model_ready = local_model_runtime_is_ready(&self.local_models.runtime_status());
 
         Ok(onboarding_status_from_options(account, local_model_ready))
     }
+}
 
-    /// Return one provider authentication attempt.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`OnboardingServiceError`] when provider account operations fail.
-    pub async fn auth_attempt(
-        &self,
-        attempt_id: &str,
-    ) -> Result<Option<ProviderAuthAttemptView>, OnboardingServiceError> {
-        self.provider_accounts
-            .auth_attempt(attempt_id)
-            .await
-            .map_err(|error| OnboardingServiceError::Provider(error.to_string()))
-    }
-
-    /// Start one provider authentication attempt.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`OnboardingServiceError`] when provider account operations fail.
-    pub async fn start_auth(
-        &self,
-        request: StartProviderAuthRequest,
-    ) -> Result<ProviderAuthAttemptView, OnboardingServiceError> {
-        self.provider_accounts
-            .start_auth(request)
-            .await
-            .map_err(|error| OnboardingServiceError::Provider(error.to_string()))
-    }
+fn local_model_runtime_is_ready(status: &LocalModelRuntimeStatus) -> bool {
+    matches!(status, LocalModelRuntimeStatus::Ready { .. })
 }
 
 /// Host onboarding operation failure.
@@ -177,56 +131,34 @@ pub enum OnboardingServiceError {
     Provider(String),
 }
 
-/// Build onboarding status from the active provider account.
-#[must_use]
-pub fn onboarding_status_from_account(account: Option<ProviderAccountRecord>) -> OnboardingStatus {
-    match account {
-        Some(account)
-            if account.status == ProviderAccountStatus::Authenticated
-                || (account.auth_method == ProviderAuthMethod::None
-                    && account.status == ProviderAccountStatus::Unknown) =>
-        {
-            OnboardingStatus {
-                is_user_onboarded: true,
-                steps: vec![provider_account_step(
-                    account,
-                    OnboardingStepStatus::Complete,
-                )],
-            }
-        }
-        Some(account) => OnboardingStatus {
-            is_user_onboarded: false,
-            steps: vec![provider_account_step(
-                account,
-                OnboardingStepStatus::Blocked,
-            )],
-        },
-        None => OnboardingStatus {
-            is_user_onboarded: false,
-            steps: vec![default_codex_provider_step()],
-        },
-    }
-}
-
 /// Build onboarding status from the two supported first-run paths.
 ///
 /// A ready local model and an authenticated provider account are alternatives:
 /// either one opens Noema. The ordered steps keep the local path first so the
 /// product can recommend private on-device inference without making cloud
 /// providers unavailable later.
-#[must_use]
-pub fn onboarding_status_from_options(
+fn onboarding_status_from_options(
     account: Option<ProviderAccountRecord>,
     local_model_ready: bool,
 ) -> OnboardingStatus {
-    let provider_status = onboarding_status_from_account(account);
-    let mut steps = Vec::with_capacity(provider_status.steps.len() + 1);
-    steps.push(local_model_step(local_model_ready));
-    steps.extend(provider_status.steps);
+    let (provider_ready, provider_step) = account.map_or_else(
+        || (false, default_codex_provider_step()),
+        |account| {
+            let ready = account.status == ProviderAccountStatus::Authenticated
+                || (account.auth_method == ProviderAuthMethod::None
+                    && account.status == ProviderAccountStatus::Unknown);
+            let status = if ready {
+                OnboardingStepStatus::Complete
+            } else {
+                OnboardingStepStatus::Blocked
+            };
+            (ready, provider_account_step(account, status))
+        },
+    );
 
     OnboardingStatus {
-        is_user_onboarded: local_model_ready || provider_status.is_user_onboarded,
-        steps,
+        is_user_onboarded: local_model_ready || provider_ready,
+        steps: vec![local_model_step(local_model_ready), provider_step],
     }
 }
 
@@ -311,16 +243,6 @@ mod tests {
     }
 
     #[test]
-    fn onboarding_complete_when_provider_authenticated() {
-        let status = onboarding_status_from_account(Some(codex_default_account(
-            ProviderAccountStatus::Authenticated,
-        )));
-
-        assert!(status.is_user_onboarded);
-        assert_eq!(status.steps[0].status, OnboardingStepStatus::Complete);
-    }
-
-    #[test]
     fn local_model_and_cloud_are_alternative_onboarding_paths() {
         let local = onboarding_status_from_options(None, true);
         assert!(local.is_user_onboarded);
@@ -338,21 +260,25 @@ mod tests {
     }
 
     #[test]
-    fn onboarding_blocked_when_provider_unauthenticated() {
-        let status = onboarding_status_from_account(Some(codex_default_account(
-            ProviderAccountStatus::Unauthenticated,
-        )));
-        let step = serde_json::to_value(&status.steps[0]).expect("step json");
-
-        assert!(!status.is_user_onboarded);
-        assert_eq!(status.steps[0].id, "connect_provider_account");
-        assert_eq!(status.steps[0].status, OnboardingStepStatus::Blocked);
-        assert_eq!(status.steps[0].provider_kind.as_deref(), Some("codex"));
-        assert_eq!(
-            status.steps[0].provider_account_status,
-            Some(ProviderAccountStatus::Unauthenticated)
-        );
-        assert_eq!(step["provider_account_status"], "unauthenticated");
+    fn onboarding_requires_live_local_model_runtime() {
+        let cases = [
+            (LocalModelRuntimeStatus::Stopped, false),
+            (
+                LocalModelRuntimeStatus::Ready {
+                    backend: noema_providers::LocalModelBackend::Metal,
+                    endpoint: "http://127.0.0.1:1".to_string(),
+                    model_id: "test-local".to_string(),
+                },
+                true,
+            ),
+        ];
+        for (runtime, onboarded) in cases {
+            assert_eq!(
+                onboarding_status_from_options(None, local_model_runtime_is_ready(&runtime))
+                    .is_user_onboarded,
+                onboarded
+            );
+        }
     }
 
     #[test]
@@ -364,44 +290,33 @@ mod tests {
             ProviderAccountStatus::Unavailable,
         ] {
             let status =
-                onboarding_status_from_account(Some(codex_default_account(account_status)));
-            let step = serde_json::to_value(&status.steps[0]).expect("step json");
-
+                onboarding_status_from_options(Some(codex_default_account(account_status)), false);
             assert!(!status.is_user_onboarded);
-            assert_eq!(status.steps[0].status, OnboardingStepStatus::Blocked);
+            assert_eq!(status.steps[1].status, OnboardingStepStatus::Blocked);
             assert_eq!(
-                status.steps[0].provider_account_status,
+                status.steps[1].provider_account_status,
                 Some(account_status)
-            );
-            assert_eq!(
-                step["provider_account_status"],
-                serde_json::to_value(account_status).expect("account status json")
             );
         }
     }
 
     #[test]
     fn onboarding_blocked_when_no_active_account() {
-        let status = onboarding_status_from_account(None);
-        let step = serde_json::to_value(&status.steps[0]).expect("step json");
-
+        let status = onboarding_status_from_options(None, false);
+        let step = &status.steps[1];
         assert!(!status.is_user_onboarded);
-        assert_eq!(status.steps[0].id, "connect_provider_account");
-        assert_eq!(status.steps[0].status, OnboardingStepStatus::Blocked);
-        assert_eq!(status.steps[0].provider_kind.as_deref(), Some("codex"));
+        assert_eq!(step.id, "connect_provider_account");
+        assert_eq!(step.status, OnboardingStepStatus::Blocked);
+        assert_eq!(step.provider_kind.as_deref(), Some("codex"));
         assert_eq!(
-            status.steps[0].provider_account_id.as_deref(),
+            step.provider_account_id.as_deref(),
             Some("provider_account:codex:default")
         );
-        assert_eq!(status.steps[0].display_name.as_deref(), Some("Codex"));
+        assert_eq!(step.display_name.as_deref(), Some("Codex"));
+        assert_eq!(step.auth_method, Some(ProviderAuthMethod::OauthDeviceCode));
         assert_eq!(
-            status.steps[0].auth_method,
-            Some(ProviderAuthMethod::OauthDeviceCode)
-        );
-        assert_eq!(
-            status.steps[0].provider_account_status,
+            step.provider_account_status,
             Some(ProviderAccountStatus::Unknown)
         );
-        assert_eq!(step["provider_account_status"], "unknown");
     }
 }

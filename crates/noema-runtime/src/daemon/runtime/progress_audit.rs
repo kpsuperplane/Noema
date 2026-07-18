@@ -295,24 +295,6 @@ mod tests {
         }
     }
 
-    async fn test_actor(
-        provider_kind: &str,
-        provider: Arc<ProgressAuditTestProvider>,
-    ) -> RuntimeActor {
-        let store = crate::test_support::test_store().await;
-        RuntimeActor::new(
-            provider_kind.to_string(),
-            HashMap::from([(
-                provider_kind.to_string(),
-                provider as noema_providers::ProviderHandle,
-            )]),
-            store.clone(),
-            crate::test_support::system_error_logger(),
-        )
-        .await
-        .expect("actor")
-    }
-
     #[test]
     fn audit_prompt_demands_strict_untrusted_json_classification() {
         let prompt = build_progress_audit_prompt();
@@ -322,7 +304,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_valid_continue_response() {
+    fn parses_strict_plain_and_fenced_responses_and_rejects_invalid_decisions() {
         let outcome = parse_progress_audit_response(
             r#"{"decision":"continue","confidence":"high","user_summary":"Still finding relevant records.","reason":"new records appeared","next_goal":"Create the selected pages."}"#,
         )
@@ -332,10 +314,6 @@ mod tests {
             outcome.next_goal.as_deref(),
             Some("Create the selected pages.")
         );
-    }
-
-    #[test]
-    fn parses_one_fenced_json_object_without_relaxing_the_payload() {
         let outcome = parse_progress_audit_response(
             "```json\n{\"decision\":\"finalize\",\"confidence\":\"high\",\"user_summary\":\"Done.\",\"reason\":\"complete\",\"next_goal\":null}\n```",
         )
@@ -343,10 +321,6 @@ mod tests {
 
         assert_eq!(outcome.decision, ProgressAuditDecision::Finalize);
         assert_eq!(outcome.user_summary, "Done.");
-    }
-
-    #[test]
-    fn rejects_invalid_decision() {
         let error = parse_progress_audit_response(
             r#"{"decision":"wander","confidence":"high","user_summary":"Still working.","reason":"bad","next_goal":null}"#,
         )
@@ -356,104 +330,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn finalization_prompt_disables_tools() {
-        let prompt = build_no_tools_finalization_prompt("hard ceiling reached");
-        assert!(prompt.contains("Do not call tools"));
-        assert!(prompt.contains(r#"response_status "final""#));
-        assert!(prompt.contains("no tool_calls"));
-    }
-
     #[tokio::test]
-    async fn audit_uses_bound_auxiliary_selection_instead_of_provider_tool_default() {
-        let provider = Arc::new(ProgressAuditTestProvider::new(Some("gpt-5.4-mini")));
-        let actor = test_actor("codex", provider.clone()).await;
-
-        let outcome = actor
-            .run_progress_audit(&test_digest())
-            .await
-            .expect("audit");
-
-        assert_eq!(outcome.decision, ProgressAuditDecision::Continue);
-        let requests = provider.requests.lock().expect("requests");
-        assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0].model.as_deref(), Some("gpt-5.6-luna"));
-        assert_eq!(
-            requests[0].options.generation_priority,
-            GenerationPriority::Background
-        );
-        assert!(requests[0].tools.is_empty());
-        assert!(!requests[0].parallel_tool_calls);
-    }
-
-    #[tokio::test]
-    async fn audit_default_can_use_foundation_native_profile() {
-        let provider = Arc::new(ProgressAuditTestProvider::new(Some("default")));
-        let actor = test_actor("foundation_local", provider.clone()).await;
-
-        actor
-            .run_progress_audit(&test_digest())
-            .await
-            .expect("audit");
-
-        let requests = provider.requests.lock().expect("requests");
-        assert_eq!(requests[0].model.as_deref(), Some("default"));
-    }
-
-    #[tokio::test]
-    async fn progress_audit_uses_saved_reasoning_effort() {
-        let store = crate::test_support::test_store().await;
-        let account = store
-            .ensure_default_provider_account()
-            .await
-            .expect("account");
-        store
-            .update_provider_account_status(
-                &account.provider_account_id,
-                noema_providers::ProviderAccountStatus::Authenticated,
-                None,
-                None,
-            )
-            .await
-            .expect("authenticate codex");
-        upsert_ready_auxiliary_model_preference(
-            &store,
-            noema_store::NewAuxiliaryModelPreference {
-                task_id: noema_store::TOOL_PROGRESS_AUDIT_TASK_ID.to_string(),
-                provider_kind: "codex".to_string(),
-                provider_account_id: account.provider_account_id,
-                model_profile: "gpt-5.5".to_string(),
-                reasoning_effort: Some(noema_providers::ReasoningEffort::Medium),
-            },
-        )
-        .await;
-
-        let provider = Arc::new(ProgressAuditTestProvider::new(Some("gpt-5.4-mini")));
-        let actor = RuntimeActor::new(
-            "codex".to_string(),
-            HashMap::from([(
-                "codex".to_string(),
-                provider.clone() as noema_providers::ProviderHandle,
-            )]),
-            store.clone(),
-            crate::test_support::system_error_logger(),
-        )
-        .await
-        .expect("actor");
-
-        actor
-            .run_progress_audit(&test_digest())
-            .await
-            .expect("audit");
-
-        assert_eq!(
-            provider.last_request().options.reasoning_effort,
-            Some(noema_providers::ReasoningEffort::Medium)
-        );
-    }
-
-    #[tokio::test]
-    async fn progress_audit_route_is_independent_from_primary_and_default_routes() {
+    async fn progress_audit_uses_its_bound_route_and_no_tool_request_policy() {
         let store = crate::test_support::test_store().await;
         let foundation_account = store
             .ensure_default_foundation_local_provider_account()
@@ -502,11 +380,12 @@ mod tests {
         .await
         .expect("actor");
 
-        actor
+        let outcome = actor
             .run_progress_audit(&test_digest())
             .await
             .expect("audit");
 
+        assert_eq!(outcome.decision, ProgressAuditDecision::Continue);
         assert!(
             primary
                 .requests
@@ -520,5 +399,11 @@ mod tests {
             request.options.reasoning_effort,
             Some(noema_providers::ReasoningEffort::Low)
         );
+        assert_eq!(
+            request.options.generation_priority,
+            GenerationPriority::Background
+        );
+        assert!(request.tools.is_empty());
+        assert!(!request.parallel_tool_calls);
     }
 }

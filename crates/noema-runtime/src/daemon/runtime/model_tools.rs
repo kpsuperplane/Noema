@@ -212,15 +212,14 @@ impl ModelTools {
             prompt_rows: Vec::new(),
             unavailable_rows: Vec::new(),
             prompt_kinds: BTreeMap::new(),
-            tool_policy: ToolPolicy::for_role(role).strict_for_dispatch(),
+            tool_policy: ToolPolicy::for_role(role),
         }
     }
 
     pub(in crate::daemon) fn has_callable_tools(&self) -> bool {
-        let strict_policy = self.tool_policy.strict_for_dispatch();
         self.bindings
             .iter()
-            .any(|binding| strict_policy.allows_tool(binding.spec().name.as_str()))
+            .any(|binding| self.tool_policy.allows_tool(binding.spec().name.as_str()))
     }
 
     /// Retain the exact initially advertised bindings while applying the
@@ -232,8 +231,7 @@ impl ModelTools {
     ) -> Self {
         let tool_policy = initial
             .tool_policy
-            .intersect_allowed_names(&continuation.tool_policy)
-            .strict_for_dispatch();
+            .intersect_allowed_names(&continuation.tool_policy);
         Self {
             transport: initial.transport,
             bindings: initial.bindings.clone(),
@@ -250,10 +248,9 @@ impl ModelTools {
     }
 
     pub(in crate::daemon) fn callable_tool_names(&self) -> Vec<noema_capabilities::ToolName> {
-        let strict_policy = self.tool_policy.strict_for_dispatch();
         self.bindings
             .iter()
-            .filter(|binding| strict_policy.allows_tool(binding.spec().name.as_str()))
+            .filter(|binding| self.tool_policy.allows_tool(binding.spec().name.as_str()))
             .map(|binding| binding.spec().name.clone())
             .collect()
     }
@@ -270,10 +267,9 @@ impl ModelTools {
         if self.transport == ProviderToolTransport::None {
             return Vec::new();
         }
-        let strict_policy = self.tool_policy.strict_for_dispatch();
         self.bindings
             .iter()
-            .filter(|binding| strict_policy.allows_tool(binding.spec().name.as_str()))
+            .filter(|binding| self.tool_policy.allows_tool(binding.spec().name.as_str()))
             .map(|binding| binding.spec().clone())
             .collect()
     }
@@ -358,10 +354,9 @@ fn catalog_prompt_rows(
     policy: &ToolPolicy,
     transport: ProviderToolTransport,
 ) -> Vec<String> {
-    let strict_policy = policy.strict_for_dispatch();
     bindings
         .iter()
-        .filter(|binding| strict_policy.allows_tool(binding.spec().name.as_str()))
+        .filter(|binding| policy.allows_tool(binding.spec().name.as_str()))
         .map(|binding| {
             let spec = binding.spec();
             let kind = match prompt_kinds.get(spec.name.as_str()) {

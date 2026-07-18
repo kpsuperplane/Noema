@@ -1,29 +1,16 @@
-use noema_providers::{ProviderInstanceKey, ProviderSelectionSnapshot, ReasoningEffort};
-use noema_tasks::{TaskComplexity, TaskModelPoolEntry, is_global_task_model_pool_setting_id};
+use noema_providers::ProviderSelectionSnapshot;
+use noema_tasks::{TaskModelPoolEntry, is_global_task_model_pool_setting_id};
 
-use super::StoreError;
+use crate::sqlite::{parse_column, reasoning_column};
 
 pub(super) fn pool_entry_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskModelPoolEntry> {
     let pool_entry_id: String = row.get(0)?;
-    let complexity: String = row.get(1)?;
-    let complexity = complexity.parse::<TaskComplexity>().map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(error))
-    })?;
+    let complexity = parse_column(row, 1)?;
     let provider_kind: String = row.get(3)?;
     let provider_account_id: String = row.get(4)?;
-    let provider_instance_key =
-        ProviderInstanceKey::new(row.get::<_, String>(5)?).map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(
-                5,
-                rusqlite::types::Type::Text,
-                Box::new(error),
-            )
-        })?;
+    let provider_instance_key = parse_column(row, 5)?;
     let model_profile: String = row.get(6)?;
-    let reasoning_effort: Option<String> = row.get(7)?;
-    let reasoning_effort = parse_reasoning(reasoning_effort.as_deref()).map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(7, rusqlite::types::Type::Text, Box::new(error))
-    })?;
+    let reasoning_effort = reasoning_column(row, 7)?;
     let mut model = ProviderSelectionSnapshot::explicit(
         provider_kind,
         provider_account_id,
@@ -46,15 +33,4 @@ pub(super) fn pool_entry_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<T
         created_at: row.get(10)?,
         updated_at: row.get(11)?,
     })
-}
-
-fn parse_reasoning(value: Option<&str>) -> Result<Option<ReasoningEffort>, StoreError> {
-    value
-        .map(|value| {
-            ReasoningEffort::from_persistence_str(value).ok_or_else(|| StoreError::InvalidEnum {
-                kind: "reasoning_effort",
-                value: value.to_string(),
-            })
-        })
-        .transpose()
 }

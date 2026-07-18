@@ -9,7 +9,9 @@ pub(super) use discovery::{
     FoundationBridgeBuildConfig, FoundationBridgeConfig, bridge_config_for_provider,
 };
 #[cfg(test)]
-pub(super) use discovery::{default_bridge_package_path, default_development_bridge_path};
+pub(in crate::adapters::foundation) use discovery::{
+    default_bridge_package_path, default_development_bridge_path,
+};
 pub(super) use process::FoundationBridgeProcess;
 pub(super) use protocol::{BridgeReplayTurn, BridgeRole};
 

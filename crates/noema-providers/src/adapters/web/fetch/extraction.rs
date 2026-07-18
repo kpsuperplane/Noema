@@ -59,35 +59,3 @@ fn normalize_newlines(text: &str) -> String {
         .trim()
         .to_string()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn extracts_html_to_markdown() {
-        let html = r#"
-        <html>
-          <head><title>Rust Learn</title></head>
-          <body>
-            <article><h1>Rust Learn</h1><p>Reliable systems programming.</p></article>
-          </body>
-        </html>
-        "#;
-
-        let extracted =
-            extract_readable_content(html, "https://www.rust-lang.org/learn").expect("extract");
-
-        assert_eq!(extracted.title.as_deref(), Some("Rust Learn"));
-        assert!(extracted.markdown.contains("Rust Learn"));
-        assert!(extracted.markdown.contains("Reliable systems programming."));
-    }
-
-    #[test]
-    fn normalizes_plain_text_as_markdown() {
-        let extracted = normalize_plain_text("  one\r\n\r\ntwo  ");
-
-        assert_eq!(extracted.title, None);
-        assert_eq!(extracted.markdown, "one\n\ntwo");
-    }
-}

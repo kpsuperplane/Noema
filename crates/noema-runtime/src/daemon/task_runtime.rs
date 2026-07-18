@@ -15,7 +15,7 @@ use noema_store::NoemaStore;
 use crate::{
     agent_execution::ExecutionRole,
     daemon::{
-        RuntimeEventRegistry, RuntimeHandle, TaskRuntimeEvent,
+        RuntimeEventRegistry, RuntimeHandle, TaskRuntimeEvent, log_system_error,
         runtime::BackgroundTaskGenerateRequest,
         task_run_context::{
             ExecutorBlockedResponse, ExecutorSubmissionResponse, ReviewerResponse,
@@ -25,7 +25,7 @@ use crate::{
         task_tool::{TASK_REPORT_BLOCKED_TOOL, TASK_SUBMIT_RESULT_TOOL, TASK_SUBMIT_REVIEW_TOOL},
     },
 };
-use noema_home::{SystemErrorEvent, SystemErrorLogger};
+use noema_home::SystemErrorLogger;
 use noema_providers::ProviderRegistryHandle;
 
 const LEASE_SECONDS: i64 = 120;
@@ -137,12 +137,12 @@ async fn run_loop(services: TaskRuntimeServices, inner: Arc<TaskRuntimeInner>) {
                 }
                 Ok(None) => queue_available = false,
                 Err(error) => {
-                    services.system_errors.try_append(
-                        SystemErrorEvent::new(
-                            "task_runtime_claim_error",
-                            "Background task queue could not be read",
-                        )
-                        .with_error_chain([error.to_string()]),
+                    log_system_error(
+                        &services.system_errors,
+                        "task_runtime_claim_error",
+                        "Background task queue could not be read",
+                        None,
+                        error,
                     );
                     queue_available = false;
                 }
@@ -203,10 +203,12 @@ async fn supervise_claimed_run(
         )
         .await;
         publish_task_changed(&services.subscriptions, &run.task_id);
-        services.system_errors.try_append(
-            SystemErrorEvent::new("task_runtime_worker_error", "Background task run failed")
-                .with_context(json!({"run_id": run.run_id, "task_id": run.task_id}))
-                .with_error_chain([error]),
+        log_system_error(
+            &services.system_errors,
+            "task_runtime_worker_error",
+            "Background task run failed",
+            Some(json!({"run_id": run.run_id, "task_id": run.task_id})),
+            error,
         );
     } else {
         publish_task_changed(&services.subscriptions, &run.task_id);
@@ -214,12 +216,12 @@ async fn supervise_claimed_run(
 }
 
 fn log_task_run_join_error(system_errors: &SystemErrorLogger, error: &tokio::task::JoinError) {
-    system_errors.try_append(
-        SystemErrorEvent::new(
-            "task_runtime_worker_join_error",
-            "Background task worker stopped unexpectedly",
-        )
-        .with_error_chain([error.to_string()]),
+    log_system_error(
+        system_errors,
+        "task_runtime_worker_join_error",
+        "Background task worker stopped unexpectedly",
+        None,
+        error,
     );
 }
 
@@ -232,12 +234,12 @@ async fn drain_task_status_outbox(
     let task_ids = match store.list_pending_task_status_deliveries(32).await {
         Ok(task_ids) => task_ids,
         Err(error) => {
-            system_errors.try_append(
-                SystemErrorEvent::new(
-                    "task_status_outbox_read_failed",
-                    "Task status delivery queue could not be read",
-                )
-                .with_error_chain([error.to_string()]),
+            log_system_error(
+                system_errors,
+                "task_status_outbox_read_failed",
+                "Task status delivery queue could not be read",
+                None,
+                error,
             );
             return;
         }
@@ -247,13 +249,12 @@ async fn drain_task_status_outbox(
             crate::daemon::task_delivery::deliver_task_status_event(store, subscriptions, &task_id)
                 .await
         {
-            system_errors.try_append(
-                SystemErrorEvent::new(
-                    "task_status_delivery_failed",
-                    "Task status update could not be delivered",
-                )
-                .with_context(json!({"task_id": task_id}))
-                .with_error_chain([error]),
+            log_system_error(
+                system_errors,
+                "task_status_delivery_failed",
+                "Task status update could not be delivered",
+                Some(json!({"task_id": task_id})),
+                error,
             );
         }
     }
@@ -469,5 +470,73 @@ fn uuid_fragment() -> String {
 }
 
 #[cfg(test)]
-#[path = "task_runtime_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use noema_providers::{
+        ProviderInstanceKey, ProviderSelectionMode, ProviderSelectionSnapshot, ReasoningEffort,
+    };
+
+    #[test]
+    fn background_generation_request_preserves_complete_provider_selection() {
+        let selection = ProviderSelectionSnapshot {
+            provider_kind: "openai".to_string(),
+            provider_account_id: "provider_account:openai:task-owner".to_string(),
+            provider_instance_key: Some(
+                ProviderInstanceKey::new("provider_instance:openai:task-owner:generation-7")
+                    .expect("instance key"),
+            ),
+            selection_mode: ProviderSelectionMode::ExplicitProfile,
+            model_profile: Some("gpt-5.5-task".to_string()),
+            reasoning_effort: Some(ReasoningEffort::High),
+            selection_source: Some("task:model_pool:complex".to_string()),
+        };
+        let run = noema_tasks::AgentRunRecord {
+            run_id: "run:test".to_string(),
+            task_id: "task:test".to_string(),
+            run_kind: RunKind::Reviewer,
+            agent_id: "agent:reviewer".to_string(),
+            revision_index: 2,
+            attempt_index: 1,
+            parent_run_id: Some("run:parent".to_string()),
+            triggering_submission_id: Some("submission:test".to_string()),
+            triggering_review_id: None,
+            resume_message: None,
+            model: selection.clone(),
+            actual_provider_kind: None,
+            actual_model_profile: None,
+            execution_policy: noema_tasks::TaskExecutionPolicy::default(),
+            status: RunStatus::Running,
+            priority: 10,
+            queued_at: String::new(),
+            lease_owner: None,
+            lease_token: None,
+            lease_expires_at: None,
+            heartbeat_at: None,
+            started_at: None,
+            ended_at: None,
+            cancellation_requested: false,
+            retry_count: 0,
+            error_code: None,
+            error_message: None,
+            provider_call_count: 0,
+            tool_call_count: 0,
+            input_tokens: 0,
+            cached_input_tokens: 0,
+            output_tokens: 0,
+            active_milliseconds: 0,
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+
+        let request = background_task_generate_request(
+            &run,
+            "lease:test",
+            &CancellationToken::new(),
+            "Do the work.".to_string(),
+            "Follow the task contract.",
+            &RuntimeEventRegistry::default(),
+        );
+
+        assert_eq!(request.provider_selection, selection);
+    }
+}

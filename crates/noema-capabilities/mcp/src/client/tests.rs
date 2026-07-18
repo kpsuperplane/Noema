@@ -4,17 +4,9 @@ use rmcp::transport::streamable_http_client::AuthRequiredError;
 
 use super::*;
 
-#[test]
-fn session_and_factory_traits_remain_dyn_compatible() {
-    fn accept_session(_session: Box<dyn McpPreparedSession>) {}
-    fn accept_factory(_factory: Arc<dyn McpSessionFactory>) {}
-
-    let _ = accept_session;
-    let _ = accept_factory;
-}
-
 #[tokio::test]
-async fn request_context_distinguishes_cancellation_and_timeout() {
+async fn request_context_transport_and_redaction_contracts() {
+    // Case: request_context_distinguishes_cancellation_and_timeout.
     let cancelled = CancellationToken::new();
     cancelled.cancel();
     let cancelled_context = McpRequestContext::with_timeout(Duration::from_secs(1), cancelled);
@@ -41,10 +33,7 @@ async fn request_context_distinguishes_cancellation_and_timeout() {
             operation: "tools/call"
         }
     );
-}
-
-#[test]
-fn tool_declared_error_remains_a_successful_transport_output() {
+    // Case: tool_declared_error_remains_a_successful_transport_output.
     let mut result = CallToolResult::default();
     result.structured_content = Some(json!({"reason": "denied"}));
     result.is_error = Some(true);
@@ -56,10 +45,7 @@ fn tool_declared_error_remains_a_successful_transport_output() {
         output.result["structuredContent"],
         json!({"reason": "denied"})
     );
-}
-
-#[test]
-fn oversized_tool_result_is_rejected_before_capability_exposure() {
+    // Case: oversized_tool_result_is_rejected_before_capability_exposure.
     let mut result = CallToolResult::default();
     result.structured_content = Some(json!({"content": "x".repeat(MAX_TOOL_RESULT_BYTES)}));
 
@@ -67,17 +53,11 @@ fn oversized_tool_result_is_rejected_before_capability_exposure() {
         tool_call_output_from_rmcp(result),
         Err(McpClientError::Malformed(_))
     ));
-}
-
-#[test]
-fn call_arguments_fail_before_protocol_work_when_not_an_object() {
+    // Case: call_arguments_fail_before_protocol_work_when_not_an_object.
     let error =
         call_tool_params("read", json!(["not", "an", "object"])).expect_err("invalid arguments");
     assert!(matches!(error, McpClientError::Malformed(_)));
-}
-
-#[test]
-fn metadata_discovery_returns_auth_required_from_initialize() {
+    // Case: metadata_discovery_returns_auth_required_from_initialize.
     let error = DynamicTransportError::from_parts(
         "test-http",
         TypeId::of::<()>(),
@@ -92,10 +72,7 @@ fn metadata_discovery_returns_auth_required_from_initialize() {
         dynamic_transport_error(error),
         McpClientError::AuthenticationRequired(_)
     ));
-}
-
-#[test]
-fn preparation_debug_redacts_refreshed_credentials() {
+    // Case: preparation_debug_redacts_refreshed_credentials.
     struct FakeSession;
 
     impl McpPreparedSession for FakeSession {

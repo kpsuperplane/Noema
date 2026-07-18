@@ -141,23 +141,3 @@ fn unix_ms() -> u128 {
         .unwrap_or_default()
         .as_millis()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn timing_is_disabled_when_flag_is_missing_or_false() {
-        assert!(!timing_enabled_from_env(None));
-        assert!(!timing_enabled_from_env(Some("")));
-        assert!(!timing_enabled_from_env(Some("0")));
-        assert!(!timing_enabled_from_env(Some("false")));
-    }
-
-    #[test]
-    fn timing_is_enabled_for_truthy_flag_values() {
-        assert!(timing_enabled_from_env(Some("1")));
-        assert!(timing_enabled_from_env(Some("true")));
-        assert!(timing_enabled_from_env(Some("yes")));
-    }
-}

@@ -167,11 +167,6 @@ pub(super) fn immutable_connection(path: &Path) -> Connection {
     .expect("open immutable database snapshot")
 }
 
-pub(super) fn sqlite_header_versions(path: &Path) -> [u8; 2] {
-    let bytes = fs::read(path).expect("read SQLite header");
-    [bytes[18], bytes[19]]
-}
-
 pub(super) fn sidecar_path(path: &Path, suffix: &str) -> std::path::PathBuf {
     let mut value = path.as_os_str().to_os_string();
     value.push(suffix);

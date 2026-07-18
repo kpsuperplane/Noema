@@ -267,7 +267,8 @@ impl ProviderRegistry {
     ///
     /// Successful registration clears this marker. Durable retirement takes
     /// precedence and prevents a claimed key from becoming unready or ready.
-    pub fn mark_unready(&self, key: ProviderInstanceKey) {
+    #[cfg(feature = "local-models")]
+    pub(crate) fn mark_unready(&self, key: ProviderInstanceKey) {
         let mut state = lock_state(&self.inner);
         if state.blocked.contains_key(&key) || state.entries.contains_key(&key) {
             return;

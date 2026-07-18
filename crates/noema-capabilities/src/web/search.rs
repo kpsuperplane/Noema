@@ -228,6 +228,34 @@ mod tests {
     }
 
     #[test]
+    fn parser_normalizes_nested_arguments_and_enforces_bounds() {
+        let parsed = parse_arguments(&json!({
+            "arguments": {"query": "  rust  ", "reason": "  docs  ", "max_results": 99}
+        }))
+        .expect("valid nested arguments");
+        assert_eq!(
+            parsed,
+            SearchRequest {
+                query: "rust".to_string(),
+                reason: Some("docs".to_string()),
+                max_results: MAX_RESULTS,
+            }
+        );
+        assert_eq!(
+            parse_arguments(&json!({"query": "  "}))
+                .expect_err("empty query")
+                .message(),
+            "query is required"
+        );
+        assert_eq!(
+            parse_arguments(&json!({"query": "rust"}))
+                .expect("default result count")
+                .max_results,
+            DEFAULT_RESULTS
+        );
+    }
+
+    #[test]
     fn parser_error_does_not_echo_secret_values() {
         let error = parse_arguments(&json!({
             "query":"rust",

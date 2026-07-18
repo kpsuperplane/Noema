@@ -3,11 +3,9 @@
 use noema_providers::{
     LOCAL_MODELS_PROVIDER_ACCOUNT_ID, LocalModelActivationPersistence, LocalModelBackend,
     LocalModelEventKind, LocalModelInstallationPersistence, LocalModelInstallationRecord,
-    LocalModelInstallationStatus, LocalModelInstallationUpdate, LocalModelInstanceReferenceSource,
-    LocalModelLifecyclePersistence, LocalModelRetirementClaimResult,
-    LocalModelRuntimeRetirementResult, LocalModelSourceKind, NewLocalModelInstallation,
-    ProviderInstanceKey, ProviderPersistenceError, ProviderReadySelection,
-    ProviderSelectionSnapshot,
+    LocalModelInstanceReferenceSource, LocalModelLifecyclePersistence,
+    LocalModelRetirementClaimResult, LocalModelRuntimeRetirementResult, NewLocalModelInstallation,
+    ProviderInstanceKey, ProviderPersistenceError,
 };
 use rusqlite::params;
 
@@ -17,7 +15,7 @@ use crate::NoemaStore;
 async fn reconstruction_snapshot_contains_canonical_and_future_reference_owners() {
     let store = super::tests::test_store().await;
     let installation = installed(&store, "snapshot", "a").await;
-    let ready_selection = ready_local_selection(&installation);
+    let ready_selection = super::tests::ready_local_selection(&installation);
     LocalModelActivationPersistence::activate_local_model_as_system_default(
         &store,
         &installation.installation_id,
@@ -151,7 +149,7 @@ async fn retirement_claim_is_monotonic_and_completion_appends_removal() {
 async fn retirement_claim_classifies_references_missing_and_unclaimed_completion() {
     let store = super::tests::test_store().await;
     let active = installed(&store, "active", "c").await;
-    let ready_selection = ready_local_selection(&active);
+    let ready_selection = super::tests::ready_local_selection(&active);
     LocalModelActivationPersistence::activate_local_model_as_system_default(
         &store,
         &active.installation_id,
@@ -295,7 +293,7 @@ async fn claimed_instances_reject_activation_and_shared_blobs_are_retained() {
     // therefore cannot use uniqueness observed at claim time to authorize an
     // out-of-transaction filesystem deletion.
     let second = installed(&store, "shared-second", "f").await;
-    let ready_selection = ready_local_selection(&first);
+    let ready_selection = super::tests::ready_local_selection(&first);
 
     let error = LocalModelActivationPersistence::activate_local_model_as_system_default(
         &store,
@@ -356,7 +354,7 @@ async fn runtime_retirement_is_reversible_and_distinct_from_removal_claiming() {
         LocalModelRuntimeRetirementResult::AlreadyRetired(_)
     ));
 
-    let ready_selection = ready_local_selection(&retired);
+    let ready_selection = super::tests::ready_local_selection(&retired);
     let activated = LocalModelActivationPersistence::activate_local_model_as_system_default(
         &store,
         &installation.installation_id,
@@ -380,70 +378,31 @@ async fn runtime_retirement_is_reversible_and_distinct_from_removal_claiming() {
     ));
 }
 
-fn ready_local_selection(installation: &LocalModelInstallationRecord) -> ProviderReadySelection {
-    let mut selection = ProviderSelectionSnapshot::explicit(
-        "local_models",
-        LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
-        &installation.model_id,
-        None,
-        Some("local_model_lifecycle_test".to_string()),
-    );
-    selection.provider_instance_key = Some(installation.provider_instance_key.clone());
-    crate::tests::ready_provider_selection(selection)
-}
-
 async fn installed(
     store: &NoemaStore,
     suffix: &str,
     digest_char: &str,
 ) -> LocalModelInstallationRecord {
-    let installation = LocalModelInstallationPersistence::upsert_local_model_installation(
-        store,
-        installation_input(suffix, digest_char),
-    )
-    .await
-    .expect("create installation");
-    let mut current = installation;
-    for status in [
-        LocalModelInstallationStatus::Downloading,
-        LocalModelInstallationStatus::Verifying,
-        LocalModelInstallationStatus::Installed,
-    ] {
-        current = LocalModelInstallationPersistence::update_local_model_installation(
-            store,
-            &current.installation_id,
-            LocalModelInstallationUpdate {
-                status,
-                downloaded_bytes: 100,
-                expected_bytes: Some(100),
-                sha256: None,
-                blob_relative_path: (status == LocalModelInstallationStatus::Installed)
-                    .then(|| format!("models/blobs/{}.gguf", digest_char.repeat(64))),
-                error_code: None,
-                error_message: None,
-            },
-        )
+    let installation = store
+        .upsert_local_model_installation(installation_input(suffix, digest_char))
         .await
-        .expect("advance installation");
-    }
-    current
+        .expect("create installation");
+    crate::tests::mark_local_model_installed(store, &installation).await;
+    store
+        .get_local_model_installation(&installation.installation_id)
+        .await
+        .expect("read installed model")
+        .expect("installed model")
 }
 
 fn installation_input(suffix: &str, digest_char: &str) -> NewLocalModelInstallation {
-    NewLocalModelInstallation {
-        installation_id: format!("local_model_installation:{suffix}"),
-        model_id: format!("lifecycle-model-{suffix}"),
-        display_name: format!("Lifecycle Model {suffix}"),
-        source_kind: LocalModelSourceKind::Catalog,
-        source_repo: Some("example/lifecycle".to_string()),
-        source_revision: Some("f".repeat(40)),
-        source_file: Some(format!("{suffix}.gguf")),
-        sha256: Some(digest_char.repeat(64)),
-        download_gb: 1.0,
-        expected_bytes: Some(100),
-        license: Some("Apache-2.0".to_string()),
-        backend: LocalModelBackend::Cpu,
-    }
+    let mut input = crate::tests::local_model_installation(
+        &format!("local_model_installation:{suffix}"),
+        &format!("lifecycle-model-{suffix}"),
+        LocalModelBackend::Cpu,
+    );
+    input.sha256 = Some(digest_char.repeat(64));
+    input
 }
 
 async fn seed_task_and_run_references(

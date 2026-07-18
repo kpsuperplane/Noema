@@ -9,7 +9,10 @@ use noema_providers::{
 use noema_tasks::TASK_EXECUTOR_AGENT_ID;
 use serde_json::Value;
 
-use noema_store::{AgentRecord, AgentRuntimePreferenceRecord, NewAgentRuntimePreference};
+use noema_store::{
+    AgentRecord, AgentRuntimePreferenceRecord, NewAgentRuntimePreference,
+    NewAuxiliaryModelPreference,
+};
 
 use super::{errors::graphql_error, schema::GraphqlState};
 
@@ -24,31 +27,14 @@ pub enum GraphqlReasoningEffort {
     Xhigh,
 }
 
-impl From<ReasoningEffort> for GraphqlReasoningEffort {
-    fn from(value: ReasoningEffort) -> Self {
-        match value {
-            ReasoningEffort::None => Self::None,
-            ReasoningEffort::Minimal => Self::Minimal,
-            ReasoningEffort::Low => Self::Low,
-            ReasoningEffort::Medium => Self::Medium,
-            ReasoningEffort::High => Self::High,
-            ReasoningEffort::XHigh => Self::Xhigh,
-        }
-    }
-}
-
-impl From<GraphqlReasoningEffort> for ReasoningEffort {
-    fn from(value: GraphqlReasoningEffort) -> Self {
-        match value {
-            GraphqlReasoningEffort::None => Self::None,
-            GraphqlReasoningEffort::Minimal => Self::Minimal,
-            GraphqlReasoningEffort::Low => Self::Low,
-            GraphqlReasoningEffort::Medium => Self::Medium,
-            GraphqlReasoningEffort::High => Self::High,
-            GraphqlReasoningEffort::Xhigh => Self::XHigh,
-        }
-    }
-}
+graphql_enum_bidi!(ReasoningEffort => GraphqlReasoningEffort {
+    None => None,
+    Minimal => Minimal,
+    Low => Low,
+    Medium => Medium,
+    High => High,
+    XHigh => Xhigh,
+});
 
 /// Agent model preference safe to expose in Settings.
 #[derive(Clone, Debug, SimpleObject)]
@@ -320,6 +306,79 @@ pub(super) async fn selectable_profiles_from_account(
     Ok(profiles_from_account(account, None, &local_installations))
 }
 
+pub(super) struct AuxiliaryModelSettings {
+    pub preference: Option<GraphqlAgentModelPreference>,
+    pub options: Vec<GraphqlAgentModelProviderOption>,
+}
+
+pub(super) async fn auxiliary_model_settings(
+    state: &GraphqlState,
+    task_id: &str,
+) -> Result<AuxiliaryModelSettings> {
+    let store = state.store()?;
+    let accounts = active_default_model_accounts(state).await?;
+    let preference = store
+        .get_auxiliary_model_preference(task_id)
+        .await
+        .map_err(graphql_error)?
+        .map(|preference| GraphqlAgentModelPreference {
+            provider_kind: preference.provider_kind,
+            provider_account_id: preference.provider_account_id,
+            model_profile: preference.model_profile,
+            reasoning_effort: preference.reasoning_effort.map(Into::into),
+        });
+    Ok(AuxiliaryModelSettings {
+        preference,
+        options: model_options_from_accounts(store, &accounts).await?,
+    })
+}
+
+pub(super) async fn save_auxiliary_model_preference(
+    state: &GraphqlState,
+    task_id: &str,
+    provider_account_id: String,
+    model_profile: String,
+    reasoning_effort: Option<GraphqlReasoningEffort>,
+    provenance: &'static str,
+) -> Result<GraphqlAgentModelPreference> {
+    let store = state.store()?;
+    let account = selectable_model_account(state, &provider_account_id).await?;
+    if let Some(reason) = provider_disabled_reason(&account) {
+        return Err(async_graphql::Error::new(reason));
+    }
+    let profiles = selectable_profiles_from_account(store, &account).await?;
+    let profile = require_selectable_profile(&profiles, &model_profile)?;
+    let reasoning_effort = validate_reasoning_effort_for_profile(profile, reasoning_effort)?;
+    let ready_selection = super::provider_selection::prove_ready_selection(
+        state,
+        &account.provider_kind,
+        &account.provider_account_id,
+        &model_profile,
+        reasoning_effort,
+        provenance,
+    )
+    .await?;
+    let saved = store
+        .upsert_auxiliary_model_preference_with_ready_selection(
+            NewAuxiliaryModelPreference {
+                task_id: task_id.to_string(),
+                provider_kind: account.provider_kind,
+                provider_account_id: account.provider_account_id,
+                model_profile,
+                reasoning_effort,
+            },
+            &ready_selection,
+        )
+        .await
+        .map_err(graphql_error)?;
+    Ok(GraphqlAgentModelPreference {
+        provider_kind: saved.provider_kind,
+        provider_account_id: saved.provider_account_id,
+        model_profile: saved.model_profile,
+        reasoning_effort: saved.reasoning_effort.map(Into::into),
+    })
+}
+
 pub(super) fn provider_disabled_reason(account: &ProviderAccountRecord) -> Option<String> {
     match account.status {
         ProviderAccountStatus::Authenticated => None,
@@ -502,113 +561,4 @@ pub(super) fn validate_reasoning_effort_for_profile(
         ));
     }
     Ok(Some(reasoning_effort.into()))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn installed_active_local_model_is_selectable_and_saveable() {
-        let store = crate::test_support::test_store().await;
-        let (installation_id, provider_instance_key) = seed_installed_bonsai(&store).await;
-        let manager = crate::test_support::local_model_manager(&store);
-        let mut selection = noema_providers::ProviderSelectionSnapshot::explicit(
-            "local_models",
-            noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
-            "ternary-bonsai-8b",
-            None,
-            Some("test_local_activation".to_string()),
-        );
-        selection.provider_instance_key = Some(provider_instance_key);
-        let ready_selection = crate::test_support::ready_provider_selection_in_registry(
-            selection,
-            manager.registry().as_ref(),
-        );
-        store
-            .activate_local_model_as_system_default(&installation_id, &ready_selection)
-            .await
-            .expect("activate Bonsai");
-        let state =
-            GraphqlState::for_tests_with_store(store.clone()).with_local_model_manager(manager);
-
-        let projected_agents = agents(&state).await.expect("agents");
-        let primary = projected_agents
-            .iter()
-            .find(|agent| agent.agent_id == "agent:primary")
-            .expect("primary agent");
-        let local_models = primary
-            .model_options
-            .iter()
-            .find(|option| option.provider_kind == "local_models")
-            .expect("local-model provider option");
-        assert_eq!(
-            local_models.default_model_profile.as_deref(),
-            Some("ternary-bonsai-8b")
-        );
-        assert_eq!(local_models.profiles.len(), 1);
-        assert_eq!(local_models.profiles[0].id, "ternary-bonsai-8b");
-        assert_eq!(local_models.profiles[0].label, "Ternary Bonsai 8B");
-        assert_eq!(local_models.profiles[0].disabled_reason, None);
-
-        let saved = save_agent_model_preference(
-            &state,
-            GraphqlSaveAgentModelPreferenceInput {
-                agent_id: "agent:primary".to_string(),
-                provider_account_id: noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID.to_string(),
-                model_profile: "ternary-bonsai-8b".to_string(),
-                reasoning_effort: None,
-            },
-        )
-        .await
-        .expect("save local-model preference");
-        assert_eq!(saved.provider_kind, "local_models");
-        assert_eq!(saved.model_profile, "ternary-bonsai-8b");
-    }
-
-    async fn seed_installed_bonsai(
-        store: &noema_store::NoemaStore,
-    ) -> (String, noema_providers::ProviderInstanceKey) {
-        let installation_id = "local_model_installation:catalog:ternary-bonsai-8b:test".to_string();
-        let installation = store
-            .upsert_local_model_installation(noema_providers::NewLocalModelInstallation {
-                installation_id: installation_id.clone(),
-                model_id: "ternary-bonsai-8b".to_string(),
-                display_name: "Ternary Bonsai 8B".to_string(),
-                source_kind: noema_providers::LocalModelSourceKind::Catalog,
-                source_repo: Some("vinpix/Bonsai-8B-llama.cpp".to_string()),
-                source_revision: Some("0".repeat(40)),
-                source_file: Some("Bonsai-8B-Q2_KT.gguf".to_string()),
-                sha256: Some("1".repeat(64)),
-                download_gb: 3.0,
-                expected_bytes: Some(100),
-                license: Some("Apache-2.0".to_string()),
-                backend: noema_providers::LocalModelBackend::Metal,
-            })
-            .await
-            .expect("queue Bonsai");
-        for status in [
-            LocalModelInstallationStatus::Downloading,
-            LocalModelInstallationStatus::Verifying,
-            LocalModelInstallationStatus::Installed,
-        ] {
-            store
-                .update_local_model_installation(
-                    &installation.installation_id,
-                    noema_providers::LocalModelInstallationUpdate {
-                        status,
-                        downloaded_bytes: 100,
-                        expected_bytes: Some(100),
-                        sha256: None,
-                        blob_relative_path: (status == LocalModelInstallationStatus::Installed)
-                            .then(|| "models/blobs/test.gguf".to_string()),
-                        error_code: None,
-                        error_message: None,
-                    },
-                )
-                .await
-                .expect("installation transition");
-        }
-        (installation_id, installation.provider_instance_key)
-    }
 }

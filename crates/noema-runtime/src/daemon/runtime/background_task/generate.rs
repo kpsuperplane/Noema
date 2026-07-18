@@ -278,14 +278,14 @@ impl RuntimeActor {
                         run_id: request.run_id.clone(),
                         round_index: continuation_index as i64,
                         kind: noema_tasks::AgentRunItemKind::ToolResult,
-                        status: if result.success() {
+                        status: if result.success {
                             noema_tasks::AgentRunItemStatus::Completed
                         } else {
                             noema_tasks::AgentRunItemStatus::Failed
                         },
                         correlation_id: Some(correlation_id.clone()),
                         parent_item_id: Some(tool_call_item_id.clone()),
-                        content_text: Some(result.name().to_string()),
+                        content_text: Some(result.name.clone()),
                         payload: task_tool_result_transcript_payload(&result),
                     },
                     &request.lease_token,
@@ -299,7 +299,7 @@ impl RuntimeActor {
                         run_id: request.run_id.clone(),
                         round_index: continuation_index as i64,
                         kind: noema_tasks::AgentRunItemKind::ToolCall,
-                        status: if result.success() {
+                        status: if result.success {
                             noema_tasks::AgentRunItemStatus::Completed
                         } else {
                             noema_tasks::AgentRunItemStatus::Failed
@@ -312,7 +312,7 @@ impl RuntimeActor {
                             "call_id": call.call_id,
                             "provider_call_id": call.provider_call_id,
                             "provider_name": call.provider_name,
-                            "arguments": result.persisted().arguments.clone().unwrap_or_else(super::task_transcript::omitted_capability_payload),
+                            "arguments": result.persisted.arguments.clone().unwrap_or_else(super::task_transcript::omitted_capability_payload),
                         }),
                     },
                     &request.lease_token,
@@ -351,7 +351,7 @@ impl RuntimeActor {
             propagate_compaction_result(compaction_result)?;
             if !results
                 .iter()
-                .any(LocalToolResult::requires_provider_continuation)
+                .any(|result| result.requires_provider_continuation)
             {
                 response.usage = aggregate_usage;
                 return Ok(response);
@@ -563,5 +563,4 @@ impl RuntimeActor {
         }
         unreachable!("task continuation loop exits through a terminal outcome")
     }
-
 }

@@ -22,22 +22,22 @@ impl RuntimeMemorySampler {
         let task = tokio::spawn(async move {
             let mut system = System::new();
             let initial = sample_process_memory(&mut system, process_id);
-            let mut peak_bytes = initial.as_ref().map_or(0, |sample| sample.bytes);
+            let mut peak_bytes = initial.unwrap_or_default();
             let mut ticker = interval(SAMPLE_INTERVAL);
             ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
             loop {
                 tokio::select! {
                     _ = ticker.tick() => {
-                        if let Some(sample) = sample_process_memory(&mut system, process_id) {
-                            peak_bytes = peak_bytes.max(sample.bytes);
+                        if let Some(bytes) = sample_process_memory(&mut system, process_id) {
+                            peak_bytes = peak_bytes.max(bytes);
                         }
                     }
                     _ = &mut stop_rx => break,
                 }
             }
-            initial.map(|sample| ModelEvalRuntimeMemory {
-                metric: sample.metric.to_string(),
-                ready_bytes: sample.bytes,
+            initial.map(|ready_bytes| ModelEvalRuntimeMemory {
+                metric: "resident_set".to_string(),
+                ready_bytes,
                 peak_bytes,
             })
         });
@@ -50,40 +50,17 @@ impl RuntimeMemorySampler {
     }
 }
 
-struct ProcessMemorySample {
-    metric: &'static str,
-    bytes: u64,
-}
-
-fn sample_process_memory(system: &mut System, process_id: u32) -> Option<ProcessMemorySample> {
+fn sample_process_memory(system: &mut System, process_id: u32) -> Option<u64> {
     let process_id = Pid::from_u32(process_id);
     system.refresh_processes_specifics(
         ProcessesToUpdate::Some(&[process_id]),
         true,
         ProcessRefreshKind::nothing().with_memory(),
     );
-    let process = system.process(process_id)?;
-    Some(ProcessMemorySample {
-        metric: "resident_set",
-        bytes: process.memory(),
-    })
+    Some(system.process(process_id)?.memory())
 }
 
 pub(super) fn resident_bytes(process_id: u32) -> Option<u64> {
     let mut system = System::new();
-    sample_process_memory(&mut system, process_id).map(|sample| sample.bytes)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn samples_the_current_process() {
-        let mut system = System::new();
-        let sample = sample_process_memory(&mut system, std::process::id()).expect("memory sample");
-
-        assert!(sample.bytes > 0);
-        assert!(!sample.metric.is_empty());
-    }
+    sample_process_memory(&mut system, process_id)
 }

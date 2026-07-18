@@ -30,6 +30,249 @@ async fn insert_user_managed_codex_account(store: &NoemaStore, account_id: &str)
         .expect("user-managed provider account");
 }
 
+fn catalog_request(
+    provider_account_id: impl Into<String>,
+    profile: Option<(&str, &str)>,
+) -> PersistProviderModelCatalogRequest {
+    PersistProviderModelCatalogRequest {
+        provider_account_id: provider_account_id.into(),
+        profiles: profile
+            .map(|(id, label)| ProviderModelProfile {
+                id: id.to_string(),
+                label: label.to_string(),
+                reasoning_efforts: Vec::new(),
+                default_reasoning_effort: None,
+            })
+            .into_iter()
+            .collect(),
+        refreshed_at_unix: 100,
+        source: "codex_models_endpoint".to_string(),
+        metadata_version: 3,
+        client_version: "0.144.1".to_string(),
+        client_version_refreshed_at_unix: Some(99),
+        resulting_status: ProviderAccountStatus::Authenticated,
+    }
+}
+
+#[tokio::test]
+async fn sqlite_provider_accounts_seed_and_list() {
+    let store = super::tests::test_store().await;
+    store
+        .ensure_default_provider_account()
+        .await
+        .expect("codex");
+    store
+        .ensure_default_foundation_local_provider_account()
+        .await
+        .expect("foundation");
+    store
+        .ensure_default_openai_provider_account()
+        .await
+        .expect("openai");
+
+    let ids = ProviderAccountPersistence::active_provider_accounts(&store)
+        .await
+        .expect("provider accounts")
+        .into_iter()
+        .map(|account| account.provider_account_id)
+        .collect::<Vec<_>>();
+    for expected in [
+        "provider_account:codex:default",
+        "provider_account:foundation_local:default",
+        "provider_account:openai:default",
+    ] {
+        assert!(ids.iter().any(|id| id == expected));
+    }
+
+    let missing_id = "provider_account:missing";
+    let error = ProviderModelCatalogPersistence::persist_provider_model_catalog(
+        &store,
+        catalog_request(missing_id, None),
+    )
+    .await
+    .expect_err("missing catalog account");
+    assert_eq!(
+        error,
+        ProviderPersistenceError::AccountNotFound {
+            provider_account_id: missing_id.to_string()
+        }
+    );
+    assert!(
+        ProviderAccountPersistence::provider_account(&store, missing_id)
+            .await
+            .expect("missing account read")
+            .is_none(),
+        "missing catalog commit must not write"
+    );
+
+    let updated_account = ProviderAccountPersistence::create_provider_account(
+        &store,
+        NewProviderAccount {
+            provider_kind: "exa".to_string(),
+            display_name: Some("Search".to_string()),
+            auth_method: ProviderAuthMethod::SecretInput,
+            status: ProviderAccountStatus::Unauthenticated,
+            metadata: json!({"secretConfigured": false}),
+        },
+    )
+    .await
+    .expect("update account");
+    let updated = ProviderAccountPersistence::update_provider_account(
+        &store,
+        UpdateProviderAccountRequest {
+            provider_account_id: updated_account.provider_account_id,
+            status: Some(ProviderAccountStatusUpdate {
+                status: ProviderAccountStatus::Authenticated,
+                error_code: None,
+                error_message: None,
+            }),
+            metadata: Some(json!({"secretConfigured": true})),
+        },
+    )
+    .await
+    .expect("atomic account update");
+    assert_eq!(updated.status, ProviderAccountStatus::Authenticated);
+    assert_eq!(updated.metadata, json!({"secretConfigured": true}));
+    assert!(updated.last_authenticated_at.is_some());
+
+    let protected = ProviderAccountPersistence::delete_provider_account(
+        &store,
+        "provider_account:codex:default",
+    )
+    .await
+    .expect_err("protected account");
+    assert_eq!(
+        protected,
+        ProviderPersistenceError::ProtectedAccount {
+            provider_account_id: "provider_account:codex:default".to_string()
+        }
+    );
+
+    store.ensure_default_actors().await.expect("actors");
+    let referenced_id = "provider_account:codex:port-reference";
+    insert_user_managed_codex_account(&store, referenced_id).await;
+    let ready = super::tests::ready_provider_selection(super::tests::provider_selection(
+        "codex",
+        referenced_id,
+        "gpt-test",
+        "account_delete_port_test",
+    ));
+    store
+        .upsert_agent_runtime_preference_with_ready_selection(
+            crate::NewAgentRuntimePreference {
+                agent_id: "agent:primary".to_string(),
+                provider_kind: "codex".to_string(),
+                provider_account_id: referenced_id.to_string(),
+                model_profile: "gpt-test".to_string(),
+                reasoning_effort: None,
+            },
+            &ready,
+        )
+        .await
+        .expect("canonical reference");
+    assert_eq!(
+        ProviderAccountPersistence::delete_provider_account(&store, referenced_id)
+            .await
+            .expect_err("referenced port delete"),
+        ProviderPersistenceError::AccountInUse {
+            provider_account_id: referenced_id.to_string()
+        }
+    );
+    assert!(matches!(
+        store
+            .delete_provider_account(referenced_id)
+            .await
+            .expect_err("direct referenced delete"),
+        crate::StoreError::ProviderAccountInUse { provider_account_id }
+            if provider_account_id == referenced_id
+    ));
+
+    let deleted = ProviderAccountPersistence::create_provider_account(
+        &store,
+        NewProviderAccount {
+            provider_kind: "exa".to_string(),
+            display_name: None,
+            auth_method: ProviderAuthMethod::SecretInput,
+            status: ProviderAccountStatus::Unauthenticated,
+            metadata: json!({}),
+        },
+    )
+    .await
+    .expect("deleted account");
+    assert!(
+        ProviderAccountPersistence::delete_provider_account(&store, &deleted.provider_account_id)
+            .await
+            .expect("delete")
+    );
+    assert_eq!(
+        ProviderAccountPersistence::update_provider_account(
+            &store,
+            UpdateProviderAccountRequest {
+                provider_account_id: deleted.provider_account_id.clone(),
+                status: Some(ProviderAccountStatusUpdate {
+                    status: ProviderAccountStatus::Authenticated,
+                    error_code: None,
+                    error_message: None,
+                }),
+                metadata: None,
+            },
+        )
+        .await
+        .expect_err("update after delete"),
+        ProviderPersistenceError::AccountNotFound {
+            provider_account_id: deleted.provider_account_id
+        }
+    );
+
+    store
+        .update_provider_account_status(
+            "provider_account:codex:default",
+            ProviderAccountStatus::Authenticated,
+            None,
+            None,
+        )
+        .await
+        .expect("authenticated metadata");
+    let hosted_selection = super::tests::exact_provider_selection(
+        "codex",
+        "provider_account:codex:default",
+        "gpt-5.6-luna",
+        noema_providers::provider_account_instance_key("provider_account:codex:default")
+            .expect("hosted instance key"),
+        "unregistered_hosted_test",
+    );
+    assert!(matches!(
+        store
+            .initialize_missing_provider_selections(&hosted_selection, None)
+            .await
+            .expect_err("metadata is not registry readiness"),
+        crate::StoreError::ConfiguredDefaultUnresolvable { reason }
+            if reason == "canonical provider selections are incomplete and the configured instance is not ready"
+    ));
+
+    let home = TempDir::new().expect("two-handle root");
+    let config = StoreConfig::new(home.path().join("db/noema.sqlite3"));
+    let writer = NoemaStore::open(&config).await.expect("writer");
+    let reader = NoemaStore::open(&config).await.expect("reader");
+    let account = writer
+        .ensure_default_provider_account()
+        .await
+        .expect("account");
+    ProviderModelCatalogPersistence::persist_provider_model_catalog(
+        &writer,
+        catalog_request(&account.provider_account_id, Some(("visible", "Visible"))),
+    )
+    .await
+    .expect("catalog commit");
+    let observed = reader
+        .get_provider_account(&account.provider_account_id)
+        .await
+        .expect("second-handle read")
+        .expect("account");
+    assert_eq!(observed.status, ProviderAccountStatus::Authenticated);
+    assert_eq!(observed.metadata["profiles"][0]["id"], "visible");
+}
+
 #[tokio::test]
 async fn catalog_commit_merges_latest_metadata_and_status_atomically() {
     let store = super::tests::test_store().await;
@@ -64,21 +307,7 @@ async fn catalog_commit_merges_latest_metadata_and_status_atomically() {
 
     let updated = ProviderModelCatalogPersistence::persist_provider_model_catalog(
         &store,
-        PersistProviderModelCatalogRequest {
-            provider_account_id: stale.provider_account_id,
-            profiles: vec![ProviderModelProfile {
-                id: "gpt-live".to_string(),
-                label: "GPT Live".to_string(),
-                reasoning_efforts: Vec::new(),
-                default_reasoning_effort: None,
-            }],
-            refreshed_at_unix: 100,
-            source: "codex_models_endpoint".to_string(),
-            metadata_version: 3,
-            client_version: "0.144.1".to_string(),
-            client_version_refreshed_at_unix: Some(99),
-            resulting_status: ProviderAccountStatus::Authenticated,
-        },
+        catalog_request(stale.provider_account_id, Some(("gpt-live", "GPT Live"))),
     )
     .await
     .expect("persist catalog");
@@ -158,21 +387,7 @@ async fn catalog_commit_failure_rolls_back_metadata_and_status() {
 
     let error = ProviderModelCatalogPersistence::persist_provider_model_catalog(
         &store,
-        PersistProviderModelCatalogRequest {
-            provider_account_id: account.provider_account_id.clone(),
-            profiles: vec![ProviderModelProfile {
-                id: "new".to_string(),
-                label: "New".to_string(),
-                reasoning_efforts: Vec::new(),
-                default_reasoning_effort: None,
-            }],
-            refreshed_at_unix: 100,
-            source: "codex_models_endpoint".to_string(),
-            metadata_version: 3,
-            client_version: "0.144.1".to_string(),
-            client_version_refreshed_at_unix: None,
-            resulting_status: ProviderAccountStatus::Authenticated,
-        },
+        catalog_request(account.provider_account_id.clone(), Some(("new", "New"))),
     )
     .await
     .expect_err("trigger must abort catalog update");
@@ -204,131 +419,6 @@ async fn catalog_commit_failure_rolls_back_metadata_and_status() {
 }
 
 #[tokio::test]
-async fn catalog_commit_reports_missing_account_without_writing() {
-    let store = super::tests::test_store().await;
-    let error = ProviderModelCatalogPersistence::persist_provider_model_catalog(
-        &store,
-        PersistProviderModelCatalogRequest {
-            provider_account_id: "provider_account:missing".to_string(),
-            profiles: Vec::new(),
-            refreshed_at_unix: 100,
-            source: "test".to_string(),
-            metadata_version: 3,
-            client_version: "0.144.1".to_string(),
-            client_version_refreshed_at_unix: None,
-            resulting_status: ProviderAccountStatus::Authenticated,
-        },
-    )
-    .await
-    .expect_err("missing account");
-
-    assert_eq!(
-        error,
-        ProviderPersistenceError::AccountNotFound {
-            provider_account_id: "provider_account:missing".to_string()
-        }
-    );
-}
-
-#[tokio::test]
-async fn account_update_commits_status_and_metadata_together() {
-    let store = super::tests::test_store().await;
-    let account = ProviderAccountPersistence::create_provider_account(
-        &store,
-        NewProviderAccount {
-            provider_kind: "exa".to_string(),
-            display_name: Some("Search".to_string()),
-            auth_method: ProviderAuthMethod::SecretInput,
-            status: ProviderAccountStatus::Unauthenticated,
-            metadata: json!({"secretConfigured": false}),
-        },
-    )
-    .await
-    .expect("create account");
-
-    let updated = ProviderAccountPersistence::update_provider_account(
-        &store,
-        UpdateProviderAccountRequest {
-            provider_account_id: account.provider_account_id,
-            status: Some(ProviderAccountStatusUpdate {
-                status: ProviderAccountStatus::Authenticated,
-                error_code: None,
-                error_message: None,
-            }),
-            metadata: Some(json!({"secretConfigured": true})),
-        },
-    )
-    .await
-    .expect("update account");
-
-    assert_eq!(updated.status, ProviderAccountStatus::Authenticated);
-    assert_eq!(updated.metadata, json!({"secretConfigured": true}));
-    assert!(updated.last_authenticated_at.is_some());
-}
-
-#[tokio::test]
-async fn protected_account_delete_has_a_typed_error() {
-    let store = super::tests::test_store().await;
-    let account = store
-        .ensure_default_provider_account()
-        .await
-        .expect("default account");
-
-    let error =
-        ProviderAccountPersistence::delete_provider_account(&store, &account.provider_account_id)
-            .await
-            .expect_err("default account is protected");
-
-    assert_eq!(
-        error,
-        ProviderPersistenceError::ProtectedAccount {
-            provider_account_id: account.provider_account_id
-        }
-    );
-}
-
-#[tokio::test]
-async fn referenced_account_delete_has_a_typed_port_error() {
-    let store = super::tests::test_store().await;
-    store.ensure_default_actors().await.expect("actors");
-    let provider_account_id = "provider_account:codex:port-reference";
-    insert_user_managed_codex_account(&store, provider_account_id).await;
-    let ready_selection = super::tests::ready_provider_selection(
-        noema_providers::ProviderSelectionSnapshot::explicit(
-            "codex",
-            provider_account_id,
-            "gpt-test",
-            None,
-            Some("account_delete_port_test".to_string()),
-        ),
-    );
-    store
-        .upsert_agent_runtime_preference_with_ready_selection(
-            crate::NewAgentRuntimePreference {
-                agent_id: "agent:primary".to_string(),
-                provider_kind: "codex".to_string(),
-                provider_account_id: provider_account_id.to_string(),
-                model_profile: "gpt-test".to_string(),
-                reasoning_effort: None,
-            },
-            &ready_selection,
-        )
-        .await
-        .expect("canonical reference");
-
-    let error = ProviderAccountPersistence::delete_provider_account(&store, provider_account_id)
-        .await
-        .expect_err("referenced account must be retained");
-
-    assert_eq!(
-        error,
-        ProviderPersistenceError::AccountInUse {
-            provider_account_id: provider_account_id.to_string(),
-        }
-    );
-}
-
-#[tokio::test]
 async fn canonical_reference_write_and_account_delete_never_leave_a_dangling_selection() {
     let home = TempDir::new().expect("temp store root");
     let config = StoreConfig::new(home.path().join("db/noema.sqlite3"));
@@ -345,15 +435,12 @@ async fn canonical_reference_write_and_account_delete_never_leave_a_dangling_sel
         model_profile: "gpt-test".to_string(),
         reasoning_effort: None,
     };
-    let ready_selection = super::tests::ready_provider_selection(
-        noema_providers::ProviderSelectionSnapshot::explicit(
-            "codex",
-            provider_account_id,
-            "gpt-test",
-            None,
-            Some("concurrent_account_reference".to_string()),
-        ),
-    );
+    let ready_selection = super::tests::ready_provider_selection(super::tests::provider_selection(
+        "codex",
+        provider_account_id,
+        "gpt-test",
+        "concurrent_account_reference",
+    ));
     let (_write_result, _delete_result) = tokio::join!(
         writer.upsert_agent_runtime_preference_with_ready_selection(preference, &ready_selection,),
         ProviderAccountPersistence::delete_provider_account(&deleter, provider_account_id),
@@ -370,49 +457,6 @@ async fn canonical_reference_write_and_account_delete_never_leave_a_dangling_sel
         .expect("selection read")
         .is_some();
     assert!(!selection_exists || account_exists);
-}
-
-#[tokio::test]
-async fn account_update_after_delete_cannot_report_false_success() {
-    let store = super::tests::test_store().await;
-    let account = ProviderAccountPersistence::create_provider_account(
-        &store,
-        NewProviderAccount {
-            provider_kind: "exa".to_string(),
-            display_name: None,
-            auth_method: ProviderAuthMethod::SecretInput,
-            status: ProviderAccountStatus::Unauthenticated,
-            metadata: json!({}),
-        },
-    )
-    .await
-    .expect("create account");
-    assert!(
-        ProviderAccountPersistence::delete_provider_account(&store, &account.provider_account_id)
-            .await
-            .expect("delete account")
-    );
-
-    let error = ProviderAccountPersistence::update_provider_account(
-        &store,
-        UpdateProviderAccountRequest {
-            provider_account_id: account.provider_account_id.clone(),
-            status: Some(ProviderAccountStatusUpdate {
-                status: ProviderAccountStatus::Authenticated,
-                error_code: None,
-                error_message: None,
-            }),
-            metadata: None,
-        },
-    )
-    .await
-    .expect_err("deleted account update must fail");
-    assert_eq!(
-        error,
-        ProviderPersistenceError::AccountNotFound {
-            provider_account_id: account.provider_account_id
-        }
-    );
 }
 
 #[tokio::test]
@@ -452,16 +496,7 @@ async fn corrupted_account_rows_are_persistence_invariants() {
     );
     let catalog_error = ProviderModelCatalogPersistence::persist_provider_model_catalog(
         &store,
-        PersistProviderModelCatalogRequest {
-            provider_account_id: account.provider_account_id.clone(),
-            profiles: Vec::new(),
-            refreshed_at_unix: 100,
-            source: "test".to_string(),
-            metadata_version: 3,
-            client_version: "1.0.0".to_string(),
-            client_version_refreshed_at_unix: None,
-            resulting_status: ProviderAccountStatus::Authenticated,
-        },
+        catalog_request(account.provider_account_id.clone(), None),
     )
     .await
     .expect_err("corrupt row");
@@ -572,45 +607,4 @@ async fn capability_assignment_and_account_delete_never_leave_a_dangling_row() {
             .expect("assignment read")
             .is_some();
     assert!(!assignment_exists || account_exists);
-}
-
-#[tokio::test]
-async fn catalog_commit_is_visible_through_a_second_store_handle() {
-    let home = TempDir::new().expect("temp store root");
-    let config = StoreConfig::new(home.path().join("db/noema.sqlite3"));
-    let writer = NoemaStore::open(&config).await.expect("writer");
-    let reader = NoemaStore::open(&config).await.expect("reader");
-    let account = writer
-        .ensure_default_provider_account()
-        .await
-        .expect("account");
-
-    ProviderModelCatalogPersistence::persist_provider_model_catalog(
-        &writer,
-        PersistProviderModelCatalogRequest {
-            provider_account_id: account.provider_account_id.clone(),
-            profiles: vec![ProviderModelProfile {
-                id: "visible".to_string(),
-                label: "Visible".to_string(),
-                reasoning_efforts: Vec::new(),
-                default_reasoning_effort: None,
-            }],
-            refreshed_at_unix: 100,
-            source: "test".to_string(),
-            metadata_version: 3,
-            client_version: "1.0.0".to_string(),
-            client_version_refreshed_at_unix: None,
-            resulting_status: ProviderAccountStatus::Authenticated,
-        },
-    )
-    .await
-    .expect("persist catalog");
-
-    let observed = reader
-        .get_provider_account(&account.provider_account_id)
-        .await
-        .expect("read account")
-        .expect("account");
-    assert_eq!(observed.status, ProviderAccountStatus::Authenticated);
-    assert_eq!(observed.metadata["profiles"][0]["id"], "visible");
 }

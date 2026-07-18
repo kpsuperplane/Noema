@@ -1,34 +1,30 @@
 use std::{
-    collections::BTreeMap,
     fs,
+    path::PathBuf,
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use noema_home::{NoemaPaths, SystemErrorLogger};
 use serde_json::json;
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
-    sync::oneshot,
-    time::timeout,
-};
+use tokio::time::timeout;
 
 use super::ProviderAccountService;
 use crate::adapters::{
     account_service::{filesystem::atomic_write_private, gates::AccountGateRegistry},
     codex::oauth::CodexTokenStore,
+    test_support::{spawn_blocking_server, static_codex_credentials},
 };
 use crate::{
     CodexOAuthTokens, CreateSecretProviderAccountRequest, NewProviderAccount,
     PersistProviderModelCatalogRequest, PersistedProviderAccountRecord,
     ProviderAccountOperationError, ProviderAccountOperations, ProviderAccountPersistence,
     ProviderAccountPersistenceHandle, ProviderAccountRecord, ProviderAccountStatus,
-    ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderAuthMethod, ProviderCredential,
-    ProviderCredentialAccess, ProviderCredentialAccessHandle, ProviderCredentialFuture,
-    ProviderError, ProviderModelCatalogPersistence, ProviderModelCatalogPersistenceHandle,
-    ProviderPersistenceError, ProviderPersistenceFuture, SaveProviderAccountSecretRequest,
-    UpdateProviderAccountRequest, capabilities_for_provider_account,
+    ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderAuthMethod,
+    ProviderCredentialAccessHandle, ProviderModelCatalogPersistence,
+    ProviderModelCatalogPersistenceHandle, ProviderPersistenceError, ProviderPersistenceFuture,
+    SaveProviderAccountSecretRequest, UpdateProviderAccountRequest,
+    capabilities_for_provider_account,
 };
 
 #[path = "tests/auth_failure.rs"]
@@ -37,27 +33,41 @@ mod auth_failure;
 mod oauth;
 
 #[derive(Default)]
-struct FakePersistence {
+pub(in crate::adapters::account_service) struct FakePersistence {
     state: Mutex<FakePersistenceState>,
 }
 
 #[derive(Default)]
 struct FakePersistenceState {
-    accounts: BTreeMap<String, PersistedProviderAccountRecord>,
+    account: Option<PersistedProviderAccountRecord>,
     fail_next_update: bool,
     fail_next_delete: bool,
     catalog_persist_count: usize,
+    reads: usize,
+    delete_on_read: Option<(usize, PathBuf)>,
 }
 
 impl FakePersistence {
-    fn with_account(account: ProviderAccountRecord) -> Self {
-        let provider_account_id = account.provider_account_id.clone();
+    pub(in crate::adapters::account_service) fn with_account(
+        account: ProviderAccountRecord,
+    ) -> Self {
         Self {
             state: Mutex::new(FakePersistenceState {
-                accounts: BTreeMap::from([(provider_account_id, account.into())]),
+                account: Some(account.into()),
                 ..FakePersistenceState::default()
             }),
         }
+    }
+
+    pub(in crate::adapters::account_service) fn deleting_account_on_read(
+        account: ProviderAccountRecord,
+        read_number: usize,
+        account_home: PathBuf,
+    ) -> Self {
+        let persistence = Self::with_account(account);
+        persistence.state.lock().expect("fake state").delete_on_read =
+            Some((read_number, account_home));
+        persistence
     }
 
     fn fail_next_update(&self) {
@@ -68,12 +78,16 @@ impl FakePersistence {
         self.state.lock().expect("fake state").fail_next_delete = true;
     }
 
-    fn account(&self, provider_account_id: &str) -> Option<PersistedProviderAccountRecord> {
+    pub(in crate::adapters::account_service) fn account(
+        &self,
+        provider_account_id: &str,
+    ) -> Option<PersistedProviderAccountRecord> {
         self.state
             .lock()
             .expect("fake state")
-            .accounts
-            .get(provider_account_id)
+            .account
+            .as_ref()
+            .filter(|account| account.provider_account_id == provider_account_id)
             .cloned()
     }
 
@@ -81,8 +95,9 @@ impl FakePersistence {
         self.state
             .lock()
             .expect("fake state")
-            .accounts
-            .get_mut(provider_account_id)
+            .account
+            .as_mut()
+            .filter(|account| account.provider_account_id == provider_account_id)
             .expect("provider account")
             .metadata["credentialRevision"] = json!(revision);
     }
@@ -97,40 +112,19 @@ impl ProviderAccountPersistence for FakePersistence {
         &'a self,
         provider_account_id: &'a str,
     ) -> ProviderPersistenceFuture<'a, Option<PersistedProviderAccountRecord>> {
-        let account = self.account(provider_account_id);
-        Box::pin(async move { Ok(account) })
-    }
-
-    fn active_provider_account<'a>(
-        &'a self,
-        provider_kind: &'a str,
-    ) -> ProviderPersistenceFuture<'a, Option<PersistedProviderAccountRecord>> {
-        let account = self
-            .state
-            .lock()
-            .expect("fake state")
-            .accounts
-            .values()
-            .find(|account| {
-                account.provider_kind == provider_kind && account.is_active && account.is_default
-            })
-            .cloned();
-        Box::pin(async move { Ok(account) })
-    }
-
-    fn active_default_provider_accounts(
-        &self,
-    ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>> {
-        let accounts = self
-            .state
-            .lock()
-            .expect("fake state")
-            .accounts
-            .values()
-            .filter(|account| account.is_active && account.is_default)
-            .cloned()
-            .collect();
-        Box::pin(async move { Ok(accounts) })
+        let mut state = self.state.lock().expect("fake state");
+        state.reads += 1;
+        if let Some((read_number, account_home)) = state.delete_on_read.as_ref()
+            && state.reads == *read_number
+        {
+            fs::remove_dir_all(account_home).expect("remove account home");
+            state.account = None;
+        }
+        ready(Ok(state
+            .account
+            .as_ref()
+            .filter(|account| account.provider_account_id == provider_account_id)
+            .cloned()))
     }
 
     fn active_provider_accounts(
@@ -140,26 +134,12 @@ impl ProviderAccountPersistence for FakePersistence {
             .state
             .lock()
             .expect("fake state")
-            .accounts
-            .values()
+            .account
+            .iter()
             .filter(|account| account.is_active)
             .cloned()
             .collect();
-        Box::pin(async move { Ok(accounts) })
-    }
-
-    fn provider_accounts(
-        &self,
-    ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>> {
-        let accounts = self
-            .state
-            .lock()
-            .expect("fake state")
-            .accounts
-            .values()
-            .cloned()
-            .collect();
-        Box::pin(async move { Ok(accounts) })
+        ready(Ok(accounts))
     }
 
     fn create_provider_account(
@@ -174,12 +154,8 @@ impl ProviderAccountPersistence for FakePersistence {
             request.status,
             request.metadata,
         ));
-        self.state
-            .lock()
-            .expect("fake state")
-            .accounts
-            .insert(account.provider_account_id.clone(), account.clone());
-        Box::pin(async move { Ok(account) })
+        self.state.lock().expect("fake state").account = Some(account.clone());
+        ready(Ok(account))
     }
 
     fn update_provider_account(
@@ -195,8 +171,9 @@ impl ProviderAccountPersistence for FakePersistence {
                 })
             } else {
                 let account = state
-                    .accounts
-                    .get_mut(&request.provider_account_id)
+                    .account
+                    .as_mut()
+                    .filter(|account| account.provider_account_id == request.provider_account_id)
                     .ok_or_else(|| ProviderPersistenceError::AccountNotFound {
                         provider_account_id: request.provider_account_id.clone(),
                     });
@@ -213,7 +190,7 @@ impl ProviderAccountPersistence for FakePersistence {
                 })
             }
         };
-        Box::pin(async move { result })
+        ready(result)
     }
 
     fn delete_provider_account<'a>(
@@ -228,18 +205,22 @@ impl ProviderAccountPersistence for FakePersistence {
                     operation: "delete_provider_account",
                 })
             } else if state
-                .accounts
-                .get(provider_account_id)
+                .account
+                .as_ref()
+                .filter(|account| account.provider_account_id == provider_account_id)
                 .is_some_and(|account| account.is_default)
             {
                 Err(ProviderPersistenceError::ProtectedAccount {
                     provider_account_id: provider_account_id.to_string(),
                 })
             } else {
-                Ok(state.accounts.remove(provider_account_id).is_some())
+                Ok(state
+                    .account
+                    .take_if(|account| account.provider_account_id == provider_account_id)
+                    .is_some())
             }
         };
-        Box::pin(async move { result })
+        ready(result)
     }
 }
 
@@ -252,43 +233,23 @@ impl ProviderModelCatalogPersistence for FakePersistence {
             let mut state = self.state.lock().expect("fake state");
             state.catalog_persist_count += 1;
             state
-                .accounts
-                .get(&request.provider_account_id)
+                .account
+                .as_ref()
+                .filter(|account| account.provider_account_id == request.provider_account_id)
                 .cloned()
                 .ok_or(ProviderPersistenceError::AccountNotFound {
                     provider_account_id: request.provider_account_id,
                 })
         };
-        Box::pin(async move { result })
+        ready(result)
     }
 }
 
-#[derive(Debug)]
-struct StaticCodexCredentials;
-
-impl ProviderCredentialAccess for StaticCodexCredentials {
-    fn exa_api_key<'a>(&'a self, _provider_account_id: &'a str) -> ProviderCredentialFuture<'a> {
-        Box::pin(async {
-            Err(ProviderError::MissingCredentials {
-                provider: "exa".to_string(),
-                credential: "provider account".to_string(),
-            })
-        })
-    }
-
-    fn codex_access_token<'a>(
-        &'a self,
-        _provider_account_id: &'a str,
-    ) -> ProviderCredentialFuture<'a> {
-        Box::pin(async { Ok(ProviderCredential::from("catalog-token".to_string())) })
-    }
-
-    fn refresh_codex_access_token<'a>(
-        &'a self,
-        _provider_account_id: &'a str,
-    ) -> ProviderCredentialFuture<'a> {
-        Box::pin(async { Ok(ProviderCredential::from("refreshed-token".to_string())) })
-    }
+fn ready<T>(result: Result<T, ProviderPersistenceError>) -> ProviderPersistenceFuture<'static, T>
+where
+    T: Send + 'static,
+{
+    Box::pin(std::future::ready(result))
 }
 
 struct ServiceFixture {
@@ -326,129 +287,102 @@ impl ServiceFixture {
 }
 
 #[tokio::test]
-async fn create_secret_write_failure_deletes_new_durable_account() {
-    let fixture = ServiceFixture::empty();
-    let account_home = fixture.paths.provider_account_home("exa", "created");
-    fs::create_dir_all(account_home.parent().expect("provider parent")).expect("parent");
-    fs::write(&account_home, b"not a directory").expect("blocking file");
+async fn secret_account_creation_compensation_contracts() {
+    #[derive(Clone, Copy, Debug)]
+    enum Case {
+        SecretWrite,
+        DurableUpdate,
+        DurableCompensation,
+    }
 
-    let error = fixture
-        .service
-        .create_secret_account(
-            CreateSecretProviderAccountRequest::new("exa", None, "secret").expect("request"),
-        )
-        .await
-        .expect_err("write must fail");
+    for (case, expected) in [
+        (
+            Case::SecretWrite,
+            ProviderAccountOperationError::ProviderUnavailable,
+        ),
+        (
+            Case::DurableUpdate,
+            ProviderAccountOperationError::Persistence,
+        ),
+        (
+            Case::DurableCompensation,
+            ProviderAccountOperationError::CompensationFailed,
+        ),
+    ] {
+        eprintln!("case: {case:?}");
+        let fixture = ServiceFixture::empty();
+        match case {
+            Case::SecretWrite => {
+                let account_home = fixture.paths.provider_account_home("exa", "created");
+                fs::create_dir_all(account_home.parent().expect("provider parent"))
+                    .expect("parent");
+                fs::write(account_home, b"not a directory").expect("blocking file");
+            }
+            Case::DurableUpdate => fixture.persistence.fail_next_update(),
+            Case::DurableCompensation => {
+                fixture.persistence.fail_next_update();
+                fixture.persistence.fail_next_delete();
+            }
+        }
 
-    assert_eq!(error, ProviderAccountOperationError::ProviderUnavailable);
-    assert!(
-        fixture
-            .persistence
-            .account("provider_account:exa:created")
-            .is_none()
-    );
-}
-
-#[tokio::test]
-async fn create_update_failure_removes_secret_and_new_account() {
-    let fixture = ServiceFixture::empty();
-    fixture.persistence.fail_next_update();
-
-    let error = fixture
-        .service
-        .create_secret_account(
-            CreateSecretProviderAccountRequest::new("exa", None, "new-secret").expect("request"),
-        )
-        .await
-        .expect_err("update must fail");
-
-    assert_eq!(error, ProviderAccountOperationError::Persistence);
-    assert!(
-        fixture
-            .persistence
-            .account("provider_account:exa:created")
-            .is_none()
-    );
-    assert!(
-        !fixture
-            .paths
-            .provider_account_home("exa", "created")
-            .join("api_key.json")
-            .exists()
-    );
-}
-
-#[tokio::test]
-async fn failed_create_compensation_is_typed_and_keeps_durable_evidence() {
-    let fixture = ServiceFixture::empty();
-    fixture.persistence.fail_next_update();
-    fixture.persistence.fail_next_delete();
-
-    let error = fixture
-        .service
-        .create_secret_account(
-            CreateSecretProviderAccountRequest::new("exa", None, "new-secret").expect("request"),
-        )
-        .await
-        .expect_err("compensation must fail");
-
-    assert_eq!(error, ProviderAccountOperationError::CompensationFailed);
-    assert!(
-        fixture
-            .persistence
-            .account("provider_account:exa:created")
-            .is_some()
-    );
-}
-
-#[tokio::test]
-async fn save_update_failure_restores_exact_prior_secret_bytes() {
-    let account = exa_account("team", false);
-    let fixture = ServiceFixture::with_account(account.clone());
-    let secret_path = fixture
-        .paths
-        .provider_account_home("exa", "team")
-        .join("api_key.json");
-    let original = b"{malformed prior secret}\0\xff";
-    atomic_write_private(&secret_path, original).expect("prior secret");
-    fixture.persistence.fail_next_update();
-
-    let error = fixture
-        .service
-        .save_secret(
-            SaveProviderAccountSecretRequest::new(
-                account.provider_account_id.clone(),
-                "replacement",
+        let error = fixture
+            .service
+            .create_secret_account(
+                CreateSecretProviderAccountRequest::new("exa", None, "new-secret")
+                    .expect("request"),
             )
-            .expect("request"),
-        )
-        .await
-        .expect_err("update must fail");
-
-    assert_eq!(error, ProviderAccountOperationError::Persistence);
-    assert_eq!(fs::read(secret_path).expect("restored secret"), original);
+            .await
+            .expect_err("injected create failure");
+        assert_eq!(error, expected, "{case:?}");
+        let account = fixture.persistence.account("provider_account:exa:created");
+        assert_eq!(account.is_some(), matches!(case, Case::DurableCompensation));
+        if matches!(case, Case::DurableUpdate) {
+            assert!(
+                !fixture
+                    .paths
+                    .provider_account_home("exa", "created")
+                    .join("api_key.json")
+                    .exists()
+            );
+        }
+    }
 }
 
 #[tokio::test]
-async fn clear_update_failure_restores_exact_prior_secret_bytes() {
-    let account = exa_account("team", false);
-    let fixture = ServiceFixture::with_account(account.clone());
-    let secret_path = fixture
-        .paths
-        .provider_account_home("exa", "team")
-        .join("api_key.json");
-    let original = b"{malformed prior secret}\0\xff";
-    atomic_write_private(&secret_path, original).expect("prior secret");
-    fixture.persistence.fail_next_update();
+async fn secret_mutation_update_failure_restores_exact_prior_bytes() {
+    for clear in [false, true] {
+        let account = exa_account("team", false);
+        let fixture = ServiceFixture::with_account(account.clone());
+        let secret_path = fixture
+            .paths
+            .provider_account_home("exa", "team")
+            .join("api_key.json");
+        let original = b"{malformed prior secret}\0\xff";
+        atomic_write_private(&secret_path, original).expect("prior secret");
+        fixture.persistence.fail_next_update();
 
-    let error = fixture
-        .service
-        .clear_secret(&account.provider_account_id)
-        .await
+        let error = if clear {
+            fixture
+                .service
+                .clear_secret(&account.provider_account_id)
+                .await
+        } else {
+            fixture
+                .service
+                .save_secret(
+                    SaveProviderAccountSecretRequest::new(
+                        account.provider_account_id,
+                        "replacement",
+                    )
+                    .expect("request"),
+                )
+                .await
+        }
         .expect_err("update must fail");
 
-    assert_eq!(error, ProviderAccountOperationError::Persistence);
-    assert_eq!(fs::read(secret_path).expect("restored secret"), original);
+        assert_eq!(error, ProviderAccountOperationError::Persistence);
+        assert_eq!(fs::read(secret_path).expect("restored secret"), original);
+    }
 }
 
 #[tokio::test]
@@ -549,7 +483,8 @@ async fn catalog_refresh_rejects_a_credential_change_during_http() {
     let accounts: ProviderAccountPersistenceHandle = persistence.clone();
     let catalogs: ProviderModelCatalogPersistenceHandle = persistence.clone();
     let gates = AccountGateRegistry::new();
-    let credentials: ProviderCredentialAccessHandle = Arc::new(StaticCodexCredentials);
+    let credentials: ProviderCredentialAccessHandle =
+        static_codex_credentials("catalog-token", "refreshed-token");
     let service = ProviderAccountService::from_parts(
         paths.clone(),
         accounts,
@@ -605,6 +540,23 @@ async fn reconcile_account_marks_existing_codex_tokens_authenticated() {
             .status,
         ProviderAccountStatus::Authenticated
     );
+}
+
+#[tokio::test]
+async fn codex_config_for_provider_account_uses_account_home() {
+    let account = codex_account();
+    let fixture = ServiceFixture::with_account(account.clone());
+    CodexTokenStore::new(fixture.paths.provider_account_home("codex", "default"))
+        .write(&tokens("account-home-access", "refresh"))
+        .expect("write account tokens");
+
+    let credential = fixture
+        .service
+        .credentials()
+        .codex_access_token(&account.provider_account_id)
+        .await
+        .expect("credential from canonical account home");
+    assert_eq!(credential.expose_secret(), "account-home-access");
 }
 
 fn exa_account(account_key: &str, is_default: bool) -> ProviderAccountRecord {
@@ -689,41 +641,22 @@ fn current_timestamp_string() -> String {
         .to_string()
 }
 
-async fn spawn_blocking_model_catalog_server()
--> (String, oneshot::Receiver<()>, oneshot::Sender<()>) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
-    let address = listener.local_addr().expect("address");
-    let (request_started_tx, request_started_rx) = oneshot::channel();
-    let (release_response_tx, release_response_rx) = oneshot::channel();
-    tokio::spawn(async move {
-        let (mut stream, _) = listener.accept().await.expect("accept");
-        let mut request = [0_u8; 4096];
-        let request_bytes = stream.read(&mut request).await.expect("read request");
-        assert!(request_bytes > 0);
-        request_started_tx.send(()).expect("signal request");
-        release_response_rx.await.expect("release response");
-        let body = json!({
+async fn spawn_blocking_model_catalog_server() -> (
+    String,
+    tokio::sync::oneshot::Receiver<()>,
+    tokio::sync::oneshot::Sender<()>,
+) {
+    spawn_blocking_server(
+        Vec::new(),
+        200,
+        json!({
             "models": [{
                 "slug": "gpt-live",
                 "display_name": "GPT Live",
                 "visibility": "list",
             }],
         })
-        .to_string();
-        stream
-            .write_all(
-                format!(
-                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-                    body.len()
-                )
-                .as_bytes(),
-            )
-            .await
-            .expect("write response");
-    });
-    (
-        format!("http://{address}"),
-        request_started_rx,
-        release_response_tx,
+        .to_string(),
     )
+    .await
 }

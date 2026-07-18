@@ -11,6 +11,10 @@ use super::{
     NoemaStore, StoreError,
     local_model_rows::{INSTALLATION_SELECT, installation_from_raw, raw_installation_from_row},
     local_models::append_event,
+    provider_selections::{
+        CanonicalPreferenceOwner, write_memory_preference_tx, write_preference_tx,
+        write_task_pool_preference_tx,
+    },
 };
 
 impl NoemaStore {
@@ -91,11 +95,16 @@ impl NoemaStore {
                     provider_instance_key,
                 });
             }
-            save_default_preference(transaction, &provider_instance_key, &model_id)?;
-            save_agent_preferences(transaction, &provider_instance_key, &model_id)?;
-            save_task_pool_preferences(transaction, &provider_instance_key, &model_id)?;
-            save_memory_preference(transaction, &provider_instance_key, &model_id)?;
-            save_auxiliary_preferences(transaction, &provider_instance_key, &model_id)?;
+            write_preference_tx(
+                transaction,
+                CanonicalPreferenceOwner::Default,
+                selection,
+                true,
+            )?;
+            save_agent_preferences(transaction, selection)?;
+            save_task_pool_preferences(transaction, selection)?;
+            write_memory_preference_tx(transaction, selection, true)?;
+            save_auxiliary_preferences(transaction, selection)?;
             append_event(
                 transaction,
                 installation_id,
@@ -173,66 +182,20 @@ fn ensure_builtin_agents(transaction: &Transaction<'_>) -> Result<(), StoreError
     Ok(())
 }
 
-fn save_default_preference(
-    transaction: &Transaction<'_>,
-    provider_instance_key: &str,
-    model_id: &str,
-) -> Result<(), StoreError> {
-    transaction.execute(
-        r#"
-        INSERT INTO default_model_preference (
-          preference_id, provider_kind, provider_account_id, provider_instance_key,
-          model_profile, reasoning_effort, updated_at
-        ) VALUES ('default', 'local_models', ?1, ?2, ?3, NULL,
-                  strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-        ON CONFLICT(preference_id) DO UPDATE SET
-          provider_kind = excluded.provider_kind,
-          provider_account_id = excluded.provider_account_id,
-          provider_instance_key = excluded.provider_instance_key,
-          model_profile = excluded.model_profile,
-          reasoning_effort = NULL,
-          updated_at = excluded.updated_at
-        "#,
-        params![
-            LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
-            provider_instance_key,
-            model_id
-        ],
-    )?;
-    Ok(())
-}
-
 fn save_agent_preferences(
     transaction: &Transaction<'_>,
-    provider_instance_key: &str,
-    model_id: &str,
+    selection: &noema_providers::ProviderSelectionSnapshot,
 ) -> Result<(), StoreError> {
     for agent_id in [
         "agent:primary",
         "agent:task-executor",
         "agent:task-reviewer",
     ] {
-        transaction.execute(
-            r#"
-            INSERT INTO agent_runtime_preferences (
-              agent_id, provider_kind, provider_account_id, provider_instance_key,
-              model_profile, reasoning_effort, updated_at
-            ) VALUES (?1, 'local_models', ?2, ?3, ?4, NULL,
-                      strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-            ON CONFLICT(agent_id) DO UPDATE SET
-              provider_kind = excluded.provider_kind,
-              provider_account_id = excluded.provider_account_id,
-              provider_instance_key = excluded.provider_instance_key,
-              model_profile = excluded.model_profile,
-              reasoning_effort = NULL,
-              updated_at = excluded.updated_at
-            "#,
-            params![
-                agent_id,
-                LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
-                provider_instance_key,
-                model_id
-            ],
+        write_preference_tx(
+            transaction,
+            CanonicalPreferenceOwner::Agent(agent_id),
+            selection,
+            true,
         )?;
     }
     Ok(())
@@ -240,93 +203,25 @@ fn save_agent_preferences(
 
 fn save_task_pool_preferences(
     transaction: &Transaction<'_>,
-    provider_instance_key: &str,
-    model_id: &str,
+    selection: &noema_providers::ProviderSelectionSnapshot,
 ) -> Result<(), StoreError> {
     for complexity in ["simple", "medium", "difficult"] {
         let pool_entry_id = format!("task_pool:setting:{complexity}");
-        transaction.execute(
-            r#"
-            INSERT INTO task_model_pool_entries (
-              pool_entry_id, complexity, label, provider_kind,
-              provider_account_id, provider_instance_key, model_profile,
-              reasoning_effort, enabled, sort_order, updated_at
-            ) VALUES (?1, ?2, NULL, 'local_models', ?3, ?4, ?5, NULL, 1, 0,
-                      strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-            ON CONFLICT(pool_entry_id) DO UPDATE SET
-              provider_kind = excluded.provider_kind,
-              provider_account_id = excluded.provider_account_id,
-              provider_instance_key = excluded.provider_instance_key,
-              model_profile = excluded.model_profile,
-              reasoning_effort = NULL,
-              enabled = 1,
-              sort_order = 0,
-              updated_at = excluded.updated_at
-            "#,
-            params![
-                pool_entry_id,
-                complexity,
-                LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
-                provider_instance_key,
-                model_id
-            ],
-        )?;
+        write_task_pool_preference_tx(transaction, &pool_entry_id, complexity, selection, true)?;
     }
-    Ok(())
-}
-
-fn save_memory_preference(
-    transaction: &Transaction<'_>,
-    provider_instance_key: &str,
-    model_id: &str,
-) -> Result<(), StoreError> {
-    transaction.execute(
-        r#"
-        UPDATE memory_service_settings
-        SET provider_kind = 'local_models',
-            provider_account_id = ?1,
-            provider_instance_key = ?2,
-            model_profile = ?3,
-            reasoning_effort = NULL,
-            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        WHERE settings_id = 'default'
-        "#,
-        params![
-            LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
-            provider_instance_key,
-            model_id
-        ],
-    )?;
     Ok(())
 }
 
 fn save_auxiliary_preferences(
     transaction: &Transaction<'_>,
-    provider_instance_key: &str,
-    model_id: &str,
+    selection: &noema_providers::ProviderSelectionSnapshot,
 ) -> Result<(), StoreError> {
     for task_id in ["tool_progress_audit", "web_fetch_summarizer"] {
-        transaction.execute(
-            r#"
-            INSERT INTO auxiliary_model_preferences (
-              task_id, provider_kind, provider_account_id, provider_instance_key,
-              model_profile, reasoning_effort, updated_at
-            ) VALUES (?1, 'local_models', ?2, ?3, ?4, NULL,
-                      strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-            ON CONFLICT(task_id) DO UPDATE SET
-              provider_kind = excluded.provider_kind,
-              provider_account_id = excluded.provider_account_id,
-              provider_instance_key = excluded.provider_instance_key,
-              model_profile = excluded.model_profile,
-              reasoning_effort = NULL,
-              updated_at = excluded.updated_at
-            "#,
-            params![
-                task_id,
-                LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
-                provider_instance_key,
-                model_id
-            ],
+        write_preference_tx(
+            transaction,
+            CanonicalPreferenceOwner::Auxiliary(task_id),
+            selection,
+            true,
         )?;
     }
     Ok(())

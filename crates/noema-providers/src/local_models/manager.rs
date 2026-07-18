@@ -26,8 +26,7 @@ use crate::{
     LocalModelLifecyclePersistenceHandle, LocalModelManagement, LocalModelManagementFuture,
     LocalModelManager, LocalModelManagerConfig, LocalModelManagerError, LocalModelManagerEvent,
     LocalModelManagerEventRecord, LocalModelManagerEventStream, LocalModelReconstructionReport,
-    LocalModelRuntimeStatus, ManagedLocalModelStatus, ProviderInstanceKey, ProviderRegistration,
-    ProviderRegistryHandle,
+    LocalModelRuntimeStatus, ProviderInstanceKey, ProviderRegistration, ProviderRegistryHandle,
 };
 
 use super::{LocalModelInstallError, LocalModelInstaller};
@@ -41,7 +40,7 @@ mod reaper;
 mod workers;
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;
 
 const LIFECYCLE_RUNNING: u8 = 0;
 const LIFECYCLE_SHUTTING_DOWN: u8 = 1;
@@ -254,12 +253,6 @@ impl LocalModelManagerService {
         self.inner.runtime_status_tx.borrow().clone()
     }
 
-    /// Subscribes to active-process status changes.
-    #[must_use]
-    pub fn subscribe_runtime_status(&self) -> watch::Receiver<LocalModelRuntimeStatus> {
-        self.inner.runtime_status_tx.subscribe()
-    }
-
     /// Lists durable installations in repository presentation order.
     ///
     /// # Errors
@@ -292,22 +285,9 @@ impl LocalModelManagerService {
             .map_err(Into::into)
     }
 
-    /// Returns status for every retained exact local-model process.
-    #[must_use]
-    pub async fn managed_instances(&self) -> Vec<ManagedLocalModelStatus> {
-        let instances = self.inner.instances.lock().expect("instances lock");
-        let mut statuses = instances
-            .iter()
-            .map(|(key, instance)| ManagedLocalModelStatus {
-                key: key.clone(),
-                installation_id: instance.installation.installation_id.clone(),
-                model_id: instance.installation.model_id.clone(),
-                is_active: instance.installation.is_active,
-                runtime: instance.process.status(),
-            })
-            .collect::<Vec<_>>();
-        statuses.sort_by(|left, right| left.installation_id.cmp(&right.installation_id));
-        statuses
+    #[cfg(test)]
+    pub(super) fn managed_instance_count(&self) -> usize {
+        self.inner.instances.lock().expect("instances lock").len()
     }
 
     fn ensure_accepting_work(&self) -> Result<(), LocalModelManagerError> {
@@ -344,10 +324,6 @@ impl LocalModelManagement for LocalModelManagerService {
     ) -> LocalModelManagementFuture<'_, Result<Vec<LocalModelEventRecord>, LocalModelManagerError>>
     {
         Box::pin(LocalModelManagerService::events(self, after_cursor, limit))
-    }
-
-    fn managed_instances(&self) -> LocalModelManagementFuture<'_, Vec<ManagedLocalModelStatus>> {
-        Box::pin(LocalModelManagerService::managed_instances(self))
     }
 
     fn catalog_snapshot(&self) -> Result<LocalModelCatalogSnapshot, LocalModelManagerError> {

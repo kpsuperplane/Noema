@@ -3,106 +3,79 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-/// Stable capability identifiers exposed by provider accounts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(rename_all = "snake_case")]
-pub enum CapabilityId {
-    /// Text or multimodal generation.
-    ModelGenerate,
-    /// Classification or lightweight analysis.
-    ModelClassify,
-    /// Hosted or public web search.
-    WebSearch,
-    /// Direct web content fetch.
-    WebFetch,
+macro_rules! metadata_vocabulary {
+    (
+        $(#[$enum_attr:meta])*
+        pub enum $name:ident {
+            $($(#[$variant_attr:meta])* $variant:ident = $label:literal),+ $(,)?
+        }
+    ) => {
+        $(#[$enum_attr])*
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+        #[serde(rename_all = "snake_case")]
+        #[ts(rename_all = "snake_case")]
+        pub enum $name {
+            $($(#[$variant_attr])* $variant),+
+        }
+
+        impl $name {
+            /// Return this value's stable identifier.
+            #[must_use]
+            pub const fn as_str(self) -> &'static str {
+                match self { $(Self::$variant => $label),+ }
+            }
+        }
+    };
 }
 
-impl CapabilityId {
-    /// Return the stable identifier.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::ModelGenerate => "model.generate",
-            Self::ModelClassify => "model.classify",
-            Self::WebSearch => "web.search",
-            Self::WebFetch => "web.fetch",
-        }
+metadata_vocabulary! {
+    /// Stable capability identifiers exposed by provider accounts.
+    #[derive(Hash)]
+    pub enum CapabilityId {
+        /// Text or multimodal generation.
+        ModelGenerate = "model.generate",
+        /// Classification or lightweight analysis.
+        ModelClassify = "model.classify",
+        /// Hosted or public web search.
+        WebSearch = "web.search",
+        /// Direct web content fetch.
+        WebFetch = "web.fetch",
     }
 }
 
-/// Operational trust contract for a capability provider.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(rename_all = "snake_case")]
-pub enum ReliabilityContract {
-    /// First-party Noema-owned behavior.
-    FirstParty,
-    /// Hosted model or tool behavior.
-    HostedProvider,
-    /// Best-effort public integration.
-    BestEffortPublic,
-}
-
-impl ReliabilityContract {
-    /// Return the stable storage label.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::FirstParty => "first_party",
-            Self::HostedProvider => "hosted_provider",
-            Self::BestEffortPublic => "best_effort_public",
-        }
+metadata_vocabulary! {
+    /// Operational trust contract for a capability provider.
+    pub enum ReliabilityContract {
+        /// First-party Noema-owned behavior.
+        FirstParty = "first_party",
+        /// Hosted model or tool behavior.
+        HostedProvider = "hosted_provider",
+        /// Best-effort public integration.
+        BestEffortPublic = "best_effort_public",
     }
 }
 
-/// Data handling class for an invocation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(rename_all = "snake_case")]
-pub enum DataFlowClass {
-    /// Prompt data flows to a model provider.
-    ModelProviderPrompt,
-    /// Prompt data remains on-device.
-    LocalInference,
-    /// Query data flows to a search backend.
-    TrustedExternalSearchQuery,
-    /// A remote web page is fetched directly.
-    ExternalWebFetch,
-}
-
-impl DataFlowClass {
-    /// Return the stable storage label.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::ModelProviderPrompt => "model_provider_prompt",
-            Self::LocalInference => "local_inference",
-            Self::TrustedExternalSearchQuery => "trusted_external_search_query",
-            Self::ExternalWebFetch => "external_web_fetch",
-        }
+metadata_vocabulary! {
+    /// Data handling class for an invocation.
+    pub enum DataFlowClass {
+        /// Prompt data flows to a model provider.
+        ModelProviderPrompt = "model_provider_prompt",
+        /// Prompt data remains on-device.
+        LocalInference = "local_inference",
+        /// Query data flows to a search backend.
+        TrustedExternalSearchQuery = "trusted_external_search_query",
+        /// A remote web page is fetched directly.
+        ExternalWebFetch = "external_web_fetch",
     }
 }
 
-/// Persistence policy for capability results.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(rename_all = "snake_case")]
-pub enum ResultPersistencePolicy {
-    /// Persist compact metadata only.
-    CompactMetadata,
-    /// Persist compact content payloads.
-    CompactContent,
-}
-
-impl ResultPersistencePolicy {
-    /// Return the stable storage label.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::CompactMetadata => "compact_metadata",
-            Self::CompactContent => "compact_content",
-        }
+metadata_vocabulary! {
+    /// Persistence policy for capability results.
+    pub enum ResultPersistencePolicy {
+        /// Persist compact metadata only.
+        CompactMetadata = "compact_metadata",
+        /// Persist compact content payloads.
+        CompactContent = "compact_content",
     }
 }
 

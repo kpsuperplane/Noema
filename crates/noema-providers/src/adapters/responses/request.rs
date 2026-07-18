@@ -159,9 +159,10 @@ impl ResponsesRequest {
             } else {
                 Vec::new()
             },
-            prompt_cache_key: prompt_cache_key_from_conversation_id(
-                request.conversation_id.as_deref(),
-            ),
+            prompt_cache_key: request.conversation_id.as_deref().and_then(|id| {
+                let id = id.trim();
+                (!id.is_empty()).then(|| id.to_string())
+            }),
             prompt_cache_options: profile
                 .forward_prompt_cache_options
                 .then_some(request.options.prompt_cache_options)
@@ -182,11 +183,4 @@ impl ResponsesRequest {
 pub struct ResponsesReasoning {
     /// Reasoning effort requested from the provider.
     pub effort: ReasoningEffort,
-}
-
-pub(crate) fn prompt_cache_key_from_conversation_id(
-    conversation_id: Option<&str>,
-) -> Option<String> {
-    let conversation_id = conversation_id?.trim();
-    (!conversation_id.is_empty()).then(|| conversation_id.to_string())
 }

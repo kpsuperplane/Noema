@@ -46,23 +46,10 @@ pub enum GraphqlMemoryServiceMode {
     External,
 }
 
-impl From<MemoryServiceMode> for GraphqlMemoryServiceMode {
-    fn from(value: MemoryServiceMode) -> Self {
-        match value {
-            MemoryServiceMode::Managed => Self::Managed,
-            MemoryServiceMode::External => Self::External,
-        }
-    }
-}
-
-impl From<GraphqlMemoryServiceMode> for MemoryServiceMode {
-    fn from(value: GraphqlMemoryServiceMode) -> Self {
-        match value {
-            GraphqlMemoryServiceMode::Managed => Self::Managed,
-            GraphqlMemoryServiceMode::External => Self::External,
-        }
-    }
-}
+graphql_enum_bidi!(MemoryServiceMode => GraphqlMemoryServiceMode {
+    Managed => Managed,
+    External => External,
+});
 
 /// Memory service readiness status kind.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]

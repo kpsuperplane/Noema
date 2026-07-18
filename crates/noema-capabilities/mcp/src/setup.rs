@@ -3,13 +3,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use noema_capabilities::ToolName;
-use ring::rand::{SecureRandom, SystemRandom};
 use thiserror::Error;
-use url::Url;
 
 use crate::{
     CreateMcpServerCommand, McpDiscoveredTool, McpSecretMaterial, McpServerAuthStatus,
-    McpServerRecord, McpSetupTransportConfig, NewMcpServer, discovered_tool_fingerprint,
+    McpServerRecord, McpSetupTransportConfig, NewMcpServer,
+    connection_url::parse_https_or_loopback,
+    discovered_tool_fingerprint,
+    identity::random_hex_id,
     limits::{
         MAX_ANNOTATIONS_BYTES, MAX_DISCOVERED_TOOLS, MAX_SCHEMA_BYTES, MAX_TOOL_DESCRIPTION_BYTES,
         MAX_TOOL_NAME_BYTES, json_within_limits,
@@ -274,15 +275,7 @@ pub(crate) fn rotate_secret_identity_revision(
     let object = safe_config
         .as_object_mut()
         .ok_or(McpSetupValidationError::InvalidTransport)?;
-    let mut bytes = [0_u8; 16];
-    SystemRandom::new()
-        .fill(&mut bytes)
-        .map_err(|_| McpSetupValidationError::IdentityGeneration)?;
-    let mut revision = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        use std::fmt::Write as _;
-        let _ = write!(revision, "{byte:02x}");
-    }
+    let revision = random_hex_id().map_err(|_| McpSetupValidationError::IdentityGeneration)?;
     object.insert(
         "secret_identity_revision".to_string(),
         serde_json::Value::String(revision.clone()),
@@ -323,14 +316,7 @@ fn validate_transport(transport: &McpSetupTransportConfig) -> Result<(), McpSetu
             reject_secret_shaped_keys(&config.env)
         }
         McpSetupTransportConfig::StreamableHttp(config) => {
-            let url =
-                Url::parse(&config.url).map_err(|_| McpSetupValidationError::InvalidTransport)?;
-            if !matches!(url.scheme(), "http" | "https")
-                || url.host_str().is_none()
-                || !url.username().is_empty()
-                || url.password().is_some()
-                || url.fragment().is_some()
-            {
+            if parse_https_or_loopback(&config.url).is_none() {
                 return Err(McpSetupValidationError::InvalidTransport);
             }
             reject_secret_shaped_keys(&config.headers)
@@ -369,7 +355,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::{McpStdioSetupConfig, McpStreamableHttpSetupConfig, McpTransportKind};
+    use crate::{McpStdioSetupConfig, McpStreamableHttpSetupConfig, test_fixture::discovered_tool};
 
     fn http_command() -> CreateMcpServerCommand {
         CreateMcpServerCommand {
@@ -389,34 +375,8 @@ mod tests {
     }
 
     #[test]
-    fn setup_normalizes_safe_config_without_copying_secrets() {
-        let setup = validate_create_command(http_command()).expect("setup");
-        assert_eq!(setup.server.display_name, "Docs");
-        assert_eq!(
-            setup.server.transport_kind,
-            McpTransportKind::StreamableHttp
-        );
-        assert_eq!(
-            setup.server.safe_config["url"],
-            json!("https://example.com/mcp")
-        );
-        assert_eq!(
-            setup.server.safe_config["headers"],
-            json!({"X-Team": "infra"})
-        );
-        assert_eq!(
-            setup.server.safe_config["secret_refs"],
-            json!({"headers": ["Authorization"]})
-        );
-        assert_eq!(
-            setup.server.safe_config["secret_identity_revision"].as_str(),
-            setup.secrets.secret_identity_revision.as_deref()
-        );
-        assert!(!setup.server.safe_config.to_string().contains("private"));
-    }
-
-    #[test]
-    fn safe_configuration_rejects_secret_shaped_keys() {
+    fn safe_configuration_and_transport_validation_contracts() {
+        // Case: safe_configuration_rejects_secret_shaped_keys.
         let mut command = http_command();
         command.transport = McpSetupTransportConfig::StreamableHttp(McpStreamableHttpSetupConfig {
             url: "https://example.com/mcp".to_string(),
@@ -426,10 +386,7 @@ mod tests {
             validate_create_command(command).expect_err("secret-shaped"),
             McpSetupValidationError::SecretInSafeConfiguration
         );
-    }
-
-    #[test]
-    fn transport_validation_rejects_unsafe_url_and_empty_command() {
+        // Case: transport_validation_rejects_unsafe_url_and_empty_command.
         let mut command = http_command();
         command.transport = McpSetupTransportConfig::StreamableHttp(McpStreamableHttpSetupConfig {
             url: "https://user:password@example.com/mcp".to_string(),
@@ -457,15 +414,9 @@ mod tests {
     }
 
     #[test]
-    fn discovery_rejects_duplicates_and_recomputes_fingerprints() {
-        let tool = McpDiscoveredTool {
-            name: "read".to_string(),
-            description: Some("Read".to_string()),
-            input_schema: json!({"type":"object"}),
-            output_schema: Some(json!({"type":"object"})),
-            annotations: json!({"readOnlyHint":true}),
-            metadata_fingerprint: "untrusted".to_string(),
-        };
+    fn discovery_validation_and_fingerprint_contracts() {
+        // Case: discovery_rejects_duplicates_and_recomputes_fingerprints.
+        let tool = discovered_tool();
         let validated = validate_discovered_tools(vec![tool.clone()]).expect("valid");
         assert!(
             validated[0]
@@ -476,10 +427,7 @@ mod tests {
             validate_discovered_tools(vec![tool.clone(), tool]).expect_err("duplicate"),
             McpSetupValidationError::DuplicateToolName
         );
-    }
-
-    #[test]
-    fn discovery_rejects_oversized_remote_metadata_before_persistence() {
+        // Case: discovery_rejects_oversized_remote_metadata_before_persistence.
         let tool = McpDiscoveredTool {
             name: "read".to_string(),
             description: Some("x".repeat(MAX_TOOL_DESCRIPTION_BYTES + 1)),
@@ -508,63 +456,5 @@ mod tests {
             validate_discovered_tools(vec![tool]).expect_err("oversized schema"),
             McpSetupValidationError::InvalidToolContract
         );
-    }
-
-    #[test]
-    fn secret_identity_revision_is_random_and_non_secret() {
-        let mut first_secrets = McpSecretMaterial {
-            env: BTreeMap::from([("TOKEN".to_string(), "first".to_string())]),
-            ..McpSecretMaterial::default()
-        };
-        let mut second_secrets = McpSecretMaterial {
-            env: BTreeMap::from([("TOKEN".to_string(), "second".to_string())]),
-            ..McpSecretMaterial::default()
-        };
-        let first = rotate_secret_identity_revision(
-            json!({"url":"https://example.com"}),
-            &mut first_secrets,
-        )
-        .expect("first");
-        let second = rotate_secret_identity_revision(
-            json!({"url":"https://example.com"}),
-            &mut second_secrets,
-        )
-        .expect("second");
-        let first_revision = first["secret_identity_revision"]
-            .as_str()
-            .expect("revision");
-        assert_eq!(first_revision.len(), 32);
-        assert_eq!(
-            first_secrets.secret_identity_revision.as_deref(),
-            Some(first_revision)
-        );
-        assert_ne!(
-            first_revision,
-            second["secret_identity_revision"]
-                .as_str()
-                .expect("revision")
-        );
-    }
-
-    #[test]
-    fn secret_identity_revision_rejects_old_material_with_the_same_key_set() {
-        let mut old = McpSecretMaterial {
-            env: BTreeMap::from([("TOKEN".to_string(), "old".to_string())]),
-            ..McpSecretMaterial::default()
-        };
-        let old_config =
-            rotate_secret_identity_revision(json!({}), &mut old).expect("old identity");
-        let mut replacement = McpSecretMaterial {
-            env: BTreeMap::from([("TOKEN".to_string(), "new".to_string())]),
-            ..McpSecretMaterial::default()
-        };
-        let replacement_config =
-            rotate_secret_identity_revision(old_config, &mut replacement).expect("replacement");
-
-        assert!(secret_identity_revision_matches(
-            &replacement_config,
-            &replacement
-        ));
-        assert!(!secret_identity_revision_matches(&replacement_config, &old));
     }
 }

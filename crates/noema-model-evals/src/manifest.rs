@@ -134,15 +134,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bundled_candidate_manifest_is_valid() {
+    fn bundled_candidate_and_suite_manifests_are_valid() {
         let path =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../evals/local-models/candidates.toml");
         let manifest = load_candidates(&path).expect("candidate manifest");
         assert_eq!(manifest.candidates.len(), 21);
-    }
-
-    #[test]
-    fn bundled_suite_is_valid() {
         let path =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../evals/local-models/suite.toml");
         let suite = load_suite(&path).expect("suite config");

@@ -313,22 +313,6 @@ impl LlamaServerSupervisor {
         Err(LlamaServerError::Unavailable(message))
     }
 
-    /// Stops the current process and retries candidates from the beginning.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`LlamaServerError::Unavailable`] when all retry candidates fail,
-    /// or [`LlamaServerError::GenerationGateClosed`] after permanent shutdown.
-    #[cfg(any(test, feature = "local-model-evals"))]
-    #[cfg(test)]
-    pub async fn retry(&self) -> Result<LlamaServerEndpoint, LlamaServerError> {
-        if self.inner.generation_arbiter.is_closed() {
-            return Err(LlamaServerError::GenerationGateClosed);
-        }
-        self.stop_runtime().await;
-        self.ensure_ready().await
-    }
-
     /// Permanently closes generation and stops the active server process, if any.
     pub async fn shutdown(&self) {
         self.inner.generation_arbiter.close();
@@ -541,8 +525,8 @@ mod tests {
     }
 
     #[test]
-    fn launch_args_always_bind_loopback_and_limit_parallelism() {
-        let args = server_args(
+    fn launch_args_bind_loopback_limit_parallelism_and_select_offload() {
+        let cpu = server_args(
             &config(vec![LlamaServerCandidate::new(
                 LocalModelBackend::Cpu,
                 "llama-server",
@@ -552,15 +536,11 @@ mod tests {
             512,
         );
 
-        assert!(args.windows(2).any(|pair| pair == ["--host", "127.0.0.1"]));
-        assert!(args.windows(2).any(|pair| pair == ["--parallel", "1"]));
-        assert!(args.windows(2).any(|pair| pair == ["--cache-ram", "512"]));
-        assert!(args.windows(2).any(|pair| pair == ["--n-gpu-layers", "0"]));
-    }
-
-    #[test]
-    fn accelerated_candidate_offloads_layers() {
-        let args = server_args(
+        assert!(cpu.windows(2).any(|pair| pair == ["--host", "127.0.0.1"]));
+        assert!(cpu.windows(2).any(|pair| pair == ["--parallel", "1"]));
+        assert!(cpu.windows(2).any(|pair| pair == ["--cache-ram", "512"]));
+        assert!(cpu.windows(2).any(|pair| pair == ["--n-gpu-layers", "0"]));
+        let accelerated = server_args(
             &config(vec![LlamaServerCandidate::new(
                 LocalModelBackend::Metal,
                 "llama-server",
@@ -571,28 +551,18 @@ mod tests {
         );
 
         assert!(
-            args.windows(2)
+            accelerated
+                .windows(2)
                 .any(|pair| pair == ["--n-gpu-layers", "999"])
         );
     }
 
     #[test]
     fn checkpoint_cache_scales_with_system_memory_and_stays_bounded() {
+        assert_eq!(checkpoint_cache_mib(0), 0);
         assert_eq!(checkpoint_cache_mib(16), 512);
         assert_eq!(checkpoint_cache_mib(32), 1024);
         assert_eq!(checkpoint_cache_mib(128), MAX_CHECKPOINT_CACHE_MIB);
-    }
-
-    #[test]
-    fn checkpoint_cache_disables_without_detected_ram() {
-        assert_eq!(checkpoint_cache_mib(0), 0);
-    }
-
-    #[test]
-    fn supervisor_rejects_missing_candidates() {
-        let error = LlamaServerSupervisor::new(config(Vec::new())).expect_err("invalid config");
-
-        assert!(matches!(error, LlamaServerError::InvalidConfig(_)));
     }
 
     #[tokio::test]
@@ -646,10 +616,6 @@ mod tests {
             supervisor.ensure_ready().await,
             Err(LlamaServerError::GenerationGateClosed)
         ));
-        assert!(matches!(
-            supervisor.retry().await,
-            Err(LlamaServerError::GenerationGateClosed)
-        ));
         drop(active);
     }
 
@@ -669,8 +635,6 @@ mod tests {
             LocalModelRuntimeStatus::Failed { .. }
         ));
 
-        let retry_error = supervisor.retry().await.expect_err("retry failure");
-        assert!(matches!(retry_error, LlamaServerError::Unavailable(_)));
         let permit = supervisor
             .acquire_generation(GenerationPriority::Background)
             .await

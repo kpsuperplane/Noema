@@ -16,14 +16,19 @@ use super::{
 ///
 /// Returns [`ProviderError::MalformedResponse`] when a response-shaped object
 /// is present but does not match the structured response contract.
-pub fn output_items_from_text(text: String) -> Result<Vec<GenerateResponseItem>, ProviderError> {
+pub(crate) fn output_items_from_text(
+    text: String,
+) -> Result<Vec<GenerateResponseItem>, ProviderError> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return Err(ProviderError::MalformedResponse {
             message: "provider produced empty output".to_string(),
         });
     }
-    if let Ok(Some(response)) = noema_response_from_text(trimmed.to_string()) {
+    let parsed = serde_json::from_str::<Value>(trimmed)
+        .map(|value| noema_response_from_structured_value(value, false))
+        .unwrap_or_else(|_| embedded_noema_response(trimmed, true));
+    if let Ok(Some(response)) = parsed {
         return Ok(response.responses);
     }
     Ok(vec![GenerateResponseItem::Text { phase: None, text }])
@@ -35,10 +40,10 @@ pub fn output_items_from_text(text: String) -> Result<Vec<GenerateResponseItem>,
 ///
 /// Returns [`ProviderError::MalformedResponse`] when the payload is not a
 /// strict Noema response object contract.
-pub fn required_noema_response_from_text(
+pub(crate) fn required_noema_response_from_text(
     text: String,
 ) -> Result<ParsedNoemaResponse, ProviderError> {
-    noema_response_from_text_with_mode(text, true)
+    noema_response_from_text(text, true)
 }
 
 /// Parse required Noema text when executable tool calls arrived through a
@@ -51,7 +56,8 @@ pub fn required_noema_response_from_text(
 ///
 /// Returns [`ProviderError::MalformedResponse`] when the text is invalid,
 /// contains envelope tool calls, or contains final-answer text.
-pub fn required_noema_response_from_text_with_native_tool_calls(
+#[cfg(feature = "adapters")]
+pub(crate) fn required_noema_response_from_text_with_native_tool_calls(
     text: String,
     native_tool_calls: Vec<GenerateToolCall>,
 ) -> Result<ParsedNoemaResponse, ProviderError> {
@@ -59,7 +65,7 @@ pub fn required_noema_response_from_text_with_native_tool_calls(
         return required_noema_response_from_text(text);
     }
 
-    let mut parsed = noema_response_from_text_without_required_validation(text)?;
+    let mut parsed = noema_response_from_text(text, false)?;
     if !parsed.tool_calls.is_empty() {
         return Err(ProviderError::MalformedResponse {
             message: "native tool response cannot include Noema response-envelope tool_calls"
@@ -75,30 +81,6 @@ pub fn required_noema_response_from_text_with_native_tool_calls(
     parsed.tool_calls = native_tool_calls;
     parsed.response_status = GenerateResponseStatus::NeedsTools;
     Ok(parsed)
-}
-
-/// Parse provider text into a Noema structured response when it contains the
-/// response object contract.
-///
-/// # Errors
-///
-/// Returns [`ProviderError::MalformedResponse`] when a response-shaped object
-/// is present but invalid.
-pub fn noema_response_from_text(
-    text: String,
-) -> Result<Option<ParsedNoemaResponse>, ProviderError> {
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        return Err(ProviderError::MalformedResponse {
-            message: "provider produced empty output".to_string(),
-        });
-    }
-
-    if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
-        return noema_response_from_structured_value(value, false);
-    }
-
-    embedded_noema_response(trimmed, true)
 }
 
 fn balanced_json_object_candidates(text: &str) -> Vec<&str> {
@@ -143,7 +125,7 @@ fn balanced_json_object_candidates(text: &str) -> Vec<&str> {
     candidates
 }
 
-fn noema_response_from_text_with_mode(
+fn noema_response_from_text(
     text: String,
     require_noema_response: bool,
 ) -> Result<ParsedNoemaResponse, ProviderError> {
@@ -166,35 +148,7 @@ fn noema_response_from_text_with_mode(
         }
     }
 
-    if require_noema_response && let Some(response) = embedded_noema_response(trimmed, true)? {
-        return Ok(response);
-    }
-
-    Err(ProviderError::MalformedResponse {
-        message: "provider did not return a Noema structured response object".to_string(),
-    })
-}
-
-fn noema_response_from_text_without_required_validation(
-    text: String,
-) -> Result<ParsedNoemaResponse, ProviderError> {
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        return Err(ProviderError::MalformedResponse {
-            message: "provider produced empty output".to_string(),
-        });
-    }
-
-    if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
-        if let Some(response) = noema_response_from_structured_value(value, false)? {
-            return Ok(response);
-        }
-        return Err(ProviderError::MalformedResponse {
-            message: "provider did not return a Noema structured response object".to_string(),
-        });
-    }
-
-    if let Some(response) = embedded_noema_response(trimmed, false)? {
+    if let Some(response) = embedded_noema_response(trimmed, require_noema_response)? {
         return Ok(response);
     }
 

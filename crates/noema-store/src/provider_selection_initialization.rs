@@ -1,28 +1,17 @@
 //! One-shot initialization of missing canonical provider selections.
 
-use noema_providers::{ProviderReadySelection, ProviderSelectionSnapshot, ReasoningEffort};
+use noema_providers::{ProviderReadySelection, ProviderSelectionSnapshot};
 use rusqlite::{Transaction, params};
 
 use crate::{
     NoemaStore, StoreError,
+    agents::BUILTIN_AGENTS,
     provider_selections::{
-        SelectionEligibility, validate_provider_selection_tx, validate_ready_selection_proof,
+        CanonicalPreferenceOwner, SelectionEligibility, validate_provider_selection_tx,
+        validate_ready_selection_proof, write_memory_preference_tx, write_preference_tx,
+        write_task_pool_preference_tx,
     },
 };
-
-const BUILTIN_AGENTS: [(&str, Option<&str>, &str); 3] = [
-    ("agent:primary", None, "primary"),
-    (
-        "agent:task-executor",
-        Some("Task Executor"),
-        "task_executor",
-    ),
-    (
-        "agent:task-reviewer",
-        Some("Task Reviewer"),
-        "task_reviewer",
-    ),
-];
 
 const TASK_POOL_SETTINGS: [(&str, &str); 3] = [
     ("task_pool:setting:simple", "simple"),
@@ -138,48 +127,24 @@ fn insert_missing_default(
     transaction: &Transaction<'_>,
     selection: &ProviderSelectionSnapshot,
 ) -> Result<(), StoreError> {
-    let key = selection_key(selection)?;
-    transaction.execute(
-        r#"
-        INSERT INTO default_model_preference (
-          preference_id, provider_kind, provider_account_id,
-          provider_instance_key, model_profile, reasoning_effort
-        ) VALUES ('default', ?1, ?2, ?3, ?4, ?5)
-        ON CONFLICT(preference_id) DO NOTHING
-        "#,
-        params![
-            selection.provider_kind,
-            selection.provider_account_id,
-            key,
-            selection.model_profile,
-            reasoning_effort(selection),
-        ],
-    )?;
-    Ok(())
+    write_preference_tx(
+        transaction,
+        CanonicalPreferenceOwner::Default,
+        selection,
+        false,
+    )
 }
 
 fn insert_missing_agent_preferences(
     transaction: &Transaction<'_>,
     selection: &ProviderSelectionSnapshot,
 ) -> Result<(), StoreError> {
-    let key = selection_key(selection)?;
     for (agent_id, _, _) in BUILTIN_AGENTS {
-        transaction.execute(
-            r#"
-            INSERT INTO agent_runtime_preferences (
-              agent_id, provider_kind, provider_account_id,
-              provider_instance_key, model_profile, reasoning_effort
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-            ON CONFLICT(agent_id) DO NOTHING
-            "#,
-            params![
-                agent_id,
-                selection.provider_kind,
-                selection.provider_account_id,
-                key,
-                selection.model_profile,
-                reasoning_effort(selection),
-            ],
+        write_preference_tx(
+            transaction,
+            CanonicalPreferenceOwner::Agent(agent_id),
+            selection,
+            false,
         )?;
     }
     Ok(())
@@ -189,27 +154,8 @@ fn insert_missing_task_pool(
     transaction: &Transaction<'_>,
     selection: &ProviderSelectionSnapshot,
 ) -> Result<(), StoreError> {
-    let key = selection_key(selection)?;
     for (pool_entry_id, complexity) in TASK_POOL_SETTINGS {
-        transaction.execute(
-            r#"
-            INSERT INTO task_model_pool_entries (
-              pool_entry_id, complexity, label, provider_kind,
-              provider_account_id, provider_instance_key, model_profile,
-              reasoning_effort, enabled, sort_order
-            ) VALUES (?1, ?2, NULL, ?3, ?4, ?5, ?6, ?7, 1, 0)
-            ON CONFLICT(pool_entry_id) DO NOTHING
-            "#,
-            params![
-                pool_entry_id,
-                complexity,
-                selection.provider_kind,
-                selection.provider_account_id,
-                key,
-                selection.model_profile,
-                reasoning_effort(selection),
-            ],
-        )?;
+        write_task_pool_preference_tx(transaction, pool_entry_id, complexity, selection, false)?;
     }
     Ok(())
 }
@@ -218,72 +164,22 @@ fn initialize_missing_memory_selection(
     transaction: &Transaction<'_>,
     selection: &ProviderSelectionSnapshot,
 ) -> Result<(), StoreError> {
-    let key = selection_key(selection)?;
-    transaction.execute(
-        r#"
-        UPDATE memory_service_settings
-        SET provider_kind = ?1,
-            provider_account_id = ?2,
-            provider_instance_key = ?3,
-            model_profile = ?4,
-            reasoning_effort = ?5,
-            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        WHERE settings_id = 'default'
-          AND provider_kind IS NULL
-          AND provider_account_id IS NULL
-          AND provider_instance_key IS NULL
-          AND model_profile IS NULL
-        "#,
-        params![
-            selection.provider_kind,
-            selection.provider_account_id,
-            key,
-            selection.model_profile,
-            reasoning_effort(selection),
-        ],
-    )?;
-    Ok(())
+    write_memory_preference_tx(transaction, selection, false)
 }
 
 fn insert_missing_auxiliary_preferences(
     transaction: &Transaction<'_>,
     selection: &ProviderSelectionSnapshot,
 ) -> Result<(), StoreError> {
-    let key = selection_key(selection)?;
     for task_id in AUXILIARY_TASKS {
-        transaction.execute(
-            r#"
-            INSERT INTO auxiliary_model_preferences (
-              task_id, provider_kind, provider_account_id,
-              provider_instance_key, model_profile, reasoning_effort
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-            ON CONFLICT(task_id) DO NOTHING
-            "#,
-            params![
-                task_id,
-                selection.provider_kind,
-                selection.provider_account_id,
-                key,
-                selection.model_profile,
-                reasoning_effort(selection),
-            ],
+        write_preference_tx(
+            transaction,
+            CanonicalPreferenceOwner::Auxiliary(task_id),
+            selection,
+            false,
         )?;
     }
     Ok(())
-}
-
-fn selection_key(selection: &ProviderSelectionSnapshot) -> Result<&str, StoreError> {
-    selection
-        .provider_instance_key
-        .as_ref()
-        .map(noema_providers::ProviderInstanceKey::as_str)
-        .ok_or(StoreError::ProviderInstanceKeyMissing)
-}
-
-fn reasoning_effort(selection: &ProviderSelectionSnapshot) -> Option<&'static str> {
-    selection
-        .reasoning_effort
-        .map(ReasoningEffort::as_persistence_str)
 }
 
 fn configured_default_error(error: StoreError) -> StoreError {
@@ -304,7 +200,9 @@ mod tests {
     use super::*;
     use crate::{
         NewAgentRuntimePreference, WEB_FETCH_SUMMARIZER_TASK_ID,
-        tests::{ready_provider_selection, test_store},
+        tests::{
+            exact_provider_selection, provider_selection, ready_provider_selection, test_store,
+        },
     };
 
     async fn ready_codex_store() -> NoemaStore {
@@ -326,12 +224,11 @@ mod tests {
     }
 
     fn codex_default() -> ProviderReadySelection {
-        ready_provider_selection(ProviderSelectionSnapshot::explicit(
+        ready_provider_selection(provider_selection(
             "codex",
             "provider_account:codex:default",
             "gpt-5.6-luna",
-            None,
-            Some("configured_default".to_string()),
+            "configured_default",
         ))
     }
 
@@ -349,52 +246,37 @@ mod tests {
         let store = test_store().await;
         let installation_id = "local_model_installation:initializer-test";
         let model_id = "initializer-local-model";
-        let key = noema_providers::local_model_provider_instance_key(
-            noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
-            installation_id,
-            model_id,
-        )
-        .expect("local instance key");
-        {
-            let connection = store.connection_for_tests();
-            let connection = connection.lock().await;
-            connection
-                .execute(
-                    r#"
-                    INSERT INTO provider_accounts (
-                      provider_account_id, provider_kind, account_key, display_name,
-                      auth_method, is_active, is_default, status, metadata_json
-                    ) VALUES (?1, 'local_models', 'default', 'Local models', 'none',
-                              1, 1, 'authenticated', '{}')
-                    "#,
-                    [noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID],
-                )
-                .expect("local account");
-            connection
-                .execute(
-                    r#"
-                    INSERT INTO local_model_installations (
-                      installation_id, provider_instance_key, model_id, display_name,
-                      source_kind, source_file, sha256, download_gb, expected_bytes,
-                      downloaded_bytes, backend, status, blob_relative_path, is_active,
-                      installed_at
-                    ) VALUES (?1, ?2, ?3, 'Initializer local model', 'local_file',
-                              'initializer.gguf', ?4, 1.0, 1, 1, 'metal', 'installed',
-                              'models/blobs/initializer.gguf', 1,
-                              strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-                    "#,
-                    params![installation_id, key.as_str(), model_id, "a".repeat(64)],
-                )
-                .expect("installed local model");
-        }
-        let mut selection = ProviderSelectionSnapshot::explicit(
+        store
+            .ensure_default_local_models_provider_account()
+            .await
+            .expect("local account");
+        let installation = store
+            .upsert_local_model_installation(crate::tests::local_model_installation(
+                installation_id,
+                model_id,
+                noema_providers::LocalModelBackend::Metal,
+            ))
+            .await
+            .expect("local installation");
+        crate::tests::mark_local_model_installed(&store, &installation).await;
+        let key = installation.provider_instance_key;
+        store
+            .with_connection(|connection| {
+                connection.execute(
+                    "UPDATE local_model_installations SET is_active = 1 WHERE provider_instance_key = ?1",
+                    [key.as_str()],
+                )?;
+                Ok(())
+            })
+            .await
+            .expect("activate local installation fixture");
+        let selection = exact_provider_selection(
             "local_models",
             noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
             model_id,
-            None,
-            Some("configured_default".to_string()),
+            key.clone(),
+            "configured_default",
         );
-        selection.provider_instance_key = Some(key.clone());
         let ready_selection = ready_provider_selection(selection.clone());
         store
             .initialize_missing_provider_selections(&selection, Some(&ready_selection))

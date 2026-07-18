@@ -9,14 +9,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-use ring::rand::{SecureRandom, SystemRandom};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
     CompleteMcpOAuthSetupCommand, CreateMcpServerCommand, McpOAuthSetupAttemptStatus,
     McpOAuthSetupAttemptView, McpOAuthSetupFailure, McpOAuthStoredCredentials,
-    McpServerSetupResult, McpSetupTransportConfig,
+    McpServerSetupResult, McpSetupTransportConfig, identity::random_hex_id,
 };
 
 use self::protocol::RmcpBackend;
@@ -33,8 +32,6 @@ pub struct McpOAuthRegistryConfig {
     pub in_flight_ttl: Duration,
     /// Hard maximum retained attempt count.
     pub capacity: usize,
-    /// Protected-resource metadata deadline.
-    pub metadata_timeout: Duration,
     /// Authorization startup deadline.
     pub start_timeout: Duration,
     /// Callback exchange deadline.
@@ -47,7 +44,6 @@ impl Default for McpOAuthRegistryConfig {
             attempt_ttl: Duration::from_secs(600),
             in_flight_ttl: Duration::from_secs(120),
             capacity: 64,
-            metadata_timeout: Duration::from_secs(5),
             start_timeout: Duration::from_secs(30),
             callback_timeout: Duration::from_secs(30),
         }
@@ -56,7 +52,7 @@ impl Default for McpOAuthRegistryConfig {
 
 /// Repository-independent work retained across browser authorization.
 #[derive(Clone, PartialEq)]
-pub enum McpOAuthAttemptContext {
+pub(crate) enum McpOAuthAttemptContext {
     /// A server not persisted until authorization and discovery succeed.
     PendingCreate(Box<CreateMcpServerCommand>),
     /// Existing connection being reauthenticated.
@@ -96,7 +92,7 @@ impl McpOAuthAttemptContext {
 
 /// Internal service request to start browser OAuth.
 #[derive(Clone, PartialEq)]
-pub struct McpOAuthStartRequest {
+pub(crate) struct McpOAuthStartRequest {
     /// Work resumed after callback completion.
     pub context: McpOAuthAttemptContext,
     /// Listener-owned callback base URL.
@@ -115,21 +111,13 @@ impl fmt::Debug for McpOAuthStartRequest {
 
 /// Callback output handed to the service for persistence and discovery.
 #[derive(Clone, PartialEq)]
-pub struct McpOAuthCompletion {
+pub(crate) struct McpOAuthCompletion {
     attempt_id: String,
     sequence: u64,
     /// Original create or reauthentication context.
     pub context: McpOAuthAttemptContext,
     /// Credentials to merge into private secret material.
     pub credentials: McpOAuthStoredCredentials,
-}
-
-impl McpOAuthCompletion {
-    /// Return the opaque listener correlation id.
-    #[must_use]
-    pub fn attempt_id(&self) -> &str {
-        &self.attempt_id
-    }
 }
 
 impl fmt::Debug for McpOAuthCompletion {
@@ -150,8 +138,6 @@ pub enum McpOAuthErrorKind {
     InvalidInput,
     /// Unknown attempt.
     NotFound,
-    /// Expired attempt.
-    Expired,
     /// Registry capacity could not be maintained.
     Capacity,
     /// Attempt transition conflicts with current state.
@@ -208,9 +194,7 @@ impl fmt::Display for McpOAuthError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self.kind {
             McpOAuthErrorKind::InvalidInput => "invalid MCP OAuth input",
-            McpOAuthErrorKind::NotFound | McpOAuthErrorKind::Expired => {
-                "MCP OAuth attempt was not found or expired"
-            }
+            McpOAuthErrorKind::NotFound => "MCP OAuth attempt was not found or expired",
             McpOAuthErrorKind::Capacity | McpOAuthErrorKind::Unavailable => {
                 "MCP OAuth is unavailable"
             }
@@ -241,7 +225,6 @@ pub(crate) struct McpOAuthStarted {
 }
 
 pub(crate) trait McpOAuthBackend: Send + Sync {
-    fn authorization_supported<'a>(&'a self, url: &'a str) -> OAuthFuture<'a, bool>;
     fn start<'a>(&'a self, url: &'a str, redirect: &'a str) -> OAuthFuture<'a, McpOAuthStarted>;
 }
 
@@ -268,7 +251,6 @@ struct Entry {
     runtime: Option<Box<dyn McpOAuthRuntime>>,
     phase: Phase,
     protected_until: Option<Instant>,
-    diagnostic_detail: Option<String>,
 }
 
 #[derive(Default)]
@@ -322,29 +304,13 @@ impl McpOAuthRegistry {
         }
     }
 
-    /// Probe current protected-resource metadata.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the URL is invalid, the probe exceeds its deadline,
-    /// or service shutdown cancels the operation.
-    pub async fn authorization_supported(&self, mcp_url: &str) -> McpOAuthResult<bool> {
-        validate_https_or_loopback(mcp_url, "MCP endpoint")?;
-        self.bounded(
-            self.config.metadata_timeout,
-            "metadata probe",
-            self.backend.authorization_supported(mcp_url),
-        )
-        .await
-    }
-
     /// Start a browser authorization attempt.
     ///
     /// # Errors
     ///
     /// Returns an error for invalid input, exhausted registry capacity, backend
     /// startup failure, timeout, cancellation, or a conflicting state transition.
-    pub async fn start_attempt(
+    pub(crate) async fn start_attempt(
         &self,
         request: McpOAuthStartRequest,
     ) -> McpOAuthResult<McpOAuthSetupAttemptView> {
@@ -392,7 +358,7 @@ impl McpOAuthRegistry {
     }
 
     /// Return one unexpired safe attempt view.
-    pub async fn attempt(&self, attempt_id: &str) -> Option<McpOAuthSetupAttemptView> {
+    pub(crate) async fn attempt(&self, attempt_id: &str) -> Option<McpOAuthSetupAttemptView> {
         let mut state = self.state.lock().await;
         purge_expired(&mut state, Instant::now());
         state
@@ -407,7 +373,7 @@ impl McpOAuthRegistry {
     ///
     /// Returns an error when the attempt is absent, expired, already consumed,
     /// conflicts with its current state, or callback exchange fails or is cancelled.
-    pub async fn complete_callback(
+    pub(crate) async fn complete_callback(
         &self,
         command: CompleteMcpOAuthSetupCommand,
     ) -> McpOAuthResult<McpOAuthCompletion> {
@@ -465,7 +431,7 @@ impl McpOAuthRegistry {
     ///
     /// Returns an error when the attempt is absent, expired, or no longer awaiting
     /// service-side completion.
-    pub async fn finish_success(
+    pub(crate) async fn finish_success(
         &self,
         completion: &McpOAuthCompletion,
         result: McpServerSetupResult,
@@ -490,11 +456,10 @@ impl McpOAuthRegistry {
     ///
     /// Returns an error when the attempt is absent, expired, or no longer awaiting
     /// service-side completion.
-    pub async fn finish_failure(
+    pub(crate) async fn finish_failure(
         &self,
         completion: &McpOAuthCompletion,
         failure: McpOAuthSetupFailure,
-        diagnostic_detail: impl Into<String>,
     ) -> McpOAuthResult<McpOAuthSetupAttemptView> {
         let expires_at = expires_after(self.config.attempt_ttl)?;
         let mut state = self.state.lock().await;
@@ -504,7 +469,6 @@ impl McpOAuthRegistry {
         entry.view.status = McpOAuthSetupAttemptStatus::Failed;
         entry.view.setup_result = None;
         entry.view.failure = Some(failure);
-        entry.diagnostic_detail = Some(diagnostic_detail.into());
         entry.phase = Phase::Failed;
         entry.expires_at = expires_at;
         entry.protected_until = None;
@@ -541,7 +505,6 @@ impl McpOAuthRegistry {
                 runtime: None,
                 phase: Phase::Starting,
                 protected_until: Some(protected_until),
-                diagnostic_detail: None,
             },
         );
         Ok((attempt_id, sequence))
@@ -579,7 +542,6 @@ impl McpOAuthRegistry {
                 McpOAuthSetupFailure::CredentialPersistence
             },
         );
-        entry.diagnostic_detail = Some(error.diagnostic_detail.clone());
         entry.phase = Phase::Failed;
         entry.protected_until = None;
     }
@@ -605,7 +567,6 @@ fn validate_config(config: &McpOAuthRegistryConfig) -> McpOAuthResult<()> {
     if config.capacity == 0
         || config.attempt_ttl.is_zero()
         || config.in_flight_ttl.is_zero()
-        || config.metadata_timeout.is_zero()
         || config.start_timeout.is_zero()
         || config.callback_timeout.is_zero()
     {
@@ -672,11 +633,10 @@ fn expires_after(ttl: Duration) -> McpOAuthResult<Instant> {
 
 fn unique_attempt_id(attempts: &HashMap<String, Entry>) -> McpOAuthResult<String> {
     for _ in 0..8 {
-        let mut bytes = [0_u8; 16];
-        SystemRandom::new().fill(&mut bytes).map_err(|_| {
+        let random = random_hex_id().map_err(|_| {
             McpOAuthError::new(McpOAuthErrorKind::Unavailable, "secure random failure")
         })?;
-        let id = format!("mcp_oauth:{}", hex(&bytes));
+        let id = format!("mcp_oauth:{random}");
         if !attempts.contains_key(&id) {
             return Ok(id);
         }
@@ -685,14 +645,6 @@ fn unique_attempt_id(attempts: &HashMap<String, Entry>) -> McpOAuthResult<String
         McpOAuthErrorKind::Unavailable,
         "secure attempt id collisions exhausted retries",
     ))
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().fold(String::new(), |mut output, byte| {
-        use fmt::Write as _;
-        let _ = write!(output, "{byte:02x}");
-        output
-    })
 }
 
 mod http_client;

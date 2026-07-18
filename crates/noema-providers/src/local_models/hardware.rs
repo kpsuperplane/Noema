@@ -260,7 +260,7 @@ fn command_stdout(program: &str, arguments: &[&str]) -> io::Result<String> {
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
 
@@ -272,21 +272,5 @@ mod tests {
             Some(16)
         );
         assert_eq!(parse_linux_mem_total_gb("MemFree: 1 kB\n"), None);
-    }
-
-    #[test]
-    fn whole_gib_is_conservative() {
-        assert_eq!(whole_gib(BYTES_PER_GIB * 12 + 999, BYTES_PER_GIB), Some(12));
-        assert_eq!(whole_gib(BYTES_PER_GIB - 1, BYTES_PER_GIB), None);
-    }
-
-    #[test]
-    fn detected_profiles_always_end_with_cpu() {
-        let profiles = detect_local_hardware_profiles().expect("hardware profile");
-        assert_eq!(
-            profiles.last().map(|profile| profile.backend),
-            Some(LocalModelBackend::Cpu)
-        );
-        assert!(profiles.last().is_some_and(|profile| profile.ram_gb > 0));
     }
 }

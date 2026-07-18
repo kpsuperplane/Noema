@@ -14,6 +14,7 @@ use crate::{
     NoemaStore, StoreError,
     local_model_rows::{INSTALLATION_SELECT, installation_from_raw, raw_installation_from_row},
     local_models::append_event,
+    sqlite::{conversion_failure, parse_column},
 };
 
 /// One authoritative projection of every row that can lawfully create a future
@@ -369,14 +370,7 @@ fn reference_sources_tx(
 }
 
 fn reference_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalModelInstanceReference> {
-    let provider_instance_key =
-        ProviderInstanceKey::new(row.get::<_, String>(0)?).map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(
-                0,
-                rusqlite::types::Type::Text,
-                Box::new(error),
-            )
-        })?;
+    let provider_instance_key = parse_column(row, 0)?;
     let source_kind = row.get::<_, String>(1)?;
     let source_id = row.get::<_, Option<String>>(2)?;
     let source = match source_kind.as_str() {
@@ -401,13 +395,13 @@ fn reference_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalModelIns
             run_id: required_source_id(source_id, &source_kind)?,
         },
         _ => {
-            return Err(rusqlite::Error::FromSqlConversionFailure(
+            return Err(conversion_failure(
                 1,
                 rusqlite::types::Type::Text,
-                Box::new(io::Error::new(
+                io::Error::new(
                     io::ErrorKind::InvalidData,
                     "unknown local-model reference source",
-                )),
+                ),
             ));
         }
     };
@@ -419,13 +413,13 @@ fn reference_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalModelIns
 
 fn required_source_id(source_id: Option<String>, source_kind: &str) -> rusqlite::Result<String> {
     source_id.ok_or_else(|| {
-        rusqlite::Error::FromSqlConversionFailure(
+        conversion_failure(
             2,
             rusqlite::types::Type::Null,
-            Box::new(io::Error::new(
+            io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("{source_kind} reference has no owner id"),
-            )),
+            ),
         )
     })
 }

@@ -39,24 +39,8 @@ pub trait ProviderAccountPersistence: Send + Sync {
         provider_account_id: &'a str,
     ) -> ProviderPersistenceFuture<'a, Option<PersistedProviderAccountRecord>>;
 
-    /// Return the active default account for one provider.
-    fn active_provider_account<'a>(
-        &'a self,
-        provider_kind: &'a str,
-    ) -> ProviderPersistenceFuture<'a, Option<PersistedProviderAccountRecord>>;
-
-    /// Return all active default provider accounts.
-    fn active_default_provider_accounts(
-        &self,
-    ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>>;
-
     /// Return all active provider accounts.
     fn active_provider_accounts(
-        &self,
-    ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>>;
-
-    /// Return all durable provider accounts.
-    fn provider_accounts(
         &self,
     ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>>;
 

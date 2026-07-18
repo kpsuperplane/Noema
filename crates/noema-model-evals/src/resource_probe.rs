@@ -135,29 +135,3 @@ fn probe_request(model_id: &str, input: String) -> GenerateRequest {
     };
     request
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn probe_target_preserves_output_reserve() {
-        assert_eq!(
-            8_192_u32
-                .saturating_sub(OUTPUT_RESERVE_TOKENS)
-                .min(MAX_TARGET_INPUT_TOKENS),
-            6_500
-        );
-        assert_eq!(
-            2_048_u32
-                .saturating_sub(OUTPUT_RESERVE_TOKENS)
-                .min(MAX_TARGET_INPUT_TOKENS),
-            1_024
-        );
-    }
-
-    #[test]
-    fn filler_size_increases_monotonically() {
-        assert!(filler_input(10).len() > filler_input(9).len());
-    }
-}

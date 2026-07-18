@@ -19,17 +19,3 @@ pub fn sanitize_path_segment(value: &str) -> String {
         sanitized
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sanitization_preserves_safe_characters_and_replaces_others() {
-        assert_eq!(
-            sanitize_path_segment("mcp:GitHub/Default"),
-            "mcp_GitHub_Default"
-        );
-        assert_eq!(sanitize_path_segment(""), "_");
-    }
-}

@@ -131,7 +131,7 @@ pub(in crate::graphql) async fn send_conversation_turn(
     require_conversation_owner(state.store()?, &input.conversation_id, human_id).await?;
     let runtime = state.runtime()?.clone();
     let subscriptions = state.subscriptions().clone();
-    let (item_tx, mut item_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (item_tx, item_rx) = tokio::sync::mpsc::unbounded_channel();
     let conversation_id = input.conversation_id.clone();
     let client_message_id = input.client_message_id.clone();
     let published_client_message_id = client_message_id.clone();
@@ -146,56 +146,23 @@ pub(in crate::graphql) async fn send_conversation_turn(
         }),
     );
 
-    tokio::spawn(async move {
-        mark_turn_timing_event(
-            "graphql_runtime_task_started",
-            &completion_conversation_id,
-            published_client_message_id.as_deref(),
-            serde_json::json!({}),
-        );
-        let completion = runtime.turn_with_client_message_id(
-            completion_conversation_id,
-            input_text,
-            item_tx,
-            published_client_message_id.clone(),
-        );
-        tokio::pin!(completion);
-        let mut published_error_notice = false;
-        loop {
-            tokio::select! {
-                Some(event) = item_rx.recv() => {
-                    if turn_event_is_error_notice(&event) {
-                        published_error_notice = true;
-                    }
-                    mark_graphql_published_turn_event(&event, published_client_message_id.as_deref());
-                    subscriptions.publish_conversation(ConversationRuntimeEvent::Turn {
-                        client_message_id: published_client_message_id.clone(),
-                        event: Box::new(event),
-                    });
-                }
-                result = &mut completion => {
-                    while let Ok(event) = item_rx.try_recv() {
-                        if turn_event_is_error_notice(&event) {
-                            published_error_notice = true;
-                        }
-                        mark_graphql_published_turn_event(&event, published_client_message_id.as_deref());
-                        subscriptions.publish_conversation(ConversationRuntimeEvent::Turn {
-                            client_message_id: published_client_message_id.clone(),
-                            event: Box::new(event),
-                        });
-                    }
-                    publish_turn_terminal_events(
-                        &subscriptions,
-                        conversation_id,
-                        published_client_message_id,
-                        published_error_notice,
-                        result,
-                    );
-                    break;
-                }
-            }
-        }
-    });
+    let completion = async move {
+        runtime
+            .turn_with_client_message_id(
+                completion_conversation_id,
+                input_text,
+                item_tx,
+                published_client_message_id.clone(),
+            )
+            .await
+    };
+    spawn_runtime_turn(
+        subscriptions,
+        conversation_id,
+        client_message_id.clone(),
+        item_rx,
+        completion,
+    );
 
     Ok(GraphqlTurnAccepted {
         conversation_id: input.conversation_id,
@@ -211,7 +178,7 @@ pub(in crate::graphql) async fn send_multiple_choice_selection(
     require_conversation_owner(state.store()?, &input.conversation_id, human_id).await?;
     let runtime = state.runtime()?.clone();
     let subscriptions = state.subscriptions().clone();
-    let (item_tx, mut item_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (item_tx, item_rx) = tokio::sync::mpsc::unbounded_channel();
     let conversation_id = input.conversation_id.clone();
     let client_message_id = input.client_message_id.clone();
     let published_client_message_id = client_message_id.clone();
@@ -228,19 +195,48 @@ pub(in crate::graphql) async fn send_multiple_choice_selection(
         }),
     );
 
+    let completion = async move {
+        runtime
+            .select_multiple_choice_with_client_message_id(
+                completion_conversation_id,
+                prompt_item_id,
+                selected_option_ids,
+                item_tx,
+                published_client_message_id.clone(),
+            )
+            .await
+    };
+    spawn_runtime_turn(
+        subscriptions,
+        conversation_id,
+        client_message_id.clone(),
+        item_rx,
+        completion,
+    );
+
+    Ok(GraphqlTurnAccepted {
+        conversation_id: input.conversation_id,
+        client_message_id,
+    })
+}
+
+fn spawn_runtime_turn<F>(
+    subscriptions: RuntimeEventRegistry,
+    conversation_id: String,
+    client_message_id: Option<String>,
+    mut item_rx: tokio::sync::mpsc::UnboundedReceiver<TurnStreamEvent>,
+    completion: F,
+) where
+    F: std::future::Future<Output = std::result::Result<(), noema_runtime::RuntimeError>>
+        + Send
+        + 'static,
+{
     tokio::spawn(async move {
         mark_turn_timing_event(
             "graphql_runtime_task_started",
-            &completion_conversation_id,
-            published_client_message_id.as_deref(),
+            &conversation_id,
+            client_message_id.as_deref(),
             serde_json::json!({}),
-        );
-        let completion = runtime.select_multiple_choice_with_client_message_id(
-            completion_conversation_id,
-            prompt_item_id,
-            selected_option_ids,
-            item_tx,
-            published_client_message_id.clone(),
         );
         tokio::pin!(completion);
         let mut published_error_notice = false;
@@ -250,9 +246,9 @@ pub(in crate::graphql) async fn send_multiple_choice_selection(
                     if turn_event_is_error_notice(&event) {
                         published_error_notice = true;
                     }
-                    mark_graphql_published_turn_event(&event, published_client_message_id.as_deref());
+                    mark_graphql_published_turn_event(&event, client_message_id.as_deref());
                     subscriptions.publish_conversation(ConversationRuntimeEvent::Turn {
-                        client_message_id: published_client_message_id.clone(),
+                        client_message_id: client_message_id.clone(),
                         event: Box::new(event),
                     });
                 }
@@ -261,16 +257,16 @@ pub(in crate::graphql) async fn send_multiple_choice_selection(
                         if turn_event_is_error_notice(&event) {
                             published_error_notice = true;
                         }
-                        mark_graphql_published_turn_event(&event, published_client_message_id.as_deref());
+                        mark_graphql_published_turn_event(&event, client_message_id.as_deref());
                         subscriptions.publish_conversation(ConversationRuntimeEvent::Turn {
-                            client_message_id: published_client_message_id.clone(),
+                            client_message_id: client_message_id.clone(),
                             event: Box::new(event),
                         });
                     }
                     publish_turn_terminal_events(
                         &subscriptions,
                         conversation_id,
-                        published_client_message_id,
+                        client_message_id,
                         published_error_notice,
                         result,
                     );
@@ -279,11 +275,6 @@ pub(in crate::graphql) async fn send_multiple_choice_selection(
             }
         }
     });
-
-    Ok(GraphqlTurnAccepted {
-        conversation_id: input.conversation_id,
-        client_message_id,
-    })
 }
 
 pub(super) async fn require_conversation_owner(

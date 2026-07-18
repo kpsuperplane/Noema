@@ -36,7 +36,7 @@ impl LocalModelManagerService {
         };
         let state = EventStreamState {
             manager: self.clone(),
-            runtime_status: self.subscribe_runtime_status(),
+            runtime_status: self.inner.runtime_status_tx.subscribe(),
             lifecycle: self.inner.lifecycle_tx.subscribe(),
             durable_cursor: cursor,
             runtime_sequence: 0,

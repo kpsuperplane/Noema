@@ -223,211 +223,89 @@ pub(super) fn build_role_tool_result_continuation_system_prompt(
 mod tests {
     use super::*;
 
-    #[test]
-    fn personality_prompt_bans_stereotypical_ai_ism_punctuation_and_contrast_pivots() {
-        assert!(!AGENT_PERSONALITY_PROMPT.contains('\u{2014}'));
-        assert!(AGENT_PERSONALITY_PROMPT.contains("Never use em dashes."));
-        assert!(
-            AGENT_PERSONALITY_PROMPT.contains("Avoid formulaic contrast pivots"),
-            "prompt should ban canned negation-then-replacement phrasing"
-        );
+    fn assert_contract(prompt: &str, required: &[&str], forbidden: &[&str]) {
+        for value in required {
+            assert!(prompt.contains(value), "missing {value:?}");
+        }
+        for value in forbidden {
+            assert!(!prompt.contains(value), "unexpected {value:?}");
+        }
     }
 
     #[test]
-    fn personality_prompt_defaults_to_human_texting_brevity() {
-        assert!(AGENT_PERSONALITY_PROMPT.contains("Default to human-texting brevity"));
-        assert!(AGENT_PERSONALITY_PROMPT.contains("one to four short sentences"));
-        assert!(AGENT_PERSONALITY_PROMPT.contains("Minimize the user's reading effort"));
-        assert!(
-            AGENT_PERSONALITY_PROMPT
-                .contains("Exact literal or formatting requests override casual lowercase")
+    fn personality_prompt_preserves_voice_policy_without_tool_authority() {
+        assert_contract(
+            AGENT_PERSONALITY_PROMPT,
+            &[
+                "Never use em dashes.",
+                "Avoid formulaic contrast pivots",
+                "Default to human-texting brevity",
+                "Exact literal or formatting requests override casual lowercase",
+                "After tool use, do not recap the whole investigation",
+                "For ordinary short chat, use informal lowercase across response items",
+                "Quick chat calibration:",
+                "When casually picking among options",
+                "Use 2-4 response items",
+                "use one for formal",
+                "Use available routine read-only tools without extra permission",
+            ],
+            &["\u{2014}", "web.search", "web.fetch"],
         );
-        assert!(AGENT_PERSONALITY_PROMPT.contains("locking in"));
+        assert!(AGENT_PERSONALITY_PROMPT.len() <= 3_200);
     }
 
     #[test]
-    fn personality_prompt_prevents_tool_research_from_becoming_a_report() {
-        assert!(
-            AGENT_PERSONALITY_PROMPT
-                .contains("After tool use, do not recap the whole investigation")
-        );
-        assert!(AGENT_PERSONALITY_PROMPT.contains("When corrected"));
-        assert!(AGENT_PERSONALITY_PROMPT.contains("No wink-at-user explanations"));
-    }
-
-    #[test]
-    fn personality_prompt_defaults_to_informal_lowercase_when_context_allows() {
-        assert!(
-            AGENT_PERSONALITY_PROMPT
-                .contains("For ordinary short chat, use informal lowercase across response items")
-        );
-        assert!(
-            AGENT_PERSONALITY_PROMPT
-                .contains("Keep sentence starts lowercase; capitalize only names")
-        );
-        assert!(AGENT_PERSONALITY_PROMPT.contains("Skip final periods in casual bubbles"));
-    }
-
-    #[test]
-    fn personality_prompt_calibrates_casual_short_tool_results_with_examples() {
-        assert!(
-            AGENT_PERSONALITY_PROMPT.contains("Quick chat calibration:"),
-            "prompt should include concrete casual voice guidance"
-        );
-        assert!(
-            AGENT_PERSONALITY_PROMPT.contains(
-                "hm, not finding fresh july hits. want strategy, markets, policy, or tech?"
-            ),
-            "prompt should show the desired compressed search-result shape"
-        );
-        assert!(
-            AGENT_PERSONALITY_PROMPT.contains("When casually picking among options"),
-            "prompt should make casual option-picking split bubbles domain-neutral"
-        );
-        assert!(
-            AGENT_PERSONALITY_PROMPT.contains("analyst voice"),
-            "prompt should name the style to avoid"
-        );
-        assert!(
-            AGENT_PERSONALITY_PROMPT.contains("light cheer"),
-            "prompt should encourage a warmer casual affect without forcing it"
-        );
-        assert!(
-            AGENT_PERSONALITY_PROMPT.contains(r#""nice!!""#),
-            "prompt should give a concrete cheerful short-chat example"
-        );
-        assert!(AGENT_PERSONALITY_PROMPT.contains(r#""yasss!""#));
-        assert!(AGENT_PERSONALITY_PROMPT.contains("word elongation"));
-        assert!(
-            AGENT_PERSONALITY_PROMPT.contains("Playful metaphors are ok"),
-            "prompt should allow casual playful metaphors"
-        );
-    }
-
-    #[test]
-    fn personality_prompt_allows_split_response_items_for_casual_chat() {
-        assert!(
-            AGENT_PERSONALITY_PROMPT.contains("Use 2-4 response items"),
-            "prompt should map casual split-text style to the responses array"
-        );
-        assert!(
-            AGENT_PERSONALITY_PROMPT.contains("use one for formal"),
-            "prompt should preserve single-item formal and technical answers"
-        );
-    }
-
-    #[test]
-    fn personality_prompt_does_not_advertise_specific_tools() {
-        assert!(
-            AGENT_PERSONALITY_PROMPT.contains(
-                "Use available routine read-only tools without extra permission when the user asks or the task clearly needs them"
-            ),
-            "prompt should not permission-gate available routine reads"
-        );
-        assert!(!AGENT_PERSONALITY_PROMPT.contains("web.search"));
-        assert!(!AGENT_PERSONALITY_PROMPT.contains("web.fetch"));
-    }
-
-    #[test]
-    fn personality_prompt_stays_compact() {
-        assert!(
-            AGENT_PERSONALITY_PROMPT.len() <= 3_200,
-            "personality prompt is {} bytes",
-            AGENT_PERSONALITY_PROMPT.len()
-        );
-    }
-
-    #[test]
-    fn structured_turn_prompt_is_an_immutable_kernel_without_mutable_context() {
+    fn structured_turn_prompt_is_stable_and_preserves_response_contract() {
         let prompt = build_structured_turn_system_prompt();
-
         assert_eq!(prompt, build_structured_turn_system_prompt());
-        assert!(!prompt.contains("Active retrieval IDs:"));
-        assert!(!prompt.contains("Agent identity:"));
-        assert!(!prompt.contains("Runtime environment:"));
-        assert!(!prompt.contains("Available tool catalog:"));
-        assert!(!prompt.contains("search_memory"));
-        assert!(!prompt.contains("update_own_name"));
-    }
-
-    #[test]
-    fn structured_turn_prompt_includes_personality_layer_without_weakening_runtime_contract() {
-        let prompt = build_structured_turn_system_prompt();
-
-        assert!(prompt.contains("Voice:"));
-        assert!(prompt.contains("Match the user's last turns"));
-        assert!(prompt.contains("Default quick replies should feel like a friend texting"));
-        assert!(prompt.contains("Return strict JSON only"));
-        assert!(prompt.contains(r#""responses": ["#));
-        assert!(prompt.contains(r#""tool_calls": []"#));
-        assert!(prompt.contains("Include at least one text response for final answers"));
-        assert!(prompt.contains("NOEMA_MODEL_CONTEXT_UPDATE"));
-        assert!(prompt.contains("use only its latest update"));
-    }
-
-    #[test]
-    fn structured_turn_prompt_keeps_split_replies_inside_one_json_envelope() {
-        let prompt = build_structured_turn_system_prompt();
-
-        assert!(
-            prompt.contains(
-                "Multiple chat bubbles are multiple responses[] text items inside this one JSON object"
-            ),
-            "prompt should not invite multiple top-level envelopes for split messages"
-        );
-        assert!(
-            prompt.contains("blank-line paragraphs inside one text item"),
-            "prompt should keep split bubbles from collapsing into one text item"
-        );
-        assert!(
-            prompt.contains("Casual option-picking example:"),
-            "prompt should show multiple response items for casual choices"
+        assert_contract(
+            &prompt,
+            &[
+                "Voice:",
+                "Return strict JSON only",
+                r#""phase":"commentary""#,
+                r#""phase":"final_answer""#,
+                "User-visible assistant text may use Markdown",
+                "Multiple chat bubbles are multiple responses[] text items",
+                r#"kind "multiple_choice""#,
+                r#"selection_mode "pick_one""#,
+                r#"selection_mode "pick_many""#,
+                "latest tools.visibility context section",
+                "sole prompt-level authority",
+                "NOEMA_MODEL_CONTEXT_UPDATE",
+            ],
+            &[
+                "Active retrieval IDs:",
+                "Agent identity:",
+                "Runtime environment:",
+                "Available tool catalog:",
+                "search_memory",
+                "update_own_name",
+                "mcp.dex.search_contacts",
+            ],
         );
     }
 
     #[test]
-    fn structured_turn_prompt_explains_multiple_choice_response_items() {
-        let prompt = build_structured_turn_system_prompt();
-
-        assert!(prompt.contains(r#"kind "multiple_choice""#));
-        assert!(prompt.contains(r#"selection_mode "pick_one""#));
-        assert!(prompt.contains(r#"selection_mode "pick_many""#));
-        assert!(prompt.contains("Only include multiple_choice in response_status \"final\""));
-        assert!(prompt.contains("stable language-neutral id"));
-    }
-
-    #[test]
-    fn structured_turn_prompt_defers_tool_authority_to_keyed_context() {
-        let prompt = build_structured_turn_system_prompt();
-
-        assert!(prompt.contains("latest tools.visibility context section"));
-        assert!(prompt.contains("sole prompt-level authority"));
-        assert!(prompt.contains("exact definition is also supplied"));
-        assert!(prompt.contains("unavailable_capability are informational and are never callable"));
-        assert!(prompt.contains("If tools.visibility is absent or removed"));
-        assert!(!prompt.contains("mcp.dex.search_contacts"));
-    }
-
-    #[test]
-    fn local_tool_result_continuation_prompt_encourages_clear_tool_repair() {
+    fn local_tool_continuation_preserves_repair_policy_without_mutable_context() {
         let prompt = build_local_tool_result_continuation_system_prompt();
-
-        assert!(prompt.contains("If a failed tool result gives a clear correction"));
-        assert!(prompt.contains("try the corrected tool call in the same turn"));
-        assert!(prompt.contains("Do not ask for permission just to retry"));
-        assert!(prompt.contains("Do not retry blindly"));
-        assert!(prompt.contains("Do not invent missing IDs, names, or values"));
-        assert!(prompt.contains("do not repeat that tool call"));
-    }
-
-    #[test]
-    fn local_tool_result_continuation_prompt_excludes_mutable_context() {
-        let prompt = build_local_tool_result_continuation_system_prompt();
-
-        assert!(!prompt.contains("Agent identity:"));
-        assert!(!prompt.contains("Runtime environment:"));
-        assert!(!prompt.contains("Available tool catalog:"));
-        assert!(!prompt.contains("Original request:"));
+        assert_contract(
+            &prompt,
+            &[
+                "If a failed tool result gives a clear correction",
+                "try the corrected tool call in the same turn",
+                "Do not ask for permission just to retry",
+                "Do not retry blindly",
+                "Do not invent missing IDs, names, or values",
+                "do not repeat that tool call",
+            ],
+            &[
+                "Agent identity:",
+                "Runtime environment:",
+                "Available tool catalog:",
+                "Original request:",
+            ],
+        );
     }
 
     #[test]

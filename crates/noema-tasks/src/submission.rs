@@ -2,7 +2,11 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{TaskDomainError, error::invalid_operation};
+use crate::{
+    TaskDomainError,
+    error::invalid_operation,
+    validation::{normalize_optional, required},
+};
 
 /// Criterion evidence attached to an executor submission.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -99,7 +103,7 @@ impl NewTaskSubmission {
         }
 
         Ok(Self {
-            submission_id: optional(self.submission_id.as_ref()),
+            submission_id: normalize_optional(self.submission_id.as_ref()),
             task_id,
             executor_run_id,
             revision_index: self.revision_index,
@@ -143,23 +147,6 @@ pub struct TaskSubmissionArtifactRecord {
     pub artifact: noema_artifacts::ArtifactRecord,
     /// Immutable version captured when the submission was committed.
     pub version: noema_artifacts::ArtifactVersionRecord,
-}
-
-fn required(value: &str, field: &'static str) -> Result<String, TaskDomainError> {
-    let value = value.trim();
-    if value.is_empty() {
-        Err(TaskDomainError::EmptyField(field))
-    } else {
-        Ok(value.to_string())
-    }
-}
-
-fn optional(value: Option<&String>) -> Option<String> {
-    value
-        .map(String::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
 }
 
 #[cfg(test)]

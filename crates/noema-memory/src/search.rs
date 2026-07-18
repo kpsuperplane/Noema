@@ -1,7 +1,5 @@
 //! Stable governed `search_memory` capability semantics.
 
-use std::collections::HashSet;
-
 use noema_capabilities::{ToolContractError, ToolSpec};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -69,12 +67,6 @@ impl MemorySearchAuthority {
             active_scope_ids,
         }
     }
-
-    /// Return the complete runtime-authorized scope snapshot.
-    #[must_use]
-    pub fn active_scope_ids(&self) -> &[String] {
-        &self.active_scope_ids
-    }
 }
 
 /// Stable result envelope consumed by runtime transcript/audit handling.
@@ -111,20 +103,6 @@ struct SearchMemoryArguments {
     purpose: Option<String>,
     #[serde(default)]
     limit: Option<usize>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum SearchMemoryPurpose {
-    AnswerHumanQuestion,
-    DraftInternalContent,
-    GeneralPersonalization,
-    ManageTask,
-    ManageCalendar,
-    DraftExternalContent,
-    UseTool,
-    ProactiveSuggestion,
-    ExternalAction,
-    DebugAudit,
 }
 
 /// Return whether `name` identifies the governed memory-search operation.
@@ -205,7 +183,7 @@ async fn execute_search_memory_inner(
     validate_scope_ids(authority, &arguments)?;
     let operations = operations.ok_or(MemoryOperationError::ServiceUnavailable)?;
     let scope_ids = if arguments.scope_ids.is_empty() {
-        trusted_active_scope_ids(authority)
+        authority.active_scope_ids.clone()
     } else {
         arguments.scope_ids.clone()
     };
@@ -281,7 +259,7 @@ fn parse_arguments(payload: &Value) -> Result<SearchMemoryArguments, SearchMemor
             "query is required unless scope_ids is non-empty".to_string(),
         ));
     }
-    parse_purpose(arguments.purpose.as_deref())?;
+    validate_purpose(arguments.purpose.as_deref())?;
     Ok(arguments)
 }
 
@@ -289,13 +267,6 @@ impl SearchMemoryArguments {
     fn limit(&self) -> usize {
         self.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT)
     }
-}
-
-fn trusted_active_scope_ids(authority: &MemorySearchAuthority) -> Vec<String> {
-    let mut ids = authority.active_scope_ids.clone();
-    ids.sort();
-    ids.dedup();
-    ids
 }
 
 fn validate_memory_scope_shape(scope_id: &str) -> Result<(), SearchMemoryError> {
@@ -324,11 +295,8 @@ fn validate_scope_ids(
     authority: &MemorySearchAuthority,
     arguments: &SearchMemoryArguments,
 ) -> Result<(), SearchMemoryError> {
-    let trusted = trusted_active_scope_ids(authority)
-        .into_iter()
-        .collect::<HashSet<_>>();
     for scope_id in &arguments.scope_ids {
-        if !trusted.contains(scope_id) {
+        if authority.active_scope_ids.binary_search(scope_id).is_err() {
             return Err(SearchMemoryError::InvalidArguments(format!(
                 "unsupported scope_id: {scope_id}"
             )));
@@ -337,21 +305,14 @@ fn validate_scope_ids(
     Ok(())
 }
 
-fn parse_purpose(value: Option<&str>) -> Result<SearchMemoryPurpose, SearchMemoryError> {
-    match value.unwrap_or("answer_human_question") {
-        "answer_human_question" => Ok(SearchMemoryPurpose::AnswerHumanQuestion),
-        "draft_internal_content" => Ok(SearchMemoryPurpose::DraftInternalContent),
-        "general_personalization" => Ok(SearchMemoryPurpose::GeneralPersonalization),
-        "manage_task" => Ok(SearchMemoryPurpose::ManageTask),
-        "manage_calendar" => Ok(SearchMemoryPurpose::ManageCalendar),
-        "draft_external_content" => Ok(SearchMemoryPurpose::DraftExternalContent),
-        "use_tool" => Ok(SearchMemoryPurpose::UseTool),
-        "proactive_suggestion" => Ok(SearchMemoryPurpose::ProactiveSuggestion),
-        "external_action" => Ok(SearchMemoryPurpose::ExternalAction),
-        "debug_audit" => Ok(SearchMemoryPurpose::DebugAudit),
-        other => Err(SearchMemoryError::InvalidArguments(format!(
-            "unsupported purpose: {other}"
-        ))),
+fn validate_purpose(value: Option<&str>) -> Result<(), SearchMemoryError> {
+    let value = value.unwrap_or("answer_human_question");
+    if SEARCH_MEMORY_PURPOSE_VALUES.contains(&value) {
+        Ok(())
+    } else {
+        Err(SearchMemoryError::InvalidArguments(format!(
+            "unsupported purpose: {value}"
+        )))
     }
 }
 
@@ -371,7 +332,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        model::{AddMemoryRequest, ListMemoriesResponse, MemoryRecord, SearchMemoriesResponse},
+        model::{AddMemoryRequest, ListMemoriesResponse, SearchMemoriesResponse},
         operations::{MemoryOperationFuture, MemoryServiceReadiness},
     };
 
@@ -395,16 +356,12 @@ mod tests {
         ) -> MemoryOperationFuture<'_, SearchMemoriesResponse> {
             self.searches.lock().expect("search lock").push(request);
             Box::pin(async {
-                Ok(SearchMemoriesResponse {
-                    results: vec![MemoryRecord {
-                        id: "memory_1".to_string(),
-                        memory: Some("likes tea".to_string()),
-                        score: Some(0.75),
-                        metadata: None,
-                        created_at: None,
-                        updated_at: Some("2026-07-16T00:00:00Z".to_string()),
-                    }],
-                })
+                serde_json::from_value(json!({"results": [
+                    {"id": "missing_text", "score": 0.99, "metadata": {"private": true}},
+                    {"id": "memory_1", "memory": "likes tea", "score": 0.75,
+                     "metadata": {"private": true}, "updated_at": "2026-07-16T00:00:00Z"}
+                ]}))
+                .map_err(|_| MemoryOperationError::UnreadableResponse)
             })
         }
 
@@ -433,12 +390,12 @@ mod tests {
         let purpose_enum = &spec.input_schema.as_value()["properties"]["purpose"]["enum"];
         assert_eq!(purpose_enum, &json!(SEARCH_MEMORY_PURPOSE_VALUES));
         for purpose in purpose_enum.as_array().expect("purpose enum") {
-            parse_purpose(purpose.as_str()).expect("schema purpose accepted");
+            validate_purpose(purpose.as_str()).expect("schema purpose accepted");
         }
     }
 
     #[tokio::test]
-    async fn search_uses_only_explicit_runtime_authority() {
+    async fn search_enforces_authority_and_preserves_canonical_conversation_run_ids() {
         let operations = FakeOperations::default();
         let result = execute_search_memory(
             Some(&operations),
@@ -456,13 +413,14 @@ mod tests {
             result.payload["memories"][0]["scope_id"],
             "conversation:conv_123"
         );
-        let searches = operations.searches.lock().expect("search lock");
-        assert_eq!(searches[0].run_id.as_deref(), Some("conv_123"));
-    }
-
-    #[tokio::test]
-    async fn canonical_conversation_id_is_preserved_as_service_run_id() {
-        let operations = FakeOperations::default();
+        assert_eq!(result.payload["memories"].as_array().unwrap().len(), 1);
+        assert!(result.payload["memories"][0].get("metadata").is_none());
+        assert_eq!(
+            operations.searches.lock().expect("search lock")[0]
+                .run_id
+                .as_deref(),
+            Some("conv_123")
+        );
         let authority = MemorySearchAuthority::for_conversation("conversation:conv_123", []);
         execute_search_memory(
             Some(&operations),
@@ -475,12 +433,16 @@ mod tests {
         )
         .await;
 
-        let searches = operations.searches.lock().expect("search lock");
-        assert_eq!(searches[0].run_id.as_deref(), Some("conversation:conv_123"));
+        assert_eq!(
+            operations.searches.lock().expect("search lock")[1]
+                .run_id
+                .as_deref(),
+            Some("conversation:conv_123")
+        );
     }
 
     #[tokio::test]
-    async fn out_of_context_scope_fails_before_service_access() {
+    async fn invalid_scope_fails_before_service_access_and_absence_uses_safe_error() {
         let operations = FakeOperations::default();
         let result = execute_search_memory(
             Some(&operations),
@@ -496,10 +458,6 @@ mod tests {
             "unsupported scope_id: project:other"
         );
         assert!(operations.searches.lock().expect("search lock").is_empty());
-    }
-
-    #[tokio::test]
-    async fn absent_service_preserves_safe_unavailable_payload() {
         let result = execute_search_memory(
             None,
             &authority(),
@@ -516,7 +474,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unknown_purpose_and_empty_unscoped_query() {
+    fn argument_parser_enforces_purpose_scope_query_shape_and_limit() {
         assert!(matches!(
             parse_arguments(&json!({"query": "notes", "purpose": "dump_everything"})),
             Err(SearchMemoryError::InvalidArguments(message))
@@ -527,10 +485,6 @@ mod tests {
             Err(SearchMemoryError::InvalidArguments(message))
                 if message == "query is required unless scope_ids is non-empty"
         ));
-    }
-
-    #[test]
-    fn parses_nested_payload_clamps_limit_and_accepts_default_purpose() {
         let arguments = parse_arguments(&json!({
             "arguments": {
                 "query": "project notes",
@@ -543,31 +497,10 @@ mod tests {
         assert_eq!(arguments.query, "project notes");
         assert_eq!(arguments.purpose.as_deref(), Some("answer_human_question"));
         assert_eq!(arguments.limit(), MAX_LIMIT);
-    }
-
-    #[test]
-    fn memory_scope_shape_accepts_safe_scope_ids() {
         validate_memory_scope_shape("human:local").expect("human scope");
         validate_memory_scope_shape("conversation:abc_123").expect("conversation scope");
-    }
-
-    #[test]
-    fn memory_scope_shape_rejects_unknown_scope_shape() {
         let error = validate_memory_scope_shape("not allowed").expect_err("invalid scope");
         assert_eq!(error.to_string(), "unsupported scope_id: not allowed");
-    }
-
-    #[test]
-    fn rejects_empty_query() {
-        let error = parse_arguments(&json!({"query": "   "})).expect_err("empty query rejected");
-        assert_eq!(
-            error.to_string(),
-            "query is required unless scope_ids is non-empty"
-        );
-    }
-
-    #[test]
-    fn parses_empty_query_when_scope_ids_are_present() {
         let arguments = parse_arguments(&json!({
             "arguments": {
                 "scope_ids": ["human:local"],
@@ -579,94 +512,5 @@ mod tests {
 
         assert_eq!(arguments.query, "");
         assert_eq!(arguments.scope_ids, vec!["human:local"]);
-    }
-
-    #[test]
-    fn rejects_empty_query_without_scope_ids() {
-        let error = parse_arguments(&json!({
-            "arguments": {"query": "   "}
-        }))
-        .expect_err("empty unscoped query rejected");
-
-        assert_eq!(
-            error.to_string(),
-            "query is required unless scope_ids is non-empty"
-        );
-    }
-
-    #[test]
-    fn validates_scope_ids_against_trusted_active_ids() {
-        let arguments = SearchMemoryArguments {
-            query: String::new(),
-            scope_ids: vec![HUMAN_MEMORY_SCOPE_ID.to_string()],
-            purpose: Some("answer_human_question".to_string()),
-            limit: None,
-        };
-
-        validate_scope_ids(&authority(), &arguments).expect("trusted scope id");
-    }
-
-    #[test]
-    fn rejects_out_of_context_scope_ids() {
-        let arguments = SearchMemoryArguments {
-            query: String::new(),
-            scope_ids: vec!["project:other".to_string()],
-            purpose: Some("answer_human_question".to_string()),
-            limit: None,
-        };
-
-        let error = validate_scope_ids(&authority(), &arguments).expect_err("invalid scope id");
-        assert_eq!(error.to_string(), "unsupported scope_id: project:other");
-    }
-
-    #[test]
-    fn rejects_unknown_purpose() {
-        let error = parse_arguments(&json!({
-            "query": "project notes",
-            "purpose": "dump_everything"
-        }))
-        .expect_err("unknown purpose rejected");
-
-        assert_eq!(error.to_string(), "unsupported purpose: dump_everything");
-    }
-
-    #[test]
-    fn natural_language_memory_phrases_do_not_unlock_additional_scopes() {
-        let authority = MemorySearchAuthority::for_conversation("conv_123", []);
-
-        assert_eq!(
-            authority.active_scope_ids(),
-            ["conversation:conv_123", "human:local"]
-        );
-    }
-
-    #[test]
-    fn trusted_scope_ids_preserve_canonical_conversation_ids() {
-        let authority = MemorySearchAuthority::for_conversation("conversation:conv_123", []);
-
-        assert_eq!(
-            authority.active_scope_ids(),
-            ["conversation:conv_123", "human:local"]
-        );
-    }
-
-    #[test]
-    fn validated_scope_args_become_trusted_active_objects() {
-        let arguments = SearchMemoryArguments {
-            query: String::new(),
-            scope_ids: vec![HUMAN_MEMORY_SCOPE_ID.to_string()],
-            purpose: Some("answer_human_question".to_string()),
-            limit: None,
-        };
-
-        validate_scope_ids(&authority(), &arguments).expect("validated scope");
-    }
-
-    #[test]
-    fn purpose_argument_is_validated_but_not_used_as_scope_authority() {
-        assert_eq!(
-            parse_purpose(Some("external_action")).expect("valid purpose"),
-            SearchMemoryPurpose::ExternalAction
-        );
     }
 }

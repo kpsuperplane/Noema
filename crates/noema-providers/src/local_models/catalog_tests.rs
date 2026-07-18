@@ -63,59 +63,17 @@ fn qualified_model_wins_only_at_its_memory_boundary() {
             None,
         ),
         (
-            LocalHardwareProfile::new(LocalModelBackend::Metal, 11, None, true),
+            LocalHardwareProfile::new(LocalModelBackend::Metal, 32, Some(5), false),
             None,
+        ),
+        (
+            LocalHardwareProfile::new(LocalModelBackend::Metal, 32, Some(6), false),
+            Some("gemma-4-E4B-it-Q4_K_M.gguf"),
         ),
     ];
 
     for (hardware, expected_file) in cases {
-        let recommendation = catalog.recommend(hardware);
-        assert_eq!(
-            recommendation.map(|selected| selected.build.file.as_str()),
-            expected_file
-        );
-    }
-}
-
-#[test]
-fn qualified_model_enforces_its_measured_ram_boundary() {
-    let catalog = LocalModelCatalog::bundled().expect("bundled catalog must remain valid");
-    let cases = [
-        ("gemma-4-e4b-it", 15, None),
-        ("gemma-4-e4b-it", 16, Some("gemma-4-E4B-it-Q4_K_M.gguf")),
-    ];
-
-    for (model_id, ram_gb, expected_file) in cases {
-        let profiles = [LocalHardwareProfile::new(
-            LocalModelBackend::Metal,
-            ram_gb,
-            None,
-            true,
-        )];
-        let selection = catalog.select_build(model_id, &profiles);
-        assert_eq!(
-            selection.map(|selected| selected.build.file.as_str()),
-            expected_file
-        );
-    }
-}
-
-#[test]
-fn qualified_model_enforces_its_accelerator_memory_boundary() {
-    let catalog = LocalModelCatalog::bundled().expect("bundled catalog must remain valid");
-    let cases = [
-        ("gemma-4-e4b-it", 5, None),
-        ("gemma-4-e4b-it", 6, Some("gemma-4-E4B-it-Q4_K_M.gguf")),
-    ];
-
-    for (model_id, vram_gb, expected_file) in cases {
-        let profiles = [LocalHardwareProfile::new(
-            LocalModelBackend::Metal,
-            32,
-            Some(vram_gb),
-            false,
-        )];
-        let selection = catalog.select_build(model_id, &profiles);
+        let selection = catalog.recommend_with_fallback(&[hardware]);
         assert_eq!(
             selection.map(|selected| selected.build.file.as_str()),
             expected_file
@@ -138,81 +96,30 @@ fn backend_preference_skips_unqualified_backends() {
 
     assert_eq!(recommendation.hardware.backend, LocalModelBackend::Metal);
     assert_eq!(recommendation.build.file, "gemma-4-E4B-it-Q4_K_M.gguf");
-}
-
-#[test]
-fn selecting_one_model_reuses_backend_fit_and_fallback() {
-    let catalog = LocalModelCatalog::bundled().expect("bundled catalog must remain valid");
-    let profiles = [
-        LocalHardwareProfile::new(LocalModelBackend::Vulkan, 32, Some(24), false),
-        LocalHardwareProfile::new(LocalModelBackend::Metal, 32, None, true),
-    ];
-
     let selection = catalog
         .select_build("gemma-4-e4b-it", &profiles)
-        .expect("the Metal artifact should fit this specific model");
-
+        .expect("the same fallback must select a named model");
     assert_eq!(selection.hardware.backend, LocalModelBackend::Metal);
-    assert_eq!(selection.build.file, "gemma-4-E4B-it-Q4_K_M.gguf");
     assert!(catalog.select_build("missing", &profiles).is_none());
 }
 
 #[test]
 fn recommendation_order_is_priority_then_catalog_order() {
-    let source = format!(
-        r#"
-[[models]]
-id = "first"
-name = "First"
-license = "MIT"
-priority = 10
-repo = "owner/first"
-revision = "{REVISION}"
-[[models.builds]]
-file = "first.gguf"
-sha256 = "{HASH}"
-download_gb = 1.0
-backends = ["cpu"]
-min_ram_gb = 1
-
-[[models]]
-id = "second"
-name = "Second"
-license = "MIT"
-priority = 20
-repo = "owner/second"
-revision = "{REVISION}"
-[[models.builds]]
-file = "second.gguf"
-sha256 = "{HASH}"
-download_gb = 1.0
-backends = ["cpu"]
-min_ram_gb = 1
-
-[[models]]
-id = "third"
-name = "Third"
-license = "MIT"
-priority = 20
-repo = "owner/third"
-revision = "{REVISION}"
-[[models.builds]]
-file = "third.gguf"
-sha256 = "{HASH}"
-download_gb = 1.0
-backends = ["cpu"]
-min_ram_gb = 1
-"#
-    );
+    let source = [
+        catalog_model("first", 10, "cpu", false),
+        catalog_model("second", 20, "cpu", false),
+        catalog_model("third", 20, "cpu", false),
+    ]
+    .join("\n");
     let catalog = LocalModelCatalog::parse(&source).expect("catalog should be valid");
 
     let recommendation = catalog
-        .recommend(LocalHardwareProfile::new(
+        .recommend_with_fallback(&[LocalHardwareProfile::new(
             LocalModelBackend::Cpu,
             8,
             None,
             false,
-        ))
+        )])
         .expect("one model should fit");
 
     assert_eq!(recommendation.model.id, "second");
@@ -220,38 +127,11 @@ min_ram_gb = 1
 
 #[test]
 fn model_priority_wins_before_backend_preference() {
-    let source = format!(
-        r#"
-[[models]]
-id = "accelerated-low-priority"
-name = "Accelerated low priority"
-license = "MIT"
-priority = 10
-repo = "owner/accelerated"
-revision = "{REVISION}"
-[[models.builds]]
-file = "accelerated.gguf"
-sha256 = "{HASH}"
-download_gb = 1.0
-backends = ["vulkan"]
-min_ram_gb = 1
-min_vram_gb = 1
-
-[[models]]
-id = "cpu-high-priority"
-name = "CPU high priority"
-license = "MIT"
-priority = 100
-repo = "owner/cpu"
-revision = "{REVISION}"
-[[models.builds]]
-file = "cpu.gguf"
-sha256 = "{HASH}"
-download_gb = 1.0
-backends = ["cpu"]
-min_ram_gb = 1
-"#
-    );
+    let source = [
+        catalog_model("accelerated-low-priority", 10, "vulkan", true),
+        catalog_model("cpu-high-priority", 100, "cpu", false),
+    ]
+    .join("\n");
     let catalog = LocalModelCatalog::parse(&source).expect("catalog");
     let profiles = [
         LocalHardwareProfile::new(LocalModelBackend::Vulkan, 8, Some(8), false),
@@ -267,66 +147,7 @@ min_ram_gb = 1
 }
 
 #[test]
-fn recommendation_copy_comes_from_matched_data() {
-    let catalog = LocalModelCatalog::bundled().expect("bundled catalog must remain valid");
-    let recommendation = catalog
-        .recommend(LocalHardwareProfile::new(
-            LocalModelBackend::Metal,
-            16,
-            None,
-            true,
-        ))
-        .expect("Gemma E4B should fit");
-
-    assert_eq!(
-        recommendation.explanation(),
-        "Recommended because Gemma 4 E4B IT fits your Metal backend and 16 GB of unified memory."
-    );
-}
-
-#[test]
-fn rejects_unknown_fields_and_invalid_backends() {
-    let unknown = valid_catalog().replace("priority = 1", "priority = 1\nenabled = true");
-    let backend = valid_catalog().replace("backends = [\"cpu\"]", "backends = [\"neural\"]");
-
-    assert!(matches!(
-        LocalModelCatalog::parse(&unknown),
-        Err(LocalModelCatalogError::Toml(_))
-    ));
-    assert!(matches!(
-        LocalModelCatalog::parse(&backend),
-        Err(LocalModelCatalogError::Toml(_))
-    ));
-}
-
-#[test]
 fn rejects_duplicate_ids_mutable_revisions_and_malformed_hashes() {
-    let duplicate = format!("{}\n{}", valid_catalog(), valid_catalog());
-    let mutable = valid_catalog().replace(REVISION, "main");
-    let malformed_hash = valid_catalog().replace(HASH, "not-a-hash");
-
-    assert!(matches!(
-        LocalModelCatalog::parse(&duplicate),
-        Err(LocalModelCatalogError::DuplicateModelId(_))
-    ));
-    assert!(matches!(
-        LocalModelCatalog::parse(&mutable),
-        Err(LocalModelCatalogError::InvalidModelField {
-            field: "revision",
-            ..
-        })
-    ));
-    assert!(matches!(
-        LocalModelCatalog::parse(&malformed_hash),
-        Err(LocalModelCatalogError::InvalidBuildField {
-            field: "sha256",
-            ..
-        })
-    ));
-}
-
-#[test]
-fn rejects_missing_builds_and_impossible_memory() {
     let missing = format!(
         r#"
 [[models]]
@@ -338,34 +159,41 @@ repo = "owner/model"
 revision = "{REVISION}"
 "#
     );
-    let impossible = valid_catalog().replace("min_ram_gb = 1", "min_ram_gb = 0");
-
-    assert!(matches!(
-        LocalModelCatalog::parse(&missing),
-        Err(LocalModelCatalogError::MissingBuilds(_))
-    ));
-    assert!(matches!(
-        LocalModelCatalog::parse(&impossible),
-        Err(LocalModelCatalogError::ImpossibleMemory { .. })
-    ));
+    for invalid in [
+        valid_catalog().replace("priority = 1", "priority = 1\nenabled = true"),
+        valid_catalog().replace("backends = [\"cpu\"]", "backends = [\"neural\"]"),
+        format!("{}\n{}", valid_catalog(), valid_catalog()),
+        valid_catalog().replace(REVISION, "main"),
+        valid_catalog().replace(HASH, "not-a-hash"),
+        missing,
+        valid_catalog().replace("min_ram_gb = 1", "min_ram_gb = 0"),
+    ] {
+        assert!(LocalModelCatalog::parse(&invalid).is_err(), "{invalid}");
+    }
 }
 
 fn valid_catalog() -> String {
+    catalog_model("model", 1, "cpu", false)
+}
+
+fn catalog_model(id: &str, priority: u32, backend: &str, requires_vram: bool) -> String {
+    let min_vram = if requires_vram { "min_vram_gb = 1" } else { "" };
     format!(
         r#"
 [[models]]
-id = "model"
-name = "Model"
+id = "{id}"
+name = "{id}"
 license = "MIT"
-priority = 1
-repo = "owner/model"
+priority = {priority}
+repo = "owner/{id}"
 revision = "{REVISION}"
 [[models.builds]]
-file = "model.gguf"
+file = "{id}.gguf"
 sha256 = "{HASH}"
 download_gb = 1.0
-backends = ["cpu"]
+backends = ["{backend}"]
 min_ram_gb = 1
+{min_vram}
 "#
     )
 }

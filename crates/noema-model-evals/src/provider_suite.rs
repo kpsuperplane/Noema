@@ -10,14 +10,7 @@ use crate::{
     resource_probe::run_resource_probe,
 };
 
-/// Run all deterministic direct-provider scenarios against one verified GGUF.
-///
-/// # Errors
-///
-/// Returns an error only when the evaluation configuration or production case
-/// fixtures cannot be constructed. Runtime and per-case failures are retained
-/// in the returned report so an incompatible model cannot abort a matrix run.
-pub async fn run_provider_suite(config: ModelEvalConfig) -> Result<ModelEvalReport, String> {
+pub(crate) async fn run_provider_suite(config: ModelEvalConfig) -> Result<ModelEvalReport, String> {
     let version = local_model_eval_runtime_version();
     let load_started = Instant::now();
     let session = LocalModelEvalSession::start(LocalModelEvalSessionConfig {
@@ -56,11 +49,7 @@ pub async fn run_provider_suite(config: ModelEvalConfig) -> Result<ModelEvalRepo
     let memory_sampler = process_id.map(RuntimeMemorySampler::start);
 
     let results: Vec<ModelEvalCaseResult> =
-        noema_runtime::eval_support::run_runtime_suite(&provider, &config.model_id)
-            .await?
-            .into_iter()
-            .map(Into::into)
-            .collect::<Vec<_>>();
+        noema_runtime::eval_support::run_runtime_suite(&provider, &config.model_id).await?;
     let resource_probe = if config.run_resource_probe {
         Some(
             run_resource_probe(

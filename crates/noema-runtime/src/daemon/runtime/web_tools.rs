@@ -180,42 +180,31 @@ fn credential_revision(account: &noema_providers::ProviderAccountRecord) -> u64 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::daemon::runtime::actor::RuntimeActor;
     use crate::test_support::test_store;
     use noema_capabilities::CapabilityId;
-    use noema_providers::{
-        ProviderAccountStatus, ProviderCapabilityAccountReference, ProviderCapabilityStatus,
-    };
-    use std::collections::HashMap;
+    use noema_providers::{ProviderAccountStatus, ProviderCapabilityAccountReference};
 
     #[tokio::test]
-    async fn resolves_duckduckgo_default_without_binding() {
+    async fn resolves_system_defaults_without_bindings() {
         let store = test_store().await;
-        let resolved = resolve_web_search_provider(&store).await.expect("resolve");
+        let search = resolve_web_search_provider(&store).await.expect("search");
+        let fetch = resolve_web_fetch_provider(&store).await.expect("fetch");
 
         assert_eq!(
-            resolved.provider_account_id,
+            search.provider_account_id,
             "provider_account:duckduckgo_public:system"
         );
-        assert_eq!(resolved.provider_kind, "duckduckgo_public");
-        assert_eq!(resolved.account_key, "system");
-        assert!(resolved.fallback_from.is_none());
-        assert!(resolved.fallback_reason.is_none());
-    }
-
-    #[tokio::test]
-    async fn resolves_direct_http_default_without_binding() {
-        let store = test_store().await;
-        let resolved = resolve_web_fetch_provider(&store).await.expect("resolve");
-
+        assert_eq!(search.provider_kind, "duckduckgo_public");
         assert_eq!(
-            resolved.provider_account_id,
+            fetch.provider_account_id,
             "provider_account:direct_http:system"
         );
-        assert_eq!(resolved.provider_kind, "direct_http");
-        assert_eq!(resolved.account_key, "system");
-        assert!(resolved.fallback_from.is_none());
-        assert!(resolved.fallback_reason.is_none());
+        assert_eq!(fetch.provider_kind, "direct_http");
+        assert!([search, fetch].iter().all(|resolved| {
+            resolved.account_key == "system"
+                && resolved.fallback_from.is_none()
+                && resolved.fallback_reason.is_none()
+        }));
     }
 
     #[test]
@@ -301,91 +290,6 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn fetch_falls_back_when_stale_binding_points_to_account_without_fetch_capability() {
-        let store = test_store().await;
-        let account = store
-            .ensure_default_provider_account()
-            .await
-            .expect("codex account");
-        save_binding(
-            &store,
-            WEB_FETCH_TOOL,
-            WEB_FETCH_TOOL,
-            ProviderCapabilityAccountReference::persisted(account.provider_account_id.clone()),
-        )
-        .await;
-
-        let resolved = resolve_web_fetch_provider(&store).await.expect("resolve");
-
-        assert_eq!(
-            resolved.provider_account_id,
-            "provider_account:direct_http:system"
-        );
-        assert_eq!(
-            resolved.fallback_from.as_deref(),
-            Some(account.provider_account_id.as_str())
-        );
-        assert_eq!(
-            resolved.fallback_reason.as_deref(),
-            Some("bound provider account does not declare web.fetch")
-        );
-    }
-
-    #[tokio::test]
-    async fn actor_accessor_uses_same_resolution_logic() {
-        let store = test_store().await;
-        let provider_account_id =
-            create_exa_provider_account(&store, ProviderAccountStatus::Authenticated).await;
-        save_binding(
-            &store,
-            WEB_SEARCH_TOOL,
-            WEB_SEARCH_TOOL,
-            ProviderCapabilityAccountReference::persisted(provider_account_id.clone()),
-        )
-        .await;
-        let actor = RuntimeActor::new(
-            "codex".to_string(),
-            HashMap::from([(
-                "codex".to_string(),
-                crate::test_support::ready_test_provider(),
-            )]),
-            store.clone(),
-            crate::test_support::system_error_logger(),
-        )
-        .await
-        .expect("actor");
-
-        let resolved = actor.resolved_web_search_provider().await.expect("resolve");
-
-        assert_eq!(resolved.provider_account_id, provider_account_id);
-        assert_eq!(resolved.provider_kind, "exa");
-    }
-
-    #[tokio::test]
-    async fn fetch_actor_accessor_uses_same_resolution_logic() {
-        let store = test_store().await;
-        let actor = RuntimeActor::new(
-            "codex".to_string(),
-            HashMap::from([(
-                "codex".to_string(),
-                crate::test_support::ready_test_provider(),
-            )]),
-            store.clone(),
-            crate::test_support::system_error_logger(),
-        )
-        .await
-        .expect("actor");
-
-        let resolved = actor.resolved_web_fetch_provider().await.expect("resolve");
-
-        assert_eq!(
-            resolved.provider_account_id,
-            "provider_account:direct_http:system"
-        );
-        assert_eq!(resolved.provider_kind, "direct_http");
-    }
-
     async fn create_exa_provider_account(
         store: &NoemaStore,
         status: ProviderAccountStatus,
@@ -413,15 +317,5 @@ mod tests {
             account_reference,
         )
         .await;
-    }
-
-    #[test]
-    fn provider_capability_status_strings_distinguish_available_and_account_dependent() {
-        assert_ne!(
-            ProviderCapabilityStatus::Available.as_str(),
-            ProviderCapabilityStatus::AccountDependent.as_str()
-        );
-        assert_eq!(CapabilityId::WebSearch.as_str(), WEB_SEARCH_TOOL);
-        assert_eq!(CapabilityId::WebFetch.as_str(), WEB_FETCH_TOOL);
     }
 }

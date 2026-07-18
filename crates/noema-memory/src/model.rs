@@ -118,18 +118,9 @@ pub struct MemoryArticleCacheRecord {
     pub generated_at: String,
 }
 
-/// Input for saving a cached memory article.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SaveMemoryArticleCache {
-    /// Memory scope this article describes.
-    pub scope_id: String,
-    /// Fingerprint of the facts used to generate the article.
-    pub fact_fingerprint: String,
-    /// Cached article Markdown.
-    pub article_markdown: String,
-    /// Timestamp when the article was generated.
-    pub generated_at: String,
-}
+/// Input for saving a cached memory article; it has the same complete fields as
+/// the persisted cache value.
+pub type SaveMemoryArticleCache = MemoryArticleCacheRecord;
 
 /// One source message submitted as a memory observation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -226,23 +217,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn memory_service_mode_round_trips_persistence_values() {
+    fn memory_service_wire_values_round_trip_and_accept_legacy_list_key() {
         for mode in [MemoryServiceMode::Managed, MemoryServiceMode::External] {
             assert_eq!(MemoryServiceMode::parse(mode.as_str()), Ok(mode));
         }
-    }
-
-    #[test]
-    fn conversation_scope_id_preserves_canonical_ids() {
-        assert_eq!(conversation_scope_id("conv_1"), "conversation:conv_1");
-        assert_eq!(
-            conversation_scope_id("conversation:conv_1"),
-            "conversation:conv_1"
-        );
-    }
-
-    #[test]
-    fn list_response_accepts_legacy_memories_key() {
         let response: ListMemoriesResponse = serde_json::from_value(serde_json::json!({
             "memories": [{"id": "memory_1", "memory": "likes tea"}]
         }))

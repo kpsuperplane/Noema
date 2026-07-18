@@ -293,57 +293,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn schema_errors_build_system_error_events() {
-        let error = StoreError::Schema("bad row".to_string());
-
-        // Consuming runtime boundaries now construct diagnostic events; the
-        // store only exposes the typed classification they need.
-        assert!(error.is_system_invariant());
-    }
-
-    #[test]
-    fn incompatible_schema_errors_are_system_invariants() {
-        let error = StoreError::IncompatibleSchema {
-            kind: SchemaIncompatibility::Unreadable,
-            reason: "future marker".to_string(),
-        };
-
-        assert!(error.is_system_invariant());
-    }
-
-    #[test]
-    fn missing_records_are_not_store_invariants() {
-        let error = StoreError::ConversationNotFound {
-            conversation_id: "conversation:missing".to_string(),
-        };
-
-        assert!(!error.is_system_invariant());
-    }
-
-    #[test]
-    fn malformed_exact_provider_identity_is_a_store_invariant() {
-        assert!(StoreError::ProviderInstanceKeyMissing.is_system_invariant());
-        assert!(
+    fn store_invariant_classification_is_explicit_and_fail_closed() {
+        for error in [
+            StoreError::Schema("bad row".to_string()),
+            StoreError::IncompatibleSchema {
+                kind: SchemaIncompatibility::Unreadable,
+                reason: "future marker".to_string(),
+            },
+            StoreError::ProviderInstanceKeyMissing,
             StoreError::ProviderInstanceKeyMismatch {
                 provider_instance_key: "bad-key".to_string(),
-            }
-            .is_system_invariant()
-        );
-        assert!(
-            !StoreError::ProviderInstanceUnavailable {
+            },
+        ] {
+            assert!(error.is_system_invariant(), "{error:?}");
+        }
+        for error in [
+            StoreError::ConversationNotFound {
+                conversation_id: "conversation:missing".to_string(),
+            },
+            StoreError::ProviderInstanceUnavailable {
                 provider_instance_key: "temporarily-down".to_string(),
-            }
-            .is_system_invariant()
-        );
-    }
+            },
+        ] {
+            assert!(!error.is_system_invariant(), "{error:?}");
+        }
 
-    #[test]
-    fn conversation_enum_errors_preserve_store_vocabulary_context() {
         let error = StoreError::from(ConversationError::InvalidEnum {
             kind: "conversation_item_status",
             value: "unknown".to_string(),
         });
-
         assert!(matches!(
             error,
             StoreError::InvalidEnum {

@@ -409,3 +409,60 @@ fn safe_error_message(error: &ArtifactToolError) -> String {
         ArtifactToolError::Store(_) => "artifact metadata update failed".to_string(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn creates_all_requested_versions_in_conversation_scope() {
+        let store = crate::test_support::test_store().await;
+        store.ensure_default_actors().await.expect("actors");
+        let conversation = store
+            .create_conversation(
+                noema_conversations::NewConversation::local_chat_for_provider("codex", None, None),
+            )
+            .await
+            .expect("conversation");
+        let operations =
+            crate::test_support::artifact_operations(&store).expect("artifact operations");
+
+        let result = execute_artifact_create_local_file(
+            &store,
+            &operations,
+            &ArtifactToolRuntimeContext {
+                conversation_id: conversation.conversation_id.clone(),
+                turn_id: "turn:test".to_string(),
+                user_item_id: "item:test".to_string(),
+                created_by_actor_id: "agent:primary".to_string(),
+                task_id: None,
+                task_run_id: None,
+            },
+            Some("call:test".to_string()),
+            &json!({
+                "title": "Agent note",
+                "artifact_kind": "document",
+                "filename": "agent-note.md",
+                "media_type": "text/markdown",
+                "versions": [
+                    {"title": "Draft", "content": "version one"},
+                    {"title": "Revision", "content": "version two"}
+                ]
+            }),
+        )
+        .await;
+
+        assert!(result.success, "{}", result.payload);
+        assert_eq!(result.payload["current_version_index"], 2);
+        assert_eq!(result.payload["versions"].as_array().map(Vec::len), Some(2));
+        let artifacts = store
+            .list_artifacts_for_owner(
+                noema_artifacts::ArtifactOwnerRef::conversation(&conversation.conversation_id),
+                10,
+            )
+            .await
+            .expect("artifacts");
+        assert_eq!(artifacts.len(), 1);
+        assert_eq!(artifacts[0].versions.len(), 2);
+    }
+}

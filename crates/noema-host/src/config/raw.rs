@@ -123,7 +123,6 @@ impl RawConfig {
             reasoning_effort,
             timeout_seconds,
             client_version: None,
-            account_home: None,
             oauth: Default::default(),
             system_errors: None,
         })
@@ -158,7 +157,7 @@ impl RawConfig {
             model_path: None,
             preferred_backend,
             runtime_root: None,
-            context_window_tokens: require_positive_u32(
+            context_window_tokens: require_positive(
                 self.local_models.context_window_tokens,
                 "NOEMA_LOCAL_MODELS__CONTEXT_WINDOW_TOKENS",
             )?,
@@ -263,19 +262,11 @@ fn non_empty_option(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
 }
 
-fn require_positive(value: u64, name: &str) -> Result<u64, ConfigError> {
-    if value == 0 {
-        Err(ConfigError::InvalidInteger {
-            name: name.to_string(),
-            value: value.to_string(),
-        })
-    } else {
-        Ok(value)
-    }
-}
-
-fn require_positive_u32(value: u32, name: &str) -> Result<u32, ConfigError> {
-    if value == 0 {
+fn require_positive<T>(value: T, name: &str) -> Result<T, ConfigError>
+where
+    T: Copy + Default + PartialEq + ToString,
+{
+    if value == T::default() {
         Err(ConfigError::InvalidInteger {
             name: name.to_string(),
             value: value.to_string(),

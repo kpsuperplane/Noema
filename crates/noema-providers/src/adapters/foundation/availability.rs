@@ -48,7 +48,7 @@ impl FoundationLocalProvider {
     ///
     /// Returns [`FoundationBridgeError`] when the platform, bridge, or
     /// Foundation Models runtime is unavailable.
-    pub async fn check_availability(&self) -> Result<(), FoundationBridgeError> {
+    pub(crate) async fn check_availability(&self) -> Result<(), FoundationBridgeError> {
         let bridge = self.start_bridge_process(self.bridge_config()).await?;
         drop(bridge);
         Ok(())

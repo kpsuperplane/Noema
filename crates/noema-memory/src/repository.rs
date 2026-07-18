@@ -36,12 +36,6 @@ impl MemoryRepositoryError {
         Self { operation, kind }
     }
 
-    /// Return the stable operation that failed.
-    #[must_use]
-    pub const fn operation(&self) -> &'static str {
-        self.operation
-    }
-
     /// Return the coarse failure class.
     #[must_use]
     pub const fn kind(&self) -> MemoryRepositoryErrorKind {
@@ -86,24 +80,99 @@ mod tests {
     use super::*;
 
     #[test]
-    fn repository_trait_remains_dyn_compatible() {
-        fn accepts_repository(_repository: Option<&dyn MemoryRepository>) {}
-
-        accepts_repository(None);
-    }
-
-    #[test]
     fn repository_errors_do_not_expose_backend_details() {
         let error = MemoryRepositoryError::new(
             "load_memory_service_settings",
             MemoryRepositoryErrorKind::Unavailable,
         );
 
-        assert_eq!(error.operation(), "load_memory_service_settings");
         assert_eq!(error.kind(), MemoryRepositoryErrorKind::Unavailable);
         assert_eq!(
             error.to_string(),
             "memory repository operation load_memory_service_settings failed (Unavailable)"
         );
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    use std::sync::Mutex;
+
+    use super::*;
+    #[cfg(feature = "service")]
+    use crate::MemoryServiceMode;
+
+    #[derive(Debug)]
+    pub(crate) struct FakeMemoryRepository {
+        settings: Mutex<MemoryServiceSettingsRecord>,
+    }
+
+    impl FakeMemoryRepository {
+        pub(crate) fn new(settings: MemoryServiceSettingsRecord) -> Self {
+            Self {
+                settings: Mutex::new(settings),
+            }
+        }
+
+        pub(crate) fn replace_settings(&self, settings: MemoryServiceSettingsRecord) {
+            *self.settings.lock().expect("settings lock") = settings;
+        }
+
+        #[cfg(feature = "service")]
+        pub(crate) fn set_external_url(&self, base_url: String) {
+            self.settings.lock().expect("settings lock").base_url = Some(base_url);
+        }
+
+        #[cfg(feature = "service")]
+        pub(crate) fn set_managed(&self) {
+            let mut settings = self.settings.lock().expect("settings lock");
+            settings.mode = MemoryServiceMode::Managed;
+            settings.base_url = None;
+        }
+    }
+
+    impl MemoryRepository for FakeMemoryRepository {
+        fn memory_service_settings(
+            &self,
+        ) -> MemoryRepositoryFuture<'_, MemoryRepositoryResult<MemoryServiceSettingsRecord>>
+        {
+            let settings = self.settings.lock().expect("settings lock").clone();
+            Box::pin(async move { Ok(settings) })
+        }
+
+        fn save_memory_service_settings(
+            &self,
+            input: SaveMemoryServiceSettings,
+        ) -> MemoryRepositoryFuture<'_, MemoryRepositoryResult<MemoryServiceSettingsRecord>>
+        {
+            let settings = MemoryServiceSettingsRecord {
+                settings_id: "default".to_string(),
+                mode: input.mode,
+                base_url: input.base_url,
+                port: input.port,
+                provider_account_id: input.provider_account_id,
+                provider_kind: input.provider_kind,
+                provider_instance_key: None,
+                model_profile: input.model_profile,
+                reasoning_effort: input.reasoning_effort,
+            };
+            self.replace_settings(settings.clone());
+            Box::pin(async move { Ok(settings) })
+        }
+
+        fn memory_article_cache(
+            &self,
+            _scope_id: String,
+        ) -> MemoryRepositoryFuture<'_, MemoryRepositoryResult<Option<MemoryArticleCacheRecord>>>
+        {
+            Box::pin(async { Ok(None) })
+        }
+
+        fn save_memory_article_cache(
+            &self,
+            _input: SaveMemoryArticleCache,
+        ) -> MemoryRepositoryFuture<'_, MemoryRepositoryResult<()>> {
+            Box::pin(async { Ok(()) })
+        }
     }
 }

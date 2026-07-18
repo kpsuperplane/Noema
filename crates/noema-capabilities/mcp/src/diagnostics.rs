@@ -103,11 +103,3 @@ impl McpDiagnosticSink for SystemErrorMcpDiagnostics {
         self.logger.try_append(diagnostic);
     }
 }
-
-/// Diagnostic sink used when the embedding surface intentionally omits logs.
-#[derive(Debug, Default)]
-pub struct NoopMcpDiagnostics;
-
-impl McpDiagnosticSink for NoopMcpDiagnostics {
-    fn record(&self, _event: McpDiagnosticEvent) {}
-}

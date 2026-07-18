@@ -100,26 +100,8 @@ impl ToolSchema {
     /// # Errors
     ///
     /// Returns [`ToolContractError::InvalidSchema`] for a non-object root.
-    pub fn new(tool_name: &str, value: Value) -> Result<Self, ToolContractError> {
-        Self::new_input(tool_name, value)
-    }
-
-    /// Validate an input schema.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ToolContractError::InvalidSchema`] for a non-object root.
     pub fn new_input(tool_name: &str, value: Value) -> Result<Self, ToolContractError> {
         Self::new_with_kind(tool_name, "input", value)
-    }
-
-    /// Validate an output schema.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ToolContractError::InvalidSchema`] for a non-object root.
-    pub fn new_output(tool_name: &str, value: Value) -> Result<Self, ToolContractError> {
-        Self::new_with_kind(tool_name, "output", value)
     }
 
     fn new_with_kind(
@@ -173,9 +155,6 @@ pub struct ToolSpec {
     pub description: String,
     /// JSON object schema for arguments.
     pub input_schema: ToolSchema,
-    /// Optional JSON object schema for successful output.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub output_schema: Option<ToolSchema>,
 }
 
 impl ToolSpec {
@@ -201,18 +180,7 @@ impl ToolSpec {
             name,
             description,
             input_schema,
-            output_schema: None,
         })
-    }
-
-    /// Attach a validated output schema.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ToolContractError::InvalidSchema`] for a non-object root.
-    pub fn with_output_schema(mut self, schema: Value) -> Result<Self, ToolContractError> {
-        self.output_schema = Some(ToolSchema::new_output(self.name.as_str(), schema)?);
-        Ok(self)
     }
 }
 
@@ -254,20 +222,10 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_object_schema_and_invalid_names() {
-        assert!(ToolSpec::new("web/search", "Search.", json!({"type":"object"})).is_err());
-        assert!(ToolSpec::new("web.search", "Search.", json!({"type":"string"})).is_err());
-    }
-
-    #[test]
     fn canonical_tool_spec_requires_object_input_schema() {
         let error = ToolSpec::new("web.search", "Search.", json!({"type": "string"}))
             .expect_err("non-object input schema rejected");
         assert!(matches!(error, ToolContractError::InvalidSchema(_)));
-    }
-
-    #[test]
-    fn canonical_tool_spec_accepts_object_input_schema() {
         let spec = ToolSpec::new(
             "web.search",
             "Search.",
@@ -275,10 +233,6 @@ mod tests {
         )
         .expect("object input schema");
         assert_eq!(spec.input_schema.as_value()["type"], "object");
-    }
-
-    #[test]
-    fn canonical_tool_spec_rejects_empty_description() {
         let error = ToolSpec::new("web.search", "  ", json!({"type": "object"}))
             .expect_err("empty description rejected");
         assert!(matches!(error, ToolContractError::InvalidDescription(_)));
@@ -289,20 +243,12 @@ mod tests {
         for name in ["search_memory", "web.search", "mcp.mcp:docs.read"] {
             assert_eq!(ToolName::new(name).expect("canonical name").as_str(), name);
         }
-    }
-
-    #[test]
-    fn tool_name_rejects_invalid_provider_visible_names() {
         for name in ["", " web.search", "web/search", "web..search", "web search"] {
             assert!(
                 ToolName::new(name).is_err(),
                 "expected invalid name: {name:?}"
             );
         }
-    }
-
-    #[test]
-    fn tool_name_deserialization_uses_validation() {
         assert!(serde_json::from_value::<ToolName>(json!("web/search")).is_err());
         assert_eq!(
             serde_json::from_value::<ToolName>(json!("web.search"))
@@ -314,26 +260,13 @@ mod tests {
 
     #[test]
     fn tool_schema_serializes_as_raw_json_schema() {
-        let schema = ToolSchema::new("web.search", json!({"type": "object", "required": []}))
+        let schema = ToolSchema::new_input("web.search", json!({"type": "object", "required": []}))
             .expect("schema");
         assert_eq!(
             serde_json::to_value(schema).expect("serialize"),
             json!({"type": "object", "required": []})
         );
-    }
-
-    #[test]
-    fn tool_schema_deserialization_validates_object_root() {
         assert!(serde_json::from_value::<ToolSchema>(json!({"type": "array"})).is_err());
         assert!(serde_json::from_value::<ToolSchema>(json!({"type": "object"})).is_ok());
-    }
-
-    #[test]
-    fn output_schema_error_names_output_schema() {
-        let error = ToolSpec::new("web.search", "Search.", json!({"type": "object"}))
-            .expect("spec")
-            .with_output_schema(json!({"type": "string"}))
-            .expect_err("non-object output schema rejected");
-        assert!(error.to_string().contains("output schema"));
     }
 }

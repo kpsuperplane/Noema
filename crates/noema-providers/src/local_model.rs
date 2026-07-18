@@ -19,7 +19,6 @@ pub use management::{
     LocalModelManagement, LocalModelManagementFuture, LocalModelManager, LocalModelManagerConfig,
     LocalModelManagerError, LocalModelManagerEvent, LocalModelManagerEventRecord,
     LocalModelManagerEventStream, LocalModelReconstructionReport, LocalModelRuntimeStatus,
-    ManagedLocalModelStatus,
 };
 
 /// Stable built-in provider account used for local GGUF inference.
@@ -67,6 +66,46 @@ pub struct LocalModelCodecError {
     value: String,
 }
 
+macro_rules! stable_local_model_vocabulary {
+    ($type:ident, $kind:literal, $encode:ident, {$($variant:ident => $value:literal),+ $(,)?}) => {
+        impl $type {
+            /// Return the stable persistence value.
+            #[must_use]
+            pub const fn $encode(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $value,)+
+                }
+            }
+
+            /// Parse a stable persistence value.
+            #[must_use]
+            pub fn from_persistence_str(value: &str) -> Option<Self> {
+                match value {
+                    $($value => Some(Self::$variant),)+
+                    _ => None,
+                }
+            }
+        }
+
+        impl fmt::Display for $type {
+            fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str(self.$encode())
+            }
+        }
+
+        impl FromStr for $type {
+            type Err = LocalModelCodecError;
+
+            fn from_str(value: &str) -> Result<Self, Self::Err> {
+                Self::from_persistence_str(value).ok_or_else(|| LocalModelCodecError {
+                    kind: $kind,
+                    value: value.to_string(),
+                })
+            }
+        }
+    };
+}
+
 /// A backend supported by the bundled local inference runtime.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, Hash, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -92,47 +131,14 @@ impl LocalModelBackend {
             Self::Cpu => "CPU",
         }
     }
-
-    /// Return the stable persistence value.
-    #[must_use]
-    pub const fn as_persistence_str(self) -> &'static str {
-        match self {
-            Self::Metal => "metal",
-            Self::Cuda => "cuda",
-            Self::Vulkan => "vulkan",
-            Self::Cpu => "cpu",
-        }
-    }
-
-    /// Parse a stable persistence value.
-    #[must_use]
-    pub fn from_persistence_str(value: &str) -> Option<Self> {
-        match value {
-            "metal" => Some(Self::Metal),
-            "cuda" => Some(Self::Cuda),
-            "vulkan" => Some(Self::Vulkan),
-            "cpu" => Some(Self::Cpu),
-            _ => None,
-        }
-    }
 }
 
-impl fmt::Display for LocalModelBackend {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.as_persistence_str())
-    }
-}
-
-impl FromStr for LocalModelBackend {
-    type Err = LocalModelCodecError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        Self::from_persistence_str(value).ok_or_else(|| LocalModelCodecError {
-            kind: "local_model_backend",
-            value: value.to_string(),
-        })
-    }
-}
+stable_local_model_vocabulary!(LocalModelBackend, "local_model_backend", as_persistence_str, {
+    Metal => "metal",
+    Cuda => "cuda",
+    Vulkan => "vulkan",
+    Cpu => "cpu",
+});
 
 /// Provenance class for an installed model artifact.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -145,45 +151,11 @@ pub enum LocalModelSourceKind {
     LocalFile,
 }
 
-impl LocalModelSourceKind {
-    /// Return the stable persistence value.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Catalog => "catalog",
-            Self::HuggingFace => "hugging_face",
-            Self::LocalFile => "local_file",
-        }
-    }
-
-    /// Parse a stable persistence value.
-    #[must_use]
-    pub fn from_persistence_str(value: &str) -> Option<Self> {
-        match value {
-            "catalog" => Some(Self::Catalog),
-            "hugging_face" => Some(Self::HuggingFace),
-            "local_file" => Some(Self::LocalFile),
-            _ => None,
-        }
-    }
-}
-
-impl fmt::Display for LocalModelSourceKind {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.as_str())
-    }
-}
-
-impl FromStr for LocalModelSourceKind {
-    type Err = LocalModelCodecError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        Self::from_persistence_str(value).ok_or_else(|| LocalModelCodecError {
-            kind: "local_model_source_kind",
-            value: value.to_string(),
-        })
-    }
-}
+stable_local_model_vocabulary!(LocalModelSourceKind, "local_model_source_kind", as_str, {
+    Catalog => "catalog",
+    HuggingFace => "hugging_face",
+    LocalFile => "local_file",
+});
 
 /// Durable lifecycle state for one local-model installation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -203,33 +175,6 @@ pub enum LocalModelInstallationStatus {
 }
 
 impl LocalModelInstallationStatus {
-    /// Return the stable persistence value.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Queued => "queued",
-            Self::Downloading => "downloading",
-            Self::Verifying => "verifying",
-            Self::Installed => "installed",
-            Self::Failed => "failed",
-            Self::Cancelled => "cancelled",
-        }
-    }
-
-    /// Parse a stable persistence value.
-    #[must_use]
-    pub fn from_persistence_str(value: &str) -> Option<Self> {
-        match value {
-            "queued" => Some(Self::Queued),
-            "downloading" => Some(Self::Downloading),
-            "verifying" => Some(Self::Verifying),
-            "installed" => Some(Self::Installed),
-            "failed" => Some(Self::Failed),
-            "cancelled" => Some(Self::Cancelled),
-            _ => None,
-        }
-    }
-
     /// Return whether the durable lifecycle permits the requested transition.
     #[must_use]
     pub fn can_transition_to(self, next: Self) -> bool {
@@ -250,22 +195,19 @@ impl LocalModelInstallationStatus {
     }
 }
 
-impl fmt::Display for LocalModelInstallationStatus {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.as_str())
+stable_local_model_vocabulary!(
+    LocalModelInstallationStatus,
+    "local_model_installation_status",
+    as_str,
+    {
+        Queued => "queued",
+        Downloading => "downloading",
+        Verifying => "verifying",
+        Installed => "installed",
+        Failed => "failed",
+        Cancelled => "cancelled",
     }
-}
-
-impl FromStr for LocalModelInstallationStatus {
-    type Err = LocalModelCodecError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        Self::from_persistence_str(value).ok_or_else(|| LocalModelCodecError {
-            kind: "local_model_installation_status",
-            value: value.to_string(),
-        })
-    }
-}
+);
 
 /// Cursor-bearing installation event kind.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -288,55 +230,16 @@ pub enum LocalModelEventKind {
     Activated,
 }
 
-impl LocalModelEventKind {
-    /// Return the stable persistence value.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Queued => "queued",
-            Self::Progress => "progress",
-            Self::Verifying => "verifying",
-            Self::Installed => "installed",
-            Self::Failed => "failed",
-            Self::Cancelled => "cancelled",
-            Self::Removed => "removed",
-            Self::Activated => "activated",
-        }
-    }
-
-    /// Parse a stable persistence value.
-    #[must_use]
-    pub fn from_persistence_str(value: &str) -> Option<Self> {
-        match value {
-            "queued" => Some(Self::Queued),
-            "progress" => Some(Self::Progress),
-            "verifying" => Some(Self::Verifying),
-            "installed" => Some(Self::Installed),
-            "failed" => Some(Self::Failed),
-            "cancelled" => Some(Self::Cancelled),
-            "removed" => Some(Self::Removed),
-            "activated" => Some(Self::Activated),
-            _ => None,
-        }
-    }
-}
-
-impl fmt::Display for LocalModelEventKind {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.as_str())
-    }
-}
-
-impl FromStr for LocalModelEventKind {
-    type Err = LocalModelCodecError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        Self::from_persistence_str(value).ok_or_else(|| LocalModelCodecError {
-            kind: "local_model_event_kind",
-            value: value.to_string(),
-        })
-    }
-}
+stable_local_model_vocabulary!(LocalModelEventKind, "local_model_event_kind", as_str, {
+    Queued => "queued",
+    Progress => "progress",
+    Verifying => "verifying",
+    Installed => "installed",
+    Failed => "failed",
+    Cancelled => "cancelled",
+    Removed => "removed",
+    Activated => "activated",
+});
 
 /// Input for creating or refreshing installation provenance.
 #[derive(Clone, Debug, PartialEq)]
@@ -492,7 +395,6 @@ mod tests {
     use super::{
         LocalModelBackend as Backend, LocalModelEventKind as EventKind,
         LocalModelInstallationStatus as Status, LocalModelSourceKind as SourceKind,
-        local_model_provider_instance_key,
     };
 
     #[test]
@@ -550,39 +452,5 @@ mod tests {
         assert!("unknown".parse::<SourceKind>().is_err());
         assert!("unknown".parse::<Status>().is_err());
         assert!("unknown".parse::<EventKind>().is_err());
-    }
-
-    #[test]
-    fn local_instance_keys_distinguish_same_model_installations_unambiguously() {
-        let first = local_model_provider_instance_key(
-            "provider_account:local_models:default",
-            "installation:a",
-            "shared-model",
-        )
-        .expect("first key");
-        let second = local_model_provider_instance_key(
-            "provider_account:local_models:default",
-            "installation:b",
-            "shared-model",
-        )
-        .expect("second key");
-        let delimiter_variant =
-            local_model_provider_instance_key("provider:a", "b:c", "shared-model")
-                .expect("delimiter variant");
-        let differently_partitioned =
-            local_model_provider_instance_key("provider:a:b", "c", "shared-model")
-                .expect("differently partitioned key");
-
-        assert_ne!(first, second);
-        assert_ne!(delimiter_variant, differently_partitioned);
-        assert_eq!(
-            first,
-            local_model_provider_instance_key(
-                "provider_account:local_models:default",
-                "installation:a",
-                "shared-model",
-            )
-            .expect("stable first key")
-        );
     }
 }

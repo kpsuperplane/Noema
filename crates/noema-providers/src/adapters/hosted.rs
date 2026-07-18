@@ -15,29 +15,12 @@ const DEFAULT_CODEX_PROVIDER_ACCOUNT_ID: &str = "provider_account:codex:default"
 
 /// Provider-owned startup classification for one configured default.
 pub struct ProviderBootstrap {
-    default_provider_kind: String,
-    default_model_profile: Option<String>,
-    hosted_provider: Option<(String, ProviderHandle)>,
-}
-
-impl ProviderBootstrap {
-    /// Return the configured provider kind used for canonical default selection.
-    #[must_use]
-    pub fn default_provider_kind(&self) -> &str {
-        &self.default_provider_kind
-    }
-
-    /// Return the configured default model/profile, when the provider has one.
-    #[must_use]
-    pub fn default_model_profile(&self) -> Option<&str> {
-        self.default_model_profile.as_deref()
-    }
-
-    /// Take the concrete hosted provider, or `None` for provider-managed local inference.
-    #[must_use]
-    pub fn into_hosted_provider(self) -> Option<(String, ProviderHandle)> {
-        self.hosted_provider
-    }
+    /// Configured provider kind used for canonical default selection.
+    pub default_provider_kind: String,
+    /// Configured default model/profile, when the provider has one.
+    pub default_model_profile: Option<String>,
+    /// Concrete hosted provider, or `None` for provider-managed local inference.
+    pub hosted_provider: Option<(String, ProviderHandle)>,
 }
 
 impl std::fmt::Debug for ProviderBootstrap {
@@ -111,7 +94,6 @@ pub fn hosted_provider_from_config(
 ) -> Result<(String, ProviderHandle), ProviderError> {
     match config {
         ProviderConfig::Codex(mut config) => {
-            config.account_home = None;
             config.system_errors = Some(system_errors);
             let provider = CodexResponsesProvider::new_with_credentials(
                 config,
@@ -147,113 +129,74 @@ pub fn hosted_provider_from_config(
 mod tests {
     use std::sync::Arc;
 
-    use noema_home::SystemErrorLogger;
-
-    use super::{hosted_provider_from_config, provider_bootstrap_from_config};
+    use super::*;
     use crate::{
-        CodexProviderConfig, DEFAULT_CODEX_MODEL, DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS,
+        CodexProviderConfig, DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS,
         DEFAULT_LOCAL_MODELS_PROFILE, DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
-        DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS, LocalModelsProviderConfig, ProviderConfig,
-        ProviderCredentialAccess, ProviderCredentialAccessHandle, ProviderCredentialFuture,
-        ProviderError,
+        DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS, LocalModelsProviderConfig, ProviderCredentialAccess,
+        ProviderCredentialFuture,
     };
 
     #[derive(Debug)]
-    struct PathlessCredentials;
+    struct MissingCredentials;
 
-    impl ProviderCredentialAccess for PathlessCredentials {
-        fn exa_api_key<'a>(
-            &'a self,
-            _provider_account_id: &'a str,
-        ) -> ProviderCredentialFuture<'a> {
-            missing_credentials("exa")
+    impl ProviderCredentialAccess for MissingCredentials {
+        fn exa_api_key<'a>(&'a self, _id: &'a str) -> ProviderCredentialFuture<'a> {
+            missing("exa")
         }
 
-        fn codex_access_token<'a>(
-            &'a self,
-            _provider_account_id: &'a str,
-        ) -> ProviderCredentialFuture<'a> {
-            missing_credentials("codex")
+        fn codex_access_token<'a>(&'a self, _id: &'a str) -> ProviderCredentialFuture<'a> {
+            missing("codex")
         }
 
-        fn refresh_codex_access_token<'a>(
-            &'a self,
-            _provider_account_id: &'a str,
-        ) -> ProviderCredentialFuture<'a> {
-            missing_credentials("codex")
+        fn refresh_codex_access_token<'a>(&'a self, _id: &'a str) -> ProviderCredentialFuture<'a> {
+            missing("codex")
         }
     }
 
     #[test]
-    fn codex_factory_builds_with_pathless_credentials() {
-        let temp = tempfile::tempdir().expect("temp dir");
-        let config = CodexProviderConfig {
-            account_home: Some(temp.path().join("legacy-account-home")),
-            ..CodexProviderConfig::default()
-        };
-
-        let (kind, _provider) = hosted_provider_from_config(
-            ProviderConfig::Codex(config),
-            credential_access(),
-            SystemErrorLogger::new(temp.path().join("errors.log")),
-        )
-        .expect("Codex hosted provider");
-
-        assert_eq!(kind, "codex");
-    }
-
-    #[test]
-    fn codex_bootstrap_exposes_the_effective_implicit_model() {
-        let temp = tempfile::tempdir().expect("temp dir");
-        let config = CodexProviderConfig {
-            default_model: None,
-            ..CodexProviderConfig::default()
-        };
-
-        let bootstrap = provider_bootstrap_from_config(
-            ProviderConfig::Codex(config),
-            credential_access(),
-            SystemErrorLogger::new(temp.path().join("errors.log")),
+    fn bootstrap_exposes_implicit_codex_model_and_defers_local_construction() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let credentials = Arc::new(MissingCredentials);
+        let codex = provider_bootstrap_from_config(
+            ProviderConfig::Codex(CodexProviderConfig {
+                default_model: None,
+                ..CodexProviderConfig::default()
+            }),
+            credentials.clone(),
+            SystemErrorLogger::new(temp.path().join("codex-errors.log")),
         )
         .expect("Codex bootstrap");
-
-        assert_eq!(bootstrap.default_model_profile(), Some(DEFAULT_CODEX_MODEL));
-    }
-
-    #[test]
-    fn local_models_bootstrap_defers_construction_to_the_provider_manager() {
-        let temp = tempfile::tempdir().expect("temp dir");
-        let config = LocalModelsProviderConfig {
-            default_model: DEFAULT_LOCAL_MODELS_PROFILE.to_string(),
-            model_path: None,
-            preferred_backend: None,
-            runtime_root: None,
-            context_window_tokens: DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS,
-            timeout_seconds: DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS,
-            startup_timeout_seconds: DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
-            system_errors: None,
-        };
-
-        let bootstrap = provider_bootstrap_from_config(
-            ProviderConfig::LocalModels(config),
-            credential_access(),
-            SystemErrorLogger::new(temp.path().join("errors.log")),
-        )
-        .expect("local-model bootstrap");
-
-        assert_eq!(bootstrap.default_provider_kind(), "local_models");
         assert_eq!(
-            bootstrap.default_model_profile(),
+            codex.default_model_profile.as_deref(),
+            Some(DEFAULT_CODEX_MODEL),
+            "effective implicit Codex model"
+        );
+
+        let local = provider_bootstrap_from_config(
+            ProviderConfig::LocalModels(LocalModelsProviderConfig {
+                default_model: DEFAULT_LOCAL_MODELS_PROFILE.to_string(),
+                model_path: None,
+                preferred_backend: None,
+                runtime_root: None,
+                context_window_tokens: DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS,
+                timeout_seconds: DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS,
+                startup_timeout_seconds: DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
+                system_errors: None,
+            }),
+            credentials,
+            SystemErrorLogger::new(temp.path().join("local-errors.log")),
+        )
+        .expect("local bootstrap");
+        assert_eq!(local.default_provider_kind, "local_models");
+        assert_eq!(
+            local.default_model_profile.as_deref(),
             Some(DEFAULT_LOCAL_MODELS_PROFILE)
         );
-        assert!(bootstrap.into_hosted_provider().is_none());
+        assert!(local.hosted_provider.is_none(), "manager owns construction");
     }
 
-    fn credential_access() -> ProviderCredentialAccessHandle {
-        Arc::new(PathlessCredentials)
-    }
-
-    fn missing_credentials(provider: &'static str) -> ProviderCredentialFuture<'static> {
+    fn missing(provider: &'static str) -> ProviderCredentialFuture<'static> {
         Box::pin(async move {
             Err(ProviderError::MissingCredentials {
                 provider: provider.to_string(),

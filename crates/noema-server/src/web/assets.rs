@@ -26,13 +26,10 @@ pub(super) fn is_spa_entry_path(path: &str) -> bool {
         return false;
     }
 
-    if path == "/assets"
-        || path.starts_with("/assets/")
-        || path == "/api"
-        || path.starts_with("/api/")
-        || path == "/graphql"
-        || path.starts_with("/graphql/")
-    {
+    if ["/assets", "/api", "/graphql"].iter().any(|prefix| {
+        path.strip_prefix(prefix)
+            .is_some_and(|suffix| suffix.is_empty() || suffix.starts_with('/'))
+    }) {
         return false;
     }
 
@@ -43,32 +40,20 @@ pub(super) fn is_spa_entry_path(path: &str) -> bool {
 
 fn static_asset_name(path: &str) -> Option<&str> {
     let name = path.strip_prefix("/assets/")?;
-    if name.is_empty()
-        || name.contains('/')
-        || name.contains('\\')
-        || name == "."
-        || name == ".."
-        || name.contains("..")
-    {
+    if name.is_empty() || name.contains('/') || name.contains('\\') || name.contains("..") {
         return None;
     }
     Some(name)
 }
 
 fn content_type_for_asset_name(name: &str) -> Option<&'static str> {
-    if name.ends_with(".js") {
-        return Some("application/javascript; charset=utf-8");
+    match name.rsplit_once('.')?.1 {
+        "js" => Some("application/javascript; charset=utf-8"),
+        "css" => Some("text/css; charset=utf-8"),
+        "svg" => Some("image/svg+xml; charset=utf-8"),
+        "html" => Some("text/html; charset=utf-8"),
+        _ => None,
     }
-    if name.ends_with(".css") {
-        return Some("text/css; charset=utf-8");
-    }
-    if name.ends_with(".svg") {
-        return Some("image/svg+xml; charset=utf-8");
-    }
-    if name.ends_with(".html") {
-        return Some("text/html; charset=utf-8");
-    }
-    None
 }
 
 /// Resolve a web asset's bytes for release builds: embed them into the binary.
@@ -93,10 +78,12 @@ pub(super) fn asset_body(name: &str) -> Option<Cow<'static, [u8]>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{content_type_for_asset_name, embedded_asset, static_asset_name};
+    use super::{
+        content_type_for_asset_name, embedded_asset, is_spa_entry_path, static_asset_name,
+    };
 
     #[test]
-    fn emitted_chunk_like_files_are_served_from_assets() {
+    fn assets_preserve_safe_paths_content_types_dynamic_chunks_and_spa_boundaries() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/web-assets");
         std::fs::create_dir_all(&dir).expect("create web asset dir");
         let asset_path = dir.join("__noema_asset_test_chunk.js");
@@ -108,10 +95,7 @@ mod tests {
         assert_eq!(asset.body.as_ref(), b"export {};");
 
         std::fs::remove_file(asset_path).expect("remove test chunk");
-    }
 
-    #[test]
-    fn static_asset_paths_resolve_to_safe_names() {
         assert_eq!(static_asset_name("/assets/app.js"), Some("app.js"));
         assert_eq!(
             static_asset_name("/assets/route-chunk.js"),
@@ -121,10 +105,7 @@ mod tests {
         assert_eq!(static_asset_name("/assets/nested/chunk.js"), None);
         assert_eq!(static_asset_name("/assets/../chunk.js"), None);
         assert_eq!(static_asset_name("/assets"), None);
-    }
 
-    #[test]
-    fn static_asset_content_types_are_known() {
         assert_eq!(
             content_type_for_asset_name("route-chunk.js"),
             Some("application/javascript; charset=utf-8")
@@ -138,10 +119,9 @@ mod tests {
             Some("image/svg+xml; charset=utf-8")
         );
         assert_eq!(content_type_for_asset_name("data.bin"), None);
-    }
 
-    #[test]
-    fn unknown_static_extensions_do_not_fall_back_to_spa_entry() {
         assert!(embedded_asset("/assets/data.bin").is_none());
+        assert!(is_spa_entry_path("/memory"));
+        assert!(!is_spa_entry_path("/graphql/schema.graphql"));
     }
 }

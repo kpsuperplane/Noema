@@ -137,38 +137,6 @@ impl NoemaStore {
         row.map(context_summary_from_row).transpose()
     }
 
-    /// Return one context summary by id.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError`] when the embedded store read fails or stored
-    /// enums are invalid.
-    pub async fn get_conversation_context_summary(
-        &self,
-        summary_id: &str,
-    ) -> Result<Option<ConversationContextSummaryRecord>, StoreError> {
-        let row = self
-            .with_connection(|conn| {
-                conn.query_row(
-                    format!(
-                        r#"
-                        SELECT {CONTEXT_SUMMARY_SELECT}
-                        FROM conversation_context_summaries
-                        WHERE summary_id = ?1
-                        LIMIT 1
-                        "#
-                    )
-                    .as_str(),
-                    [summary_id],
-                    context_summary_row,
-                )
-                .optional()
-                .map_err(StoreError::Sqlite)
-            })
-            .await?;
-        row.map(context_summary_from_row).transpose()
-    }
-
     /// List all context summaries for a conversation in creation order.
     ///
     /// # Errors

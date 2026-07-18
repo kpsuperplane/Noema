@@ -19,23 +19,25 @@ pub const DEFAULT_OPENAI_TIMEOUT_SECONDS: u64 = 120;
 pub const OPENAI_API_KEY_ENV: &str = "NOEMA_OPENAI__API_KEY";
 
 /// Codex provider id used in user-facing auth state.
-pub const CODEX_PROVIDER: &str = "codex";
+#[cfg(feature = "adapters")]
+pub(crate) const CODEX_PROVIDER: &str = "codex";
 /// Default Codex Responses API base URL.
 pub const DEFAULT_CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 /// Default Codex Responses model used when no override is supplied.
-pub const DEFAULT_CODEX_MODEL: &str = "gpt-5.5";
+pub(crate) const DEFAULT_CODEX_MODEL: &str = "gpt-5.5";
 /// Default request timeout for Codex Responses calls.
 pub const DEFAULT_CODEX_TIMEOUT_SECONDS: u64 = 300;
 /// Default Codex OAuth issuer.
-pub const DEFAULT_CODEX_OAUTH_ISSUER: &str = "https://auth.openai.com";
+const DEFAULT_CODEX_OAUTH_ISSUER: &str = "https://auth.openai.com";
 /// Default Codex OAuth client id used by Codex/Hermes device auth.
-pub const DEFAULT_CODEX_OAUTH_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
+const DEFAULT_CODEX_OAUTH_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 /// Default Codex token endpoint.
-pub const DEFAULT_CODEX_OAUTH_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
+const DEFAULT_CODEX_OAUTH_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 /// Refresh access tokens when JWT expiry is within this many seconds.
-pub const CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS: u64 = 120;
+#[cfg(feature = "adapters")]
+pub(crate) const CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS: u64 = 120;
 /// Default request timeout for Codex OAuth calls.
-pub const DEFAULT_CODEX_OAUTH_TIMEOUT_SECONDS: u64 = 20;
+const DEFAULT_CODEX_OAUTH_TIMEOUT_SECONDS: u64 = 20;
 
 /// Default profile id for Apple Foundation Models.
 pub const DEFAULT_FOUNDATION_LOCAL_PROFILE: &str = "default";
@@ -149,7 +151,8 @@ pub struct CodexOAuthTokens {
 impl CodexOAuthTokens {
     /// Return whether both required token fields are non-empty.
     #[must_use]
-    pub fn has_required_fields(&self) -> bool {
+    #[cfg(feature = "adapters")]
+    pub(crate) fn has_required_fields(&self) -> bool {
         !self.access_token.trim().is_empty() && !self.refresh_token.trim().is_empty()
     }
 }
@@ -216,8 +219,6 @@ pub struct CodexProviderConfig {
     pub timeout_seconds: u64,
     /// Codex client version advertised to the subscription backend.
     pub client_version: Option<String>,
-    /// Provider account home containing Noema-owned token state.
-    pub account_home: Option<PathBuf>,
     /// OAuth endpoint configuration used for token refresh and login.
     pub oauth: CodexOAuthConfig,
     /// Developer diagnostic system error logger.
@@ -233,7 +234,6 @@ impl Default for CodexProviderConfig {
             reasoning_effort: None,
             timeout_seconds: DEFAULT_CODEX_TIMEOUT_SECONDS,
             client_version: None,
-            account_home: None,
             oauth: CodexOAuthConfig::default(),
             system_errors: None,
         }
@@ -250,7 +250,6 @@ impl fmt::Debug for CodexProviderConfig {
             .field("reasoning_effort", &self.reasoning_effort)
             .field("timeout_seconds", &self.timeout_seconds)
             .field("client_version", &self.client_version)
-            .field("account_home", &"[REDACTED]")
             .field("oauth", &self.oauth)
             .field("system_errors_configured", &self.system_errors.is_some())
             .finish()
@@ -449,7 +448,6 @@ mod tests {
         };
         let codex = CodexProviderConfig {
             base_url: "https://codex-user:codex-secret@example.test?token=codex-query".to_string(),
-            account_home: Some(PathBuf::from("/private/codex-account")),
             oauth: oauth.clone(),
             ..CodexProviderConfig::default()
         };

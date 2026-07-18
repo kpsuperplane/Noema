@@ -1,47 +1,8 @@
 fn fake_generate_response(
-    output: Vec<GenerateOutputItem>,
+    (responses, tool_calls): (Vec<GenerateResponseItem>, Vec<GenerateToolCall>),
     provider: &str,
     model: String,
 ) -> GenerateResponse {
-    let mut responses = Vec::new();
-    let mut tool_calls = Vec::new();
-
-    for item in output {
-        match item {
-            GenerateOutputItem::AssistantText { phase, text } => {
-                responses.push(GenerateResponseItem::Text { phase, text });
-            }
-            GenerateOutputItem::MultipleChoice {
-                phase,
-                prompt,
-                selection_mode,
-                options,
-            } => {
-                responses.push(GenerateResponseItem::MultipleChoice {
-                    phase,
-                    prompt,
-                    selection_mode,
-                    options,
-                });
-            }
-            GenerateOutputItem::ToolCall {
-                id,
-                provider_call_id,
-                provider_name,
-                name,
-                payload,
-            } => {
-                tool_calls.push(GenerateToolCall {
-                    id,
-                    provider_call_id,
-                    provider_name,
-                    name,
-                    payload,
-                });
-            }
-        }
-    }
-
     let response_status = if tool_calls.is_empty() {
         GenerateResponseStatus::Final
     } else {
@@ -60,22 +21,34 @@ fn fake_generate_response(
     }
 }
 
-fn assistant_with_no_memories(text: &str) -> Vec<GenerateOutputItem> {
-    assistant_items_with_no_memories(&[text])
+fn assistant_with_no_memories(
+    text: &str,
+) -> (Vec<GenerateResponseItem>, Vec<GenerateToolCall>) {
+    assistant_with_tools(text, None, Vec::new())
 }
 
-fn assistant_items_with_no_memories(texts: &[&str]) -> Vec<GenerateOutputItem> {
-    texts
-        .iter()
-        .map(|text| GenerateOutputItem::AssistantText {
-            phase: None,
-            text: (*text).to_string(),
-        })
-        .collect()
+fn assistant_with_tools(
+    text: &str,
+    phase: Option<AssistantTextPhase>,
+    tool_calls: Vec<GenerateToolCall>,
+) -> (Vec<GenerateResponseItem>, Vec<GenerateToolCall>) {
+    (
+        vec![GenerateResponseItem::Text {
+            phase,
+            text: text.to_string(),
+        }],
+        tool_calls,
+    )
 }
 
-fn search_memory_tool_call(id: &str, payload: serde_json::Value) -> GenerateOutputItem {
-    GenerateOutputItem::ToolCall {
+fn tool_calls_only(
+    tool_calls: Vec<GenerateToolCall>,
+) -> (Vec<GenerateResponseItem>, Vec<GenerateToolCall>) {
+    (Vec::new(), tool_calls)
+}
+
+fn search_memory_tool_call(id: &str, payload: serde_json::Value) -> GenerateToolCall {
+    GenerateToolCall {
         id: Some(id.to_string()),
         provider_call_id: None,
         provider_name: None,
@@ -84,27 +57,7 @@ fn search_memory_tool_call(id: &str, payload: serde_json::Value) -> GenerateOutp
     }
 }
 
-fn web_search_tool_call(id: &str, payload: serde_json::Value) -> GenerateOutputItem {
-    GenerateOutputItem::ToolCall {
-        id: Some(id.to_string()),
-        provider_call_id: Some(id.to_string()),
-        provider_name: Some("web.search".to_string()),
-        name: "web.search".to_string(),
-        payload,
-    }
-}
-
-fn web_fetch_tool_call(id: &str, payload: serde_json::Value) -> GenerateOutputItem {
-    GenerateOutputItem::ToolCall {
-        id: Some(id.to_string()),
-        provider_call_id: Some(id.to_string()),
-        provider_name: Some("web.fetch".to_string()),
-        name: "web.fetch".to_string(),
-        payload,
-    }
-}
-
-fn task_delegate_tool_call(id: &str, title: &str, valid: bool) -> GenerateOutputItem {
+fn task_delegate_tool_call(id: &str, title: &str, valid: bool) -> GenerateToolCall {
     let arguments = if valid {
         json!({
             "title": title,
@@ -119,25 +72,12 @@ fn task_delegate_tool_call(id: &str, title: &str, valid: bool) -> GenerateOutput
     } else {
         json!({"title": title})
     };
-    GenerateOutputItem::ToolCall {
+    GenerateToolCall {
         id: Some(id.to_string()),
         provider_call_id: None,
         provider_name: None,
         name: "task.delegate".to_string(),
         payload: json!({"arguments": arguments}),
-    }
-}
-
-fn artifact_create_local_file_tool_call(
-    id: &str,
-    payload: serde_json::Value,
-) -> GenerateOutputItem {
-    GenerateOutputItem::ToolCall {
-        id: Some(id.to_string()),
-        provider_call_id: Some(id.to_string()),
-        provider_name: Some("artifact.create_local_file".to_string()),
-        name: "artifact.create_local_file".to_string(),
-        payload,
     }
 }
 
@@ -151,8 +91,8 @@ fn search_memory_action_item(id: &str, payload: serde_json::Value) -> GenerateAc
     }
 }
 
-fn update_own_name_tool_call(id: &str, payload: serde_json::Value) -> GenerateOutputItem {
-    GenerateOutputItem::ToolCall {
+fn update_own_name_tool_call(id: &str, payload: serde_json::Value) -> GenerateToolCall {
+    GenerateToolCall {
         id: Some(id.to_string()),
         provider_call_id: None,
         provider_name: None,

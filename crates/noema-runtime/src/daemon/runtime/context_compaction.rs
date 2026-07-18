@@ -12,7 +12,7 @@ use noema_providers::{
 };
 
 use super::{
-    context_window::{ContextBudget, estimate_text_tokens},
+    context_window::{ContextBudget, count_tokens_or_estimate},
     prompt_context::{PlannedPromptContext, input_item_from_transcript_item},
 };
 
@@ -36,10 +36,6 @@ pub(super) struct CompactionRequest<'a> {
     pub(super) reasoning_effort: Option<noema_providers::ReasoningEffort>,
     pub(super) budget: ContextBudget,
     pub(super) mode: CompactionMode,
-}
-
-pub(super) fn should_compact_foreground(plan: &PlannedPromptContext) -> bool {
-    !plan.fits
 }
 
 pub(super) fn should_compact_background(plan: &PlannedPromptContext) -> bool {
@@ -518,23 +514,6 @@ async fn largest_fitting_transcript_prefix(
     Ok((low, best_token_estimate))
 }
 
-async fn count_tokens_or_estimate(
-    provider: &dyn ProviderOperations,
-    instructions: Option<&str>,
-    input: &str,
-    model_profile: Option<&str>,
-) -> u32 {
-    match provider
-        .count_tokens(instructions, input, model_profile)
-        .await
-    {
-        Ok(Some(tokens)) => tokens,
-        Ok(None) | Err(_) => {
-            instructions.map_or(0, estimate_text_tokens) + estimate_text_tokens(input)
-        }
-    }
-}
-
 fn bounded_combined_source_item_ids(
     previous_summary: Option<&ConversationContextSummaryRecord>,
     items: &[ConversationItemRecord],
@@ -575,6 +554,26 @@ mod tests {
     use super::*;
     use noema_conversations::{ConversationItemKind, ConversationItemStatus};
 
+    fn item(
+        sequence_index: i64,
+        kind: ConversationItemKind,
+        text: &str,
+        payload_json: serde_json::Value,
+    ) -> ConversationItemRecord {
+        ConversationItemRecord {
+            item_id: format!("item:{sequence_index}"),
+            conversation_id: "conversation:1".to_string(),
+            turn_id: None,
+            sequence_index,
+            cursor: format!("conversation_item:{sequence_index}"),
+            kind,
+            status: ConversationItemStatus::Completed,
+            content_text: Some(text.to_string()),
+            payload_json,
+            metadata: serde_json::json!({}),
+        }
+    }
+
     #[test]
     fn background_threshold_uses_context_budget() {
         let budget = ContextBudget::from_metadata(noema_providers::ProviderContextMetadata {
@@ -599,50 +598,29 @@ mod tests {
     }
 
     #[test]
-    fn compaction_transcript_keeps_sequence_roles_and_text() {
-        let transcript = render_compaction_transcript(&[
-            ConversationItemRecord {
-                item_id: "item:1".to_string(),
-                conversation_id: "conversation:1".to_string(),
-                turn_id: None,
-                sequence_index: 1,
-                cursor: "conversation_item:1".to_string(),
-                kind: ConversationItemKind::UserText,
-                status: ConversationItemStatus::Completed,
-                content_text: Some("hello".to_string()),
-                payload_json: serde_json::json!({}),
-                metadata: serde_json::json!({}),
-            },
-            ConversationItemRecord {
-                item_id: "item:2".to_string(),
-                conversation_id: "conversation:1".to_string(),
-                turn_id: None,
-                sequence_index: 2,
-                cursor: "conversation_item:2".to_string(),
-                kind: ConversationItemKind::AssistantText,
-                status: ConversationItemStatus::Completed,
-                content_text: Some("hi".to_string()),
-                payload_json: serde_json::json!({}),
-                metadata: serde_json::json!({}),
-            },
+    fn compaction_transcript_keeps_ordered_text_and_tool_history() {
+        let text_transcript = render_compaction_transcript(&[
+            item(
+                1,
+                ConversationItemKind::UserText,
+                "hello",
+                serde_json::json!({}),
+            ),
+            item(
+                2,
+                ConversationItemKind::AssistantText,
+                "hi",
+                serde_json::json!({}),
+            ),
         ]);
 
-        assert_eq!(transcript, "[1] User: hello\n[2] Noema: hi");
-    }
-
-    #[test]
-    fn compaction_transcript_includes_tool_call_and_result_history() {
-        let transcript = render_compaction_transcript(&[
-            ConversationItemRecord {
-                item_id: "item:1".to_string(),
-                conversation_id: "conversation:1".to_string(),
-                turn_id: None,
-                sequence_index: 1,
-                cursor: "conversation_item:1".to_string(),
-                kind: ConversationItemKind::ToolCall,
-                status: ConversationItemStatus::Completed,
-                content_text: Some("Tool call: update_own_name".to_string()),
-                payload_json: serde_json::json!({
+        assert_eq!(text_transcript, "[1] User: hello\n[2] Noema: hi");
+        let tool_transcript = render_compaction_transcript(&[
+            item(
+                1,
+                ConversationItemKind::ToolCall,
+                "Tool call: update_own_name",
+                serde_json::json!({
                     "metadata": {
                         "action": {
                             "id": "call_name_1",
@@ -653,18 +631,12 @@ mod tests {
                         }
                     }
                 }),
-                metadata: serde_json::json!({}),
-            },
-            ConversationItemRecord {
-                item_id: "item:2".to_string(),
-                conversation_id: "conversation:1".to_string(),
-                turn_id: None,
-                sequence_index: 2,
-                cursor: "conversation_item:2".to_string(),
-                kind: ConversationItemKind::ToolResult,
-                status: ConversationItemStatus::Completed,
-                content_text: Some("Tool result: update_own_name".to_string()),
-                payload_json: serde_json::json!({
+            ),
+            item(
+                2,
+                ConversationItemKind::ToolResult,
+                "Tool result: update_own_name",
+                serde_json::json!({
                     "metadata": {
                         "action": {
                             "call_id": "call_name_1",
@@ -676,15 +648,14 @@ mod tests {
                         }
                     }
                 }),
-                metadata: serde_json::json!({}),
-            },
+            ),
         ]);
 
-        assert!(transcript.contains("Noema tool call"));
-        assert!(transcript.contains("\"type\":\"function_call\""));
-        assert!(transcript.contains("Noema tool result"));
-        assert!(transcript.contains("\"type\":\"function_call_output\""));
-        assert!(transcript.contains("Momo"));
+        assert!(tool_transcript.contains("Noema tool call"));
+        assert!(tool_transcript.contains("\"type\":\"function_call\""));
+        assert!(tool_transcript.contains("Noema tool result"));
+        assert!(tool_transcript.contains("\"type\":\"function_call_output\""));
+        assert!(tool_transcript.contains("Momo"));
     }
 
     #[test]
@@ -708,18 +679,12 @@ mod tests {
         };
         let source_item_ids = bounded_combined_source_item_ids(
             Some(&previous_summary),
-            &[ConversationItemRecord {
-                item_id: "item:11".to_string(),
-                conversation_id: "conversation:1".to_string(),
-                turn_id: None,
-                sequence_index: 11,
-                cursor: "conversation_item:11".to_string(),
-                kind: ConversationItemKind::UserText,
-                status: ConversationItemStatus::Completed,
-                content_text: Some("next".to_string()),
-                payload_json: serde_json::json!({}),
-                metadata: serde_json::json!({}),
-            }],
+            &[item(
+                11,
+                ConversationItemKind::UserText,
+                "next",
+                serde_json::json!({}),
+            )],
         );
 
         assert_eq!(

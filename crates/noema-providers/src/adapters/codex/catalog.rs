@@ -26,9 +26,6 @@ use parsing::profile_values_from_model_list;
 
 pub(crate) use client_version::latest_codex_client_version;
 
-#[cfg(test)]
-use client_version::{MODEL_CATALOG_TTL_SECONDS, fetch_latest_codex_client_version};
-
 const MODEL_METADATA_VERSION: u64 = 3;
 
 pub(crate) async fn fetch_provider_model_catalog(
@@ -216,11 +213,6 @@ async fn fetch_model_list(
     serde_json::from_str(&text).map_err(|source| ProviderError::MalformedResponse {
         message: format!("failed to parse model catalog JSON: {source}"),
     })
-}
-
-#[cfg(test)]
-fn now_string() -> String {
-    current_unix_timestamp().to_string()
 }
 
 #[cfg(test)]

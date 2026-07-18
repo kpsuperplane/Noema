@@ -16,34 +16,16 @@ use crate::{model::MemoryServiceSettingsRecord, repository::MemoryRepositoryHand
 pub fn memory_provider_selection(
     settings: &MemoryServiceSettingsRecord,
 ) -> Result<ProviderSelectionSnapshot, ProviderRouteError> {
-    let provider_kind =
-        settings
-            .provider_kind
-            .as_deref()
-            .ok_or(ProviderRouteError::SelectionLoad {
-                operation: "load_memory_model_selection",
-            })?;
-    let provider_account_id =
-        settings
-            .provider_account_id
-            .as_deref()
-            .ok_or(ProviderRouteError::SelectionLoad {
-                operation: "load_memory_model_selection",
-            })?;
-    let model_profile =
-        settings
-            .model_profile
-            .as_deref()
-            .ok_or(ProviderRouteError::SelectionLoad {
-                operation: "load_memory_model_selection",
-            })?;
-    let provider_instance_key =
-        settings
-            .provider_instance_key
-            .clone()
-            .ok_or(ProviderRouteError::SelectionLoad {
-                operation: "load_memory_model_selection",
-            })?;
+    let missing = || ProviderRouteError::SelectionLoad {
+        operation: "load_memory_model_selection",
+    };
+    let provider_kind = settings.provider_kind.as_deref().ok_or_else(missing)?;
+    let provider_account_id = settings
+        .provider_account_id
+        .as_deref()
+        .ok_or_else(missing)?;
+    let model_profile = settings.model_profile.as_deref().ok_or_else(missing)?;
+    let provider_instance_key = settings.provider_instance_key.clone().ok_or_else(missing)?;
     let mut selection = ProviderSelectionSnapshot::explicit(
         provider_kind,
         provider_account_id,
@@ -79,68 +61,12 @@ pub fn memory_provider_selection_loader(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
     use noema_providers::{ProviderSelectionMode, ReasoningEffort, provider_account_instance_key};
 
     use super::*;
-    use crate::{
-        model::{
-            MemoryArticleCacheRecord, MemoryServiceMode, SaveMemoryArticleCache,
-            SaveMemoryServiceSettings,
-        },
-        repository::{MemoryRepository, MemoryRepositoryFuture, MemoryRepositoryResult},
-    };
-
-    #[derive(Debug)]
-    struct FakeRepository {
-        settings: Mutex<MemoryServiceSettingsRecord>,
-    }
-
-    impl MemoryRepository for FakeRepository {
-        fn memory_service_settings(
-            &self,
-        ) -> MemoryRepositoryFuture<'_, MemoryRepositoryResult<MemoryServiceSettingsRecord>>
-        {
-            let settings = self.settings.lock().expect("settings lock").clone();
-            Box::pin(async move { Ok(settings) })
-        }
-
-        fn save_memory_service_settings(
-            &self,
-            input: SaveMemoryServiceSettings,
-        ) -> MemoryRepositoryFuture<'_, MemoryRepositoryResult<MemoryServiceSettingsRecord>>
-        {
-            let settings = MemoryServiceSettingsRecord {
-                settings_id: "default".to_string(),
-                mode: input.mode,
-                base_url: input.base_url,
-                port: input.port,
-                provider_account_id: input.provider_account_id,
-                provider_kind: input.provider_kind,
-                provider_instance_key: None,
-                model_profile: input.model_profile,
-                reasoning_effort: input.reasoning_effort,
-            };
-            *self.settings.lock().expect("settings lock") = settings.clone();
-            Box::pin(async move { Ok(settings) })
-        }
-
-        fn memory_article_cache(
-            &self,
-            _scope_id: String,
-        ) -> MemoryRepositoryFuture<'_, MemoryRepositoryResult<Option<MemoryArticleCacheRecord>>>
-        {
-            Box::pin(async { Ok(None) })
-        }
-
-        fn save_memory_article_cache(
-            &self,
-            _input: SaveMemoryArticleCache,
-        ) -> MemoryRepositoryFuture<'_, MemoryRepositoryResult<()>> {
-            Box::pin(async { Ok(()) })
-        }
-    }
+    use crate::{model::MemoryServiceMode, repository::test_support::FakeMemoryRepository};
 
     fn settings(
         provider_kind: Option<&str>,
@@ -164,18 +90,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn selection_loader_re_reads_repository_for_each_request() {
-        let repository = Arc::new(FakeRepository {
-            settings: Mutex::new(settings(Some("foundation_local"), Some("memory-v1"))),
-        });
+    async fn selection_loader_re_reads_repository_and_rejects_unset_model() {
+        let repository = Arc::new(FakeMemoryRepository::new(settings(
+            Some("foundation_local"),
+            Some("memory-v1"),
+        )));
         let loader = memory_provider_selection_loader(repository.clone());
 
         let first = loader.load_selection().await.expect("first selection");
         assert_eq!(first.provider_kind, "foundation_local");
         assert_eq!(first.model_profile.as_deref(), Some("memory-v1"));
 
-        *repository.settings.lock().expect("settings lock") =
-            settings(Some("codex"), Some("memory-v2"));
+        repository.replace_settings(settings(Some("codex"), Some("memory-v2")));
         let second = loader.load_selection().await.expect("second selection");
 
         assert_eq!(second.provider_kind, "codex");
@@ -184,10 +110,6 @@ mod tests {
             second.selection_mode,
             ProviderSelectionMode::ExplicitProfile
         );
-    }
-
-    #[test]
-    fn unset_model_is_an_initialization_error() {
         let error = memory_provider_selection(&settings(None, None))
             .expect_err("missing initialized memory selection");
 

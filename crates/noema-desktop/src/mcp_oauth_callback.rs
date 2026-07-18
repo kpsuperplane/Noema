@@ -9,12 +9,7 @@ use tokio::{
 const CALLBACK_PATH: &str = "/mcp/oauth/callback";
 const MAX_REQUEST_BYTES: usize = 16 * 1024;
 
-/// Start a localhost MCP OAuth callback listener for the desktop runtime.
-///
-/// # Errors
-///
-/// Returns a user-facing error if the loopback listener cannot bind.
-pub async fn start(
+pub(crate) async fn start(
     graphql_state: GraphqlState,
 ) -> Result<(String, tauri::async_runtime::JoinHandle<()>), String> {
     let listener = TcpListener::bind(("127.0.0.1", 0))
@@ -39,39 +34,27 @@ async fn handle_connection(
     mut stream: TcpStream,
     state: GraphqlState,
 ) -> Result<(), std::io::Error> {
+    macro_rules! reject {
+        ($status:literal, $message:literal) => {{
+            write_response(&mut stream, $status, $message).await?;
+            return Ok(());
+        }};
+    }
     let request = match read_request(&mut stream).await {
         Ok(request) => request,
-        Err(_) => {
-            write_response(
-                &mut stream,
-                "400 Bad Request",
-                "Noema could not read this MCP OAuth callback.",
-            )
-            .await?;
-            return Ok(());
-        }
+        Err(_) => reject!(
+            "400 Bad Request",
+            "Noema could not read this MCP OAuth callback."
+        ),
     };
     if request.method != "GET" || request.path != CALLBACK_PATH {
-        write_response(&mut stream, "404 Not Found", "not found").await?;
-        return Ok(());
+        reject!("404 Not Found", "not found");
     }
     let Some(query) = request.query.as_deref() else {
-        write_response(
-            &mut stream,
-            "400 Bad Request",
-            "Missing MCP OAuth callback query.",
-        )
-        .await?;
-        return Ok(());
+        reject!("400 Bad Request", "Missing MCP OAuth callback query.");
     };
     let Some(attempt_id) = query_value(query, "attemptId") else {
-        write_response(
-            &mut stream,
-            "400 Bad Request",
-            "Missing MCP OAuth attempt id.",
-        )
-        .await?;
-        return Ok(());
+        reject!("400 Bad Request", "Missing MCP OAuth attempt id.");
     };
     let callback_url = request.callback_url();
     let result =
@@ -115,19 +98,21 @@ struct CallbackRequest {
 
 impl CallbackRequest {
     fn callback_url(&self) -> String {
-        let mut url = format!("http://{}{}", self.host, self.path);
-        if let Some(query) = &self.query {
-            url.push('?');
-            url.push_str(query);
-        }
-        url
+        format!(
+            "http://{}{}{}",
+            self.host,
+            self.path,
+            self.query
+                .as_deref()
+                .map_or_else(String::new, |query| format!("?{query}"))
+        )
     }
 }
 
 async fn read_request(stream: &mut TcpStream) -> Result<CallbackRequest, String> {
     let mut bytes = Vec::with_capacity(1024);
     let mut buffer = [0_u8; 1024];
-    loop {
+    let header_end = loop {
         let read = stream
             .read(&mut buffer)
             .await
@@ -136,17 +121,13 @@ async fn read_request(stream: &mut TcpStream) -> Result<CallbackRequest, String>
             return Err("missing request".to_string());
         }
         bytes.extend_from_slice(&buffer[..read]);
-        if bytes.windows(4).any(|window| window == b"\r\n\r\n") {
-            break;
+        if let Some(index) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+            break index;
         }
         if bytes.len() > MAX_REQUEST_BYTES {
             return Err("request too large".to_string());
         }
-    }
-    let header_end = bytes
-        .windows(4)
-        .position(|window| window == b"\r\n\r\n")
-        .ok_or_else(|| "missing headers".to_string())?;
+    };
     let text = std::str::from_utf8(&bytes[..header_end])
         .map_err(|_| "invalid request headers".to_string())?;
     parse_request_head(text)

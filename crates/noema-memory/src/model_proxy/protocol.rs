@@ -8,15 +8,15 @@ use super::MemoryModelProxyError;
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug)]
-pub(super) struct HttpRequest {
-    pub(super) method: String,
-    pub(super) path: String,
+pub(crate) struct HttpRequest {
+    pub(crate) method: String,
+    pub(crate) path: String,
     headers: Vec<(String, String)>,
-    pub(super) body: Vec<u8>,
+    pub(crate) body: Vec<u8>,
 }
 
 impl HttpRequest {
-    pub(super) fn header(&self, name: &str) -> Option<&str> {
+    pub(crate) fn header(&self, name: &str) -> Option<&str> {
         self.headers
             .iter()
             .find(|(key, _value)| key.eq_ignore_ascii_case(name))
@@ -24,7 +24,7 @@ impl HttpRequest {
     }
 }
 
-pub(super) async fn read_http_request(
+pub(crate) async fn read_http_request(
     stream: &mut TcpStream,
 ) -> Result<HttpRequest, MemoryModelProxyError> {
     let mut buffer = Vec::new();
@@ -106,13 +106,13 @@ fn find_header_end(buffer: &[u8]) -> Option<usize> {
     buffer.windows(4).position(|window| window == b"\r\n\r\n")
 }
 
-pub(super) struct HttpResponse {
+pub(crate) struct HttpResponse {
     status: http::StatusCode,
     body: Vec<u8>,
 }
 
 impl HttpResponse {
-    pub(super) fn to_bytes(&self) -> Vec<u8> {
+    pub(crate) fn to_bytes(&self) -> Vec<u8> {
         let reason = self.status.canonical_reason().unwrap_or("Unknown");
         let mut bytes = format!(
             "HTTP/1.1 {} {reason}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
@@ -125,7 +125,7 @@ impl HttpResponse {
     }
 }
 
-pub(super) fn json_response(status: http::StatusCode, value: Value) -> HttpResponse {
+pub(crate) fn json_response(status: http::StatusCode, value: Value) -> HttpResponse {
     HttpResponse {
         status,
         body: serde_json::to_vec(&value).unwrap_or_else(|_| b"{}".to_vec()),

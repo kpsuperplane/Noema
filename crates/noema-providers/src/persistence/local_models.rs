@@ -119,12 +119,6 @@ pub trait LocalModelInstallationPersistence: Send + Sync {
         installation_id: &'a str,
     ) -> ProviderPersistenceFuture<'a, Option<LocalModelInstallationRecord>>;
 
-    /// Return the legacy active-first/newest installed artifact for one model id.
-    fn installed_local_model<'a>(
-        &'a self,
-        model_id: &'a str,
-    ) -> ProviderPersistenceFuture<'a, Option<LocalModelInstallationRecord>>;
-
     /// Return every installation in stable presentation order.
     fn local_model_installations(
         &self,

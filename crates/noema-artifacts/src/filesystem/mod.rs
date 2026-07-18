@@ -21,9 +21,9 @@ use ring::rand::{SecureRandom, SystemRandom};
 use crate::{
     AppendLocalArtifactVersionRequest, ArtifactDomainError, ArtifactMetadataError,
     ArtifactMetadataStoreHandle, ArtifactOperationError, ArtifactOperationFuture,
-    ArtifactOperations, ArtifactStorageKind, ArtifactVersionStorage, ArtifactWithVersions,
-    CreateLocalArtifactRequest, NewArtifact, NewArtifactVersion, ReadLocalArtifactRequest,
-    safe_artifact_filename,
+    ArtifactOperations, ArtifactOwnerRef, ArtifactStorageKind, ArtifactVersionStorage,
+    ArtifactWithVersions, CreateLocalArtifactRequest, NewArtifact, NewArtifactVersion,
+    ReadLocalArtifactRequest, safe_artifact_filename,
 };
 
 const STALE_STAGING_AGE: Duration = Duration::from_secs(24 * 60 * 60);
@@ -127,38 +127,15 @@ impl LocalArtifactService {
         let filename = safe_artifact_filename(&request.filename)?.to_string();
         let artifact_id = self.metadata.new_artifact_id();
         let artifact_version_id = self.metadata.new_artifact_version_id();
-        let operation = self.begin_operation()?;
-        let root = self.root.clone();
-        let root_dir = storage::duplicate_root(&self.root_dir, &self.root)?;
-        let owner = request.owner.clone();
-        let publish_artifact_id = artifact_id.clone();
-        let bytes = request.bytes;
-        let stale_staging_age = self.stale_staging_age;
-        let active_operations = self.active_operations.clone();
-        #[cfg(test)]
-        let publish_hook = self.publish_hook.clone();
-        let publication = tokio::task::spawn_blocking(move || {
-            storage::stage_and_publish(storage::PublishRequest {
-                root,
-                root_dir,
-                owner,
-                artifact_id: publish_artifact_id,
-                version_index: 1,
+        let publication = self
+            .publish_local_file(
+                request.owner.clone(),
+                artifact_id.clone(),
+                1,
                 filename,
-                bytes,
-                operation,
-                active_operations,
-                stale_staging_age,
-                #[cfg(test)]
-                publish_hook,
-            })
-        })
-        .await
-        .map_err(|_| ArtifactOperationError::Filesystem {
-            operation: "publish",
-            path: self.root.clone(),
-            message: "artifact filesystem worker stopped".to_string(),
-        })??;
+                request.bytes,
+            )
+            .await?;
 
         let metadata_result = self
             .metadata
@@ -215,40 +192,17 @@ impl LocalArtifactService {
         target.owner.validate()?;
         let filename = safe_artifact_filename(&request.filename)?.to_string();
         let artifact_version_id = self.metadata.new_artifact_version_id();
-        let operation = self.begin_operation()?;
-        let root = self.root.clone();
-        let root_dir = storage::duplicate_root(&self.root_dir, &self.root)?;
         let artifact_id = request.artifact_id.clone();
-        let publish_artifact_id = artifact_id.clone();
-        let owner = target.owner;
         let expected_next_version_index = target.expected_next_version_index;
-        let bytes = request.bytes;
-        let stale_staging_age = self.stale_staging_age;
-        let active_operations = self.active_operations.clone();
-        #[cfg(test)]
-        let publish_hook = self.publish_hook.clone();
-        let publication = tokio::task::spawn_blocking(move || {
-            storage::stage_and_publish(storage::PublishRequest {
-                root,
-                root_dir,
-                owner,
-                artifact_id: publish_artifact_id,
-                version_index: expected_next_version_index,
+        let publication = self
+            .publish_local_file(
+                target.owner,
+                artifact_id.clone(),
+                expected_next_version_index,
                 filename,
-                bytes,
-                operation,
-                active_operations,
-                stale_staging_age,
-                #[cfg(test)]
-                publish_hook,
-            })
-        })
-        .await
-        .map_err(|_| ArtifactOperationError::Filesystem {
-            operation: "publish",
-            path: self.root.clone(),
-            message: "artifact filesystem worker stopped".to_string(),
-        })??;
+                request.bytes,
+            )
+            .await?;
 
         let metadata_result = self
             .metadata
@@ -271,6 +225,45 @@ impl LocalArtifactService {
             )
             .await;
         finish_metadata(publication, metadata_result)
+    }
+
+    async fn publish_local_file(
+        &self,
+        owner: ArtifactOwnerRef,
+        artifact_id: String,
+        version_index: i64,
+        filename: String,
+        bytes: Vec<u8>,
+    ) -> Result<storage::PublishedObject, ArtifactOperationError> {
+        let operation = self.begin_operation()?;
+        let root = self.root.clone();
+        let root_dir = storage::duplicate_root(&self.root_dir, &self.root)?;
+        let stale_staging_age = self.stale_staging_age;
+        let active_operations = self.active_operations.clone();
+        #[cfg(test)]
+        let publish_hook = self.publish_hook.clone();
+        tokio::task::spawn_blocking(move || {
+            storage::stage_and_publish(storage::PublishRequest {
+                root,
+                root_dir,
+                owner,
+                artifact_id,
+                version_index,
+                filename,
+                bytes,
+                operation,
+                active_operations,
+                stale_staging_age,
+                #[cfg(test)]
+                publish_hook,
+            })
+        })
+        .await
+        .map_err(|_| ArtifactOperationError::Filesystem {
+            operation: "publish",
+            path: self.root.clone(),
+            message: "artifact filesystem worker stopped".to_string(),
+        })?
     }
 }
 

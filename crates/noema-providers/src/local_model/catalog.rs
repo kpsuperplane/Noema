@@ -31,15 +31,6 @@ impl LocalHardwareProfile {
             unified_memory,
         }
     }
-
-    #[cfg(feature = "local-models")]
-    pub(crate) const fn accelerator_memory_gb(self) -> Option<u64> {
-        if self.unified_memory {
-            Some(self.ram_gb)
-        } else {
-            self.vram_gb
-        }
-    }
 }
 
 /// One downloadable GGUF build for a curated model.
@@ -67,9 +58,12 @@ impl LocalModelBuild {
         }
 
         self.min_vram_gb.is_none_or(|minimum| {
-            hardware
-                .accelerator_memory_gb()
-                .is_some_and(|available| available >= minimum)
+            (if hardware.unified_memory {
+                Some(hardware.ram_gb)
+            } else {
+                hardware.vram_gb
+            })
+            .is_some_and(|available| available >= minimum)
         })
     }
 }

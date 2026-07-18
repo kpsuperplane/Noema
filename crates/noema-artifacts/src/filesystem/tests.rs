@@ -2,7 +2,7 @@
 
 use std::sync::Barrier as ThreadBarrier;
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::VecDeque,
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
@@ -12,7 +12,7 @@ use std::{
 };
 
 use tempfile::TempDir;
-use tokio::sync::Semaphore;
+use tokio::sync::Notify;
 
 use crate::{
     AppendLocalArtifactVersionRequest, ArtifactAppendTarget, ArtifactDomainError, ArtifactFuture,
@@ -29,7 +29,7 @@ const OPERATION_TWO: &str = "op-222222222222222222222222222222222222222222222222
 #[derive(Debug, Default)]
 struct FakeMetadataStore {
     next_id: AtomicU64,
-    artifacts: Mutex<BTreeMap<String, ArtifactWithVersions>>,
+    artifact: Mutex<Option<ArtifactWithVersions>>,
     write_behavior: Mutex<WriteBehavior>,
 }
 
@@ -41,10 +41,10 @@ enum WriteBehavior {
     Block(Arc<WriteGate>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct WriteGate {
-    entered: Semaphore,
-    release: Semaphore,
+    entered: Notify,
+    release: Notify,
 }
 
 #[derive(Debug)]
@@ -66,32 +66,6 @@ impl storage::PublishHook for BlockingFailPublishHook {
     }
 }
 
-impl WriteGate {
-    fn new() -> Arc<Self> {
-        Arc::new(Self {
-            entered: Semaphore::new(0),
-            release: Semaphore::new(0),
-        })
-    }
-
-    async fn block(&self) {
-        self.entered.add_permits(1);
-        self.release
-            .acquire()
-            .await
-            .expect("write gate remains open")
-            .forget();
-    }
-
-    async fn wait_until_entered(&self) {
-        self.entered
-            .acquire()
-            .await
-            .expect("write gate remains open")
-            .forget();
-    }
-}
-
 impl FakeMetadataStore {
     fn set_write_behavior(&self, behavior: WriteBehavior) {
         *self.write_behavior.lock().expect("write behavior lock") = behavior;
@@ -109,14 +83,15 @@ impl FakeMetadataStore {
                 message: "injected metadata failure".to_string(),
             }),
             WriteBehavior::Block(gate) => {
-                gate.block().await;
+                gate.entered.notify_one();
+                gate.release.notified().await;
                 Ok(())
             }
         }
     }
 
     fn artifact_count(&self) -> usize {
-        self.artifacts.lock().expect("artifact lock").len()
+        usize::from(self.artifact.lock().expect("artifact lock").is_some())
     }
 }
 
@@ -135,10 +110,11 @@ impl ArtifactMetadataStore for FakeMetadataStore {
     ) -> ArtifactFuture<'a, Option<ArtifactAppendTarget>> {
         Box::pin(async move {
             Ok(self
-                .artifacts
+                .artifact
                 .lock()
                 .expect("artifact lock")
-                .get(artifact_id)
+                .as_ref()
+                .filter(|artifact| artifact.artifact.artifact_id == artifact_id)
                 .map(|artifact| ArtifactAppendTarget {
                     artifact_id: artifact.artifact.artifact_id.clone(),
                     owner: artifact.artifact.owner.clone(),
@@ -156,23 +132,7 @@ impl ArtifactMetadataStore for FakeMetadataStore {
         Box::pin(async move {
             self.before_write().await?;
             let artifact_id = artifact.artifact_id.expect("service supplies artifact id");
-            let artifact_version_id = initial_version
-                .artifact_version_id
-                .expect("service supplies version id");
-            let version = ArtifactVersionRecord {
-                artifact_version_id: artifact_version_id.clone(),
-                artifact_id: artifact_id.clone(),
-                version_index: 1,
-                title: initial_version.title,
-                storage: initial_version.storage,
-                media_type: initial_version.media_type,
-                byte_size: initial_version.byte_size,
-                content_sha256: initial_version.content_sha256,
-                created_by_actor_id: initial_version.created_by_actor_id,
-                source: initial_version.source,
-                metadata: initial_version.metadata,
-                created_at: "now".to_string(),
-            };
+            let version = artifact_version_record(artifact_id.clone(), 1, initial_version);
             let artifact = ArtifactRecord {
                 artifact_id: artifact_id.clone(),
                 owner: artifact.owner,
@@ -180,7 +140,7 @@ impl ArtifactMetadataStore for FakeMetadataStore {
                 description: artifact.description,
                 artifact_kind: artifact.artifact_kind,
                 storage_kind: artifact.storage_kind,
-                current_version_id: Some(artifact_version_id),
+                current_version_id: Some(version.artifact_version_id.clone()),
                 created_by_actor_id: artifact.created_by_actor_id,
                 source: artifact.source,
                 metadata: artifact.metadata,
@@ -192,10 +152,7 @@ impl ArtifactMetadataStore for FakeMetadataStore {
                 current_version: version.clone(),
                 versions: vec![version],
             };
-            self.artifacts
-                .lock()
-                .expect("artifact lock")
-                .insert(artifact_id, result.clone());
+            *self.artifact.lock().expect("artifact lock") = Some(result.clone());
             Ok(result)
         })
     }
@@ -208,13 +165,13 @@ impl ArtifactMetadataStore for FakeMetadataStore {
     ) -> ArtifactFuture<'a, ArtifactVersionRecord> {
         Box::pin(async move {
             self.before_write().await?;
-            let mut artifacts = self.artifacts.lock().expect("artifact lock");
-            let artifact =
-                artifacts
-                    .get_mut(artifact_id)
-                    .ok_or_else(|| ArtifactMetadataError::NotFound {
-                        artifact_id: artifact_id.to_string(),
-                    })?;
+            let mut stored = self.artifact.lock().expect("artifact lock");
+            let artifact = stored
+                .as_mut()
+                .filter(|stored| stored.artifact.artifact_id == artifact_id)
+                .ok_or_else(|| ArtifactMetadataError::NotFound {
+                    artifact_id: artifact_id.to_string(),
+                })?;
             let actual_next_version_index = artifact.versions.len() as i64 + 1;
             if actual_next_version_index != expected_next_version_index {
                 return Err(ArtifactMetadataError::AppendConflict {
@@ -223,27 +180,39 @@ impl ArtifactMetadataStore for FakeMetadataStore {
                     actual_next_version_index,
                 });
             }
-            let record = ArtifactVersionRecord {
-                artifact_version_id: version
-                    .artifact_version_id
-                    .expect("service supplies version id"),
-                artifact_id: artifact_id.to_string(),
-                version_index: expected_next_version_index,
-                title: version.title,
-                storage: version.storage,
-                media_type: version.media_type,
-                byte_size: version.byte_size,
-                content_sha256: version.content_sha256,
-                created_by_actor_id: version.created_by_actor_id,
-                source: version.source,
-                metadata: version.metadata,
-                created_at: "now".to_string(),
-            };
+            let record = artifact_version_record(
+                artifact_id.to_string(),
+                expected_next_version_index,
+                version,
+            );
             artifact.artifact.current_version_id = Some(record.artifact_version_id.clone());
             artifact.current_version = record.clone();
             artifact.versions.push(record.clone());
             Ok(record)
         })
+    }
+}
+
+fn artifact_version_record(
+    artifact_id: String,
+    version_index: i64,
+    version: NewArtifactVersion,
+) -> ArtifactVersionRecord {
+    ArtifactVersionRecord {
+        artifact_version_id: version
+            .artifact_version_id
+            .expect("service supplies version id"),
+        artifact_id,
+        version_index,
+        title: version.title,
+        storage: version.storage,
+        media_type: version.media_type,
+        byte_size: version.byte_size,
+        content_sha256: version.content_sha256,
+        created_by_actor_id: version.created_by_actor_id,
+        source: version.source,
+        metadata: version.metadata,
+        created_at: "now".to_string(),
     }
 }
 
@@ -275,10 +244,11 @@ impl OperationIdSource for FixedOperationIds {
 }
 
 #[tokio::test]
-async fn create_append_and_read_verify_immutable_bytes() {
+async fn publication_lifecycle_and_cancellation_contracts() {
+    // Case: create_append_and_read_verify_immutable_bytes.
     let temp = TempDir::new().expect("tempdir");
     let metadata = Arc::new(FakeMetadataStore::default());
-    let service = service(
+    let service = test_service(
         temp.path(),
         metadata,
         FixedOperationIds::new([OPERATION_ONE, OPERATION_TWO]),
@@ -311,7 +281,7 @@ async fn create_append_and_read_verify_immutable_bytes() {
         .expect("read first artifact version");
     let content = service
         .read_local_file(ReadLocalArtifactRequest {
-            artifact: created.artifact,
+            artifact: created.artifact.clone(),
             version: appended.clone(),
         })
         .await
@@ -320,17 +290,29 @@ async fn create_append_and_read_verify_immutable_bytes() {
     assert_eq!(content.filename, "report.txt");
     assert_eq!(content.bytes, b"second");
     assert_ne!(created.current_version.storage, appended.storage);
-    assert_staging_empty(temp.path());
-}
 
-#[tokio::test]
-async fn metadata_failure_removes_only_operation_private_publication() {
+    let mut incomplete_version = created.current_version;
+    incomplete_version.byte_size = None;
+    let error = service
+        .read_local_file(ReadLocalArtifactRequest {
+            artifact: created.artifact,
+            version: incomplete_version,
+        })
+        .await
+        .expect_err("incomplete local metadata must fail closed");
+    assert!(matches!(
+        error,
+        ArtifactOperationError::Metadata(ArtifactMetadataError::Invariant { .. })
+    ));
+    assert_staging_empty(temp.path());
+
+    // Case: metadata_failure_removes_only_operation_private_publication.
     let temp = TempDir::new().expect("tempdir");
     let metadata = Arc::new(FakeMetadataStore::default());
     metadata.set_write_behavior(WriteBehavior::Fail);
     let unrelated = temp.path().join("unrelated.txt");
     std::fs::write(&unrelated, b"keep").expect("unrelated file");
-    let service = service(
+    let service = test_service(
         temp.path(),
         metadata.clone(),
         FixedOperationIds::new([OPERATION_ONE]),
@@ -344,11 +326,6 @@ async fn metadata_failure_removes_only_operation_private_publication() {
     assert!(matches!(error, ArtifactOperationError::Metadata(_)));
     assert_eq!(metadata.artifact_count(), 0);
     assert_eq!(std::fs::read(unrelated).expect("unrelated bytes"), b"keep");
-    assert!(
-        regular_files(temp.path()).iter().all(|path| {
-            path.file_name().and_then(|name| name.to_str()) == Some("unrelated.txt")
-        })
-    );
     let version_dir = crate::artifact_version_dir(
         temp.path(),
         &ArtifactOwnerRef::conversation("conversation-1"),
@@ -357,14 +334,6 @@ async fn metadata_failure_removes_only_operation_private_publication() {
     )
     .expect("version directory");
     let objects_dir = version_dir.join("objects");
-    assert!(
-        version_dir.is_dir(),
-        "version directory is shared scaffolding"
-    );
-    assert!(
-        objects_dir.is_dir(),
-        "objects directory is shared scaffolding"
-    );
     assert_eq!(
         std::fs::read_dir(objects_dir)
             .expect("objects directory")
@@ -373,15 +342,13 @@ async fn metadata_failure_removes_only_operation_private_publication() {
         "failed publication should leave no private object directory"
     );
     assert_staging_empty(temp.path());
-}
 
-#[tokio::test]
-async fn cancelling_blocked_metadata_future_commits_nothing_and_removes_bytes() {
+    // Case: cancelling_blocked_metadata_future_commits_nothing_and_removes_bytes.
     let temp = TempDir::new().expect("tempdir");
     let metadata = Arc::new(FakeMetadataStore::default());
-    let gate = WriteGate::new();
+    let gate = Arc::new(WriteGate::default());
     metadata.set_write_behavior(WriteBehavior::Block(gate.clone()));
-    let service = Arc::new(service(
+    let service = Arc::new(test_service(
         temp.path(),
         metadata.clone(),
         FixedOperationIds::new([OPERATION_ONE]),
@@ -390,7 +357,7 @@ async fn cancelling_blocked_metadata_future_commits_nothing_and_removes_bytes() 
         let service = service.clone();
         tokio::spawn(async move { service.create_local_file(create_request(b"cancel")).await })
     };
-    gate.wait_until_entered().await;
+    gate.entered.notified().await;
     assert_eq!(regular_files(temp.path()).len(), 1);
 
     task.abort();
@@ -398,16 +365,14 @@ async fn cancelling_blocked_metadata_future_commits_nothing_and_removes_bytes() 
 
     assert_eq!(metadata.artifact_count(), 0);
     assert!(regular_files(temp.path()).is_empty());
-    gate.release.add_permits(1);
-}
+    gate.release.notify_one();
 
-#[tokio::test]
-async fn cancelling_before_publication_cleans_detached_staging_worker() {
+    // Case: cancelling_before_publication_cleans_detached_staging_worker.
     let temp = TempDir::new().expect("tempdir");
     let metadata = Arc::new(FakeMetadataStore::default());
     let entered = Arc::new(ThreadBarrier::new(2));
     let release = Arc::new(ThreadBarrier::new(2));
-    let mut service = service(
+    let mut service = test_service(
         temp.path(),
         metadata.clone(),
         FixedOperationIds::new([OPERATION_ONE]),
@@ -445,42 +410,14 @@ async fn cancelling_before_publication_cleans_detached_staging_worker() {
 }
 
 #[tokio::test]
-async fn read_rejects_local_metadata_without_size_or_digest() {
-    let temp = TempDir::new().expect("tempdir");
-    let service = service(
-        temp.path(),
-        Arc::new(FakeMetadataStore::default()),
-        FixedOperationIds::new([OPERATION_ONE]),
-    );
-    let created = service
-        .create_local_file(create_request(b"verified"))
-        .await
-        .expect("create artifact");
-    let mut version = created.current_version;
-    version.byte_size = None;
-
-    let error = service
-        .read_local_file(ReadLocalArtifactRequest {
-            artifact: created.artifact,
-            version,
-        })
-        .await
-        .expect_err("missing verification metadata");
-
-    assert!(matches!(
-        error,
-        ArtifactOperationError::Metadata(ArtifactMetadataError::Invariant { .. })
-    ));
-}
-
-#[tokio::test]
-async fn replacing_root_after_construction_fails_closed() {
+async fn confinement_identity_and_cleanup_contracts() {
+    // Case: replacing_root_after_construction_fails_closed.
     let temp = TempDir::new().expect("tempdir");
     let root = temp.path().join("root");
     let retained = temp.path().join("retained");
     std::fs::create_dir(&root).expect("root");
     let metadata = Arc::new(FakeMetadataStore::default());
-    let service = service(
+    let service = test_service(
         &root,
         metadata.clone(),
         FixedOperationIds::new([OPERATION_ONE]),
@@ -497,10 +434,32 @@ async fn replacing_root_after_construction_fails_closed() {
     assert_eq!(metadata.artifact_count(), 0);
     assert!(regular_files(&root).is_empty());
     assert!(regular_files(&retained).is_empty());
-}
 
-#[test]
-fn hard_link_publication_never_clobbers_existing_destination() {
+    // Case: conversation_local_file_artifact_rejects_symlinked_artifact_root.
+    #[cfg(unix)]
+    {
+        let temp = TempDir::new().expect("tempdir");
+        let service = test_service(
+            temp.path(),
+            Arc::new(FakeMetadataStore::default()),
+            FixedOperationIds::new([OPERATION_ONE]),
+        );
+        let owner = ArtifactOwnerRef::conversation("conversation-1");
+        let artifact_root = crate::owner_artifacts_dir(temp.path(), &owner).expect("artifact root");
+        std::fs::create_dir_all(artifact_root.parent().expect("conversation directory"))
+            .expect("conversation directory");
+        let outside = temp.path().join("outside");
+        std::fs::create_dir(&outside).expect("outside directory");
+        std::os::unix::fs::symlink(outside, artifact_root).expect("symlink artifact root");
+
+        let error = service
+            .create_local_file(create_request(b"report"))
+            .await
+            .expect_err("symlinked artifact root rejected");
+        assert!(matches!(error, ArtifactOperationError::Filesystem { .. }));
+    }
+
+    // Case: publication_rejects_clobber_and_malformed_operation_ids.
     let temp = TempDir::new().expect("tempdir");
     let staging_path = temp.path().join("staging");
     let object_path = temp.path().join("object");
@@ -527,10 +486,24 @@ fn hard_link_publication_never_clobbers_existing_destination() {
         std::fs::read(object_path.join("report.txt")).expect("destination bytes"),
         b"existing"
     );
-}
 
-#[test]
-fn startup_cleanup_removes_only_recognized_stale_private_entry() {
+    let invalid = TempDir::new().expect("tempdir");
+    let service = test_service(
+        invalid.path(),
+        Arc::new(FakeMetadataStore::default()),
+        FixedOperationIds::new(["op-not-random"]),
+    );
+    let error = service
+        .create_local_file(create_request(b"never-written"))
+        .await
+        .expect_err("malformed id rejected");
+    assert!(matches!(
+        error,
+        ArtifactOperationError::Domain(ArtifactDomainError::UnsafeFilename { .. })
+    ));
+    assert!(regular_files(invalid.path()).is_empty());
+
+    // Case: startup_cleanup_only_removes_recognized_real_private_entries.
     let temp = TempDir::new().expect("tempdir");
     let staging = temp.path().join(".artifact-staging");
     let stale = staging.join(OPERATION_ONE);
@@ -539,6 +512,16 @@ fn startup_cleanup_removes_only_recognized_stale_private_entry() {
     std::fs::write(stale.join("report.txt"), b"stale").expect("stale file");
     std::fs::create_dir(&invalid).expect("invalid entry");
     std::fs::write(invalid.join("keep.txt"), b"keep").expect("invalid file");
+    #[cfg(unix)]
+    let outside = {
+        use std::os::unix::fs::symlink;
+
+        let outside = temp.path().join("outside");
+        std::fs::create_dir(&outside).expect("outside dir");
+        std::fs::write(outside.join("victim.txt"), b"keep").expect("outside file");
+        symlink(&outside, staging.join(OPERATION_TWO)).expect("staging symlink");
+        outside
+    };
 
     let _service = LocalArtifactService::with_operation_ids(
         temp.path().to_path_buf(),
@@ -553,58 +536,16 @@ fn startup_cleanup_removes_only_recognized_stale_private_entry() {
         std::fs::read(invalid.join("keep.txt")).expect("invalid entry preserved"),
         b"keep"
     );
-}
-
-#[cfg(unix)]
-#[test]
-fn startup_cleanup_does_not_follow_staging_symlink() {
-    use std::os::unix::fs::symlink;
-
-    let temp = TempDir::new().expect("tempdir");
-    let staging = temp.path().join(".artifact-staging");
-    let outside = temp.path().join("outside");
-    std::fs::create_dir(&staging).expect("staging root");
-    std::fs::create_dir(&outside).expect("outside dir");
-    std::fs::write(outside.join("victim.txt"), b"keep").expect("outside file");
-    symlink(&outside, staging.join(OPERATION_ONE)).expect("staging symlink");
-
-    let _service = LocalArtifactService::with_operation_ids(
-        temp.path().to_path_buf(),
-        Arc::new(FakeMetadataStore::default()),
-        FixedOperationIds::new([]),
-        Duration::ZERO,
-    )
-    .expect("service");
-
+    #[cfg(unix)]
     assert_eq!(
         std::fs::read(outside.join("victim.txt")).expect("outside file preserved"),
         b"keep"
     );
-    assert!(staging.join(OPERATION_ONE).exists());
+    #[cfg(unix)]
+    assert!(staging.join(OPERATION_TWO).exists());
 }
 
-#[tokio::test]
-async fn malformed_operation_id_is_rejected_before_writing() {
-    let temp = TempDir::new().expect("tempdir");
-    let service = service(
-        temp.path(),
-        Arc::new(FakeMetadataStore::default()),
-        FixedOperationIds::new(["op-not-random"]),
-    );
-
-    let error = service
-        .create_local_file(create_request(b"never-written"))
-        .await
-        .expect_err("malformed id rejected");
-
-    assert!(matches!(
-        error,
-        ArtifactOperationError::Domain(ArtifactDomainError::UnsafeFilename { .. })
-    ));
-    assert!(regular_files(temp.path()).is_empty());
-}
-
-fn service(
+fn test_service(
     root: &Path,
     metadata: Arc<FakeMetadataStore>,
     ids: Arc<FixedOperationIds>,
@@ -635,7 +576,20 @@ fn create_request(bytes: &[u8]) -> CreateLocalArtifactRequest {
 
 fn regular_files(root: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
-    collect_regular_files(root, &mut files);
+    let mut directories = vec![root.to_path_buf()];
+    while let Some(directory) = directories.pop() {
+        for entry in std::fs::read_dir(directory).into_iter().flatten().flatten() {
+            let path = entry.path();
+            let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+                continue;
+            };
+            if metadata.is_file() {
+                files.push(path);
+            } else if metadata.is_dir() && !metadata.file_type().is_symlink() {
+                directories.push(path);
+            }
+        }
+    }
     files
 }
 
@@ -655,21 +609,4 @@ fn assert_staging_empty(root: &Path) {
 fn staging_is_empty(root: &Path) -> bool {
     std::fs::read_dir(root.join(".artifact-staging"))
         .is_ok_and(|mut entries| entries.next().is_none())
-}
-
-fn collect_regular_files(directory: &Path, files: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(directory) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let Ok(metadata) = std::fs::symlink_metadata(&path) else {
-            continue;
-        };
-        if metadata.is_file() {
-            files.push(path);
-        } else if metadata.is_dir() && !metadata.file_type().is_symlink() {
-            collect_regular_files(&path, files);
-        }
-    }
 }

@@ -16,34 +16,21 @@
             local_conversation_subscription_fixture().await;
         let schema = build_schema(state);
         let mut stream = schema.execute_stream(async_graphql::Request::new(format!(
-            r#"
-            subscription {{
+            r#"subscription {{
               conversationEvents(conversationId: "{}") {{
                 __typename
-                ... on SubscriptionReadyEvent {{
-                  conversationId
-                }}
-                ... on TurnCompletedEvent {{
-                  conversationId
-                  clientMessageId
-                }}
+                ... on SubscriptionReadyEvent {{ conversationId }}
+                ... on TurnCompletedEvent {{ conversationId clientMessageId }}
               }}
-            }}
-            "#,
+            }}"#,
             conversation_id,
         )));
 
         let response = stream.next().await.expect("ready response");
         let data = response.data.into_json().expect("ready json");
-        assert_eq!(
-            data.pointer("/conversationEvents/__typename")
-                .and_then(serde_json::Value::as_str),
-            Some("SubscriptionReadyEvent")
-        );
-        assert_eq!(
-            data.pointer("/conversationEvents/conversationId")
-                .and_then(serde_json::Value::as_str),
-            Some(conversation_id.as_str())
+        assert_json_fields!(data,
+            "/conversationEvents/__typename" => "SubscriptionReadyEvent",
+            "/conversationEvents/conversationId" => conversation_id,
         );
 
         for index in 0..256 {
@@ -67,11 +54,7 @@
         });
         let response = stream.next().await.expect("resynchronization response");
         let data = response.data.into_json().expect("resynchronization json");
-        assert_eq!(
-            data.pointer("/conversationEvents/__typename")
-                .and_then(serde_json::Value::as_str),
-            Some("SubscriptionReadyEvent")
-        );
+        assert_json_fields!(data, "/conversationEvents/__typename" => "SubscriptionReadyEvent");
         let data = loop {
             let response = stream.next().await.expect("live response after lag");
             let data = response.data.into_json().expect("live response json");
@@ -83,119 +66,36 @@
                 break data;
             }
         };
-        assert_eq!(
-            data.pointer("/conversationEvents/__typename")
-                .and_then(serde_json::Value::as_str),
-            Some("TurnCompletedEvent")
-        );
-        assert_eq!(
-            data.pointer("/conversationEvents/clientMessageId")
-                .and_then(serde_json::Value::as_str),
-            Some("client_1")
+        assert_json_fields!(data,
+            "/conversationEvents/__typename" => "TurnCompletedEvent",
+            "/conversationEvents/clientMessageId" => "client_1",
         );
     }
 
     #[tokio::test]
     async fn task_events_backfills_from_durable_cursor() {
         let store = crate::test_support::test_store().await;
-        store.ensure_default_actors().await.expect("actors");
-        store
-            .ensure_default_provider_account()
-            .await
-            .expect("provider account");
-        store
-            .update_provider_account_status(
-                "provider_account:codex:default",
-                noema_providers::ProviderAccountStatus::Authenticated,
-                None,
-                None,
-            )
-            .await
-            .expect("authenticated provider");
-        crate::test_support::initialize_codex_provider_selections(&store).await;
-        let provider_registry = crate::test_support::ready_test_provider_registry();
-        let pool = store
-            .ensure_default_task_model_pool_settings_with_readiness(
-                "codex",
-                provider_registry.as_ref(),
-            )
-            .await
-            .expect("task models")
-            .into_iter()
-            .find(|entry| entry.complexity == noema_tasks::TaskComplexity::Simple)
-            .expect("simple task model");
-        let (task, run) = store
-            .create_task_with_executor_with_readiness(
-                noema_tasks::NewTask {
-                    task_id: None,
-                    title: "Subscription task".to_string(),
-                    request_markdown: "Stream updates".to_string(),
-                    complexity: noema_tasks::TaskComplexity::Simple,
-                    owner_human_id: "human:local".to_string(),
-                    source: noema_tasks::TaskSource::default(),
-                    created_by_agent_id: "agent:primary".to_string(),
-                    creation_tool_call_id: None,
-                    pool_entry_id: pool.pool_entry_id,
-                    executor_model: pool.model.clone(),
-                    reviewer_model: pool.model,
-                    max_review_rounds: None,
-                    criteria: vec![noema_tasks::NewTaskValidationCriterion {
-                        criterion_id: None,
-                        ordinal: 1,
-                        description: "Completes".to_string(),
-                        expected_evidence: None,
-                    }],
-                },
-                provider_registry.as_ref(),
-            )
-            .await
-            .expect("task");
+        let (task, run) = crate::test_support::seed_task(&store, "Subscription task").await;
         let state = GraphqlState::for_tests_with_store(store.clone());
         let runtime_events = state.subscriptions().clone();
         let schema = build_schema(state);
         let mut stream = schema.execute_stream(async_graphql::Request::new(format!(
-            r#"
-            subscription {{
+            r#"subscription {{
               taskEvents(taskId: "{}", after: "0") {{
-                cursor
-                kind
-                taskId
-                status
-                run {{
-                  runId
-                  providerCallCount
-                }}
+                cursor kind taskId status
+                run {{ runId providerCallCount }}
               }}
-            }}
-            "#,
+            }}"#,
             task.task_id
         )));
         let response = stream.next().await.expect("task event response");
         let data = response.data.into_json().expect("task event json");
-        assert_eq!(
-            data.pointer("/taskEvents/taskId")
-                .and_then(serde_json::Value::as_str),
-            Some(task.task_id.as_str())
-        );
-        assert_eq!(
-            data.pointer("/taskEvents/cursor")
-                .and_then(serde_json::Value::as_str),
-            Some("1")
-        );
-        assert_eq!(
-            data.pointer("/taskEvents/kind")
-                .and_then(serde_json::Value::as_str),
-            Some("TASK_UPDATED")
-        );
-        assert_eq!(
-            data.pointer("/taskEvents/run/runId")
-                .and_then(serde_json::Value::as_str),
-            Some(run.run_id.as_str())
-        );
-        assert_eq!(
-            data.pointer("/taskEvents/run/providerCallCount")
-                .and_then(serde_json::Value::as_i64),
-            Some(0)
+        assert_json_fields!(data,
+            "/taskEvents/taskId" => task.task_id,
+            "/taskEvents/cursor" => "1",
+            "/taskEvents/kind" => "TASK_UPDATED",
+            "/taskEvents/run/runId" => run.run_id,
+            "/taskEvents/run/providerCallCount" => 0,
         );
 
         store
@@ -217,42 +117,26 @@
 
         let response = stream.next().await.expect("live task event response");
         let data = response.data.into_json().expect("live task event json");
-        assert_eq!(
-            data.pointer("/taskEvents/cursor")
-                .and_then(serde_json::Value::as_str),
-            Some("2")
-        );
-        assert_eq!(
-            data.pointer("/taskEvents/kind")
-                .and_then(serde_json::Value::as_str),
-            Some("TASK_UPDATED")
-        );
-        assert_eq!(
-            data.pointer("/taskEvents/status")
-                .and_then(serde_json::Value::as_str),
-            Some("queued")
+        assert_json_fields!(data,
+            "/taskEvents/cursor" => "2",
+            "/taskEvents/kind" => "TASK_UPDATED",
+            "/taskEvents/status" => "queued",
         );
     }
 
     #[tokio::test]
-    async fn subscription_streams_assistant_text_delta_event() {
+    async fn subscription_projects_live_delta_and_conversation_item_events() {
         let (state, subscriptions, conversation_id) =
             local_conversation_subscription_fixture().await;
         let schema = build_schema(state);
         let mut stream = schema.execute_stream(async_graphql::Request::new(format!(
-            r#"
-            subscription {{
+            r#"subscription {{
               conversationEvents(conversationId: "{}") {{
                 __typename
-                ... on AssistantTextDeltaEvent {{
-                  conversationId
-                  turnId
-                  streamId
-                  delta
-                }}
+                ... on AssistantTextDeltaEvent {{ conversationId turnId streamId delta }}
+                ... on ConversationItemEvent {{ conversationId itemId cursor metadata }}
               }}
-            }}
-            "#,
+            }}"#,
             conversation_id,
         )));
 
@@ -276,39 +160,12 @@
         let response = stream.next().await.expect("delta response");
         let data = response.data.into_json().expect("delta json");
         let event = &data["conversationEvents"];
-        assert_eq!(event["__typename"], "AssistantTextDeltaEvent");
-        assert_eq!(event["conversationId"], conversation_id);
-        assert_eq!(event["turnId"], "turn_1");
-        assert_eq!(event["streamId"], "assistant_stream:turn_1:initial");
-        assert_eq!(event["delta"], "Hel");
-    }
-
-    #[tokio::test]
-    async fn subscription_streams_conversation_item_metadata() {
-        let (state, subscriptions, conversation_id) =
-            local_conversation_subscription_fixture().await;
-        let schema = build_schema(state);
-        let mut stream = schema.execute_stream(async_graphql::Request::new(format!(
-            r#"
-            subscription {{
-              conversationEvents(conversationId: "{}") {{
-                __typename
-                ... on ConversationItemEvent {{
-                  conversationId
-                  itemId
-                  cursor
-                  metadata
-                }}
-              }}
-            }}
-            "#,
-            conversation_id,
-        )));
-
-        let ready = stream.next().await.expect("ready response");
-        assert_eq!(
-            ready.data.into_json().expect("ready json")["conversationEvents"]["__typename"],
-            "SubscriptionReadyEvent"
+        assert_json_fields!(event,
+            "/__typename" => "AssistantTextDeltaEvent",
+            "/conversationId" => conversation_id,
+            "/turnId" => "turn_1",
+            "/streamId" => "assistant_stream:turn_1:initial",
+            "/delta" => "Hel",
         );
 
         subscriptions.publish_conversation(ConversationRuntimeEvent::Turn {
@@ -331,9 +188,11 @@
         let response = stream.next().await.expect("item response");
         let data = response.data.into_json().expect("item json");
         let event = &data["conversationEvents"];
-        assert_eq!(event["__typename"], "ConversationItemEvent");
-        assert_eq!(event["conversationId"], conversation_id);
-        assert_eq!(event["itemId"], "transient:activity_1");
+        assert_json_fields!(event,
+            "/__typename" => "ConversationItemEvent",
+            "/conversationId" => conversation_id,
+            "/itemId" => "transient:activity_1",
+        );
         assert!(event["cursor"].is_null());
         assert_eq!(
             event["metadata"],
@@ -342,38 +201,11 @@
                 "transient": true,
             })
         );
-    }
-
-    #[tokio::test]
-    async fn subscription_streams_conversation_item_cursor_when_present() {
-        let (state, subscriptions, conversation_id) =
-            local_conversation_subscription_fixture().await;
-        let schema = build_schema(state);
-        let mut stream = schema.execute_stream(async_graphql::Request::new(format!(
-            r#"
-            subscription {{
-              conversationEvents(conversationId: "{}") {{
-                __typename
-                ... on ConversationItemEvent {{
-                  itemId
-                  cursor
-                }}
-              }}
-            }}
-            "#,
-            conversation_id,
-        )));
-
-        let ready = stream.next().await.expect("ready response");
-        assert_eq!(
-            ready.data.into_json().expect("ready json")["conversationEvents"]["__typename"],
-            "SubscriptionReadyEvent"
-        );
 
         subscriptions.publish_conversation(ConversationRuntimeEvent::Turn {
             client_message_id: None,
             event: Box::new(TurnStreamEvent::ConversationItem {
-                conversation_id,
+                conversation_id: conversation_id.clone(),
                 item_id: "item_1".to_string(),
                 cursor: Some("conversation_item:1".to_string()),
                 turn_id: Some("turn_1".to_string()),
@@ -387,9 +219,13 @@
         let response = stream.next().await.expect("item response");
         let data = response.data.into_json().expect("item json");
         let event = &data["conversationEvents"];
-        assert_eq!(event["__typename"], "ConversationItemEvent");
-        assert_eq!(event["itemId"], "item_1");
-        assert_eq!(event["cursor"], "conversation_item:1");
+        assert_json_fields!(event,
+            "/__typename" => "ConversationItemEvent",
+            "/conversationId" => conversation_id,
+            "/itemId" => "item_1",
+            "/cursor" => "conversation_item:1",
+            "/metadata" => json!({}),
+        );
     }
 
     #[tokio::test]
@@ -401,21 +237,12 @@
             .expect("foreign conversation");
         let schema = build_schema(GraphqlState::for_tests_with_store(store));
         let mut stream = schema.execute_stream(async_graphql::Request::new(format!(
-            r#"
-            subscription {{
-              conversationEvents(conversationId: "{}") {{
-                __typename
-              }}
-            }}
-            "#,
+            r#"subscription {{
+              conversationEvents(conversationId: "{}") {{ __typename }}
+            }}"#,
             conversation.conversation_id,
         )));
 
         let response = stream.next().await.expect("subscription response");
-        assert_eq!(response.errors.len(), 1);
-        assert!(
-            response.errors[0]
-                .message
-                .contains("conversation is unavailable")
-        );
+        assert_single_graphql_error(&response, "conversation is unavailable");
     }

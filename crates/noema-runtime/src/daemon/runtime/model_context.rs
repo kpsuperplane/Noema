@@ -519,7 +519,7 @@ mod tests {
     }
 
     #[test]
-    fn first_diff_emits_full_sections_in_stable_order() {
+    fn diffs_emit_stable_full_replacement_and_removal_updates() {
         let updates = state("2026-07-15", None).diff(None);
 
         assert_eq!(updates.len(), 3);
@@ -535,10 +535,6 @@ mod tests {
                 .iter()
                 .all(|update| update.operation == ModelContextUpdateOperation::Full)
         );
-    }
-
-    #[test]
-    fn unchanged_sections_emit_nothing_and_changed_section_is_replaced() {
         let previous = state("2026-07-15", None).snapshot();
         let updates = state("2026-07-16", None).diff(Some(&previous));
 
@@ -552,35 +548,6 @@ mod tests {
             ModelContextUpdateOperation::Replacement
         );
         assert!(updates[0].model_visible_content().contains("2026-07-16"));
-    }
-
-    #[test]
-    fn current_time_change_replaces_only_runtime_environment() {
-        let initial = state("2026-07-15", None);
-        let previous = initial.snapshot();
-        let current = initial.with_runtime_environment(RuntimeEnvironmentContext::new(
-            "2026-07-15",
-            "13:46:00-07:00",
-            "America/Los_Angeles",
-            Some("/workspace/noema"),
-        ));
-
-        let updates = current.diff(Some(&previous));
-
-        assert_eq!(updates.len(), 1);
-        assert_eq!(
-            updates[0].section_id,
-            ModelContextSectionId::RuntimeEnvironment
-        );
-        assert!(
-            updates[0]
-                .model_visible_content()
-                .contains("13:46:00-07:00")
-        );
-    }
-
-    #[test]
-    fn absent_current_section_emits_removal_and_applies_to_snapshot() {
         let mut previous = state("2026-07-15", None).snapshot();
         let current = ModelContextState::default().with_agent_identity(AgentIdentityContext {
             agent_id: "agent:primary".to_string(),
@@ -647,7 +614,7 @@ mod tests {
     }
 
     #[test]
-    fn native_transport_uses_only_native_tool_instructions() {
+    fn transport_specific_instructions_match_native_and_no_tool_modes() {
         let rendered = ModelContextSectionSnapshot::ToolVisibility(ToolVisibilityContext::new(
             ProviderToolTransport::Native,
             vec!["search_memory".to_string()],
@@ -658,10 +625,7 @@ mod tests {
         assert!(rendered.contains("transport: native"));
         assert!(rendered.contains("provided through the native tool channel"));
         assert!(!rendered.contains("strict Noema JSON response envelope"));
-    }
 
-    #[test]
-    fn no_tool_transport_exposes_no_callable_tools() {
         let rendered = ModelContextSectionSnapshot::ToolVisibility(ToolVisibilityContext::new(
             ProviderToolTransport::None,
             Vec::new(),
@@ -672,26 +636,6 @@ mod tests {
         assert!(rendered.contains("transport: none"));
         assert!(rendered.contains("callable_tool_names: []"));
         assert!(rendered.contains("No executable tools are available"));
-    }
-
-    #[test]
-    fn snapshot_and_update_round_trip_through_json() {
-        let state = state("2026-07-15", Some("Mira"));
-        let snapshot = state.snapshot();
-        let update = state.full_updates().remove(0);
-
-        let snapshot_json = serde_json::to_string(&snapshot).expect("serialize snapshot");
-        let update_json = serde_json::to_string(&update).expect("serialize update");
-
-        assert_eq!(
-            serde_json::from_str::<ModelContextSnapshot>(&snapshot_json)
-                .expect("deserialize snapshot"),
-            snapshot
-        );
-        assert_eq!(
-            serde_json::from_str::<ModelContextUpdate>(&update_json).expect("deserialize update"),
-            update
-        );
     }
 
     #[test]

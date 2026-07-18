@@ -26,11 +26,7 @@ fn noema_desktop_main() {
                 .join("runtime");
             tauri::async_runtime::block_on(state.initialize(Some(local_model_runtime_root)))
                 .map_err(|error| {
-                    std::io::Error::other(format!(
-                        "{} {}",
-                        error.user_message(),
-                        error.technical_details()
-                    ))
+                    std::io::Error::other(format!("{} {error}", error.user_message()))
                 })?;
             Ok(())
         })

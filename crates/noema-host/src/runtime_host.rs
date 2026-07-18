@@ -26,142 +26,42 @@ pub type ArtifactDiagnosticHandle = Arc<dyn ArtifactDiagnosticOperations>;
 
 /// Assembled service handles consumed by transport-neutral API adapters.
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct HostServices {
-    runtime: RuntimeHandle,
-    store: NoemaStore,
-    artifact_operations: noema_artifacts::ArtifactOperationsHandle,
-    artifact_diagnostics: ArtifactDiagnosticHandle,
-    provider_account_operations: ProviderAccountOperationsHandle,
-    mcp_operations: McpControlPlaneHandle,
-    local_model_manager: LocalModelManager,
-    provider_registry: ProviderRegistryHandle,
-    memory_repository: MemoryRepositoryHandle,
-    memory_service_access: MemoryServiceAccessHandle,
-    onboarding: OnboardingService,
-    memory_startup_error: Option<String>,
-    runtime_events: RuntimeEventRegistry,
-}
-
-impl HostServices {
-    #[cfg(feature = "composition")]
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new(
-        runtime: RuntimeHandle,
-        store: NoemaStore,
-        artifact_operations: noema_artifacts::ArtifactOperationsHandle,
-        artifact_diagnostics: ArtifactDiagnosticHandle,
-        provider_account_operations: ProviderAccountOperationsHandle,
-        mcp_operations: McpControlPlaneHandle,
-        local_model_manager: LocalModelManager,
-        provider_registry: ProviderRegistryHandle,
-        memory_repository: MemoryRepositoryHandle,
-        memory_service_access: MemoryServiceAccessHandle,
-        onboarding: OnboardingService,
-        memory_startup_error: Option<String>,
-        runtime_events: RuntimeEventRegistry,
-    ) -> Self {
-        Self {
-            runtime,
-            store,
-            artifact_operations,
-            artifact_diagnostics,
-            provider_account_operations,
-            mcp_operations,
-            local_model_manager,
-            provider_registry,
-            memory_repository,
-            memory_service_access,
-            onboarding,
-            memory_startup_error,
-            runtime_events,
-        }
-    }
-
     /// Governed runtime command handle.
-    #[must_use]
-    pub const fn runtime(&self) -> &RuntimeHandle {
-        &self.runtime
-    }
-
+    pub runtime: RuntimeHandle,
     /// Canonical structured store.
-    #[must_use]
-    pub const fn store(&self) -> &NoemaStore {
-        &self.store
-    }
-
+    pub store: NoemaStore,
     /// Governed artifact operations.
-    #[must_use]
-    pub const fn artifact_operations(&self) -> &noema_artifacts::ArtifactOperationsHandle {
-        &self.artifact_operations
-    }
-
+    pub artifact_operations: noema_artifacts::ArtifactOperationsHandle,
     /// Narrow artifact diagnostics.
-    #[must_use]
-    pub const fn artifact_diagnostics(&self) -> &ArtifactDiagnosticHandle {
-        &self.artifact_diagnostics
-    }
-
+    pub artifact_diagnostics: ArtifactDiagnosticHandle,
     /// Provider account and authentication operations.
-    #[must_use]
-    pub const fn provider_account_operations(&self) -> &ProviderAccountOperationsHandle {
-        &self.provider_account_operations
-    }
-
+    pub provider_account_operations: ProviderAccountOperationsHandle,
     /// MCP control-plane operations.
-    #[must_use]
-    pub const fn mcp_operations(&self) -> &McpControlPlaneHandle {
-        &self.mcp_operations
-    }
-
+    pub mcp_operations: McpControlPlaneHandle,
     /// Local-model management operations.
-    #[must_use]
-    pub const fn local_model_manager(&self) -> &LocalModelManager {
-        &self.local_model_manager
-    }
-
+    pub local_model_manager: LocalModelManager,
     /// Exact provider-instance registry.
-    #[must_use]
-    pub const fn provider_registry(&self) -> &ProviderRegistryHandle {
-        &self.provider_registry
-    }
-
+    pub provider_registry: ProviderRegistryHandle,
     /// Memory settings and article repository.
-    #[must_use]
-    pub const fn memory_repository(&self) -> &MemoryRepositoryHandle {
-        &self.memory_repository
-    }
-
+    pub memory_repository: MemoryRepositoryHandle,
     /// Request-scoped memory service access.
-    #[must_use]
-    pub const fn memory_service_access(&self) -> &MemoryServiceAccessHandle {
-        &self.memory_service_access
-    }
-
+    pub memory_service_access: MemoryServiceAccessHandle,
     /// Cross-subsystem onboarding operations.
-    #[must_use]
-    pub const fn onboarding(&self) -> &OnboardingService {
-        &self.onboarding
-    }
-
+    pub onboarding: OnboardingService,
     /// Managed memory startup detail, when startup degraded.
-    #[must_use]
-    pub fn memory_startup_error(&self) -> Option<&str> {
-        self.memory_startup_error.as_deref()
-    }
-
+    pub memory_startup_error: Option<String>,
     /// Transport-neutral runtime event registry.
-    #[must_use]
-    pub const fn runtime_events(&self) -> &RuntimeEventRegistry {
-        &self.runtime_events
-    }
+    pub runtime_events: RuntimeEventRegistry,
 }
 
 /// One fully assembled Noema application host.
 pub struct NoemaHost {
-    services: HostServices,
-    web_config: WebConfig,
+    pub(crate) services: HostServices,
+    pub(crate) web_config: WebConfig,
     #[cfg(feature = "composition")]
-    lifecycle: crate::composition::HostLifecycle,
+    pub(crate) lifecycle: crate::composition::StartupResources,
 }
 
 impl NoemaHost {
@@ -175,19 +75,6 @@ impl NoemaHost {
     #[must_use]
     pub const fn web_config(&self) -> &WebConfig {
         &self.web_config
-    }
-
-    #[cfg(feature = "composition")]
-    pub(crate) fn assembled(
-        services: HostServices,
-        web_config: WebConfig,
-        lifecycle: crate::composition::HostLifecycle,
-    ) -> Self {
-        Self {
-            services,
-            web_config,
-            lifecycle,
-        }
     }
 
     /// Shut down admission, runtime work, and concrete child services in dependency order.
@@ -325,12 +212,6 @@ impl RuntimeHostError {
             #[cfg(feature = "composition")]
             Self::Mcp(_) => "Noema could not start the local assistant service.",
         }
-    }
-
-    /// Detailed diagnostic string.
-    #[must_use]
-    pub fn technical_details(&self) -> String {
-        self.to_string()
     }
 }
 

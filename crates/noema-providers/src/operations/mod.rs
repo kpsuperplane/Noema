@@ -158,4 +158,252 @@ where
 }
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    use super::*;
+    #[cfg(feature = "adapters")]
+    use crate::adapters::web::{default_web_fetch_backend, default_web_search_backend};
+    use crate::{ProviderToolSchemaDialect, ProviderToolTransport};
+
+    struct ContractProvider;
+
+    impl Debug for ContractProvider {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("token=sentinel-secret path=/private/provider/session")
+        }
+    }
+
+    impl ModelProvider for ContractProvider {
+        async fn generate(
+            &self,
+            request: GenerateRequest,
+        ) -> Result<GenerateResponse, ProviderError> {
+            Ok(GenerateResponse::final_text(
+                format!("generated:{}", request.input.render_for_token_count()),
+                "contract",
+                request.model.as_deref().unwrap_or("default"),
+            ))
+        }
+
+        fn default_tool_classification_model(&self) -> Option<String> {
+            Some("classification-model".to_string())
+        }
+
+        fn context_metadata(&self, model: Option<&str>) -> ProviderContextMetadata {
+            ProviderContextMetadata {
+                context_window_tokens: (model == Some("large")).then_some(32_768),
+                default_output_reserve_tokens: Some(1_024),
+                compact_summary_target_tokens: Some(512),
+            }
+        }
+
+        fn response_continuation(&self, _model: Option<&str>) -> ProviderResponseContinuation {
+            ProviderResponseContinuation::PreviousResponseId {
+                store_response: true,
+            }
+        }
+
+        fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
+            ProviderToolCapabilities {
+                tool_transport: ProviderToolTransport::Native,
+                parallel_tool_calls: true,
+                tool_choice: true,
+                schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
+                native_tool_results: true,
+                ..ProviderToolCapabilities::default()
+            }
+        }
+
+        async fn count_tokens(
+            &self,
+            instructions: Option<&str>,
+            input: &str,
+            model: Option<&str>,
+        ) -> Result<Option<u32>, ProviderError> {
+            let bytes = instructions.map_or(0, str::len) + input.len() + model.map_or(0, str::len);
+            Ok(Some(u32::try_from(bytes).expect("test length")))
+        }
+
+        async fn generate_streaming<'a>(
+            &'a self,
+            request: GenerateRequest,
+            on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+        ) -> Result<GenerateResponse, ProviderError> {
+            on_event(GenerateStreamEvent::AssistantTextDelta {
+                response_index: 0,
+                delta: "stream-delta".to_string(),
+            });
+            Ok(GenerateResponse::final_text(
+                format!("streamed:{}", request.input.render_for_token_count()),
+                "contract",
+                request.model.as_deref().unwrap_or("default"),
+            ))
+        }
+    }
+
+    #[tokio::test]
+    async fn provider_operation_boundaries_preserve_contract_defaults_and_redaction() {
+        let provider = erase_model_provider(ContractProvider);
+        assert_eq!(
+            (
+                provider.default_tool_classification_model(),
+                provider.context_metadata(Some("large")),
+                provider.response_continuation(None),
+                provider.tool_capabilities(None),
+            ),
+            (
+                Some("classification-model".to_string()),
+                ProviderContextMetadata {
+                    context_window_tokens: Some(32_768),
+                    default_output_reserve_tokens: Some(1_024),
+                    compact_summary_target_tokens: Some(512),
+                },
+                ProviderResponseContinuation::PreviousResponseId {
+                    store_response: true,
+                },
+                ProviderToolCapabilities {
+                    tool_transport: ProviderToolTransport::Native,
+                    parallel_tool_calls: true,
+                    tool_choice: true,
+                    schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
+                    native_tool_results: true,
+                    ..ProviderToolCapabilities::default()
+                },
+            )
+        );
+        assert_eq!(
+            provider
+                .count_tokens(Some("rules"), "hello", Some("large"))
+                .await
+                .expect("tokens"),
+            Some(15)
+        );
+        assert_eq!(
+            provider
+                .generate(GenerateRequest::text("plain").with_model("large"))
+                .await
+                .expect("generate")
+                .assistant_text(),
+            "generated:plain"
+        );
+        let mut events = Vec::new();
+        let response = provider
+            .generate_streaming(
+                GenerateRequest::text("stream").with_model("large"),
+                &mut |event| events.push(event),
+            )
+            .await
+            .expect("stream");
+        assert_eq!(response.assistant_text(), "streamed:stream");
+        assert_eq!(
+            events,
+            vec![GenerateStreamEvent::AssistantTextDelta {
+                response_index: 0,
+                delta: "stream-delta".to_string(),
+            }]
+        );
+
+        let debug = format!("{provider:?}");
+        assert!(debug.contains("ErasedModelProvider"));
+        assert!(!debug.contains("sentinel-secret"));
+        assert!(!debug.contains("/private/provider/session"));
+
+        #[derive(Debug)]
+        struct DirectOperationsFake;
+
+        impl ProviderOperations for DirectOperationsFake {
+            fn generate_streaming<'a>(
+                &'a self,
+                request: GenerateRequest,
+                _on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+            ) -> ProviderOperationFuture<'a, GenerateResponse> {
+                Box::pin(async move {
+                    Ok(GenerateResponse::final_text(
+                        request.input.render_for_token_count(),
+                        "fake",
+                        "fake-model",
+                    ))
+                })
+            }
+        }
+
+        let provider: ProviderHandle = Arc::new(DirectOperationsFake);
+        assert_eq!(
+            (
+                provider.default_tool_classification_model(),
+                provider.context_metadata(None),
+                provider.response_continuation(None),
+                provider.tool_capabilities(None),
+            ),
+            (
+                Some(DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string()),
+                ProviderContextMetadata::default(),
+                ProviderResponseContinuation::Unsupported,
+                ProviderToolCapabilities::default(),
+            )
+        );
+        assert_eq!(
+            provider
+                .count_tokens(Some("rules"), "input", Some("model"))
+                .await
+                .expect("default token count"),
+            None
+        );
+        assert_eq!(
+            provider
+                .generate(GenerateRequest::text("generated"))
+                .await
+                .expect("default generation")
+                .assistant_text(),
+            "generated"
+        );
+        let mut events = Vec::new();
+        assert_eq!(
+            provider
+                .generate_streaming(GenerateRequest::text("fallback"), &mut |event| events
+                    .push(event),)
+                .await
+                .expect("streaming")
+                .assistant_text(),
+            "fallback"
+        );
+        assert!(events.is_empty());
+
+        #[derive(Debug)]
+        struct DefaultStreamingProvider;
+
+        impl ModelProvider for DefaultStreamingProvider {
+            async fn generate(
+                &self,
+                request: GenerateRequest,
+            ) -> Result<GenerateResponse, ProviderError> {
+                Ok(GenerateResponse::final_text(
+                    request.input.render_for_token_count(),
+                    "default-streaming",
+                    "model",
+                ))
+            }
+        }
+
+        let mut events = Vec::new();
+        let response = DefaultStreamingProvider
+            .generate_streaming(GenerateRequest::text("hello stream"), &mut |event| {
+                events.push(event)
+            })
+            .await
+            .expect("default streaming");
+        assert_eq!(response.assistant_text(), "hello stream");
+        assert!(events.is_empty());
+
+        #[cfg(feature = "adapters")]
+        {
+            assert_eq!(
+                format!("{:?}", default_web_search_backend()),
+                "WebSearchBackendHandle(\"[CONFIGURED]\")"
+            );
+            assert_eq!(
+                format!("{:?}", default_web_fetch_backend()),
+                "WebFetchBackendHandle(\"[CONFIGURED]\")"
+            );
+        }
+    }
+}

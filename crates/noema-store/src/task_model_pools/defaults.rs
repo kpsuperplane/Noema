@@ -2,9 +2,7 @@ use noema_providers::{ProviderRegistry, ProviderSelectionSnapshot, ReasoningEffo
 use noema_tasks::{TaskModelPoolEntry, provider_default_task_models};
 use rusqlite::{OptionalExtension, params};
 
-use super::{
-    LEGACY_PROVIDER_DEFAULT_POOL_PREFIX, NoemaStore, StoreError, global_task_model_pool_setting_id,
-};
+use super::{NoemaStore, StoreError, global_task_model_pool_setting_id};
 use crate::provider_selections::{
     SelectionEligibility, prove_selection_ready, resolve_provider_selection_tx,
 };
@@ -13,8 +11,7 @@ impl NoemaStore {
     /// Ensure exactly one global executor model setting exists per tier.
     ///
     /// The selected default provider supplies initial values. Existing global
-    /// settings remain user-controlled, while older provider-scoped rows are
-    /// consolidated and retired.
+    /// settings remain user-controlled.
     pub async fn ensure_default_task_model_pool_settings(
         &self,
         default_provider_kind: &str,
@@ -71,49 +68,14 @@ impl NoemaStore {
                     provider_instance_key: account.1,
                 });
             }
-            let existing = {
-                let mut statement = transaction.prepare(
-                    "SELECT pool_entry_id, complexity, provider_account_id FROM task_model_pool_entries ORDER BY pool_entry_id",
-                )?;
-                statement
-                    .query_map([], |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, String>(2)?,
-                        ))
-                    })?
-                    .collect::<Result<Vec<_>, _>>()?
-            };
             for default in &defaults {
                 let pool_entry_id = global_task_model_pool_setting_id(default.complexity);
-                if existing
-                    .iter()
-                    .any(|entry| entry.0 == pool_entry_id)
-                {
-                    continue;
-                }
-                let migrated = existing
-                    .iter()
-                    .find(|entry| {
-                        entry.1 == default.complexity.as_str()
-                            && !entry.0.starts_with(LEGACY_PROVIDER_DEFAULT_POOL_PREFIX)
-                    })
-                    .or_else(|| {
-                        existing.iter().find(|entry| {
-                            entry.1 == default.complexity.as_str()
-                                && entry.2 == account.1
-                        })
-                    });
-                if let Some(migrated) = migrated {
-                    transaction.execute(
-                        "UPDATE tasks SET pool_entry_id = ?1 WHERE pool_entry_id = ?2",
-                        params![pool_entry_id, migrated.0],
-                    )?;
-                    transaction.execute(
-                        "UPDATE task_model_pool_entries SET pool_entry_id = ?1, sort_order = 0, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE pool_entry_id = ?2",
-                        params![pool_entry_id, migrated.0],
-                    )?;
+                let exists = transaction.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM task_model_pool_entries WHERE pool_entry_id = ?1)",
+                    [&pool_entry_id],
+                    |row| row.get::<_, bool>(0),
+                )?;
+                if exists {
                     continue;
                 }
                 let unresolved = ProviderSelectionSnapshot::explicit(
@@ -150,27 +112,6 @@ impl NoemaStore {
                         true,
                     ],
                 )?;
-            }
-            for entry in &existing {
-                if noema_tasks::is_global_task_model_pool_setting_id(&entry.0) {
-                    continue;
-                }
-                let references: i64 = transaction.query_row(
-                    "SELECT COUNT(*) FROM tasks WHERE pool_entry_id = ?1",
-                    [&entry.0],
-                    |row| row.get(0),
-                )?;
-                if references > 0 {
-                    transaction.execute(
-                        "UPDATE task_model_pool_entries SET enabled = 0, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE pool_entry_id = ?1",
-                        [&entry.0],
-                    )?;
-                } else {
-                    transaction.execute(
-                        "DELETE FROM task_model_pool_entries WHERE pool_entry_id = ?1",
-                        [&entry.0],
-                    )?;
-                }
             }
             Ok(((), ready_selections))
         })

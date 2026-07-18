@@ -97,32 +97,6 @@ impl NoemaStore {
         let mut conn = self.conn.lock().await;
         work(&mut conn)
     }
-
-    /// Return the current schema marker version.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError`] when the schema marker cannot be queried.
-    pub async fn schema_version(&self) -> Result<i64, StoreError> {
-        self.with_connection(|conn| {
-            conn.query_row(
-                "SELECT version FROM schema_state WHERE name = ?1",
-                [STORE_SCHEMA_MARKER],
-                |row| row.get::<_, i64>(0),
-            )
-            .map_err(StoreError::Sqlite)
-        })
-        .await
-    }
-
-    /// Close the local store handle.
-    ///
-    /// # Errors
-    ///
-    /// This currently has no fallible SQLite shutdown work.
-    pub async fn close(self) -> Result<(), StoreError> {
-        Ok(())
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

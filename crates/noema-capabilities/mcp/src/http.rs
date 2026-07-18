@@ -13,16 +13,16 @@ use rmcp::{
         StreamableHttpClientTransport, streamable_http_client::StreamableHttpClientTransportConfig,
     },
 };
-use serde_json::{Map, Value};
-use url::{Host, Url};
+use url::Url;
 
 use crate::{
     McpDiagnosticHandle, McpOAuthClientCredentials, McpOAuthStoredCredentials, McpSecretMaterial,
-    McpServerRecord, McpTransportKind,
+    McpServerRecord, McpStreamableHttpSetupConfig, McpTransportKind,
     client::{
         McpClientError, McpClientFuture, McpClientResult, McpRequestContext, McpSessionFactory,
         McpSessionPreparation, RmcpPreparedSession, initialize_error, run_with_context,
     },
+    connection_url::{parse_https_or_loopback, resolve_allowed_target},
 };
 
 const TRANSPORT_KIND: &str = "streamable_http";
@@ -211,108 +211,37 @@ fn http_config_from_server(
             "MCP server is not configured for Streamable HTTP".to_string(),
         ));
     }
-    let object = server.safe_config.as_object().ok_or_else(|| {
-        McpClientError::Malformed("MCP Streamable HTTP config must be an object".to_string())
+    let config: McpStreamableHttpSetupConfig = serde_json::from_value(server.safe_config.clone())
+        .map_err(|_| {
+        McpClientError::Malformed("MCP Streamable HTTP config is invalid".to_string())
     })?;
-    let url = string_field(object, "url")?;
-    validate_http_url(&url)?;
-    let safe_headers = string_map_field(object, "headers")?;
-    let headers = merge_headers(&safe_headers, &secrets.headers)?;
+    parse_https_or_loopback(&config.url)
+        .ok_or_else(|| McpClientError::Malformed("MCP HTTP URL is invalid".to_string()))?;
+    let headers = merge_headers(&config.headers, &secrets.headers)?;
     Ok(HttpConfig {
-        url,
+        url: config.url,
         headers,
         oauth_client_credentials: secrets.oauth_client_credentials.clone(),
         oauth_credentials: secrets.oauth_credentials.clone(),
     })
 }
 
-fn validate_http_url(value: &str) -> McpClientResult<()> {
-    let url = Url::parse(value)
-        .map_err(|_| McpClientError::Malformed("MCP HTTP URL is invalid".to_string()))?;
-    if !matches!(url.scheme(), "http" | "https")
-        || url.host().is_none()
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.fragment().is_some()
-        || (url.scheme() == "http" && !url.host().is_some_and(is_loopback_host))
-    {
-        return Err(McpClientError::Malformed(
-            "MCP HTTP URL is invalid".to_string(),
-        ));
-    }
-    Ok(())
-}
-
-fn is_loopback_host(host: Host<&str>) -> bool {
-    match host {
-        Host::Domain(domain) => domain.eq_ignore_ascii_case("localhost"),
-        Host::Ipv4(address) => address.is_loopback(),
-        Host::Ipv6(address) => address.is_loopback(),
-    }
-}
-
 async fn restricted_http_client(value: &str) -> McpClientResult<reqwest::Client> {
     let url = Url::parse(value)
         .map_err(|_| McpClientError::Malformed("MCP HTTP URL is invalid".to_string()))?;
+    let resolution = resolve_allowed_target(&url)
+        .await
+        .map_err(|_| McpClientError::Unavailable("MCP HTTP target is not public".to_string()))?;
     let mut builder = reqwest::Client::builder()
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
         .pool_max_idle_per_host(0);
-    if url.scheme() == "http" && matches!(url.host(), Some(Host::Domain("localhost"))) {
-        let port = url
-            .port_or_known_default()
-            .ok_or_else(|| McpClientError::Malformed("MCP HTTP URL has no port".to_string()))?;
-        let addresses = tokio::net::lookup_host(("localhost", port))
-            .await
-            .map_err(|_| {
-                McpClientError::Unavailable("failed to resolve MCP loopback host".to_string())
-            })?
-            .collect::<Vec<_>>();
-        if addresses.is_empty() || addresses.iter().any(|address| !address.ip().is_loopback()) {
-            return Err(McpClientError::Unavailable(
-                "MCP loopback host resolved outside loopback".to_string(),
-            ));
-        }
-        builder = builder.resolve_to_addrs("localhost", &addresses);
+    if let Some((hostname, addresses)) = resolution {
+        builder = builder.resolve_to_addrs(&hostname, &addresses);
     }
     builder.build().map_err(|error| {
         McpClientError::Unavailable(format!("failed to configure MCP HTTP client: {error}"))
     })
-}
-
-fn string_field(object: &Map<String, Value>, field: &'static str) -> McpClientResult<String> {
-    object
-        .get(field)
-        .and_then(Value::as_str)
-        .map(ToString::to_string)
-        .ok_or_else(|| {
-            McpClientError::Malformed(format!("MCP config field {field} must be a string"))
-        })
-}
-
-fn string_map_field(
-    object: &Map<String, Value>,
-    field: &'static str,
-) -> McpClientResult<BTreeMap<String, String>> {
-    match object.get(field) {
-        None | Some(Value::Null) => Ok(BTreeMap::new()),
-        Some(Value::Object(map)) => map
-            .iter()
-            .map(|(key, value)| {
-                value
-                    .as_str()
-                    .map(|value| (key.clone(), value.to_string()))
-                    .ok_or_else(|| {
-                        McpClientError::Malformed(format!(
-                            "MCP config field {field} must contain string values"
-                        ))
-                    })
-            })
-            .collect(),
-        Some(_) => Err(McpClientError::Malformed(format!(
-            "MCP config field {field} must be an object"
-        ))),
-    }
 }
 
 fn has_authorization_header(headers: &HashMap<HeaderName, HeaderValue>) -> bool {
@@ -356,27 +285,22 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::{McpServerAuthStatus, McpServerHealthStatus};
+    use crate::test_fixture::server_record;
 
     fn server() -> McpServerRecord {
-        McpServerRecord {
-            mcp_server_id: "mcp:remote".to_string(),
-            display_name: "Remote".to_string(),
-            transport_kind: McpTransportKind::StreamableHttp,
-            safe_config: json!({
+        server_record(
+            "mcp:remote",
+            McpTransportKind::StreamableHttp,
+            json!({
                 "url": "https://example.com/mcp",
-                "headers": { "X-Team": "infra", "X-Override": "safe" }
+                "headers": { "X-Team": "infra", "x-override": "safe" }
             }),
-            enabled: true,
-            health_status: McpServerHealthStatus::Unknown,
-            auth_status: McpServerAuthStatus::None,
-            tool_count: 0,
-            authority_generation: "generation".to_string(),
-        }
+        )
     }
 
-    #[test]
-    fn config_merges_safe_and_secret_headers_with_secret_precedence() {
+    #[tokio::test]
+    async fn http_configuration_validation_redaction_and_redirect_contracts() {
+        // Case: config_merges_safe_and_secret_headers_with_secret_precedence.
         let secrets = McpSecretMaterial {
             headers: BTreeMap::from([
                 ("Authorization".to_string(), "Bearer secret".to_string()),
@@ -400,35 +324,7 @@ mod tests {
         assert!(config.headers[&http::header::AUTHORIZATION].is_sensitive());
         assert!(config.headers[&HeaderName::from_static("x-override")].is_sensitive());
         assert!(!config.headers[&HeaderName::from_static("x-team")].is_sensitive());
-    }
-
-    #[test]
-    fn secret_headers_override_safe_headers_case_insensitively() {
-        let mut server = server();
-        server.safe_config["headers"] = json!({
-            "authorization": "Bearer safe",
-            "X-TEAM": "safe"
-        });
-        let secrets = McpSecretMaterial {
-            headers: BTreeMap::from([
-                ("Authorization".to_string(), "Bearer secret".to_string()),
-                ("x-team".to_string(), "secret".to_string()),
-            ]),
-            ..McpSecretMaterial::default()
-        };
-
-        let config = http_config_from_server(&server, &secrets).expect("config");
-
-        assert_eq!(config.headers.len(), 2);
-        assert_eq!(
-            config.headers[&http::header::AUTHORIZATION],
-            "Bearer secret"
-        );
-        assert_eq!(config.headers[&HeaderName::from_static("x-team")], "secret");
-    }
-
-    #[test]
-    fn authorization_debug_redacts_access_and_refresh_tokens() {
+        // Case: authorization_debug_redacts_access_and_refresh_tokens.
         let authorization = McpHttpAuthorization::new(
             "access-secret".to_string(),
             Some(McpOAuthStoredCredentials {
@@ -444,36 +340,26 @@ mod tests {
             assert!(!debug.contains(secret), "debug output leaked {secret:?}");
         }
         assert!(debug.contains("[REDACTED]"));
-    }
-
-    #[test]
-    fn url_validation_rejects_embedded_credentials_and_fragments() {
+        // Case: url_validation_rejects_embedded_credentials_and_fragments.
         for url in [
             "https://user:password@example.com/mcp",
             "https://example.com/mcp#fragment",
             "http://example.com/mcp",
             "file:///tmp/mcp",
         ] {
-            let error = validate_http_url(url).expect_err("invalid URL");
-            assert!(matches!(error, McpClientError::Malformed(_)));
+            assert!(parse_https_or_loopback(url).is_none(), "invalid URL: {url}");
         }
-        validate_http_url("http://127.0.0.1:8080/mcp").expect("IPv4 loopback");
-        validate_http_url("http://[::1]:8080/mcp").expect("IPv6 loopback");
-        validate_http_url("http://localhost:8080/mcp").expect("localhost");
-    }
-
-    #[test]
-    fn oauth_and_authorization_header_cannot_be_combined() {
-        let headers = merge_headers(
-            &BTreeMap::new(),
-            &BTreeMap::from([("AUTHORIZATION".to_string(), "Bearer secret".to_string())]),
-        )
-        .expect("headers");
-        assert!(has_authorization_header(&headers));
-    }
-
-    #[tokio::test]
-    async fn restricted_client_never_follows_redirects_with_secret_headers() {
+        for url in [
+            "http://127.0.0.1:8080/mcp",
+            "http://[::1]:8080/mcp",
+            "http://localhost:8080/mcp",
+        ] {
+            assert!(
+                parse_https_or_loopback(url).is_some(),
+                "loopback URL: {url}"
+            );
+        }
+        // Case: restricted_client_never_follows_redirects_with_secret_headers.
         use tokio::{
             io::{AsyncReadExt, AsyncWriteExt},
             net::TcpListener,

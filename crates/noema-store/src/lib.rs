@@ -5,8 +5,6 @@ mod agent_runs;
 mod agent_runtime_preferences;
 mod agents;
 mod artifact_metadata_port;
-#[cfg(test)]
-mod artifact_metadata_port_tests;
 mod artifact_writes;
 mod artifacts;
 mod auxiliary_model_preferences;
@@ -56,7 +54,7 @@ pub mod test_support;
 pub(crate) mod tests;
 
 pub use agent_runtime_preferences::{AgentRuntimePreferenceRecord, NewAgentRuntimePreference};
-pub use agents::{AgentRecord, AgentSystemRole, HumanRecord, NewAgent};
+pub use agents::{AgentRecord, AgentSystemRole};
 pub use auxiliary_model_preferences::{
     AuxiliaryModelPreferenceRecord, NewAuxiliaryModelPreference, TOOL_PROGRESS_AUDIT_TASK_ID,
     WEB_FETCH_SUMMARIZER_TASK_ID,

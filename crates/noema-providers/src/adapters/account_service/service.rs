@@ -271,4 +271,4 @@ impl ProviderAccountOperations for ProviderAccountService {
 
 #[cfg(test)]
 #[path = "tests.rs"]
-mod tests;
+pub(super) mod tests;

@@ -18,25 +18,6 @@ fn web_search_tool_call_display_shows_visible_query() {
 }
 
 #[test]
-fn web_search_tool_result_display_shows_provider_and_count() {
-    let display = tool_result_display(
-        Some("web.search"),
-        Some(true),
-        &json!({
-            "provider": "duckduckgo_public",
-            "provider_contract": "best_effort_public",
-            "summary": "Found 2 web results",
-            "results": [{}, {}]
-        }),
-    );
-
-    assert_eq!(display["name"], "Web Search");
-    assert_eq!(display["result"], "Found 2 web results");
-    assert_eq!(display["provider"], "DuckDuckGo public search");
-    assert_eq!(display["reliability"], "Best effort");
-}
-
-#[test]
 fn web_search_display_shows_provider_fallback_without_raw_payload() {
     let display = tool_result_display(
         Some("web.search"),
@@ -166,6 +147,51 @@ fn web_fetch_tool_result_display_shows_raw_and_summary_counts() {
 }
 
 #[test]
+fn provider_usage_metadata_projects_reported_zero_and_missing_cache_usage() {
+    let usage = |input_tokens, cached_input_tokens| noema_providers::TokenUsage {
+        input_tokens,
+        output_tokens: 10,
+        total_tokens: input_tokens + 10,
+        cached_input_tokens,
+    };
+    let metadata = |provider, cached_input_tokens| {
+        provider_usage_metadata(
+            provider,
+            "gpt-test",
+            "initial",
+            ProviderResponsePosition {
+                response_index: 0,
+                output_index: Some(0),
+            },
+            Some(&usage(12_000, cached_input_tokens)),
+        )
+    };
+
+    let reported = metadata("codex", Some(9_600));
+
+    assert_eq!(reported["provider_usage"]["provider"], "codex");
+    assert_eq!(reported["provider_usage"]["model"], "gpt-test");
+    assert_eq!(reported["provider_usage"]["phase"], "initial");
+    assert_eq!(reported["provider_usage"]["response_index"], 0);
+    assert_eq!(reported["provider_usage"]["output_index"], 0);
+    assert_eq!(reported["provider_usage"]["input_tokens"], 12_000);
+    assert_eq!(reported["provider_usage"]["cached_input_tokens"], 9_600);
+    assert_eq!(reported["provider_usage"]["cache_hit_ratio"], 0.8);
+
+    let zero = metadata("codex", Some(0));
+    assert_eq!(zero["provider_usage"]["cached_input_tokens"], 0);
+    assert_eq!(zero["provider_usage"]["cache_hit_ratio"], 0.0);
+
+    let missing = metadata("foundation_local", None);
+    assert!(
+        missing["provider_usage"]
+            .get("cached_input_tokens")
+            .is_none()
+    );
+    assert!(missing["provider_usage"].get("cache_hit_ratio").is_none());
+}
+
+#[test]
 fn progress_audit_display_labels_running_and_completed_states() {
     let running = progress_audit_display("Checking progress", "running", None);
     assert_eq!(running["name"], "Checking progress");
@@ -182,83 +208,4 @@ fn progress_audit_display_labels_running_and_completed_states() {
         completed["summary"],
         "Found new sources and is preparing the write step."
     );
-}
-
-#[test]
-fn provider_usage_metadata_includes_cache_hit_ratio() {
-    let metadata = provider_usage_metadata(
-        "codex",
-        "gpt-test",
-        "initial",
-        ProviderResponsePosition {
-            response_index: 0,
-            output_index: Some(0),
-        },
-        Some(&noema_providers::TokenUsage {
-            input_tokens: 12000,
-            output_tokens: 900,
-            total_tokens: 12900,
-            cached_input_tokens: Some(9600),
-        }),
-    );
-
-    assert_eq!(metadata["provider_usage"]["provider"], "codex");
-    assert_eq!(metadata["provider_usage"]["model"], "gpt-test");
-    assert_eq!(metadata["provider_usage"]["phase"], "initial");
-    assert_eq!(metadata["provider_usage"]["response_index"], 0);
-    assert_eq!(metadata["provider_usage"]["output_index"], 0);
-    assert_eq!(metadata["provider_usage"]["input_tokens"], 12000);
-    assert_eq!(metadata["provider_usage"]["cached_input_tokens"], 9600);
-    assert_eq!(metadata["provider_usage"]["cache_hit_ratio"], 0.8);
-}
-
-#[test]
-fn provider_usage_metadata_preserves_explicit_zero_cached_tokens() {
-    let metadata = provider_usage_metadata(
-        "codex",
-        "gpt-test",
-        "continuation",
-        ProviderResponsePosition {
-            response_index: 1,
-            output_index: Some(12),
-        },
-        Some(&noema_providers::TokenUsage {
-            input_tokens: 2048,
-            output_tokens: 12,
-            total_tokens: 2060,
-            cached_input_tokens: Some(0),
-        }),
-    );
-
-    assert_eq!(metadata["provider_usage"]["phase"], "continuation");
-    assert_eq!(metadata["provider_usage"]["response_index"], 1);
-    assert_eq!(metadata["provider_usage"]["output_index"], 12);
-    assert_eq!(metadata["provider_usage"]["cached_input_tokens"], 0);
-    assert_eq!(metadata["provider_usage"]["cache_hit_ratio"], 0.0);
-}
-
-#[test]
-fn provider_usage_metadata_omits_ratio_when_cached_tokens_are_unreported() {
-    let metadata = provider_usage_metadata(
-        "foundation_local",
-        "foundation-local-default",
-        "initial",
-        ProviderResponsePosition {
-            response_index: 0,
-            output_index: None,
-        },
-        Some(&noema_providers::TokenUsage {
-            input_tokens: 100,
-            output_tokens: 5,
-            total_tokens: 105,
-            cached_input_tokens: None,
-        }),
-    );
-
-    assert!(
-        metadata["provider_usage"]
-            .get("cached_input_tokens")
-            .is_none()
-    );
-    assert!(metadata["provider_usage"].get("cache_hit_ratio").is_none());
 }

@@ -2,9 +2,9 @@
 
 #![allow(clippy::missing_errors_doc)]
 
-use noema_tasks::{TaskReviewCriterion, TaskReviewRecord, TaskReviewVerdict};
+use noema_tasks::{TaskReviewCriterion, TaskReviewRecord};
 
-use super::{NoemaStore, StoreError};
+use super::{NoemaStore, StoreError, sqlite::parse_column};
 
 impl NoemaStore {
     /// Return every immutable executor submission for one task in revision
@@ -49,16 +49,7 @@ impl NoemaStore {
                     "SELECT review_id, task_id, reviewer_run_id, reviewed_submission_id, overall_verdict, overall_feedback, created_at FROM task_reviews WHERE task_id = ?1 ORDER BY created_at, review_id",
                 )?;
                 let rows = statement.query_map([task_id], |row| {
-                    let overall_verdict = row
-                        .get::<_, String>(4)?
-                        .parse::<TaskReviewVerdict>()
-                        .map_err(|error| {
-                            rusqlite::Error::FromSqlConversionFailure(
-                                4,
-                                rusqlite::types::Type::Text,
-                                Box::new(error),
-                            )
-                        })?;
+                    let overall_verdict = parse_column(row, 4)?;
                     Ok((
                         row.get::<_, String>(0)?,
                         row.get::<_, String>(1)?,
@@ -91,16 +82,7 @@ impl NoemaStore {
                         "SELECT criterion_id, outcome, evidence_markdown, feedback FROM task_review_criteria WHERE review_id = ?1 ORDER BY criterion_id",
                     )?;
                     let rows = statement.query_map([review_id.as_str()], |row| {
-                        let outcome = row
-                            .get::<_, String>(1)?
-                            .parse::<noema_tasks::CriterionOutcome>()
-                            .map_err(|error| {
-                                rusqlite::Error::FromSqlConversionFailure(
-                                    1,
-                                    rusqlite::types::Type::Text,
-                                    Box::new(error),
-                                )
-                            })?;
+                        let outcome = parse_column(row, 1)?;
                         Ok(TaskReviewCriterion {
                             criterion_id: row.get(0)?,
                             outcome,

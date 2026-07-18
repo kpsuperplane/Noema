@@ -1,8 +1,8 @@
 //! Filesystem-backed MCP secret storage.
 //!
 //! Secret replacement is staged on the same filesystem and committed with a
-//! rename. The returned commit can be rolled back until its backup is
-//! finalized, which lets the service compensate a later repository failure.
+//! rename. The returned commit retains its backup until the caller finalizes
+//! or rolls the replacement back.
 
 mod filesystem;
 
@@ -14,7 +14,6 @@ use std::{
 };
 
 use noema_home::NoemaPaths;
-use ring::rand::{SecureRandom, SystemRandom};
 use thiserror::Error;
 
 use crate::McpSecretMaterial;
@@ -27,7 +26,7 @@ const RESTORE_PREFIX: &str = ".secrets.json.restore-";
 
 /// Secret-store operation that failed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum McpSecretStoreOperation {
+pub(crate) enum McpSecretStoreOperation {
     /// Reading existing secret material.
     Read,
     /// Writing a staged replacement.
@@ -55,12 +54,6 @@ impl McpSecretStoreError {
     fn new(operation: McpSecretStoreOperation, source: io::Error) -> Self {
         Self { operation, source }
     }
-
-    /// Return the failed operation without exposing backend detail.
-    #[must_use]
-    pub const fn operation(&self) -> McpSecretStoreOperation {
-        self.operation
-    }
 }
 
 /// A private staged secret file that has not replaced active credentials.
@@ -75,7 +68,7 @@ impl fmt::Debug for McpSecretStage {
     }
 }
 
-/// A committed replacement that can still be compensated.
+/// A committed replacement whose backup has not yet been finalized.
 pub struct McpSecretCommit {
     root: Arc<SecretRoot>,
     target: PathBuf,
@@ -317,19 +310,12 @@ pub(crate) fn now_epoch_seconds() -> u64 {
 }
 
 fn random_hex_id(operation: McpSecretStoreOperation) -> Result<String, McpSecretStoreError> {
-    let mut bytes = [0_u8; 16];
-    SystemRandom::new().fill(&mut bytes).map_err(|_| {
+    crate::identity::random_hex_id().map_err(|_| {
         McpSecretStoreError::new(
             operation,
             io::Error::other("secure random generation failed"),
         )
-    })?;
-    let mut output = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        use fmt::Write as _;
-        let _ = write!(output, "{byte:02x}");
-    }
-    Ok(output)
+    })
 }
 
 #[cfg(all(test, unix))]
@@ -340,23 +326,18 @@ mod tests {
     use std::{collections::BTreeMap, fs};
 
     use super::*;
+    use crate::test_fixture::secret_material;
 
-    fn store() -> (tempfile::TempDir, FilesystemMcpSecretStore) {
+    fn secret_store() -> (tempfile::TempDir, FilesystemMcpSecretStore) {
         let temp = tempfile::tempdir().expect("tempdir");
         let paths = NoemaPaths::from_noema_home(temp.path()).expect("paths");
         (temp, FilesystemMcpSecretStore::new(paths))
     }
 
-    fn material(value: &str) -> McpSecretMaterial {
-        McpSecretMaterial {
-            env: BTreeMap::from([("TOKEN".to_string(), value.to_string())]),
-            ..McpSecretMaterial::default()
-        }
-    }
-
     #[test]
-    fn filesystem_secret_file_round_trips_env_and_headers_without_safe_configuration() {
-        let (_temp, store) = store();
+    fn filesystem_secret_persistence_privacy_and_removal_contracts() {
+        // Case: filesystem_secret_roundtrip_is_private_and_debug_redacted.
+        let (temp, store) = secret_store();
         let expected = McpSecretMaterial {
             secret_identity_revision: Some("revision:test".to_string()),
             env: BTreeMap::from([("GITHUB_TOKEN".to_string(), "env-secret".to_string())]),
@@ -368,13 +349,17 @@ mod tests {
         };
 
         let stage = store.stage(&expected).expect("stage");
+        let debug = format!("{stage:?} {store:?}");
         let commit = store.commit(stage, "mcp:test").expect("commit");
-        let target = commit.target.clone();
+        let target = NoemaPaths::from_noema_home(temp.path())
+            .expect("paths")
+            .mcp_server_home("mcp:test")
+            .join(SECRET_FILE);
         store.finalize(commit).expect("finalize");
 
         assert_eq!(store.load("mcp:test").expect("load"), expected);
         let serialized: serde_json::Value =
-            serde_json::from_slice(&fs::read(target).expect("read serialized secret material"))
+            serde_json::from_slice(&fs::read(&target).expect("read serialized secret material"))
                 .expect("parse serialized secret material");
         assert_eq!(serialized["env"]["GITHUB_TOKEN"], "env-secret");
         assert_eq!(
@@ -384,16 +369,39 @@ mod tests {
         assert!(serialized.get("safe_config").is_none());
         assert!(serialized.get("url").is_none());
         assert!(serialized.get("command").is_none());
-    }
+        for secret in ["env-secret", "header-secret", ".staging"] {
+            assert!(!debug.contains(secret));
+        }
+        assert!(debug.contains("[REDACTED]"));
 
-    #[test]
-    fn filesystem_secret_removal_is_idempotent_and_removes_the_existing_home() {
-        let (temp, store) = store();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            assert_eq!(
+                fs::metadata(target.parent().expect("parent"))
+                    .expect("dir metadata")
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o700
+            );
+            assert_eq!(
+                fs::metadata(target)
+                    .expect("file metadata")
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
+        // Case: filesystem_secret_removal_is_idempotent_and_removes_the_existing_home.
+        let (temp, store) = secret_store();
         let paths = NoemaPaths::from_noema_home(temp.path()).expect("paths");
         let home = paths.mcp_server_home("mcp:test");
 
         store.remove("mcp:test").expect("missing removal succeeds");
-        let stage = store.stage(&material("private")).expect("stage");
+        let stage = store.stage(&secret_material("private")).expect("stage");
         let commit = store.commit(stage, "mcp:test").expect("commit");
         store.finalize(commit).expect("finalize");
         assert!(home.exists());
@@ -404,90 +412,63 @@ mod tests {
     }
 
     #[test]
-    fn replacement_is_atomic_and_can_be_rolled_back() {
-        let (_temp, store) = store();
-        let first = store.stage(&material("first")).expect("first stage");
+    fn filesystem_secret_replacement_and_recovery_contracts() {
+        // Case: replacement_is_atomic_and_can_be_rolled_back.
+        let (_temp, store) = secret_store();
+        let first = store.stage(&secret_material("first")).expect("first stage");
         let first = store.commit(first, "mcp:test").expect("first commit");
         store.finalize(first).expect("first finalize");
 
-        let second = store.stage(&material("second")).expect("second stage");
+        let second = store
+            .stage(&secret_material("second"))
+            .expect("second stage");
         let second = store.commit(second, "mcp:test").expect("second commit");
-        assert_eq!(store.load("mcp:test").expect("second"), material("second"));
+        assert_eq!(
+            store.load("mcp:test").expect("second"),
+            secret_material("second")
+        );
 
         store.rollback(second).expect("rollback");
-        assert_eq!(store.load("mcp:test").expect("first"), material("first"));
-    }
-
-    #[test]
-    fn abandoned_staging_cleanup_does_not_touch_active_secret_files() {
-        let (_temp, store) = store();
-        let active = store.stage(&material("active")).expect("active stage");
-        let active = store.commit(active, "mcp:test").expect("active commit");
-        store.finalize(active).expect("active finalize");
-        let abandoned = store.stage(&material("abandoned")).expect("abandoned");
+        assert_eq!(
+            store.load("mcp:test").expect("first"),
+            secret_material("first")
+        );
+        // Case: cleanup_discards_abandoned_stages_and_recovers_the_last_valid_backup.
+        let (temp, store) = secret_store();
+        let first = store.stage(&secret_material("first")).expect("first stage");
+        let first = store.commit(first, "mcp:test").expect("first commit");
+        store.finalize(first).expect("first finalize");
+        let abandoned = store
+            .stage(&secret_material("abandoned"))
+            .expect("abandoned");
         assert!(abandoned.path.exists());
 
         store.cleanup_abandoned_staging().expect("cleanup");
 
         assert!(!abandoned.path.exists());
-        assert_eq!(store.load("mcp:test").expect("active"), material("active"));
-    }
+        assert_eq!(
+            store.load("mcp:test").expect("active"),
+            secret_material("first")
+        );
 
-    #[test]
-    fn abandoned_backup_restores_the_last_valid_credentials() {
-        let (_temp, store) = store();
-        let first = store.stage(&material("first")).expect("first stage");
-        let first = store.commit(first, "mcp:test").expect("first commit");
-        store.finalize(first).expect("first finalize");
-        let second = store.stage(&material("second")).expect("second stage");
+        let second = store
+            .stage(&secret_material("second"))
+            .expect("second stage");
         let interrupted = store.commit(second, "mcp:test").expect("second commit");
-        let target = interrupted.target.clone();
+        let target = NoemaPaths::from_noema_home(temp.path())
+            .expect("paths")
+            .mcp_server_home("mcp:test")
+            .join(SECRET_FILE);
         let backup = interrupted.backup.clone().expect("backup");
         fs::remove_file(&target).expect("simulate interrupted replacement");
         assert!(backup.exists());
 
         store.cleanup_abandoned_staging().expect("recover");
 
-        assert_eq!(store.load("mcp:test").expect("restored"), material("first"));
+        assert_eq!(
+            store.load("mcp:test").expect("restored"),
+            secret_material("first")
+        );
         assert!(!backup.exists());
-    }
-
-    #[test]
-    fn secret_debug_output_redacts_paths_and_material() {
-        let (_temp, store) = store();
-        let stage = store.stage(&material("private-value")).expect("stage");
-        let debug = format!("{stage:?} {store:?}");
-        assert!(!debug.contains("private-value"));
-        assert!(!debug.contains(".staging"));
-        assert!(debug.contains("[REDACTED]"));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn committed_secret_directory_and_file_are_private() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let (_temp, store) = store();
-        let stage = store.stage(&material("private")).expect("stage");
-        let commit = store.commit(stage, "mcp:test").expect("commit");
-        let target = commit.target.clone();
-        store.finalize(commit).expect("finalize");
-
-        assert_eq!(
-            fs::metadata(target.parent().expect("parent"))
-                .expect("dir metadata")
-                .permissions()
-                .mode()
-                & 0o777,
-            0o700
-        );
-        assert_eq!(
-            fs::metadata(target)
-                .expect("file metadata")
-                .permissions()
-                .mode()
-                & 0o777,
-            0o600
-        );
     }
 }

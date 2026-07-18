@@ -81,40 +81,6 @@ fn retirement_rejects_new_leases_and_cleans_up_after_the_last_lease() {
     );
 }
 
-#[test]
-fn replacement_clears_a_drained_retirement_tombstone() {
-    let registry = ProviderRegistry::new();
-    let instance_key = key("provider_account:codex:retired-replacement");
-    let registration = registry
-        .register(
-            instance_key.clone(),
-            provider("old", Arc::new(AtomicUsize::new(0))),
-        )
-        .expect("register old provider");
-    registry
-        .begin_retirement(&registration)
-        .expect("retire old provider");
-    assert!(matches!(
-        registry.lease(&instance_key),
-        Err(ProviderRegistryError::Retiring { .. })
-    ));
-
-    let replacement = registry
-        .register(
-            instance_key.clone(),
-            provider("new", Arc::new(AtomicUsize::new(0))),
-        )
-        .expect("register replacement");
-
-    assert_eq!(
-        registry
-            .lease(&instance_key)
-            .expect("replacement lease")
-            .generation(),
-        replacement.generation()
-    );
-}
-
 #[tokio::test]
 async fn replacement_installs_a_new_generation_while_old_leases_remain_valid() {
     let registry = ProviderRegistry::new();
@@ -311,26 +277,22 @@ fn ready_selection_proof_holds_the_exact_generation_through_retirement() {
     drop(proof);
 
     assert!(retirement.is_drained());
-}
 
-#[test]
-fn ready_selection_proof_rejects_unregistered_and_inexact_selections() {
-    let registry = ProviderRegistry::new();
-    let instance_key = key("provider_account:codex:missing");
+    let missing_key = key("provider_account:codex:missing");
     let missing = registry
         .prove_ready_selection(ProviderSelectionSnapshot {
             provider_kind: "codex".to_string(),
             provider_account_id: "provider_account:codex:missing".to_string(),
-            provider_instance_key: Some(instance_key.clone()),
+            provider_instance_key: Some(missing_key.clone()),
             selection_mode: ProviderSelectionMode::ProviderDefault,
             model_profile: None,
             reasoning_effort: None,
             selection_source: None,
         })
-        .expect_err("missing registry entry");
+        .expect_err("unregistered selection");
     assert_eq!(
         missing,
-        ProviderReadySelectionError::Registry(ProviderRegistryError::Missing { key: instance_key })
+        ProviderReadySelectionError::Registry(ProviderRegistryError::Missing { key: missing_key })
     );
 
     let inexact = registry

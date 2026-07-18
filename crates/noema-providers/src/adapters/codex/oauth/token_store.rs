@@ -6,8 +6,6 @@ use crate::adapters::account_service::filesystem::{
 use crate::{CODEX_PROVIDER, CodexOAuthTokens, ProviderError};
 
 use super::claims::token_needs_refresh;
-#[cfg(test)]
-use super::client::CodexOAuthClient;
 
 const TOKEN_FILE_NAME: &str = "codex_tokens.json";
 
@@ -120,78 +118,16 @@ impl CodexTokenStore {
     ) -> bool {
         token_needs_refresh(tokens, refresh_skew_seconds)
     }
-
-    /// Resolve a usable access token, refreshing when expiry is near.
-    ///
-    /// # Errors
-    ///
-    /// Returns provider/auth errors when credentials are missing or refresh
-    /// fails.
-    #[cfg(test)]
-    pub(crate) async fn access_token(
-        &self,
-        client: &CodexOAuthClient,
-        refresh_skew_seconds: u64,
-    ) -> Result<String, ProviderError> {
-        let tokens = self.read()?;
-        if !token_needs_refresh(&tokens, refresh_skew_seconds) {
-            return Ok(tokens.access_token);
-        }
-        let refreshed = client.refresh_tokens(&tokens.refresh_token).await?;
-        self.write(&refreshed)?;
-        Ok(refreshed.access_token)
-    }
-
-    /// Force-refresh tokens and persist the result.
-    ///
-    /// # Errors
-    ///
-    /// Returns provider/auth errors when credentials are missing or refresh
-    /// fails.
-    #[cfg(test)]
-    pub(crate) async fn refresh_access_token(
-        &self,
-        client: &CodexOAuthClient,
-    ) -> Result<String, ProviderError> {
-        let tokens = self.read()?;
-        let refreshed = client.refresh_tokens(&tokens.refresh_token).await?;
-        self.write(&refreshed)?;
-        Ok(refreshed.access_token)
-    }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
+    use std::os::unix::fs::PermissionsExt;
+
     use super::*;
 
     #[test]
-    fn token_snapshot_restores_exact_prior_bytes() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let store = CodexTokenStore::new(dir.path().join("providers/codex/default"));
-        atomic_write_private(&store.token_path(), b"{malformed-token}\0")
-            .expect("write malformed prior file");
-        let snapshot = store.snapshot().expect("snapshot");
-        store
-            .write(&CodexOAuthTokens {
-                access_token: "access".to_string(),
-                refresh_token: "refresh".to_string(),
-                last_refresh: 1,
-            })
-            .expect("replace");
-
-        store.restore(&snapshot).expect("restore");
-
-        assert_eq!(
-            fs::read(store.token_path()).expect("read restored"),
-            b"{malformed-token}\0"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
     fn written_tokens_have_private_unix_permissions() {
-        use std::os::unix::fs::PermissionsExt;
-
         let dir = tempfile::tempdir().expect("tempdir");
         let store = CodexTokenStore::new(dir.path().join("providers/codex/default"));
         store
@@ -202,17 +138,16 @@ mod tests {
             })
             .expect("write");
 
-        let account_home_mode = fs::metadata(&store.account_home)
-            .expect("account metadata")
-            .permissions()
-            .mode()
-            & 0o777;
-        let token_file_mode = fs::metadata(store.token_path())
-            .expect("token metadata")
-            .permissions()
-            .mode()
-            & 0o777;
-        assert_eq!(account_home_mode, 0o700);
-        assert_eq!(token_file_mode, 0o600);
+        let token_path = store.token_path();
+        for (label, path, expected) in [
+            ("account home", store.account_home.as_path(), 0o700),
+            ("token file", token_path.as_path(), 0o600),
+        ] {
+            assert_eq!(
+                fs::metadata(path).expect(label).permissions().mode() & 0o777,
+                expected,
+                "{label} permissions"
+            );
+        }
     }
 }

@@ -1,32 +1,63 @@
 use std::{
-    collections::BTreeMap,
     fs,
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, MutexGuard,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
 
-use noema_capabilities::{CapabilityBindingSource, CapabilityInvocation};
+trait TestMutex<T> {
+    fn lock_test(&self) -> MutexGuard<'_, T>;
+}
+
+impl<T> TestMutex<T> for Mutex<T> {
+    fn lock_test(&self) -> MutexGuard<'_, T> {
+        self.lock().expect("test mutex poisoned")
+    }
+}
+
+use noema_capabilities::{
+    CapabilityBindingSource, CapabilityError, CapabilityInvocation, CapabilityInvoker,
+    CapabilityOutput,
+};
 use noema_home::NoemaPaths;
 use serde_json::json;
 use tempfile::TempDir;
 use tokio::sync::Semaphore;
 
 use crate::{
-    FilesystemMcpSecretStore, LocalMcpService, LocalMcpServiceConfig, McpCalibrationStatus,
-    McpClientError, McpConnectionReplacement, McpControlPlaneServer, McpControlPlaneTool,
-    McpDeleteTicket, McpDiagnosticEvent, McpDiagnosticSink, McpDiscoveredTool, McpDiscoveryCommit,
-    McpFailureStatus, McpInitialDiscoveryCommit, McpInvocationSnapshot, McpOAuthStoredCredentials,
+    FilesystemMcpSecretStore, LocalMcpService, LocalMcpServiceConfig, McpClientError,
+    McpConnectionReplacement, McpControlPlaneServer, McpControlPlaneTool, McpDeleteTicket,
+    McpDiagnosticEvent, McpDiagnosticSink, McpDiscoveredTool, McpDiscoveryCommit, McpFailureStatus,
+    McpInitialDiscoveryCommit, McpInvocationSnapshot, McpOAuthStoredCredentials,
     McpPreparedSession, McpRepository, McpRepositoryError, McpRepositoryErrorKind,
     McpRepositoryFuture, McpRepositoryResult, McpRequestContext, McpSecretCommit,
-    McpSecretMaterial, McpSecretStage, McpSecretStore, McpSecretStoreError, McpServerAuthStatus,
-    McpServerHealthStatus, McpServerRecord, McpSessionFactory, McpSessionPreparation,
-    McpToolCallOutput, McpToolRecord, McpTransportKind, McpTrustClassification, NewToolCalibration,
-    ToolCalibrationRecord,
+    McpSecretMaterial, McpSecretStage, McpSecretStore, McpSecretStoreError, McpServerHealthStatus,
+    McpServerRecord, McpSessionFactory, McpSessionPreparation, McpToolCallOutput, McpToolRecord,
+    NewToolCalibration, ToolCalibrationRecord,
+    test_fixture::{discovered_tool, ready_server},
 };
 
-pub(crate) type EventLog = Arc<Mutex<Vec<&'static str>>>;
+#[derive(Debug, Default)]
+pub(crate) struct EventLog(Mutex<Vec<&'static str>>);
+
+impl EventLog {
+    fn push(&self, event: &'static str) {
+        self.0.lock_test().push(event);
+    }
+
+    pub(crate) fn clear(&self) {
+        self.0.lock_test().clear();
+    }
+
+    pub(crate) fn snapshot(&self) -> Vec<&'static str> {
+        self.0.lock_test().clone()
+    }
+
+    pub(crate) fn contains(&self, event: &'static str) -> bool {
+        self.0.lock_test().contains(&event)
+    }
+}
 
 #[derive(Debug, Default)]
 pub(crate) struct RecordingDiagnostics {
@@ -35,13 +66,13 @@ pub(crate) struct RecordingDiagnostics {
 
 impl RecordingDiagnostics {
     pub(crate) fn take(&self) -> Vec<McpDiagnosticEvent> {
-        std::mem::take(&mut *self.events.lock().expect("diagnostics"))
+        std::mem::take(&mut *self.events.lock_test())
     }
 }
 
 impl McpDiagnosticSink for RecordingDiagnostics {
     fn record(&self, event: McpDiagnosticEvent) {
-        self.events.lock().expect("diagnostics").push(event);
+        self.events.lock_test().push(event);
     }
 }
 
@@ -71,20 +102,15 @@ impl TestRepository {
     }
 
     pub(crate) fn snapshot(&self) -> McpInvocationSnapshot {
-        self.state
-            .lock()
-            .expect("repository")
-            .snapshot
-            .clone()
-            .expect("snapshot")
+        self.state.lock_test().snapshot.clone().expect("snapshot")
     }
 
     pub(crate) fn set_snapshot(&self, snapshot: McpInvocationSnapshot) {
-        self.state.lock().expect("repository").snapshot = Some(snapshot);
+        self.state.lock_test().snapshot = Some(snapshot);
     }
 
     pub(crate) fn set_safe_config(&self, safe_config: serde_json::Value) {
-        let mut state = self.state.lock().expect("repository");
+        let mut state = self.state.lock_test();
         if let Some(joined) = state.joined.as_mut() {
             joined.server.safe_config = safe_config.clone();
         }
@@ -94,35 +120,38 @@ impl TestRepository {
     }
 
     pub(crate) fn fail_replacement(&self, detail: &str) {
-        self.state.lock().expect("repository").replace_error = Some(McpRepositoryError::new(
+        self.state.lock_test().replace_error = Some(McpRepositoryError::new(
             McpRepositoryErrorKind::Conflict,
             detail,
         ));
     }
 
     pub(crate) fn events(&self) -> Vec<&'static str> {
-        self.state.lock().expect("repository").events.clone()
+        self.state.lock_test().events.clone()
     }
 }
 
-impl McpRepository for TestRepository {
-    fn commit_initial_discovery(
-        &self,
-        input: McpInitialDiscoveryCommit,
-    ) -> McpRepositoryFuture<'_, McpRepositoryResult<McpControlPlaneServer>> {
-        Box::pin(async move {
-            let mut state = self.state.lock().expect("repository");
+macro_rules! test_repository {
+    ($repository:ident; $($method:ident($($argument:ident: $type:ty),*) -> $result:ty $body:block)*) => {
+        impl McpRepository for TestRepository {
+            $(fn $method(
+                &self,
+                $($argument: $type),*
+            ) -> McpRepositoryFuture<'_, McpRepositoryResult<$result>> {
+                let $repository = self;
+                Box::pin(async move $body)
+            })*
+        }
+    };
+}
+
+test_repository! {
+    repository;
+    commit_initial_discovery(input: McpInitialDiscoveryCommit) -> McpControlPlaneServer {
+            let mut state = repository.state.lock_test();
             state.events.push("commit_initial_discovery");
             let server_id = "mcp:created".to_string();
-            let tools = input
-                .tools
-                .into_iter()
-                .enumerate()
-                .map(|(index, tool)| McpControlPlaneTool {
-                    tool: tool_record(&server_id, index, tool),
-                    calibration: None,
-                })
-                .collect::<Vec<_>>();
+            let tools = control_plane_tools(&server_id, input.tools);
             let server = McpServerRecord {
                 mcp_server_id: server_id,
                 display_name: input.server.display_name,
@@ -138,45 +167,22 @@ impl McpRepository for TestRepository {
             state.snapshot = Some(invocation_snapshot(&joined));
             state.joined = Some(joined.clone());
             Ok(joined)
-        })
     }
 
-    fn control_plane_server(
-        &self,
-        _: String,
-    ) -> McpRepositoryFuture<'_, McpRepositoryResult<Option<McpControlPlaneServer>>> {
-        Box::pin(async move { Ok(self.state.lock().expect("repository").joined.clone()) })
+    control_plane_server(_server_id: String) -> Option<McpControlPlaneServer> {
+        Ok(repository.state.lock_test().joined.clone())
     }
 
-    fn control_plane_catalog(
-        &self,
-    ) -> McpRepositoryFuture<'_, McpRepositoryResult<Vec<McpControlPlaneServer>>> {
-        Box::pin(async move {
-            Ok(self
-                .state
-                .lock()
-                .expect("repository")
-                .joined
-                .clone()
-                .into_iter()
-                .collect())
-        })
+    control_plane_catalog() -> Vec<McpControlPlaneServer> {
+        Ok(repository.state.lock_test().joined.clone().into_iter().collect())
     }
 
-    fn invocation_snapshot(
-        &self,
-        _: String,
-        _: String,
-    ) -> McpRepositoryFuture<'_, McpRepositoryResult<Option<McpInvocationSnapshot>>> {
-        Box::pin(async move { Ok(self.state.lock().expect("repository").snapshot.clone()) })
+    invocation_snapshot(_server_id: String, _tool_id: String) -> Option<McpInvocationSnapshot> {
+        Ok(repository.state.lock_test().snapshot.clone())
     }
 
-    fn replace_connection(
-        &self,
-        input: McpConnectionReplacement,
-    ) -> McpRepositoryFuture<'_, McpRepositoryResult<McpServerRecord>> {
-        Box::pin(async move {
-            let mut state = self.state.lock().expect("repository");
+    replace_connection(input: McpConnectionReplacement) -> McpServerRecord {
+            let mut state = repository.state.lock_test();
             state.events.push("replace_connection");
             if let Some(error) = state.replace_error.take() {
                 return Err(error);
@@ -202,15 +208,10 @@ impl McpRepository for TestRepository {
                 snapshot.server = server.clone();
             }
             Ok(server)
-        })
     }
 
-    fn commit_discovery(
-        &self,
-        input: McpDiscoveryCommit,
-    ) -> McpRepositoryFuture<'_, McpRepositoryResult<McpControlPlaneServer>> {
-        Box::pin(async move {
-            let mut state = self.state.lock().expect("repository");
+    commit_discovery(input: McpDiscoveryCommit) -> McpControlPlaneServer {
+            let mut state = repository.state.lock_test();
             state.events.push("commit_discovery");
             let joined = state.joined.as_mut().ok_or_else(|| {
                 McpRepositoryError::new(McpRepositoryErrorKind::NotFound, "missing server")
@@ -223,28 +224,15 @@ impl McpRepository for TestRepository {
             }
             joined.server.health_status = input.health_status;
             joined.server.auth_status = input.auth_status;
-            joined.tools = input
-                .tools
-                .into_iter()
-                .enumerate()
-                .map(|(index, tool)| McpControlPlaneTool {
-                    tool: tool_record(&input.mcp_server_id, index, tool),
-                    calibration: None,
-                })
-                .collect();
+            joined.tools = control_plane_tools(&input.mcp_server_id, input.tools);
             joined.server.tool_count = joined.tools.len();
             let result = joined.clone();
             state.snapshot = Some(invocation_snapshot(&result));
             Ok(result)
-        })
     }
 
-    fn record_failure_status(
-        &self,
-        input: McpFailureStatus,
-    ) -> McpRepositoryFuture<'_, McpRepositoryResult<bool>> {
-        Box::pin(async move {
-            let mut state = self.state.lock().expect("repository");
+    record_failure_status(input: McpFailureStatus) -> bool {
+            let mut state = repository.state.lock_test();
             state.events.push("record_status");
             let Some(joined) = state.joined.as_mut() else {
                 return Ok(false);
@@ -255,44 +243,22 @@ impl McpRepository for TestRepository {
             joined.server.health_status = input.health_status;
             joined.server.auth_status = input.auth_status;
             Ok(true)
-        })
     }
 
-    fn save_calibrations(
-        &self,
-        calibrations: Vec<NewToolCalibration>,
-    ) -> McpRepositoryFuture<'_, McpRepositoryResult<Vec<ToolCalibrationRecord>>> {
-        Box::pin(async move {
-            let mut state = self.state.lock().expect("repository");
+    save_calibrations(calibrations: Vec<NewToolCalibration>) -> Vec<ToolCalibrationRecord> {
+            let mut state = repository.state.lock_test();
             state.events.push("save_calibrations");
-            let saved = calibrations
-                .into_iter()
-                .map(|calibration| ToolCalibrationRecord {
-                    calibration_id: calibration.calibration_id,
-                    mcp_tool_id: calibration.mcp_tool_id,
-                    read_classification: calibration.read_classification,
-                    write_classification: calibration.write_classification,
-                    export_classification: calibration.export_classification,
-                    status: calibration.status,
-                    reviewed_by: calibration.reviewed_by,
-                    reviewed_metadata_fingerprint: calibration.reviewed_metadata_fingerprint,
-                })
-                .collect::<Vec<_>>();
+            let saved = calibrations;
             if let (Some(snapshot), Some(calibration)) =
                 (state.snapshot.as_mut(), saved.first().cloned())
             {
                 snapshot.calibration = Some(calibration);
             }
             Ok(saved)
-        })
     }
 
-    fn begin_delete(
-        &self,
-        mcp_server_id: String,
-    ) -> McpRepositoryFuture<'_, McpRepositoryResult<Option<McpDeleteTicket>>> {
-        Box::pin(async move {
-            let mut state = self.state.lock().expect("repository");
+    begin_delete(mcp_server_id: String) -> Option<McpDeleteTicket> {
+            let mut state = repository.state.lock_test();
             state.events.push("begin_delete");
             if state.joined.is_none() {
                 return Ok(None);
@@ -301,19 +267,13 @@ impl McpRepository for TestRepository {
                 mcp_server_id,
                 deletion_generation: "generation:deleting".to_string(),
             }))
-        })
     }
 
-    fn finish_delete(
-        &self,
-        _: McpDeleteTicket,
-    ) -> McpRepositoryFuture<'_, McpRepositoryResult<bool>> {
-        Box::pin(async move {
-            let mut state = self.state.lock().expect("repository");
+    finish_delete(_ticket: McpDeleteTicket) -> bool {
+            let mut state = repository.state.lock_test();
             state.events.push("finish_delete");
             state.snapshot = None;
             Ok(state.joined.take().is_some())
-        })
     }
 }
 
@@ -321,12 +281,12 @@ impl McpRepository for TestRepository {
 pub(crate) struct RecordingSecretStore {
     inner: FilesystemMcpSecretStore,
     paths: NoemaPaths,
-    events: EventLog,
+    events: Arc<EventLog>,
     fail_commit_id: Mutex<Option<String>>,
 }
 
 impl RecordingSecretStore {
-    fn new(paths: NoemaPaths, events: EventLog) -> Self {
+    fn new(paths: NoemaPaths, events: Arc<EventLog>) -> Self {
         Self {
             inner: FilesystemMcpSecretStore::new(paths.clone()),
             paths,
@@ -339,7 +299,7 @@ impl RecordingSecretStore {
         let stage = self.inner.stage(material).expect("stage seed");
         let commit = self.inner.commit(stage, id).expect("commit seed");
         self.inner.finalize(commit).expect("finalize seed");
-        self.events.lock().expect("events").clear();
+        self.events.clear();
     }
 
     pub(crate) fn material(&self, id: &str) -> McpSecretMaterial {
@@ -368,35 +328,30 @@ impl RecordingSecretStore {
     }
 
     pub(crate) fn fail_commit_for(&self, id: &str) {
-        *self.fail_commit_id.lock().expect("fail commit") = Some(id.to_string());
+        *self.fail_commit_id.lock_test() = Some(id.to_string());
     }
 }
 
-impl McpSecretStore for RecordingSecretStore {
-    fn load(&self, id: &str) -> Result<McpSecretMaterial, McpSecretStoreError> {
-        self.events.lock().expect("events").push("secret_load");
-        self.inner.load(id)
-    }
+macro_rules! record_secret_delegate {
+    ($method:ident($argument:ident: $type:ty), $event:literal, $result:ty) => {
+        fn $method(&self, $argument: $type) -> Result<$result, McpSecretStoreError> {
+            self.events.push($event);
+            self.inner.$method($argument)
+        }
+    };
+}
 
-    fn stage(&self, secrets: &McpSecretMaterial) -> Result<McpSecretStage, McpSecretStoreError> {
-        self.events.lock().expect("events").push("secret_stage");
-        self.inner.stage(secrets)
-    }
+impl McpSecretStore for RecordingSecretStore {
+    record_secret_delegate!(load(id: &str), "secret_load", McpSecretMaterial);
+    record_secret_delegate!(stage(secrets: &McpSecretMaterial), "secret_stage", McpSecretStage);
 
     fn commit(
         &self,
         stage: McpSecretStage,
         id: &str,
     ) -> Result<McpSecretCommit, McpSecretStoreError> {
-        self.events.lock().expect("events").push("secret_commit");
-        if self
-            .fail_commit_id
-            .lock()
-            .expect("fail commit")
-            .take()
-            .as_deref()
-            == Some(id)
-        {
+        self.events.push("secret_commit");
+        if self.fail_commit_id.lock_test().take().as_deref() == Some(id) {
             fs::create_dir_all(self.paths.mcp_dir()).expect("create mcp dir");
             fs::write(self.paths.mcp_server_home(id), b"block-directory-creation")
                 .expect("write blocker");
@@ -404,25 +359,10 @@ impl McpSecretStore for RecordingSecretStore {
         self.inner.commit(stage, id)
     }
 
-    fn rollback(&self, commit: McpSecretCommit) -> Result<(), McpSecretStoreError> {
-        self.events.lock().expect("events").push("secret_rollback");
-        self.inner.rollback(commit)
-    }
-
-    fn finalize(&self, commit: McpSecretCommit) -> Result<(), McpSecretStoreError> {
-        self.events.lock().expect("events").push("secret_finalize");
-        self.inner.finalize(commit)
-    }
-
-    fn discard(&self, stage: McpSecretStage) -> Result<(), McpSecretStoreError> {
-        self.events.lock().expect("events").push("secret_discard");
-        self.inner.discard(stage)
-    }
-
-    fn remove(&self, id: &str) -> Result<(), McpSecretStoreError> {
-        self.events.lock().expect("events").push("secret_remove");
-        self.inner.remove(id)
-    }
+    record_secret_delegate!(rollback(commit: McpSecretCommit), "secret_rollback", ());
+    record_secret_delegate!(finalize(commit: McpSecretCommit), "secret_finalize", ());
+    record_secret_delegate!(discard(stage: McpSecretStage), "secret_discard", ());
+    record_secret_delegate!(remove(id: &str), "secret_remove", ());
 
     fn cleanup_abandoned_staging(&self) -> Result<(), McpSecretStoreError> {
         self.inner.cleanup_abandoned_staging()
@@ -444,11 +384,11 @@ struct TestSessionState {
     call_started: Arc<Semaphore>,
     release_call: Arc<Semaphore>,
     call_count: AtomicUsize,
-    events: EventLog,
+    events: Arc<EventLog>,
 }
 
 impl TestSessionFactory {
-    fn new(events: EventLog) -> Self {
+    fn new(events: Arc<EventLog>) -> Self {
         Self {
             state: Arc::new(TestSessionState {
                 discovered: Mutex::new(vec![discovered_tool()]),
@@ -468,15 +408,15 @@ impl TestSessionFactory {
     }
 
     pub(crate) fn set_refreshed(&self, credentials: McpOAuthStoredCredentials) {
-        *self.state.refreshed.lock().expect("refreshed") = Some(credentials);
+        *self.state.refreshed.lock_test() = Some(credentials);
     }
 
     pub(crate) fn set_prepare_error(&self, error: McpClientError) {
-        *self.state.prepare_error.lock().expect("prepare error") = Some(error);
+        *self.state.prepare_error.lock_test() = Some(error);
     }
 
     pub(crate) fn set_call_error(&self, error: McpClientError) {
-        *self.state.call_result.lock().expect("call result") = Err(error);
+        *self.state.call_result.lock_test() = Err(error);
     }
 
     pub(crate) fn block_calls(&self) {
@@ -510,25 +450,15 @@ impl McpSessionFactory for TestSessionFactory {
         _: &'a McpRequestContext,
     ) -> crate::McpClientFuture<'a, McpSessionPreparation> {
         Box::pin(async move {
-            self.state
-                .events
-                .lock()
-                .expect("events")
-                .push("session_prepare");
-            if let Some(error) = self
-                .state
-                .prepare_error
-                .lock()
-                .expect("prepare error")
-                .clone()
-            {
+            self.state.events.push("session_prepare");
+            if let Some(error) = self.state.prepare_error.lock_test().clone() {
                 return Err(error);
             }
             Ok(McpSessionPreparation::new(
                 Box::new(TestSession {
                     state: self.state.clone(),
                 }),
-                self.state.refreshed.lock().expect("refreshed").clone(),
+                self.state.refreshed.lock_test().clone(),
             ))
         })
     }
@@ -543,7 +473,7 @@ impl McpPreparedSession for TestSession {
         &'a mut self,
         _: &'a McpRequestContext,
     ) -> crate::McpClientFuture<'a, Vec<McpDiscoveredTool>> {
-        Box::pin(async move { Ok(self.state.discovered.lock().expect("discovered").clone()) })
+        Box::pin(async move { Ok(self.state.discovered.lock_test().clone()) })
     }
 
     fn call_tool<'a>(
@@ -554,7 +484,7 @@ impl McpPreparedSession for TestSession {
     ) -> crate::McpClientFuture<'a, McpToolCallOutput> {
         Box::pin(async move {
             self.state.call_count.fetch_add(1, Ordering::SeqCst);
-            self.state.events.lock().expect("events").push("tool_call");
+            self.state.events.push("tool_call");
             self.state.call_started.add_permits(1);
             if self.state.block_calls.load(Ordering::SeqCst) {
                 let cancellation = context.cancellation_token();
@@ -567,16 +497,12 @@ impl McpPreparedSession for TestSession {
                     }
                 }
             }
-            self.state.call_result.lock().expect("call result").clone()
+            self.state.call_result.lock_test().clone()
         })
     }
 
     fn close(self: Box<Self>) -> crate::McpClientFuture<'static, ()> {
-        self.state
-            .events
-            .lock()
-            .expect("events")
-            .push("session_close");
+        self.state.events.push("session_close");
         Box::pin(async { Ok(()) })
     }
 }
@@ -587,7 +513,7 @@ pub(crate) struct TestHarness {
     pub(crate) secrets: Arc<RecordingSecretStore>,
     pub(crate) sessions: Arc<TestSessionFactory>,
     pub(crate) diagnostics: Arc<RecordingDiagnostics>,
-    pub(crate) events: EventLog,
+    pub(crate) events: Arc<EventLog>,
     _home: TempDir,
 }
 
@@ -595,7 +521,7 @@ impl TestHarness {
     pub(crate) fn new() -> Self {
         let home = tempfile::tempdir().expect("temporary home");
         let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-        let events = Arc::new(Mutex::new(Vec::new()));
+        let events = Arc::new(EventLog::default());
         let repository = Arc::new(TestRepository::new(ready_server()));
         let secrets = Arc::new(RecordingSecretStore::new(paths, events.clone()));
         let sessions = Arc::new(TestSessionFactory::new(events.clone()));
@@ -612,7 +538,7 @@ impl TestHarness {
             },
         )
         .expect("test service");
-        events.lock().expect("events").clear();
+        events.clear();
         Self {
             service,
             repository,
@@ -623,46 +549,17 @@ impl TestHarness {
             _home: home,
         }
     }
-}
 
-pub(crate) fn ready_server() -> McpControlPlaneServer {
-    let tool = McpToolRecord {
-        mcp_tool_id: "mcp_tool:docs:read".to_string(),
-        mcp_server_id: "mcp:docs".to_string(),
-        name: "read".to_string(),
-        description: Some("Read documents".to_string()),
-        input_schema: json!({"type": "object"}),
-        output_schema: Some(json!({"type": "object"})),
-        annotations: json!({"readOnlyHint": true}),
-        metadata_fingerprint: "fingerprint:v1".to_string(),
-        discovered_at: "now".to_string(),
-    };
-    let calibration = ToolCalibrationRecord {
-        calibration_id: "calibration:read".to_string(),
-        mcp_tool_id: tool.mcp_tool_id.clone(),
-        read_classification: McpTrustClassification::Trusted,
-        write_classification: McpTrustClassification::None,
-        export_classification: McpTrustClassification::None,
-        status: McpCalibrationStatus::Ready,
-        reviewed_by: Some("human:local".to_string()),
-        reviewed_metadata_fingerprint: Some(tool.metadata_fingerprint.clone()),
-    };
-    McpControlPlaneServer {
-        server: McpServerRecord {
-            mcp_server_id: "mcp:docs".to_string(),
-            display_name: "Docs".to_string(),
-            transport_kind: McpTransportKind::Stdio,
-            safe_config: json!({"command": "docs-server", "args": [], "cwd": null, "env": {}}),
-            enabled: true,
-            health_status: McpServerHealthStatus::Healthy,
-            auth_status: McpServerAuthStatus::None,
-            tool_count: 1,
-            authority_generation: "generation:v1".to_string(),
-        },
-        tools: vec![McpControlPlaneTool {
-            tool,
-            calibration: Some(calibration),
-        }],
+    pub(crate) async fn start_blocked_invocation(
+        &self,
+    ) -> tokio::task::JoinHandle<Result<CapabilityOutput, CapabilityError>> {
+        self.sessions.block_calls();
+        let invocation = advertised_invocation(self).await;
+        let service = self.service.clone();
+        let task =
+            tokio::spawn(async move { CapabilityInvoker::invoke(&service, invocation).await });
+        self.sessions.wait_for_call().await;
+        task
     }
 }
 
@@ -672,24 +569,6 @@ fn invocation_snapshot(server: &McpControlPlaneServer) -> McpInvocationSnapshot 
         server: server.server.clone(),
         tool: entry.tool.clone(),
         calibration: entry.calibration.clone(),
-    }
-}
-
-pub(crate) fn discovered_tool() -> McpDiscoveredTool {
-    McpDiscoveredTool {
-        name: "read".to_string(),
-        description: Some("Read documents".to_string()),
-        input_schema: json!({"type": "object"}),
-        output_schema: Some(json!({"type": "object"})),
-        annotations: json!({"readOnlyHint": true}),
-        metadata_fingerprint: "ignored".to_string(),
-    }
-}
-
-pub(crate) fn secret_material(value: &str) -> McpSecretMaterial {
-    McpSecretMaterial {
-        env: BTreeMap::from([("TOKEN".to_string(), value.to_string())]),
-        ..McpSecretMaterial::default()
     }
 }
 
@@ -720,4 +599,15 @@ fn tool_record(server_id: &str, index: usize, tool: McpDiscoveredTool) -> McpToo
         metadata_fingerprint: tool.metadata_fingerprint,
         discovered_at: "now".to_string(),
     }
+}
+
+fn control_plane_tools(server_id: &str, tools: Vec<McpDiscoveredTool>) -> Vec<McpControlPlaneTool> {
+    tools
+        .into_iter()
+        .enumerate()
+        .map(|(index, tool)| McpControlPlaneTool {
+            tool: tool_record(server_id, index, tool),
+            calibration: None,
+        })
+        .collect()
 }

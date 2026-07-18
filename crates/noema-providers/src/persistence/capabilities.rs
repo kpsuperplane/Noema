@@ -1,7 +1,5 @@
 //! Provider capability-assignment persistence boundary.
 
-use std::sync::Arc;
-
 use noema_capabilities::{CapabilityId, ToolName};
 
 use crate::{
@@ -212,10 +210,6 @@ pub trait ProviderCapabilityAssignmentPersistence: Send + Sync {
         request: UpsertProviderCapabilityAssignmentRequest,
     ) -> ProviderPersistenceFuture<'_, ProviderCapabilityAssignment>;
 }
-
-/// Clonable provider capability-assignment persistence handle.
-pub type ProviderCapabilityAssignmentPersistenceHandle =
-    Arc<dyn ProviderCapabilityAssignmentPersistence>;
 
 #[cfg(test)]
 mod tests {

@@ -211,27 +211,6 @@ pub struct McpToolRecord {
     pub discovered_at: String,
 }
 
-/// Input for saving reviewed MCP tool calibration.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NewToolCalibration {
-    /// Durable calibration id.
-    pub calibration_id: String,
-    /// Calibrated MCP tool id.
-    pub mcp_tool_id: String,
-    /// Effective read classification.
-    pub read_classification: McpTrustClassification,
-    /// Effective write classification.
-    pub write_classification: McpTrustClassification,
-    /// Effective export classification.
-    pub export_classification: McpTrustClassification,
-    /// Review/gateway readiness status.
-    pub status: McpCalibrationStatus,
-    /// Actor who reviewed the calibration, when reviewed.
-    pub reviewed_by: Option<String>,
-    /// Tool metadata fingerprint reviewed by the actor.
-    pub reviewed_metadata_fingerprint: Option<String>,
-}
-
 /// Persisted MCP tool calibration read model.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolCalibrationRecord {
@@ -252,6 +231,10 @@ pub struct ToolCalibrationRecord {
     /// Tool metadata fingerprint reviewed by the actor.
     pub reviewed_metadata_fingerprint: Option<String>,
 }
+
+/// Reviewed calibration submitted for persistence. Its validated write shape
+/// is identical to the canonical read model.
+pub type NewToolCalibration = ToolCalibrationRecord;
 
 /// One tool and its current calibration in a control-plane view.
 #[derive(Debug, Clone, PartialEq)]

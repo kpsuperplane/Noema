@@ -1,4 +1,4 @@
-use noema_tasks::{TaskComplexity, TaskModelPoolEntry};
+use noema_tasks::{TaskComplexity, TaskModelPoolEntry, is_global_task_model_pool_setting_id};
 use rusqlite::OptionalExtension;
 
 use super::{NoemaStore, StoreError, rows::pool_entry_from_row};
@@ -28,14 +28,15 @@ impl NoemaStore {
         .await
     }
 
-    /// List pool entries, optionally restricted to one complexity tier.
-    pub async fn list_task_model_pool_entries(
+    /// List the three global task-executor settings.
+    pub async fn list_task_model_pool_settings(
         &self,
         complexity: Option<TaskComplexity>,
     ) -> Result<Vec<TaskModelPoolEntry>, StoreError> {
-        self.with_connection(|conn| {
-            let mut statement = conn.prepare(
-                r#"
+        let entries = self
+            .with_connection(|conn| {
+                let mut statement = conn.prepare(
+                    r#"
                 SELECT pool_entry_id, complexity, label, provider_kind,
                        provider_account_id, provider_instance_key, model_profile, reasoning_effort,
                        enabled, sort_order, created_at, updated_at
@@ -43,27 +44,18 @@ impl NoemaStore {
                 WHERE (?1 IS NULL OR complexity = ?1)
                 ORDER BY complexity, sort_order, label, pool_entry_id
                 "#,
-            )?;
-            let rows = statement.query_map(
-                [complexity.map(TaskComplexity::as_str)],
-                pool_entry_from_row,
-            )?;
-            rows.collect::<Result<Vec<_>, _>>()
-                .map_err(StoreError::Sqlite)
-        })
-        .await
-    }
-
-    /// List the three global task-executor settings.
-    pub async fn list_task_model_pool_settings(
-        &self,
-        complexity: Option<TaskComplexity>,
-    ) -> Result<Vec<TaskModelPoolEntry>, StoreError> {
-        Ok(self
-            .list_task_model_pool_entries(complexity)
-            .await?
+                )?;
+                let rows = statement.query_map(
+                    [complexity.map(TaskComplexity::as_str)],
+                    pool_entry_from_row,
+                )?;
+                rows.collect::<Result<Vec<_>, _>>()
+                    .map_err(StoreError::Sqlite)
+            })
+            .await?;
+        Ok(entries
             .into_iter()
-            .filter(TaskModelPoolEntry::is_global_setting)
+            .filter(|entry| is_global_task_model_pool_setting_id(&entry.pool_entry_id))
             .collect())
     }
 

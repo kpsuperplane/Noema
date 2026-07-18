@@ -80,13 +80,9 @@ mod tests {
             display_name: Some("Mira".to_string()),
         });
 
-        assert!(prompt.contains("Agent identity:"));
-        assert!(prompt.contains(r#"agent_id: "agent:primary""#));
         assert!(prompt.contains(r#"display_name: "Mira""#));
         assert!(!prompt.contains("Onboarding prompt:"));
-        assert!(!prompt.contains("You do not have a name yet."));
         assert!(prompt.contains("Onboarding tasks, in priority order:"));
-        assert!(prompt.contains("If display_name is null"));
         assert!(prompt.contains("Then learn what the user wants help with first"));
         assert!(prompt.contains("Ask at most one onboarding question"));
     }

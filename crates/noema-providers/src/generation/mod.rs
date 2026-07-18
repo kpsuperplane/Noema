@@ -1,6 +1,7 @@
 //! Provider-neutral generation contract.
 
 mod error;
+#[cfg(any(test, feature = "adapters", feature = "local-models"))]
 mod parsing;
 mod request;
 mod response;
@@ -8,20 +9,22 @@ mod response;
 use std::future::Future;
 
 pub use error::{ProviderError, ProviderTransportContext, ProviderTransportKind};
-pub use parsing::{
-    noema_response_from_text, output_items_from_text, required_noema_response_from_text,
-    required_noema_response_from_text_with_native_tool_calls,
-};
+#[cfg(feature = "adapters")]
+pub(crate) use parsing::required_noema_response_from_text_with_native_tool_calls;
+#[cfg(any(test, feature = "adapters", feature = "local-models"))]
+pub(crate) use parsing::{output_items_from_text, required_noema_response_from_text};
 pub use request::{
     GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
     GenerateReasoningInput, GenerateRequest, GenerateToolCallInput, GenerateToolResultInput,
     GenerationPriority, PromptCacheMode, PromptCacheOptions, PromptCacheRetention, PromptCacheTtl,
     ReasoningEffort,
 };
+#[cfg(any(test, feature = "adapters", feature = "local-models"))]
+pub(crate) use response::ParsedNoemaResponse;
 pub use response::{
     AssistantTextPhase, GenerateActionItem, GenerateReasoningItem, GenerateResponse,
     GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall,
-    MultipleChoiceOption, MultipleChoiceSelectionMode, ParsedNoemaResponse, TokenUsage,
+    MultipleChoiceOption, MultipleChoiceSelectionMode, TokenUsage,
 };
 
 use crate::ProviderToolCapabilities;
@@ -137,5 +140,3 @@ impl ProviderResponseContinuation {
 
 #[cfg(test)]
 mod preservation_tests;
-#[cfg(test)]
-mod tests;

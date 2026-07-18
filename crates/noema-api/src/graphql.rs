@@ -4,6 +4,29 @@
 //! they call Noema read models, command/runtime paths, provider auth, and
 //! repository methods instead of owning product behavior.
 
+macro_rules! graphql_enum_from {
+    ($source:ty => $target:ty { $($source_variant:ident => $target_variant:ident),+ $(,)? }) => {
+        impl From<$source> for $target {
+            fn from(value: $source) -> Self {
+                match value {
+                    $(<$source>::$source_variant => Self::$target_variant),+
+                }
+            }
+        }
+    };
+}
+
+macro_rules! graphql_enum_bidi {
+    ($domain:ty => $graphql:ty { $($domain_variant:ident => $graphql_variant:ident),+ $(,)? }) => {
+        graphql_enum_from!($domain => $graphql {
+            $($domain_variant => $graphql_variant),+
+        });
+        graphql_enum_from!($graphql => $domain {
+            $($graphql_variant => $domain_variant),+
+        });
+    };
+}
+
 mod agents;
 mod artifacts;
 mod chat;
@@ -18,7 +41,6 @@ mod onboarding;
 mod provider_accounts;
 mod provider_selection;
 mod replay;
-mod resolvers;
 mod runtime_state;
 mod schema;
 #[cfg(test)]
@@ -33,8 +55,8 @@ pub use artifacts::{
 };
 pub use mcp::complete_mcp_server_oauth_setup;
 pub(crate) use replay::{ConversationReplayItem, web_conversation_item_from_record};
-pub(crate) use runtime_state::GraphqlRuntimeState;
-pub use schema::{GraphqlSchema, GraphqlState, build_schema, schema_sdl};
+pub use runtime_state::GraphqlState;
+pub use schema::{GraphqlSchema, build_schema, schema_sdl};
 
 /// Server-derived identity attached to every authenticated GraphQL operation.
 #[derive(Clone, Debug, PartialEq, Eq)]

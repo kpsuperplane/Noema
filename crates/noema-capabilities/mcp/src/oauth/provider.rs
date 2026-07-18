@@ -167,7 +167,6 @@ fn client_error(error: McpOAuthError) -> McpClientError {
             operation: "oauth/authorize",
         },
         McpOAuthErrorKind::NotFound
-        | McpOAuthErrorKind::Expired
         | McpOAuthErrorKind::Capacity
         | McpOAuthErrorKind::Conflict
         | McpOAuthErrorKind::Unavailable => McpClientError::Unavailable(error.to_string()),
@@ -181,7 +180,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn refreshes_inside_safety_window_and_preserves_unbounded_tokens() {
+    fn refresh_policy_preserves_unbounded_legacy_and_rotated_tokens() {
         let now = now_epoch_seconds();
         let expiring = McpOAuthStoredCredentials {
             client_id: "client".to_string(),
@@ -197,10 +196,6 @@ mod tests {
         assert!(needs_refresh(&expiring));
         assert!(!needs_refresh(&unbounded));
         assert_eq!(access_token(&expiring), Some("token"));
-    }
-
-    #[test]
-    fn stored_oauth_credentials_refresh_legacy_expiring_token_when_refresh_token_exists() {
         let legacy = McpOAuthStoredCredentials {
             client_id: "client".to_string(),
             token_response: json!({
@@ -212,10 +207,6 @@ mod tests {
         };
 
         assert!(needs_refresh(&legacy));
-    }
-
-    #[test]
-    fn omitted_refresh_token_is_preserved_after_refresh() {
         let mut refreshed = json!({"access_token": "new-token"});
         let previous = json!({"access_token": "old-token", "refresh_token": "refresh-token"});
 

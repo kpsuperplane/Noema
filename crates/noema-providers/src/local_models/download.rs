@@ -130,28 +130,6 @@ impl LocalModelInstaller {
         })
     }
 
-    /// Returns the deterministic installation id for one curated artifact.
-    #[must_use]
-    pub fn catalog_installation_id(model_id: &str, sha256: &str) -> String {
-        format!(
-            "local_model_installation:catalog:{model_id}:{}",
-            &sha256[..12.min(sha256.len())]
-        )
-    }
-
-    /// Returns the deterministic installation id for one pinned public GGUF.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the expected digest is malformed.
-    pub fn hugging_face_installation_id(sha256: &str) -> Result<String, LocalModelInstallError> {
-        validate_digest(sha256)?;
-        Ok(format!(
-            "local_model_installation:hugging_face:{}",
-            &sha256[..12]
-        ))
-    }
-
     /// Returns the deterministic installation id for one local-file import.
     ///
     /// # Errors
@@ -199,7 +177,11 @@ impl LocalModelInstaller {
             )));
         }
         self.ensure_queued(NewLocalModelInstallation {
-            installation_id: Self::catalog_installation_id(&model.id, &build.sha256),
+            installation_id: format!(
+                "local_model_installation:catalog:{}:{}",
+                model.id,
+                &build.sha256[..12.min(build.sha256.len())]
+            ),
             model_id: model.id.clone(),
             display_name: model.name.clone(),
             source_kind: LocalModelSourceKind::Catalog,
@@ -269,7 +251,11 @@ impl LocalModelInstaller {
         &self,
         input: &HuggingFaceLocalModelImport,
     ) -> Result<LocalModelInstallationRecord, LocalModelInstallError> {
-        let installation_id = Self::hugging_face_installation_id(&input.sha256)?;
+        validate_digest(&input.sha256)?;
+        let installation_id = format!(
+            "local_model_installation:hugging_face:{}",
+            &input.sha256[..12]
+        );
         validate_revision(&input.revision)?;
         hugging_face_url(&input.repo, &input.revision, &input.file)?;
         self.ensure_queued(NewLocalModelInstallation {

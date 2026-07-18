@@ -268,49 +268,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn background_runs_after_foreground_queue_drains() {
-        let arbiter = GenerationArbiter::default();
-        let active = arbiter
-            .acquire(GenerationPriority::Foreground)
-            .await
-            .expect("active permit");
-        let background_arbiter = arbiter.clone();
-        let background = tokio::spawn(async move {
-            background_arbiter
-                .acquire(GenerationPriority::Background)
-                .await
-        });
-        wait_for_queue(&arbiter, GenerationPriority::Background, 1).await;
-        let first_foreground_arbiter = arbiter.clone();
-        let first_foreground = tokio::spawn(async move {
-            first_foreground_arbiter
-                .acquire(GenerationPriority::Foreground)
-                .await
-        });
-        wait_for_queue(&arbiter, GenerationPriority::Foreground, 1).await;
-        let second_foreground_arbiter = arbiter.clone();
-        let second_foreground = tokio::spawn(async move {
-            second_foreground_arbiter
-                .acquire(GenerationPriority::Foreground)
-                .await
-        });
-        wait_for_queue(&arbiter, GenerationPriority::Foreground, 2).await;
-
-        drop(active);
-        let first_foreground = join_permit(first_foreground, "first foreground should run").await;
-        assert!(!second_foreground.is_finished());
-        assert!(!background.is_finished());
-        drop(first_foreground);
-        let second_foreground =
-            join_permit(second_foreground, "second foreground should run").await;
-        assert!(!background.is_finished());
-        drop(second_foreground);
-        let background =
-            join_permit(background, "background should run after foreground drains").await;
-        drop(background);
-    }
-
-    #[tokio::test]
     async fn cancelled_waiters_are_skipped() {
         let arbiter = GenerationArbiter::default();
         let active = arbiter

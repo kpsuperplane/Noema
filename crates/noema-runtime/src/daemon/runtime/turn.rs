@@ -28,7 +28,7 @@ use super::{
     actor::RuntimeActor,
     continuation_context::ContinuationContext,
     local_tools::{
-        LocalToolResult, RuntimeCapabilityResult, agent_identity_after_local_tools,
+        LocalToolKind, LocalToolResult, agent_identity_after_local_tools,
         local_tool_artifact_reference_item, local_tool_result_action_item,
         local_tool_result_continuation_input, local_tool_task_reference_item,
     },
@@ -295,6 +295,35 @@ fn bound_memory_observation_assistant_context(messages: Vec<String>) -> Vec<Stri
     bounded
 }
 
+#[cfg(test)]
+mod memory_observation_tests {
+    use super::build_memory_observation_add_request;
+    use serde_json::json;
+
+    #[test]
+    fn observation_keeps_assistant_context_and_current_user_as_the_source() {
+        let request = build_memory_observation_add_request(
+            "conversation:1",
+            "turn:2",
+            "item:3",
+            "  cars  ",
+            vec![" question one ".to_string(), "question two".to_string()],
+        )
+        .expect("observation");
+
+        assert_eq!(
+            serde_json::to_value(request.messages).unwrap(),
+            json!([
+                {"role": "assistant", "content": "question one"},
+                {"role": "assistant", "content": "question two"},
+                {"role": "user", "content": "cars"}
+            ])
+        );
+        assert_eq!(request.metadata["sourceObservation"], "cars");
+        assert_eq!(request.metadata["userItemId"], "item:3");
+    }
+}
+
 include!("turn/startup.rs");
 include!("turn/provider_request.rs");
 include!("turn/persistence.rs");
@@ -455,27 +484,22 @@ fn rejected_mixed_delegation_result(
         &call.payload,
         noema_capabilities::CapabilityError::Denied,
     );
-    LocalToolResult::Gateway {
-        call_id: call.call_id.clone(),
-        provider_call_id: call.provider_call_id.clone(),
-        provider_name: call.provider_name.clone(),
-        name: call.name.clone(),
-        arguments: call.payload.clone(),
-        persisted: failure.persisted,
-        result: RuntimeCapabilityResult {
-            success: false,
-            payload: json!({
-                "error": "task_delegate_mixed_tool_batch",
-                "message": "task.delegate must be called without other tool kinds in the same provider response",
-            }),
-            requires_provider_continuation: true,
-        },
-    }
+    LocalToolResult::from_call(
+        call,
+        LocalToolKind::Gateway,
+        false,
+        json!({
+            "error": "task_delegate_mixed_tool_batch",
+            "message": "task.delegate must be called without other tool kinds in the same provider response",
+        }),
+        true,
+    )
+    .with_persisted(failure.persisted)
 }
 
 fn task_delegation_receipt(results: &[LocalToolResult]) -> String {
     let (successful, failed) = results.iter().fold((0usize, 0usize), |counts, result| {
-        if result.success() {
+        if result.success {
             (counts.0 + 1, counts.1)
         } else {
             (counts.0, counts.1 + 1)
@@ -501,4 +525,43 @@ fn task_delegation_receipt(results: &[LocalToolResult]) -> String {
 
 fn is_disallowed_continuation_tool_call(call: &GenerateToolCall) -> bool {
     is_update_own_name_tool(&call.name)
+}
+
+#[cfg(test)]
+mod delegation_batch_tests {
+    use super::*;
+
+    #[test]
+    fn batch_policy_and_receipts_cover_homogeneous_and_mixed_delegation() {
+        let call = |name: &str| LocalToolCall {
+            output_index: 0,
+            call_id: None,
+            provider_call_id: None,
+            provider_name: None,
+            name: name.to_string(),
+            payload: json!({}),
+        };
+        assert_eq!(
+            ForegroundToolBatchKind::for_calls(&[call("task.delegate"), call("task.delegate")]),
+            ForegroundToolBatchKind::Delegation
+        );
+        assert_eq!(
+            ForegroundToolBatchKind::for_calls(&[call("task.delegate"), call("web.search")]),
+            ForegroundToolBatchKind::MixedDelegation
+        );
+
+        let result = |success| {
+            LocalToolResult::from_call(
+                &call("task.delegate"),
+                LocalToolKind::Gateway,
+                success,
+                json!({}),
+                false,
+            )
+        };
+        assert_eq!(
+            task_delegation_receipt(&[result(true), result(true), result(false)]),
+            "Started 2 background tasks; 1 delegation failed."
+        );
+    }
 }

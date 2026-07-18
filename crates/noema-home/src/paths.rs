@@ -50,15 +50,9 @@ impl NoemaPaths {
             return Err(NoemaPathError::MissingHome);
         }
 
-        Ok(Self::from_home_dir(home))
-    }
-
-    /// Resolve paths under a standard `.noema` directory inside `home`.
-    #[must_use]
-    pub fn from_home_dir(home: impl Into<PathBuf>) -> Self {
-        Self {
-            root: home.into().join(DEFAULT_NOEMA_DIR),
-        }
+        Ok(Self {
+            root: PathBuf::from(home).join(DEFAULT_NOEMA_DIR),
+        })
     }
 
     /// Resolve paths from an explicit Noema home directory.
@@ -100,16 +94,10 @@ impl NoemaPaths {
         self.root.join("run")
     }
 
-    /// Path to the canonical structured-state directory.
-    #[must_use]
-    pub fn db_dir(&self) -> PathBuf {
-        self.root.join("db")
-    }
-
     /// Path to the canonical SQLite database file.
     #[must_use]
     pub fn sqlite_db_path(&self) -> PathBuf {
-        self.db_dir().join("noema.sqlite3")
+        self.root.join("db/noema.sqlite3")
     }
 
     /// Root directory for downloaded local-model state.
@@ -128,12 +116,6 @@ impl NoemaPaths {
     #[must_use]
     pub fn local_model_downloads_dir(&self) -> PathBuf {
         self.local_models_dir().join("downloads")
-    }
-
-    /// Directory for local inference runtime state such as sockets and logs.
-    #[must_use]
-    pub fn local_model_runtime_dir(&self) -> PathBuf {
-        self.local_models_dir().join("run")
     }
 
     /// Path to one verified content-addressed GGUF blob.
@@ -169,37 +151,6 @@ impl NoemaPaths {
         ))
     }
 
-    /// Path to the conversation filesystem root.
-    #[must_use]
-    pub fn conversations_dir(&self) -> PathBuf {
-        self.root.join("conversations")
-    }
-
-    /// Path to one conversation's durable filesystem directory.
-    #[must_use]
-    pub fn conversation_dir(&self, conversation_id: &str) -> PathBuf {
-        self.conversations_dir()
-            .join(sanitize_path_segment(conversation_id))
-    }
-
-    /// Path to the task filesystem root.
-    #[must_use]
-    pub fn tasks_dir(&self) -> PathBuf {
-        self.root.join("tasks")
-    }
-
-    /// Path to one task's durable filesystem directory.
-    #[must_use]
-    pub fn task_dir(&self, task_id: &str) -> PathBuf {
-        self.tasks_dir().join(sanitize_path_segment(task_id))
-    }
-
-    /// Path to the provider credential root.
-    #[must_use]
-    pub fn providers_dir(&self) -> PathBuf {
-        self.root.join("providers")
-    }
-
     /// Path to the MCP server configuration root.
     #[must_use]
     pub fn mcp_dir(&self) -> PathBuf {
@@ -215,21 +166,10 @@ impl NoemaPaths {
     /// Path to one provider account's credential home.
     #[must_use]
     pub fn provider_account_home(&self, provider_kind: &str, account_key: &str) -> PathBuf {
-        self.providers_dir()
+        self.root
+            .join("providers")
             .join(sanitize_path_segment(provider_kind))
             .join(sanitize_path_segment(account_key))
-    }
-
-    /// Whether the Noema root exists.
-    #[must_use]
-    pub fn exists(&self) -> bool {
-        self.root.exists()
-    }
-
-    /// Whether `config.yaml` exists.
-    #[must_use]
-    pub fn config_exists(&self) -> bool {
-        self.config_path().exists()
     }
 }
 
@@ -273,53 +213,42 @@ mod tests {
     use super::*;
 
     #[test]
-    fn noema_home_env_is_the_noema_root() {
-        let paths = NoemaPaths::from_env_values(
+    fn noema_paths_preserve_environment_layout_digest_and_confinement_contracts() {
+        let override_paths = NoemaPaths::from_env_values(
             Some(OsString::from("/tmp/custom-noema")),
             Some(OsString::from("/tmp/home")),
         )
         .expect("paths");
 
-        assert_eq!(paths.root(), Path::new("/tmp/custom-noema"));
+        assert_eq!(override_paths.root(), Path::new("/tmp/custom-noema"));
         assert_eq!(
-            paths.config_path(),
+            override_paths.config_path(),
             PathBuf::from("/tmp/custom-noema/config.yaml")
         );
         assert_eq!(
-            paths.local_model_import_partial_path("install:public/model"),
+            override_paths.local_model_import_partial_path("install:public/model"),
             PathBuf::from("/tmp/custom-noema/models/downloads/import-install_public_model.part")
         );
-    }
-
-    #[test]
-    fn db_dir_is_the_embedded_database_root() {
-        let paths = NoemaPaths::from_noema_home("/tmp/custom-noema").expect("paths");
-
-        assert_eq!(paths.db_dir(), PathBuf::from("/tmp/custom-noema/db"));
-    }
-
-    #[test]
-    fn sqlite_db_path_lives_under_db_dir() {
-        let paths = NoemaPaths::from_noema_home("/tmp/noema").expect("paths");
-
+        let fallback_paths =
+            NoemaPaths::from_env_values(None, Some(OsString::from("/tmp/home"))).expect("paths");
+        assert_eq!(fallback_paths.root(), Path::new("/tmp/home/.noema"));
         assert_eq!(
-            paths.sqlite_db_path(),
-            PathBuf::from("/tmp/noema/db/noema.sqlite3")
+            fallback_paths.config_path(),
+            PathBuf::from("/tmp/home/.noema/config.yaml")
         );
-    }
-
-    #[test]
-    fn errors_log_path_lives_at_noema_root() {
-        let paths = NoemaPaths::from_noema_home("/tmp/noema").expect("paths");
-
+        assert!(matches!(
+            NoemaPaths::from_env_values(None, None),
+            Err(NoemaPathError::MissingHome)
+        ));
         assert_eq!(
-            paths.errors_log_path(),
-            PathBuf::from("/tmp/noema/errors.log")
+            override_paths.sqlite_db_path(),
+            PathBuf::from("/tmp/custom-noema/db/noema.sqlite3")
         );
-    }
+        assert_eq!(
+            override_paths.errors_log_path(),
+            PathBuf::from("/tmp/custom-noema/errors.log")
+        );
 
-    #[test]
-    fn local_model_paths_are_content_addressed() {
         let paths = NoemaPaths::from_noema_home("/tmp/noema").expect("paths");
         let digest = "a".repeat(64);
 
@@ -333,78 +262,26 @@ mod tests {
                 .expect("partial path"),
             PathBuf::from(format!("/tmp/noema/models/downloads/{digest}.part"))
         );
-        assert_eq!(
-            paths.local_model_runtime_dir(),
-            PathBuf::from("/tmp/noema/models/run")
-        );
-    }
-
-    #[test]
-    fn local_model_paths_reject_noncanonical_digests() {
-        let paths = NoemaPaths::from_noema_home("/tmp/noema").expect("paths");
-
-        assert!(paths.local_model_blob_path("../model").is_err());
-        assert!(paths.local_model_blob_path(&"A".repeat(64)).is_err());
-        assert!(paths.local_model_blob_path(&"g".repeat(64)).is_err());
-    }
-
-    #[test]
-    fn home_env_falls_back_to_dot_noema() {
-        let paths =
-            NoemaPaths::from_env_values(None, Some(OsString::from("/tmp/home"))).expect("paths");
-
-        assert_eq!(paths.root(), Path::new("/tmp/home/.noema"));
-        assert_eq!(
-            paths.config_path(),
-            PathBuf::from("/tmp/home/.noema/config.yaml")
-        );
-    }
-
-    #[test]
-    fn missing_home_is_an_error() {
-        let error = NoemaPaths::from_env_values(None, None).expect_err("missing home");
-
-        assert!(matches!(error, NoemaPathError::MissingHome));
-    }
-
-    #[test]
-    fn provider_account_home_is_under_noema_providers() {
-        let paths = NoemaPaths::from_noema_home("/tmp/noema").expect("paths");
+        for digest in ["../model", &"A".repeat(64), &"g".repeat(64)] {
+            assert!(paths.local_model_blob_path(digest).is_err(), "{digest}");
+        }
 
         assert_eq!(
             paths.provider_account_home("codex", "default"),
             PathBuf::from("/tmp/noema/providers/codex/default")
         );
-    }
-
-    #[test]
-    fn mcp_server_home_is_under_noema_mcp_dir() {
-        let paths = NoemaPaths::from_noema_home("/tmp/noema").expect("paths");
-
-        assert_eq!(paths.mcp_dir(), PathBuf::from("/tmp/noema/mcp"));
-        assert_eq!(
-            paths.mcp_server_home("mcp:GitHub/Default"),
-            PathBuf::from("/tmp/noema/mcp/mcp_GitHub_Default")
-        );
-    }
-
-    #[test]
-    fn provider_account_home_sanitizes_segments() {
-        let paths = NoemaPaths::from_noema_home("/tmp/noema").expect("paths");
-
         assert_eq!(
             paths.provider_account_home("co/dex", "../default"),
             PathBuf::from("/tmp/noema/providers/co_dex/___default")
         );
-    }
-
-    #[test]
-    fn provider_account_home_does_not_drop_empty_segments() {
-        let paths = NoemaPaths::from_noema_home("/tmp/noema").expect("paths");
-
         assert_eq!(
             paths.provider_account_home("", ""),
             PathBuf::from("/tmp/noema/providers/_/_")
+        );
+        assert_eq!(paths.mcp_dir(), PathBuf::from("/tmp/noema/mcp"));
+        assert_eq!(
+            paths.mcp_server_home("mcp:GitHub/Default"),
+            PathBuf::from("/tmp/noema/mcp/mcp_GitHub_Default")
         );
     }
 }

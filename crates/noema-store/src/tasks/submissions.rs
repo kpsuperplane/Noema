@@ -17,16 +17,6 @@ use crate::{
 };
 
 impl NoemaStore {
-    /// Commit an executor submission and queue its reviewer in one transaction.
-    pub async fn create_task_submission(
-        &self,
-        input: NewTaskSubmission,
-        lease_token: &str,
-    ) -> Result<(TaskSubmissionRecord, AgentRunRecord), StoreError> {
-        self.create_task_submission_inner(input, lease_token, None)
-            .await
-    }
-
     /// Commit a submission while proving the newly queued reviewer is
     /// registered and ready through commit.
     pub async fn create_task_submission_with_readiness(
@@ -34,16 +24,6 @@ impl NoemaStore {
         input: NewTaskSubmission,
         lease_token: &str,
         registry: &ProviderRegistry,
-    ) -> Result<(TaskSubmissionRecord, AgentRunRecord), StoreError> {
-        self.create_task_submission_inner(input, lease_token, Some(registry))
-            .await
-    }
-
-    async fn create_task_submission_inner(
-        &self,
-        input: NewTaskSubmission,
-        lease_token: &str,
-        registry: Option<&ProviderRegistry>,
     ) -> Result<(TaskSubmissionRecord, AgentRunRecord), StoreError> {
         if lease_token.trim().is_empty() {
             return Err(StoreError::InvariantViolation {
@@ -179,7 +159,7 @@ impl NoemaStore {
                 noema_tasks::RunKind::Reviewer,
                 SelectionEligibility::PreservedFutureReference,
             )?;
-            let ready_selection = prove_selection_ready(&reviewer_selection, registry)?;
+            let ready_selection = prove_selection_ready(&reviewer_selection, Some(registry))?;
             let fenced = transaction.execute(
                 "UPDATE agent_runs SET status = 'completed', ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, heartbeat_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND task_id = ?2 AND run_kind = 'executor' AND revision_index = ?3 AND lease_token = ?4 AND status = 'running' AND cancellation_requested = 0 AND EXISTS (SELECT 1 FROM tasks WHERE task_id = ?2 AND latest_run_id = ?1 AND status IN ('executing', 'revision_requested'))",
                 rusqlite::params![input.executor_run_id, input.task_id, input.revision_index, lease_token],

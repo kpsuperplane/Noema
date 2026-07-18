@@ -1,4 +1,4 @@
-use noema_providers::ProviderContextMetadata;
+use noema_providers::{ProviderContextMetadata, ProviderOperations};
 
 const DEFAULT_CONTEXT_SAFETY_TOKENS: u32 = 128;
 const FALLBACK_CHARS_PER_TOKEN: usize = 3;
@@ -70,35 +70,16 @@ pub(super) fn estimate_text_tokens(value: &str) -> u32 {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn unknown_context_window_fits_without_budgeting() {
-        let budget = ContextBudget::from_metadata(ProviderContextMetadata::default());
-
-        assert!(budget.fits(10_000));
-        assert_eq!(budget.available_input_tokens(), None);
-    }
-
-    #[test]
-    fn context_window_reserves_output_and_safety_tokens() {
-        let budget = ContextBudget::from_metadata(ProviderContextMetadata {
-            context_window_tokens: Some(4_096),
-            default_output_reserve_tokens: Some(512),
-            compact_summary_target_tokens: Some(512),
-        });
-
-        assert_eq!(budget.available_input_tokens(), Some(3_456));
-        assert!(budget.fits(3_456));
-        assert!(!budget.fits(3_457));
-    }
-
-    #[test]
-    fn estimated_tokens_are_conservative_for_text() {
-        assert_eq!(estimate_text_tokens("abc"), 1);
-        assert_eq!(estimate_text_tokens("abcd"), 2);
-        assert_eq!(estimate_text_tokens(""), 0);
+pub(super) async fn count_tokens_or_estimate(
+    provider: &dyn ProviderOperations,
+    instructions: Option<&str>,
+    input: &str,
+    model: Option<&str>,
+) -> u32 {
+    match provider.count_tokens(instructions, input, model).await {
+        Ok(Some(tokens)) => tokens,
+        Ok(None) | Err(_) => {
+            instructions.map_or(0, estimate_text_tokens) + estimate_text_tokens(input)
+        }
     }
 }

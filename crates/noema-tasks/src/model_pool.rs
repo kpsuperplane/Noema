@@ -1,6 +1,6 @@
 use noema_providers::{DEFAULT_OPENAI_MODEL, ProviderSelectionSnapshot, ReasoningEffort};
 
-use crate::{TaskComplexity, TaskDomainError};
+use crate::{TaskComplexity, TaskDomainError, validation::normalize_optional};
 
 const TASK_MODEL_POOL_SETTING_PREFIX: &str = "task_pool:setting:";
 
@@ -89,14 +89,6 @@ pub struct TaskModelPoolEntry {
     pub updated_at: String,
 }
 
-impl TaskModelPoolEntry {
-    /// Return whether this row is one of Noema's three global settings.
-    #[must_use]
-    pub fn is_global_setting(&self) -> bool {
-        is_global_task_model_pool_setting_id(&self.pool_entry_id)
-    }
-}
-
 /// Return whether an id belongs to one of the three global executor settings.
 #[must_use]
 pub fn is_global_task_model_pool_setting_id(pool_entry_id: &str) -> bool {
@@ -175,13 +167,6 @@ pub fn provider_default_task_models(provider_kind: &str) -> Vec<ProviderDefaultT
         .collect(),
         _ => Vec::new(),
     }
-}
-
-fn normalize_optional(value: Option<&String>) -> Option<String> {
-    value
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
 }
 
 #[cfg(test)]

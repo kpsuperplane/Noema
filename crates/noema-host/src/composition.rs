@@ -4,12 +4,11 @@ mod lifecycle;
 
 use noema_store::{NoemaStore, StoreConfig};
 
-pub(crate) use lifecycle::HostLifecycle;
-use lifecycle::StartupResources;
+pub(crate) use lifecycle::StartupResources;
 
 use crate::{
-    Config, ConfigOverrides, DEFAULT_NOEMA_CONFIG_YAML, HostConfig, HostServices, NoemaHost,
-    OnboardingService, RuntimeHostError, mcp_completion::RuntimeMcpAutofillCompletionBridge,
+    Config, DEFAULT_NOEMA_CONFIG_YAML, HostConfig, HostServices, NoemaHost, OnboardingService,
+    RuntimeHostError, mcp_completion::RuntimeMcpAutofillCompletionBridge,
     runtime_host::SystemErrorArtifactDiagnostics,
 };
 use noema_runtime::{
@@ -26,13 +25,13 @@ use noema_capabilities_mcp::{
 use noema_home::{
     NoemaHomeInitOptions, NoemaPaths, SystemErrorEvent, SystemErrorLogger, init_noema_home,
 };
+#[cfg(test)]
+use noema_memory::SaveMemoryServiceSettings;
 use noema_memory::{
     MemoryModelProxy, MemoryModelProxyConfig, MemoryRepositoryHandle, MemoryServiceMode,
     MemoryServicePaths, MnemosyneLifecycle, MnemosyneMemoryService, MnemosyneMemoryServiceAccess,
     memory_provider_selection_loader,
 };
-#[cfg(test)]
-use noema_memory::{MemoryServiceSettingsRecord, SaveMemoryServiceSettings};
 use noema_providers::{
     CodexProviderConfig, DEFAULT_FOUNDATION_LOCAL_PROFILE, EXA_FETCH_PROVIDER_ID,
     EXA_SEARCH_PROVIDER_ID, ExaFetchClient, ExaSearchClient, FoundationLocalProviderConfig,
@@ -52,9 +51,9 @@ pub(crate) async fn start_from_process_env_with_local_model_runtime_root(
     local_model_runtime_root: Option<std::path::PathBuf>,
 ) -> Result<NoemaHost, RuntimeHostError> {
     let paths = initialize_process_home()?;
-    let mut config = Config::load(None, ConfigOverrides::default())?;
+    let mut config = Config::load(None)?;
     if let Some(runtime_root) = local_model_runtime_root {
-        config = config.with_local_model_runtime_root(runtime_root);
+        config.local_model_runtime_root = Some(runtime_root);
     }
     assemble(config, paths).await
 }
@@ -86,11 +85,11 @@ async fn assemble(config: HostConfig, paths: NoemaPaths) -> Result<NoemaHost, Ru
     let system_errors = SystemErrorLogger::from_paths(&paths);
     let mut resources = StartupResources::new(system_errors.clone());
     match assemble_services(config, paths, system_errors, &mut resources).await {
-        Ok((services, web_config)) => Ok(NoemaHost::assembled(
+        Ok((services, web_config)) => Ok(NoemaHost {
             services,
             web_config,
-            HostLifecycle::new(resources),
-        )),
+            lifecycle: resources,
+        }),
         Err(error) => {
             resources.shutdown().await;
             Err(error)
@@ -128,7 +127,7 @@ async fn assemble_services(
         system_errors.clone(),
         codex_oauth,
     )?;
-    resources.retain_provider_accounts(provider_account_service.clone());
+    resources.provider_accounts = Some(provider_account_service.clone());
     let provider_account_operations = provider_account_service.operations();
     let provider_credentials = provider_account_service.credentials();
     let local_model_manager_config =
@@ -173,7 +172,7 @@ async fn assemble_services(
         paths.clone(),
         local_model_manager_config,
     )?;
-    resources.retain_local_models(local_model_manager.clone());
+    resources.local_models = Some(local_model_manager.clone());
     local_model_manager
         .reconstruct_persisted_instances()
         .await?;
@@ -253,34 +252,22 @@ async fn assemble_services(
     let memory_model_proxy = match memory_settings.mode {
         MemoryServiceMode::External => None,
         MemoryServiceMode::Managed => {
-            let proxy_config = match generate_memory_model_proxy_api_key() {
-                Ok(api_key) => {
-                    memory_model_proxy_config_from_settings(
-                        provider_registry.clone(),
-                        memory_repository.clone(),
-                        api_key,
-                        system_errors.clone(),
-                    )
+            let proxy = async {
+                let api_key = generate_memory_model_proxy_api_key()?;
+                let config = memory_model_proxy_config_from_settings(
+                    provider_registry.clone(),
+                    memory_repository.clone(),
+                    api_key,
+                    system_errors.clone(),
+                )
+                .await?;
+                MemoryModelProxy::start(config)
                     .await
-                }
-                Err(error) => Err(error),
-            };
-            match proxy_config {
-                Ok(config) => match MemoryModelProxy::start(config).await {
-                    Ok(proxy) => Some(proxy),
-                    Err(error) => {
-                        let error = error.to_string();
-                        memory_startup_error = Some(error.clone());
-                        system_errors.try_append(
-                            SystemErrorEvent::new(
-                                "memory_model_proxy_unavailable",
-                                "Memory model proxy is unavailable",
-                            )
-                            .with_error_chain([error]),
-                        );
-                        None
-                    }
-                },
+                    .map_err(|error| error.to_string())
+            }
+            .await;
+            match proxy {
+                Ok(proxy) => Some(proxy),
                 Err(error) => {
                     memory_startup_error = Some(error.clone());
                     system_errors.try_append(
@@ -332,7 +319,7 @@ async fn assemble_services(
         }
     };
     if let Some(mnemosyne) = mnemosyne {
-        resources.retain_mnemosyne(mnemosyne);
+        resources.mnemosyne = Some(mnemosyne);
     }
     let memory_service_access = MnemosyneMemoryServiceAccess::new(
         memory_repository.clone(),
@@ -373,7 +360,7 @@ async fn assemble_services(
             Arc::new(McpSessionFactoryRouter::new(stdio, streamable_http))
         },
     )?;
-    resources.retain_mcp(mcp_service.clone());
+    resources.mcp = Some(mcp_service.clone());
     let mcp_operations = mcp_service.operations();
     let primary_provider = registry_route_resolver(
         store.agent_provider_selection_loader("agent:primary"),
@@ -409,7 +396,7 @@ async fn assemble_services(
         capability_invokers,
     })
     .await?;
-    resources.retain_runtime(runtime.clone());
+    resources.runtime = Some(runtime.clone());
     mcp_completion.attach(runtime.clone());
     let task_runtime = TaskRuntimeHandle::start(
         store.clone(),
@@ -418,7 +405,7 @@ async fn assemble_services(
         system_errors.clone(),
         runtime_events.clone(),
     );
-    resources.retain_task_runtime(task_runtime);
+    resources.task_runtime = Some(task_runtime);
 
     let onboarding = OnboardingService::new(
         store.clone(),
@@ -426,21 +413,21 @@ async fn assemble_services(
         local_model_manager.clone(),
     );
     let artifact_diagnostics = Arc::new(SystemErrorArtifactDiagnostics::new(system_errors.clone()));
-    let services = HostServices::new(
-        runtime.clone(),
+    let services = HostServices {
+        runtime: runtime.clone(),
         store,
         artifact_operations,
         artifact_diagnostics,
         provider_account_operations,
         mcp_operations,
-        local_model_manager.clone(),
+        local_model_manager: local_model_manager.clone(),
         provider_registry,
         memory_repository,
         memory_service_access,
         onboarding,
         memory_startup_error,
         runtime_events,
-    );
+    };
     let web_config = config.web().clone();
 
     Ok((services, web_config))
@@ -496,10 +483,10 @@ fn provider_map_from_config(
         provider_credentials.clone(),
         system_errors.clone(),
     )?;
-    let default_provider_kind = bootstrap.default_provider_kind().to_string();
-    let default_model_profile = bootstrap.default_model_profile().map(str::to_string);
+    let default_provider_kind = bootstrap.default_provider_kind;
+    let default_model_profile = bootstrap.default_model_profile;
     let mut providers = std::collections::HashMap::new();
-    if let Some((provider_kind, provider)) = bootstrap.into_hosted_provider() {
+    if let Some((provider_kind, provider)) = bootstrap.hosted_provider {
         providers.insert(provider_kind, provider);
     }
     if !providers.contains_key("codex") {

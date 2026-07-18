@@ -200,25 +200,21 @@ mod tests {
         );
         assert_eq!(response.results[1].url, "https://example.com/encoded");
         assert_eq!(response.summary, "Found 2 web results");
-    }
-
-    #[test]
-    fn parser_respects_max_results() {
-        let html = include_str!("fixtures/duckduckgo_results.html");
-
-        let response = parse_duckduckgo_html("rust search", html, 1).expect("parsed");
-
-        assert_eq!(response.results.len(), 1);
-    }
-
-    #[test]
-    fn parser_returns_successful_empty_results() {
-        let html = include_str!("fixtures/duckduckgo_no_results.html");
-
-        let response = parse_duckduckgo_html("unlikely query", html, 10).expect("parsed");
-
-        assert!(response.results.is_empty());
-        assert_eq!(response.summary, "No web results found");
+        assert_eq!(
+            parse_duckduckgo_html("rust search", html, 1)
+                .expect("limited results")
+                .results
+                .len(),
+            1
+        );
+        let empty = parse_duckduckgo_html(
+            "unlikely query",
+            include_str!("fixtures/duckduckgo_no_results.html"),
+            10,
+        )
+        .expect("empty result set");
+        assert!(empty.results.is_empty());
+        assert_eq!(empty.summary, "No web results found");
     }
 
     #[tokio::test]

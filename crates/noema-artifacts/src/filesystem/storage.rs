@@ -170,13 +170,6 @@ pub(super) fn stage_and_publish(
         published.path(),
     )?;
     published.mark_file_created();
-    verify_hard_link(
-        &staging_dir,
-        &published.object_dir,
-        Path::new(&filename),
-        &staged_path,
-        published.path(),
-    )?;
     verify_linked_file(
         &staging_dir,
         &published.object_dir,
@@ -320,46 +313,6 @@ pub(super) fn hard_link_no_clobber(
         })
 }
 
-fn verify_hard_link(
-    staging_dir: &Dir,
-    object_dir: &Dir,
-    filename: &Path,
-    staged_path: &Path,
-    published_path: &Path,
-) -> Result<(), ArtifactOperationError> {
-    let staged = staging_dir.symlink_metadata(filename).map_err(|_| {
-        filesystem_error(
-            "publish",
-            staged_path,
-            "staged artifact could not be verified after linking",
-        )
-    })?;
-    let published = object_dir.symlink_metadata(filename).map_err(|_| {
-        filesystem_error(
-            "publish",
-            published_path,
-            "published artifact could not be verified after linking",
-        )
-    })?;
-    if staged.file_type().is_symlink()
-        || published.file_type().is_symlink()
-        || !staged.is_file()
-        || !published.is_file()
-        || !same_cap_metadata(&staged, &published)
-    {
-        return Err(ArtifactOperationError::Integrity {
-            path: published_path.to_path_buf(),
-        });
-    }
-    #[cfg(unix)]
-    if staged.nlink() < 2 || published.nlink() < 2 {
-        return Err(ArtifactOperationError::Integrity {
-            path: published_path.to_path_buf(),
-        });
-    }
-    Ok(())
-}
-
 fn verify_linked_file(
     staging_dir: &Dir,
     object_dir: &Dir,
@@ -376,11 +329,18 @@ fn verify_linked_file(
         u64::try_from(byte_size).map_err(|_| ArtifactOperationError::Integrity {
             path: published_path.to_path_buf(),
         })?;
-    if staged_metadata.len() != expected_size
+    if !same_cap_metadata(&staged_metadata, &published_metadata)
+        || staged_metadata.len() != expected_size
         || published_metadata.len() != expected_size
         || staged_bytes != published_bytes
         || sha256_hex(&published_bytes) != content_sha256
     {
+        return Err(ArtifactOperationError::Integrity {
+            path: published_path.to_path_buf(),
+        });
+    }
+    #[cfg(unix)]
+    if staged_metadata.nlink() < 2 || published_metadata.nlink() < 2 {
         return Err(ArtifactOperationError::Integrity {
             path: published_path.to_path_buf(),
         });
@@ -394,7 +354,6 @@ struct StagedFile {
     filename: String,
     relative_operation_dir: PathBuf,
     file_created: bool,
-    armed: bool,
 }
 
 impl StagedFile {
@@ -410,7 +369,6 @@ impl StagedFile {
             filename,
             relative_operation_dir,
             file_created: false,
-            armed: true,
         }
     }
 
@@ -505,7 +463,6 @@ impl StagedFile {
             })?;
         self.file_created = false;
         cleanup_empty_dirs(&self.root_dir, [&self.relative_operation_dir])?;
-        self.armed = false;
         Ok(())
     }
 
@@ -520,9 +477,7 @@ impl StagedFile {
 
 impl Drop for StagedFile {
     fn drop(&mut self) {
-        if self.armed {
-            self.cleanup();
-        }
+        self.cleanup();
     }
 }
 
@@ -537,7 +492,6 @@ pub(super) struct PublishedObject {
     byte_size: i64,
     content_sha256: String,
     file_created: bool,
-    armed: bool,
 }
 
 impl PublishedObject {
@@ -563,7 +517,6 @@ impl PublishedObject {
             byte_size,
             content_sha256,
             file_created: false,
-            armed: true,
         }
     }
 
@@ -588,7 +541,6 @@ impl PublishedObject {
     }
 
     pub(super) fn disarm(&mut self) {
-        self.armed = false;
         self.operation.take();
     }
 
@@ -597,10 +549,7 @@ impl PublishedObject {
         metadata_error: ArtifactMetadataError,
     ) -> ArtifactOperationError {
         match self.cleanup_reported() {
-            Ok(()) => {
-                self.armed = false;
-                ArtifactOperationError::Metadata(metadata_error)
-            }
+            Ok(()) => ArtifactOperationError::Metadata(metadata_error),
             Err(()) => ArtifactOperationError::MetadataRollback {
                 path: self.published_path.clone(),
                 metadata_error,
@@ -633,7 +582,7 @@ impl PublishedObject {
 
 impl Drop for PublishedObject {
     fn drop(&mut self) {
-        if self.armed {
+        if self.operation.is_some() {
             self.cleanup_best_effort();
         }
     }

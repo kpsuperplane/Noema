@@ -11,15 +11,12 @@ use super::{
     McpOAuthStarted, OAuthFuture,
     http_client::{strict_oauth_http_client, strict_reqwest_client},
 };
+use crate::http_body::bounded_response_body;
 use crate::{McpOAuthStoredCredentials, secrets::now_epoch_seconds};
 
 pub(super) struct RmcpBackend;
 
 impl McpOAuthBackend for RmcpBackend {
-    fn authorization_supported<'a>(&'a self, url: &'a str) -> OAuthFuture<'a, bool> {
-        Box::pin(async move { Ok(resolved_resource(url).await.is_some()) })
-    }
-
     fn start<'a>(&'a self, url: &'a str, redirect: &'a str) -> OAuthFuture<'a, McpOAuthStarted> {
         Box::pin(async move {
             let (state, authorization_url) = start_authorization(url, redirect).await?;
@@ -155,21 +152,11 @@ pub(super) async fn fetch_metadata(url: &Url) -> Option<Value> {
     bounded_json_response(response).await
 }
 
-async fn bounded_json_response(mut response: reqwest::Response) -> Option<Value> {
+async fn bounded_json_response(response: reqwest::Response) -> Option<Value> {
     const MAX_METADATA_BYTES: usize = 1024 * 1024;
-    if response
-        .content_length()
-        .is_some_and(|length| length > MAX_METADATA_BYTES as u64)
-    {
-        return None;
-    }
-    let mut body = Vec::new();
-    while let Some(chunk) = response.chunk().await.ok()? {
-        if chunk.len() > MAX_METADATA_BYTES.saturating_sub(body.len()) {
-            return None;
-        }
-        body.extend_from_slice(&chunk);
-    }
+    let body = bounded_response_body(response, MAX_METADATA_BYTES)
+        .await
+        .ok()?;
     serde_json::from_slice(&body).ok()
 }
 

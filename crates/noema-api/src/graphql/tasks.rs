@@ -35,25 +35,11 @@ pub enum GraphqlTaskComplexity {
     Difficult,
 }
 
-impl From<TaskComplexity> for GraphqlTaskComplexity {
-    fn from(value: TaskComplexity) -> Self {
-        match value {
-            TaskComplexity::Simple => Self::Simple,
-            TaskComplexity::Medium => Self::Medium,
-            TaskComplexity::Difficult => Self::Difficult,
-        }
-    }
-}
-
-impl From<GraphqlTaskComplexity> for TaskComplexity {
-    fn from(value: GraphqlTaskComplexity) -> Self {
-        match value {
-            GraphqlTaskComplexity::Simple => Self::Simple,
-            GraphqlTaskComplexity::Medium => Self::Medium,
-            GraphqlTaskComplexity::Difficult => Self::Difficult,
-        }
-    }
-}
+graphql_enum_bidi!(TaskComplexity => GraphqlTaskComplexity {
+    Simple => Simple,
+    Medium => Medium,
+    Difficult => Difficult,
+});
 
 /// Immutable model-selection provenance captured on a task or run.
 #[derive(Clone, Debug, SimpleObject)]
@@ -635,4 +621,71 @@ impl From<TaskModelPoolEntry> for GraphqlTaskModelPoolEntry {
     }
 }
 
-include!("tasks_tests.rs");
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn editing_and_disabling_stale_task_pool_route_need_no_provider_readiness() {
+        let store = crate::test_support::test_store().await;
+        crate::test_support::authenticated_default_provider(&store).await;
+        let provider_registry = crate::test_support::ready_test_provider_registry();
+        let entry = store
+            .ensure_default_task_model_pool_settings_with_readiness(
+                "codex",
+                provider_registry.as_ref(),
+            )
+            .await
+            .expect("task model settings")
+            .into_iter()
+            .find(|entry| entry.complexity == TaskComplexity::Simple)
+            .expect("simple task model");
+        let pool_entry_id = entry.pool_entry_id.clone();
+        let state = GraphqlState::for_tests_with_store(store.clone())
+            .with_provider_registry(std::sync::Arc::new(noema_providers::ProviderRegistry::new()));
+        let input = GraphqlTaskModelPoolEntryInput {
+            complexity: entry.complexity.into(),
+            label: Some("Unavailable but editable".to_string()),
+            provider_kind: entry.model.provider_kind,
+            provider_account_id: entry.model.provider_account_id,
+            model_profile: entry.model.model_profile.expect("model profile"),
+            reasoning_effort: entry.model.reasoning_effort.map(Into::into),
+            enabled: true,
+            sort_order: i32::try_from(entry.sort_order).expect("sort order"),
+        };
+
+        let edited = update_task_model_pool_entry(
+            &state,
+            "human:local",
+            pool_entry_id.clone(),
+            input.clone(),
+        )
+        .await
+        .expect("edit stale route metadata");
+        assert!(edited.enabled);
+        assert_eq!(edited.label.as_deref(), Some("Unavailable but editable"));
+
+        let disabled = update_task_model_pool_entry(
+            &state,
+            "human:local",
+            pool_entry_id.clone(),
+            GraphqlTaskModelPoolEntryInput {
+                label: edited.label,
+                enabled: false,
+                ..input
+            },
+        )
+        .await
+        .expect("disable stale route");
+
+        assert!(!disabled.enabled);
+        assert!(
+            !store
+                .get_task_model_pool_entry(&pool_entry_id)
+                .await
+                .expect("pool entry")
+                .expect("persisted entry")
+                .enabled
+        );
+    }
+}

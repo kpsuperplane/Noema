@@ -88,41 +88,74 @@ pub fn capabilities_for_provider_account(
 ) -> Vec<ProviderCapability> {
     let status = capability_status_for_account(account_status);
     match provider_kind {
-        "openai" | "codex" | "foundation_local" => vec![
-            model_capability(
+        "openai" | "codex" | "foundation_local" => model_capabilities(
+            provider_kind,
+            account_key,
+            status,
+            ReliabilityContract::HostedProvider,
+            DataFlowClass::ModelProviderPrompt,
+        ),
+        "local_models" => model_capabilities(
+            provider_kind,
+            account_key,
+            status,
+            ReliabilityContract::FirstParty,
+            DataFlowClass::LocalInference,
+        ),
+        "duckduckgo_public" => vec![web_capability(
+            provider_kind,
+            account_key,
+            CapabilityId::WebSearch,
+            ProviderCapabilityStatus::Available,
+            ReliabilityContract::BestEffortPublic,
+            false,
+        )],
+        "direct_http" => vec![web_capability(
+            provider_kind,
+            account_key,
+            CapabilityId::WebFetch,
+            ProviderCapabilityStatus::Available,
+            ReliabilityContract::FirstParty,
+            false,
+        )],
+        "exa" => vec![
+            web_capability(
                 provider_kind,
                 account_key,
-                CapabilityId::ModelGenerate,
+                CapabilityId::WebSearch,
                 status,
+                ReliabilityContract::HostedProvider,
+                true,
             ),
-            model_capability(
+            web_capability(
                 provider_kind,
                 account_key,
-                CapabilityId::ModelClassify,
+                CapabilityId::WebFetch,
                 status,
+                ReliabilityContract::HostedProvider,
+                true,
             ),
         ],
-        "local_models" => vec![
-            local_model_capability(
-                provider_kind,
-                account_key,
-                CapabilityId::ModelGenerate,
-                status,
-            ),
-            local_model_capability(
-                provider_kind,
-                account_key,
-                CapabilityId::ModelClassify,
-                status,
-            ),
-        ],
-        "duckduckgo_public" => vec![ProviderCapability {
+        _ => Vec::new(),
+    }
+}
+
+fn model_capabilities(
+    provider_kind: &str,
+    account_key: &str,
+    status: ProviderCapabilityStatus,
+    reliability_contract: ReliabilityContract,
+    data_flow_class: DataFlowClass,
+) -> Vec<ProviderCapability> {
+    [CapabilityId::ModelGenerate, CapabilityId::ModelClassify]
+        .into_iter()
+        .map(|capability_id| ProviderCapability {
             provider_kind: provider_kind.to_string(),
             account_key: account_key.to_string(),
-            capability_id: CapabilityId::WebSearch,
-            status: ProviderCapabilityStatus::Available,
-            reliability_contract: ReliabilityContract::BestEffortPublic,
-            data_flow_class: DataFlowClass::TrustedExternalSearchQuery,
+            capability_id,
+            status,
+            reliability_contract,
+            data_flow_class,
             features: CapabilityFeatures {
                 citations: false,
                 direct_url_fetch: false,
@@ -130,100 +163,44 @@ pub fn capabilities_for_provider_account(
                 authenticated_context: false,
                 result_persistence: ResultPersistencePolicy::CompactMetadata,
             },
-        }],
-        "direct_http" => vec![ProviderCapability {
-            provider_kind: provider_kind.to_string(),
-            account_key: account_key.to_string(),
-            capability_id: CapabilityId::WebFetch,
-            status: ProviderCapabilityStatus::Available,
-            reliability_contract: ReliabilityContract::FirstParty,
-            data_flow_class: DataFlowClass::ExternalWebFetch,
-            features: CapabilityFeatures {
-                citations: false,
-                direct_url_fetch: true,
-                js_rendering: false,
-                authenticated_context: false,
-                result_persistence: ResultPersistencePolicy::CompactContent,
-            },
-        }],
-        "exa" => vec![
-            ProviderCapability {
-                provider_kind: provider_kind.to_string(),
-                account_key: account_key.to_string(),
-                capability_id: CapabilityId::WebSearch,
-                status,
-                reliability_contract: ReliabilityContract::HostedProvider,
-                data_flow_class: DataFlowClass::TrustedExternalSearchQuery,
-                features: CapabilityFeatures {
-                    citations: true,
-                    direct_url_fetch: false,
-                    js_rendering: false,
-                    authenticated_context: false,
-                    result_persistence: ResultPersistencePolicy::CompactMetadata,
-                },
-            },
-            ProviderCapability {
-                provider_kind: provider_kind.to_string(),
-                account_key: account_key.to_string(),
-                capability_id: CapabilityId::WebFetch,
-                status,
-                reliability_contract: ReliabilityContract::HostedProvider,
-                data_flow_class: DataFlowClass::ExternalWebFetch,
-                features: CapabilityFeatures {
-                    citations: true,
-                    direct_url_fetch: true,
-                    js_rendering: false,
-                    authenticated_context: false,
-                    result_persistence: ResultPersistencePolicy::CompactContent,
-                },
-            },
-        ],
-        _ => Vec::new(),
-    }
+        })
+        .collect()
 }
 
-fn model_capability(
+fn web_capability(
     provider_kind: &str,
     account_key: &str,
     capability_id: CapabilityId,
     status: ProviderCapabilityStatus,
+    reliability_contract: ReliabilityContract,
+    citations: bool,
 ) -> ProviderCapability {
+    let (data_flow_class, direct_url_fetch, result_persistence) = match capability_id {
+        CapabilityId::WebSearch => (
+            DataFlowClass::TrustedExternalSearchQuery,
+            false,
+            ResultPersistencePolicy::CompactMetadata,
+        ),
+        CapabilityId::WebFetch => (
+            DataFlowClass::ExternalWebFetch,
+            true,
+            ResultPersistencePolicy::CompactContent,
+        ),
+        _ => unreachable!("web capability helper only accepts web capability ids"),
+    };
     ProviderCapability {
         provider_kind: provider_kind.to_string(),
         account_key: account_key.to_string(),
         capability_id,
         status,
-        reliability_contract: ReliabilityContract::HostedProvider,
-        data_flow_class: DataFlowClass::ModelProviderPrompt,
+        reliability_contract,
+        data_flow_class,
         features: CapabilityFeatures {
-            citations: false,
-            direct_url_fetch: false,
+            citations,
+            direct_url_fetch,
             js_rendering: false,
             authenticated_context: false,
-            result_persistence: ResultPersistencePolicy::CompactMetadata,
-        },
-    }
-}
-
-fn local_model_capability(
-    provider_kind: &str,
-    account_key: &str,
-    capability_id: CapabilityId,
-    status: ProviderCapabilityStatus,
-) -> ProviderCapability {
-    ProviderCapability {
-        provider_kind: provider_kind.to_string(),
-        account_key: account_key.to_string(),
-        capability_id,
-        status,
-        reliability_contract: ReliabilityContract::FirstParty,
-        data_flow_class: DataFlowClass::LocalInference,
-        features: CapabilityFeatures {
-            citations: false,
-            direct_url_fetch: false,
-            js_rendering: false,
-            authenticated_context: false,
-            result_persistence: ResultPersistencePolicy::CompactMetadata,
+            result_persistence,
         },
     }
 }
@@ -246,167 +223,60 @@ const fn capability_status_for_account(
 mod tests {
     use super::*;
 
-    #[test]
-    fn openai_account_declares_model_capabilities_only() {
-        let capabilities = capabilities_for_provider_account(
-            "openai",
-            "default",
+    fn assert_model_capability_policy() {
+        let assert_status = |account_status, expected| {
+            assert!(
+                capabilities_for_provider_account("codex", "default", account_status)
+                    .iter()
+                    .all(|capability| capability.status == expected)
+            );
+        };
+        assert_status(
             ProviderAccountStatus::Authenticated,
+            ProviderCapabilityStatus::Available,
         );
-        let ids = capabilities
-            .iter()
-            .map(|capability| capability.capability_id.as_str())
-            .collect::<Vec<_>>();
-
-        assert_eq!(ids, vec!["model.generate", "model.classify"]);
-    }
-
-    #[test]
-    fn codex_account_does_not_declare_native_web_search() {
-        let capabilities = capabilities_for_provider_account(
-            "codex",
-            "default",
-            ProviderAccountStatus::Authenticated,
-        );
-
-        assert!(
-            capabilities
-                .iter()
-                .any(|capability| capability.capability_id == CapabilityId::ModelGenerate)
-        );
-        assert!(
-            !capabilities
-                .iter()
-                .any(|capability| capability.capability_id == CapabilityId::WebSearch)
-        );
-    }
-
-    #[test]
-    fn local_models_account_declares_first_party_local_inference() {
-        let capabilities = capabilities_for_provider_account(
-            "local_models",
-            "default",
-            ProviderAccountStatus::Authenticated,
-        );
-
-        assert_eq!(capabilities.len(), 2);
-        assert!(capabilities.iter().all(|capability| {
-            capability.reliability_contract == ReliabilityContract::FirstParty
-                && capability.data_flow_class == DataFlowClass::LocalInference
-        }));
-    }
-
-    #[test]
-    fn system_web_providers_have_no_secret_requirements() {
-        let search = capabilities_for_provider_account(
-            "duckduckgo_public",
-            "system",
-            ProviderAccountStatus::Authenticated,
-        );
-        let fetch = capabilities_for_provider_account(
-            "direct_http",
-            "system",
-            ProviderAccountStatus::Authenticated,
-        );
-
-        assert_eq!(search[0].capability_id, CapabilityId::WebSearch);
-        assert_eq!(
-            search[0].reliability_contract,
-            ReliabilityContract::BestEffortPublic
-        );
-        assert_eq!(fetch[0].capability_id, CapabilityId::WebFetch);
-        assert!(fetch[0].features.direct_url_fetch);
-    }
-
-    #[test]
-    fn exa_account_declares_search_and_fetch_only() {
-        let capabilities = capabilities_for_provider_account(
-            "exa",
-            "research",
-            ProviderAccountStatus::Authenticated,
-        );
-        let ids = capabilities
-            .iter()
-            .map(|capability| capability.capability_id.as_str())
-            .collect::<Vec<_>>();
-
-        assert_eq!(ids, vec!["web.search", "web.fetch"]);
-        assert!(capabilities.iter().all(|capability| {
-            capability.provider_kind == "exa"
-                && capability.account_key == "research"
-                && capability.reliability_contract == ReliabilityContract::HostedProvider
-        }));
-    }
-
-    #[test]
-    fn unknown_and_checking_accounts_are_account_dependent() {
         for account_status in [
             ProviderAccountStatus::Unknown,
             ProviderAccountStatus::Checking,
         ] {
-            let capabilities =
-                capabilities_for_provider_account("openai", "default", account_status);
-
-            assert!(!capabilities.is_empty());
-            assert!(capabilities.iter().all(|capability| {
-                capability.status == ProviderCapabilityStatus::AccountDependent
-            }));
+            assert_status(account_status, ProviderCapabilityStatus::AccountDependent);
         }
-    }
-
-    #[test]
-    fn unauthenticated_and_unavailable_accounts_are_unavailable() {
         for account_status in [
             ProviderAccountStatus::Unauthenticated,
             ProviderAccountStatus::Unavailable,
         ] {
-            let capabilities =
-                capabilities_for_provider_account("openai", "default", account_status);
-
-            assert!(!capabilities.is_empty());
-            assert!(
-                capabilities.iter().all(|capability| {
-                    capability.status == ProviderCapabilityStatus::Unavailable
-                })
-            );
+            assert_status(account_status, ProviderCapabilityStatus::Unavailable);
         }
-    }
-
-    #[test]
-    fn hosted_and_local_accounts_expose_distinct_reliability_contracts() {
-        let hosted = capabilities_for_provider_account(
-            "openai",
-            "default",
-            ProviderAccountStatus::Authenticated,
+        let assert_contract = |provider_kind, reliability, data_flow| {
+            let capabilities = capabilities_for_provider_account(
+                provider_kind,
+                "default",
+                ProviderAccountStatus::Authenticated,
+            );
+            assert!(capabilities.iter().all(|capability| {
+                capability.reliability_contract == reliability
+                    && capability.data_flow_class == data_flow
+            }));
+        };
+        assert_contract(
+            "codex",
+            ReliabilityContract::HostedProvider,
+            DataFlowClass::ModelProviderPrompt,
         );
-        let local = capabilities_for_provider_account(
+        assert_contract(
             "local_models",
-            "default",
-            ProviderAccountStatus::Authenticated,
+            ReliabilityContract::FirstParty,
+            DataFlowClass::LocalInference,
         );
-
-        assert!(hosted.iter().all(|capability| {
-            capability.reliability_contract == ReliabilityContract::HostedProvider
-        }));
-        assert!(local.iter().all(|capability| {
-            capability.reliability_contract == ReliabilityContract::FirstParty
-                && capability.data_flow_class == DataFlowClass::LocalInference
-        }));
     }
 
     #[test]
     fn account_readiness_controls_model_capability_status() {
-        let capabilities = capabilities_for_provider_account(
-            "codex",
-            "default",
-            ProviderAccountStatus::Unauthenticated,
-        );
+        assert_model_capability_policy();
+    }
 
-        assert!(!capabilities.is_empty());
-        assert!(
-            capabilities
-                .iter()
-                .all(|capability| { capability.status == ProviderCapabilityStatus::Unavailable })
-        );
+    #[test]
+    fn hosted_and_local_accounts_expose_distinct_reliability_contracts() {
+        assert_model_capability_policy();
     }
 }

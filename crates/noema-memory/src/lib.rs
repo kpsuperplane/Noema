@@ -26,7 +26,7 @@ pub use model::{
 };
 pub use operations::{
     MemoryOperationError, MemoryOperationFuture, MemoryOperations, MemoryOperationsHandle,
-    MemoryServiceEvent, MemoryServiceEventKind, MemoryServiceReadiness,
+    MemoryServiceReadiness,
 };
 pub use paths::MemoryServicePaths;
 pub use repository::{

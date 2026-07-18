@@ -232,7 +232,7 @@ impl NoemaStore {
     ///
     /// Returns [`StoreError`] when the artifact is missing, the embedded store
     /// read fails, or stored rows violate artifact invariants.
-    pub async fn list_artifact_versions(
+    async fn list_artifact_versions(
         &self,
         artifact_id: &str,
     ) -> Result<Vec<ArtifactVersionRecord>, StoreError> {

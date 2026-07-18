@@ -16,8 +16,6 @@ mod runtime;
 mod runtime_assets;
 
 pub use catalog::LocalModelCatalog;
-#[cfg(test)]
-pub use catalog::LocalModelCatalogError;
 pub use download::{LocalModelInstallError, LocalModelInstaller};
 #[cfg(feature = "local-model-evals")]
 pub use eval::{

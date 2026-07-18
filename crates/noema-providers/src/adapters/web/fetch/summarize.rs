@@ -147,32 +147,21 @@ mod tests {
     };
 
     #[test]
-    fn chooses_raw_for_small_markdown() {
-        assert_eq!(summary_strategy_for_chars(8_000), SummaryDecision::Raw);
-    }
-
-    #[test]
-    fn chooses_single_pass_for_medium_markdown() {
-        assert_eq!(
-            summary_strategy_for_chars(8_001),
-            SummaryDecision::Summarize(FetchSummaryStrategy::SinglePass)
-        );
-    }
-
-    #[test]
-    fn chooses_chunked_for_large_markdown() {
-        assert_eq!(
-            summary_strategy_for_chars(250_001),
-            SummaryDecision::Summarize(FetchSummaryStrategy::Chunked)
-        );
-    }
-
-    #[test]
-    fn refuses_oversized_markdown() {
-        assert_eq!(
-            summary_strategy_for_chars(1_000_001),
-            SummaryDecision::Refuse
-        );
+    fn summary_strategy_preserves_all_size_boundaries() {
+        for (chars, expected) in [
+            (8_000, SummaryDecision::Raw),
+            (
+                8_001,
+                SummaryDecision::Summarize(FetchSummaryStrategy::SinglePass),
+            ),
+            (
+                250_001,
+                SummaryDecision::Summarize(FetchSummaryStrategy::Chunked),
+            ),
+            (1_000_001, SummaryDecision::Refuse),
+        ] {
+            assert_eq!(summary_strategy_for_chars(chars), expected);
+        }
     }
 
     #[test]

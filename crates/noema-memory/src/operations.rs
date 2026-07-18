@@ -20,28 +20,6 @@ pub struct MemoryServiceReadiness {
     pub ready: bool,
 }
 
-/// Stable memory service lifecycle event kind.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MemoryServiceEventKind {
-    /// Service startup began.
-    Starting,
-    /// Service became ready.
-    Ready,
-    /// Service shutdown began.
-    Stopping,
-    /// Service stopped.
-    Stopped,
-    /// Service startup or readiness failed.
-    Failed,
-}
-
-/// Service lifecycle event safe to publish across runtime/API boundaries.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MemoryServiceEvent {
-    /// Stable lifecycle transition.
-    pub kind: MemoryServiceEventKind,
-}
-
 /// Fixed service-level failures safe for runtime and API decisions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum MemoryOperationError {
@@ -107,25 +85,6 @@ pub type MemoryOperationsHandle = Arc<dyn MemoryOperations>;
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn operations_trait_remains_dyn_compatible() {
-        fn accepts_operations(_operations: Option<&dyn MemoryOperations>) {}
-
-        accepts_operations(None);
-    }
-
-    #[test]
-    fn readiness_and_lifecycle_events_stay_backend_neutral() {
-        assert!(MemoryServiceReadiness { ready: true }.ready);
-        assert_eq!(
-            MemoryServiceEvent {
-                kind: MemoryServiceEventKind::Ready,
-            }
-            .kind,
-            MemoryServiceEventKind::Ready
-        );
-    }
 
     #[test]
     fn operation_errors_preserve_existing_safe_codes_and_messages() {

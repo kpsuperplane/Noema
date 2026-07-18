@@ -2,10 +2,7 @@
 
 use crate::{CapabilityFuture, InvokerKey, ToolName, ToolSpec, web};
 use serde_json::{Value, json};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::Arc,
-};
+use std::{collections::BTreeMap, sync::Arc};
 use thiserror::Error;
 
 /// Opaque child/runtime-owned operation token.
@@ -256,15 +253,6 @@ impl CapabilityBinding {
     pub fn persist_output(&self, output: &Value) -> Option<Value> {
         self.sanitizer.persist_output(output)
     }
-
-    /// Produce both views when an output already exists.
-    #[must_use]
-    pub fn persisted_views(&self, arguments: &Value, output: &Value) -> PersistedCapabilityPayload {
-        PersistedCapabilityPayload {
-            arguments: self.persist_arguments(arguments),
-            output: self.persist_output(output),
-        }
-    }
 }
 
 /// Immutable request-local catalog that retains exact execution authority.
@@ -298,7 +286,7 @@ impl CapabilityCatalogSnapshot {
         self.entries.iter()
     }
 
-    /// Return whether the catalog is empty.
+    /// Return whether the catalog contains no bindings.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
@@ -315,7 +303,7 @@ impl CapabilityCatalogSnapshot {
 #[derive(Debug, Default)]
 pub struct CapabilityCatalogBuilder {
     entries: Vec<CapabilityBinding>,
-    canonical_names: BTreeSet<String>,
+    by_canonical_name: BTreeMap<String, usize>,
 }
 
 impl CapabilityCatalogBuilder {
@@ -333,10 +321,11 @@ impl CapabilityCatalogBuilder {
     /// was already added.
     pub fn add(&mut self, binding: CapabilityBinding) -> Result<(), CapabilityCatalogError> {
         let canonical_name = binding.spec.name.as_str().to_string();
-        if self.canonical_names.contains(&canonical_name) {
+        if self.by_canonical_name.contains_key(&canonical_name) {
             return Err(CapabilityCatalogError::DuplicateCanonicalName);
         }
-        self.canonical_names.insert(canonical_name);
+        self.by_canonical_name
+            .insert(canonical_name, self.entries.len());
         self.entries.push(binding);
         Ok(())
     }
@@ -344,15 +333,9 @@ impl CapabilityCatalogBuilder {
     /// Freeze the catalog into an immutable snapshot.
     #[must_use]
     pub fn build(self) -> CapabilityCatalogSnapshot {
-        let by_canonical_name = self
-            .entries
-            .iter()
-            .enumerate()
-            .map(|(index, binding)| (binding.spec.name.as_str().to_string(), index))
-            .collect();
         CapabilityCatalogSnapshot {
             entries: Arc::new(self.entries),
-            by_canonical_name: Arc::new(by_canonical_name),
+            by_canonical_name: Arc::new(self.by_canonical_name),
         }
     }
 }
@@ -509,6 +492,13 @@ mod tests {
     use super::*;
     use crate::{CapabilityEffect, CapabilityScope};
 
+    macro_rules! assert_json_fields {
+        ($value:expr, $($pointer:literal => $expected:expr),+ $(,)?) => {{
+            let value = &$value;
+            $(assert_eq!(value.pointer($pointer), Some(&json!($expected)), "{}", $pointer);)+
+        }};
+    }
+
     fn binding(name: &str, sanitizer: Arc<dyn PayloadSanitizer>) -> CapabilityBinding {
         CapabilityBinding::new(
             ToolSpec::new(name, "Test operation.", json!({"type":"object"})).expect("spec"),
@@ -521,6 +511,17 @@ mod tests {
         )
     }
 
+    fn persisted_views(
+        binding: &CapabilityBinding,
+        arguments: &Value,
+        output: &Value,
+    ) -> PersistedCapabilityPayload {
+        PersistedCapabilityPayload {
+            arguments: binding.persist_arguments(arguments),
+            output: binding.persist_output(output),
+        }
+    }
+
     #[test]
     fn renamed_mcp_binding_omits_arguments_and_outputs() {
         let mut builder = CapabilityCatalogBuilder::new();
@@ -529,7 +530,8 @@ mod tests {
             .expect("entry");
         let snapshot = builder.build();
         let binding = snapshot.resolve("read_docs").expect("binding");
-        let views = binding.persisted_views(
+        let views = persisted_views(
+            binding,
             &json!({"private":"workspace query"}),
             &json!({"private":"workspace result"}),
         );
@@ -549,9 +551,11 @@ mod tests {
         };
         let arguments = views.arguments.expect("arguments");
         let output = views.output.expect("output");
-        assert_eq!(arguments["url"], web::fetch::REDACTED_SENSITIVE_URL);
-        assert_eq!(arguments["headers"]["Authorization"], "[REDACTED]");
-        assert_eq!(output["access_token"], "[REDACTED]");
+        assert_json_fields!(arguments,
+            "/url" => web::fetch::REDACTED_SENSITIVE_URL,
+            "/headers/Authorization" => "[REDACTED]",
+        );
+        assert_json_fields!(output, "/access_token" => "[REDACTED]");
         assert!(!arguments.to_string().contains("private"));
     }
 
@@ -561,7 +565,8 @@ mod tests {
             "artifact.create_local_file",
             Arc::new(ArtifactPayloadSanitizer),
         );
-        let views = binding.persisted_views(
+        let views = persisted_views(
+            &binding,
             &json!({
                 "filename": "draft.md",
                 "api_key": "private-argument",
@@ -576,24 +581,23 @@ mod tests {
         let arguments = views.arguments.expect("argument view");
         let output = views.output.expect("output view");
 
-        assert_eq!(arguments["filename"], "draft.md");
-        assert_eq!(arguments["versions"][0]["title"], "Draft");
-        assert_eq!(
-            arguments["versions"][0]["content"],
-            json!({"omitted": true, "character_count": 13})
+        assert_json_fields!(arguments,
+            "/filename" => "draft.md",
+            "/versions/0/title" => "Draft",
+            "/versions/0/content" => json!({"omitted": true, "character_count": 13}),
+            "/api_key" => "[REDACTED]",
         );
-        assert_eq!(arguments["api_key"], "[REDACTED]");
-        assert_eq!(output["artifact_id"], "artifact:1");
-        assert_eq!(output["versions"][0]["title"], "Saved");
-        assert_eq!(
-            output["versions"][0]["content"],
-            json!({"omitted": true, "character_count": 11})
+        assert_json_fields!(output,
+            "/artifact_id" => "artifact:1",
+            "/versions/0/title" => "Saved",
+            "/versions/0/content" => json!({"omitted": true, "character_count": 11}),
+            "/access_token" => "[REDACTED]",
         );
-        assert_eq!(output["access_token"], "[REDACTED]");
         assert!(!arguments.to_string().contains("argument body"));
         assert!(!output.to_string().contains("output body"));
 
-        let nested_views = binding.persisted_views(
+        let nested_views = persisted_views(
+            &binding,
             &json!({
                 "arguments": {
                     "filename": "nested.md",
@@ -611,18 +615,16 @@ mod tests {
         );
         let nested_arguments = nested_views.arguments.expect("nested argument view");
         let nested_output = nested_views.output.expect("nested output view");
-        assert_eq!(nested_arguments["arguments"]["filename"], "nested.md");
-        assert_eq!(
-            nested_arguments["arguments"]["versions"][0]["content"],
-            json!({"omitted": true, "character_count": 20})
+        assert_json_fields!(nested_arguments,
+            "/arguments/filename" => "nested.md",
+            "/arguments/versions/0/content" => json!({"omitted": true, "character_count": 20}),
+            "/arguments/password" => "[REDACTED]",
         );
-        assert_eq!(nested_arguments["arguments"]["password"], "[REDACTED]");
-        assert_eq!(nested_output["result"]["artifact_id"], "artifact:2");
-        assert_eq!(
-            nested_output["result"]["versions"][0]["content"],
-            json!({"omitted": true, "character_count": 18})
+        assert_json_fields!(nested_output,
+            "/result/artifact_id" => "artifact:2",
+            "/result/versions/0/content" => json!({"omitted": true, "character_count": 18}),
+            "/result/cookie" => "[REDACTED]",
         );
-        assert_eq!(nested_output["result"]["cookie"], "[REDACTED]");
         assert!(
             !nested_arguments
                 .to_string()

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -6,10 +6,13 @@ use tokio::{
     sync::Mutex,
 };
 
-use crate::model::{AddMemoryRequest, MemoryMessage, SearchMemoriesRequest};
+use crate::{
+    MemoryOperationError,
+    model::{AddMemoryRequest, MemoryMessage, SearchMemoriesRequest},
+};
 
 #[tokio::test]
-async fn mnemosyne_client_add_posts_v1_memories_add() {
+async fn mnemosyne_client_preserves_add_search_and_connection_contracts() {
     let server =
         FakeMnemosyneServer::start("POST", "/v1/memories/add", serde_json::json!({})).await;
     let client =
@@ -41,10 +44,13 @@ async fn mnemosyne_client_add_posts_v1_memories_add() {
         request_body["messages"],
         serde_json::json!([{"role": "user", "content": "I love planes."}])
     );
-}
+    let connection = super::MnemosyneConnection::new(
+        "http://127.0.0.1:12345/".to_string(),
+        Some("secret".to_string()),
+    );
+    assert_eq!(connection.base_url, "http://127.0.0.1:12345");
+    assert_eq!(connection.api_key.as_deref(), Some("secret"));
 
-#[tokio::test]
-async fn mnemosyne_client_search_posts_v1_memories_search() {
     let server = FakeMnemosyneServer::start(
         "POST",
         "/v1/memories/search",
@@ -78,6 +84,12 @@ async fn mnemosyne_client_search_posts_v1_memories_search() {
     assert_eq!(request_body["query"], "planes");
     assert_eq!(request_body["user_id"], "human:local");
     assert_eq!(request_body["limit"], 8);
+
+    let server = FakeMnemosyneServer::health().await;
+    super::client::MnemosyneClient::new(server.base_url(), None)
+        .check_readiness()
+        .await
+        .expect("health readiness");
 }
 
 #[tokio::test]
@@ -107,34 +119,28 @@ async fn mnemosyne_client_times_out_when_server_never_responds() {
         .await
         .expect_err("request should time out");
 
-    assert_eq!(error.sanitized_code(), "timeout");
-    assert_eq!(
-        error.sanitized_message(),
-        "memory service request timed out"
-    );
+    assert!(matches!(
+        MemoryOperationError::from(error),
+        MemoryOperationError::TimedOut
+    ));
 }
 
-#[tokio::test]
-async fn mnemosyne_client_checks_health_readiness() {
-    let server =
-        FakeMnemosyneServer::start("GET", "/health", serde_json::json!({"status": "ready"})).await;
-    let client = super::client::MnemosyneClient::new(server.base_url(), None);
-
-    client.check_readiness().await.expect("readiness");
-}
-
-struct FakeMnemosyneServer {
+pub(super) struct FakeMnemosyneServer {
     base_url: String,
     state: Arc<Mutex<FakeMnemosyneState>>,
 }
 
 #[derive(Default)]
 struct FakeMnemosyneState {
-    headers: HashMap<String, String>,
+    authorization: Option<String>,
     body: Vec<u8>,
 }
 
 impl FakeMnemosyneServer {
+    pub(super) async fn health() -> Self {
+        Self::start("GET", "/health", serde_json::json!({"status": "ready"})).await
+    }
+
     async fn start(
         expected_method: &'static str,
         expected_path: &'static str,
@@ -147,68 +153,34 @@ impl FakeMnemosyneServer {
 
         tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.expect("accept");
-            let mut buffer = vec![0_u8; 8192];
-            let read = stream.read(&mut buffer).await.expect("read");
-            let request = String::from_utf8_lossy(&buffer[..read]);
-            let (head, body) = request.split_once("\r\n\r\n").expect("request head");
-            let mut lines = head.lines();
-            let request_line = lines.next().expect("request line");
-            assert_eq!(
-                request_line,
-                format!("{expected_method} {expected_path} HTTP/1.1")
-            );
-
-            let mut headers = HashMap::new();
-            for line in lines {
-                if let Some((name, value)) = line.split_once(':') {
-                    headers.insert(name.to_ascii_lowercase(), value.trim().to_string());
-                }
-            }
-
-            let content_length = headers
-                .get("content-length")
-                .and_then(|value| value.parse::<usize>().ok())
-                .unwrap_or(0);
-            let mut body_bytes = body.as_bytes().to_vec();
-            while body_bytes.len() < content_length {
-                let read = stream.read(&mut buffer).await.expect("read body");
-                if read == 0 {
-                    break;
-                }
-                body_bytes.extend_from_slice(&buffer[..read]);
-            }
+            let request = crate::model_proxy::protocol::read_http_request(&mut stream)
+                .await
+                .expect("request");
+            assert_eq!(request.method, expected_method);
+            assert_eq!(request.path, expected_path);
 
             *server_state.lock().await = FakeMnemosyneState {
-                headers,
-                body: body_bytes,
+                authorization: request.header("authorization").map(str::to_string),
+                body: request.body,
             };
 
-            let response_body = serde_json::to_vec(&response).expect("response JSON");
-            let response_head = format!(
-                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n",
-                response_body.len()
-            );
+            let response =
+                crate::model_proxy::protocol::json_response(http::StatusCode::OK, response);
             stream
-                .write_all(response_head.as_bytes())
+                .write_all(&response.to_bytes())
                 .await
-                .expect("write head");
-            stream.write_all(&response_body).await.expect("write body");
+                .expect("write response");
         });
 
         Self { base_url, state }
     }
 
-    fn base_url(&self) -> String {
+    pub(super) fn base_url(&self) -> String {
         self.base_url.clone()
     }
 
     async fn last_authorization(&self) -> Option<String> {
-        self.state
-            .lock()
-            .await
-            .headers
-            .get("authorization")
-            .cloned()
+        self.state.lock().await.authorization.clone()
     }
 
     async fn last_body_json(&self) -> serde_json::Value {

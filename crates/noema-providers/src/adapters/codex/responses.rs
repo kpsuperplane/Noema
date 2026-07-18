@@ -2,11 +2,7 @@
 
 use std::{sync::Arc, time::Duration};
 
-#[cfg(test)]
-use super::oauth::{CodexOAuthClient, CodexTokenStore};
 use super::{catalog::latest_codex_client_version, oauth::chatgpt_account_id_from_access_token};
-#[cfg(test)]
-use crate::CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS;
 use crate::adapters::{
     account_service::{ProviderCredential, ProviderCredentialAccessHandle},
     reqwest_transport_error,
@@ -40,11 +36,6 @@ pub struct CodexResponsesProvider {
 
 #[derive(Clone)]
 enum CodexCredentialSource {
-    #[cfg(test)]
-    File {
-        token_store: CodexTokenStore,
-        oauth_client: CodexOAuthClient,
-    },
     Service {
         provider_account_id: String,
         access: ProviderCredentialAccessHandle,
@@ -54,8 +45,6 @@ enum CodexCredentialSource {
 impl std::fmt::Debug for CodexCredentialSource {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            #[cfg(test)]
-            Self::File { .. } => formatter.write_str("CodexCredentialSource::File([REDACTED])"),
             Self::Service {
                 provider_account_id,
                 ..
@@ -80,63 +69,13 @@ impl std::fmt::Debug for CodexResponsesProvider {
 }
 
 impl CodexResponsesProvider {
-    /// Build a Codex provider with a default reqwest client.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ProviderError`] when configuration is invalid or the HTTP
-    /// client cannot be built.
-    #[cfg(test)]
-    pub(crate) fn new(config: CodexProviderConfig) -> Result<Self, ProviderError> {
-        let config = normalize_config(config)?;
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(config.timeout_seconds))
-            .build()
-            .map_err(|source| reqwest_transport_error("codex", "build_client", &source))?;
-        Self::with_client(client, config)
-    }
-
-    /// Build a Codex provider with a caller-supplied reqwest client.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ProviderError`] when configuration is invalid.
-    #[cfg(test)]
-    pub(crate) fn with_client(
-        client: reqwest::Client,
-        config: CodexProviderConfig,
-    ) -> Result<Self, ProviderError> {
-        let config = normalize_config(config)?;
-        let account_home =
-            config
-                .account_home
-                .clone()
-                .ok_or_else(|| ProviderError::InvalidRequest {
-                    message: "codex account home is required".to_string(),
-                })?;
-        let transport = ResponsesTransport::new(client.clone(), config.base_url.clone())?;
-        let token_store = CodexTokenStore::new(account_home);
-        let oauth_client = CodexOAuthClient::new(config.oauth.clone())?;
-        Ok(Self {
-            transport,
-            version_client: client,
-            resolved_client_version: Arc::new(OnceCell::new()),
-            credentials: CodexCredentialSource::File {
-                token_store,
-                oauth_client,
-            },
-            system_errors: config.system_errors.clone(),
-            config,
-        })
-    }
-
     /// Build a Codex provider using provider-account credential access.
     ///
     /// # Errors
     ///
     /// Returns [`ProviderError`] when configuration or the HTTP client is
     /// invalid.
-    pub fn new_with_credentials(
+    pub(crate) fn new_with_credentials(
         config: CodexProviderConfig,
         provider_account_id: impl Into<String>,
         access: ProviderCredentialAccessHandle,
@@ -179,16 +118,6 @@ impl CodexResponsesProvider {
             system_errors: config.system_errors.clone(),
             config,
         })
-    }
-
-    /// Return the configured token store.
-    #[must_use]
-    #[cfg(test)]
-    pub(crate) fn token_store(&self) -> Option<&CodexTokenStore> {
-        match &self.credentials {
-            CodexCredentialSource::File { token_store, .. } => Some(token_store),
-            CodexCredentialSource::Service { .. } => None,
-        }
     }
 
     fn model_for_request(&self, model: Option<String>) -> Result<String, ProviderError> {
@@ -251,15 +180,6 @@ impl CodexResponsesProvider {
 
     async fn access_token(&self) -> Result<String, ProviderError> {
         match &self.credentials {
-            #[cfg(test)]
-            CodexCredentialSource::File {
-                token_store,
-                oauth_client,
-            } => {
-                token_store
-                    .access_token(oauth_client, CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS)
-                    .await
-            }
             CodexCredentialSource::Service {
                 provider_account_id,
                 access,
@@ -272,11 +192,6 @@ impl CodexResponsesProvider {
 
     async fn refresh_access_token(&self) -> Result<String, ProviderError> {
         match &self.credentials {
-            #[cfg(test)]
-            CodexCredentialSource::File {
-                token_store,
-                oauth_client,
-            } => token_store.refresh_access_token(oauth_client).await,
             CodexCredentialSource::Service {
                 provider_account_id,
                 access,

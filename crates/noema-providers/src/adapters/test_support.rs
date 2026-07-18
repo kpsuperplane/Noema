@@ -11,6 +11,52 @@ use tokio::{
     sync::oneshot,
 };
 
+#[derive(Debug)]
+struct StaticCodexCredentials {
+    access_token: String,
+    refresh_token: String,
+}
+
+impl crate::ProviderCredentialAccess for StaticCodexCredentials {
+    fn exa_api_key<'a>(
+        &'a self,
+        _provider_account_id: &'a str,
+    ) -> crate::ProviderCredentialFuture<'a> {
+        Box::pin(async {
+            Err(crate::ProviderError::MissingCredentials {
+                provider: "exa".to_string(),
+                credential: "provider account".to_string(),
+            })
+        })
+    }
+
+    fn codex_access_token<'a>(
+        &'a self,
+        _provider_account_id: &'a str,
+    ) -> crate::ProviderCredentialFuture<'a> {
+        let token = self.access_token.clone();
+        Box::pin(async move { Ok(crate::ProviderCredential::from(token)) })
+    }
+
+    fn refresh_codex_access_token<'a>(
+        &'a self,
+        _provider_account_id: &'a str,
+    ) -> crate::ProviderCredentialFuture<'a> {
+        let token = self.refresh_token.clone();
+        Box::pin(async move { Ok(crate::ProviderCredential::from(token)) })
+    }
+}
+
+pub(crate) fn static_codex_credentials(
+    access_token: impl Into<String>,
+    refresh_token: impl Into<String>,
+) -> crate::ProviderCredentialAccessHandle {
+    std::sync::Arc::new(StaticCodexCredentials {
+        access_token: access_token.into(),
+        refresh_token: refresh_token.into(),
+    })
+}
+
 /// A single HTTP request captured by [`spawn_server`].
 pub(crate) struct CapturedRequest {
     pub(crate) method: String,
@@ -35,28 +81,88 @@ pub(crate) async fn spawn_server(
         let (mut socket, _) = listener.accept().await.expect("accept");
         let request = read_request(&mut socket).await;
         let _ = request_tx.send(request);
-
-        let reason = match status {
-            200 => "OK",
-            401 => "Unauthorized",
-            429 => "Too Many Requests",
-            _ => "Error",
-        };
-        let response = format!(
-            "HTTP/1.1 {status} {reason}\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
-            response_body.len(),
-            response_body
-        );
-        socket
-            .write_all(response.as_bytes())
-            .await
-            .expect("write response");
+        write_json_response(&mut socket, status, &response_body).await;
     });
 
     (format!("http://{addr}"), request_rx)
 }
 
-async fn read_request(socket: &mut tokio::net::TcpStream) -> CapturedRequest {
+/// Spawn a server that captures one request for each canned response in order.
+pub(crate) async fn spawn_scripted_server<B>(
+    responses: impl IntoIterator<Item = (u16, B)>,
+) -> (String, oneshot::Receiver<Vec<CapturedRequest>>)
+where
+    B: Into<String>,
+{
+    let responses = responses
+        .into_iter()
+        .map(|(status, body)| (status, body.into()))
+        .collect::<Vec<_>>();
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("local addr");
+    let (requests_tx, requests_rx) = oneshot::channel();
+
+    tokio::spawn(async move {
+        let mut requests = Vec::with_capacity(responses.len());
+        for (status, body) in responses {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            requests.push(read_request(&mut socket).await);
+            write_json_response(&mut socket, status, &body).await;
+        }
+        let _ = requests_tx.send(requests);
+    });
+
+    (format!("http://{addr}"), requests_rx)
+}
+
+/// Spawn a scripted server whose final response waits for an explicit release.
+pub(crate) async fn spawn_blocking_server(
+    leading_responses: Vec<(u16, String)>,
+    final_status: u16,
+    final_body: impl Into<String>,
+) -> (String, oneshot::Receiver<()>, oneshot::Sender<()>) {
+    let final_body = final_body.into();
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("local addr");
+    let (started_tx, started_rx) = oneshot::channel();
+    let (release_tx, release_rx) = oneshot::channel();
+    tokio::spawn(async move {
+        for (status, body) in leading_responses {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            read_request(&mut socket).await;
+            write_json_response(&mut socket, status, &body).await;
+        }
+        let (mut socket, _) = listener.accept().await.expect("accept blocked request");
+        read_request(&mut socket).await;
+        started_tx.send(()).expect("signal request");
+        release_rx.await.expect("release response");
+        write_json_response(&mut socket, final_status, &final_body).await;
+    });
+    (format!("http://{addr}"), started_rx, release_tx)
+}
+
+pub(crate) async fn write_json_response(
+    socket: &mut tokio::net::TcpStream,
+    status: u16,
+    body: &str,
+) {
+    let reason = match status {
+        200 => "OK",
+        401 => "Unauthorized",
+        429 => "Too Many Requests",
+        _ => "Error",
+    };
+    let response = format!(
+        "HTTP/1.1 {status} {reason}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    socket
+        .write_all(response.as_bytes())
+        .await
+        .expect("write response");
+}
+
+pub(crate) async fn read_request(socket: &mut tokio::net::TcpStream) -> CapturedRequest {
     let mut bytes = Vec::new();
     let mut buffer = [0_u8; 1024];
     loop {

@@ -311,16 +311,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn external_artifact_url_accepts_http_and_https() {
+    fn external_artifact_urls_normalize_http_and_reject_other_schemes() {
         assert_eq!(
             validate_external_artifact_url("https://example.com/a b").expect("url"),
             "https://example.com/a%20b"
         );
         assert!(validate_external_artifact_url("http://example.com").is_ok());
-    }
-
-    #[test]
-    fn external_artifact_url_rejects_non_http_scheme() {
-        assert!(validate_external_artifact_url("file:///tmp/report").is_err());
+        for value in [
+            "file:///tmp/report",
+            "ssh://example.com/report",
+            "not a URL",
+        ] {
+            assert!(validate_external_artifact_url(value).is_err(), "{value}");
+        }
     }
 }

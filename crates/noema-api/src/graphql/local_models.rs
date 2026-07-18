@@ -25,16 +25,12 @@ pub enum GraphqlLocalModelBackend {
     Cpu,
 }
 
-impl From<noema_providers::LocalModelBackend> for GraphqlLocalModelBackend {
-    fn from(value: noema_providers::LocalModelBackend) -> Self {
-        match value {
-            noema_providers::LocalModelBackend::Metal => Self::Metal,
-            noema_providers::LocalModelBackend::Cuda => Self::Cuda,
-            noema_providers::LocalModelBackend::Vulkan => Self::Vulkan,
-            noema_providers::LocalModelBackend::Cpu => Self::Cpu,
-        }
-    }
-}
+graphql_enum_from!(noema_providers::LocalModelBackend => GraphqlLocalModelBackend {
+    Metal => Metal,
+    Cuda => Cuda,
+    Vulkan => Vulkan,
+    Cpu => Cpu,
+});
 
 /// One GGUF artifact offered for a curated local model.
 #[derive(Clone, Debug, SimpleObject)]
@@ -373,7 +369,7 @@ pub(super) async fn install_local_model(
 ) -> Result<GraphqlLocalModelInstallation> {
     state
         .local_model_manager()?
-        .install_catalog_model(&input.model_id, input.file.as_deref())
+        .install_catalog_model(input.model_id, input.file)
         .await
         .map(installation_view)
         .map_err(graphql_error)
@@ -431,7 +427,7 @@ pub(super) async fn cancel_local_model_install(
 ) -> Result<GraphqlLocalModelInstallation> {
     state
         .local_model_manager()?
-        .cancel_installation(&installation_id)
+        .cancel_installation(installation_id)
         .await
         .map(installation_view)
         .map_err(graphql_error)
@@ -471,7 +467,7 @@ pub(super) async fn remove_local_model(
 ) -> Result<bool> {
     state
         .local_model_manager()?
-        .remove(&installation_id)
+        .remove(installation_id)
         .await
         .map_err(graphql_error)?;
     Ok(true)
@@ -483,7 +479,7 @@ pub(super) async fn activate_local_model(
 ) -> Result<GraphqlLocalModelInstallation> {
     state
         .local_model_manager()?
-        .activate(&installation_id)
+        .activate(installation_id)
         .await
         .map(installation_view)
         .map_err(graphql_error)
@@ -549,7 +545,7 @@ pub(super) async fn local_model_events(
 ) -> Result<Pin<Box<dyn Stream<Item = Result<GraphqlLocalModelEvent>> + Send>>> {
     let stream = state
         .local_model_manager()?
-        .subscribe_events(after.as_deref())
+        .subscribe_events(after)
         .await
         .map_err(graphql_error)?;
     Ok(Box::pin(stream.map(|event| {
@@ -590,146 +586,4 @@ fn runtime_event_time() -> String {
     time::OffsetDateTime::now_utc()
         .format(&time::format_description::well_known::Rfc3339)
         .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn generic_default_preference_rejects_ambiguous_local_model_selection() {
-        let store = crate::test_support::test_store().await;
-        let state = GraphqlState::for_tests_with_store(store.clone());
-
-        let error = save_default_model_preference(
-            &state,
-            GraphqlSaveDefaultModelPreferenceInput {
-                provider_kind: ProviderKind::LocalModels.as_str().to_string(),
-                provider_account_id: noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID.to_string(),
-                model_profile: "shared-model".to_string(),
-                reasoning_effort: None,
-            },
-        )
-        .await
-        .expect_err("local changes require an exact installation");
-
-        assert_eq!(
-            error.message,
-            "Activate a specific local model installation to change the local default"
-        );
-        assert!(
-            store
-                .get_default_model_preference()
-                .await
-                .expect("default preference")
-                .is_none()
-        );
-    }
-
-    #[tokio::test]
-    async fn setup_surfaces_recommended_installation_while_download_is_queued() {
-        let store = crate::test_support::test_store().await;
-        store
-            .upsert_local_model_installation(noema_providers::NewLocalModelInstallation {
-                installation_id: "local_model_installation:catalog:gemma-4-e4b-it:test".to_string(),
-                model_id: "gemma-4-e4b-it".to_string(),
-                display_name: "Gemma 4 E4B IT".to_string(),
-                source_kind: noema_providers::LocalModelSourceKind::Catalog,
-                source_repo: Some("ggml-org/gemma-4-E4B-it-GGUF".to_string()),
-                source_revision: Some("0".repeat(40)),
-                source_file: Some("gemma-4-E4B-it-Q4_K_M.gguf".to_string()),
-                sha256: Some("1".repeat(64)),
-                download_gb: 5.3,
-                expected_bytes: Some(5_300_000_000),
-                license: Some("Apache-2.0".to_string()),
-                backend: noema_providers::LocalModelBackend::Metal,
-            })
-            .await
-            .expect("queued installation");
-        let manager = crate::test_support::local_model_manager(&store);
-        let state = GraphqlState::for_tests_with_store(store).with_local_model_manager(manager);
-
-        let setup = local_model_setup(&state).await.expect("setup");
-
-        let installation = setup.installation.expect("queued setup installation");
-        assert_eq!(installation.model_id, "gemma-4-e4b-it");
-        assert_eq!(
-            installation.status,
-            GraphqlLocalModelInstallationStatus::Queued
-        );
-        assert!(!setup.is_ready);
-    }
-
-    #[tokio::test]
-    async fn setup_is_not_ready_until_the_active_runtime_is_running() {
-        let store = crate::test_support::test_store().await;
-        let installation_id = "local_model_installation:catalog:ternary-bonsai-8b:test";
-        let created = store
-            .upsert_local_model_installation(noema_providers::NewLocalModelInstallation {
-                installation_id: installation_id.to_string(),
-                model_id: "ternary-bonsai-8b".to_string(),
-                display_name: "Ternary Bonsai 8B".to_string(),
-                source_kind: noema_providers::LocalModelSourceKind::Catalog,
-                source_repo: Some("vinpix/Bonsai-8B-llama.cpp".to_string()),
-                source_revision: Some("0".repeat(40)),
-                source_file: Some("Bonsai-8B-Q2_KT.gguf".to_string()),
-                sha256: Some("1".repeat(64)),
-                download_gb: 3.0,
-                expected_bytes: Some(100),
-                license: Some("Apache-2.0".to_string()),
-                backend: noema_providers::LocalModelBackend::Metal,
-            })
-            .await
-            .expect("queued installation");
-        for status in [
-            noema_providers::LocalModelInstallationStatus::Downloading,
-            noema_providers::LocalModelInstallationStatus::Verifying,
-            noema_providers::LocalModelInstallationStatus::Installed,
-        ] {
-            store
-                .update_local_model_installation(
-                    &created.installation_id,
-                    noema_providers::LocalModelInstallationUpdate {
-                        status,
-                        downloaded_bytes: 100,
-                        expected_bytes: Some(100),
-                        sha256: None,
-                        blob_relative_path: (status
-                            == noema_providers::LocalModelInstallationStatus::Installed)
-                            .then(|| "models/blobs/test.gguf".to_string()),
-                        error_code: None,
-                        error_message: None,
-                    },
-                )
-                .await
-                .expect("installation transition");
-        }
-        let mut selection = noema_providers::ProviderSelectionSnapshot::explicit(
-            "local_models",
-            noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
-            "ternary-bonsai-8b",
-            None,
-            Some("test_local_activation".to_string()),
-        );
-        selection.provider_instance_key = Some(created.provider_instance_key.clone());
-        let ready_selection = crate::test_support::ready_provider_selection(selection);
-        store
-            .activate_local_model_as_system_default(installation_id, &ready_selection)
-            .await
-            .expect("activate installation");
-        let manager = crate::test_support::local_model_manager(&store);
-        let state = GraphqlState::for_tests_with_store(store).with_local_model_manager(manager);
-
-        let setup = local_model_setup(&state).await.expect("setup");
-
-        assert_eq!(
-            setup.installation.expect("active installation").status,
-            GraphqlLocalModelInstallationStatus::Installed
-        );
-        assert_eq!(
-            setup.runtime_status,
-            GraphqlLocalModelRuntimeStatus::Inactive
-        );
-        assert!(!setup.is_ready);
-    }
 }

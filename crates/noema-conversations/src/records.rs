@@ -163,17 +163,18 @@ pub enum ReplayMode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ConversationOwnerKind;
 
     #[test]
-    fn local_chat_preserves_default_conversation_wire_values() {
+    fn local_chat_constructor_preserves_default_wire_values_and_requested_provider() {
         let conversation = NewConversation::local_chat(
             Some("gpt-test".to_string()),
             Some("/tmp/noema".to_string()),
         );
-
         assert_eq!(conversation.title, None);
-        assert_eq!(conversation.owner.object_type, ConversationOwnerKind::Human);
+        assert_eq!(
+            conversation.owner.object_type,
+            crate::ConversationOwnerKind::Human
+        );
         assert_eq!(conversation.owner.object_type.as_str(), "human");
         assert_eq!(conversation.owner.object_id, "human:local");
         assert_eq!(
@@ -188,14 +189,10 @@ mod tests {
         assert_eq!(conversation.model.as_deref(), Some("gpt-test"));
         assert_eq!(conversation.cwd.as_deref(), Some("/tmp/noema"));
         assert_eq!(conversation.metadata, json!({}));
-    }
 
-    #[test]
-    fn local_chat_for_provider_preserves_requested_provider() {
-        let conversation = NewConversation::local_chat_for_provider("local_models", None, None);
-
-        assert_eq!(conversation.provider, "local_models");
-        assert_eq!(conversation.owner.object_type.as_str(), "human");
-        assert_eq!(conversation.owner.object_id, "human:local");
+        let local = NewConversation::local_chat_for_provider("local_models", None, None);
+        assert_eq!(local.provider, "local_models");
+        assert_eq!(local.owner.object_type.as_str(), "human");
+        assert_eq!(local.owner.object_id, "human:local");
     }
 }

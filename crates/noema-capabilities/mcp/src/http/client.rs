@@ -14,6 +14,7 @@ use rmcp::{
 };
 use sse_stream::{Sse, SseStream};
 
+use crate::http_body::{BodyReadError, bounded_response_body};
 use crate::limits::MAX_WIRE_FRAME_BYTES;
 
 const EVENT_STREAM_MIME_TYPE: &str = "text/event-stream";
@@ -36,33 +37,15 @@ impl BoundedReqwestMcpClient {
         }
     }
 
-    #[cfg(test)]
-    const fn with_limit(inner: reqwest::Client, max_frame_bytes: usize) -> Self {
-        Self {
-            inner,
-            max_frame_bytes,
-        }
-    }
-
     async fn bounded_body(
         &self,
-        mut response: reqwest::Response,
+        response: reqwest::Response,
     ) -> Result<Vec<u8>, StreamableHttpError<reqwest::Error>> {
-        if response
-            .content_length()
-            .is_some_and(|length| length > self.max_frame_bytes as u64)
-        {
-            return Err(wire_limit_error());
+        match bounded_response_body(response, self.max_frame_bytes).await {
+            Ok(body) => Ok(body),
+            Err(BodyReadError::Request(error)) => Err(StreamableHttpError::Client(error)),
+            Err(BodyReadError::Limit) => Err(wire_limit_error()),
         }
-        let mut body = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(StreamableHttpError::Client)?
-        {
-            append_bounded(&mut body, &chunk, self.max_frame_bytes)?;
-        }
-        Ok(body)
     }
 
     fn bounded_sse(
@@ -309,18 +292,6 @@ fn wire_limit_error() -> StreamableHttpError<reqwest::Error> {
     StreamableHttpError::UnexpectedServerResponse(Cow::Borrowed(WIRE_LIMIT_MESSAGE))
 }
 
-fn append_bounded(
-    body: &mut Vec<u8>,
-    chunk: &[u8],
-    max_bytes: usize,
-) -> Result<(), StreamableHttpError<reqwest::Error>> {
-    if chunk.len() > max_bytes.saturating_sub(body.len()) {
-        return Err(wire_limit_error());
-    }
-    body.extend_from_slice(chunk);
-    Ok(())
-}
-
 #[derive(Debug, thiserror::Error)]
 enum SseBodyError {
     #[error("MCP HTTP body failed")]
@@ -396,9 +367,10 @@ impl SseFrameBudget {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::http_body::append_bounded;
 
     #[test]
-    fn sse_budget_rejects_one_split_oversized_event() {
+    fn sse_budget_bounds_each_event_without_bounding_the_stream() {
         let mut budget = SseFrameBudget::new(8);
         assert!(
             budget
@@ -410,10 +382,7 @@ mod tests {
             budget.accept(Ok(bytes::Bytes::from_static(b" oversized"))),
             Some(Err(SseBodyError::FrameLimit))
         ));
-    }
 
-    #[test]
-    fn sse_budget_allows_an_unbounded_stream_of_individually_bounded_events() {
         let mut budget = SseFrameBudget::new(10);
         for _ in 0..1_000 {
             assert!(
@@ -426,17 +395,11 @@ mod tests {
     }
 
     #[test]
-    fn test_client_can_use_a_tiny_limit() {
-        let client = BoundedReqwestMcpClient::with_limit(reqwest::Client::new(), 8);
-        assert_eq!(client.max_frame_bytes, 8);
-    }
-
-    #[test]
     fn chunked_json_body_is_rejected_at_the_cumulative_limit() {
         let mut body = Vec::new();
-        append_bounded(&mut body, b"1234", 8).expect("first chunk");
-        append_bounded(&mut body, b"5678", 8).expect("second chunk");
-        assert!(append_bounded(&mut body, b"9", 8).is_err());
+        assert!(append_bounded(&mut body, b"1234", 8));
+        assert!(append_bounded(&mut body, b"5678", 8));
+        assert!(!append_bounded(&mut body, b"9", 8));
         assert_eq!(body, b"12345678");
     }
 }

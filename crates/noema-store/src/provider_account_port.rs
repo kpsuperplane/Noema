@@ -2,72 +2,29 @@
 
 use noema_providers::{
     NewProviderAccount, PersistedProviderAccountRecord, ProviderAccountPersistence,
-    ProviderAccountStatusUpdate, ProviderPersistenceError, ProviderPersistenceFuture,
-    UpdateProviderAccountRequest,
+    ProviderPersistenceError, ProviderPersistenceFuture, UpdateProviderAccountRequest,
 };
-use rusqlite::{OptionalExtension, TransactionBehavior, params};
 
-use super::{
-    NoemaStore, StoreError,
-    ids::now_string,
-    provider_accounts::{
-        PROVIDER_ACCOUNT_SELECT, provider_account_from_row, provider_account_row,
-        provider_status_str,
-    },
-    sqlite::json_to_string,
-};
+use super::{NoemaStore, StoreError};
 
 impl ProviderAccountPersistence for NoemaStore {
     fn provider_account<'a>(
         &'a self,
         provider_account_id: &'a str,
     ) -> ProviderPersistenceFuture<'a, Option<PersistedProviderAccountRecord>> {
-        Box::pin(async move {
-            NoemaStore::get_provider_account(self, provider_account_id)
-                .await
-                .map_err(|error| account_read_error(error, "provider_account"))
-        })
-    }
-
-    fn active_provider_account<'a>(
-        &'a self,
-        provider_kind: &'a str,
-    ) -> ProviderPersistenceFuture<'a, Option<PersistedProviderAccountRecord>> {
-        Box::pin(async move {
-            NoemaStore::active_provider_account(self, provider_kind)
-                .await
-                .map_err(|error| account_read_error(error, "active_provider_account"))
-        })
-    }
-
-    fn active_default_provider_accounts(
-        &self,
-    ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>> {
-        Box::pin(async move {
-            NoemaStore::active_default_provider_accounts(self)
-                .await
-                .map_err(|error| account_read_error(error, "active_default_provider_accounts"))
-        })
+        provider_future(
+            NoemaStore::get_provider_account(self, provider_account_id),
+            "provider_account",
+        )
     }
 
     fn active_provider_accounts(
         &self,
     ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>> {
-        Box::pin(async move {
-            NoemaStore::active_provider_accounts(self)
-                .await
-                .map_err(|error| account_read_error(error, "active_provider_accounts"))
-        })
-    }
-
-    fn provider_accounts(
-        &self,
-    ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>> {
-        Box::pin(async move {
-            NoemaStore::list_provider_accounts(self)
-                .await
-                .map_err(|error| account_read_error(error, "provider_accounts"))
-        })
+        provider_future(
+            NoemaStore::active_provider_accounts(self),
+            "active_provider_accounts",
+        )
     }
 
     fn create_provider_account(
@@ -105,154 +62,14 @@ async fn update_provider_account(
             kind: "empty_provider_account_update",
         });
     }
-    let metadata_json = request
-        .metadata
-        .as_ref()
-        .map(json_to_string)
-        .transpose()
-        .map_err(|_| ProviderPersistenceError::InvalidRequest {
-            kind: "provider_account_metadata",
-        })?;
-    let provider_account_id = request.provider_account_id;
     store
-        .with_connection(|conn| {
-            let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            let current = transaction
-                .query_row(
-                    format!("{PROVIDER_ACCOUNT_SELECT} WHERE provider_account_id = ?1 LIMIT 1")
-                        .as_str(),
-                    [&provider_account_id],
-                    provider_account_row,
-                )
-                .optional()?
-                .ok_or_else(|| StoreError::ProviderAccountNotFound {
-                    provider_account_id: provider_account_id.clone(),
-                })?;
-            let current = provider_account_from_row(current)?;
-
-            match (request.status, metadata_json) {
-                (Some(status), Some(metadata_json)) => update_status_and_metadata(
-                    &transaction,
-                    &provider_account_id,
-                    &current,
-                    status,
-                    &metadata_json,
-                )?,
-                (Some(status), None) => {
-                    update_status(&transaction, &provider_account_id, &current, status)?;
-                }
-                (None, Some(metadata_json)) => {
-                    let changed = transaction.execute(
-                        r#"
-                        UPDATE provider_accounts
-                        SET metadata_json = ?2,
-                            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                        WHERE provider_account_id = ?1
-                        "#,
-                        params![provider_account_id, metadata_json],
-                    )?;
-                    require_single_account_change(changed)?;
-                }
-                (None, None) => unreachable!("empty account updates are rejected before locking"),
-            }
-
-            let updated = transaction.query_row(
-                format!("{PROVIDER_ACCOUNT_SELECT} WHERE provider_account_id = ?1 LIMIT 1")
-                    .as_str(),
-                [&provider_account_id],
-                provider_account_row,
-            )?;
-            let updated = provider_account_from_row(updated)?;
-            transaction.commit()?;
-            Ok(updated)
-        })
+        .update_provider_account_fields(
+            &request.provider_account_id,
+            request.status.as_ref(),
+            request.metadata.as_ref(),
+        )
         .await
         .map_err(update_account_error)
-}
-
-fn update_status(
-    transaction: &rusqlite::Transaction<'_>,
-    provider_account_id: &str,
-    current: &PersistedProviderAccountRecord,
-    status: ProviderAccountStatusUpdate,
-) -> Result<(), StoreError> {
-    let checked_at = now_string();
-    let last_authenticated_at =
-        if status.status == noema_providers::ProviderAccountStatus::Authenticated {
-            Some(checked_at.clone())
-        } else {
-            current.last_authenticated_at.clone()
-        };
-    let changed = transaction.execute(
-        r#"
-        UPDATE provider_accounts
-        SET status = ?2,
-            last_checked_at = ?3,
-            last_authenticated_at = ?4,
-            last_error_code = ?5,
-            last_error_message = ?6,
-            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        WHERE provider_account_id = ?1
-        "#,
-        params![
-            provider_account_id,
-            provider_status_str(status.status),
-            checked_at,
-            last_authenticated_at,
-            status.error_code,
-            status.error_message,
-        ],
-    )?;
-    require_single_account_change(changed)
-}
-
-fn update_status_and_metadata(
-    transaction: &rusqlite::Transaction<'_>,
-    provider_account_id: &str,
-    current: &PersistedProviderAccountRecord,
-    status: ProviderAccountStatusUpdate,
-    metadata_json: &str,
-) -> Result<(), StoreError> {
-    let checked_at = now_string();
-    let last_authenticated_at =
-        if status.status == noema_providers::ProviderAccountStatus::Authenticated {
-            Some(checked_at.clone())
-        } else {
-            current.last_authenticated_at.clone()
-        };
-    let changed = transaction.execute(
-        r#"
-        UPDATE provider_accounts
-        SET status = ?2,
-            last_checked_at = ?3,
-            last_authenticated_at = ?4,
-            last_error_code = ?5,
-            last_error_message = ?6,
-            metadata_json = ?7,
-            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        WHERE provider_account_id = ?1
-        "#,
-        params![
-            provider_account_id,
-            provider_status_str(status.status),
-            checked_at,
-            last_authenticated_at,
-            status.error_code,
-            status.error_message,
-            metadata_json,
-        ],
-    )?;
-    require_single_account_change(changed)
-}
-
-fn require_single_account_change(changed: usize) -> Result<(), StoreError> {
-    if changed == 1 {
-        Ok(())
-    } else {
-        Err(StoreError::InvariantViolation {
-            message: "guarded provider account update changed an unexpected row count".to_string(),
-        })
-    }
 }
 
 async fn delete_provider_account(
@@ -283,7 +100,10 @@ async fn delete_provider_account(
         })
 }
 
-fn account_read_error(error: StoreError, operation: &'static str) -> ProviderPersistenceError {
+pub(super) fn provider_error(
+    error: StoreError,
+    operation: &'static str,
+) -> ProviderPersistenceError {
     match error {
         StoreError::Json(_)
         | StoreError::InvalidEnum { .. }
@@ -291,6 +111,17 @@ fn account_read_error(error: StoreError, operation: &'static str) -> ProviderPer
         | StoreError::Schema(_) => ProviderPersistenceError::Invariant { operation },
         _ => ProviderPersistenceError::Persistence { operation },
     }
+}
+
+pub(super) fn provider_future<'a, T: 'a>(
+    future: impl Future<Output = Result<T, StoreError>> + Send + 'a,
+    operation: &'static str,
+) -> ProviderPersistenceFuture<'a, T> {
+    Box::pin(async move {
+        future
+            .await
+            .map_err(|error| provider_error(error, operation))
+    })
 }
 
 fn create_account_error(error: StoreError) -> ProviderPersistenceError {
@@ -321,14 +152,7 @@ fn update_account_error(error: StoreError) -> ProviderPersistenceError {
         } => ProviderPersistenceError::AccountNotFound {
             provider_account_id,
         },
-        StoreError::Json(_)
-        | StoreError::InvalidEnum { .. }
-        | StoreError::InvariantViolation { .. }
-        | StoreError::Schema(_) => ProviderPersistenceError::Invariant {
-            operation: "update_provider_account",
-        },
-        _ => ProviderPersistenceError::Persistence {
-            operation: "update_provider_account",
-        },
+        error => provider_error(error, "update_provider_account"),
     }
 }
+use std::future::Future;

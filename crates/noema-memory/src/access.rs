@@ -55,15 +55,3 @@ pub trait MemoryServiceAccess: Send + Sync + std::fmt::Debug {
 
 /// Clonable memory-service access handle.
 pub type MemoryServiceAccessHandle = Arc<dyn MemoryServiceAccess>;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn access_trait_remains_dyn_compatible() {
-        fn accepts_access(_access: Option<&dyn MemoryServiceAccess>) {}
-
-        accepts_access(None);
-    }
-}

@@ -11,7 +11,7 @@ use noema_providers::{
 };
 use serde_json::Value;
 
-use super::context_window::{ContextBudget, estimate_text_tokens};
+use super::context_window::{ContextBudget, count_tokens_or_estimate};
 
 /// Model-visible context selected for one provider turn.
 #[derive(Debug, Clone, PartialEq)]
@@ -101,10 +101,11 @@ async fn plan_loaded_prompt_context(
     );
     let metadata = request.provider.context_metadata(request.model_profile);
     let budget = ContextBudget::from_metadata(metadata);
+    let rendered_input = input.render_for_token_count();
     let estimated_input_tokens = count_tokens_or_estimate(
         request.provider,
         Some(&instructions),
-        &input,
+        &rendered_input,
         request.model_profile,
     )
     .await;
@@ -117,24 +118,6 @@ async fn plan_loaded_prompt_context(
         budget,
         fits,
     })
-}
-
-async fn count_tokens_or_estimate(
-    provider: &dyn ProviderOperations,
-    instructions: Option<&str>,
-    input: &GenerateInput,
-    model_profile: Option<&str>,
-) -> u32 {
-    let rendered_input = input.render_for_token_count();
-    match provider
-        .count_tokens(instructions, &rendered_input, model_profile)
-        .await
-    {
-        Ok(Some(tokens)) => tokens,
-        Ok(None) | Err(_) => {
-            instructions.map_or(0, estimate_text_tokens) + estimate_text_tokens(&rendered_input)
-        }
-    }
 }
 
 fn build_turn_input(

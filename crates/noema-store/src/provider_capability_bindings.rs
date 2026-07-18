@@ -57,7 +57,7 @@ impl NoemaStore {
     /// # Errors
     ///
     /// Returns [`StoreError`] when the embedded store read fails.
-    pub async fn provider_capability_binding(
+    pub(crate) async fn provider_capability_binding(
         &self,
         tool_name: &str,
         capability_id: &str,

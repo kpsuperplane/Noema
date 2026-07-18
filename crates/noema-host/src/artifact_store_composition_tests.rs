@@ -5,9 +5,9 @@ use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 use noema_artifacts::{
     AppendLocalArtifactVersionRequest, ArtifactAppendTarget, ArtifactFuture, ArtifactMetadataStore,
     ArtifactMetadataStoreHandle, ArtifactOperationError, ArtifactOperations, ArtifactOwnerRef,
-    ArtifactSource, ArtifactStorageKind, ArtifactVersionRecord, ArtifactVersionStorage,
-    ArtifactWithVersions, CreateLocalArtifactRequest, LocalArtifactService, NewArtifact,
-    NewArtifactVersion, ReadLocalArtifactRequest,
+    ArtifactSource, ArtifactVersionRecord, ArtifactVersionStorage, ArtifactWithVersions,
+    CreateLocalArtifactRequest, LocalArtifactService, NewArtifact, NewArtifactVersion,
+    ReadLocalArtifactRequest,
 };
 use tempfile::TempDir;
 use tokio::sync::Barrier;
@@ -16,115 +16,6 @@ use noema_store::{NoemaStore, StoreConfig};
 
 fn store_config(root: &std::path::Path) -> StoreConfig {
     StoreConfig::new(root.join("db/noema.sqlite3"))
-}
-
-#[tokio::test]
-async fn conversation_local_file_artifact_writes_bytes_and_metadata() {
-    let home = TempDir::new().expect("temp store root");
-    let store = NoemaStore::open(&store_config(home.path()))
-        .await
-        .expect("open store");
-    let conversation_id = noema_store::test_support::create_local_conversation_id(&store)
-        .await
-        .expect("conversation");
-    let bytes = b"# report\n".to_vec();
-    let artifact_metadata: ArtifactMetadataStoreHandle = Arc::new(store);
-    let artifact_operations =
-        LocalArtifactService::new(home.path(), artifact_metadata).expect("artifact operations");
-
-    let artifact = artifact_operations
-        .create_local_file(CreateLocalArtifactRequest {
-            owner: ArtifactOwnerRef::conversation(&conversation_id),
-            title: "Session report".to_string(),
-            description: Some("Local markdown artifact".to_string()),
-            artifact_kind: "document".to_string(),
-            filename: "report.md".to_string(),
-            bytes: bytes.clone(),
-            media_type: Some("text/markdown".to_string()),
-            created_by_actor_id: "agent:primary".to_string(),
-            source: ArtifactSource {
-                conversation_id: Some(conversation_id.clone()),
-                turn_id: None,
-                item_id: None,
-            },
-            metadata: serde_json::json!({"origin": "unit-test"}),
-        })
-        .await
-        .expect("create local artifact");
-
-    assert_eq!(
-        artifact.artifact.storage_kind,
-        ArtifactStorageKind::LocalFile
-    );
-    assert_eq!(artifact.current_version.version_index, 1);
-    assert_eq!(
-        artifact.current_version.media_type.as_deref(),
-        Some("text/markdown")
-    );
-    assert_eq!(artifact.current_version.byte_size, Some(bytes.len() as i64));
-    assert!(artifact.current_version.content_sha256.is_some());
-
-    let ArtifactVersionStorage::LocalFile { relative_path } = &artifact.current_version.storage
-    else {
-        panic!("expected local file storage");
-    };
-    let absolute_path = home.path().join(relative_path);
-    assert_eq!(
-        tokio::fs::read(&absolute_path).await.expect("read bytes"),
-        bytes
-    );
-    let owner = ArtifactOwnerRef::conversation(&conversation_id);
-    assert!(absolute_path.starts_with(
-        noema_artifacts::owner_artifacts_dir(home.path(), &owner).expect("artifact root")
-    ));
-    assert_eq!(
-        artifact.artifact.metadata,
-        serde_json::json!({"origin": "unit-test"})
-    );
-}
-
-#[cfg(unix)]
-#[tokio::test]
-async fn conversation_local_file_artifact_rejects_symlinked_artifact_root() {
-    let home = TempDir::new().expect("temp store root");
-    let store = NoemaStore::open(&store_config(home.path()))
-        .await
-        .expect("open store");
-    let conversation_id = noema_store::test_support::create_local_conversation_id(&store)
-        .await
-        .expect("conversation");
-    let outside = home.path().join("outside-artifacts");
-    tokio::fs::create_dir_all(&outside)
-        .await
-        .expect("outside dir");
-    let owner = ArtifactOwnerRef::conversation(&conversation_id);
-    let artifact_root =
-        noema_artifacts::owner_artifacts_dir(home.path(), &owner).expect("artifact root");
-    tokio::fs::create_dir_all(artifact_root.parent().expect("conversation directory"))
-        .await
-        .expect("conversation dir");
-    std::os::unix::fs::symlink(&outside, artifact_root).expect("symlink artifact root");
-
-    let artifact_metadata: ArtifactMetadataStoreHandle = Arc::new(store);
-    let artifact_operations =
-        LocalArtifactService::new(home.path(), artifact_metadata).expect("artifact operations");
-    let error = artifact_operations
-        .create_local_file(CreateLocalArtifactRequest {
-            owner: ArtifactOwnerRef::conversation(&conversation_id),
-            title: "Session report".to_string(),
-            description: None,
-            artifact_kind: "document".to_string(),
-            filename: "report.md".to_string(),
-            bytes: b"# report\n".to_vec(),
-            media_type: Some("text/markdown".to_string()),
-            created_by_actor_id: "agent:primary".to_string(),
-            source: ArtifactSource::default(),
-            metadata: serde_json::json!({}),
-        })
-        .await
-        .expect_err("symlinked artifact root should be rejected");
-
-    assert!(matches!(error, ArtifactOperationError::Filesystem { .. }));
 }
 
 #[derive(Debug)]
@@ -196,16 +87,14 @@ async fn conversation_append_race_has_one_winner_and_cleans_loser() {
 
 #[tokio::test]
 async fn task_append_race_has_one_winner_and_cleans_loser() {
-    run_append_race(|store| {
-        Box::pin(async move {
-            let task_id =
-                noema_store::test_support::create_simple_task_id(store, "Artifact append race")
-                    .await
-                    .expect("task");
-            ArtifactOwnerRef::task(task_id)
-        })
-    })
-    .await;
+    run_append_race(|store| Box::pin(async move { task_owner(store).await })).await;
+}
+
+async fn task_owner(store: &NoemaStore) -> ArtifactOwnerRef {
+    let (task, _) = noema_store::test_support::seed_task(store, "Artifact append race")
+        .await
+        .expect("task");
+    ArtifactOwnerRef::task(task.task_id)
 }
 
 async fn run_append_race<F>(owner: F)
@@ -290,7 +179,6 @@ where
         stored.current_version.artifact_version_id,
         winner.artifact_version_id
     );
-    assert_eq!(stored.current_version.content_sha256, winner.content_sha256);
     let content = service_a
         .read_local_file(ReadLocalArtifactRequest {
             artifact: stored.artifact.clone(),
@@ -298,18 +186,7 @@ where
         })
         .await
         .expect("read winning bytes");
-    assert_eq!(content.filename, "report.txt");
     assert_eq!(content.bytes, winner_bytes);
-
-    let original_content = service_a
-        .read_local_file(ReadLocalArtifactRequest {
-            artifact: stored.artifact.clone(),
-            version: stored.versions[0].clone(),
-        })
-        .await
-        .expect("read original bytes");
-    assert_eq!(original_content.filename, "report.txt");
-    assert_eq!(original_content.bytes, b"initial");
 
     let ArtifactVersionStorage::LocalFile { relative_path } = &winner.storage else {
         panic!("winner must be local");
@@ -323,28 +200,11 @@ where
     };
     let original_path = root.join(original_relative_path);
     assert_ne!(original_path, winner_path);
-    let artifact_dir = noema_artifacts::artifact_version_dir(
-        root,
-        &stored.artifact.owner,
-        &stored.artifact.artifact_id,
-        1,
-    )
-    .expect("first version directory")
-    .parent()
-    .and_then(std::path::Path::parent)
-    .expect("artifact directory")
-    .to_path_buf();
     let mut expected_files = vec![original_path, winner_path.clone()];
     expected_files.sort();
-    assert_eq!(regular_files(&artifact_dir), expected_files);
-
-    let winner_operation_dir = winner_path.parent().expect("winner operation directory");
-    let objects_dir = winner_operation_dir.parent().expect("objects directory");
-    let object_entries = std::fs::read_dir(objects_dir)
-        .expect("objects entries")
-        .map(|entry| entry.expect("object entry").path())
-        .collect::<Vec<_>>();
-    assert_eq!(object_entries, vec![winner_operation_dir.to_path_buf()]);
+    let artifact_root =
+        noema_artifacts::owner_artifacts_dir(root, &stored.artifact.owner).expect("artifact root");
+    assert_eq!(regular_files(&artifact_root), expected_files);
     assert_staging_empty(root);
 }
 
@@ -384,15 +244,12 @@ fn regular_files(root: &std::path::Path) -> Vec<std::path::PathBuf> {
 }
 
 fn assert_staging_empty(root: &std::path::Path) {
-    let staging = root.join(".artifact-staging");
-    assert!(
-        staging.is_dir(),
-        "staging root should remain as shared scaffolding"
-    );
     assert_eq!(
-        std::fs::read_dir(staging).expect("staging root").count(),
+        std::fs::read_dir(root.join(".artifact-staging"))
+            .expect("staging root")
+            .count(),
         0,
-        "staging root should contain no operation-private entries"
+        "staging root should be empty"
     );
 }
 

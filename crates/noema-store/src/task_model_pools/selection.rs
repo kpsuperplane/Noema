@@ -168,7 +168,7 @@ impl NoemaStore {
 
     /// Verify that a task model still belongs to an authenticated account and,
     /// when a catalog is available, that the exact profile is advertised.
-    pub async fn validate_task_model_snapshot(
+    pub(crate) async fn validate_task_model_snapshot(
         &self,
         model: &ProviderSelectionSnapshot,
     ) -> Result<(), StoreError> {

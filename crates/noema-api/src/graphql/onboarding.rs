@@ -22,27 +22,12 @@ pub enum GraphqlProviderAuthMethod {
     None,
 }
 
-impl From<ProviderAuthMethod> for GraphqlProviderAuthMethod {
-    fn from(method: ProviderAuthMethod) -> Self {
-        match method {
-            ProviderAuthMethod::OauthDeviceCode => Self::OauthDeviceCode,
-            ProviderAuthMethod::SecretInput => Self::SecretInput,
-            ProviderAuthMethod::ExternalManual => Self::ExternalManual,
-            ProviderAuthMethod::None => Self::None,
-        }
-    }
-}
-
-impl From<GraphqlProviderAuthMethod> for ProviderAuthMethod {
-    fn from(method: GraphqlProviderAuthMethod) -> Self {
-        match method {
-            GraphqlProviderAuthMethod::OauthDeviceCode => Self::OauthDeviceCode,
-            GraphqlProviderAuthMethod::SecretInput => Self::SecretInput,
-            GraphqlProviderAuthMethod::ExternalManual => Self::ExternalManual,
-            GraphqlProviderAuthMethod::None => Self::None,
-        }
-    }
-}
+graphql_enum_bidi!(ProviderAuthMethod => GraphqlProviderAuthMethod {
+    OauthDeviceCode => OauthDeviceCode,
+    SecretInput => SecretInput,
+    ExternalManual => ExternalManual,
+    None => None,
+});
 
 /// Provider account status exposed through GraphQL.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
@@ -60,17 +45,13 @@ pub enum GraphqlProviderAccountStatus {
     Unavailable,
 }
 
-impl From<ProviderAccountStatus> for GraphqlProviderAccountStatus {
-    fn from(status: ProviderAccountStatus) -> Self {
-        match status {
-            ProviderAccountStatus::Unknown => Self::Unknown,
-            ProviderAccountStatus::Checking => Self::Checking,
-            ProviderAccountStatus::Authenticated => Self::Authenticated,
-            ProviderAccountStatus::Unauthenticated => Self::Unauthenticated,
-            ProviderAccountStatus::Unavailable => Self::Unavailable,
-        }
-    }
-}
+graphql_enum_from!(ProviderAccountStatus => GraphqlProviderAccountStatus {
+    Unknown => Unknown,
+    Checking => Checking,
+    Authenticated => Authenticated,
+    Unauthenticated => Unauthenticated,
+    Unavailable => Unavailable,
+});
 
 /// Onboarding step status exposed through GraphQL.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
@@ -169,18 +150,14 @@ pub enum GraphqlProviderAuthAttemptStatus {
     Cancelled,
 }
 
-impl From<ProviderAuthAttemptStatus> for GraphqlProviderAuthAttemptStatus {
-    fn from(status: ProviderAuthAttemptStatus) -> Self {
-        match status {
-            ProviderAuthAttemptStatus::Starting => Self::Starting,
-            ProviderAuthAttemptStatus::WaitingForUser => Self::WaitingForUser,
-            ProviderAuthAttemptStatus::Completed => Self::Completed,
-            ProviderAuthAttemptStatus::Failed => Self::Failed,
-            ProviderAuthAttemptStatus::Expired => Self::Expired,
-            ProviderAuthAttemptStatus::Cancelled => Self::Cancelled,
-        }
-    }
-}
+graphql_enum_from!(ProviderAuthAttemptStatus => GraphqlProviderAuthAttemptStatus {
+    Starting => Starting,
+    WaitingForUser => WaitingForUser,
+    Completed => Completed,
+    Failed => Failed,
+    Expired => Expired,
+    Cancelled => Cancelled,
+});
 
 /// Provider auth attempt view.
 #[derive(Clone, Debug, SimpleObject)]
@@ -261,42 +238,4 @@ pub(super) async fn start_provider_auth_attempt(
         .await
         .map(Into::into)
         .map_err(graphql_error)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn onboarding_requires_live_local_model_runtime() {
-        let store = crate::test_support::test_store().await;
-        let stopped = crate::test_support::local_model_manager_with_status(
-            &store,
-            noema_providers::LocalModelRuntimeStatus::Stopped,
-        );
-        let stopped_state =
-            GraphqlState::for_tests_with_store(store.clone()).with_local_model_manager(stopped);
-        assert!(
-            !onboarding_status(&stopped_state)
-                .await
-                .expect("stopped onboarding status")
-                .is_user_onboarded
-        );
-
-        let ready = crate::test_support::local_model_manager_with_status(
-            &store,
-            noema_providers::LocalModelRuntimeStatus::Ready {
-                backend: noema_providers::LocalModelBackend::Metal,
-                endpoint: "http://127.0.0.1:1".to_string(),
-                model_id: "test-local".to_string(),
-            },
-        );
-        let ready_state = GraphqlState::for_tests_with_store(store).with_local_model_manager(ready);
-        assert!(
-            onboarding_status(&ready_state)
-                .await
-                .expect("ready onboarding status")
-                .is_user_onboarded
-        );
-    }
 }

@@ -164,67 +164,53 @@ mod tests {
     use super::*;
     use crate::{LocalModelRuntimeStatus, local_models::bundled_llama_server_candidates_in};
 
-    const FAKE_LLAMA_SERVER: &str = r#"#!/bin/sh
+    const FAKE_SERVER: &str = r#"#!/bin/sh
 while [ "$#" -gt 0 ]; do
-  if [ "$1" = "--port" ]; then
-    port="$2"
-    break
-  fi
+  if [ "$1" = "--port" ]; then port="$2"; break; fi
   shift
 done
 exec python3 - "$port" <<'PY'
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
-
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(b"{}")
-
-    def log_message(self, *_args):
-        pass
-
+        self.send_response(200); self.end_headers(); self.wfile.write(b"{}")
+    def log_message(self, *_args): pass
 HTTPServer(("127.0.0.1", int(sys.argv[1])), Handler).serve_forever()
 PY
 "#;
 
     #[tokio::test]
     async fn eval_session_exposes_only_ready_provider_metadata_and_owned_shutdown() {
-        let directory = tempfile::tempdir().expect("eval fixture");
+        let directory = tempfile::tempdir().expect("fixture");
         let runtime_root = directory.path().join("runtime");
         let candidates = bundled_llama_server_candidates_in(None, Some(&runtime_root));
         let expected_backend = candidates.first().expect("platform candidate").backend;
         let mut prepared = HashSet::new();
-        for candidate in candidates {
-            if !prepared.insert(candidate.executable_path.clone()) {
-                continue;
-            }
-            tokio::fs::create_dir_all(
-                candidate
-                    .executable_path
-                    .parent()
-                    .expect("candidate directory"),
-            )
-            .await
-            .expect("runtime directory");
-            tokio::fs::write(&candidate.executable_path, FAKE_LLAMA_SERVER)
+        for path in candidates
+            .into_iter()
+            .map(|candidate| candidate.executable_path)
+            .filter(|path| prepared.insert(path.clone()))
+        {
+            tokio::fs::create_dir_all(path.parent().expect("runtime directory"))
+                .await
+                .expect("create runtime directory");
+            tokio::fs::write(&path, FAKE_SERVER)
                 .await
                 .expect("fake runtime");
-            let mut permissions = tokio::fs::metadata(&candidate.executable_path)
+            let mut permissions = tokio::fs::metadata(&path)
                 .await
-                .expect("runtime metadata")
+                .expect("metadata")
                 .permissions();
             permissions.set_mode(0o700);
-            tokio::fs::set_permissions(&candidate.executable_path, permissions)
+            tokio::fs::set_permissions(path, permissions)
                 .await
-                .expect("runtime permissions");
+                .expect("permissions");
         }
         let model_path = directory.path().join("model.gguf");
         tokio::fs::write(&model_path, b"GGUF eval session fixture")
             .await
-            .expect("model fixture");
+            .expect("model");
 
         let session = LocalModelEvalSession::start(LocalModelEvalSessionConfig {
             model_id: "eval-model".to_string(),
@@ -235,8 +221,7 @@ PY
             startup_timeout_seconds: 3,
         })
         .await
-        .expect("ready eval session");
-
+        .expect("ready session");
         assert_eq!(session.selected_backend(), expected_backend);
         assert!(session.process_id().is_some());
         let provider = session.provider();
@@ -250,7 +235,6 @@ PY
         );
 
         session.shutdown().await;
-
         assert_eq!(session.runtime.status(), LocalModelRuntimeStatus::Stopped);
         assert_eq!(session.runtime.process_id(), None);
     }

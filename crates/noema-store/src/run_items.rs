@@ -2,11 +2,14 @@
 
 #![allow(clippy::missing_errors_doc)]
 
-use noema_tasks::{AgentRunItemKind, AgentRunItemRecord, AgentRunItemStatus, NewAgentRunItem};
+use noema_tasks::{AgentRunItemRecord, NewAgentRunItem};
 use rusqlite::{OptionalExtension, params};
-use serde_json::Value;
 
-use super::{NoemaStore, StoreError, ids::allocate_id};
+use super::{
+    NoemaStore, StoreError,
+    ids::allocate_id,
+    sqlite::{json_column, parse_column},
+};
 
 impl NoemaStore {
     /// Append one transcript item while the caller owns the active run lease.
@@ -177,19 +180,8 @@ impl NoemaStore {
         run_id: &str,
         limit: i64,
     ) -> Result<Vec<AgentRunItemRecord>, StoreError> {
-        if limit < 1 {
-            return Err(StoreError::InvariantViolation {
-                message: "recent run item limit must be positive".to_string(),
-            });
-        }
-        self.with_connection(|conn| {
-            let mut statement = conn.prepare(
-                "SELECT item_id, run_id, sequence_index, round_index, kind, status, correlation_id, parent_item_id, content_text, payload_json, created_at, updated_at FROM (SELECT * FROM agent_run_items WHERE run_id = ?1 ORDER BY sequence_index DESC, item_id DESC LIMIT ?2) ORDER BY sequence_index, item_id",
-            )?;
-            let rows = statement.query_map(params![run_id, limit], run_item_from_row)?;
-            rows.collect::<Result<Vec<_>, _>>().map_err(StoreError::Sqlite)
-        })
-        .await
+        self.list_agent_run_items_before_page(run_id, None, limit)
+            .await
     }
 
     async fn get_agent_run_item(
@@ -227,29 +219,9 @@ fn require_active_lease(
 }
 
 fn run_item_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRunItemRecord> {
-    let kind = row
-        .get::<_, String>(4)?
-        .parse::<AgentRunItemKind>()
-        .map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(
-                4,
-                rusqlite::types::Type::Text,
-                Box::new(error),
-            )
-        })?;
-    let status = row
-        .get::<_, String>(5)?
-        .parse::<AgentRunItemStatus>()
-        .map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(
-                5,
-                rusqlite::types::Type::Text,
-                Box::new(error),
-            )
-        })?;
-    let payload = serde_json::from_str::<Value>(&row.get::<_, String>(9)?).map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(9, rusqlite::types::Type::Text, Box::new(error))
-    })?;
+    let kind = parse_column(row, 4)?;
+    let status = parse_column(row, 5)?;
+    let payload = json_column(row, 9)?;
     Ok(AgentRunItemRecord {
         item_id: row.get(0)?,
         run_id: row.get(1)?,

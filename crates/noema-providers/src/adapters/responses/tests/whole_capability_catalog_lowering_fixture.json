@@ -1,0 +1,83 @@
+{
+  "model": "gpt-fixture",
+  "input": "fixture input",
+  "tools": [
+    {
+      "type": "function",
+      "name": "web_x2e_search",
+      "description": "Search the public web using Noema's configured search provider.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "The exact internet search query to send to the configured search provider."
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Brief reason this search is useful for the current response."
+          },
+          "max_results": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "description": "Maximum number of search results to return."
+          }
+        },
+        "required": ["query"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "type": "function",
+      "name": "web_x2e_fetch",
+      "description": "Fetch and read a public web page using Noema's configured web fetch provider.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "description": "The public http(s) URL to fetch and read."
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Brief reason this page is useful for the current response."
+          },
+          "max_chars": {
+            "type": "integer",
+            "minimum": 1000,
+            "maximum": 20000,
+            "description": "Maximum characters to return after extraction and optional summarization."
+          }
+        },
+        "required": ["url"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "type": "function",
+      "name": "mcp_x2e_mcp_x3a_docs_x2e_read",
+      "description": "Read a document.",
+      "parameters": {
+        "type": "object",
+        "properties": {"document_id": {"type": "string"}},
+        "required": ["document_id"],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "tool_choice": {
+    "type": "allowed_tools",
+    "mode": "required",
+    "tools": [{"type": "function", "name": "mcp_x2e_mcp_x3a_docs_x2e_read"}]
+  },
+  "parallel_tool_calls": true,
+  "include": ["reasoning.encrypted_content"],
+  "store": false
+}

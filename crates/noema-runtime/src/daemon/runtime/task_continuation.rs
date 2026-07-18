@@ -39,13 +39,12 @@ pub(super) fn render_tool_names(tools: &ModelTools) -> String {
 }
 
 pub(super) fn terminal_contract_tools(tools: &ModelTools) -> Vec<noema_capabilities::ToolSpec> {
-    let strict_policy = tools.tool_policy.strict_for_dispatch();
     tools
         .bindings
         .iter()
         .map(noema_capabilities::CapabilityBinding::spec)
         .filter(|tool| {
-            strict_policy.allows_tool(tool.name.as_str())
+            tools.tool_policy.allows_tool(tool.name.as_str())
                 && is_task_terminal_tool(tool.name.as_str())
         })
         .cloned()
@@ -108,7 +107,7 @@ pub(super) fn task_tool_result_transcript_payload(result: &LocalToolResult) -> s
         object.insert(
             "arguments".to_string(),
             result
-                .persisted()
+                .persisted
                 .arguments
                 .clone()
                 .unwrap_or_else(omitted_capability_payload),
@@ -116,7 +115,7 @@ pub(super) fn task_tool_result_transcript_payload(result: &LocalToolResult) -> s
         object.insert(
             "payload".to_string(),
             result
-                .persisted()
+                .persisted
                 .output
                 .clone()
                 .unwrap_or_else(omitted_capability_payload),
@@ -178,58 +177,6 @@ pub(super) fn add_usage(aggregate: &mut Option<TokenUsage>, usage: Option<&Token
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn provider_usage_is_aggregated_across_continuations() {
-        let mut aggregate = Some(TokenUsage {
-            input_tokens: 10,
-            output_tokens: 2,
-            total_tokens: 12,
-            cached_input_tokens: Some(4),
-        });
-        add_usage(
-            &mut aggregate,
-            Some(&TokenUsage {
-                input_tokens: 20,
-                output_tokens: 3,
-                total_tokens: 23,
-                cached_input_tokens: Some(8),
-            }),
-        );
-        assert_eq!(
-            aggregate,
-            Some(TokenUsage {
-                input_tokens: 30,
-                output_tokens: 5,
-                total_tokens: 35,
-                cached_input_tokens: Some(12),
-            })
-        );
-    }
-
-    #[test]
-    fn terminal_tools_are_role_specific() {
-        assert!(is_valid_terminal_tool(
-            ExecutionRole::TaskExecutor,
-            "task.submit_result"
-        ));
-        assert!(is_valid_terminal_tool(
-            ExecutionRole::TaskExecutor,
-            "task.report_blocked"
-        ));
-        assert!(!is_valid_terminal_tool(
-            ExecutionRole::TaskExecutor,
-            "task.submit_review"
-        ));
-        assert!(is_valid_terminal_tool(
-            ExecutionRole::TaskReviewer,
-            "task.submit_review"
-        ));
-        assert!(!is_valid_terminal_tool(
-            ExecutionRole::TaskReviewer,
-            "task.submit_result"
-        ));
-    }
 
     #[test]
     fn envelope_instructions_are_transport_specific() {

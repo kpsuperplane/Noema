@@ -1,52 +1,5 @@
 impl noema_providers::ProviderOperations for FakeCodexProvider {
     fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
-        ProviderToolCapabilities {
-            tool_transport: ProviderToolTransport::NoemaEnvelope,
-            ..ProviderToolCapabilities::default()
-        }
-    }
-
-    fn generate_streaming<'a>(
-        &'a self,
-        request: GenerateRequest,
-        on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
-    ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
-        Box::pin(async move {
-            let response = self.generate_response(request)?;
-            for (response_index, response_item) in response.responses.iter().enumerate() {
-                if let GenerateResponseItem::Text { text, .. } = response_item {
-                    let mut chunk = String::new();
-                    for character in text.chars() {
-                        chunk.push(character);
-                        if chunk.chars().count() == 4 {
-                            on_event(GenerateStreamEvent::AssistantTextDelta {
-                                response_index,
-                                delta: chunk,
-                            });
-                            chunk = String::new();
-                        }
-                    }
-                    if !chunk.is_empty() {
-                        on_event(GenerateStreamEvent::AssistantTextDelta {
-                            response_index,
-                            delta: chunk,
-                        });
-                    }
-                }
-            }
-            for (index, tool_call) in response.tool_calls.iter().enumerate() {
-                on_event(GenerateStreamEvent::ToolCallStarted {
-                    output_index: response.responses.len() + index,
-                    name: tool_call.name.clone(),
-                });
-            }
-            Ok(response)
-        })
-    }
-}
-
-impl noema_providers::ProviderOperations for RecordingFakeProvider {
-    fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
         self.tool_capabilities
     }
 
@@ -76,27 +29,47 @@ impl noema_providers::ProviderOperations for RecordingFakeProvider {
                     });
                 }
             }
-            let mut response = self.inner.generate_response(request)?;
-            response.provider = self.provider_kind.clone();
+            let mut response = self.generate_response(request)?;
             if self.response_continuation.supports_previous_response_id() {
                 response.response_id = Some(format!("resp_{request_number}"));
             }
-            for (response_index, response_item) in response.responses.iter().enumerate() {
-                if let GenerateResponseItem::Text { text, .. } = response_item {
-                    on_event(GenerateStreamEvent::AssistantTextDelta {
-                        response_index,
-                        delta: text.clone(),
-                    });
-                }
-            }
-            for (index, tool_call) in response.tool_calls.iter().enumerate() {
-                on_event(GenerateStreamEvent::ToolCallStarted {
-                    output_index: response.responses.len() + index,
-                    name: tool_call.name.clone(),
-                });
-            }
+            emit_fake_stream_events(&response, Some(4), on_event);
             Ok(response)
         })
+    }
+}
+
+fn emit_fake_stream_events(
+    response: &GenerateResponse,
+    chunk_chars: Option<usize>,
+    on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
+) {
+    for (response_index, item) in response.responses.iter().enumerate() {
+        let GenerateResponseItem::Text { text, .. } = item else {
+            continue;
+        };
+        let chunks = chunk_chars.map_or_else(
+            || vec![text.clone()],
+            |size| {
+                let chars = text.chars().collect::<Vec<_>>();
+                chars
+                    .chunks(size)
+                    .map(|chunk| chunk.iter().collect())
+                    .collect()
+            },
+        );
+        for delta in chunks {
+            on_event(GenerateStreamEvent::AssistantTextDelta {
+                response_index,
+                delta,
+            });
+        }
+    }
+    for (index, call) in response.tool_calls.iter().enumerate() {
+        on_event(GenerateStreamEvent::ToolCallStarted {
+            output_index: response.responses.len() + index,
+            name: call.name.clone(),
+        });
     }
 }
 
@@ -105,29 +78,9 @@ impl noema_providers::ProviderOperations for CapturingProvider {
         self.capabilities
     }
 
-    fn generate_streaming<'a>(
-        &'a self,
-        request: GenerateRequest,
-        _on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
-    ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
-        Box::pin(async move {
-            self.requests
-                .lock()
-                .expect("requests")
-                .push(request.clone());
-            Ok(fake_generate_response(
-                assistant_with_no_memories("fake answer"),
-                "test",
-                request.model.unwrap_or_else(|| "fake-model".to_string()),
-            ))
-        })
-    }
-}
-
-impl noema_providers::ProviderOperations for MetadataCapturingProvider {
     fn context_metadata(&self, _model: Option<&str>) -> noema_providers::ProviderContextMetadata {
         noema_providers::ProviderContextMetadata {
-            context_window_tokens: Some(self.context_window_tokens),
+            context_window_tokens: self.context_window_tokens,
             default_output_reserve_tokens: Some(512),
             compact_summary_target_tokens: Some(512),
         }
@@ -143,7 +96,7 @@ impl noema_providers::ProviderOperations for MetadataCapturingProvider {
             if self.fail_token_count {
                 return Err(ProviderError::ProviderUnavailable {
                     provider: "test".to_string(),
-                    message: "token count unavailable".to_string(),
+                    message: "token counting failed".to_string(),
                 });
             }
             let instruction_tokens = instructions.map_or(0, estimated_test_tokens);
@@ -170,6 +123,7 @@ impl noema_providers::ProviderOperations for MetadataCapturingProvider {
                     + estimated_test_tokens(&input);
                 let available = self
                     .context_window_tokens
+                    .expect("enforced context window")
                     .saturating_sub(request.options.max_output_tokens.unwrap_or(512))
                     .saturating_sub(128);
                 if input_tokens > available {
@@ -341,7 +295,7 @@ impl noema_providers::ProviderOperations for BlockingBackgroundGenerationProvide
                     ))
                 }
                 2 => Ok(fake_generate_response(
-                    vec![GenerateOutputItem::ToolCall {
+                    tool_calls_only(vec![GenerateToolCall {
                         id: Some("call_submit_result".to_string()),
                         provider_call_id: None,
                         provider_name: None,
@@ -351,7 +305,7 @@ impl noema_providers::ProviderOperations for BlockingBackgroundGenerationProvide
                             "result_markdown": "done",
                             "criteria": [],
                         }),
-                    }],
+                    }]),
                     "old-local",
                     request.model.unwrap_or_else(|| "old-model".to_string()),
                 )),

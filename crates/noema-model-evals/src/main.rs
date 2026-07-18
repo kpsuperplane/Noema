@@ -53,20 +53,14 @@ async fn run() -> Result<(), String> {
             let selected = select_candidates(&manifest.candidates, &remaining)?;
             prepare_candidates(&selected).await
         }
-        "run" => {
-            let selected = select_candidates(&manifest.candidates, &remaining)?;
-            let suite = load_suite(&root.join("evals/local-models/suite.toml"))?;
-            let report_root = run_matrix(selected, suite, false).await?;
-            println!("reports written to {}", report_root.display());
-            Ok(())
-        }
-        "soak" => {
-            if remaining.is_empty() {
+        "run" | "soak" => {
+            let soak = command == "soak";
+            if soak && remaining.is_empty() {
                 return Err("soak requires at least one candidate id".to_string());
             }
             let selected = select_candidates(&manifest.candidates, &remaining)?;
             let suite = load_suite(&root.join("evals/local-models/suite.toml"))?;
-            let report_root = run_matrix(selected, suite, true).await?;
+            let report_root = run_matrix(selected, suite, soak).await?;
             println!("reports written to {}", report_root.display());
             Ok(())
         }
@@ -78,9 +72,9 @@ async fn run_worker(arguments: &[String]) -> Result<(), String> {
     if arguments.len() != 8 {
         return Err("internal worker expected 8 arguments".to_string());
     }
-    let context_window_tokens = parse_u32(&arguments[4], "context window")?;
-    let timeout_seconds = parse_u64(&arguments[5], "generation timeout")?;
-    let startup_timeout_seconds = parse_u64(&arguments[6], "startup timeout")?;
+    let context_window_tokens = parse(&arguments[4], "context window")?;
+    let timeout_seconds = parse(&arguments[5], "generation timeout")?;
+    let startup_timeout_seconds = parse(&arguments[6], "startup timeout")?;
     let run_resource_probe = arguments[7]
         .parse::<bool>()
         .map_err(|error| format!("invalid resource probe flag: {error}"))?;
@@ -106,15 +100,12 @@ async fn run_worker(arguments: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn parse_u32(value: &str, label: &str) -> Result<u32, String> {
+fn parse<T: std::str::FromStr>(value: &str, label: &str) -> Result<T, String>
+where
+    T::Err: std::fmt::Display,
+{
     value
-        .parse::<u32>()
-        .map_err(|error| format!("invalid {label}: {error}"))
-}
-
-fn parse_u64(value: &str, label: &str) -> Result<u64, String> {
-    value
-        .parse::<u64>()
+        .parse()
         .map_err(|error| format!("invalid {label}: {error}"))
 }
 

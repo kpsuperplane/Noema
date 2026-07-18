@@ -22,36 +22,7 @@ impl MnemosyneConnection {
     }
 }
 
-/// Allocate an ephemeral loopback TCP port for a managed Mnemosyne sidecar.
-///
-/// The listener is released before the child process starts, so callers should
-/// treat the result as a candidate and retry startup if the port is stolen.
-///
-/// # Errors
-///
-/// Returns the OS bind error if a loopback port cannot be allocated.
-pub fn allocate_loopback_port() -> Result<u16, std::io::Error> {
+pub(super) fn allocate_loopback_port() -> Result<u16, std::io::Error> {
     let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))?;
     Ok(listener.local_addr()?.port())
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn allocated_loopback_port_is_nonzero() {
-        let port = super::allocate_loopback_port().expect("port");
-
-        assert_ne!(port, 0);
-    }
-
-    #[test]
-    fn connection_trims_base_url() {
-        let connection = super::MnemosyneConnection::new(
-            "http://127.0.0.1:12345/".to_string(),
-            Some("secret".to_string()),
-        );
-
-        assert_eq!(connection.base_url, "http://127.0.0.1:12345");
-        assert_eq!(connection.api_key.as_deref(), Some("secret"));
-    }
 }

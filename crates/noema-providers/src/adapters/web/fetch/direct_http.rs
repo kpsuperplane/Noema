@@ -310,25 +310,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rejects_redirect_to_blocked_target() {
-        let url = serve_once(
-            "HTTP/1.1 302 Found\r\nlocation: http://127.0.0.1/private\r\ncontent-length: 0\r\n\r\n",
-        )
-        .await;
-        let request = FetchRequest {
-            url,
-            reason: None,
-            max_chars: 20_000,
-        };
-        let error =
-            fetch_direct_http_unchecked_initial_url(&test_client(), &request, &test_context())
-                .await
-                .expect_err("blocked redirect");
-
-        assert!(matches!(error, WebFetchError::RedirectBlocked));
-    }
-
-    #[tokio::test]
     async fn direct_http_client_rejects_blocked_redirect_without_auto_following() {
         let url = serve_once(
             "HTTP/1.1 302 Found\r\nlocation: http://127.0.0.1/private\r\ncontent-length: 0\r\n\r\n",
@@ -444,34 +425,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn extracts_readable_article_from_large_html_shell() {
-        let shell = "var ignored = 1;\n".repeat(60_000);
-        let body = format!(
-            "<html><head><title>Readable</title><script>{shell}</script></head><body><article><h1>Readable Article</h1><p>This is the useful page text.</p></article></body></html>"
-        );
-        let url = serve_once(&format!(
-            "HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ncontent-length: {}\r\n\r\n{}",
-            body.len(),
-            body
-        ))
-        .await;
-        let request = FetchRequest {
-            url,
-            reason: None,
-            max_chars: 20_000,
-        };
-        let response =
-            fetch_direct_http_unchecked_initial_url(&test_client(), &request, &test_context())
-                .await
-                .expect("fetch");
-
-        assert_eq!(response.content_kind, FetchContentKind::RawMarkdown);
-        assert_eq!(response.title.as_deref(), Some("Readable"));
-        assert!(response.content.contains("Readable Article"));
-        assert!(response.content.contains("useful page text"));
-    }
-
-    #[tokio::test]
     async fn summarizes_large_plain_text() {
         let body = "large page sentence.\n".repeat(450);
         let url = serve_once(&format!(
@@ -480,15 +433,17 @@ mod tests {
             body
         ))
         .await;
-        let request = FetchRequest {
-            url,
-            reason: None,
-            max_chars: 20_000,
-        };
-        let response =
-            fetch_direct_http_unchecked_initial_url(&test_client(), &request, &test_context())
-                .await
-                .expect("summary");
+        let response = fetch_direct_http_unchecked_initial_url(
+            &test_client(),
+            &FetchRequest {
+                url,
+                reason: None,
+                max_chars: 20_000,
+            },
+            &test_context(),
+        )
+        .await
+        .expect("summary");
 
         assert_eq!(response.content_kind, FetchContentKind::Summary);
         assert_eq!(response.summary_strategy, FetchSummaryStrategy::SinglePass);

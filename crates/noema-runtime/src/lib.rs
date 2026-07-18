@@ -1,8 +1,7 @@
 //! Governed, transport-neutral agent execution runtime.
 
-/// Shared execution roles and role-aware tool dispatch policy.
-pub mod agent_execution;
-#[cfg(feature = "test-support")]
+mod agent_execution;
+#[cfg(any(test, feature = "test-support"))]
 #[doc(hidden)]
 pub mod contract_test_support;
 mod daemon;

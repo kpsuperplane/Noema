@@ -121,7 +121,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn registry_delivers_events_to_subscriber() {
+    async fn registry_delivers_scoped_conversation_and_task_events() {
         let registry = RuntimeEventRegistry::default();
         let mut receiver = registry.subscribe_conversation("conversation_1");
 
@@ -135,11 +135,6 @@ mod tests {
 
         let event = receiver.recv().await.expect("event should be delivered");
         assert_eq!(event.conversation_id(), "conversation_1");
-    }
-
-    #[tokio::test]
-    async fn registry_delivers_task_events_to_subscriber() {
-        let registry = RuntimeEventRegistry::default();
         let mut receiver = registry.subscribe_task("task_1");
 
         registry.publish_task(TaskRuntimeEvent::Changed {

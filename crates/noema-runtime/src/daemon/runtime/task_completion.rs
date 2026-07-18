@@ -13,8 +13,8 @@ use serde_json::json;
 
 use super::{TaskCompletionDeliveryRequest, actor::RuntimeActor};
 use crate::daemon::protocol::{RuntimeError, TurnStreamEvent, TurnTranscriptItem};
-use crate::daemon::{ConversationRuntimeEvent, RuntimeEventRegistry};
-use noema_home::{SystemErrorEvent, SystemErrorLogger};
+use crate::daemon::{ConversationRuntimeEvent, RuntimeEventRegistry, log_system_error};
+use noema_home::SystemErrorLogger;
 
 const MAX_COMPLETION_CONTEXT_CHARS: usize = 60_000;
 const MAX_COMPLETION_RESULT_CHARS: usize = 40_000;
@@ -102,17 +102,16 @@ impl TaskCompletionGeneration {
                 {
                     Ok(response) => response_text(response.responses),
                     Err(error) => {
-                        system_errors.try_append(
-                            SystemErrorEvent::new(
-                                "task_completion_provider_failed",
-                                "Primary-agent task completion report generation failed; using fallback",
-                            )
-                            .with_context(json!({
+                        log_system_error(
+                            &system_errors,
+                            "task_completion_provider_failed",
+                            "Primary-agent task completion report generation failed; using fallback",
+                            Some(json!({
                                 "task_id": request.task_id,
                                 "delivery_id": request.delivery_id,
                                 "conversation_id": request.conversation_id,
-                            }))
-                            .with_error_chain([error.to_string()]),
+                            })),
+                            error,
                         );
                         None
                     }
@@ -157,16 +156,15 @@ impl RuntimeActor {
         let provider = match self.resolve_primary_provider().await {
             Ok(provider) => Some(provider),
             Err(error) => {
-                self.system_errors.try_append(
-                    SystemErrorEvent::new(
-                        "task_completion_provider_unavailable",
-                        "Primary-agent task completion report provider is unavailable; using fallback",
-                    )
-                    .with_context(json!({
+                log_system_error(
+                    &self.system_errors,
+                    "task_completion_provider_unavailable",
+                    "Primary-agent task completion report provider is unavailable; using fallback",
+                    Some(json!({
                         "task_id": request.task_id,
                         "delivery_id": request.delivery_id,
-                    }))
-                    .with_error_chain([error.to_string()]),
+                    })),
+                    error,
                 );
                 None
             }

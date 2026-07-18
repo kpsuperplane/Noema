@@ -561,7 +561,7 @@ impl LocalModelManagerService {
             replaced.is_none(),
             "prepared key must not replace an instance"
         );
-        Ok(PreparedInstance { key, instance })
+        Ok(PreparedInstance { instance })
     }
 
     pub(super) async fn retire_stop_and_untrack(
@@ -657,8 +657,6 @@ impl LocalModelManagerService {
 
 #[derive(Clone)]
 struct PreparedInstance {
-    #[allow(dead_code)]
-    key: ProviderInstanceKey,
     instance: ManagedInstance,
 }
 

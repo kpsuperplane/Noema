@@ -1,5 +1,5 @@
 #[tokio::test]
-async fn web_fetch_runtime_context_uses_saved_summarizer_preference() {
+async fn web_fetch_runtime_context_uses_only_available_saved_summarizer_selection() {
     let store = crate::test_support::test_store().await;
     let account = store
         .ensure_default_foundation_local_provider_account()
@@ -21,22 +21,20 @@ async fn web_fetch_runtime_context_uses_saved_summarizer_preference() {
             provider_kind: "foundation_local".to_string(),
             provider_account_id: account.provider_account_id,
             model_profile: "default".to_string(),
-            reasoning_effort: None,
+            reasoning_effort: Some(noema_providers::ReasoningEffort::Low),
         },
     )
     .await;
-    let actor = RuntimeActor::new(
+    let selected_actor = RuntimeActor::new(
         "codex".to_string(),
         HashMap::from([
             (
                 "codex".to_string(),
-                Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
-                    as noema_providers::ProviderHandle,
+                local_tool_test_provider(),
             ),
             (
                 "foundation_local".to_string(),
-                Arc::new(LocalToolTestProvider::new(Some("foundation-tool-default")))
-                    as noema_providers::ProviderHandle,
+                local_tool_test_provider(),
             ),
         ]),
         store.clone(),
@@ -45,8 +43,8 @@ async fn web_fetch_runtime_context_uses_saved_summarizer_preference() {
     .await
     .expect("actor");
 
-    let context = actor
-        .web_fetch_runtime_context(noema_providers::GenerationPriority::Foreground)
+    let context = selected_actor
+        .web_fetch_runtime_context(noema_providers::GenerationPriority::Background)
         .await
         .expect("web fetch context");
 
@@ -56,57 +54,6 @@ async fn web_fetch_runtime_context_uses_saved_summarizer_preference() {
     );
     assert_eq!(context.summarizer_model, "default");
     assert_eq!(
-        context.generation_priority,
-        noema_providers::GenerationPriority::Foreground
-    );
-}
-
-#[tokio::test]
-async fn web_fetch_runtime_context_uses_saved_summarizer_reasoning_effort() {
-    let store = crate::test_support::test_store().await;
-    let account = store
-        .ensure_default_provider_account()
-        .await
-        .expect("account");
-    store
-        .update_provider_account_status(
-            &account.provider_account_id,
-            noema_providers::ProviderAccountStatus::Authenticated,
-            None,
-            None,
-        )
-        .await
-        .expect("authenticate codex");
-    upsert_ready_auxiliary_model_preference(
-        &store,
-        NewAuxiliaryModelPreference {
-            task_id: WEB_FETCH_SUMMARIZER_TASK_ID.to_string(),
-            provider_kind: "codex".to_string(),
-            provider_account_id: account.provider_account_id,
-            model_profile: "gpt-5.5".to_string(),
-            reasoning_effort: Some(noema_providers::ReasoningEffort::Low),
-        },
-    )
-    .await;
-    let actor = RuntimeActor::new(
-        "codex".to_string(),
-        HashMap::from([(
-            "codex".to_string(),
-            Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
-                as noema_providers::ProviderHandle,
-        )]),
-        store.clone(),
-        crate::test_support::system_error_logger(),
-    )
-    .await
-    .expect("actor");
-
-    let context = actor
-        .web_fetch_runtime_context(noema_providers::GenerationPriority::Background)
-        .await
-        .expect("web fetch context");
-
-    assert_eq!(
         context.summarizer_reasoning_effort,
         Some(noema_providers::ReasoningEffort::Low)
     );
@@ -114,49 +61,9 @@ async fn web_fetch_runtime_context_uses_saved_summarizer_reasoning_effort() {
         context.generation_priority,
         noema_providers::GenerationPriority::Background
     );
-}
 
-#[tokio::test]
-async fn web_fetch_runtime_context_rejects_saved_provider_missing_from_runtime() {
-    let store = crate::test_support::test_store().await;
-    let account = store
-        .ensure_default_foundation_local_provider_account()
-        .await
-        .expect("foundation account");
-    store
-        .update_provider_account_status(
-            &account.provider_account_id,
-            noema_providers::ProviderAccountStatus::Authenticated,
-            None,
-            None,
-        )
-        .await
-        .expect("authenticate foundation");
-    upsert_ready_auxiliary_model_preference(
-        &store,
-        NewAuxiliaryModelPreference {
-            task_id: WEB_FETCH_SUMMARIZER_TASK_ID.to_string(),
-            provider_kind: "foundation_local".to_string(),
-            provider_account_id: account.provider_account_id,
-            model_profile: "default".to_string(),
-            reasoning_effort: None,
-        },
-    )
-    .await;
-    let actor = RuntimeActor::new(
-        "codex".to_string(),
-        HashMap::from([(
-            "codex".to_string(),
-            Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
-                as noema_providers::ProviderHandle,
-        )]),
-        store.clone(),
-        crate::test_support::system_error_logger(),
-    )
-    .await
-    .expect("actor");
-
-    let message = actor
+    let missing_provider_actor = test_actor_with_store(&store).await;
+    let message = missing_provider_actor
         .web_fetch_runtime_context(noema_providers::GenerationPriority::Foreground)
         .await
         .expect_err("missing provider should fail");
@@ -168,32 +75,21 @@ async fn web_fetch_runtime_context_rejects_saved_provider_missing_from_runtime()
 }
 
 #[tokio::test]
-async fn web_fetch_runtime_context_uses_initialized_auxiliary_selection() {
+async fn web_fetch_runtime_context_no_preference_summarizes_with_spec_default_model() {
     let store = crate::test_support::test_store().await;
-    let requests = Arc::new(Mutex::new(Vec::new()));
-    let actor = RuntimeActor::new(
-        "codex".to_string(),
-        HashMap::from([(
-            "codex".to_string(),
-            Arc::new(LocalToolTestProvider::with_requests(
-                Some("configured-tool-override"),
-                Arc::clone(&requests),
-            )) as noema_providers::ProviderHandle,
-        )]),
-        store.clone(),
-        crate::test_support::system_error_logger(),
-    )
-    .await
-    .expect("actor");
+    let actor = test_actor_with_store(&store).await;
 
     let context = actor
         .web_fetch_runtime_context(noema_providers::GenerationPriority::Foreground)
         .await
-        .expect("web fetch context");
+        .expect("initialized web fetch context");
 
     assert_eq!(context.summarizer_model, "gpt-5.6-luna");
-    let requests = requests.lock().expect("requests");
-    assert!(requests.is_empty());
+    assert_eq!(context.summarizer_route.selection().provider_kind, "codex");
+    assert_eq!(
+        context.generation_priority,
+        noema_providers::GenerationPriority::Foreground
+    );
 }
 
 #[tokio::test]
@@ -205,18 +101,7 @@ async fn bound_exa_web_search_without_secret_falls_back_to_duckduckgo() {
     )
     .await;
     insert_provider_capability_binding(&store, "web.search", provider_account_id.clone()).await;
-    let actor = RuntimeActor::new(
-        "codex".to_string(),
-        HashMap::from([(
-            "codex".to_string(),
-            Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
-                as noema_providers::ProviderHandle,
-        )]),
-        store.clone(),
-        crate::test_support::system_error_logger(),
-    )
-    .await
-    .expect("actor");
+    let actor = test_actor_with_store(&store).await;
 
     let (provider, fallback_from, fallback_reason, auth_failure_account_id) = actor
         .web_search_runtime_provider_resolution()
@@ -254,18 +139,7 @@ async fn bound_exa_web_fetch_without_secret_falls_back_to_direct_http() {
     )
     .await;
     insert_provider_capability_binding(&store, "web.fetch", provider_account_id.clone()).await;
-    let actor = RuntimeActor::new(
-        "codex".to_string(),
-        HashMap::from([(
-            "codex".to_string(),
-            Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
-                as noema_providers::ProviderHandle,
-        )]),
-        store.clone(),
-        crate::test_support::system_error_logger(),
-    )
-    .await
-    .expect("actor");
+    let actor = test_actor_with_store(&store).await;
 
     let (provider, context, fallback_from, fallback_reason, auth_failure_account_id) = actor
         .web_fetch_runtime_execution_context(noema_providers::GenerationPriority::Foreground)
@@ -277,110 +151,65 @@ async fn bound_exa_web_fetch_without_secret_falls_back_to_direct_http() {
         crate::web_fetch::types::DIRECT_HTTP_PROVIDER_ID,
     );
     assert_eq!(fallback_from.as_deref(), Some(provider_account_id.as_str()));
-    assert_eq!(
-        fallback_reason.as_deref(),
-        Some("provider account unauthenticated")
-    );
+    assert_eq!(fallback_reason.as_deref(), Some("provider account unauthenticated"));
     assert!(auth_failure_account_id.is_none());
     assert_eq!(context.summarizer_model, "gpt-5.6-luna");
-    assert_eq!(
-        context.generation_priority,
-        noema_providers::GenerationPriority::Foreground
-    );
 }
 
 #[tokio::test]
-async fn web_search_local_tool_result_payload_preserves_fallback_metadata() {
+async fn web_tool_result_payloads_preserve_fallback_metadata() {
     let store = crate::test_support::test_store().await;
     let provider_account_id = ensure_provider_account_without_web_capabilities(&store).await;
     insert_provider_capability_binding(&store, "web.search", provider_account_id.clone()).await;
-    let actor = RuntimeActor::new(
-        "codex".to_string(),
-        HashMap::from([(
-            "codex".to_string(),
-            Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
-                as noema_providers::ProviderHandle,
-        )]),
-        store.clone(),
-        crate::test_support::system_error_logger(),
-    )
-    .await
-    .expect("actor");
+    insert_provider_capability_binding(&store, "web.fetch", provider_account_id.clone()).await;
+    let actor = test_actor_with_store(&store).await;
 
-    let result = actor
-        .execute_local_tool(
-            &test_turn(),
-            &AgentPromptIdentity {
-                agent_id: "agent:primary".to_string(),
-                display_name: None,
-            },
-            &test_tool_call(
-                "web.search",
-                json!({
-                    "query": "   ",
-                }),
-            ),
-        )
-        .await;
+    for (name, arguments, reason, error) in [
+        (
+            "web.search",
+            json!({"query": "   "}),
+            "bound provider account does not declare web.search",
+            "query is required",
+        ),
+        (
+            "web.fetch",
+            json!({"url": ""}),
+            "bound provider account does not declare web.fetch",
+            "url is required",
+        ),
+    ] {
+        let result = actor
+            .execute_local_tool(
+                &test_turn(),
+                &AgentPromptIdentity {
+                    agent_id: "agent:primary".to_string(),
+                    display_name: None,
+                },
+                &test_tool_call(name, arguments),
+            )
+            .await;
 
-    let GenerateActionItem::ToolResult { payload, .. } =
-        super::local_tool_result_action_item(&result)
-    else {
-        panic!("expected tool result action item");
-    };
-
-    assert_eq!(payload["fallback_from"], provider_account_id);
-    assert_eq!(
-        payload["fallback_reason"],
-        "bound provider account does not declare web.search"
-    );
-    assert_eq!(payload["error"], "query is required");
+        let GenerateActionItem::ToolResult { payload, .. } =
+            super::local_tool_result_action_item(&result)
+        else {
+            panic!("expected tool result action item");
+        };
+        assert_eq!(payload["fallback_from"], provider_account_id);
+        assert_eq!(payload["fallback_reason"], reason);
+        assert_eq!(payload["error"], error);
+    }
 }
 
-#[tokio::test]
-async fn web_fetch_local_tool_result_payload_preserves_fallback_metadata() {
-    let store = crate::test_support::test_store().await;
-    let provider_account_id = ensure_provider_account_without_web_capabilities(&store).await;
-    insert_provider_capability_binding(&store, "web.fetch", provider_account_id.clone()).await;
-    let actor = RuntimeActor::new(
+async fn test_actor_with_store(store: &noema_store::NoemaStore) -> RuntimeActor {
+    RuntimeActor::new(
         "codex".to_string(),
         HashMap::from([(
             "codex".to_string(),
-            Arc::new(LocalToolTestProvider::new(Some("codex-tool-default")))
-                as noema_providers::ProviderHandle,
+            local_tool_test_provider(),
         )]),
         store.clone(),
         crate::test_support::system_error_logger(),
     )
     .await
-    .expect("actor");
-
-    let result = actor
-        .execute_local_tool(
-            &test_turn(),
-            &AgentPromptIdentity {
-                agent_id: "agent:primary".to_string(),
-                display_name: None,
-            },
-            &test_tool_call(
-                "web.fetch",
-                json!({
-                    "url": "",
-                }),
-            ),
-        )
-        .await;
-
-    let GenerateActionItem::ToolResult { payload, .. } =
-        super::local_tool_result_action_item(&result)
-    else {
-        panic!("expected tool result action item");
-    };
-
-    assert_eq!(payload["fallback_from"], provider_account_id);
-    assert_eq!(
-        payload["fallback_reason"],
-        "bound provider account does not declare web.fetch"
-    );
-    assert_eq!(payload["error"], "url is required");
+    .expect("actor")
 }

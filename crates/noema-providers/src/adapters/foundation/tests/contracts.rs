@@ -15,50 +15,42 @@ use super::super::{
     lowering::{bridge_replay_parsed_response, foundation_prompt_parts},
 };
 
+fn test_provider(profile: &str, bridge_path: Option<PathBuf>) -> FoundationLocalProvider {
+    FoundationLocalProvider::new(FoundationLocalProviderConfig {
+        default_profile: profile.to_string(),
+        bridge_path,
+        system_errors: None,
+    })
+    .expect("provider")
+}
+
 #[tokio::test]
 async fn missing_configured_bridge_fails_without_path_configuration_error() {
     let bridge_path = std::env::temp_dir().join(format!(
         "missing-noema-foundation-bridge-{}",
         std::process::id()
     ));
-    let provider = FoundationLocalProvider::new(FoundationLocalProviderConfig {
-        default_profile: "default".to_string(),
-        bridge_path: Some(bridge_path),
-        system_errors: None,
-    })
-    .expect("provider");
-
-    let error = provider
+    let error = test_provider("default", Some(bridge_path))
         .generate(crate::GenerateRequest::text("hello"))
         .await
-        .expect_err("stub should be unavailable");
+        .expect_err("missing bridge");
 
-    assert!(matches!(error, ProviderError::ProviderUnavailable { .. }));
     let ProviderError::ProviderUnavailable { message, .. } = error else {
-        unreachable!("matched provider unavailable above");
+        panic!("expected provider-unavailable bridge failure: {error:?}");
     };
-    assert!(
-        !message.contains("bridge path is not configured"),
-        "provider should report bridge launch/materialization errors directly: {message}"
-    );
+    assert!(!message.contains("bridge path is not configured"));
 }
 
 #[test]
 fn foundation_local_advertises_context_window_metadata() {
-    let provider = test_provider("default", None);
-
-    let metadata = provider.context_metadata(Some("default"));
-
+    let metadata = test_provider("default", None).context_metadata(Some("default"));
     assert_eq!(metadata.context_window_tokens, Some(4_096));
     assert_eq!(metadata.default_output_reserve_tokens, Some(512));
 }
 
 #[test]
 fn foundation_local_advertises_noema_envelope_tool_transport() {
-    let provider = test_provider("default", None);
-
-    let capabilities = provider.tool_capabilities(Some("default"));
-
+    let capabilities = test_provider("default", None).tool_capabilities(Some("default"));
     assert_eq!(
         capabilities.tool_transport,
         ProviderToolTransport::NoemaEnvelope
@@ -71,20 +63,17 @@ fn foundation_local_advertises_noema_envelope_tool_transport() {
 
 #[test]
 fn foundation_local_tool_classification_default_uses_provider_profile() {
-    let provider = test_provider("foundation-live", None);
-
     assert_eq!(
-        provider.default_tool_classification_model().as_deref(),
+        test_provider("foundation-live", None)
+            .default_tool_classification_model()
+            .as_deref(),
         Some("foundation-live")
     );
 }
 
 #[test]
 fn default_macos_debug_bridge_config_materializes_source_tree_bridge() {
-    let provider = test_provider("default", None);
-
-    let config = provider.bridge_config();
-
+    let config = test_provider("default", None).bridge_config();
     if cfg!(target_os = "macos") && cfg!(debug_assertions) {
         assert_eq!(config.bridge_path, default_development_bridge_path());
         let build = config.build.expect("debug macOS source build");
@@ -98,10 +87,7 @@ fn default_macos_debug_bridge_config_materializes_source_tree_bridge() {
 #[test]
 fn configured_bridge_path_is_not_auto_materialized() {
     let bridge_path = PathBuf::from("/tmp/noema-foundation-bridge");
-    let provider = test_provider("default", Some(bridge_path.clone()));
-
-    let config = provider.bridge_config();
-
+    let config = test_provider("default", Some(bridge_path.clone())).bridge_config();
     assert_eq!(config.bridge_path, bridge_path);
     assert!(config.build.is_none());
 }
@@ -207,13 +193,4 @@ fn parsed_response_replay_normalizes_text_and_tracks_structured_output() {
             "payload": { "query": "cache" },
         })
     );
-}
-
-fn test_provider(default_profile: &str, bridge_path: Option<PathBuf>) -> FoundationLocalProvider {
-    FoundationLocalProvider::new(FoundationLocalProviderConfig {
-        default_profile: default_profile.to_string(),
-        bridge_path,
-        system_errors: None,
-    })
-    .expect("provider")
 }

@@ -1,6 +1,5 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    fmt,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -29,11 +28,11 @@ use crate::local_models::manager::process::{
 };
 
 #[derive(Default)]
-pub(super) struct FakeRepository {
+pub(in crate::local_models) struct FakeRepository {
     state: Mutex<RepositoryState>,
     fail_activation: AtomicBool,
-    fail_read_after_activation: AtomicBool,
-    fail_installation_read: AtomicBool,
+    installation_reads: AtomicUsize,
+    allowed_installation_reads: AtomicUsize,
     pause_activation: AtomicBool,
     activation_entered: Notify,
     activation_release: Notify,
@@ -54,22 +53,55 @@ struct RepositoryState {
     events: Vec<LocalModelEventRecord>,
 }
 
+impl RepositoryState {
+    fn installation_id(&self, key: &ProviderInstanceKey) -> Option<String> {
+        self.installations
+            .values()
+            .find(|installation| installation.provider_instance_key == *key)
+            .map(|installation| installation.installation_id.clone())
+    }
+
+    fn reference_sources(
+        &self,
+        key: &ProviderInstanceKey,
+    ) -> Vec<LocalModelInstanceReferenceSource> {
+        self.references
+            .iter()
+            .filter(|reference| reference.provider_instance_key == *key)
+            .map(|reference| reference.source.clone())
+            .collect()
+    }
+}
+
 impl FakeRepository {
+    fn lock_state(&self) -> std::sync::MutexGuard<'_, RepositoryState> {
+        self.state.lock().expect("repository lock")
+    }
+
     pub(super) fn insert(&self, record: LocalModelInstallationRecord) {
-        self.state
-            .lock()
-            .expect("repository lock")
+        self.lock_state()
             .installations
             .insert(record.installation_id.clone(), record);
     }
 
-    pub(super) fn record(&self, installation_id: &str) -> Option<LocalModelInstallationRecord> {
-        self.state
-            .lock()
-            .expect("repository lock")
+    pub(in crate::local_models) fn record(
+        &self,
+        installation_id: &str,
+    ) -> Option<LocalModelInstallationRecord> {
+        self.lock_state()
             .installations
             .get(installation_id)
             .cloned()
+    }
+
+    pub(super) fn record_key(&self, installation_id: &str) -> ProviderInstanceKey {
+        self.record(installation_id)
+            .unwrap_or_else(|| panic!("missing installation {installation_id}"))
+            .provider_instance_key
+    }
+
+    pub(in crate::local_models) fn events(&self) -> Vec<LocalModelEventRecord> {
+        self.lock_state().events.clone()
     }
 
     pub(super) fn reference(
@@ -77,9 +109,7 @@ impl FakeRepository {
         provider_instance_key: ProviderInstanceKey,
         source: LocalModelInstanceReferenceSource,
     ) {
-        self.state
-            .lock()
-            .expect("repository lock")
+        self.lock_state()
             .references
             .push(LocalModelInstanceReference {
                 provider_instance_key,
@@ -88,7 +118,7 @@ impl FakeRepository {
     }
 
     pub(super) fn deactivate_all_and_clear_references(&self) {
-        let mut state = self.state.lock().expect("repository lock");
+        let mut state = self.lock_state();
         for installation in state.installations.values_mut() {
             installation.is_active = false;
         }
@@ -96,7 +126,7 @@ impl FakeRepository {
     }
 
     pub(super) fn set_active(&self, installation_id: &str) {
-        let mut state = self.state.lock().expect("repository lock");
+        let mut state = self.lock_state();
         for installation in state.installations.values_mut() {
             installation.is_active = installation.installation_id == installation_id;
         }
@@ -106,9 +136,9 @@ impl FakeRepository {
         self.fail_activation.store(true, Ordering::Release);
     }
 
-    pub(super) fn fail_read_after_next_activation(&self) {
-        self.fail_read_after_activation
-            .store(true, Ordering::Release);
+    pub(super) fn allow_installation_reads(&self, count: usize) {
+        self.allowed_installation_reads
+            .store(count, Ordering::Release);
     }
 
     pub(super) fn pause_next_activation(&self) {
@@ -152,7 +182,7 @@ impl FakeRepository {
     }
 
     pub(super) fn append_event(&self, installation_id: &str, kind: LocalModelEventKind) -> u64 {
-        let mut state = self.state.lock().expect("repository lock");
+        let mut state = self.lock_state();
         let record = state
             .installations
             .get(installation_id)
@@ -200,7 +230,7 @@ impl LocalModelInstallationPersistence for FakeRepository {
                 self.upsert_release.notified().await;
             }
             let _probe = self.mutation_delay().await;
-            let mut state = self.state.lock().expect("repository lock");
+            let mut state = self.lock_state();
             if let Some(record) = state
                 .installations
                 .get(&input.installation_id)
@@ -223,47 +253,20 @@ impl LocalModelInstallationPersistence for FakeRepository {
         installation_id: &'a str,
     ) -> ProviderPersistenceFuture<'a, Option<LocalModelInstallationRecord>> {
         Box::pin(async move {
-            if self.fail_installation_read.swap(false, Ordering::AcqRel) {
-                return Err(ProviderPersistenceError::Persistence {
-                    operation: "local_model_installation_after_activation",
-                });
-            }
+            let read = self.installation_reads.fetch_add(1, Ordering::AcqRel);
+            let allowed = self.allowed_installation_reads.load(Ordering::Acquire);
+            assert!(
+                allowed == 0 || read < allowed,
+                "unexpected installation read after {read} successful reads"
+            );
             Ok(self.record(installation_id))
-        })
-    }
-
-    fn installed_local_model<'a>(
-        &'a self,
-        model_id: &'a str,
-    ) -> ProviderPersistenceFuture<'a, Option<LocalModelInstallationRecord>> {
-        Box::pin(async move {
-            Ok(self
-                .state
-                .lock()
-                .expect("repository lock")
-                .installations
-                .values()
-                .find(|record| {
-                    record.model_id == model_id
-                        && record.status == LocalModelInstallationStatus::Installed
-                })
-                .cloned())
         })
     }
 
     fn local_model_installations(
         &self,
     ) -> ProviderPersistenceFuture<'_, Vec<LocalModelInstallationRecord>> {
-        Box::pin(async move {
-            Ok(self
-                .state
-                .lock()
-                .expect("repository lock")
-                .installations
-                .values()
-                .cloned()
-                .collect())
-        })
+        Box::pin(async move { Ok(self.lock_state().installations.values().cloned().collect()) })
     }
 
     fn update_local_model_installation<'a>(
@@ -278,18 +281,12 @@ impl LocalModelInstallationPersistence for FakeRepository {
                 self.copying_transitions.fetch_add(1, Ordering::AcqRel);
             }
             let _probe = self.mutation_delay().await;
-            let mut state = self.state.lock().expect("repository lock");
+            let mut state = self.lock_state();
             let mut record = state
                 .installations
                 .get(installation_id)
                 .cloned()
                 .ok_or_else(|| missing(installation_id))?;
-            if !record.status.can_transition_to(update.status) {
-                return Err(ProviderPersistenceError::InvalidInstallationTransition {
-                    from: record.status.to_string(),
-                    to: update.status.to_string(),
-                });
-            }
             record.status = update.status;
             record.downloaded_bytes = update.downloaded_bytes;
             record.expected_bytes = update.expected_bytes.or(record.expected_bytes);
@@ -319,21 +316,12 @@ impl LocalModelInstallationPersistence for FakeRepository {
     ) -> ProviderPersistenceFuture<'a, LocalModelInstallationRecord> {
         Box::pin(async move {
             let _probe = self.mutation_delay().await;
-            let mut state = self.state.lock().expect("repository lock");
+            let mut state = self.lock_state();
             let mut record = state
                 .installations
                 .get(installation_id)
                 .cloned()
                 .ok_or_else(|| missing(installation_id))?;
-            if !record
-                .status
-                .can_transition_to(LocalModelInstallationStatus::Cancelled)
-            {
-                return Err(ProviderPersistenceError::InvalidInstallationTransition {
-                    from: record.status.to_string(),
-                    to: LocalModelInstallationStatus::Cancelled.to_string(),
-                });
-            }
             record.status = LocalModelInstallationStatus::Cancelled;
             state
                 .installations
@@ -353,24 +341,11 @@ impl LocalModelInstallationPersistence for FakeRepository {
                 .lock()
                 .expect("log lock")
                 .push(format!("remove:{installation_id}"));
-            let mut state = self.state.lock().expect("repository lock");
+            let mut state = self.lock_state();
             let record = state
                 .installations
-                .get(installation_id)
-                .cloned()
+                .remove(installation_id)
                 .ok_or_else(|| missing(installation_id))?;
-            if record.is_active
-                || !matches!(
-                    record.status,
-                    LocalModelInstallationStatus::Cancelled | LocalModelInstallationStatus::Failed
-                )
-                || record.retirement_claimed_at.is_some()
-            {
-                return Err(ProviderPersistenceError::Conflict {
-                    operation: "remove_terminal_local_model_installation",
-                });
-            }
-            state.installations.remove(installation_id);
             append_event(&mut state, &record, LocalModelEventKind::Removed, None);
             Ok(RemovedLocalModelInstallation {
                 installation: record,
@@ -386,9 +361,7 @@ impl LocalModelInstallationPersistence for FakeRepository {
         Box::pin(async move {
             let after = after_cursor.unwrap_or_default();
             Ok(self
-                .state
-                .lock()
-                .expect("repository lock")
+                .lock_state()
                 .events
                 .iter()
                 .filter(|event| event.cursor > after)
@@ -415,24 +388,9 @@ impl LocalModelActivationPersistence for FakeRepository {
                     operation: "activate_local_model",
                 });
             }
-            let mut state = self.state.lock().expect("repository lock");
-            let target = state
-                .installations
-                .get(installation_id)
-                .ok_or_else(|| missing(installation_id))?;
-            if target.status != LocalModelInstallationStatus::Installed {
-                return Err(ProviderPersistenceError::InvalidRequest {
-                    kind: "local_model_activation_state",
-                });
-            }
-            if target.provider_instance_key != *ready_selection.key()
-                || ready_selection.selection().model_profile.as_deref()
-                    != Some(target.model_id.as_str())
-                || target.retirement_claimed_at.is_some()
-            {
-                return Err(ProviderPersistenceError::ProviderInstanceRetiring {
-                    provider_instance_key: ready_selection.key().clone(),
-                });
+            let mut state = self.lock_state();
+            if !state.installations.contains_key(installation_id) {
+                return Err(missing(installation_id));
             }
             for record in state.installations.values_mut() {
                 record.is_active = record.installation_id == installation_id;
@@ -452,12 +410,6 @@ impl LocalModelActivationPersistence for FakeRepository {
                 .get(installation_id)
                 .expect("activated installation")
                 .clone();
-            if self
-                .fail_read_after_activation
-                .swap(false, Ordering::AcqRel)
-            {
-                self.fail_installation_read.store(true, Ordering::Release);
-            }
             Ok(activated)
         })
     }
@@ -468,7 +420,7 @@ impl LocalModelLifecyclePersistence for FakeRepository {
         &self,
     ) -> ProviderPersistenceFuture<'_, LocalModelReconstructionSnapshot> {
         Box::pin(async move {
-            let state = self.state.lock().expect("repository lock");
+            let state = self.lock_state();
             let mut references = state.references.clone();
             references.extend(
                 state
@@ -492,21 +444,12 @@ impl LocalModelLifecyclePersistence for FakeRepository {
         provider_instance_key: &'a ProviderInstanceKey,
     ) -> ProviderPersistenceFuture<'a, LocalModelRuntimeRetirementResult> {
         Box::pin(async move {
-            let mut state = self.state.lock().expect("repository lock");
-            let installation_id = state
-                .installations
-                .values()
-                .find(|installation| installation.provider_instance_key == *provider_instance_key)
-                .map(|installation| installation.installation_id.clone());
+            let mut state = self.lock_state();
+            let installation_id = state.installation_id(provider_instance_key);
             let Some(installation_id) = installation_id else {
                 return Ok(LocalModelRuntimeRetirementResult::Missing);
             };
-            let references = state
-                .references
-                .iter()
-                .filter(|reference| reference.provider_instance_key == *provider_instance_key)
-                .map(|reference| reference.source.clone())
-                .collect::<Vec<_>>();
+            let references = state.reference_sources(provider_instance_key);
             let installation = state
                 .installations
                 .get_mut(&installation_id)
@@ -521,13 +464,6 @@ impl LocalModelLifecyclePersistence for FakeRepository {
                 return Ok(LocalModelRuntimeRetirementResult::Referenced {
                     installation: installation.clone(),
                     references,
-                });
-            }
-            if installation.retirement_claimed_at.is_some()
-                || installation.status != LocalModelInstallationStatus::Installed
-            {
-                return Err(ProviderPersistenceError::Conflict {
-                    operation: "retire_unreferenced_instance_runtime",
                 });
             }
             if installation.runtime_retired_at.is_some() {
@@ -547,21 +483,12 @@ impl LocalModelLifecyclePersistence for FakeRepository {
         provider_instance_key: &'a ProviderInstanceKey,
     ) -> ProviderPersistenceFuture<'a, LocalModelRetirementClaimResult> {
         Box::pin(async move {
-            let mut state = self.state.lock().expect("repository lock");
-            let installation_id = state
-                .installations
-                .values()
-                .find(|installation| installation.provider_instance_key == *provider_instance_key)
-                .map(|installation| installation.installation_id.clone());
+            let mut state = self.lock_state();
+            let installation_id = state.installation_id(provider_instance_key);
             let Some(installation_id) = installation_id else {
                 return Ok(LocalModelRetirementClaimResult::Missing);
             };
-            let references = state
-                .references
-                .iter()
-                .filter(|reference| reference.provider_instance_key == *provider_instance_key)
-                .map(|reference| reference.source.clone())
-                .collect::<Vec<_>>();
+            let references = state.reference_sources(provider_instance_key);
             let installation = state
                 .installations
                 .get(&installation_id)
@@ -579,11 +506,6 @@ impl LocalModelLifecyclePersistence for FakeRepository {
                 });
             }
             let already_claimed = installation.retirement_claimed_at.is_some();
-            if !already_claimed && installation.status != LocalModelInstallationStatus::Installed {
-                return Err(ProviderPersistenceError::Conflict {
-                    operation: "claim_non_installed_local_model",
-                });
-            }
             let installation = state
                 .installations
                 .get_mut(&installation_id)
@@ -607,24 +529,12 @@ impl LocalModelLifecyclePersistence for FakeRepository {
         provider_instance_key: &'a ProviderInstanceKey,
     ) -> ProviderPersistenceFuture<'a, RemovedLocalModelInstallation> {
         Box::pin(async move {
-            let mut state = self.state.lock().expect("repository lock");
-            let installation_id = state
-                .installations
-                .values()
-                .find(|installation| installation.provider_instance_key == *provider_instance_key)
-                .map(|installation| installation.installation_id.clone())
-                .ok_or(ProviderPersistenceError::InstallationNotFound {
+            let mut state = self.lock_state();
+            let installation_id = state.installation_id(provider_instance_key).ok_or(
+                ProviderPersistenceError::InstallationNotFound {
                     installation_id: provider_instance_key.to_string(),
-                })?;
-            let installation = state
-                .installations
-                .get(&installation_id)
-                .expect("located installation");
-            if installation.retirement_claimed_at.is_none() {
-                return Err(ProviderPersistenceError::Conflict {
-                    operation: "complete_unclaimed_local_model_removal",
-                });
-            }
+                },
+            )?;
             let installation = state
                 .installations
                 .remove(&installation_id)
@@ -644,6 +554,7 @@ impl LocalModelLifecyclePersistence for FakeRepository {
     }
 }
 
+#[derive(Debug)]
 pub(super) struct FakeProcessFactory {
     processes: Mutex<HashMap<String, Arc<FakeProcess>>>,
     fail_starts: Mutex<HashSet<String>>,
@@ -727,6 +638,7 @@ impl LocalModelProcessFactory for FakeProcessFactory {
     }
 }
 
+#[derive(Debug)]
 pub(super) struct FakeProcess {
     installation_id: String,
     provider: ProviderHandle,
@@ -858,38 +770,22 @@ pub(super) fn installed_record(
 }
 
 fn queued_record(input: NewLocalModelInstallation) -> LocalModelInstallationRecord {
-    let provider_instance_key = local_model_provider_instance_key(
-        crate::LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
-        &input.installation_id,
-        &input.model_id,
-    )
-    .expect("fake exact key");
-    LocalModelInstallationRecord {
-        installation_id: input.installation_id,
-        provider_instance_key,
-        model_id: input.model_id,
-        display_name: input.display_name,
-        source_kind: input.source_kind,
-        source_repo: input.source_repo,
-        source_revision: input.source_revision,
-        source_file: input.source_file,
-        sha256: input.sha256,
-        download_gb: input.download_gb,
-        expected_bytes: input.expected_bytes,
-        downloaded_bytes: 0,
-        license: input.license,
-        backend: input.backend,
-        status: LocalModelInstallationStatus::Queued,
-        blob_relative_path: None,
-        is_active: false,
-        runtime_retired_at: None,
-        retirement_claimed_at: None,
-        error_code: None,
-        error_message: None,
-        installed_at: None,
-        created_at: timestamp().to_string(),
-        updated_at: timestamp().to_string(),
-    }
+    let mut record = installed_record(&input.installation_id, &input.model_id, '0', false);
+    record.display_name = input.display_name;
+    record.source_kind = input.source_kind;
+    record.source_repo = input.source_repo;
+    record.source_revision = input.source_revision;
+    record.source_file = input.source_file;
+    record.sha256 = input.sha256;
+    record.download_gb = input.download_gb;
+    record.expected_bytes = input.expected_bytes;
+    record.downloaded_bytes = 0;
+    record.license = input.license;
+    record.backend = input.backend;
+    record.status = LocalModelInstallationStatus::Queued;
+    record.blob_relative_path = None;
+    record.installed_at = None;
+    record
 }
 
 fn append_event(
@@ -928,12 +824,4 @@ fn missing(installation_id: &str) -> ProviderPersistenceError {
 
 const fn timestamp() -> &'static str {
     "2026-07-16T00:00:00.000Z"
-}
-
-impl fmt::Debug for FakeProcessFactory {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("FakeProcessFactory")
-            .finish_non_exhaustive()
-    }
 }
