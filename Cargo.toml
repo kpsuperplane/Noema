@@ -15,6 +15,7 @@ members = [
     "crates/noema-server",
     "crates/noema-store",
     "crates/noema-tasks",
+    "crates/noema-workspaces",
 ]
 default-members = ["crates/noema-server"]
 resolver = "3"

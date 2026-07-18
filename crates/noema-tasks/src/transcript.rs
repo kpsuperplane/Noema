@@ -29,19 +29,55 @@ pub enum AgentRunItemKind {
     Cancellation,
 }
 
-task_vocabulary!(AgentRunItemKind, "agent_run_item_kind", {
-    ModelInput => "model_input",
-    AssistantOutput => "assistant_output",
-    ToolCall => "tool_call",
-    ToolResult => "tool_result",
-    ProgressNotice => "progress_notice",
-    ContextCheckpoint => "context_checkpoint",
-    TaskSubmission => "task_submission",
-    TaskReview => "task_review",
-    ArtifactReference => "artifact_reference",
-    Failure => "failure",
-    Cancellation => "cancellation",
-});
+impl AgentRunItemKind {
+    /// Stable persisted representation.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ModelInput => "model_input",
+            Self::AssistantOutput => "assistant_output",
+            Self::ToolCall => "tool_call",
+            Self::ToolResult => "tool_result",
+            Self::ProgressNotice => "progress_notice",
+            Self::ContextCheckpoint => "context_checkpoint",
+            Self::TaskSubmission => "task_submission",
+            Self::TaskReview => "task_review",
+            Self::ArtifactReference => "artifact_reference",
+            Self::Failure => "failure",
+            Self::Cancellation => "cancellation",
+        }
+    }
+}
+
+impl std::fmt::Display for AgentRunItemKind {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for AgentRunItemKind {
+    type Err = crate::WorkDomainError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "model_input" => Ok(Self::ModelInput),
+            "assistant_output" => Ok(Self::AssistantOutput),
+            "tool_call" => Ok(Self::ToolCall),
+            "tool_result" => Ok(Self::ToolResult),
+            "progress_notice" => Ok(Self::ProgressNotice),
+            "context_checkpoint" => Ok(Self::ContextCheckpoint),
+            "task_submission" => Ok(Self::TaskSubmission),
+            "task_review" => Ok(Self::TaskReview),
+            "artifact_reference" => Ok(Self::ArtifactReference),
+            "failure" => Ok(Self::Failure),
+            "cancellation" => Ok(Self::Cancellation),
+            other => Err(crate::WorkDomainError::InvalidInput {
+                field: "agent_run_item_kind",
+                message: format!("unknown value {other}"),
+            }),
+        }
+    }
+}
 
 /// Lifecycle state for one correlated transcript item.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -62,14 +98,88 @@ pub enum AgentRunItemStatus {
     Skipped,
 }
 
-task_vocabulary!(AgentRunItemStatus, "agent_run_item_status", {
-    Pending => "pending",
-    Running => "running",
-    Completed => "completed",
-    Failed => "failed",
-    Cancelled => "cancelled",
-    Skipped => "skipped",
-});
+impl AgentRunItemStatus {
+    /// Stable persisted representation.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Running => "running",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+            Self::Skipped => "skipped",
+        }
+    }
+}
+
+impl std::fmt::Display for AgentRunItemStatus {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for AgentRunItemStatus {
+    type Err = crate::WorkDomainError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "pending" => Ok(Self::Pending),
+            "running" => Ok(Self::Running),
+            "completed" => Ok(Self::Completed),
+            "failed" => Ok(Self::Failed),
+            "cancelled" => Ok(Self::Cancelled),
+            "skipped" => Ok(Self::Skipped),
+            other => Err(crate::WorkDomainError::InvalidInput {
+                field: "agent_run_item_status",
+                message: format!("unknown value {other}"),
+            }),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use super::{AgentRunItemKind, AgentRunItemStatus};
+
+    #[test]
+    fn transcript_vocabularies_are_displayable_and_fail_closed() {
+        for kind in [
+            AgentRunItemKind::ModelInput,
+            AgentRunItemKind::AssistantOutput,
+            AgentRunItemKind::ToolCall,
+            AgentRunItemKind::ToolResult,
+            AgentRunItemKind::ProgressNotice,
+            AgentRunItemKind::ContextCheckpoint,
+            AgentRunItemKind::TaskSubmission,
+            AgentRunItemKind::TaskReview,
+            AgentRunItemKind::ArtifactReference,
+            AgentRunItemKind::Failure,
+            AgentRunItemKind::Cancellation,
+        ] {
+            assert_eq!(AgentRunItemKind::from_str(kind.as_str()).unwrap(), kind);
+            assert_eq!(kind.to_string(), kind.as_str());
+        }
+        for status in [
+            AgentRunItemStatus::Pending,
+            AgentRunItemStatus::Running,
+            AgentRunItemStatus::Completed,
+            AgentRunItemStatus::Failed,
+            AgentRunItemStatus::Cancelled,
+            AgentRunItemStatus::Skipped,
+        ] {
+            assert_eq!(
+                AgentRunItemStatus::from_str(status.as_str()).unwrap(),
+                status
+            );
+            assert_eq!(status.to_string(), status.as_str());
+        }
+        assert!(AgentRunItemKind::from_str("unknown").is_err());
+        assert!(AgentRunItemStatus::from_str("unknown").is_err());
+    }
+}
 
 /// Input for appending or upserting one run transcript item.
 #[derive(Debug, Clone, PartialEq)]

@@ -1,6 +1,6 @@
 use noema_providers::{DEFAULT_OPENAI_MODEL, ProviderSelectionSnapshot, ReasoningEffort};
 
-use crate::{TaskComplexity, TaskDomainError, validation::normalize_optional};
+use crate::{TaskComplexity, WorkDomainError, error::invalid_input};
 
 const TASK_MODEL_POOL_SETTING_PREFIX: &str = "task_pool:setting:";
 
@@ -34,17 +34,21 @@ impl NewTaskModelPoolEntry {
     ///
     /// Returns a task-domain error for blank account/model fields or a malformed
     /// provider selection.
-    pub fn normalized(&self) -> Result<Self, TaskDomainError> {
+    pub fn normalized(&self) -> Result<Self, WorkDomainError> {
         let provider_kind = self.provider_kind.trim().to_ascii_lowercase();
         let provider_account_id = self.provider_account_id.trim().to_string();
         let model_profile = self.model_profile.trim().to_string();
         if provider_account_id.is_empty() {
-            return Err(TaskDomainError::EmptyField(
+            return Err(invalid_input(
                 "task_model_pool.provider_account_id",
+                "value cannot be blank",
             ));
         }
         if model_profile.is_empty() {
-            return Err(TaskDomainError::EmptyField("task_model_pool.model_profile"));
+            return Err(invalid_input(
+                "task_model_pool.model_profile",
+                "value cannot be blank",
+            ));
         }
         let model = ProviderSelectionSnapshot::explicit(
             provider_kind.clone(),
@@ -53,11 +57,12 @@ impl NewTaskModelPoolEntry {
             self.reasoning_effort,
             Some("task_model_pool".to_string()),
         )
-        .normalized()?;
+        .normalized()
+        .map_err(|error| invalid_input("task_model_pool.model", error.to_string()))?;
         Ok(Self {
-            pool_entry_id: normalize_optional(self.pool_entry_id.as_ref()),
+            pool_entry_id: normalize_optional(self.pool_entry_id.as_deref()),
             complexity: self.complexity,
-            label: normalize_optional(self.label.as_ref()),
+            label: normalize_optional(self.label.as_deref()),
             provider_kind,
             provider_account_id,
             model_profile,
@@ -66,6 +71,13 @@ impl NewTaskModelPoolEntry {
             sort_order: self.sort_order,
         })
     }
+}
+
+fn normalize_optional(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 /// Persisted executor model pool entry.

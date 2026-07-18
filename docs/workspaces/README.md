@@ -11,16 +11,16 @@ The documents describe the target contract. Until the implementation packets
 land, the current `TaskStatus`-based background-task implementation remains the
 running code.
 
-| Area | Design | Implementation |
+| Area | Contract revision | Implementation |
 | --- | --- | --- |
-| Product contract | Settled | Not started |
-| Workspace/project/task domain | Settled | Not started |
-| SQLite and event ledger | Settled | Not started |
-| Commands and reconciliation | Settled | Not started |
-| Runtime and chat integration | Settled | Not started |
-| GraphQL contract | Settled | Not started |
-| Work UI | Settled | Not started |
-| Validation and rollout | Settled | Not started |
+| Product contract | Frozen | Not applicable |
+| Workspace/project/task domain | Frozen | Accepted |
+| SQLite and event ledger | Frozen | Not started |
+| Commands and reconciliation | Frozen | Not started |
+| Runtime and chat integration | Frozen | Not started |
+| GraphQL contract | Frozen | Not started |
+| Work UI | Frozen | Not started |
+| Validation and rollout | Frozen | Not started |
 
 Update this table only when an implementation packet has passed its acceptance
 gate. "In progress" means an agent owns the packet; it does not mean partially

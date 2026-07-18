@@ -1,610 +1,731 @@
+use serde::{Deserialize, Serialize};
+
 use crate::{
-    NewTaskSubmission, RunKind, RunStatus, TaskDomainError, TaskReviewCriterion, TaskReviewVerdict,
-    TaskStatus, error::invalid_operation, review::validate_review_verdict,
+    RunKind, RunStatus, TaskRecoveryReason, WorkDomainError, WorkflowStageBehavior,
+    error::invalid_input,
 };
 
-/// Maximum automatic child resumptions after infrastructure interruption.
-const MAX_AUTOMATIC_RESUMES: i64 = 3;
-
-/// Persisted state needed to validate an executor submission.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SubmissionState {
-    /// Owning task id.
-    pub task_id: String,
-    /// Current task state.
-    pub task_status: TaskStatus,
-    /// Current task revision.
-    pub task_revision_index: i64,
-    /// Task's current run id.
-    pub latest_run_id: Option<String>,
-    /// Candidate executor run id.
-    pub run_id: String,
-    /// Task id recorded on the run.
-    pub run_task_id: String,
-    /// Candidate run role.
-    pub run_kind: RunKind,
-    /// Candidate run state.
-    pub run_status: RunStatus,
-    /// Candidate run revision.
-    pub run_revision_index: i64,
-}
-
-/// Normalized submission authorized by a coherent task/run projection.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SubmissionPlan {
-    /// Normalized immutable submission.
-    pub submission: NewTaskSubmission,
-}
-
-/// Normalize an executor submission and validate its task/run linkage.
-///
-/// # Errors
-///
-/// Returns a task-domain error when the task or run is not executable, their
-/// identities or revisions disagree, or the submission body is malformed.
-pub fn plan_submission(
-    submission: NewTaskSubmission,
-    expected_criterion_ids: &[String],
-    state: SubmissionState,
-) -> Result<SubmissionPlan, TaskDomainError> {
-    let submission = submission.normalized(expected_criterion_ids)?;
-    if !matches!(
-        state.task_status,
-        TaskStatus::Executing | TaskStatus::RevisionRequested
-    ) {
-        return Err(invalid_operation("task is not executable"));
-    }
-    if state.run_kind != RunKind::Executor || state.run_status != RunStatus::Running {
-        return Err(invalid_operation(
-            "submission requires the active executor run",
-        ));
-    }
-    if state.task_id != submission.task_id
-        || state.run_task_id != submission.task_id
-        || state.run_id != submission.executor_run_id
-        || state.latest_run_id.as_deref() != Some(submission.executor_run_id.as_str())
-    {
-        return Err(invalid_operation(
-            "submission task and executor lineage do not match",
-        ));
-    }
-    if state.task_revision_index != submission.revision_index
-        || state.run_revision_index != submission.revision_index
-    {
-        return Err(invalid_operation(
-            "submission revision does not match the active task run",
-        ));
-    }
-    Ok(SubmissionPlan { submission })
-}
-
-/// Deterministic result of applying a reviewer decision.
+/// Semantic operation used by the pure task transition planner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ReviewPlan {
-    /// Next durable task status.
-    pub task_status: TaskStatus,
-    /// Next task revision index.
-    pub revision_index: i64,
-    /// Whether persistence must queue a new executor run.
-    pub queue_executor: bool,
+pub enum WorkTransition {
+    /// Create a task in Inbox.
+    Capture,
+    /// Atomically create and authorize a delegated task, with an explicit
+    /// complete/incomplete intent distinction.
+    Delegate { has_complete_intent: bool },
+    /// Edit Inbox capture fields.
+    UpdateInbox,
+    /// Authorize an Inbox task.
+    Queue,
+    /// Resolve a human gate and resume its opening role.
+    Answer { resume_run_kind: RunKind },
+    /// Retry a Recovery gate using its explicit continuation role.
+    Retry { resume_run_kind: RunKind },
+    /// Accept a reviewed task.
+    Accept,
+    /// Request a new contract revision.
+    RequestChanges,
+    /// Cancel nonterminal work.
+    Cancel,
+    /// Reopen terminal history.
+    Reopen,
 }
 
-/// Validate a review disposition and derive its next task state.
-///
-/// # Errors
-///
-/// Returns a task-domain error when the verdict contradicts criterion outcomes
-/// or revision arithmetic overflows.
-pub fn plan_review(
-    revision_index: i64,
-    max_review_rounds: i64,
-    verdict: TaskReviewVerdict,
-    criteria: &[TaskReviewCriterion],
-) -> Result<ReviewPlan, TaskDomainError> {
-    if revision_index < 0 || max_review_rounds < 1 {
-        return Err(invalid_operation(
-            "review state has invalid revision bounds",
-        ));
-    }
-    validate_review_verdict(verdict, criteria)?;
-    let plan = match verdict {
-        TaskReviewVerdict::Approve => ReviewPlan {
-            task_status: TaskStatus::Completed,
-            revision_index,
-            queue_executor: false,
+/// Pure transition result for one semantic command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorkTransitionPlan {
+    /// Prior stage behavior, if the command targets an existing task.
+    pub from_behavior: Option<WorkflowStageBehavior>,
+    /// Resulting stage behavior.
+    pub to_behavior: WorkflowStageBehavior,
+    /// Whether task generation increments.
+    pub generation_increment: bool,
+    /// Whether task projection revision increments.
+    pub revision_increment: bool,
+    /// Runnable role to queue immediately, when deterministic.
+    pub queue_run_kind: Option<RunKind>,
+    /// Role resumed by Answer/Retry, when the caller supplied one.
+    pub resume_run_kind: Option<RunKind>,
+}
+
+/// Decide an allowed task transition without reading persistence or text.
+pub fn plan_work_transition(
+    current: Option<WorkflowStageBehavior>,
+    transition: WorkTransition,
+) -> Result<WorkTransitionPlan, WorkDomainError> {
+    use WorkTransition as Action;
+    let result = match (current, transition) {
+        (None, Action::Capture) => WorkTransitionPlan {
+            from_behavior: None,
+            to_behavior: WorkflowStageBehavior::Intake,
+            generation_increment: false,
+            revision_increment: false,
+            queue_run_kind: None,
+            resume_run_kind: None,
         },
-        TaskReviewVerdict::NeedsHuman => ReviewPlan {
-            task_status: TaskStatus::WaitingForHuman,
-            revision_index,
-            queue_executor: false,
-        },
-        TaskReviewVerdict::RequestChanges => {
-            let next_revision = revision_index
-                .checked_add(1)
-                .ok_or_else(|| invalid_operation("task revision index is exhausted"))?;
-            if next_revision < max_review_rounds {
-                ReviewPlan {
-                    task_status: TaskStatus::RevisionRequested,
-                    revision_index: next_revision,
-                    queue_executor: true,
-                }
+        (
+            None,
+            Action::Delegate {
+                has_complete_intent,
+            },
+        ) => WorkTransitionPlan {
+            from_behavior: None,
+            to_behavior: WorkflowStageBehavior::Dispatch,
+            generation_increment: false,
+            revision_increment: false,
+            queue_run_kind: Some(if has_complete_intent {
+                RunKind::Executor
             } else {
-                ReviewPlan {
-                    task_status: TaskStatus::WaitingForHuman,
-                    revision_index,
-                    queue_executor: false,
+                RunKind::Planner
+            }),
+            resume_run_kind: None,
+        },
+        (Some(WorkflowStageBehavior::Intake), Action::UpdateInbox) => WorkTransitionPlan {
+            from_behavior: current,
+            to_behavior: WorkflowStageBehavior::Intake,
+            generation_increment: false,
+            revision_increment: true,
+            queue_run_kind: None,
+            resume_run_kind: None,
+        },
+        (Some(WorkflowStageBehavior::Intake), Action::Queue) => WorkTransitionPlan {
+            from_behavior: current,
+            to_behavior: WorkflowStageBehavior::Dispatch,
+            generation_increment: false,
+            revision_increment: true,
+            queue_run_kind: Some(RunKind::Planner),
+            resume_run_kind: None,
+        },
+        (Some(WorkflowStageBehavior::HumanGate), Action::Answer { resume_run_kind }) => {
+            WorkTransitionPlan {
+                from_behavior: current,
+                to_behavior: WorkflowStageBehavior::Dispatch,
+                generation_increment: false,
+                revision_increment: true,
+                queue_run_kind: Some(resume_run_kind),
+                resume_run_kind: Some(resume_run_kind),
+            }
+        }
+        (Some(WorkflowStageBehavior::HumanGate), Action::Retry { resume_run_kind }) => {
+            WorkTransitionPlan {
+                from_behavior: current,
+                to_behavior: WorkflowStageBehavior::Dispatch,
+                generation_increment: false,
+                revision_increment: true,
+                queue_run_kind: Some(resume_run_kind),
+                resume_run_kind: Some(resume_run_kind),
+            }
+        }
+        (Some(WorkflowStageBehavior::Acceptance), Action::Accept) => WorkTransitionPlan {
+            from_behavior: current,
+            to_behavior: WorkflowStageBehavior::TerminalSuccess,
+            generation_increment: false,
+            revision_increment: true,
+            queue_run_kind: None,
+            resume_run_kind: None,
+        },
+        (Some(WorkflowStageBehavior::Acceptance), Action::RequestChanges) => WorkTransitionPlan {
+            from_behavior: current,
+            to_behavior: WorkflowStageBehavior::Dispatch,
+            generation_increment: true,
+            revision_increment: true,
+            queue_run_kind: Some(RunKind::Executor),
+            resume_run_kind: None,
+        },
+        (
+            Some(
+                WorkflowStageBehavior::Intake
+                | WorkflowStageBehavior::Dispatch
+                | WorkflowStageBehavior::Active
+                | WorkflowStageBehavior::HumanGate
+                | WorkflowStageBehavior::Acceptance,
+            ),
+            Action::Cancel,
+        ) => WorkTransitionPlan {
+            from_behavior: current,
+            to_behavior: WorkflowStageBehavior::TerminalCancelled,
+            generation_increment: true,
+            revision_increment: true,
+            queue_run_kind: None,
+            resume_run_kind: None,
+        },
+        (
+            Some(WorkflowStageBehavior::TerminalSuccess | WorkflowStageBehavior::TerminalCancelled),
+            Action::Reopen,
+        ) => WorkTransitionPlan {
+            from_behavior: current,
+            to_behavior: WorkflowStageBehavior::Intake,
+            generation_increment: true,
+            revision_increment: true,
+            queue_run_kind: None,
+            resume_run_kind: None,
+        },
+        _ => return Err(WorkDomainError::InvalidTransition),
+    };
+    Ok(result)
+}
+
+/// Durable failed-run facts consumed by reconciliation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkFailedRunFacts {
+    /// Role of the failed/interrupted run.
+    pub run_kind: RunKind,
+    /// Terminal/interrupted status.
+    pub status: RunStatus,
+    /// Whether the failure is safe to retry automatically.
+    pub retryable: bool,
+    /// Whether the automatic retry bound is exhausted.
+    pub retries_exhausted: bool,
+    /// Explicit recovery reason when a human gate is required.
+    pub recovery_reason: Option<TaskRecoveryReason>,
+}
+
+/// Durable facts consumed by the reconciler decision function.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkReconciliationSnapshot {
+    /// Current task stage behavior.
+    pub stage_behavior: WorkflowStageBehavior,
+    /// Whether a complete current contract exists.
+    pub has_current_contract: bool,
+    /// Whether one open current-generation gate exists.
+    pub has_open_gate: bool,
+    /// Whether one queued/leased/running current-generation run exists.
+    pub has_runnable_run: bool,
+    /// Explicit role to resume after a resolved Clarification/Approval/Recovery gate.
+    pub resolved_gate_resume_run_kind: Option<RunKind>,
+    /// Whether the latest current-generation review is complete and approving.
+    pub approved_review: bool,
+    /// A completed Planner supplied valid contract facts after a crash.
+    pub planner_plan_ready: bool,
+    /// Current submission has no Reviewer run yet.
+    pub submission_waiting_for_review: bool,
+    /// Latest review requested automated changes.
+    pub review_requested_changes: bool,
+    /// Latest review round exhausted its configured bound.
+    pub review_rounds_exhausted: bool,
+    /// Failed/interrupted current run facts, when one needs recovery planning.
+    pub failed_run: Option<WorkFailedRunFacts>,
+}
+
+impl Default for WorkReconciliationSnapshot {
+    fn default() -> Self {
+        Self {
+            stage_behavior: WorkflowStageBehavior::Intake,
+            has_current_contract: false,
+            has_open_gate: false,
+            has_runnable_run: false,
+            resolved_gate_resume_run_kind: None,
+            approved_review: false,
+            planner_plan_ready: false,
+            submission_waiting_for_review: false,
+            review_requested_changes: false,
+            review_rounds_exhausted: false,
+            failed_run: None,
+        }
+    }
+}
+
+/// One deterministic reconciler action or intentional idle result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorkReconciliationAction {
+    /// Durable facts intentionally require no mutation.
+    Idle,
+    /// Queue one role-specific child run.
+    QueueRun { run_kind: RunKind },
+    /// Atomically materialize the validated Planner plan into an immutable
+    /// contract and queue its first Executor.
+    MaterializePlannedContractAndQueueExecutor,
+    /// Atomically move a resolved Waiting task to Queue and enqueue its role.
+    MoveToQueueAndQueueRun { run_kind: RunKind },
+    /// Move an approved review to the human acceptance stage.
+    MoveToReview,
+    /// Open a human Recovery gate.
+    OpenRecoveryGate {
+        /// Closed reason for the gate.
+        reason: TaskRecoveryReason,
+        /// Explicit safe continuation role, if any.
+        retry_run_kind: Option<RunKind>,
+    },
+    /// Fence runnable work found in terminal history.
+    FenceStaleRuns,
+}
+
+impl WorkReconciliationAction {
+    /// Validate the closed recovery reason/continuation-role matrix.
+    pub fn validate(&self) -> Result<(), WorkDomainError> {
+        if let Self::OpenRecoveryGate {
+            reason,
+            retry_run_kind,
+        } = self
+        {
+            match (reason, retry_run_kind) {
+                (TaskRecoveryReason::InvariantFault, None)
+                | (TaskRecoveryReason::InfrastructureRetriesExhausted, Some(_))
+                | (TaskRecoveryReason::ReviewRoundsExhausted, Some(RunKind::Executor))
+                | (TaskRecoveryReason::UnsafeEffectUncertain, Some(_))
+                | (TaskRecoveryReason::ConfigurationUnavailable, Some(_)) => {}
+                _ => {
+                    return Err(invalid_input(
+                        "reconciliation.recovery",
+                        "recovery reason and continuation role are inconsistent",
+                    ));
                 }
             }
         }
-    };
-    Ok(plan)
+        Ok(())
+    }
+
+    /// Validate run-role compatibility with the current contract presence.
+    pub fn validate_for_contract(&self, has_current_contract: bool) -> Result<(), WorkDomainError> {
+        self.validate()?;
+        let run_kind = match self {
+            Self::QueueRun { run_kind } | Self::MoveToQueueAndQueueRun { run_kind } => {
+                Some(*run_kind)
+            }
+            Self::OpenRecoveryGate {
+                retry_run_kind: Some(run_kind),
+                ..
+            } => Some(*run_kind),
+            _ => None,
+        };
+        if let Some(run_kind) = run_kind {
+            validate_role_contract(run_kind, has_current_contract)?;
+        }
+        Ok(())
+    }
 }
 
-/// Pure inputs needed to plan an owner-authorized continuation.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ManualContinuationInput {
-    /// Current task status.
-    pub task_status: TaskStatus,
-    /// Current task revision.
-    pub task_revision_index: i64,
-    /// Latest run kind.
-    pub parent_run_kind: RunKind,
-    /// Latest run status.
-    pub parent_run_status: RunStatus,
-    /// Latest run attempt.
-    pub parent_attempt_index: i64,
-    /// Latest run revision.
-    pub parent_revision_index: i64,
-    /// Whether the parent reviewer already committed a review.
-    pub committed_review: bool,
-    /// Optional human continuation guidance.
-    pub message: Option<String>,
-}
+/// Purely derive the next safe action from durable facts.
+pub fn plan_reconciliation_action(
+    snapshot: WorkReconciliationSnapshot,
+) -> Result<WorkReconciliationAction, WorkDomainError> {
+    use WorkflowStageBehavior::*;
 
-/// Deterministic child-run lineage for manual continuation.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ManualContinuationPlan {
-    /// Child run role.
-    pub run_kind: RunKind,
-    /// Child attempt index.
-    pub attempt_index: i64,
-    /// Child revision index.
-    pub revision_index: i64,
-    /// Next task state.
-    pub task_status: TaskStatus,
-    /// Normalized optional resume guidance.
-    pub message: Option<String>,
-}
-
-/// Validate a failed or human-blocked task and plan its child-run lineage.
-///
-/// # Errors
-///
-/// Returns a task-domain error when the task/run cannot be continued, human
-/// guidance is missing, or lineage arithmetic overflows.
-pub fn plan_manual_continuation(
-    input: ManualContinuationInput,
-) -> Result<ManualContinuationPlan, TaskDomainError> {
-    if input.task_revision_index < 0
-        || input.parent_attempt_index < 0
-        || input.parent_revision_index < 0
-        || input.task_revision_index != input.parent_revision_index
-    {
-        return Err(invalid_operation(
-            "task continuation lineage has invalid indexes",
-        ));
+    if let Some(failed_run) = &snapshot.failed_run {
+        validate_failed_run_facts(failed_run)?;
     }
-    if input.committed_review
-        && (input.parent_run_kind != RunKind::Reviewer
-            || input.parent_run_status != RunStatus::Completed)
-    {
-        return Err(invalid_operation(
-            "committed review continuation requires a completed reviewer run",
-        ));
-    }
-    if !matches!(
-        input.task_status,
-        TaskStatus::Failed | TaskStatus::WaitingForHuman
-    ) {
-        return Err(invalid_operation(
-            "only failed or human-blocked tasks can be continued",
-        ));
-    }
-    if !matches!(
-        input.parent_run_status,
-        RunStatus::Failed
-            | RunStatus::WaitingForApproval
-            | RunStatus::Interrupted
-            | RunStatus::Completed
-    ) {
-        return Err(invalid_operation("latest task run cannot be continued"));
-    }
-    let message = input
-        .message
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned);
-    if input.task_status == TaskStatus::WaitingForHuman && message.is_none() {
-        return Err(invalid_operation(
-            "human-blocked task continuation requires a message",
-        ));
-    }
-
-    if input.committed_review {
-        let revision_index = input
-            .task_revision_index
-            .checked_add(1)
-            .ok_or_else(|| invalid_operation("task revision index is exhausted"))?;
-        return Ok(ManualContinuationPlan {
-            run_kind: RunKind::Executor,
-            attempt_index: 0,
-            revision_index,
-            task_status: TaskStatus::Queued,
-            message,
+    if snapshot.stage_behavior.is_terminal() {
+        return Ok(if snapshot.has_runnable_run {
+            WorkReconciliationAction::FenceStaleRuns
+        } else {
+            WorkReconciliationAction::Idle
         });
     }
-
-    let attempt_index = input
-        .parent_attempt_index
-        .checked_add(1)
-        .ok_or_else(|| invalid_operation("task continuation attempt index is exhausted"))?;
-    let task_status = match input.parent_run_kind {
-        RunKind::Executor => TaskStatus::Queued,
-        RunKind::Reviewer => TaskStatus::Reviewing,
-    };
-    Ok(ManualContinuationPlan {
-        run_kind: input.parent_run_kind,
-        attempt_index,
-        revision_index: input.parent_revision_index,
-        task_status,
-        message,
-    })
-}
-
-/// Pure state needed to decide automatic interrupted-run recovery.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AutomaticRecoveryInput {
-    /// Whether this is still the task's latest run.
-    pub is_latest: bool,
-    /// Whether cancellation has been requested.
-    pub cancellation_requested: bool,
-    /// Current task state.
-    pub task_status: TaskStatus,
-    /// Interrupted run role.
-    pub run_kind: RunKind,
-    /// Interrupted run attempt index.
-    pub attempt_index: i64,
-    /// Number of prior automatic resumptions.
-    pub retry_count: i64,
-}
-
-/// Deterministic recovery disposition for an interrupted run.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AutomaticRecoveryPlan {
-    /// The run is stale, cancelled, or belongs to a closed task.
-    NoAction,
-    /// Automatic retries are exhausted and the task should fail.
-    FailTask,
-    /// Queue a child run with the supplied lineage and task state.
-    QueueChild {
-        /// Child attempt index.
-        attempt_index: i64,
-        /// Child retry count.
-        retry_count: i64,
-        /// Task state while the child is queued.
-        task_status: TaskStatus,
-    },
-}
-
-/// Plan recovery without reading or mutating persistence.
-///
-/// # Errors
-///
-/// Returns a task-domain error when lineage counters are negative or exhausted.
-pub fn plan_automatic_recovery(
-    input: AutomaticRecoveryInput,
-) -> Result<AutomaticRecoveryPlan, TaskDomainError> {
-    if input.attempt_index < 0 || input.retry_count < 0 {
-        return Err(invalid_operation(
-            "automatic recovery lineage cannot be negative",
+    if snapshot.stage_behavior == HumanGate {
+        return if snapshot.has_runnable_run {
+            Ok(WorkReconciliationAction::FenceStaleRuns)
+        } else if snapshot.has_open_gate {
+            Ok(WorkReconciliationAction::Idle)
+        } else if let Some(run_kind) = snapshot.resolved_gate_resume_run_kind {
+            if validate_role_contract(run_kind, snapshot.has_current_contract).is_err() {
+                invariant_recovery()
+            } else {
+                Ok(WorkReconciliationAction::MoveToQueueAndQueueRun { run_kind })
+            }
+        } else {
+            invariant_recovery()
+        };
+    }
+    if snapshot.has_open_gate {
+        return Err(invalid_input(
+            "reconciliation.gate",
+            "an open gate must leave the task in Waiting",
         ));
     }
-    if !input.is_latest
-        || input.cancellation_requested
-        || matches!(
-            input.task_status,
-            TaskStatus::Completed | TaskStatus::Failed | TaskStatus::Cancelled
-        )
-    {
-        return Ok(AutomaticRecoveryPlan::NoAction);
+    if snapshot.has_runnable_run {
+        if snapshot.approved_review {
+            return Err(invalid_input(
+                "reconciliation.review",
+                "an approved review cannot coexist with a runnable run",
+            ));
+        }
+        return Ok(WorkReconciliationAction::Idle);
     }
-    if input.retry_count >= MAX_AUTOMATIC_RESUMES {
-        return Ok(AutomaticRecoveryPlan::FailTask);
+    if let Some(failed_run) = snapshot.failed_run {
+        return plan_failed_run_action(failed_run, snapshot.has_current_contract);
     }
-    let attempt_index = input
-        .attempt_index
-        .checked_add(1)
-        .ok_or_else(|| invalid_operation("automatic recovery attempt index is exhausted"))?;
-    let retry_count = input
-        .retry_count
-        .checked_add(1)
-        .ok_or_else(|| invalid_operation("automatic recovery retry count is exhausted"))?;
-    let task_status = match input.run_kind {
-        RunKind::Executor => TaskStatus::Queued,
-        RunKind::Reviewer => TaskStatus::Reviewing,
+    if snapshot.stage_behavior == Dispatch {
+        let run_kind = snapshot
+            .resolved_gate_resume_run_kind
+            .or(if snapshot.has_current_contract {
+                Some(RunKind::Executor)
+            } else {
+                Some(RunKind::Planner)
+            })
+            .expect("the fallback dispatch role is always present");
+        if validate_role_contract(run_kind, snapshot.has_current_contract).is_err() {
+            return invariant_recovery();
+        }
+        return Ok(WorkReconciliationAction::QueueRun { run_kind });
+    }
+    if snapshot.stage_behavior == Active {
+        if snapshot.approved_review {
+            return Ok(WorkReconciliationAction::MoveToReview);
+        }
+        if snapshot.planner_plan_ready && !snapshot.has_current_contract {
+            return Ok(WorkReconciliationAction::MaterializePlannedContractAndQueueExecutor);
+        }
+        if snapshot.planner_plan_ready && snapshot.has_current_contract {
+            return Ok(WorkReconciliationAction::QueueRun {
+                run_kind: RunKind::Executor,
+            });
+        }
+        if snapshot.submission_waiting_for_review {
+            if validate_role_contract(RunKind::Reviewer, snapshot.has_current_contract).is_err() {
+                return invariant_recovery();
+            }
+            return Ok(WorkReconciliationAction::QueueRun {
+                run_kind: RunKind::Reviewer,
+            });
+        }
+        if snapshot.review_requested_changes {
+            return if snapshot.review_rounds_exhausted {
+                let recovery = WorkReconciliationAction::OpenRecoveryGate {
+                    reason: TaskRecoveryReason::ReviewRoundsExhausted,
+                    retry_run_kind: Some(RunKind::Executor),
+                };
+                if recovery
+                    .validate_for_contract(snapshot.has_current_contract)
+                    .is_err()
+                {
+                    invariant_recovery()
+                } else {
+                    Ok(recovery)
+                }
+            } else {
+                if validate_role_contract(RunKind::Executor, snapshot.has_current_contract).is_err()
+                {
+                    invariant_recovery()
+                } else {
+                    Ok(WorkReconciliationAction::QueueRun {
+                        run_kind: RunKind::Executor,
+                    })
+                }
+            };
+        }
+        return action(WorkReconciliationAction::OpenRecoveryGate {
+            reason: TaskRecoveryReason::InvariantFault,
+            retry_run_kind: None,
+        });
+    }
+    if snapshot.stage_behavior == Acceptance {
+        return if snapshot.approved_review {
+            Ok(WorkReconciliationAction::Idle)
+        } else {
+            action(WorkReconciliationAction::OpenRecoveryGate {
+                reason: TaskRecoveryReason::InvariantFault,
+                retry_run_kind: None,
+            })
+        };
+    }
+    Ok(WorkReconciliationAction::Idle)
+}
+
+fn action(action: WorkReconciliationAction) -> Result<WorkReconciliationAction, WorkDomainError> {
+    action.validate()?;
+    Ok(action)
+}
+
+fn validate_role_contract(
+    run_kind: RunKind,
+    has_current_contract: bool,
+) -> Result<(), WorkDomainError> {
+    let compatible = match run_kind {
+        RunKind::Planner => !has_current_contract,
+        RunKind::Executor | RunKind::Reviewer => has_current_contract,
     };
-    Ok(AutomaticRecoveryPlan::QueueChild {
-        attempt_index,
-        retry_count,
-        task_status,
+    if compatible {
+        Ok(())
+    } else {
+        Err(invalid_input(
+            "reconciliation.run_kind",
+            "run role and contract presence are inconsistent",
+        ))
+    }
+}
+
+fn validate_failed_run_facts(facts: &WorkFailedRunFacts) -> Result<(), WorkDomainError> {
+    if !matches!(facts.status, RunStatus::Failed | RunStatus::Interrupted) {
+        return Err(invalid_input(
+            "reconciliation.failed_run.status",
+            "failed facts must be Failed or Interrupted",
+        ));
+    }
+    match (
+        facts.retryable,
+        facts.retries_exhausted,
+        facts.recovery_reason,
+    ) {
+        (true, false, None) => Ok(()),
+        (true, false, Some(_)) => Err(invalid_input(
+            "reconciliation.failed_run.recovery_reason",
+            "an under-limit retry cannot carry a recovery reason",
+        )),
+        (true, true, None) => Ok(()),
+        (true, true, Some(TaskRecoveryReason::InfrastructureRetriesExhausted))
+        | (true, true, Some(TaskRecoveryReason::ReviewRoundsExhausted)) => Ok(()),
+        (true, true, Some(_)) => Err(invalid_input(
+            "reconciliation.failed_run.recovery_reason",
+            "retryable exhausted facts have an incompatible recovery reason",
+        )),
+        (false, true, _) => Err(invalid_input(
+            "reconciliation.failed_run.retries_exhausted",
+            "nonretryable facts cannot be marked retries exhausted",
+        )),
+        (false, false, Some(TaskRecoveryReason::InvariantFault))
+        | (false, false, Some(TaskRecoveryReason::UnsafeEffectUncertain))
+        | (false, false, Some(TaskRecoveryReason::ConfigurationUnavailable)) => Ok(()),
+        (false, false, Some(_)) => Err(invalid_input(
+            "reconciliation.failed_run.recovery_reason",
+            "recovery reason is inconsistent with nonretryable facts",
+        )),
+        (false, false, None) => Err(invalid_input(
+            "reconciliation.failed_run.recovery_reason",
+            "nonretryable facts require a recovery reason",
+        )),
+    }
+}
+
+fn plan_failed_run_action(
+    facts: WorkFailedRunFacts,
+    has_current_contract: bool,
+) -> Result<WorkReconciliationAction, WorkDomainError> {
+    validate_failed_run_facts(&facts)?;
+    if validate_role_contract(facts.run_kind, has_current_contract).is_err() {
+        return invariant_recovery();
+    }
+    if facts.retryable && !facts.retries_exhausted {
+        return Ok(WorkReconciliationAction::QueueRun {
+            run_kind: facts.run_kind,
+        });
+    }
+    let reason = facts
+        .recovery_reason
+        .unwrap_or(TaskRecoveryReason::InfrastructureRetriesExhausted);
+    let retry_run_kind = match reason {
+        TaskRecoveryReason::InvariantFault => None,
+        TaskRecoveryReason::ReviewRoundsExhausted => Some(RunKind::Executor),
+        TaskRecoveryReason::InfrastructureRetriesExhausted
+        | TaskRecoveryReason::UnsafeEffectUncertain
+        | TaskRecoveryReason::ConfigurationUnavailable => Some(facts.run_kind),
+    };
+    let result = WorkReconciliationAction::OpenRecoveryGate {
+        reason,
+        retry_run_kind,
+    };
+    if result.validate_for_contract(has_current_contract).is_err() {
+        invariant_recovery()
+    } else {
+        Ok(result)
+    }
+}
+
+fn invariant_recovery() -> Result<WorkReconciliationAction, WorkDomainError> {
+    action(WorkReconciliationAction::OpenRecoveryGate {
+        reason: TaskRecoveryReason::InvariantFault,
+        retry_run_kind: None,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CriterionOutcome, TaskReviewCriterion, TaskReviewVerdict};
 
-    fn criterion(outcome: CriterionOutcome) -> TaskReviewCriterion {
-        TaskReviewCriterion {
-            criterion_id: "criterion:1".to_string(),
-            outcome,
-            evidence_markdown: None,
-            feedback: None,
-        }
-    }
-
-    fn submission() -> NewTaskSubmission {
-        NewTaskSubmission {
-            submission_id: None,
-            task_id: "task:1".to_string(),
-            executor_run_id: "run:1".to_string(),
-            revision_index: 2,
-            summary: "Done".to_string(),
-            result_markdown: "Result".to_string(),
-            criteria: vec![crate::SubmissionCriterionEvidence {
-                criterion_id: "criterion:1".to_string(),
-                evidence_markdown: "Evidence".to_string(),
-            }],
-            artifact_ids: Vec::new(),
-        }
-    }
-
-    fn submission_state() -> SubmissionState {
-        SubmissionState {
-            task_id: "task:1".to_string(),
-            task_status: TaskStatus::Executing,
-            task_revision_index: 2,
-            latest_run_id: Some("run:1".to_string()),
-            run_id: "run:1".to_string(),
-            run_task_id: "task:1".to_string(),
-            run_kind: RunKind::Executor,
-            run_status: RunStatus::Running,
-            run_revision_index: 2,
-        }
+    #[test]
+    fn transition_matrix_covers_capture_delegate_and_gate_lineage() {
+        assert_eq!(
+            plan_work_transition(None, WorkTransition::Capture)
+                .unwrap()
+                .to_behavior,
+            WorkflowStageBehavior::Intake
+        );
+        assert_eq!(
+            plan_work_transition(
+                None,
+                WorkTransition::Delegate {
+                    has_complete_intent: false,
+                },
+            )
+            .unwrap()
+            .queue_run_kind,
+            Some(RunKind::Planner)
+        );
+        assert_eq!(
+            plan_work_transition(
+                None,
+                WorkTransition::Delegate {
+                    has_complete_intent: true,
+                },
+            )
+            .unwrap()
+            .queue_run_kind,
+            Some(RunKind::Executor)
+        );
+        let answer = plan_work_transition(
+            Some(WorkflowStageBehavior::HumanGate),
+            WorkTransition::Answer {
+                resume_run_kind: RunKind::Reviewer,
+            },
+        )
+        .unwrap();
+        assert_eq!(answer.resume_run_kind, Some(RunKind::Reviewer));
+        assert_eq!(answer.queue_run_kind, Some(RunKind::Reviewer));
+        let retry = plan_work_transition(
+            Some(WorkflowStageBehavior::HumanGate),
+            WorkTransition::Retry {
+                resume_run_kind: RunKind::Executor,
+            },
+        )
+        .unwrap();
+        assert_eq!(retry.queue_run_kind, Some(RunKind::Executor));
     }
 
     #[test]
-    fn submission_planner_requires_active_matching_executor_lineage() {
-        let expected = vec!["criterion:1".to_string()];
-        assert_eq!(
-            plan_submission(submission(), &expected, submission_state())
-                .expect("active executor submission")
-                .submission
-                .summary,
-            "Done"
-        );
-        for invalid in [
-            SubmissionState {
-                task_status: TaskStatus::Reviewing,
-                ..submission_state()
-            },
-            SubmissionState {
-                run_kind: RunKind::Reviewer,
-                ..submission_state()
-            },
-            SubmissionState {
-                run_status: RunStatus::Completed,
-                ..submission_state()
-            },
-            SubmissionState {
-                run_revision_index: 1,
-                ..submission_state()
-            },
-            SubmissionState {
-                latest_run_id: Some("run:other".to_string()),
-                ..submission_state()
-            },
-        ] {
-            assert!(plan_submission(submission(), &expected, invalid).is_err());
-        }
-    }
-
-    #[test]
-    fn review_planner_preserves_completion_revision_and_bounds_changes() {
-        assert_eq!(
-            plan_review(
-                1,
-                3,
-                TaskReviewVerdict::Approve,
-                &[criterion(CriterionOutcome::Pass)]
+    fn transition_matrix_covers_inbox_review_terminal_and_invalid_actions() {
+        assert!(
+            plan_work_transition(
+                Some(WorkflowStageBehavior::Intake),
+                WorkTransition::UpdateInbox
             )
-            .expect("approval"),
-            ReviewPlan {
-                task_status: TaskStatus::Completed,
-                revision_index: 1,
-                queue_executor: false,
-            }
+            .is_ok()
         );
         assert!(
-            plan_review(
-                1,
-                3,
-                TaskReviewVerdict::NeedsHuman,
-                &[criterion(CriterionOutcome::Pass)]
-            )
-            .is_err()
+            plan_work_transition(Some(WorkflowStageBehavior::Intake), WorkTransition::Queue)
+                .is_ok()
         );
+        let accept = plan_work_transition(
+            Some(WorkflowStageBehavior::Acceptance),
+            WorkTransition::Accept,
+        )
+        .unwrap();
+        assert_eq!(accept.to_behavior, WorkflowStageBehavior::TerminalSuccess);
+        let changes = plan_work_transition(
+            Some(WorkflowStageBehavior::Acceptance),
+            WorkTransition::RequestChanges,
+        )
+        .unwrap();
+        assert!(changes.generation_increment);
+        let cancel =
+            plan_work_transition(Some(WorkflowStageBehavior::Active), WorkTransition::Cancel)
+                .unwrap();
+        assert!(cancel.generation_increment);
+        let reopen = plan_work_transition(
+            Some(WorkflowStageBehavior::TerminalCancelled),
+            WorkTransition::Reopen,
+        )
+        .unwrap();
+        assert_eq!(reopen.to_behavior, WorkflowStageBehavior::Intake);
         assert!(
-            plan_review(
-                1,
-                3,
-                TaskReviewVerdict::RequestChanges,
-                &[criterion(CriterionOutcome::Uncertain)]
+            plan_work_transition(
+                Some(WorkflowStageBehavior::TerminalSuccess),
+                WorkTransition::Queue
             )
-            .is_err()
-        );
-        assert_eq!(
-            plan_review(
-                1,
-                3,
-                TaskReviewVerdict::RequestChanges,
-                &[criterion(CriterionOutcome::Fail)]
-            )
-            .expect("changes"),
-            ReviewPlan {
-                task_status: TaskStatus::RevisionRequested,
-                revision_index: 2,
-                queue_executor: true,
-            }
-        );
-        assert_eq!(
-            plan_review(
-                2,
-                3,
-                TaskReviewVerdict::RequestChanges,
-                &[criterion(CriterionOutcome::Fail)]
-            )
-            .expect("exhausted changes"),
-            ReviewPlan {
-                task_status: TaskStatus::WaitingForHuman,
-                revision_index: 2,
-                queue_executor: false,
-            }
-        );
-    }
-
-    #[test]
-    fn continuation_planner_supports_reviewer_and_committed_review_lineage() {
-        let reviewer = plan_manual_continuation(ManualContinuationInput {
-            task_status: TaskStatus::WaitingForHuman,
-            task_revision_index: 1,
-            parent_run_kind: RunKind::Reviewer,
-            parent_run_status: RunStatus::WaitingForApproval,
-            parent_attempt_index: 2,
-            parent_revision_index: 1,
-            committed_review: false,
-            message: Some("continue review".to_string()),
-        })
-        .expect("reviewer continuation");
-        assert_eq!(reviewer.run_kind, RunKind::Reviewer);
-        assert_eq!(reviewer.task_status, TaskStatus::Reviewing);
-        assert_eq!(reviewer.attempt_index, 3);
-
-        let executor = plan_manual_continuation(ManualContinuationInput {
-            committed_review: true,
-            ..ManualContinuationInput {
-                task_status: TaskStatus::Failed,
-                task_revision_index: 1,
-                parent_run_kind: RunKind::Reviewer,
-                parent_run_status: RunStatus::Completed,
-                parent_attempt_index: 1,
-                parent_revision_index: 1,
-                committed_review: false,
-                message: None,
-            }
-        })
-        .expect("post-review continuation");
-        assert_eq!(executor.run_kind, RunKind::Executor);
-        assert_eq!(executor.revision_index, 2);
-        assert_eq!(executor.attempt_index, 0);
-        assert!(
-            plan_manual_continuation(ManualContinuationInput {
-                parent_attempt_index: -1,
-                ..ManualContinuationInput {
-                    task_status: TaskStatus::Failed,
-                    task_revision_index: 1,
-                    parent_run_kind: RunKind::Executor,
-                    parent_run_status: RunStatus::Failed,
-                    parent_attempt_index: 0,
-                    parent_revision_index: 1,
-                    committed_review: false,
-                    message: None,
-                }
-            })
-            .is_err()
-        );
-        assert!(
-            plan_manual_continuation(ManualContinuationInput {
-                committed_review: true,
-                ..ManualContinuationInput {
-                    task_status: TaskStatus::Failed,
-                    task_revision_index: 1,
-                    parent_run_kind: RunKind::Executor,
-                    parent_run_status: RunStatus::Failed,
-                    parent_attempt_index: 0,
-                    parent_revision_index: 1,
-                    committed_review: false,
-                    message: None,
-                }
-            })
             .is_err()
         );
     }
 
     #[test]
-    fn recovery_planner_retries_reviewers_and_exhausts_after_three() {
+    fn reconciliation_covers_handoffs_reviews_failures_and_terminal_fencing() {
         assert_eq!(
-            plan_automatic_recovery(AutomaticRecoveryInput {
-                is_latest: true,
-                cancellation_requested: false,
-                task_status: TaskStatus::Reviewing,
-                run_kind: RunKind::Reviewer,
-                attempt_index: 2,
-                retry_count: 2,
+            plan_reconciliation_action(WorkReconciliationSnapshot {
+                stage_behavior: WorkflowStageBehavior::Dispatch,
+                has_current_contract: true,
+                ..Default::default()
             })
-            .expect("recovery"),
-            AutomaticRecoveryPlan::QueueChild {
-                attempt_index: 3,
-                retry_count: 3,
-                task_status: TaskStatus::Reviewing,
+            .unwrap(),
+            WorkReconciliationAction::QueueRun {
+                run_kind: RunKind::Executor
             }
         );
         assert_eq!(
-            plan_automatic_recovery(AutomaticRecoveryInput {
-                is_latest: true,
-                cancellation_requested: false,
-                task_status: TaskStatus::Reviewing,
-                run_kind: RunKind::Reviewer,
-                attempt_index: 3,
-                retry_count: 3,
+            plan_reconciliation_action(WorkReconciliationSnapshot {
+                stage_behavior: WorkflowStageBehavior::Dispatch,
+                resolved_gate_resume_run_kind: Some(RunKind::Reviewer),
+                has_current_contract: true,
+                ..Default::default()
             })
-            .expect("exhausted"),
-            AutomaticRecoveryPlan::FailTask
+            .unwrap(),
+            WorkReconciliationAction::QueueRun {
+                run_kind: RunKind::Reviewer
+            }
         );
         assert_eq!(
-            plan_automatic_recovery(AutomaticRecoveryInput {
-                is_latest: false,
-                cancellation_requested: false,
-                task_status: TaskStatus::Executing,
-                run_kind: RunKind::Executor,
-                attempt_index: 1,
-                retry_count: 1,
+            plan_reconciliation_action(WorkReconciliationSnapshot {
+                stage_behavior: WorkflowStageBehavior::Active,
+                approved_review: true,
+                ..Default::default()
             })
-            .expect("stale recovery"),
-            AutomaticRecoveryPlan::NoAction
+            .unwrap(),
+            WorkReconciliationAction::MoveToReview
         );
-        assert!(
-            plan_automatic_recovery(AutomaticRecoveryInput {
-                is_latest: true,
-                cancellation_requested: false,
-                task_status: TaskStatus::Executing,
-                run_kind: RunKind::Executor,
-                attempt_index: i64::MAX,
-                retry_count: 0,
+        assert_eq!(
+            plan_reconciliation_action(WorkReconciliationSnapshot {
+                stage_behavior: WorkflowStageBehavior::Active,
+                planner_plan_ready: true,
+                ..Default::default()
             })
-            .is_err()
+            .unwrap(),
+            WorkReconciliationAction::MaterializePlannedContractAndQueueExecutor
+        );
+        assert_eq!(
+            plan_reconciliation_action(WorkReconciliationSnapshot {
+                stage_behavior: WorkflowStageBehavior::Active,
+                has_current_contract: true,
+                submission_waiting_for_review: true,
+                ..Default::default()
+            })
+            .unwrap(),
+            WorkReconciliationAction::QueueRun {
+                run_kind: RunKind::Reviewer
+            }
+        );
+        assert_eq!(
+            plan_reconciliation_action(WorkReconciliationSnapshot {
+                stage_behavior: WorkflowStageBehavior::Active,
+                failed_run: Some(WorkFailedRunFacts {
+                    run_kind: RunKind::Executor,
+                    status: RunStatus::Interrupted,
+                    retryable: true,
+                    retries_exhausted: false,
+                    recovery_reason: None,
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+            WorkReconciliationAction::QueueRun {
+                run_kind: RunKind::Executor
+            }
+        );
+        assert_eq!(
+            plan_reconciliation_action(WorkReconciliationSnapshot {
+                stage_behavior: WorkflowStageBehavior::Active,
+                failed_run: Some(WorkFailedRunFacts {
+                    run_kind: RunKind::Reviewer,
+                    status: RunStatus::Failed,
+                    retryable: false,
+                    retries_exhausted: false,
+                    recovery_reason: Some(TaskRecoveryReason::ConfigurationUnavailable),
+                }),
+                has_current_contract: true,
+                ..Default::default()
+            })
+            .unwrap(),
+            WorkReconciliationAction::OpenRecoveryGate {
+                reason: TaskRecoveryReason::ConfigurationUnavailable,
+                retry_run_kind: Some(RunKind::Reviewer)
+            }
+        );
+        assert_eq!(
+            plan_reconciliation_action(WorkReconciliationSnapshot {
+                stage_behavior: WorkflowStageBehavior::TerminalCancelled,
+                has_runnable_run: true,
+                ..Default::default()
+            })
+            .unwrap(),
+            WorkReconciliationAction::FenceStaleRuns
         );
     }
 }
+
+#[cfg(test)]
+mod matrix_tests;

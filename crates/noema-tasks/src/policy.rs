@@ -1,35 +1,45 @@
 use serde::{Deserialize, Serialize};
 
-use crate::TaskDomainError;
+use crate::{WorkDomainError, error::invalid_input};
 
-/// Default maximum number of reviewed executor submissions for one task.
-pub const DEFAULT_TASK_MAX_REVIEW_ROUNDS: i64 = 3;
-/// Default provider continuation safety ceiling for every task run.
-pub const DEFAULT_TASK_MAX_PROVIDER_CONTINUATIONS: i64 = 80;
-/// Default tool-call safety ceiling for every task run.
-pub const DEFAULT_TASK_MAX_TOOL_CALLS: i64 = 400;
-/// Default active execution safety ceiling, in minutes, for every task run.
-pub const DEFAULT_TASK_MAX_ACTIVE_MINUTES: i64 = 120;
-/// Default interval between task progress audits, measured in continuations.
-pub const DEFAULT_TASK_PROGRESS_AUDIT_INTERVAL: i64 = 20;
-/// Hard upper bound for the configurable provider continuation ceiling.
-pub const MAX_TASK_PROVIDER_CONTINUATIONS: i64 = 1_000;
-/// Hard upper bound for the configurable tool-call ceiling.
-pub const MAX_TASK_TOOL_CALLS: i64 = 10_000;
-/// Hard upper bound for active execution time (seven days).
-pub const MAX_TASK_ACTIVE_MINUTES: i64 = 10_080;
+/// Default provider continuation bound.
+pub const DEFAULT_TASK_MAX_PROVIDER_CONTINUATIONS: u32 = 80;
+/// Default tool-call bound.
+pub const DEFAULT_TASK_MAX_TOOL_CALLS: u32 = 400;
+/// Default active execution bound in minutes.
+pub const DEFAULT_TASK_MAX_ACTIVE_MINUTES: u32 = 120;
+/// Default progress-audit interval in provider continuations.
+pub const DEFAULT_TASK_PROGRESS_AUDIT_INTERVAL: u32 = 20;
+/// Default automatic infrastructure retry bound.
+pub const DEFAULT_TASK_MAX_AUTOMATIC_RETRIES: u32 = 3;
+/// Default reviewed submission/revision bound.
+pub const DEFAULT_TASK_MAX_REVIEW_ROUNDS: u32 = 3;
+/// Hard provider continuation ceiling.
+pub const MAX_TASK_PROVIDER_CONTINUATIONS: u32 = 1_000;
+/// Hard tool-call ceiling.
+pub const MAX_TASK_TOOL_CALLS: u32 = 10_000;
+/// Hard active execution ceiling in minutes.
+pub const MAX_TASK_ACTIVE_MINUTES: u32 = 10_080;
+/// Hard automatic retry ceiling.
+pub const MAX_TASK_AUTOMATIC_RETRIES: u32 = 20;
+/// Hard review-round ceiling.
+pub const MAX_TASK_REVIEW_ROUNDS: u32 = 20;
 
-/// Provider-independent execution safety policy shared by every task model tier.
+/// Immutable provider-independent execution policy snapshot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskExecutionPolicy {
     /// Maximum provider continuations before terminal-only finalization.
-    pub max_provider_continuations: i64,
+    pub max_provider_continuations: u32,
     /// Maximum tool calls before terminal-only finalization.
-    pub max_tool_calls: i64,
+    pub max_tool_calls: u32,
     /// Maximum active execution time, excluding queue time.
-    pub max_active_minutes: i64,
+    pub max_active_minutes: u32,
     /// Continuation interval between progress audits.
-    pub progress_audit_interval: i64,
+    pub progress_audit_interval: u32,
+    /// Maximum automatic infrastructure retries.
+    pub max_automatic_retries: u32,
+    /// Maximum reviewed executor rounds before Recovery.
+    pub max_review_rounds: u32,
 }
 
 impl Default for TaskExecutionPolicy {
@@ -39,41 +49,50 @@ impl Default for TaskExecutionPolicy {
             max_tool_calls: DEFAULT_TASK_MAX_TOOL_CALLS,
             max_active_minutes: DEFAULT_TASK_MAX_ACTIVE_MINUTES,
             progress_audit_interval: DEFAULT_TASK_PROGRESS_AUDIT_INTERVAL,
+            max_automatic_retries: DEFAULT_TASK_MAX_AUTOMATIC_RETRIES,
+            max_review_rounds: DEFAULT_TASK_MAX_REVIEW_ROUNDS,
         }
     }
 }
 
 impl TaskExecutionPolicy {
-    /// Validate values before persisting a policy or run snapshot.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`TaskDomainError::InvalidExecutionPolicy`] for invalid bounds.
-    pub fn validated(self) -> Result<Self, TaskDomainError> {
+    /// Validate all persisted safety bounds.
+    pub fn validated(self) -> Result<Self, WorkDomainError> {
         if !(1..=MAX_TASK_PROVIDER_CONTINUATIONS).contains(&self.max_provider_continuations) {
-            return Err(TaskDomainError::InvalidExecutionPolicy {
-                message: format!(
-                    "maximum provider continuations must be between 1 and {MAX_TASK_PROVIDER_CONTINUATIONS}"
-                ),
-            });
+            return Err(invalid_input(
+                "execution_policy.max_provider_continuations",
+                "out of bounds",
+            ));
         }
         if !(1..=MAX_TASK_TOOL_CALLS).contains(&self.max_tool_calls) {
-            return Err(TaskDomainError::InvalidExecutionPolicy {
-                message: format!("maximum tool calls must be between 1 and {MAX_TASK_TOOL_CALLS}"),
-            });
+            return Err(invalid_input(
+                "execution_policy.max_tool_calls",
+                "out of bounds",
+            ));
         }
         if !(1..=MAX_TASK_ACTIVE_MINUTES).contains(&self.max_active_minutes) {
-            return Err(TaskDomainError::InvalidExecutionPolicy {
-                message: format!(
-                    "maximum active minutes must be between 1 and {MAX_TASK_ACTIVE_MINUTES}"
-                ),
-            });
+            return Err(invalid_input(
+                "execution_policy.max_active_minutes",
+                "out of bounds",
+            ));
         }
         if !(1..=self.max_provider_continuations).contains(&self.progress_audit_interval) {
-            return Err(TaskDomainError::InvalidExecutionPolicy {
-                message: "progress audit interval must be positive and no larger than the continuation limit"
-                    .to_string(),
-            });
+            return Err(invalid_input(
+                "execution_policy.progress_audit_interval",
+                "must be positive and no larger than provider continuations",
+            ));
+        }
+        if self.max_automatic_retries > MAX_TASK_AUTOMATIC_RETRIES {
+            return Err(invalid_input(
+                "execution_policy.max_automatic_retries",
+                "out of bounds",
+            ));
+        }
+        if !(1..=MAX_TASK_REVIEW_ROUNDS).contains(&self.max_review_rounds) {
+            return Err(invalid_input(
+                "execution_policy.max_review_rounds",
+                "out of bounds",
+            ));
         }
         Ok(self)
     }
@@ -84,59 +103,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn execution_policy_enforces_every_bound_and_audit_relationship() {
-        for valid in [
+    fn policy_validates_retry_and_review_bounds_in_addition_to_runtime_limits() {
+        assert!(TaskExecutionPolicy::default().validated().is_ok());
+        assert!(
             TaskExecutionPolicy {
-                max_provider_continuations: 1,
-                max_tool_calls: 1,
-                max_active_minutes: 1,
-                progress_audit_interval: 1,
-            },
+                max_review_rounds: 0,
+                ..Default::default()
+            }
+            .validated()
+            .is_err()
+        );
+        assert!(
             TaskExecutionPolicy {
-                max_provider_continuations: MAX_TASK_PROVIDER_CONTINUATIONS,
-                max_tool_calls: MAX_TASK_TOOL_CALLS,
-                max_active_minutes: MAX_TASK_ACTIVE_MINUTES,
-                progress_audit_interval: MAX_TASK_PROVIDER_CONTINUATIONS,
-            },
-            TaskExecutionPolicy::default(),
-        ] {
-            assert!(valid.validated().is_ok());
-        }
-        for invalid in [
-            TaskExecutionPolicy {
-                max_provider_continuations: 0,
-                ..TaskExecutionPolicy::default()
-            },
-            TaskExecutionPolicy {
-                max_provider_continuations: MAX_TASK_PROVIDER_CONTINUATIONS + 1,
-                ..TaskExecutionPolicy::default()
-            },
-            TaskExecutionPolicy {
-                max_tool_calls: 0,
-                ..TaskExecutionPolicy::default()
-            },
-            TaskExecutionPolicy {
-                max_tool_calls: MAX_TASK_TOOL_CALLS + 1,
-                ..TaskExecutionPolicy::default()
-            },
-            TaskExecutionPolicy {
-                max_active_minutes: 0,
-                ..TaskExecutionPolicy::default()
-            },
-            TaskExecutionPolicy {
-                max_active_minutes: MAX_TASK_ACTIVE_MINUTES + 1,
-                ..TaskExecutionPolicy::default()
-            },
+                max_automatic_retries: MAX_TASK_AUTOMATIC_RETRIES + 1,
+                ..Default::default()
+            }
+            .validated()
+            .is_err()
+        );
+        assert!(
             TaskExecutionPolicy {
                 progress_audit_interval: 0,
-                ..TaskExecutionPolicy::default()
-            },
-            TaskExecutionPolicy {
-                progress_audit_interval: DEFAULT_TASK_MAX_PROVIDER_CONTINUATIONS + 1,
-                ..TaskExecutionPolicy::default()
-            },
-        ] {
-            assert!(invalid.validated().is_err());
-        }
+                ..Default::default()
+            }
+            .validated()
+            .is_err()
+        );
     }
 }

@@ -2945,6 +2945,16 @@ version = "0.1.0"
 dependencies = [
  "noema-artifacts",
  "noema-providers",
+ "noema-workspaces",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "noema-workspaces"
+version = "0.1.0"
+dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
