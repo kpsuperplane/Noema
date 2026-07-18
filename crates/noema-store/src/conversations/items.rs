@@ -379,6 +379,17 @@ where
         .map_err(StoreError::Sqlite)
 }
 
+pub(crate) fn load_conversation_item_tx(
+    transaction: &rusqlite::Transaction<'_>,
+    item_id: &str,
+) -> Result<Option<ConversationItemRecord>, StoreError> {
+    collect_conversation_item_rows(transaction, "WHERE item_id = ?1 LIMIT 1", params![item_id])?
+        .into_iter()
+        .next()
+        .map(conversation_item_from_row)
+        .transpose()
+}
+
 #[derive(Debug)]
 struct ConversationItemRow {
     item_id: String,

@@ -1,6 +1,6 @@
 use std::fs;
 
-use rusqlite::Connection;
+use rusqlite::{Connection, params};
 use tempfile::TempDir;
 
 use super::{schema_support::*, support::store_config};
@@ -9,6 +9,200 @@ use crate::{
     runtime::{bootstrap_schema_for_test, inspect_empty_schema_for_test},
     schema::{STORE_SCHEMA_MARKER, STORE_SCHEMA_SQL, STORE_SCHEMA_VERSION},
 };
+
+#[tokio::test]
+async fn work_v3_bootstrap_is_exact_idempotent_and_enforces_foreign_keys() {
+    let home = TempDir::new().expect("temp store root");
+    let config = store_config(home.path());
+    let store = NoemaStore::open(&config).await.expect("bootstrap V3 store");
+
+    store
+        .with_connection(|conn| {
+            assert_eq!(conn.query_row("PRAGMA foreign_keys", [], |row| row.get::<_, i64>(0))?, 1);
+            assert_eq!(count_where(conn, "humans", "human_id = 'human:local'")?, 1);
+            assert_eq!(count_where(conn, "workspaces", "workspace_id = 'workspace:personal' AND name = 'Personal' AND description = '' AND is_personal = 1 AND archived_at IS NULL AND revision = 1")?, 1);
+            assert_eq!(count_where(conn, "workspace_memberships", "workspace_id = 'workspace:personal' AND human_id = 'human:local' AND role = 'owner'")?, 1);
+            assert_eq!(count_where(conn, "workflow_definitions", "workflow_id = 'workflow:personal:default' AND workspace_id = 'workspace:personal' AND name = 'Personal workflow' AND is_default = 1 AND revision = 1")?, 1);
+            assert_eq!(count_where(conn, "projects", "1 = 1")?, 0);
+
+            let mut statement = conn.prepare(
+                "SELECT stage_id, stable_key, display_name, ordinal, system_behavior, board_visible FROM workflow_stages WHERE workflow_id = 'workflow:personal:default' ORDER BY ordinal",
+            )?;
+            let stages = statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, i64>(5)?,
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            assert_eq!(
+                stages,
+                vec![
+                    stage("inbox", "Inbox", 10, "intake", 1),
+                    stage("queue", "Queue", 20, "dispatch", 1),
+                    stage("doing", "Doing", 30, "active", 1),
+                    stage("waiting", "Waiting", 40, "human_gate", 1),
+                    stage("review", "Review", 50, "acceptance", 1),
+                    stage("completed", "Completed", 60, "terminal_success", 0),
+                    stage("cancelled", "Cancelled", 70, "terminal_cancelled", 0),
+                ]
+            );
+
+            let policy = conn.query_row(
+                "SELECT max_provider_continuations, max_tool_calls, max_active_minutes, progress_audit_interval, max_automatic_retries, max_review_rounds FROM task_execution_policy WHERE policy_id = 'default'",
+                [],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?, row.get::<_, i64>(3)?, row.get::<_, i64>(4)?, row.get::<_, i64>(5)?)),
+            )?;
+            assert_eq!(policy, (80, 400, 120, 20, 3, 3));
+            assert_eq!(count_where(conn, "schema_state", "name = 'sqlite_store_v3' AND version = 3")?, 1);
+            Ok(())
+        })
+        .await
+        .expect("inspect V3 bootstrap");
+
+    drop(store);
+    let reopened = NoemaStore::open(&config)
+        .await
+        .expect("second bootstrap/open is idempotent");
+    reopened
+        .with_connection(|conn| {
+            assert_eq!(count_where(conn, "workspaces", "is_personal = 1")?, 1);
+            assert_eq!(
+                count_where(
+                    conn,
+                    "workspace_memberships",
+                    "workspace_id = 'workspace:personal'"
+                )?,
+                1
+            );
+            assert_eq!(
+                count_where(
+                    conn,
+                    "workflow_stages",
+                    "workflow_id = 'workflow:personal:default'"
+                )?,
+                7
+            );
+            assert_eq!(
+                count_where(conn, "task_execution_policy", "policy_id = 'default'")?,
+                1
+            );
+            Ok(())
+        })
+        .await
+        .expect("inspect idempotent reopen");
+}
+
+#[tokio::test]
+async fn work_v3_schema_enforces_projection_history_and_ledger_invariants() {
+    let home = TempDir::new().expect("temp store root");
+    let store = NoemaStore::open(&store_config(home.path()))
+        .await
+        .expect("bootstrap V3 store");
+
+    store
+        .with_connection(|conn| {
+            for table in [
+                "workspaces", "workspace_memberships", "projects", "workflow_definitions",
+                "workflow_stages", "tasks", "task_execution_contracts",
+                "task_contract_criteria", "task_gates", "task_messages", "agent_runs",
+                "task_submissions", "task_reviews", "work_events",
+                "work_notification_outbox", "work_command_receipts",
+            ] {
+                assert!(schema_object_exists(conn, "table", table)?, "missing table {table}");
+            }
+            for index in [
+                "task_gates_one_open_per_task", "agent_runs_one_runnable_per_task",
+                "agent_runs_fifo_claim", "work_events_workspace_cursor",
+                "work_notification_outbox_claim",
+            ] {
+                assert!(schema_object_exists(conn, "index", index)?, "missing index {index}");
+            }
+            assert!(!schema_object_exists(conn, "table", "task_events")?);
+            assert!(!schema_object_exists(conn, "table", "run_events")?);
+            assert!(!table_columns(conn, "tasks")?.iter().any(|column| column == "status"));
+            let run_columns = table_columns(conn, "agent_runs")?;
+            assert!(!run_columns.iter().any(|column| column == "priority"));
+            assert!(!run_columns.iter().any(|column| column == "resume_message"));
+
+            conn.execute_batch(
+                r#"
+                INSERT INTO workspaces (workspace_id, name) VALUES ('workspace:other', 'Other');
+                INSERT INTO projects (project_id, workspace_id, name)
+                VALUES ('project:other', 'workspace:other', 'Other project');
+                INSERT INTO workflow_definitions (workflow_id, workspace_id, name)
+                VALUES ('workflow:other', 'workspace:personal', 'Other workflow');
+                "#,
+            )?;
+            assert!(conn.execute(
+                "INSERT INTO tasks (task_id, workspace_id, project_id, workflow_id, stage_id, title, source_kind, created_by_actor_id) VALUES ('task:cross-project', 'workspace:personal', 'project:other', 'workflow:personal:default', 'stage:personal:inbox', 'Bad project', 'system', 'actor:system')",
+                [],
+            ).is_err());
+            assert!(conn.execute(
+                "INSERT INTO tasks (task_id, workspace_id, workflow_id, stage_id, title, source_kind, created_by_actor_id) VALUES ('task:cross-stage', 'workspace:personal', 'workflow:other', 'stage:personal:inbox', 'Bad stage', 'system', 'actor:system')",
+                [],
+            ).is_err());
+
+            conn.execute(
+                "INSERT INTO tasks (task_id, workspace_id, workflow_id, stage_id, title, source_kind, created_by_actor_id) VALUES ('task:valid', 'workspace:personal', 'workflow:personal:default', 'stage:personal:queue', 'Valid task', 'system', 'actor:system')",
+                [],
+            )?;
+            conn.execute(
+                "INSERT INTO task_gates (gate_id, task_id, task_generation, gate_kind, gate_state, prompt_markdown, opened_by_actor_id) VALUES ('gate:one', 'task:valid', 1, 'clarification', 'open', 'Question?', 'actor:system')",
+                [],
+            )?;
+            assert!(conn.execute(
+                "INSERT INTO task_gates (gate_id, task_id, task_generation, gate_kind, gate_state, prompt_markdown, opened_by_actor_id) VALUES ('gate:two', 'task:valid', 1, 'approval', 'open', 'Approve?', 'actor:system')",
+                [],
+            ).is_err());
+
+            insert_planner_run(conn, "run:one")?;
+            assert!(insert_planner_run(conn, "run:two").is_err());
+            conn.execute("UPDATE agent_runs SET status = 'completed' WHERE run_id = 'run:one'", [])?;
+            insert_planner_run(conn, "run:two")?;
+
+            insert_delegated_contract(conn)?;
+            conn.execute(
+                "INSERT INTO task_contract_criteria (criterion_id, contract_id, ordinal, description) VALUES ('criterion:one', 'contract:one', 1, 'First')",
+                [],
+            )?;
+            assert!(conn.execute(
+                "INSERT INTO task_contract_criteria (criterion_id, contract_id, ordinal, description) VALUES ('criterion:two', 'contract:one', 1, 'Second')",
+                [],
+            ).is_err());
+
+            for event_id in ["event:one", "event:two"] {
+                conn.execute(
+                    "INSERT INTO work_events (event_id, event_kind, workspace_id, actor_id, correlation_id) VALUES (?1, 'project.created', 'workspace:personal', 'actor:system', 'correlation:test')",
+                    [event_id],
+                )?;
+            }
+            let removed_sequence = conn.query_row(
+                "SELECT event_sequence FROM work_events WHERE event_id = 'event:two'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )?;
+            conn.execute("DELETE FROM work_events WHERE event_id = 'event:two'", [])?;
+            conn.execute(
+                "INSERT INTO work_events (event_id, event_kind, workspace_id, actor_id, correlation_id) VALUES ('event:three', 'project.created', 'workspace:personal', 'actor:system', 'correlation:test')",
+                [],
+            )?;
+            let next_sequence = conn.query_row(
+                "SELECT event_sequence FROM work_events WHERE event_id = 'event:three'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )?;
+            assert!(next_sequence > removed_sequence, "AUTOINCREMENT must not recycle cursors");
+            Ok(())
+        })
+        .await
+        .expect("validate V3 integrity");
+}
 
 #[tokio::test]
 async fn bootstrap_rejection_and_explicit_recovery_schema_contracts() {
@@ -27,8 +221,8 @@ async fn bootstrap_rejection_and_explicit_recovery_schema_contracts() {
                 ("default_model_preference", "provider_instance_key"),
                 ("memory_service_settings", "provider_instance_key"),
                 ("task_model_pool_entries", "provider_instance_key"),
-                ("tasks", "executor_provider_instance_key"),
-                ("tasks", "reviewer_provider_instance_key"),
+                ("task_execution_contracts", "executor_provider_instance_key"),
+                ("task_execution_contracts", "reviewer_provider_instance_key"),
                 ("agent_runs", "provider_instance_key"),
             ] {
                 let mut statement = conn.prepare(&format!("PRAGMA table_info({table})"))?;
@@ -98,14 +292,14 @@ async fn bootstrap_rejection_and_explicit_recovery_schema_contracts() {
     #[derive(Clone, Copy, Debug)]
     enum Fixture {
         PreV1Runtime,
-        LegacyTasks,
+        LegacyWork,
         UnknownSchema,
         UnknownMarker,
     }
 
     for fixture in [
         Fixture::PreV1Runtime,
-        Fixture::LegacyTasks,
+        Fixture::LegacyWork,
         Fixture::UnknownSchema,
         Fixture::UnknownMarker,
     ] {
@@ -119,11 +313,11 @@ async fn bootstrap_rejection_and_explicit_recovery_schema_contracts() {
                     "DROP TABLE agent_run_items; CREATE TABLE agent_run_items (item_id TEXT PRIMARY KEY, content_text TEXT); INSERT INTO agent_run_items VALUES ('item:legacy', 'preserved');",
                 )
                 .expect("pre-v1 runtime fixture"),
-            Fixture::LegacyTasks => conn
+            Fixture::LegacyWork => conn
                 .execute_batch(
-                    "ALTER TABLE tasks DROP COLUMN blocked_question; ALTER TABLE tasks DROP COLUMN blocked_context;",
+                    "ALTER TABLE tasks DROP COLUMN source_item_id;",
                 )
-                .expect("legacy tasks fixture"),
+                .expect("legacy work fixture"),
             Fixture::UnknownSchema => conn
                 .execute_batch("CREATE TABLE unknown_owner_data (value TEXT NOT NULL);")
                 .expect("unknown schema fixture"),
@@ -141,7 +335,7 @@ async fn bootstrap_rejection_and_explicit_recovery_schema_contracts() {
             matches!(
                 (fixture, error),
                 (
-                    Fixture::PreV1Runtime | Fixture::LegacyTasks | Fixture::UnknownSchema,
+                    Fixture::PreV1Runtime | Fixture::LegacyWork | Fixture::UnknownSchema,
                     StoreError::IncompatibleSchema {
                         kind: SchemaIncompatibility::Shape { .. },
                         ..
@@ -188,7 +382,7 @@ async fn opening_partial_schema_is_rejected_without_mutation() {
     let config = store_config(home.path());
     create_current_database(&config.path);
     let conn = Connection::open(&config.path).expect("open partial fixture");
-    conn.execute_batch("DROP INDEX run_events_run_sequence;")
+    conn.execute_batch("DROP INDEX work_events_run_cursor;")
         .expect("remove one schema object");
     drop(conn);
 
@@ -449,4 +643,98 @@ async fn immutable_schema_inspection_handles_uri_reserved_path_characters() {
     NoemaStore::open(&config)
         .await
         .expect("inspect reserved-character path");
+}
+
+fn stage(
+    stable_key: &str,
+    display_name: &str,
+    ordinal: i64,
+    behavior: &str,
+    board_visible: i64,
+) -> (String, String, String, i64, String, i64) {
+    (
+        format!("stage:personal:{stable_key}"),
+        stable_key.to_string(),
+        display_name.to_string(),
+        ordinal,
+        behavior.to_string(),
+        board_visible,
+    )
+}
+
+fn count_where(conn: &Connection, table: &str, predicate: &str) -> rusqlite::Result<i64> {
+    conn.query_row(
+        &format!("SELECT COUNT(*) FROM {table} WHERE {predicate}"),
+        [],
+        |row| row.get(0),
+    )
+}
+
+fn schema_object_exists(
+    conn: &Connection,
+    object_type: &str,
+    name: &str,
+) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type = ?1 AND name = ?2)",
+        params![object_type, name],
+        |row| row.get(0),
+    )
+}
+
+fn table_columns(conn: &Connection, table: &str) -> rusqlite::Result<Vec<String>> {
+    let mut statement = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    statement
+        .query_map([], |row| row.get(1))?
+        .collect::<Result<Vec<_>, _>>()
+}
+
+fn insert_planner_run(conn: &Connection, run_id: &str) -> rusqlite::Result<usize> {
+    conn.execute(
+        r#"
+        INSERT INTO agent_runs (
+          run_id, task_id, task_generation, contract_id, run_kind, agent_id,
+          attempt_index, review_round, provider_kind, provider_account_id,
+          provider_instance_key, selection_mode, model_profile,
+          max_provider_continuations, max_tool_calls, max_active_minutes,
+          progress_audit_interval, max_automatic_retries, max_review_rounds, status
+        ) VALUES (
+          ?1, 'task:valid', 1, NULL, 'planner', 'agent:task-executor',
+          0, 0, 'codex', 'provider_account:codex:default',
+          'provider_account:codex:default', 'explicit_profile', 'gpt-5.6-luna',
+          80, 400, 120, 20, 3, 3, 'queued'
+        )
+        "#,
+        [run_id],
+    )
+}
+
+fn insert_delegated_contract(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        r#"
+        INSERT INTO task_execution_contracts (
+          contract_id, task_id, version, task_generation, origin,
+          request_markdown, complexity,
+          executor_provider_kind, executor_provider_account_id,
+          executor_provider_instance_key, executor_selection_mode,
+          executor_model_profile,
+          reviewer_provider_kind, reviewer_provider_account_id,
+          reviewer_provider_instance_key, reviewer_selection_mode,
+          reviewer_model_profile,
+          max_provider_continuations, max_tool_calls, max_active_minutes,
+          progress_audit_interval, max_automatic_retries, max_review_rounds,
+          workspace_id_snapshot, workspace_name_snapshot,
+          workspace_description_snapshot, created_by_actor_id
+        ) VALUES (
+          'contract:one', 'task:valid', 1, 1, 'delegated',
+          'Complete the task', 'simple',
+          'codex', 'provider_account:codex:default',
+          'provider_account:codex:default', 'explicit_profile', 'gpt-5.6-luna',
+          'codex', 'provider_account:codex:default',
+          'provider_account:codex:default', 'explicit_profile', 'gpt-5.6-luna',
+          80, 400, 120, 20, 3, 3,
+          'workspace:personal', 'Personal', '', 'actor:system'
+        );
+        "#,
+    )
 }

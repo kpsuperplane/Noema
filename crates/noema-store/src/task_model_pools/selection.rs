@@ -13,6 +13,11 @@ impl NoemaStore {
     /// Exact-route metadata edits and disabling are proof-free because they do
     /// not establish a future reference. Enabling or redirecting an entry
     /// requires [`Self::update_task_model_pool_entry_with_ready_selection`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the input is invalid, the requested entry or
+    /// provider route is unavailable, or SQLite fails.
     pub async fn update_task_model_pool_entry(
         &self,
         pool_entry_id: &str,
@@ -25,6 +30,11 @@ impl NoemaStore {
     /// Update a pool entry while retaining a registry readiness lease through
     /// commit. Enabling a disabled entry or redirecting an enabled entry must
     /// use this API.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the input is invalid, the entry is missing,
+    /// the readiness proof does not match the route, or SQLite fails.
     pub async fn update_task_model_pool_entry_with_ready_selection(
         &self,
         pool_entry_id: &str,
@@ -138,6 +148,11 @@ impl NoemaStore {
     }
 
     /// Select an enabled exact entry from the requested tier.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the entry is missing, disabled, belongs to a
+    /// different tier, has an unusable provider selection, or SQLite fails.
     pub async fn select_task_model_pool_entry(
         &self,
         complexity: TaskComplexity,

@@ -1,12 +1,6 @@
-//! Durable one-off task records and state transitions.
+//! Shared transaction-local provider selection readers for Work commands.
 
-#![allow(clippy::missing_errors_doc)]
-
-mod events;
-mod lifecycle;
+// Keep this namespace until the provider-selection reader is moved beside the
+// Work command writer.  The old task CRUD/event modules were V2-only and are
+// intentionally gone; Work commands use this one focused helper instead.
 pub(crate) mod provider_selection;
-mod reviews;
-mod submissions;
-
-#[cfg(test)]
-mod tests;

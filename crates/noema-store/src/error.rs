@@ -1,5 +1,7 @@
 use noema_artifacts::ArtifactDomainError;
 use noema_conversations::ConversationError;
+use noema_tasks::WorkDomainError;
+use noema_workspaces::WorkspaceInputError;
 use thiserror::Error;
 
 /// Machine-readable reason an existing SQLite schema was rejected.
@@ -41,6 +43,12 @@ pub enum StoreError {
     /// JSON encoding or decoding failed.
     #[error("store JSON encoding failed: {0}")]
     Json(#[from] serde_json::Error),
+    /// A semantic Work command, fence, or domain invariant was rejected.
+    #[error("{0}")]
+    Work(#[from] WorkDomainError),
+    /// A workspace/project identity or record input was rejected.
+    #[error("{0}")]
+    Workspace(#[from] WorkspaceInputError),
     /// Schema bootstrap returned an invalid result.
     #[error("store schema bootstrap failed: {0}")]
     Schema(String),

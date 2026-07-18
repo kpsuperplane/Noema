@@ -463,24 +463,41 @@ fn provider_account_is_referenced(
               SELECT 1 FROM task_model_pool_entries
               WHERE provider_account_id = ?1
               UNION ALL
-              SELECT 1 FROM tasks
-              WHERE executor_provider_account_id = ?1
-                AND status NOT IN ('completed', 'failed', 'cancelled')
+              SELECT 1
+              FROM task_execution_contracts AS contract
+              JOIN tasks AS task ON task.task_id = contract.task_id
+                                AND task.current_contract_id = contract.contract_id
+              JOIN workflow_stages AS stage
+                ON stage.workflow_id = task.workflow_id
+               AND stage.stage_id = task.stage_id
+              WHERE contract.executor_provider_account_id = ?1
+                AND stage.system_behavior NOT IN ('terminal_success', 'terminal_cancelled')
               UNION ALL
-              SELECT 1 FROM tasks
-              WHERE reviewer_provider_account_id = ?1
-                AND status NOT IN ('completed', 'failed', 'cancelled')
+              SELECT 1
+              FROM task_execution_contracts AS contract
+              JOIN tasks AS task ON task.task_id = contract.task_id
+                                AND task.current_contract_id = contract.contract_id
+              JOIN workflow_stages AS stage
+                ON stage.workflow_id = task.workflow_id
+               AND stage.stage_id = task.stage_id
+              WHERE contract.reviewer_provider_account_id = ?1
+                AND stage.system_behavior NOT IN ('terminal_success', 'terminal_cancelled')
               UNION ALL
               SELECT 1
               FROM agent_runs
               LEFT JOIN tasks ON tasks.task_id = agent_runs.task_id
+              LEFT JOIN workflow_stages AS stage
+                ON stage.workflow_id = tasks.workflow_id
+               AND stage.stage_id = tasks.stage_id
               WHERE agent_runs.provider_account_id = ?1
+                AND agent_runs.task_generation = tasks.generation
+                AND stage.system_behavior NOT IN ('terminal_success', 'terminal_cancelled')
                 AND (
                   agent_runs.status IN ('queued', 'leased', 'running', 'waiting_for_approval')
                   OR (
                     agent_runs.status = 'interrupted'
                     AND agent_runs.cancellation_requested = 0
-                    AND tasks.status NOT IN ('completed', 'failed', 'cancelled')
+                    AND tasks.generation = agent_runs.task_generation
                   )
                 )
             )

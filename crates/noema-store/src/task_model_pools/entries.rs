@@ -5,6 +5,10 @@ use super::{NoemaStore, StoreError, rows::pool_entry_from_row};
 
 impl NoemaStore {
     /// Return one pool entry by stable id.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when SQLite cannot read or decode the entry.
     pub async fn get_task_model_pool_entry(
         &self,
         pool_entry_id: &str,
@@ -29,6 +33,10 @@ impl NoemaStore {
     }
 
     /// List the three global task-executor settings.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when SQLite cannot read or decode the settings.
     pub async fn list_task_model_pool_settings(
         &self,
         complexity: Option<TaskComplexity>,
@@ -60,6 +68,11 @@ impl NoemaStore {
     }
 
     /// List enabled pool entries backed by an authenticated provider account.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when settings cannot be read or their provider
+    /// selections cannot be validated.
     pub async fn list_usable_task_model_pool_entries(
         &self,
     ) -> Result<Vec<TaskModelPoolEntry>, StoreError> {

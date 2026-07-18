@@ -1,13 +1,12 @@
 //! Transaction-local provider selection readers for durable task snapshots.
 
 use noema_providers::{ProviderInstanceKey, ProviderSelectionSnapshot, ReasoningEffort};
-use noema_tasks::{RunKind, TASK_REVIEWER_AGENT_ID, TaskComplexity};
+use noema_tasks::{TASK_REVIEWER_AGENT_ID, TaskComplexity};
 use rusqlite::{OptionalExtension, Transaction};
 
 use crate::{
     StoreError,
     provider_selections::{SelectionEligibility, validate_provider_selection_tx},
-    sqlite::{parse_column, reasoning_column},
 };
 
 /// Load and validate the exact enabled pool selection inside its writer transaction.
@@ -102,68 +101,6 @@ pub(crate) fn reviewer_preference_tx(
     validate_provider_selection_tx(transaction, &selection, SelectionEligibility::Canonical)
 }
 
-/// Load one immutable task role selection and validate its future reference.
-pub(crate) fn task_role_selection_tx(
-    transaction: &Transaction<'_>,
-    task_id: &str,
-    run_kind: RunKind,
-    eligibility: SelectionEligibility,
-) -> Result<ProviderSelectionSnapshot, StoreError> {
-    let sql = match run_kind {
-        RunKind::Executor => {
-            r#"
-            SELECT executor_provider_kind, executor_provider_account_id,
-                   executor_provider_instance_key, executor_selection_mode,
-                   executor_model_profile, executor_reasoning_effort,
-                   executor_selection_source
-            FROM tasks WHERE task_id = ?1 LIMIT 1
-            "#
-        }
-        RunKind::Reviewer => {
-            r#"
-            SELECT reviewer_provider_kind, reviewer_provider_account_id,
-                   reviewer_provider_instance_key, reviewer_selection_mode,
-                   reviewer_model_profile, reviewer_reasoning_effort,
-                   reviewer_selection_source
-            FROM tasks WHERE task_id = ?1 LIMIT 1
-            "#
-        }
-    };
-    let selection = transaction
-        .query_row(sql, [task_id], selection_from_row)
-        .optional()?
-        .ok_or_else(|| StoreError::InvariantViolation {
-            message: format!("task not found: {task_id}"),
-        })?;
-    validate_provider_selection_tx(transaction, &selection, eligibility)
-}
-
-/// Load one immutable run selection and validate a deliberately preserved reference.
-pub(crate) fn preserved_run_selection_tx(
-    transaction: &Transaction<'_>,
-    run_id: &str,
-) -> Result<ProviderSelectionSnapshot, StoreError> {
-    let selection = transaction
-        .query_row(
-            r#"
-            SELECT provider_kind, provider_account_id, provider_instance_key,
-                   selection_mode, model_profile, reasoning_effort, selection_source
-            FROM agent_runs WHERE run_id = ?1 LIMIT 1
-            "#,
-            [run_id],
-            selection_from_row,
-        )
-        .optional()?
-        .ok_or_else(|| StoreError::InvariantViolation {
-            message: format!("agent run not found: {run_id}"),
-        })?;
-    validate_provider_selection_tx(
-        transaction,
-        &selection,
-        SelectionEligibility::PreservedFutureReference,
-    )
-}
-
 fn explicit_selection(
     provider_kind: String,
     provider_account_id: String,
@@ -188,21 +125,6 @@ fn explicit_selection(
     );
     selection.provider_instance_key = Some(provider_instance_key);
     Ok(selection)
-}
-
-fn selection_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProviderSelectionSnapshot> {
-    let key = parse_column(row, 2)?;
-    let selection_mode = parse_column(row, 3)?;
-    let reasoning_effort = reasoning_column(row, 5)?;
-    Ok(ProviderSelectionSnapshot {
-        provider_kind: row.get(0)?,
-        provider_account_id: row.get(1)?,
-        provider_instance_key: Some(key),
-        selection_mode,
-        model_profile: row.get(4)?,
-        reasoning_effort,
-        selection_source: row.get(6)?,
-    })
 }
 
 fn parse_reasoning(value: Option<&str>) -> Result<Option<ReasoningEffort>, StoreError> {

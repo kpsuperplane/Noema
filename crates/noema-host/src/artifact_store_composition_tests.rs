@@ -91,10 +91,10 @@ async fn task_append_race_has_one_winner_and_cleans_loser() {
 }
 
 async fn task_owner(store: &NoemaStore) -> ArtifactOwnerRef {
-    let (task, _) = noema_store::test_support::seed_task(store, "Artifact append race")
+    let task = noema_store::test_support::capture_work_task(store, "Artifact append race")
         .await
         .expect("task");
-    ArtifactOwnerRef::task(task.task_id)
+    ArtifactOwnerRef::task(task.task_id.to_string())
 }
 
 async fn run_append_race<F>(owner: F)

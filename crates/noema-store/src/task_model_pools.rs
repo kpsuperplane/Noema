@@ -1,7 +1,5 @@
 //! Human-controlled executor model pools.
 
-#![allow(clippy::missing_errors_doc)]
-
 mod defaults;
 mod entries;
 mod rows;

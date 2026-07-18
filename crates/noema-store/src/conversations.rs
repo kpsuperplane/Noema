@@ -2,6 +2,8 @@ mod items;
 mod runtime;
 mod turns;
 
+pub(crate) use items::load_conversation_item_tx;
+
 use noema_conversations::{ConversationRecord, NewConversation};
 use rusqlite::{OptionalExtension, params};
 

@@ -1,0 +1,661 @@
+//! Human gate, acceptance, cancellation, and reopen command transactions.
+
+use std::str::FromStr;
+
+use noema_tasks::{
+    AnswerTask, GateResolutionKind, PERSONAL_QUEUE_STAGE_ID, RetryTask, RunKind, RunTerminalKind,
+    TaskGateId, TaskGateKind, TaskGateState, TaskMessageKind, TaskRecoveryReason, WorkCommand,
+    WorkDomainError, WorkEventPayload, WorkflowStageBehavior, WorkflowStageId,
+};
+use rusqlite::{OptionalExtension, Transaction, params};
+
+use super::{WorkCommandService, helpers};
+use crate::{
+    StoreError,
+    ids::allocate_id,
+    work_events::{WorkEventScope, append_work_event_tx},
+};
+
+#[path = "work_command_accept.rs"]
+mod accept;
+#[path = "work_command_cancel_reopen.rs"]
+mod cancel_reopen;
+#[path = "work_command_request_changes.rs"]
+mod request_changes;
+#[path = "work_command_human_validation.rs"]
+mod validation;
+
+#[derive(Debug, Clone)]
+struct GateState {
+    gate_id: TaskGateId,
+    generation: u64,
+    contract_id: Option<noema_tasks::TaskContractId>,
+    kind: TaskGateKind,
+    state: TaskGateState,
+    recovery_reason: Option<TaskRecoveryReason>,
+    retry_run_kind: Option<RunKind>,
+    originating_run_id: Option<String>,
+}
+
+struct OriginatingRunRow {
+    run_kind: String,
+    attempt_index: i64,
+    review_round: i64,
+    triggering_submission_id: Option<String>,
+    triggering_review_id: Option<String>,
+}
+
+struct OriginatingRun {
+    run_kind: RunKind,
+    attempt_index: u32,
+    review_round: u32,
+    triggering_submission_id: Option<String>,
+    triggering_review_id: Option<String>,
+}
+
+pub(super) async fn execute(
+    service: &WorkCommandService,
+    command: &WorkCommand,
+) -> Result<helpers::CommandWrite, StoreError> {
+    match command {
+        WorkCommand::AnswerTask(value) => answer(service, value).await,
+        WorkCommand::RetryTask(value) => retry(service, value).await,
+        WorkCommand::AcceptTask(value) => accept::execute(service, value).await,
+        WorkCommand::RequestTaskChanges(value) => request_changes::execute(service, value).await,
+        WorkCommand::CancelTask(value) => cancel_reopen::cancel(service, value).await,
+        WorkCommand::ReopenTask(value) => cancel_reopen::reopen(service, value).await,
+        _ => Err(StoreError::InvariantViolation {
+            message: "human writer received an unsupported command".to_string(),
+        }),
+    }
+}
+
+async fn answer(
+    service: &WorkCommandService,
+    command: &AnswerTask,
+) -> Result<helpers::CommandWrite, StoreError> {
+    let envelope = WorkCommand::AnswerTask(command.clone());
+    let task_id = command.precondition.task_id.clone();
+    let write = service
+        .store
+        .with_immediate_transaction_retry(|transaction| {
+            if let Some(replay) = helpers::lookup_receipt_tx(transaction, &envelope)? {
+                return Ok(replay);
+            }
+            let mut task = helpers::load_task_state_tx(transaction, &task_id)?;
+            helpers::check_task_fence(
+                &task,
+                command.precondition.expected_revision,
+                command.precondition.expected_generation,
+            )?;
+            if task.stage_behavior != WorkflowStageBehavior::HumanGate {
+                return Err(StoreError::Work(WorkDomainError::InvalidTransition));
+            }
+            let gate = load_gate(transaction, &command.gate_id)?;
+            validate_open_gate(&task, &gate, &command.gate_id)?;
+            validation::validate_gate_resolution(&gate, GateResolutionKind::Answer)?;
+            let from_stage = task.stage_id.clone();
+            let answer = command
+                .answer
+                .normalized_for(gate.kind)
+                .map_err(StoreError::Work)?;
+            let message_id = noema_tasks::TaskMessageId::new(allocate_id("task_message"))
+                .map_err(StoreError::Work)?;
+            transaction.execute(
+                "INSERT INTO task_messages (message_id, task_id, task_generation, contract_id, gate_id, message_kind, body_markdown, approval_decision, author_actor_id) VALUES (?1, ?2, ?3, ?4, ?5, 'human_answer', ?6, ?7, ?8)",
+                params![
+                    message_id.as_str(),
+                    task_id.as_str(),
+                    task.generation,
+                    gate.contract_id.as_ref().map(ToString::to_string),
+                    gate.gate_id.as_str(),
+                    answer.message_markdown,
+                    answer.approval_decision.map(|value| value.as_str()),
+                    command.meta.actor_id,
+                ],
+            )?;
+            transaction.execute(
+                "UPDATE task_gates SET gate_state = 'resolved', resolved_by_actor_id = ?2, resolution_message_id = ?3, resolved_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE gate_id = ?1 AND gate_state = 'open'",
+                params![gate.gate_id.as_str(), command.meta.actor_id, message_id.as_str()],
+            )?;
+            let revision = task.revision.checked_add(1).ok_or_else(|| {
+                StoreError::Work(WorkDomainError::InvalidInput {
+                    field: "task.revision",
+                    message: "revision overflow".to_string(),
+                })
+            })?;
+            transaction.execute(
+                "UPDATE tasks SET stage_id = ?2, active_gate_id = NULL, queued_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), revision = ?3, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND revision = ?4 AND generation = ?5",
+                params![task_id.as_str(), PERSONAL_QUEUE_STAGE_ID, revision, task.revision, task.generation],
+            )?;
+            task.stage_id = WorkflowStageId::new(PERSONAL_QUEUE_STAGE_ID).map_err(StoreError::Work)?;
+            task.stage_behavior = WorkflowStageBehavior::Dispatch;
+            task.revision = revision;
+            let _message_event = append_work_event_tx(
+                transaction,
+                scope(&task, &command.meta.actor_id, command.meta.causation_id.as_deref(), &command.meta.correlation_id),
+                WorkEventPayload::task_message_appended(
+                    message_id.clone(),
+                    task.generation,
+                    TaskMessageKind::HumanAnswer,
+                    Some(gate.gate_id.clone()),
+                    gate.contract_id.clone(),
+                )
+                .map_err(StoreError::Work)?,
+            )?;
+            let _gate_event = append_work_event_tx(
+                transaction,
+                scope(&task, &command.meta.actor_id, command.meta.causation_id.as_deref(), &command.meta.correlation_id),
+                WorkEventPayload::gate_resolved(
+                    gate.gate_id.clone(),
+                    task.generation,
+                    gate.kind,
+                    message_id,
+                    GateResolutionKind::Answer,
+                )
+                .map_err(StoreError::Work)?,
+            )?;
+            let _stage_event = append_work_event_tx(
+                transaction,
+                scope(&task, &command.meta.actor_id, command.meta.causation_id.as_deref(), &command.meta.correlation_id),
+                WorkEventPayload::task_stage_changed(
+                    revision,
+                    task.generation,
+                    from_stage,
+                    task.stage_id.clone(),
+                    noema_tasks::TaskStageChangeReason::GateResolved,
+                )
+                .map_err(StoreError::Work)?,
+            )?;
+            let originating = gate
+                .originating_run_id
+                .as_deref()
+                .map(|originating_run_id| {
+                    transaction
+                        .query_row(
+                            "SELECT run_kind, attempt_index, review_round, triggering_submission_id, triggering_review_id FROM agent_runs WHERE run_id = ?1",
+                            [originating_run_id],
+                            |row| {
+                                Ok(OriginatingRunRow {
+                                    run_kind: row.get(0)?,
+                                    attempt_index: row.get(1)?,
+                                    review_round: row.get(2)?,
+                                    triggering_submission_id: row.get(3)?,
+                                    triggering_review_id: row.get(4)?,
+                                })
+                            },
+                        )
+                        .optional()
+                })
+                .transpose()?
+                .flatten()
+                .map(|row| {
+                    Ok::<_, StoreError>(OriginatingRun {
+                        run_kind: RunKind::from_str(&row.run_kind).map_err(StoreError::Work)?,
+                        attempt_index: helpers::nonnegative_u32(
+                            row.attempt_index,
+                            "run.attempt_index",
+                        )?,
+                        review_round: helpers::nonnegative_u32(
+                            row.review_round,
+                            "run.review_round",
+                        )?,
+                        triggering_submission_id: row.triggering_submission_id,
+                        triggering_review_id: row.triggering_review_id,
+                    })
+                })
+                .transpose()?;
+            if let (Some(originating_run_id), Some(origin)) =
+                (gate.originating_run_id.as_deref(), originating.as_ref())
+            {
+                transaction.execute(
+                    "UPDATE agent_runs SET status = 'completed', ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND status = 'waiting_for_approval'",
+                    [originating_run_id],
+                )?;
+                let _origin_completed_event = append_work_event_tx(
+                    transaction,
+                    scope_with_run(
+                        &task,
+                        originating_run_id,
+                        &command.meta.actor_id,
+                        command.meta.causation_id.as_deref(),
+                        &command.meta.correlation_id,
+                    ),
+                    WorkEventPayload::run_completed(
+                        origin.run_kind,
+                        task.generation,
+                        RunTerminalKind::GateResolved,
+                    )
+                    .map_err(StoreError::Work)?,
+                )?;
+            }
+            let origin = gate
+                .originating_run_id
+                .as_deref();
+            let run_kind = gate
+                .retry_run_kind
+                .or_else(|| originating.as_ref().map(|origin| origin.run_kind))
+                .ok_or(StoreError::Work(WorkDomainError::ConfigurationUnavailable))?;
+            let attempt_index = originating
+                .as_ref()
+                .map_or(0, |origin| origin.attempt_index)
+                .checked_add(1)
+                .ok_or_else(|| StoreError::Work(WorkDomainError::InvalidInput {
+                    field: "run.attempt_index",
+                    message: "attempt index overflow".to_string(),
+                }))?;
+            let review_round = originating
+                .as_ref()
+                .map_or(u32::from(run_kind != RunKind::Planner), |origin| {
+                    origin.review_round
+                });
+            let trigger_submission = (run_kind == RunKind::Reviewer)
+                .then(|| {
+                    originating
+                        .as_ref()
+                        .and_then(|origin| origin.triggering_submission_id.as_deref())
+                })
+                .flatten();
+            let trigger_review = (run_kind == RunKind::Executor)
+                .then(|| {
+                    originating
+                        .as_ref()
+                        .and_then(|origin| origin.triggering_review_id.clone())
+                })
+                .flatten();
+            let queued = if let Some(origin_run_id) = origin {
+                let parent = crate::work_runs::rows::load_run_tx(transaction, origin_run_id)?
+                    .ok_or_else(|| StoreError::InvariantViolation {
+                        message: format!("gate {} references a missing run", gate.gate_id),
+                    })?;
+                if parent.run_kind != run_kind {
+                    return Err(StoreError::InvariantViolation {
+                        message: format!("gate {} changes its retry run kind", gate.gate_id),
+                    });
+                }
+                helpers::queue_pinned_child_run_tx(
+                    transaction,
+                    service.provider_registry.as_ref(),
+                    &task,
+                    &parent,
+                    helpers::QueuePinnedChildRun {
+                        attempt_index,
+                        triggering_submission_id: trigger_submission,
+                        triggering_review_id: trigger_review.as_deref(),
+                        event: helpers::CommandEventContext {
+                            actor_id: &command.meta.actor_id,
+                            causation_id: command.meta.causation_id.as_deref(),
+                            correlation_id: &command.meta.correlation_id,
+                        },
+                    },
+                )
+            } else {
+                helpers::queue_run_tx(
+                    transaction,
+                    service.provider_registry.as_ref(),
+                    &task,
+                    helpers::QueueRun {
+                        run_kind,
+                        contract_id: gate.contract_id.as_ref(),
+                        planner_complexity: None,
+                        review_round,
+                        attempt_index,
+                        parent_run_id: origin,
+                        triggering_submission_id: trigger_submission,
+                        triggering_review_id: trigger_review.as_deref(),
+                        event: helpers::CommandEventContext {
+                            actor_id: &command.meta.actor_id,
+                            causation_id: command.meta.causation_id.as_deref(),
+                            correlation_id: &command.meta.correlation_id,
+                        },
+                    },
+                )
+            };
+            let (run_id, run_event) = match queued {
+                Ok(queued) => queued,
+                Err(error) if helpers::provider_route_unavailable(&error) => {
+                    let mut write = super::recovery::open_configuration_recovery_tx(
+                        transaction,
+                        &mut task,
+                        super::recovery::ConfigurationRecovery {
+                            retry_run_kind: run_kind,
+                            originating_run_id: origin,
+                            event: helpers::CommandEventContext {
+                                actor_id: &command.meta.actor_id,
+                                causation_id: command.meta.causation_id.as_deref(),
+                                correlation_id: &command.meta.correlation_id,
+                            },
+                        },
+                    )?;
+                    helpers::save_receipt_tx(transaction, &envelope, &mut write)?;
+                    return Ok(write);
+                }
+                Err(error) => return Err(error),
+            };
+            let mut write = helpers::write_marker(run_event, Some(task_id.clone()), None, gate.contract_id, Some(gate.gate_id), Some(run_id));
+            helpers::save_receipt_tx(transaction, &envelope, &mut write)?;
+            Ok(write)
+        })
+        .await?;
+    Ok(write)
+}
+
+async fn retry(
+    service: &WorkCommandService,
+    command: &RetryTask,
+) -> Result<helpers::CommandWrite, StoreError> {
+    let envelope = WorkCommand::RetryTask(command.clone());
+    let task_id = command.precondition.task_id.clone();
+    let write = service.store.with_immediate_transaction_retry(|transaction| {
+        if let Some(replay) = helpers::lookup_receipt_tx(transaction, &envelope)? {
+            return Ok(replay);
+        }
+        let mut task = helpers::load_task_state_tx(transaction, &task_id)?;
+        helpers::check_task_fence(
+            &task,
+            command.precondition.expected_revision,
+            command.precondition.expected_generation,
+        )?;
+        if task.stage_behavior != WorkflowStageBehavior::HumanGate {
+            return Err(StoreError::Work(WorkDomainError::InvalidTransition));
+        }
+        let gate = load_gate(transaction, &command.gate_id)?;
+        validate_open_gate(&task, &gate, &command.gate_id)?;
+        validation::validate_gate_resolution(&gate, GateResolutionKind::Retry)?;
+
+        // SQLite requires a resolution message for every resolved gate. Keep a
+        // bounded synthetic note when the caller omitted one, so Retry remains
+        // atomic and the gate cannot be left in an impossible half-resolved
+        // state.
+        let message_id = noema_tasks::TaskMessageId::new(allocate_id("task_message"))
+            .map_err(StoreError::Work)?;
+        let note = command.note.as_deref().unwrap_or("Retry requested.");
+        transaction.execute(
+            "INSERT INTO task_messages (message_id, task_id, task_generation, contract_id, gate_id, message_kind, body_markdown, author_actor_id) VALUES (?1, ?2, ?3, ?4, ?5, 'retry_note', ?6, ?7)",
+            params![
+                message_id.as_str(),
+                task_id.as_str(),
+                task.generation,
+                gate.contract_id.as_ref().map(ToString::to_string),
+                gate.gate_id.as_str(),
+                note,
+                command.meta.actor_id,
+            ],
+        )?;
+        transaction.execute(
+            "UPDATE task_gates SET gate_state = 'resolved', resolved_by_actor_id = ?2, resolution_message_id = ?3, resolved_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE gate_id = ?1 AND gate_state = 'open'",
+            params![gate.gate_id.as_str(), command.meta.actor_id, message_id.as_str()],
+        )?;
+        let from_stage = task.stage_id.clone();
+        let revision = task.revision.checked_add(1).ok_or_else(|| {
+            StoreError::Work(WorkDomainError::InvalidInput {
+                field: "task.revision",
+                message: "revision overflow".to_string(),
+            })
+        })?;
+        transaction.execute(
+            "UPDATE tasks SET stage_id = ?2, active_gate_id = NULL, queued_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), revision = ?3, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND revision = ?4 AND generation = ?5",
+            params![task_id.as_str(), PERSONAL_QUEUE_STAGE_ID, revision, task.revision, task.generation],
+        )?;
+        task.stage_id = WorkflowStageId::new(PERSONAL_QUEUE_STAGE_ID).map_err(StoreError::Work)?;
+        task.stage_behavior = WorkflowStageBehavior::Dispatch;
+        task.revision = revision;
+        let _gate_event = append_work_event_tx(
+            transaction,
+            scope(
+                &task,
+                &command.meta.actor_id,
+                command.meta.causation_id.as_deref(),
+                &command.meta.correlation_id,
+            ),
+            WorkEventPayload::gate_resolved(
+                gate.gate_id.clone(),
+                task.generation,
+                gate.kind,
+                message_id.clone(),
+                GateResolutionKind::Retry,
+            )
+            .map_err(StoreError::Work)?,
+        )?;
+        if command.note.is_some() {
+            let _note_event = append_work_event_tx(
+                transaction,
+                scope(
+                    &task,
+                    &command.meta.actor_id,
+                    command.meta.causation_id.as_deref(),
+                    &command.meta.correlation_id,
+                ),
+                WorkEventPayload::task_message_appended(
+                    message_id.clone(),
+                    task.generation,
+                    TaskMessageKind::RetryNote,
+                    Some(gate.gate_id.clone()),
+                    gate.contract_id.clone(),
+                )
+                .map_err(StoreError::Work)?,
+            )?;
+        }
+        let _stage_event = append_work_event_tx(
+            transaction,
+            scope(
+                &task,
+                &command.meta.actor_id,
+                command.meta.causation_id.as_deref(),
+                &command.meta.correlation_id,
+            ),
+            WorkEventPayload::task_stage_changed(
+                revision,
+                task.generation,
+                from_stage,
+                task.stage_id.clone(),
+                noema_tasks::TaskStageChangeReason::GateResolved,
+            )
+            .map_err(StoreError::Work)?,
+        )?;
+        let run_kind = gate
+            .retry_run_kind
+            .ok_or(StoreError::Work(WorkDomainError::ConfigurationUnavailable))?;
+        let parent = gate
+            .originating_run_id
+            .as_deref()
+            .map(|run_id| {
+                crate::work_runs::rows::load_run_tx(transaction, run_id)?.ok_or_else(|| {
+                    StoreError::InvariantViolation {
+                        message: format!("gate {} references a missing run", gate.gate_id),
+                    }
+                })
+            })
+            .transpose()?;
+        let queued = if gate.recovery_reason == Some(TaskRecoveryReason::ReviewRoundsExhausted) {
+            let parent = parent.as_ref().ok_or_else(|| StoreError::InvariantViolation {
+                message: format!("review recovery gate {} has no originating run", gate.gate_id),
+            })?;
+            if parent.run_kind != RunKind::Reviewer || run_kind != RunKind::Executor {
+                return Err(StoreError::InvariantViolation {
+                    message: format!("review recovery gate {} has invalid role lineage", gate.gate_id),
+                });
+            }
+            let review_round = parent.review_round.checked_add(1).ok_or_else(|| {
+                StoreError::Work(WorkDomainError::InvalidInput {
+                    field: "run.review_round",
+                    message: "review round overflow".to_string(),
+                })
+            })?;
+            let triggering_review_id: String = transaction
+                .query_row(
+                    "SELECT review_id FROM task_reviews WHERE reviewer_run_id = ?1 AND task_id = ?2 AND contract_id = ?3",
+                    params![parent.run_id, task.task_id.as_str(), gate.contract_id.as_ref().map(ToString::to_string)],
+                    |row| row.get(0),
+                )
+                .optional()?
+                .ok_or_else(|| StoreError::InvariantViolation {
+                    message: format!("review recovery gate {} has no review evidence", gate.gate_id),
+                })?;
+            helpers::queue_run_tx(
+                transaction,
+                service.provider_registry.as_ref(),
+                &task,
+                helpers::QueueRun {
+                    run_kind: RunKind::Executor,
+                    contract_id: gate.contract_id.as_ref(),
+                    planner_complexity: None,
+                    review_round,
+                    attempt_index: 0,
+                    parent_run_id: Some(&parent.run_id),
+                    triggering_submission_id: None,
+                    triggering_review_id: Some(&triggering_review_id),
+                    event: helpers::CommandEventContext {
+                        actor_id: &command.meta.actor_id,
+                        causation_id: command.meta.causation_id.as_deref(),
+                        correlation_id: &command.meta.correlation_id,
+                    },
+                },
+            )
+        } else if let Some(parent) = parent.as_ref() {
+            if parent.run_kind != run_kind {
+                return Err(StoreError::InvariantViolation {
+                    message: format!("gate {} changes its retry run kind", gate.gate_id),
+                });
+            }
+            let attempt_index = parent.attempt_index.checked_add(1).ok_or_else(|| {
+                StoreError::Work(WorkDomainError::InvalidInput {
+                    field: "run.attempt_index",
+                    message: "attempt index overflow".to_string(),
+                })
+            })?;
+            helpers::queue_pinned_child_run_tx(
+                transaction,
+                service.provider_registry.as_ref(),
+                &task,
+                parent,
+                helpers::QueuePinnedChildRun {
+                    attempt_index,
+                    triggering_submission_id: parent.triggering_submission_id.as_deref(),
+                    triggering_review_id: parent.triggering_review_id.as_deref(),
+                    event: helpers::CommandEventContext {
+                        actor_id: &command.meta.actor_id,
+                        causation_id: command.meta.causation_id.as_deref(),
+                        correlation_id: &command.meta.correlation_id,
+                    },
+                },
+            )
+        } else {
+            helpers::queue_run_tx(
+                transaction,
+                service.provider_registry.as_ref(),
+                &task,
+                helpers::QueueRun {
+                    run_kind,
+                    contract_id: gate.contract_id.as_ref(),
+                    planner_complexity: None,
+                    review_round: u32::from(run_kind != RunKind::Planner),
+                    attempt_index: 0,
+                    parent_run_id: None,
+                    triggering_submission_id: None,
+                    triggering_review_id: None,
+                    event: helpers::CommandEventContext {
+                        actor_id: &command.meta.actor_id,
+                        causation_id: command.meta.causation_id.as_deref(),
+                        correlation_id: &command.meta.correlation_id,
+                    },
+                },
+            )
+        };
+        let (run_id, run_event) = match queued {
+            Ok(queued) => queued,
+            Err(error) if helpers::provider_route_unavailable(&error) => {
+                let mut write = super::recovery::open_configuration_recovery_tx(
+                    transaction,
+                    &mut task,
+                    super::recovery::ConfigurationRecovery {
+                        retry_run_kind: run_kind,
+                        originating_run_id: gate.originating_run_id.as_deref(),
+                        event: helpers::CommandEventContext {
+                            actor_id: &command.meta.actor_id,
+                            causation_id: command.meta.causation_id.as_deref(),
+                            correlation_id: &command.meta.correlation_id,
+                        },
+                    },
+                )?;
+                helpers::save_receipt_tx(transaction, &envelope, &mut write)?;
+                return Ok(write);
+            }
+            Err(error) => return Err(error),
+        };
+        let mut write = helpers::write_marker(run_event, Some(task_id.clone()), None, gate.contract_id, Some(gate.gate_id), Some(run_id));
+        helpers::save_receipt_tx(transaction, &envelope, &mut write)?; Ok(write)
+    }).await?;
+    Ok(write)
+}
+
+fn load_gate(transaction: &Transaction<'_>, gate_id: &TaskGateId) -> Result<GateState, StoreError> {
+    let row = transaction.query_row("SELECT task_generation, contract_id, gate_kind, gate_state, recovery_reason, retry_run_kind, originating_run_id FROM task_gates WHERE gate_id = ?1", [gate_id.as_str()], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, Option<String>>(4)?, row.get::<_, Option<String>>(5)?, row.get::<_, Option<String>>(6)?))).optional()?;
+    let Some((generation, contract_id, kind, state, reason, retry, originating)) = row else {
+        return Err(StoreError::Work(WorkDomainError::GateRequired));
+    };
+    Ok(GateState {
+        gate_id: gate_id.clone(),
+        generation: helpers::positive_u64(generation, "gate.generation")?,
+        contract_id: contract_id
+            .map(noema_tasks::TaskContractId::new)
+            .transpose()
+            .map_err(StoreError::Work)?,
+        kind: TaskGateKind::from_str(&kind).map_err(StoreError::Work)?,
+        state: TaskGateState::from_str(&state).map_err(StoreError::Work)?,
+        recovery_reason: reason
+            .map(|value| TaskRecoveryReason::from_str(&value))
+            .transpose()
+            .map_err(StoreError::Work)?,
+        retry_run_kind: retry
+            .map(|value| RunKind::from_str(&value))
+            .transpose()
+            .map_err(StoreError::Work)?,
+        originating_run_id: originating,
+    })
+}
+
+fn validate_open_gate(
+    task: &helpers::TaskState,
+    gate: &GateState,
+    expected: &TaskGateId,
+) -> Result<(), StoreError> {
+    if &gate.gate_id != expected
+        || gate.state != TaskGateState::Open
+        || gate.generation != task.generation
+        || task.active_gate_id.as_ref() != Some(expected)
+    {
+        return Err(StoreError::Work(WorkDomainError::GateRequired));
+    }
+    Ok(())
+}
+
+fn scope(
+    task: &helpers::TaskState,
+    actor: &str,
+    causation: Option<&str>,
+    correlation: &str,
+) -> WorkEventScope {
+    WorkEventScope {
+        workspace_id: task.workspace_id.clone(),
+        project_id: task.project_id.clone(),
+        task_id: Some(task.task_id.clone()),
+        run_id: None,
+        actor_id: actor.to_string(),
+        causation_id: causation.map(ToOwned::to_owned),
+        correlation_id: correlation.to_string(),
+    }
+}
+
+fn scope_with_run(
+    task: &helpers::TaskState,
+    run_id: &str,
+    actor: &str,
+    causation: Option<&str>,
+    correlation: &str,
+) -> WorkEventScope {
+    WorkEventScope {
+        run_id: Some(run_id.to_string()),
+        ..scope(task, actor, causation, correlation)
+    }
+}

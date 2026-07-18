@@ -59,39 +59,6 @@ pub(crate) fn ready_codex_registry() -> noema_providers::ProviderRegistry {
     ))
 }
 
-pub(crate) async fn claim_and_start_run(
-    store: &crate::NoemaStore,
-    run_id: &str,
-    worker_id: &str,
-    lease_token: &str,
-) -> noema_tasks::AgentRunRecord {
-    let run = store
-        .claim_next_agent_run(worker_id, lease_token, 120)
-        .await
-        .expect("claim run")
-        .expect("queued run");
-    assert_eq!(run.run_id, run_id);
-    store
-        .transition_agent_run(
-            run_id,
-            noema_tasks::RunStatus::Running,
-            Some(lease_token),
-            None,
-        )
-        .await
-        .expect("start run");
-    run
-}
-
-pub(crate) async fn first_criterion_id(store: &crate::NoemaStore, task_id: &str) -> String {
-    store
-        .list_task_validation_criteria(task_id)
-        .await
-        .expect("criteria")[0]
-        .criterion_id
-        .clone()
-}
-
 pub(crate) fn local_model_installation(
     installation_id: &str,
     model_id: &str,
@@ -158,13 +125,4 @@ pub(crate) fn ready_local_selection(
         installation.provider_instance_key.clone(),
         "local_model_test",
     ))
-}
-
-pub(crate) async fn seed_task(
-    store: &crate::NoemaStore,
-    title: &str,
-) -> (noema_tasks::TaskRecord, noema_tasks::AgentRunRecord) {
-    crate::test_support::seed_task(store, title)
-        .await
-        .expect("task")
 }

@@ -20,12 +20,14 @@ noema-conversations = { path = "../noema-conversations", default-features = fals
 noema-memory = { path = "../noema-memory", default-features = false }
 noema-providers = { path = "../noema-providers", default-features = false }
 noema-tasks = { path = "../noema-tasks", default-features = false }
+noema-workspaces = { path = "../noema-workspaces", default-features = false }
 ring.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
+time = { workspace = true, features = ["parsing"] }
 tokio.workspace = true
 
 [dev-dependencies]

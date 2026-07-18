@@ -12,7 +12,8 @@ impl NoemaStore {
     /// Return whether one artifact owner is accessible to the given human.
     ///
     /// Conversation owners must be live human-owned conversations. Task owners
-    /// must name tasks owned by the same human. Unknown owner kinds are denied.
+    /// are authorized through the task workspace's membership rows. Unknown
+    /// owner kinds are denied.
     ///
     /// # Errors
     ///
@@ -33,9 +34,11 @@ impl NoemaStore {
                         r#"
                         SELECT EXISTS(
                           SELECT 1
-                          FROM tasks
-                          WHERE task_id = ?1
-                            AND owner_human_id = ?2
+                          FROM tasks AS task
+                          JOIN workspace_memberships AS membership
+                            ON membership.workspace_id = task.workspace_id
+                          WHERE task.task_id = ?1
+                            AND membership.human_id = ?2
                         )
                         "#,
                         params![owner.object_id, human_id],
@@ -140,7 +143,12 @@ impl NoemaStore {
                           )
                           OR (
                             artifact.owner_object_type = 'task'
-                            AND task.owner_human_id = ?2
+                            AND EXISTS (
+                              SELECT 1
+                              FROM workspace_memberships AS membership
+                              WHERE membership.workspace_id = task.workspace_id
+                                AND membership.human_id = ?2
+                            )
                           )
                         )
                     )

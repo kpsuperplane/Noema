@@ -21,44 +21,58 @@ created_at
 "#;
 
 pub(crate) fn artifact_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ArtifactRow> {
+    artifact_row_at(row, 0)
+}
+
+pub(crate) fn artifact_row_at(
+    row: &rusqlite::Row<'_>,
+    offset: usize,
+) -> rusqlite::Result<ArtifactRow> {
     Ok(ArtifactRow {
-        artifact_id: row.get(0)?,
-        owner_object_type: row.get(1)?,
-        owner_object_id: row.get(2)?,
-        title: row.get(3)?,
-        description: row.get(4)?,
-        artifact_kind: row.get(5)?,
-        storage_kind: row.get(6)?,
-        current_version_id: row.get(7)?,
-        created_by_actor_id: row.get(8)?,
-        source_conversation_id: row.get(9)?,
-        source_turn_id: row.get(10)?,
-        source_item_id: row.get(11)?,
-        metadata_json: row.get(12)?,
-        created_at: row.get(13)?,
-        updated_at: row.get(14)?,
+        artifact_id: row.get(offset)?,
+        owner_object_type: row.get(offset + 1)?,
+        owner_object_id: row.get(offset + 2)?,
+        title: row.get(offset + 3)?,
+        description: row.get(offset + 4)?,
+        artifact_kind: row.get(offset + 5)?,
+        storage_kind: row.get(offset + 6)?,
+        current_version_id: row.get(offset + 7)?,
+        created_by_actor_id: row.get(offset + 8)?,
+        source_conversation_id: row.get(offset + 9)?,
+        source_turn_id: row.get(offset + 10)?,
+        source_item_id: row.get(offset + 11)?,
+        metadata_json: row.get(offset + 12)?,
+        created_at: row.get(offset + 13)?,
+        updated_at: row.get(offset + 14)?,
     })
 }
 
 pub(crate) fn artifact_version_row(
     row: &rusqlite::Row<'_>,
 ) -> rusqlite::Result<ArtifactVersionRow> {
+    artifact_version_row_at(row, 0)
+}
+
+pub(crate) fn artifact_version_row_at(
+    row: &rusqlite::Row<'_>,
+    offset: usize,
+) -> rusqlite::Result<ArtifactVersionRow> {
     Ok(ArtifactVersionRow {
-        artifact_version_id: row.get(0)?,
-        artifact_id: row.get(1)?,
-        version_index: row.get(2)?,
-        title: row.get(3)?,
-        local_relative_path: row.get(4)?,
-        external_url: row.get(5)?,
-        media_type: row.get(6)?,
-        byte_size: row.get(7)?,
-        content_sha256: row.get(8)?,
-        created_by_actor_id: row.get(9)?,
-        source_conversation_id: row.get(10)?,
-        source_turn_id: row.get(11)?,
-        source_item_id: row.get(12)?,
-        metadata_json: row.get(13)?,
-        created_at: row.get(14)?,
+        artifact_version_id: row.get(offset)?,
+        artifact_id: row.get(offset + 1)?,
+        version_index: row.get(offset + 2)?,
+        title: row.get(offset + 3)?,
+        local_relative_path: row.get(offset + 4)?,
+        external_url: row.get(offset + 5)?,
+        media_type: row.get(offset + 6)?,
+        byte_size: row.get(offset + 7)?,
+        content_sha256: row.get(offset + 8)?,
+        created_by_actor_id: row.get(offset + 9)?,
+        source_conversation_id: row.get(offset + 10)?,
+        source_turn_id: row.get(offset + 11)?,
+        source_item_id: row.get(offset + 12)?,
+        metadata_json: row.get(offset + 13)?,
+        created_at: row.get(offset + 14)?,
     })
 }
 

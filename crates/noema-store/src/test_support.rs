@@ -1,6 +1,4 @@
 //! Feature-gated store construction support for consumer tests.
-#![allow(clippy::missing_errors_doc)]
-
 #[cfg(any(test, feature = "test-support"))]
 use std::sync::Arc;
 
@@ -10,13 +8,13 @@ use noema_providers::{
     ProviderOperationFuture, ProviderOperations, ProviderReadySelection, ProviderRegistry,
     ProviderRegistryHandle, ProviderSelectionSnapshot, provider_account_instance_key,
 };
-#[cfg(any(test, feature = "test-support"))]
 use noema_tasks::{
-    AgentRunRecord, NewTask, NewTaskValidationCriterion, TaskComplexity, TaskRecord, TaskSource,
+    CaptureTask, CommandMeta, TaskProvenance, TaskRecord, TaskSourceKind, WorkCommand,
 };
+use noema_workspaces::{PERSONAL_WORKSPACE_ID, WorkspaceId};
 use tempfile::TempDir;
 
-use crate::{NoemaStore, StoreConfig, StoreError};
+use crate::{NoemaStore, StoreConfig, StoreError, WorkCommandService};
 
 #[cfg(any(test, feature = "test-support"))]
 #[derive(Debug)]
@@ -47,6 +45,11 @@ impl ProviderOperations for ReadyTestProvider {
 }
 
 /// Register one inert ready provider under an exact test key.
+///
+/// # Errors
+///
+/// Returns [`StoreError`] when the provider key is invalid or already
+/// registered.
 #[cfg(any(test, feature = "test-support"))]
 pub fn register_ready_provider(
     registry: &ProviderRegistry,
@@ -60,6 +63,11 @@ pub fn register_ready_provider(
 
 #[cfg(any(test, feature = "test-support"))]
 /// Build a registry whose route for `selection` is immediately ready.
+///
+/// # Errors
+///
+/// Returns [`StoreError`] when the selection cannot resolve to an exact
+/// provider instance key or the test provider cannot be registered.
 pub fn ready_provider_registry(
     selection: &ProviderSelectionSnapshot,
 ) -> Result<ProviderRegistry, StoreError> {
@@ -81,6 +89,11 @@ pub fn ready_provider_registry(
 
 #[cfg(any(test, feature = "test-support"))]
 /// Prove an exact ready selection against an inert test provider.
+///
+/// # Errors
+///
+/// Returns [`StoreError`] when the selection cannot resolve to an exact
+/// provider route or readiness cannot be proven.
 pub fn ready_provider_selection(
     mut selection: ProviderSelectionSnapshot,
 ) -> Result<ProviderReadySelection, StoreError> {
@@ -93,6 +106,11 @@ pub fn ready_provider_selection(
 }
 
 /// Build one ready registry from hosted provider account ids.
+///
+/// # Errors
+///
+/// Returns [`StoreError`] when an account id cannot form a provider key or a
+/// provider cannot be registered.
 #[cfg(any(test, feature = "test-support"))]
 pub fn ready_hosted_provider_registry(
     account_ids: impl IntoIterator<Item = impl AsRef<str>>,
@@ -106,6 +124,11 @@ pub fn ready_hosted_provider_registry(
 }
 
 /// Initialize the canonical Codex selections used by contract tests.
+///
+/// # Errors
+///
+/// Returns [`StoreError`] when provider defaults, account state, or canonical
+/// selections cannot be persisted and proven ready.
 #[cfg(any(test, feature = "test-support"))]
 pub async fn initialize_codex_provider_selections(store: &NoemaStore) -> Result<(), StoreError> {
     store.ensure_default_actors().await?;
@@ -131,47 +154,42 @@ pub async fn initialize_codex_provider_selections(store: &NoemaStore) -> Result<
         .await
 }
 
-/// Seed one simple task and its executor run for a contract test.
-#[cfg(any(test, feature = "test-support"))]
-pub async fn seed_task(
-    store: &NoemaStore,
-    title: &str,
-) -> Result<(TaskRecord, AgentRunRecord), StoreError> {
+/// Capture a test-owned task through the semantic Work command writer.
+///
+/// The task remains in the personal Inbox and carries Work UI provenance. Each
+/// call creates a distinct task because test fixtures do not use an
+/// idempotency key.
+///
+/// # Errors
+///
+/// Returns [`StoreError`] when the test provider route cannot be initialized,
+/// the capture command is invalid, SQLite fails, or the command result omits
+/// its captured task projection.
+pub async fn capture_work_task(store: &NoemaStore, title: &str) -> Result<TaskRecord, StoreError> {
     initialize_codex_provider_selections(store).await?;
-    let pool = store
-        .ensure_default_task_model_pool_settings("codex")
-        .await?
-        .into_iter()
-        .find(|entry| entry.complexity == TaskComplexity::Simple)
-        .ok_or_else(|| StoreError::InvariantViolation {
-            message: "default simple task model is missing".to_string(),
-        })?;
     let registry = ready_hosted_provider_registry(["provider_account:codex:default"])?;
-    store
-        .create_task_with_executor_with_readiness(
-            NewTask {
-                task_id: None,
-                title: title.to_string(),
-                request_markdown: "Complete the task".to_string(),
-                complexity: TaskComplexity::Simple,
-                owner_human_id: "human:local".to_string(),
-                source: TaskSource::default(),
-                created_by_agent_id: "agent:primary".to_string(),
-                creation_tool_call_id: None,
-                pool_entry_id: pool.pool_entry_id,
-                executor_model: pool.model.clone(),
-                reviewer_model: pool.model,
-                max_review_rounds: None,
-                criteria: vec![NewTaskValidationCriterion {
-                    criterion_id: None,
-                    ordinal: 1,
-                    description: "Task is complete".to_string(),
-                    expected_evidence: None,
-                }],
+    let result = WorkCommandService::new(store.clone(), registry)
+        .execute(WorkCommand::CaptureTask(CaptureTask {
+            meta: CommandMeta {
+                actor_id: "actor:human:local".to_string(),
+                causation_id: None,
+                correlation_id: "correlation:test-support:capture-work-task".to_string(),
+                idempotency_key: None,
             },
-            registry.as_ref(),
-        )
-        .await
+            workspace_id: WorkspaceId::new(PERSONAL_WORKSPACE_ID).map_err(invariant)?,
+            title: title.to_string(),
+            description_markdown: String::new(),
+            project_id: None,
+            provenance: TaskProvenance {
+                source_kind: TaskSourceKind::WorkUi,
+                created_by_actor_id: "actor:human:local".to_string(),
+                ..TaskProvenance::default()
+            },
+        }))
+        .await?;
+    result.task.ok_or_else(|| StoreError::InvariantViolation {
+        message: "capture command omitted its task projection".to_string(),
+    })
 }
 
 /// Open an initialized store under a fresh temporary directory.
@@ -216,11 +234,73 @@ pub async fn task_created_by_call(
     store
         .with_connection(|conn| {
             conn.query_row(
-                "SELECT EXISTS(SELECT 1 FROM tasks WHERE source_conversation_id = ?1 AND creation_tool_call_id = ?2)",
+                "SELECT EXISTS(SELECT 1 FROM tasks WHERE source_conversation_id = ?1 AND source_tool_call_id = ?2)",
                 [conversation_id, call_id],
                 |row| row.get(0),
             )
             .map_err(StoreError::Sqlite)
+        })
+        .await
+}
+
+/// Force one current queued/active Work run into a deliberate missing-run fixture.
+///
+/// This helper exists only for consumer reconciliation tests. It atomically
+/// cancels the exact current run, clears the task's current-run pointer, and
+/// moves the task to a deterministic old pagination timestamp.
+///
+/// # Errors
+///
+/// Returns [`StoreError`] and rolls back both writes unless the exact run and
+/// its exact Queue/Doing task pointer are each changed once.
+pub async fn force_work_task_missing_current_run(
+    store: &NoemaStore,
+    task_id: &noema_tasks::TaskId,
+    run_id: &str,
+) -> Result<(), StoreError> {
+    if run_id.trim().is_empty() {
+        return Err(StoreError::Work(
+            noema_tasks::WorkDomainError::InvalidInput {
+                field: "test_support.run_id",
+                message: "run id cannot be blank".to_string(),
+            },
+        ));
+    }
+    store
+        .with_immediate_transaction_retry(|transaction| {
+            let run_changed = transaction.execute(
+                "UPDATE agent_runs
+                 SET status = 'cancelled', cancellation_requested = 1,
+                     ended_at = COALESCE(ended_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                     lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL,
+                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                 WHERE run_id = ?1 AND task_id = ?2
+                   AND status IN ('queued', 'leased', 'running')
+                   AND EXISTS (
+                     SELECT 1 FROM tasks task
+                     WHERE task.task_id = ?2 AND task.latest_run_id = ?1
+                       AND task.stage_id IN ('stage:personal:queue', 'stage:personal:doing')
+                   )",
+                rusqlite::params![run_id, task_id.as_str()],
+            )?;
+            if run_changed != 1 {
+                return Err(StoreError::InvariantViolation {
+                    message: "test fixture did not match one current queued/active run".to_string(),
+                });
+            }
+            let task_changed = transaction.execute(
+                "UPDATE tasks
+                 SET latest_run_id = NULL, updated_at = '2000-01-01T00:00:00.000Z'
+                 WHERE task_id = ?1 AND latest_run_id = ?2
+                   AND stage_id IN ('stage:personal:queue', 'stage:personal:doing')",
+                rusqlite::params![task_id.as_str(), run_id],
+            )?;
+            if task_changed != 1 {
+                return Err(StoreError::InvariantViolation {
+                    message: "test fixture did not clear one exact current-run pointer".to_string(),
+                });
+            }
+            Ok(())
         })
         .await
 }

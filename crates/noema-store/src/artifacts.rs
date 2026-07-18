@@ -15,8 +15,8 @@ use super::{
 };
 
 pub(super) use rows::{
-    ARTIFACT_SELECT, ARTIFACT_VERSION_SELECT, artifact_from_row, artifact_row,
-    artifact_version_from_row, artifact_version_row,
+    ARTIFACT_SELECT, ARTIFACT_VERSION_SELECT, artifact_from_row, artifact_row, artifact_row_at,
+    artifact_version_from_row, artifact_version_row, artifact_version_row_at,
 };
 
 #[derive(Debug)]

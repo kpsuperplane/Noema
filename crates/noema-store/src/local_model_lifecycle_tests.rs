@@ -411,32 +411,52 @@ async fn seed_task_and_run_references(
 ) {
     store
         .with_connection(|conn| {
-            for (task_id, status) in [
-                ("task:lifecycle-future", "queued"),
-                ("task:lifecycle-terminal", "failed"),
+            for (task_id, stage_id) in [
+                ("task:lifecycle-future", "stage:personal:queue"),
+                ("task:lifecycle-terminal", "stage:personal:completed"),
             ] {
                 conn.execute(
                     r#"
                     INSERT INTO tasks (
-                      task_id, title, request_markdown, complexity, status,
-                      owner_human_id, created_by_agent_id, pool_entry_id,
+                      task_id, workspace_id, workflow_id, stage_id, title,
+                      description_markdown, source_kind, created_by_actor_id
+                    ) VALUES (?1, 'workspace:personal', 'workflow:personal:default', ?2,
+                              'Lifecycle', 'Exercise lifecycle references', 'system',
+                              'actor:system')
+                    "#,
+                    params![task_id, stage_id],
+                )?;
+                conn.execute(
+                    r#"
+                    INSERT INTO task_execution_contracts (
+                      contract_id, task_id, version, task_generation, origin,
+                      request_markdown, complexity,
                       executor_provider_kind, executor_provider_account_id,
                       executor_provider_instance_key, executor_selection_mode,
                       executor_model_profile, reviewer_provider_kind,
                       reviewer_provider_account_id, reviewer_provider_instance_key,
-                      reviewer_selection_mode, reviewer_model_profile
-                    ) VALUES (?1, 'Lifecycle', 'Exercise lifecycle references', 'simple', ?2,
-                              'human:test', 'agent:primary', 'task_pool:setting:simple',
+                      reviewer_selection_mode, reviewer_model_profile,
+                      max_provider_continuations, max_tool_calls, max_active_minutes,
+                      progress_audit_interval, max_automatic_retries, max_review_rounds,
+                      workspace_id_snapshot, workspace_name_snapshot,
+                      workspace_description_snapshot, created_by_actor_id
+                    ) VALUES (?1, ?2, 1, 1, 'delegated', 'Exercise lifecycle references', 'simple',
                               'local_models', ?3, ?4, 'explicit_profile', ?5,
-                              'local_models', ?3, ?4, 'explicit_profile', ?5)
+                              'local_models', ?3, ?4, 'explicit_profile', ?5,
+                              80, 400, 120, 20, 3, 3,
+                              'workspace:personal', 'Personal', '', 'actor:system')
                     "#,
                     params![
+                        format!("contract:{task_id}"),
                         task_id,
-                        status,
                         LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
                         installation.provider_instance_key.as_str(),
                         installation.model_id,
                     ],
+                )?;
+                conn.execute(
+                    "UPDATE tasks SET current_contract_id = ?2 WHERE task_id = ?1",
+                    params![task_id, format!("contract:{task_id}")],
                 )?;
             }
             for (run_id, task_id, status) in [
@@ -450,12 +470,16 @@ async fn seed_task_and_run_references(
                 conn.execute(
                     r#"
                     INSERT INTO agent_runs (
-                      run_id, task_id, run_kind, agent_id, provider_kind,
+                      run_id, task_id, task_generation, contract_id, run_kind, agent_id,
+                      attempt_index, review_round,
+                      provider_kind,
                       provider_account_id, provider_instance_key, selection_mode,
                       model_profile, max_provider_continuations, max_tool_calls,
-                      max_active_minutes, progress_audit_interval, status
-                    ) VALUES (?1, ?2, 'executor', 'agent:task-executor', 'local_models',
-                              ?3, ?4, 'explicit_profile', ?5, 80, 400, 120, 20, ?6)
+                      max_active_minutes, progress_audit_interval,
+                      max_automatic_retries, max_review_rounds, status
+                    ) VALUES (?1, ?2, 1, ?7, 'executor', 'agent:task-executor',
+                              0, 1, 'local_models', ?3, ?4, 'explicit_profile', ?5,
+                              80, 400, 120, 20, 3, 3, ?6)
                     "#,
                     params![
                         run_id,
@@ -464,6 +488,7 @@ async fn seed_task_and_run_references(
                         installation.provider_instance_key.as_str(),
                         installation.model_id,
                         status,
+                        format!("contract:{task_id}"),
                     ],
                 )?;
             }

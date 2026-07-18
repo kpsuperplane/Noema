@@ -1,11 +1,12 @@
 //! Artifact semantic records and validation.
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::ArtifactDomainError;
 
 /// Concrete owner reference for a governed artifact.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtifactOwnerRef {
     /// Concrete owner object type.
     pub object_type: String,
@@ -53,7 +54,8 @@ impl ArtifactOwnerRef {
 }
 
 /// Durable storage kind for an artifact family.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ArtifactStorageKind {
     /// Artifact bytes live in the local Noema filesystem.
     LocalFile,
@@ -88,7 +90,8 @@ impl ArtifactStorageKind {
 }
 
 /// Version-specific storage reference.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ArtifactVersionStorage {
     /// Version bytes live under a relative local artifact path.
     LocalFile {
@@ -146,7 +149,7 @@ pub fn validate_external_artifact_url(value: &str) -> Result<String, ArtifactDom
 }
 
 /// Optional transcript provenance for an artifact or artifact version.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtifactSource {
     /// Source conversation id, when the artifact originated from a conversation.
     pub conversation_id: Option<String>,
@@ -229,7 +232,7 @@ impl NewArtifactVersion {
 }
 
 /// Persisted artifact metadata row.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ArtifactRecord {
     /// Stable artifact id.
     pub artifact_id: String,
@@ -258,7 +261,7 @@ pub struct ArtifactRecord {
 }
 
 /// Persisted immutable artifact version row.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ArtifactVersionRecord {
     /// Stable artifact version id.
     pub artifact_version_id: String,

@@ -12,6 +12,11 @@ impl NoemaStore {
     ///
     /// The selected default provider supplies initial values. Existing global
     /// settings remain user-controlled.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the provider defaults are incomplete, the
+    /// default account is unavailable, or SQLite fails.
     pub async fn ensure_default_task_model_pool_settings(
         &self,
         default_provider_kind: &str,
