@@ -64,6 +64,7 @@ const targetPackageNames = [
   "noema-artifacts",
   "noema-capabilities",
   "noema-providers",
+  "noema-workspaces",
   "noema-tasks",
   "noema-capabilities-mcp",
   "noema-memory",
@@ -122,7 +123,11 @@ function targetDependencies(name: string): DependencyInput[] {
     case "noema-providers":
       return [contract("noema-capabilities"), contract("noema-home")];
     case "noema-tasks":
-      return [contract("noema-artifacts"), contract("noema-providers")];
+      return [
+        contract("noema-artifacts"),
+        contract("noema-providers"),
+        contract("noema-workspaces"),
+      ];
     case "noema-capabilities-mcp":
       return [contract("noema-capabilities"), contract("noema-home"), { name: "rmcp" }];
     case "noema-memory":
@@ -139,6 +144,7 @@ function targetDependencies(name: string): DependencyInput[] {
         contract("noema-providers"),
         contract("noema-capabilities-mcp"),
         contract("noema-memory"),
+        contract("noema-workspaces"),
         { name: "rusqlite" },
       ];
     case "noema-runtime":
@@ -152,6 +158,7 @@ function targetDependencies(name: string): DependencyInput[] {
         contract("noema-providers"),
         contract("noema-memory"),
         contract("noema-store"),
+        contract("noema-workspaces"),
       ];
     case "noema-host":
       return [
@@ -177,6 +184,7 @@ function targetDependencies(name: string): DependencyInput[] {
         contract("noema-store"),
         contract("noema-runtime"),
         contract("noema-host"),
+        contract("noema-workspaces"),
       ];
     case "noema-server":
       return [
@@ -262,6 +270,13 @@ describe("crate boundary metadata policy", () => {
       "workspace is missing target package: noema-memory",
     );
 
+    const missingWorkspaces = targetWorkspace().filter(
+      (pkg) => pkg.name !== "noema-workspaces",
+    );
+    expect(validateMetadata(metadata(missingWorkspaces))).toContain(
+      "workspace is missing target package: noema-workspaces",
+    );
+
     const unknown = targetWorkspace();
     unknown.push({ name: "workspace-tool" });
     expect(validateMetadata(metadata(unknown))).toContain(
@@ -302,10 +317,77 @@ describe("crate boundary metadata policy", () => {
       "noema-capabilities -> noema-capabilities-mcp is not an allowed direct edge",
     );
 
+    const reversedWorkspaceEdge = targetWorkspace();
+    findPackage(reversedWorkspaceEdge, "noema-workspaces").dependencies?.push(
+      contract("noema-tasks"),
+    );
+    expect(validateMetadata(metadata(reversedWorkspaceEdge))).toContain(
+      "noema-workspaces -> noema-tasks is not an allowed direct edge",
+    );
+
     const missing = targetWorkspace();
     findPackage(missing, "noema-server").dependencies?.push(contract("noema-mystery"));
     expect(validateMetadata(metadata(missing))).toContain(
       "noema-server depends on internal package outside the workspace: noema-mystery",
+    );
+  });
+
+  test("allows dev-only internal test composition but keeps build edges bounded", () => {
+    const devComposition = targetWorkspace();
+    findPackage(devComposition, "noema-api").dependencies?.push({
+      name: "noema-home",
+      kind: "dev",
+      usesDefaultFeatures: false,
+    });
+    findPackage(devComposition, "noema-host").dependencies?.push({
+      name: "noema-tasks",
+      kind: "dev",
+      usesDefaultFeatures: false,
+    });
+    expect(validateMetadata(metadata(devComposition))).toEqual([]);
+
+    const buildComposition = targetWorkspace();
+    findPackage(buildComposition, "noema-api").dependencies?.push({
+      name: "noema-home",
+      kind: "build",
+      usesDefaultFeatures: false,
+    });
+    expect(validateMetadata(metadata(buildComposition))).toContain(
+      "noema-api -> noema-home is not an allowed direct edge",
+    );
+  });
+
+  test("allows concrete implementation features only on dev composition dependencies", () => {
+    const devComposition = targetWorkspace();
+    for (const [dependency, features] of [
+      ["noema-artifacts", ["filesystem"]],
+      ["noema-memory", ["service"]],
+      ["noema-providers", ["adapters", "local-models"]],
+    ] as const) {
+      findPackage(devComposition, "noema-api").dependencies?.push({
+        name: dependency,
+        kind: "dev",
+        features: [...features],
+        usesDefaultFeatures: false,
+      });
+    }
+    findPackage(devComposition, "noema-runtime").dependencies?.push({
+      name: "noema-artifacts",
+      kind: "dev",
+      features: ["filesystem"],
+      usesDefaultFeatures: false,
+    });
+    expect(validateMetadata(metadata(devComposition))).toEqual([]);
+
+    const buildComposition = targetWorkspace();
+    findPackage(buildComposition, "noema-runtime").dependencies?.push({
+      name: "noema-artifacts",
+      kind: "build",
+      features: ["filesystem"],
+      usesDefaultFeatures: false,
+    });
+    expect(validateMetadata(metadata(buildComposition))).toContain(
+      "noema-runtime may not enable implementation feature noema-artifacts/filesystem",
     );
   });
 
@@ -315,6 +397,14 @@ describe("crate boundary metadata policy", () => {
     const errors = validateMetadata(metadata(packages));
     expect(errors).toContain(
       "noema-runtime contract boundary may not depend on async-graphql",
+    );
+
+    const workspacePackages = targetWorkspace();
+    findPackage(workspacePackages, "noema-workspaces").dependencies?.push({
+      name: "async-graphql",
+    });
+    expect(validateMetadata(metadata(workspacePackages))).toContain(
+      "noema-workspaces contract boundary may not depend on async-graphql",
     );
 
     for (const dependency of ["readabilityrs", "reqwest", "tokio"]) {
@@ -354,6 +444,15 @@ describe("crate boundary metadata policy", () => {
       true;
     expect(validateMetadata(metadata(packages))).toContain(
       "noema-api must declare noema-store with default-features = false",
+    );
+
+    const taskPackages = targetWorkspace();
+    findDependency(
+      findPackage(taskPackages, "noema-tasks"),
+      "noema-workspaces",
+    ).usesDefaultFeatures = true;
+    expect(validateMetadata(metadata(taskPackages))).toContain(
+      "noema-tasks must declare noema-workspaces with default-features = false",
     );
   });
 
@@ -411,6 +510,7 @@ describe("crate boundary metadata policy", () => {
   for (const [packageName, feature] of [
     ["noema-artifacts", "filesystem"],
     ["noema-providers", "adapters"],
+    ["noema-workspaces", "default"],
     ["noema-capabilities-mcp", "transport"],
     ["noema-memory", "service"],
     ["noema-store", "test-support"],
@@ -426,6 +526,14 @@ describe("crate boundary metadata policy", () => {
       );
     });
   }
+
+  test("requires noema-workspaces to declare its empty default feature", () => {
+    const packages = targetWorkspace();
+    delete findPackage(packages, "noema-workspaces").features!.default;
+    expect(validateMetadata(metadata(packages))).toContain(
+      "noema-workspaces must declare an empty default feature",
+    );
+  });
 
   for (const [packageName, dependencyName, feature] of [
     ["noema-api", "noema-store", "test-support"],
@@ -445,6 +553,19 @@ describe("crate boundary metadata policy", () => {
       );
     });
   }
+
+  test("rejects test-support features on build dependencies", () => {
+    const packages = targetWorkspace();
+    findPackage(packages, "noema-api").dependencies?.push({
+      name: "noema-runtime",
+      kind: "build",
+      features: ["test-support"],
+      usesDefaultFeatures: false,
+    });
+    expect(validateMetadata(metadata(packages))).toContain(
+      "noema-api enables noema-runtime/test-support outside dev-dependencies",
+    );
+  });
 
   test("rejects unknown internal features and renamed feature forwarding", () => {
     const unknown = targetWorkspace();
@@ -472,6 +593,33 @@ describe("crate boundary metadata policy", () => {
     findPackage(packages, "noema-providers").features!["local-model-evals"] = [];
     expect(validateMetadata(metadata(packages))).toContain(
       "noema-providers/local-model-evals must imply noema-providers/local-models",
+    );
+  });
+
+  test("does not let dev dependencies satisfy production feature ownership", () => {
+    const packages = targetWorkspace();
+    findDependency(findPackage(packages, "noema-model-evals"), "noema-providers").kind =
+      "dev";
+    findDependency(findPackage(packages, "noema-model-evals"), "noema-runtime").kind =
+      "dev";
+    const errors = validateMetadata(metadata(packages));
+    expect(errors).toContain(
+      "noema-model-evals must directly enable evaluation feature noema-providers/local-model-evals",
+    );
+    expect(errors).toContain(
+      "noema-model-evals must directly enable evaluation feature noema-runtime/eval-support",
+    );
+  });
+
+  test("rejects forwarding a production feature through a dev dependency", () => {
+    const packages = targetWorkspace();
+    const api = findPackage(packages, "noema-api");
+    api.features!["test-support"] = ["providers?/local-models"];
+    const providers = findDependency(api, "noema-providers");
+    providers.rename = "providers";
+    providers.kind = "dev";
+    expect(validateMetadata(metadata(packages))).toContain(
+      "noema-api may not forward features through dev-dependency noema-providers",
     );
   });
 

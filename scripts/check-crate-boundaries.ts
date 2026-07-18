@@ -26,9 +26,10 @@ const TARGET_DEPENDENCIES = new Map<string, ReadonlySet<string>>([
   ["noema-artifacts", new Set(["noema-home"])],
   ["noema-capabilities", new Set()],
   ["noema-providers", new Set(["noema-capabilities", "noema-home"])],
+  ["noema-workspaces", new Set()],
   [
     "noema-tasks",
-    new Set(["noema-artifacts", "noema-providers"]),
+    new Set(["noema-artifacts", "noema-providers", "noema-workspaces"]),
   ],
   [
     "noema-capabilities-mcp",
@@ -47,6 +48,7 @@ const TARGET_DEPENDENCIES = new Map<string, ReadonlySet<string>>([
       "noema-providers",
       "noema-capabilities-mcp",
       "noema-memory",
+      "noema-workspaces",
     ]),
   ],
   [
@@ -61,6 +63,7 @@ const TARGET_DEPENDENCIES = new Map<string, ReadonlySet<string>>([
       "noema-providers",
       "noema-memory",
       "noema-store",
+      "noema-workspaces",
     ]),
   ],
   [
@@ -89,6 +92,7 @@ const TARGET_DEPENDENCIES = new Map<string, ReadonlySet<string>>([
       "noema-store",
       "noema-runtime",
       "noema-host",
+      "noema-workspaces",
     ]),
   ],
   ["noema-server", new Set(["noema-artifacts", "noema-api", "noema-host"])],
@@ -131,6 +135,7 @@ const KNOWN_INTERNAL_FEATURES = new Map<string, ReadonlySet<string>>([
   ["noema-artifacts", new Set(["filesystem"])],
   ["noema-capabilities", new Set()],
   ["noema-providers", new Set(["adapters", "local-models", "local-model-evals"])],
+  ["noema-workspaces", new Set()],
   ["noema-tasks", new Set()],
   ["noema-capabilities-mcp", new Set(["transport"])],
   ["noema-memory", new Set(["service"])],
@@ -149,6 +154,7 @@ const EMPTY_DEFAULT_FEATURE_PACKAGES = new Set([
   "noema-artifacts",
   "noema-capabilities",
   "noema-providers",
+  "noema-workspaces",
   "noema-tasks",
   "noema-capabilities-mcp",
   "noema-memory",
@@ -161,6 +167,7 @@ const EMPTY_DEFAULT_FEATURE_PACKAGES = new Set([
 const CONTRACT_ONLY_DEPENDENCIES = new Set([
   "noema-artifacts",
   "noema-providers",
+  "noema-workspaces",
   "noema-capabilities-mcp",
   "noema-memory",
   "noema-store",
@@ -174,6 +181,7 @@ const FRAMEWORK_FREE_PACKAGES = new Set([
   "noema-artifacts",
   "noema-capabilities",
   "noema-providers",
+  "noema-workspaces",
   "noema-tasks",
   "noema-capabilities-mcp",
   "noema-memory",
@@ -210,6 +218,10 @@ function packageDeclaresFeature(pkg: CargoPackage | undefined, feature: string):
   return pkg !== undefined && Object.hasOwn(pkg.features, feature);
 }
 
+function isProductionOrBuildDependency(dependency: CargoDependency): boolean {
+  return dependency.kind !== "dev";
+}
+
 function directlyEnablesFeature(
   pkg: CargoPackage | undefined,
   dependencyName: string,
@@ -217,6 +229,7 @@ function directlyEnablesFeature(
 ): boolean {
   return pkg?.dependencies.some(
     (dependency) =>
+      isProductionOrBuildDependency(dependency) &&
       dependency.name === dependencyName && dependency.features.includes(feature),
   ) ?? false;
 }
@@ -265,6 +278,7 @@ function localFeatureForwardsDependencyFeature(
       const dependency = dependenciesByManifestName.get(alias);
       return (
         dependency?.name === dependencyName &&
+        isProductionOrBuildDependency(dependency) &&
         activation.slice(separator + 1) === feature
       );
     }
@@ -327,21 +341,30 @@ function validateInternalFeatureActivation(
   }
 
   if (COMPOSITION_FEATURES.has(featureKey)) {
-    if (source.name !== "noema-host") {
+    if (
+      isProductionOrBuildDependency(dependency) &&
+      source.name !== "noema-host"
+    ) {
       errors.add(`${source.name} may not enable implementation feature ${featureKey}`);
     }
     return;
   }
 
   if (featureKey === "noema-providers/local-model-evals") {
-    if (source.name !== "noema-model-evals") {
+    if (
+      source.name !== "noema-model-evals" ||
+      !isProductionOrBuildDependency(dependency)
+    ) {
       errors.add(`${source.name} may not enable evaluation feature ${featureKey}`);
     }
     return;
   }
 
   if (featureKey === "noema-runtime/eval-support") {
-    if (source.name !== "noema-model-evals") {
+    if (
+      source.name !== "noema-model-evals" ||
+      !isProductionOrBuildDependency(dependency)
+    ) {
       errors.add(`${source.name} may not enable evaluation feature ${featureKey}`);
     }
     return;
@@ -364,7 +387,10 @@ function validateInternalFeatureActivation(
   }
 
   if (featureKey === "noema-host/composition") {
-    if (source.name !== "noema-server" && source.name !== "noema-desktop") {
+    if (
+      !isProductionOrBuildDependency(dependency) ||
+      (source.name !== "noema-server" && source.name !== "noema-desktop")
+    ) {
       errors.add(`${source.name} may not enable shell feature ${featureKey}`);
     }
     return;
@@ -432,7 +458,7 @@ export function validateMetadata(metadata: CargoMetadata): string[] {
     }
     if (
       EMPTY_DEFAULT_FEATURE_PACKAGES.has(pkg.name) &&
-      (pkg.features.default?.length ?? 0) > 0
+      (pkg.features.default === undefined || pkg.features.default.length > 0)
     ) {
       errors.add(`${pkg.name} must declare an empty default feature`);
     }
@@ -448,7 +474,10 @@ export function validateMetadata(metadata: CargoMetadata): string[] {
         );
       } else if (isNoemaPackage(dependencyName)) {
         const allowed = TARGET_DEPENDENCIES.get(pkg.name);
-        if (!allowed?.has(dependencyName)) {
+        if (
+          isProductionOrBuildDependency(dependency) &&
+          !allowed?.has(dependencyName)
+        ) {
           errors.add(`${pkg.name} -> ${dependencyName} is not an allowed direct edge`);
         }
       }
@@ -479,6 +508,7 @@ export function validateMetadata(metadata: CargoMetadata): string[] {
 
       if (
         pkg.name === "noema-host" &&
+        isProductionOrBuildDependency(dependency) &&
         dependency.features.some((feature) =>
           COMPOSITION_FEATURES.has(`${dependencyName}/${feature}`),
         )
@@ -494,7 +524,13 @@ export function validateMetadata(metadata: CargoMetadata): string[] {
     }
 
     for (const { dependency, feature } of forwardedDependencyFeatures(pkg)) {
-      validateInternalFeatureActivation(pkg, dependency, feature, errors);
+      if (!isProductionOrBuildDependency(dependency)) {
+        errors.add(
+          `${pkg.name} may not forward features through dev-dependency ${dependency.name}`,
+        );
+      } else {
+        validateInternalFeatureActivation(pkg, dependency, feature, errors);
+      }
     }
   }
 

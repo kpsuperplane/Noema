@@ -49,6 +49,30 @@ serde v1.0.0
     );
   });
 
+  test("keeps the workspace contract tree isolated from backends", () => {
+    const clean = `
+noema-workspaces v0.1.0
+serde v1.0.0
+thiserror v2.0.0
+`;
+    expect(
+      validateFocusedTree(focusedPolicy("noema-workspaces"), clean),
+    ).toEqual([]);
+
+    const leaked = `${clean}
+rmcp v0.8.0
+reqwest v0.12.0
+rusqlite v0.38.0
+`;
+    expect(
+      validateFocusedTree(focusedPolicy("noema-workspaces"), leaked),
+    ).toEqual([
+      "noema-workspaces contract-only tree contains forbidden package reqwest",
+      "noema-workspaces contract-only tree contains forbidden package rmcp",
+      "noema-workspaces contract-only tree contains forbidden package rusqlite",
+    ]);
+  });
+
   test("rejects hosted and local provider implementation leakage", () => {
     const output = `
 noema-providers v0.1.0
@@ -141,8 +165,12 @@ reqwest v0.12.0
   });
 
   test("requires every final target package", () => {
-    expect(validateTargetPackagePresence(new Set(["noema-home"]))).toContain(
+    const errors = validateTargetPackagePresence(new Set(["noema-home"]));
+    expect(errors).toContain(
       "workspace is missing target package: noema-runtime",
+    );
+    expect(errors).toContain(
+      "workspace is missing target package: noema-workspaces",
     );
   });
 

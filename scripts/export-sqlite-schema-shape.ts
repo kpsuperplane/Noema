@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 const SCHEMA_SOURCE = "crates/noema-store/src/schema.rs";
 
@@ -11,13 +11,64 @@ type SchemaEntry = {
   sql: string;
 };
 
-export function extractStoreSchemaSql(source: string): string {
-  const match =
-    /pub const STORE_SCHEMA_SQL:\s*&str\s*=\s*r#"([\s\S]*?)"#;/.exec(source);
+export function extractStoreSchemaSql(
+  source: string,
+  sourcePath: string = SCHEMA_SOURCE,
+): string {
+  const match = /pub const STORE_SCHEMA_SQL:\s*&str\s*=\s*concat!\(([\s\S]*?)\)\s*;/.exec(
+    source,
+  );
   if (!match) {
-    throw new Error("STORE_SCHEMA_SQL raw string was not found in the schema source");
+    throw new Error(
+      "STORE_SCHEMA_SQL concat! include_str! declaration was not found in the schema source",
+    );
   }
-  return match[1];
+
+  const includePattern = /include_str!\(\s*"([^"\r\n]*)"\s*\)/g;
+  const includes = [...match[1].matchAll(includePattern)];
+  const remainder = match[1]
+    .replace(includePattern, "")
+    .replace(/[\s,]/g, "");
+  if (includes.length === 0 || remainder.length > 0) {
+    throw new Error(
+      "STORE_SCHEMA_SQL must concatenate only include_str! paths in the schema source",
+    );
+  }
+
+  const schemaPath = resolve(sourcePath);
+  const schemaDirectory = dirname(schemaPath);
+  return includes
+    .map((include) => {
+      const includePath = include[1];
+      if (
+        includePath.includes("\0") ||
+        isAbsolute(includePath) ||
+        includePath.startsWith("\\") ||
+        /^[A-Za-z]:[\\/]/.test(includePath)
+      ) {
+        throw new Error(
+          `STORE_SCHEMA_SQL include_str! path must be relative to schema.rs: ${includePath}`,
+        );
+      }
+      const resolvedPath = resolve(schemaDirectory, includePath);
+      const relativePath = relative(schemaDirectory, resolvedPath);
+      if (
+        relativePath === ".." ||
+        relativePath.startsWith(`..${sep}`) ||
+        isAbsolute(relativePath)
+      ) {
+        throw new Error(
+          `STORE_SCHEMA_SQL include_str! path escapes the schema directory: ${includePath}`,
+        );
+      }
+      if (!existsSync(resolvedPath)) {
+        throw new Error(
+          `STORE_SCHEMA_SQL include_str! file does not exist: ${resolvedPath}`,
+        );
+      }
+      return readFileSync(resolvedPath, "utf8");
+    })
+    .join("");
 }
 
 function normalizeSql(sql: string): string {
@@ -151,7 +202,7 @@ if (import.meta.main) {
   try {
     const args = Bun.argv.slice(2);
     const sourcePath = schemaSourcePath(argumentValue(args, "--schema-source"));
-    const schemaSql = extractStoreSchemaSql(readFileSync(sourcePath, "utf8"));
+    const schemaSql = extractStoreSchemaSql(readFileSync(sourcePath, "utf8"), sourcePath);
     const shape = canonicalSqliteSchemaShape(schemaSql);
     const sqlOutput = argumentValue(args, "--sql-output");
     if (sqlOutput) {

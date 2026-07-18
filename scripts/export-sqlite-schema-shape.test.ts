@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 
 import {
   canonicalSqliteSchemaShape,
@@ -13,18 +15,30 @@ describe("SQLite schema-shape export", () => {
     );
   });
 
-  test("extracts the bootstrap raw string from Rust source", () => {
-    expect(
-      extractStoreSchemaSql(
-        'pub const STORE_SCHEMA_SQL: &str = r#"CREATE TABLE things (id TEXT);"#;',
-      ),
-    ).toBe("CREATE TABLE things (id TEXT);");
+  test("extracts the bootstrap SQL from Rust include_str! sources", () => {
+    const sourcePath = schemaSourcePath(undefined);
+    const source = readFileSync(sourcePath, "utf8");
+    const schemaDirectory = dirname(sourcePath);
+    expect(extractStoreSchemaSql(source, sourcePath)).toBe(
+      readFileSync(resolve(schemaDirectory, "schema/base.sql"), "utf8") +
+        readFileSync(resolve(schemaDirectory, "schema/work_v3.sql"), "utf8"),
+    );
   });
 
-  test("rejects a schema source without the bootstrap constant", () => {
+  test("rejects a schema source without the canonical include declaration", () => {
     expect(() => extractStoreSchemaSql("const OTHER: &str = \"\";")).toThrow(
-      "STORE_SCHEMA_SQL raw string was not found",
+      "STORE_SCHEMA_SQL concat! include_str! declaration was not found",
     );
+  });
+
+  test("rejects include paths that escape the schema directory", () => {
+    const sourcePath = schemaSourcePath(undefined);
+    expect(() =>
+      extractStoreSchemaSql(
+        'pub const STORE_SCHEMA_SQL: &str = concat!(include_str!("../Cargo.toml"));',
+        sourcePath,
+      ),
+    ).toThrow("STORE_SCHEMA_SQL include_str! path escapes the schema directory");
   });
 
   test("ignores bootstrap data and insignificant SQL whitespace", () => {
