@@ -1,4 +1,81 @@
+export type TaskStatus =
+  | "queued"
+  | "executing"
+  | "reviewing"
+  | "revision_requested"
+  | "waiting_for_human"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type TaskComplexity = "simple" | "medium" | "difficult";
+
 export type TaskRunRole = "planner" | "executor" | "reviewer";
+
+export type TaskRunStatus =
+  | "queued"
+  | "leased"
+  | "running"
+  | "completed"
+  | "waiting_for_approval"
+  | "interrupted"
+  | "failed"
+  | "cancelled";
+
+export type TaskCriterionVerdict = "pending" | "pass" | "fail" | "uncertain";
+
+export type TaskReviewVerdict = "approve" | "request_changes" | "needs_human";
+
+export type TaskModelSnapshot = {
+  providerDisplayName?: string | null;
+  modelProfile: string;
+  modelLabel?: string | null;
+  reasoningEffort?: string | null;
+  inherited?: boolean;
+};
+
+export type TaskCriterion = {
+  id: string;
+  position: number;
+  text: string;
+  expectedEvidence?: string | null;
+  verdict?: TaskCriterionVerdict | null;
+  evidence?: string | null;
+};
+
+export type TaskToolActivity = {
+  id: string;
+  title: string;
+  summary?: string | null;
+  status?: "running" | "completed" | "failed" | null;
+  occurredAt?: string | null;
+};
+
+export type TaskSubmission = {
+  id: string;
+  revision?: number | null;
+  summary?: string | null;
+  result?: string | null;
+  evidence?: string | null;
+  artifacts?: readonly TaskArtifact[];
+  createdAt?: string | null;
+};
+
+export type TaskCriterionReview = {
+  criterionId: string;
+  verdict: Exclude<TaskCriterionVerdict, "pending">;
+  feedback?: string | null;
+  evidence?: string | null;
+};
+
+export type TaskReview = {
+  id: string;
+  reviewerRunId?: string | null;
+  verdict: TaskReviewVerdict;
+  summary?: string | null;
+  criteria: readonly TaskCriterionReview[];
+  createdAt?: string | null;
+};
 
 export type TaskRunItem = {
   id: string;
@@ -18,4 +95,84 @@ export type TaskRunItem = {
   responseIndex?: number | null;
   occurredAt?: string | null;
   updatedAt?: string | null;
+};
+
+export type TaskRun = {
+  id: string;
+  role: TaskRunRole;
+  status: TaskRunStatus;
+  revision?: number | null;
+  attemptIndex: number;
+  isLatest?: boolean;
+  model?: TaskModelSnapshot | null;
+  output?: string | null;
+  error?: string | null;
+  toolActivities?: readonly TaskToolActivity[];
+  items?: readonly TaskRunItem[];
+  providerCallCount?: number | null;
+  toolCallCount?: number | null;
+  inputTokens?: number | null;
+  cachedInputTokens?: number | null;
+  outputTokens?: number | null;
+  activeMilliseconds?: number | null;
+  executionPolicy?: {
+    maxProviderContinuations: number;
+    maxToolCalls: number;
+    maxActiveMinutes: number;
+    progressAuditInterval: number;
+  } | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
+export type TaskRevision = {
+  revision: number;
+  executors: readonly TaskRun[];
+  submission?: TaskSubmission | null;
+  reviewers: readonly TaskRun[];
+  review?: TaskReview | null;
+  latestRunId?: string | null;
+};
+
+export type TaskArtifact = {
+  id: string;
+  title: string;
+  kind?: string | null;
+  mediaType?: string | null;
+  href?: string | null;
+};
+
+export type TaskFinalResult = {
+  summary?: string | null;
+  body?: string | null;
+  approvedAt?: string | null;
+};
+
+export type TaskDetail = {
+  taskId: string;
+  title: string;
+  status: TaskStatus;
+  complexity: TaskComplexity;
+  request: string;
+  criteria: readonly TaskCriterion[];
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  createdBy?: string | null;
+  sourceLabel?: string | null;
+  currentRevision?: number | null;
+  maxReviewRounds?: number | null;
+  executorModel?: TaskModelSnapshot | null;
+  reviewerModel?: TaskModelSnapshot | null;
+  reviewerModelInherited?: boolean;
+  revisions: readonly TaskRevision[];
+  finalResult?: TaskFinalResult | null;
+  artifacts?: readonly TaskArtifact[];
+  failureReason?: string | null;
+  canCancel?: boolean;
+  canResume?: boolean;
+  blockingQuestion?: string | null;
+  attention?: { title: string; summary: string; context?: string | null } | null;
+  messages?: readonly { id: string; author: string; body: string; createdAt: string }[];
 };

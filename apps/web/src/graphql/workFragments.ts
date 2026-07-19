@@ -234,23 +234,11 @@ export const WorkPolicyFields = gql`
 
 export const WorkContractFields = gql`
   fragment WorkContractFields on TaskExecutionContract {
-    contractId
-    version
-    taskGeneration
-    supersedesContractId
-    origin
     requestMarkdown
-    executionPlanMarkdown
     criteria { criterionId ordinal description expectedEvidence }
     complexity
-    executorModel { ...WorkModelFields }
-    reviewerModel { ...WorkModelFields }
     executionPolicy { ...WorkPolicyFields }
-    workspaceContext { workspaceId name description }
-    projectContext { projectId name description }
-    createdAt
   }
-  ${WorkModelFields}
   ${WorkPolicyFields}
 `;
 

@@ -5,17 +5,12 @@ import { WorkEventsDocument } from "@/generated/graphql";
 import type { WorkSearch, WorkView } from "./workTypes";
 import { CaptureTaskDialog } from "./CaptureTaskDialog";
 import { ProjectManagerDialog } from "./ProjectManagerDialog";
-import { WorkActivity } from "./WorkActivity";
-import { WorkBoard } from "./WorkBoard";
-import { WorkCompleted } from "./WorkCompleted";
-import { WorkHeader } from "./WorkHeader";
-import { WorkList } from "./WorkList";
-import { WorkNeedsYou } from "./WorkNeedsYou";
+import { WorkToolbar } from "./WorkToolbar";
+import { WorkActivity, WorkBoard, WorkCompleted, WorkList, WorkNeedsYou } from "./WorkViews";
 import { useWorkEventCursor } from "./workEventCursor";
 import { PERSONAL_WORKSPACE_ID } from "./workTypes";
 import { useAllWorkProjects } from "./useAllWorkProjects";
 import { useWorkEventInvalidation } from "./useWorkEventInvalidation";
-import { WorkRefreshError } from "./WorkRefreshError";
 
 export function WorkSurface({ search, onSearchChange }: { search: WorkSearch; onSearchChange: (next: WorkSearch, replace?: boolean) => void }) {
   const client = useApolloClient();
@@ -27,7 +22,6 @@ export function WorkSurface({ search, onSearchChange }: { search: WorkSearch; on
   const queryDraft = queryDraftState.source === search.q ? queryDraftState.value : search.q ?? "";
   const setQueryDraft = React.useCallback((value: string) => setQueryDraftState({ source: search.q, value }), [search.q]);
   const [eventCursor, recordEventCursor] = useWorkEventCursor(PERSONAL_WORKSPACE_ID);
-  const focusPanelRef = React.useRef(false);
   const seenEventIdsRef = React.useRef(new Set<string>());
   const scheduleInvalidation = useWorkEventInvalidation({
     client,
@@ -42,12 +36,6 @@ export function WorkSurface({ search, onSearchChange }: { search: WorkSearch; on
     }, 250);
     return () => window.clearTimeout(timeout);
   }, [onSearchChange, queryDraft, search]);
-  React.useEffect(() => {
-    if (!focusPanelRef.current) return;
-    focusPanelRef.current = false;
-    document.getElementById(`work-panel-${search.view}`)?.focus({ preventScroll: true });
-  }, [search.view]);
-
   const subscription = useSubscription(WorkEventsDocument, {
     variables: { workspaceId: PERSONAL_WORKSPACE_ID, after: eventCursor },
     onData: ({ data }) => {
@@ -70,15 +58,12 @@ export function WorkSurface({ search, onSearchChange }: { search: WorkSearch; on
     ]);
   }, [client, projectsResult]);
 
-  const setView = (view: WorkView, keyboard: boolean) => {
-    focusPanelRef.current = keyboard;
-    onSearchChange({ ...search, view });
-  };
+  const setView = (view: WorkView) => onSearchChange({ ...search, view });
   const hasNotice = Boolean(subscription.error || projectsResult.error);
 
   return (
     <section aria-labelledby="work-page-title" {...stylex.props(styles.surface, hasNotice && styles.surfaceWithNotice)}>
-      <WorkHeader
+      <WorkToolbar
         view={search.view}
         projectId={search.project}
         query={queryDraft}
@@ -91,14 +76,14 @@ export function WorkSurface({ search, onSearchChange }: { search: WorkSearch; on
       />
       {hasNotice ? <div {...stylex.props(styles.notices)}>
         <span aria-live="polite" {...stylex.props(styles.live)}>{subscription.error ? "Updating Work. Reconnecting." : ""}</span>
-        {projectsResult.error ? <WorkRefreshError message="Some project information could not refresh." onRetry={() => void projectsResult.retry()} /> : null}
+        {projectsResult.error ? <button type="button" {...stylex.props(styles.refresh)} onClick={() => void projectsResult.retry()}>Project information could not refresh. Retry</button> : null}
       </div> : null}
       <main id={`work-panel-${search.view}`} role="tabpanel" tabIndex={-1} aria-label={`${search.view} view`} {...stylex.props(styles.panel)}>
-        {search.view === "board" ? <WorkBoard projectId={search.project} projects={projects} onNewTask={() => setCaptureOpen(true)} /> : null}
-        {search.view === "list" ? <WorkList projectId={search.project} query={search.q} projects={projects} onClearFilters={() => onSearchChange({ view: "list" })} /> : null}
-        {search.view === "needs-you" ? <WorkNeedsYou projectId={search.project} projects={projects} /> : null}
+        {search.view === "board" ? <WorkBoard projectId={search.project} onNewTask={() => setCaptureOpen(true)} /> : null}
+        {search.view === "list" ? <WorkList projectId={search.project} query={search.q} onClearFilters={() => onSearchChange({ view: "list" })} /> : null}
+        {search.view === "needs-you" ? <WorkNeedsYou projectId={search.project} /> : null}
         {search.view === "activity" ? <WorkActivity projectId={search.project} /> : null}
-        {search.view === "completed" ? <WorkCompleted projectId={search.project} query={search.q} terminal={search.terminal ?? "all"} projects={projects} onTerminalChange={(terminal) => onSearchChange({ ...search, terminal })} /> : null}
+        {search.view === "completed" ? <WorkCompleted projectId={search.project} query={search.q} terminal={search.terminal ?? "all"} onTerminalChange={(terminal) => onSearchChange({ ...search, terminal })} /> : null}
       </main>
       <CaptureTaskDialog key={`${search.project ?? "all"}:${captureOpen ? "open" : "closed"}`} open={captureOpen} projects={projects} initialProjectId={search.project} onOpenChange={setCaptureOpen} onCreated={refresh} />
       <ProjectManagerDialog open={projectsOpen} projects={projects} onOpenChange={setProjectsOpen} onUpdated={refresh} />
@@ -107,9 +92,10 @@ export function WorkSurface({ search, onSearchChange }: { search: WorkSearch; on
 }
 
 const styles = stylex.create({
-  surface: { display: "grid", gridTemplateRows: "auto minmax(0, 1fr)", gap: 16, height: "100%", minHeight: 0, paddingBlock: 18, paddingInline: 20, "@media (max-width: 760px)": { paddingInline: 14, paddingBottom: "max(14px, env(safe-area-inset-bottom))" } },
+  surface: { display: "grid", gridTemplateRows: "auto minmax(0, 1fr)", height: "100%", minHeight: 0, overflow: "hidden", backgroundColor: "var(--noema-surface-card)" },
   surfaceWithNotice: { gridTemplateRows: "auto auto minmax(0, 1fr)" },
-  panel: { minHeight: 0, outline: "none", overflow: "hidden" },
-  notices: { display: "grid", gap: 6, ":empty": { display: "none" } },
-  live: { justifySelf: "end", borderRadius: 999, backgroundColor: "var(--paper-100)", paddingBlock: 4, paddingInline: 8, color: "var(--muted-foreground)", fontSize: 11, ":empty": { display: "none" } }
+  panel: { minHeight: 0, outline: "none", overflowY: "auto", overflowX: "hidden", scrollbarWidth: "thin" },
+  notices: { display: "grid", gap: 4, paddingInline: 12, ":empty": { display: "none" } },
+  live: { justifySelf: "end", paddingBlock: 3, color: "var(--noema-text-muted)", fontSize: 10, ":empty": { display: "none" } },
+  refresh: { justifySelf: "start", borderWidth: 0, backgroundColor: "transparent", padding: 0, color: "var(--noema-clay-700)", font: "inherit", fontSize: 11, textDecoration: "underline", cursor: "pointer" }
 });

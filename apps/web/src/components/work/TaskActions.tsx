@@ -24,6 +24,8 @@ export function TaskActions({ task, validActions, projects = [], compact = false
   }, [onUpdated]);
   const commands = useTaskCommands({ task: commandTask, onUpdated: refresh });
   const activeAction = activeCommand?.action ?? null;
+  const primaryAction = validActions[0] ?? null;
+  const secondaryActions = validActions.slice(1);
   const liveSubjectChanged = activeCommand ? taskSubjectChanged(activeCommand.subject, task) : false;
   const requiresAcknowledgement = liveSubjectChanged || commands.requiresAcknowledgement;
   const actionUnavailable = Boolean(activeAction && !validActions.includes(activeAction));
@@ -56,8 +58,45 @@ export function TaskActions({ task, validActions, projects = [], compact = false
   if (validActions.length === 0 && !activeCommand) return null;
   return (
     <div {...stylex.props(styles.frame)}>
-      <div aria-label="Task actions" {...stylex.props(styles.actions)}>
-        {validActions.map((action, index) => <Button key={action} type="button" size="sm" variant={action === "CANCEL" ? "destructive" : index === 0 ? "primary" : "secondary"} label={taskActionLabel(action, compact)} isDisabled={commands.busy !== null || editLoad.loading} onClick={(event) => { event.stopPropagation(); void openAction(action); }} />)}
+      <div aria-label="Task actions" {...stylex.props(styles.actions, compact && styles.compactActions)}>
+        {primaryAction ? (
+          <Button
+            type="button"
+            size="sm"
+            variant={primaryAction === "CANCEL" ? "destructive" : "primary"}
+            label={taskActionLabel(primaryAction, compact)}
+            isDisabled={commands.busy !== null || editLoad.loading}
+            onClick={(event) => { event.stopPropagation(); void openAction(primaryAction); }}
+          />
+        ) : null}
+        {compact && secondaryActions.length ? (
+          <details {...stylex.props(styles.more)}>
+            <summary {...stylex.props(styles.moreSummary)} onClick={(event) => event.stopPropagation()}>More</summary>
+            <div {...stylex.props(styles.moreMenu)}>
+              {secondaryActions.map((action) => (
+                <Button
+                  key={action}
+                  type="button"
+                  size="sm"
+                  variant={action === "CANCEL" ? "destructive" : "ghost"}
+                  label={taskActionLabel(action, false)}
+                  isDisabled={commands.busy !== null || editLoad.loading}
+                  onClick={(event) => { event.stopPropagation(); void openAction(action); }}
+                />
+              ))}
+            </div>
+          </details>
+        ) : secondaryActions.map((action) => (
+          <Button
+            key={action}
+            type="button"
+            size="sm"
+            variant={action === "CANCEL" ? "destructive" : "secondary"}
+            label={taskActionLabel(action, false)}
+            isDisabled={commands.busy !== null || editLoad.loading}
+            onClick={(event) => { event.stopPropagation(); void openAction(action); }}
+          />
+        ))}
       </div>
       <span aria-live="polite" {...stylex.props(styles.srOnly)}>{commands.notice}</span>
       {editLoadError ? <span role="alert" {...stylex.props(styles.loadError)}>{editLoadError}</span> : null}
@@ -86,6 +125,10 @@ export function TaskActions({ task, validActions, projects = [], compact = false
 const styles = stylex.create({
   frame: { display: "grid", gap: 6 },
   actions: { display: "flex", flexWrap: "wrap", gap: 6 },
+  compactActions: { gap: 4 },
+  more: { position: "relative" },
+  moreSummary: { minHeight: 30, display: "inline-flex", alignItems: "center", borderRadius: 6, paddingInline: 8, color: "var(--noema-text-secondary)", fontSize: 11, fontWeight: 650, cursor: "pointer", listStyle: "none", ":hover": { backgroundColor: "var(--noema-surface-hover)" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
+  moreMenu: { position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 3, display: "grid", minWidth: 144, gap: 2, borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 7, backgroundColor: "var(--noema-surface-card)", padding: 4, boxShadow: "0 8px 24px color-mix(in srgb, var(--noema-text-primary) 12%, transparent)" },
   srOnly: { position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" },
   loadError: { color: "var(--destructive)", fontSize: 11 }
 });

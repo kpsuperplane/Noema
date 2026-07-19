@@ -7,7 +7,7 @@ import {
   type ArtifactDetail
 } from "./ArtifactDetailPanel";
 import type { ChatDetailTarget } from "./chatDetailTypes";
-import { WorkTaskDetailContainer } from "@/components/work/detail/WorkTaskDetailContainer";
+import { TaskDetailQueryPanel } from "./task/TaskDetailQueryPanel";
 import { ArtifactVersionSelector } from "./ArtifactVersionSelector";
 import { ChatDetailCloseButton } from "./ChatDetailCloseButton";
 import { normalizeWorkSearch } from "@/components/work/workTypes";
@@ -17,13 +17,15 @@ export function ChatDetailRail({
   motionState,
   onChangeVersion,
   onClose,
-  onMotionEnd
+  onMotionEnd,
+  showWorkLink = true
 }: {
   target: ChatDetailTarget;
   motionState: "opening" | "entering" | "open" | "exiting";
   onChangeVersion: (version: string) => void;
   onClose: () => void;
   onMotionEnd: () => void;
+  showWorkLink?: boolean;
 }) {
   const railRef = React.useRef<HTMLElement>(null);
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
@@ -144,7 +146,7 @@ export function ChatDetailRail({
             <div {...stylex.props(styles.taskTitleRow)}>
               <h2 {...stylex.props(styles.title)}>{title}</h2>
               <div {...stylex.props(styles.actions)}>
-                <Link to="/work/tasks/$taskId" params={{ taskId: target.taskId }} search={(current) => normalizeWorkSearch(current)} {...stylex.props(styles.workLink)}>Open in Work</Link>
+                {showWorkLink ? <Link to="/work/tasks/$taskId" params={{ taskId: target.taskId }} search={(current) => normalizeWorkSearch(current)} {...stylex.props(styles.workLink)}>Open in Work</Link> : null}
                 <ChatDetailCloseButton closeButtonRef={closeButtonRef} onClose={onClose} />
               </div>
             </div>
@@ -171,8 +173,7 @@ export function ChatDetailRail({
           {target.type === "artifact" ? (
             <ArtifactDetailPanel version={target.version} onDetailChange={updateArtifactDetail} />
           ) : (
-            <WorkTaskDetailContainer
-              compact
+            <TaskDetailQueryPanel
               onTitleChange={handleTaskTitleChange}
               taskId={target.taskId}
             />

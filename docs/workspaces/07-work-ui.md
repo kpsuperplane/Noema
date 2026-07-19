@@ -71,9 +71,10 @@ queries after subscription readiness.
 
 ## Work shell
 
-The Work header contains:
+The Work surface has one compact toolbar containing:
 
-- a page title and the tab list: Board, List, Needs You, Activity, Completed;
+- an accessible page title and the tab list: Board, List, Needs You, Activity,
+  Completed;
 - project filter with **All work**, active projects, and an explicit archived
   choice only where historic work is being viewed;
 - search on List and Completed, with debounce reflected in the route;
@@ -88,8 +89,8 @@ tasks remain reachable through direct links and project filtering.
 
 The tab bar is a semantic tablist with route-backed selected state. Board,
 List, Needs You, Activity, and Completed panels are labelled regions, not five
-independent page shells. A tab change focuses its panel heading only when
-keyboard-initiated; pointer navigation preserves reading position.
+independent page shells. Arrow, Home, and End keys use roving tab focus; Tab
+then enters the selected view.
 
 ## Board
 
@@ -111,34 +112,20 @@ control where its TaskConnection has a next page. On a narrow viewport the
 columns become horizontally scrollable labelled sections; they do not become
 drag targets.
 
-Each card shows:
-
-- task title and optional project label;
-- stage label, elapsed age, and last-update time;
-- a nullable current-run chip;
-- attention badge(s) with text, icon, and non-color cue;
-- only server-returned semantic action buttons.
-
-| Stage | Typical valid controls |
-| --- | --- |
-| Inbox | Queue, edit title/description/project, Cancel |
-| Queue | Cancel |
-| Doing | Cancel |
-| Waiting | Answer, Retry where allowed, Cancel |
-| Review | Accept, Request Changes, Cancel |
-
-The table is explanatory only. The card consumes validActions, so a recovery
-gate or future policy change cannot leave a stale control on screen. There is
-no drag-and-drop, generic move action, or direct edit outside Inbox.
+Each card shows the task title, one compact context line (attention, current run,
+or project), and relative update time. The lane already communicates stage, so
+cards do not repeat it. Descriptions, evidence, metadata grids, and action walls
+do not appear on the board; opening the card reveals the shared detail rail and
+its server-returned semantic actions. There is no drag-and-drop, generic move
+action, or direct edit outside Inbox.
 
 ## List
 
 List is a dense representation of the same workTasks query, not a separate
 task source. It supports text search, project, stage behavior, attention-only,
-and active/terminal scope filters. Rows have title, project, stage, current
-run, attention, updated time, and a compact action menu. Screen readers get
-the same row content through a semantic table on wide screens and labelled
-list items on narrow screens.
+and active/terminal scope filters. Rows have title, optional attention note,
+project, stage, and updated time. Commands stay in detail. Narrow rows retain
+project and stage as compact metadata rather than dropping the context.
 
 Search has a 250 ms debounce, resets pagination when its normalized value
 changes, and writes q to the route only after the input settles. An empty
@@ -146,72 +133,50 @@ filter result says which filters are active and provides **Clear filters**.
 
 ## Needs You
 
-Needs You is an action queue derived from needsYou, never a manually maintained
-client inbox. It groups TaskAttention by:
-
-1. Clarification
-2. Approval
-3. Recovery
-4. Ready for acceptance
-
-Each item names the task, optional project, concise safe reason, age, and
-primary action. Clarification opens an answer form bound to the exact gate id.
-Approval opens the existing approval interaction for the named gate, which
-returns a structured Approved/Declined decision and non-empty message; it does
-not render a new capability-policy UI. Recovery renders Answer/Retry only when
-the server includes them in `validActions`; an invariant gate with no safe
-continuation directs the user to detail and Cancel. Review Ready offers Accept
-and Request Changes, with the review evidence available in the shared task
-detail.
-
-Answer and Request Changes use modal or inline forms that retain typed text on
-a stale revision error. A successful mutation moves focus to the updated item
-or its group heading; if the item leaves Needs You, focus returns to the next
-item, then the group heading, then the page heading. This prevents a keyboard
-user from losing their place when an action removes a row.
+Needs You is a single dense priority queue derived from `needsYou`, never a
+manually maintained client inbox. Each row names the attention kind, task,
+concise safe reason, project, age, and required action. Opening a row preserves
+the queue behind the shared detail rail, where Answer, Retry, Accept, Request
+Changes, or Cancel is rendered only when the server includes it in
+`validActions`. This keeps exact gate/revision checks and typed drafts in one
+interaction instead of duplicating command forms across the queue.
 
 ## Activity and Completed
 
-Activity displays workActivity as a cursor-paginated timeline. Each entry uses
-the stable event kind to render a compact sentence, timestamp, linked
-task/project, and optional run role. Raw JSON remains hidden behind an advanced
-inspection disclosure on task detail; it is not shown in the everyday
-timeline. **Load more activity** follows the global event cursor and preserves
-the reader's scroll anchor.
+Activity displays `workActivity` as a cursor-paginated timeline. Each entry uses
+the stable event kind to render a compact sentence, timestamp, and linked task.
+Raw JSON is not shown in the everyday UI. **Load more** follows the global event
+cursor.
 
-Completed displays completedTasks with a Completed/Cancelled filter, project
-filter, search, completion date, accepted-result summary when available, and
-Reopen. Reopen is a semantic action that begins a new Inbox cycle and keeps all
-historic contracts/runs/reviews visible; the UI must not suggest that it
-resumes a cancelled worker.
+Completed displays `completedTasks` with a Completed/Cancelled filter, project
+filter, search, project, stage, and completion date. Opening a row exposes the
+accepted result and Reopen action in detail. Reopen begins a new Inbox cycle
+and keeps historic runs/reviews visible; the UI must not suggest that it resumes
+a cancelled worker.
 
 ## Task detail
 
-The existing chat task rail is split into reusable primitives and a
-GraphQL-backed Work detail container. Both consume the same TaskDetail, cursor
-hooks, live run mapper, transcript renderer, and semantic action components.
-The new implementation removes current UI assumptions that task status is an
-execution phase.
+Work extends the pre-existing chat task rail instead of introducing a second
+detail system. Chat and `/work/tasks/$taskId` render the same query adapter,
+compact status/section primitives, run conversation view, transcript renderer,
+and semantic action component. At 980 px and wider, Work context remains
+visible beside a 440 px rail; below that breakpoint, detail becomes a full
+surface.
 
-Task detail contains these ordered sections:
+Detail uses progressive disclosure in this order:
 
-1. **Overview** — title, description, project, single stage, current run,
-   attention, source, age, and valid actions.
-2. **Current contract** — immutable request, optional execution plan, exact
-   criteria, complexity, model and policy snapshots, workspace/project context
-   snapshot.
-3. **Attention and messages** — unresolved/current gate, human answer or
-   change-request history, and resolved gate history.
-4. **Contract revisions** — immutable contract-version list with parent
-   contract and human-amendment links.
-5. **Runs and transcripts** — Planner, Executor, and Reviewer runs with
-   explicit role/status labels, lineage, usage, transcript paging, and safe
-   errors.
-6. **Evidence and review** — submissions, criterion evidence, reviewer
-   outcomes, requested changes, and accepted review.
-7. **Artifacts and result** — linked immutable artifact versions and the
-   accepted result where one exists.
-8. **Activity** — task-filtered work-event timeline.
+1. compact derived status and server-returned semantic actions;
+2. current attention and the original request;
+3. the Planner/Executor/Reviewer timeline, with a selected run opening the
+   existing conversation-style transcript in place;
+4. exact acceptance criteria and current evidence;
+5. proposed or approved result and task artifacts;
+6. durable human/task updates and a safe failure notice where applicable;
+7. low-priority task metadata.
+
+Presentation labels may combine structured stage behavior, current run kind,
+and latest review verdict, but this adapter is not persisted and never becomes
+a second task-state authority.
 
 | Action | Interaction |
 | --- | --- |
@@ -274,7 +239,7 @@ card/detail primitive, and view components.
   region; do not announce every worker transcript event.
 - Preserve focus when a task detail rail opens/closes and when an action moves
   a task between views. Escape closes only the current dialog or rail.
-- Provide keyboard access to every card, action menu, tab, timeline link, and
+- Provide keyboard access to every card, detail action, tab, timeline link, and
   Load more control. Board columns remain navigable without pointer dragging.
 - Respect reduced motion and avoid using animation to conceal a data refresh.
 - On narrow screens, toolbar controls wrap, board columns scroll horizontally

@@ -820,20 +820,18 @@ work-task-active:v1\0<query_hash>\0<updated_at>\0<task_id>
 work-task-terminal:v1\0<query_hash>\0<terminal_at>\0<task_id>
 work-project:v1\0<query_hash>\0<updated_at>\0<project_id>
 work-attention:v1\0<query_hash>\0<attention_at>\0<task_id>\0<attention_kind>
-work-history:<kind>:v1\0<query_hash>\0<created_at>\0<record_id>
 work-run-item:v1\0<query_hash>\0<sequence_index>\0<item_id>
 ```
 
-`terminal_at` is `COALESCE(completed_at, cancelled_at)`. `work-history:<kind>`
-is used independently for contracts, gates, messages, runs, submissions, and
-reviews, so a cursor cannot be replayed against another connection. `query_hash`
-is lowercase SHA-256 over canonical normalized scope/filter arguments excluding
-pagination; reusing a cursor with different filters is `invalid_cursor`.
+`terminal_at` is `COALESCE(completed_at, cancelled_at)`. Detail history is a
+bounded transactional snapshot and does not expose per-family cursors.
+`query_hash` is lowercase SHA-256 over canonical normalized scope/filter
+arguments excluding pagination; reusing a cursor with different filters is
+`invalid_cursor`.
 Queries apply the lexicographic tie-break predicate matching their documented
-sort, fetch `first + 1`, and never use `OFFSET`. Detail-history defaults may be
-20; all other connections default to 50; every connection rejects `first`
-outside 1–100 and a cursor whose family, version, field count, hash, timestamp,
-integer, or ID is noncanonical.
+sort, fetch `first + 1`, and never use `OFFSET`. Public collection connections
+default to 50 and reject `first` outside 1–100 or a cursor whose family,
+version, field count, hash, timestamp, integer, or ID is noncanonical.
 
 ## Reset and bootstrap procedure
 

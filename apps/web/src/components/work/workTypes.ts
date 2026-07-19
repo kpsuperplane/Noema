@@ -19,7 +19,7 @@ export type CompletedWorkTask = WorkCompletedTasksQuery["completedTasks"]["edges
 export type WorkAttention = WorkNeedsYouQuery["needsYou"]["edges"][number]["node"];
 export type WorkEvent = WorkActivityQuery["workActivity"]["edges"][number]["node"];
 export type WorkTaskDetail = NonNullable<WorkTaskDetailQuery["task"]>;
-export type WorkTaskRun = WorkTaskDetail["runs"]["edges"][number]["node"];
+export type WorkTaskRun = WorkTaskDetail["runs"][number];
 export type WorkTaskRunItem = WorkTaskRunItemsQuery["taskRunItems"]["edges"][number]["node"];
 
 export type WorkSearch = {

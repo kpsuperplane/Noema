@@ -314,20 +314,40 @@ The next storage slice should stay small and concrete:
   and submission accept only immutable versions linked to the exact fenced run,
   current generation and contract, executor identity, and artifact role;
   reviewers receive that validated manifest and bounded UTF-8 reads.
-- Task references remain first-class transcript items, but chat and `/work` now
-  consume the same GraphQL task projection. Work exposes bounded overview,
-  board/list, Needs You, activity, completed, project, detail-history, semantic
-  mutation, and cursor subscription contracts. The web shell adds `/work` and
-  `/work/tasks/$taskId`, a compact live Work panel beside chat, reusable task
-  detail rail, independent cursor pagination for contracts, gates/messages,
-  runs, submissions/reviews, artifacts, and activity, plus explicit loading,
-  empty, unavailable, conflict, and command-error states.
-- The Work release gate is green: the complete Rust format, check, strict
-  Clippy, workspace unit-test, crate-boundary, focused dependency-tree, schema
-  decomposition, and closed-world test-inventory checks pass. Generated GraphQL
-  and route artifacts are current, and direct TypeScript, ESLint, web Vite, and
-  desktop Vite builds pass; the frontend was validated without adding or
-  running browser or UI tests.
+- Task references remain first-class transcript items, and chat and `/work`
+  consume the same GraphQL task projection and the original compact task-detail
+  rail. The rejected Work-specific card/action-wall and parallel detail tree
+  were deleted. The rebuilt surface uses sparse 276 px board lanes, dense list
+  and attention rows, a compact activity feed, and one restrained toolbar;
+  Home, Work, and Memory appear in that order. Work exposes bounded overview,
+  board/list, Needs You, activity, completed, project, semantic mutation, and
+  cursor subscription contracts. Task detail is one owner-authorized bounded
+  snapshot of current facts, messages, runs, submissions, reviews, and
+  artifacts; only a selected run's long transcript stays independently
+  cursor-paginated. `/work/tasks/$taskId` retains the collection beside the
+  440 px shared rail on wide screens and becomes a full detail surface on
+  narrow screens. The layout follows the collection-plus-peek and opt-in
+  property patterns documented by Linear, Todoist, Asana, and Notion rather
+  than duplicating task context across cards and detail views. Activity shows
+  user-facing milestones with task identity and a compact terminal-run
+  discriminator while retaining raw worker/outbox events only in the durable
+  ledger and task detail. At mobile widths the closed off-canvas navigation is
+  removed from the accessibility tree and focus order; opening restores the
+  Home/Work/Memory/Settings controls and Escape restores focus to the opener.
+- The Work implementation was consolidated from its original backend diff of
+  `+43,106/-11,908` lines (net `+31,198`) to `+26,700/-11,336` (net `+15,364`).
+  That is 38.06% fewer gross additions and 50.75% fewer net additions; the user
+  accepted that reduction during final wrap-up. All 615 Rust source test
+  declarations remain present. The release gate is green: `cargo fmt --all
+  --check`, workspace check, strict all-target Clippy, and the full workspace
+  unit/doc-test suite pass. Generated GraphQL and route artifacts are current;
+  TypeScript, ESLint, and the production web Vite build pass. The running UI
+  was also inspected at 1440x900 and 390x844 across board, list, Needs You,
+  activity, and shared task-detail routes without adding browser test code. A
+  final Sol-high read-only adversarial review compared the live product with
+  official Linear, Todoist, Asana, Notion, and WAI-ARIA patterns and approved it
+  with zero actionable visual, responsive, density, hierarchy, navigation, or
+  accessibility-visible-structure critiques.
 - Task run transcripts reuse the shared chat `Transcript` renderer and scroller.
   The task adapter maps run items into the common assistant/activity entry model,
   uses an embedded density without mounting a composer, so task conversations

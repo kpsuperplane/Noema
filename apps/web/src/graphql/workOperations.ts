@@ -168,7 +168,10 @@ export const WorkPanelDocument = gql`
     workTasks(input: { workspaceId: $workspaceId, scope: ACTIVE }, first: 8) {
       edges {
         node {
-          ...WorkTaskSummaryFields
+          taskId
+          title
+          stage { name }
+          currentRun { activityLabel }
         }
       }
     }
@@ -176,18 +179,15 @@ export const WorkPanelDocument = gql`
       edges {
         node {
           kind
-          title
           summary
-          validActions
           task {
-            ...WorkTaskCardFields
+            taskId
+            title
           }
         }
       }
     }
   }
-  ${WorkTaskSummaryFields}
-  ${WorkTaskCardFields}
 `;
 
 export const WorkTaskEditFieldsDocument = gql`
@@ -208,30 +208,12 @@ export const WorkTaskDetailDocument = gql`
   query WorkTaskDetail($taskId: String!) {
     task(taskId: $taskId) {
       ...WorkCommandTaskFields
-      workspace {
-        workspaceId
-        name
-        description
-        isPersonal
-        membershipRole
-      }
       project {
         ...WorkProjectFields
       }
-      descriptionPreview
       createdAt
       source {
-        sourceKind
         conversationId
-        turnId
-        itemId
-      }
-      workflow {
-        workflowId
-        name
-        stages {
-          ...WorkStageFields
-        }
       }
       currentContract {
         ...WorkContractFields
@@ -246,87 +228,43 @@ export const WorkTaskDetailDocument = gql`
         ...WorkReviewSummaryFields
       }
       attention {
-        kind
         title
         summary
-        validActions
       }
-      contracts(first: 20) {
-        edges { cursor node { ...WorkContractFields } }
-        pageInfo { ...WorkPageInfoFields }
+      messages {
+        messageId
+        bodyMarkdown
+        author
+        createdAt
       }
-      gates(first: 20) {
-        edges { cursor node { ...WorkGateFields } }
-        pageInfo { ...WorkPageInfoFields }
+      runs {
+        ...WorkRunFields
       }
-      messages(first: 20) {
-        edges {
-          cursor
-          node {
-            messageId
-            taskGeneration
-            kind
-            bodyMarkdown
-            author
-            gateId
-            contractId
-            approvalDecision
-            consumedByRunId
-            consumedAt
-            createdAt
-          }
+      submissions {
+        ...WorkSubmissionFields
+      }
+      reviews {
+        ...WorkReviewFields
+      }
+      artifacts {
+        artifactId
+        title
+        artifactKind
+        currentVersion {
+          externalUrl
+          downloadUrl
+          mediaType
         }
-        pageInfo { ...WorkPageInfoFields }
-      }
-      runs(first: 20) {
-        edges { cursor node { ...WorkRunFields } }
-        pageInfo { ...WorkPageInfoFields }
-      }
-      submissions(first: 20) {
-        edges { cursor node { ...WorkSubmissionFields } }
-        pageInfo { ...WorkPageInfoFields }
-      }
-      reviews(first: 20) {
-        edges { cursor node { ...WorkReviewFields } }
-        pageInfo { ...WorkPageInfoFields }
-      }
-      artifacts(first: 20) {
-        edges {
-          cursor
-          node {
-            artifactId
-            title
-            description
-            artifactKind
-            storageKind
-            currentVersion {
-              artifactVersionId
-              versionIndex
-              externalUrl
-              downloadUrl
-              mediaType
-            }
-          }
-        }
-        pageInfo { ...WorkPageInfoFields }
-      }
-      activity(first: 20) {
-        edges { cursor node { ...WorkEventFields } }
-        pageInfo { ...WorkPageInfoFields }
       }
     }
   }
   ${WorkCommandTaskFields}
   ${WorkProjectFields}
-  ${WorkStageFields}
   ${WorkContractFields}
   ${WorkSubmissionFields}
   ${WorkReviewSummaryFields}
-  ${WorkGateFields}
   ${WorkRunFields}
   ${WorkReviewFields}
-  ${WorkEventFields}
-  ${WorkPageInfoFields}
 `;
 
 export const WorkTaskRunItemsDocument = gql`

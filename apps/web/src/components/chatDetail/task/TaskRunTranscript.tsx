@@ -9,7 +9,7 @@ import {
   taskRunItemsToTranscriptEntries
 } from "./taskRunItemMapper";
 import type { TaskRunItem, TaskRunRole } from "./taskTypes";
-import type { WorkTaskRun } from "@/components/work/workTypes";
+import type { TaskRun } from "./taskTypes";
 
 type RunItemNode = WorkTaskRunItemsQuery["taskRunItems"]["edges"][number]["node"];
 
@@ -17,11 +17,11 @@ export function TaskRunTranscript({
   run,
   liveItems = []
 }: {
-  run: WorkTaskRun;
+  run: TaskRun;
   liveItems?: readonly TaskRunItem[];
 }) {
-  const runId = run.runId;
-  const role = runRole(run);
+  const runId = run.id;
+  const role = run.role;
   const { data, error, loading, fetchMore } = useQuery(WorkTaskRunItemsDocument, {
     fetchPolicy: "cache-and-network",
     variables: { runId, first: 50 }
@@ -112,10 +112,6 @@ export function TaskRunTranscript({
 
 function mapNode(node: RunItemNode, role: TaskRunRole): TaskRunItem {
   return mapTaskRunItem(node, role);
-}
-
-function runRole(run: WorkTaskRun): TaskRunRole {
-  return run.kind.toLowerCase() as TaskRunRole;
 }
 
 function roleLabel(role: TaskRunRole): string {

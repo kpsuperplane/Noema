@@ -370,11 +370,17 @@ const styles = stylex.create({
     width: "var(--shell-sidebar-width)",
     "@media (max-width: 760px)": {
       width: "min(286px, 78vw)",
-      paddingBottom: "max(1rem, env(safe-area-inset-bottom))"
+      paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+      visibility: "hidden",
+      pointerEvents: "none"
     }
   },
   sidebarGroundOpen: {
-    zIndex: 25
+    zIndex: 25,
+    "@media (max-width: 760px)": {
+      visibility: "visible",
+      pointerEvents: "auto"
+    }
   },
   sidebarCollapseButton: {
     position: "absolute",

@@ -2343,7 +2343,7 @@ type ProjectCommandPayload {
 }
 
 """
-Project connection.
+Bounded connection.
 """
 type ProjectConnection {
 	"""
@@ -2357,25 +2357,7 @@ type ProjectConnection {
 }
 
 """
-Bounded project context captured by a contract.
-"""
-type ProjectContextSnapshot {
-	"""
-	Project identity.
-	"""
-	projectId: String!
-	"""
-	Project name.
-	"""
-	name: String!
-	"""
-	Project description.
-	"""
-	description: String!
-}
-
-"""
-Project edge.
+Connection edge.
 """
 type ProjectEdge {
 	"""
@@ -2383,7 +2365,7 @@ type ProjectEdge {
 	"""
 	cursor: String!
 	"""
-	Project node.
+	Connection node.
 	"""
 	node: Project!
 }
@@ -3150,28 +3132,6 @@ type SubscriptionRoot {
 	taskEvents(taskId: String!, after: String): WorkEvent!
 }
 
-type TaskArtifactConnection {
-	"""
-	Ordered history edges.
-	"""
-	edges: [TaskArtifactEdge!]!
-	"""
-	Pagination metadata.
-	"""
-	pageInfo: PageInfo!
-}
-
-type TaskArtifactEdge {
-	"""
-	Opaque history cursor.
-	"""
-	cursor: String!
-	"""
-	History node.
-	"""
-	node: Artifact!
-}
-
 """
 Derived human attention, never persisted as task state.
 """
@@ -3207,7 +3167,7 @@ type TaskAttention {
 }
 
 """
-Derived attention connection.
+Bounded connection.
 """
 type TaskAttentionConnection {
 	"""
@@ -3221,7 +3181,7 @@ type TaskAttentionConnection {
 }
 
 """
-Derived attention edge.
+Connection edge.
 """
 type TaskAttentionEdge {
 	"""
@@ -3229,7 +3189,7 @@ type TaskAttentionEdge {
 	"""
 	cursor: String!
 	"""
-	Attention node.
+	Connection node.
 	"""
 	node: TaskAttention!
 }
@@ -3257,27 +3217,68 @@ enum TaskAttentionKind {
 }
 
 """
-Authoritative task card embedded by a Needs You item.
-
-This deliberately excludes `attention`: the surrounding `TaskAttention`
-already is that projection, so including it again would make the response
-graph recursive while adding no task authority.
+Authoritative task card embedded by a Needs You item. This excludes attention because the surrounding TaskAttention already owns that projection.
 """
 type TaskCard {
+	"""
+	Task identity.
+	"""
 	taskId: String!
+	"""
+	Workspace placement.
+	"""
 	workspace: Workspace!
+	"""
+	Nullable project placement.
+	"""
 	project: Project
+	"""
+	Human title.
+	"""
 	title: String!
+	"""
+	Bounded description preview.
+	"""
 	descriptionPreview: String!
+	"""
+	The only task-level state.
+	"""
 	stage: WorkflowStage!
+	"""
+	Optimistic revision.
+	"""
 	revision: Int!
+	"""
+	Execution generation fence.
+	"""
 	generation: Int!
+	"""
+	Creation timestamp.
+	"""
 	createdAt: String!
+	"""
+	Last update timestamp.
+	"""
 	updatedAt: String!
+	"""
+	Acceptance timestamp, when any.
+	"""
 	completedAt: String
+	"""
+	Current run projection.
+	"""
 	currentRun: CurrentRunSummary
+	"""
+	Open gate projection.
+	"""
 	activeGate: TaskGate
+	"""
+	Latest review projection.
+	"""
 	latestReview: TaskReviewSummary
+	"""
+	Server-authorized actions.
+	"""
 	validActions: [ValidTaskAction!]!
 }
 
@@ -3318,7 +3319,7 @@ enum TaskComplexity {
 }
 
 """
-Task connection.
+Bounded connection.
 """
 type TaskConnection {
 	"""
@@ -3332,15 +3333,6 @@ type TaskConnection {
 }
 
 """
-Origin of an immutable task contract.
-"""
-enum TaskContractOrigin {
-	DELEGATED
-	PLANNED
-	HUMAN_REVISION
-}
-
-"""
 Immutable outcome for one contract criterion.
 """
 enum TaskCriterionOutcome {
@@ -3349,65 +3341,110 @@ enum TaskCriterionOutcome {
 	UNCERTAIN
 }
 
+"""
+Full task detail projection.
+"""
 type TaskDetail {
+	"""
+	Task identity.
+	"""
 	taskId: String!
-	workspace: Workspace!
+	"""
+	Nullable project placement.
+	"""
 	project: Project
+	"""
+	Full title.
+	"""
 	title: String!
+	"""
+	Full description Markdown.
+	"""
 	description: String!
-	descriptionPreview: String!
+	"""
+	The only task-level state.
+	"""
 	stage: WorkflowStage!
+	"""
+	Optimistic revision.
+	"""
 	revision: Int!
+	"""
+	Execution generation fence.
+	"""
 	generation: Int!
+	"""
+	Creation timestamp.
+	"""
 	createdAt: String!
+	"""
+	Last update timestamp.
+	"""
 	updatedAt: String!
+	"""
+	Acceptance timestamp, when any.
+	"""
 	completedAt: String
+	"""
+	Safe provenance.
+	"""
 	source: TaskSource!
-	workflow: Workflow!
+	"""
+	Current immutable contract.
+	"""
 	currentContract: TaskExecutionContract
+	"""
+	Current run projection.
+	"""
 	currentRun: CurrentRunSummary
+	"""
+	Open gate projection.
+	"""
 	activeGate: TaskGate
+	"""
+	Latest immutable submission.
+	"""
 	latestSubmission: TaskSubmission
+	"""
+	Human-accepted immutable result, keyed by the accepted submission.
+	"""
 	acceptedResult: TaskSubmission
+	"""
+	Latest immutable review.
+	"""
 	latestReview: TaskReviewSummary
+	"""
+	Bounded recent human messages.
+	"""
+	messages: [TaskMessage!]!
+	"""
+	Bounded recent task runs.
+	"""
+	runs: [TaskRun!]!
+	"""
+	Bounded recent submissions.
+	"""
+	submissions: [TaskSubmission!]!
+	"""
+	Bounded recent reviews.
+	"""
+	reviews: [TaskReview!]!
+	"""
+	Bounded current artifacts.
+	"""
+	artifacts: [Artifact!]!
+	"""
+	Derived attention.
+	"""
 	attention: TaskAttention
+	"""
+	Server-authorized actions.
+	"""
 	validActions: [ValidTaskAction!]!
-	"""
-	Return immutable contract history, newest first.
-	"""
-	contracts(first: Int, after: String): TaskExecutionContractConnection!
-	"""
-	Return immutable gate history, newest first.
-	"""
-	gates(first: Int, after: String): TaskGateConnection!
-	"""
-	Return immutable human-message history, newest first.
-	"""
-	messages(first: Int, after: String): TaskMessageConnection!
-	"""
-	Return immutable run history, newest first.
-	"""
-	runs(first: Int, after: String): TaskRunConnection!
-	"""
-	Return immutable submission history, newest first.
-	"""
-	submissions(first: Int, after: String): TaskSubmissionConnection!
-	"""
-	Return immutable review history, newest first.
-	"""
-	reviews(first: Int, after: String): TaskReviewConnection!
-	"""
-	Return immutable task-owned artifact evidence, newest first.
-	"""
-	artifacts(first: Int, after: String): TaskArtifactConnection!
-	"""
-	Return durable task activity, newest first.
-	"""
-	activity(first: Int, after: String): WorkEventConnection!
 }
 
 """
-Task edge.
+Connection edge.
 """
 type TaskEdge {
 	"""
@@ -3415,7 +3452,7 @@ type TaskEdge {
 	"""
 	cursor: String!
 	"""
-	Task node.
+	Connection node.
 	"""
 	node: TaskSummary!
 }
@@ -3425,33 +3462,9 @@ Immutable task execution contract.
 """
 type TaskExecutionContract {
 	"""
-	Contract identity.
-	"""
-	contractId: String!
-	"""
-	Contract version.
-	"""
-	version: Int!
-	"""
-	Task generation fenced by this contract.
-	"""
-	taskGeneration: Int!
-	"""
-	Superseded contract, when any.
-	"""
-	supersedesContractId: String
-	"""
-	Contract origin.
-	"""
-	origin: TaskContractOrigin!
-	"""
 	Immutable request Markdown.
 	"""
 	requestMarkdown: String!
-	"""
-	Planner guidance, when present.
-	"""
-	executionPlanMarkdown: String
 	"""
 	Exact criteria.
 	"""
@@ -3461,51 +3474,9 @@ type TaskExecutionContract {
 	"""
 	complexity: TaskComplexity!
 	"""
-	Executor selection snapshot.
-	"""
-	executorModel: TaskModelSnapshot!
-	"""
-	Reviewer selection snapshot.
-	"""
-	reviewerModel: TaskModelSnapshot!
-	"""
 	Execution policy snapshot.
 	"""
 	executionPolicy: TaskExecutionPolicy!
-	"""
-	Workspace context snapshot.
-	"""
-	workspaceContext: WorkspaceContextSnapshot!
-	"""
-	Optional project context snapshot.
-	"""
-	projectContext: ProjectContextSnapshot
-	"""
-	Contract creation timestamp.
-	"""
-	createdAt: String!
-}
-
-type TaskExecutionContractConnection {
-	"""
-	Ordered history edges.
-	"""
-	edges: [TaskExecutionContractEdge!]!
-	"""
-	Pagination metadata.
-	"""
-	pageInfo: PageInfo!
-}
-
-type TaskExecutionContractEdge {
-	"""
-	Opaque history cursor.
-	"""
-	cursor: String!
-	"""
-	History node.
-	"""
-	node: TaskExecutionContract!
 }
 
 """
@@ -3622,28 +3593,6 @@ type TaskGate {
 	resolution: String
 }
 
-type TaskGateConnection {
-	"""
-	Ordered history edges.
-	"""
-	edges: [TaskGateEdge!]!
-	"""
-	Pagination metadata.
-	"""
-	pageInfo: PageInfo!
-}
-
-type TaskGateEdge {
-	"""
-	Opaque history cursor.
-	"""
-	cursor: String!
-	"""
-	History node.
-	"""
-	node: TaskGate!
-}
-
 """
 Human gate category.
 """
@@ -3671,14 +3620,6 @@ type TaskMessage {
 	"""
 	messageId: String!
 	"""
-	Task generation.
-	"""
-	taskGeneration: Int!
-	"""
-	Message kind.
-	"""
-	kind: TaskMessageKind!
-	"""
 	Safe Markdown body.
 	"""
 	bodyMarkdown: String!
@@ -3687,60 +3628,9 @@ type TaskMessage {
 	"""
 	author: String!
 	"""
-	Associated gate, when any.
-	"""
-	gateId: String
-	"""
-	Associated contract, when any.
-	"""
-	contractId: String
-	"""
-	Structured approval decision, when any.
-	"""
-	approvalDecision: ApprovalDecision
-	"""
-	Consumer run, when consumed.
-	"""
-	consumedByRunId: String
-	"""
-	Consumption timestamp, when consumed.
-	"""
-	consumedAt: String
-	"""
 	Creation timestamp.
 	"""
 	createdAt: String!
-}
-
-type TaskMessageConnection {
-	"""
-	Ordered history edges.
-	"""
-	edges: [TaskMessageEdge!]!
-	"""
-	Pagination metadata.
-	"""
-	pageInfo: PageInfo!
-}
-
-type TaskMessageEdge {
-	"""
-	Opaque history cursor.
-	"""
-	cursor: String!
-	"""
-	History node.
-	"""
-	node: TaskMessage!
-}
-
-"""
-Kind of immutable human task message.
-"""
-enum TaskMessageKind {
-	HUMAN_ANSWER
-	HUMAN_CHANGE_REQUEST
-	RETRY_NOTE
 }
 
 """
@@ -3944,17 +3834,6 @@ type TaskReview {
 	createdAt: String!
 }
 
-type TaskReviewConnection {
-	"""
-	Ordered history edges.
-	"""
-	edges: [TaskReviewEdge!]!
-	"""
-	Pagination metadata.
-	"""
-	pageInfo: PageInfo!
-}
-
 """
 Immutable reviewer criterion outcome.
 """
@@ -3975,17 +3854,6 @@ type TaskReviewCriterion {
 	Reviewer feedback.
 	"""
 	feedback: String
-}
-
-type TaskReviewEdge {
-	"""
-	Opaque history cursor.
-	"""
-	cursor: String!
-	"""
-	History node.
-	"""
-	node: TaskReview!
 }
 
 """
@@ -4149,28 +4017,6 @@ type TaskRun {
 	updatedAt: String!
 }
 
-type TaskRunConnection {
-	"""
-	Ordered history edges.
-	"""
-	edges: [TaskRunEdge!]!
-	"""
-	Pagination metadata.
-	"""
-	pageInfo: PageInfo!
-}
-
-type TaskRunEdge {
-	"""
-	Opaque history cursor.
-	"""
-	cursor: String!
-	"""
-	History node.
-	"""
-	node: TaskRun!
-}
-
 """
 Bounded transcript item for a selected run.
 """
@@ -4229,6 +4075,9 @@ type TaskRunItem {
 	updatedAt: String!
 }
 
+"""
+Bounded connection.
+"""
 type TaskRunItemConnection {
 	"""
 	Ordered history edges.
@@ -4240,13 +4089,16 @@ type TaskRunItemConnection {
 	pageInfo: PageInfo!
 }
 
+"""
+Connection edge.
+"""
 type TaskRunItemEdge {
 	"""
 	Opaque history cursor.
 	"""
 	cursor: String!
 	"""
-	History node.
+	Connection node.
 	"""
 	node: TaskRunItem!
 }
@@ -4308,31 +4160,9 @@ Safe task provenance.
 """
 type TaskSource {
 	"""
-	Source classification.
-	"""
-	sourceKind: TaskSourceKind!
-	"""
 	Source conversation.
 	"""
 	conversationId: String
-	"""
-	Source turn.
-	"""
-	turnId: String
-	"""
-	Source transcript item.
-	"""
-	itemId: String
-}
-
-"""
-Durable task provenance category.
-"""
-enum TaskSourceKind {
-	CHAT_CAPTURE
-	CHAT_DELEGATE
-	WORK_UI
-	SYSTEM
 }
 
 """
@@ -4415,17 +4245,6 @@ type TaskSubmissionArtifact {
 	externalUrl: String
 }
 
-type TaskSubmissionConnection {
-	"""
-	Ordered history edges.
-	"""
-	edges: [TaskSubmissionEdge!]!
-	"""
-	Pagination metadata.
-	"""
-	pageInfo: PageInfo!
-}
-
 """
 Submission criterion evidence.
 """
@@ -4438,17 +4257,6 @@ type TaskSubmissionCriterion {
 	Evidence Markdown.
 	"""
 	evidenceMarkdown: String!
-}
-
-type TaskSubmissionEdge {
-	"""
-	Opaque history cursor.
-	"""
-	cursor: String!
-	"""
-	History node.
-	"""
-	node: TaskSubmission!
 }
 
 """
@@ -4512,13 +4320,13 @@ type TaskSummary {
 	"""
 	latestReview: TaskReviewSummary
 	"""
-	Derived attention.
-	"""
-	attention: TaskAttention
-	"""
 	Server-authorized actions.
 	"""
 	validActions: [ValidTaskAction!]!
+	"""
+	Derived attention.
+	"""
+	attention: TaskAttention
 }
 
 """
@@ -4741,7 +4549,7 @@ input UpdateInboxTaskInput {
 	"""
 	description: String
 	"""
-	Optional project assignment. Null means omitted unless `clearProject` is true.
+	Optional project assignment. Null means omitted unless clearProject is true.
 	"""
 	projectId: String
 	"""
@@ -4945,7 +4753,7 @@ type WorkEvent {
 }
 
 """
-Work event connection.
+Bounded connection.
 """
 type WorkEventConnection {
 	"""
@@ -4959,7 +4767,7 @@ type WorkEventConnection {
 }
 
 """
-Event edge.
+Connection edge.
 """
 type WorkEventEdge {
 	"""
@@ -4967,7 +4775,7 @@ type WorkEventEdge {
 	"""
 	cursor: String!
 	"""
-	Event node.
+	Connection node.
 	"""
 	node: WorkEvent!
 }
@@ -5170,24 +4978,6 @@ type Workspace {
 	Membership role for the authenticated owner.
 	"""
 	membershipRole: WorkspaceMembershipRole!
-}
-
-"""
-Bounded workspace context captured by a contract.
-"""
-type WorkspaceContextSnapshot {
-	"""
-	Workspace identity.
-	"""
-	workspaceId: String!
-	"""
-	Workspace name.
-	"""
-	name: String!
-	"""
-	Workspace description.
-	"""
-	description: String!
 }
 
 """

@@ -68,7 +68,7 @@ The UI consumes only generated GraphQL fields and semantic mutations:
   retry/accept/request-changes/cancel/reopen task mutations;
 - workEvents and taskEvents cursor subscriptions;
 - stage, currentRun, activeGate, latestReview, attention, revision, generation,
-  validActions, bounded connections, event cursor, and stable error codes.
+  validActions, bounded detail snapshots, event cursor, and stable error codes.
 
 No component reads task state from transcript text, notification wording,
 provider stream state, or an old status field.
@@ -103,12 +103,12 @@ This packet delivers:
 
 ### 2. Add GraphQL documents and data hooks
 
-- [ ] Create focused Work operations for overview, list pages, detail
-      connections, project controls, all semantic commands, and both event
+- [ ] Create focused Work operations for overview, list pages, the bounded
+      detail snapshot, project controls, all semantic commands, and both event
       streams. Keep generated types as the only client-facing type source.
 - [ ] Build Work data hooks that map only presentational concerns such as
-      timestamp formatting and safe event labels. Do not create a local
-      TaskStatus or execution-phase enum.
+      timestamp formatting, safe event labels, and the existing rail's derived
+      status labels. Do not persist or send a client-created task-state axis.
 - [ ] Use one root workEvents cursor per mounted Work workspace and filtered
       taskEvents only for an open detail/chat rail.
 - [ ] Refetch affected bounded queries on committed event receipt and after
@@ -133,9 +133,9 @@ This packet delivers:
 - [ ] Render Board columns from workflow metadata and the activeColumns
       response, preserving display order. The initial five labels are Inbox,
       Queue, Doing, Waiting, and Review.
-- [ ] Render cards from TaskSummary with title, project, stage, age/current
-      update, nullable current-run chip, attention badges, and server-valid
-      actions.
+- [ ] Render sparse cards from TaskSummary with title, one context line
+      (attention, current run, or project), and updated age. Put server-valid
+      actions in the shared detail rail rather than on every card.
 - [ ] Add per-column cursor paging and horizontal labelled columns on narrow
       screens. Do not add drag-and-drop or a generic move mutation.
 - [ ] Implement dense List as the same workTasks query with text, project,
@@ -146,29 +146,28 @@ This packet delivers:
 
 ### 5. Implement Needs You, Activity, and Completed
 
-- [ ] Group Needs You items by clarification, approval, recovery, and
-      review-ready. Bind Answer and Retry to the exact gate id; Accept and
-      Request Changes use the task revision/generation while the server checks
-      the current eligible review.
+- [ ] Render Needs You as one dense priority queue with kind, reason, project,
+      age, and required action. Opening a row retains the queue and binds detail
+      actions to the exact gate/revision/generation.
 - [ ] Delegate Approval UI to the existing approval surface for the named gate
       instead of building a parallel capability-policy editor.
 - [ ] Build a cursor-paginated activity timeline from stable event kinds and
-      safe fields. Keep raw JSON in detail-only advanced inspection.
+      safe fields. Do not expose raw event JSON in the everyday UI.
 - [ ] Build Completed from terminal TaskConnection rows with completed/
       cancelled filtering and Reopen. Explain that Reopen makes a new Inbox
       cycle rather than restarting a cancelled run.
 
 ### 6. Refactor and share task detail
 
-- [ ] Split the existing chat detail panel/query mapper into shared
-      generated-type adapters, task summary/detail primitives, action controls,
-      evidence sections, and a thin Work/chat container.
-- [ ] Replace assumptions about queued/executing/reviewing task status with
-      single stage plus currentRun, activeGate, latestReview, attention, and
-      validActions.
-- [ ] Add sections for current contract, gate/message history, contract
-      versions, runs/transcripts, evidence/reviews, artifacts/results, and
-      task activity, each with bounded pagination.
+- [ ] Restore and extend the existing chat detail panel/query mapper as shared
+      generated-type adapters, compact sections, action controls, and one thin
+      Work/chat container.
+- [ ] Derive the rail's human-readable status from stage plus currentRun,
+      activeGate, latestReview, and attention. It remains presentation only.
+- [ ] Use progressive sections for current attention/request, run timeline and
+      transcripts, criteria/evidence, proposed or approved result/artifacts,
+      updates, failures, and low-priority metadata. Do not rebuild a separate
+      audit-document detail surface.
 - [ ] Render reviewer needs-human and post-answer review attempts as linked
       immutable history entries; do not collapse them into one mutable verdict.
 - [ ] Preserve the established transcript renderer and live run-item behavior

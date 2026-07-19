@@ -159,11 +159,10 @@ PageInfo      { endCursor: String, hasNextPage: Boolean! }
 ```
 
 The exposed Work connections are `ProjectConnection`, `TaskConnection`,
-`TaskExecutionContractConnection`, `TaskGateConnection`,
-`TaskMessageConnection`, `TaskRunConnection`, `TaskSubmissionConnection`,
-`TaskReviewConnection`, `TaskAttentionConnection`, and
-`WorkEventConnection`. `TaskRunItemConnection` remains the bounded transcript
-read for a selected run.
+`TaskAttentionConnection`, and `WorkEventConnection`.
+`TaskRunItemConnection` remains the bounded transcript read for a selected run.
+Task detail is one owner-authorized snapshot rather than a collection of
+independently paginated audit APIs.
 
 ## Queries
 
@@ -204,16 +203,19 @@ maps only to `TERMINAL_CANCELLED`.
 display order. Board clients render this data rather than hard-coding English
 stage names, though the first release ships the five active seeded stages.
 
-The `task` detail fields `contracts`, `gates`, `messages`, `runs`,
-`submissions`, `reviews`, and `activity` are connections with their own
-`first` and `after` arguments. The server defaults each to 20 and caps each at
-100. A detail query cannot accidentally load an unbounded multi-year
-transcript.
+The `task` detail contains the current contract, current run and gate, latest
+and accepted submissions, latest review, attention and valid actions, plus
+bounded lists of messages, runs, submissions, reviews, and artifacts. These
+lists are assembled in one store transaction and returned as plain GraphQL
+lists. Contract revisions, resolved gates, and per-task activity remain in the
+durable ledger but are not separate first-release UI query surfaces. A selected
+run's potentially long transcript stays independently cursor-paginated through
+`taskRunItems`.
 
 Resolvers batch current run, gate, review, project, and action derivation for a
 page of task summaries. They must not issue one run/review/gate query per card.
-The detail resolver uses bounded batched reads for every first page, and later
-pages use their owning connection only.
+The detail resolver loads its bounded evidence/history snapshot in one
+transaction and maps it directly, without re-entering public list resolvers.
 
 ## Semantic mutations
 

@@ -108,8 +108,9 @@ This packet exports the GraphQL types and operations named in
       visibility where the query asks for it.
 - [ ] Add CurrentRunSummary, active gate, latest review, derived attention,
       and server-computed valid actions to summary/detail projections.
-- [ ] Implement bounded connections for contracts, gates, messages, runs,
-      submissions, reviews, activity, and run transcript items.
+- [ ] Return one bounded plain-list detail snapshot for messages, runs,
+      submissions, reviews, and artifacts. Keep activity on its collection
+      query and only run transcript items as a separate detail connection.
 - [ ] Use store batch queries/loaders for board/list pages. Verify that
       summaries do not produce per-card run, gate, review, or project reads.
 

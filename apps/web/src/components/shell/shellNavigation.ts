@@ -187,21 +187,21 @@ export function shellMenuLevelForRoute(route: AppRoute): ShellMenuLevel {
       {
         kind: "item",
         item: {
-          itemId: "work",
-          label: "Work",
-          route: { kind: "work" },
-          action: "navigate",
-          icon: SquareKanban
-        }
-      },
-      {
-        kind: "item",
-        item: {
           itemId: "home",
           label: "Home",
           route: { kind: "chat" },
           action: "navigate",
           icon: House
+        }
+      },
+      {
+        kind: "item",
+        item: {
+          itemId: "work",
+          label: "Work",
+          route: { kind: "work" },
+          action: "navigate",
+          icon: SquareKanban
         }
       },
       {
