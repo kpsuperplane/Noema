@@ -1,5 +1,6 @@
 //! HTTP client for Noema's private Mnemosyne sidecar.
 
+use serde::de::DeserializeOwned;
 use thiserror::Error;
 
 use crate::model::{
@@ -68,18 +69,12 @@ impl MnemosyneClient {
         &self,
         request: SearchMemoriesRequest,
     ) -> Result<SearchMemoriesResponse, MnemosyneClientError> {
-        let response = self
-            .send(
-                self.http
-                    .post(format!("{}/v1/memories/search", self.base_url))
-                    .json(&request),
-                self.request_timeout,
-            )
-            .await?;
-        response
-            .json::<SearchMemoriesResponse>()
-            .await
-            .map_err(Into::into)
+        self.send_json(
+            self.http
+                .post(format!("{}/v1/memories/search", self.base_url))
+                .json(&request),
+        )
+        .await
     }
 
     pub(super) async fn list_memories(
@@ -90,15 +85,20 @@ impl MnemosyneClient {
             .append_pair("user_id", &request.user_id)
             .append_pair("limit", &request.limit.to_string())
             .finish();
-        let response = self
-            .send(
-                self.http
-                    .get(format!("{}/v1/memories?{query}", self.base_url)),
-                self.request_timeout,
-            )
-            .await?;
-        response
-            .json::<ListMemoriesResponse>()
+        self.send_json(
+            self.http
+                .get(format!("{}/v1/memories?{query}", self.base_url)),
+        )
+        .await
+    }
+
+    async fn send_json<T: DeserializeOwned>(
+        &self,
+        request: reqwest::RequestBuilder,
+    ) -> Result<T, MnemosyneClientError> {
+        self.send(request, self.request_timeout)
+            .await?
+            .json()
             .await
             .map_err(Into::into)
     }
@@ -113,16 +113,11 @@ impl MnemosyneClient {
             request = request.bearer_auth(api_key);
         }
         let response = request.send().await?;
-        ensure_success(response.status())?;
-        Ok(response)
-    }
-}
-
-fn ensure_success(status: reqwest::StatusCode) -> Result<(), MnemosyneClientError> {
-    if status.is_success() {
-        Ok(())
-    } else {
-        Err(MnemosyneClientError::Status(status.as_u16()))
+        if response.status().is_success() {
+            Ok(response)
+        } else {
+            Err(MnemosyneClientError::Status(response.status().as_u16()))
+        }
     }
 }
 

@@ -11,7 +11,7 @@ use tokio::{
 };
 
 use super::{
-    MemoryModelProxyError, RunningMemoryModelProxyConfig, log_proxy_error,
+    MemoryModelProxyConfig, MemoryModelProxyError, log_proxy_error,
     protocol::{
         HttpRequest, HttpResponse, json_error, json_error_message, json_response, read_http_request,
     },
@@ -23,7 +23,7 @@ use super::{
 
 pub(super) async fn run_proxy(
     listener: TcpListener,
-    config: RunningMemoryModelProxyConfig,
+    config: MemoryModelProxyConfig,
     mut shutdown_rx: oneshot::Receiver<()>,
 ) {
     let mut connections = JoinSet::new();
@@ -84,7 +84,7 @@ fn log_connection_result(
 
 async fn handle_connection(
     mut stream: TcpStream,
-    config: RunningMemoryModelProxyConfig,
+    config: MemoryModelProxyConfig,
 ) -> Result<(), MemoryModelProxyError> {
     let request = read_http_request(&mut stream).await?;
     let response = route_request(request, config).await;
@@ -93,10 +93,7 @@ async fn handle_connection(
     Ok(())
 }
 
-async fn route_request(
-    request: HttpRequest,
-    config: RunningMemoryModelProxyConfig,
-) -> HttpResponse {
+async fn route_request(request: HttpRequest, config: MemoryModelProxyConfig) -> HttpResponse {
     if request.method != "GET" && request.method != "POST" {
         return json_error(http::StatusCode::METHOD_NOT_ALLOWED, "method_not_allowed");
     }

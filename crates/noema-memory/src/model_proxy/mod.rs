@@ -36,13 +36,6 @@ pub struct MemoryModelProxy {
     task: JoinHandle<()>,
 }
 
-#[derive(Clone)]
-pub(super) struct RunningMemoryModelProxyConfig {
-    pub(super) route_resolver: ProviderRouteResolverHandle,
-    pub(super) api_key: String,
-    pub(super) system_errors: Option<SystemErrorLogger>,
-}
-
 impl MemoryModelProxy {
     /// Start the loopback model proxy.
     ///
@@ -55,13 +48,8 @@ impl MemoryModelProxy {
         let openai_base_url = format!("http://{address}/v1");
         let api_key = config.api_key.clone();
         let model_profile = config.model_profile.clone();
-        let running_config = RunningMemoryModelProxyConfig {
-            route_resolver: config.route_resolver,
-            api_key: config.api_key,
-            system_errors: config.system_errors,
-        };
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
-        let task = tokio::spawn(server::run_proxy(listener, running_config, shutdown_rx));
+        let task = tokio::spawn(server::run_proxy(listener, config, shutdown_rx));
 
         Ok(Self {
             openai_base_url,
