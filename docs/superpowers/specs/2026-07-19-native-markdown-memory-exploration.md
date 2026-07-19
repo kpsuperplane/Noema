@@ -2,118 +2,139 @@
 
 ## Status
 
-This is the durable working proposal for a first native Markdown memory slice.
-It is not yet an approved replacement for Mnemosyne or the current project
-storage contract. Decisions recorded here become authoritative only after the
-proposal is approved and the relevant architecture documents are updated.
+This is the durable working proposal for replacing Mnemosyne with native
+Markdown memory. It is not yet approved architecture. Approval of this proposal
+authorizes a memory-specific exception to the current storage contract and a
+destructive, migration-free cutover from Mnemosyne.
 
-## First-Slice Decisions
+## First-Slice Contract
 
 The first slice is deliberately narrow:
 
-1. There is one memory tree, scoped to the local human.
-2. The local human owns every page in that tree.
-3. Markdown is canonical for prose and semantic metadata, including ownership,
-   scope, provenance, and the consolidation checkpoint.
-4. SQLite is a disposable full-text search index that can be rebuilt from the
-   Markdown tree.
-5. The filesystem hierarchy is canonical for parent-child structure. No page
-   maintains a list of links to its children.
-6. Context compaction is the normal memory-update trigger, but memory updating
-   is a separate subsystem and model operation from context summarization.
-7. The Memory page has an `Update memory` action that processes every eligible
-   message since the last successful update.
-8. The filesystem is the only human editing interface. There is no in-product
-   memory editor in this slice.
-9. The memory subsystem keeps no page history or versions.
-10. All first-slice memory is open. Private memory and private chat behavior are
-   deferred together.
-11. The first slice does not import Mnemosyne data or define a cutover or
-   migration path.
+1. There is one open memory tree, scoped to and owned by `human:local`.
+2. Markdown is canonical for memory prose and semantic metadata, including
+   ownership, scope, provenance, and consolidation state.
+3. SQLite FTS is a disposable search index rebuilt from Markdown.
+4. The filesystem hierarchy is canonical for parent-child structure. Pages do
+   not maintain links to their children.
+5. Each memory page has a hard limit of 750 words.
+6. A database-wide conversation-item sequence provides one ordered source
+   stream across all conversations owned by the local human.
+7. Context compaction normally schedules memory consolidation, but context
+   summarization and memory updating are separate model operations.
+8. The Memory page has an `Update memory` action for processing every eligible
+   message since the last completed consolidation.
+9. Only one memory-update job may run at a time.
+10. Direct filesystem editing is unsupported. Noema owns all files in the tree.
+11. The memory subsystem retains no page history or versions.
+12. All first-slice memory is open. Private chat and private memory are
+    deferred together.
+13. The first slice completely removes Mnemosyne and starts with an empty native
+    tree. There is no import or compatibility path.
 
 Project and workspace trees, shared ownership, cross-scope reconciliation,
-private retrieval, Ghost mode, in-product editing, history, and legacy-memory
-transition are outside this slice.
+private retrieval, Ghost mode, editing, history, and migration are outside this
+slice.
 
 ## Verdict
 
-This first slice is practical. A bounded Markdown tree can provide useful
-ambient memory, directed retrieval, manual human correction, and readable
-provenance without rebuilding Noema's earlier graph-oriented design.
+The slice is practical once native memory becomes the only memory authority. A
+bounded Markdown tree provides ambient context, deterministic navigation,
+readable provenance, and simple backup without reviving the earlier
+graph-oriented design.
 
-The main architectural exception is intentional: memory metadata would live in
-Markdown frontmatter rather than in SQLite. That differs from Noema's current
-general storage contract, so implementation requires an explicit approval for
-memory-specific file authority. Everything stored in SQLite remains derived
-and recoverable.
+The principal architecture change is intentional: semantic memory metadata
+lives in Markdown frontmatter instead of canonical SQLite rows. The canonical
+SQLite database continues to own conversations and source messages. A separate
+SQLite database owns only the rebuildable FTS projection.
 
-## Evidence for the Design
+Existing designs support this shape:
 
-Existing systems validate the main shape of the proposal:
-
-- [Claude Code memory](https://code.claude.com/docs/en/memory) uses a concise
-  `MEMORY.md` index with linked topic files and loads only a bounded portion
-  automatically.
-- [OpenClaw memory](https://docs.openclaw.ai/concepts/memory) treats plain
-  Markdown as canonical and builds derived search infrastructure around it;
-  its [built-in memory implementation](https://docs.openclaw.ai/concepts/memory-builtin)
-  combines file watching, SQLite full-text search, and optional vectors.
+- [Claude Code memory](https://code.claude.com/docs/en/memory) uses a bounded
+  root file with topic files loaded on demand.
+- [OpenClaw memory](https://docs.openclaw.ai/concepts/memory) treats Markdown as
+  canonical and builds derived search infrastructure around it.
 - [Letta's context hierarchy](https://docs.letta.com/guides/core-concepts/memory/context-hierarchy)
-  separates small always-visible memory blocks from larger material retrieved
-  on demand.
-- Anthropic's [memory tool guidance](https://platform.claude.com/docs/en/agents-and-tools/tool-use/memory-tool)
-  makes the application responsible for path safety, size limits, and
-  sensitive-data handling rather than trusting model-written files directly.
-- [SQLite FTS5](https://www.sqlite.org/fts5.html) supports a rebuildable search
-  layer without making the database the source of truth.
+  separates small always-visible memory from retrieved detail.
+- [SQLite FTS5](https://www.sqlite.org/fts5.html) provides the rebuildable
+  lexical index needed by the first slice.
 
-Noema also has useful implementation seams:
+Noema already has relevant seams in context compaction, provider selection,
+model-context assembly, conversation-item persistence, and the Memory page.
+The existing `MemoryOperations` and Mnemosyne-specific seams are replacement
+targets, not compatibility layers to preserve.
 
-- `crates/noema-memory/src/operations.rs` centralizes current memory
-  operations.
-- `crates/noema-runtime/src/daemon/runtime/context_compaction.rs` identifies
-  compaction boundaries and durable source ranges.
-- `crates/noema-runtime/src/daemon/runtime/turn/provider_request.rs` persists
-  conversation items before asynchronous observation work.
-- `crates/noema-runtime/src/daemon/runtime/model_context.rs` assembles explicit
-  context sections where the memory root can be injected.
-- `crates/noema-runtime/src/daemon/runtime/artifact_writes.rs` contains hash
-  and version concepts that can inform conflict-safe file writes, even though
-  the memory subsystem will not retain page versions.
+## One Global Source Stream
 
-## First-Slice Storage Model
+Conversation items currently have a `sequence_index` that starts at one inside
+each conversation. Those values cannot answer a user-wide query by themselves:
+
+```text
+global append order:  conversation A item 1
+                      conversation B item 1
+                      conversation A item 2
+                      conversation B item 2
+```
+
+The first slice adds a database-wide `global_sequence` to
+`conversation_items`. In the pre-V1 schema, it can be the auto-incrementing
+integer primary key while `item_id` becomes unique. Existing
+`sequence_index` remains the conversation-local replay order.
+
+An update captures the current global head and performs the simple range query:
+
+```sql
+SELECT ...
+FROM conversation_items
+WHERE global_sequence > :last_consolidated_sequence
+  AND global_sequence <= :captured_head_sequence
+ORDER BY global_sequence ASC;
+```
+
+The updater uses completed human-authored messages as memory evidence.
+Assistant messages inside the selected range may provide bounded context but
+are not independent evidence. The captured head makes the job finite; items
+appended while it runs remain pending for the next update.
+
+Large ranges are processed in source-order chunks sized to the selected memory
+model's context budget. A single UI job continues chunking until it reaches its
+captured head. Each committed chunk advances the checkpoint, so a failed job
+can resume without repeating earlier chunks.
+
+## Storage Model
 
 ### One local-human tree
-
-The initial corpus has one root and can grow topic pages as needed:
 
 ```text
 memory/
 └── human/
     ├── root.md
     ├── .state.md
+    ├── .pending/
     ├── preferences.md
     ├── people.md
     └── people/
         └── collaborators.md
 ```
 
-`root.md` is a compact summary supplied to the agent on every ordinary turn.
-Topic pages contain details retrieved on demand. `.state.md` is machine-managed
-Markdown and is excluded from retrieval.
+`root.md` is supplied to the agent on every ordinary turn. Topic pages contain
+details retrieved on demand. `.state.md` is machine-managed consolidation
+state. `.pending/` holds only the current crash-recovery operation and is
+deleted after a successful commit; it is transaction staging, not history.
 
-Directory enumeration supplies the table of contents. `root.md` has every
-non-hidden Markdown file beside it as an immediate child, excluding `root.md`
-itself. A page such as `people.md` has the Markdown files inside the matching
-`people/` directory as its children. If that directory does not exist, the page
-has no children.
+### Filesystem-derived hierarchy
 
-The process may reorganize topic pages as the corpus changes, but it must
-preserve stable page IDs. It never writes child-link lists into page bodies.
+Directory enumeration supplies navigation. `root.md` has every non-hidden
+Markdown file beside it as an immediate child, excluding itself. A page such as
+`people.md` has the Markdown files inside the matching `people/` directory as
+its children. If the directory does not exist, the page has no children.
+
+The runtime returns child filenames in deterministic lexical order together
+with stable page IDs. Page bodies may contain ordinary prose links, but those
+links do not define the tree. The updater may split or move pages while
+preserving stable IDs.
 
 ### Canonical page metadata
-
-Every memory page carries machine-readable frontmatter. A tentative format is:
 
 ```markdown
 ---
@@ -135,23 +156,29 @@ The human prefers readable durable state.[^item-123]
 ```
 
 Frontmatter is authoritative for page identity, ownership, scope, timestamps,
-and the page-level source manifest. The relative file path is authoritative for
-parentage. Footnotes attach provenance to specific claims. The manifest is
-validated against citations in the body.
+and the page-level source manifest. The relative path defines parentage.
+Footnotes attach provenance to individual claims, and the manifest is validated
+against citations in the body.
 
-Ownership and scope look redundant in the first slice because both identify
-the local human. They express distinct facts and keep the copied Markdown tree
-self-describing: ownership answers who controls the data, while scope answers
-whose memory the page describes.
+### The 750-word limit
+
+Every memory page body, including headings and citation footnotes but excluding
+frontmatter, is limited to 750 words using one deterministic Unicode word-count
+implementation. `root.md` has the same limit as every topic page. Machine state
+and temporary recovery manifests are exempt because they never enter model
+retrieval.
+
+When a proposed change would exceed 750 words, the updater must compress the
+page, remove stale low-value content allowed by retention policy, or create a
+child page. Validation rejects an over-limit model proposal before publication.
 
 ### Durable consolidation state
-
-The tree checkpoint also remains in Markdown:
 
 ```markdown
 ---
 schema: noema.memory.state/v1
-last_consolidated_item: conversation_item:item_123
+last_consolidated_sequence: 483
+last_consolidated_item: item:item_123
 updated_at: 2026-07-19T12:00:00-07:00
 ---
 
@@ -160,277 +187,235 @@ updated_at: 2026-07-19T12:00:00-07:00
 This file is managed by Noema and is not part of model retrieval.
 ```
 
-Keeping this checkpoint outside SQLite means deleting the search database
-cannot make the updater forget its durable position. The checkpoint is written
-only after every page change for the source range has been published.
-
-### Tree invariants
-
-1. The tree has exactly one root.
-2. A page's immediate children are derived from the matching filesystem
-   directory; page-authored child lists have no structural meaning.
-3. Every non-root directory containing memory pages has a corresponding parent
-   Markdown file beside that directory.
-4. Hidden files and `.state.md` never appear as memory children.
-5. Stable page IDs survive file moves and title changes.
-6. Every page is owned by and scoped to `human:local`.
-7. Root and topic pages obey deterministic context budgets.
-8. Synthesized claims cite durable conversation item IDs.
-9. The state file is never included in retrieval or search results.
-
-The earlier 750-word limit remains a useful editorial target, but a
-deterministic character or token budget is safer for multilingual text and
-prompt assembly. Exceeding a budget triggers compression, removal of stale
-low-value material, or a child-page split. It does not by itself justify
-removing a fact the human has explicitly pinned.
+`last_consolidated_sequence` is the query cursor. The item ID is retained for
+diagnostics and provenance rather than ordering. Initial state uses sequence
+zero and no item ID.
 
 ## Derived SQLite Search
 
-SQLite stores only data that can be reconstructed by scanning the Markdown
-tree:
+The rebuildable index lives separately from canonical Noema state, for example
+at `${NOEMA_HOME}/system/indexes/memory.sqlite3`. Deleting this file and
+rescanning Markdown must restore equivalent search results without affecting
+conversations or consolidation state.
+
+The index contains only derived fields:
 
 - FTS-indexed headings and body text;
-- page path and stable page ID;
-- cached owner and scope values used to validate results;
-- parsed citations when they make reverse lookup faster;
+- relative path and stable page ID;
+- cached owner and scope values;
+- parsed citations when useful for reverse lookup;
 - content hashes and indexing diagnostics.
 
-The duplicated metadata is a cache, not authority. Before returning content,
-the retrieval layer checks the current frontmatter rather than trusting an
-index row that may be stale.
+Because direct filesystem editing is unsupported, Noema updates the index only
+as part of its own memory transaction. There is no first-slice file watcher or
+external-edit reconciliation path.
 
-The first slice uses lexical FTS only. Embeddings remain unnecessary until an
-evaluation demonstrates retrieval failures that FTS plus tree navigation
-cannot handle.
+The first slice uses lexical FTS only. Embeddings remain deferred until an
+evaluation demonstrates retrieval failures that hierarchy plus FTS cannot
+handle.
 
 ## Retrieval
 
-The runtime supplies `root.md` as a bounded context section on every ordinary
-turn. It appends a deterministic listing of the root's immediate child
-filenames and page IDs, derived from the filesystem rather than maintained in
-the root's prose.
+The runtime supplies the bounded `root.md` body and its derived immediate-child
+listing as a model-context section on every ordinary turn.
 
-Two model tools complete retrieval:
+Two model tools provide deeper retrieval:
 
-1. **Read a memory page.** The model opens a page ID returned by the filesystem
-   listing. The result contains the page body plus a fresh listing of its
-   immediate child filenames and page IDs.
-2. **Search memory.** FTS returns ranked snippets and page IDs when the correct
-   branch is not apparent from the root.
+1. **Read a memory page.** Open a returned page ID and receive its body plus a
+   freshly derived list of immediate child filenames and IDs.
+2. **Search memory.** Search FTS and receive ranked snippets and page IDs when
+   the relevant branch is not apparent from the hierarchy.
 
-Filesystem enumeration makes hierarchy deterministic and frees the model from
-keeping navigational links synchronized. Search remains necessary because
-filenames and the immediate tree structure cannot anticipate every future
-query. Using both keeps ordinary navigation cheap while preserving a semantic
-fallback.
+Persisted tool results retain only the page ID and content hash. Resolved page
+text is supplied to the current model continuation but is not copied into the
+durable transcript, so later memory corrections do not compete with old
+transcript copies.
 
-Full page content should not be copied permanently into every conversation
-transcript. Persisted tool results can retain page references and content
-hashes while resolved text remains replay-ephemeral. Later corrections to a
-memory page then take effect instead of competing with old transcript copies.
+Only the `human:local` scope is advertised by the first-slice tools. Existing
+conversation and project memory-scope instructions are removed with the
+Mnemosyne integration.
+
+## Consolidation
+
+### Triggers and model separation
+
+Context compaction is the normal trigger because it identifies a coherent batch
+as its verbatim messages leave active model context. A successful compaction
+schedules the captured global source head but does not wait for memory.
+
+The memory subsystem independently reads the durable source range, selects the
+configured Memory model, and sends a background-priority generation request.
+It shares no model output or transaction with context summarization.
+
+The Memory-page action and startup recovery may schedule the same operation.
+Only one update job runs at once. A trigger received during an active job does
+not start concurrent work; newer messages remain pending after the captured
+head and can be handled by the next job.
+
+### Updater instructions
+
+The updater reconciles new evidence with existing pages rather than appending
+contradictions. It returns a structured change set containing expected page
+hashes, citations, and proposed creates, updates, moves, or deletions.
+
+The updater prompt explicitly tells the model not to store literal passwords,
+API tokens, private keys, session cookies, recovery codes, or similar secrets.
+It may retain a non-secret fact such as which service the human uses. This is
+advisory in the first slice, not a deterministic sensitivity guarantee.
+
+Deterministic validation covers Noema and model behavior: schema, stable IDs,
+ownership, scope, citations, the 750-word limit, and relative paths that remain
+inside the memory root. It does not attempt to make unsupported external file
+edits safe.
+
+### Crash-recoverable publication
+
+For each bounded source chunk, the updater:
+
+1. Reads the current pages and obtains a complete model-proposed change set.
+2. Validates the proposed final tree and file hashes.
+3. Writes desired file bytes and a manifest under `.pending/<operation_id>/`,
+   then makes the staging data durable.
+4. Acquires the single tree read/write lock and publishes the staged files in a
+   deterministic order.
+5. Updates the derived FTS index from the final published tree.
+6. Atomically replaces `.state.md` with the chunk's final global sequence and
+   item ID.
+7. Removes the pending operation and releases the lock.
+
+Memory reads wait while publication holds the lock. If Noema stops after
+staging or during publication, startup completes the pending operation forward
+before enabling retrieval or another update. Desired content hashes make this
+recovery idempotent. No old page generation is retained after the operation
+finishes.
 
 ## Memory Page Update Action
 
-The Memory page supports the human job of making the visible memory current on
-demand. It reuses the page's existing action area and keeps the control beside
-the last-update state rather than adding another card, modal, or editing
-surface.
-
-The control is labeled `Update memory`. Clicking it captures the latest durable
-conversation-item boundary and schedules the same consolidation operation used
-by automatic triggers. The job processes every eligible human message after
-`last_consolidated_item` through that captured boundary. Intervening assistant
-messages may provide bounded context but are not independent memory evidence.
-Messages committed after the captured boundary remain pending for the next
-update.
-
-The action has four visible states:
+The existing Memory-page action area contains one `Update memory` control next
+to the last successful update state. It does not add a modal, editor, or second
+action panel.
 
 | State | Button | Supporting status |
 | --- | --- | --- |
 | No pending messages | Disabled `Update memory` | `Memory is up to date` |
-| Messages pending | Enabled `Update memory` | The pending message count and last successful update time |
-| Queued or running | Disabled `Updating memory...` | Progress remains visible if the human stays on the page |
-| Failed | Enabled `Retry update` | A concise inline error; the previous successful update time remains authoritative |
+| Messages pending and no job active | Enabled `Update memory` | Pending message count and last successful update time |
+| Job queued or running | Disabled `Updating memory...` | Loading state until the one active job finishes |
+| Last job failed and no job active | Enabled `Retry update` | Concise inline error and previous successful update time |
 
-A successful update refreshes the rendered memory and its last-update state.
-The job continues if the human leaves the page. Repeated clicks cannot start
-parallel work: while a job is queued or running, the server returns the same
-in-flight operation. Failure leaves the Markdown checkpoint unchanged, so
-retrying covers the same unconsolidated range.
+Clicking the enabled action captures the current global head and starts one
+background job. The button disables immediately. The server independently
+enforces the single-job rule, so a duplicate mutation cannot create another
+job. The job continues if the human leaves the page.
 
-## Consolidation Lifecycle
+On success, the page refreshes memory, the pending count, and the last-update
+state. Messages appended after the captured head remain pending and may make
+the button enabled again. Failure leaves the last completed chunk checkpoint
+authoritative, and retry continues from there.
 
-### Context compaction as the normal trigger
+## Unsupported Direct Editing
 
-Context compaction is the best default boundary because it identifies a
-coherent source batch just as its verbatim messages leave active model context.
-The underlying conversation items remain durable, so the update does not need
-to block compaction to prevent data loss. Processing one batch per compaction
-also avoids paying for a memory-model call on every message.
+The files are readable and backup-friendly, but direct human or external-tool
+editing is an illegal operation in the first slice. Noema does not watch for,
+merge, protect against, or recover from such edits. It may overwrite them, fail
+validation, return stale search results, or leave memory unavailable.
 
-The context summarizer and memory subsystem remain operationally separate:
+This deliberately removes file-watcher, external conflict, symlink/hard-link,
+and stale-index handling from the first slice. Noema still validates paths
+originating from its model updater so the model cannot intentionally write
+outside the memory root.
 
-- compaction commits its conversation summary without waiting for memory;
-- a successful compaction emits or schedules a source boundary for memory;
-- the memory subsystem reads the durable source items independently;
-- the memory subsystem uses its own model request and validation path;
-- memory failure cannot invalidate or delay a valid context summary.
+There is no in-product editor, page history, snapshot directory, version table,
+or undo mechanism.
 
-The two subsystems may share source-range identifiers, but they do not share a
-model output or transaction. This preserves independent model selection,
-quality evaluation, retries, and failure handling.
+## Mnemosyne Removal and Cutover
 
-Compaction is the normal trigger, not the only way to schedule the same memory
-job. The Memory-page action, an explicit request to remember something, task
-completion, or startup recovery may schedule an update when persisted items
-are newer than the checkpoint. These paths do not introduce a second update
-mechanism; they feed the same single-flight consolidation queue.
+Native Markdown memory becomes the only memory authority in this slice. The
+same implementation unit removes:
 
-### Update transaction
+- the managed Mnemosyne process and lifecycle;
+- Mnemosyne clients, adapters, packages, and dependencies;
+- per-message Mnemosyne observation submission;
+- managed/external Mnemosyne configuration and readiness settings;
+- the Mnemosyne model proxy and Mnemosyne-specific search result shapes;
+- article generation and graph adapters that read Mnemosyne;
+- obsolete tests, fixtures, documentation, and home-layout references.
 
-The updater:
+The Memory model preference remains and is used directly by the native updater.
+The existing Memory page is repointed to native Markdown and its derived
+citations. `search_memory` is repointed to the native FTS/read path.
 
-1. Reads durable conversation items after `last_consolidated_item` through the
-   scheduled boundary.
-2. Loads the root, then enumerates child files or searches for relevant pages.
-3. Asks the memory model for a structured change set containing expected page
-   hashes, citations, and any proposed page splits or moves.
-4. Validates IDs, frontmatter, paths, filesystem parentage, budgets, citations,
-   ownership, scope, and expected hashes.
-5. Acquires the tree write lock and stages the file changes.
-6. Publishes page files and directory changes, then writes `.state.md` last.
-7. Rebuilds the affected derived FTS entries from committed Markdown.
+Existing Mnemosyne facts are not imported. The cutover starts with an empty
+Markdown tree and removes `${NOEMA_HOME}/mnemosyne`; there is no dual-running
+period, compatibility mode, or rollback to Mnemosyne.
 
-Writing the checkpoint last gives the process at-least-once behavior. A crash
-may repeat a source batch but cannot mark an incomplete memory update as
-finished. Expected hashes prevent a background update from overwriting a
-concurrent manual edit, while stable source citations let retries reconcile
-content instead of blindly duplicating it.
+## Implementation Sequence
 
-## Manual Editing
+1. Add the global conversation-item sequence and bounded source-range reads.
+2. Implement the Markdown page, tree, 750-word, state, and recovery-manifest
+   contracts.
+3. Implement the separate rebuildable FTS database.
+4. Replace memory root injection and read/search operations with the native
+   human tree.
+5. Implement background consolidation, chunking, crash recovery, and automatic
+   scheduling after compaction.
+6. Replace the Memory-page query and article action with native display state
+   and the single-flight `Update memory` operation.
+7. Delete Mnemosyne code, dependencies, configuration, runtime state, APIs,
+   tests, and stored data; update authoritative project documentation.
+8. Evaluate recall quality, unsupported claims, citation accuracy, page churn,
+   retrieval misses, secret-copy behavior, and root growth.
 
-The filesystem is the first-slice editing interface. The human may edit, move,
-add, or remove Markdown pages directly. Noema watches or rescans the tree,
-validates changed files, and refreshes the derived FTS entries.
+The slice is complete only when the repository and runtime have one memory
+authority. Intermediate implementation commits may not ship with both systems
+active.
 
-An invalid edit remains on disk and produces a diagnostic, but it is excluded
-from model retrieval until corrected. Noema does not silently repair or
-overwrite the human's invalid file. If a background update encounters a changed
-page hash, it abandons that proposed change and retries against the new file.
+## Acceptance Criteria
 
-There is no page history, snapshot directory, memory-specific version table,
-undo mechanism, or in-product editor. General filesystem backups or Git may
-version the files outside this subsystem, but the memory design does not depend
-on them.
+- A fresh or cut-over installation has one empty open tree owned by and scoped
+  to `human:local`, with no Mnemosyne process, code path, or stored data.
+- One global cursor query selects eligible source items across interleaved
+  conversations without skipping or repeating them.
+- A large source range is processed in ordered bounded chunks through the
+  captured head.
+- Every retrievable page body contains at most 750 words.
+- Root and page reads derive immediate child filenames from the filesystem in
+  deterministic lexical order.
+- Deleting the separate FTS database and rescanning Markdown restores
+  equivalent native search results.
+- Context compaction and the Memory-page action schedule a separate
+  background-priority memory operation.
+- `Update memory` is disabled and loading while the one job is active; no
+  second job can start.
+- Crash recovery completes a staged chunk before retrieval resumes and advances
+  the checkpoint only after pages and FTS are current.
+- The model updater cannot propose files outside the memory root.
+- Persisted memory tool results contain page references and hashes rather than
+  copied page bodies.
+- The implementation contains no editor, external-edit reconciliation, page
+  history, private memory, additional scope, migration, or Mnemosyne fallback.
 
-## Revision and Source Deletion
-
-New evidence should rewrite a belief rather than append contradictions
-indefinitely. When a page reaches its budget, the updater chooses among
-compression, removing stale low-value material, and moving useful details into
-a child page. The exact pinning and forgetting policy remains unresolved.
-
-Claims cite the durable conversation items that support them. If source
-deletion must also remove derived memory, the system will need to find pages
-citing that item and regenerate the affected claims from their remaining
-sources. The first slice should not claim source-deletion propagation until
-that behavior and its failure cases are explicitly included in scope.
-
-## Explicitly Deferred Design
-
-### Additional scopes
-
-Project and workspace memory trees are deferred. The first slice has no scope
-activation rules, cross-scope links, or duplication policy because
-`human:local` is the only available scope.
-
-### Private memory
-
-The intended future rule is that private pages can be read only while the chat
-is in a private context. The first slice has no private-chat context, so it also
-creates no private pages, private index entries, authorization metadata, or
-private consolidation path. All first-slice pages are open.
-
-Ghost mode and automatic sensitivity classification are separate future
-runtime features.
-
-### Existing memory
-
-The first slice starts with a fresh Markdown tree. It does not import existing
-Mnemosyne data and does not specify how native memory eventually replaces,
-coexists with, or retires Mnemosyne. That transition is a later product and
-architecture decision.
-
-## Proposed Implementation Sequence
-
-1. **Define the file contract.** Implement frontmatter types, Markdown parsing,
-   filesystem-derived child enumeration, tree validation, deterministic
-   budgets, and `.state.md` checkpoint parsing.
-2. **Build the derived index.** Scan the tree into SQLite FTS, update changed
-   files, exclude invalid files, and prove a deleted database can be rebuilt.
-3. **Add retrieval.** Inject the bounded root and expose read/search operations
-   against the single human tree.
-4. **Add consolidation.** Consume a scheduled source range, navigate relevant
-   pages, validate a model-proposed change set, publish files, and advance the
-   checkpoint last.
-5. **Add the manual update action.** Put `Update memory` in the existing Memory
-   page action area and expose pending, running, success, and retry states from
-   the same single-flight consolidation operation.
-6. **Connect automatic triggers.** Schedule the separate memory job after
-   compaction and through explicit remember, task-completion, and
-   startup-recovery paths.
-7. **Evaluate the complete loop.** Measure useful recall, unsupported claims,
-   citation accuracy, page churn, retrieval misses, and root growth against
-   representative conversations.
-
-## First-Slice Acceptance Criteria
-
-- A fresh installation creates one open tree owned by and scoped to
-  `human:local`.
-- Deleting SQLite and rescanning Markdown restores equivalent search results.
-- The bounded root appears in ordinary model context, and the model can read or
-  search topic pages on demand.
-- Root and page reads surface immediate child filenames from the filesystem;
-  parent pages contain no required child-link list or `parent` metadata.
-- A successful compaction schedules a separate memory-model operation without
-  coupling summary success or latency to memory success.
-- `Update memory` processes the eligible range through the click-time durable
-  boundary, exposes single-flight status, and refreshes memory on success.
-- A failed or interrupted update does not advance the Markdown checkpoint.
-- Manual file edits are detected and reindexed without an in-product editor.
-- Concurrent human edits are not overwritten by stale model proposals.
-- The subsystem creates no page history and no private, project, or workspace
-  memory artifacts.
-- The implementation contains no Mnemosyne import, cutover, or migration path.
-
-Focused tests should cover frontmatter and tree validation, deterministic child
-enumeration, index rebuilding, root budgeting, checkpoint-last recovery,
-click-time boundary and single-flight behavior, citation validation, and
-stale-hash conflict handling. These tests each protect a distinct
-data-integrity, update, or retrieval risk.
+Focused tests should cover global source ordering and captured heads, bounded
+chunk recovery, page/tree validation and the 750-word limit, deterministic
+child enumeration, FTS deletion and rebuild, staged-operation crash recovery,
+single-flight update state, replay-ephemeral page reads, and the absence of a
+Mnemosyne runtime path. Each test protects a distinct data-integrity,
+retrieval, or cutover risk.
 
 ## Remaining Questions
 
-The first slice still needs decisions on:
-
-1. **Page budgets:** What token or character budgets should apply to the root
-   and to topic pages?
-2. **Forgetting:** Can the updater remove any unpinned low-value claim, or should
-   deletion require an explicit confidence, age, or utility threshold?
-3. **Pinning:** How does a human mark a claim as protected from automatic
-   removal using Markdown alone?
-4. **Source deletion:** Is propagation of conversation-item deletion required
-   before the first slice is considered safe to use, or explicitly deferred?
-5. **Scheduling:** Should task completion always enqueue consolidation, or only
-   when the uncompacted source range exceeds a small threshold?
-6. **Invalid edits:** Is exclusion plus a runtime diagnostic sufficient without
-   an in-product editing or repair surface?
+1. **Forgetting:** Which unpinned low-value claims may the updater remove?
+2. **Pinning:** How does Noema mark a claim as protected from automatic removal
+   without adding an editing surface?
+3. **Source deletion:** Must deleting a conversation item retract derived
+   memory in the first slice, or is that explicitly deferred?
+4. **Child breadth:** What maximum number or byte budget applies to the derived
+   child listing appended to a page?
+5. **Automatic scheduling:** Is compaction plus startup recovery sufficient, or
+   should task completion also request an update?
 
 ## Non-goals
 
-This proposal does not approve the memory-specific storage-contract exception,
-select final prompts or models, add vectors, implement additional scopes,
-define privacy modes, build a memory editor, retain page versions, or change
-the lifecycle of Mnemosyne. Its purpose is to define a small enough native
-Markdown memory slice to evaluate through implementation.
+This proposal does not select final prompts or models, add vectors, implement
+additional scopes, define privacy modes, support direct editing, retain page
+versions, or preserve Mnemosyne data. Its purpose is to define a single,
+coherent native memory authority that can be evaluated through implementation.
