@@ -76,7 +76,6 @@ impl SubscriptionRoot {
                 .map_err(tasks::work_error)?,
         };
         let receiver = state.subscriptions().subscribe_work(workspace_id.as_str());
-        state.run_work_subscription_handoff().await;
         Ok(work_event_stream(
             store,
             receiver,
@@ -114,7 +113,6 @@ impl SubscriptionRoot {
                 .map_err(tasks::work_error)?,
         };
         let receiver = state.subscriptions().subscribe_work(workspace_id.as_str());
-        state.run_work_subscription_handoff().await;
         Ok(work_event_stream(
             store,
             receiver,
