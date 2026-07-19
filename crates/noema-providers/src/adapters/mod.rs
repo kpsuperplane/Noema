@@ -8,7 +8,6 @@ pub(crate) mod foundation;
 mod hosted;
 pub(crate) mod openai;
 pub(crate) mod responses;
-mod transport_error;
 pub(crate) mod web;
 
 pub(crate) use account_files::SecretInputStore;
@@ -23,7 +22,7 @@ pub use web::{
     web_fetch_summarizer_prompt,
 };
 
-pub(crate) use transport_error::reqwest_transport_error;
+pub(crate) use crate::reqwest_transport_error;
 
 #[cfg(test)]
 pub(crate) mod test_support;

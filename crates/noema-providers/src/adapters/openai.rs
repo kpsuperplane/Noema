@@ -1,10 +1,10 @@
 //! Provider adapter for the OpenAI Responses API.
 
+use super::reqwest_transport_error;
 use super::responses::{
     OPENAI_RESPONSES_PROFILE, ResponsesDiagnosticContext, ResponsesRequest, ResponsesTransport,
     header_value, normalize_base_url,
 };
-use super::transport_error::reqwest_transport_error;
 use crate::{
     DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, ModelProvider,
     OpenAiProviderConfig, ProviderError, ProviderResponseContinuation, ProviderToolCapabilities,

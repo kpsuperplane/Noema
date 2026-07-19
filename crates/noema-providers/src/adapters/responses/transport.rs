@@ -11,9 +11,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::{ResponsesDiagnosticContext, ResponsesResponse, sse::SseAccumulator};
-use crate::{
-    GenerateStreamEvent, ProviderError, adapters::transport_error::reqwest_transport_error,
-};
+use crate::{GenerateStreamEvent, ProviderError, reqwest_transport_error};
 
 /// HTTP transport for a Responses-compatible endpoint.
 #[derive(Clone)]

@@ -26,7 +26,12 @@ mod response_support;
 mod routing;
 mod selection;
 mod tools;
+#[cfg(any(feature = "adapters", feature = "local-models"))]
+mod transport_error;
 mod web;
+
+#[cfg(any(feature = "adapters", feature = "local-models"))]
+pub(crate) use transport_error::reqwest_transport_error;
 
 pub use account_operations::{
     CreateSecretProviderAccountRequest, ProviderAccountOperationError,
