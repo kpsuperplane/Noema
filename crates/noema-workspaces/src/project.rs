@@ -36,10 +36,4 @@ impl ProjectRecord {
         }
         Ok(self)
     }
-
-    /// A project can receive newly created or moved tasks only while active.
-    #[must_use]
-    pub const fn accepts_new_tasks(&self) -> bool {
-        self.archived_at.is_none()
-    }
 }

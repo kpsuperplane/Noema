@@ -15,14 +15,6 @@ pub enum WorkspaceInputError {
     /// A required record field is blank.
     #[error("workspace field cannot be empty: {0}")]
     EmptyField(&'static str),
-    /// An enum value is outside its closed persisted vocabulary.
-    #[error("invalid {kind}: {value}")]
-    InvalidEnum {
-        /// Vocabulary being parsed.
-        kind: &'static str,
-        /// Rejected wire value.
-        value: String,
-    },
     /// An archive flag violates the Personal workspace invariant.
     #[error("personal workspace cannot be archived")]
     PersonalWorkspaceArchived,
