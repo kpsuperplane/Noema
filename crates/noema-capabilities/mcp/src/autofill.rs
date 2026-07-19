@@ -106,35 +106,28 @@ fn format_tool_prompt_row(tool: &McpToolRecord) -> String {
         tool.description.as_deref(),
         MAX_TOOL_DESCRIPTION_HINT_CHARS,
     );
-    let output_fields = tool
-        .output_schema
-        .as_ref()
-        .map(schema_field_names)
-        .unwrap_or_default();
     [
         sanitize_prompt_line(&tool.name),
         hint.map(|hint| sanitize_prompt_line(&hint))
             .unwrap_or_else(|| "-".to_string()),
-        field_list_or_dash(schema_field_names(&tool.input_schema)),
-        field_list_or_dash(output_fields),
+        schema_field_list(&tool.input_schema),
+        tool.output_schema
+            .as_ref()
+            .map_or_else(|| "-".to_string(), schema_field_list),
         format_annotations(&tool.annotations).unwrap_or_else(|| "-".to_string()),
     ]
     .join("\t")
 }
 
 #[cfg(any(feature = "transport", test))]
-fn schema_field_names(schema: &Value) -> Vec<String> {
+fn schema_field_list(schema: &Value) -> String {
     let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
-        return Vec::new();
+        return "-".to_string();
     };
-    properties
+    let fields = properties
         .keys()
         .map(|name| sanitize_prompt_line(name))
-        .collect()
-}
-
-#[cfg(any(feature = "transport", test))]
-fn field_list_or_dash(fields: Vec<String>) -> String {
+        .collect::<Vec<_>>();
     if fields.is_empty() {
         "-".to_string()
     } else {

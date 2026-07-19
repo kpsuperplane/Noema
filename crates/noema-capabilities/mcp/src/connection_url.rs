@@ -25,24 +25,18 @@ pub(crate) fn is_loopback_host(host: Host<&str>) -> bool {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TargetResolutionError {
-    InvalidUrl,
-    MissingPort,
-    Dns,
-    NoAddresses,
-    DisallowedAddress,
-}
+pub(crate) struct TargetResolutionError;
 
 pub(crate) async fn resolve_allowed_target(
     url: &Url,
 ) -> Result<Option<(String, Vec<SocketAddr>)>, TargetResolutionError> {
     if !url.username().is_empty() || url.password().is_some() || url.fragment().is_some() {
-        return Err(TargetResolutionError::InvalidUrl);
+        return Err(TargetResolutionError);
     }
-    let host = url.host().ok_or(TargetResolutionError::InvalidUrl)?;
+    let host = url.host().ok_or(TargetResolutionError)?;
     let loopback = is_loopback_host(host.clone());
     if url.scheme() != "https" && !(url.scheme() == "http" && loopback) {
-        return Err(TargetResolutionError::InvalidUrl);
+        return Err(TargetResolutionError);
     }
     let allowed = |address: IpAddr| {
         if loopback {
@@ -54,20 +48,18 @@ pub(crate) async fn resolve_allowed_target(
     match host {
         Host::Ipv4(address) if allowed(address.into()) => Ok(None),
         Host::Ipv6(address) if allowed(address.into()) => Ok(None),
-        Host::Ipv4(_) | Host::Ipv6(_) => Err(TargetResolutionError::DisallowedAddress),
+        Host::Ipv4(_) | Host::Ipv6(_) => Err(TargetResolutionError),
         Host::Domain(hostname) => {
-            let port = url
-                .port_or_known_default()
-                .ok_or(TargetResolutionError::MissingPort)?;
+            let port = url.port_or_known_default().ok_or(TargetResolutionError)?;
             let addresses = tokio::net::lookup_host((hostname, port))
                 .await
-                .map_err(|_| TargetResolutionError::Dns)?
+                .map_err(|_| TargetResolutionError)?
                 .collect::<Vec<_>>();
             if addresses.is_empty() {
-                return Err(TargetResolutionError::NoAddresses);
+                return Err(TargetResolutionError);
             }
             if addresses.iter().any(|address| !allowed(address.ip())) {
-                return Err(TargetResolutionError::DisallowedAddress);
+                return Err(TargetResolutionError);
             }
             Ok(Some((hostname.to_string(), addresses)))
         }

@@ -5,48 +5,30 @@ use crate::{
     McpToolRecord, McpTrustClassification, ToolCalibrationRecord,
 };
 
-/// Reason a discovered MCP tool is not currently callable by the model.
-///
-/// Catalog-approved definitions may remain inert in a stable native catalog
-/// when the provider enforces a separate allowed-tools subset.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum McpToolIneligibility {
-    /// The owning server is disabled.
-    ServerDisabled,
-    /// The owning server is not currently healthy.
-    ServerUnhealthy,
-    /// The owning server requires authentication before use.
-    ServerAuthRequired,
-    /// The tool is missing a current ready calibration.
-    ToolNotCalibrated,
-    /// The tool can write or export and has no one-shot approval for this dispatch.
-    ToolApprovalRequired,
-}
-
-/// Return why a tool is not eligible for current model calls or gateway execution.
+/// Return whether a tool is ineligible for current model calls or gateway execution.
 #[must_use]
 pub(crate) fn mcp_tool_ineligibility(
     server: &McpServerRecord,
     tool: &McpToolRecord,
     calibration: Option<&ToolCalibrationRecord>,
-) -> Option<McpToolIneligibility> {
+) -> bool {
     if !server.enabled {
-        return Some(McpToolIneligibility::ServerDisabled);
+        return true;
     }
     if server.health_status != McpServerHealthStatus::Healthy {
-        return Some(McpToolIneligibility::ServerUnhealthy);
+        return true;
     }
     if !matches!(
         server.auth_status,
         McpServerAuthStatus::None | McpServerAuthStatus::Authenticated
     ) {
-        return Some(McpToolIneligibility::ServerAuthRequired);
+        return true;
     }
 
     mcp_tool_catalog_ineligibility(tool, calibration)
 }
 
-/// Return why a tool cannot belong to a stable, provider-restricted schema catalog.
+/// Return whether a tool cannot belong to a stable, provider-restricted schema catalog.
 ///
 /// Transient server availability is intentionally excluded. A catalog-approved
 /// definition may remain declared only when the provider enforces a separate
@@ -55,9 +37,9 @@ pub(crate) fn mcp_tool_ineligibility(
 pub(crate) fn mcp_tool_catalog_ineligibility(
     tool: &McpToolRecord,
     calibration: Option<&ToolCalibrationRecord>,
-) -> Option<McpToolIneligibility> {
+) -> bool {
     let Some(calibration) = calibration else {
-        return Some(McpToolIneligibility::ToolNotCalibrated);
+        return true;
     };
     if calibration.mcp_tool_id != tool.mcp_tool_id
         || calibration.status != McpCalibrationStatus::Ready
@@ -78,15 +60,15 @@ pub(crate) fn mcp_tool_catalog_ineligibility(
         || calibration.reviewed_metadata_fingerprint.as_deref()
             != Some(tool.metadata_fingerprint.as_str())
     {
-        return Some(McpToolIneligibility::ToolNotCalibrated);
+        return true;
     }
     if calibration.write_classification != McpTrustClassification::None
         || calibration.export_classification != McpTrustClassification::None
     {
-        return Some(McpToolIneligibility::ToolApprovalRequired);
+        return true;
     }
 
-    None
+    false
 }
 
 /// Return a bounded, prompt-safe one-line MCP tool description.
@@ -168,23 +150,10 @@ mod tests {
     fn model_and_gateway_mcp_tool_eligibility_share_ready_policy() {
         let (server, tool, calibration) = fixture();
 
-        assert_eq!(
-            mcp_tool_catalog_ineligibility(&tool, None),
-            Some(McpToolIneligibility::ToolNotCalibrated)
-        );
-        assert_eq!(
-            mcp_tool_ineligibility(&server, &tool, None),
-            Some(McpToolIneligibility::ToolNotCalibrated)
-        );
-
-        assert_eq!(
-            mcp_tool_catalog_ineligibility(&tool, Some(&calibration)),
-            None
-        );
-        assert_eq!(
-            mcp_tool_ineligibility(&server, &tool, Some(&calibration)),
-            None
-        );
+        assert!(mcp_tool_catalog_ineligibility(&tool, None));
+        assert!(mcp_tool_ineligibility(&server, &tool, None));
+        assert!(!mcp_tool_catalog_ineligibility(&tool, Some(&calibration)));
+        assert!(!mcp_tool_ineligibility(&server, &tool, Some(&calibration)));
     }
 
     #[test]
@@ -210,10 +179,7 @@ mod tests {
         ];
 
         for corrupt in &corruptions {
-            assert_eq!(
-                mcp_tool_catalog_ineligibility(&tool, Some(corrupt)),
-                Some(McpToolIneligibility::ToolNotCalibrated)
-            );
+            assert!(mcp_tool_catalog_ineligibility(&tool, Some(corrupt)));
         }
     }
 
@@ -245,9 +211,7 @@ mod tests {
                 export_classification,
                 ..calibration.clone()
             };
-            let reason = mcp_tool_ineligibility(&server, &tool, Some(&changed))
-                .expect("write/export tool must require approval");
-            assert_eq!(reason, McpToolIneligibility::ToolApprovalRequired);
+            assert!(mcp_tool_ineligibility(&server, &tool, Some(&changed)));
         }
 
         let stale = ToolCalibrationRecord {
@@ -255,15 +219,13 @@ mod tests {
             reviewed_metadata_fingerprint: Some("stale".to_string()),
             ..calibration
         };
-        assert_eq!(
-            mcp_tool_ineligibility(&server, &tool, Some(&stale)),
-            Some(McpToolIneligibility::ToolNotCalibrated)
-        );
+        assert!(mcp_tool_ineligibility(&server, &tool, Some(&stale)));
         let mut disabled_server = server;
         disabled_server.enabled = false;
-        assert_eq!(
-            mcp_tool_ineligibility(&disabled_server, &tool, Some(&stale)),
-            Some(McpToolIneligibility::ServerDisabled)
-        );
+        assert!(mcp_tool_ineligibility(
+            &disabled_server,
+            &tool,
+            Some(&stale)
+        ));
     }
 }

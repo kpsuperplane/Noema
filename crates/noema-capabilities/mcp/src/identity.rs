@@ -50,15 +50,10 @@ pub(crate) fn hex_bytes(bytes: &[u8]) -> String {
 }
 
 #[cfg(feature = "transport")]
-fn random_id_bytes() -> Result<[u8; 16], ring::error::Unspecified> {
+pub(crate) fn random_hex_id() -> Result<String, ring::error::Unspecified> {
     let mut bytes = [0_u8; 16];
     SystemRandom::new().fill(&mut bytes)?;
-    Ok(bytes)
-}
-
-#[cfg(feature = "transport")]
-pub(crate) fn random_hex_id() -> Result<String, ring::error::Unspecified> {
-    random_id_bytes().map(|bytes| hex_bytes(&bytes))
+    Ok(hex_bytes(&bytes))
 }
 
 #[cfg(test)]

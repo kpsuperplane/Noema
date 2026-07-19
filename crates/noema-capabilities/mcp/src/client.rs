@@ -104,15 +104,9 @@ impl McpRequestContext {
         self.cancellation.clone()
     }
 
-    /// Return whether cancellation has already been requested.
-    #[must_use]
-    pub fn is_cancelled(&self) -> bool {
-        self.cancellation.is_cancelled()
-    }
-
     /// Fail before starting remote work when the context is already terminal.
     pub(crate) fn check(&self, operation: &'static str) -> McpClientResult<()> {
-        if self.is_cancelled() {
+        if self.cancellation.is_cancelled() {
             return Err(McpClientError::Cancelled { operation });
         }
         if Instant::now() >= self.deadline {
@@ -126,7 +120,7 @@ impl fmt::Debug for McpRequestContext {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("McpRequestContext")
-            .field("is_cancelled", &self.is_cancelled())
+            .field("is_cancelled", &self.cancellation.is_cancelled())
             .field("deadline_elapsed", &(Instant::now() >= self.deadline))
             .finish()
     }

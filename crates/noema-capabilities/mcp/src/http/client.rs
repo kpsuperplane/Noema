@@ -44,7 +44,9 @@ impl BoundedReqwestMcpClient {
         match bounded_response_body(response, self.max_frame_bytes).await {
             Ok(body) => Ok(body),
             Err(BodyReadError::Request(error)) => Err(StreamableHttpError::Client(error)),
-            Err(BodyReadError::Limit) => Err(wire_limit_error()),
+            Err(BodyReadError::Limit) => Err(StreamableHttpError::UnexpectedServerResponse(
+                Cow::Borrowed(WIRE_LIMIT_MESSAGE),
+            )),
         }
     }
 
@@ -91,7 +93,16 @@ impl StreamableHttpClient for BoundedReqwestMcpClient {
         let response = response
             .error_for_status()
             .map_err(StreamableHttpError::Client)?;
-        require_content_type(&response, EVENT_STREAM_MIME_TYPE)?;
+        let content_type = response
+            .headers()
+            .get(CONTENT_TYPE)
+            .map(|value| String::from_utf8_lossy(value.as_bytes()).to_string());
+        if !content_type
+            .as_deref()
+            .is_some_and(|value| content_type_is(value, EVENT_STREAM_MIME_TYPE))
+        {
+            return Err(StreamableHttpError::UnexpectedContentType(content_type));
+        }
         Ok(self.bounded_sse(response))
     }
 
@@ -247,24 +258,6 @@ fn apply_custom_headers(
     Ok(request)
 }
 
-fn require_content_type(
-    response: &reqwest::Response,
-    required: &str,
-) -> Result<(), StreamableHttpError<reqwest::Error>> {
-    let content_type = response
-        .headers()
-        .get(CONTENT_TYPE)
-        .map(|value| String::from_utf8_lossy(value.as_bytes()).to_string());
-    if content_type
-        .as_deref()
-        .is_some_and(|value| content_type_is(value, required))
-    {
-        Ok(())
-    } else {
-        Err(StreamableHttpError::UnexpectedContentType(content_type))
-    }
-}
-
 fn content_type_is(value: &str, expected: &str) -> bool {
     value.as_bytes().starts_with(expected.as_bytes())
 }
@@ -286,10 +279,6 @@ fn extract_scope(header: &str) -> Option<String> {
         .find(|character: char| character == ',' || character == ';' || character.is_whitespace())
         .unwrap_or(value.len());
     (end > 0).then(|| value[..end].to_string())
-}
-
-fn wire_limit_error() -> StreamableHttpError<reqwest::Error> {
-    StreamableHttpError::UnexpectedServerResponse(Cow::Borrowed(WIRE_LIMIT_MESSAGE))
 }
 
 #[derive(Debug, thiserror::Error)]

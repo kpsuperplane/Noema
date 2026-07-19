@@ -81,7 +81,12 @@ impl SecretRoot {
         let staging = self
             .open_staging(false)?
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "MCP staging is missing"))?;
-        require_regular_file(&staging, &stage_name)?;
+        if file_metadata(&staging, &stage_name)?.is_none() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "MCP secret file is missing",
+            ));
+        }
         let server = self
             .open_server(mcp_server_id, true)?
             .ok_or_else(|| invalid("MCP server directory is unavailable"))?;
@@ -244,10 +249,11 @@ impl SecretRoot {
 
     fn stage_filename(&self, path: &Path) -> io::Result<PathBuf> {
         let staging = self.path.join(MCP_DIR).join(STAGING_DIR);
-        single_relative_component(
-            path.strip_prefix(staging)
-                .map_err(|_| invalid("staged MCP secret does not belong to the configured root"))?,
-        )
+        let relative = path
+            .strip_prefix(staging)
+            .map_err(|_| invalid("staged MCP secret does not belong to the configured root"))?;
+        validate_single_component(relative)?;
+        Ok(relative.to_path_buf())
     }
 
     fn server_file(&self, path: &Path) -> io::Result<(OsString, OsString)> {
@@ -336,17 +342,6 @@ fn open_verified_file(directory: &Dir, filename: &Path) -> io::Result<Option<Fil
         return Err(invalid("MCP secret file changed while opening"));
     }
     Ok(Some(file))
-}
-
-fn require_regular_file(directory: &Dir, filename: &Path) -> io::Result<()> {
-    if file_metadata(directory, filename)?.is_some() {
-        Ok(())
-    } else {
-        Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            "MCP secret file is missing",
-        ))
-    }
 }
 
 fn file_metadata(directory: &Dir, filename: &Path) -> io::Result<Option<Metadata>> {
@@ -520,11 +515,6 @@ fn validate_single_component(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn single_relative_component(path: &Path) -> io::Result<PathBuf> {
-    validate_single_component(path)?;
-    Ok(path.to_path_buf())
-}
-
 fn combined_io_error(primary: io::Error, recovery: io::Error) -> io::Error {
     io::Error::new(
         primary.kind(),
@@ -540,63 +530,63 @@ fn invalid(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, message)
 }
 
-#[cfg(unix)]
 fn set_no_follow(options: &mut OpenOptions) {
+    #[cfg(unix)]
     options.custom_flags(libc::O_NOFOLLOW);
 }
 
-#[cfg(not(unix))]
-fn set_no_follow(_options: &mut OpenOptions) {}
-
-#[cfg(unix)]
 fn set_create_mode(options: &mut OpenOptions) {
+    #[cfg(unix)]
     options.mode(0o600);
 }
 
-#[cfg(not(unix))]
-fn set_create_mode(_options: &mut OpenOptions) {}
-
-#[cfg(unix)]
 fn set_private_dir_permissions(directory: &Dir) -> io::Result<()> {
-    directory.set_permissions(
-        Path::new("."),
-        Permissions::from_std(std::fs::Permissions::from_mode(0o700)),
-    )
+    #[cfg(unix)]
+    {
+        directory.set_permissions(
+            Path::new("."),
+            Permissions::from_std(std::fs::Permissions::from_mode(0o700)),
+        )
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = directory;
+        Ok(())
+    }
 }
 
-#[cfg(not(unix))]
-fn set_private_dir_permissions(_directory: &Dir) -> io::Result<()> {
-    Ok(())
-}
-
-#[cfg(unix)]
 fn set_private_file_permissions(file: &File) -> io::Result<()> {
-    file.set_permissions(Permissions::from_std(std::fs::Permissions::from_mode(
-        0o600,
-    )))
+    #[cfg(unix)]
+    {
+        file.set_permissions(Permissions::from_std(std::fs::Permissions::from_mode(
+            0o600,
+        )))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = file;
+        Ok(())
+    }
 }
 
-#[cfg(not(unix))]
-fn set_private_file_permissions(_file: &File) -> io::Result<()> {
-    Ok(())
-}
-
-#[cfg(unix)]
 fn same_cap_metadata(left: &Metadata, right: &Metadata) -> bool {
-    left.dev() == right.dev() && left.ino() == right.ino()
+    #[cfg(unix)]
+    {
+        left.dev() == right.dev() && left.ino() == right.ino()
+    }
+    #[cfg(not(unix))]
+    {
+        left.len() == right.len() && left.modified().ok() == right.modified().ok()
+    }
 }
 
-#[cfg(not(unix))]
-fn same_cap_metadata(left: &Metadata, right: &Metadata) -> bool {
-    left.len() == right.len() && left.modified().ok() == right.modified().ok()
-}
-
-#[cfg(unix)]
 fn same_std_cap_metadata(left: &std::fs::Metadata, right: &Metadata) -> bool {
-    left.dev() == right.dev() && left.ino() == right.ino()
-}
-
-#[cfg(not(unix))]
-fn same_std_cap_metadata(left: &std::fs::Metadata, right: &Metadata) -> bool {
-    left.len() == right.len() && left.modified().ok().map(Into::into) == right.modified().ok()
+    #[cfg(unix)]
+    {
+        left.dev() == right.dev() && left.ino() == right.ino()
+    }
+    #[cfg(not(unix))]
+    {
+        left.len() == right.len() && left.modified().ok().map(Into::into) == right.modified().ok()
+    }
 }

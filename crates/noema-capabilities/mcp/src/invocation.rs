@@ -81,7 +81,7 @@ impl LocalMcpService {
         {
             return Err(CapabilityError::UnknownOperation);
         }
-        if mcp_tool_ineligibility(&snapshot.server, &snapshot.tool, Some(calibration)).is_some() {
+        if mcp_tool_ineligibility(&snapshot.server, &snapshot.tool, Some(calibration)) {
             return Err(CapabilityError::Denied);
         }
 

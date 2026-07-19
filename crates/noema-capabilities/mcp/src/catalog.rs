@@ -113,7 +113,7 @@ pub(crate) fn catalog_from_servers(
     let mut availability_notices = Vec::new();
     for server in servers {
         for tool in &server.tools {
-            if mcp_tool_catalog_ineligibility(&tool.tool, tool.calibration.as_ref()).is_some() {
+            if mcp_tool_catalog_ineligibility(&tool.tool, tool.calibration.as_ref()) {
                 continue;
             }
             let Some(calibration) = tool.calibration.as_ref() else {
@@ -122,12 +122,22 @@ pub(crate) fn catalog_from_servers(
             let canonical_name = format!("mcp.{}.{}", server.server.mcp_server_id, tool.tool.name);
             let name = ToolName::new(&canonical_name)
                 .map_err(|_| CapabilityBindingSourceError::Invalid)?;
-            let callable =
-                mcp_tool_ineligibility(&server.server, &tool.tool, Some(calibration)).is_none();
+            let callable = !mcp_tool_ineligibility(&server.server, &tool.tool, Some(calibration));
             if !callable {
                 availability_notices.push(CapabilityAvailabilityNotice {
                     capability: Some(name.clone()),
-                    status: availability_status(server),
+                    status: if !server.server.enabled {
+                        CapabilityAvailabilityStatus::Disabled
+                    } else if !matches!(
+                        server.server.auth_status,
+                        McpServerAuthStatus::None | McpServerAuthStatus::Authenticated
+                    ) {
+                        CapabilityAvailabilityStatus::AuthenticationRequired
+                    } else if server.server.health_status != McpServerHealthStatus::Healthy {
+                        CapabilityAvailabilityStatus::Unavailable
+                    } else {
+                        CapabilityAvailabilityStatus::Disabled
+                    },
                 });
             }
             let description =
@@ -159,22 +169,6 @@ pub(crate) fn catalog_from_servers(
         snapshot: builder.build(),
         availability_notices,
     })
-}
-
-#[cfg(any(feature = "transport", test))]
-fn availability_status(server: &McpControlPlaneServer) -> CapabilityAvailabilityStatus {
-    if !server.server.enabled {
-        CapabilityAvailabilityStatus::Disabled
-    } else if !matches!(
-        server.server.auth_status,
-        McpServerAuthStatus::None | McpServerAuthStatus::Authenticated
-    ) {
-        CapabilityAvailabilityStatus::AuthenticationRequired
-    } else if server.server.health_status != McpServerHealthStatus::Healthy {
-        CapabilityAvailabilityStatus::Unavailable
-    } else {
-        CapabilityAvailabilityStatus::Disabled
-    }
 }
 
 #[cfg(feature = "transport")]

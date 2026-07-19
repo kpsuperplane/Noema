@@ -127,7 +127,7 @@ impl McpSessionFactory for StreamableHttpMcpSessionFactory {
             let config = http_config_from_server(server, secrets)?;
             let uses_oauth =
                 config.oauth_client_credentials.is_some() || config.oauth_credentials.is_some();
-            if uses_oauth && has_authorization_header(&config.headers) {
+            if uses_oauth && config.headers.contains_key(&http::header::AUTHORIZATION) {
                 return Err(McpClientError::Malformed(
                     "MCP HTTP configuration contains multiple authorization methods".to_string(),
                 ));
@@ -217,7 +217,8 @@ fn http_config_from_server(
     })?;
     parse_https_or_loopback(&config.url)
         .ok_or_else(|| McpClientError::Malformed("MCP HTTP URL is invalid".to_string()))?;
-    let headers = merge_headers(&config.headers, &secrets.headers)?;
+    let mut headers = parse_headers(&config.headers, false)?;
+    headers.extend(parse_headers(&secrets.headers, true)?);
     Ok(HttpConfig {
         url: config.url,
         headers,
@@ -242,19 +243,6 @@ async fn restricted_http_client(value: &str) -> McpClientResult<reqwest::Client>
     builder.build().map_err(|error| {
         McpClientError::Unavailable(format!("failed to configure MCP HTTP client: {error}"))
     })
-}
-
-fn has_authorization_header(headers: &HashMap<HeaderName, HeaderValue>) -> bool {
-    headers.contains_key(&http::header::AUTHORIZATION)
-}
-
-fn merge_headers(
-    safe_headers: &BTreeMap<String, String>,
-    secret_headers: &BTreeMap<String, String>,
-) -> McpClientResult<HashMap<HeaderName, HeaderValue>> {
-    let mut headers = parse_headers(safe_headers, false)?;
-    headers.extend(parse_headers(secret_headers, true)?);
-    Ok(headers)
 }
 
 fn parse_headers(

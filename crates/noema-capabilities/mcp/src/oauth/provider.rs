@@ -62,12 +62,7 @@ async fn client_credentials_flow(
     url: &str,
     credentials: &McpOAuthClientCredentials,
 ) -> McpOAuthResult<McpOAuthStoredCredentials> {
-    let resource = resolved_resource(url)
-        .await
-        .unwrap_or_else(|| url.to_string());
-    let mut state = OAuthState::new_with_oauth_http_client(&resource, strict_oauth_http_client())
-        .await
-        .map_err(unavailable_error)?;
+    let (mut state, resource) = oauth_state(url).await?;
     state
         .authenticate_client_credentials(ClientCredentialsConfig::ClientSecret {
             client_id: credentials.client_id.clone(),
@@ -86,12 +81,7 @@ async fn refresh(
 ) -> McpOAuthResult<McpOAuthStoredCredentials> {
     let response: OAuthTokenResponse =
         serde_json::from_value(stored.token_response.clone()).map_err(unavailable_error)?;
-    let resource = resolved_resource(url)
-        .await
-        .unwrap_or_else(|| url.to_string());
-    let mut state = OAuthState::new_with_oauth_http_client(resource, strict_oauth_http_client())
-        .await
-        .map_err(unavailable_error)?;
+    let (mut state, _) = oauth_state(url).await?;
     state
         .set_credentials(&stored.client_id, response)
         .await
@@ -100,6 +90,16 @@ async fn refresh(
     let mut refreshed = stored_credentials(&state).await?;
     preserve_refresh_token(&mut refreshed.token_response, &stored.token_response);
     Ok(refreshed)
+}
+
+async fn oauth_state(url: &str) -> McpOAuthResult<(OAuthState, String)> {
+    let resource = resolved_resource(url)
+        .await
+        .unwrap_or_else(|| url.to_string());
+    let state = OAuthState::new_with_oauth_http_client(&resource, strict_oauth_http_client())
+        .await
+        .map_err(unavailable_error)?;
+    Ok((state, resource))
 }
 
 fn preserve_refresh_token(refreshed: &mut Value, previous: &Value) {
