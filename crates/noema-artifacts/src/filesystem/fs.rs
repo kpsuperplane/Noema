@@ -207,15 +207,6 @@ pub(super) fn cleanup_empty_dirs<'a>(
     Ok(())
 }
 
-pub(super) fn cleanup_empty_dirs_best_effort<'a>(
-    root_dir: &Dir,
-    directories: impl IntoIterator<Item = &'a PathBuf>,
-) {
-    for directory in directories {
-        let _ = root_dir.remove_dir(directory);
-    }
-}
-
 #[cfg(unix)]
 pub(super) fn set_no_follow(options: &mut OpenOptions) {
     options.custom_flags(libc::O_NOFOLLOW);

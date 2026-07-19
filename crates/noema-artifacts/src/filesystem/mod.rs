@@ -76,9 +76,9 @@ impl LocalArtifactService {
         operation_ids: Arc<dyn OperationIdSource>,
         stale_staging_age: Duration,
     ) -> Result<Self, ArtifactOperationError> {
-        let root_dir = storage::open_root(&root)?;
+        let root_dir = fs::open_root(&root)?;
         let active_operations = Arc::new(Mutex::new(HashSet::new()));
-        storage::cleanup_stale_staging(&root_dir, &root, &active_operations, stale_staging_age)?;
+        cleanup::cleanup_stale_staging(&root_dir, &root, &active_operations, stale_staging_age)?;
         Ok(Self {
             root,
             root_dir,
@@ -155,11 +155,11 @@ impl LocalArtifactService {
                     artifact_version_id: Some(artifact_version_id),
                     title: None,
                     storage: ArtifactVersionStorage::LocalFile {
-                        relative_path: publication.relative_path().to_string(),
+                        relative_path: publication.relative_path.clone(),
                     },
                     media_type: request.media_type,
-                    byte_size: Some(publication.byte_size()),
-                    content_sha256: Some(publication.content_sha256().to_string()),
+                    byte_size: Some(publication.byte_size),
+                    content_sha256: Some(publication.content_sha256.clone()),
                     created_by_actor_id: request.created_by_actor_id,
                     source: request.source,
                     metadata: serde_json::json!({}),
@@ -213,11 +213,11 @@ impl LocalArtifactService {
                     artifact_version_id: Some(artifact_version_id),
                     title: request.title,
                     storage: ArtifactVersionStorage::LocalFile {
-                        relative_path: publication.relative_path().to_string(),
+                        relative_path: publication.relative_path.clone(),
                     },
                     media_type: request.media_type,
-                    byte_size: Some(publication.byte_size()),
-                    content_sha256: Some(publication.content_sha256().to_string()),
+                    byte_size: Some(publication.byte_size),
+                    content_sha256: Some(publication.content_sha256.clone()),
                     created_by_actor_id: request.created_by_actor_id,
                     source: request.source,
                     metadata: request.metadata,
@@ -237,7 +237,7 @@ impl LocalArtifactService {
     ) -> Result<storage::PublishedObject, ArtifactOperationError> {
         let operation = self.begin_operation()?;
         let root = self.root.clone();
-        let root_dir = storage::duplicate_root(&self.root_dir, &self.root)?;
+        let root_dir = fs::duplicate_dir(&self.root_dir, &self.root)?;
         let stale_staging_age = self.stale_staging_age;
         let active_operations = self.active_operations.clone();
         #[cfg(test)]
@@ -288,7 +288,7 @@ impl ArtifactOperations for LocalArtifactService {
     ) -> ArtifactOperationFuture<'_, crate::ArtifactFileContent> {
         Box::pin(async move {
             let root = self.root.clone();
-            let root_dir = storage::duplicate_root(&self.root_dir, &self.root)?;
+            let root_dir = fs::duplicate_dir(&self.root_dir, &self.root)?;
             tokio::task::spawn_blocking(move || {
                 storage::read_local_file(&root_dir, &root, &request)
             })

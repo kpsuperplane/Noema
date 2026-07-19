@@ -19,16 +19,13 @@ use crate::{
 
 use super::{
     OperationLease,
-    cleanup::CreatedDirectoryGuard,
+    cleanup::{CreatedDirectoryGuard, cleanup_stale_staging},
     fs::{
-        cleanup_empty_dirs, cleanup_empty_dirs_best_effort, duplicate_dir, ensure_verified_dir,
-        filesystem_error, open_verified_cap_dir, read_verified_file, relative_path,
+        cleanup_empty_dirs, duplicate_dir, ensure_verified_dir, filesystem_error,
+        open_verified_cap_dir, read_verified_file, relative_path,
         relative_path_components_are_safe, same_cap_metadata, set_no_follow, sha256_hex,
     },
 };
-
-pub(super) use super::cleanup::cleanup_stale_staging;
-pub(super) use super::fs::open_root;
 
 const STAGING_DIR: &str = ".artifact-staging";
 const OBJECTS_DIR: &str = "objects";
@@ -52,10 +49,6 @@ pub(super) struct PublishRequest {
 #[cfg(test)]
 pub(super) trait PublishHook: std::fmt::Debug + Send + Sync {
     fn before_publish(&self) -> Result<(), ArtifactOperationError>;
-}
-
-pub(super) fn duplicate_root(root_dir: &Dir, root: &Path) -> Result<Dir, ArtifactOperationError> {
-    duplicate_dir(root_dir, root)
 }
 
 pub(super) fn operation_id_is_valid(operation_id: &str) -> bool {
@@ -167,7 +160,7 @@ pub(super) fn stage_and_publish(
         Path::new(&filename),
         &published.object_dir,
         Path::new(&filename),
-        published.path(),
+        &published.published_path,
     )?;
     published.mark_file_created();
     verify_linked_file(
@@ -175,15 +168,15 @@ pub(super) fn stage_and_publish(
         &published.object_dir,
         Path::new(&filename),
         &staged_path,
-        published.path(),
+        &published.published_path,
         byte_size,
         &published.content_sha256,
     )?;
     staged.remove_after_publish()?;
-    published.relative_path = relative_path(&request.root, published.path())?
+    published.relative_path = relative_path(&request.root, &published.published_path)?
         .to_str()
         .ok_or_else(|| ArtifactDomainError::UnsafeFilename {
-            value: published.path().display().to_string(),
+            value: published.published_path.display().to_string(),
         })?
         .to_string();
     Ok(published)
@@ -206,12 +199,14 @@ pub(super) fn read_local_file(
     let ArtifactVersionStorage::LocalFile { relative_path } = &request.version.storage else {
         return Err(ArtifactDomainError::StorageKindMismatch.into());
     };
+    let invalid_path = || {
+        ArtifactOperationError::from(ArtifactDomainError::UnsafeFilename {
+            value: relative_path.clone(),
+        })
+    };
     let relative = Path::new(relative_path);
     if !relative_path_components_are_safe(relative) {
-        return Err(ArtifactDomainError::UnsafeFilename {
-            value: relative_path.clone(),
-        }
-        .into());
+        return Err(invalid_path());
     }
     let expected_version_dir = artifact_version_dir(
         root,
@@ -220,11 +215,9 @@ pub(super) fn read_local_file(
         request.version.version_index,
     )?;
     let absolute = root.join(relative);
-    let tail = absolute.strip_prefix(&expected_version_dir).map_err(|_| {
-        ArtifactDomainError::UnsafeFilename {
-            value: relative_path.clone(),
-        }
-    })?;
+    let tail = absolute
+        .strip_prefix(&expected_version_dir)
+        .map_err(|_| invalid_path())?;
     let components = tail.components().collect::<Vec<_>>();
     let [
         Component::Normal(objects),
@@ -232,45 +225,26 @@ pub(super) fn read_local_file(
         Component::Normal(filename),
     ] = components.as_slice()
     else {
-        return Err(ArtifactDomainError::UnsafeFilename {
-            value: relative_path.clone(),
-        }
-        .into());
+        return Err(invalid_path());
     };
     if *objects != OBJECTS_DIR {
-        return Err(ArtifactDomainError::UnsafeFilename {
-            value: relative_path.clone(),
-        }
-        .into());
+        return Err(invalid_path());
     }
     let operation_id = operation_id
         .to_str()
         .filter(|value| operation_id_is_valid(value))
-        .ok_or_else(|| ArtifactDomainError::UnsafeFilename {
-            value: relative_path.clone(),
-        })?;
-    let filename = filename
-        .to_str()
-        .ok_or_else(|| ArtifactDomainError::UnsafeFilename {
-            value: relative_path.clone(),
-        })?;
+        .ok_or_else(invalid_path)?;
+    let filename = filename.to_str().ok_or_else(invalid_path)?;
     let filename = safe_artifact_filename(filename)?.to_string();
     let exact = expected_version_dir
         .join(OBJECTS_DIR)
         .join(operation_id)
         .join(&filename);
     if absolute != exact {
-        return Err(ArtifactDomainError::UnsafeFilename {
-            value: relative_path.clone(),
-        }
-        .into());
+        return Err(invalid_path());
     }
 
-    let parent = exact
-        .parent()
-        .ok_or_else(|| ArtifactDomainError::UnsafeFilename {
-            value: relative_path.clone(),
-        })?;
+    let parent = exact.parent().ok_or_else(invalid_path)?;
     let parent_dir = open_verified_cap_dir(root_dir, root, parent).map_err(|_| {
         filesystem_error("read", parent, "artifact object directory is unavailable")
     })?;
@@ -471,7 +445,7 @@ impl StagedFile {
             let _ = self.staging_dir.remove_file(Path::new(&self.filename));
             self.file_created = false;
         }
-        cleanup_empty_dirs_best_effort(&self.root_dir, [&self.relative_operation_dir]);
+        let _ = cleanup_empty_dirs(&self.root_dir, [&self.relative_operation_dir]);
     }
 }
 
@@ -487,10 +461,10 @@ pub(super) struct PublishedObject {
     filename: String,
     relative_operation_dir: PathBuf,
     published_path: PathBuf,
-    relative_path: String,
+    pub(super) relative_path: String,
     operation: Option<OperationLease>,
-    byte_size: i64,
-    content_sha256: String,
+    pub(super) byte_size: i64,
+    pub(super) content_sha256: String,
     file_created: bool,
 }
 
@@ -518,22 +492,6 @@ impl PublishedObject {
             content_sha256,
             file_created: false,
         }
-    }
-
-    pub(super) fn path(&self) -> &Path {
-        &self.published_path
-    }
-
-    pub(super) fn relative_path(&self) -> &str {
-        &self.relative_path
-    }
-
-    pub(super) const fn byte_size(&self) -> i64 {
-        self.byte_size
-    }
-
-    pub(super) fn content_sha256(&self) -> &str {
-        &self.content_sha256
     }
 
     fn mark_file_created(&mut self) {
@@ -575,7 +533,7 @@ impl PublishedObject {
             let _ = self.object_dir.remove_file(Path::new(&self.filename));
             self.file_created = false;
         }
-        cleanup_empty_dirs_best_effort(&self.root_dir, [&self.relative_operation_dir]);
+        let _ = cleanup_empty_dirs(&self.root_dir, [&self.relative_operation_dir]);
         self.operation.take();
     }
 }
