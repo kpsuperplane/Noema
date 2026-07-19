@@ -49,6 +49,8 @@ home route. They do not imply primary navigation priority.
 
 Future route groups:
 
+- `/settings/safety/privacy`, backed by the governed-action reviewer model
+  preference and privacy posture once that runtime authority is implemented.
 - `/memory/:id`, `/memory/review`, and richer memory browsing backed by Mnemosyne
   visibility APIs.
 - `/inspect`, `/inspect/context-graph`, `/inspect/context-packets`.

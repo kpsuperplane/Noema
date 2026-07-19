@@ -184,26 +184,27 @@ context remains insufficient, the action requires approval. Reviewer results
 that request approval may be cached briefly for the same action revision;
 automatic-execution results are never cached across actions or revisions.
 
-### Reviewer model selection
+### Reviewer model setting
 
-The reviewer can use one of three model-selection policies:
+Action review uses one explicitly selected reviewer model. The setting lives at
+**Settings → Safety → Privacy** (`/settings/safety/privacy`) and reuses Noema's
+existing model-preference control under the label **Reviewer model**.
 
-1. **Inherit the acting model:** use the same provider and model as the agent
-   proposing the action. This requires no additional setup and keeps the
-   payload inside the same provider boundary, but the action and review share
-   the same model weaknesses and latency profile.
-2. **Dedicated reviewer model:** select one configured model globally for
-   action review. This permits a faster or independently chosen reviewer, but
-   may disclose the proposed payload to a second provider and introduces a
-   separate readiness dependency.
-3. **Local-only reviewer:** require a local model for action review. This keeps
-   review payloads on the machine, but review quality and latency depend on
-   available local hardware and models.
+The selector shows configured models plus their provider and readiness state.
+It does not inherit the model used by the acting agent. The persisted preference
+resolves to an exact provider, account, model/profile, and reasoning selection
+for each review, and the assessment records the exact resolved selection that
+produced its verdict.
 
-The initial UI can expose `Same as acting model` plus the ordinary configured
-model choices through one global Safety preference. It should not silently
-fall back across providers: if the selected reviewer is unavailable or returns
-an invalid verdict, the action becomes a blocked action requiring approval.
+The page should keep this model selector as its focal control. Supporting copy
+explains that the selected provider receives the proposed action payload and
+trusted authorization context. Raw reviewer prompts, verdict metadata, and
+audit internals remain behind inspection rather than appearing in the default
+settings view.
+
+Noema does not silently fall back to the acting model or another provider. If
+the reviewer preference is unset, unavailable, or returns an invalid verdict,
+the action becomes a blocked action requiring human approval.
 
 ### Decision composition
 
@@ -488,8 +489,9 @@ observed action states.
 ## Implementation sequence
 
 1. **Action contract:** define governed-action, assessment, approval, immutable
-   revision, trusted-authority, structured-evidence, and revalidation invariants
-   in the domain and store authority.
+   revision, trusted-authority, structured-evidence, reviewer-model preference,
+   exact reviewer selection, and revalidation invariants in the domain and
+   store authority.
 2. **Primary write/export slice:** take one foreground MCP write or export from
    proposal through review, inline approval, exact execution, continuation,
    and audit.
@@ -505,15 +507,3 @@ observed action states.
 
 Each slice should preserve exact action identity end to end. A later slice must
 not require replacing the approval authority introduced by the first.
-
-## Remaining open decision
-
-Choose the initial reviewer model policy:
-
-1. Inherit the acting model with no separate preference.
-2. Expose `Same as acting model` plus a configurable dedicated model, with
-   `Same as acting model` as the default.
-3. Require a local reviewer model.
-
-Regardless of selection, reviewer failure requires human approval and never
-silently falls back to a different provider.
