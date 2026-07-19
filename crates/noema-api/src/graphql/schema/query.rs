@@ -156,6 +156,26 @@ impl QueryRoot {
         tasks::needs_you(state, principal, workspace_id, project_id, first, after).await
     }
 
+    /// List unresolved external actions requiring the current human's decision.
+    async fn pending_governed_actions(
+        &self,
+        ctx: &Context<'_>,
+        conversation_id: Option<String>,
+        task_id: Option<String>,
+        first: Option<i32>,
+    ) -> Result<Vec<GraphqlGovernedAction>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        governed_actions::pending_governed_actions(
+            state,
+            principal,
+            conversation_id,
+            task_id,
+            first,
+        )
+        .await
+    }
+
     /// Return the durable Work activity ledger for a scope.
     async fn work_activity(
         &self,

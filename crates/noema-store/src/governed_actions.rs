@@ -3,7 +3,10 @@
 use rusqlite::{OptionalExtension, Transaction, params};
 use serde_json::Value;
 
-use crate::{NoemaStore, StoreError, ids::allocate_id, work_row::sha256_hex};
+use crate::{
+    NoemaStore, StoreError, WorkRunFence, governed_action_approvals::mark_origin_run_waiting_tx,
+    ids::allocate_id, work_row::sha256_hex,
+};
 
 const MAX_ARGUMENTS_BYTES: usize = 1_048_576;
 const MAX_SCHEMA_BYTES: usize = 262_144;
@@ -67,7 +70,7 @@ pub enum GovernedActionState {
 }
 
 impl GovernedActionState {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Proposed => "proposed",
             Self::AwaitingApproval => "awaiting_approval",
@@ -367,6 +370,7 @@ impl NoemaStore {
         action_id: &str,
         revision: u64,
         assessment: NewGovernedActionAssessment,
+        run_fence: Option<&WorkRunFence>,
     ) -> Result<GovernedActionRecord, StoreError> {
         validate_assessment(&assessment)?;
         let selection_json = assessment
@@ -399,6 +403,7 @@ impl NoemaStore {
             let next = match assessment.recommendation {
                 GovernedRecommendation::AutoExecute => GovernedActionState::Executable,
                 GovernedRecommendation::RequireApproval => {
+                    mark_origin_run_waiting_tx(transaction, action_id, revision, run_fence)?;
                     transaction.execute(
                         "INSERT INTO governed_action_approvals (action_id, action_revision, state) VALUES (?1, ?2, 'pending')",
                         params![action_id, revision],
@@ -444,6 +449,22 @@ impl NoemaStore {
         revision: u64,
     ) -> Result<GovernedActionRecord, StoreError> {
         self.with_immediate_transaction_retry(|transaction| {
+            let approval_state = transaction
+                .query_row(
+                    "SELECT state FROM governed_action_approvals WHERE action_id = ?1 AND action_revision = ?2",
+                    params![action_id, revision],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?;
+            if let Some(state) = approval_state {
+                if state != "approved" {
+                    return Err(action_conflict("one-shot approval is not executable"));
+                }
+                transaction.execute(
+                    "UPDATE governed_action_approvals SET state = 'consumed', consumed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE action_id = ?1 AND action_revision = ?2 AND state = 'approved'",
+                    params![action_id, revision],
+                )?;
+            }
             let changed = transaction.execute(
                 "UPDATE governed_actions SET state = 'executing', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE action_id = ?1 AND revision = ?2 AND state = 'executable'",
                 params![action_id, revision],
@@ -612,7 +633,7 @@ fn require_state(
     }
 }
 
-fn insert_event(
+pub(crate) fn insert_event(
     transaction: &Transaction<'_>,
     action_id: &str,
     revision: u64,
@@ -638,7 +659,7 @@ fn insert_event(
     Ok(())
 }
 
-fn action_from_tx(
+pub(crate) fn action_from_tx(
     connection: &rusqlite::Connection,
     action_id: &str,
     revision: u64,

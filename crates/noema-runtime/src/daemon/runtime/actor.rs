@@ -316,6 +316,21 @@ impl RuntimeActor {
                     };
                     let _ = reply.send(result);
                 }
+                RuntimeCommand::ResolveGovernedAction {
+                    action_id,
+                    revision,
+                    human_id,
+                    decision,
+                    reply,
+                } => {
+                    let actor = self.clone_for_background();
+                    self.tasks.spawn(async move {
+                        let result = actor
+                            .resolve_governed_action(&action_id, revision, &human_id, decision)
+                            .await;
+                        let _ = reply.send(result);
+                    });
+                }
                 RuntimeCommand::Shutdown { reply } => {
                     shutdown_reply = Some(reply);
                     break;

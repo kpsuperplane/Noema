@@ -115,6 +115,7 @@ fn test_turn_with_selection(
         user_input: "test".to_string(),
         task_id: None,
         task_run_id: None,
+        task_run_fence: None,
         cwd: None,
         provider_kind: provider_kind.clone(),
         model: model.clone(),

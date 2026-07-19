@@ -404,6 +404,29 @@ impl RuntimeHandle {
         .await
     }
 
+    /// Resolve one immutable governed-action revision for the local human.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the revision is stale, unauthorized, cannot be
+    /// revalidated, or its exact saved payload cannot be executed.
+    pub async fn resolve_governed_action(
+        &self,
+        action_id: String,
+        revision: u64,
+        human_id: String,
+        decision: noema_store::GovernedActionDecision,
+    ) -> Result<noema_store::GovernedActionRecord, RuntimeError> {
+        self.request(|reply| RuntimeCommand::ResolveGovernedAction {
+            action_id,
+            revision,
+            human_id,
+            decision,
+            reply,
+        })
+        .await
+    }
+
     async fn request<T>(
         &self,
         command: impl FnOnce(oneshot::Sender<Result<T, RuntimeError>>) -> RuntimeCommand,
@@ -481,6 +504,13 @@ pub(super) enum RuntimeCommand {
         completion: noema_store::CompleteWorkNotification,
         work_event: crate::daemon::WorkRuntimeEvent,
         reply: oneshot::Sender<Result<(), RuntimeError>>,
+    },
+    ResolveGovernedAction {
+        action_id: String,
+        revision: u64,
+        human_id: String,
+        decision: noema_store::GovernedActionDecision,
+        reply: oneshot::Sender<Result<noema_store::GovernedActionRecord, RuntimeError>>,
     },
     Shutdown {
         reply: oneshot::Sender<()>,

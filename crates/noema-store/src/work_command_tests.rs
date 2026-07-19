@@ -8,7 +8,9 @@ use noema_tasks::{
 use noema_workspaces::WorkspaceId;
 
 use crate::{
-    NoemaStore, StoreError, WorkCommandService,
+    GovernedActionDecision, GovernedActionEffect, GovernedActionState, GovernedAssessmentStatus,
+    GovernedRecommendation, NewGovernedAction, NewGovernedActionAssessment, NoemaStore, StoreError,
+    WorkCommandService, WorkRunFence,
     test_support::{
         initialize_codex_provider_selections, open_ephemeral_store, ready_hosted_provider_registry,
     },
@@ -485,4 +487,111 @@ async fn delegate_planner_complexity_hint_selects_the_matching_pool_tier() {
         assert_eq!(effort.as_deref(), Some(expected_effort));
         assert_eq!(source_kind.as_deref(), Some("task_model_pool_setting"));
     }
+}
+
+#[tokio::test]
+async fn governed_action_approval_releases_and_resumes_a_task_run_once() {
+    let (store, service) = fixture().await;
+    let captured = task!(
+        service,
+        capture("idem:governed:capture", "Governed task"),
+        "capture task"
+    );
+    task!(
+        service,
+        queue("idem:governed:queue", &captured),
+        "queue task"
+    );
+    let claimed = service
+        .claim_next_work_run("worker:governed", 60, &[])
+        .await
+        .expect("claim run")
+        .expect("queued run");
+    let fence = WorkRunFence {
+        run_id: claimed.run.run_id.clone(),
+        lease_token: claimed.lease_token,
+        task_generation: claimed.run.task_generation,
+        contract_id: claimed.run.contract_id.clone(),
+    };
+    service
+        .start_work_run(&fence, ACTOR, None, "correlation:governed")
+        .await
+        .expect("start run");
+    let action = store
+        .create_governed_action(NewGovernedAction {
+            owner_human_id: "human:local".to_string(),
+            conversation_id: None,
+            turn_id: None,
+            task_id: Some(captured.task_id.to_string()),
+            run_id: Some(fence.run_id.clone()),
+            requesting_agent_id: "agent:task-executor".to_string(),
+            capability_name: "mcp.example.write".to_string(),
+            operation_token: "exact-token".to_string(),
+            effect: GovernedActionEffect::Write,
+            arguments: serde_json::json!({"record_id": "42"}),
+            input_schema: serde_json::json!({"type": "object"}),
+            trusted_authority: serde_json::json!({"origin": "task"}),
+            safe_summary: "write an external record".to_string(),
+        })
+        .await
+        .expect("create action");
+    let waiting = store
+        .record_governed_action_assessment(
+            &action.action_id,
+            action.revision,
+            NewGovernedActionAssessment {
+                status: GovernedAssessmentStatus::ReviewerUnavailable,
+                reviewer_selection: None,
+                authorization: None,
+                risk: None,
+                recommendation: GovernedRecommendation::RequireApproval,
+                reason_codes: vec!["authorization_ambiguous".to_string()],
+                explanation: "human approval required".to_string(),
+            },
+            Some(&fence),
+        )
+        .await
+        .expect("request approval");
+    assert_eq!(waiting.state, GovernedActionState::AwaitingApproval);
+    assert_eq!(
+        store
+            .get_work_run_record(&fence.run_id)
+            .await
+            .expect("load waiting run")
+            .expect("run")
+            .status,
+        noema_tasks::RunStatus::WaitingForApproval
+    );
+
+    let declined = store
+        .decide_governed_action(
+            &action.action_id,
+            action.revision,
+            "human:local",
+            GovernedActionDecision::Decline,
+        )
+        .await
+        .expect("decline action");
+    assert_eq!(declined.state, GovernedActionState::Declined);
+    let child = service
+        .resume_after_governed_action(&action.action_id, action.revision, ACTOR)
+        .await
+        .expect("resume task")
+        .expect("child run");
+    assert_eq!(
+        service
+            .resume_after_governed_action(&action.action_id, action.revision, ACTOR)
+            .await
+            .expect("idempotent resume"),
+        Some(child)
+    );
+    assert_eq!(
+        store
+            .get_work_run_record(&fence.run_id)
+            .await
+            .expect("load parent")
+            .expect("parent run")
+            .status,
+        noema_tasks::RunStatus::Completed
+    );
 }

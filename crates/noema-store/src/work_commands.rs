@@ -9,6 +9,8 @@ use noema_tasks::{WorkCommand, WorkCommandResult};
 
 use crate::{CommittedWorkCommandResult, NoemaStore, StoreError};
 
+#[path = "governed_action_resume.rs"]
+mod governed_action_resume;
 #[path = "work_command_helpers.rs"]
 pub(crate) mod helpers;
 #[path = "work_command_human.rs"]

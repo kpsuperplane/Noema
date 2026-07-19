@@ -8,7 +8,10 @@ use noema_tasks::{
 use rusqlite::{OptionalExtension, params};
 
 use super::{WorkCommandService, helpers};
-use crate::{StoreError, work_events::append_work_event_tx};
+use crate::{
+    StoreError, governed_action_approvals::cancel_task_governed_actions_tx,
+    work_events::append_work_event_tx,
+};
 
 pub(super) async fn cancel(
     service: &WorkCommandService,
@@ -20,6 +23,11 @@ pub(super) async fn cancel(
         if let Some(replay) = helpers::lookup_receipt_tx(transaction, &envelope)? { return Ok(replay); }
         let mut task = helpers::load_fenced_task_tx(transaction, &command.precondition)?;
         if task.stage_behavior.is_terminal() { return Err(StoreError::Work(WorkDomainError::InvalidTransition)); }
+        cancel_task_governed_actions_tx(
+            transaction,
+            task_id.as_str(),
+            &command.meta.actor_id,
+        )?;
         let from_stage = task.stage_id.clone();
         let open_gate = if let Some(gate_id) = task.active_gate_id.clone() {
             let kind = transaction

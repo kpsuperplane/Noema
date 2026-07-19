@@ -6,6 +6,7 @@ import {
   type WorkTaskDetailQuery
 } from "@/generated/graphql";
 import { TaskActions, TaskNavigationControls } from "@/components/work/TaskActions";
+import { PendingGovernedActions } from "@/components/actions/PendingGovernedActions";
 import { useAllWorkProjects } from "@/components/work/useAllWorkProjects";
 import { useTaskEventCursor } from "./taskEventCursor";
 import { TaskDetailPanel } from "./TaskDetailPanel";
@@ -79,13 +80,16 @@ export function TaskDetailQueryPanel({
     (action) => action === "ANSWER" || action === "RETRY"
   ));
   const renderPanel = (actions?: React.ReactNode) => (
-    <TaskDetailPanel
-      actions={actions}
-      detail={detail}
-      error={result.error ? "Task details could not be loaded." : null}
-      loading={result.loading}
-      taskId={taskId}
-    />
+    <>
+      <PendingGovernedActions taskId={taskId} />
+      <TaskDetailPanel
+        actions={actions}
+        detail={detail}
+        error={result.error ? "Task details could not be loaded." : null}
+        loading={result.loading}
+        taskId={taskId}
+      />
+    </>
   );
 
   if (task) {

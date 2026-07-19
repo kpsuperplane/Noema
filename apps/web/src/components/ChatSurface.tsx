@@ -7,6 +7,7 @@ import { Composer } from "./Composer";
 import { Transcript } from "./Transcript";
 import { TranscriptLoadingSkeleton } from "./transcript/TranscriptLoadingSkeleton";
 import { ChatWorkPanel } from "./work/ChatWorkPanel";
+import { PendingGovernedActions } from "./actions/PendingGovernedActions";
 import {
   type ShellSurfaceVisibility,
   useShellSurface
@@ -39,6 +40,7 @@ export function composerPlaceholder({
 }
 
 export type ChatSurfaceProps = {
+  conversationId: string | null;
   transcript: TranscriptEntry[];
   loadingOlderTranscript: boolean;
   hasMoreTranscriptBefore: boolean;
@@ -62,6 +64,7 @@ export type ChatSurfaceProps = {
 type DetailMotionState = "opening" | "entering" | "open" | "exiting";
 
 export function ChatSurface({
+  conversationId,
   transcript,
   loadingOlderTranscript,
   hasMoreTranscriptBefore,
@@ -215,6 +218,7 @@ export function ChatSurface({
         <div ref={composerDockRef} data-slot="chat-composer-dock" {...stylex.props(styles.composerDock)}>
           <div aria-hidden="true" data-slot="chat-composer-scrim" {...stylex.props(styles.composerScrim)} />
           <div {...stylex.props(styles.composerLayer)}>
+            <PendingGovernedActions conversationId={conversationId} compact />
             <Composer
               ref={composerRef}
               value={draft}

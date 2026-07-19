@@ -9,6 +9,7 @@ mod auxiliary_model_preferences;
 mod context_summaries;
 mod conversations;
 mod error;
+mod governed_action_approvals;
 mod governed_actions;
 mod ids;
 mod local_model_activation;
@@ -72,6 +73,7 @@ pub use auxiliary_model_preferences::{
     TOOL_PROGRESS_AUDIT_TASK_ID, WEB_FETCH_SUMMARIZER_TASK_ID,
 };
 pub use error::{SchemaIncompatibility, StoreError};
+pub use governed_action_approvals::GovernedActionDecision;
 pub use governed_actions::{
     GovernedActionEffect, GovernedActionRecord, GovernedActionState, GovernedAssessmentStatus,
     GovernedAuthorization, GovernedExecutionOutcome, GovernedRecommendation, GovernedRisk,

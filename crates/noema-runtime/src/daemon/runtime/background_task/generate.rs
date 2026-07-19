@@ -203,6 +203,7 @@ impl RuntimeActor {
                 user_input: request.input.clone(),
                 task_id: Some(request.task_id.clone()),
                 task_run_id: Some(request.run_id.clone()),
+                task_run_fence: Some(request.work_run_fence()),
                 cwd: None,
                 provider_kind: provider_selection.provider_kind.clone(),
                 model: provider_selection.model_profile.clone(),

@@ -4,6 +4,10 @@ import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
 import { Link } from "@tanstack/react-router";
 import {
+  GovernedActionList,
+  usePendingGovernedActions
+} from "@/components/actions/PendingGovernedActions";
+import {
   WorkActivityDocument,
   WorkCompletedTasksDocument,
   WorkNeedsYouDocument,
@@ -169,37 +173,46 @@ export function WorkNeedsYou({ projectId }: { projectId?: string }) {
     variables: { workspaceId: PERSONAL_WORKSPACE_ID, projectId, first: 50 },
     fetchPolicy: "cache-and-network"
   });
+  const actionResult = usePendingGovernedActions();
   const connection = result.data?.needsYou;
   const items = connection?.edges.map((edge) => edge.node) ?? [];
+  const actions = actionResult.data?.pendingGovernedActions ?? [];
   if (!connection) return <QueryState loading={result.loading} error={Boolean(result.error)} retry={() => result.refetch()} label="attention queue" />;
-  if (!items.length) return <EmptyState title="Nothing needs you" detail="Questions, approvals, recovery choices, and reviewed results will appear here." />;
+  if (!items.length && !actions.length) return <EmptyState title="Nothing needs you" detail="Questions, approvals, recovery choices, and reviewed results will appear here." />;
   return (
-    <section aria-label="Needs you" {...stylex.props(styles.queue)}>
-      {items.map((item) => (
-        <Link
-          key={`${item.task.taskId}:${item.kind}`}
-          to="/work/tasks/$taskId"
-          params={{ taskId: item.task.taskId }}
-          search={(current) => normalizeWorkSearch(current)}
-          {...stylex.props(styles.queueRow)}
-        >
-          <span {...stylex.props(styles.queueKind)}>{attentionLabel(item.kind)}</span>
-          <span {...stylex.props(styles.queueCopy)}>
-            <strong {...stylex.props(styles.rowTitle)}>{item.task.title}</strong>
-            <span {...stylex.props(styles.queueSummary)}>{item.summary}</span>
-            <span {...stylex.props(styles.queueMeta)}>{item.task.project?.name ?? "No project"} · {relativeTime(item.task.updatedAt)}</span>
-          </span>
-          <span {...stylex.props(styles.queueAction)}>{item.title}</span>
-        </Link>
-      ))}
-      <LoadMore connection={connection} loading={result.loading} onLoad={() => result.fetchMore({
-        variables: { after: connection.pageInfo.endCursor },
-        updateQuery: (previous, { fetchMoreResult }) => ({
-          ...fetchMoreResult,
-          needsYou: { ...fetchMoreResult.needsYou, edges: [...previous.needsYou.edges, ...fetchMoreResult.needsYou.edges] }
-        })
-      })} />
-    </section>
+    <div {...stylex.props(styles.attentionStack)}>
+      {actions.length ? (
+        <GovernedActionList actions={actions} onResolved={() => void actionResult.refetch()} />
+      ) : null}
+      {items.length ? (
+        <section aria-label="Task decisions" {...stylex.props(styles.queue)}>
+          {items.map((item) => (
+            <Link
+              key={`${item.task.taskId}:${item.kind}`}
+              to="/work/tasks/$taskId"
+              params={{ taskId: item.task.taskId }}
+              search={(current) => normalizeWorkSearch(current)}
+              {...stylex.props(styles.queueRow)}
+            >
+              <span {...stylex.props(styles.queueKind)}>{attentionLabel(item.kind)}</span>
+              <span {...stylex.props(styles.queueCopy)}>
+                <strong {...stylex.props(styles.rowTitle)}>{item.task.title}</strong>
+                <span {...stylex.props(styles.queueSummary)}>{item.summary}</span>
+                <span {...stylex.props(styles.queueMeta)}>{item.task.project?.name ?? "No project"} · {relativeTime(item.task.updatedAt)}</span>
+              </span>
+              <span {...stylex.props(styles.queueAction)}>{item.title}</span>
+            </Link>
+          ))}
+          <LoadMore connection={connection} loading={result.loading} onLoad={() => result.fetchMore({
+            variables: { after: connection.pageInfo.endCursor },
+            updateQuery: (previous, { fetchMoreResult }) => ({
+              ...fetchMoreResult,
+              needsYou: { ...fetchMoreResult.needsYou, edges: [...previous.needsYou.edges, ...fetchMoreResult.needsYou.edges] }
+            })
+          })} />
+        </section>
+      ) : null}
+    </div>
   );
 }
 
@@ -350,6 +363,7 @@ const styles = stylex.create({
   projectCell: { "@media (max-width: 700px)": { display: "none" } },
   stageCell: { "@media (max-width: 700px)": { display: "none" } },
   hiddenMobile: { "@media (max-width: 700px)": { display: "none" } },
+  attentionStack: { display: "grid", alignContent: "start", gap: 8, padding: 12, "@media (max-width: 760px)": { padding: 8 } },
   queue: { display: "grid", alignContent: "start", padding: 12, "@media (max-width: 760px)": { padding: 8 } },
   queueRow: { display: "grid", gridTemplateColumns: "88px minmax(0, 1fr) minmax(110px, auto)", minHeight: 48, alignItems: "center", gap: 10, borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--noema-border-subtle)", paddingInline: 8, color: "inherit", textDecoration: "none", ":hover": { backgroundColor: "var(--noema-surface-hover)" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: -2 }, "@media (max-width: 640px)": { gridTemplateColumns: "72px minmax(0, 1fr)", paddingBlock: 5 } },
   queueKind: { color: "var(--noema-clay-700)", fontSize: 10, fontWeight: 700 },

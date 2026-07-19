@@ -1,9 +1,9 @@
 use serde_json::json;
 
 use crate::{
-    GovernedActionEffect, GovernedActionState, GovernedAssessmentStatus, GovernedAuthorization,
-    GovernedExecutionOutcome, GovernedRecommendation, GovernedRisk, NewGovernedAction,
-    NewGovernedActionAssessment, tests::test_store,
+    GovernedActionDecision, GovernedActionEffect, GovernedActionState, GovernedAssessmentStatus,
+    GovernedAuthorization, GovernedExecutionOutcome, GovernedRecommendation, GovernedRisk,
+    NewGovernedAction, NewGovernedActionAssessment, tests::test_store,
 };
 
 fn proposed_action(arguments: serde_json::Value) -> NewGovernedAction {
@@ -60,11 +60,77 @@ async fn unavailable_reviewer_requires_approval_and_cannot_be_claimed() {
                 reason_codes: vec!["authorization_ambiguous".to_string()],
                 explanation: "reviewer is unavailable".to_string(),
             },
+            None,
         )
         .await
         .expect("record fallback assessment");
 
     assert_eq!(reviewed.state, GovernedActionState::AwaitingApproval);
+    assert!(
+        store
+            .claim_governed_action_execution(&action.action_id, action.revision)
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn human_approval_is_owner_scoped_and_consumed_by_one_claim() {
+    let store = test_store().await;
+    let action = store
+        .create_governed_action(proposed_action(json!({"record_id":"42"})))
+        .await
+        .expect("create action");
+    store
+        .record_governed_action_assessment(
+            &action.action_id,
+            action.revision,
+            NewGovernedActionAssessment {
+                status: GovernedAssessmentStatus::ReviewerUnavailable,
+                reviewer_selection: None,
+                authorization: None,
+                risk: None,
+                recommendation: GovernedRecommendation::RequireApproval,
+                reason_codes: vec!["authorization_ambiguous".to_string()],
+                explanation: "reviewer is unavailable".to_string(),
+            },
+            None,
+        )
+        .await
+        .expect("record assessment");
+
+    assert!(
+        store
+            .decide_governed_action(
+                &action.action_id,
+                action.revision,
+                "human:someone-else",
+                GovernedActionDecision::Approve,
+            )
+            .await
+            .is_err()
+    );
+    let approved = store
+        .decide_governed_action(
+            &action.action_id,
+            action.revision,
+            "human:local",
+            GovernedActionDecision::Approve,
+        )
+        .await
+        .expect("approve action");
+    assert_eq!(approved.state, GovernedActionState::Executable);
+    assert_eq!(
+        store
+            .list_pending_governed_actions("human:local", 10)
+            .await
+            .expect("list pending"),
+        Vec::new()
+    );
+    store
+        .claim_governed_action_execution(&action.action_id, action.revision)
+        .await
+        .expect("consume approval");
     assert!(
         store
             .claim_governed_action_execution(&action.action_id, action.revision)
@@ -93,6 +159,7 @@ async fn clear_review_is_claimed_once_and_records_uncertain_outcome() {
                 reason_codes: vec!["action_matches_request".to_string()],
                 explanation: "exact action is authorized".to_string(),
             },
+            None,
         )
         .await
         .expect("record assessment");

@@ -933,6 +933,57 @@ type ErrorNotice {
 }
 
 """
+Human-readable projection of one governed external action.
+"""
+type GovernedAction {
+	actionId: String!
+	revision: Int!
+	conversationId: String
+	taskId: String
+	runId: String
+	capabilityName: String!
+	effect: GovernedActionEffect!
+	safeSummary: String!
+	arguments: JSON!
+	state: GovernedActionState!
+	output: JSON
+	failureCode: String
+}
+
+"""
+One human decision, applied with an expected revision.
+"""
+enum GovernedActionDecision {
+	APPROVE
+	DECLINE
+}
+
+"""
+External side-effect class shown to the human reviewer.
+"""
+enum GovernedActionEffect {
+	WRITE
+	EXPORT
+	WRITE_AND_EXPORT
+}
+
+"""
+Durable state of one immutable action revision.
+"""
+enum GovernedActionState {
+	PROPOSED
+	AWAITING_APPROVAL
+	EXECUTABLE
+	EXECUTING
+	SUCCEEDED
+	FAILED
+	OUTCOME_UNCERTAIN
+	DECLINED
+	SUPERSEDED
+	CANCELLED
+}
+
+"""
 Import a public GGUF or a GGUF already on this machine.
 """
 input ImportLocalModelInput {
@@ -2017,6 +2068,10 @@ enum MultipleChoiceSelectionMode {
 
 type MutationRoot {
 	"""
+	Approve or decline one immutable governed-action revision.
+	"""
+	resolveGovernedAction(input: ResolveGovernedActionInput!): GovernedAction!
+	"""
 	Install one curated local model using the selected machine build.
 	"""
 	installLocalModel(input: InstallLocalModelInput!): LocalModelInstallation!
@@ -2679,6 +2734,10 @@ type QueryRoot {
 	"""
 	needsYou(workspaceId: String!, projectId: String, first: Int, after: String): TaskAttentionConnection!
 	"""
+	List unresolved external actions requiring the current human's decision.
+	"""
+	pendingGovernedActions(conversationId: String, taskId: String, first: Int): [GovernedAction!]!
+	"""
 	Return the durable Work activity ledger for a scope.
 	"""
 	workActivity(workspaceId: String!, projectId: String, taskId: String, first: Int, after: String): WorkEventConnection!
@@ -2863,6 +2922,15 @@ input RequestTaskChangesInput {
 	Caller idempotency key.
 	"""
 	clientMutationId: String!
+}
+
+"""
+Input for resolving one exact action revision.
+"""
+input ResolveGovernedActionInput {
+	actionId: String!
+	expectedRevision: Int!
+	decision: GovernedActionDecision!
 }
 
 """

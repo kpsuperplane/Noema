@@ -65,7 +65,12 @@ impl RuntimeActor {
         let assessment = self.review_governed_action(&action, turn).await;
         let action = self
             .store
-            .record_governed_action_assessment(&action.action_id, action.revision, assessment)
+            .record_governed_action_assessment(
+                &action.action_id,
+                action.revision,
+                assessment,
+                turn.task_run_fence.as_ref(),
+            )
             .await?;
         if action.state == GovernedActionState::AwaitingApproval {
             return Ok(GovernedActionPreparation::AwaitingApproval(action));

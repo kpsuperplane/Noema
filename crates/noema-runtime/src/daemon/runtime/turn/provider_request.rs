@@ -513,6 +513,7 @@ impl RuntimeActor {
                             user_input: input.clone(),
                             task_id: None,
                             task_run_id: None,
+                            task_run_fence: None,
                             cwd: conversation.cwd.clone(),
                             provider_kind: provider_selection.provider_kind.clone(),
                             model: provider_selection.model_profile.clone(),

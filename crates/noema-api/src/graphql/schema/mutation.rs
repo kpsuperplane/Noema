@@ -5,6 +5,17 @@ pub struct MutationRoot;
 
 #[Object]
 impl MutationRoot {
+    /// Approve or decline one immutable governed-action revision.
+    async fn resolve_governed_action(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlResolveGovernedActionInput,
+    ) -> Result<GraphqlGovernedAction> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        governed_actions::resolve_governed_action(state, principal, input).await
+    }
+
     /// Install one curated local model using the selected machine build.
     async fn install_local_model(
         &self,

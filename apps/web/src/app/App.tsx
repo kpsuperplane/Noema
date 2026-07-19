@@ -773,6 +773,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   const loadingInitialChat = waitingForConversationDecision || waitingForInitialTranscript;
   const chatView = (
     <ChatSurface
+      conversationId={conversationId}
       transcript={transcript}
       loadingOlderTranscript={loadingOlderTranscript}
       hasMoreTranscriptBefore={transcriptWindow.hasMoreBefore}

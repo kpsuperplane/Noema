@@ -1,4 +1,5 @@
 mod action_gateway;
+mod action_resolution;
 mod action_reviewer;
 pub(in crate::daemon) mod actor;
 mod background_task;

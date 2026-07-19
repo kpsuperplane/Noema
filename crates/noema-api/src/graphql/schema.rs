@@ -27,6 +27,7 @@ use super::{
         GraphqlSendConversationTurnInput, GraphqlSendMultipleChoiceSelectionInput,
         GraphqlTurnAccepted,
     },
+    governed_actions::{self, GraphqlGovernedAction, GraphqlResolveGovernedActionInput},
     local_models::{
         self, GraphqlDefaultModelPreference, GraphqlImportLocalModelInput,
         GraphqlInstallLocalModelInput, GraphqlLocalModelCatalogEntry, GraphqlLocalModelEvent,
