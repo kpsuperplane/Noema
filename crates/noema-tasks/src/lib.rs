@@ -110,8 +110,8 @@ pub use model_pool::{
     is_global_task_model_pool_setting_id, provider_default_task_models,
 };
 pub use planning::{
-    WorkFailedRunFacts, WorkReconciliationAction, WorkReconciliationSnapshot, WorkTransition,
-    WorkTransitionPlan, plan_reconciliation_action, plan_work_transition, reported_failure_facts,
+    WorkFailedRunFacts, WorkReconciliationAction, WorkReconciliationSnapshot,
+    plan_reconciliation_action, reported_failure_facts,
 };
 pub use policy::{
     DEFAULT_TASK_MAX_ACTIVE_MINUTES, DEFAULT_TASK_MAX_AUTOMATIC_RETRIES,
