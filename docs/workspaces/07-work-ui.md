@@ -184,8 +184,8 @@ The top task-control row is capability-driven and uses icon controls with
 accessible labels and hover tooltips. Cancel and Retry appear only when the
 server includes those semantic actions in `validActions`; Open in Work appears
 only outside the Work route, and Close appears when the host surface supplies a
-close action. When human attention is active, this row lives inside the top of
-the decision card instead of being duplicated in the rail header.
+close action. The row lives in the task-detail header; the decision card remains
+focused on the prompt, supporting context, and response controls.
 
 | Action | Interaction |
 | --- | --- |

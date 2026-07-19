@@ -8,17 +8,14 @@ type MarkdownXStyle = MarkdownProps["xstyle"];
 export function TaskDecisionCard({
   attention,
   question,
-  controls,
   children
 }: {
   attention: NonNullable<TaskDetail["attention"]>;
   question?: string | null;
-  controls?: ReactNode;
   children?: ReactNode;
 }) {
   return (
     <section aria-labelledby="task-decision-title" {...stylex.props(styles.card)}>
-      {controls ? <div {...stylex.props(styles.controlSlot)}>{controls}</div> : null}
       <header {...stylex.props(styles.header)}>
         <span {...stylex.props(styles.eyebrow)}>Action required</span>
         <h3 id="task-decision-title" {...stylex.props(styles.title)}>
@@ -64,13 +61,6 @@ const styles = stylex.create({
   header: {
     display: "grid",
     gap: 2
-  },
-  controlSlot: {
-    minWidth: 0,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: "color-mix(in srgb, var(--noema-clay-600) 18%, transparent)",
-    paddingBottom: 8
   },
   eyebrow: {
     color: "var(--noema-clay-600)",

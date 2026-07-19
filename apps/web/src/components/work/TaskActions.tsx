@@ -1,4 +1,5 @@
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { useLazyQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import { IconButton } from "@astryxdesign/core/IconButton";
@@ -35,6 +36,7 @@ type TaskActionsProps = {
   validActions: readonly string[];
   navigation: TaskActionNavigation;
   closeButtonRef?: React.RefObject<HTMLButtonElement | null>;
+  controlsHostRef: React.RefObject<HTMLElement | null>;
   decision?: TaskActionDecision;
   projects?: readonly WorkProject[];
   compact?: boolean;
@@ -44,15 +46,17 @@ type TaskActionsProps = {
 
 export function TaskNavigationControls({
   navigation,
-  closeButtonRef
+  closeButtonRef,
+  controlsHostRef
 }: {
   navigation: TaskActionNavigation;
   closeButtonRef?: React.RefObject<HTMLButtonElement | null>;
+  controlsHostRef: React.RefObject<HTMLElement | null>;
 }) {
   return (
-    <div {...stylex.props(styles.defaultFrame)}>
+    <TaskControlsPortal hostRef={controlsHostRef}>
       <TaskControlsRow navigation={navigation} closeButtonRef={closeButtonRef} />
-    </div>
+    </TaskControlsPortal>
   );
 }
 
@@ -61,6 +65,7 @@ export function TaskActions({
   validActions,
   navigation,
   closeButtonRef,
+  controlsHostRef,
   decision,
   projects = [],
   compact = false,
@@ -114,13 +119,15 @@ export function TaskActions({
   }, [activeCommand, commands, loadEditTask, task]);
 
   const controls = (
-    <TaskControlsRow
-      navigation={navigation}
-      closeButtonRef={closeButtonRef}
-      busy={commands.busy !== null || editLoad.loading}
-      onCancel={validActions.includes("CANCEL") ? () => openAction("CANCEL") : undefined}
-      onRetry={validActions.includes("RETRY") ? () => openAction("RETRY") : undefined}
-    />
+    <TaskControlsPortal hostRef={controlsHostRef}>
+      <TaskControlsRow
+        navigation={navigation}
+        closeButtonRef={closeButtonRef}
+        busy={commands.busy !== null || editLoad.loading}
+        onCancel={validActions.includes("CANCEL") ? () => openAction("CANCEL") : undefined}
+        onRetry={validActions.includes("RETRY") ? () => openAction("RETRY") : undefined}
+      />
+    </TaskControlsPortal>
   );
   const hasActionBody = hasInlineAnswer || buttonActions.length > 0 || Boolean(editLoadError);
   const actionBody = hasActionBody ? (
@@ -232,19 +239,16 @@ export function TaskActions({
 
   return (
     <>
+      {controls}
       {decision ? (
         <TaskDecisionCard
           attention={decision.attention}
           question={decision.question}
-          controls={controls}
         >
           {actionBody}
         </TaskDecisionCard>
       ) : (
-        <div {...stylex.props(styles.defaultFrame)}>
-          {controls}
-          {actionBody}
-        </div>
+        actionBody ? <div {...stylex.props(styles.defaultFrame)}>{actionBody}</div> : null
       )}
       <span aria-live="polite" {...stylex.props(styles.srOnly)}>{commands.notice}</span>
       <TaskActionDialog
@@ -267,6 +271,22 @@ export function TaskActions({
       />
     </>
   );
+}
+
+function TaskControlsPortal({
+  hostRef,
+  children
+}: {
+  hostRef: React.RefObject<HTMLElement | null>;
+  children: React.ReactNode;
+}) {
+  const [host, setHost] = React.useState<HTMLElement | null>(null);
+
+  React.useLayoutEffect(() => {
+    setHost(hostRef.current);
+  }, [hostRef]);
+
+  return host ? createPortal(children, host) : null;
 }
 
 function TaskControlsRow({
@@ -341,8 +361,8 @@ function isControlAction(action: string): boolean {
 
 const styles = stylex.create({
   frame: { display: "grid", gap: 6 },
-  defaultFrame: { display: "grid", gap: 6, minWidth: 0, paddingBlock: 4, paddingInline: 8 },
-  controls: { display: "flex", minHeight: 28, alignItems: "center", justifyContent: "flex-end", gap: 2 },
+  defaultFrame: { display: "grid", gap: "var(--spacing-1-5)", minWidth: 0, paddingBlock: "var(--spacing-1)", paddingInline: "var(--spacing-2)" },
+  controls: { display: "flex", minHeight: 28, alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-0-5)" },
   answerForm: { display: "grid", gap: 9, minWidth: 0 },
   decisionField: { display: "grid", gap: 5, color: "var(--noema-text-secondary)", fontSize: 11, fontWeight: 650 },
   decisionSelect: { minHeight: 34, width: "100%", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-default)", borderRadius: 7, backgroundColor: "var(--noema-surface-card)", paddingInline: 9, color: "var(--noema-text-primary)", font: "inherit", ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },

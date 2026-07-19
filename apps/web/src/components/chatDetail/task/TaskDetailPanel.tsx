@@ -135,7 +135,7 @@ export function TaskDetailPanel({
       if (runContext) {
         return (
           <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root, styles.runRoot)}>
-            {navigationActions}
+            {!transitioning ? navigationActions : null}
             <TaskRunConversationView
               liveItems={liveRunItems?.get(runContext.run.id)}
               onBack={handleRunBack}
@@ -289,7 +289,7 @@ const styles = stylex.create({
   scrollFrame: { overflowX: "hidden", overflowY: "auto" },
   exitingFrame: { position: "absolute", inset: 0, pointerEvents: "none" },
   root: { display: "grid", minWidth: 0 },
-  runRoot: { gridTemplateRows: "auto minmax(0, 1fr)", minHeight: 0, height: "100%" },
+  runRoot: { minHeight: 0, height: "100%" },
   status: { padding: 8, color: "var(--noema-text-secondary)", fontSize: 13 },
   unavailable: { padding: 8, color: "var(--noema-text-secondary)", fontSize: 13, lineHeight: 1.45 },
   markdown: { color: "var(--noema-text-secondary)", fontSize: 13, lineHeight: 1.55 },

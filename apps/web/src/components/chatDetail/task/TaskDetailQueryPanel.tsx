@@ -28,12 +28,14 @@ export function TaskDetailQueryPanel({
   onTitleChange,
   onClose,
   closeButtonRef,
+  controlsHostRef,
   showWorkLink = true
 }: {
   taskId: string;
   onTitleChange?: (title: string | null) => void;
   onClose: () => void;
   closeButtonRef?: React.RefObject<HTMLButtonElement | null>;
+  controlsHostRef: React.RefObject<HTMLDivElement | null>;
   showWorkLink?: boolean;
 }) {
   const result = useQuery(WorkTaskDetailDocument, {
@@ -70,6 +72,7 @@ export function TaskDetailQueryPanel({
     <TaskActions
       compact
       closeButtonRef={closeButtonRef}
+      controlsHostRef={controlsHostRef}
       decision={decision}
       inlineAnswer={Boolean(decision && task.validActions.includes("ANSWER"))}
       navigation={navigation}
@@ -78,9 +81,15 @@ export function TaskDetailQueryPanel({
       projects={projects.projects}
       onUpdated={async () => { await result.refetch(); }}
     />
-  ) : <TaskNavigationControls navigation={navigation} closeButtonRef={closeButtonRef} />;
+  ) : (
+    <TaskNavigationControls
+      navigation={navigation}
+      closeButtonRef={closeButtonRef}
+      controlsHostRef={controlsHostRef}
+    />
+  );
   const navigationActions = (
-    <TaskNavigationControls navigation={navigation} />
+    <TaskNavigationControls navigation={navigation} controlsHostRef={controlsHostRef} />
   );
 
   return (

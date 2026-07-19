@@ -27,6 +27,7 @@ export function ChatDetailRail({
 }) {
   const railRef = React.useRef<HTMLElement>(null);
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
+  const taskControlsHostRef = React.useRef<HTMLDivElement>(null);
   const returnFocusRef = React.useRef<HTMLElement | null>(null);
   const [artifactDetailState, setArtifactDetailState] = React.useState<{
     version: string;
@@ -141,7 +142,10 @@ export function ChatDetailRail({
       >
         <header {...stylex.props(styles.header)}>
           {target.type === "task" ? (
-            <h2 {...stylex.props(styles.title)}>{title}</h2>
+            <div {...stylex.props(styles.taskTitleRow)}>
+              <h2 {...stylex.props(styles.title)}>{title}</h2>
+              <div ref={taskControlsHostRef} {...stylex.props(styles.taskControls)} />
+            </div>
           ) : (
             <>
               <div {...stylex.props(styles.actionRow)}>
@@ -167,6 +171,7 @@ export function ChatDetailRail({
           ) : (
             <TaskDetailQueryPanel
               closeButtonRef={closeButtonRef}
+              controlsHostRef={taskControlsHostRef}
               onClose={onClose}
               onTitleChange={handleTaskTitleChange}
               showWorkLink={showWorkLink}
@@ -231,6 +236,19 @@ const styles = stylex.create({
     gridTemplateColumns: "minmax(0, 1fr) auto",
     alignItems: "start",
     gap: 12
+  },
+  taskTitleRow: {
+    minWidth: 0,
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) auto",
+    alignItems: "center",
+    gap: "var(--spacing-3)"
+  },
+  taskControls: {
+    display: "flex",
+    minHeight: 28,
+    alignItems: "center",
+    justifyContent: "flex-end"
   },
   versionSlot: {
     minWidth: 0
