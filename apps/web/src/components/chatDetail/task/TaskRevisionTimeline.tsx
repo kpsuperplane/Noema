@@ -9,16 +9,49 @@ type TimelineEntry = {
   run: TaskRun;
 };
 
+export function TaskCurrentRun({
+  revisions,
+  onSelectRun
+}: {
+  revisions: readonly TaskRevision[];
+  onSelectRun?: (run: TaskRun) => void;
+}) {
+  const entries = timelineEntries(revisions);
+  const currentRunId = revisions.find((revision) => revision.latestRunId)?.latestRunId;
+  const entry = entries.find(({ run }) => run.id === currentRunId);
+  const now = useTaskRunClock(entry?.run.status === "running");
+
+  if (!entry) {
+    return null;
+  }
+
+  const { revision, run } = entry;
+  const label = runTimelineLabel(run, revision.review);
+  return (
+    <TaskToolMarker
+      activationLabel={`Open ${label} conversation`}
+      errorMessage={run.error ?? undefined}
+      id={`current-${run.id}`}
+      name={label}
+      onActivate={() => onSelectRun?.(run)}
+      status={runToolCallStatus(run, revision.review)}
+      target={runDurationLabel(run, now)}
+    />
+  );
+}
+
 export function TaskRevisionTimeline({
   revisions,
   onSelectRun,
-  embedded = false
+  embedded = false,
+  excludeRunId = null
 }: {
   revisions: readonly TaskRevision[];
   onSelectRun?: (run: TaskRun) => void;
   embedded?: boolean;
+  excludeRunId?: string | null;
 }) {
-  const entries = timelineEntries(revisions);
+  const entries = timelineEntries(revisions).filter(({ run }) => run.id !== excludeRunId);
   const now = useTaskRunClock(entries.some(({ run }) => run.status === "running"));
 
   if (entries.length === 0) {
@@ -60,8 +93,8 @@ export function TaskRevisionTimeline({
   );
 }
 
-export function taskTimelineEntryCount(revisions: readonly TaskRevision[]): number {
-  return timelineEntries(revisions).length;
+export function taskTimelineEntryCount(revisions: readonly TaskRevision[], excludeRunId?: string | null): number {
+  return timelineEntries(revisions).filter(({ run }) => run.id !== excludeRunId).length;
 }
 
 export function runTimelineLabel(run: TaskRun, review?: TaskReview | null): string {

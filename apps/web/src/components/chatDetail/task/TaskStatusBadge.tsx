@@ -11,7 +11,7 @@ import {
   X
 } from "lucide-react";
 import type { ReactNode } from "react";
-import type { TaskStatus } from "./taskTypes";
+import type { TaskStageBehavior, TaskStatus } from "./taskTypes";
 
 type TaskStatusMeta = {
   label: string;
@@ -41,18 +41,33 @@ export function taskStatusLabel(status: TaskStatus): string {
   return taskStatusMeta(status).label;
 }
 
-export function TaskStatusBadge({ status }: { status: TaskStatus }) {
+export function TaskStatusBadge({
+  status,
+  stageBehavior
+}: {
+  status: TaskStatus;
+  stageBehavior?: TaskStageBehavior;
+}) {
   const meta = taskStatusMeta(status);
+  const label = stageStatusLabel(stageBehavior) ?? meta.label;
   const icon = meta.animated ? <span {...stylex.props(styles.spinner)}>{meta.icon}</span> : meta.icon;
   return (
     <Badge
-      aria-label={`Task status: ${meta.label}`}
+      aria-label={`Task status: ${label}`}
       icon={icon}
-      label={meta.label}
+      label={label}
       variant={meta.variant}
       {...stylex.props(styles.badge)}
     />
   );
+}
+
+function stageStatusLabel(behavior?: TaskStageBehavior): string | null {
+  switch (behavior) {
+    case "INTAKE": return "Inbox";
+    case "ACCEPTANCE": return "Needs review";
+    default: return null;
+  }
 }
 
 const rotate = stylex.keyframes({

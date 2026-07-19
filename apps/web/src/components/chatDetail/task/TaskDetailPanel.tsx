@@ -2,12 +2,13 @@ import * as React from "react";
 import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import * as stylex from "@stylexjs/stylex";
 import { AlertCircle } from "lucide-react";
-import { TaskExpandableContent, TaskSection, TaskStaticSection } from "./TaskSection";
+import { TaskDecisionCard } from "./TaskDecisionCard";
+import { TaskDisclosure, TaskExpandableContent, TaskStaticSection } from "./TaskSection";
 import type { TaskDetail, TaskRunItem } from "./taskTypes";
 import { TaskCriteria } from "./TaskCriteria";
-import { TaskDetails, TaskStatusSummary } from "./TaskOverview";
+import { TaskDetails, taskStateHeading } from "./TaskOverview";
 import { TaskResult } from "./TaskResult";
-import { TaskRevisionTimeline } from "./TaskRevisionTimeline";
+import { TaskCurrentRun, TaskRevisionTimeline, taskTimelineEntryCount } from "./TaskRevisionTimeline";
 import { TaskRunConversationView } from "./TaskRunConversationView";
 
 type MarkdownXStyle = MarkdownProps["xstyle"];
@@ -20,8 +21,6 @@ export function TaskDetailPanel({
   detail,
   loading = false,
   error = null,
-  onCancelTask,
-  onResumeTask,
   liveRunItems,
   actions,
   navigationActions
@@ -30,14 +29,10 @@ export function TaskDetailPanel({
   detail?: TaskDetail | null;
   loading?: boolean;
   error?: string | null;
-  onCancelTask?: (taskId: string) => void | Promise<void>;
-  onResumeTask?: (taskId: string, message?: string) => void | Promise<void>;
   liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
   actions?: React.ReactNode;
   navigationActions?: React.ReactNode;
 }) {
-  const [actionBusy, setActionBusy] = React.useState<"cancel" | "resume" | null>(null);
-  const [actionError, setActionError] = React.useState<string | null>(null);
   const [selectedRunKey, setSelectedRunKey] = React.useState<{
     taskId: string;
     runId: string;
@@ -70,36 +65,13 @@ export function TaskDetailPanel({
       if (focusTimelineAfterTransitionRef.current && !selectedRunId) {
         focusTimelineAfterTransitionRef.current = false;
         window.requestAnimationFrame(() => {
-          document.getElementById("task-timeline-title")?.focus();
+          (document.getElementById("task-timeline-title") ?? document.getElementById("task-current-state-title"))?.focus();
         });
       }
     }, taskDetailTransitionMs);
 
     return () => window.clearTimeout(timeoutId);
   }, [selectedRunId, taskId, transitioning]);
-
-  const runAction = React.useCallback(
-    async (kind: "cancel" | "resume", message?: string) => {
-      const action = kind === "cancel"
-        ? onCancelTask
-        : onResumeTask
-          ? (currentTaskId: string) => onResumeTask(currentTaskId, message)
-          : undefined;
-      if (!action || actionBusy) {
-        return;
-      }
-      setActionBusy(kind);
-      setActionError(null);
-      try {
-        await action(taskId);
-      } catch (caught) {
-        setActionError(caught instanceof Error ? caught.message : "Noema could not update this task.");
-      } finally {
-        setActionBusy(null);
-      }
-    },
-    [actionBusy, onCancelTask, onResumeTask, taskId]
-  );
 
   if (loading && !currentDetail) {
     return (
@@ -147,46 +119,33 @@ export function TaskDetailPanel({
       }
     }
 
+    const selectRun = (run: Parameters<NonNullable<React.ComponentProps<typeof TaskRevisionTimeline>["onSelectRun"]>>[0]) => {
+      if (!transitioning) {
+        setSelectedRunKey({ taskId, runId: run.id });
+      }
+    };
+    const currentRunId = currentDetail.stageBehavior === "ACTIVE"
+      ? currentDetail.revisions.find((revision) => revision.latestRunId)?.latestRunId
+      : null;
+    const activityCount = taskTimelineEntryCount(currentDetail.revisions, currentRunId) + (currentDetail.messages?.length ?? 0);
+
     return (
       <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root)}>
-        {actions}
-        <TaskStatusSummary
-          key={`status:${taskId}`}
-          actionBusy={actionBusy}
-          actionError={actionError}
+        <TaskCurrentState
+          actions={actions}
           detail={currentDetail}
-          onCancel={onCancelTask ? () => runAction("cancel") : undefined}
-          onResume={onResumeTask ? (message) => runAction("resume", message) : undefined}
+          onSelectRun={selectRun}
         />
-        <TaskTextSection key={`request:${taskId}`} text={currentDetail.request} />
-        <TaskRevisionTimeline
-          onSelectRun={(run) => {
-            if (!transitioning) {
-              setSelectedRunKey({ taskId, runId: run.id });
-            }
-          }}
-          revisions={currentDetail.revisions}
+        <TaskBrief
+          key={`brief:${taskId}`}
+          criteria={currentDetail.criteria}
+          request={currentDetail.request}
         />
-        <TaskCriteria key={`criteria:${taskId}`} criteria={currentDetail.criteria} />
-        <TaskResult key={`result:${taskId}`} artifacts={currentDetail.artifacts} result={currentDetail.finalResult} />
-        {currentDetail.messages?.length ? (
-          <TaskStaticSection count={currentDetail.messages.length} id="task-messages-title" title="Updates">
-            <ol {...stylex.props(styles.messages)}>
-              {currentDetail.messages.map((message) => (
-                <li key={message.id} {...stylex.props(styles.message)}>
-                  <div {...stylex.props(styles.messageMeta)}>
-                    <span>{message.author}</span><time dateTime={message.createdAt}>{formatDate(message.createdAt)}</time>
-                  </div>
-                  <TaskExpandableContent id={`task-message-${message.id}`}>
-                    <Markdown autolink="gfm" contentWidth="100%" density="default" headingLevelStart={4} xstyle={markdownXStyle(styles.markdown)}>{message.body}</Markdown>
-                  </TaskExpandableContent>
-                </li>
-              ))}
-            </ol>
-          </TaskStaticSection>
-        ) : null}
-        {currentDetail.failureReason ? (
-          <FailureNotice message={currentDetail.failureReason} />
+        {activityCount > 0 ? (
+          <TaskDisclosure count={activityCount} id="task-timeline-title" title="Activity">
+            <TaskRevisionTimeline embedded excludeRunId={currentRunId} onSelectRun={selectRun} revisions={currentDetail.revisions} />
+            {currentDetail.messages?.length ? <TaskMessages messages={currentDetail.messages} /> : null}
+          </TaskDisclosure>
         ) : null}
         <TaskDetails key={`details:${taskId}`} detail={currentDetail} />
       </div>
@@ -237,22 +196,117 @@ function taskViewKey(view: TaskDetailView): string {
   return view.kind === "run" ? `run:${view.runId}` : "overview";
 }
 
-function TaskTextSection({ text }: { text: string }) {
+function TaskCurrentState({
+  detail,
+  actions,
+  onSelectRun
+}: {
+  detail: TaskDetail;
+  actions?: React.ReactNode;
+  onSelectRun: React.ComponentProps<typeof TaskRevisionTimeline>["onSelectRun"];
+}) {
+  const result = detail.stageBehavior === "ACCEPTANCE" || detail.stageBehavior === "TERMINAL_SUCCESS"
+    ? <TaskResult embedded artifacts={detail.artifacts} result={detail.finalResult} />
+    : null;
+  const evidence = detail.stageBehavior === "ACCEPTANCE" ? latestReviewSummary(detail) : null;
+  const failure = detail.failureReason ? <FailureNotice message={detail.failureReason} /> : null;
+  const description = taskStateDescription(detail);
+
+  if (detail.attention) {
+    return (
+      <TaskDecisionCard attention={detail.attention} question={detail.blockingQuestion}>
+        {result}
+        {evidence ? <ReviewEvidence summary={evidence} /> : null}
+        {failure}
+        {actions}
+      </TaskDecisionCard>
+    );
+  }
+
   return (
-    <TaskSection label="Original request">
+    <TaskStaticSection id="task-current-state-title" tabIndex={-1} title={taskStateHeading(detail)}>
+      {description ? <p {...stylex.props(styles.stateDescription)}>{description}</p> : null}
+      {detail.stageBehavior === "ACTIVE" ? (
+        <TaskCurrentRun onSelectRun={onSelectRun} revisions={detail.revisions} />
+      ) : null}
+      {result}
+      {evidence ? <ReviewEvidence summary={evidence} /> : null}
+      {failure}
+      {actions}
+    </TaskStaticSection>
+  );
+}
+
+function taskStateDescription(detail: TaskDetail): string | null {
+  switch (detail.stageBehavior) {
+    case "INTAKE": return "This task has not started.";
+    case "DISPATCH": return "Waiting for an available executor.";
+    case "TERMINAL_CANCELLED": return "Work was cancelled.";
+    case "TERMINAL_SUCCESS": return detail.finalResult ? null : "The accepted work is complete.";
+    default: return null;
+  }
+}
+
+function TaskBrief({
+  request,
+  criteria
+}: {
+  request: string;
+  criteria: TaskDetail["criteria"];
+}) {
+  return (
+    <TaskStaticSection id="task-brief-title" title="Task brief">
+      <div {...stylex.props(styles.briefLabel)}>Original request</div>
       <TaskExpandableContent id="task-request-content">
         <Markdown
           autolink="gfm"
           contentWidth="100%"
           density="default"
-          headingLevelStart={3}
+          headingLevelStart={4}
           xstyle={markdownXStyle(styles.markdown)}
         >
-          {text}
+          {request}
         </Markdown>
       </TaskExpandableContent>
-    </TaskSection>
+      <TaskCriteria embedded criteria={criteria} />
+    </TaskStaticSection>
   );
+}
+
+function TaskMessages({ messages }: { messages: NonNullable<TaskDetail["messages"]> }) {
+  return (
+    <section aria-labelledby="task-updates-title" {...stylex.props(styles.activityGroup)}>
+      <h4 id="task-updates-title" {...stylex.props(styles.activityTitle)}>Updates</h4>
+      <ol {...stylex.props(styles.messages)}>
+        {messages.map((message) => (
+          <li key={message.id} {...stylex.props(styles.message)}>
+            <div {...stylex.props(styles.messageMeta)}>
+              <span>{message.author}</span><time dateTime={message.createdAt}>{formatDate(message.createdAt)}</time>
+            </div>
+            <TaskExpandableContent id={`task-message-${message.id}`}>
+              <Markdown autolink="gfm" contentWidth="100%" density="default" headingLevelStart={4} xstyle={markdownXStyle(styles.markdown)}>{message.body}</Markdown>
+            </TaskExpandableContent>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function ReviewEvidence({ summary }: { summary: string }) {
+  return (
+    <div {...stylex.props(styles.reviewEvidence)}>
+      <h4 {...stylex.props(styles.briefLabel)}>Review evidence</h4>
+      <Markdown autolink="gfm" contentWidth="100%" density="default" headingLevelStart={4} xstyle={markdownXStyle(styles.markdown)}>{summary}</Markdown>
+    </div>
+  );
+}
+
+function latestReviewSummary(detail: TaskDetail): string | null {
+  return [...detail.revisions]
+    .sort((left, right) => right.revision - left.revision)
+    .find((revision) => revision.review?.summary?.trim())
+    ?.review?.summary?.trim() ?? null;
 }
 
 function FailureNotice({ message }: { message: string }) {
@@ -281,21 +335,27 @@ const styles = stylex.create({
     minHeight: 0,
     height: "100%",
     width: "100%",
-    padding: 8,
+    paddingBlock: "var(--spacing-1)",
+    paddingInline: 0,
     backgroundColor: "var(--noema-surface-card)",
     willChange: "transform, opacity"
   },
   runFrame: { overflow: "hidden" },
   scrollFrame: { overflowX: "hidden", overflowY: "auto" },
   exitingFrame: { position: "absolute", inset: 0, pointerEvents: "none" },
-  root: { display: "grid", minWidth: 0 },
+  root: { display: "grid", minWidth: 0, gap: "var(--spacing-1)" },
   runRoot: { minHeight: 0, height: "100%" },
-  status: { padding: 8, color: "var(--noema-text-secondary)", fontSize: 13 },
-  unavailable: { padding: 8, color: "var(--noema-text-secondary)", fontSize: 13, lineHeight: 1.45 },
+  status: { padding: "var(--spacing-2)", color: "var(--noema-text-secondary)", fontSize: 13 },
+  unavailable: { padding: "var(--spacing-2)", color: "var(--noema-text-secondary)", fontSize: 13, lineHeight: 1.45 },
+  briefLabel: { margin: 0, color: "var(--noema-text-muted)", fontSize: 10, fontWeight: 650 },
+  stateDescription: { margin: 0, color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: 1.45 },
   markdown: { color: "var(--noema-text-secondary)", fontSize: 13, lineHeight: 1.55 },
-  messages: { display: "grid", gap: 6, margin: 0, padding: 0, listStyle: "none" },
-  message: { display: "grid", gap: 4, minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", paddingBlockStart: 7 },
-  messageMeta: { display: "flex", justifyContent: "space-between", gap: 8, color: "var(--noema-text-muted)", fontSize: 10 },
-  failure: { display: "flex", alignItems: "start", gap: 8, marginTop: 10, borderRadius: 8, backgroundColor: "color-mix(in srgb, var(--noema-red-100) 55%, transparent)", padding: 10, color: "var(--noema-red-700)", fontSize: 12, lineHeight: 1.4 },
+  activityGroup: { display: "grid", gap: "var(--spacing-1-5)", minWidth: 0 },
+  activityTitle: { margin: 0, color: "var(--noema-text-secondary)", fontSize: 11, fontWeight: 650 },
+  messages: { display: "grid", gap: "var(--spacing-1-5)", margin: 0, padding: 0, listStyle: "none" },
+  message: { display: "grid", gap: "var(--spacing-1)", minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", paddingBlockStart: "var(--spacing-1-5)" },
+  messageMeta: { display: "flex", justifyContent: "space-between", gap: "var(--spacing-2)", color: "var(--noema-text-muted)", fontSize: 10 },
+  reviewEvidence: { display: "grid", gap: "var(--spacing-1)", minWidth: 0 },
+  failure: { display: "flex", alignItems: "start", gap: "var(--spacing-2)", borderRadius: 8, backgroundColor: "color-mix(in srgb, var(--noema-red-100) 55%, transparent)", padding: "var(--spacing-2)", color: "var(--noema-red-700)", fontSize: 12, lineHeight: 1.4 },
   failureText: { margin: 0 }
 });

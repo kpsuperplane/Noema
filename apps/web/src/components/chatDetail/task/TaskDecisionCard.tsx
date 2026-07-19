@@ -92,6 +92,8 @@ const styles = stylex.create({
     lineHeight: 1.5
   },
   response: {
+    display: "grid",
+    gap: "var(--spacing-3)",
     minWidth: 0,
     borderTopWidth: 1,
     borderTopStyle: "solid",

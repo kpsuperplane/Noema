@@ -17,22 +17,28 @@ import type {
   TaskRun,
   TaskRunRole,
   TaskRunStatus,
+  TaskStageBehavior,
   TaskStatus,
   TaskSubmission
 } from "./taskTypes";
 
 type WorkDetail = NonNullable<WorkTaskDetailQuery["task"]>;
+export type TaskDetailHeader = {
+  title: string;
+  status: TaskStatus;
+  stageBehavior: TaskStageBehavior;
+};
 
 export function TaskDetailQueryPanel({
   taskId,
-  onTitleChange,
+  onHeaderChange,
   onClose,
   closeButtonRef,
   controlsHostRef,
   showWorkLink = true
 }: {
   taskId: string;
-  onTitleChange?: (title: string | null) => void;
+  onHeaderChange?: (header: TaskDetailHeader | null) => void;
   onClose: () => void;
   closeButtonRef?: React.RefObject<HTMLButtonElement | null>;
   controlsHostRef: React.RefObject<HTMLDivElement | null>;
@@ -44,7 +50,8 @@ export function TaskDetailQueryPanel({
     notifyOnNetworkStatusChange: true
   });
   const projects = useAllWorkProjects();
-  const task = result.data?.task ?? null;
+  const queriedTask = result.data?.task ?? null;
+  const task = queriedTask?.taskId === taskId ? queriedTask : null;
   const [cursor, recordCursor] = useTaskEventCursor(taskId);
 
   useSubscription(WorkTaskEventsDocument, {
@@ -59,22 +66,22 @@ export function TaskDetailQueryPanel({
   });
 
   React.useEffect(() => {
-    onTitleChange?.(task?.title ?? null);
-  }, [onTitleChange, task?.title]);
+    onHeaderChange?.(task ? {
+      title: task.title,
+      status: taskStatus(task),
+      stageBehavior: task.stage.behavior
+    } : null);
+  }, [onHeaderChange, task]);
 
   const detail = React.useMemo(() => task ? mapWorkTaskDetail(task) : null, [task]);
   const navigation = { taskId, showWorkLink, onClose };
-  const decision = detail?.attention ? {
-    attention: detail.attention,
-    question: detail.blockingQuestion
-  } : undefined;
+  const needsInlineAnswer = Boolean(detail?.attention && task?.validActions.includes("ANSWER"));
   const actions = task ? (
     <TaskActions
       compact
       closeButtonRef={closeButtonRef}
       controlsHostRef={controlsHostRef}
-      decision={decision}
-      inlineAnswer={Boolean(decision && task.validActions.includes("ANSWER"))}
+      inlineAnswer={needsInlineAnswer}
       navigation={navigation}
       task={task}
       validActions={task.validActions}

@@ -1,72 +1,16 @@
-import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
-import { Ban } from "lucide-react";
-import { TaskStaticSection } from "./TaskSection";
+import { TaskDisclosure } from "./TaskSection";
 import type { TaskDetail } from "./taskTypes";
-import { TaskResumeControls } from "./TaskResumeControls";
-import { TaskStatusBadge } from "./TaskStatusBadge";
-
-export function TaskStatusSummary({
-  detail,
-  actionBusy,
-  actionError,
-  onCancel,
-  onResume
-}: {
-  detail: TaskDetail;
-  actionBusy?: "cancel" | "resume" | null;
-  actionError?: string | null;
-  onCancel?: (taskId: string) => void | Promise<void>;
-  onResume?: (message?: string) => void | Promise<void>;
-}) {
-  const canCancel = Boolean(detail.canCancel ?? cancellableTaskStatus(detail.status));
-
-  return (
-    <section aria-label="Task status" {...stylex.props(styles.statusSection)}>
-      <div {...stylex.props(styles.statusLine)}>
-        <div {...stylex.props(styles.statusCopy)}>
-          <TaskStatusBadge status={detail.status} />
-          <span {...stylex.props(styles.stage)}>{stageLabel(detail.status)}</span>
-        </div>
-        {canCancel && onCancel ? (
-          <Button
-            clickAction={() => onCancel(detail.taskId)}
-            icon={<Ban aria-hidden="true" size={14} />}
-            isIconOnly
-            isDisabled={actionBusy === "resume"}
-            isLoading={actionBusy === "cancel"}
-            label="Cancel task"
-            size="sm"
-            tooltip="Cancel task"
-            variant="destructive"
-          />
-        ) : null}
-      </div>
-      {actionError ? (
-        <p role="alert" {...stylex.props(styles.actionError)}>
-          {actionError}
-        </p>
-      ) : null}
-      {onResume ? (
-        <TaskResumeControls
-          busy={actionBusy === "resume"}
-          detail={detail}
-          onResume={onResume}
-        />
-      ) : null}
-    </section>
-  );
-}
 
 export function TaskDetails({ detail }: { detail: TaskDetail }) {
   const revision = detail.currentRevision ?? latestRevision(detail);
-  const stage = stageLabel(detail.status);
+  const stage = taskStageLabel(detail);
   const provenance = [detail.createdBy, detail.sourceLabel].filter(Boolean).join(" · ");
 
   return (
-    <TaskStaticSection id="task-details-title" title="Task details">
+    <TaskDisclosure id="task-details-title" title="Details">
       <dl {...stylex.props(styles.metadata)}>
-        <MetadataRow label="Complexity" value={capitalize(detail.complexity)} />
+        {detail.complexity ? <MetadataRow label="Complexity" value={capitalize(detail.complexity)} /> : null}
         <MetadataRow label="Current stage" value={stage} />
         {revision > 0 ? <MetadataRow label="Revision" value={`${revision}`} /> : null}
         {detail.maxReviewRounds ? (
@@ -75,7 +19,7 @@ export function TaskDetails({ detail }: { detail: TaskDetail }) {
         {detail.createdAt ? <MetadataRow label="Created" value={formatDate(detail.createdAt)} /> : null}
         {provenance ? <MetadataRow label="Created from" value={provenance} /> : null}
       </dl>
-    </TaskStaticSection>
+    </TaskDisclosure>
   );
 }
 
@@ -88,32 +32,49 @@ function MetadataRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function cancellableTaskStatus(status: TaskDetail["status"]): boolean {
-  return status === "queued" || status === "executing" || status === "reviewing" || status === "revision_requested";
-}
-
 function latestRevision(detail: TaskDetail): number {
   return detail.revisions.reduce((latest, revision) => Math.max(latest, revision.revision), 0);
 }
 
-function stageLabel(status: TaskDetail["status"]): string {
-  switch (status) {
-    case "queued":
-      return "Waiting for an executor";
-    case "executing":
-      return "Executor is working";
-    case "reviewing":
-      return "Reviewing the latest submission";
-    case "revision_requested":
-      return "Executor is addressing review feedback";
-    case "waiting_for_human":
-      return "Needs a human decision";
-    case "completed":
-      return "Approved and delivered";
-    case "failed":
-      return "Stopped with an error";
-    case "cancelled":
-      return "Work was cancelled";
+export function taskStageLabel(detail: TaskDetail): string {
+  switch (detail.stageBehavior) {
+    case "INTAKE":
+      return "Inbox";
+    case "DISPATCH":
+      return "Queue";
+    case "ACTIVE":
+      return "Doing";
+    case "HUMAN_GATE":
+      return "Waiting";
+    case "ACCEPTANCE":
+      return "Review";
+    case "TERMINAL_SUCCESS":
+      return "Completed";
+    case "TERMINAL_CANCELLED":
+      return "Cancelled";
+  }
+}
+
+export function taskStateHeading(detail: TaskDetail): string {
+  switch (detail.stageBehavior) {
+    case "INTAKE":
+      return "Ready to queue";
+    case "DISPATCH":
+      return "Queued";
+    case "ACTIVE":
+      switch (detail.status) {
+        case "reviewing": return "Under review";
+        case "revision_requested": return "Revising";
+        default: return "Working";
+      }
+    case "HUMAN_GATE":
+      return detail.attention?.title ?? "Decision needed";
+    case "ACCEPTANCE":
+      return "Review the result";
+    case "TERMINAL_SUCCESS":
+      return "Completed";
+    case "TERMINAL_CANCELLED":
+      return "Cancelled";
   }
 }
 
@@ -130,50 +91,16 @@ function capitalize(value: string): string {
 }
 
 const styles = stylex.create({
-  statusSection: {
-    display: "grid",
-    gap: 5,
-    minWidth: 0,
-    paddingBlock: 4,
-    paddingInline: 8
-  },
-  statusLine: {
-    display: "grid",
-    gridTemplateColumns: "minmax(0, 1fr) auto",
-    alignItems: "center",
-    gap: 8
-  },
-  statusCopy: {
-    display: "inline-flex",
-    flexWrap: "wrap",
-    alignItems: "center",
-    minWidth: 0,
-    gap: 8
-  },
-  stage: {
-    color: "var(--noema-text-secondary)",
-    fontSize: 12,
-    lineHeight: 1.35
-  },
-  actionError: {
-    margin: 0,
-    borderRadius: 7,
-    backgroundColor: "color-mix(in srgb, var(--noema-red-100) 55%, transparent)",
-    padding: 9,
-    color: "var(--noema-red-700)",
-    fontSize: 12,
-    lineHeight: 1.4
-  },
   metadata: {
     display: "grid",
-    gap: 8,
+    gap: "var(--spacing-2)",
     margin: 0,
-    paddingTop: 2
+    paddingTop: "var(--spacing-0-5)"
   },
   metadataRow: {
     display: "grid",
     gridTemplateColumns: "minmax(92px, 0.42fr) minmax(0, 1fr)",
-    gap: 10,
+    gap: "var(--spacing-3)",
     alignItems: "baseline"
   },
   metadataLabel: {

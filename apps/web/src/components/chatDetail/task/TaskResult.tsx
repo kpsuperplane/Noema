@@ -28,15 +28,17 @@ export function TaskResult({
           <div {...stylex.props(styles.resultCopy)}>
             {result.summary ? <p {...stylex.props(styles.summary)}>{result.summary}</p> : null}
             {result.body ? (
-              <Markdown
-                autolink="gfm"
-                contentWidth="100%"
-                density="default"
-                headingLevelStart={4}
-                xstyle={markdownXStyle(styles.markdown)}
-              >
-                {result.body}
-              </Markdown>
+              <TaskExpandableContent id="task-result-content">
+                <Markdown
+                  autolink="gfm"
+                  contentWidth="100%"
+                  density="default"
+                  headingLevelStart={4}
+                  xstyle={markdownXStyle(styles.markdown)}
+                >
+                  {result.body}
+                </Markdown>
+              </TaskExpandableContent>
             ) : null}
             {result.approvedAt ? (
               <p {...stylex.props(styles.approvedAt)}>Approved {formatDate(result.approvedAt)}</p>

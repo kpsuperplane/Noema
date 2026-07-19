@@ -188,6 +188,11 @@ The primary chat shows compact task markers and human decisions when action is
 needed. Its task-only overview is labeled Tasks; Work names the broader `/work`
 surface containing the Inbox, active board, history, project organization, and
 task detail. Both reuse the same task-detail and decision components.
+Task detail keeps one stable information stack: title, status, and navigation
+in the header; the state-specific object and its controls; the task brief;
+disclosed activity; then disclosed metadata. The positions stay fixed while
+the current-state module changes for Intake, Dispatch, Active, human gates,
+Acceptance, completed work, and cancelled work.
 Internal IDs, raw run counters, provider details, and audit evidence stay behind
 progressive disclosure unless they directly explain the next human action.
 

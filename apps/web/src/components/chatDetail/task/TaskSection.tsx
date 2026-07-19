@@ -50,7 +50,7 @@ export function TaskDisclosure({
     <details {...stylex.props(styles.disclosure)}>
       <summary id={id} {...stylex.props(styles.disclosureSummary)}>
         <span>{title}</span>
-        {typeof count === "number" ? <span {...stylex.props(styles.count)}>{count}</span> : null}
+        {typeof count === "number" ? <span {...stylex.props(styles.count, styles.disclosureCount)}>{count}</span> : null}
       </summary>
       <div {...stylex.props(styles.disclosureContent)}>{children}</div>
     </details>
@@ -153,15 +153,12 @@ const styles = stylex.create({
     borderTopColor: "var(--noema-border-subtle)"
   },
   disclosureSummary: {
-    display: "flex",
     minHeight: 32,
-    alignItems: "center",
-    gap: "var(--spacing-1-5)",
+    paddingBlock: "var(--spacing-2)",
     color: "var(--noema-text-primary)",
     fontSize: 12,
     fontWeight: 650,
     cursor: "pointer",
-    listStyle: "none",
     ":hover": { color: "var(--noema-text-secondary)" },
     ":focus-visible": {
       outlineWidth: 2,
@@ -170,6 +167,7 @@ const styles = stylex.create({
       outlineOffset: 1
     }
   },
+  disclosureCount: { marginInlineStart: "var(--spacing-1-5)" },
   disclosureContent: {
     display: "grid",
     gap: "var(--spacing-2)",

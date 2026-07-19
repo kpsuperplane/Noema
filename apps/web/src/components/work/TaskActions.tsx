@@ -82,6 +82,12 @@ export function TaskActions({
   const secondaryActions = buttonActions.filter(
     (action) => action !== primaryAction
   );
+  const visibleSecondaryAction = compact
+    ? secondaryActions.find((action) => action !== "CANCEL") ?? null
+    : null;
+  const overflowActions = compact
+    ? secondaryActions.filter((action) => action !== visibleSecondaryAction)
+    : [];
   const selectedApprovalDecision = task.activeGate?.kind === "APPROVAL" ? approvalDecision : undefined;
   const liveSubjectChanged = activeCommand ? taskSubjectChanged(activeCommand.subject, task) : false;
   const requiresAcknowledgement = liveSubjectChanged || commands.requiresAcknowledgement;
@@ -195,16 +201,26 @@ export function TaskActions({
             onClick={(event) => { event.stopPropagation(); void openAction(primaryAction); }}
           />
         ) : null}
-        {compact && secondaryActions.length ? (
+        {visibleSecondaryAction ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            label={taskActionLabel(visibleSecondaryAction, false, selectedApprovalDecision)}
+            isDisabled={commands.busy !== null || editLoad.loading}
+            onClick={(event) => { event.stopPropagation(); void openAction(visibleSecondaryAction); }}
+          />
+        ) : null}
+        {compact && overflowActions.length ? (
           <details {...stylex.props(styles.more)}>
             <summary {...stylex.props(styles.moreSummary)} onClick={(event) => event.stopPropagation()}>More</summary>
             <div {...stylex.props(styles.moreMenu)}>
-              {secondaryActions.map((action) => (
+              {overflowActions.map((action) => (
                 <Button
                   key={action}
                   type="button"
                   size="sm"
-                  variant="ghost"
+                  variant={action === "CANCEL" ? "destructive" : "ghost"}
                   label={taskActionLabel(action, false, selectedApprovalDecision)}
                   isDisabled={commands.busy !== null || editLoad.loading}
                   onClick={(event) => { event.stopPropagation(); void openAction(action); }}
@@ -212,7 +228,7 @@ export function TaskActions({
               ))}
             </div>
           </details>
-        ) : secondaryActions.map((action) => (
+        ) : !compact ? secondaryActions.map((action) => (
           <Button
             key={action}
             type="button"
@@ -222,7 +238,7 @@ export function TaskActions({
             isDisabled={commands.busy !== null || editLoad.loading}
             onClick={(event) => { event.stopPropagation(); void openAction(action); }}
           />
-        ))}
+        )) : null}
       </div> : null}
       {editLoadError ? <span role="alert" {...stylex.props(styles.loadError)}>{editLoadError}</span> : null}
     </div>
@@ -309,7 +325,7 @@ function TaskControlsRow({
 
 const styles = stylex.create({
   frame: { display: "grid", gap: "var(--spacing-1-5)" },
-  defaultFrame: { display: "grid", gap: "var(--spacing-1-5)", minWidth: 0, paddingBlock: "var(--spacing-1)", paddingInline: "var(--spacing-2)" },
+  defaultFrame: { display: "grid", gap: "var(--spacing-1-5)", minWidth: 0 },
   controls: { display: "flex", minHeight: 28, alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-0-5)" },
   answerForm: { display: "grid", gap: "var(--spacing-2)", minWidth: 0 },
   decisionField: { display: "grid", gap: "var(--spacing-1-5)", color: "var(--noema-text-secondary)", fontSize: 11, fontWeight: 650 },

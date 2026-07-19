@@ -6,7 +6,8 @@ import {
   type ArtifactDetail
 } from "./ArtifactDetailPanel";
 import type { ChatDetailTarget } from "./chatDetailTypes";
-import { TaskDetailQueryPanel } from "./task/TaskDetailQueryPanel";
+import { TaskDetailQueryPanel, type TaskDetailHeader } from "./task/TaskDetailQueryPanel";
+import { TaskStatusBadge } from "./task/TaskStatusBadge";
 import { ArtifactVersionSelector } from "./ArtifactVersionSelector";
 import { ChatDetailCloseButton } from "./ChatDetailCloseButton";
 
@@ -35,25 +36,24 @@ export function ChatDetailRail({
     detail: ArtifactDetail | null;
     latestDetail: ArtifactDetail | null;
   } | null>(null);
-  const [taskTitleState, setTaskTitleState] = React.useState<{ taskId: string; title: string } | null>(null);
+  const [taskHeaderState, setTaskHeaderState] = React.useState<{ taskId: string; header: TaskDetailHeader } | null>(null);
   const artifactVersion = target.type === "artifact" ? target.version : null;
   const taskId = target.type === "task" ? target.taskId : null;
   const artifactDetail = artifactVersion && artifactDetailState?.version === artifactVersion
     ? artifactDetailState.detail
     : null;
   const latestArtifactDetail = artifactDetailState?.latestDetail ?? null;
+  const taskHeader = taskHeaderState?.taskId === taskId ? taskHeaderState.header : null;
   const title = artifactDetail?.title ??
     latestArtifactDetail?.title ??
     (target.type === "artifact"
       ? "Artifact"
-      : taskTitleState?.taskId === taskId
-        ? taskTitleState.title
+      : taskHeader
+        ? taskHeader.title
         : "Task details");
-  const handleTaskTitleChange = React.useCallback(
-    (nextTitle: string | null) => {
-      if (nextTitle && taskId) {
-        setTaskTitleState({ taskId, title: nextTitle });
-      }
+  const handleTaskHeaderChange = React.useCallback(
+    (nextHeader: TaskDetailHeader | null) => {
+      setTaskHeaderState(nextHeader && taskId ? { taskId, header: nextHeader } : null);
     },
     [taskId]
   );
@@ -145,6 +145,9 @@ export function ChatDetailRail({
           {target.type === "task" ? (
             <div {...stylex.props(styles.taskTitleRow)}>
               <h2 {...stylex.props(styles.title)}>{title}</h2>
+              {taskHeader ? (
+                <TaskStatusBadge stageBehavior={taskHeader.stageBehavior} status={taskHeader.status} />
+              ) : null}
               <div ref={taskControlsHostRef} {...stylex.props(styles.taskControls)} />
             </div>
           ) : (
@@ -174,7 +177,7 @@ export function ChatDetailRail({
               closeButtonRef={closeButtonRef}
               controlsHostRef={taskControlsHostRef}
               onClose={onClose}
-              onTitleChange={handleTaskTitleChange}
+              onHeaderChange={handleTaskHeaderChange}
               showWorkLink={showWorkLink}
               taskId={target.taskId}
             />
@@ -215,9 +218,9 @@ function focusableElements(root: HTMLElement | null): HTMLElement[] {
   }
   return Array.from(
     root.querySelectorAll<HTMLElement>(
-      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), summary, textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
     )
-  ).filter((element) => element.getAttribute("aria-hidden") !== "true");
+  ).filter((element) => !element.closest('[aria-hidden="true"], [inert]') && element.getClientRects().length > 0);
 }
 
 const styles = stylex.create({
@@ -265,7 +268,7 @@ const styles = stylex.create({
   taskTitleRow: {
     minWidth: 0,
     display: "grid",
-    gridTemplateColumns: "minmax(0, 1fr) auto",
+    gridTemplateColumns: "minmax(0, 1fr) auto auto",
     alignItems: "center",
     gap: "var(--spacing-3)"
   },
