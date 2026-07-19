@@ -184,6 +184,27 @@ context remains insufficient, the action requires approval. Reviewer results
 that request approval may be cached briefly for the same action revision;
 automatic-execution results are never cached across actions or revisions.
 
+### Reviewer model selection
+
+The reviewer can use one of three model-selection policies:
+
+1. **Inherit the acting model:** use the same provider and model as the agent
+   proposing the action. This requires no additional setup and keeps the
+   payload inside the same provider boundary, but the action and review share
+   the same model weaknesses and latency profile.
+2. **Dedicated reviewer model:** select one configured model globally for
+   action review. This permits a faster or independently chosen reviewer, but
+   may disclose the proposed payload to a second provider and introduces a
+   separate readiness dependency.
+3. **Local-only reviewer:** require a local model for action review. This keeps
+   review payloads on the machine, but review quality and latency depend on
+   available local hardware and models.
+
+The initial UI can expose `Same as acting model` plus the ordinary configured
+model choices through one global Safety preference. It should not silently
+fall back across providers: if the selected reviewer is unavailable or returns
+an invalid verdict, the action becomes a blocked action requiring approval.
+
 ### Decision composition
 
 The initial decision model is:
@@ -206,10 +227,10 @@ The LLM reviewer does not issue non-approvable denials. Deterministic security
 rules are the sole authority for a hard deny; the reviewer either clears
 automation or asks the human.
 
-Some action classes may always require a human even when the review is clear.
-Candidate classes include public publication, destructive operations,
-financial commitments, account or permission changes, and any action exposing
-secrets. The exact initial set remains an open product decision.
+No action class categorically requires manual approval after deterministic
+preflight. A write or export may execute automatically when the LLM review is
+clear and existing human authority covers it. Deterministic hard rules remain
+non-approvable regardless of action class or reviewer output.
 
 ## Durable governed actions
 
@@ -226,7 +247,7 @@ The record should contain:
 - Schema, capability, calibration, and policy versions or identities.
 - Verified structured-evidence references, when present.
 - Deterministic decision and LLM assessment reference.
-- Current state, creation time, expiration, and supersession reason.
+- Current state, creation time, update time, and supersession reason.
 - Continuation reference.
 - Adapter idempotency key when supported.
 
@@ -240,9 +261,8 @@ proposed
   -> succeeded | failed | outcome_uncertain
 ```
 
-Cancellation, expiration, revocation, origin-generation changes, and material
-action changes can also move a nonterminal action to `superseded` or
-`cancelled`.
+Cancellation, revocation, origin-generation changes, and material action
+changes can also move a nonterminal action to `superseded` or `cancelled`.
 
 ## Approvals
 
@@ -252,9 +272,14 @@ message, task-stage inference, notification, or browser-local state.
 The initial approval lifecycle is:
 
 ```text
-pending -> approved | declined | expired | superseded
+pending -> approved | declined | superseded
 approved -> consumed | revoked
 ```
+
+Approvals do not expire on a timer. A pending action remains available until a
+human resolves it or canonical state cancels or supersedes it. An approved
+action is normally consumed immediately; if execution is delayed, the gateway
+still performs the complete live revalidation before admitting it.
 
 An approval binds to the action ID and immutable action revision. Changing the
 payload, destination, recipient, resource selector, capability metadata, policy
@@ -268,7 +293,7 @@ not silently become a permission system.
 
 Immediately before execution, the gateway rechecks:
 
-- Approval state, owner, expiry, and consumption state.
+- Approval state, owner, and consumption state.
 - The exact saved action revision and payload snapshot.
 - Capability availability, authentication, calibration, and current schema.
 - Active grants, denies, revocations, and policy version.
@@ -309,10 +334,16 @@ explicit recovery decision rather than automatic retry.
 
 Approval truth and notification delivery are separate concerns.
 
-The web application initially consumes a canonical pending-action query and a
-delivery-neutral attention stream. A human-attention record contains only the
-recipient, source object, safe summary, urgency, and deep-link locator needed
-to reach the governed action.
+The human-attention projection is the read-only **Needs you** inbox derived from
+canonical state. It answers which blocked actions and Work gates currently
+require this human without becoming another action, approval, or task
+authority. The server may compute it with a bounded query or materialized read
+model; clients cannot mutate it directly.
+
+The web application initially consumes this canonical query and a
+delivery-neutral update stream. A projected item contains only the recipient,
+source object, safe summary, urgency, and deep-link locator needed to reach the
+owning governed action or Work gate.
 
 This supports three product placements from the same source:
 
@@ -328,6 +359,10 @@ a channel adapter. Push payloads must contain only a safe summary and opaque
 deep link; proposed messages, document content, export payloads, and sensitive
 diffs remain behind authenticated retrieval. Notification delivery never
 changes approval state.
+
+Existing Work notification records remain task-specific. The shared attention
+surface aggregates canonical Work and governed-action state instead of
+generalizing the Work notification outbox into a new cross-domain authority.
 
 ## Approval interaction
 
@@ -368,7 +403,6 @@ sources include:
 
 - Search-result destinations.
 - Links extracted from fetched response bytes.
-- Validated HTTP redirects.
 
 Each row stores the normalized URL, source kind, source event reference,
 observation time, and expiration. The table stores ordinary URLs and compares
@@ -440,7 +474,7 @@ policy.evaluation_requested
 policy.decision_recorded
 egress.review_requested
 approval.requested
-approval.granted | approval.denied | approval.expired
+approval.granted | approval.denied
 capability.invocation_started
 capability.invocation_completed | capability.invocation_failed
 egress.sent | egress.failed
@@ -462,8 +496,9 @@ observed action states.
 3. **Task and attention integration:** allow task runs to wait without holding
    leases, reuse the same approval component, and expose a global pending-action
    projection.
-4. **Observed URLs:** persist bounded normalized URLs from search results, then
-   page links and redirects, and implement the exact-match fast path.
+4. **Observed URLs:** persist bounded normalized URLs from search results and
+   links extracted from fetched pages, then implement the exact-match fast
+   path.
 5. **Adversarial evaluation:** measure action-shaping injection detection,
    expected-data transformations, false escalations, provider failures, stale
    approvals, cancellation, and uncertain external outcomes.
@@ -471,20 +506,14 @@ observed action states.
 Each slice should preserve exact action identity end to end. A later slice must
 not require replacing the approval authority introduced by the first.
 
-## Open decisions
+## Remaining open decision
 
-The following choices remain unresolved and should be decided before the first
-runtime slice:
+Choose the initial reviewer model policy:
 
-1. May a clear LLM review automatically execute a write or export already
-   covered by an exact current human instruction or task contract, or do all
-   writes and exports initially require a person?
-2. Which action classes always require manual approval regardless of the LLM
-   review?
-3. Which existing Work notification records should be generalized into the
-   shared human-attention projection, and which should remain task-specific?
-4. How long should foreground and task approvals remain valid by default?
-5. Which reviewer model preference and fallback behavior should the first
-   implementation expose?
-6. Should the first `observed_urls` slice support only search results, or search
-   results plus links extracted from fetched pages and redirects?
+1. Inherit the acting model with no separate preference.
+2. Expose `Same as acting model` plus a configurable dedicated model, with
+   `Same as acting model` as the default.
+3. Require a local reviewer model.
+
+Regardless of selection, reviewer failure requires human approval and never
+silently falls back to a different provider.
