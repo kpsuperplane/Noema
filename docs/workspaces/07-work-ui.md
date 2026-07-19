@@ -205,9 +205,10 @@ model or query one detail per row. Personal remains implicit.
 
 The panel prioritizes Needs You, then recently updated active tasks, and links
 to the shared task detail or the corresponding `/work` tab for pagination and
-broad management. It is not a miniature Board, transcript feed, or project
-chat. Routine run transitions can update a current-run chip, but they do not
-insert conversational messages.
+broad management. These sections are mutually exclusive: a task with current
+structured attention appears in Needs You and is omitted from Active. It is not
+a miniature Board, transcript feed, or project chat. Routine run transitions
+can update a current-run chip, but they do not insert conversational messages.
 
 ## Loading, failure, and live states
 

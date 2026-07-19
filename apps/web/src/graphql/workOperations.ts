@@ -165,13 +165,14 @@ export const WorkCompletedTasksDocument = gql`
 
 export const WorkPanelDocument = gql`
   query WorkPanel($workspaceId: String!) {
-    workTasks(input: { workspaceId: $workspaceId, scope: ACTIVE }, first: 8) {
+    workTasks(input: { workspaceId: $workspaceId, scope: ACTIVE }, first: 16) {
       edges {
         node {
           taskId
           title
           stage { name }
           currentRun { activityLabel }
+          attention { kind }
         }
       }
     }

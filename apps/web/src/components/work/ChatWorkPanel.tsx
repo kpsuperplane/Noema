@@ -54,7 +54,9 @@ export function ChatWorkPanel({
     if (target) onOpenDetail(target);
   };
   const attention = result.data?.needsYou.edges ?? [];
-  const active = result.data?.workTasks.edges ?? [];
+  const active = (result.data?.workTasks.edges ?? [])
+    .filter(({ node }) => !node.attention)
+    .slice(0, 8);
 
   return (
     <div data-open={open} {...stylex.props(styles.root)}>
