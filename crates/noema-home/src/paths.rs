@@ -88,12 +88,6 @@ impl NoemaPaths {
         self.root.join("errors.log")
     }
 
-    /// Path to the runtime directory.
-    #[must_use]
-    pub fn run_dir(&self) -> PathBuf {
-        self.root.join("run")
-    }
-
     /// Path to the canonical SQLite database file.
     #[must_use]
     pub fn sqlite_db_path(&self) -> PathBuf {

@@ -31,7 +31,7 @@ pub fn init_noema_home(
     options: NoemaHomeInitOptions,
 ) -> Result<(), NoemaHomeError> {
     let root = paths.root().to_path_buf();
-    let run_dir = paths.run_dir();
+    let run_dir = root.join("run");
     let config_path = paths.config_path();
 
     fs::create_dir_all(&root).map_err(|source| NoemaHomeError::CreateDirectory {
@@ -125,7 +125,7 @@ mod tests {
             NoemaPaths::from_noema_home(dir.path().join("no-config")).expect("paths");
         init_noema_home(&no_config_paths, None, NoemaHomeInitOptions::default()).expect("init");
         assert!(no_config_paths.root().is_dir());
-        assert!(no_config_paths.run_dir().is_dir());
+        assert!(no_config_paths.root().join("run").is_dir());
         assert!(!no_config_paths.config_path().exists());
     }
 }
