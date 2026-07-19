@@ -38,6 +38,7 @@ mod local_status;
 mod mcp;
 mod memory;
 mod onboarding;
+mod privacy_settings;
 mod provider_accounts;
 mod provider_selection;
 mod replay;

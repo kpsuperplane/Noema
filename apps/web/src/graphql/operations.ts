@@ -306,3 +306,44 @@ export const SaveToolProgressAuditPreferenceDocument = gql`
     }
   }
 `;
+
+export const PrivacySettingsDocument = gql`
+  query PrivacySettings {
+    privacySettings {
+      reviewer {
+        modelPreference {
+          providerKind
+          providerAccountId
+          modelProfile
+          reasoningEffort
+        }
+        modelOptions {
+          providerKind
+          providerAccountId
+          providerDisplayName
+          status
+          disabledReason
+          defaultModelProfile
+          profiles {
+            id
+            label
+            disabledReason
+            reasoningEfforts
+            defaultReasoningEffort
+          }
+        }
+      }
+    }
+  }
+`;
+
+export const SaveActionReviewerPreferenceDocument = gql`
+  mutation SaveActionReviewerPreference($input: SaveActionReviewerPreferenceInput!) {
+    saveActionReviewerPreference(input: $input) {
+      providerKind
+      providerAccountId
+      modelProfile
+      reasoningEffort
+    }
+  }
+`;

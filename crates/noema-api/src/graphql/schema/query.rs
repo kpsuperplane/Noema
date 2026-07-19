@@ -257,6 +257,12 @@ impl QueryRoot {
         usage_settings::usage_settings(state).await
     }
 
+    /// Return Safety privacy settings safe to show in Settings.
+    async fn privacy_settings(&self, ctx: &Context<'_>) -> Result<GraphqlPrivacySettings> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        privacy_settings::privacy_settings(state).await
+    }
+
     /// List MCP server metadata safe to show in Settings.
     async fn mcp_servers(&self, ctx: &Context<'_>) -> Result<Vec<GraphqlMcpServer>> {
         let state = ctx.data_unchecked::<GraphqlState>();

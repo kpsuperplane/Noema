@@ -49,6 +49,7 @@ use super::{
         self, GraphqlOnboardingStatus, GraphqlProviderAuthAttempt,
         GraphqlStartProviderAuthAttemptInput,
     },
+    privacy_settings::{self, GraphqlPrivacySettings, GraphqlSaveActionReviewerPreferenceInput},
     provider_accounts::{
         self, GraphqlCapabilityFeatures, GraphqlClearProviderSecretInput,
         GraphqlCreateProviderAccountInput, GraphqlDeleteProviderAccountInput,

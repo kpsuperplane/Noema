@@ -9,6 +9,7 @@ import {
   PlugZap,
   ServerCog,
   Settings,
+  ShieldCheck,
   SquareKanban
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -26,6 +27,7 @@ export type ShellMenuItemId =
   | "settings.memory"
   | "settings.tools.web"
   | "settings.tools.mcps"
+  | "settings.safety.privacy"
   | "settings.safety.usage"
   | "settings.system.providers"
   | "settings.go-back";
@@ -96,6 +98,15 @@ export const shellSettingsEntries: ShellSettingsEntry[] = [
     item: { section: "tools-mcps", itemId: "settings.tools.mcps", label: "MCPs", icon: PlugZap }
   },
   { kind: "group", label: "Safety" },
+  {
+    kind: "section",
+    item: {
+      section: "safety-privacy",
+      itemId: "settings.safety.privacy",
+      label: "Privacy",
+      icon: ShieldCheck
+    }
+  },
   {
     kind: "section",
     item: {

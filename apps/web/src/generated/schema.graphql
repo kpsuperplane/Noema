@@ -39,6 +39,20 @@ input AcceptTaskInput {
 }
 
 """
+Governed-action reviewer model settings.
+"""
+type ActionReviewerSettings {
+	"""
+	Explicit reviewer preference, or none when action review requires human approval.
+	"""
+	modelPreference: AgentModelPreference
+	"""
+	Provider/profile options available for action review.
+	"""
+	modelOptions: [AgentModelProviderOption!]!
+}
+
+"""
 Activity transcript item.
 """
 type Activity {
@@ -2127,6 +2141,10 @@ type MutationRoot {
 	"""
 	saveToolProgressAuditPreference(input: SaveToolProgressAuditPreferenceInput!): AgentModelPreference!
 	"""
+	Save the model/provider preference used for governed action review.
+	"""
+	saveActionReviewerPreference(input: SaveActionReviewerPreferenceInput!): AgentModelPreference!
+	"""
 	Save memory service settings.
 	"""
 	saveMemoryServiceSettings(input: SaveMemoryServiceSettingsInput!): MemorySettings!
@@ -2284,6 +2302,16 @@ type PrimaryConversation {
 	Latest visible transcript page for this conversation.
 	"""
 	latestTranscriptPage(limit: Int): ConversationTranscriptPage!
+}
+
+"""
+Privacy settings safe to expose in Settings.
+"""
+type PrivacySettings {
+	"""
+	Model used to review governed writes and exports.
+	"""
+	reviewer: ActionReviewerSettings!
 }
 
 """
@@ -2683,6 +2711,10 @@ type QueryRoot {
 	"""
 	usageSettings: UsageSettings!
 	"""
+	Return Safety privacy settings safe to show in Settings.
+	"""
+	privacySettings: PrivacySettings!
+	"""
 	List MCP server metadata safe to show in Settings.
 	"""
 	mcpServers: [McpServer!]!
@@ -2861,6 +2893,24 @@ input RetryTaskInput {
 	Caller idempotency key.
 	"""
 	clientMutationId: String!
+}
+
+"""
+Input for saving the governed-action reviewer preference.
+"""
+input SaveActionReviewerPreferenceInput {
+	"""
+	Provider account id to use.
+	"""
+	providerAccountId: String!
+	"""
+	Provider-specific model id or profile id.
+	"""
+	modelProfile: String!
+	"""
+	Optional explicit reasoning effort for reasoning-capable model profiles.
+	"""
+	reasoningEffort: ReasoningEffort
 }
 
 """

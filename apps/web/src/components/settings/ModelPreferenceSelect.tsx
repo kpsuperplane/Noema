@@ -19,6 +19,7 @@ export function ModelPreferenceSelect({
   defaultModelProfile,
   saving,
   isDisabled = false,
+  requireExplicitSelection = false,
   ariaLabel,
   onSave
 }: {
@@ -27,6 +28,7 @@ export function ModelPreferenceSelect({
   defaultModelProfile?: string;
   saving: boolean;
   isDisabled?: boolean;
+  requireExplicitSelection?: boolean;
   ariaLabel: string;
   onSave: (input: ModelPreferenceSaveInput) => Promise<unknown>;
 }) {
@@ -48,8 +50,14 @@ export function ModelPreferenceSelect({
     [providerOptions]
   );
   const selection = useMemo(
-    () => resolveInitialModelSelection(providerOptions, preference ?? null, defaultModelProfile),
-    [providerOptions, preference, defaultModelProfile]
+    () =>
+      resolveInitialModelSelection(
+        providerOptions,
+        preference ?? null,
+        defaultModelProfile,
+        requireExplicitSelection
+      ),
+    [providerOptions, preference, defaultModelProfile, requireExplicitSelection]
   );
   const selectedValue =
     selection.providerAccountId && selection.modelProfile
@@ -166,8 +174,12 @@ function parseModelOptionValue(value: string): ModelPreferenceSaveInput | null {
 function resolveInitialModelSelection(
   options: readonly ModelProviderOption[],
   preference: ModelPreference | null,
-  defaultModelProfile?: string
+  defaultModelProfile: string | undefined,
+  requireExplicitSelection: boolean
 ): ModelPreferenceSaveInput {
+  if (requireExplicitSelection && !preference) {
+    return { providerAccountId: "", modelProfile: "", reasoningEffort: null };
+  }
   const preferredProvider = preference
     ? options.find((option) => option.providerAccountId === preference.providerAccountId)
     : null;

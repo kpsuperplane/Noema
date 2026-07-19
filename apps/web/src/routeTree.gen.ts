@@ -23,6 +23,7 @@ import { Route as SettingsToolsWebRouteImport } from './routes/settings/tools/we
 import { Route as SettingsToolsMcpsRouteImport } from './routes/settings/tools/mcps'
 import { Route as SettingsSystemProvidersRouteImport } from './routes/settings/system/providers'
 import { Route as SettingsSafetyUsageRouteImport } from './routes/settings/safety/usage'
+import { Route as SettingsSafetyPrivacyRouteImport } from './routes/settings/safety/privacy'
 
 const WorkRoute = WorkRouteImport.update({
   id: '/work',
@@ -94,6 +95,11 @@ const SettingsSafetyUsageRoute = SettingsSafetyUsageRouteImport.update({
   path: '/safety/usage',
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsSafetyPrivacyRoute = SettingsSafetyPrivacyRouteImport.update({
+  id: '/safety/privacy',
+  path: '/safety/privacy',
+  getParentRoute: () => SettingsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -105,6 +111,7 @@ export interface FileRoutesByFullPath {
   '/settings/models': typeof SettingsModelsRoute
   '/settings/': typeof SettingsIndexRoute
   '/work/': typeof WorkIndexRoute
+  '/settings/safety/privacy': typeof SettingsSafetyPrivacyRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
   '/settings/system/providers': typeof SettingsSystemProvidersRoute
   '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
@@ -119,6 +126,7 @@ export interface FileRoutesByTo {
   '/settings/models': typeof SettingsModelsRoute
   '/settings': typeof SettingsIndexRoute
   '/work': typeof WorkIndexRoute
+  '/settings/safety/privacy': typeof SettingsSafetyPrivacyRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
   '/settings/system/providers': typeof SettingsSystemProvidersRoute
   '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
@@ -136,6 +144,7 @@ export interface FileRoutesById {
   '/settings/models': typeof SettingsModelsRoute
   '/settings/': typeof SettingsIndexRoute
   '/work/': typeof WorkIndexRoute
+  '/settings/safety/privacy': typeof SettingsSafetyPrivacyRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
   '/settings/system/providers': typeof SettingsSystemProvidersRoute
   '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
@@ -154,6 +163,7 @@ export interface FileRouteTypes {
     | '/settings/models'
     | '/settings/'
     | '/work/'
+    | '/settings/safety/privacy'
     | '/settings/safety/usage'
     | '/settings/system/providers'
     | '/settings/tools/mcps'
@@ -168,6 +178,7 @@ export interface FileRouteTypes {
     | '/settings/models'
     | '/settings'
     | '/work'
+    | '/settings/safety/privacy'
     | '/settings/safety/usage'
     | '/settings/system/providers'
     | '/settings/tools/mcps'
@@ -184,6 +195,7 @@ export interface FileRouteTypes {
     | '/settings/models'
     | '/settings/'
     | '/work/'
+    | '/settings/safety/privacy'
     | '/settings/safety/usage'
     | '/settings/system/providers'
     | '/settings/tools/mcps'
@@ -298,6 +310,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsSafetyUsageRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/settings/safety/privacy': {
+      id: '/settings/safety/privacy'
+      path: '/safety/privacy'
+      fullPath: '/settings/safety/privacy'
+      preLoaderRoute: typeof SettingsSafetyPrivacyRouteImport
+      parentRoute: typeof SettingsRoute
+    }
   }
 }
 
@@ -306,6 +325,7 @@ interface SettingsRouteChildren {
   SettingsMemoryRoute: typeof SettingsMemoryRoute
   SettingsModelsRoute: typeof SettingsModelsRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
+  SettingsSafetyPrivacyRoute: typeof SettingsSafetyPrivacyRoute
   SettingsSafetyUsageRoute: typeof SettingsSafetyUsageRoute
   SettingsSystemProvidersRoute: typeof SettingsSystemProvidersRoute
   SettingsToolsMcpsRoute: typeof SettingsToolsMcpsRoute
@@ -317,6 +337,7 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsMemoryRoute: SettingsMemoryRoute,
   SettingsModelsRoute: SettingsModelsRoute,
   SettingsIndexRoute: SettingsIndexRoute,
+  SettingsSafetyPrivacyRoute: SettingsSafetyPrivacyRoute,
   SettingsSafetyUsageRoute: SettingsSafetyUsageRoute,
   SettingsSystemProvidersRoute: SettingsSystemProvidersRoute,
   SettingsToolsMcpsRoute: SettingsToolsMcpsRoute,

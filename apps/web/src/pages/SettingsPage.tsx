@@ -3,6 +3,7 @@ import { MemorySettingsPane } from "@/components/settings/MemorySettingsPane";
 import { LocalModelsSettingsPane } from "@/components/settings/LocalModelsSettingsPane";
 import { McpSettingsPane } from "@/components/settings/McpSettingsPane";
 import { ProvidersSettingsPane } from "@/components/settings/ProvidersSettingsPane";
+import { PrivacySettingsPane } from "@/components/settings/PrivacySettingsPane";
 import { UsageSettingsPane } from "@/components/settings/UsageSettingsPane";
 import { WebSettingsPane } from "@/components/settings/WebSettingsPane";
 import type { SettingsSection } from "@/app/routes";
@@ -33,6 +34,10 @@ const settingsSectionCopy: Record<SettingsSection, { title: string; description:
   "tools-mcps": {
     title: "MCPs",
     description: "Review third-party MCP servers mediated by the Noema capability gateway."
+  },
+  "safety-privacy": {
+    title: "Privacy",
+    description: "Choose how Noema reviews actions that can write data or send it elsewhere."
   },
   "safety-usage": {
     title: "Usage",
@@ -81,6 +86,8 @@ function SettingsSectionPane({ section }: { section: SettingsSection }) {
       return <WebSettingsPane />;
     case "tools-mcps":
       return <McpSettingsPane />;
+    case "safety-privacy":
+      return <PrivacySettingsPane />;
     case "safety-usage":
       return <UsageSettingsPane />;
     case "system-providers":

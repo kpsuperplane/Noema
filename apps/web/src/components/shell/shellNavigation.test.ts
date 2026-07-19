@@ -17,6 +17,7 @@ describe("settings shell navigation", () => {
         "Web",
         "MCPs",
         "Safety",
+        "Privacy",
         "Usage",
         "System",
         "Local Models",
@@ -92,6 +93,14 @@ describe("settings shell navigation", () => {
         {
           kind: "item",
           item: {
+            itemId: "settings.safety.privacy",
+            label: "Privacy",
+            route: { kind: "settings", section: "safety-privacy" }
+          }
+        },
+        {
+          kind: "item",
+          item: {
             itemId: "settings.safety.usage",
             label: "Usage",
             route: { kind: "settings", section: "safety-usage" }
@@ -123,6 +132,7 @@ describe("settings shell navigation", () => {
     assert.equal(settingsItemIdForSection("models"), "settings.models");
     assert.equal(settingsItemIdForSection("tools-web"), "settings.tools.web");
     assert.equal(settingsItemIdForSection("tools-mcps"), "settings.tools.mcps");
+    assert.equal(settingsItemIdForSection("safety-privacy"), "settings.safety.privacy");
     assert.equal(settingsItemIdForSection("system-providers"), "settings.system.providers");
   });
 });

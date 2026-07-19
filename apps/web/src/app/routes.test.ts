@@ -27,6 +27,10 @@ describe("settings routes", () => {
       kind: "settings",
       section: "tools-mcps"
     });
+    assert.deepEqual(routeFromPathname("/settings/safety/privacy"), {
+      kind: "settings",
+      section: "safety-privacy"
+    });
     assert.deepEqual(routeFromPathname("/settings/system/providers"), {
       kind: "settings",
       section: "system-providers"
@@ -49,6 +53,10 @@ describe("settings routes", () => {
     assert.equal(pathForRoute({ kind: "settings", section: "memory" }), "/settings/memory");
     assert.equal(pathForRoute({ kind: "settings", section: "tools-web" }), "/settings/tools/web");
     assert.equal(pathForRoute({ kind: "settings", section: "tools-mcps" }), "/settings/tools/mcps");
+    assert.equal(
+      pathForRoute({ kind: "settings", section: "safety-privacy" }),
+      "/settings/safety/privacy"
+    );
     assert.equal(
       pathForRoute({ kind: "settings", section: "system-providers" }),
       "/settings/system/providers"

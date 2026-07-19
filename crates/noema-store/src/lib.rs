@@ -67,8 +67,8 @@ pub(crate) mod tests;
 pub use agent_runtime_preferences::{AgentRuntimePreferenceRecord, NewAgentRuntimePreference};
 pub use agents::{AgentRecord, AgentSystemRole};
 pub use auxiliary_model_preferences::{
-    AuxiliaryModelPreferenceRecord, NewAuxiliaryModelPreference, TOOL_PROGRESS_AUDIT_TASK_ID,
-    WEB_FETCH_SUMMARIZER_TASK_ID,
+    ACTION_REVIEWER_TASK_ID, AuxiliaryModelPreferenceRecord, NewAuxiliaryModelPreference,
+    TOOL_PROGRESS_AUDIT_TASK_ID, WEB_FETCH_SUMMARIZER_TASK_ID,
 };
 pub use error::{SchemaIncompatibility, StoreError};
 pub use runtime::{NoemaStore, StoreConfig};

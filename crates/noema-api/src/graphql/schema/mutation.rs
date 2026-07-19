@@ -326,6 +326,16 @@ impl MutationRoot {
         usage_settings::save_tool_progress_audit_preference(state, input).await
     }
 
+    /// Save the model/provider preference used for governed action review.
+    async fn save_action_reviewer_preference(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlSaveActionReviewerPreferenceInput,
+    ) -> Result<GraphqlAgentModelPreference> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        privacy_settings::save_action_reviewer_preference(state, input).await
+    }
+
     /// Save memory service settings.
     async fn save_memory_service_settings(
         &self,
