@@ -18,8 +18,8 @@ The first slice is deliberately narrow:
 4. The filesystem hierarchy is canonical for parent-child structure. Pages do
    not maintain links to their children.
 5. Each memory page has a hard limit of 750 words.
-6. A database-wide conversation-item sequence provides one ordered source
-   stream across all conversations owned by the local human.
+6. Each memory job reads one conversation. The first slice reads only the local
+   human's primary conversation and uses its existing `sequence_index` order.
 7. Context compaction normally schedules memory consolidation, but context
    summarization and memory updating are separate model operations.
 8. The Memory page has an `Update memory` action for processing every eligible
@@ -64,31 +64,23 @@ model-context assembly, conversation-item persistence, and the Memory page.
 The existing `MemoryOperations` and Mnemosyne-specific seams are replacement
 targets, not compatibility layers to preserve.
 
-## One Global Source Stream
+## One Conversation Source Stream
 
-Conversation items currently have a `sequence_index` that starts at one inside
-each conversation. Those values cannot answer a user-wide query by themselves:
+Every memory job is bound to exactly one `conversation_id`. In the first slice,
+that conversation is the local human's active primary conversation. A job never
+reads, merges, or orders items from another conversation.
 
-```text
-global append order:  conversation A item 1
-                      conversation B item 1
-                      conversation A item 2
-                      conversation B item 2
-```
-
-The first slice adds a database-wide `global_sequence` to
-`conversation_items`. In the pre-V1 schema, it can be the auto-incrementing
-integer primary key while `item_id` becomes unique. Existing
-`sequence_index` remains the conversation-local replay order.
-
-An update captures the current global head and performs the simple range query:
+`conversation_items.sequence_index` already provides the required durable order
+inside that conversation. An update captures the conversation's current head
+and performs the range query:
 
 ```sql
 SELECT ...
 FROM conversation_items
-WHERE global_sequence > :last_consolidated_sequence
-  AND global_sequence <= :captured_head_sequence
-ORDER BY global_sequence ASC;
+WHERE conversation_id = :conversation_id
+  AND sequence_index > :last_consolidated_sequence
+  AND sequence_index <= :captured_head_sequence
+ORDER BY sequence_index ASC;
 ```
 
 The updater uses completed human-authored messages as memory evidence.
@@ -100,6 +92,11 @@ Large ranges are processed in source-order chunks sized to the selected memory
 model's context budget. A single UI job continues chunking until it reaches its
 captured head. Each committed chunk advances the checkpoint, so a failed job
 can resume without repeating earlier chunks.
+
+If later slices allow other conversations to contribute to the same human
+tree, each conversation gets its own job and checkpoint. They still do not
+create a cross-conversation source query. That extension is outside the first
+slice.
 
 ## Storage Model
 
@@ -177,7 +174,8 @@ child page. Validation rejects an over-limit model proposal before publication.
 ```markdown
 ---
 schema: noema.memory.state/v1
-last_consolidated_sequence: 483
+conversation_id: conversation:primary_123
+last_consolidated_sequence: 42
 last_consolidated_item: item:item_123
 updated_at: 2026-07-19T12:00:00-07:00
 ---
@@ -187,9 +185,10 @@ updated_at: 2026-07-19T12:00:00-07:00
 This file is managed by Noema and is not part of model retrieval.
 ```
 
-`last_consolidated_sequence` is the query cursor. The item ID is retained for
-diagnostics and provenance rather than ordering. Initial state uses sequence
-zero and no item ID.
+`conversation_id` binds the state to the primary conversation.
+`last_consolidated_sequence` is that conversation's query cursor. The item ID
+is retained for diagnostics and provenance rather than ordering. Initial state
+uses the current primary conversation, sequence zero, and no item ID.
 
 ## Derived SQLite Search
 
@@ -241,7 +240,8 @@ Mnemosyne integration.
 
 Context compaction is the normal trigger because it identifies a coherent batch
 as its verbatim messages leave active model context. A successful compaction
-schedules the captured global source head but does not wait for memory.
+schedules that conversation's captured source head but does not wait for
+memory.
 
 The memory subsystem independently reads the durable source range, selects the
 configured Memory model, and sends a background-priority generation request.
@@ -279,8 +279,8 @@ For each bounded source chunk, the updater:
 4. Acquires the single tree read/write lock and publishes the staged files in a
    deterministic order.
 5. Updates the derived FTS index from the final published tree.
-6. Atomically replaces `.state.md` with the chunk's final global sequence and
-   item ID.
+6. Atomically replaces `.state.md` with the conversation ID, the chunk's final
+   `sequence_index`, and its item ID.
 7. Removes the pending operation and releases the lock.
 
 Memory reads wait while publication holds the lock. If Noema stops after
@@ -302,10 +302,11 @@ action panel.
 | Job queued or running | Disabled `Updating memory...` | Loading state until the one active job finishes |
 | Last job failed and no job active | Enabled `Retry update` | Concise inline error and previous successful update time |
 
-Clicking the enabled action captures the current global head and starts one
-background job. The button disables immediately. The server independently
-enforces the single-job rule, so a duplicate mutation cannot create another
-job. The job continues if the human leaves the page.
+Clicking the enabled action captures the primary conversation's current head
+and starts one background job for that conversation. The button disables
+immediately. The server independently enforces the single-job rule, so a
+duplicate mutation cannot create another job. The job continues if the human
+leaves the page.
 
 On success, the page refreshes memory, the pending count, and the last-update
 state. Messages appended after the captured head remain pending and may make
@@ -350,7 +351,8 @@ period, compatibility mode, or rollback to Mnemosyne.
 
 ## Implementation Sequence
 
-1. Add the global conversation-item sequence and bounded source-range reads.
+1. Add bounded source-range reads over the primary conversation's existing
+   `sequence_index`.
 2. Implement the Markdown page, tree, 750-word, state, and recovery-manifest
    contracts.
 3. Implement the separate rebuildable FTS database.
@@ -373,8 +375,8 @@ active.
 
 - A fresh or cut-over installation has one empty open tree owned by and scoped
   to `human:local`, with no Mnemosyne process, code path, or stored data.
-- One global cursor query selects eligible source items across interleaved
-  conversations without skipping or repeating them.
+- Every job selects eligible source items from only the primary conversation
+  using its existing sequence order.
 - A large source range is processed in ordered bounded chunks through the
   captured head.
 - Every retrievable page body contains at most 750 words.
@@ -394,12 +396,12 @@ active.
 - The implementation contains no editor, external-edit reconciliation, page
   history, private memory, additional scope, migration, or Mnemosyne fallback.
 
-Focused tests should cover global source ordering and captured heads, bounded
-chunk recovery, page/tree validation and the 750-word limit, deterministic
-child enumeration, FTS deletion and rebuild, staged-operation crash recovery,
-single-flight update state, replay-ephemeral page reads, and the absence of a
-Mnemosyne runtime path. Each test protects a distinct data-integrity,
-retrieval, or cutover risk.
+Focused tests should cover conversation-bound range selection and captured
+heads, bounded chunk recovery, page/tree validation and the 750-word limit,
+deterministic child enumeration, FTS deletion and rebuild, staged-operation
+crash recovery, single-flight update state, replay-ephemeral page reads, and
+the absence of a Mnemosyne runtime path. Each test protects a distinct
+data-integrity, retrieval, or cutover risk.
 
 ## Remaining Questions
 
