@@ -36,6 +36,56 @@ async fn injected_capability_invoker_receives_the_opaque_advertised_target() {
 }
 
 #[tokio::test]
+async fn unconfigured_reviewer_blocks_external_write_before_invocation() {
+    let mut actor = test_actor().await;
+    let invoker = Arc::new(RecordingCapabilityInvoker::default());
+    actor.capability_invokers =
+        Arc::from([noema_capabilities::CapabilityInvokerRegistration::new(
+            noema_capabilities::InvokerKey::new("external:test"),
+            invoker.clone(),
+        )]);
+    let conversation = actor
+        .store
+        .get_or_create_primary_conversation(
+            "human:local",
+            Some("gpt-test".to_string()),
+            None,
+        )
+        .await
+        .expect("primary conversation");
+    let mut turn = test_turn();
+    turn.conversation_id = conversation.conversation_id;
+    turn.initial_model_tools = test_governed_capability_model_tools();
+
+    let result = actor
+        .execute_local_tool(
+            &turn,
+            &AgentPromptIdentity {
+                agent_id: "agent:primary".to_string(),
+                display_name: None,
+            },
+            &test_tool_call(TEST_CAPABILITY_NAME, json!({"body":"exact"})),
+        )
+        .await;
+
+    assert!(!result.success);
+    assert_eq!(result.payload["status"], "awaiting_approval");
+    let action_id = result.blocked_action_id.expect("blocked action id");
+    let action = actor
+        .store
+        .get_governed_action(&action_id, 1)
+        .await
+        .expect("read action")
+        .expect("action");
+    assert_eq!(
+        action.state,
+        noema_store::GovernedActionState::AwaitingApproval
+    );
+    assert_eq!(action.arguments, json!({"body":"exact"}));
+    assert!(invoker.invocations.lock().expect("invocation lock").is_empty());
+}
+
+#[tokio::test]
 async fn unavailable_capability_remains_unadvertised_and_denied() {
     let mut actor = test_actor().await;
     let invoker = Arc::new(RecordingCapabilityInvoker::default());

@@ -45,6 +45,19 @@ pub struct CapabilityInvocation {
     pub operation_token: OperationToken,
     /// Provider-supplied JSON arguments.
     pub arguments: Value,
+    /// Runtime-issued one-shot admission for a governed external effect.
+    pub governed_admission: Option<GovernedCapabilityAdmission>,
+}
+
+/// One action-revision admission issued by the trusted runtime gateway.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GovernedCapabilityAdmission {
+    /// Durable action id.
+    pub action_id: String,
+    /// Immutable action revision.
+    pub revision: u64,
+    /// Digest of the exact persisted argument payload.
+    pub arguments_sha256: String,
 }
 
 /// Model-visible capability result.
@@ -144,6 +157,9 @@ pub enum CapabilityError {
     /// The implementation failed without a safe tool-declared result.
     #[error("capability invocation failed")]
     Failed,
+    /// The remote call was sent, but its externally visible outcome is unknown.
+    #[error("capability outcome is uncertain")]
+    OutcomeUncertain,
 }
 
 /// Object-safe implementation of one family of capability targets.
@@ -204,6 +220,15 @@ pub trait CapabilityRouter: Send + Sync {
         canonical_name: String,
         arguments: Value,
     ) -> CapabilityFuture<'_, Result<CapabilityDispatch, CapabilityDispatchFailure>>;
+
+    /// Dispatch an external write/export through a runtime-issued admission.
+    fn dispatch_governed(
+        &self,
+        snapshot: CapabilityCatalogSnapshot,
+        canonical_name: String,
+        arguments: Value,
+        admission: GovernedCapabilityAdmission,
+    ) -> CapabilityFuture<'_, Result<CapabilityDispatch, CapabilityDispatchFailure>>;
 }
 
 /// Router construction error.
@@ -259,6 +284,7 @@ impl<'a> CapabilityRegistryRouter<'a> {
         snapshot: &CapabilityCatalogSnapshot,
         canonical_name: &str,
         arguments: Value,
+        governed_admission: Option<GovernedCapabilityAdmission>,
     ) -> Result<CapabilityDispatch, CapabilityDispatchFailure> {
         let Some(binding) = snapshot.resolve(canonical_name) else {
             return Err(CapabilityDispatchFailure::from_snapshot(
@@ -268,9 +294,22 @@ impl<'a> CapabilityRegistryRouter<'a> {
                 CapabilityError::UnknownOperation,
             ));
         };
+        if binding.access().effect.requires_governed_admission() && governed_admission.is_none() {
+            return Err(CapabilityDispatchFailure::from_snapshot(
+                snapshot,
+                canonical_name,
+                &arguments,
+                CapabilityError::Denied,
+            ));
+        }
         let persisted_arguments = binding.persist_arguments(&arguments);
         match self
-            .invoke_target(binding.target(), binding.spec().name.clone(), arguments)
+            .invoke_target(
+                binding.target(),
+                binding.spec().name.clone(),
+                arguments,
+                governed_admission,
+            )
             .await
         {
             Ok(output) => Ok(CapabilityDispatch {
@@ -295,6 +334,7 @@ impl<'a> CapabilityRegistryRouter<'a> {
         target: &CapabilityTarget,
         operation: ToolName,
         arguments: Value,
+        governed_admission: Option<GovernedCapabilityAdmission>,
     ) -> Result<CapabilityOutput, CapabilityError> {
         let invoker = self
             .invokers
@@ -305,6 +345,7 @@ impl<'a> CapabilityRegistryRouter<'a> {
                 operation,
                 operation_token: target.operation_token().clone(),
                 arguments,
+                governed_admission,
             })
             .await
     }
@@ -318,7 +359,20 @@ impl CapabilityRouter for CapabilityRegistryRouter<'_> {
         arguments: Value,
     ) -> CapabilityFuture<'_, Result<CapabilityDispatch, CapabilityDispatchFailure>> {
         Box::pin(async move {
-            self.dispatch_resolved(&snapshot, &canonical_name, arguments)
+            self.dispatch_resolved(&snapshot, &canonical_name, arguments, None)
+                .await
+        })
+    }
+
+    fn dispatch_governed(
+        &self,
+        snapshot: CapabilityCatalogSnapshot,
+        canonical_name: String,
+        arguments: Value,
+        admission: GovernedCapabilityAdmission,
+    ) -> CapabilityFuture<'_, Result<CapabilityDispatch, CapabilityDispatchFailure>> {
+        Box::pin(async move {
+            self.dispatch_resolved(&snapshot, &canonical_name, arguments, Some(admission))
                 .await
         })
     }
@@ -337,6 +391,7 @@ impl CapabilityError {
             Self::Denied => "denied",
             Self::Unavailable => "unavailable",
             Self::Failed => "failed",
+            Self::OutcomeUncertain => "outcome_uncertain",
         }
     }
 }
@@ -468,6 +523,61 @@ mod tests {
         .expect_err("unknown advertised name rejected");
         assert_eq!(error.error, CapabilityError::UnknownOperation);
         assert_eq!(error.persisted, PersistedCapabilityPayload::omitted());
+    }
+
+    #[test]
+    fn external_effect_requires_explicit_governed_dispatch() {
+        let invoker = Arc::new(RecordingInvoker::default());
+        let router = CapabilityRegistryRouter::new([(
+            InvokerKey::new("mcp"),
+            invoker.clone() as CapabilityInvokerHandle,
+        )])
+        .expect("router");
+        let mut builder = CapabilityCatalogBuilder::new();
+        builder
+            .add(CapabilityBinding::new(
+                ToolSpec::new("mcp.docs.write", "Write docs.", json!({"type":"object"}))
+                    .expect("spec"),
+                CapabilityTarget::new(
+                    InvokerKey::new("mcp"),
+                    OperationToken::new("reviewed:write"),
+                ),
+                CapabilityAccess {
+                    effect: CapabilityEffect::ExternalWrite,
+                    scope: CapabilityScope::Global,
+                },
+                Arc::new(OmitPayloadSanitizer),
+            ))
+            .expect("binding");
+        let snapshot = builder.build();
+
+        let denied = poll_ready(router.dispatch(
+            snapshot.clone(),
+            "mcp.docs.write".to_string(),
+            json!({"body":"exact"}),
+        ))
+        .expect_err("ordinary path must deny external write");
+        assert_eq!(denied.error, CapabilityError::Denied);
+        assert!(invoker.0.lock().expect("recording lock").is_empty());
+
+        poll_ready(router.dispatch_governed(
+            snapshot,
+            "mcp.docs.write".to_string(),
+            json!({"body":"exact"}),
+            GovernedCapabilityAdmission {
+                action_id: "action:test".to_string(),
+                revision: 1,
+                arguments_sha256: "a".repeat(64),
+            },
+        ))
+        .expect("governed dispatch");
+        assert_eq!(
+            invoker.0.lock().expect("recording lock")[0]
+                .governed_admission
+                .as_ref()
+                .map(|admission| admission.action_id.as_str()),
+            Some("action:test")
+        );
     }
 
     fn control_plane_failure(

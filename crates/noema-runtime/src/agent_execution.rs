@@ -32,6 +32,8 @@ pub enum ToolAccessClass {
     TaskOwnedWrite,
     /// A write owned by a foreground conversation.
     ConversationWrite,
+    /// External write/export that must pass the governed-action gateway.
+    GovernedExternalAction,
     /// A terminal executor contract tool such as `task.submit_result`.
     ExecutorTerminal,
     /// A terminal reviewer contract tool such as `task.submit_review`.
@@ -101,10 +103,17 @@ impl ToolPolicy {
     pub const fn allows_class(&self, class: ToolAccessClass) -> bool {
         match self.role {
             ExecutionRole::PrimaryConversation => true,
-            ExecutionRole::TaskPlanner | ExecutionRole::TaskExecutor => matches!(
+            ExecutionRole::TaskPlanner => matches!(
                 class,
                 ToolAccessClass::ReadOnly
                     | ToolAccessClass::TaskOwnedWrite
+                    | ToolAccessClass::ExecutorTerminal
+            ),
+            ExecutionRole::TaskExecutor => matches!(
+                class,
+                ToolAccessClass::ReadOnly
+                    | ToolAccessClass::TaskOwnedWrite
+                    | ToolAccessClass::GovernedExternalAction
                     | ToolAccessClass::ExecutorTerminal
             ),
             ExecutionRole::TaskReviewer => matches!(

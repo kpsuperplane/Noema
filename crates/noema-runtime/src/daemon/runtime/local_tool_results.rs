@@ -26,6 +26,7 @@ pub(super) struct LocalToolResult {
     pub(super) success: bool,
     pub(super) payload: Value,
     pub(super) requires_provider_continuation: bool,
+    pub(super) blocked_action_id: Option<String>,
     pub(super) kind: LocalToolKind,
 }
 
@@ -47,8 +48,14 @@ impl LocalToolResult {
             success,
             payload,
             requires_provider_continuation,
+            blocked_action_id: None,
             kind,
         }
+    }
+
+    pub(super) fn with_blocked_action(mut self, action_id: String) -> Self {
+        self.blocked_action_id = Some(action_id);
+        self
     }
 
     pub(super) fn with_persisted(

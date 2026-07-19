@@ -76,14 +76,17 @@ impl McpOperationAuthority {
             .map_err(|_| noema_capabilities::CapabilityError::UnknownOperation)
     }
 
+    #[cfg(feature = "transport")]
     pub(crate) fn canonical_name(&self) -> &str {
         &self.canonical_name
     }
 
+    #[cfg(feature = "transport")]
     pub(crate) fn server_id(&self) -> &str {
         &self.server_id
     }
 
+    #[cfg(feature = "transport")]
     pub(crate) fn tool_id(&self) -> &str {
         &self.tool_id
     }
@@ -157,7 +160,7 @@ pub(crate) fn catalog_from_servers(
                         authority.operation_token(),
                     ),
                     CapabilityAccess {
-                        effect: CapabilityEffect::ReadOnly,
+                        effect: calibrated_effect(calibration),
                         scope: CapabilityScope::Global,
                     },
                     Arc::new(OmitPayloadSanitizer),
@@ -169,6 +172,18 @@ pub(crate) fn catalog_from_servers(
         snapshot: builder.build(),
         availability_notices,
     })
+}
+
+#[cfg(any(feature = "transport", test))]
+fn calibrated_effect(calibration: &ToolCalibrationRecord) -> CapabilityEffect {
+    let writes = calibration.write_classification != crate::McpTrustClassification::None;
+    let exports = calibration.export_classification != crate::McpTrustClassification::None;
+    match (writes, exports) {
+        (false, false) => CapabilityEffect::ReadOnly,
+        (true, false) => CapabilityEffect::ExternalWrite,
+        (false, true) => CapabilityEffect::ExternalExport,
+        (true, true) => CapabilityEffect::ExternalWriteAndExport,
+    }
 }
 
 #[cfg(feature = "transport")]

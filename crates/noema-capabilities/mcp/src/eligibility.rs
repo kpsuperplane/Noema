@@ -43,10 +43,6 @@ pub(crate) fn mcp_tool_catalog_ineligibility(
     };
     if calibration.mcp_tool_id != tool.mcp_tool_id
         || calibration.status != McpCalibrationStatus::Ready
-        || !matches!(
-            calibration.read_classification,
-            McpTrustClassification::Trusted | McpTrustClassification::Untrusted
-        )
         || [
             calibration.read_classification,
             calibration.write_classification,
@@ -62,13 +58,24 @@ pub(crate) fn mcp_tool_catalog_ineligibility(
     {
         return true;
     }
-    if calibration.write_classification != McpTrustClassification::None
-        || calibration.export_classification != McpTrustClassification::None
+    if [
+        calibration.read_classification,
+        calibration.write_classification,
+        calibration.export_classification,
+    ]
+    .iter()
+    .all(|classification| *classification == McpTrustClassification::None)
     {
         return true;
     }
 
     false
+}
+
+#[cfg(feature = "transport")]
+pub(crate) fn mcp_tool_requires_governed_admission(calibration: &ToolCalibrationRecord) -> bool {
+    calibration.write_classification != McpTrustClassification::None
+        || calibration.export_classification != McpTrustClassification::None
 }
 
 /// Return a bounded, prompt-safe one-line MCP tool description.
@@ -194,7 +201,7 @@ mod tests {
     }
 
     #[test]
-    fn ready_write_or_export_tool_requires_one_shot_approval() {
+    fn ready_write_or_export_tool_is_eligible_for_the_governed_gateway() {
         let (server, tool, calibration) = fixture();
         for (write_classification, export_classification) in [
             (
@@ -211,7 +218,8 @@ mod tests {
                 export_classification,
                 ..calibration.clone()
             };
-            assert!(mcp_tool_ineligibility(&server, &tool, Some(&changed)));
+            assert!(!mcp_tool_catalog_ineligibility(&tool, Some(&changed)));
+            assert!(!mcp_tool_ineligibility(&server, &tool, Some(&changed)));
         }
 
         let stale = ToolCalibrationRecord {

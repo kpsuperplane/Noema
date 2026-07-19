@@ -7,10 +7,19 @@ use noema_capabilities::{
     CapabilityInvoker, CapabilityOutput, CapabilityRegistryRouter, CapabilityRouter, InvokerKey,
 };
 use noema_memory::{MemorySearchAuthority, execute_search_memory, is_search_memory_tool};
+use noema_store::GovernedExecutionOutcome;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 
-use super::{actor::RuntimeActor, tool_lifecycle::LocalToolCall, turn::SuccessfulProviderTurn};
+use super::{
+    action_gateway::{
+        GovernedActionPreparation, action_store_failure_result, awaiting_approval_result,
+        capability_failure_code,
+    },
+    actor::RuntimeActor,
+    tool_lifecycle::LocalToolCall,
+    turn::SuccessfulProviderTurn,
+};
 use crate::daemon::{
     agent_name_tool::{
         AgentNameToolRuntimeContext, execute_update_own_name, is_update_own_name_tool,
@@ -72,7 +81,16 @@ impl RuntimeActor {
         policy: &ToolPolicy,
     ) -> LocalToolResult {
         let snapshot = &turn.initial_model_tools.bindings;
-        if snapshot.resolve(&call.name).is_none() || !policy.allows_tool(&call.name) {
+        let Some(binding) = snapshot.resolve(&call.name).cloned() else {
+            let failure = CapabilityDispatchFailure::from_snapshot(
+                snapshot,
+                &call.name,
+                &call.payload,
+                CapabilityError::Denied,
+            );
+            return gateway_failure_result(call, failure);
+        };
+        if !policy.allows_tool(&call.name) {
             let failure = CapabilityDispatchFailure::from_snapshot(
                 snapshot,
                 &call.name,
@@ -81,6 +99,21 @@ impl RuntimeActor {
             );
             return gateway_failure_result(call, failure);
         }
+
+        let preparation = match self
+            .prepare_governed_action(turn, agent_identity, call, &binding)
+            .await
+        {
+            Ok(preparation) => preparation,
+            Err(_) => return action_store_failure_result(call),
+        };
+        let governed = match preparation {
+            GovernedActionPreparation::NotRequired => None,
+            GovernedActionPreparation::AwaitingApproval(action) => {
+                return awaiting_approval_result(call, &action);
+            }
+            GovernedActionPreparation::Admitted { action, admission } => Some((action, admission)),
+        };
 
         let runtime_invoker = Arc::new(RuntimeExecutionInvoker::new(
             self,
@@ -101,11 +134,46 @@ impl RuntimeActor {
         }));
         let router = CapabilityRegistryRouter::new(invokers)
             .expect("runtime capability invoker keys are unique");
-        match router
-            .dispatch(snapshot.clone(), call.name.clone(), call.payload.clone())
-            .await
-        {
+        let dispatch = match governed.as_ref() {
+            Some((_, admission)) => {
+                router
+                    .dispatch_governed(
+                        snapshot.clone(),
+                        call.name.clone(),
+                        call.payload.clone(),
+                        admission.clone(),
+                    )
+                    .await
+            }
+            None => {
+                router
+                    .dispatch(snapshot.clone(), call.name.clone(), call.payload.clone())
+                    .await
+            }
+        };
+        match dispatch {
             Ok(dispatch) => {
+                if let Some((action, _)) = &governed {
+                    let outcome = if dispatch.output.success {
+                        GovernedExecutionOutcome::Succeeded
+                    } else {
+                        GovernedExecutionOutcome::Failed
+                    };
+                    if self
+                        .store
+                        .finish_governed_action_execution(
+                            &action.action_id,
+                            action.revision,
+                            outcome,
+                            Some(&dispatch.output.payload),
+                            (!dispatch.output.success).then_some("tool_declared_failure"),
+                        )
+                        .await
+                        .is_err()
+                    {
+                        return action_store_failure_result(call);
+                    }
+                }
                 if let Some(result) = runtime_invoker.take_result() {
                     result.with_persisted(dispatch.persisted)
                 } else {
@@ -119,7 +187,30 @@ impl RuntimeActor {
                     .with_persisted(dispatch.persisted)
                 }
             }
-            Err(failure) => gateway_failure_result(call, failure),
+            Err(failure) => {
+                if let Some((action, _)) = &governed {
+                    let outcome = if failure.error == CapabilityError::OutcomeUncertain {
+                        GovernedExecutionOutcome::OutcomeUncertain
+                    } else {
+                        GovernedExecutionOutcome::Failed
+                    };
+                    if self
+                        .store
+                        .finish_governed_action_execution(
+                            &action.action_id,
+                            action.revision,
+                            outcome,
+                            failure.persisted.output.as_ref(),
+                            Some(capability_failure_code(&failure.error)),
+                        )
+                        .await
+                        .is_err()
+                    {
+                        return action_store_failure_result(call);
+                    }
+                }
+                gateway_failure_result(call, failure)
+            }
         }
     }
 

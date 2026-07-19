@@ -24,6 +24,7 @@ pub(in crate::daemon) struct RuntimeActor {
     pub(in crate::daemon) primary_provider: ProviderRouteResolverHandle,
     pub(in crate::daemon) default_provider: ProviderRouteResolverHandle,
     pub(in crate::daemon) progress_audit_provider: ProviderRouteResolverHandle,
+    pub(in crate::daemon) action_reviewer_provider: ProviderRouteResolverHandle,
     pub(in crate::daemon) web_summary_provider: ProviderRouteResolverHandle,
     pub(in crate::daemon) provider_registry: ProviderRegistryHandle,
     pub(in crate::daemon) store: NoemaStore,
@@ -45,6 +46,7 @@ impl std::fmt::Debug for RuntimeActor {
             .field("primary_provider", &"[CONFIGURED]")
             .field("default_provider", &"[CONFIGURED]")
             .field("progress_audit_provider", &"[CONFIGURED]")
+            .field("action_reviewer_provider", &"[CONFIGURED]")
             .field("web_summary_provider", &"[CONFIGURED]")
             .field("provider_registry", &self.provider_registry)
             .field("store", &self.store)
@@ -80,6 +82,7 @@ impl RuntimeActor {
             primary_provider: routing.primary,
             default_provider: routing.default,
             progress_audit_provider: routing.progress_audit,
+            action_reviewer_provider: routing.action_reviewer,
             web_summary_provider: routing.web_summary,
             provider_registry: routing.registry,
             store,
@@ -98,6 +101,7 @@ impl RuntimeActor {
             primary_provider: config.primary_provider,
             default_provider: config.default_provider,
             progress_audit_provider: config.progress_audit_provider,
+            action_reviewer_provider: config.action_reviewer_provider,
             web_summary_provider: config.web_summary_provider,
             provider_registry: config.provider_registry,
             store: config.store,
@@ -153,6 +157,7 @@ impl RuntimeActor {
             primary_provider: Arc::clone(&self.primary_provider),
             default_provider: Arc::clone(&self.default_provider),
             progress_audit_provider: Arc::clone(&self.progress_audit_provider),
+            action_reviewer_provider: Arc::clone(&self.action_reviewer_provider),
             web_summary_provider: Arc::clone(&self.web_summary_provider),
             provider_registry: Arc::clone(&self.provider_registry),
             store: self.store.clone(),
@@ -383,6 +388,7 @@ pub(super) struct TestProviderRouting {
     pub(super) primary: ProviderRouteResolverHandle,
     pub(super) default: ProviderRouteResolverHandle,
     pub(super) progress_audit: ProviderRouteResolverHandle,
+    pub(super) action_reviewer: ProviderRouteResolverHandle,
     pub(super) web_summary: ProviderRouteResolverHandle,
     pub(super) registry: ProviderRegistryHandle,
 }
@@ -459,6 +465,9 @@ pub(super) async fn test_provider_routing(
         default: bind(store.default_provider_selection_loader()),
         progress_audit: bind(
             store.auxiliary_provider_selection_loader(noema_store::TOOL_PROGRESS_AUDIT_TASK_ID),
+        ),
+        action_reviewer: bind(
+            store.auxiliary_provider_selection_loader(noema_store::ACTION_REVIEWER_TASK_ID),
         ),
         web_summary: bind(
             store.auxiliary_provider_selection_loader(noema_store::WEB_FETCH_SUMMARIZER_TASK_ID),

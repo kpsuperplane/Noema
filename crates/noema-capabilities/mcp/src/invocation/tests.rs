@@ -1,7 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
 use noema_capabilities::{
-    CapabilityError, CapabilityInvocation, CapabilityInvoker, OperationToken,
+    CapabilityError, CapabilityInvocation, CapabilityInvoker, GovernedCapabilityAdmission,
+    OperationToken,
 };
 use serde_json::json;
 use tokio::sync::Semaphore;
@@ -28,6 +29,7 @@ async fn authority_policy_and_serialization_contracts() {
         operation: invocation.operation.clone(),
         operation_token: OperationToken::new("forged-authority"),
         arguments: json!({}),
+        governed_admission: None,
     };
 
     assert_eq!(
@@ -66,6 +68,17 @@ async fn authority_policy_and_serialization_contracts() {
         CapabilityInvoker::invoke(&harness.service, invocation.clone()).await,
         Err(CapabilityError::Denied)
     );
+    let mut admitted = invocation.clone();
+    admitted.governed_admission = Some(GovernedCapabilityAdmission {
+        action_id: "action:test".to_string(),
+        revision: 1,
+        arguments_sha256: "a".repeat(64),
+    });
+    assert!(
+        CapabilityInvoker::invoke(&harness.service, admitted)
+            .await
+            .is_ok()
+    );
 
     let mut export_snapshot = harness.repository.snapshot();
     let calibration = export_snapshot.calibration.as_mut().expect("calibration");
@@ -76,7 +89,7 @@ async fn authority_policy_and_serialization_contracts() {
         CapabilityInvoker::invoke(&harness.service, invocation).await,
         Err(CapabilityError::Denied)
     );
-    assert_eq!(harness.sessions.call_count(), 1);
+    assert_eq!(harness.sessions.call_count(), 2);
 
     // Case: refreshed_credentials_commit_before_the_remote_tool_call.
     let harness = TestHarness::new();
@@ -244,7 +257,7 @@ async fn transport_failure_status_and_diagnostic_contracts() {
         .await
         .expect_err("transport failure");
 
-    assert_eq!(error, CapabilityError::Unavailable);
+    assert_eq!(error, CapabilityError::OutcomeUncertain);
     assert!(!error.to_string().contains("private backend"));
     let diagnostic = harness
         .diagnostics
@@ -293,9 +306,13 @@ async fn assert_failure_status(
         FailureStage::ToolCall => harness.sessions.set_call_error(error),
     }
 
+    let expected_error = match stage {
+        FailureStage::Preparation => CapabilityError::Unavailable,
+        FailureStage::ToolCall => CapabilityError::OutcomeUncertain,
+    };
     assert_eq!(
         CapabilityInvoker::invoke(&harness.service, advertised_invocation(&harness).await).await,
-        Err(CapabilityError::Unavailable)
+        Err(expected_error)
     );
     let servers = McpOperations::list_servers(&harness.service)
         .await

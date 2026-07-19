@@ -229,6 +229,43 @@ fn test_injected_capability_model_tools(
     }
 }
 
+fn test_governed_capability_model_tools() -> ModelTools {
+    let spec = noema_capabilities::ToolSpec::new(
+        TEST_CAPABILITY_NAME,
+        "Write a document.",
+        json!({"type": "object"}),
+    )
+    .expect("tool spec");
+    let mut builder = noema_capabilities::CapabilityCatalogBuilder::new();
+    builder
+        .add(noema_capabilities::CapabilityBinding::new(
+            spec,
+            noema_capabilities::CapabilityTarget::new(
+                noema_capabilities::InvokerKey::new("external:test"),
+                noema_capabilities::OperationToken::new("opaque-write-authority"),
+            ),
+            noema_capabilities::CapabilityAccess {
+                effect: noema_capabilities::CapabilityEffect::ExternalWrite,
+                scope: noema_capabilities::CapabilityScope::Global,
+            },
+            Arc::new(noema_capabilities::OmitPayloadSanitizer),
+        ))
+        .expect("unique binding");
+    let mut policy = crate::agent_execution::ToolPolicy::default();
+    policy.allow_tool_name(TEST_CAPABILITY_NAME);
+    ModelTools {
+        transport: noema_providers::ProviderToolTransport::Native,
+        bindings: builder.build(),
+        prompt_rows: Vec::new(),
+        unavailable_rows: Vec::new(),
+        prompt_kinds: std::collections::BTreeMap::from([(
+            TEST_CAPABILITY_NAME.to_string(),
+            crate::daemon::runtime::model_tools::ModelToolPromptKind::Capability,
+        )]),
+        tool_policy: policy,
+    }
+}
+
 fn test_tool_call(name: &str, payload: Value) -> LocalToolCall {
     LocalToolCall {
         output_index: 0,

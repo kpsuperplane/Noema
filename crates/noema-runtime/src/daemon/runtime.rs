@@ -1,3 +1,5 @@
+mod action_gateway;
+mod action_reviewer;
 pub(in crate::daemon) mod actor;
 mod background_task;
 pub(crate) mod context_compaction;
@@ -33,6 +35,8 @@ pub struct RuntimeSpawnConfig {
     pub default_provider: noema_providers::ProviderRouteResolverHandle,
     /// Route resolver for task progress audits.
     pub progress_audit_provider: noema_providers::ProviderRouteResolverHandle,
+    /// Route resolver for governed-action review. It has no implicit fallback.
+    pub action_reviewer_provider: noema_providers::ProviderRouteResolverHandle,
     /// Route resolver for web-page summarization.
     pub web_summary_provider: noema_providers::ProviderRouteResolverHandle,
     /// Exact provider instance registry used by task routing.

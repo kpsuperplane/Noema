@@ -1,8 +1,8 @@
 /// Current schema version for pre-stable local SQLite data.
-pub const STORE_SCHEMA_VERSION: i64 = 4;
+pub const STORE_SCHEMA_VERSION: i64 = 5;
 
 /// Stable marker row identifying the exact schema accepted by this binary.
-pub(super) const STORE_SCHEMA_MARKER: &str = "sqlite_store_v4";
+pub(super) const STORE_SCHEMA_MARKER: &str = "sqlite_store_v5";
 
 /// SQLite bootstrap used by the Noema store.
 pub const STORE_SCHEMA_SQL: &str = r#"
@@ -998,6 +998,108 @@ CREATE TABLE work_command_receipts (
   FOREIGN KEY (result_event_sequence) REFERENCES work_events(event_sequence) ON DELETE RESTRICT
 );
 
+CREATE TABLE governed_actions (
+  action_id TEXT NOT NULL CHECK (action_id GLOB 'action:*'),
+  revision INTEGER NOT NULL CHECK (revision >= 1),
+  owner_human_id TEXT NOT NULL,
+  conversation_id TEXT,
+  turn_id TEXT,
+  task_id TEXT,
+  run_id TEXT,
+  requesting_agent_id TEXT NOT NULL CHECK (trim(requesting_agent_id) <> ''),
+  capability_name TEXT NOT NULL CHECK (trim(capability_name) <> ''),
+  operation_token TEXT NOT NULL CHECK (trim(operation_token) <> ''),
+  effect TEXT NOT NULL CHECK (effect IN ('write', 'export', 'write_export')),
+  arguments_json TEXT NOT NULL CHECK (json_valid(arguments_json)),
+  arguments_sha256 TEXT NOT NULL CHECK (length(arguments_sha256) = 64 AND arguments_sha256 = lower(arguments_sha256)),
+  input_schema_json TEXT NOT NULL CHECK (json_valid(input_schema_json)),
+  trusted_authority_json TEXT NOT NULL CHECK (json_valid(trusted_authority_json)),
+  safe_summary TEXT NOT NULL CHECK (trim(safe_summary) <> ''),
+  state TEXT NOT NULL CHECK (state IN (
+    'proposed', 'awaiting_approval', 'executable', 'executing', 'succeeded',
+    'failed', 'outcome_uncertain', 'declined', 'superseded', 'cancelled'
+  )),
+  output_json TEXT CHECK (output_json IS NULL OR json_valid(output_json)),
+  failure_code TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  completed_at TEXT,
+  PRIMARY KEY (action_id, revision),
+  FOREIGN KEY (owner_human_id) REFERENCES humans(human_id) ON DELETE RESTRICT,
+  FOREIGN KEY (conversation_id) REFERENCES conversations(conversation_id) ON DELETE RESTRICT,
+  FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE RESTRICT,
+  FOREIGN KEY (run_id) REFERENCES agent_runs(run_id) ON DELETE RESTRICT,
+  CHECK ((task_id IS NULL AND run_id IS NULL) OR (task_id IS NOT NULL AND run_id IS NOT NULL))
+);
+
+CREATE INDEX governed_actions_attention
+ON governed_actions(owner_human_id, state, created_at, action_id)
+WHERE state = 'awaiting_approval';
+
+CREATE INDEX governed_actions_conversation
+ON governed_actions(conversation_id, created_at, action_id)
+WHERE conversation_id IS NOT NULL;
+
+CREATE INDEX governed_actions_task
+ON governed_actions(task_id, created_at, action_id)
+WHERE task_id IS NOT NULL;
+
+CREATE TABLE governed_action_assessments (
+  action_id TEXT NOT NULL,
+  action_revision INTEGER NOT NULL CHECK (action_revision >= 1),
+  status TEXT NOT NULL CHECK (status IN ('completed', 'reviewer_unavailable', 'invalid_response')),
+  reviewer_selection_json TEXT CHECK (reviewer_selection_json IS NULL OR json_valid(reviewer_selection_json)),
+  authorization TEXT CHECK (authorization IS NULL OR authorization IN ('explicit', 'substantive', 'weak', 'absent')),
+  risk TEXT CHECK (risk IS NULL OR risk IN ('low', 'medium', 'high', 'critical')),
+  recommendation TEXT NOT NULL CHECK (recommendation IN ('auto_execute', 'require_approval')),
+  reason_codes_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(reason_codes_json)),
+  explanation TEXT NOT NULL CHECK (trim(explanation) <> ''),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (action_id, action_revision),
+  FOREIGN KEY (action_id, action_revision)
+    REFERENCES governed_actions(action_id, revision) ON DELETE RESTRICT,
+  CHECK (status = 'completed' OR recommendation = 'require_approval'),
+  CHECK ((status = 'completed' AND reviewer_selection_json IS NOT NULL AND authorization IS NOT NULL AND risk IS NOT NULL)
+    OR (status <> 'completed' AND authorization IS NULL AND risk IS NULL))
+);
+
+CREATE TABLE governed_action_approvals (
+  action_id TEXT NOT NULL,
+  action_revision INTEGER NOT NULL CHECK (action_revision >= 1),
+  state TEXT NOT NULL CHECK (state IN ('pending', 'approved', 'declined', 'consumed', 'revoked', 'superseded')),
+  decided_by_human_id TEXT,
+  decided_at TEXT,
+  consumed_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (action_id, action_revision),
+  FOREIGN KEY (action_id, action_revision)
+    REFERENCES governed_actions(action_id, revision) ON DELETE RESTRICT,
+  FOREIGN KEY (decided_by_human_id) REFERENCES humans(human_id) ON DELETE RESTRICT,
+  CHECK ((state = 'pending' AND decided_by_human_id IS NULL AND decided_at IS NULL AND consumed_at IS NULL)
+    OR (state IN ('approved', 'declined', 'revoked') AND decided_by_human_id IS NOT NULL AND decided_at IS NOT NULL AND consumed_at IS NULL)
+    OR (state = 'consumed' AND decided_by_human_id IS NOT NULL AND decided_at IS NOT NULL AND consumed_at IS NOT NULL)
+    OR (state = 'superseded' AND consumed_at IS NULL))
+);
+
+CREATE TABLE governed_action_events (
+  event_sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL UNIQUE CHECK (event_id GLOB 'action_event:*'),
+  action_id TEXT NOT NULL,
+  action_revision INTEGER NOT NULL CHECK (action_revision >= 1),
+  event_kind TEXT NOT NULL CHECK (event_kind IN (
+    'proposed', 'reviewed', 'approval_requested', 'approved', 'declined',
+    'execution_started', 'succeeded', 'failed', 'outcome_uncertain', 'superseded', 'cancelled'
+  )),
+  actor_id TEXT NOT NULL CHECK (trim(actor_id) <> ''),
+  safe_payload_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(safe_payload_json)),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  FOREIGN KEY (action_id, action_revision)
+    REFERENCES governed_actions(action_id, revision) ON DELETE RESTRICT
+);
+
+CREATE INDEX governed_action_events_action
+ON governed_action_events(action_id, action_revision, event_sequence);
+
 INSERT INTO workspaces (workspace_id, name, description, is_personal)
 VALUES ('workspace:personal', 'Personal', '', 1)
 ON CONFLICT (workspace_id) DO NOTHING;
@@ -1029,6 +1131,6 @@ INSERT INTO task_execution_policy (
 ON CONFLICT (policy_id) DO NOTHING;
 
 INSERT INTO schema_state (name, version, applied_at)
-VALUES ('sqlite_store_v4', 4, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+VALUES ('sqlite_store_v5', 5, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 ON CONFLICT (name) DO NOTHING;
 "#;

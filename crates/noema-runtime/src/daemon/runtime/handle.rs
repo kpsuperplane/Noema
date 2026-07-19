@@ -94,6 +94,9 @@ impl RuntimeHandle {
             progress_audit_provider: bind(
                 store.auxiliary_provider_selection_loader(noema_store::TOOL_PROGRESS_AUDIT_TASK_ID),
             ),
+            action_reviewer_provider: bind(
+                store.auxiliary_provider_selection_loader(noema_store::ACTION_REVIEWER_TASK_ID),
+            ),
             web_summary_provider: bind(
                 store
                     .auxiliary_provider_selection_loader(noema_store::WEB_FETCH_SUMMARIZER_TASK_ID),
@@ -223,6 +226,7 @@ impl RuntimeHandle {
             primary_provider: routing.primary,
             default_provider: routing.default,
             progress_audit_provider: routing.progress_audit,
+            action_reviewer_provider: routing.action_reviewer,
             web_summary_provider: routing.web_summary,
             provider_registry: routing.registry,
             store,

@@ -72,8 +72,25 @@ pub enum CapabilityEffect {
     ReadOnly,
     /// State-changing operation.
     Mutating,
+    /// External state-changing operation that requires governed admission.
+    ExternalWrite,
+    /// External data egress that requires governed admission.
+    ExternalExport,
+    /// External state change and data egress that require governed admission.
+    ExternalWriteAndExport,
     /// Internal control operation.
     Internal,
+}
+
+impl CapabilityEffect {
+    /// Return whether this effect must pass the governed-action gateway.
+    #[must_use]
+    pub const fn requires_governed_admission(self) -> bool {
+        matches!(
+            self,
+            Self::ExternalWrite | Self::ExternalExport | Self::ExternalWriteAndExport
+        )
+    }
 }
 
 /// Neutral ownership scope.

@@ -380,6 +380,10 @@ async fn assemble_services(
         store.auxiliary_provider_selection_loader(noema_store::TOOL_PROGRESS_AUDIT_TASK_ID),
         provider_registry.clone(),
     );
+    let action_reviewer_provider = registry_route_resolver(
+        store.auxiliary_provider_selection_loader(noema_store::ACTION_REVIEWER_TASK_ID),
+        provider_registry.clone(),
+    );
     let web_summary_provider = registry_route_resolver(
         store.auxiliary_provider_selection_loader(noema_store::WEB_FETCH_SUMMARIZER_TASK_ID),
         provider_registry.clone(),
@@ -390,6 +394,7 @@ async fn assemble_services(
         primary_provider,
         default_provider,
         progress_audit_provider,
+        action_reviewer_provider,
         web_summary_provider,
         provider_registry: provider_registry.clone(),
         store: store.clone(),

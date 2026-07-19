@@ -320,7 +320,11 @@ impl RuntimeActor {
                     &run_fence,
                 )
                 .await;
+                let blocked = result.blocked_action_id.is_some();
                 results.push(result);
+                if blocked {
+                    break;
+                }
             }
             completed_tool_calls = completed_tool_calls.saturating_add(results.len());
             progress.observe_results(&results);

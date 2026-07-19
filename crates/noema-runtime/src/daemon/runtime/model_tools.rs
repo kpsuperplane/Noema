@@ -361,6 +361,12 @@ fn capability_access_class(access: CapabilityAccess) -> Option<ToolAccessClass> 
             Some(ToolAccessClass::ConversationWrite)
         }
         (CapabilityEffect::Mutating, CapabilityScope::Global) => None,
+        (
+            CapabilityEffect::ExternalWrite
+            | CapabilityEffect::ExternalExport
+            | CapabilityEffect::ExternalWriteAndExport,
+            _,
+        ) => Some(ToolAccessClass::GovernedExternalAction),
         (CapabilityEffect::Internal, _) => Some(ToolAccessClass::Internal),
     }
 }
@@ -456,6 +462,10 @@ fn runtime_binding(
         ToolAccessClass::ConversationWrite => CapabilityAccess {
             effect: CapabilityEffect::Mutating,
             scope: CapabilityScope::ConversationOwned,
+        },
+        ToolAccessClass::GovernedExternalAction => CapabilityAccess {
+            effect: CapabilityEffect::ExternalWrite,
+            scope: CapabilityScope::Global,
         },
         ToolAccessClass::Internal => CapabilityAccess {
             effect: CapabilityEffect::Internal,

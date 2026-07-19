@@ -606,7 +606,11 @@ impl RuntimeActor {
                     }),
                 );
                 next_output_index += 1;
+                let blocked = result.blocked_action_id.is_some();
                 local_tool_results.push(result);
+                if blocked {
+                    break;
+                }
             }
             if continuation_batch_kind.contains_delegation() {
                 self.persist_task_delegation_receipt(

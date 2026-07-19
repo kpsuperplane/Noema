@@ -9,6 +9,7 @@ mod auxiliary_model_preferences;
 mod context_summaries;
 mod conversations;
 mod error;
+mod governed_actions;
 mod ids;
 mod local_model_activation;
 mod local_model_lifecycle;
@@ -71,6 +72,11 @@ pub use auxiliary_model_preferences::{
     TOOL_PROGRESS_AUDIT_TASK_ID, WEB_FETCH_SUMMARIZER_TASK_ID,
 };
 pub use error::{SchemaIncompatibility, StoreError};
+pub use governed_actions::{
+    GovernedActionEffect, GovernedActionRecord, GovernedActionState, GovernedAssessmentStatus,
+    GovernedAuthorization, GovernedExecutionOutcome, GovernedRecommendation, GovernedRisk,
+    NewGovernedAction, NewGovernedActionAssessment,
+};
 pub use runtime::{NoemaStore, StoreConfig};
 pub use work_command_result::CommittedWorkCommandResult;
 pub use work_commands::WorkCommandService;

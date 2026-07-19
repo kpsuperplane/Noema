@@ -4,7 +4,7 @@ use crate::{
     LocalMcpService, McpClientError, McpDiagnosticEvent, McpDiagnosticKind, McpFailureStatus,
     McpServerAuthStatus, McpServerHealthStatus, McpToolCallOutput,
     catalog::McpOperationAuthority,
-    eligibility::mcp_tool_ineligibility,
+    eligibility::{mcp_tool_ineligibility, mcp_tool_requires_governed_admission},
     service::map_client_operation_error,
     setup::{auth_status_for_secrets, secret_material_matches_server},
 };
@@ -82,6 +82,11 @@ impl LocalMcpService {
             return Err(CapabilityError::UnknownOperation);
         }
         if mcp_tool_ineligibility(&snapshot.server, &snapshot.tool, Some(calibration)) {
+            return Err(CapabilityError::Denied);
+        }
+        if mcp_tool_requires_governed_admission(calibration)
+            && invocation.governed_admission.is_none()
+        {
             return Err(CapabilityError::Denied);
         }
 
@@ -176,9 +181,11 @@ impl LocalMcpService {
                 self.record_invocation_success(&snapshot, &secrets).await;
                 Ok(capability_output(output))
             }
-            Err(error) => Err(self
-                .record_invocation_client_failure(&snapshot, &error)
-                .await),
+            Err(error) => {
+                self.record_invocation_client_failure(&snapshot, &error)
+                    .await;
+                Err(CapabilityError::OutcomeUncertain)
+            }
         }
     }
 

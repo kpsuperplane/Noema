@@ -120,6 +120,9 @@ pub(crate) async fn spawn_runtime_with_provider_registry(
         progress_audit_provider: bind(
             store.auxiliary_provider_selection_loader(noema_store::TOOL_PROGRESS_AUDIT_TASK_ID),
         ),
+        action_reviewer_provider: bind(
+            store.auxiliary_provider_selection_loader(noema_store::ACTION_REVIEWER_TASK_ID),
+        ),
         web_summary_provider: bind(
             store.auxiliary_provider_selection_loader(noema_store::WEB_FETCH_SUMMARIZER_TASK_ID),
         ),
