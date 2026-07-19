@@ -14,17 +14,21 @@ The first slice is deliberately narrow:
 1. There is one memory tree, scoped to the local human.
 2. The local human owns every page in that tree.
 3. Markdown is canonical for prose and semantic metadata, including ownership,
-   scope, parentage, provenance, and the consolidation checkpoint.
+   scope, provenance, and the consolidation checkpoint.
 4. SQLite is a disposable full-text search index that can be rebuilt from the
    Markdown tree.
-5. Context compaction is the normal memory-update trigger, but memory updating
+5. The filesystem hierarchy is canonical for parent-child structure. No page
+   maintains a list of links to its children.
+6. Context compaction is the normal memory-update trigger, but memory updating
    is a separate subsystem and model operation from context summarization.
-6. The filesystem is the only human editing interface. There is no in-product
+7. The Memory page has an `Update memory` action that processes every eligible
+   message since the last successful update.
+8. The filesystem is the only human editing interface. There is no in-product
    memory editor in this slice.
-7. The memory subsystem keeps no page history or versions.
-8. All first-slice memory is open. Private memory and private chat behavior are
+9. The memory subsystem keeps no page history or versions.
+10. All first-slice memory is open. Private memory and private chat behavior are
    deferred together.
-9. The first slice does not import Mnemosyne data or define a cutover or
+11. The first slice does not import Mnemosyne data or define a cutover or
    migration path.
 
 Project and workspace trees, shared ownership, cross-scope reconciliation,
@@ -89,16 +93,23 @@ memory/
     ├── root.md
     ├── .state.md
     ├── preferences.md
+    ├── people.md
     └── people/
         └── collaborators.md
 ```
 
-`root.md` is a compact summary and table of contents. It is supplied to the
-agent on every ordinary turn. Topic pages contain details retrieved on demand.
-`.state.md` is machine-managed Markdown and is excluded from retrieval.
+`root.md` is a compact summary supplied to the agent on every ordinary turn.
+Topic pages contain details retrieved on demand. `.state.md` is machine-managed
+Markdown and is excluded from retrieval.
+
+Directory enumeration supplies the table of contents. `root.md` has every
+non-hidden Markdown file beside it as an immediate child, excluding `root.md`
+itself. A page such as `people.md` has the Markdown files inside the matching
+`people/` directory as its children. If that directory does not exist, the page
+has no children.
 
 The process may reorganize topic pages as the corpus changes, but it must
-preserve stable page IDs and repair parent links as part of the same update.
+preserve stable page IDs. It never writes child-link lists into page bodies.
 
 ### Canonical page metadata
 
@@ -110,7 +121,6 @@ schema: noema.memory.page/v1
 id: memory_page:human_local:preferences
 owner: human:local
 scope: human:local
-parent: memory_page:human_local:root
 created_at: 2026-07-19T12:00:00-07:00
 updated_at: 2026-07-19T12:00:00-07:00
 sources:
@@ -124,9 +134,10 @@ The human prefers readable durable state.[^item-123]
 [^item-123]: `conversation_item:item_123`
 ```
 
-Frontmatter is authoritative for page identity, ownership, scope, parentage,
-timestamps, and the page-level source manifest. Footnotes attach provenance to
-specific claims. The manifest is validated against citations in the body.
+Frontmatter is authoritative for page identity, ownership, scope, timestamps,
+and the page-level source manifest. The relative file path is authoritative for
+parentage. Footnotes attach provenance to specific claims. The manifest is
+validated against citations in the body.
 
 Ownership and scope look redundant in the first slice because both identify
 the local human. They express distinct facts and keep the copied Markdown tree
@@ -156,13 +167,16 @@ only after every page change for the source range has been published.
 ### Tree invariants
 
 1. The tree has exactly one root.
-2. Every non-root page names one parent, and every parent links to its direct
-   children.
-3. Stable page IDs survive file moves and title changes.
-4. Every page is owned by and scoped to `human:local`.
-5. Root and topic pages obey deterministic context budgets.
-6. Synthesized claims cite durable conversation item IDs.
-7. The state file is never included in retrieval or search results.
+2. A page's immediate children are derived from the matching filesystem
+   directory; page-authored child lists have no structural meaning.
+3. Every non-root directory containing memory pages has a corresponding parent
+   Markdown file beside that directory.
+4. Hidden files and `.state.md` never appear as memory children.
+5. Stable page IDs survive file moves and title changes.
+6. Every page is owned by and scoped to `human:local`.
+7. Root and topic pages obey deterministic context budgets.
+8. Synthesized claims cite durable conversation item IDs.
+9. The state file is never included in retrieval or search results.
 
 The earlier 750-word limit remains a useful editorial target, but a
 deterministic character or token budget is safer for multilingual text and
@@ -178,7 +192,7 @@ tree:
 - FTS-indexed headings and body text;
 - page path and stable page ID;
 - cached owner and scope values used to validate results;
-- parsed outbound links and citations when they make lookup faster;
+- parsed citations when they make reverse lookup faster;
 - content hashes and indexing diagnostics.
 
 The duplicated metadata is a cache, not authority. Before returning content,
@@ -192,24 +206,58 @@ cannot handle.
 ## Retrieval
 
 The runtime supplies `root.md` as a bounded context section on every ordinary
-turn. The root contains high-value durable knowledge and links to the tree's
-immediate topic pages.
+turn. It appends a deterministic listing of the root's immediate child
+filenames and page IDs, derived from the filesystem rather than maintained in
+the root's prose.
 
 Two model tools complete retrieval:
 
-1. **Read a memory page.** The model follows a page ID or link when the root
-   identifies a likely branch.
+1. **Read a memory page.** The model opens a page ID returned by the filesystem
+   listing. The result contains the page body plus a fresh listing of its
+   immediate child filenames and page IDs.
 2. **Search memory.** FTS returns ranked snippets and page IDs when the correct
    branch is not apparent from the root.
 
-Links alone are brittle because the root cannot anticipate every future query.
-Search alone loses useful hierarchy and ambient orientation. Using both keeps
-ordinary retrieval cheap while preserving a fallback.
+Filesystem enumeration makes hierarchy deterministic and frees the model from
+keeping navigational links synchronized. Search remains necessary because
+filenames and the immediate tree structure cannot anticipate every future
+query. Using both keeps ordinary navigation cheap while preserving a semantic
+fallback.
 
 Full page content should not be copied permanently into every conversation
 transcript. Persisted tool results can retain page references and content
 hashes while resolved text remains replay-ephemeral. Later corrections to a
 memory page then take effect instead of competing with old transcript copies.
+
+## Memory Page Update Action
+
+The Memory page supports the human job of making the visible memory current on
+demand. It reuses the page's existing action area and keeps the control beside
+the last-update state rather than adding another card, modal, or editing
+surface.
+
+The control is labeled `Update memory`. Clicking it captures the latest durable
+conversation-item boundary and schedules the same consolidation operation used
+by automatic triggers. The job processes every eligible human message after
+`last_consolidated_item` through that captured boundary. Intervening assistant
+messages may provide bounded context but are not independent memory evidence.
+Messages committed after the captured boundary remain pending for the next
+update.
+
+The action has four visible states:
+
+| State | Button | Supporting status |
+| --- | --- | --- |
+| No pending messages | Disabled `Update memory` | `Memory is up to date` |
+| Messages pending | Enabled `Update memory` | The pending message count and last successful update time |
+| Queued or running | Disabled `Updating memory...` | Progress remains visible if the human stays on the page |
+| Failed | Enabled `Retry update` | A concise inline error; the previous successful update time remains authoritative |
+
+A successful update refreshes the rendered memory and its last-update state.
+The job continues if the human leaves the page. Repeated clicks cannot start
+parallel work: while a job is queued or running, the server returns the same
+in-flight operation. Failure leaves the Markdown checkpoint unchanged, so
+retrying covers the same unconsolidated range.
 
 ## Consolidation Lifecycle
 
@@ -234,10 +282,10 @@ model output or transaction. This preserves independent model selection,
 quality evaluation, retries, and failure handling.
 
 Compaction is the normal trigger, not the only way to schedule the same memory
-job. An explicit request to remember something, task completion, or startup
-recovery may schedule an update when persisted items are newer than the
-checkpoint. These paths do not introduce a second update mechanism; they feed
-the same consolidation queue.
+job. The Memory-page action, an explicit request to remember something, task
+completion, or startup recovery may schedule an update when persisted items
+are newer than the checkpoint. These paths do not introduce a second update
+mechanism; they feed the same single-flight consolidation queue.
 
 ### Update transaction
 
@@ -245,13 +293,13 @@ The updater:
 
 1. Reads durable conversation items after `last_consolidated_item` through the
    scheduled boundary.
-2. Loads the root, then follows links or searches for relevant pages.
+2. Loads the root, then enumerates child files or searches for relevant pages.
 3. Asks the memory model for a structured change set containing expected page
    hashes, citations, and any proposed page splits or moves.
-4. Validates IDs, frontmatter, paths, links, budgets, citations, ownership,
-   scope, and expected hashes.
+4. Validates IDs, frontmatter, paths, filesystem parentage, budgets, citations,
+   ownership, scope, and expected hashes.
 5. Acquires the tree write lock and stages the file changes.
-6. Publishes child pages before parent links, then writes `.state.md` last.
+6. Publishes page files and directory changes, then writes `.state.md` last.
 7. Rebuilds the affected derived FTS entries from committed Markdown.
 
 Writing the checkpoint last gives the process at-least-once behavior. A crash
@@ -317,7 +365,8 @@ architecture decision.
 ## Proposed Implementation Sequence
 
 1. **Define the file contract.** Implement frontmatter types, Markdown parsing,
-   tree validation, deterministic budgets, and `.state.md` checkpoint parsing.
+   filesystem-derived child enumeration, tree validation, deterministic
+   budgets, and `.state.md` checkpoint parsing.
 2. **Build the derived index.** Scan the tree into SQLite FTS, update changed
    files, exclude invalid files, and prove a deleted database can be rebuilt.
 3. **Add retrieval.** Inject the bounded root and expose read/search operations
@@ -325,9 +374,13 @@ architecture decision.
 4. **Add consolidation.** Consume a scheduled source range, navigate relevant
    pages, validate a model-proposed change set, publish files, and advance the
    checkpoint last.
-5. **Connect triggers.** Schedule the separate memory job after compaction and
-   through explicit remember, task-completion, and startup-recovery paths.
-6. **Evaluate the complete loop.** Measure useful recall, unsupported claims,
+5. **Add the manual update action.** Put `Update memory` in the existing Memory
+   page action area and expose pending, running, success, and retry states from
+   the same single-flight consolidation operation.
+6. **Connect automatic triggers.** Schedule the separate memory job after
+   compaction and through explicit remember, task-completion, and
+   startup-recovery paths.
+7. **Evaluate the complete loop.** Measure useful recall, unsupported claims,
    citation accuracy, page churn, retrieval misses, and root growth against
    representative conversations.
 
@@ -338,8 +391,12 @@ architecture decision.
 - Deleting SQLite and rescanning Markdown restores equivalent search results.
 - The bounded root appears in ordinary model context, and the model can read or
   search topic pages on demand.
+- Root and page reads surface immediate child filenames from the filesystem;
+  parent pages contain no required child-link list or `parent` metadata.
 - A successful compaction schedules a separate memory-model operation without
   coupling summary success or latency to memory success.
+- `Update memory` processes the eligible range through the click-time durable
+  boundary, exposes single-flight status, and refreshes memory on success.
 - A failed or interrupted update does not advance the Markdown checkpoint.
 - Manual file edits are detected and reindexed without an in-product editor.
 - Concurrent human edits are not overwritten by stale model proposals.
@@ -347,10 +404,11 @@ architecture decision.
   memory artifacts.
 - The implementation contains no Mnemosyne import, cutover, or migration path.
 
-Focused tests should cover frontmatter and tree validation, index rebuilding,
-root budgeting, authorized file reads, checkpoint-last recovery, idempotent
-retry, citation validation, and stale-hash conflict handling. These tests each
-protect a distinct data-integrity or retrieval risk.
+Focused tests should cover frontmatter and tree validation, deterministic child
+enumeration, index rebuilding, root budgeting, checkpoint-last recovery,
+click-time boundary and single-flight behavior, citation validation, and
+stale-hash conflict handling. These tests each protect a distinct
+data-integrity, update, or retrieval risk.
 
 ## Remaining Questions
 
