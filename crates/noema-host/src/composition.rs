@@ -253,7 +253,11 @@ async fn assemble_services(
         MemoryServiceMode::External => None,
         MemoryServiceMode::Managed => {
             let proxy = async {
-                let api_key = generate_memory_model_proxy_api_key()?;
+                let mut bytes = [0_u8; 32];
+                SystemRandom::new()
+                    .fill(&mut bytes)
+                    .map_err(|_| "could not generate memory model proxy API key".to_string())?;
+                let api_key = format!("noema-memory-{}", URL_SAFE_NO_PAD.encode(bytes));
                 let config = memory_model_proxy_config_from_settings(
                     provider_registry.clone(),
                     memory_repository.clone(),
@@ -336,10 +340,12 @@ async fn assemble_services(
     let artifact_operations: noema_artifacts::ArtifactOperationsHandle = std::sync::Arc::new(
         noema_artifacts::LocalArtifactService::new(paths.root(), artifact_metadata)?,
     );
-    let web_backends = Arc::new(HostWebBackendResolver::new(
-        provider_account_operations.clone(),
-        provider_credentials,
-    ));
+    let web_backends = Arc::new(HostWebBackendResolver {
+        provider_accounts: provider_account_operations.clone(),
+        credentials: provider_credentials,
+        default_search: default_web_search_backend(),
+        default_fetch: default_web_fetch_backend(),
+    });
     let mcp_repository: McpRepositoryHandle = Arc::new(store.clone());
     let mcp_secrets = Arc::new(FilesystemMcpSecretStore::new(paths.clone()));
     let mcp_diagnostics = SystemErrorMcpDiagnostics::new(system_errors.clone()).handle();
@@ -499,7 +505,11 @@ fn provider_map_from_config(
     }
     if !providers.contains_key("foundation_local") {
         let (provider_kind, provider) = hosted_provider_from_config(
-            ProviderConfig::FoundationLocal(default_foundation_local_config()),
+            ProviderConfig::FoundationLocal(FoundationLocalProviderConfig {
+                default_profile: DEFAULT_FOUNDATION_LOCAL_PROFILE.to_string(),
+                bridge_path: None,
+                system_errors: None,
+            }),
             provider_credentials,
             system_errors,
         )?;
@@ -508,34 +518,12 @@ fn provider_map_from_config(
     Ok((default_provider_kind, default_model_profile, providers))
 }
 
-fn default_foundation_local_config() -> FoundationLocalProviderConfig {
-    FoundationLocalProviderConfig {
-        default_profile: DEFAULT_FOUNDATION_LOCAL_PROFILE.to_string(),
-        bridge_path: None,
-        system_errors: None,
-    }
-}
-
 #[derive(Clone)]
 struct HostWebBackendResolver {
     provider_accounts: ProviderAccountOperationsHandle,
     credentials: ProviderCredentialAccessHandle,
     default_search: WebSearchBackendHandle,
     default_fetch: WebFetchBackendHandle,
-}
-
-impl HostWebBackendResolver {
-    fn new(
-        provider_accounts: ProviderAccountOperationsHandle,
-        credentials: ProviderCredentialAccessHandle,
-    ) -> Self {
-        Self {
-            provider_accounts,
-            credentials,
-            default_search: default_web_search_backend(),
-            default_fetch: default_web_fetch_backend(),
-        }
-    }
 }
 
 impl std::fmt::Debug for HostWebBackendResolver {
@@ -635,14 +623,6 @@ fn model_provider_account_id(provider_kind: &str) -> Result<&'static str, Runtim
             "unsupported configured model provider: {other}"
         ))),
     }
-}
-
-fn generate_memory_model_proxy_api_key() -> Result<String, String> {
-    let mut bytes = [0_u8; 32];
-    SystemRandom::new()
-        .fill(&mut bytes)
-        .map_err(|_| "could not generate memory model proxy API key".to_string())?;
-    Ok(format!("noema-memory-{}", URL_SAFE_NO_PAD.encode(bytes)))
 }
 
 #[cfg(test)]
