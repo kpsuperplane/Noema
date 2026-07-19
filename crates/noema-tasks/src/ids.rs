@@ -1,7 +1,3 @@
-use std::{fmt, str::FromStr};
-
-use serde::{Deserialize, Deserializer, Serialize};
-
 use crate::WorkDomainError;
 
 const MAX_ID_BYTES: usize = 255;
@@ -44,87 +40,15 @@ fn validate_id(
     Ok(value)
 }
 
-macro_rules! semantic_id {
-    ($name:ident, $kind:literal, $prefix:literal) => {
-        /// Validated opaque identifier owned by the Work domain.
-        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
-        #[serde(transparent)]
-        pub struct $name(String);
-
-        impl $name {
-            /// Construct and validate an identifier.
-            ///
-            /// # Errors
-            ///
-            /// Returns [`WorkDomainError`] when the identifier is blank,
-            /// oversized, contains control characters, has the wrong prefix,
-            /// or has no value after its prefix.
-            pub fn new(value: impl Into<String>) -> Result<Self, WorkDomainError> {
-                Ok(Self(validate_id(value.into(), $kind, $prefix)?))
-            }
-
-            /// Borrow the canonical persisted value.
-            #[must_use]
-            pub fn as_str(&self) -> &str {
-                &self.0
-            }
-
-            /// Consume the wrapper and return its canonical value.
-            #[must_use]
-            pub fn into_string(self) -> String {
-                self.0
-            }
-        }
-
-        impl fmt::Display for $name {
-            fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str(self.as_str())
-            }
-        }
-
-        impl FromStr for $name {
-            type Err = WorkDomainError;
-
-            fn from_str(value: &str) -> Result<Self, Self::Err> {
-                Self::new(value)
-            }
-        }
-
-        impl TryFrom<String> for $name {
-            type Error = WorkDomainError;
-
-            fn try_from(value: String) -> Result<Self, Self::Error> {
-                Self::new(value)
-            }
-        }
-
-        impl TryFrom<&str> for $name {
-            type Error = WorkDomainError;
-
-            fn try_from(value: &str) -> Result<Self, Self::Error> {
-                Self::new(value)
-            }
-        }
-
-        impl<'de> Deserialize<'de> for $name {
-            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-            where
-                D: Deserializer<'de>,
-            {
-                let value = String::deserialize(deserializer)?;
-                Self::new(value).map_err(serde::de::Error::custom)
-            }
-        }
-    };
-}
-
-semantic_id!(WorkflowId, "workflow", "workflow:");
-semantic_id!(WorkflowStageId, "workflow_stage", "stage:");
-semantic_id!(TaskId, "task", "task:");
-semantic_id!(TaskContractId, "task_contract", "contract:");
-semantic_id!(TaskGateId, "task_gate", "gate:");
-semantic_id!(TaskMessageId, "task_message", "task_message:");
-semantic_id!(WorkEventId, "work_event", "event:");
+noema_workspaces::semantic_id!(WorkDomainError, validate_id;
+    WorkflowId, "workflow", "workflow:";
+    WorkflowStageId, "workflow_stage", "stage:";
+    TaskId, "task", "task:";
+    TaskContractId, "task_contract", "contract:";
+    TaskGateId, "task_gate", "gate:";
+    TaskMessageId, "task_message", "task_message:";
+    WorkEventId, "work_event", "event:";
+);
 
 #[cfg(test)]
 mod tests {

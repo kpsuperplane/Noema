@@ -10,6 +10,87 @@ use super::*;
 use crate::graphql::schema::GraphqlState;
 use crate::graphql::tasks::*;
 
+macro_rules! simple_task_mutation {
+    ($(#[$meta:meta])* $function:ident, $input:ty, $command:ident, $variant:ident) => {
+        $(#[$meta])*
+        pub(in crate::graphql) async fn $function(
+            state: &GraphqlState,
+            principal_subject: &str,
+            input: $input,
+        ) -> Result<GraphqlTaskCommandPayload> {
+            require_owner(principal_subject)?;
+            task_simple_command(
+                state,
+                principal_subject,
+                &input.client_mutation_id,
+                task_precondition(
+                    &input.task_id,
+                    input.expected_revision,
+                    input.expected_generation,
+                )?,
+                |meta, precondition| WorkCommand::$variant($command { meta, precondition }),
+            )
+            .await
+        }
+    };
+}
+
+macro_rules! simple_project_mutation {
+    ($(#[$meta:meta])* $function:ident, $input:ty, $command:ident, $variant:ident) => {
+        $(#[$meta])*
+        pub(in crate::graphql) async fn $function(
+            state: &GraphqlState,
+            principal_subject: &str,
+            input: $input,
+        ) -> Result<GraphqlProjectCommandPayload> {
+            require_owner(principal_subject)?;
+            let client_id = required_client_id(&input.client_mutation_id)?;
+            let project_id = parse_project_id(&input.project_id)?;
+            require_personal_project(state.store()?, &project_id).await?;
+            let command = WorkCommand::$variant($command {
+                meta: command_meta(principal_subject, &client_id),
+                precondition: ProjectPrecondition {
+                    project_id,
+                    expected_revision: positive(input.expected_revision, "expectedRevision")?,
+                },
+            });
+            project_payload(client_id, execute_command(state, command).await?)
+        }
+    };
+}
+
+macro_rules! fenced_task_mutation {
+    (
+        $(#[$meta:meta])*
+        $function:ident($input_type:ty, $input:ident) {
+            prepare { $($prepare:stmt)* }
+            command |$meta_name:ident, $precondition_name:ident| $command:expr
+        }
+    ) => {
+        $(#[$meta])*
+        pub(in crate::graphql) async fn $function(
+            state: &GraphqlState,
+            principal_subject: &str,
+            $input: $input_type,
+        ) -> Result<GraphqlTaskCommandPayload> {
+            require_owner(principal_subject)?;
+            $($prepare)*
+            task_simple_command(
+                state,
+                principal_subject,
+                &$input.client_mutation_id,
+                task_precondition(
+                    &$input.task_id,
+                    $input.expected_revision,
+                    $input.expected_generation,
+                )?,
+                move |$meta_name, $precondition_name| $command,
+            )
+            .await
+        }
+    };
+}
+
 /// Create a project through the semantic command service.
 pub(in crate::graphql) async fn create_project(
     state: &GraphqlState,
@@ -54,48 +135,24 @@ pub(in crate::graphql) async fn update_project(
         name: input.name,
         description: input.description,
     });
-    project_payload(state, client_id, execute_command(state, command).await?).await
+    project_payload(client_id, execute_command(state, command).await?)
 }
 
-/// Archive a project through the semantic command service.
-pub(in crate::graphql) async fn archive_project(
-    state: &GraphqlState,
-    principal_subject: &str,
-    input: GraphqlArchiveProjectInput,
-) -> Result<GraphqlProjectCommandPayload> {
-    require_owner(principal_subject)?;
-    let client_id = required_client_id(&input.client_mutation_id)?;
-    let project_id = parse_project_id(&input.project_id)?;
-    require_personal_project(state.store()?, &project_id).await?;
-    let command = WorkCommand::ArchiveProject(ArchiveProject {
-        meta: command_meta(principal_subject, &client_id),
-        precondition: ProjectPrecondition {
-            project_id,
-            expected_revision: positive(input.expected_revision, "expectedRevision")?,
-        },
-    });
-    project_payload(state, client_id, execute_command(state, command).await?).await
-}
+simple_project_mutation!(
+    /// Archive a project through the semantic command service.
+    archive_project,
+    GraphqlArchiveProjectInput,
+    ArchiveProject,
+    ArchiveProject
+);
 
-/// Reopen a project through the semantic command service.
-pub(in crate::graphql) async fn reopen_project(
-    state: &GraphqlState,
-    principal_subject: &str,
-    input: GraphqlReopenProjectInput,
-) -> Result<GraphqlProjectCommandPayload> {
-    require_owner(principal_subject)?;
-    let client_id = required_client_id(&input.client_mutation_id)?;
-    let project_id = parse_project_id(&input.project_id)?;
-    require_personal_project(state.store()?, &project_id).await?;
-    let command = WorkCommand::ReopenProject(ReopenProject {
-        meta: command_meta(principal_subject, &client_id),
-        precondition: ProjectPrecondition {
-            project_id,
-            expected_revision: positive(input.expected_revision, "expectedRevision")?,
-        },
-    });
-    project_payload(state, client_id, execute_command(state, command).await?).await
-}
+simple_project_mutation!(
+    /// Reopen a project through the semantic command service.
+    reopen_project,
+    GraphqlReopenProjectInput,
+    ReopenProject,
+    ReopenProject
+);
 
 /// Capture an Inbox task through the semantic command service.
 pub(in crate::graphql) async fn capture_task(
@@ -170,192 +227,93 @@ pub(in crate::graphql) async fn update_inbox_task(
     task_payload(client_id, execute_command(state, command).await?)
 }
 
-/// Queue an Inbox task through the semantic command service.
-pub(in crate::graphql) async fn queue_task(
-    state: &GraphqlState,
-    principal_subject: &str,
-    input: GraphqlQueueTaskInput,
-) -> Result<GraphqlTaskCommandPayload> {
-    require_owner(principal_subject)?;
-    task_simple_command(
-        state,
-        principal_subject,
-        &input.client_mutation_id,
-        task_precondition(
-            &input.task_id,
-            input.expected_revision,
-            input.expected_generation,
-        )?,
-        |meta, precondition| WorkCommand::QueueTask(QueueTask { meta, precondition }),
-    )
-    .await
-}
+simple_task_mutation!(
+    /// Queue an Inbox task through the semantic command service.
+    queue_task,
+    GraphqlQueueTaskInput,
+    QueueTask,
+    QueueTask
+);
 
-/// Resolve a human gate through the semantic command service.
-pub(in crate::graphql) async fn answer_task(
-    state: &GraphqlState,
-    principal_subject: &str,
-    input: GraphqlAnswerTaskInput,
-) -> Result<GraphqlTaskCommandPayload> {
-    require_owner(principal_subject)?;
-    let gate_id = TaskGateId::new(input.gate_id).map_err(|_| invalid_input_error("gateId"))?;
-    task_simple_command(
-        state,
-        principal_subject,
-        &input.client_mutation_id,
-        task_precondition(
-            &input.task_id,
-            input.expected_revision,
-            input.expected_generation,
-        )?,
-        move |meta, precondition| {
-            WorkCommand::AnswerTask(AnswerTask {
-                meta,
-                precondition,
-                gate_id,
-                answer: gate_answer(input.answer_markdown, input.approval_decision),
-            })
-        },
-    )
-    .await
-}
-
-/// Retry a Recovery gate through the semantic command service.
-pub(in crate::graphql) async fn retry_task(
-    state: &GraphqlState,
-    principal_subject: &str,
-    input: GraphqlRetryTaskInput,
-) -> Result<GraphqlTaskCommandPayload> {
-    require_owner(principal_subject)?;
-    let gate_id = TaskGateId::new(input.gate_id).map_err(|_| invalid_input_error("gateId"))?;
-    task_simple_command(
-        state,
-        principal_subject,
-        &input.client_mutation_id,
-        task_precondition(
-            &input.task_id,
-            input.expected_revision,
-            input.expected_generation,
-        )?,
-        move |meta, precondition| {
-            WorkCommand::RetryTask(RetryTask {
-                meta,
-                precondition,
-                gate_id,
-                note: input.retry_note,
-            })
-        },
-    )
-    .await
-}
-
-/// Accept a reviewed task through the semantic command service.
-pub(in crate::graphql) async fn accept_task(
-    state: &GraphqlState,
-    principal_subject: &str,
-    input: GraphqlAcceptTaskInput,
-) -> Result<GraphqlTaskCommandPayload> {
-    require_owner(principal_subject)?;
-    task_simple_command(
-        state,
-        principal_subject,
-        &input.client_mutation_id,
-        task_precondition(
-            &input.task_id,
-            input.expected_revision,
-            input.expected_generation,
-        )?,
-        |meta, precondition| WorkCommand::AcceptTask(AcceptTask { meta, precondition }),
-    )
-    .await
-}
-
-/// Request a changed result through the semantic command service.
-pub(in crate::graphql) async fn request_task_changes(
-    state: &GraphqlState,
-    principal_subject: &str,
-    input: GraphqlRequestTaskChangesInput,
-) -> Result<GraphqlTaskCommandPayload> {
-    require_owner(principal_subject)?;
-    let replacement_criteria = input
-        .replacement_criteria
-        .map(|criteria| {
-            criteria
-                .into_iter()
-                .map(GraphqlTaskValidationCriterionInput::try_into_domain)
-                .collect::<Result<Vec<_>>>()
+fenced_task_mutation! {
+    /// Resolve a human gate through the semantic command service.
+    answer_task(GraphqlAnswerTaskInput, input) {
+        prepare {
+            let gate_id = TaskGateId::new(input.gate_id)
+                .map_err(|_| invalid_input_error("gateId"))?
+        }
+        command |meta, precondition| WorkCommand::AnswerTask(AnswerTask {
+            meta,
+            precondition,
+            gate_id,
+            answer: noema_tasks::TaskGateAnswer {
+                message_markdown: input.answer_markdown,
+                approval_decision: input.approval_decision.map(Into::into),
+            },
         })
-        .transpose()?;
-    let amendment = TaskContractAmendment {
-        feedback_markdown: input.feedback_markdown,
-        request_markdown: input.request_markdown,
-        replacement_criteria,
-        complexity: input.complexity.map(Into::into),
-    };
-    task_simple_command(
-        state,
-        principal_subject,
-        &input.client_mutation_id,
-        task_precondition(
-            &input.task_id,
-            input.expected_revision,
-            input.expected_generation,
-        )?,
-        move |meta, precondition| {
-            WorkCommand::RequestTaskChanges(RequestTaskChanges {
-                meta,
-                precondition,
-                amendment,
-            })
-        },
-    )
-    .await
+    }
 }
 
-/// Cancel a task through the semantic command service.
-pub(in crate::graphql) async fn cancel_task(
-    state: &GraphqlState,
-    principal_subject: &str,
-    input: GraphqlCancelTaskInput,
-) -> Result<GraphqlTaskCommandPayload> {
-    require_owner(principal_subject)?;
-    task_simple_command(
-        state,
-        principal_subject,
-        &input.client_mutation_id,
-        task_precondition(
-            &input.task_id,
-            input.expected_revision,
-            input.expected_generation,
-        )?,
-        move |meta, precondition| {
-            WorkCommand::CancelTask(CancelTask {
-                meta,
-                precondition,
-                reason: input.reason,
-            })
-        },
-    )
-    .await
+fenced_task_mutation! {
+    /// Retry a Recovery gate through the semantic command service.
+    retry_task(GraphqlRetryTaskInput, input) {
+        prepare {
+            let gate_id = TaskGateId::new(input.gate_id)
+                .map_err(|_| invalid_input_error("gateId"))?
+        }
+        command |meta, precondition| WorkCommand::RetryTask(RetryTask {
+            meta,
+            precondition,
+            gate_id,
+            note: input.retry_note,
+        })
+    }
 }
 
-/// Reopen terminal task history through the semantic command service.
-pub(in crate::graphql) async fn reopen_task(
-    state: &GraphqlState,
-    principal_subject: &str,
-    input: GraphqlReopenTaskInput,
-) -> Result<GraphqlTaskCommandPayload> {
-    require_owner(principal_subject)?;
-    task_simple_command(
-        state,
-        principal_subject,
-        &input.client_mutation_id,
-        task_precondition(
-            &input.task_id,
-            input.expected_revision,
-            input.expected_generation,
-        )?,
-        |meta, precondition| WorkCommand::ReopenTask(ReopenTask { meta, precondition }),
-    )
-    .await
+simple_task_mutation!(
+    /// Accept a reviewed task through the semantic command service.
+    accept_task,
+    GraphqlAcceptTaskInput,
+    AcceptTask,
+    AcceptTask
+);
+
+fenced_task_mutation! {
+    /// Request a changed result through the semantic command service.
+    request_task_changes(GraphqlRequestTaskChangesInput, input) {
+        prepare {
+            let replacement_criteria = input
+                .replacement_criteria
+                .map(|criteria| {
+                    criteria
+                        .into_iter()
+                        .map(GraphqlTaskValidationCriterionInput::try_into_domain)
+                        .collect::<Result<Vec<_>>>()
+                })
+                .transpose()?
+            let amendment = TaskContractAmendment {
+                feedback_markdown: input.feedback_markdown,
+                request_markdown: input.request_markdown,
+                replacement_criteria,
+                complexity: input.complexity.map(Into::into),
+            }
+        }
+        command |meta, precondition| WorkCommand::RequestTaskChanges(RequestTaskChanges { meta, precondition, amendment })
+    }
 }
+
+fenced_task_mutation! {
+    /// Cancel a task through the semantic command service.
+    cancel_task(GraphqlCancelTaskInput, input) {
+        prepare {}
+        command |meta, precondition| WorkCommand::CancelTask(CancelTask { meta, precondition, reason: input.reason })
+    }
+}
+
+simple_task_mutation!(
+    /// Reopen terminal task history through the semantic command service.
+    reopen_task,
+    GraphqlReopenTaskInput,
+    ReopenTask,
+    ReopenTask
+);

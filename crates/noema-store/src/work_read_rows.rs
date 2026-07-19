@@ -9,7 +9,11 @@ use noema_workspaces::{ProjectId, ProjectRecord, WorkspaceId, WorkspaceRecord};
 use rusqlite::{OptionalExtension, Row, Transaction, types::Type};
 
 use super::{PROJECT_COLUMNS, decode_project_record};
-use crate::{StoreError, WorkTaskAttention, WorkTaskValidAction, sqlite::conversion_failure};
+use crate::{
+    StoreError, WorkTaskAttention, WorkTaskValidAction,
+    sqlite::conversion_failure,
+    work_row::{invalid, optional_id, positive_u32, positive_u64, strict_bool},
+};
 
 pub(crate) fn load_task(
     transaction: &Transaction<'_>,
@@ -122,14 +126,21 @@ pub(crate) fn load_project(
     transaction: &Transaction<'_>,
     project_id: &ProjectId,
 ) -> Result<ProjectRecord, StoreError> {
-    transaction
+    load_project_optional(transaction, project_id)?
+        .ok_or_else(|| missing_link("project", project_id.as_str()))
+}
+
+pub(crate) fn load_project_optional(
+    transaction: &Transaction<'_>,
+    project_id: &ProjectId,
+) -> Result<Option<ProjectRecord>, StoreError> {
+    Ok(transaction
         .query_row(
             &format!("SELECT {PROJECT_COLUMNS} FROM projects WHERE project_id = ?1 LIMIT 1"),
             [project_id.as_str()],
             decode_project_record,
         )
-        .optional()?
-        .ok_or_else(|| missing_link("project", project_id.as_str()))
+        .optional()?)
 }
 
 pub(crate) fn load_workflow(
@@ -222,6 +233,13 @@ pub(crate) fn load_gate(
     transaction: &Transaction<'_>,
     gate_id: &TaskGateId,
 ) -> Result<TaskGateRecord, StoreError> {
+    load_gate_optional(transaction, gate_id)?.ok_or_else(|| missing_link("gate", gate_id.as_str()))
+}
+
+pub(crate) fn load_gate_optional(
+    transaction: &Transaction<'_>,
+    gate_id: &TaskGateId,
+) -> Result<Option<TaskGateRecord>, StoreError> {
     let gate = transaction
         .query_row(
             "SELECT gate_id, task_id, task_generation, contract_id, gate_kind, gate_state,
@@ -232,9 +250,10 @@ pub(crate) fn load_gate(
             [gate_id.as_str()],
             decode_gate,
         )
-        .optional()?
-        .ok_or_else(|| missing_link("gate", gate_id.as_str()))?;
-    gate.validate().map_err(StoreError::Work)?;
+        .optional()?;
+    if let Some(gate) = &gate {
+        gate.validate().map_err(StoreError::Work)?;
+    }
     Ok(gate)
 }
 
@@ -353,51 +372,8 @@ fn recovery_actions(gate: &TaskGateRecord) -> Vec<WorkTaskValidAction> {
     actions
 }
 
-fn positive_u64(row: &Row<'_>, index: usize) -> rusqlite::Result<u64> {
-    let value = u64::try_from(row.get::<_, i64>(index)?)
-        .map_err(|e| conversion_failure(index, Type::Integer, e))?;
-    if value == 0 {
-        Err(noncanonical(index, "persisted integer must be positive"))
-    } else {
-        Ok(value)
-    }
-}
-
-fn positive_u32(row: &Row<'_>, index: usize) -> rusqlite::Result<u32> {
-    let value = u32::try_from(row.get::<_, i64>(index)?)
-        .map_err(|e| conversion_failure(index, Type::Integer, e))?;
-    if value == 0 {
-        Err(noncanonical(index, "persisted integer must be positive"))
-    } else {
-        Ok(value)
-    }
-}
-
-fn strict_bool(row: &Row<'_>, index: usize) -> rusqlite::Result<bool> {
-    match row.get::<_, i64>(index)? {
-        0 => Ok(false),
-        1 => Ok(true),
-        _ => Err(noncanonical(index, "persisted boolean must be 0 or 1")),
-    }
-}
-
-fn optional_id<T>(
-    row: &Row<'_>,
-    index: usize,
-    parse: impl FnOnce(String) -> Result<T, noema_tasks::WorkDomainError>,
-) -> rusqlite::Result<Option<T>> {
-    row.get::<_, Option<String>>(index)?
-        .map(parse)
-        .transpose()
-        .map_err(|e| conversion_failure(index, Type::Text, e))
-}
-
 fn noncanonical(index: usize, message: &'static str) -> rusqlite::Error {
-    conversion_failure(
-        index,
-        Type::Text,
-        std::io::Error::new(std::io::ErrorKind::InvalidData, message),
-    )
+    invalid(index, message)
 }
 
 pub(super) fn missing_link(kind: &str, id: &str) -> StoreError {

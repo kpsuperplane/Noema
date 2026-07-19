@@ -4,11 +4,11 @@ use std::{collections::HashSet, str::FromStr};
 
 use noema_tasks::{
     AgentRunHeartbeat, RunCancellationReason, RunStatus, TaskId, TaskStageChangeReason,
-    WorkEventKind, WorkEventPayload, WorkflowStageBehavior, WorkflowStageId,
+    WorkDomainError, WorkEventKind, WorkEventPayload, WorkflowStageBehavior, WorkflowStageId,
 };
 use rusqlite::{OptionalExtension, Transaction, params};
 
-use super::{ReportRunFailure, WorkRunFence, report_expired_failure_tx, rows::load_run_tx};
+use super::{ReportRunFailure, WorkRunFence, report_expired_failure_tx, rows};
 use crate::work_commands::{WorkCommandService, helpers};
 use crate::{
     StoreError,
@@ -30,32 +30,26 @@ impl WorkCommandService {
         excluded_task_ids: &[TaskId],
     ) -> Result<Option<super::ClaimedWorkRun>, StoreError> {
         if worker_id.trim().is_empty() || !(1..=86_400).contains(&lease_seconds) {
-            return Err(StoreError::Work(
-                noema_tasks::WorkDomainError::InvalidInput {
-                    field: "run.lease",
-                    message: "worker and lease duration are invalid".to_string(),
-                },
-            ));
+            return Err(StoreError::Work(WorkDomainError::InvalidInput {
+                field: "run.lease",
+                message: "worker and lease duration are invalid".to_string(),
+            }));
         }
         if excluded_task_ids.len() > 8 {
-            return Err(StoreError::Work(
-                noema_tasks::WorkDomainError::InvalidInput {
-                    field: "run.excluded_task_ids",
-                    message: "at most 8 task ids may be excluded".to_string(),
-                },
-            ));
+            return Err(StoreError::Work(WorkDomainError::InvalidInput {
+                field: "run.excluded_task_ids",
+                message: "at most 8 task ids may be excluded".to_string(),
+            }));
         }
         let mut unique_task_ids = HashSet::with_capacity(excluded_task_ids.len());
         if excluded_task_ids
             .iter()
             .any(|task_id| !unique_task_ids.insert(task_id.as_str()))
         {
-            return Err(StoreError::Work(
-                noema_tasks::WorkDomainError::InvalidInput {
-                    field: "run.excluded_task_ids",
-                    message: "excluded task ids must be unique".to_string(),
-                },
-            ));
+            return Err(StoreError::Work(WorkDomainError::InvalidInput {
+                field: "run.excluded_task_ids",
+                message: "excluded task ids must be unique".to_string(),
+            }));
         }
         let excluded_task_ids_json = serde_json::to_string(
             &excluded_task_ids
@@ -91,17 +85,17 @@ impl WorkCommandService {
                 if changed != 1 {
                     return Ok(None);
                 }
-                let run = load_run_tx(transaction, &run_id)?
-                    .ok_or(StoreError::Work(noema_tasks::WorkDomainError::WorkUnavailable))?;
+                let run = rows::load_run_tx(transaction, &run_id)?
+                    .ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))?;
                 let mut task = helpers::load_task_state_tx(transaction, &run.task_id)?;
                 if task.stage_behavior == WorkflowStageBehavior::Dispatch {
-                    let revision = task.revision.checked_add(1).ok_or_else(|| StoreError::Work(noema_tasks::WorkDomainError::InvalidInput { field: "task.revision", message: "revision overflow".to_string() }))?;
+                    let revision = helpers::increment(task.revision, "task.revision")?;
                     let changed = transaction.execute(
                         "UPDATE tasks SET stage_id = 'stage:personal:doing', revision = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND generation = ?3 AND revision = ?4 AND stage_id = 'stage:personal:queue'",
                         params![run.task_id.as_str(), revision, run.task_generation, task.revision],
                     )?;
                     if changed != 1 {
-                        return Err(StoreError::Work(noema_tasks::WorkDomainError::StaleRevision));
+                        return Err(StoreError::Work(WorkDomainError::StaleRevision));
                     }
                     let from_stage = task.stage_id.clone();
                     task.stage_id = WorkflowStageId::new("stage:personal:doing").map_err(StoreError::Work)?;
@@ -122,7 +116,7 @@ impl WorkCommandService {
                 }
                 append_work_event_tx(
                     transaction,
-                    scope_with_run(&task, &run.run_id, "actor:store:run-claim"),
+                    scope(&task, &run.run_id, "actor:store:run-claim"),
                     WorkEventPayload::run_lifecycle(
                         WorkEventKind::RunClaimed,
                         run.run_kind,
@@ -158,28 +152,22 @@ impl WorkCommandService {
         let run = self
             .store
             .with_immediate_transaction_retry(|transaction| {
-                let run = load_run_tx(transaction, &fence.run_id)?
-                    .ok_or(StoreError::Work(noema_tasks::WorkDomainError::WorkUnavailable))?;
-                validate_fence(&run, fence)?;
-                if run.status != RunStatus::Leased {
-                    return Err(StoreError::Work(noema_tasks::WorkDomainError::InvalidTransition));
-                }
-                let changed = transaction.execute(
+                let run = rows::load_active_fenced_run_tx(transaction, fence, RunStatus::Leased)?;
+                rows::execute_fenced_update_tx(
+                    transaction,
                     "UPDATE agent_runs SET status = 'running', started_at = COALESCE(started_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND status = 'leased' AND lease_token = ?2 AND cancellation_requested = 0 AND lease_expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now') AND task_generation = (SELECT generation FROM tasks WHERE task_id = agent_runs.task_id) AND (SELECT stage_id FROM tasks WHERE task_id = agent_runs.task_id) = 'stage:personal:doing'",
                     params![fence.run_id, fence.lease_token],
                 )?;
-                if changed != 1 {
-                    return Err(StoreError::Work(noema_tasks::WorkDomainError::RunFenced));
-                }
                 let task = helpers::load_task_state_tx(transaction, &run.task_id)?;
                 append_work_event_tx(
                     transaction,
-                    WorkEventScope {
-                        actor_id: actor_id.to_string(),
-                        causation_id: causation_id.map(ToOwned::to_owned),
-                        correlation_id: correlation_id.to_string(),
-                        ..scope(&task, &run.run_id, actor_id)
-                    },
+                    rows::event_scope(
+                        &task,
+                        Some(&run.run_id),
+                        actor_id,
+                        causation_id,
+                        correlation_id,
+                    ),
                     WorkEventPayload::run_lifecycle(
                         WorkEventKind::RunStarted,
                         run.run_kind,
@@ -189,7 +177,7 @@ impl WorkCommandService {
                     )
                     .map_err(StoreError::Work)?,
                 )?;
-                load_run_tx(transaction, &fence.run_id)?.ok_or(StoreError::Work(noema_tasks::WorkDomainError::WorkUnavailable))
+                rows::load_run_tx(transaction, &fence.run_id)?.ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))
             })
             .await?;
         Ok(run)
@@ -208,31 +196,22 @@ impl WorkCommandService {
     ) -> Result<AgentRunHeartbeat, StoreError> {
         fence.validate().map_err(StoreError::Work)?;
         if !(1..=86_400).contains(&lease_seconds) {
-            return Err(StoreError::Work(
-                noema_tasks::WorkDomainError::InvalidInput {
-                    field: "run.lease_seconds",
-                    message: "lease duration is out of bounds".to_string(),
-                },
-            ));
+            return Err(StoreError::Work(WorkDomainError::InvalidInput {
+                field: "run.lease_seconds",
+                message: "lease duration is out of bounds".to_string(),
+            }));
         }
         self.store
             .with_immediate_transaction_retry(|transaction| {
-                let run = load_run_tx(transaction, &fence.run_id)?.ok_or(StoreError::Work(
-                    noema_tasks::WorkDomainError::WorkUnavailable,
-                ))?;
-                validate_fence(&run, fence)?;
-                if run.status != RunStatus::Running {
-                    return Err(StoreError::Work(
-                        noema_tasks::WorkDomainError::InvalidTransition,
-                    ));
-                }
+                let run = rows::load_active_fenced_run_tx(transaction, fence, RunStatus::Running)?;
                 let task = helpers::load_task_state_tx(transaction, &run.task_id)?;
                 if task.generation != fence.task_generation {
                     return Err(StoreError::Work(
-                        noema_tasks::WorkDomainError::StaleGeneration,
+                        WorkDomainError::StaleGeneration,
                     ));
                 }
-                let changed = transaction.execute(
+                rows::execute_fenced_update_tx(
+                    transaction,
                     "UPDATE agent_runs SET
                         lease_expires_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+' || ?3 || ' seconds'),
                         heartbeat_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
@@ -251,7 +230,7 @@ impl WorkCommandService {
                         fence.lease_token,
                         lease_seconds,
                         i64::try_from(fence.task_generation).map_err(|_| StoreError::Work(
-                            noema_tasks::WorkDomainError::InvalidInput {
+                            WorkDomainError::InvalidInput {
                                 field: "run_fence.task_generation",
                                 message: "generation exceeds SQLite range".to_string(),
                             }
@@ -259,15 +238,12 @@ impl WorkCommandService {
                         fence.contract_id.as_ref().map(ToString::to_string),
                     ],
                 )?;
-                if changed != 1 {
-                    return Err(StoreError::Work(noema_tasks::WorkDomainError::RunFenced));
-                }
-                let run = load_run_tx(transaction, &fence.run_id)?.ok_or(StoreError::Work(
-                    noema_tasks::WorkDomainError::WorkUnavailable,
+                let run = rows::load_run_tx(transaction, &fence.run_id)?.ok_or(StoreError::Work(
+                    WorkDomainError::WorkUnavailable,
                 ))?;
                 append_work_event_tx(
                     transaction,
-                    scope_with_run(&task, &run.run_id, "actor:store:run-heartbeat"),
+                    scope(&task, &run.run_id, "actor:store:run-heartbeat"),
                     WorkEventPayload::run_heartbeat(
                         run.run_kind,
                         run.task_generation,
@@ -292,37 +268,14 @@ impl WorkCommandService {
     }
 }
 
-fn validate_fence(
-    run: &noema_tasks::AgentRunRecord,
-    fence: &super::WorkRunFence,
-) -> Result<(), StoreError> {
-    if run.task_generation != fence.task_generation {
-        return Err(StoreError::Work(
-            noema_tasks::WorkDomainError::StaleGeneration,
-        ));
-    }
-    if run.contract_id != fence.contract_id
-        || run.lease_token.as_deref() != Some(fence.lease_token.as_str())
-    {
-        return Err(StoreError::Work(noema_tasks::WorkDomainError::RunFenced));
-    }
-    Ok(())
-}
-
 fn scope(task: &helpers::TaskState, run_id: &str, actor_id: &str) -> WorkEventScope {
-    WorkEventScope {
-        workspace_id: task.workspace_id.clone(),
-        project_id: task.project_id.clone(),
-        task_id: Some(task.task_id.clone()),
-        run_id: Some(run_id.to_string()),
-        actor_id: actor_id.to_string(),
-        causation_id: None,
-        correlation_id: format!("correlation:run:{run_id}"),
-    }
-}
-
-fn scope_with_run(task: &helpers::TaskState, run_id: &str, actor_id: &str) -> WorkEventScope {
-    scope(task, run_id, actor_id)
+    rows::event_scope(
+        task,
+        Some(run_id),
+        actor_id,
+        None,
+        &format!("correlation:run:{run_id}"),
+    )
 }
 
 fn recover_expired_runs_tx(
@@ -356,9 +309,8 @@ fn recover_one_expired_run_tx(
     service: &WorkCommandService,
     run_id: &str,
 ) -> Result<(), StoreError> {
-    let run = load_run_tx(transaction, run_id)?.ok_or(StoreError::Work(
-        noema_tasks::WorkDomainError::WorkUnavailable,
-    ))?;
+    let run = rows::load_run_tx(transaction, run_id)?
+        .ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))?;
     let task = helpers::load_task_state_tx(transaction, &run.task_id)?;
     if run.cancellation_requested
         || run.task_generation != task.generation
@@ -375,7 +327,7 @@ fn recover_one_expired_run_tx(
         };
         append_work_event_tx(
             transaction,
-            scope_with_run(&task, &run.run_id, "actor:store:lease-recovery"),
+            scope(&task, &run.run_id, "actor:store:lease-recovery"),
             WorkEventPayload::run_cancelled(
                 WorkEventKind::RunCancelled,
                 run.run_kind,
@@ -389,7 +341,7 @@ fn recover_one_expired_run_tx(
     let lease_token = run
         .lease_token
         .clone()
-        .ok_or(StoreError::Work(noema_tasks::WorkDomainError::RunFenced))?;
+        .ok_or(StoreError::Work(WorkDomainError::RunFenced))?;
     let report = ReportRunFailure {
         fence: WorkRunFence {
             run_id: run.run_id.clone(),

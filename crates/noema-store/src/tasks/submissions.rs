@@ -17,19 +17,19 @@ use crate::{
     work_notifications::enqueue_work_notification_tx,
 };
 
-#[path = "work_run_terminal_helpers.rs"]
+#[path = "../agent_runs/lifecycle.rs"]
 mod terminal_helpers;
-#[path = "work_run_terminal_plan.rs"]
+#[path = "../work_run_terminal_plan.rs"]
 mod terminal_plan;
-#[path = "work_run_terminal_replay.rs"]
+#[path = "../agent_runs/recovery.rs"]
 mod terminal_replay;
-#[path = "work_run_terminal_review.rs"]
+#[path = "reviews.rs"]
 mod terminal_review;
 
 use terminal_helpers::{
     OpenGate, bump_task_to_waiting_tx, contract_criterion_ids_tx, insert_gate_tx,
-    load_fenced_run_tx, load_running_fence_tx, mark_run_completed_tx, mark_run_waiting_tx, scope,
-    validate_namespace,
+    load_fenced_run_tx, load_running_fence_tx, mark_run_completed_tx, mark_run_waiting_tx,
+    run_scope, validate_namespace,
 };
 
 impl WorkCommandService {
@@ -227,13 +227,7 @@ fn submit_result_tx(
     mark_run_completed_tx(transaction, &run, &command.fence)?;
     let _submission_event = append_work_event_tx(
         transaction,
-        scope(
-            &task,
-            actor_id,
-            causation_id,
-            correlation_id,
-            Some(&run.run_id),
-        ),
+        run_scope(&task, (actor_id, causation_id, correlation_id), &run.run_id),
         WorkEventPayload::submission_created(
             persisted_submission_id.clone(),
             contract_id.clone(),
@@ -245,13 +239,7 @@ fn submit_result_tx(
     )?;
     let _completed_event = append_work_event_tx(
         transaction,
-        scope(
-            &task,
-            actor_id,
-            causation_id,
-            correlation_id,
-            Some(&run.run_id),
-        ),
+        run_scope(&task, (actor_id, causation_id, correlation_id), &run.run_id),
         WorkEventPayload::run_completed(
             run.run_kind,
             run.task_generation,
@@ -280,14 +268,9 @@ fn submit_result_tx(
         },
     )?;
     let event = review_event;
-    Ok(helpers::write_marker(
-        event,
-        Some(task.task_id),
-        None,
-        Some(contract_id.clone()),
-        None,
-        Some(reviewer_run_id),
-    ))
+    Ok(helpers::task_write(event, task.task_id)
+        .contract(Some(contract_id.clone()))
+        .run(Some(reviewer_run_id)))
 }
 
 fn submitted_artifact_version_tx(
@@ -373,13 +356,7 @@ fn report_blocked_tx(
     mark_run_waiting_tx(transaction, &run, &command.fence)?;
     let _gate_event = append_work_event_tx(
         transaction,
-        scope(
-            &task,
-            actor_id,
-            causation_id,
-            correlation_id,
-            Some(&run.run_id),
-        ),
+        run_scope(&task, (actor_id, causation_id, correlation_id), &run.run_id),
         WorkEventPayload::gate_opened(
             gate_id.clone(),
             task.generation,
@@ -392,13 +369,7 @@ fn report_blocked_tx(
     )?;
     let _stage_event = append_work_event_tx(
         transaction,
-        scope(
-            &task,
-            actor_id,
-            causation_id,
-            correlation_id,
-            Some(&run.run_id),
-        ),
+        run_scope(&task, (actor_id, causation_id, correlation_id), &run.run_id),
         WorkEventPayload::task_stage_changed(
             task.revision,
             task.generation,
@@ -410,13 +381,7 @@ fn report_blocked_tx(
     )?;
     let mut event = append_work_event_tx(
         transaction,
-        scope(
-            &task,
-            actor_id,
-            causation_id,
-            correlation_id,
-            Some(&run.run_id),
-        ),
+        run_scope(&task, (actor_id, causation_id, correlation_id), &run.run_id),
         WorkEventPayload::run_waiting_for_approval(
             run.run_kind,
             run.task_generation,
@@ -433,14 +398,10 @@ fn report_blocked_tx(
     )? {
         event = notification_event;
     }
-    Ok(helpers::write_marker(
-        event,
-        Some(task.task_id),
-        None,
-        run.contract_id,
-        Some(gate_id),
-        Some(run.run_id),
-    ))
+    Ok(helpers::task_write(event, task.task_id)
+        .contract(run.contract_id)
+        .gate(Some(gate_id))
+        .run(Some(run.run_id)))
 }
 
 pub(crate) fn report_failure_tx(
@@ -509,13 +470,7 @@ fn report_failure_tx_inner(
     }
     let _failure_event = append_work_event_tx(
         transaction,
-        scope(
-            &task,
-            actor_id,
-            causation_id,
-            correlation_id,
-            Some(&run.run_id),
-        ),
+        run_scope(&task, (actor_id, causation_id, correlation_id), &run.run_id),
         WorkEventPayload::run_failure(
             if report.status == RunStatus::Interrupted {
                 WorkEventKind::RunInterrupted
@@ -544,12 +499,7 @@ fn report_failure_tx_inner(
                 ),
             });
         }
-        let next_attempt = run.attempt_index.checked_add(1).ok_or_else(|| {
-            StoreError::Work(WorkDomainError::InvalidInput {
-                field: "run.attempt_index",
-                message: "attempt index overflow".to_string(),
-            })
-        })?;
+        let next_attempt = helpers::increment(run.attempt_index, "run.attempt_index")?;
         match helpers::queue_pinned_child_run_tx(
             transaction,
             service.provider_registry.as_ref(),
@@ -567,14 +517,9 @@ fn report_failure_tx_inner(
             },
         ) {
             Ok((child_run_id, event)) => {
-                return Ok(helpers::write_marker(
-                    event,
-                    Some(task.task_id),
-                    None,
-                    run.contract_id,
-                    None,
-                    Some(child_run_id),
-                ));
+                return Ok(helpers::task_write(event, task.task_id)
+                    .contract(run.contract_id)
+                    .run(Some(child_run_id)));
             }
             Err(error) if helpers::provider_route_unavailable(&error) => {
                 let route_error =
@@ -612,13 +557,7 @@ fn report_failure_tx_inner(
     let _revision = bump_task_to_waiting_tx(transaction, &mut task)?;
     let _gate_event = append_work_event_tx(
         transaction,
-        scope(
-            &task,
-            actor_id,
-            causation_id,
-            correlation_id,
-            Some(&run.run_id),
-        ),
+        run_scope(&task, (actor_id, causation_id, correlation_id), &run.run_id),
         WorkEventPayload::gate_opened(
             gate_id.clone(),
             task.generation,
@@ -631,13 +570,7 @@ fn report_failure_tx_inner(
     )?;
     let mut event = append_work_event_tx(
         transaction,
-        scope(
-            &task,
-            actor_id,
-            causation_id,
-            correlation_id,
-            Some(&run.run_id),
-        ),
+        run_scope(&task, (actor_id, causation_id, correlation_id), &run.run_id),
         WorkEventPayload::task_stage_changed(
             task.revision,
             task.generation,
@@ -655,14 +588,10 @@ fn report_failure_tx_inner(
     )? {
         event = notification_event;
     }
-    Ok(helpers::write_marker(
-        event,
-        Some(task.task_id),
-        None,
-        run.contract_id,
-        Some(gate_id),
-        Some(run.run_id),
-    ))
+    Ok(helpers::task_write(event, task.task_id)
+        .contract(run.contract_id)
+        .gate(Some(gate_id))
+        .run(Some(run.run_id)))
 }
 
 fn plan_reported_failure(

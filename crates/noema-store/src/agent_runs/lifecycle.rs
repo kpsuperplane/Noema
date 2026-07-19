@@ -6,7 +6,10 @@ use noema_tasks::{
 };
 use rusqlite::{OptionalExtension, Transaction, params};
 
-use super::super::{PlanTerminal, WorkRunFence, rows::load_run_tx};
+use super::super::{
+    PlanTerminal, WorkRunFence,
+    rows::{self, load_run_tx},
+};
 use crate::{StoreError, ids::allocate_id, work_commands::helpers, work_events::WorkEventScope};
 
 pub(super) struct PlannerTerminalReplay {
@@ -250,14 +253,11 @@ pub(super) fn mark_run_completed_tx(
     run: &AgentRunRecord,
     fence: &WorkRunFence,
 ) -> Result<(), StoreError> {
-    let changed = transaction.execute(
+    rows::execute_fenced_update_tx(
+        transaction,
         "UPDATE agent_runs SET status = 'completed', ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND status = 'running' AND lease_token = ?2 AND lease_expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now') AND task_generation = ?3 AND (SELECT generation FROM tasks WHERE task_id = agent_runs.task_id) = ?3 AND cancellation_requested = 0",
         params![run.run_id, fence.lease_token, fence.task_generation],
-    )?;
-    if changed != 1 {
-        return Err(StoreError::Work(WorkDomainError::RunFenced));
-    }
-    Ok(())
+    )
 }
 
 pub(super) fn mark_run_waiting_tx(
@@ -265,26 +265,18 @@ pub(super) fn mark_run_waiting_tx(
     run: &AgentRunRecord,
     fence: &WorkRunFence,
 ) -> Result<(), StoreError> {
-    let changed = transaction.execute(
+    rows::execute_fenced_update_tx(
+        transaction,
         "UPDATE agent_runs SET status = 'waiting_for_approval', lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, ended_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND status = 'running' AND lease_token = ?2 AND lease_expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now') AND task_generation = ?3 AND (SELECT generation FROM tasks WHERE task_id = agent_runs.task_id) = ?3 AND cancellation_requested = 0",
         params![run.run_id, fence.lease_token, fence.task_generation],
-    )?;
-    if changed != 1 {
-        return Err(StoreError::Work(WorkDomainError::RunFenced));
-    }
-    Ok(())
+    )
 }
 
 pub(super) fn bump_task_to_waiting_tx(
     transaction: &Transaction<'_>,
     task: &mut helpers::TaskState,
 ) -> Result<u64, StoreError> {
-    let revision = task.revision.checked_add(1).ok_or_else(|| {
-        StoreError::Work(WorkDomainError::InvalidInput {
-            field: "task.revision",
-            message: "revision overflow".to_string(),
-        })
-    })?;
+    let revision = helpers::increment(task.revision, "task.revision")?;
     let changed = transaction.execute(
         "UPDATE tasks SET stage_id = 'stage:personal:waiting', active_gate_id = (SELECT gate_id FROM task_gates WHERE task_id = ?1 AND task_generation = ?2 AND gate_state = 'open'), queued_at = NULL, revision = ?3, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND generation = ?2 AND revision = ?4",
         params![task.task_id.as_str(), task.generation, revision, task.revision],
@@ -303,12 +295,7 @@ pub(super) fn bump_task_to_review_tx(
     transaction: &Transaction<'_>,
     task: &mut helpers::TaskState,
 ) -> Result<u64, StoreError> {
-    let revision = task.revision.checked_add(1).ok_or_else(|| {
-        StoreError::Work(WorkDomainError::InvalidInput {
-            field: "task.revision",
-            message: "revision overflow".to_string(),
-        })
-    })?;
+    let revision = helpers::increment(task.revision, "task.revision")?;
     transaction.execute("UPDATE tasks SET stage_id = 'stage:personal:review', queued_at = NULL, revision = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND generation = ?3 AND revision = ?4", params![task.task_id.as_str(), revision, task.generation, task.revision])?;
     task.stage_id = WorkflowStageId::new("stage:personal:review").map_err(StoreError::Work)?;
     task.stage_behavior = WorkflowStageBehavior::Acceptance;
@@ -546,18 +533,17 @@ pub(super) fn submission_matches_tx(
 
 pub(super) fn scope(
     task: &helpers::TaskState,
-    actor_id: &str,
-    causation_id: Option<&str>,
-    correlation_id: &str,
+    event: (&str, Option<&str>, &str),
     run_id: Option<&str>,
 ) -> WorkEventScope {
-    WorkEventScope {
-        workspace_id: task.workspace_id.clone(),
-        project_id: task.project_id.clone(),
-        task_id: Some(task.task_id.clone()),
-        run_id: run_id.map(ToOwned::to_owned),
-        actor_id: actor_id.to_string(),
-        causation_id: causation_id.map(ToOwned::to_owned),
-        correlation_id: correlation_id.to_string(),
-    }
+    let (actor_id, causation_id, correlation_id) = event;
+    rows::event_scope(task, run_id, actor_id, causation_id, correlation_id)
+}
+
+pub(super) fn run_scope(
+    task: &helpers::TaskState,
+    event: (&str, Option<&str>, &str),
+    run_id: &str,
+) -> WorkEventScope {
+    scope(task, event, Some(run_id))
 }

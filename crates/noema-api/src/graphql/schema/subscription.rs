@@ -18,10 +18,10 @@ impl SubscriptionRoot {
     /// Stream cursor-bearing local-model transfer, selection, and runtime events.
     async fn local_model_events(
         &self,
-        ctx: &Context<'_>,
+        _ctx: &Context<'_>,
         after: Option<String>,
     ) -> Result<impl Stream<Item = Result<GraphqlLocalModelEvent>>> {
-        let state = ctx.data_unchecked::<GraphqlState>();
+        let state = _ctx.data_unchecked::<GraphqlState>();
         local_models::local_model_events(state, after).await
     }
 
@@ -95,17 +95,16 @@ impl SubscriptionRoot {
     ) -> Result<impl Stream<Item = Result<GraphqlWorkEvent>>> {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
+        let store = state.store()?.clone();
         require_work_owner(principal)?;
         let task_id = TaskId::new(task_id.trim()).map_err(|_| work_unavailable_error())?;
-        let detail = state
-            .store()?
+        let detail = store
             .get_work_task(&task_id)
             .await
             .map_err(tasks::work_error)?
             .ok_or_else(work_unavailable_error)?;
         let workspace_id = detail.workspace.workspace_id;
         tasks::require_personal_workspace(&workspace_id)?;
-        let store = state.store()?.clone();
         let after = decode_after(after.as_deref())?;
         let start_cursor = match after {
             Some(cursor) => Some(cursor),
@@ -140,7 +139,14 @@ fn work_event_stream(
         let mut cursor = start_cursor;
 
         loop {
-            let page = match list_events(&store, &workspace_id, task_id.as_ref(), cursor, 100).await {
+            let page = match store.list_work_events_after(WorkEventQuery {
+                workspace_id: workspace_id.clone(),
+                project_id: None,
+                task_id: task_id.clone(),
+                run_id: None,
+                after: cursor,
+                first: WorkPageSize::new(100).expect("the fixed subscription page size is valid"),
+            }).await.map_err(tasks::work_error) {
                 Ok(page) => page,
                 Err(error) => { yield Err(error); break; }
             };
@@ -180,26 +186,6 @@ fn project_event_edge_and_advance(
     let projected = project_event_edge(edge)?;
     *cursor = Some(edge.cursor);
     Ok(projected)
-}
-
-async fn list_events(
-    store: &noema_store::NoemaStore,
-    workspace_id: &WorkspaceId,
-    task_id: Option<&TaskId>,
-    after: Option<WorkEventCursor>,
-    first: u32,
-) -> Result<noema_store::WorkEventConnection> {
-    store
-        .list_work_events_after(WorkEventQuery {
-            workspace_id: workspace_id.clone(),
-            project_id: None,
-            task_id: task_id.cloned(),
-            run_id: None,
-            after,
-            first: WorkPageSize::new(first).map_err(tasks::cursor_error)?,
-        })
-        .await
-        .map_err(tasks::work_error)
 }
 
 fn decode_after(value: Option<&str>) -> Result<Option<WorkEventCursor>> {

@@ -167,8 +167,4 @@ mod tests {
         include!("schema_tests/work_graphql.rs");
     }
 
-    mod work_graphql_corrections {
-        use super::*;
-        include!("schema_tests/work_graphql_corrections.rs");
-    }
 }

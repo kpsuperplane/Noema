@@ -85,7 +85,7 @@ pub(super) async fn drain_work_notifications(services: &TaskRuntimeServices) {
             };
         let notification_id = notification.notification_id;
         let lease_token = notification.lease_token;
-        match services
+        if let Err(error) = services
             .runtime
             .deliver_work_notification(
                 noema_store::CompleteWorkNotification {
@@ -97,25 +97,22 @@ pub(super) async fn drain_work_notifications(services: &TaskRuntimeServices) {
             )
             .await
         {
-            Ok(()) => {}
-            Err(error) => {
-                log_system_error(
-                    &services.system_errors,
-                    "work_notification_delivery_failed",
-                    "Work notification could not be delivered",
-                    Some(json!({"notification_id": notification_id.clone()})),
-                    error,
-                );
-                fail_notification(
-                    services,
-                    notification_id,
-                    lease_token,
-                    "delivery_failed",
-                    "runtime notification delivery failed",
-                    Some(work_event),
-                )
-                .await;
-            }
+            log_system_error(
+                &services.system_errors,
+                "work_notification_delivery_failed",
+                "Work notification could not be delivered",
+                Some(json!({"notification_id": notification_id.clone()})),
+                error,
+            );
+            fail_notification(
+                services,
+                notification_id,
+                lease_token,
+                "delivery_failed",
+                "runtime notification delivery failed",
+                Some(work_event),
+            )
+            .await;
         }
     }
 }

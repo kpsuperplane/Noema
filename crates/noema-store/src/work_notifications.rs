@@ -24,6 +24,15 @@ use crate::{
 
 const EXPIRED_LEASE_MAINTENANCE_BATCH: i64 = 100;
 
+struct LeasedNotification {
+    event_sequence: i64,
+    destination_kind: String,
+    destination_id: String,
+    kind: String,
+    payload_json: String,
+    attempt_count: i64,
+}
+
 /// Enqueue one owner-directed card in the same transaction as its source
 /// event.  The unique outbox key makes retries and command replay harmless.
 pub(crate) fn enqueue_work_notification_tx(
@@ -151,29 +160,19 @@ impl NoemaStore {
     ) -> Result<ConversationItemRecord, StoreError> {
         completion.validate().map_err(StoreError::Work)?;
         self.with_immediate_transaction_retry(|transaction| {
-            let row = transaction
-                .query_row(
-                    "SELECT event_sequence, destination_kind, destination_id, notification_kind, payload_json, attempt_count FROM work_notification_outbox WHERE notification_id = ?1 AND status = 'leased' AND lease_token = ?2 AND lease_expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
-                    params![completion.notification_id, completion.lease_token],
-                    |row| {
-                        Ok((
-                            row.get::<_, i64>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, String>(2)?,
-                            row.get::<_, String>(3)?,
-                            row.get::<_, String>(4)?,
-                            row.get::<_, i64>(5)?,
-                        ))
-                    },
-                )
-                .optional()?
-                .ok_or(StoreError::Work(WorkDomainError::RunFenced))?;
-            let destination_kind = NotificationDestination::from_str(&row.1).map_err(StoreError::Work)?;
-            let notification_kind = NotificationKind::from_str(&row.3).map_err(StoreError::Work)?;
+            let row = load_leased_notification_tx(
+                transaction,
+                &completion.notification_id,
+                &completion.lease_token,
+            )?;
+            let destination_kind = NotificationDestination::from_str(&row.destination_kind)
+                .map_err(StoreError::Work)?;
+            let notification_kind =
+                NotificationKind::from_str(&row.kind).map_err(StoreError::Work)?;
             let expected_conversation: Option<String> = transaction
                 .query_row(
                     "SELECT primary_conversation_id FROM humans WHERE human_id = ?1",
-                    [&row.2],
+                    [&row.destination_id],
                     |value| value.get(0),
                 )
                 .optional()?
@@ -186,7 +185,7 @@ impl NoemaStore {
                 destination_kind,
                 &completion.conversation_id,
             )?;
-            let notification_payload: serde_json::Value = serde_json::from_str(&row.4)?;
+            let notification_payload: serde_json::Value = serde_json::from_str(&row.payload_json)?;
             let task_id = notification_payload
                 .get("task_id")
                 .and_then(serde_json::Value::as_str)
@@ -254,12 +253,12 @@ impl NoemaStore {
             if changed != 1 {
                 return Err(StoreError::Work(WorkDomainError::RunFenced));
             }
-            let source = load_source_event_tx(transaction, row.0)?;
+            let source = load_source_event_tx(transaction, row.event_sequence)?;
             let payload = WorkEventPayload::notification_delivered(
                 completion.notification_id.clone(),
                 source.event_sequence,
                 notification_kind,
-                notification_attempt_count(row.5)?,
+                notification_attempt_count(row.attempt_count)?,
             )
             .map_err(StoreError::Work)?;
             append_notification_event_tx(
@@ -286,14 +285,11 @@ impl NoemaStore {
         let safe_code = noema_tasks::SafeErrorCode::new(failure.error_code.clone())
             .map_err(StoreError::Work)?;
         self.with_immediate_transaction_retry(|transaction| {
-            let row = transaction
-                .query_row(
-                    "SELECT event_sequence, notification_kind, attempt_count FROM work_notification_outbox WHERE notification_id = ?1 AND status = 'leased' AND lease_token = ?2 AND lease_expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
-                    params![failure.notification_id, failure.lease_token],
-                    |value| Ok((value.get::<_, i64>(0)?, value.get::<_, String>(1)?, value.get::<_, i64>(2)?)),
-                )
-                .optional()?
-                .ok_or(StoreError::Work(WorkDomainError::RunFenced))?;
+            let row = load_leased_notification_tx(
+                transaction,
+                &failure.notification_id,
+                &failure.lease_token,
+            )?;
             // The V3 schema has no terminal `dead_letter` status.  A
             // non-retryable failure is therefore durably parked at the
             // maximum sortable timestamp, while retryable failures become
@@ -306,26 +302,47 @@ impl NoemaStore {
             if changed != 1 {
                 return Err(StoreError::Work(WorkDomainError::RunFenced));
             }
-            let source = load_source_event_tx(transaction, row.0)?;
-            let notification_kind = NotificationKind::from_str(&row.1).map_err(StoreError::Work)?;
-            let payload = WorkEventPayload::notification_failed(
+            append_notification_failure_tx(
+                transaction,
                 failure.notification_id.clone(),
-                source.event_sequence,
-                notification_kind,
-                notification_attempt_count(row.2)?,
+                row.event_sequence,
+                &row.kind,
+                notification_attempt_count(row.attempt_count)?,
                 safe_code.clone(),
                 failure.retryable,
-            )
-            .map_err(StoreError::Work)?;
-            append_notification_event_tx(
-                transaction,
-                source,
-                payload,
             )?;
             Ok(())
         })
         .await
     }
+}
+
+fn load_leased_notification_tx(
+    transaction: &Transaction<'_>,
+    notification_id: &str,
+    lease_token: &str,
+) -> Result<LeasedNotification, StoreError> {
+    transaction
+        .query_row(
+            "SELECT event_sequence, destination_kind, destination_id, notification_kind,
+                    payload_json, attempt_count
+             FROM work_notification_outbox
+             WHERE notification_id = ?1 AND status = 'leased' AND lease_token = ?2
+               AND lease_expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            params![notification_id, lease_token],
+            |row| {
+                Ok(LeasedNotification {
+                    event_sequence: row.get(0)?,
+                    destination_kind: row.get(1)?,
+                    destination_id: row.get(2)?,
+                    kind: row.get(3)?,
+                    payload_json: row.get(4)?,
+                    attempt_count: row.get(5)?,
+                })
+            },
+        )
+        .optional()?
+        .ok_or(StoreError::Work(WorkDomainError::RunFenced))
 }
 
 fn load_claimed_notification_tx(
@@ -389,6 +406,28 @@ fn append_notification_event_tx(
     Ok(())
 }
 
+fn append_notification_failure_tx(
+    transaction: &Transaction<'_>,
+    notification_id: String,
+    event_sequence: i64,
+    kind: &str,
+    attempt_count: u32,
+    error_code: noema_tasks::SafeErrorCode,
+    retryable: bool,
+) -> Result<(), StoreError> {
+    let source = load_source_event_tx(transaction, event_sequence)?;
+    let payload = WorkEventPayload::notification_failed(
+        notification_id,
+        source.event_sequence,
+        NotificationKind::from_str(kind).map_err(StoreError::Work)?,
+        attempt_count,
+        error_code,
+        retryable,
+    )
+    .map_err(StoreError::Work)?;
+    append_notification_event_tx(transaction, source, payload)
+}
+
 fn notification_attempt_count(value: i64) -> Result<u32, StoreError> {
     u32::try_from(value).map_err(|_| StoreError::InvariantViolation {
         message: "notification attempt count exceeds u32".to_string(),
@@ -432,17 +471,15 @@ fn fail_expired_notification_leases_tx(transaction: &Transaction<'_>) -> Result<
         if changed != 1 {
             continue;
         }
-        let source = load_source_event_tx(transaction, event_sequence)?;
-        let payload = WorkEventPayload::notification_failed(
+        append_notification_failure_tx(
+            transaction,
             notification_id,
-            source.event_sequence,
-            NotificationKind::from_str(&kind).map_err(StoreError::Work)?,
+            event_sequence,
+            &kind,
             notification_attempt_count(attempt_count)?,
             error_code.clone(),
             true,
-        )
-        .map_err(StoreError::Work)?;
-        append_notification_event_tx(transaction, source, payload)?;
+        )?;
     }
     Ok(())
 }
@@ -480,17 +517,15 @@ fn park_exhausted_notifications_tx(transaction: &Transaction<'_>) -> Result<(), 
         if changed != 1 {
             continue;
         }
-        let source = load_source_event_tx(transaction, event_sequence)?;
-        let payload = WorkEventPayload::notification_failed(
+        append_notification_failure_tx(
+            transaction,
             notification_id,
-            source.event_sequence,
-            NotificationKind::from_str(&kind).map_err(StoreError::Work)?,
+            event_sequence,
+            &kind,
             notification_attempt_count(attempt_count)?,
             noema_tasks::SafeErrorCode::new("attempts_exhausted").map_err(StoreError::Work)?,
             false,
-        )
-        .map_err(StoreError::Work)?;
-        append_notification_event_tx(transaction, source, payload)?;
+        )?;
     }
     Ok(())
 }

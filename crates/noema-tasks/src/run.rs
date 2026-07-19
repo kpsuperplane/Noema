@@ -1,94 +1,52 @@
 use noema_providers::ProviderSelectionSnapshot;
 use serde::{Deserialize, Serialize};
 
-use crate::{TaskContractId, TaskExecutionPolicy, TaskId, WorkDomainError, error::invalid_input};
+use crate::{
+    TaskContractId, TaskExecutionPolicy, TaskId, WorkDomainError,
+    error::invalid_input,
+    validation::{optional as normalize_optional, required},
+};
 
 /// Stable built-in agent identity for planner/executor work.
 pub const TASK_EXECUTOR_AGENT_ID: &str = "agent:task-executor";
 /// Stable built-in agent identity for independent reviews.
 pub const TASK_REVIEWER_AGENT_ID: &str = "agent:task-reviewer";
 
+string_enum! {
 /// Role of one bounded background run.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RunKind {
+pub enum RunKind, "run.kind" {
     /// Produces a complete plan or opens a blocking gate.
-    Planner,
+    Planner => "planner",
     /// Produces an immutable task submission.
-    Executor,
+    Executor => "executor",
     /// Independently evaluates one submission.
-    Reviewer,
+    Reviewer => "reviewer",
+}
 }
 
-impl RunKind {
-    /// Stable persisted representation.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Planner => "planner",
-            Self::Executor => "executor",
-            Self::Reviewer => "reviewer",
-        }
-    }
-}
-
-impl std::fmt::Display for RunKind {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(self.as_str())
-    }
-}
-
-impl std::str::FromStr for RunKind {
-    type Err = WorkDomainError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "planner" => Ok(Self::Planner),
-            "executor" => Ok(Self::Executor),
-            "reviewer" => Ok(Self::Reviewer),
-            other => Err(invalid_input("run.kind", format!("unknown value {other}"))),
-        }
-    }
-}
-
+string_enum! {
 /// Queue and lease lifecycle of one run; never a task state axis.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RunStatus {
+pub enum RunStatus, "run.status" {
     /// Waiting for a worker to claim the run.
-    Queued,
+    Queued => "queued",
     /// Claimed but not started.
-    Leased,
+    Leased => "leased",
     /// Provider/tool execution is active.
-    Running,
+    Running => "running",
     /// Terminal contract was accepted.
-    Completed,
+    Completed => "completed",
     /// Paused at a safe human-gate boundary.
-    WaitingForApproval,
+    WaitingForApproval => "waiting_for_approval",
     /// Lease/process interruption occurred.
-    Interrupted,
+    Interrupted => "interrupted",
     /// Run cannot safely continue.
-    Failed,
+    Failed => "failed",
     /// Explicitly cancelled by a task command.
-    Cancelled,
+    Cancelled => "cancelled",
+}
 }
 
 impl RunStatus {
-    /// Stable persisted representation.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Queued => "queued",
-            Self::Leased => "leased",
-            Self::Running => "running",
-            Self::Completed => "completed",
-            Self::WaitingForApproval => "waiting_for_approval",
-            Self::Interrupted => "interrupted",
-            Self::Failed => "failed",
-            Self::Cancelled => "cancelled",
-        }
-    }
-
     /// Whether this status can transition to another run-local status.
     #[must_use]
     pub const fn can_transition_to(self, next: Self) -> bool {
@@ -117,69 +75,28 @@ impl RunStatus {
     }
 }
 
-impl std::fmt::Display for RunStatus {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(self.as_str())
-    }
-}
-
-impl std::str::FromStr for RunStatus {
-    type Err = WorkDomainError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "queued" => Ok(Self::Queued),
-            "leased" => Ok(Self::Leased),
-            "running" => Ok(Self::Running),
-            "completed" => Ok(Self::Completed),
-            "waiting_for_approval" => Ok(Self::WaitingForApproval),
-            "interrupted" => Ok(Self::Interrupted),
-            "failed" => Ok(Self::Failed),
-            "cancelled" => Ok(Self::Cancelled),
-            other => Err(invalid_input(
-                "run.status",
-                format!("unknown value {other}"),
-            )),
-        }
-    }
-}
-
 /// Input for one queued run created by a semantic command or reconciler.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct NewAgentRun {
-    /// Optional caller-supplied run identity.
     pub run_id: Option<String>,
-    /// Owning task.
     pub task_id: TaskId,
-    /// Generation this run is allowed to advance.
     pub task_generation: u64,
-    /// Run role.
     pub run_kind: RunKind,
-    /// Acting agent identity.
     pub agent_id: String,
-    /// Contract required for Executor/Reviewer and absent for Planner.
     pub contract_id: Option<TaskContractId>,
-    /// Attempt index within this run lineage.
     pub attempt_index: u32,
-    /// Review round for Executor/Reviewer lineage.
     pub review_round: u32,
-    /// Optional parent run.
     pub parent_run_id: Option<String>,
-    /// Submission being reviewed, when any.
     pub triggering_submission_id: Option<String>,
-    /// Review that triggered an executor revision, when any.
     pub triggering_review_id: Option<String>,
-    /// Immutable provider selection snapshot.
     pub model: ProviderSelectionSnapshot,
-    /// Immutable policy snapshot.
     pub execution_policy: TaskExecutionPolicy,
 }
 
 impl NewAgentRun {
     /// Validate role/contract lineage before persistence.
-    ///
     /// # Errors
-    ///
     /// Returns [`WorkDomainError`] when generation, agent identity, role and
     /// trigger lineage, provider selection, or execution policy is invalid.
     pub fn validated(mut self) -> Result<Self, WorkDomainError> {
@@ -189,11 +106,12 @@ impl NewAgentRun {
                 "generation must be positive",
             ));
         }
-        self.run_id = normalize_optional(self.run_id.take());
+        self.run_id = normalize_optional(self.run_id.as_deref());
         self.agent_id = required(&self.agent_id, "run.agent_id")?;
-        self.parent_run_id = normalize_optional(self.parent_run_id.take());
-        self.triggering_submission_id = normalize_optional(self.triggering_submission_id.take());
-        self.triggering_review_id = normalize_optional(self.triggering_review_id.take());
+        self.parent_run_id = normalize_optional(self.parent_run_id.as_deref());
+        self.triggering_submission_id =
+            normalize_optional(self.triggering_submission_id.as_deref());
+        self.triggering_review_id = normalize_optional(self.triggering_review_id.as_deref());
         validate_run_lineage(
             self.run_kind,
             self.contract_id.as_ref(),
@@ -213,82 +131,47 @@ impl NewAgentRun {
 
 /// Persisted queue/lease/run projection.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct AgentRunRecord {
-    /// Stable run identity.
     pub run_id: String,
-    /// Owning task.
     pub task_id: TaskId,
-    /// Generation fenced by this run.
     pub task_generation: u64,
-    /// Contract identity, absent only for Planner runs.
     pub contract_id: Option<TaskContractId>,
-    /// Run role.
     pub run_kind: RunKind,
-    /// Acting agent identity.
     pub agent_id: String,
-    /// Attempt index within this lineage.
     pub attempt_index: u32,
-    /// Review round within this contract.
     pub review_round: u32,
-    /// Optional parent run.
     pub parent_run_id: Option<String>,
-    /// Submission under review.
     pub triggering_submission_id: Option<String>,
-    /// Review that triggered this run.
     pub triggering_review_id: Option<String>,
-    /// Requested provider snapshot.
     pub model: ProviderSelectionSnapshot,
-    /// Provider-reported actual family, when known.
     pub actual_provider_kind: Option<String>,
-    /// Provider-reported actual profile, when known.
     pub actual_model_profile: Option<String>,
-    /// Immutable policy snapshot.
     pub execution_policy: TaskExecutionPolicy,
-    /// Current queue/lease status.
     pub status: RunStatus,
-    /// Queue timestamp.
     pub queued_at: String,
-    /// Lease owner.
     pub lease_owner: Option<String>,
-    /// Lease token.
     pub lease_token: Option<String>,
-    /// Lease expiry timestamp.
     pub lease_expires_at: Option<String>,
-    /// Last heartbeat timestamp.
     pub heartbeat_at: Option<String>,
-    /// Start timestamp.
     pub started_at: Option<String>,
-    /// End timestamp.
     pub ended_at: Option<String>,
-    /// Whether cancellation has been requested.
     pub cancellation_requested: bool,
-    /// Safe terminal error code.
     pub error_code: Option<String>,
-    /// Safe terminal error message.
     pub error_message: Option<String>,
-    /// Provider call count.
     pub provider_call_count: u32,
-    /// Tool call count.
     pub tool_call_count: u32,
-    /// Input token count.
     pub input_tokens: u64,
-    /// Cached input token count.
     pub cached_input_tokens: u64,
-    /// Output token count.
     pub output_tokens: u64,
-    /// Active execution duration in milliseconds.
     pub active_milliseconds: u64,
-    /// Creation timestamp.
     pub created_at: String,
-    /// Last update timestamp.
     pub updated_at: String,
 }
 
 impl AgentRunRecord {
     /// Validate the role/contract invariant on a persisted run.
-    ///
     /// # Errors
-    ///
     /// Returns [`WorkDomainError`] when the run role, contract, review round,
     /// trigger identities, and built-in agent identity are inconsistent.
     pub fn validate_contract_lineage(&self) -> Result<(), WorkDomainError> {
@@ -305,10 +188,9 @@ impl AgentRunRecord {
 
 /// Result of one run heartbeat/lease renewal.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct AgentRunHeartbeat {
-    /// New lease expiration timestamp.
     pub lease_expires_at: String,
-    /// Whether the task requested cancellation.
     pub cancellation_requested: bool,
 }
 
@@ -376,19 +258,4 @@ fn validate_run_lineage(
         }
     }
     Ok(())
-}
-
-fn required(value: &str, field: &'static str) -> Result<String, WorkDomainError> {
-    let value = value.trim();
-    if value.is_empty() {
-        Err(invalid_input(field, "value cannot be blank"))
-    } else {
-        Ok(value.to_string())
-    }
-}
-
-fn normalize_optional(value: Option<String>) -> Option<String> {
-    value
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
 }

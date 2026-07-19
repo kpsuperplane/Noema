@@ -1,7 +1,8 @@
 use std::{collections::BTreeSet, str::FromStr};
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 
+use crate::gate::recovery_fields_are_valid;
 use crate::{
     ContractOrigin, RunKind, TaskComplexity, TaskContractId, TaskGateId, TaskGateKind,
     TaskMessageId, TaskMessageKind, TaskRecoveryReason, TaskReviewVerdict, TaskSourceKind,
@@ -11,10 +12,9 @@ use crate::{
 use super::{
     GateResolutionKind, GateSupersessionReason, NotificationDestination, NotificationKind,
     ProjectChangedField, RunCancellationReason, RunTerminalKind, SafeErrorCode, TaskChangedField,
-    TaskStageChangeReason, WorkEventKind, event_schema,
+    TaskStageChangeReason, WorkEventKind,
 };
 
-/// Validate the redacted, versioned payload for one event kind.
 pub(crate) fn validate_payload(
     kind: WorkEventKind,
     payload: &Value,
@@ -34,14 +34,11 @@ pub(crate) fn validate_payload(
     let object = payload
         .as_object()
         .ok_or_else(|| invalid_input("work_event.safe_payload", "payload must be an object"))?;
-    match object.get("v") {
-        Some(Value::Number(version)) if version.as_u64() == Some(1) => {}
-        _ => {
-            return Err(invalid_input(
-                "work_event.safe_payload",
-                "payload must contain numeric v=1",
-            ));
-        }
+    if object.get("v").and_then(Value::as_u64) != Some(1) {
+        return Err(invalid_input(
+            "work_event.safe_payload",
+            "payload must contain numeric v=1",
+        ));
     }
     if contains_sensitive_key(payload) {
         return Err(invalid_input(
@@ -49,301 +46,154 @@ pub(crate) fn validate_payload(
             "payload contains a secret or raw/private field",
         ));
     }
-    let (allowed, required) = event_schema::payload_contract(kind);
-    for key in object.keys() {
-        if !allowed.iter().any(|candidate| candidate == key) {
-            return Err(invalid_input(
-                "work_event.safe_payload",
-                format!("field {key} is not allowed for {}", kind.as_str()),
-            ));
-        }
+    let fields = super::event_payload_fields(kind);
+    if object.len() != fields.len() + 1
+        || fields.iter().any(|field| !object.contains_key(*field))
+        || object
+            .keys()
+            .any(|field| field != "v" && !fields.contains(&field.as_str()))
+    {
+        return Err(invalid_input(
+            "work_event.safe_payload",
+            format!("payload fields do not match {}", kind.as_str()),
+        ));
     }
-    for key in required {
-        if !object.contains_key(*key) {
-            return Err(invalid_input(
-                "work_event.safe_payload",
-                format!("required field {key} is missing for {}", kind.as_str()),
-            ));
-        }
+    for field in fields {
+        validate_field(field, &object[*field])?;
     }
-    validate_shape(kind, object)
+    validate_invariants(kind, object)
 }
 
-fn validate_shape(
+fn validate_field(field: &'static str, value: &Value) -> Result<(), WorkDomainError> {
+    match field {
+        "revision"
+        | "generation"
+        | "version"
+        | "criteria_count"
+        | "review_attempt_index"
+        | "source_event_sequence"
+        | "attempt_count" => positive(value, field),
+        "attempt_index"
+        | "review_round"
+        | "provider_call_count"
+        | "tool_call_count"
+        | "active_milliseconds"
+        | "artifact_count" => number(value, field).map(|_| ()),
+        "reason_present" | "retryable" => boolean(value, field),
+        "stage_id" | "from_stage_id" | "to_stage_id" => {
+            id::<WorkflowStageId>(value, field).map(drop)
+        }
+        "gate_id" => nullable(value, |value| id::<TaskGateId>(value, field)).map(drop),
+        "message_id" => id::<TaskMessageId>(value, field).map(drop),
+        "contract_id" | "supersedes_contract_id" => {
+            nullable(value, |value| id::<TaskContractId>(value, field)).map(drop)
+        }
+        "submission_id" => external_id(value, field, "submission:"),
+        "review_id" => external_id(value, field, "review:"),
+        "notification_id" => external_id(value, field, "notification:"),
+        "consumed_by_run_id" => external_id(value, field, "run:"),
+        "originating_run_id" | "parent_run_id" => {
+            nullable(value, |value| external_id(value, field, "run:")).map(drop)
+        }
+        "supersedes_review_id" => {
+            nullable(value, |value| external_id(value, field, "review:")).map(drop)
+        }
+        "source_kind" => closed::<TaskSourceKind>(value, field).map(drop),
+        "origin" => closed::<ContractOrigin>(value, field).map(drop),
+        "complexity" => closed::<TaskComplexity>(value, field).map(drop),
+        "gate_kind" => closed::<TaskGateKind>(value, field).map(drop),
+        "recovery_reason" => {
+            nullable(value, |value| closed::<TaskRecoveryReason>(value, field)).map(drop)
+        }
+        "retry_run_kind" => nullable(value, |value| closed::<RunKind>(value, field)).map(drop),
+        "resolution_kind" => closed::<GateResolutionKind>(value, field).map(drop),
+        "message_kind" => closed::<TaskMessageKind>(value, field).map(drop),
+        "run_kind" | "next_run_kind" => closed::<RunKind>(value, field).map(drop),
+        "terminal_kind" => closed::<RunTerminalKind>(value, field).map(drop),
+        "verdict" => closed::<TaskReviewVerdict>(value, field).map(drop),
+        "notification_kind" => closed::<NotificationKind>(value, field).map(drop),
+        "destination_kind" => closed::<NotificationDestination>(value, field).map(drop),
+        "error_code" => SafeErrorCode::new(string(value, field)?).map(drop),
+        "changed_fields" | "reason" => Ok(()),
+        _ => Err(invalid_input(field, "unknown event field")),
+    }
+}
+
+fn validate_invariants(
     kind: WorkEventKind,
-    object: &serde_json::Map<String, Value>,
+    object: &Map<String, Value>,
 ) -> Result<(), WorkDomainError> {
     use WorkEventKind as K;
     match kind {
-        K::ProjectCreated | K::ProjectArchived | K::ProjectReopened => {
-            positive_u64(required(object, "revision")?, "revision")?;
-        }
-        K::ProjectUpdated => {
-            positive_u64(required(object, "revision")?, "revision")?;
-            project_changed_fields(required(object, "changed_fields")?)?;
-        }
-        K::TaskCaptured => {
-            positive_u64(required(object, "revision")?, "revision")?;
-            positive_u64(required(object, "generation")?, "generation")?;
-            typed_id::<WorkflowStageId>(required(object, "stage_id")?, "stage_id")?;
-            enum_value::<TaskSourceKind>(required(object, "source_kind")?, "source_kind")?;
-        }
-        K::TaskUpdated => {
-            positive_u64(required(object, "revision")?, "revision")?;
-            positive_u64(required(object, "generation")?, "generation")?;
-            task_changed_fields(required(object, "changed_fields")?)?;
-        }
+        K::ProjectUpdated => changed_fields::<ProjectChangedField>(&object["changed_fields"]),
+        K::TaskUpdated => changed_fields::<TaskChangedField>(&object["changed_fields"]),
         K::TaskQueued => {
-            positive_u64(required(object, "revision")?, "revision")?;
-            positive_u64(required(object, "generation")?, "generation")?;
-            let contract_id = optional_typed_id::<TaskContractId>(
-                required(object, "contract_id")?,
-                "contract_id",
-            )?;
-            let run_kind =
-                enum_value::<RunKind>(required(object, "next_run_kind")?, "next_run_kind")?;
-            role_contract_compatibility(run_kind, contract_id.is_some(), "task.queued")?;
+            let run = closed::<RunKind>(&object["next_run_kind"], "next_run_kind")?;
+            role_contract(run, !object["contract_id"].is_null(), "task.queued")
         }
         K::TaskStageChanged => {
-            positive_u64(required(object, "revision")?, "revision")?;
-            positive_u64(required(object, "generation")?, "generation")?;
-            typed_id::<WorkflowStageId>(required(object, "from_stage_id")?, "from_stage_id")?;
-            typed_id::<WorkflowStageId>(required(object, "to_stage_id")?, "to_stage_id")?;
-            enum_value::<TaskStageChangeReason>(required(object, "reason")?, "reason")?;
+            closed::<TaskStageChangeReason>(&object["reason"], "reason").map(drop)
         }
-        K::TaskCancelled => {
-            positive_u64(required(object, "revision")?, "revision")?;
-            positive_u64(required(object, "generation")?, "generation")?;
-            boolean(required(object, "reason_present")?, "reason_present")?;
-        }
-        K::TaskReopened => {
-            positive_u64(required(object, "revision")?, "revision")?;
-            positive_u64(required(object, "generation")?, "generation")?;
-            typed_id::<WorkflowStageId>(required(object, "stage_id")?, "stage_id")?;
-        }
-        K::TaskAccepted => {
-            positive_u64(required(object, "revision")?, "revision")?;
-            positive_u64(required(object, "generation")?, "generation")?;
-            external_id(
-                required(object, "submission_id")?,
-                "submission_id",
-                "submission:",
-            )?;
-            external_id(required(object, "review_id")?, "review_id", "review:")?;
-        }
-        K::ContractCreated => {
-            typed_id::<TaskContractId>(required(object, "contract_id")?, "contract_id")?;
-            positive_u32(required(object, "version")?, "version")?;
-            positive_u64(required(object, "generation")?, "generation")?;
-            enum_value::<ContractOrigin>(required(object, "origin")?, "origin")?;
-            enum_value::<TaskComplexity>(required(object, "complexity")?, "complexity")?;
-            positive_u32(required(object, "criteria_count")?, "criteria_count")?;
-            optional_typed_id::<TaskContractId>(
-                required(object, "supersedes_contract_id")?,
-                "supersedes_contract_id",
-            )?;
+        K::ContractCreated | K::SubmissionCreated | K::ReviewCreated => {
+            id::<TaskContractId>(&object["contract_id"], "contract_id")?;
+            if matches!(kind, K::SubmissionCreated | K::ReviewCreated) {
+                positive(&object["review_round"], "review_round")?;
+            }
+            Ok(())
         }
         K::GateOpened => {
-            typed_id::<TaskGateId>(required(object, "gate_id")?, "gate_id")?;
-            positive_u64(required(object, "generation")?, "generation")?;
-            let gate_kind =
-                enum_value::<TaskGateKind>(required(object, "gate_kind")?, "gate_kind")?;
-            optional_external_id(
-                required(object, "originating_run_id")?,
-                "originating_run_id",
-                "run:",
-            )?;
-            let recovery_reason = optional_enum::<TaskRecoveryReason>(
-                required(object, "recovery_reason")?,
-                "recovery_reason",
-            )?;
-            let retry_run_kind =
-                optional_enum::<RunKind>(required(object, "retry_run_kind")?, "retry_run_kind")?;
-            validate_gate_recovery(gate_kind, recovery_reason, retry_run_kind)?;
+            id::<TaskGateId>(&object["gate_id"], "gate_id")?;
+            validate_gate_recovery(
+                closed(&object["gate_kind"], "gate_kind")?,
+                nullable(&object["recovery_reason"], |value| {
+                    closed(value, "recovery_reason")
+                })?,
+                nullable(&object["retry_run_kind"], |value| {
+                    closed(value, "retry_run_kind")
+                })?,
+            )
         }
-        K::GateResolved => {
-            typed_id::<TaskGateId>(required(object, "gate_id")?, "gate_id")?;
-            positive_u64(required(object, "generation")?, "generation")?;
-            enum_value::<TaskGateKind>(required(object, "gate_kind")?, "gate_kind")?;
-            typed_id::<TaskMessageId>(required(object, "message_id")?, "message_id")?;
-            enum_value::<GateResolutionKind>(
-                required(object, "resolution_kind")?,
-                "resolution_kind",
-            )?;
+        K::GateResolved | K::GateSuperseded | K::RunWaitingForApproval => {
+            id::<TaskGateId>(&object["gate_id"], "gate_id")?;
+            if kind == K::GateSuperseded {
+                closed::<GateSupersessionReason>(&object["reason"], "reason")?;
+            }
+            Ok(())
         }
-        K::GateSuperseded => {
-            typed_id::<TaskGateId>(required(object, "gate_id")?, "gate_id")?;
-            positive_u64(required(object, "generation")?, "generation")?;
-            enum_value::<TaskGateKind>(required(object, "gate_kind")?, "gate_kind")?;
-            enum_value::<GateSupersessionReason>(required(object, "reason")?, "reason")?;
-        }
-        K::TaskMessageAppended => {
-            typed_id::<TaskMessageId>(required(object, "message_id")?, "message_id")?;
-            positive_u64(required(object, "generation")?, "generation")?;
-            enum_value::<TaskMessageKind>(required(object, "message_kind")?, "message_kind")?;
-            optional_typed_id::<TaskGateId>(required(object, "gate_id")?, "gate_id")?;
-            optional_typed_id::<TaskContractId>(required(object, "contract_id")?, "contract_id")?;
-        }
-        K::TaskMessageConsumed => {
-            typed_id::<TaskMessageId>(required(object, "message_id")?, "message_id")?;
-            positive_u64(required(object, "generation")?, "generation")?;
-            external_id(
-                required(object, "consumed_by_run_id")?,
-                "consumed_by_run_id",
-                "run:",
-            )?;
-        }
-        K::RunQueued => {
-            let run_kind = enum_value::<RunKind>(required(object, "run_kind")?, "run_kind")?;
-            positive_u64(required(object, "generation")?, "generation")?;
-            let contract_id = optional_typed_id::<TaskContractId>(
-                required(object, "contract_id")?,
-                "contract_id",
-            )?;
-            nonnegative_u32(required(object, "attempt_index")?, "attempt_index")?;
-            review_round(required(object, "review_round")?, run_kind)?;
-            optional_external_id(required(object, "parent_run_id")?, "parent_run_id", "run:")?;
-            role_contract_compatibility(run_kind, contract_id.is_some(), "run.queued")?;
-        }
-        K::RunClaimed | K::RunStarted => {
-            let run_kind = enum_value::<RunKind>(required(object, "run_kind")?, "run_kind")?;
-            positive_u64(required(object, "generation")?, "generation")?;
-            nonnegative_u32(required(object, "attempt_index")?, "attempt_index")?;
-            review_round(required(object, "review_round")?, run_kind)?;
-        }
-        K::RunHeartbeat => {
-            enum_value::<RunKind>(required(object, "run_kind")?, "run_kind")?;
-            positive_u64(required(object, "generation")?, "generation")?;
-            nonnegative_u32(
-                required(object, "provider_call_count")?,
-                "provider_call_count",
-            )?;
-            nonnegative_u32(required(object, "tool_call_count")?, "tool_call_count")?;
-            nonnegative_u64(
-                required(object, "active_milliseconds")?,
-                "active_milliseconds",
-            )?;
-        }
-        K::RunCompleted => {
-            let run_kind = enum_value::<RunKind>(required(object, "run_kind")?, "run_kind")?;
-            positive_u64(required(object, "generation")?, "generation")?;
-            let terminal =
-                enum_value::<RunTerminalKind>(required(object, "terminal_kind")?, "terminal_kind")?;
-            validate_terminal_role(run_kind, terminal)?;
-        }
-        K::RunWaitingForApproval => {
-            enum_value::<RunKind>(required(object, "run_kind")?, "run_kind")?;
-            positive_u64(required(object, "generation")?, "generation")?;
-            typed_id::<TaskGateId>(required(object, "gate_id")?, "gate_id")?;
-            enum_value::<TaskGateKind>(required(object, "gate_kind")?, "gate_kind")?;
-        }
-        K::RunInterrupted | K::RunFailed => {
-            enum_value::<RunKind>(required(object, "run_kind")?, "run_kind")?;
-            positive_u64(required(object, "generation")?, "generation")?;
-            nonnegative_u32(required(object, "attempt_index")?, "attempt_index")?;
-            safe_error(required(object, "error_code")?, "error_code")?;
-            boolean(required(object, "retryable")?, "retryable")?;
-        }
+        K::RunQueued => validate_run(object, true),
+        K::RunClaimed | K::RunStarted => validate_run(object, false),
+        K::RunCompleted => validate_terminal_role(
+            closed(&object["run_kind"], "run_kind")?,
+            closed(&object["terminal_kind"], "terminal_kind")?,
+        ),
         K::RunCancelRequested | K::RunCancelled => {
-            enum_value::<RunKind>(required(object, "run_kind")?, "run_kind")?;
-            positive_u64(required(object, "generation")?, "generation")?;
-            enum_value::<RunCancellationReason>(required(object, "reason")?, "reason")?;
+            closed::<RunCancellationReason>(&object["reason"], "reason").map(drop)
         }
-        K::SubmissionCreated => {
-            external_id(
-                required(object, "submission_id")?,
-                "submission_id",
-                "submission:",
-            )?;
-            typed_id::<TaskContractId>(required(object, "contract_id")?, "contract_id")?;
-            positive_u32(required(object, "review_round")?, "review_round")?;
-            positive_u32(required(object, "criteria_count")?, "criteria_count")?;
-            nonnegative_u32(required(object, "artifact_count")?, "artifact_count")?;
-        }
-        K::ReviewCreated => {
-            external_id(required(object, "review_id")?, "review_id", "review:")?;
-            external_id(
-                required(object, "submission_id")?,
-                "submission_id",
-                "submission:",
-            )?;
-            typed_id::<TaskContractId>(required(object, "contract_id")?, "contract_id")?;
-            positive_u32(required(object, "review_round")?, "review_round")?;
-            positive_u32(
-                required(object, "review_attempt_index")?,
-                "review_attempt_index",
-            )?;
-            optional_external_id(
-                required(object, "supersedes_review_id")?,
-                "supersedes_review_id",
-                "review:",
-            )?;
-            enum_value::<TaskReviewVerdict>(required(object, "verdict")?, "verdict")?;
-        }
-        K::NotificationQueued => {
-            external_id(
-                required(object, "notification_id")?,
-                "notification_id",
-                "notification:",
-            )?;
-            positive_u64(
-                required(object, "source_event_sequence")?,
-                "source_event_sequence",
-            )?;
-            enum_value::<NotificationKind>(
-                required(object, "notification_kind")?,
-                "notification_kind",
-            )?;
-            enum_value::<NotificationDestination>(
-                required(object, "destination_kind")?,
-                "destination_kind",
-            )?;
-        }
-        K::NotificationDelivered => {
-            external_id(
-                required(object, "notification_id")?,
-                "notification_id",
-                "notification:",
-            )?;
-            positive_u64(
-                required(object, "source_event_sequence")?,
-                "source_event_sequence",
-            )?;
-            enum_value::<NotificationKind>(
-                required(object, "notification_kind")?,
-                "notification_kind",
-            )?;
-            positive_u32(required(object, "attempt_count")?, "attempt_count")?;
-        }
-        K::NotificationFailed => {
-            external_id(
-                required(object, "notification_id")?,
-                "notification_id",
-                "notification:",
-            )?;
-            positive_u64(
-                required(object, "source_event_sequence")?,
-                "source_event_sequence",
-            )?;
-            enum_value::<NotificationKind>(
-                required(object, "notification_kind")?,
-                "notification_kind",
-            )?;
-            positive_u32(required(object, "attempt_count")?, "attempt_count")?;
-            safe_error(required(object, "error_code")?, "error_code")?;
-            boolean(required(object, "retryable")?, "retryable")?;
-        }
+        _ => Ok(()),
+    }
+}
+
+fn validate_run(object: &Map<String, Value>, queued: bool) -> Result<(), WorkDomainError> {
+    let run = closed::<RunKind>(&object["run_kind"], "run_kind")?;
+    match run {
+        RunKind::Planner if number(&object["review_round"], "review_round")? == 0 => {}
+        RunKind::Executor | RunKind::Reviewer => positive(&object["review_round"], "review_round")?,
+        _ => return Err(invalid_input("review_round", "Planner rounds must be zero")),
+    }
+    if queued {
+        role_contract(run, !object["contract_id"].is_null(), "run.queued")?;
     }
     Ok(())
 }
 
-fn required<'a>(
-    object: &'a serde_json::Map<String, Value>,
-    field: &'static str,
-) -> Result<&'a Value, WorkDomainError> {
-    object
-        .get(field)
-        .ok_or_else(|| invalid_input("work_event.safe_payload", format!("missing field {field}")))
+fn required_string<'a>(value: &'a Value, field: &'static str) -> Result<&'a str, WorkDomainError> {
+    string(value, field).and_then(|value| {
+        if value.trim().is_empty() || value.len() > 255 || value.chars().any(char::is_control) {
+            Err(invalid_input(field, "invalid identifier"))
+        } else {
+            Ok(value)
+        }
+    })
 }
 
 fn string<'a>(value: &'a Value, field: &'static str) -> Result<&'a str, WorkDomainError> {
@@ -352,40 +202,29 @@ fn string<'a>(value: &'a Value, field: &'static str) -> Result<&'a str, WorkDoma
         .ok_or_else(|| invalid_input(field, "value must be a string"))
 }
 
-fn enum_value<T>(value: &Value, field: &'static str) -> Result<T, WorkDomainError>
-where
-    T: FromStr<Err = WorkDomainError>,
-{
+fn closed<T: FromStr<Err = WorkDomainError>>(
+    value: &Value,
+    field: &'static str,
+) -> Result<T, WorkDomainError> {
     T::from_str(string(value, field)?).map_err(|_| invalid_input(field, "unknown closed value"))
 }
 
-fn optional_enum<T>(value: &Value, field: &'static str) -> Result<Option<T>, WorkDomainError>
-where
-    T: FromStr<Err = WorkDomainError>,
-{
+fn nullable<T>(
+    value: &Value,
+    validate: impl FnOnce(&Value) -> Result<T, WorkDomainError>,
+) -> Result<Option<T>, WorkDomainError> {
     if value.is_null() {
         Ok(None)
     } else {
-        enum_value(value, field).map(Some)
+        validate(value).map(Some)
     }
 }
 
-fn typed_id<T>(value: &Value, field: &'static str) -> Result<T, WorkDomainError>
+fn id<T>(value: &Value, field: &'static str) -> Result<T, WorkDomainError>
 where
     for<'a> T: TryFrom<&'a str, Error = WorkDomainError>,
 {
     T::try_from(string(value, field)?).map_err(|_| invalid_input(field, "invalid identifier"))
-}
-
-fn optional_typed_id<T>(value: &Value, field: &'static str) -> Result<Option<T>, WorkDomainError>
-where
-    for<'a> T: TryFrom<&'a str, Error = WorkDomainError>,
-{
-    if value.is_null() {
-        Ok(None)
-    } else {
-        typed_id(value, field).map(Some)
-    }
 }
 
 fn external_id(
@@ -393,27 +232,14 @@ fn external_id(
     field: &'static str,
     prefix: &'static str,
 ) -> Result<(), WorkDomainError> {
-    let value = string(value, field)?;
-    if value.trim().is_empty()
-        || value.len() > 255
-        || !value.starts_with(prefix)
-        || value[prefix.len()..].trim().is_empty()
-        || value.chars().any(char::is_control)
+    let value = required_string(value, field)?;
+    if value
+        .strip_prefix(prefix)
+        .is_none_or(|suffix| suffix.trim().is_empty())
     {
-        return Err(invalid_input(field, "invalid identifier"));
-    }
-    Ok(())
-}
-
-fn optional_external_id(
-    value: &Value,
-    field: &'static str,
-    prefix: &'static str,
-) -> Result<(), WorkDomainError> {
-    if value.is_null() {
-        Ok(())
+        Err(invalid_input(field, "invalid identifier"))
     } else {
-        external_id(value, field, prefix)
+        Ok(())
     }
 }
 
@@ -423,24 +249,12 @@ fn number(value: &Value, field: &'static str) -> Result<u64, WorkDomainError> {
         .ok_or_else(|| invalid_input(field, "value must be an unsigned integer"))
 }
 
-fn positive_u64(value: &Value, field: &'static str) -> Result<(), WorkDomainError> {
+fn positive(value: &Value, field: &'static str) -> Result<(), WorkDomainError> {
     if number(value, field)? == 0 {
         Err(invalid_input(field, "value must be positive"))
     } else {
         Ok(())
     }
-}
-
-fn positive_u32(value: &Value, field: &'static str) -> Result<(), WorkDomainError> {
-    positive_u64(value, field)
-}
-
-fn nonnegative_u32(value: &Value, field: &'static str) -> Result<(), WorkDomainError> {
-    number(value, field).map(|_| ())
-}
-
-fn nonnegative_u64(value: &Value, field: &'static str) -> Result<(), WorkDomainError> {
-    number(value, field).map(|_| ())
 }
 
 fn boolean(value: &Value, field: &'static str) -> Result<(), WorkDomainError> {
@@ -451,66 +265,39 @@ fn boolean(value: &Value, field: &'static str) -> Result<(), WorkDomainError> {
     }
 }
 
-fn safe_error(value: &Value, field: &'static str) -> Result<(), WorkDomainError> {
-    SafeErrorCode::new(string(value, field)?).map(|_| ())
-}
-
-fn project_changed_fields(value: &Value) -> Result<(), WorkDomainError> {
+fn changed_fields<T: FromStr<Err = WorkDomainError>>(value: &Value) -> Result<(), WorkDomainError> {
     let values = value
         .as_array()
         .ok_or_else(|| invalid_input("changed_fields", "value must be an array"))?;
-    if values.is_empty() {
-        return Err(invalid_input("changed_fields", "array cannot be empty"));
-    }
     let mut seen = BTreeSet::new();
+    if values.is_empty()
+        || values
+            .iter()
+            .any(|value| closed::<T>(value, "changed_fields").is_err())
+    {
+        return Err(invalid_input(
+            "changed_fields",
+            "array cannot be empty or invalid",
+        ));
+    }
     for value in values {
-        let field = enum_value::<ProjectChangedField>(value, "changed_fields")?;
-        if !seen.insert(field.as_str()) {
+        let field = string(value, "changed_fields")?;
+        if !seen.insert(field) {
             return Err(invalid_input("changed_fields", "fields cannot repeat"));
         }
     }
     Ok(())
 }
 
-fn task_changed_fields(value: &Value) -> Result<(), WorkDomainError> {
-    let values = value
-        .as_array()
-        .ok_or_else(|| invalid_input("changed_fields", "value must be an array"))?;
-    if values.is_empty() {
-        return Err(invalid_input("changed_fields", "array cannot be empty"));
-    }
-    let mut seen = BTreeSet::new();
-    for value in values {
-        let field = enum_value::<TaskChangedField>(value, "changed_fields")?;
-        if !seen.insert(field.as_str()) {
-            return Err(invalid_input("changed_fields", "fields cannot repeat"));
-        }
-    }
-    Ok(())
-}
-
-fn review_round(value: &Value, run_kind: RunKind) -> Result<(), WorkDomainError> {
-    match run_kind {
-        RunKind::Planner => {
-            if number(value, "review_round")? != 0 {
-                return Err(invalid_input("review_round", "Planner rounds must be zero"));
-            }
-            Ok(())
-        }
-        RunKind::Executor | RunKind::Reviewer => positive_u32(value, "review_round"),
-    }
-}
-
-fn role_contract_compatibility(
-    run_kind: RunKind,
+fn role_contract(
+    run: RunKind,
     has_contract: bool,
     field: &'static str,
 ) -> Result<(), WorkDomainError> {
-    let valid = match run_kind {
-        RunKind::Planner => !has_contract,
-        RunKind::Executor | RunKind::Reviewer => has_contract,
-    };
-    if valid {
+    if matches!(
+        (run, has_contract),
+        (RunKind::Planner, false) | (RunKind::Executor | RunKind::Reviewer, true)
+    ) {
         Ok(())
     } else {
         Err(invalid_input(
@@ -520,12 +307,9 @@ fn role_contract_compatibility(
     }
 }
 
-fn validate_terminal_role(
-    run_kind: RunKind,
-    terminal: RunTerminalKind,
-) -> Result<(), WorkDomainError> {
-    let valid = matches!(
-        (run_kind, terminal),
+fn validate_terminal_role(run: RunKind, terminal: RunTerminalKind) -> Result<(), WorkDomainError> {
+    if matches!(
+        (run, terminal),
         (
             RunKind::Planner,
             RunTerminalKind::Plan | RunTerminalKind::GateResolved
@@ -536,8 +320,7 @@ fn validate_terminal_role(
             RunKind::Reviewer,
             RunTerminalKind::Review | RunTerminalKind::GateResolved
         )
-    );
-    if valid {
+    ) {
         Ok(())
     } else {
         Err(invalid_input(
@@ -548,60 +331,39 @@ fn validate_terminal_role(
 }
 
 fn validate_gate_recovery(
-    gate_kind: TaskGateKind,
+    gate: TaskGateKind,
     reason: Option<TaskRecoveryReason>,
-    retry_run_kind: Option<RunKind>,
+    retry: Option<RunKind>,
 ) -> Result<(), WorkDomainError> {
-    match gate_kind {
-        TaskGateKind::Recovery => match (reason, retry_run_kind) {
-            (Some(TaskRecoveryReason::InvariantFault), None)
-            | (Some(TaskRecoveryReason::ReviewRoundsExhausted), Some(RunKind::Executor))
-            | (
-                Some(
-                    TaskRecoveryReason::InfrastructureRetriesExhausted
-                    | TaskRecoveryReason::UnsafeEffectUncertain
-                    | TaskRecoveryReason::ConfigurationUnavailable,
-                ),
-                Some(_),
-            ) => Ok(()),
-            _ => Err(invalid_input(
-                "recovery_reason",
-                "recovery reason and continuation role are inconsistent",
-            )),
-        },
-        TaskGateKind::Clarification | TaskGateKind::Approval
-            if reason.is_none() && retry_run_kind.is_none() =>
-        {
-            Ok(())
-        }
-        _ => Err(invalid_input(
-            "gate_kind",
-            "only Recovery gates carry recovery continuation fields",
-        )),
+    if recovery_fields_are_valid(gate, reason, retry) {
+        Ok(())
+    } else {
+        Err(invalid_input(
+            "recovery_reason",
+            "recovery reason and continuation role are inconsistent",
+        ))
     }
 }
 
 fn contains_sensitive_key(value: &Value) -> bool {
+    const SENSITIVE: &[&str] = &[
+        "secret",
+        "credential",
+        "password",
+        "token",
+        "prompt",
+        "answer",
+        "description",
+        "result",
+        "feedback",
+        "transcript",
+        "provider_payload",
+        "lease",
+    ];
     match value {
         Value::Object(object) => object.iter().any(|(key, value)| {
-            let normalized = key.to_ascii_lowercase();
-            [
-                "secret",
-                "credential",
-                "password",
-                "token",
-                "prompt",
-                "answer",
-                "description",
-                "result",
-                "feedback",
-                "transcript",
-                "provider_payload",
-                "lease",
-            ]
-            .iter()
-            .any(|needle| normalized.contains(needle))
-                || contains_sensitive_key(value)
+            let key = key.to_ascii_lowercase();
+            SENSITIVE.iter().any(|needle| key.contains(needle)) || contains_sensitive_key(value)
         }),
         Value::Array(values) => values.iter().any(contains_sensitive_key),
         _ => false,

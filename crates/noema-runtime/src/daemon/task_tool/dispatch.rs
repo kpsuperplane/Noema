@@ -16,6 +16,7 @@ use noema_tasks::{
     WorkflowStageBehavior,
 };
 use noema_workspaces::{ProjectId, WorkspaceId};
+use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 use super::{
@@ -30,6 +31,16 @@ use super::{
         RequestChangesArguments, RetryArguments, TaskPreconditionArguments, UpdateArguments,
     },
 };
+
+macro_rules! execute_command {
+    ($service:expr, $args:expr, $input:ident: $ty:ty => $command:expr) => {{
+        let $input: $ty = parse_arguments($args)?;
+        $service
+            .execute($command)
+            .await
+            .map_err(|error| error.to_string())?
+    }};
+}
 
 /// Execute a primary task/project tool through the semantic command service.
 pub(crate) async fn execute_primary_task_tool(
@@ -123,6 +134,27 @@ fn task_tool_result(
     }
 }
 
+fn parse_arguments<T: DeserializeOwned>(value: Value) -> Result<T, String> {
+    serde_json::from_value(value).map_err(|error| error.to_string())
+}
+
+fn criteria(
+    criteria: Vec<super::catalog::CriterionArguments>,
+) -> Result<Vec<noema_tasks::NewTaskValidationCriterion>, String> {
+    criteria
+        .into_iter()
+        .enumerate()
+        .map(|(index, criterion)| {
+            Ok(noema_tasks::NewTaskValidationCriterion {
+                criterion_id: None,
+                ordinal: criterion_ordinal(index)?,
+                description: criterion.description,
+                expected_evidence: criterion.expected_evidence,
+            })
+        })
+        .collect()
+}
+
 async fn execute_primary_inner(
     store: &NoemaStore,
     provider_registry: &noema_providers::ProviderRegistryHandle,
@@ -146,57 +178,33 @@ async fn execute_primary_inner(
         WorkspaceId::new(context.workspace_id.clone()).map_err(|error| error.to_string())?;
     let result = match name {
         TASK_CAPTURE_TOOL => {
-            let input: CaptureArguments =
-                serde_json::from_value(args).map_err(|error| error.to_string())?;
-            let project_id = input
-                .project_id
-                .map(|id| ProjectId::new(id).map_err(|error| error.to_string()))
-                .transpose()?;
-            service
-                .execute(WorkCommand::CaptureTask(CaptureTask {
+            execute_command!(service, args, input: CaptureArguments => {
+                let project_id = project_id(input.project_id)?;
+                WorkCommand::CaptureTask(CaptureTask {
                     meta: meta(call_id.clone()),
                     workspace_id,
                     title: input.title,
                     description_markdown: input.description,
                     project_id,
                     provenance: provenance(context, TaskSourceKind::ChatCapture, call_id.clone()),
-                }))
-                .await
-                .map_err(|error| error.to_string())?
+                })
+            })
         }
         TASK_DELEGATE_TOOL => {
-            let input: DelegateArguments =
-                serde_json::from_value(args).map_err(|error| error.to_string())?;
-            let project_id = input
-                .project_id
-                .map(|id| ProjectId::new(id).map_err(|error| error.to_string()))
-                .transpose()?;
-            let intent = input
-                .execution_intent
-                .map(|intent| -> Result<DelegateExecutionIntent, String> {
-                    let criteria = intent
-                        .criteria
-                        .into_iter()
-                        .enumerate()
-                        .map(|(index, criterion)| {
-                            Ok(noema_tasks::NewTaskValidationCriterion {
-                                criterion_id: None,
-                                ordinal: criterion_ordinal(index)?,
-                                description: criterion.description,
-                                expected_evidence: criterion.expected_evidence,
-                            })
+            execute_command!(service, args, input: DelegateArguments => {
+                let project_id = project_id(input.project_id)?;
+                let intent = input
+                    .execution_intent
+                    .map(|intent| -> Result<DelegateExecutionIntent, String> {
+                        Ok(DelegateExecutionIntent {
+                            request_markdown: intent.request_markdown,
+                            criteria: criteria(intent.criteria)?,
+                            complexity: intent.complexity,
+                            execution_plan_markdown: intent.execution_plan_markdown,
                         })
-                        .collect::<Result<Vec<_>, String>>()?;
-                    Ok(DelegateExecutionIntent {
-                        request_markdown: intent.request_markdown,
-                        criteria,
-                        complexity: intent.complexity,
-                        execution_plan_markdown: intent.execution_plan_markdown,
                     })
-                })
-                .transpose()?;
-            service
-                .execute(WorkCommand::DelegateTask(DelegateTask {
+                    .transpose()?;
+                WorkCommand::DelegateTask(DelegateTask {
                     meta: meta(call_id.clone()),
                     workspace_id,
                     title: input.title,
@@ -205,232 +213,131 @@ async fn execute_primary_inner(
                     provenance: provenance(context, TaskSourceKind::ChatDelegate, call_id.clone()),
                     complexity_hint: input.complexity_hint,
                     execution_intent: intent,
-                }))
-                .await
-                .map_err(|error| error.to_string())?
+                })
+            })
         }
         TASK_UPDATE_TOOL => {
-            let input: UpdateArguments =
-                serde_json::from_value(args).map_err(|error| error.to_string())?;
-            let project_id = if input.clear_project {
-                Some(None)
-            } else {
-                input
-                    .project_id
-                    .map(|id| ProjectId::new(id).map_err(|error| error.to_string()))
-                    .transpose()?
-                    .map(Some)
-            };
-            service
-                .execute(WorkCommand::UpdateInboxTask(UpdateInboxTask {
+            execute_command!(service, args, input: UpdateArguments => {
+                let project_id = if input.clear_project {
+                    Some(None)
+                } else {
+                    project_id(input.project_id)?.map(Some)
+                };
+                WorkCommand::UpdateInboxTask(UpdateInboxTask {
                     meta: meta(call_id.clone()),
-                    precondition: task_precondition(
-                        &input.task_id,
-                        input.expected_revision,
-                        input.expected_generation,
-                    )?,
+                    precondition: task_precondition(&input.precondition)?,
                     title: input.title,
                     description_markdown: input.description,
                     project_id,
-                }))
-                .await
-                .map_err(|error| error.to_string())?
+                })
+            })
         }
         TASK_QUEUE_TOOL => {
-            let input: TaskPreconditionArguments =
-                serde_json::from_value(args).map_err(|error| error.to_string())?;
-            service
-                .execute(WorkCommand::QueueTask(QueueTask {
+            execute_command!(service, args, input: TaskPreconditionArguments =>
+                WorkCommand::QueueTask(QueueTask {
                     meta: meta(call_id.clone()),
-                    precondition: task_precondition(
-                        &input.task_id,
-                        input.expected_revision,
-                        input.expected_generation,
-                    )?,
-                }))
-                .await
-                .map_err(|error| error.to_string())?
+                    precondition: task_precondition(&input)?,
+                })
+            )
         }
         TASK_ANSWER_TOOL => {
-            let input: GateArguments =
-                serde_json::from_value(args).map_err(|error| error.to_string())?;
-            service
-                .execute(WorkCommand::AnswerTask(AnswerTask {
+            execute_command!(service, args, input: GateArguments =>
+                WorkCommand::AnswerTask(AnswerTask {
                     meta: meta(call_id.clone()),
-                    precondition: task_precondition(
-                        &input.task_id,
-                        input.expected_revision,
-                        input.expected_generation,
-                    )?,
+                    precondition: task_precondition(&input.precondition)?,
                     gate_id: TaskGateId::new(input.gate_id).map_err(|error| error.to_string())?,
                     answer: TaskGateAnswer {
                         message_markdown: input.answer_markdown,
                         approval_decision: input.approval_decision,
                     },
-                }))
-                .await
-                .map_err(|error| error.to_string())?
+                })
+            )
         }
         TASK_RETRY_TOOL => {
-            let input: RetryArguments =
-                serde_json::from_value(args).map_err(|error| error.to_string())?;
-            service
-                .execute(WorkCommand::RetryTask(RetryTask {
+            execute_command!(service, args, input: RetryArguments =>
+                WorkCommand::RetryTask(RetryTask {
                     meta: meta(call_id.clone()),
-                    precondition: task_precondition(
-                        &input.task_id,
-                        input.expected_revision,
-                        input.expected_generation,
-                    )?,
+                    precondition: task_precondition(&input.precondition)?,
                     gate_id: TaskGateId::new(input.gate_id).map_err(|error| error.to_string())?,
                     note: input.retry_note,
-                }))
-                .await
-                .map_err(|error| error.to_string())?
+                })
+            )
         }
         TASK_ACCEPT_TOOL => {
-            let input: TaskPreconditionArguments =
-                serde_json::from_value(args).map_err(|error| error.to_string())?;
-            service
-                .execute(WorkCommand::AcceptTask(noema_tasks::AcceptTask {
+            execute_command!(service, args, input: TaskPreconditionArguments =>
+                WorkCommand::AcceptTask(noema_tasks::AcceptTask {
                     meta: meta(call_id.clone()),
-                    precondition: task_precondition(
-                        &input.task_id,
-                        input.expected_revision,
-                        input.expected_generation,
-                    )?,
-                }))
-                .await
-                .map_err(|error| error.to_string())?
+                    precondition: task_precondition(&input)?,
+                })
+            )
         }
         TASK_REQUEST_CHANGES_TOOL => {
-            let input: RequestChangesArguments =
-                serde_json::from_value(args).map_err(|error| error.to_string())?;
-            let replacement_criteria = input
-                .replacement_criteria
-                .map(|criteria| {
-                    criteria
-                        .into_iter()
-                        .enumerate()
-                        .map(|(index, criterion)| {
-                            Ok(noema_tasks::NewTaskValidationCriterion {
-                                criterion_id: None,
-                                ordinal: criterion_ordinal(index)?,
-                                description: criterion.description,
-                                expected_evidence: criterion.expected_evidence,
-                            })
-                        })
-                        .collect::<Result<Vec<_>, String>>()
-                })
-                .transpose()?;
-            service
-                .execute(WorkCommand::RequestTaskChanges(RequestTaskChanges {
+            execute_command!(service, args, input: RequestChangesArguments => {
+                let replacement_criteria = input.replacement_criteria.map(criteria).transpose()?;
+                WorkCommand::RequestTaskChanges(RequestTaskChanges {
                     meta: meta(call_id.clone()),
-                    precondition: task_precondition(
-                        &input.task_id,
-                        input.expected_revision,
-                        input.expected_generation,
-                    )?,
+                    precondition: task_precondition(&input.precondition)?,
                     amendment: TaskContractAmendment {
                         feedback_markdown: input.feedback_markdown,
                         request_markdown: input.request_markdown,
                         replacement_criteria,
                         complexity: input.complexity,
                     },
-                }))
-                .await
-                .map_err(|error| error.to_string())?
+                })
+            })
         }
         TASK_CANCEL_TOOL => {
-            let input: CancelArguments =
-                serde_json::from_value(args).map_err(|error| error.to_string())?;
-            service
-                .execute(WorkCommand::CancelTask(CancelTask {
+            execute_command!(service, args, input: CancelArguments =>
+                WorkCommand::CancelTask(CancelTask {
                     meta: meta(call_id.clone()),
-                    precondition: task_precondition(
-                        &input.task_id,
-                        input.expected_revision,
-                        input.expected_generation,
-                    )?,
+                    precondition: task_precondition(&input.precondition)?,
                     reason: input.reason,
-                }))
-                .await
-                .map_err(|error| error.to_string())?
+                })
+            )
         }
         TASK_REOPEN_TOOL => {
-            let input: TaskPreconditionArguments =
-                serde_json::from_value(args).map_err(|error| error.to_string())?;
-            service
-                .execute(WorkCommand::ReopenTask(ReopenTask {
+            execute_command!(service, args, input: TaskPreconditionArguments =>
+                WorkCommand::ReopenTask(ReopenTask {
                     meta: meta(call_id.clone()),
-                    precondition: task_precondition(
-                        &input.task_id,
-                        input.expected_revision,
-                        input.expected_generation,
-                    )?,
-                }))
-                .await
-                .map_err(|error| error.to_string())?
+                    precondition: task_precondition(&input)?,
+                })
+            )
         }
         PROJECT_CREATE_TOOL => {
-            let input: ProjectCreateArguments =
-                serde_json::from_value(args).map_err(|error| error.to_string())?;
-            service
-                .execute(WorkCommand::CreateProject(CreateProject {
+            execute_command!(service, args, input: ProjectCreateArguments =>
+                WorkCommand::CreateProject(CreateProject {
                     meta: meta(call_id.clone()),
                     workspace_id,
                     name: input.name,
                     description: input.description,
-                }))
-                .await
-                .map_err(|error| error.to_string())?
+                })
+            )
         }
         PROJECT_UPDATE_TOOL => {
-            let input: ProjectUpdateArguments =
-                serde_json::from_value(args).map_err(|error| error.to_string())?;
-            service
-                .execute(WorkCommand::UpdateProject(UpdateProject {
+            execute_command!(service, args, input: ProjectUpdateArguments =>
+                WorkCommand::UpdateProject(UpdateProject {
                     meta: meta(call_id.clone()),
-                    precondition: noema_tasks::ProjectPrecondition {
-                        project_id: ProjectId::new(input.project_id)
-                            .map_err(|error| error.to_string())?,
-                        expected_revision: input.expected_revision,
-                    },
+                    precondition: project_precondition(input.precondition)?,
                     name: input.name,
                     description: input.description,
-                }))
-                .await
-                .map_err(|error| error.to_string())?
+                })
+            )
         }
         PROJECT_ARCHIVE_TOOL => {
-            let input: ProjectPreconditionArguments =
-                serde_json::from_value(args).map_err(|error| error.to_string())?;
-            service
-                .execute(WorkCommand::ArchiveProject(ArchiveProject {
+            execute_command!(service, args, input: ProjectPreconditionArguments =>
+                WorkCommand::ArchiveProject(ArchiveProject {
                     meta: meta(call_id.clone()),
-                    precondition: noema_tasks::ProjectPrecondition {
-                        project_id: ProjectId::new(input.project_id)
-                            .map_err(|error| error.to_string())?,
-                        expected_revision: input.expected_revision,
-                    },
-                }))
-                .await
-                .map_err(|error| error.to_string())?
+                    precondition: project_precondition(input)?,
+                })
+            )
         }
         PROJECT_REOPEN_TOOL => {
-            let input: ProjectPreconditionArguments =
-                serde_json::from_value(args).map_err(|error| error.to_string())?;
-            service
-                .execute(WorkCommand::ReopenProject(ReopenProject {
+            execute_command!(service, args, input: ProjectPreconditionArguments =>
+                WorkCommand::ReopenProject(ReopenProject {
                     meta: meta(call_id.clone()),
-                    precondition: noema_tasks::ProjectPrecondition {
-                        project_id: ProjectId::new(input.project_id)
-                            .map_err(|error| error.to_string())?,
-                        expected_revision: input.expected_revision,
-                    },
-                }))
-                .await
-                .map_err(|error| error.to_string())?
+                    precondition: project_precondition(input)?,
+                })
+            )
         }
         TASK_LIST_TOOL => {
             return list_tasks(store, &context.owner_human_id, &workspace_id, &args).await;
@@ -464,15 +371,26 @@ fn work_actor_id(agent_id: &str) -> String {
     }
 }
 
-fn task_precondition(
-    task_id: &str,
-    revision: u64,
-    generation: u64,
-) -> Result<TaskPrecondition, String> {
+fn task_precondition(input: &TaskPreconditionArguments) -> Result<TaskPrecondition, String> {
     Ok(TaskPrecondition {
-        task_id: TaskId::new(task_id.trim().to_string()).map_err(|error| error.to_string())?,
-        expected_revision: revision,
-        expected_generation: generation,
+        task_id: TaskId::new(input.task_id.trim().to_string())
+            .map_err(|error| error.to_string())?,
+        expected_revision: input.expected_revision,
+        expected_generation: input.expected_generation,
+    })
+}
+
+fn project_id(id: Option<String>) -> Result<Option<ProjectId>, String> {
+    id.map(|id| ProjectId::new(id).map_err(|error| error.to_string()))
+        .transpose()
+}
+
+fn project_precondition(
+    input: ProjectPreconditionArguments,
+) -> Result<noema_tasks::ProjectPrecondition, String> {
+    Ok(noema_tasks::ProjectPrecondition {
+        project_id: ProjectId::new(input.project_id).map_err(|error| error.to_string())?,
+        expected_revision: input.expected_revision,
     })
 }
 
@@ -493,11 +411,11 @@ async fn list_tasks(
     workspace_id: &WorkspaceId,
     args: &Value,
 ) -> Result<Value, String> {
-    let project_id = args
-        .get("project_id")
-        .and_then(Value::as_str)
-        .map(|id| ProjectId::new(id.to_string()).map_err(|error| error.to_string()))
-        .transpose()?;
+    let project_id = project_id(
+        args.get("project_id")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+    )?;
     let behavior = args
         .get("stage_behavior")
         .and_then(Value::as_str)

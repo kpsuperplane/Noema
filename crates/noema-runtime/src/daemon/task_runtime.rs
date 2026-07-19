@@ -23,6 +23,7 @@ use crate::daemon::{
 };
 
 mod execution;
+#[path = "task_delivery.rs"]
 mod notifications;
 
 const LEASE_SECONDS: i64 = 120;
@@ -253,20 +254,11 @@ async fn supervise_claimed_run(
     };
 
     let settled = services.store.get_work_run_record(&run.run_id).await;
-    let durably_settled = matches!(
-        settled
-            .as_ref()
-            .ok()
-            .and_then(Option::as_ref)
-            .map(|run| run.status),
-        Some(
-            RunStatus::Completed
-                | RunStatus::WaitingForApproval
-                | RunStatus::Interrupted
-                | RunStatus::Failed
-                | RunStatus::Cancelled
-        )
-    );
+    let durably_settled = settled
+        .as_ref()
+        .ok()
+        .and_then(Option::as_ref)
+        .is_some_and(|run| run_is_settled(run.status));
     let failure = if durably_settled {
         None
     } else if let Some(interruption) = interruption {
@@ -453,15 +445,7 @@ async fn reconcile_all(services: &TaskRuntimeServices, service: &WorkCommandServ
 
 async fn assert_run_settled(services: &TaskRuntimeServices, run_id: &str) {
     match services.store.get_work_run_record(run_id).await {
-        Ok(Some(run))
-            if matches!(
-                run.status,
-                RunStatus::Completed
-                    | RunStatus::WaitingForApproval
-                    | RunStatus::Interrupted
-                    | RunStatus::Failed
-                    | RunStatus::Cancelled
-            ) => {}
+        Ok(Some(run)) if run_is_settled(run.status) => {}
         Ok(Some(run)) => log_system_error(
             &services.system_errors,
             "work_runtime_worker_returned_active",
@@ -484,6 +468,17 @@ async fn assert_run_settled(services: &TaskRuntimeServices, run_id: &str) {
             error,
         ),
     }
+}
+
+fn run_is_settled(status: RunStatus) -> bool {
+    matches!(
+        status,
+        RunStatus::Completed
+            | RunStatus::WaitingForApproval
+            | RunStatus::Interrupted
+            | RunStatus::Failed
+            | RunStatus::Cancelled
+    )
 }
 
 async fn reconcile_one(

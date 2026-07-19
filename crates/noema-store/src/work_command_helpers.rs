@@ -14,13 +14,44 @@ use rusqlite::{OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    StoreError,
+    NoemaStore, StoreError,
     work_command_result::ReceiptResponse,
     work_commands::{
         canonical_command_fingerprint, capture_source_fingerprint, command_actor_id,
         command_idempotency_key, delegate_source_fingerprint,
     },
 };
+
+pub(crate) async fn command_transaction(
+    store: &NoemaStore,
+    envelope: &WorkCommand,
+    mut write: impl FnMut(&Transaction<'_>) -> Result<CommandTransactionOutcome, StoreError>,
+) -> Result<CommandWrite, StoreError> {
+    store
+        .with_immediate_transaction_retry(|transaction| {
+            if let Some(replay) = lookup_receipt_tx(transaction, envelope)? {
+                return Ok(replay);
+            }
+            match write(transaction)? {
+                CommandTransactionOutcome::Replay(write) => Ok(write),
+                CommandTransactionOutcome::Write(write) => {
+                    finish_write_tx(transaction, envelope, write)
+                }
+            }
+        })
+        .await
+}
+
+pub(crate) enum CommandTransactionOutcome {
+    Replay(CommandWrite),
+    Write(CommandWrite),
+}
+
+impl From<CommandWrite> for CommandTransactionOutcome {
+    fn from(write: CommandWrite) -> Self {
+        Self::Write(write)
+    }
+}
 
 #[path = "work_command_run_queue.rs"]
 mod run_queue;
@@ -55,6 +86,47 @@ pub(crate) struct CommandEventContext<'a> {
     pub actor_id: &'a str,
     pub causation_id: Option<&'a str>,
     pub correlation_id: &'a str,
+}
+
+impl CommandEventContext<'_> {
+    pub(crate) fn task_scope(
+        self,
+        task: &TaskState,
+        run_id: Option<&str>,
+    ) -> crate::work_events::WorkEventScope {
+        self.scope(
+            &task.workspace_id,
+            task.project_id.as_ref(),
+            Some(&task.task_id),
+            run_id,
+        )
+    }
+
+    pub(crate) fn scope(
+        self,
+        workspace_id: &WorkspaceId,
+        project_id: Option<&ProjectId>,
+        task_id: Option<&TaskId>,
+        run_id: Option<&str>,
+    ) -> crate::work_events::WorkEventScope {
+        crate::work_events::WorkEventScope {
+            workspace_id: workspace_id.clone(),
+            project_id: project_id.cloned(),
+            task_id: task_id.cloned(),
+            run_id: run_id.map(str::to_owned),
+            actor_id: self.actor_id.to_string(),
+            causation_id: self.causation_id.map(str::to_owned),
+            correlation_id: self.correlation_id.to_string(),
+        }
+    }
+}
+
+pub(crate) fn event_context(meta: &noema_tasks::CommandMeta) -> CommandEventContext<'_> {
+    CommandEventContext {
+        actor_id: &meta.actor_id,
+        causation_id: meta.causation_id.as_deref(),
+        correlation_id: &meta.correlation_id,
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,6 +229,44 @@ pub(crate) fn check_task_fence(
     Ok(())
 }
 
+pub(crate) fn load_fenced_task_tx(
+    transaction: &Transaction<'_>,
+    precondition: &noema_tasks::TaskPrecondition,
+) -> Result<TaskState, StoreError> {
+    let task = load_task_state_tx(transaction, &precondition.task_id)?;
+    check_task_fence(
+        &task,
+        precondition.expected_revision,
+        precondition.expected_generation,
+    )?;
+    Ok(task)
+}
+
+pub(crate) fn increment<T: Counter>(value: T, field: &'static str) -> Result<T, StoreError> {
+    value.checked_increment().ok_or_else(|| {
+        StoreError::Work(WorkDomainError::InvalidInput {
+            field,
+            message: format!("{field} overflow"),
+        })
+    })
+}
+
+pub(crate) trait Counter: Sized {
+    fn checked_increment(self) -> Option<Self>;
+}
+
+impl Counter for u32 {
+    fn checked_increment(self) -> Option<Self> {
+        self.checked_add(1)
+    }
+}
+
+impl Counter for u64 {
+    fn checked_increment(self) -> Option<Self> {
+        self.checked_add(1)
+    }
+}
+
 pub(crate) fn positive_u64(value: i64, field: &'static str) -> Result<u64, StoreError> {
     let value = u64::try_from(value).map_err(|_| {
         StoreError::Work(WorkDomainError::InvalidInput {
@@ -187,15 +297,6 @@ pub(crate) fn nonnegative_u32(value: i64, field: &'static str) -> Result<u32, St
         StoreError::Work(WorkDomainError::InvalidInput {
             field,
             message: "persisted value is outside the u32 range".to_string(),
-        })
-    })
-}
-
-pub(crate) fn nonnegative_u64(value: i64, field: &'static str) -> Result<u64, StoreError> {
-    u64::try_from(value).map_err(|_| {
-        StoreError::Work(WorkDomainError::InvalidInput {
-            field,
-            message: "persisted value cannot be negative".to_string(),
         })
     })
 }
@@ -333,49 +434,38 @@ pub(crate) fn lookup_delegate_source_receipt_tx(
     transaction: &Transaction<'_>,
     command: &DelegateTask,
 ) -> Result<Option<CommandWrite>, StoreError> {
-    let (Some(conversation_id), Some(tool_call_id)) = (
-        command.provenance.conversation_id.as_deref(),
-        command.provenance.source_tool_call_id.as_deref(),
-    ) else {
-        return Ok(None);
-    };
-    let task_id: Option<String> = transaction
-        .query_row(
-            "SELECT task_id FROM tasks WHERE source_conversation_id = ?1 AND source_tool_call_id = ?2 LIMIT 1",
-            params![conversation_id, tool_call_id],
-            |row| row.get(0),
-        )
-        .optional()?;
-    let Some(task_id) = task_id else {
-        return Ok(None);
-    };
-    let response_json: Option<String> = transaction
-        .query_row(
-            "SELECT response_json FROM work_command_receipts WHERE command_name = 'task.delegate' AND result_task_id = ?1 ORDER BY created_at, actor_id, idempotency_key LIMIT 1",
-            [task_id.as_str()],
-            |row| row.get(0),
-        )
-        .optional()?;
-    let Some(response_json) = response_json else {
-        return Err(StoreError::Work(WorkDomainError::IdempotencyConflict));
-    };
-    let response: ReceiptResponse = serde_json::from_str(&response_json)?;
-    if response.delegate_source_fingerprint.as_deref()
-        != Some(delegate_source_fingerprint(command)?.as_str())
-        || response.task_id.as_ref().map(TaskId::as_str) != Some(task_id.as_str())
-    {
-        return Err(StoreError::Work(WorkDomainError::IdempotencyConflict));
-    }
-    Ok(Some(response.into()))
+    lookup_source_receipt_tx(
+        transaction,
+        &command.provenance,
+        "task.delegate",
+        &delegate_source_fingerprint(command)?,
+        |response| response.delegate_source_fingerprint.as_deref(),
+    )
 }
 
 pub(crate) fn lookup_capture_source_receipt_tx(
     transaction: &Transaction<'_>,
     command: &CaptureTask,
 ) -> Result<Option<CommandWrite>, StoreError> {
+    lookup_source_receipt_tx(
+        transaction,
+        &command.provenance,
+        "task.capture",
+        &capture_source_fingerprint(command)?,
+        |response| response.capture_source_fingerprint.as_deref(),
+    )
+}
+
+fn lookup_source_receipt_tx(
+    transaction: &Transaction<'_>,
+    provenance: &noema_tasks::TaskProvenance,
+    command_name: &str,
+    fingerprint: &str,
+    stored_fingerprint: impl FnOnce(&ReceiptResponse) -> Option<&str>,
+) -> Result<Option<CommandWrite>, StoreError> {
     let (Some(conversation_id), Some(tool_call_id)) = (
-        command.provenance.conversation_id.as_deref(),
-        command.provenance.source_tool_call_id.as_deref(),
+        provenance.conversation_id.as_deref(),
+        provenance.source_tool_call_id.as_deref(),
     ) else {
         return Ok(None);
     };
@@ -391,8 +481,8 @@ pub(crate) fn lookup_capture_source_receipt_tx(
     };
     let response_json: Option<String> = transaction
         .query_row(
-            "SELECT response_json FROM work_command_receipts WHERE command_name = 'task.capture' AND result_task_id = ?1 ORDER BY created_at, actor_id, idempotency_key LIMIT 1",
-            [task_id.as_str()],
+            "SELECT response_json FROM work_command_receipts WHERE command_name = ?1 AND result_task_id = ?2 ORDER BY created_at, actor_id, idempotency_key LIMIT 1",
+            params![command_name, task_id],
             |row| row.get(0),
         )
         .optional()?;
@@ -400,8 +490,7 @@ pub(crate) fn lookup_capture_source_receipt_tx(
         return Err(StoreError::Work(WorkDomainError::IdempotencyConflict));
     };
     let response: ReceiptResponse = serde_json::from_str(&response_json)?;
-    if response.capture_source_fingerprint.as_deref()
-        != Some(capture_source_fingerprint(command)?.as_str())
+    if stored_fingerprint(&response) != Some(fingerprint)
         || response.task_id.as_ref().map(TaskId::as_str) != Some(task_id.as_str())
     {
         return Err(StoreError::Work(WorkDomainError::IdempotencyConflict));
@@ -457,16 +546,30 @@ pub(crate) fn save_receipt_tx(
     Ok(())
 }
 
+pub(crate) fn finish_write_tx(
+    transaction: &Transaction<'_>,
+    command: &WorkCommand,
+    mut write: CommandWrite,
+) -> Result<CommandWrite, StoreError> {
+    save_receipt_tx(transaction, command, &mut write)?;
+    Ok(write)
+}
+
 pub(crate) fn capture_write_snapshot_tx(
     transaction: &Transaction<'_>,
     write: &mut CommandWrite,
 ) -> Result<(), StoreError> {
     if let Some(task_id) = write.task_id.as_ref() {
-        let detail = crate::work_reads::task::load_task_facts(transaction, task_id)?
-            .ok_or_else(|| StoreError::InvariantViolation {
-                message: format!("command result task {task_id} disappeared before commit"),
-            })?
-            .into_detail();
+        let facts =
+            crate::work_reads::task::load_task_facts(transaction, task_id)?.ok_or_else(|| {
+                StoreError::InvariantViolation {
+                    message: format!("command result task {task_id} disappeared before commit"),
+                }
+            })?;
+        let history = crate::work_reads::history::load_task_history(transaction, task_id)?;
+        let artifacts =
+            crate::work_reads::artifacts::load_recent_task_artifacts(transaction, task_id)?;
+        let detail = facts.into_detail(history, artifacts);
         write.task_snapshot = Some(detail.task.clone());
         write.task_detail_snapshot = Some(detail);
     }
@@ -498,5 +601,35 @@ pub(crate) fn write_marker(
         task_snapshot: None,
         task_detail_snapshot: None,
         project_snapshot: None,
+    }
+}
+
+pub(crate) fn task_write(event: WorkEventRecord, task_id: TaskId) -> CommandWrite {
+    write_marker(event, Some(task_id), None, None, None, None)
+}
+
+pub(crate) fn project_write(event: WorkEventRecord, project_id: ProjectId) -> CommandWrite {
+    write_marker(event, None, Some(project_id), None, None, None)
+}
+
+impl CommandWrite {
+    pub(crate) fn project(mut self, project_id: Option<ProjectId>) -> Self {
+        self.project_id = project_id;
+        self
+    }
+
+    pub(crate) fn contract(mut self, contract_id: Option<TaskContractId>) -> Self {
+        self.contract_id = contract_id;
+        self
+    }
+
+    pub(crate) fn gate(mut self, gate_id: Option<noema_tasks::TaskGateId>) -> Self {
+        self.gate_id = gate_id;
+        self
+    }
+
+    pub(crate) fn run(mut self, run_id: Option<String>) -> Self {
+        self.run_id = run_id;
+        self
     }
 }

@@ -68,14 +68,11 @@ fn replay_result_tx(
         latest_run_event_tx(transaction, &run.run_id)?,
         run.run_id.clone(),
     ));
-    Ok(Some(helpers::write_marker(
-        event,
-        Some(run.task_id),
-        None,
-        Some(contract_id.clone()),
-        None,
-        Some(result_run_id),
-    )))
+    Ok(Some(
+        helpers::task_write(event, run.task_id)
+            .contract(Some(contract_id.clone()))
+            .run(Some(result_run_id)),
+    ))
 }
 
 pub(super) fn replay_blocked_tx(
@@ -130,14 +127,13 @@ pub(super) fn replay_blocked_tx(
     }
     let event = notification_for_event_tx(transaction, &terminal_event)?.unwrap_or(terminal_event);
     let project_id = event.project_id.clone();
-    Ok(Some(helpers::write_marker(
-        event,
-        Some(run.task_id),
-        project_id,
-        run.contract_id,
-        Some(TaskGateId::new(gate_id).map_err(StoreError::Work)?),
-        Some(run.run_id),
-    )))
+    Ok(Some(
+        helpers::task_write(event, run.task_id)
+            .project(project_id)
+            .contract(run.contract_id)
+            .gate(Some(TaskGateId::new(gate_id).map_err(StoreError::Work)?))
+            .run(Some(run.run_id)),
+    ))
 }
 
 pub(super) fn replay_failure_tx(
@@ -201,14 +197,13 @@ pub(super) fn replay_failure_tx(
         });
     };
     let project_id = event.project_id.clone();
-    Ok(Some(helpers::write_marker(
-        event,
-        Some(run.task_id),
-        project_id,
-        run.contract_id,
-        gate_id,
-        Some(result_run_id),
-    )))
+    Ok(Some(
+        helpers::task_write(event, run.task_id)
+            .project(project_id)
+            .contract(run.contract_id)
+            .gate(gate_id)
+            .run(Some(result_run_id)),
+    ))
 }
 
 fn blocked_payload_matches(

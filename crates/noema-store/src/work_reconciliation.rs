@@ -79,6 +79,18 @@ impl ApplyReconciliation {
         }
         Ok(())
     }
+
+    fn event_context(&self) -> helpers::CommandEventContext<'_> {
+        helpers::CommandEventContext {
+            actor_id: &self.actor_id,
+            causation_id: self.causation_id.as_deref(),
+            correlation_id: &self.correlation_id,
+        }
+    }
+
+    fn scope(&self, task: &helpers::TaskState, run_id: Option<&str>) -> WorkEventScope {
+        self.event_context().task_scope(task, run_id)
+    }
 }
 
 /// Role carried by a queued reconciliation action.
@@ -93,15 +105,6 @@ pub const fn action_run_kind(action: &WorkReconciliationAction) -> Option<RunKin
         } => Some(*run_kind),
         _ => None,
     }
-}
-
-/// Result marker used by application code after an action transaction commits.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ReconciliationOutcome {
-    /// Semantic command result carrying the last event cursor.
-    pub result: WorkCommandResult,
-    /// Action that was applied (or became an idempotent no-op).
-    pub action: WorkReconciliationAction,
 }
 
 impl WorkCommandService {
@@ -130,35 +133,30 @@ impl WorkCommandService {
                     .validate_for_contract(envelope.current_contract.is_some())
                     .map_err(StoreError::Work)?;
                 let mut task = helpers::load_task_state_tx(transaction, &request.task_id)?;
-                let mut write = match &action {
+                let write = match &action {
                     WorkReconciliationAction::Idle => latest_task_marker(transaction, &task),
-                    WorkReconciliationAction::QueueRun { run_kind } => {
+                    WorkReconciliationAction::QueueRun { run_kind }
+                    | WorkReconciliationAction::MoveToQueueAndQueueRun { run_kind } => {
                         if let Some(marker) = already_queued_run_tx(transaction, &task, *run_kind)? {
-                            let mut marker = marker;
-                            helpers::capture_write_snapshot_tx(transaction, &mut marker)?;
-                            return Ok(marker);
+                            return capture_snapshot(transaction, marker);
                         }
-                        queue::queue_reconciled_run_tx(
-                            transaction,
-                            self,
-                            &task,
-                            *run_kind,
-                            &request,
-                        )
-                    }
-                    WorkReconciliationAction::MoveToQueueAndQueueRun { run_kind } => {
-                        if let Some(marker) = already_queued_run_tx(transaction, &task, *run_kind)? {
-                            let mut marker = marker;
-                            helpers::capture_write_snapshot_tx(transaction, &mut marker)?;
-                            return Ok(marker);
+                        if matches!(action, WorkReconciliationAction::QueueRun { .. }) {
+                            queue::queue_reconciled_run_tx(
+                                transaction,
+                                self,
+                                &task,
+                                *run_kind,
+                                &request,
+                            )
+                        } else {
+                            queue::move_to_queue_and_queue_run_tx(
+                                transaction,
+                                self,
+                                &mut task,
+                                *run_kind,
+                                &request,
+                            )
                         }
-                        queue::move_to_queue_and_queue_run_tx(
-                            transaction,
-                            self,
-                            &mut task,
-                            *run_kind,
-                            &request,
-                        )
                     }
                     WorkReconciliationAction::MoveToReview => {
                         if task.stage_behavior == WorkflowStageBehavior::Acceptance {
@@ -184,9 +182,10 @@ impl WorkCommandService {
                                 false
                             };
                             if approved {
-                                let mut marker = latest_task_marker(transaction, &task)?;
-                                helpers::capture_write_snapshot_tx(transaction, &mut marker)?;
-                                return Ok(marker);
+                                return capture_snapshot(
+                                    transaction,
+                                    latest_task_marker(transaction, &task)?,
+                                );
                             }
                         }
                         move_to_review_tx(transaction, &mut task, &request)
@@ -208,12 +207,19 @@ impl WorkCommandService {
                         Err(StoreError::Work(WorkDomainError::ConfigurationUnavailable))
                     }
                 }?;
-                helpers::capture_write_snapshot_tx(transaction, &mut write)?;
-                Ok(write)
+                capture_snapshot(transaction, write)
             })
             .await?;
         helpers::materialize_result(&self.store, write).await
     }
+}
+
+fn capture_snapshot(
+    transaction: &Transaction<'_>,
+    mut write: helpers::CommandWrite,
+) -> Result<helpers::CommandWrite, StoreError> {
+    helpers::capture_write_snapshot_tx(transaction, &mut write)?;
+    Ok(write)
 }
 
 fn latest_task_marker(
@@ -228,14 +234,17 @@ fn latest_task_marker(
         )
         .optional()?
         .ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))?;
-    Ok(helpers::write_marker(
-        event,
-        Some(task.task_id.clone()),
-        task.project_id.clone(),
-        task.current_contract_id.clone(),
-        task.active_gate_id.clone(),
-        task.latest_run_id.clone(),
-    ))
+    Ok(task_write(event, task).run(task.latest_run_id.clone()))
+}
+
+fn task_write(
+    event: noema_tasks::WorkEventRecord,
+    task: &helpers::TaskState,
+) -> helpers::CommandWrite {
+    helpers::task_write(event, task.task_id.clone())
+        .project(task.project_id.clone())
+        .contract(task.current_contract_id.clone())
+        .gate(task.active_gate_id.clone())
 }
 
 fn already_queued_run_tx(
@@ -274,14 +283,7 @@ fn already_queued_run_tx(
         )
         .optional()?
         .ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))?;
-    Ok(Some(helpers::write_marker(
-        event,
-        Some(task.task_id.clone()),
-        task.project_id.clone(),
-        task.current_contract_id.clone(),
-        task.active_gate_id.clone(),
-        Some(run_id),
-    )))
+    Ok(Some(task_write(event, task).run(Some(run_id))))
 }
 
 fn move_to_review_tx(
@@ -292,12 +294,7 @@ fn move_to_review_tx(
     if task.stage_behavior != WorkflowStageBehavior::Active {
         return Err(StoreError::Work(WorkDomainError::InvalidTransition));
     }
-    let revision = task.revision.checked_add(1).ok_or_else(|| {
-        StoreError::Work(WorkDomainError::InvalidInput {
-            field: "task.revision",
-            message: "revision overflow".to_string(),
-        })
-    })?;
+    let revision = helpers::increment(task.revision, "task.revision")?;
     let changed = transaction.execute(
         "UPDATE tasks SET stage_id = 'stage:personal:review', queued_at = NULL, revision = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND generation = ?3 AND revision = ?4",
         params![task.task_id.as_str(), revision, task.generation, task.revision],
@@ -311,7 +308,7 @@ fn move_to_review_tx(
     task.revision = revision;
     let event = append_work_event_tx(
         transaction,
-        reconciliation_scope(task, request),
+        request.scope(task, None),
         WorkEventPayload::task_stage_changed(
             revision,
             task.generation,
@@ -332,14 +329,7 @@ fn move_to_review_tx(
     {
         event = notification_event;
     }
-    Ok(helpers::write_marker(
-        event,
-        Some(task.task_id.clone()),
-        task.project_id.clone(),
-        task.current_contract_id.clone(),
-        None,
-        task.latest_run_id.clone(),
-    ))
+    Ok(task_write(event, task).run(task.latest_run_id.clone()))
 }
 
 fn open_recovery_gate_tx(
@@ -365,9 +355,7 @@ fn open_recovery_gate_tx(
             && existing.0.as_deref() == Some(reason.as_str())
             && existing.1.as_deref() == retry_run_kind.map(RunKind::as_str)
         {
-            let mut marker = latest_task_marker(transaction, task)?;
-            helpers::capture_write_snapshot_tx(transaction, &mut marker)?;
-            return Ok(marker);
+            return capture_snapshot(transaction, latest_task_marker(transaction, task)?);
         }
         return Err(StoreError::Work(WorkDomainError::IdempotencyConflict));
     }
@@ -376,12 +364,7 @@ fn open_recovery_gate_tx(
         "INSERT INTO task_gates (gate_id, task_id, task_generation, contract_id, gate_kind, gate_state, recovery_reason, retry_run_kind, prompt_markdown, context_markdown, opened_by_actor_id, originating_run_id) VALUES (?1, ?2, ?3, ?4, 'recovery', 'open', ?5, ?6, 'Reconciliation requires a recovery decision.', 'The durable work facts are inconsistent or exhausted.', ?7, ?8)",
         params![gate_id.as_str(), task.task_id.as_str(), task.generation, task.current_contract_id.as_ref().map(ToString::to_string), reason.as_str(), retry_run_kind.map(|kind| kind.as_str()), request.actor_id, task.latest_run_id],
     )?;
-    let revision = task.revision.checked_add(1).ok_or_else(|| {
-        StoreError::Work(WorkDomainError::InvalidInput {
-            field: "task.revision",
-            message: "revision overflow".to_string(),
-        })
-    })?;
+    let revision = helpers::increment(task.revision, "task.revision")?;
     transaction.execute(
         "UPDATE tasks SET stage_id = 'stage:personal:waiting', active_gate_id = ?2, queued_at = NULL, revision = ?3, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND generation = ?4 AND revision = ?5",
         params![task.task_id.as_str(), gate_id.as_str(), revision, task.generation, task.revision],
@@ -393,7 +376,7 @@ fn open_recovery_gate_tx(
     task.revision = revision;
     let _gate_event = append_work_event_tx(
         transaction,
-        reconciliation_scope(task, request),
+        request.scope(task, None),
         WorkEventPayload::gate_opened(
             gate_id.clone(),
             task.generation,
@@ -406,7 +389,7 @@ fn open_recovery_gate_tx(
     )?;
     let mut event = append_work_event_tx(
         transaction,
-        reconciliation_scope(task, request),
+        request.scope(task, None),
         WorkEventPayload::task_stage_changed(
             revision,
             task.generation,
@@ -424,14 +407,9 @@ fn open_recovery_gate_tx(
     )? {
         event = notification_event;
     }
-    Ok(helpers::write_marker(
-        event,
-        Some(task.task_id.clone()),
-        task.project_id.clone(),
-        task.current_contract_id.clone(),
-        Some(gate_id),
-        task.latest_run_id.clone(),
-    ))
+    Ok(task_write(event, task)
+        .gate(Some(gate_id))
+        .run(task.latest_run_id.clone()))
 }
 
 fn fence_stale_runs_tx(
@@ -456,10 +434,7 @@ fn fence_stale_runs_tx(
         transaction.execute("UPDATE agent_runs SET status = 'cancelled', cancellation_requested = 1, ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND status IN ('queued', 'leased', 'running')", [run_id.as_str()])?;
         let record = append_work_event_tx(
             transaction,
-            WorkEventScope {
-                run_id: Some(run_id.clone()),
-                ..reconciliation_scope(task, request)
-            },
+            request.scope(task, Some(&run_id)),
             WorkEventPayload::run_cancelled(
                 WorkEventKind::RunCancelled,
                 run_kind,
@@ -468,29 +443,7 @@ fn fence_stale_runs_tx(
             )
             .map_err(StoreError::Work)?,
         )?;
-        marker = helpers::write_marker(
-            record,
-            Some(task.task_id.clone()),
-            task.project_id.clone(),
-            task.current_contract_id.clone(),
-            task.active_gate_id.clone(),
-            None,
-        );
+        marker = task_write(record, task);
     }
     Ok(marker)
-}
-
-fn reconciliation_scope(
-    task: &helpers::TaskState,
-    request: &ApplyReconciliation,
-) -> WorkEventScope {
-    WorkEventScope {
-        workspace_id: task.workspace_id.clone(),
-        project_id: task.project_id.clone(),
-        task_id: Some(task.task_id.clone()),
-        run_id: None,
-        actor_id: request.actor_id.clone(),
-        causation_id: request.causation_id.clone(),
-        correlation_id: request.correlation_id.clone(),
-    }
 }

@@ -1,17 +1,17 @@
 //! Bounded read projections for the canonical Work store.
 
 #[path = "work_read_artifacts.rs"]
-mod artifacts;
+pub(crate) mod artifacts;
 #[path = "work_read_events.rs"]
 mod events;
-#[path = "work_read_evidence.rs"]
+#[path = "task_reads.rs"]
 pub(crate) mod evidence;
 #[path = "work_read_history.rs"]
-mod history;
+pub(crate) mod history;
 #[path = "work_read_list.rs"]
 mod list;
 #[path = "work_read_list_rows.rs"]
-mod list_rows;
+pub(crate) mod list_rows;
 #[path = "work_read_overview.rs"]
 mod overview;
 #[path = "work_read_rows.rs"]
@@ -28,7 +28,6 @@ use noema_tasks::{
     WorkEventRecord,
 };
 use noema_workspaces::{ProjectId, ProjectRecord, WorkspaceId};
-use ring::digest::{SHA256, digest};
 use rusqlite::{OptionalExtension, Row, params, types::Type};
 
 use crate::{
@@ -275,7 +274,10 @@ impl NoemaStore {
             let Some(facts) = load_task_facts(&transaction, &task_id)? else {
                 return Ok(None);
             };
-            Ok(Some(facts.into_detail()))
+            let history = crate::work_reads::history::load_task_history(&transaction, &task_id)?;
+            let artifacts =
+                crate::work_reads::artifacts::load_recent_task_artifacts(&transaction, &task_id)?;
+            Ok(Some(facts.into_detail(history, artifacts)))
         })
         .await
     }
@@ -316,14 +318,7 @@ fn project_query_hash(workspace_id: &WorkspaceId, include_archived: bool) -> Str
         workspace_id.as_str(),
         u8::from(include_archived)
     );
-    let hash = digest(&SHA256, canonical.as_bytes());
-    let mut encoded = String::with_capacity(64);
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    for byte in hash.as_ref() {
-        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
-    encoded
+    crate::work_row::sha256_hex(canonical.as_bytes())
 }
 
 fn invalid_project_cursor() -> StoreError {

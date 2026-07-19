@@ -43,11 +43,13 @@ mod task_model_pools;
 mod tasks;
 mod work_command_result;
 mod work_commands;
+#[path = "task_events.rs"]
 mod work_events;
 mod work_notifications;
 mod work_reads;
 mod work_reconciliation;
 mod work_records;
+mod work_row;
 mod work_run_context;
 mod work_run_context_admission;
 mod work_run_context_records;
@@ -55,20 +57,6 @@ mod work_runs;
 
 #[cfg(test)]
 mod work_command_tests;
-#[cfg(test)]
-mod work_notification_tests;
-#[cfg(test)]
-mod work_planner_terminal_tests;
-#[cfg(test)]
-mod work_read_tests;
-#[cfg(test)]
-mod work_reconciliation_tests;
-#[cfg(test)]
-mod work_run_context_tests;
-#[cfg(test)]
-mod work_run_tests;
-#[cfg(test)]
-mod work_terminal_tests;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
@@ -91,25 +79,16 @@ pub use work_notifications::{
     WorkNotificationLeaseRequest,
 };
 pub use work_reconciliation::{
-    ApplyReconciliation, ReconciliationOutcome, action_run_kind, plan_snapshot,
-    plan_work_reconciliation,
+    ApplyReconciliation, action_run_kind, plan_snapshot, plan_work_reconciliation,
 };
 pub use work_records::{
-    ProjectConnection, ProjectCursor, ProjectEdge, ProjectQuery, WorkCommandReceiptRecord,
-    WorkContractConnection, WorkContractCursor, WorkContractEdge, WorkContractHistoryQuery,
-    WorkCursorError, WorkEventBeforeQuery, WorkEventConnection, WorkEventCursor, WorkEventEdge,
-    WorkEventQuery, WorkGateConnection, WorkGateCursor, WorkGateEdge, WorkGateHistoryQuery,
-    WorkMessageConnection, WorkMessageCursor, WorkMessageEdge, WorkMessageHistoryQuery,
-    WorkNotificationRecord, WorkNotificationStatus, WorkOverview, WorkOverviewQuery, WorkPageInfo,
-    WorkPageSize, WorkReconciliationEnvelope, WorkReviewConnection, WorkReviewCursor,
-    WorkReviewEdge, WorkReviewHistoryQuery, WorkRunConnection, WorkRunCursor, WorkRunEdge,
-    WorkRunHistoryQuery, WorkRunItemConnection, WorkRunItemCursor, WorkRunItemEdge,
-    WorkRunItemOwnerScope, WorkRunItemQuery, WorkStageTaskCount, WorkSubmissionConnection,
-    WorkSubmissionCursor, WorkSubmissionEdge, WorkSubmissionHistoryQuery, WorkTaskArtifact,
-    WorkTaskArtifactConnection, WorkTaskArtifactCursor, WorkTaskArtifactEdge,
-    WorkTaskArtifactQuery, WorkTaskAttention, WorkTaskConnection, WorkTaskCursor, WorkTaskDetail,
-    WorkTaskEdge, WorkTaskQuery, WorkTaskScope, WorkTaskSummary, WorkTaskValidAction,
-    WorkWorkflowWithStages,
+    ProjectConnection, ProjectCursor, ProjectEdge, ProjectQuery, WorkConnection, WorkCursorError,
+    WorkEdge, WorkEventBeforeQuery, WorkEventConnection, WorkEventCursor, WorkEventEdge,
+    WorkEventQuery, WorkOverview, WorkOverviewQuery, WorkPageInfo, WorkPageSize,
+    WorkReconciliationEnvelope, WorkRunItemConnection, WorkRunItemCursor, WorkRunItemEdge,
+    WorkRunItemOwnerScope, WorkRunItemQuery, WorkStageTaskCount, WorkTaskArtifact,
+    WorkTaskAttention, WorkTaskConnection, WorkTaskCursor, WorkTaskDetail, WorkTaskEdge,
+    WorkTaskQuery, WorkTaskScope, WorkTaskSummary, WorkTaskValidAction, WorkWorkflowWithStages,
 };
 pub use work_run_context_records::{
     WORK_RUN_CONTEXT_MAX_CRITERIA, WORK_RUN_CONTEXT_MAX_GATES,

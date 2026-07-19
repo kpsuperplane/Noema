@@ -4,17 +4,13 @@ use std::str::FromStr;
 
 use noema_tasks::{
     AnswerTask, GateResolutionKind, PERSONAL_QUEUE_STAGE_ID, RetryTask, RunKind, RunTerminalKind,
-    TaskGateId, TaskGateKind, TaskGateState, TaskMessageKind, TaskRecoveryReason, WorkCommand,
-    WorkDomainError, WorkEventPayload, WorkflowStageBehavior, WorkflowStageId,
+    TaskGateId, TaskGateState, TaskMessageKind, TaskRecoveryReason, WorkCommand, WorkDomainError,
+    WorkEventPayload, WorkflowStageBehavior, WorkflowStageId,
 };
 use rusqlite::{OptionalExtension, Transaction, params};
 
 use super::{WorkCommandService, helpers};
-use crate::{
-    StoreError,
-    ids::allocate_id,
-    work_events::{WorkEventScope, append_work_event_tx},
-};
+use crate::{StoreError, ids::allocate_id, work_events::append_work_event_tx};
 
 #[path = "work_command_accept.rs"]
 mod accept;
@@ -24,18 +20,6 @@ mod cancel_reopen;
 mod request_changes;
 #[path = "work_command_human_validation.rs"]
 mod validation;
-
-#[derive(Debug, Clone)]
-struct GateState {
-    gate_id: TaskGateId,
-    generation: u64,
-    contract_id: Option<noema_tasks::TaskContractId>,
-    kind: TaskGateKind,
-    state: TaskGateState,
-    recovery_reason: Option<TaskRecoveryReason>,
-    retry_run_kind: Option<RunKind>,
-    originating_run_id: Option<String>,
-}
 
 struct OriginatingRunRow {
     run_kind: String,
@@ -76,18 +60,8 @@ async fn answer(
 ) -> Result<helpers::CommandWrite, StoreError> {
     let envelope = WorkCommand::AnswerTask(command.clone());
     let task_id = command.precondition.task_id.clone();
-    let write = service
-        .store
-        .with_immediate_transaction_retry(|transaction| {
-            if let Some(replay) = helpers::lookup_receipt_tx(transaction, &envelope)? {
-                return Ok(replay);
-            }
-            let mut task = helpers::load_task_state_tx(transaction, &task_id)?;
-            helpers::check_task_fence(
-                &task,
-                command.precondition.expected_revision,
-                command.precondition.expected_generation,
-            )?;
+    helpers::command_transaction(&service.store, &envelope, |transaction| {
+            let mut task = helpers::load_fenced_task_tx(transaction, &command.precondition)?;
             if task.stage_behavior != WorkflowStageBehavior::HumanGate {
                 return Err(StoreError::Work(WorkDomainError::InvalidTransition));
             }
@@ -118,12 +92,7 @@ async fn answer(
                 "UPDATE task_gates SET gate_state = 'resolved', resolved_by_actor_id = ?2, resolution_message_id = ?3, resolved_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE gate_id = ?1 AND gate_state = 'open'",
                 params![gate.gate_id.as_str(), command.meta.actor_id, message_id.as_str()],
             )?;
-            let revision = task.revision.checked_add(1).ok_or_else(|| {
-                StoreError::Work(WorkDomainError::InvalidInput {
-                    field: "task.revision",
-                    message: "revision overflow".to_string(),
-                })
-            })?;
+            let revision = helpers::increment(task.revision, "task.revision")?;
             transaction.execute(
                 "UPDATE tasks SET stage_id = ?2, active_gate_id = NULL, queued_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), revision = ?3, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND revision = ?4 AND generation = ?5",
                 params![task_id.as_str(), PERSONAL_QUEUE_STAGE_ID, revision, task.revision, task.generation],
@@ -133,7 +102,7 @@ async fn answer(
             task.revision = revision;
             let _message_event = append_work_event_tx(
                 transaction,
-                scope(&task, &command.meta.actor_id, command.meta.causation_id.as_deref(), &command.meta.correlation_id),
+                helpers::event_context(&command.meta).task_scope(&task, None),
                 WorkEventPayload::task_message_appended(
                     message_id.clone(),
                     task.generation,
@@ -145,7 +114,7 @@ async fn answer(
             )?;
             let _gate_event = append_work_event_tx(
                 transaction,
-                scope(&task, &command.meta.actor_id, command.meta.causation_id.as_deref(), &command.meta.correlation_id),
+                helpers::event_context(&command.meta).task_scope(&task, None),
                 WorkEventPayload::gate_resolved(
                     gate.gate_id.clone(),
                     task.generation,
@@ -157,7 +126,7 @@ async fn answer(
             )?;
             let _stage_event = append_work_event_tx(
                 transaction,
-                scope(&task, &command.meta.actor_id, command.meta.causation_id.as_deref(), &command.meta.correlation_id),
+                helpers::event_context(&command.meta).task_scope(&task, None),
                 WorkEventPayload::task_stage_changed(
                     revision,
                     task.generation,
@@ -214,13 +183,8 @@ async fn answer(
                 )?;
                 let _origin_completed_event = append_work_event_tx(
                     transaction,
-                    scope_with_run(
-                        &task,
-                        originating_run_id,
-                        &command.meta.actor_id,
-                        command.meta.causation_id.as_deref(),
-                        &command.meta.correlation_id,
-                    ),
+                    helpers::event_context(&command.meta)
+                        .task_scope(&task, Some(originating_run_id)),
                     WorkEventPayload::run_completed(
                         origin.run_kind,
                         task.generation,
@@ -282,11 +246,7 @@ async fn answer(
                         attempt_index,
                         triggering_submission_id: trigger_submission,
                         triggering_review_id: trigger_review.as_deref(),
-                        event: helpers::CommandEventContext {
-                            actor_id: &command.meta.actor_id,
-                            causation_id: command.meta.causation_id.as_deref(),
-                            correlation_id: &command.meta.correlation_id,
-                        },
+                        event: helpers::event_context(&command.meta),
                     },
                 )
             } else {
@@ -303,41 +263,33 @@ async fn answer(
                         parent_run_id: origin,
                         triggering_submission_id: trigger_submission,
                         triggering_review_id: trigger_review.as_deref(),
-                        event: helpers::CommandEventContext {
-                            actor_id: &command.meta.actor_id,
-                            causation_id: command.meta.causation_id.as_deref(),
-                            correlation_id: &command.meta.correlation_id,
-                        },
+                        event: helpers::event_context(&command.meta),
                     },
                 )
             };
             let (run_id, run_event) = match queued {
                 Ok(queued) => queued,
                 Err(error) if helpers::provider_route_unavailable(&error) => {
-                    let mut write = super::recovery::open_configuration_recovery_tx(
+                    let write = super::recovery::open_configuration_recovery_tx(
                         transaction,
                         &mut task,
                         super::recovery::ConfigurationRecovery {
                             retry_run_kind: run_kind,
                             originating_run_id: origin,
-                            event: helpers::CommandEventContext {
-                                actor_id: &command.meta.actor_id,
-                                causation_id: command.meta.causation_id.as_deref(),
-                                correlation_id: &command.meta.correlation_id,
-                            },
+                            event: helpers::event_context(&command.meta),
                         },
                     )?;
-                    helpers::save_receipt_tx(transaction, &envelope, &mut write)?;
-                    return Ok(write);
+                    return Ok(write.into());
                 }
                 Err(error) => return Err(error),
             };
-            let mut write = helpers::write_marker(run_event, Some(task_id.clone()), None, gate.contract_id, Some(gate.gate_id), Some(run_id));
-            helpers::save_receipt_tx(transaction, &envelope, &mut write)?;
-            Ok(write)
+            Ok(helpers::task_write(run_event, task_id.clone())
+                .contract(gate.contract_id)
+                .gate(Some(gate.gate_id))
+                .run(Some(run_id))
+                .into())
         })
-        .await?;
-    Ok(write)
+        .await
 }
 
 async fn retry(
@@ -346,16 +298,8 @@ async fn retry(
 ) -> Result<helpers::CommandWrite, StoreError> {
     let envelope = WorkCommand::RetryTask(command.clone());
     let task_id = command.precondition.task_id.clone();
-    let write = service.store.with_immediate_transaction_retry(|transaction| {
-        if let Some(replay) = helpers::lookup_receipt_tx(transaction, &envelope)? {
-            return Ok(replay);
-        }
-        let mut task = helpers::load_task_state_tx(transaction, &task_id)?;
-        helpers::check_task_fence(
-            &task,
-            command.precondition.expected_revision,
-            command.precondition.expected_generation,
-        )?;
+    helpers::command_transaction(&service.store, &envelope, |transaction| {
+        let mut task = helpers::load_fenced_task_tx(transaction, &command.precondition)?;
         if task.stage_behavior != WorkflowStageBehavior::HumanGate {
             return Err(StoreError::Work(WorkDomainError::InvalidTransition));
         }
@@ -387,12 +331,7 @@ async fn retry(
             params![gate.gate_id.as_str(), command.meta.actor_id, message_id.as_str()],
         )?;
         let from_stage = task.stage_id.clone();
-        let revision = task.revision.checked_add(1).ok_or_else(|| {
-            StoreError::Work(WorkDomainError::InvalidInput {
-                field: "task.revision",
-                message: "revision overflow".to_string(),
-            })
-        })?;
+        let revision = helpers::increment(task.revision, "task.revision")?;
         transaction.execute(
             "UPDATE tasks SET stage_id = ?2, active_gate_id = NULL, queued_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), revision = ?3, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND revision = ?4 AND generation = ?5",
             params![task_id.as_str(), PERSONAL_QUEUE_STAGE_ID, revision, task.revision, task.generation],
@@ -400,14 +339,9 @@ async fn retry(
         task.stage_id = WorkflowStageId::new(PERSONAL_QUEUE_STAGE_ID).map_err(StoreError::Work)?;
         task.stage_behavior = WorkflowStageBehavior::Dispatch;
         task.revision = revision;
-        let _gate_event = append_work_event_tx(
-            transaction,
-            scope(
-                &task,
-                &command.meta.actor_id,
-                command.meta.causation_id.as_deref(),
-                &command.meta.correlation_id,
-            ),
+            let _gate_event = append_work_event_tx(
+                transaction,
+                helpers::event_context(&command.meta).task_scope(&task, None),
             WorkEventPayload::gate_resolved(
                 gate.gate_id.clone(),
                 task.generation,
@@ -420,12 +354,7 @@ async fn retry(
         if command.note.is_some() {
             let _note_event = append_work_event_tx(
                 transaction,
-                scope(
-                    &task,
-                    &command.meta.actor_id,
-                    command.meta.causation_id.as_deref(),
-                    &command.meta.correlation_id,
-                ),
+                helpers::event_context(&command.meta).task_scope(&task, None),
                 WorkEventPayload::task_message_appended(
                     message_id.clone(),
                     task.generation,
@@ -438,12 +367,7 @@ async fn retry(
         }
         let _stage_event = append_work_event_tx(
             transaction,
-            scope(
-                &task,
-                &command.meta.actor_id,
-                command.meta.causation_id.as_deref(),
-                &command.meta.correlation_id,
-            ),
+            helpers::event_context(&command.meta).task_scope(&task, None),
             WorkEventPayload::task_stage_changed(
                 revision,
                 task.generation,
@@ -476,12 +400,7 @@ async fn retry(
                     message: format!("review recovery gate {} has invalid role lineage", gate.gate_id),
                 });
             }
-            let review_round = parent.review_round.checked_add(1).ok_or_else(|| {
-                StoreError::Work(WorkDomainError::InvalidInput {
-                    field: "run.review_round",
-                    message: "review round overflow".to_string(),
-                })
-            })?;
+            let review_round = helpers::increment(parent.review_round, "run.review_round")?;
             let triggering_review_id: String = transaction
                 .query_row(
                     "SELECT review_id FROM task_reviews WHERE reviewer_run_id = ?1 AND task_id = ?2 AND contract_id = ?3",
@@ -505,11 +424,7 @@ async fn retry(
                     parent_run_id: Some(&parent.run_id),
                     triggering_submission_id: None,
                     triggering_review_id: Some(&triggering_review_id),
-                    event: helpers::CommandEventContext {
-                        actor_id: &command.meta.actor_id,
-                        causation_id: command.meta.causation_id.as_deref(),
-                        correlation_id: &command.meta.correlation_id,
-                    },
+                    event: helpers::event_context(&command.meta),
                 },
             )
         } else if let Some(parent) = parent.as_ref() {
@@ -518,12 +433,7 @@ async fn retry(
                     message: format!("gate {} changes its retry run kind", gate.gate_id),
                 });
             }
-            let attempt_index = parent.attempt_index.checked_add(1).ok_or_else(|| {
-                StoreError::Work(WorkDomainError::InvalidInput {
-                    field: "run.attempt_index",
-                    message: "attempt index overflow".to_string(),
-                })
-            })?;
+            let attempt_index = helpers::increment(parent.attempt_index, "run.attempt_index")?;
             helpers::queue_pinned_child_run_tx(
                 transaction,
                 service.provider_registry.as_ref(),
@@ -533,11 +443,7 @@ async fn retry(
                     attempt_index,
                     triggering_submission_id: parent.triggering_submission_id.as_deref(),
                     triggering_review_id: parent.triggering_review_id.as_deref(),
-                    event: helpers::CommandEventContext {
-                        actor_id: &command.meta.actor_id,
-                        causation_id: command.meta.causation_id.as_deref(),
-                        correlation_id: &command.meta.correlation_id,
-                    },
+                    event: helpers::event_context(&command.meta),
                 },
             )
         } else {
@@ -554,108 +460,54 @@ async fn retry(
                     parent_run_id: None,
                     triggering_submission_id: None,
                     triggering_review_id: None,
-                    event: helpers::CommandEventContext {
-                        actor_id: &command.meta.actor_id,
-                        causation_id: command.meta.causation_id.as_deref(),
-                        correlation_id: &command.meta.correlation_id,
-                    },
+                    event: helpers::event_context(&command.meta),
                 },
             )
         };
         let (run_id, run_event) = match queued {
             Ok(queued) => queued,
             Err(error) if helpers::provider_route_unavailable(&error) => {
-                let mut write = super::recovery::open_configuration_recovery_tx(
+                let write = super::recovery::open_configuration_recovery_tx(
                     transaction,
                     &mut task,
                     super::recovery::ConfigurationRecovery {
                         retry_run_kind: run_kind,
                         originating_run_id: gate.originating_run_id.as_deref(),
-                        event: helpers::CommandEventContext {
-                            actor_id: &command.meta.actor_id,
-                            causation_id: command.meta.causation_id.as_deref(),
-                            correlation_id: &command.meta.correlation_id,
-                        },
+                        event: helpers::event_context(&command.meta),
                     },
                 )?;
-                helpers::save_receipt_tx(transaction, &envelope, &mut write)?;
-                return Ok(write);
+                return Ok(write.into());
             }
             Err(error) => return Err(error),
         };
-        let mut write = helpers::write_marker(run_event, Some(task_id.clone()), None, gate.contract_id, Some(gate.gate_id), Some(run_id));
-        helpers::save_receipt_tx(transaction, &envelope, &mut write)?; Ok(write)
-    }).await?;
-    Ok(write)
+        Ok(helpers::task_write(run_event, task_id.clone())
+            .contract(gate.contract_id)
+            .gate(Some(gate.gate_id))
+            .run(Some(run_id))
+            .into())
+    })
+    .await
 }
 
-fn load_gate(transaction: &Transaction<'_>, gate_id: &TaskGateId) -> Result<GateState, StoreError> {
-    let row = transaction.query_row("SELECT task_generation, contract_id, gate_kind, gate_state, recovery_reason, retry_run_kind, originating_run_id FROM task_gates WHERE gate_id = ?1", [gate_id.as_str()], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, Option<String>>(4)?, row.get::<_, Option<String>>(5)?, row.get::<_, Option<String>>(6)?))).optional()?;
-    let Some((generation, contract_id, kind, state, reason, retry, originating)) = row else {
-        return Err(StoreError::Work(WorkDomainError::GateRequired));
-    };
-    Ok(GateState {
-        gate_id: gate_id.clone(),
-        generation: helpers::positive_u64(generation, "gate.generation")?,
-        contract_id: contract_id
-            .map(noema_tasks::TaskContractId::new)
-            .transpose()
-            .map_err(StoreError::Work)?,
-        kind: TaskGateKind::from_str(&kind).map_err(StoreError::Work)?,
-        state: TaskGateState::from_str(&state).map_err(StoreError::Work)?,
-        recovery_reason: reason
-            .map(|value| TaskRecoveryReason::from_str(&value))
-            .transpose()
-            .map_err(StoreError::Work)?,
-        retry_run_kind: retry
-            .map(|value| RunKind::from_str(&value))
-            .transpose()
-            .map_err(StoreError::Work)?,
-        originating_run_id: originating,
-    })
+fn load_gate(
+    transaction: &Transaction<'_>,
+    gate_id: &TaskGateId,
+) -> Result<noema_tasks::TaskGateRecord, StoreError> {
+    crate::work_reads::rows::load_gate_optional(transaction, gate_id)?
+        .ok_or(StoreError::Work(WorkDomainError::GateRequired))
 }
 
 fn validate_open_gate(
     task: &helpers::TaskState,
-    gate: &GateState,
+    gate: &noema_tasks::TaskGateRecord,
     expected: &TaskGateId,
 ) -> Result<(), StoreError> {
     if &gate.gate_id != expected
         || gate.state != TaskGateState::Open
-        || gate.generation != task.generation
+        || gate.task_generation != task.generation
         || task.active_gate_id.as_ref() != Some(expected)
     {
         return Err(StoreError::Work(WorkDomainError::GateRequired));
     }
     Ok(())
-}
-
-fn scope(
-    task: &helpers::TaskState,
-    actor: &str,
-    causation: Option<&str>,
-    correlation: &str,
-) -> WorkEventScope {
-    WorkEventScope {
-        workspace_id: task.workspace_id.clone(),
-        project_id: task.project_id.clone(),
-        task_id: Some(task.task_id.clone()),
-        run_id: None,
-        actor_id: actor.to_string(),
-        causation_id: causation.map(ToOwned::to_owned),
-        correlation_id: correlation.to_string(),
-    }
-}
-
-fn scope_with_run(
-    task: &helpers::TaskState,
-    run_id: &str,
-    actor: &str,
-    causation: Option<&str>,
-    correlation: &str,
-) -> WorkEventScope {
-    WorkEventScope {
-        run_id: Some(run_id.to_string()),
-        ..scope(task, actor, causation, correlation)
-    }
 }

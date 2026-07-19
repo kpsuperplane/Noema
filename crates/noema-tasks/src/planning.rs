@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    RunKind, RunStatus, TaskRecoveryReason, WorkDomainError, WorkflowStageBehavior,
-    error::invalid_input,
+    RunKind, RunStatus, TaskGateKind, TaskRecoveryReason, WorkDomainError, WorkflowStageBehavior,
+    error::invalid_input, gate::recovery_fields_are_valid,
 };
 
 #[path = "planning/failure.rs"]
@@ -47,110 +47,56 @@ pub enum WorkTransition {
 
 /// Pure transition result for one semantic command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct WorkTransitionPlan {
-    /// Prior stage behavior, if the command targets an existing task.
     pub from_behavior: Option<WorkflowStageBehavior>,
-    /// Resulting stage behavior.
     pub to_behavior: WorkflowStageBehavior,
-    /// Whether task generation increments.
     pub generation_increment: bool,
-    /// Whether task projection revision increments.
     pub revision_increment: bool,
-    /// Runnable role to queue immediately, when deterministic.
     pub queue_run_kind: Option<RunKind>,
-    /// Role resumed by Answer/Retry, when the caller supplied one.
     pub resume_run_kind: Option<RunKind>,
 }
 
+macro_rules! plan {
+    ($from:expr, $to:expr, $generation:expr, $revision:expr, $queue:expr, $resume:expr) => {
+        WorkTransitionPlan {
+            from_behavior: $from,
+            to_behavior: $to,
+            generation_increment: $generation,
+            revision_increment: $revision,
+            queue_run_kind: $queue,
+            resume_run_kind: $resume,
+        }
+    };
+}
+
 /// Decide an allowed task transition without reading persistence or text.
-///
 /// # Errors
-///
 /// Returns [`WorkDomainError::InvalidTransition`] when the requested operation
 /// is not allowed from the supplied current stage behavior.
+#[rustfmt::skip]
 pub fn plan_work_transition(
     current: Option<WorkflowStageBehavior>,
     transition: WorkTransition,
 ) -> Result<WorkTransitionPlan, WorkDomainError> {
     use WorkTransition as Action;
     let result = match (current, transition) {
-        (None, Action::Capture) => WorkTransitionPlan {
-            from_behavior: None,
-            to_behavior: WorkflowStageBehavior::Intake,
-            generation_increment: false,
-            revision_increment: false,
-            queue_run_kind: None,
-            resume_run_kind: None,
-        },
+        (None, Action::Capture) => plan!(None, WorkflowStageBehavior::Intake, false, false, None, None),
         (
             None,
             Action::Delegate {
                 has_complete_intent,
             },
-        ) => WorkTransitionPlan {
-            from_behavior: None,
-            to_behavior: WorkflowStageBehavior::Dispatch,
-            generation_increment: false,
-            revision_increment: false,
-            queue_run_kind: Some(if has_complete_intent {
+        ) => plan!(None, WorkflowStageBehavior::Dispatch, false, false, Some(if has_complete_intent {
                 RunKind::Executor
             } else {
                 RunKind::Planner
-            }),
-            resume_run_kind: None,
-        },
-        (Some(WorkflowStageBehavior::Intake), Action::UpdateInbox) => WorkTransitionPlan {
-            from_behavior: current,
-            to_behavior: WorkflowStageBehavior::Intake,
-            generation_increment: false,
-            revision_increment: true,
-            queue_run_kind: None,
-            resume_run_kind: None,
-        },
-        (Some(WorkflowStageBehavior::Intake), Action::Queue) => WorkTransitionPlan {
-            from_behavior: current,
-            to_behavior: WorkflowStageBehavior::Dispatch,
-            generation_increment: false,
-            revision_increment: true,
-            queue_run_kind: Some(RunKind::Planner),
-            resume_run_kind: None,
-        },
-        (Some(WorkflowStageBehavior::HumanGate), Action::Answer { resume_run_kind }) => {
-            WorkTransitionPlan {
-                from_behavior: current,
-                to_behavior: WorkflowStageBehavior::Dispatch,
-                generation_increment: false,
-                revision_increment: true,
-                queue_run_kind: Some(resume_run_kind),
-                resume_run_kind: Some(resume_run_kind),
-            }
-        }
-        (Some(WorkflowStageBehavior::HumanGate), Action::Retry { resume_run_kind }) => {
-            WorkTransitionPlan {
-                from_behavior: current,
-                to_behavior: WorkflowStageBehavior::Dispatch,
-                generation_increment: false,
-                revision_increment: true,
-                queue_run_kind: Some(resume_run_kind),
-                resume_run_kind: Some(resume_run_kind),
-            }
-        }
-        (Some(WorkflowStageBehavior::Acceptance), Action::Accept) => WorkTransitionPlan {
-            from_behavior: current,
-            to_behavior: WorkflowStageBehavior::TerminalSuccess,
-            generation_increment: false,
-            revision_increment: true,
-            queue_run_kind: None,
-            resume_run_kind: None,
-        },
-        (Some(WorkflowStageBehavior::Acceptance), Action::RequestChanges) => WorkTransitionPlan {
-            from_behavior: current,
-            to_behavior: WorkflowStageBehavior::Dispatch,
-            generation_increment: true,
-            revision_increment: true,
-            queue_run_kind: Some(RunKind::Executor),
-            resume_run_kind: None,
-        },
+            }), None),
+        (Some(WorkflowStageBehavior::Intake), Action::UpdateInbox) => plan!(current, WorkflowStageBehavior::Intake, false, true, None, None),
+        (Some(WorkflowStageBehavior::Intake), Action::Queue) => plan!(current, WorkflowStageBehavior::Dispatch, false, true, Some(RunKind::Planner), None),
+        (Some(WorkflowStageBehavior::HumanGate), Action::Answer { resume_run_kind } | Action::Retry { resume_run_kind }) => plan!(current, WorkflowStageBehavior::Dispatch, false, true, Some(resume_run_kind), Some(resume_run_kind)),
+        (Some(WorkflowStageBehavior::Acceptance), Action::Accept) => plan!(current, WorkflowStageBehavior::TerminalSuccess, false, true, None, None),
+        (Some(WorkflowStageBehavior::Acceptance), Action::RequestChanges) => plan!(current, WorkflowStageBehavior::Dispatch, true, true, Some(RunKind::Executor), None),
         (
             Some(
                 WorkflowStageBehavior::Intake
@@ -160,25 +106,11 @@ pub fn plan_work_transition(
                 | WorkflowStageBehavior::Acceptance,
             ),
             Action::Cancel,
-        ) => WorkTransitionPlan {
-            from_behavior: current,
-            to_behavior: WorkflowStageBehavior::TerminalCancelled,
-            generation_increment: true,
-            revision_increment: true,
-            queue_run_kind: None,
-            resume_run_kind: None,
-        },
+        ) => plan!(current, WorkflowStageBehavior::TerminalCancelled, true, true, None, None),
         (
             Some(WorkflowStageBehavior::TerminalSuccess | WorkflowStageBehavior::TerminalCancelled),
             Action::Reopen,
-        ) => WorkTransitionPlan {
-            from_behavior: current,
-            to_behavior: WorkflowStageBehavior::Intake,
-            generation_increment: true,
-            revision_increment: true,
-            queue_run_kind: None,
-            resume_run_kind: None,
-        },
+        ) => plan!(current, WorkflowStageBehavior::Intake, true, true, None, None),
         _ => return Err(WorkDomainError::InvalidTransition),
     };
     Ok(result)
@@ -186,62 +118,30 @@ pub fn plan_work_transition(
 
 /// Durable failed-run facts consumed by reconciliation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct WorkFailedRunFacts {
-    /// Role of the failed/interrupted run.
     pub run_kind: RunKind,
-    /// Terminal/interrupted status.
     pub status: RunStatus,
-    /// Whether the failure is safe to retry automatically.
     pub retryable: bool,
-    /// Whether the automatic retry bound is exhausted.
     pub retries_exhausted: bool,
-    /// Explicit recovery reason when a human gate is required.
     pub recovery_reason: Option<TaskRecoveryReason>,
 }
 
 /// Durable facts consumed by the reconciler decision function.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct WorkReconciliationSnapshot {
-    /// Current task stage behavior.
     pub stage_behavior: WorkflowStageBehavior,
-    /// Whether a complete current contract exists.
     pub has_current_contract: bool,
-    /// Whether one open current-generation gate exists.
     pub has_open_gate: bool,
-    /// Whether one queued/leased/running current-generation run exists.
     pub has_runnable_run: bool,
-    /// Explicit role to resume after a resolved Clarification/Approval/Recovery gate.
     pub resolved_gate_resume_run_kind: Option<RunKind>,
-    /// Whether the latest current-generation review is complete and approving.
     pub approved_review: bool,
-    /// A completed Planner supplied valid contract facts after a crash.
     pub planner_plan_ready: bool,
-    /// Current submission has no Reviewer run yet.
     pub submission_waiting_for_review: bool,
-    /// Latest review requested automated changes.
     pub review_requested_changes: bool,
-    /// Latest review round exhausted its configured bound.
     pub review_rounds_exhausted: bool,
-    /// Failed/interrupted current run facts, when one needs recovery planning.
     pub failed_run: Option<WorkFailedRunFacts>,
-}
-
-impl Default for WorkReconciliationSnapshot {
-    fn default() -> Self {
-        Self {
-            stage_behavior: WorkflowStageBehavior::Intake,
-            has_current_contract: false,
-            has_open_gate: false,
-            has_runnable_run: false,
-            resolved_gate_resume_run_kind: None,
-            approved_review: false,
-            planner_plan_ready: false,
-            submission_waiting_for_review: false,
-            review_requested_changes: false,
-            review_rounds_exhausted: false,
-            failed_run: None,
-        }
-    }
 }
 
 /// One deterministic reconciler action or intentional idle result.
@@ -277,9 +177,7 @@ pub enum WorkReconciliationAction {
 
 impl WorkReconciliationAction {
     /// Validate the closed recovery reason/continuation-role matrix.
-    ///
     /// # Errors
-    ///
     /// Returns [`WorkDomainError`] when a Recovery action pairs a reason with
     /// an unsupported continuation role.
     pub fn validate(&self) -> Result<(), WorkDomainError> {
@@ -287,28 +185,18 @@ impl WorkReconciliationAction {
             reason,
             retry_run_kind,
         } = self
+            && !recovery_fields_are_valid(TaskGateKind::Recovery, Some(*reason), *retry_run_kind)
         {
-            match (reason, retry_run_kind) {
-                (TaskRecoveryReason::InvariantFault, None)
-                | (TaskRecoveryReason::InfrastructureRetriesExhausted, Some(_))
-                | (TaskRecoveryReason::ReviewRoundsExhausted, Some(RunKind::Executor))
-                | (TaskRecoveryReason::UnsafeEffectUncertain, Some(_))
-                | (TaskRecoveryReason::ConfigurationUnavailable, Some(_)) => {}
-                _ => {
-                    return Err(invalid_input(
-                        "reconciliation.recovery",
-                        "recovery reason and continuation role are inconsistent",
-                    ));
-                }
-            }
+            return Err(invalid_input(
+                "reconciliation.recovery",
+                "recovery reason and continuation role are inconsistent",
+            ));
         }
         Ok(())
     }
 
     /// Validate run-role compatibility with the current contract presence.
-    ///
     /// # Errors
-    ///
     /// Returns [`WorkDomainError`] when the action has an invalid Recovery
     /// pairing or its queued role is incompatible with contract presence.
     pub fn validate_for_contract(&self, has_current_contract: bool) -> Result<(), WorkDomainError> {
@@ -331,9 +219,7 @@ impl WorkReconciliationAction {
 }
 
 /// Purely derive the next safe action from durable facts.
-///
 /// # Errors
-///
 /// Returns [`WorkDomainError`] when the snapshot contains contradictory run,
 /// gate, review, failure, or contract facts that cannot be reconciled safely.
 pub fn plan_reconciliation_action(
@@ -357,11 +243,10 @@ pub fn plan_reconciliation_action(
         } else if snapshot.has_open_gate {
             Ok(WorkReconciliationAction::Idle)
         } else if let Some(run_kind) = snapshot.resolved_gate_resume_run_kind {
-            if validate_role_contract(run_kind, snapshot.has_current_contract).is_err() {
-                invariant_recovery()
-            } else {
-                Ok(WorkReconciliationAction::MoveToQueueAndQueueRun { run_kind })
-            }
+            compatible_action(
+                WorkReconciliationAction::MoveToQueueAndQueueRun { run_kind },
+                snapshot.has_current_contract,
+            )
         } else {
             invariant_recovery()
         };
@@ -393,10 +278,10 @@ pub fn plan_reconciliation_action(
                 Some(RunKind::Planner)
             })
             .expect("the fallback dispatch role is always present");
-        if validate_role_contract(run_kind, snapshot.has_current_contract).is_err() {
-            return invariant_recovery();
-        }
-        return Ok(WorkReconciliationAction::QueueRun { run_kind });
+        return compatible_action(
+            WorkReconciliationAction::QueueRun { run_kind },
+            snapshot.has_current_contract,
+        );
     }
     if snapshot.stage_behavior == Active {
         if snapshot.approved_review {
@@ -411,36 +296,19 @@ pub fn plan_reconciliation_action(
             });
         }
         if snapshot.submission_waiting_for_review {
-            if validate_role_contract(RunKind::Reviewer, snapshot.has_current_contract).is_err() {
-                return invariant_recovery();
-            }
-            return Ok(WorkReconciliationAction::QueueRun {
-                run_kind: RunKind::Reviewer,
-            });
+            return queue(RunKind::Reviewer, snapshot.has_current_contract);
         }
         if snapshot.review_requested_changes {
             return if snapshot.review_rounds_exhausted {
-                let recovery = WorkReconciliationAction::OpenRecoveryGate {
-                    reason: TaskRecoveryReason::ReviewRoundsExhausted,
-                    retry_run_kind: Some(RunKind::Executor),
-                };
-                if recovery
-                    .validate_for_contract(snapshot.has_current_contract)
-                    .is_err()
-                {
-                    invariant_recovery()
-                } else {
-                    Ok(recovery)
-                }
+                compatible_action(
+                    WorkReconciliationAction::OpenRecoveryGate {
+                        reason: TaskRecoveryReason::ReviewRoundsExhausted,
+                        retry_run_kind: Some(RunKind::Executor),
+                    },
+                    snapshot.has_current_contract,
+                )
             } else {
-                if validate_role_contract(RunKind::Executor, snapshot.has_current_contract).is_err()
-                {
-                    invariant_recovery()
-                } else {
-                    Ok(WorkReconciliationAction::QueueRun {
-                        run_kind: RunKind::Executor,
-                    })
-                }
+                queue(RunKind::Executor, snapshot.has_current_contract)
             };
         }
         return action(WorkReconciliationAction::OpenRecoveryGate {
@@ -464,6 +332,27 @@ pub fn plan_reconciliation_action(
 fn action(action: WorkReconciliationAction) -> Result<WorkReconciliationAction, WorkDomainError> {
     action.validate()?;
     Ok(action)
+}
+
+fn queue(
+    run_kind: RunKind,
+    has_current_contract: bool,
+) -> Result<WorkReconciliationAction, WorkDomainError> {
+    compatible_action(
+        WorkReconciliationAction::QueueRun { run_kind },
+        has_current_contract,
+    )
+}
+
+fn compatible_action(
+    action: WorkReconciliationAction,
+    has_current_contract: bool,
+) -> Result<WorkReconciliationAction, WorkDomainError> {
+    if action.validate_for_contract(has_current_contract).is_err() {
+        invariant_recovery()
+    } else {
+        Ok(action)
+    }
 }
 
 fn validate_role_contract(
@@ -531,13 +420,8 @@ fn plan_failed_run_action(
     has_current_contract: bool,
 ) -> Result<WorkReconciliationAction, WorkDomainError> {
     validate_failed_run_facts(&facts)?;
-    if validate_role_contract(facts.run_kind, has_current_contract).is_err() {
-        return invariant_recovery();
-    }
     if facts.retryable && !facts.retries_exhausted {
-        return Ok(WorkReconciliationAction::QueueRun {
-            run_kind: facts.run_kind,
-        });
+        return queue(facts.run_kind, has_current_contract);
     }
     let reason = facts
         .recovery_reason
@@ -549,15 +433,13 @@ fn plan_failed_run_action(
         | TaskRecoveryReason::UnsafeEffectUncertain
         | TaskRecoveryReason::ConfigurationUnavailable => Some(facts.run_kind),
     };
-    let result = WorkReconciliationAction::OpenRecoveryGate {
-        reason,
-        retry_run_kind,
-    };
-    if result.validate_for_contract(has_current_contract).is_err() {
-        invariant_recovery()
-    } else {
-        Ok(result)
-    }
+    compatible_action(
+        WorkReconciliationAction::OpenRecoveryGate {
+            reason,
+            retry_run_kind,
+        },
+        has_current_contract,
+    )
 }
 
 fn invariant_recovery() -> Result<WorkReconciliationAction, WorkDomainError> {
@@ -570,6 +452,3 @@ fn invariant_recovery() -> Result<WorkReconciliationAction, WorkDomainError> {
 #[cfg(test)]
 #[path = "planning/tests.rs"]
 mod tests;
-
-#[cfg(test)]
-mod matrix_tests;

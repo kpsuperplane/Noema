@@ -5,73 +5,29 @@ use crate::{
     WorkDomainError, error::invalid_input,
 };
 
-/// Structured result of an Approval gate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ApprovalDecision {
-    /// The governed action may continue.
-    Approved,
-    /// The governed action must not continue.
-    Declined,
-}
-
-impl ApprovalDecision {
-    /// Stable persisted representation.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Approved => "approved",
-            Self::Declined => "declined",
-        }
+string_enums! {
+    /// Structured result of an Approval gate.
+    pub enum ApprovalDecision, "approval_decision" {
+        /// The governed action may continue.
+        Approved => "approved",
+        /// The governed action must not continue.
+        Declined => "declined",
     }
-}
 
-impl std::fmt::Display for ApprovalDecision {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(self.as_str())
+
+    /// Human intervention category persisted on a task gate.
+    pub enum TaskGateKind, "task_gate.kind" {
+        /// Missing facts or an ambiguous choice.
+        Clarification => "clarification",
+        /// A governed decision required by policy.
+        Approval => "approval",
+        /// Retry/revision/recovery decision after automated work stopped.
+        Recovery => "recovery",
     }
-}
-
-impl std::str::FromStr for ApprovalDecision {
-    type Err = WorkDomainError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "approved" => Ok(Self::Approved),
-            "declined" => Ok(Self::Declined),
-            other => Err(invalid_input(
-                "approval_decision",
-                format!("unknown value {other}"),
-            )),
-        }
-    }
-}
-
-/// Human intervention category persisted on a task gate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TaskGateKind {
-    /// Missing facts or an ambiguous choice.
-    Clarification,
-    /// A governed decision required by policy.
-    Approval,
-    /// Retry/revision/recovery decision after automated work stopped.
-    Recovery,
 }
 
 impl TaskGateKind {
-    /// Stable persisted representation.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Clarification => "clarification",
-            Self::Approval => "approval",
-            Self::Recovery => "recovery",
-        }
-    }
-
     /// Whether this gate authorizes one resolution kind.
-    ///
     /// The recovery reason and continuation role are part of the authority:
     /// callers must not infer permission from the gate category alone.
     #[must_use]
@@ -113,142 +69,75 @@ impl TaskGateKind {
     }
 }
 
-impl std::fmt::Display for TaskGateKind {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(self.as_str())
+pub(crate) const fn recovery_fields_are_valid(
+    gate: TaskGateKind,
+    reason: Option<TaskRecoveryReason>,
+    retry: Option<RunKind>,
+) -> bool {
+    matches!(
+        (gate, reason, retry),
+        (
+            TaskGateKind::Clarification | TaskGateKind::Approval,
+            None,
+            None
+        ) | (
+            TaskGateKind::Recovery,
+            Some(TaskRecoveryReason::InvariantFault),
+            None
+        ) | (
+            TaskGateKind::Recovery,
+            Some(TaskRecoveryReason::ReviewRoundsExhausted),
+            Some(RunKind::Executor)
+        ) | (
+            TaskGateKind::Recovery,
+            Some(
+                TaskRecoveryReason::InfrastructureRetriesExhausted
+                    | TaskRecoveryReason::UnsafeEffectUncertain
+                    | TaskRecoveryReason::ConfigurationUnavailable
+            ),
+            Some(_)
+        )
+    )
+}
+
+string_enums! {
+    /// Closed reason for a Recovery gate.
+    pub enum TaskRecoveryReason, "task_gate.recovery_reason" {
+        /// Automatic infrastructure retry bound was exhausted.
+        InfrastructureRetriesExhausted => "infrastructure_retries_exhausted",
+        /// Automated reviewer round bound was exhausted.
+        ReviewRoundsExhausted => "review_rounds_exhausted",
+        /// An external effect may have occurred and cannot be replayed safely.
+        UnsafeEffectUncertain => "unsafe_effect_uncertain",
+        /// Required provider/model/policy configuration is unavailable.
+        ConfigurationUnavailable => "configuration_unavailable",
+        /// Durable facts are inconsistent and require a human decision.
+        InvariantFault => "invariant_fault",
     }
-}
 
-impl std::str::FromStr for TaskGateKind {
-    type Err = WorkDomainError;
 
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "clarification" => Ok(Self::Clarification),
-            "approval" => Ok(Self::Approval),
-            "recovery" => Ok(Self::Recovery),
-            other => Err(invalid_input(
-                "task_gate.kind",
-                format!("unknown value {other}"),
-            )),
-        }
-    }
-}
-
-/// Closed reason for a Recovery gate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TaskRecoveryReason {
-    /// Automatic infrastructure retry bound was exhausted.
-    InfrastructureRetriesExhausted,
-    /// Automated reviewer round bound was exhausted.
-    ReviewRoundsExhausted,
-    /// An external effect may have occurred and cannot be replayed safely.
-    UnsafeEffectUncertain,
-    /// Required provider/model/policy configuration is unavailable.
-    ConfigurationUnavailable,
-    /// Durable facts are inconsistent and require a human decision.
-    InvariantFault,
-}
-
-impl TaskRecoveryReason {
-    /// Stable persisted representation.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::InfrastructureRetriesExhausted => "infrastructure_retries_exhausted",
-            Self::ReviewRoundsExhausted => "review_rounds_exhausted",
-            Self::UnsafeEffectUncertain => "unsafe_effect_uncertain",
-            Self::ConfigurationUnavailable => "configuration_unavailable",
-            Self::InvariantFault => "invariant_fault",
-        }
-    }
-}
-
-impl std::fmt::Display for TaskRecoveryReason {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(self.as_str())
-    }
-}
-
-impl std::str::FromStr for TaskRecoveryReason {
-    type Err = WorkDomainError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "infrastructure_retries_exhausted" => Ok(Self::InfrastructureRetriesExhausted),
-            "review_rounds_exhausted" => Ok(Self::ReviewRoundsExhausted),
-            "unsafe_effect_uncertain" => Ok(Self::UnsafeEffectUncertain),
-            "configuration_unavailable" => Ok(Self::ConfigurationUnavailable),
-            "invariant_fault" => Ok(Self::InvariantFault),
-            other => Err(invalid_input(
-                "task_gate.recovery_reason",
-                format!("unknown value {other}"),
-            )),
-        }
-    }
-}
-
-/// Gate lifecycle state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TaskGateState {
-    /// Awaiting a person.
-    Open,
-    /// Resolved by an answer or retry.
-    Resolved,
-    /// Superseded by cancellation or a newer generation.
-    Superseded,
-}
-
-impl TaskGateState {
-    /// Stable persisted representation.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Open => "open",
-            Self::Resolved => "resolved",
-            Self::Superseded => "superseded",
-        }
-    }
-}
-
-impl std::fmt::Display for TaskGateState {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(self.as_str())
-    }
-}
-
-impl std::str::FromStr for TaskGateState {
-    type Err = WorkDomainError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "open" => Ok(Self::Open),
-            "resolved" => Ok(Self::Resolved),
-            "superseded" => Ok(Self::Superseded),
-            other => Err(invalid_input(
-                "task_gate.state",
-                format!("unknown value {other}"),
-            )),
-        }
+    /// Gate lifecycle state.
+    pub enum TaskGateState, "task_gate.state" {
+        /// Awaiting a person.
+        Open => "open",
+        /// Resolved by an answer or retry.
+        Resolved => "resolved",
+        /// Superseded by cancellation or a newer generation.
+        Superseded => "superseded",
     }
 }
 
 /// Structured answer to a gate; approval is never inferred from prose.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct TaskGateAnswer {
-    /// Durable human explanation or answer.
     pub message_markdown: String,
-    /// Required only for Approval gates.
     pub approval_decision: Option<ApprovalDecision>,
 }
 
 impl TaskGateAnswer {
     /// Validate answer requirements for one gate kind.
-    ///
     /// # Errors
-    ///
     /// Returns [`WorkDomainError`] when the answer is blank, an Approval gate
     /// omits a decision, or another gate kind supplies a decision.
     pub fn normalized_for(&self, kind: TaskGateKind) -> Result<Self, WorkDomainError> {
@@ -280,46 +169,29 @@ impl TaskGateAnswer {
 
 /// Durable human gate projection.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct TaskGateRecord {
-    /// Stable gate identity.
     pub gate_id: TaskGateId,
-    /// Owning task.
     pub task_id: TaskId,
-    /// Task generation at gate creation.
     pub task_generation: u64,
-    /// Contract being continued, when one exists.
     pub contract_id: Option<TaskContractId>,
-    /// Gate category.
     pub kind: TaskGateKind,
-    /// Gate lifecycle state.
     pub state: TaskGateState,
-    /// Recovery reason for Recovery gates.
     pub recovery_reason: Option<TaskRecoveryReason>,
-    /// Explicit continuation role for Recovery gates.
     pub retry_run_kind: Option<RunKind>,
-    /// Safe question shown to the person.
     pub prompt_markdown: String,
-    /// Bounded context shown with the question.
     pub context_markdown: String,
-    /// Actor/run that opened the gate.
     pub opened_by_actor_id: String,
-    /// Run whose safe boundary owns the gate.
     pub originating_run_id: Option<String>,
-    /// Resolver actor, once resolved/superseded.
     pub resolved_by_actor_id: Option<String>,
-    /// Answer message, for resolved gates.
     pub resolution_message_id: Option<TaskMessageId>,
-    /// Opening timestamp.
     pub opened_at: String,
-    /// Resolution timestamp.
     pub resolved_at: Option<String>,
 }
 
 impl TaskGateRecord {
     /// Validate closed gate/recovery combinations and required fields.
-    ///
     /// # Errors
-    ///
     /// Returns [`WorkDomainError`] when required gate fields are invalid, the
     /// recovery reason and continuation role disagree, or lifecycle state and
     /// resolution fields are inconsistent.
@@ -344,23 +216,12 @@ impl TaskGateRecord {
                         "recovery gates require a reason",
                     ));
                 }
-                match (self.recovery_reason, self.retry_run_kind) {
-                    (Some(TaskRecoveryReason::InvariantFault), None)
-                    | (Some(TaskRecoveryReason::ReviewRoundsExhausted), Some(RunKind::Executor))
-                    | (
-                        Some(
-                            TaskRecoveryReason::InfrastructureRetriesExhausted
-                            | TaskRecoveryReason::UnsafeEffectUncertain
-                            | TaskRecoveryReason::ConfigurationUnavailable,
-                        ),
-                        Some(_),
-                    ) => {}
-                    _ => {
-                        return Err(invalid_input(
-                            "task_gate.retry_run_kind",
-                            "recovery reason and continuation role are inconsistent",
-                        ));
-                    }
+                if !recovery_fields_are_valid(self.kind, self.recovery_reason, self.retry_run_kind)
+                {
+                    return Err(invalid_input(
+                        "task_gate.retry_run_kind",
+                        "recovery reason and continuation role are inconsistent",
+                    ));
                 }
             }
             TaskGateKind::Clarification | TaskGateKind::Approval => {
@@ -408,79 +269,33 @@ impl TaskGateRecord {
     }
 }
 
-/// Kind of durable human task message.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TaskMessageKind {
-    /// Answer to a clarification/approval/recovery gate.
-    HumanAnswer,
-    /// Request for a changed result from Review.
-    HumanChangeRequest,
-    /// Optional human note accompanying Retry.
-    RetryNote,
-}
-
-impl TaskMessageKind {
-    /// Stable persisted representation.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::HumanAnswer => "human_answer",
-            Self::HumanChangeRequest => "human_change_request",
-            Self::RetryNote => "retry_note",
-        }
-    }
-}
-
-impl std::fmt::Display for TaskMessageKind {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(self.as_str())
-    }
-}
-
-impl std::str::FromStr for TaskMessageKind {
-    type Err = WorkDomainError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "human_answer" => Ok(Self::HumanAnswer),
-            "human_change_request" => Ok(Self::HumanChangeRequest),
-            "retry_note" => Ok(Self::RetryNote),
-            other => Err(invalid_input(
-                "task_message.kind",
-                format!("unknown value {other}"),
-            )),
-        }
+string_enum! {
+    /// Kind of durable human task message.
+    pub enum TaskMessageKind, "task_message.kind" {
+        /// Answer to a clarification/approval/recovery gate.
+        HumanAnswer => "human_answer",
+        /// Request for a changed result from Review.
+        HumanChangeRequest => "human_change_request",
+        /// Optional human note accompanying Retry.
+        RetryNote => "retry_note",
     }
 }
 
 /// Durable human input retained as task evidence.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct TaskMessageRecord {
-    /// Stable message identity.
     pub message_id: TaskMessageId,
-    /// Owning task.
     pub task_id: TaskId,
-    /// Task generation at append time.
     pub task_generation: u64,
-    /// Contract linked to the message, when any.
     pub contract_id: Option<TaskContractId>,
-    /// Gate answered by the message, when any.
     pub gate_id: Option<TaskGateId>,
-    /// Review amended by the message, when any.
     pub review_id: Option<String>,
-    /// Message category.
     pub kind: TaskMessageKind,
-    /// Human Markdown body.
     pub body_markdown: String,
-    /// Structured Approval decision, when relevant.
     pub approval_decision: Option<ApprovalDecision>,
-    /// Author actor.
     pub author_actor_id: String,
-    /// Continuation run that consumed this message, when checkpointed.
     pub consumed_by_run_id: Option<String>,
-    /// Consumption timestamp.
     pub consumed_at: Option<String>,
-    /// Creation timestamp.
     pub created_at: String,
 }

@@ -7,7 +7,7 @@ use noema_tasks::{
 };
 use rusqlite::{OptionalExtension, params};
 
-use super::{WorkCommandService, helpers, scope, validation};
+use super::{WorkCommandService, helpers, validation};
 use crate::{StoreError, ids::allocate_id, work_events::append_work_event_tx};
 
 pub(super) async fn execute(
@@ -20,8 +20,7 @@ pub(super) async fn execute(
         if let Some(replay) = helpers::lookup_receipt_tx(transaction, &envelope)? {
             return Ok(replay);
         }
-        let task = helpers::load_task_state_tx(transaction, &task_id)?;
-        helpers::check_task_fence(&task, command.precondition.expected_revision, command.precondition.expected_generation)?;
+        let task = helpers::load_fenced_task_tx(transaction, &command.precondition)?;
         if task.stage_behavior != WorkflowStageBehavior::Acceptance || task.active_gate_id.is_some() {
             return Err(StoreError::Work(WorkDomainError::InvalidTransition));
         }
@@ -79,8 +78,8 @@ pub(super) async fn execute(
                 message: "current contract has no criteria".to_string(),
             }));
         }
-        let next_generation = task.generation.checked_add(1).ok_or_else(|| StoreError::Work(WorkDomainError::InvalidInput { field: "task.generation", message: "generation overflow".to_string() }))?;
-        let next_revision = task.revision.checked_add(1).ok_or_else(|| StoreError::Work(WorkDomainError::InvalidInput { field: "task.revision", message: "revision overflow".to_string() }))?;
+        let next_generation = helpers::increment(task.generation, "task.generation")?;
+        let next_revision = helpers::increment(task.revision, "task.revision")?;
         let mut next_task = task.clone();
         next_task.generation = next_generation;
         next_task.revision = next_revision;
@@ -102,11 +101,7 @@ pub(super) async fn execute(
                 criteria: &criteria,
                 complexity,
                 supersedes_contract_id: Some(&current_contract_id),
-                event: helpers::CommandEventContext {
-                    actor_id: &command.meta.actor_id,
-                    causation_id: command.meta.causation_id.as_deref(),
-                    correlation_id: &command.meta.correlation_id,
-                },
+                event: helpers::event_context(&command.meta),
             },
         )?;
         let message_id = noema_tasks::TaskMessageId::new(allocate_id("task_message")).map_err(StoreError::Work)?;
@@ -118,9 +113,9 @@ pub(super) async fn execute(
             "UPDATE tasks SET generation = ?2, revision = ?3, stage_id = ?4, current_contract_id = ?5, active_gate_id = NULL, latest_run_id = NULL, latest_submission_id = NULL, latest_review_id = NULL, accepted_submission_id = NULL, queued_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), completed_at = NULL, cancelled_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND generation = ?6 AND revision = ?7",
             params![task_id.as_str(), next_generation, next_revision, PERSONAL_QUEUE_STAGE_ID, contract_id.as_str(), task.generation, task.revision],
         )?;
-        let _message_event = append_work_event_tx(transaction, scope(&next_task, &command.meta.actor_id, command.meta.causation_id.as_deref(), &command.meta.correlation_id), WorkEventPayload::task_message_appended(message_id, next_generation, TaskMessageKind::HumanChangeRequest, None, Some(contract_id.clone())).map_err(StoreError::Work)?)?;
-        let _queued_event = append_work_event_tx(transaction, scope(&next_task, &command.meta.actor_id, command.meta.causation_id.as_deref(), &command.meta.correlation_id), WorkEventPayload::task_queued(next_revision, next_generation, Some(contract_id.clone()), RunKind::Executor).map_err(StoreError::Work)?)?;
-        let _stage_event = append_work_event_tx(transaction, scope(&next_task, &command.meta.actor_id, command.meta.causation_id.as_deref(), &command.meta.correlation_id), WorkEventPayload::task_stage_changed(next_revision, next_generation, WorkflowStageId::new(PERSONAL_REVIEW_STAGE_ID).map_err(StoreError::Work)?, next_task.stage_id.clone(), noema_tasks::TaskStageChangeReason::RequestChanges).map_err(StoreError::Work)?)?;
+        let _message_event = append_work_event_tx(transaction, helpers::event_context(&command.meta).task_scope(&next_task, None), WorkEventPayload::task_message_appended(message_id, next_generation, TaskMessageKind::HumanChangeRequest, None, Some(contract_id.clone())).map_err(StoreError::Work)?)?;
+        let _queued_event = append_work_event_tx(transaction, helpers::event_context(&command.meta).task_scope(&next_task, None), WorkEventPayload::task_queued(next_revision, next_generation, Some(contract_id.clone()), RunKind::Executor).map_err(StoreError::Work)?)?;
+        let _stage_event = append_work_event_tx(transaction, helpers::event_context(&command.meta).task_scope(&next_task, None), WorkEventPayload::task_stage_changed(next_revision, next_generation, WorkflowStageId::new(PERSONAL_REVIEW_STAGE_ID).map_err(StoreError::Work)?, next_task.stage_id.clone(), noema_tasks::TaskStageChangeReason::RequestChanges).map_err(StoreError::Work)?)?;
         let (run_id, run_event) = helpers::queue_run_tx(
             transaction,
             service.provider_registry.as_ref(),
@@ -134,16 +129,14 @@ pub(super) async fn execute(
                 parent_run_id: None,
                 triggering_submission_id: None,
                 triggering_review_id: Some(&review_id),
-                event: helpers::CommandEventContext {
-                    actor_id: &command.meta.actor_id,
-                    causation_id: command.meta.causation_id.as_deref(),
-                    correlation_id: &command.meta.correlation_id,
-                },
+                event: helpers::event_context(&command.meta),
             },
         )?;
-        let mut write = helpers::write_marker(run_event, Some(task_id.clone()), None, Some(contract_id), None, Some(run_id));
-        helpers::save_receipt_tx(transaction, &envelope, &mut write)?;
-        Ok(write)
+        helpers::finish_write_tx(
+            transaction,
+            &envelope,
+            helpers::task_write(run_event, task_id.clone()).contract(Some(contract_id)).run(Some(run_id)),
+        )
     }).await?;
     Ok(write)
 }

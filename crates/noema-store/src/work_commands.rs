@@ -4,11 +4,8 @@
 //! transaction-heavy implementations live beside the row adapters, while this
 //! module owns the public service envelope and the request fingerprint rules.
 
-use std::fmt::Write as _;
-
 use noema_providers::ProviderRegistryHandle;
 use noema_tasks::{WorkCommand, WorkCommandResult, WorkDomainError};
-use ring::digest::{SHA256, digest};
 
 use crate::{CommittedWorkCommandResult, NoemaStore, StoreError};
 
@@ -134,53 +131,37 @@ fn normalize_source_replay_meta(meta: &mut noema_tasks::CommandMeta) {
 
 fn json_fingerprint(value: &impl serde::Serialize) -> Result<String, StoreError> {
     let bytes = serde_json::to_vec(value)?;
-    let hash = digest(&SHA256, &bytes);
-    let mut fingerprint = String::with_capacity(hash.as_ref().len() * 2);
-    for byte in hash.as_ref() {
-        write!(&mut fingerprint, "{byte:02x}").expect("writing to String cannot fail");
-    }
-    Ok(fingerprint)
+    Ok(crate::work_row::sha256_hex(&bytes))
 }
 
 /// Return the command's optional idempotency key without inferring intent from
 /// any human text.  Provider/tool commands can require this at their boundary;
 /// UI commands may intentionally remain receipt-free.
 pub(crate) fn command_idempotency_key(command: &WorkCommand) -> Option<&str> {
-    match command {
-        WorkCommand::CaptureTask(input) => input.meta.idempotency_key.as_deref(),
-        WorkCommand::UpdateInboxTask(input) => input.meta.idempotency_key.as_deref(),
-        WorkCommand::QueueTask(input) => input.meta.idempotency_key.as_deref(),
-        WorkCommand::AnswerTask(input) => input.meta.idempotency_key.as_deref(),
-        WorkCommand::RetryTask(input) => input.meta.idempotency_key.as_deref(),
-        WorkCommand::AcceptTask(input) => input.meta.idempotency_key.as_deref(),
-        WorkCommand::RequestTaskChanges(input) => input.meta.idempotency_key.as_deref(),
-        WorkCommand::CancelTask(input) => input.meta.idempotency_key.as_deref(),
-        WorkCommand::ReopenTask(input) => input.meta.idempotency_key.as_deref(),
-        WorkCommand::CreateProject(input) => input.meta.idempotency_key.as_deref(),
-        WorkCommand::UpdateProject(input) => input.meta.idempotency_key.as_deref(),
-        WorkCommand::ArchiveProject(input) => input.meta.idempotency_key.as_deref(),
-        WorkCommand::ReopenProject(input) => input.meta.idempotency_key.as_deref(),
-        WorkCommand::DelegateTask(input) => input.meta.idempotency_key.as_deref(),
-    }
+    command_meta(command).idempotency_key.as_deref()
 }
 
 /// Return the normalized actor identity carried by a command.
 pub(crate) fn command_actor_id(command: &WorkCommand) -> &str {
+    &command_meta(command).actor_id
+}
+
+fn command_meta(command: &WorkCommand) -> &noema_tasks::CommandMeta {
     match command {
-        WorkCommand::CaptureTask(input) => &input.meta.actor_id,
-        WorkCommand::UpdateInboxTask(input) => &input.meta.actor_id,
-        WorkCommand::QueueTask(input) => &input.meta.actor_id,
-        WorkCommand::AnswerTask(input) => &input.meta.actor_id,
-        WorkCommand::RetryTask(input) => &input.meta.actor_id,
-        WorkCommand::AcceptTask(input) => &input.meta.actor_id,
-        WorkCommand::RequestTaskChanges(input) => &input.meta.actor_id,
-        WorkCommand::CancelTask(input) => &input.meta.actor_id,
-        WorkCommand::ReopenTask(input) => &input.meta.actor_id,
-        WorkCommand::CreateProject(input) => &input.meta.actor_id,
-        WorkCommand::UpdateProject(input) => &input.meta.actor_id,
-        WorkCommand::ArchiveProject(input) => &input.meta.actor_id,
-        WorkCommand::ReopenProject(input) => &input.meta.actor_id,
-        WorkCommand::DelegateTask(input) => &input.meta.actor_id,
+        WorkCommand::CaptureTask(input) => &input.meta,
+        WorkCommand::UpdateInboxTask(input) => &input.meta,
+        WorkCommand::QueueTask(input) => &input.meta,
+        WorkCommand::AnswerTask(input) => &input.meta,
+        WorkCommand::RetryTask(input) => &input.meta,
+        WorkCommand::AcceptTask(input) => &input.meta,
+        WorkCommand::RequestTaskChanges(input) => &input.meta,
+        WorkCommand::CancelTask(input) => &input.meta,
+        WorkCommand::ReopenTask(input) => &input.meta,
+        WorkCommand::CreateProject(input) => &input.meta,
+        WorkCommand::UpdateProject(input) => &input.meta,
+        WorkCommand::ArchiveProject(input) => &input.meta,
+        WorkCommand::ReopenProject(input) => &input.meta,
+        WorkCommand::DelegateTask(input) => &input.meta,
     }
 }
 

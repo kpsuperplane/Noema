@@ -24,7 +24,7 @@ pub(in crate::graphql) async fn task(
         .map_err(work_error)?
         .ok_or_else(unavailable)?;
     require_personal_workspace(&detail.workspace.workspace_id)?;
-    detail_projection(detail)
+    detail_from_store(detail)
 }
 
 /// Resolve a bounded project connection.
@@ -232,32 +232,21 @@ pub(in crate::graphql) async fn work_activity(
         .and_then(event_connection)
 }
 
-/// Request context and filters for terminal task history.
-pub(in crate::graphql) struct CompletedTasksRequest<'a> {
-    pub(in crate::graphql) state: &'a GraphqlState,
-    pub(in crate::graphql) principal_subject: &'a str,
-    pub(in crate::graphql) workspace_id: String,
-    pub(in crate::graphql) project_id: Option<String>,
-    pub(in crate::graphql) kind: GraphqlTerminalTaskKind,
-    pub(in crate::graphql) text: Option<String>,
-    pub(in crate::graphql) first: Option<i32>,
-    pub(in crate::graphql) after: Option<String>,
-}
-
 /// Resolve terminal task history with a stable kind filter.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "mirrors the GraphQL field contract"
+)]
 pub(in crate::graphql) async fn completed_tasks(
-    request: CompletedTasksRequest<'_>,
+    state: &GraphqlState,
+    principal_subject: &str,
+    workspace_id: String,
+    project_id: Option<String>,
+    kind: GraphqlTerminalTaskKind,
+    text: Option<String>,
+    first: Option<i32>,
+    after: Option<String>,
 ) -> Result<GraphqlTaskConnection> {
-    let CompletedTasksRequest {
-        state,
-        principal_subject,
-        workspace_id,
-        project_id,
-        kind,
-        text,
-        first,
-        after,
-    } = request;
     require_owner(principal_subject)?;
     let stage_behaviors = match kind {
         GraphqlTerminalTaskKind::Accepted => {

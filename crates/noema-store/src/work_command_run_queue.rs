@@ -12,11 +12,8 @@ use super::{
     positive_u32,
 };
 use crate::{
-    StoreError,
-    ids::allocate_id,
-    provider_selections::prove_selection_ready,
-    tasks::provider_selection::pool_selection_tx,
-    work_events::{WorkEventScope, append_work_event_tx},
+    StoreError, ids::allocate_id, provider_selections::prove_selection_ready,
+    tasks::provider_selection::pool_selection_tx, work_events::append_work_event_tx,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -234,15 +231,12 @@ fn insert_run_snapshot_tx(
     .map_err(StoreError::Work)?;
     let event = append_work_event_tx(
         transaction,
-        WorkEventScope {
-            workspace_id: task.workspace_id.clone(),
-            project_id: task.project_id.clone(),
-            task_id: Some(task.task_id.clone()),
-            run_id: Some(run_id.clone()),
-            actor_id: request.event.actor_id.to_string(),
-            causation_id: request.event.causation_id.map(ToOwned::to_owned),
-            correlation_id: request.event.correlation_id.to_string(),
-        },
+        request.event.scope(
+            &task.workspace_id,
+            task.project_id.as_ref(),
+            Some(&task.task_id),
+            Some(&run_id),
+        ),
         payload,
     )?;
     Ok((run_id, event))

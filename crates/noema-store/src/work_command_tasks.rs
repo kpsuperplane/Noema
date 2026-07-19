@@ -15,7 +15,7 @@ use crate::{
     StoreError,
     ids::allocate_id,
     tasks::provider_selection::{pool_selection_tx, reviewer_preference_tx},
-    work_events::{WorkEventScope, append_work_event_tx},
+    work_events::append_work_event_tx,
     work_notifications::enqueue_work_notification_tx,
 };
 
@@ -41,75 +41,63 @@ async fn capture(
     let task_id = noema_tasks::TaskId::new(allocate_id("task")).map_err(StoreError::Work)?;
     let workspace_id = command.workspace_id.clone();
     let envelope = WorkCommand::CaptureTask(command.clone());
-    let write = service
-        .store
-        .with_immediate_transaction_retry(|transaction| {
-            if let Some(replay) = helpers::lookup_receipt_tx(transaction, &envelope)? {
-                return Ok(replay);
-            }
-            if let Some(replay) = helpers::lookup_capture_source_receipt_tx(transaction, command)? {
-                return Ok(replay);
-            }
-            require_workspace(transaction, &workspace_id)?;
-            validate_project_target(transaction, &workspace_id, command.project_id.as_ref())?;
-            transaction.execute(
-                r#"INSERT INTO tasks (
+    helpers::command_transaction(&service.store, &envelope, |transaction| {
+        if let Some(replay) = helpers::lookup_capture_source_receipt_tx(transaction, command)? {
+            return Ok(helpers::CommandTransactionOutcome::Replay(replay));
+        }
+        require_workspace(transaction, &workspace_id)?;
+        validate_project_target(transaction, &workspace_id, command.project_id.as_ref())?;
+        transaction.execute(
+            r#"INSERT INTO tasks (
                      task_id, workspace_id, project_id, workflow_id, stage_id,
                      title, description_markdown, source_kind, source_conversation_id,
                      source_turn_id, source_item_id, source_tool_call_id,
                      created_by_actor_id
                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"#,
-                params![
-                    task_id.as_str(),
-                    workspace_id.as_str(),
-                    command.project_id.as_ref().map(ProjectId::as_str),
-                    noema_tasks::PERSONAL_WORKFLOW_ID,
-                    PERSONAL_INBOX_STAGE_ID,
-                    command.title,
-                    command.description_markdown,
-                    command.provenance.source_kind.as_str(),
-                    command.provenance.conversation_id,
-                    command.provenance.turn_id,
-                    command.provenance.item_id,
-                    command.provenance.source_tool_call_id,
-                    command.provenance.created_by_actor_id,
-                ],
-            )?;
-            let payload = WorkEventPayload::task_captured(
-                1,
-                1,
-                WorkflowStageId::new(PERSONAL_INBOX_STAGE_ID).map_err(StoreError::Work)?,
-                command.provenance.source_kind,
-            )
-            .map_err(StoreError::Work)?;
-            let mut event = append_work_event_tx(
-                transaction,
-                WorkEventScope {
-                    workspace_id: workspace_id.clone(),
-                    project_id: command.project_id.clone(),
-                    task_id: Some(task_id.clone()),
-                    run_id: None,
-                    actor_id: command.meta.actor_id.clone(),
-                    causation_id: command.meta.causation_id.clone(),
-                    correlation_id: command.meta.correlation_id.clone(),
-                },
-                payload,
-            )?;
-            if let Some(notification_event) = enqueue_work_notification_tx(
-                transaction,
-                &event,
-                noema_tasks::NotificationKind::TaskCreated,
-                &serde_json::json!({"task_id": task_id.as_str(), "title": command.title}),
-            )? {
-                event = notification_event;
-            }
-            let mut write =
-                helpers::write_marker(event, Some(task_id.clone()), None, None, None, None);
-            helpers::save_receipt_tx(transaction, &envelope, &mut write)?;
-            Ok(write)
-        })
-        .await?;
-    Ok(write)
+            params![
+                task_id.as_str(),
+                workspace_id.as_str(),
+                command.project_id.as_ref().map(ProjectId::as_str),
+                noema_tasks::PERSONAL_WORKFLOW_ID,
+                PERSONAL_INBOX_STAGE_ID,
+                command.title,
+                command.description_markdown,
+                command.provenance.source_kind.as_str(),
+                command.provenance.conversation_id,
+                command.provenance.turn_id,
+                command.provenance.item_id,
+                command.provenance.source_tool_call_id,
+                command.provenance.created_by_actor_id,
+            ],
+        )?;
+        let payload = WorkEventPayload::task_captured(
+            1,
+            1,
+            WorkflowStageId::new(PERSONAL_INBOX_STAGE_ID).map_err(StoreError::Work)?,
+            command.provenance.source_kind,
+        )
+        .map_err(StoreError::Work)?;
+        let mut event = append_work_event_tx(
+            transaction,
+            helpers::event_context(&command.meta).scope(
+                &workspace_id,
+                command.project_id.as_ref(),
+                Some(&task_id),
+                None,
+            ),
+            payload,
+        )?;
+        if let Some(notification_event) = enqueue_work_notification_tx(
+            transaction,
+            &event,
+            noema_tasks::NotificationKind::TaskCreated,
+            &serde_json::json!({"task_id": task_id.as_str(), "title": command.title}),
+        )? {
+            event = notification_event;
+        }
+        Ok(helpers::task_write(event, task_id.clone()).into())
+    })
+    .await
 }
 
 async fn update_inbox(
@@ -118,18 +106,8 @@ async fn update_inbox(
 ) -> Result<helpers::CommandWrite, StoreError> {
     let envelope = WorkCommand::UpdateInboxTask(command.clone());
     let task_id = command.precondition.task_id.clone();
-    let write = service
-        .store
-        .with_immediate_transaction_retry(|transaction| {
-            if let Some(replay) = helpers::lookup_receipt_tx(transaction, &envelope)? {
-                return Ok(replay);
-            }
-            let task = helpers::load_task_state_tx(transaction, &task_id)?;
-            helpers::check_task_fence(
-                &task,
-                command.precondition.expected_revision,
-                command.precondition.expected_generation,
-            )?;
+    helpers::command_transaction(&service.store, &envelope, |transaction| {
+            let task = helpers::load_fenced_task_tx(transaction, &command.precondition)?;
             if task.stage_behavior != WorkflowStageBehavior::Intake {
                 return Err(StoreError::Work(WorkDomainError::InvalidTransition));
             }
@@ -144,12 +122,7 @@ async fn update_inbox(
                 .description_markdown
                 .as_deref()
                 .unwrap_or(&task.description_markdown);
-            let revision = task.revision.checked_add(1).ok_or_else(|| {
-                StoreError::Work(WorkDomainError::InvalidInput {
-                    field: "task.revision",
-                    message: "revision overflow".to_string(),
-                })
-            })?;
+            let revision = helpers::increment(task.revision, "task.revision")?;
             transaction.execute(
                 "UPDATE tasks SET title = ?2, description_markdown = ?3, project_id = ?4, revision = ?5, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND revision = ?6 AND generation = ?7",
                 params![
@@ -176,23 +149,17 @@ async fn update_inbox(
                 .map_err(StoreError::Work)?;
             let event = append_work_event_tx(
                 transaction,
-                WorkEventScope {
-                    workspace_id: task.workspace_id,
-                    project_id: project_id.cloned(),
-                    task_id: Some(task_id.clone()),
-                    run_id: None,
-                    actor_id: command.meta.actor_id.clone(),
-                    causation_id: command.meta.causation_id.clone(),
-                    correlation_id: command.meta.correlation_id.clone(),
-                },
+                helpers::event_context(&command.meta).scope(
+                    &task.workspace_id,
+                    project_id,
+                    Some(&task_id),
+                    None,
+                ),
                 payload,
             )?;
-            let mut write = helpers::write_marker(event, Some(task_id.clone()), None, None, None, None);
-            helpers::save_receipt_tx(transaction, &envelope, &mut write)?;
-            Ok(write)
+            Ok(helpers::task_write(event, task_id.clone()).into())
         })
-        .await?;
-    Ok(write)
+        .await
 }
 
 async fn queue(
@@ -201,28 +168,13 @@ async fn queue(
 ) -> Result<helpers::CommandWrite, StoreError> {
     let envelope = WorkCommand::QueueTask(command.clone());
     let task_id = command.precondition.task_id.clone();
-    let write = service
-        .store
-        .with_immediate_transaction_retry(|transaction| {
-            if let Some(replay) = helpers::lookup_receipt_tx(transaction, &envelope)? {
-                return Ok(replay);
-            }
-            let mut task = helpers::load_task_state_tx(transaction, &task_id)?;
-            helpers::check_task_fence(
-                &task,
-                command.precondition.expected_revision,
-                command.precondition.expected_generation,
-            )?;
+    helpers::command_transaction(&service.store, &envelope, |transaction| {
+            let mut task = helpers::load_fenced_task_tx(transaction, &command.precondition)?;
             if task.stage_behavior != WorkflowStageBehavior::Intake {
                 return Err(StoreError::Work(WorkDomainError::InvalidTransition));
             }
             validate_project_target(transaction, &task.workspace_id, task.project_id.as_ref())?;
-            let revision = task.revision.checked_add(1).ok_or_else(|| {
-                StoreError::Work(WorkDomainError::InvalidInput {
-                    field: "task.revision",
-                    message: "revision overflow".to_string(),
-                })
-            })?;
+            let revision = helpers::increment(task.revision, "task.revision")?;
             transaction.execute(
                 "UPDATE tasks SET stage_id = ?2, queued_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), revision = ?3, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND revision = ?4 AND generation = ?5",
                 params![task_id.as_str(), PERSONAL_QUEUE_STAGE_ID, revision, task.revision, task.generation],
@@ -239,15 +191,12 @@ async fn queue(
             .map_err(StoreError::Work)?;
             let _queued_event = append_work_event_tx(
                 transaction,
-                WorkEventScope {
-                    workspace_id: task.workspace_id.clone(),
-                    project_id: task.project_id.clone(),
-                    task_id: Some(task_id.clone()),
-                    run_id: None,
-                    actor_id: command.meta.actor_id.clone(),
-                    causation_id: command.meta.causation_id.clone(),
-                    correlation_id: command.meta.correlation_id.clone(),
-                },
+                helpers::event_context(&command.meta).scope(
+                    &task.workspace_id,
+                    task.project_id.as_ref(),
+                    Some(&task_id),
+                    None,
+                ),
                 queued,
             )?;
             let changed = WorkEventPayload::task_stage_changed(
@@ -260,15 +209,12 @@ async fn queue(
             .map_err(StoreError::Work)?;
             let _stage_event = append_work_event_tx(
                 transaction,
-                WorkEventScope {
-                    workspace_id: task.workspace_id.clone(),
-                    project_id: task.project_id.clone(),
-                    task_id: Some(task_id.clone()),
-                    run_id: None,
-                    actor_id: command.meta.actor_id.clone(),
-                    causation_id: command.meta.causation_id.clone(),
-                    correlation_id: command.meta.correlation_id.clone(),
-                },
+                helpers::event_context(&command.meta).scope(
+                    &task.workspace_id,
+                    task.project_id.as_ref(),
+                    Some(&task_id),
+                    None,
+                ),
                 changed,
             )?;
             let (run_id, run_event) = helpers::queue_run_tx(
@@ -284,19 +230,14 @@ async fn queue(
                     parent_run_id: None,
                     triggering_submission_id: None,
                     triggering_review_id: None,
-                    event: helpers::CommandEventContext {
-                        actor_id: &command.meta.actor_id,
-                        causation_id: command.meta.causation_id.as_deref(),
-                        correlation_id: &command.meta.correlation_id,
-                    },
+                    event: helpers::event_context(&command.meta),
                 },
             )?;
-            let mut write = helpers::write_marker(run_event, Some(task_id.clone()), None, None, None, Some(run_id));
-            helpers::save_receipt_tx(transaction, &envelope, &mut write)?;
-            Ok(write)
+            Ok(helpers::task_write(run_event, task_id.clone())
+                .run(Some(run_id))
+                .into())
         })
-        .await?;
-    Ok(write)
+        .await
 }
 
 async fn delegate(
@@ -312,134 +253,108 @@ async fn delegate(
     let task_id = noema_tasks::TaskId::new(allocate_id("task")).map_err(StoreError::Work)?;
     let workspace_id = command.workspace_id.clone();
     let envelope = WorkCommand::DelegateTask(command.clone());
-    let write = service
-        .store
-        .with_immediate_transaction_retry(|transaction| {
-            if let Some(replay) = helpers::lookup_receipt_tx(transaction, &envelope)? {
-                return Ok(replay);
-            }
-            if let Some(replay) = helpers::lookup_delegate_source_receipt_tx(transaction, command)?
-            {
-                return Ok(replay);
-            }
-            require_workspace(transaction, &workspace_id)?;
-            validate_project_target(transaction, &workspace_id, command.project_id.as_ref())?;
-            transaction.execute(
-                r#"INSERT INTO tasks (
+    helpers::command_transaction(&service.store, &envelope, |transaction| {
+        if let Some(replay) = helpers::lookup_delegate_source_receipt_tx(transaction, command)? {
+            return Ok(helpers::CommandTransactionOutcome::Replay(replay));
+        }
+        require_workspace(transaction, &workspace_id)?;
+        validate_project_target(transaction, &workspace_id, command.project_id.as_ref())?;
+        transaction.execute(
+            r#"INSERT INTO tasks (
                      task_id, workspace_id, project_id, workflow_id, stage_id,
                      title, description_markdown, source_kind, source_conversation_id,
                      source_turn_id, source_item_id, source_tool_call_id,
                      created_by_actor_id, queued_at
                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
                              strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"#,
-                params![
-                    task_id.as_str(),
-                    workspace_id.as_str(),
-                    command.project_id.as_ref().map(ProjectId::as_str),
-                    noema_tasks::PERSONAL_WORKFLOW_ID,
-                    PERSONAL_QUEUE_STAGE_ID,
-                    command.title,
-                    command.description_markdown,
-                    TaskSourceKind::ChatDelegate.as_str(),
-                    command.provenance.conversation_id,
-                    command.provenance.turn_id,
-                    command.provenance.item_id,
-                    command.provenance.source_tool_call_id,
-                    command.provenance.created_by_actor_id,
-                ],
-            )?;
-            let task = helpers::load_task_state_tx(transaction, &task_id)?;
-            let captured = WorkEventPayload::task_captured(
-                1,
-                1,
-                WorkflowStageId::new(PERSONAL_QUEUE_STAGE_ID).map_err(StoreError::Work)?,
-                TaskSourceKind::ChatDelegate,
-            )
-            .map_err(StoreError::Work)?;
-            let captured_event =
-                append_work_event_tx(transaction, scope(&task, command), captured)?;
-            let _notification_event = enqueue_work_notification_tx(
-                transaction,
-                &captured_event,
-                noema_tasks::NotificationKind::TaskCreated,
-                &serde_json::json!({"task_id": task_id.as_str(), "title": command.title}),
-            )?;
-            let contract = if let Some(intent) = &command.execution_intent {
-                let (contract_id, _contract_event) = create_contract_tx(
-                    transaction,
-                    service.provider_registry.as_ref(),
-                    &task,
-                    CreateContract {
-                        origin: ContractOrigin::Delegated,
-                        request_markdown: &intent.request_markdown,
-                        execution_plan_markdown: intent.execution_plan_markdown.as_deref(),
-                        criteria: &intent.criteria,
-                        complexity: intent.complexity,
-                        supersedes_contract_id: None,
-                        event: helpers::CommandEventContext {
-                            actor_id: &command.meta.actor_id,
-                            causation_id: command.meta.causation_id.as_deref(),
-                            correlation_id: &command.meta.correlation_id,
-                        },
-                    },
-                )?;
-                Some(contract_id)
-            } else {
-                None
-            };
-            let next_kind = if contract.is_some() {
-                noema_tasks::RunKind::Executor
-            } else {
-                noema_tasks::RunKind::Planner
-            };
-            let queued = WorkEventPayload::task_queued(1, 1, contract.clone(), next_kind)
-                .map_err(StoreError::Work)?;
-            let _queued_event = append_work_event_tx(transaction, scope(&task, command), queued)?;
-            let (run_id, run_event) = helpers::queue_run_tx(
+            params![
+                task_id.as_str(),
+                workspace_id.as_str(),
+                command.project_id.as_ref().map(ProjectId::as_str),
+                noema_tasks::PERSONAL_WORKFLOW_ID,
+                PERSONAL_QUEUE_STAGE_ID,
+                command.title,
+                command.description_markdown,
+                TaskSourceKind::ChatDelegate.as_str(),
+                command.provenance.conversation_id,
+                command.provenance.turn_id,
+                command.provenance.item_id,
+                command.provenance.source_tool_call_id,
+                command.provenance.created_by_actor_id,
+            ],
+        )?;
+        let task = helpers::load_task_state_tx(transaction, &task_id)?;
+        let captured = WorkEventPayload::task_captured(
+            1,
+            1,
+            WorkflowStageId::new(PERSONAL_QUEUE_STAGE_ID).map_err(StoreError::Work)?,
+            TaskSourceKind::ChatDelegate,
+        )
+        .map_err(StoreError::Work)?;
+        let captured_event = append_work_event_tx(
+            transaction,
+            helpers::event_context(&command.meta).task_scope(&task, None),
+            captured,
+        )?;
+        let _notification_event = enqueue_work_notification_tx(
+            transaction,
+            &captured_event,
+            noema_tasks::NotificationKind::TaskCreated,
+            &serde_json::json!({"task_id": task_id.as_str(), "title": command.title}),
+        )?;
+        let contract = if let Some(intent) = &command.execution_intent {
+            let (contract_id, _contract_event) = create_contract_tx(
                 transaction,
                 service.provider_registry.as_ref(),
                 &task,
-                helpers::QueueRun {
-                    run_kind: next_kind,
-                    contract_id: contract.as_ref(),
-                    planner_complexity: command.complexity_hint,
-                    review_round: u32::from(contract.is_some()),
-                    attempt_index: 0,
-                    parent_run_id: None,
-                    triggering_submission_id: None,
-                    triggering_review_id: None,
-                    event: helpers::CommandEventContext {
-                        actor_id: &command.meta.actor_id,
-                        causation_id: command.meta.causation_id.as_deref(),
-                        correlation_id: &command.meta.correlation_id,
-                    },
+                CreateContract {
+                    origin: ContractOrigin::Delegated,
+                    request_markdown: &intent.request_markdown,
+                    execution_plan_markdown: intent.execution_plan_markdown.as_deref(),
+                    criteria: &intent.criteria,
+                    complexity: intent.complexity,
+                    supersedes_contract_id: None,
+                    event: helpers::event_context(&command.meta),
                 },
             )?;
-            let mut write = helpers::write_marker(
-                run_event,
-                Some(task_id.clone()),
-                None,
-                contract,
-                None,
-                Some(run_id),
-            );
-            helpers::save_receipt_tx(transaction, &envelope, &mut write)?;
-            Ok(write)
-        })
-        .await?;
-    Ok(write)
-}
-
-fn scope(task: &helpers::TaskState, command: &DelegateTask) -> WorkEventScope {
-    WorkEventScope {
-        workspace_id: task.workspace_id.clone(),
-        project_id: task.project_id.clone(),
-        task_id: Some(task.task_id.clone()),
-        run_id: None,
-        actor_id: command.meta.actor_id.clone(),
-        causation_id: command.meta.causation_id.clone(),
-        correlation_id: command.meta.correlation_id.clone(),
-    }
+            Some(contract_id)
+        } else {
+            None
+        };
+        let next_kind = if contract.is_some() {
+            noema_tasks::RunKind::Executor
+        } else {
+            noema_tasks::RunKind::Planner
+        };
+        let queued = WorkEventPayload::task_queued(1, 1, contract.clone(), next_kind)
+            .map_err(StoreError::Work)?;
+        let _queued_event = append_work_event_tx(
+            transaction,
+            helpers::event_context(&command.meta).task_scope(&task, None),
+            queued,
+        )?;
+        let (run_id, run_event) = helpers::queue_run_tx(
+            transaction,
+            service.provider_registry.as_ref(),
+            &task,
+            helpers::QueueRun {
+                run_kind: next_kind,
+                contract_id: contract.as_ref(),
+                planner_complexity: command.complexity_hint,
+                review_round: u32::from(contract.is_some()),
+                attempt_index: 0,
+                parent_run_id: None,
+                triggering_submission_id: None,
+                triggering_review_id: None,
+                event: helpers::event_context(&command.meta),
+            },
+        )?;
+        Ok(helpers::task_write(run_event, task_id.clone())
+            .contract(contract)
+            .run(Some(run_id))
+            .into())
+    })
+    .await
 }
 
 fn require_workspace(
@@ -644,15 +559,12 @@ pub(crate) fn create_contract_tx(
     .map_err(StoreError::Work)?;
     let event = append_work_event_tx(
         transaction,
-        WorkEventScope {
-            workspace_id: task.workspace_id.clone(),
-            project_id: task.project_id.clone(),
-            task_id: Some(task.task_id.clone()),
-            run_id: None,
-            actor_id: request.event.actor_id.to_string(),
-            causation_id: request.event.causation_id.map(ToOwned::to_owned),
-            correlation_id: request.event.correlation_id.to_string(),
-        },
+        request.event.scope(
+            &task.workspace_id,
+            task.project_id.as_ref(),
+            Some(&task.task_id),
+            None,
+        ),
         payload,
     )?;
     Ok((contract_id, event))

@@ -11,6 +11,7 @@ use super::{
 use crate::{
     NoemaStore, StoreError, WorkOverview, WorkOverviewQuery, WorkStageTaskCount, WorkTaskQuery,
     WorkTaskScope, WorkWorkflowWithStages, sqlite::conversion_failure,
+    work_row::invalid as invalid_sql,
 };
 
 impl NoemaStore {
@@ -258,12 +259,4 @@ fn invariant(message: &'static str) -> StoreError {
     StoreError::InvariantViolation {
         message: message.to_string(),
     }
-}
-
-fn invalid_sql(index: usize, message: &'static str) -> rusqlite::Error {
-    conversion_failure(
-        index,
-        Type::Integer,
-        std::io::Error::new(std::io::ErrorKind::InvalidData, message),
-    )
 }

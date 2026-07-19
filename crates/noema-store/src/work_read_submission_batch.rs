@@ -8,7 +8,7 @@ use noema_tasks::{
 };
 use rusqlite::{Row, Transaction, types::Type};
 
-use crate::{StoreError, sqlite::conversion_failure};
+use crate::{StoreError, sqlite::conversion_failure, work_row::positive_u32};
 
 struct SubmissionBase {
     submission_id: String,
@@ -300,20 +300,6 @@ fn unique_ids<'a>(values: impl Iterator<Item = &'a str>) -> Result<String, Store
     values.sort();
     values.dedup();
     serde_json::to_string(&values).map_err(StoreError::Json)
-}
-
-fn positive_u32(row: &Row<'_>, index: usize) -> rusqlite::Result<u32> {
-    let value = u32::try_from(row.get::<_, i64>(index)?)
-        .map_err(|error| conversion_failure(index, Type::Integer, error))?;
-    if value == 0 {
-        Err(conversion_failure(
-            index,
-            Type::Integer,
-            std::io::Error::new(std::io::ErrorKind::InvalidData, "expected positive integer"),
-        ))
-    } else {
-        Ok(value)
-    }
 }
 
 fn invariant(message: &'static str) -> StoreError {

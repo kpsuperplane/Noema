@@ -3,11 +3,10 @@
 use noema_tasks::{GateResolutionKind, WorkDomainError};
 use rusqlite::{OptionalExtension, Transaction, params};
 
-use super::GateState;
 use crate::{StoreError, work_commands::helpers};
 
 pub(super) fn validate_gate_resolution(
-    gate: &GateState,
+    gate: &noema_tasks::TaskGateRecord,
     resolution: GateResolutionKind,
 ) -> Result<(), StoreError> {
     if gate

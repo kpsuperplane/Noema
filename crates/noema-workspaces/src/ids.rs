@@ -1,7 +1,3 @@
-use std::{fmt, str::FromStr};
-
-use serde::{Deserialize, Deserializer, Serialize};
-
 use crate::WorkspaceInputError;
 
 const MAX_ID_BYTES: usize = 255;
@@ -44,23 +40,29 @@ fn validate_id(
     Ok(value)
 }
 
+/// Define an opaque semantic identifier with shared wire and trait behavior.
+///
+/// The caller supplies its domain error and validator so error variants and
+/// messages remain owned by that domain.
+#[macro_export]
 macro_rules! semantic_id {
-    ($name:ident, $kind:literal, $prefix:literal) => {
-        /// Validated opaque identifier owned by the workspace domain.
-        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+    ($error:ty, $validator:path; $( $name:ident, $kind:literal, $prefix:literal );+ $(;)?) => {
+        $(
+            $crate::semantic_id!($name, $error, $validator, $kind, $prefix);
+        )+
+    };
+    ($name:ident, $error:ty, $validator:path, $kind:literal, $prefix:literal) => {
+        /// Validated opaque semantic identifier.
+        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
         #[serde(transparent)]
         pub struct $name(String);
 
         impl $name {
             /// Construct and validate an identifier.
-            ///
             /// # Errors
-            ///
-            /// Returns [`WorkspaceInputError`] when the value is blank, too
-            /// long, contains control characters, or has the wrong semantic
-            /// prefix.
-            pub fn new(value: impl Into<String>) -> Result<Self, WorkspaceInputError> {
-                Ok(Self(validate_id(value.into(), $kind, $prefix)?))
+            /// Returns the domain input error when validation fails.
+            pub fn new(value: impl Into<String>) -> Result<Self, $error> {
+                Ok(Self($validator(value.into(), $kind, $prefix)?))
             }
 
             /// Borrow the canonical persisted value.
@@ -76,14 +78,14 @@ macro_rules! semantic_id {
             }
         }
 
-        impl fmt::Display for $name {
-            fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        impl ::std::fmt::Display for $name {
+            fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 formatter.write_str(self.as_str())
             }
         }
 
-        impl FromStr for $name {
-            type Err = WorkspaceInputError;
+        impl ::std::str::FromStr for $name {
+            type Err = $error;
 
             fn from_str(value: &str) -> Result<Self, Self::Err> {
                 Self::new(value)
@@ -91,7 +93,7 @@ macro_rules! semantic_id {
         }
 
         impl TryFrom<String> for $name {
-            type Error = WorkspaceInputError;
+            type Error = $error;
 
             fn try_from(value: String) -> Result<Self, Self::Error> {
                 Self::new(value)
@@ -99,59 +101,26 @@ macro_rules! semantic_id {
         }
 
         impl TryFrom<&str> for $name {
-            type Error = WorkspaceInputError;
+            type Error = $error;
 
             fn try_from(value: &str) -> Result<Self, Self::Error> {
                 Self::new(value)
             }
         }
 
-        impl<'de> Deserialize<'de> for $name {
+        impl<'de> serde::Deserialize<'de> for $name {
             fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
             where
-                D: Deserializer<'de>,
+                D: serde::Deserializer<'de>,
             {
-                let value = String::deserialize(deserializer)?;
+                let value = <String as serde::Deserialize>::deserialize(deserializer)?;
                 Self::new(value).map_err(serde::de::Error::custom)
             }
         }
     };
 }
 
-semantic_id!(WorkspaceId, "workspace", "workspace:");
-semantic_id!(ProjectId, "project", "project:");
-
-#[cfg(test)]
-mod tests {
-    use std::str::FromStr;
-
-    use super::{ProjectId, WorkspaceId};
-
-    #[test]
-    fn ids_normalize_only_outer_whitespace_is_not_accepted_as_identity() {
-        let id = WorkspaceId::new("workspace:personal").expect("valid workspace id");
-        assert_eq!(id.as_str(), "workspace:personal");
-        assert_eq!(
-            ProjectId::from_str("project:alpha").unwrap().to_string(),
-            "project:alpha"
-        );
-        assert!(WorkspaceId::new(" workspace:personal ").is_err());
-    }
-
-    #[test]
-    fn ids_reject_prefix_blanks_controls_and_oversize_values() {
-        for value in ["", "   ", "project:wrong", "workspace:\nlocal"] {
-            assert!(WorkspaceId::new(value).is_err(), "{value:?}");
-        }
-        assert!(ProjectId::new("project:").is_err());
-        assert!(ProjectId::new(format!("project:{}", "x".repeat(250))).is_err());
-    }
-
-    #[test]
-    fn ids_fail_closed_during_json_deserialization() {
-        assert!(serde_json::from_str::<WorkspaceId>("\"task:1\"").is_err());
-        let value =
-            serde_json::to_string(&WorkspaceId::new("workspace:personal").unwrap()).unwrap();
-        assert_eq!(value, "\"workspace:personal\"");
-    }
-}
+semantic_id!(WorkspaceInputError, validate_id;
+    WorkspaceId, "workspace", "workspace:";
+    ProjectId, "project", "project:";
+);

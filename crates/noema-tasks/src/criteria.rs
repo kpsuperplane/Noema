@@ -2,26 +2,25 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{WorkDomainError, error::invalid_input};
+use crate::{
+    WorkDomainError,
+    error::invalid_input,
+    validation::{optional as normalize_optional, required as non_empty},
+};
 
 /// One immutable criterion in an execution contract.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct TaskValidationCriterion {
-    /// Stable criterion identity allocated by the store or planner.
     pub criterion_id: String,
-    /// Positive display/evaluation order.
     pub ordinal: u32,
-    /// Precise condition that must be true for approval.
     pub description: String,
-    /// Optional evidence or validation guidance.
     pub expected_evidence: Option<String>,
 }
 
 impl TaskValidationCriterion {
     /// Validate and normalize one criterion.
-    ///
     /// # Errors
-    ///
     /// Returns [`WorkDomainError`] when the identity or description is blank,
     /// or the ordinal is zero.
     pub fn normalized(&self) -> Result<Self, WorkDomainError> {
@@ -44,23 +43,19 @@ impl TaskValidationCriterion {
 
 /// Criterion supplied before the store allocates a stable id.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct NewTaskValidationCriterion {
-    /// Optional caller-supplied criterion id.
     pub criterion_id: Option<String>,
-    /// Positive display/evaluation order.
     pub ordinal: u32,
-    /// Precise condition that must be true for approval.
     pub description: String,
-    /// Optional evidence or validation guidance.
     pub expected_evidence: Option<String>,
 }
 
 impl NewTaskValidationCriterion {
     /// Normalize caller input while leaving id allocation to persistence.
-    ///
     /// # Errors
-    ///
-    /// Returns [`WorkDomainError`] when the description is blank or the ordinal is zero.
+    /// Returns [`WorkDomainError`] when the identity or description is blank,
+    /// or the ordinal is zero.
     pub fn normalized(&self) -> Result<Self, WorkDomainError> {
         if self.ordinal == 0 {
             return Err(invalid_input(
@@ -158,20 +153,4 @@ pub(crate) fn normalize_criteria(
         }
     }
     Ok(normalized)
-}
-
-fn non_empty(value: &str, field: &'static str) -> Result<String, WorkDomainError> {
-    let value = value.trim();
-    if value.is_empty() {
-        Err(invalid_input(field, "value cannot be blank"))
-    } else {
-        Ok(value.to_string())
-    }
-}
-
-fn normalize_optional(value: Option<&str>) -> Option<String> {
-    value
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
 }

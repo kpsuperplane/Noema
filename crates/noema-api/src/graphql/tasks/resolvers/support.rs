@@ -90,19 +90,13 @@ pub(crate) fn task_payload(
 ) -> Result<GraphqlTaskCommandPayload> {
     let detail = result.task_detail.ok_or_else(unavailable)?;
     Ok(GraphqlTaskCommandPayload {
-        task: detail_projection(detail)?,
+        task: detail_from_store(detail)?,
         event_cursor: event_cursor(result.result.event_sequence)?,
         client_mutation_id,
     })
 }
 
-/// Project a Store-owned point-in-time detail without any later current read.
-pub(crate) fn detail_projection(detail: noema_store::WorkTaskDetail) -> Result<GraphqlTaskDetail> {
-    detail_from_store(detail)
-}
-
-pub(crate) async fn project_payload(
-    _state: &GraphqlState,
+pub(crate) fn project_payload(
     client_mutation_id: String,
     result: noema_store::CommittedWorkCommandResult,
 ) -> Result<GraphqlProjectCommandPayload> {

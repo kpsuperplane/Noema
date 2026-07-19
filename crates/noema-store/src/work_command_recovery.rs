@@ -8,9 +8,7 @@ use rusqlite::{Transaction, params};
 
 use super::helpers;
 use crate::{
-    StoreError,
-    ids::allocate_id,
-    work_events::{WorkEventScope, append_work_event_tx},
+    StoreError, ids::allocate_id, work_events::append_work_event_tx,
     work_notifications::enqueue_work_notification_tx,
 };
 
@@ -43,12 +41,7 @@ pub(crate) fn open_configuration_recovery_tx(
             originating_run_id,
         ],
     )?;
-    let revision = task.revision.checked_add(1).ok_or_else(|| {
-        StoreError::Work(WorkDomainError::InvalidInput {
-            field: "task.revision",
-            message: "revision overflow".to_string(),
-        })
-    })?;
+    let revision = helpers::increment(task.revision, "task.revision")?;
     let from_stage = task.stage_id.clone();
     let changed = transaction.execute(
         "UPDATE tasks SET stage_id = 'stage:personal:waiting', active_gate_id = ?2,
@@ -70,14 +63,13 @@ pub(crate) fn open_configuration_recovery_tx(
     task.stage_behavior = WorkflowStageBehavior::HumanGate;
     task.active_gate_id = Some(gate_id.clone());
     task.revision = revision;
-    let scope = || WorkEventScope {
-        workspace_id: task.workspace_id.clone(),
-        project_id: task.project_id.clone(),
-        task_id: Some(task.task_id.clone()),
-        run_id: originating_run_id.map(ToOwned::to_owned),
-        actor_id: event.actor_id.to_string(),
-        causation_id: event.causation_id.map(ToOwned::to_owned),
-        correlation_id: event.correlation_id.to_string(),
+    let scope = || {
+        event.scope(
+            &task.workspace_id,
+            task.project_id.as_ref(),
+            Some(&task.task_id),
+            originating_run_id,
+        )
     };
     let _gate_event = append_work_event_tx(
         transaction,
@@ -112,12 +104,9 @@ pub(crate) fn open_configuration_recovery_tx(
     )? {
         event = notification_event;
     }
-    Ok(helpers::write_marker(
-        event,
-        Some(task.task_id.clone()),
-        task.project_id.clone(),
-        task.current_contract_id.clone(),
-        Some(gate_id),
-        originating_run_id.map(ToOwned::to_owned),
-    ))
+    Ok(helpers::task_write(event, task.task_id.clone())
+        .project(task.project_id.clone())
+        .contract(task.current_contract_id.clone())
+        .gate(Some(gate_id))
+        .run(originating_run_id.map(ToOwned::to_owned)))
 }

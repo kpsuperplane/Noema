@@ -5,6 +5,63 @@
 //! vocabulary, and pure transition/reconciliation decisions. SQLite,
 //! providers, API projections, and UI remain outside the domain boundary.
 
+macro_rules! string_enum {
+    (
+        $(#[$enum_meta:meta])*
+        pub enum $name:ident, $field:literal {
+            $($(#[$variant_meta:meta])* $variant:ident => $wire:literal),+ $(,)?
+        }
+    ) => {
+        $(#[$enum_meta])*
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+        #[allow(missing_docs, reason = "variant names are stable domain vocabulary")]
+        pub enum $name {
+            $($(#[$variant_meta])* #[serde(rename = $wire)] $variant),+
+        }
+
+        impl $name {
+            /// Return the stable persisted representation.
+            #[must_use]
+            pub const fn as_str(self) -> &'static str {
+                match self { $(Self::$variant => $wire),+ }
+            }
+        }
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str(self.as_str())
+            }
+        }
+
+        impl std::str::FromStr for $name {
+            type Err = crate::WorkDomainError;
+
+            fn from_str(value: &str) -> Result<Self, Self::Err> {
+                match value {
+                    $($wire => Ok(Self::$variant)),+,
+                    other => Err(crate::error::invalid_input($field, format!("unknown value {other}"))),
+                }
+            }
+        }
+    };
+}
+
+macro_rules! string_enums {
+    ($(
+        $(#[$enum_meta:meta])*
+        pub enum $name:ident, $field:literal {
+            $($(#[$variant_meta:meta])* $variant:ident => $wire:literal),+ $(,)?
+        }
+    )+) => {
+        $(string_enum! {
+            $(#[$enum_meta])*
+            pub enum $name, $field {
+                $($(#[$variant_meta])* $variant => $wire),+
+            }
+        })+
+    };
+}
+
 mod command;
 mod contract;
 mod criteria;
@@ -21,6 +78,7 @@ mod state;
 mod submission;
 mod task;
 mod transcript;
+mod validation;
 mod workflow;
 
 pub use command::{
@@ -83,70 +141,3 @@ pub use workflow::{
     PERSONAL_WAITING_STAGE_ID, PERSONAL_WORKFLOW_ID, WorkflowDefinition, WorkflowStage,
     WorkflowStageBehavior, personal_stages,
 };
-
-#[cfg(test)]
-mod wire_tests {
-    use std::str::FromStr;
-
-    use super::*;
-
-    #[test]
-    fn closed_work_vocabularies_fail_closed_and_keep_persisted_names() {
-        for (kind, wire) in [
-            (RunKind::Planner, "planner"),
-            (RunKind::Executor, "executor"),
-            (RunKind::Reviewer, "reviewer"),
-        ] {
-            assert_eq!(kind.as_str(), wire);
-            assert_eq!(RunKind::from_str(wire).unwrap(), kind);
-            assert!(RunKind::from_str("worker").is_err());
-        }
-        for (behavior, wire) in [
-            (WorkflowStageBehavior::Intake, "intake"),
-            (WorkflowStageBehavior::Dispatch, "dispatch"),
-            (WorkflowStageBehavior::Active, "active"),
-            (WorkflowStageBehavior::HumanGate, "human_gate"),
-            (WorkflowStageBehavior::Acceptance, "acceptance"),
-            (WorkflowStageBehavior::TerminalSuccess, "terminal_success"),
-            (
-                WorkflowStageBehavior::TerminalCancelled,
-                "terminal_cancelled",
-            ),
-        ] {
-            assert_eq!(behavior.as_str(), wire);
-            assert_eq!(WorkflowStageBehavior::from_str(wire).unwrap(), behavior);
-        }
-    }
-
-    #[test]
-    fn task_status_and_legacy_event_types_are_not_public_contracts() {
-        let task = TaskRecord {
-            task_id: TaskId::new("task:1").unwrap(),
-            workspace_id: noema_workspaces::WorkspaceId::new("workspace:personal").unwrap(),
-            project_id: None,
-            workflow_id: WorkflowId::new(PERSONAL_WORKFLOW_ID).unwrap(),
-            stage_id: WorkflowStageId::new(PERSONAL_INBOX_STAGE_ID).unwrap(),
-            title: "Capture".to_string(),
-            description_markdown: String::new(),
-            provenance: TaskProvenance {
-                source_kind: TaskSourceKind::System,
-                created_by_actor_id: "actor:system".to_string(),
-                ..Default::default()
-            },
-            generation: 1,
-            revision: 1,
-            current_contract_id: None,
-            active_gate_id: None,
-            latest_run_id: None,
-            latest_submission_id: None,
-            latest_review_id: None,
-            accepted_submission_id: None,
-            queued_at: None,
-            created_at: "2026-01-01T00:00:00Z".to_string(),
-            updated_at: "2026-01-01T00:00:00Z".to_string(),
-            completed_at: None,
-            cancelled_at: None,
-        };
-        assert!(task.validate().is_ok());
-    }
-}

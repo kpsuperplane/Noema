@@ -12,13 +12,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::{NoemaStore, StoreError};
 
-#[path = "work_run_claim.rs"]
+#[path = "task_controls.rs"]
 mod claim;
-#[path = "work_run_progress.rs"]
+#[path = "agent_runs/events.rs"]
 mod progress;
-#[path = "work_run_rows.rs"]
+#[path = "agent_runs/records.rs"]
 pub(crate) mod rows;
-#[path = "work_run_terminals.rs"]
+#[path = "tasks/submissions.rs"]
 mod terminals;
 
 pub(crate) use terminals::report_expired_failure_tx;

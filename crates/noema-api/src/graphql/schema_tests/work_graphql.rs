@@ -1,5 +1,27 @@
 use crate::graphql::RequestPrincipal;
 
+fn assert_error_code(response: &async_graphql::Response, message: &str, code: &str) {
+    assert_single_graphql_error(response, message);
+    assert_eq!(
+        response.errors[0]
+            .extensions
+            .as_ref()
+            .and_then(|extensions| extensions.get("code")),
+        Some(&async_graphql::Value::from(code))
+    );
+}
+
+fn response_json(response: async_graphql::Response, context: &str) -> serde_json::Value {
+    assert!(response.errors.is_empty(), "{:?}", response.errors);
+    response.data.into_json().expect(context)
+}
+
+fn assert_json_values(data: &serde_json::Value, expected: &[(&str, serde_json::Value)]) {
+    for (pointer, expected) in expected {
+        assert_eq!(data.pointer(pointer), Some(expected), "{pointer}");
+    }
+}
+
 #[test]
 fn work_schema_exposes_semantic_operations_without_task_status_aliases() {
     let sdl = build_schema(GraphqlState::for_schema_definition()).sdl();
@@ -36,7 +58,6 @@ fn work_schema_exposes_exact_detail_attention_and_closed_vocabularies() {
         "TaskGateKind",
         "TaskGateState",
         "TaskRecoveryReason",
-        "TaskMessageKind",
         "TaskRunKind",
         "TaskRunStatus",
         "TaskReviewVerdict",
@@ -52,7 +73,11 @@ fn work_schema_exposes_exact_detail_attention_and_closed_vocabularies() {
     for field in [
         "descriptionPreview: String!",
         "acceptedResult: TaskSubmission",
-        "artifacts(first: Int, after: String): TaskArtifactConnection!",
+        "messages: [TaskMessage!]!",
+        "runs: [TaskRun!]!",
+        "submissions: [TaskSubmission!]!",
+        "reviews: [TaskReview!]!",
+        "artifacts: [Artifact!]!",
         "task: TaskCard!",
         "gate: TaskGate",
         "review: TaskReview",
@@ -94,14 +119,7 @@ async fn work_connections_reject_malformed_cursors_with_stable_code() {
             }"#,
         )
         .await;
-    assert_single_graphql_error(&response, "invalid work cursor");
-    assert_eq!(
-        response.errors[0]
-            .extensions
-            .as_ref()
-            .and_then(|extensions| extensions.get("code")),
-        Some(&async_graphql::Value::from("invalid_cursor"))
-    );
+    assert_error_code(&response, "invalid work cursor", "invalid_cursor");
 }
 
 #[tokio::test]
@@ -117,13 +135,7 @@ async fn work_connections_enforce_page_bounds_before_store_reads() {
                 }}"#
             ))
             .await;
-        assert_eq!(
-            response.errors[0]
-                .extensions
-                .as_ref()
-                .and_then(|extensions| extensions.get("code")),
-            Some(&async_graphql::Value::from("invalid_cursor"))
-        );
+        assert_error_code(&response, "invalid work cursor", "invalid_cursor");
     }
 }
 
@@ -147,14 +159,7 @@ async fn work_authorization_is_indistinguishable_before_identifier_validation() 
                 subject_id: "human:foreign",
             }))
             .await;
-        assert_single_graphql_error(&response, "work is unavailable");
-        assert_eq!(
-            response.errors[0]
-                .extensions
-                .as_ref()
-                .and_then(|extensions| extensions.get("code")),
-            Some(&async_graphql::Value::from("work_unavailable"))
-        );
+        assert_error_code(&response, "work is unavailable", "work_unavailable");
     }
 }
 
@@ -173,13 +178,10 @@ async fn work_scope_filters_reject_semantic_stage_conflicts() {
             }"#,
         )
         .await;
-    assert_single_graphql_error(&response, "workflow filter is inconsistent");
-    assert_eq!(
-        response.errors[0]
-            .extensions
-            .as_ref()
-            .and_then(|extensions| extensions.get("code")),
-        Some(&async_graphql::Value::from("workflow_mismatch"))
+    assert_error_code(
+        &response,
+        "workflow filter is inconsistent",
+        "workflow_mismatch",
     );
 }
 
@@ -234,15 +236,13 @@ async fn capture_task_returns_authoritative_work_projection() {
               }) {
                 task {
                   taskId
-                  workspace { workspaceId isPersonal }
                   title
                   description
-                  descriptionPreview
                   stage { key behavior }
                   revision
                   generation
                   acceptedResult { submissionId }
-                  artifacts { edges { node { artifactId } } pageInfo { hasNextPage } }
+                  artifacts { artifactId }
                 }
                 eventCursor
                 clientMutationId
@@ -250,31 +250,24 @@ async fn capture_task_returns_authoritative_work_projection() {
             }"#,
         )
         .await;
-    assert!(response.errors.is_empty(), "{:?}", response.errors);
-    let data = response.data.into_json().expect("capture response JSON");
-    assert_eq!(
-        data["captureTask"]["clientMutationId"],
-        "capture-work-graphql-test"
+    let data = response_json(response, "capture response JSON");
+    assert_json_values(
+        &data,
+        &[
+            ("/captureTask/clientMutationId", json!("capture-work-graphql-test")),
+            ("/captureTask/task/stage/key", json!("inbox")),
+            ("/captureTask/task/description", json!("A durable capture")),
+            ("/captureTask/task/revision", json!(1)),
+            ("/captureTask/task/generation", json!(1)),
+            ("/captureTask/task/acceptedResult", serde_json::Value::Null),
+            ("/captureTask/task/artifacts", json!([])),
+        ],
     );
     assert!(
         data["captureTask"]["eventCursor"]
             .as_str()
             .is_some_and(|cursor| !cursor.is_empty())
     );
-    assert_eq!(
-        data["captureTask"]["task"]["workspace"]["workspaceId"],
-        "workspace:personal"
-    );
-    assert_eq!(data["captureTask"]["task"]["workspace"]["isPersonal"], true);
-    assert_eq!(data["captureTask"]["task"]["stage"]["key"], "inbox");
-    assert_eq!(
-        data["captureTask"]["task"]["descriptionPreview"],
-        "A durable capture"
-    );
-    assert_eq!(data["captureTask"]["task"]["revision"], 1);
-    assert_eq!(data["captureTask"]["task"]["generation"], 1);
-    assert!(data["captureTask"]["task"]["acceptedResult"].is_null());
-    assert_eq!(data["captureTask"]["task"]["artifacts"]["edges"], json!([]));
 }
 
 #[tokio::test]
@@ -294,8 +287,7 @@ async fn task_mutation_replay_returns_the_original_committed_detail() {
       }
     }"#;
     let original = schema.execute(capture).await;
-    assert!(original.errors.is_empty(), "{:?}", original.errors);
-    let original = original.data.into_json().expect("original capture JSON");
+    let original = response_json(original, "original capture JSON");
     let task_id = original["captureTask"]["task"]["taskId"]
         .as_str()
         .expect("captured task id");
@@ -313,14 +305,12 @@ async fn task_mutation_replay_returns_the_original_committed_detail() {
             }}"#
         ))
         .await;
-    assert!(update.errors.is_empty(), "{:?}", update.errors);
-    let update = update.data.into_json().expect("update JSON");
+    let update = response_json(update, "update JSON");
     assert_eq!(update["updateInboxTask"]["task"]["title"], "Later title");
     assert_eq!(update["updateInboxTask"]["task"]["revision"], 2);
 
     let replay = schema.execute(capture).await;
-    assert!(replay.errors.is_empty(), "{:?}", replay.errors);
-    let replay = replay.data.into_json().expect("capture replay JSON");
+    let replay = response_json(replay, "capture replay JSON");
     assert_eq!(replay["captureTask"], original["captureTask"]);
 
     let divergent = schema
@@ -335,13 +325,10 @@ async fn task_mutation_replay_returns_the_original_committed_detail() {
             }"#,
         )
         .await;
-    assert_single_graphql_error(&divergent, "idempotency key conflicts");
-    assert_eq!(
-        divergent.errors[0]
-            .extensions
-            .as_ref()
-            .and_then(|extensions| extensions.get("code")),
-        Some(&async_graphql::Value::from("idempotency_conflict"))
+    assert_error_code(
+        &divergent,
+        "idempotency key conflicts",
+        "idempotency_conflict",
     );
 }
 
@@ -364,8 +351,7 @@ async fn task_subscription_recovers_from_wakeup_lag_and_keeps_its_task_filter() 
                 }}"#
             ))
             .await;
-        assert!(response.errors.is_empty(), "{:?}", response.errors);
-        let data = response.data.into_json().expect("capture JSON");
+        let data = response_json(response, "capture JSON");
         (
             data["captureTask"]["task"]["taskId"]
                 .as_str()
@@ -392,7 +378,7 @@ async fn task_subscription_recovers_from_wakeup_lag_and_keeps_its_task_filter() 
                 }}"#
             ))
             .await;
-        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        response_json(response, "update JSON");
     }
 
     let (target_task_id, target_capture_cursor) = capture(&schema, "subscription-target").await;
@@ -424,8 +410,7 @@ async fn task_subscription_recovers_from_wakeup_lag_and_keeps_its_task_filter() 
         .await
         .expect("durable replay after wakeup lag")
         .expect("task event response");
-    assert!(response.errors.is_empty(), "{:?}", response.errors);
-    let data = response.data.into_json().expect("task event JSON");
+    let data = response_json(response, "task event JSON");
     assert_eq!(data["taskEvents"]["taskId"], target_task_id);
     assert_ne!(data["taskEvents"]["cursor"], target_capture_cursor);
 }

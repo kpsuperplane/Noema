@@ -4,7 +4,6 @@ use super::WorkFailedRunFacts;
 
 /// Normalize a reported run failure into the facts consumed by the pure
 /// reconciliation planner.
-///
 /// Closed semantic error codes override a worker's retry hint. Unknown
 /// non-retryable failures fail closed as invariant recovery.
 #[must_use]

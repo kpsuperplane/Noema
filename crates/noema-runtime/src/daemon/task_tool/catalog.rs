@@ -17,165 +17,155 @@ use super::{
 };
 use noema_tasks::TaskComplexity;
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(in crate::daemon::task_tool) struct CaptureArguments {
-    pub(in crate::daemon::task_tool) title: String,
-    #[serde(default)]
-    pub(in crate::daemon::task_tool) description: String,
-    #[serde(default)]
-    pub(in crate::daemon::task_tool) project_id: Option<String>,
+macro_rules! arguments {
+    ($name:ident { $($(#[$meta:meta])* $field:ident: $ty:ty),* $(,)? }) => {
+        #[derive(Debug, Deserialize)]
+        #[serde(deny_unknown_fields)]
+        pub(in crate::daemon::task_tool) struct $name {
+            $($(#[$meta])* pub(in crate::daemon::task_tool) $field: $ty),*
+        }
+    };
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(in crate::daemon::task_tool) struct DelegateArguments {
-    pub(in crate::daemon::task_tool) title: String,
-    pub(in crate::daemon::task_tool) description: String,
+arguments! { CaptureArguments {
+    title: String,
     #[serde(default)]
-    pub(in crate::daemon::task_tool) project_id: Option<String>,
+    description: String,
     #[serde(default)]
-    pub(in crate::daemon::task_tool) complexity_hint: Option<TaskComplexity>,
-    #[serde(default)]
-    pub(in crate::daemon::task_tool) execution_intent: Option<ExecutionIntentArguments>,
-}
+    project_id: Option<String>,
+} }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(in crate::daemon::task_tool) struct ExecutionIntentArguments {
-    pub(in crate::daemon::task_tool) request_markdown: String,
-    pub(in crate::daemon::task_tool) complexity: TaskComplexity,
-    pub(in crate::daemon::task_tool) criteria: Vec<CriterionArguments>,
+arguments! { DelegateArguments {
+    title: String,
+    description: String,
     #[serde(default)]
-    pub(in crate::daemon::task_tool) execution_plan_markdown: Option<String>,
-}
+    project_id: Option<String>,
+    #[serde(default)]
+    complexity_hint: Option<TaskComplexity>,
+    #[serde(default)]
+    execution_intent: Option<ExecutionIntentArguments>,
+} }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(in crate::daemon::task_tool) struct CriterionArguments {
-    pub(in crate::daemon::task_tool) description: String,
+arguments! { ExecutionIntentArguments {
+    request_markdown: String,
+    complexity: TaskComplexity,
+    criteria: Vec<CriterionArguments>,
     #[serde(default)]
-    pub(in crate::daemon::task_tool) expected_evidence: Option<String>,
-}
+    execution_plan_markdown: Option<String>,
+} }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(in crate::daemon::task_tool) struct TaskPreconditionArguments {
-    pub(in crate::daemon::task_tool) task_id: String,
-    pub(in crate::daemon::task_tool) expected_revision: u64,
-    pub(in crate::daemon::task_tool) expected_generation: u64,
-}
+arguments! { CriterionArguments {
+    description: String,
+    #[serde(default)]
+    expected_evidence: Option<String>,
+} }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(in crate::daemon::task_tool) struct UpdateArguments {
-    pub(in crate::daemon::task_tool) task_id: String,
-    pub(in crate::daemon::task_tool) expected_revision: u64,
-    pub(in crate::daemon::task_tool) expected_generation: u64,
-    #[serde(default)]
-    pub(in crate::daemon::task_tool) title: Option<String>,
-    #[serde(default)]
-    pub(in crate::daemon::task_tool) description: Option<String>,
-    #[serde(default)]
-    pub(in crate::daemon::task_tool) project_id: Option<String>,
-    #[serde(default)]
-    pub(in crate::daemon::task_tool) clear_project: bool,
-}
+arguments! { TaskPreconditionArguments {
+    task_id: String,
+    expected_revision: u64,
+    expected_generation: u64,
+} }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(in crate::daemon::task_tool) struct GateArguments {
-    pub(in crate::daemon::task_tool) task_id: String,
-    pub(in crate::daemon::task_tool) gate_id: String,
-    pub(in crate::daemon::task_tool) expected_revision: u64,
-    pub(in crate::daemon::task_tool) expected_generation: u64,
-    pub(in crate::daemon::task_tool) answer_markdown: String,
+arguments! { UpdateArguments {
+    #[serde(flatten)]
+    precondition: TaskPreconditionArguments,
     #[serde(default)]
-    pub(in crate::daemon::task_tool) approval_decision: Option<noema_tasks::ApprovalDecision>,
-}
+    title: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    project_id: Option<String>,
+    #[serde(default)]
+    clear_project: bool,
+} }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(in crate::daemon::task_tool) struct RetryArguments {
-    pub(in crate::daemon::task_tool) task_id: String,
-    pub(in crate::daemon::task_tool) gate_id: String,
-    pub(in crate::daemon::task_tool) expected_revision: u64,
-    pub(in crate::daemon::task_tool) expected_generation: u64,
+arguments! { GateArguments {
+    #[serde(flatten)]
+    precondition: TaskPreconditionArguments,
+    gate_id: String,
+    answer_markdown: String,
     #[serde(default)]
-    pub(in crate::daemon::task_tool) retry_note: Option<String>,
-}
+    approval_decision: Option<noema_tasks::ApprovalDecision>,
+} }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(in crate::daemon::task_tool) struct RequestChangesArguments {
-    pub(in crate::daemon::task_tool) task_id: String,
-    pub(in crate::daemon::task_tool) expected_revision: u64,
-    pub(in crate::daemon::task_tool) expected_generation: u64,
-    pub(in crate::daemon::task_tool) feedback_markdown: String,
+arguments! { RetryArguments {
+    #[serde(flatten)]
+    precondition: TaskPreconditionArguments,
+    gate_id: String,
     #[serde(default)]
-    pub(in crate::daemon::task_tool) request_markdown: Option<String>,
-    #[serde(default)]
-    pub(in crate::daemon::task_tool) replacement_criteria: Option<Vec<CriterionArguments>>,
-    #[serde(default)]
-    pub(in crate::daemon::task_tool) complexity: Option<TaskComplexity>,
-}
+    retry_note: Option<String>,
+} }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(in crate::daemon::task_tool) struct CancelArguments {
-    pub(in crate::daemon::task_tool) task_id: String,
-    pub(in crate::daemon::task_tool) expected_revision: u64,
-    pub(in crate::daemon::task_tool) expected_generation: u64,
+arguments! { RequestChangesArguments {
+    #[serde(flatten)]
+    precondition: TaskPreconditionArguments,
+    feedback_markdown: String,
     #[serde(default)]
-    pub(in crate::daemon::task_tool) reason: Option<String>,
-}
+    request_markdown: Option<String>,
+    #[serde(default)]
+    replacement_criteria: Option<Vec<CriterionArguments>>,
+    #[serde(default)]
+    complexity: Option<TaskComplexity>,
+} }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(in crate::daemon::task_tool) struct ProjectCreateArguments {
-    pub(in crate::daemon::task_tool) name: String,
+arguments! { CancelArguments {
+    #[serde(flatten)]
+    precondition: TaskPreconditionArguments,
     #[serde(default)]
-    pub(in crate::daemon::task_tool) description: String,
-}
+    reason: Option<String>,
+} }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(in crate::daemon::task_tool) struct ProjectUpdateArguments {
-    pub(in crate::daemon::task_tool) project_id: String,
-    pub(in crate::daemon::task_tool) expected_revision: u64,
+arguments! { ProjectCreateArguments {
+    name: String,
     #[serde(default)]
-    pub(in crate::daemon::task_tool) name: Option<String>,
-    #[serde(default)]
-    pub(in crate::daemon::task_tool) description: Option<String>,
-}
+    description: String,
+} }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(in crate::daemon::task_tool) struct ProjectPreconditionArguments {
-    pub(in crate::daemon::task_tool) project_id: String,
-    pub(in crate::daemon::task_tool) expected_revision: u64,
-}
+arguments! { ProjectUpdateArguments {
+    #[serde(flatten)]
+    precondition: ProjectPreconditionArguments,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+} }
+
+arguments! { ProjectPreconditionArguments {
+    project_id: String,
+    expected_revision: u64,
+} }
 
 pub(crate) fn primary_task_tool_specs()
 -> Result<Vec<ToolSpec>, noema_capabilities::ToolContractError> {
-    Ok(vec![
-        task_capture_tool_spec()?,
-        task_list_tool_spec()?,
-        task_update_tool_spec()?,
-        task_queue_tool_spec()?,
-        task_delegate_tool_spec()?,
-        task_answer_tool_spec()?,
-        task_retry_tool_spec()?,
-        task_accept_tool_spec()?,
-        task_request_changes_tool_spec()?,
-        task_cancel_tool_spec()?,
-        task_reopen_tool_spec()?,
-        project_create_tool_spec()?,
-        project_list_tool_spec()?,
-        project_update_tool_spec()?,
-        project_archive_tool_spec()?,
-        project_reopen_tool_spec()?,
-    ])
+    [
+        (TASK_CAPTURE_TOOL, "Capture work in Inbox without authorizing execution.", json!({"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":200},"description":{"type":"string","maxLength":20000},"project_id":{"type":"string","maxLength":255}},"required":["title"],"additionalProperties":false})),
+        (TASK_LIST_TOOL, "List bounded owner-authorized Work task summaries.", json!({"type":"object","properties":{"project_id":{"type":"string"},"stage_behavior":{"type":"string","enum":["intake","dispatch","active","human_gate","acceptance","terminal_success","terminal_cancelled"]},"attention_only":{"type":"boolean"},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false})),
+        (TASK_UPDATE_TOOL, "Update an Inbox task's capture fields with revision and generation fences.", json!({"type":"object","properties":{"task_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1},"title":{"type":"string","minLength":1,"maxLength":200},"description":{"type":"string","maxLength":20000},"project_id":{"type":"string"},"clear_project":{"type":"boolean"}},"required":["task_id","expected_revision","expected_generation"],"additionalProperties":false})),
+        (TASK_QUEUE_TOOL, "Authorize an Inbox task for planning/execution.", task_fenced_schema()),
+        (TASK_DELEGATE_TOOL, "Atomically capture and authorize autonomous Work, optionally freezing a complete execution intent.", json!({"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":200},"description":{"type":"string","minLength":1,"maxLength":20000},"project_id":{"type":"string","maxLength":255},"complexity_hint":{"type":"string","enum":["simple","medium","difficult"]},"execution_intent":{"type":"object","properties":{"request_markdown":{"type":"string","minLength":1,"maxLength":20000},"complexity":{"type":"string","enum":["simple","medium","difficult"]},"criteria":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"object","properties":{"description":{"type":"string","minLength":1,"maxLength":4000},"expected_evidence":{"type":"string","maxLength":4000}},"required":["description"],"additionalProperties":false}},"execution_plan_markdown":{"type":"string","maxLength":20000}},"required":["request_markdown","complexity","criteria"],"additionalProperties":false}},"required":["title","description"],"additionalProperties":false})),
+        (TASK_ANSWER_TOOL, "Answer the explicitly named clarification or approval gate.", json!({"type":"object","properties":{"task_id":{"type":"string"},"gate_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1},"answer_markdown":{"type":"string","minLength":1,"maxLength":20000},"approval_decision":{"type":"string","enum":["approved","declined"]}},"required":["task_id","gate_id","expected_revision","expected_generation","answer_markdown"],"additionalProperties":false})),
+        (TASK_RETRY_TOOL, "Retry the explicitly named eligible Recovery gate.", json!({"type":"object","properties":{"task_id":{"type":"string"},"gate_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1},"retry_note":{"type":"string","maxLength":4000}},"required":["task_id","gate_id","expected_revision","expected_generation"],"additionalProperties":false})),
+        (TASK_ACCEPT_TOOL, "Accept a reviewer-approved result.", task_fenced_schema()),
+        (TASK_REQUEST_CHANGES_TOOL, "Request a new immutable execution-contract revision.", json!({"type":"object","properties":{"task_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1},"feedback_markdown":{"type":"string","minLength":1,"maxLength":20000},"request_markdown":{"type":"string","maxLength":20000},"replacement_criteria":{"type":"array","items":{"type":"object","properties":{"description":{"type":"string","minLength":1},"expected_evidence":{"type":"string"}},"required":["description"],"additionalProperties":false}},"complexity":{"type":"string","enum":["simple","medium","difficult"]}},"required":["task_id","expected_revision","expected_generation","feedback_markdown"],"additionalProperties":false})),
+        (TASK_CANCEL_TOOL, "Cancel a nonterminal task and fence active work.", json!({"type":"object","properties":{"task_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1},"reason":{"type":"string","maxLength":4000}},"required":["task_id","expected_revision","expected_generation"],"additionalProperties":false})),
+        (TASK_REOPEN_TOOL, "Reopen terminal task history into a new Inbox generation.", task_fenced_schema()),
+        (PROJECT_CREATE_TOOL, "Create a Personal project container.", json!({"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":200},"description":{"type":"string","maxLength":20000}},"required":["name"],"additionalProperties":false})),
+        (PROJECT_LIST_TOOL, "List bounded Personal projects.", json!({"type":"object","properties":{"include_archived":{"type":"boolean"},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false})),
+        (PROJECT_UPDATE_TOOL, "Update a project with its revision fence.", json!({"type":"object","properties":{"project_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"name":{"type":"string","minLength":1},"description":{"type":"string"}},"required":["project_id","expected_revision"],"additionalProperties":false})),
+        (PROJECT_ARCHIVE_TOOL, "Archive a project without changing task stages.", project_fenced_schema()),
+        (PROJECT_REOPEN_TOOL, "Reopen an archived project.", project_fenced_schema()),
+    ]
+    .into_iter()
+    .map(|(name, description, schema)| ToolSpec::new(name, description, schema))
+    .collect()
+}
+
+fn task_fenced_schema() -> Value {
+    json!({"type":"object","properties":{"task_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1}},"required":["task_id","expected_revision","expected_generation"],"additionalProperties":false})
+}
+
+fn project_fenced_schema() -> Value {
+    json!({"type":"object","properties":{"project_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1}},"required":["project_id","expected_revision"],"additionalProperties":false})
 }
 
 pub(crate) fn task_submit_plan_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError>
@@ -227,152 +217,5 @@ pub(crate) fn task_list_scoped_tool_spec() -> Result<ToolSpec, noema_capabilitie
             "properties": {},
             "additionalProperties": false
         }),
-    )
-}
-
-fn simple_id_tool_spec(
-    name: &str,
-    description: &str,
-    fields: Value,
-) -> Result<ToolSpec, noema_capabilities::ToolContractError> {
-    ToolSpec::new(name, description, fields)
-}
-
-fn task_capture_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError> {
-    simple_id_tool_spec(
-        TASK_CAPTURE_TOOL,
-        "Capture work in Inbox without authorizing execution.",
-        json!({"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":200},"description":{"type":"string","maxLength":20000},"project_id":{"type":"string","maxLength":255}},"required":["title"],"additionalProperties":false}),
-    )
-}
-
-fn task_list_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError> {
-    simple_id_tool_spec(
-        TASK_LIST_TOOL,
-        "List bounded owner-authorized Work task summaries.",
-        json!({"type":"object","properties":{"project_id":{"type":"string"},"stage_behavior":{"type":"string","enum":["intake","dispatch","active","human_gate","acceptance","terminal_success","terminal_cancelled"]},"attention_only":{"type":"boolean"},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false}),
-    )
-}
-
-fn task_update_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError> {
-    simple_id_tool_spec(
-        TASK_UPDATE_TOOL,
-        "Update an Inbox task's capture fields with revision and generation fences.",
-        json!({"type":"object","properties":{"task_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1},"title":{"type":"string","minLength":1,"maxLength":200},"description":{"type":"string","maxLength":20000},"project_id":{"type":"string"},"clear_project":{"type":"boolean"}},"required":["task_id","expected_revision","expected_generation"],"additionalProperties":false}),
-    )
-}
-
-fn task_queue_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError> {
-    task_fenced_spec(
-        TASK_QUEUE_TOOL,
-        "Authorize an Inbox task for planning/execution.",
-    )
-}
-
-fn task_delegate_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError> {
-    simple_id_tool_spec(
-        TASK_DELEGATE_TOOL,
-        "Atomically capture and authorize autonomous Work, optionally freezing a complete execution intent.",
-        json!({"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":200},"description":{"type":"string","minLength":1,"maxLength":20000},"project_id":{"type":"string","maxLength":255},"complexity_hint":{"type":"string","enum":["simple","medium","difficult"]},"execution_intent":{"type":"object","properties":{"request_markdown":{"type":"string","minLength":1,"maxLength":20000},"complexity":{"type":"string","enum":["simple","medium","difficult"]},"criteria":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"object","properties":{"description":{"type":"string","minLength":1,"maxLength":4000},"expected_evidence":{"type":"string","maxLength":4000}},"required":["description"],"additionalProperties":false}},"execution_plan_markdown":{"type":"string","maxLength":20000}},"required":["request_markdown","complexity","criteria"],"additionalProperties":false}},"required":["title","description"],"additionalProperties":false}),
-    )
-}
-
-fn task_answer_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError> {
-    simple_id_tool_spec(
-        TASK_ANSWER_TOOL,
-        "Answer the explicitly named clarification or approval gate.",
-        json!({"type":"object","properties":{"task_id":{"type":"string"},"gate_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1},"answer_markdown":{"type":"string","minLength":1,"maxLength":20000},"approval_decision":{"type":"string","enum":["approved","declined"]}},"required":["task_id","gate_id","expected_revision","expected_generation","answer_markdown"],"additionalProperties":false}),
-    )
-}
-
-fn task_retry_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError> {
-    simple_id_tool_spec(
-        TASK_RETRY_TOOL,
-        "Retry the explicitly named eligible Recovery gate.",
-        json!({"type":"object","properties":{"task_id":{"type":"string"},"gate_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1},"retry_note":{"type":"string","maxLength":4000}},"required":["task_id","gate_id","expected_revision","expected_generation"],"additionalProperties":false}),
-    )
-}
-
-fn task_fenced_spec(
-    name: &str,
-    description: &str,
-) -> Result<ToolSpec, noema_capabilities::ToolContractError> {
-    simple_id_tool_spec(
-        name,
-        description,
-        json!({"type":"object","properties":{"task_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1}},"required":["task_id","expected_revision","expected_generation"],"additionalProperties":false}),
-    )
-}
-
-fn task_accept_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError> {
-    task_fenced_spec(TASK_ACCEPT_TOOL, "Accept a reviewer-approved result.")
-}
-
-fn task_reopen_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError> {
-    task_fenced_spec(
-        TASK_REOPEN_TOOL,
-        "Reopen terminal task history into a new Inbox generation.",
-    )
-}
-
-fn task_request_changes_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError> {
-    simple_id_tool_spec(
-        TASK_REQUEST_CHANGES_TOOL,
-        "Request a new immutable execution-contract revision.",
-        json!({"type":"object","properties":{"task_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1},"feedback_markdown":{"type":"string","minLength":1,"maxLength":20000},"request_markdown":{"type":"string","maxLength":20000},"replacement_criteria":{"type":"array","items":{"type":"object","properties":{"description":{"type":"string","minLength":1},"expected_evidence":{"type":"string"}},"required":["description"],"additionalProperties":false}},"complexity":{"type":"string","enum":["simple","medium","difficult"]}},"required":["task_id","expected_revision","expected_generation","feedback_markdown"],"additionalProperties":false}),
-    )
-}
-
-fn task_cancel_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError> {
-    simple_id_tool_spec(
-        TASK_CANCEL_TOOL,
-        "Cancel a nonterminal task and fence active work.",
-        json!({"type":"object","properties":{"task_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1},"reason":{"type":"string","maxLength":4000}},"required":["task_id","expected_revision","expected_generation"],"additionalProperties":false}),
-    )
-}
-
-fn project_create_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError> {
-    simple_id_tool_spec(
-        PROJECT_CREATE_TOOL,
-        "Create a Personal project container.",
-        json!({"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":200},"description":{"type":"string","maxLength":20000}},"required":["name"],"additionalProperties":false}),
-    )
-}
-
-fn project_list_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError> {
-    simple_id_tool_spec(
-        PROJECT_LIST_TOOL,
-        "List bounded Personal projects.",
-        json!({"type":"object","properties":{"include_archived":{"type":"boolean"},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false}),
-    )
-}
-
-fn project_update_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError> {
-    simple_id_tool_spec(
-        PROJECT_UPDATE_TOOL,
-        "Update a project with its revision fence.",
-        json!({"type":"object","properties":{"project_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"name":{"type":"string","minLength":1},"description":{"type":"string"}},"required":["project_id","expected_revision"],"additionalProperties":false}),
-    )
-}
-
-fn project_archive_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError> {
-    project_fenced_spec(
-        PROJECT_ARCHIVE_TOOL,
-        "Archive a project without changing task stages.",
-    )
-}
-
-fn project_reopen_tool_spec() -> Result<ToolSpec, noema_capabilities::ToolContractError> {
-    project_fenced_spec(PROJECT_REOPEN_TOOL, "Reopen an archived project.")
-}
-
-fn project_fenced_spec(
-    name: &str,
-    description: &str,
-) -> Result<ToolSpec, noema_capabilities::ToolContractError> {
-    simple_id_tool_spec(
-        name,
-        description,
-        json!({"type":"object","properties":{"project_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1}},"required":["project_id","expected_revision"],"additionalProperties":false}),
     )
 }

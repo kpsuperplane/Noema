@@ -2,145 +2,66 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{TaskContractId, TaskGateKind, TaskId, WorkDomainError, error::invalid_input};
+use crate::{
+    TaskContractId, TaskGateKind, TaskId, WorkDomainError,
+    error::invalid_input,
+    validation::{optional as normalize_optional, required},
+};
 
+string_enum! {
 /// Overall immutable reviewer disposition.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TaskReviewVerdict {
+pub enum TaskReviewVerdict, "review.verdict" {
     /// Every criterion passed.
-    Approve,
+    Approve => "approve",
     /// One or more criteria failed without uncertainty.
-    RequestChanges,
+    RequestChanges => "request_changes",
     /// Reviewer needs a structured human gate.
-    NeedsHuman,
+    NeedsHuman => "needs_human",
+}
 }
 
-impl TaskReviewVerdict {
-    /// Stable persisted representation.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Approve => "approve",
-            Self::RequestChanges => "request_changes",
-            Self::NeedsHuman => "needs_human",
-        }
-    }
-}
-
-impl std::fmt::Display for TaskReviewVerdict {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(self.as_str())
-    }
-}
-
-impl std::str::FromStr for TaskReviewVerdict {
-    type Err = WorkDomainError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "approve" => Ok(Self::Approve),
-            "request_changes" => Ok(Self::RequestChanges),
-            "needs_human" => Ok(Self::NeedsHuman),
-            other => Err(invalid_input(
-                "review.verdict",
-                format!("unknown value {other}"),
-            )),
-        }
-    }
-}
-
+string_enum! {
 /// Per-criterion reviewer outcome.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CriterionOutcome {
+pub enum CriterionOutcome, "review.criterion.outcome" {
     /// Criterion is demonstrably satisfied.
-    Pass,
+    Pass => "pass",
     /// Criterion is not satisfied.
-    Fail,
+    Fail => "fail",
     /// Evidence is unavailable or contradictory.
-    Uncertain,
+    Uncertain => "uncertain",
 }
-
-impl CriterionOutcome {
-    /// Stable persisted representation.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Pass => "pass",
-            Self::Fail => "fail",
-            Self::Uncertain => "uncertain",
-        }
-    }
-}
-
-impl std::fmt::Display for CriterionOutcome {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(self.as_str())
-    }
-}
-
-impl std::str::FromStr for CriterionOutcome {
-    type Err = WorkDomainError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "pass" => Ok(Self::Pass),
-            "fail" => Ok(Self::Fail),
-            "uncertain" => Ok(Self::Uncertain),
-            other => Err(invalid_input(
-                "review.criterion.outcome",
-                format!("unknown value {other}"),
-            )),
-        }
-    }
 }
 
 /// One immutable criterion outcome in a review.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct TaskReviewCriterion {
-    /// Criterion identity.
     pub criterion_id: String,
-    /// Closed outcome.
     pub outcome: CriterionOutcome,
-    /// Evidence considered by the reviewer.
     pub evidence_markdown: Option<String>,
-    /// Actionable feedback for an executor revision.
     pub feedback: Option<String>,
 }
 
 /// Input for one immutable reviewer decision.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct NewTaskReview {
-    /// Optional caller-supplied review id.
     pub review_id: Option<String>,
-    /// Owning task.
     pub task_id: TaskId,
-    /// Contract evaluated by the review.
     pub contract_id: TaskContractId,
-    /// Reviewer run that produced this review.
     pub reviewer_run_id: String,
-    /// Submission under review.
     pub reviewed_submission_id: String,
-    /// One-based immutable review attempt index for a submission.
     pub review_attempt_index: u32,
-    /// Prior needs-human review attempt, when this is a continuation.
     pub supersedes_review_id: Option<String>,
-    /// Overall verdict.
     pub overall_verdict: TaskReviewVerdict,
-    /// Gate kind when verdict is NeedsHuman.
     pub human_gate_kind: Option<TaskGateKind>,
-    /// Safe overall feedback.
     pub overall_feedback: String,
-    /// Exactly one outcome per contract criterion.
     pub criteria: Vec<TaskReviewCriterion>,
 }
 
 impl NewTaskReview {
     /// Normalize a review and enforce exact criterion/verdict consistency.
-    ///
     /// # Errors
-    ///
     /// Returns [`WorkDomainError`] when the attempt index or required text is
     /// invalid, criterion coverage is not exact, or the verdict disagrees with
     /// the criterion outcomes and human-gate selection.
@@ -200,9 +121,7 @@ impl NewTaskReview {
 }
 
 /// Validate verdict, criterion outcomes, and human-gate requirements.
-///
 /// # Errors
-///
 /// Returns [`WorkDomainError`] when approval includes a failed or uncertain
 /// criterion, requested changes lack a definite failure, or human review lacks
 /// uncertainty and a Clarification or Approval gate.
@@ -250,45 +169,18 @@ pub fn validate_review_verdict(
 
 /// Immutable persisted review with criterion evidence.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct TaskReviewRecord {
-    /// Stable review identity.
     pub review_id: String,
-    /// Owning task.
     pub task_id: TaskId,
-    /// Contract evaluated by the review.
     pub contract_id: TaskContractId,
-    /// Reviewer run identity.
     pub reviewer_run_id: String,
-    /// Submission evaluated by the review.
     pub reviewed_submission_id: String,
-    /// One-based review attempt index.
     pub review_attempt_index: u32,
-    /// Prior needs-human review, when any.
     pub supersedes_review_id: Option<String>,
-    /// Overall verdict.
     pub overall_verdict: TaskReviewVerdict,
-    /// Gate kind for NeedsHuman verdicts.
     pub human_gate_kind: Option<TaskGateKind>,
-    /// Safe overall feedback.
     pub overall_feedback: String,
-    /// Criterion outcomes.
     pub criteria: Vec<TaskReviewCriterion>,
-    /// Creation timestamp.
     pub created_at: String,
-}
-
-fn required(value: &str, field: &'static str) -> Result<String, WorkDomainError> {
-    let value = value.trim();
-    if value.is_empty() {
-        Err(invalid_input(field, "value cannot be blank"))
-    } else {
-        Ok(value.to_string())
-    }
-}
-
-fn normalize_optional(value: Option<&str>) -> Option<String> {
-    value
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
 }

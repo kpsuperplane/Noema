@@ -1,392 +1,103 @@
-//! Independent query-bound keyset connections for immutable task histories.
-
-use std::{collections::HashMap, str::FromStr};
-
-use noema_tasks::{
-    ApprovalDecision, TaskGateId, TaskGateRecord, TaskId, TaskMessageId, TaskMessageKind,
-    TaskMessageRecord,
-};
-use ring::digest::{SHA256, digest};
-use rusqlite::{Row, Transaction, params, types::Type};
-
 use super::{
-    evidence::load_contracts,
     list_rows::{load_reviews, load_runs},
-    rows::decode_gate,
     submission_batch::load_submissions,
 };
 use crate::{
-    NoemaStore, StoreError, WorkContractConnection, WorkContractCursor, WorkContractEdge,
-    WorkContractHistoryQuery, WorkGateConnection, WorkGateCursor, WorkGateEdge,
-    WorkGateHistoryQuery, WorkMessageConnection, WorkMessageCursor, WorkMessageEdge,
-    WorkMessageHistoryQuery, WorkPageInfo, WorkReviewConnection, WorkReviewCursor, WorkReviewEdge,
-    WorkReviewHistoryQuery, WorkRunConnection, WorkRunCursor, WorkRunEdge, WorkRunHistoryQuery,
-    WorkSubmissionConnection, WorkSubmissionCursor, WorkSubmissionEdge, WorkSubmissionHistoryQuery,
+    StoreError,
     sqlite::conversion_failure,
+    work_row::{optional_id, positive_u64},
 };
+use noema_tasks::{
+    AgentRunRecord, ApprovalDecision, TaskGateId, TaskId, TaskMessageId, TaskMessageKind,
+    TaskMessageRecord, TaskReviewRecord, TaskSubmissionRecord,
+};
+use rusqlite::{Row, Transaction, params, types::Type};
+use std::{collections::HashMap, str::FromStr};
 
-struct HistoryKey {
-    id: String,
-    created_at: String,
+const DETAIL_HISTORY_LIMIT: usize = 20;
+
+pub(crate) struct WorkTaskHistory {
+    pub messages: Vec<TaskMessageRecord>,
+    pub runs: Vec<AgentRunRecord>,
+    pub submissions: Vec<TaskSubmissionRecord>,
+    pub reviews: Vec<TaskReviewRecord>,
 }
 
-impl NoemaStore {
-    /// List fully hydrated immutable contracts, newest first.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error for invalid query/cursor input or failed hydration.
-    pub async fn list_work_task_contracts(
-        &self,
-        query: WorkContractHistoryQuery,
-    ) -> Result<WorkContractConnection, StoreError> {
-        let hash = validate_cursor(
-            "contract",
-            &query.task_id,
-            query
-                .after
-                .as_ref()
-                .map(|cursor| cursor.query_hash.as_str()),
-        )?;
-        let after = query.after.map(|cursor| (cursor.created_at, cursor.id));
-        self.with_connection(move |connection| {
-            let transaction = connection.transaction()?;
-            let (keys, has_next_page) = load_keys(
-                &transaction,
-                "task_execution_contracts",
-                "contract_id",
-                "created_at",
-                &query.task_id,
-                after,
-                query.first.get(),
-            )?;
-            let records = load_contracts(&transaction, &ids(&keys))?;
-            let edges = keys
-                .into_iter()
-                .map(|key| {
-                    let node = exact(&records, &key.id, "contract")?;
-                    let cursor = WorkContractCursor::new(hash.clone(), key.created_at, key.id)
-                        .map_err(|_| invariant("history cursor timestamp is not canonical"))?
-                        .encode();
-                    Ok(WorkContractEdge { cursor, node })
-                })
-                .collect::<Result<Vec<_>, StoreError>>()?;
-            Ok(WorkContractConnection {
-                page_info: page_info(&edges, has_next_page, |edge| &edge.cursor),
-                edges,
-            })
-        })
-        .await
-    }
-
-    /// List strict gate history, newest first.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error for invalid query/cursor input or failed hydration.
-    pub async fn list_work_task_gates(
-        &self,
-        query: WorkGateHistoryQuery,
-    ) -> Result<WorkGateConnection, StoreError> {
-        let hash = validate_cursor(
-            "gate",
-            &query.task_id,
-            query
-                .after
-                .as_ref()
-                .map(|cursor| cursor.query_hash.as_str()),
-        )?;
-        let after = query.after.map(|cursor| (cursor.created_at, cursor.id));
-        self.with_connection(move |connection| {
-            let transaction = connection.transaction()?;
-            let (keys, has_next_page) = load_keys(
-                &transaction,
-                "task_gates",
-                "gate_id",
-                "opened_at",
-                &query.task_id,
-                after,
-                query.first.get(),
-            )?;
-            let records = load_history_gates(&transaction, &ids(&keys))?;
-            let edges = keys
-                .into_iter()
-                .map(|key| {
-                    let node = exact(&records, &key.id, "gate")?;
-                    let cursor = WorkGateCursor::new(hash.clone(), key.created_at, key.id)
-                        .map_err(|_| invariant("history cursor timestamp is not canonical"))?
-                        .encode();
-                    Ok(WorkGateEdge { cursor, node })
-                })
-                .collect::<Result<Vec<_>, StoreError>>()?;
-            Ok(WorkGateConnection {
-                page_info: page_info(&edges, has_next_page, |edge| &edge.cursor),
-                edges,
-            })
-        })
-        .await
-    }
-
-    /// List strict human-message history, newest first.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error for invalid query/cursor input or failed hydration.
-    pub async fn list_work_task_messages(
-        &self,
-        query: WorkMessageHistoryQuery,
-    ) -> Result<WorkMessageConnection, StoreError> {
-        let hash = validate_cursor(
-            "message",
-            &query.task_id,
-            query
-                .after
-                .as_ref()
-                .map(|cursor| cursor.query_hash.as_str()),
-        )?;
-        let after = query.after.map(|cursor| (cursor.created_at, cursor.id));
-        self.with_connection(move |connection| {
-            let transaction = connection.transaction()?;
-            let (keys, has_next_page) = load_keys(
-                &transaction,
-                "task_messages",
-                "message_id",
-                "created_at",
-                &query.task_id,
-                after,
-                query.first.get(),
-            )?;
-            let records = load_messages(&transaction, &ids(&keys))?;
-            let edges = keys
-                .into_iter()
-                .map(|key| {
-                    let node = exact(&records, &key.id, "message")?;
-                    let cursor = WorkMessageCursor::new(hash.clone(), key.created_at, key.id)
-                        .map_err(|_| invariant("history cursor timestamp is not canonical"))?
-                        .encode();
-                    Ok(WorkMessageEdge { cursor, node })
-                })
-                .collect::<Result<Vec<_>, StoreError>>()?;
-            Ok(WorkMessageConnection {
-                page_info: page_info(&edges, has_next_page, |edge| &edge.cursor),
-                edges,
-            })
-        })
-        .await
-    }
-
-    /// List strict historical runs, newest first.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error for invalid query/cursor input or failed hydration.
-    pub async fn list_work_task_runs(
-        &self,
-        query: WorkRunHistoryQuery,
-    ) -> Result<WorkRunConnection, StoreError> {
-        let hash = validate_cursor(
-            "run",
-            &query.task_id,
-            query
-                .after
-                .as_ref()
-                .map(|cursor| cursor.query_hash.as_str()),
-        )?;
-        let after = query.after.map(|cursor| (cursor.created_at, cursor.id));
-        self.with_connection(move |connection| {
-            let transaction = connection.transaction()?;
-            let (keys, has_next_page) = load_keys(
-                &transaction,
-                "agent_runs",
-                "run_id",
-                "created_at",
-                &query.task_id,
-                after,
-                query.first.get(),
-            )?;
-            let records = load_runs(&transaction, &ids(&keys))?;
-            let edges = keys
-                .into_iter()
-                .map(|key| {
-                    let node = exact(&records, &key.id, "run")?;
-                    let cursor = WorkRunCursor::new(hash.clone(), key.created_at, key.id)
-                        .map_err(|_| invariant("history cursor timestamp is not canonical"))?
-                        .encode();
-                    Ok(WorkRunEdge { cursor, node })
-                })
-                .collect::<Result<Vec<_>, StoreError>>()?;
-            Ok(WorkRunConnection {
-                page_info: page_info(&edges, has_next_page, |edge| &edge.cursor),
-                edges,
-            })
-        })
-        .await
-    }
-
-    /// List fully hydrated immutable submissions, newest first.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error for invalid query/cursor input or failed hydration.
-    pub async fn list_work_task_submissions(
-        &self,
-        query: WorkSubmissionHistoryQuery,
-    ) -> Result<WorkSubmissionConnection, StoreError> {
-        let hash = validate_cursor(
-            "submission",
-            &query.task_id,
-            query
-                .after
-                .as_ref()
-                .map(|cursor| cursor.query_hash.as_str()),
-        )?;
-        let after = query.after.map(|cursor| (cursor.created_at, cursor.id));
-        self.with_connection(move |connection| {
-            let transaction = connection.transaction()?;
-            let (keys, has_next_page) = load_keys(
-                &transaction,
-                "task_submissions",
-                "submission_id",
-                "created_at",
-                &query.task_id,
-                after,
-                query.first.get(),
-            )?;
-            let records = load_submissions(&transaction, &ids(&keys))?;
-            let edges = keys
-                .into_iter()
-                .map(|key| {
-                    let node = exact(&records, &key.id, "submission")?;
-                    let cursor = WorkSubmissionCursor::new(hash.clone(), key.created_at, key.id)
-                        .map_err(|_| invariant("history cursor timestamp is not canonical"))?
-                        .encode();
-                    Ok(WorkSubmissionEdge { cursor, node })
-                })
-                .collect::<Result<Vec<_>, StoreError>>()?;
-            Ok(WorkSubmissionConnection {
-                page_info: page_info(&edges, has_next_page, |edge| &edge.cursor),
-                edges,
-            })
-        })
-        .await
-    }
-
-    /// List fully hydrated immutable reviews, newest first.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error for invalid query/cursor input or failed hydration.
-    pub async fn list_work_task_reviews(
-        &self,
-        query: WorkReviewHistoryQuery,
-    ) -> Result<WorkReviewConnection, StoreError> {
-        let hash = validate_cursor(
-            "review",
-            &query.task_id,
-            query
-                .after
-                .as_ref()
-                .map(|cursor| cursor.query_hash.as_str()),
-        )?;
-        let after = query.after.map(|cursor| (cursor.created_at, cursor.id));
-        self.with_connection(move |connection| {
-            let transaction = connection.transaction()?;
-            let (keys, has_next_page) = load_keys(
-                &transaction,
-                "task_reviews",
-                "review_id",
-                "created_at",
-                &query.task_id,
-                after,
-                query.first.get(),
-            )?;
-            let records = load_reviews(&transaction, &ids(&keys))?;
-            let edges = keys
-                .into_iter()
-                .map(|key| {
-                    let node = exact(&records, &key.id, "review")?;
-                    let cursor = WorkReviewCursor::new(hash.clone(), key.created_at, key.id)
-                        .map_err(|_| invariant("history cursor timestamp is not canonical"))?
-                        .encode();
-                    Ok(WorkReviewEdge { cursor, node })
-                })
-                .collect::<Result<Vec<_>, StoreError>>()?;
-            Ok(WorkReviewConnection {
-                page_info: page_info(&edges, has_next_page, |edge| &edge.cursor),
-                edges,
-            })
-        })
-        .await
-    }
-}
-
-fn load_keys(
+pub(crate) fn load_task_history(
     transaction: &Transaction<'_>,
+    task_id: &TaskId,
+) -> Result<WorkTaskHistory, StoreError> {
+    Ok(WorkTaskHistory {
+        messages: load_recent(
+            transaction,
+            task_id,
+            "task_messages",
+            "message_id",
+            "created_at",
+            load_messages,
+            "message",
+        )?,
+        runs: load_recent(
+            transaction,
+            task_id,
+            "agent_runs",
+            "run_id",
+            "created_at",
+            load_runs,
+            "run",
+        )?,
+        submissions: load_recent(
+            transaction,
+            task_id,
+            "task_submissions",
+            "submission_id",
+            "created_at",
+            load_submissions,
+            "submission",
+        )?,
+        reviews: load_recent(
+            transaction,
+            task_id,
+            "task_reviews",
+            "review_id",
+            "created_at",
+            load_reviews,
+            "review",
+        )?,
+    })
+}
+
+fn load_recent<T: Clone>(
+    transaction: &Transaction<'_>,
+    task_id: &TaskId,
     table: &'static str,
     id_column: &'static str,
     timestamp_column: &'static str,
-    task_id: &TaskId,
-    after: Option<(String, String)>,
-    first: usize,
-) -> Result<(Vec<HistoryKey>, bool), StoreError> {
-    let limit = i64::try_from(first + 1).map_err(|_| invariant("history limit overflow"))?;
-    let (after_created_at, after_id) = after.unzip();
+    loader: impl FnOnce(&Transaction<'_>, &[String]) -> Result<HashMap<String, T>, StoreError>,
+    kind: &'static str,
+) -> Result<Vec<T>, StoreError> {
     let sql = format!(
-        "SELECT {id_column}, {timestamp_column} FROM {table}
-         WHERE task_id = ?1 AND (
-           ?2 IS NULL OR {timestamp_column} < ?2
-           OR ({timestamp_column} = ?2 AND {id_column} < ?3)
-         )
-         ORDER BY {timestamp_column} DESC, {id_column} DESC LIMIT ?4"
+        "SELECT {id_column} FROM {table} WHERE task_id = ?1 \
+         ORDER BY {timestamp_column} DESC, {id_column} DESC LIMIT ?2"
     );
-    let mut statement = transaction.prepare(&sql)?;
-    let rows = statement.query_map(
-        params![task_id.as_str(), after_created_at, after_id, limit],
-        |row| {
-            Ok(HistoryKey {
-                id: row.get(0)?,
-                created_at: row.get(1)?,
-            })
-        },
-    )?;
-    let mut keys = rows.collect::<Result<Vec<_>, _>>()?;
-    if keys.iter().any(|key| {
-        key.id.trim().is_empty()
-            || key.created_at.trim().is_empty()
-            || key.id.chars().any(char::is_control)
-            || key.created_at.chars().any(char::is_control)
-    }) {
-        return Err(invariant("history key is blank"));
-    }
-    let has_next_page = keys.len() > first;
-    keys.truncate(first);
-    Ok((keys, has_next_page))
-}
-
-fn load_history_gates(
-    transaction: &Transaction<'_>,
-    ids: &[String],
-) -> Result<HashMap<String, TaskGateRecord>, StoreError> {
-    if ids.is_empty() {
-        return Ok(HashMap::new());
-    }
-    let ids_json = serde_json::to_string(ids)?;
-    let mut statement = transaction.prepare(
-        "SELECT gate_id, task_id, task_generation, contract_id, gate_kind, gate_state,
-                recovery_reason, retry_run_kind, prompt_markdown, context_markdown,
-                opened_by_actor_id, originating_run_id, resolved_by_actor_id,
-                resolution_message_id, opened_at, resolved_at
-         FROM task_gates WHERE gate_id IN (SELECT value FROM json_each(?1))",
-    )?;
-    let rows = statement.query_map([ids_json], decode_gate)?;
-    let mut records = HashMap::new();
-    for row in rows {
-        let gate = row?;
-        gate.validate().map_err(StoreError::Work)?;
-        records.insert(gate.gate_id.as_str().to_string(), gate);
-    }
-    exact_count(ids, &records, "gate")?;
-    Ok(records)
+    let ids = transaction
+        .prepare(&sql)?
+        .query_map(
+            params![task_id.as_str(), DETAIL_HISTORY_LIMIT as i64],
+            |row| row.get(0),
+        )?
+        .collect::<Result<Vec<String>, _>>()?;
+    let records = loader(transaction, &ids)?;
+    ids.iter()
+        .map(|id| {
+            records
+                .get(id)
+                .cloned()
+                .ok_or_else(|| StoreError::InvariantViolation {
+                    message: format!("history references a missing {kind}: {id}"),
+                })
+        })
+        .collect()
 }
 
 fn load_messages(
@@ -410,27 +121,18 @@ fn load_messages(
         validate_message(&message)?;
         records.insert(message.message_id.as_str().to_string(), message);
     }
-    exact_count(ids, &records, "message")?;
     Ok(records)
 }
 
-fn decode_message(row: &Row<'_>) -> rusqlite::Result<TaskMessageRecord> {
+pub(crate) fn decode_message(row: &Row<'_>) -> rusqlite::Result<TaskMessageRecord> {
     Ok(TaskMessageRecord {
         message_id: TaskMessageId::new(row.get::<_, String>(0)?)
             .map_err(|error| conversion_failure(0, Type::Text, error))?,
         task_id: TaskId::new(row.get::<_, String>(1)?)
             .map_err(|error| conversion_failure(1, Type::Text, error))?,
         task_generation: positive_u64(row, 2)?,
-        contract_id: row
-            .get::<_, Option<String>>(3)?
-            .map(noema_tasks::TaskContractId::new)
-            .transpose()
-            .map_err(|error| conversion_failure(3, Type::Text, error))?,
-        gate_id: row
-            .get::<_, Option<String>>(4)?
-            .map(TaskGateId::new)
-            .transpose()
-            .map_err(|error| conversion_failure(4, Type::Text, error))?,
+        contract_id: optional_id(row, 3, noema_tasks::TaskContractId::new)?,
+        gate_id: optional_id(row, 4, TaskGateId::new)?,
         review_id: row.get(5)?,
         kind: TaskMessageKind::from_str(&row.get::<_, String>(6)?)
             .map_err(|error| conversion_failure(6, Type::Text, error))?,
@@ -457,92 +159,9 @@ fn validate_message(message: &TaskMessageRecord) -> Result<(), StoreError> {
         || !consumed
         || !decision
     {
-        return Err(invariant("task message is not canonically valid"));
+        return Err(StoreError::InvariantViolation {
+            message: "task message is not canonically valid".to_string(),
+        });
     }
     Ok(())
-}
-
-fn validate_cursor(
-    family: &str,
-    task_id: &TaskId,
-    cursor_hash: Option<&str>,
-) -> Result<String, StoreError> {
-    let hash = query_hash(family, task_id);
-    if cursor_hash.is_some_and(|cursor_hash| cursor_hash != hash) {
-        Err(StoreError::Work(
-            noema_tasks::WorkDomainError::InvalidInput {
-                field: "work_history.cursor",
-                message: "invalid_cursor".to_string(),
-            },
-        ))
-    } else {
-        Ok(hash)
-    }
-}
-
-fn query_hash(family: &str, task_id: &TaskId) -> String {
-    let canonical = format!("work-history-query:v1\0{family}\0{}", task_id.as_str());
-    let hash = digest(&SHA256, canonical.as_bytes());
-    hash.as_ref()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
-}
-
-fn ids(keys: &[HistoryKey]) -> Vec<String> {
-    keys.iter().map(|key| key.id.clone()).collect()
-}
-
-fn exact<T: Clone>(
-    records: &HashMap<String, T>,
-    id: &str,
-    kind: &'static str,
-) -> Result<T, StoreError> {
-    records
-        .get(id)
-        .cloned()
-        .ok_or_else(|| StoreError::InvariantViolation {
-            message: format!("history references a missing {kind}: {id}"),
-        })
-}
-
-fn exact_count<T>(
-    ids: &[String],
-    records: &HashMap<String, T>,
-    kind: &'static str,
-) -> Result<(), StoreError> {
-    if records.len() == ids.len() && ids.iter().all(|id| records.contains_key(id)) {
-        Ok(())
-    } else {
-        Err(StoreError::InvariantViolation {
-            message: format!("history references a missing {kind}"),
-        })
-    }
-}
-
-fn page_info<T>(edges: &[T], has_next_page: bool, cursor: impl Fn(&T) -> &String) -> WorkPageInfo {
-    WorkPageInfo {
-        end_cursor: edges.last().map(cursor).cloned(),
-        has_next_page,
-    }
-}
-
-fn positive_u64(row: &Row<'_>, index: usize) -> rusqlite::Result<u64> {
-    let value = u64::try_from(row.get::<_, i64>(index)?)
-        .map_err(|error| conversion_failure(index, Type::Integer, error))?;
-    if value == 0 {
-        Err(conversion_failure(
-            index,
-            Type::Integer,
-            std::io::Error::new(std::io::ErrorKind::InvalidData, "expected positive integer"),
-        ))
-    } else {
-        Ok(value)
-    }
-}
-
-fn invariant(message: &'static str) -> StoreError {
-    StoreError::InvariantViolation {
-        message: message.to_string(),
-    }
 }

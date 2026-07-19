@@ -1,8 +1,6 @@
 use noema_store::{
-    ProjectConnection, WorkContractConnection, WorkEventConnection, WorkGateConnection,
-    WorkMessageConnection, WorkOverview, WorkReviewConnection, WorkRunConnection,
-    WorkRunItemConnection, WorkSubmissionConnection, WorkTaskArtifactConnection,
-    WorkTaskConnection, WorkTaskDetail, WorkTaskSummary,
+    ProjectConnection, WorkConnection, WorkEdge, WorkEventConnection, WorkOverview,
+    WorkRunItemConnection, WorkTaskConnection, WorkTaskDetail, WorkTaskSummary,
 };
 
 use crate::graphql::tasks::unavailable;
@@ -21,24 +19,7 @@ pub(crate) fn summary_from_store(
         value.latest_review.as_ref(),
         &value.valid_actions,
     )?;
-    Ok(GraphqlTaskSummary {
-        task_id: task.task_id,
-        workspace: task.workspace,
-        project: task.project,
-        title: task.title,
-        description_preview: task.description_preview,
-        stage: task.stage,
-        revision: task.revision,
-        generation: task.generation,
-        created_at: task.created_at,
-        updated_at: task.updated_at,
-        completed_at: task.completed_at,
-        current_run: task.current_run,
-        active_gate: task.active_gate,
-        latest_review: task.latest_review,
-        attention,
-        valid_actions: task.valid_actions,
-    })
+    Ok(GraphqlTaskSummary { task, attention })
 }
 
 fn task_card_from_store(value: &WorkTaskSummary) -> async_graphql::Result<GraphqlTaskCard> {
@@ -99,13 +80,28 @@ pub(crate) fn detail_from_store(value: WorkTaskDetail) -> async_graphql::Result<
     let latest_submission = value.latest_submission.map(Into::into);
     let accepted_result = value.accepted_submission.map(Into::into);
     let latest_review = value.latest_review.map(Into::into);
-    let workflow = GraphqlWorkflow::from_parts(value.workflow, value.workflow_stages);
+    let messages = value.messages.into_iter().map(Into::into).collect();
+    let runs = value
+        .runs
+        .into_iter()
+        .map(TryInto::try_into)
+        .collect::<async_graphql::Result<_>>()?;
+    let submissions = value.submissions.into_iter().map(Into::into).collect();
+    let reviews = value.reviews.into_iter().map(Into::into).collect();
+    let artifacts = value
+        .artifacts
+        .into_iter()
+        .map(|artifact| {
+            crate::graphql::artifacts::graphql_artifact_from_current(
+                artifact.artifact,
+                artifact.current_version,
+            )
+        })
+        .collect::<async_graphql::Result<_>>()?;
     Ok(GraphqlTaskDetail {
         task_id,
-        workspace: value.workspace.into(),
         project: value.project.map(TryInto::try_into).transpose()?,
         title: value.task.title,
-        description_preview: preview(&value.task.description_markdown, 280),
         description: value.task.description_markdown,
         stage: value.stage.into(),
         revision: exact_u64(value.task.revision)?,
@@ -113,19 +109,18 @@ pub(crate) fn detail_from_store(value: WorkTaskDetail) -> async_graphql::Result<
         created_at: value.task.created_at,
         updated_at: value.task.updated_at,
         completed_at: value.task.completed_at,
-        source: GraphqlTaskSource {
-            source_kind: value.task.provenance.source_kind.into(),
-            conversation_id: value.task.provenance.conversation_id,
-            turn_id: value.task.provenance.turn_id,
-            item_id: value.task.provenance.item_id,
-        },
-        workflow,
+        source: value.task.provenance.into(),
         current_contract,
         current_run,
         active_gate: current_gate,
         latest_submission,
         accepted_result,
         latest_review,
+        messages,
+        runs,
+        submissions,
+        reviews,
+        artifacts,
         attention,
         valid_actions: value.valid_actions.into_iter().map(Into::into).collect(),
     })
@@ -135,38 +130,26 @@ pub(crate) fn detail_from_store(value: WorkTaskDetail) -> async_graphql::Result<
 pub(crate) fn project_connection(
     value: ProjectConnection,
 ) -> async_graphql::Result<GraphqlProjectConnection> {
-    Ok(GraphqlProjectConnection {
-        edges: value
-            .edges
-            .into_iter()
-            .map(|edge| -> async_graphql::Result<_> {
-                Ok(GraphqlProjectEdge {
-                    cursor: edge.cursor,
-                    node: edge.node.try_into()?,
-                })
-            })
-            .collect::<async_graphql::Result<_>>()?,
-        page_info: value.page_info.into(),
-    })
+    let (edges, page_info) = map_connection(value, |edge| {
+        Ok(GraphqlProjectEdge {
+            cursor: edge.cursor,
+            node: edge.node.try_into()?,
+        })
+    })?;
+    Ok(GraphqlProjectConnection { edges, page_info })
 }
 
 /// Map a Store task connection to GraphQL.
 pub(crate) fn task_connection(
     value: WorkTaskConnection,
 ) -> async_graphql::Result<GraphqlTaskConnection> {
-    Ok(GraphqlTaskConnection {
-        edges: value
-            .edges
-            .into_iter()
-            .map(|edge| -> async_graphql::Result<_> {
-                Ok(GraphqlTaskEdge {
-                    cursor: edge.cursor,
-                    node: summary_from_store(edge.node)?,
-                })
-            })
-            .collect::<async_graphql::Result<_>>()?,
-        page_info: value.page_info.into(),
-    })
+    let (edges, page_info) = map_connection(value, |edge| {
+        Ok(GraphqlTaskEdge {
+            cursor: edge.cursor,
+            node: summary_from_store(edge.node)?,
+        })
+    })?;
+    Ok(GraphqlTaskConnection { edges, page_info })
 }
 
 /// Map a Store event connection to GraphQL.
@@ -190,139 +173,18 @@ pub(crate) fn event_connection(
     })
 }
 
-pub(crate) fn contract_connection(
-    value: WorkContractConnection,
-) -> async_graphql::Result<GraphqlTaskExecutionContractConnection> {
-    Ok(GraphqlTaskExecutionContractConnection {
-        edges: value
+fn map_connection<N, E>(
+    value: WorkConnection<String, N>,
+    map: impl FnMut(WorkEdge<String, N>) -> async_graphql::Result<E>,
+) -> async_graphql::Result<(Vec<E>, GraphqlPageInfo)> {
+    Ok((
+        value
             .edges
             .into_iter()
-            .map(|edge| -> async_graphql::Result<_> {
-                Ok(GraphqlTaskExecutionContractEdge {
-                    cursor: edge.cursor,
-                    node: edge.node.try_into()?,
-                })
-            })
+            .map(map)
             .collect::<async_graphql::Result<_>>()?,
-        page_info: value.page_info.into(),
-    })
-}
-
-pub(crate) fn gate_connection(
-    value: WorkGateConnection,
-) -> async_graphql::Result<GraphqlTaskGateConnection> {
-    Ok(GraphqlTaskGateConnection {
-        edges: value
-            .edges
-            .into_iter()
-            .map(|edge| -> async_graphql::Result<_> {
-                Ok(GraphqlTaskGateEdge {
-                    cursor: edge.cursor,
-                    node: edge.node.try_into()?,
-                })
-            })
-            .collect::<async_graphql::Result<_>>()?,
-        page_info: value.page_info.into(),
-    })
-}
-
-pub(crate) fn message_connection(
-    value: WorkMessageConnection,
-) -> async_graphql::Result<GraphqlTaskMessageConnection> {
-    Ok(GraphqlTaskMessageConnection {
-        edges: value
-            .edges
-            .into_iter()
-            .map(|edge| -> async_graphql::Result<_> {
-                Ok(GraphqlTaskMessageEdge {
-                    cursor: edge.cursor,
-                    node: GraphqlTaskMessage {
-                        message_id: edge.node.message_id.into_string(),
-                        task_generation: exact_u64(edge.node.task_generation)?,
-                        kind: edge.node.kind.into(),
-                        body_markdown: edge.node.body_markdown,
-                        author: edge.node.author_actor_id,
-                        gate_id: edge.node.gate_id.map(|id| id.into_string()),
-                        contract_id: edge.node.contract_id.map(|id| id.into_string()),
-                        approval_decision: edge.node.approval_decision.map(Into::into),
-                        consumed_by_run_id: edge.node.consumed_by_run_id,
-                        consumed_at: edge.node.consumed_at,
-                        created_at: edge.node.created_at,
-                    },
-                })
-            })
-            .collect::<async_graphql::Result<_>>()?,
-        page_info: value.page_info.into(),
-    })
-}
-
-pub(crate) fn run_connection(
-    value: WorkRunConnection,
-) -> async_graphql::Result<GraphqlTaskRunConnection> {
-    Ok(GraphqlTaskRunConnection {
-        edges: value
-            .edges
-            .into_iter()
-            .map(|edge| -> async_graphql::Result<_> {
-                Ok(GraphqlTaskRunEdge {
-                    cursor: edge.cursor,
-                    node: edge.node.try_into()?,
-                })
-            })
-            .collect::<async_graphql::Result<_>>()?,
-        page_info: value.page_info.into(),
-    })
-}
-
-pub(crate) fn submission_connection(
-    value: WorkSubmissionConnection,
-) -> GraphqlTaskSubmissionConnection {
-    GraphqlTaskSubmissionConnection {
-        edges: value
-            .edges
-            .into_iter()
-            .map(|edge| GraphqlTaskSubmissionEdge {
-                cursor: edge.cursor,
-                node: edge.node.into(),
-            })
-            .collect(),
-        page_info: value.page_info.into(),
-    }
-}
-
-pub(crate) fn review_connection(value: WorkReviewConnection) -> GraphqlTaskReviewConnection {
-    GraphqlTaskReviewConnection {
-        edges: value
-            .edges
-            .into_iter()
-            .map(|edge| GraphqlTaskReviewEdge {
-                cursor: edge.cursor,
-                node: edge.node.into(),
-            })
-            .collect(),
-        page_info: value.page_info.into(),
-    }
-}
-
-pub(crate) fn artifact_connection(
-    value: WorkTaskArtifactConnection,
-) -> async_graphql::Result<GraphqlTaskArtifactConnection> {
-    Ok(GraphqlTaskArtifactConnection {
-        edges: value
-            .edges
-            .into_iter()
-            .map(|edge| -> async_graphql::Result<_> {
-                Ok(GraphqlTaskArtifactEdge {
-                    cursor: edge.cursor,
-                    node: crate::graphql::artifacts::graphql_artifact_from_current(
-                        edge.node.artifact,
-                        edge.node.current_version,
-                    )?,
-                })
-            })
-            .collect::<async_graphql::Result<_>>()?,
-        page_info: value.page_info.into(),
-    })
+        value.page_info.into(),
+    ))
 }
 
 pub(crate) fn run_item_connection(value: WorkRunItemConnection) -> GraphqlTaskRunItemConnection {
@@ -332,7 +194,7 @@ pub(crate) fn run_item_connection(value: WorkRunItemConnection) -> GraphqlTaskRu
             .into_iter()
             .map(|edge| {
                 let cursor = edge.cursor;
-                let node = GraphqlTaskRunItem::from_edge(cursor.clone(), edge.node);
+                let node = (cursor.clone(), edge.node).into();
                 GraphqlTaskRunItemEdge { cursor, node }
             })
             .collect(),

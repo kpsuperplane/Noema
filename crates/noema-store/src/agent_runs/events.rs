@@ -3,11 +3,11 @@
 use noema_tasks::{AgentRunRecord, RunStatus, WorkDomainError, WorkEventPayload};
 use rusqlite::params;
 
-use super::{WorkRunProgress, rows::load_run_tx};
+use super::{WorkRunProgress, rows};
 use crate::{
     StoreError,
     work_commands::{WorkCommandService, helpers},
-    work_events::{WorkEventScope, append_work_event_tx},
+    work_events::append_work_event_tx,
 };
 
 impl WorkCommandService {
@@ -24,19 +24,11 @@ impl WorkCommandService {
         progress.validate().map_err(StoreError::Work)?;
         self.store
             .with_immediate_transaction_retry(|transaction| {
-                let run = load_run_tx(transaction, &progress.fence.run_id)?
-                    .ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))?;
-                if run.status != RunStatus::Running {
-                    return Err(StoreError::Work(WorkDomainError::InvalidTransition));
-                }
-                if run.task_generation != progress.fence.task_generation {
-                    return Err(StoreError::Work(WorkDomainError::StaleGeneration));
-                }
-                if run.contract_id != progress.fence.contract_id
-                    || run.lease_token.as_deref() != Some(progress.fence.lease_token.as_str())
-                {
-                    return Err(StoreError::Work(WorkDomainError::RunFenced));
-                }
+                let run = rows::load_active_fenced_run_tx(
+                    transaction,
+                    &progress.fence,
+                    RunStatus::Running,
+                )?;
                 let task = helpers::load_task_state_tx(transaction, &run.task_id)?;
                 if task.generation != progress.fence.task_generation {
                     return Err(StoreError::Work(WorkDomainError::StaleGeneration));
@@ -79,7 +71,8 @@ impl WorkCommandService {
                     .actual_model_profile
                     .as_deref()
                     .or(run.actual_model_profile.as_deref());
-                let changed = transaction.execute(
+                rows::execute_fenced_update_tx(
+                    transaction,
                     "UPDATE agent_runs SET
                         actual_provider_kind = ?2, actual_model_profile = ?3,
                         provider_call_count = ?4, tool_call_count = ?5,
@@ -114,22 +107,17 @@ impl WorkCommandService {
                         progress.fence.contract_id.as_ref().map(ToString::to_string),
                     ],
                 )?;
-                if changed != 1 {
-                    return Err(StoreError::Work(WorkDomainError::RunFenced));
-                }
-                let updated = load_run_tx(transaction, &run.run_id)?
+                let updated = rows::load_run_tx(transaction, &run.run_id)?
                     .ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))?;
                 append_work_event_tx(
                     transaction,
-                    WorkEventScope {
-                        workspace_id: task.workspace_id,
-                        project_id: task.project_id,
-                        task_id: Some(task.task_id),
-                        run_id: Some(updated.run_id.clone()),
-                        actor_id: "actor:store:run-progress".to_string(),
-                        causation_id: None,
-                        correlation_id: format!("correlation:run:{}", updated.run_id),
-                    },
+                    rows::event_scope(
+                        &task,
+                        Some(&updated.run_id),
+                        "actor:store:run-progress",
+                        None,
+                        &format!("correlation:run:{}", updated.run_id),
+                    ),
                     WorkEventPayload::run_heartbeat(
                         updated.run_kind,
                         updated.task_generation,

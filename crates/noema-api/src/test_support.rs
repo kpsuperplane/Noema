@@ -9,7 +9,7 @@ pub(crate) use artifacts::{
 };
 pub(crate) use noema_runtime::contract_test_support::{
     create_exa_provider_account_for_tests, ready_provider_selection_in_registry,
-    ready_test_provider_registry, save_provider_capability_assignment_for_tests, seed_task,
+    ready_test_provider_registry, save_provider_capability_assignment_for_tests,
 };
 
 #[derive(Clone, Debug)]

@@ -3,45 +3,38 @@ use std::collections::BTreeSet;
 use noema_artifacts::{ArtifactRecord, ArtifactVersionRecord};
 use serde::{Deserialize, Serialize};
 
-use crate::{TaskContractId, TaskId, WorkDomainError, error::invalid_input};
+use crate::{
+    TaskContractId, TaskId, WorkDomainError,
+    error::invalid_input,
+    validation::{optional as normalize_optional, required},
+};
 
 /// Criterion evidence attached to an immutable executor submission.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct SubmissionCriterionEvidence {
-    /// Criterion being addressed.
     pub criterion_id: String,
-    /// Concise evidence text.
     pub evidence_markdown: String,
 }
 
 /// Input for an immutable executor submission.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct NewTaskSubmission {
-    /// Optional caller-supplied submission id.
     pub submission_id: Option<String>,
-    /// Owning task.
     pub task_id: TaskId,
-    /// Contract executed by the submission.
     pub contract_id: TaskContractId,
-    /// Executor run that produced this submission.
     pub executor_run_id: String,
-    /// Review round within the contract.
     pub review_round: u32,
-    /// Short result summary.
     pub summary: String,
-    /// Complete result Markdown.
     pub result_markdown: String,
-    /// Evidence for every immutable criterion.
     pub criteria: Vec<SubmissionCriterionEvidence>,
-    /// Task-owned artifacts linked by persistence.
     pub artifact_ids: Vec<String>,
 }
 
 impl NewTaskSubmission {
     /// Normalize the submission and enforce exact criterion coverage.
-    ///
     /// # Errors
-    ///
     /// Returns [`WorkDomainError`] when required text or review round is
     /// invalid, criterion coverage is not exact, or artifact identities are
     /// blank, duplicated, or exceed the submission limit.
@@ -113,52 +106,25 @@ impl NewTaskSubmission {
 
 /// Immutable persisted executor submission.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct TaskSubmissionRecord {
-    /// Stable submission identity.
     pub submission_id: String,
-    /// Owning task.
     pub task_id: TaskId,
-    /// Contract executed by the submission.
     pub contract_id: TaskContractId,
-    /// Executor run identity.
     pub executor_run_id: String,
-    /// Review round within the contract.
     pub review_round: u32,
-    /// Short result summary.
     pub summary: String,
-    /// Complete result Markdown.
     pub result_markdown: String,
-    /// Criterion evidence.
     pub criteria: Vec<SubmissionCriterionEvidence>,
-    /// Immutable task-owned artifact snapshots.
     pub artifacts: Vec<TaskSubmissionArtifactRecord>,
-    /// Creation timestamp.
     pub created_at: String,
 }
 
 /// One immutable artifact-version link captured by a submission.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct TaskSubmissionArtifactRecord {
-    /// One-based artifact order.
     pub ordinal: u32,
-    /// Durable artifact metadata snapshot.
     pub artifact: ArtifactRecord,
-    /// Immutable version snapshot.
     pub version: ArtifactVersionRecord,
-}
-
-fn required(value: &str, field: &'static str) -> Result<String, WorkDomainError> {
-    let value = value.trim();
-    if value.is_empty() {
-        Err(invalid_input(field, "value cannot be blank"))
-    } else {
-        Ok(value.to_string())
-    }
-}
-
-fn normalize_optional(value: Option<&str>) -> Option<String> {
-    value
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
 }

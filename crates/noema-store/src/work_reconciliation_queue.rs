@@ -5,7 +5,7 @@ use noema_tasks::{
 };
 use rusqlite::{OptionalExtension, Transaction, params};
 
-use super::{ApplyReconciliation, reconciliation_scope};
+use super::{ApplyReconciliation, task_write};
 use crate::{
     StoreError,
     work_commands::{WorkCommandService, helpers},
@@ -53,12 +53,7 @@ fn reconciliation_lineage_tx(
         });
     }
     if parent.run_kind == run_kind {
-        let attempt_index = parent.attempt_index.checked_add(1).ok_or_else(|| {
-            StoreError::Work(WorkDomainError::InvalidInput {
-                field: "run.attempt_index",
-                message: "attempt index overflow".to_string(),
-            })
-        })?;
+        let attempt_index = helpers::increment(parent.attempt_index, "run.attempt_index")?;
         return Ok(ReconciliationLineage {
             review_round: parent.review_round,
             attempt_index,
@@ -69,11 +64,8 @@ fn reconciliation_lineage_tx(
     }
     match (parent.run_kind, run_kind) {
         (RunKind::Planner, RunKind::Executor) => Ok(ReconciliationLineage {
-            review_round: 1,
-            attempt_index: 0,
             parent_run_id: Some(parent.run_id),
-            triggering_submission_id: None,
-            triggering_review_id: None,
+            ..ReconciliationLineage::root(1)
         }),
         (RunKind::Executor, RunKind::Reviewer) => {
             let submission_id = task
@@ -91,19 +83,13 @@ fn reconciliation_lineage_tx(
                 .ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))?;
             Ok(ReconciliationLineage {
                 review_round: helpers::nonnegative_u32(review_round, "submission.review_round")?,
-                attempt_index: 0,
                 parent_run_id: Some(parent.run_id),
                 triggering_submission_id: Some(submission_id),
-                triggering_review_id: None,
+                ..ReconciliationLineage::root(0)
             })
         }
         (RunKind::Reviewer, RunKind::Executor) => {
-            let review_round = parent.review_round.checked_add(1).ok_or_else(|| {
-                StoreError::Work(WorkDomainError::InvalidInput {
-                    field: "run.review_round",
-                    message: "review round overflow".to_string(),
-                })
-            })?;
+            let review_round = helpers::increment(parent.review_round, "run.review_round")?;
             let persisted_review = transaction
                 .query_row(
                     "SELECT review_id FROM task_reviews WHERE reviewer_run_id = ?1 ORDER BY review_id DESC LIMIT 1",
@@ -123,10 +109,9 @@ fn reconciliation_lineage_tx(
                 })?;
             Ok(ReconciliationLineage {
                 review_round,
-                attempt_index: 0,
                 parent_run_id: Some(parent.run_id),
-                triggering_submission_id: None,
                 triggering_review_id: Some(review_id),
+                ..ReconciliationLineage::root(0)
             })
         }
         _ => Err(StoreError::InvariantViolation {
@@ -161,11 +146,7 @@ fn queue_lineage_tx(
                 attempt_index: lineage.attempt_index,
                 triggering_submission_id: lineage.triggering_submission_id.as_deref(),
                 triggering_review_id: lineage.triggering_review_id.as_deref(),
-                event: helpers::CommandEventContext {
-                    actor_id: &request.actor_id,
-                    causation_id: request.causation_id.as_deref(),
-                    correlation_id: &request.correlation_id,
-                },
+                event: request.event_context(),
             },
         )
     } else {
@@ -182,11 +163,7 @@ fn queue_lineage_tx(
                 parent_run_id: lineage.parent_run_id.as_deref(),
                 triggering_submission_id: lineage.triggering_submission_id.as_deref(),
                 triggering_review_id: lineage.triggering_review_id.as_deref(),
-                event: helpers::CommandEventContext {
-                    actor_id: &request.actor_id,
-                    causation_id: request.causation_id.as_deref(),
-                    correlation_id: &request.correlation_id,
-                },
+                event: request.event_context(),
             },
         )
     }
@@ -199,36 +176,9 @@ pub(super) fn queue_reconciled_run_tx(
     run_kind: RunKind,
     request: &ApplyReconciliation,
 ) -> Result<helpers::CommandWrite, StoreError> {
-    let lineage = reconciliation_lineage_tx(transaction, task, run_kind)?;
-    let (run_id, event) =
-        match queue_lineage_tx(transaction, service, task, run_kind, request, &lineage) {
-            Ok(queued) => queued,
-            Err(error) if helpers::provider_route_unavailable(&error) => {
-                let mut task = task.clone();
-                return crate::work_commands::recovery::open_configuration_recovery_tx(
-                    transaction,
-                    &mut task,
-                    crate::work_commands::recovery::ConfigurationRecovery {
-                        retry_run_kind: run_kind,
-                        originating_run_id: lineage.parent_run_id.as_deref(),
-                        event: helpers::CommandEventContext {
-                            actor_id: &request.actor_id,
-                            causation_id: request.causation_id.as_deref(),
-                            correlation_id: &request.correlation_id,
-                        },
-                    },
-                );
-            }
-            Err(error) => return Err(error),
-        };
-    Ok(helpers::write_marker(
-        event,
-        Some(task.task_id.clone()),
-        task.project_id.clone(),
-        task.current_contract_id.clone(),
-        task.active_gate_id.clone(),
-        Some(run_id),
-    ))
+    let mut task = task.clone();
+    let lineage = reconciliation_lineage_tx(transaction, &task, run_kind)?;
+    queue_or_recover_tx(transaction, service, &mut task, run_kind, request, &lineage)
 }
 
 pub(super) fn move_to_queue_and_queue_run_tx(
@@ -241,12 +191,7 @@ pub(super) fn move_to_queue_and_queue_run_tx(
     if task.stage_behavior != WorkflowStageBehavior::HumanGate {
         return Err(StoreError::Work(WorkDomainError::InvalidTransition));
     }
-    let revision = task.revision.checked_add(1).ok_or_else(|| {
-        StoreError::Work(WorkDomainError::InvalidInput {
-            field: "task.revision",
-            message: "revision overflow".to_string(),
-        })
-    })?;
+    let revision = helpers::increment(task.revision, "task.revision")?;
     let changed = transaction.execute(
         "UPDATE tasks SET stage_id = 'stage:personal:queue', active_gate_id = NULL, queued_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), revision = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND generation = ?3 AND revision = ?4",
         params![task.task_id.as_str(), revision, task.generation, task.revision],
@@ -261,7 +206,7 @@ pub(super) fn move_to_queue_and_queue_run_tx(
     task.revision = revision;
     append_work_event_tx(
         transaction,
-        reconciliation_scope(task, request),
+        request.scope(task, None),
         WorkEventPayload::task_stage_changed(
             revision,
             task.generation,
@@ -272,8 +217,19 @@ pub(super) fn move_to_queue_and_queue_run_tx(
         .map_err(StoreError::Work)?,
     )?;
     let lineage = reconciliation_lineage_tx(transaction, task, run_kind)?;
-    let (run_id, run_event) =
-        match queue_lineage_tx(transaction, service, task, run_kind, request, &lineage) {
+    queue_or_recover_tx(transaction, service, task, run_kind, request, &lineage)
+}
+
+fn queue_or_recover_tx(
+    transaction: &Transaction<'_>,
+    service: &WorkCommandService,
+    task: &mut helpers::TaskState,
+    run_kind: RunKind,
+    request: &ApplyReconciliation,
+    lineage: &ReconciliationLineage,
+) -> Result<helpers::CommandWrite, StoreError> {
+    let (run_id, event) =
+        match queue_lineage_tx(transaction, service, task, run_kind, request, lineage) {
             Ok(queued) => queued,
             Err(error) if helpers::provider_route_unavailable(&error) => {
                 return crate::work_commands::recovery::open_configuration_recovery_tx(
@@ -282,22 +238,11 @@ pub(super) fn move_to_queue_and_queue_run_tx(
                     crate::work_commands::recovery::ConfigurationRecovery {
                         retry_run_kind: run_kind,
                         originating_run_id: lineage.parent_run_id.as_deref(),
-                        event: helpers::CommandEventContext {
-                            actor_id: &request.actor_id,
-                            causation_id: request.causation_id.as_deref(),
-                            correlation_id: &request.correlation_id,
-                        },
+                        event: request.event_context(),
                     },
                 );
             }
             Err(error) => return Err(error),
         };
-    Ok(helpers::write_marker(
-        run_event,
-        Some(task.task_id.clone()),
-        task.project_id.clone(),
-        task.current_contract_id.clone(),
-        None,
-        Some(run_id),
-    ))
+    Ok(task_write(event, task).run(Some(run_id)))
 }

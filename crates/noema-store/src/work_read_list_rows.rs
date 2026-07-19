@@ -14,7 +14,14 @@ use super::{
     decode_project_record,
     rows::{decode_gate, decode_stage_record, decode_task_record},
 };
-use crate::{StoreError, sqlite::conversion_failure};
+use crate::{
+    StoreError,
+    sqlite::conversion_failure,
+    work_row::{
+        invalid as invalid_sql, nonnegative_u32, nonnegative_u64, optional_id, positive_u32,
+        positive_u64, strict_bool,
+    },
+};
 
 pub(super) struct TaskPageRow {
     pub(super) task: noema_tasks::TaskRecord,
@@ -410,58 +417,11 @@ fn sorted_unique(values: impl Iterator<Item = String>) -> Vec<String> {
 }
 
 fn optional_contract_id(row: &Row<'_>, index: usize) -> rusqlite::Result<Option<TaskContractId>> {
-    row.get::<_, Option<String>>(index)?
-        .map(TaskContractId::new)
-        .transpose()
-        .map_err(|error| conversion_failure(index, Type::Text, error))
-}
-
-fn positive_u64(row: &Row<'_>, index: usize) -> rusqlite::Result<u64> {
-    let value = nonnegative_u64(row, index)?;
-    if value == 0 {
-        Err(invalid_sql(index, "expected positive integer"))
-    } else {
-        Ok(value)
-    }
-}
-
-fn positive_u32(row: &Row<'_>, index: usize) -> rusqlite::Result<u32> {
-    let value = nonnegative_u32(row, index)?;
-    if value == 0 {
-        Err(invalid_sql(index, "expected positive integer"))
-    } else {
-        Ok(value)
-    }
-}
-
-fn nonnegative_u32(row: &Row<'_>, index: usize) -> rusqlite::Result<u32> {
-    u32::try_from(row.get::<_, i64>(index)?)
-        .map_err(|error| conversion_failure(index, Type::Integer, error))
-}
-
-fn nonnegative_u64(row: &Row<'_>, index: usize) -> rusqlite::Result<u64> {
-    u64::try_from(row.get::<_, i64>(index)?)
-        .map_err(|error| conversion_failure(index, Type::Integer, error))
-}
-
-fn strict_bool(row: &Row<'_>, index: usize) -> rusqlite::Result<bool> {
-    match row.get::<_, i64>(index)? {
-        0 => Ok(false),
-        1 => Ok(true),
-        _ => Err(invalid_sql(index, "expected persisted boolean")),
-    }
+    optional_id(row, index, TaskContractId::new)
 }
 
 fn invariant(message: &'static str) -> StoreError {
     StoreError::InvariantViolation {
         message: message.to_string(),
     }
-}
-
-fn invalid_sql(index: usize, message: &'static str) -> rusqlite::Error {
-    conversion_failure(
-        index,
-        Type::Text,
-        std::io::Error::new(std::io::ErrorKind::InvalidData, message),
-    )
 }

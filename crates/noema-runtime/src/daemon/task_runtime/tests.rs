@@ -8,7 +8,8 @@ use std::{
 
 use noema_providers::{
     GenerateRequest, GenerateResponse, GenerateResponseStatus, GenerateStreamEvent,
-    GenerateToolCall, ProviderError, ProviderToolCapabilities, ProviderToolTransport,
+    GenerateToolCall, ProviderError, ProviderHandle, ProviderToolCapabilities,
+    ProviderToolTransport,
 };
 use noema_store::WorkCommandService;
 use noema_tasks::{
@@ -33,18 +34,40 @@ enum ProviderEvent {
 }
 
 #[derive(Debug)]
-struct SupervisedBlockingProvider {
-    events: mpsc::UnboundedSender<ProviderEvent>,
+struct BlockingProvider {
+    events: Option<mpsc::UnboundedSender<ProviderEvent>>,
+    cleanup_release: Option<Arc<Mutex<Option<std::sync::mpsc::Receiver<()>>>>>,
+    terminal: bool,
 }
 
-#[derive(Debug)]
-struct CleanupBlockingProvider {
-    events: mpsc::UnboundedSender<ProviderEvent>,
-    cleanup_release: Arc<Mutex<Option<std::sync::mpsc::Receiver<()>>>>,
-}
+impl BlockingProvider {
+    fn supervised(events: mpsc::UnboundedSender<ProviderEvent>) -> Self {
+        Self {
+            events: Some(events),
+            cleanup_release: None,
+            terminal: false,
+        }
+    }
 
-#[derive(Debug)]
-struct BlockingTerminalProvider;
+    fn cleaning_up(
+        events: mpsc::UnboundedSender<ProviderEvent>,
+        release: std::sync::mpsc::Receiver<()>,
+    ) -> Self {
+        Self {
+            events: Some(events),
+            cleanup_release: Some(Arc::new(Mutex::new(Some(release)))),
+            terminal: false,
+        }
+    }
+
+    fn terminal() -> Self {
+        Self {
+            events: None,
+            cleanup_release: None,
+            terminal: true,
+        }
+    }
+}
 
 struct ProviderSettlement {
     run_id: String,
@@ -68,7 +91,7 @@ impl Drop for ProviderSettlement {
     }
 }
 
-impl noema_providers::ProviderOperations for SupervisedBlockingProvider {
+impl noema_providers::ProviderOperations for BlockingProvider {
     fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
         ProviderToolCapabilities {
             tool_transport: ProviderToolTransport::NoemaEnvelope,
@@ -82,90 +105,123 @@ impl noema_providers::ProviderOperations for SupervisedBlockingProvider {
         _on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
     ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
         Box::pin(async move {
+            if self.terminal {
+                return Ok(GenerateResponse {
+                    responses: Vec::new(),
+                    tool_calls: vec![GenerateToolCall {
+                        id: Some("call:block".to_string()),
+                        provider_call_id: None,
+                        provider_name: None,
+                        name: "task.report_blocked".to_string(),
+                        payload: serde_json::json!({
+                            "gate_kind": "clarification",
+                            "question": "Which region?",
+                            "context_markdown": "The contract has no authorized region.",
+                        }),
+                    }],
+                    reasoning_items: Vec::new(),
+                    response_status: GenerateResponseStatus::NeedsTools,
+                    provider: "test".to_string(),
+                    model: request.model.unwrap_or_else(|| "test-model".to_string()),
+                    response_id: None,
+                    usage: None,
+                });
+            }
             let run_id = request
                 .conversation_id
                 .as_deref()
                 .and_then(|id| id.strip_prefix("task_run:"))
                 .unwrap_or("unknown")
                 .to_string();
+            let events = self.events.as_ref().expect("event provider");
             let _settlement = ProviderSettlement {
                 run_id: run_id.clone(),
-                events: self.events.clone(),
-                cleanup_release: None,
+                events: events.clone(),
+                cleanup_release: self.cleanup_release.clone(),
             };
-            let _ = self.events.send(ProviderEvent::Started(run_id));
+            let _ = events.send(ProviderEvent::Started(run_id));
             std::future::pending().await
         })
     }
 }
 
-impl noema_providers::ProviderOperations for CleanupBlockingProvider {
-    fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
-        ProviderToolCapabilities {
-            tool_transport: ProviderToolTransport::NoemaEnvelope,
-            ..ProviderToolCapabilities::default()
-        }
-    }
+async fn start_task_runtime(
+    provider: ProviderHandle,
+    store: &noema_store::NoemaStore,
+    subscriptions: RuntimeEventRegistry,
+) -> (RuntimeHandle, TaskRuntimeHandle) {
+    let runtime = RuntimeHandle::spawn_with_provider(provider, store.clone())
+        .await
+        .expect("runtime");
+    let task_runtime = TaskRuntimeHandle::start(
+        store.clone(),
+        runtime.clone(),
+        crate::test_support::ready_test_provider_registry(),
+        crate::test_support::system_error_logger(),
+        subscriptions,
+    );
+    (runtime, task_runtime)
+}
 
-    fn generate_streaming<'a>(
-        &'a self,
-        request: GenerateRequest,
-        _on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
-    ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
-        Box::pin(async move {
-            let run_id = request
-                .conversation_id
-                .as_deref()
-                .and_then(|id| id.strip_prefix("task_run:"))
-                .unwrap_or("unknown")
-                .to_string();
-            let _settlement = ProviderSettlement {
-                run_id: run_id.clone(),
-                events: self.events.clone(),
-                cleanup_release: Some(Arc::clone(&self.cleanup_release)),
-            };
-            let _ = self.events.send(ProviderEvent::Started(run_id));
-            std::future::pending().await
-        })
+async fn next_event(
+    events: &mut mpsc::UnboundedReceiver<ProviderEvent>,
+    context: &str,
+) -> ProviderEvent {
+    tokio::time::timeout(Duration::from_secs(2), events.recv())
+        .await
+        .expect(context)
+        .expect("provider event")
+}
+
+async fn assert_no_event(events: &mut mpsc::UnboundedReceiver<ProviderEvent>, context: &str) {
+    assert!(
+        tokio::time::timeout(Duration::from_millis(150), events.recv())
+            .await
+            .is_err(),
+        "{context}"
+    );
+}
+
+async fn current_task(
+    store: &noema_store::NoemaStore,
+    task_id: &noema_tasks::TaskId,
+) -> noema_tasks::TaskRecord {
+    store
+        .get_work_task(task_id)
+        .await
+        .expect("load task")
+        .expect("task exists")
+        .task
+}
+
+fn publish_task(subscriptions: &RuntimeEventRegistry, task_id: &noema_tasks::TaskId) {
+    subscriptions.publish_work(WorkRuntimeEvent::Committed {
+        workspace_id: PERSONAL_WORKSPACE_ID.to_string(),
+        task_id: Some(task_id.to_string()),
+    });
+}
+
+fn precondition(task: &noema_tasks::TaskRecord) -> TaskPrecondition {
+    TaskPrecondition {
+        task_id: task.task_id.clone(),
+        expected_revision: task.revision,
+        expected_generation: task.generation,
     }
 }
 
-impl noema_providers::ProviderOperations for BlockingTerminalProvider {
-    fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
-        ProviderToolCapabilities {
-            tool_transport: ProviderToolTransport::NoemaEnvelope,
-            ..ProviderToolCapabilities::default()
-        }
-    }
+fn cancel_command(key: &str, task: &noema_tasks::TaskRecord, reason: &str) -> WorkCommand {
+    WorkCommand::CancelTask(CancelTask {
+        meta: command_meta(key),
+        precondition: precondition(task),
+        reason: Some(reason.to_string()),
+    })
+}
 
-    fn generate_streaming<'a>(
-        &'a self,
-        request: GenerateRequest,
-        _on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
-    ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
-        Box::pin(async move {
-            Ok(GenerateResponse {
-                responses: Vec::new(),
-                tool_calls: vec![GenerateToolCall {
-                    id: Some("call:block".to_string()),
-                    provider_call_id: None,
-                    provider_name: None,
-                    name: "task.report_blocked".to_string(),
-                    payload: serde_json::json!({
-                        "gate_kind": "clarification",
-                        "question": "Which region?",
-                        "context_markdown": "The contract has no authorized region.",
-                    }),
-                }],
-                reasoning_items: Vec::new(),
-                response_status: GenerateResponseStatus::NeedsTools,
-                provider: "test".to_string(),
-                model: request.model.unwrap_or_else(|| "test-model".to_string()),
-                response_id: None,
-                usage: None,
-            })
-        })
-    }
+fn queue_command(key: &str, task: &noema_tasks::TaskRecord) -> WorkCommand {
+    WorkCommand::QueueTask(QueueTask {
+        meta: command_meta(key),
+        precondition: precondition(task),
+    })
 }
 
 #[tokio::test]
@@ -187,27 +243,17 @@ async fn supervisor_enforces_fifo_cap_and_releases_ninth_only_after_cancelled_ru
         .collect::<Vec<_>>();
     let expected_ninth = fifo[MAX_CONCURRENT_TASK_RUNS].1.clone();
     let (event_tx, mut event_rx) = mpsc::unbounded_channel();
-    let runtime = RuntimeHandle::spawn_with_provider(
-        Arc::new(SupervisedBlockingProvider { events: event_tx }),
-        store.clone(),
-    )
-    .await
-    .expect("runtime");
     let subscriptions = RuntimeEventRegistry::default();
-    let task_runtime = TaskRuntimeHandle::start(
-        store.clone(),
-        runtime.clone(),
-        crate::test_support::ready_test_provider_registry(),
-        crate::test_support::system_error_logger(),
+    let (runtime, task_runtime) = start_task_runtime(
+        Arc::new(BlockingProvider::supervised(event_tx)),
+        &store,
         subscriptions.clone(),
-    );
+    )
+    .await;
 
     let mut started = Vec::new();
     while started.len() < MAX_CONCURRENT_TASK_RUNS {
-        let event = tokio::time::timeout(Duration::from_secs(3), event_rx.recv())
-            .await
-            .expect("one of the first eight runs should start")
-            .expect("provider event");
+        let event = next_event(&mut event_rx, "one of the first eight runs should start").await;
         match event {
             ProviderEvent::Started(run_id) => started.push(run_id),
             ProviderEvent::Settling(run_id) => {
@@ -221,12 +267,11 @@ async fn supervisor_enforces_fifo_cap_and_releases_ninth_only_after_cancelled_ru
         expected_first.iter().cloned().collect::<HashSet<_>>(),
         "the occupied slots must be the exact durable FIFO prefix"
     );
-    assert!(
-        tokio::time::timeout(Duration::from_millis(150), event_rx.recv())
-            .await
-            .is_err(),
-        "the ninth run must not start while all eight supervisor slots are occupied"
-    );
+    assert_no_event(
+        &mut event_rx,
+        "the ninth run must not start while all eight supervisor slots are occupied",
+    )
+    .await;
 
     let cancelled_run_id = started[0].clone();
     let (cancelled_task, _) = seeded
@@ -234,45 +279,27 @@ async fn supervisor_enforces_fifo_cap_and_releases_ninth_only_after_cancelled_ru
         .find(|(_, run)| run.run_id == cancelled_run_id)
         .expect("cancelled task")
         .clone();
-    let current = store
-        .get_work_task(&cancelled_task.task_id)
-        .await
-        .expect("load running task")
-        .expect("running task")
-        .task;
+    let current = current_task(&store, &cancelled_task.task_id).await;
     let command_service = WorkCommandService::new(
         store.clone(),
         crate::test_support::ready_test_provider_registry(),
     );
     command_service
-        .execute(WorkCommand::CancelTask(CancelTask {
-            meta: command_meta("cancel-capped-run"),
-            precondition: TaskPrecondition {
-                task_id: current.task_id.clone(),
-                expected_revision: current.revision,
-                expected_generation: current.generation,
-            },
-            reason: Some("test cancellation".to_string()),
-        }))
+        .execute(cancel_command(
+            "cancel-capped-run",
+            &current,
+            "test cancellation",
+        ))
         .await
         .expect("cancel running task");
-    subscriptions.publish_work(WorkRuntimeEvent::Committed {
-        workspace_id: PERSONAL_WORKSPACE_ID.to_string(),
-        task_id: Some(current.task_id.to_string()),
-    });
+    publish_task(&subscriptions, &current.task_id);
 
     assert_eq!(
-        tokio::time::timeout(Duration::from_secs(2), event_rx.recv())
-            .await
-            .expect("cancelled provider should settle")
-            .expect("settlement event"),
+        next_event(&mut event_rx, "cancelled provider should settle").await,
         ProviderEvent::Settled(cancelled_run_id.clone())
     );
     assert_eq!(
-        tokio::time::timeout(Duration::from_secs(2), event_rx.recv())
-            .await
-            .expect("ninth run should start after settlement")
-            .expect("ninth provider event"),
+        next_event(&mut event_rx, "ninth run should start after settlement").await,
         ProviderEvent::Started(expected_ninth)
     );
     assert_eq!(
@@ -296,28 +323,15 @@ async fn cancelled_run_stays_excluded_until_its_provider_future_fully_settles() 
     let (task, old_run) = crate::test_support::seed_task(&store, "Same-task settlement").await;
     let (event_tx, mut event_rx) = mpsc::unbounded_channel();
     let (cleanup_tx, cleanup_rx) = std::sync::mpsc::channel();
-    let runtime = RuntimeHandle::spawn_with_provider(
-        Arc::new(CleanupBlockingProvider {
-            events: event_tx,
-            cleanup_release: Arc::new(Mutex::new(Some(cleanup_rx))),
-        }),
-        store.clone(),
-    )
-    .await
-    .expect("runtime");
     let subscriptions = RuntimeEventRegistry::default();
-    let task_runtime = TaskRuntimeHandle::start(
-        store.clone(),
-        runtime.clone(),
-        crate::test_support::ready_test_provider_registry(),
-        crate::test_support::system_error_logger(),
+    let (runtime, task_runtime) = start_task_runtime(
+        Arc::new(BlockingProvider::cleaning_up(event_tx, cleanup_rx)),
+        &store,
         subscriptions.clone(),
-    );
+    )
+    .await;
     assert_eq!(
-        tokio::time::timeout(Duration::from_secs(2), event_rx.recv())
-            .await
-            .expect("old run should start")
-            .expect("provider event"),
+        next_event(&mut event_rx, "old run should start").await,
         ProviderEvent::Started(old_run.run_id.clone())
     );
 
@@ -325,70 +339,36 @@ async fn cancelled_run_stays_excluded_until_its_provider_future_fully_settles() 
         store.clone(),
         crate::test_support::ready_test_provider_registry(),
     );
-    let running = store
-        .get_work_task(&task.task_id)
-        .await
-        .expect("load running task")
-        .expect("running task")
-        .task;
+    let running = current_task(&store, &task.task_id).await;
     service
-        .execute(WorkCommand::CancelTask(CancelTask {
-            meta: command_meta("cancel-overlap"),
-            precondition: TaskPrecondition {
-                task_id: running.task_id.clone(),
-                expected_revision: running.revision,
-                expected_generation: running.generation,
-            },
-            reason: Some("replace execution generation".to_string()),
-        }))
+        .execute(cancel_command(
+            "cancel-overlap",
+            &running,
+            "replace execution generation",
+        ))
         .await
         .expect("cancel old run");
-    subscriptions.publish_work(WorkRuntimeEvent::Committed {
-        workspace_id: PERSONAL_WORKSPACE_ID.to_string(),
-        task_id: Some(task.task_id.to_string()),
-    });
+    publish_task(&subscriptions, &task.task_id);
     assert_eq!(
-        tokio::time::timeout(Duration::from_secs(2), event_rx.recv())
-            .await
-            .expect("old provider should enter cleanup")
-            .expect("provider event"),
+        next_event(&mut event_rx, "old provider should enter cleanup").await,
         ProviderEvent::Settling(old_run.run_id.clone())
     );
 
-    let cancelled = store
-        .get_work_task(&task.task_id)
-        .await
-        .expect("load cancelled task")
-        .expect("cancelled task")
-        .task;
+    let cancelled = current_task(&store, &task.task_id).await;
     let reopened = service
         .execute(WorkCommand::ReopenTask(ReopenTask {
             meta: command_meta("reopen-overlap"),
-            precondition: TaskPrecondition {
-                task_id: cancelled.task_id.clone(),
-                expected_revision: cancelled.revision,
-                expected_generation: cancelled.generation,
-            },
+            precondition: precondition(&cancelled),
         }))
         .await
         .expect("reopen task")
         .task
         .expect("reopened task");
     service
-        .execute(WorkCommand::QueueTask(QueueTask {
-            meta: command_meta("queue-overlap"),
-            precondition: TaskPrecondition {
-                task_id: reopened.task_id.clone(),
-                expected_revision: reopened.revision,
-                expected_generation: reopened.generation,
-            },
-        }))
+        .execute(queue_command("queue-overlap", &reopened))
         .await
         .expect("queue successor");
-    subscriptions.publish_work(WorkRuntimeEvent::Committed {
-        workspace_id: PERSONAL_WORKSPACE_ID.to_string(),
-        task_id: Some(task.task_id.to_string()),
-    });
+    publish_task(&subscriptions, &task.task_id);
     let successor = tokio::time::timeout(Duration::from_secs(2), async {
         loop {
             if let Some(run) = store
@@ -406,26 +386,19 @@ async fn cancelled_run_stays_excluded_until_its_provider_future_fully_settles() 
     .await
     .expect("reconciliation should queue successor");
     assert_eq!(successor.status, RunStatus::Queued);
-    assert!(
-        tokio::time::timeout(Duration::from_millis(150), event_rx.recv())
-            .await
-            .is_err(),
-        "successor provider must not start during predecessor cleanup"
-    );
+    assert_no_event(
+        &mut event_rx,
+        "successor provider must not start during predecessor cleanup",
+    )
+    .await;
 
     cleanup_tx.send(()).expect("release old provider cleanup");
     assert_eq!(
-        tokio::time::timeout(Duration::from_secs(2), event_rx.recv())
-            .await
-            .expect("old provider should settle")
-            .expect("provider event"),
+        next_event(&mut event_rx, "old provider should settle").await,
         ProviderEvent::Settled(old_run.run_id)
     );
     assert_eq!(
-        tokio::time::timeout(Duration::from_secs(2), event_rx.recv())
-            .await
-            .expect("successor should start after cleanup")
-            .expect("provider event"),
+        next_event(&mut event_rx, "successor should start after cleanup").await,
         ProviderEvent::Started(successor.run_id)
     );
 
@@ -499,14 +472,7 @@ async fn reconciliation_recovers_an_active_task_beyond_the_first_hundred_rows() 
         .task
         .expect("tail task");
     service
-        .execute(WorkCommand::QueueTask(QueueTask {
-            meta: command_meta("queue-tail"),
-            precondition: TaskPrecondition {
-                task_id: tail.task_id.clone(),
-                expected_revision: tail.revision,
-                expected_generation: tail.generation,
-            },
-        }))
+        .execute(queue_command("queue-tail", &tail))
         .await
         .expect("queue tail task");
     let old_run_id = store
@@ -610,17 +576,12 @@ async fn reconciliation_recovers_an_active_task_beyond_the_first_hundred_rows() 
 async fn successful_worker_return_keeps_its_terminal_waiting_status() {
     let store = crate::test_support::test_store().await;
     let (_task, run) = crate::test_support::seed_task(&store, "Settled worker status").await;
-    let runtime =
-        RuntimeHandle::spawn_with_provider(Arc::new(BlockingTerminalProvider), store.clone())
-            .await
-            .expect("runtime");
-    let task_runtime = TaskRuntimeHandle::start(
-        store.clone(),
-        runtime.clone(),
-        crate::test_support::ready_test_provider_registry(),
-        crate::test_support::system_error_logger(),
+    let (runtime, task_runtime) = start_task_runtime(
+        Arc::new(BlockingProvider::terminal()),
+        &store,
         RuntimeEventRegistry::default(),
-    );
+    )
+    .await;
     let settled = tokio::time::timeout(Duration::from_secs(3), async {
         loop {
             let current = store

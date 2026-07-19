@@ -1,186 +1,72 @@
-use async_graphql::SimpleObject;
-
 use super::*;
 
-/// Task edge.
-#[derive(Clone, Debug, SimpleObject)]
-#[graphql(name = "TaskEdge")]
-pub struct GraphqlTaskEdge {
-    /// Opaque keyset cursor.
-    pub cursor: String,
-    /// Task node.
-    pub node: GraphqlTaskSummary,
-}
-
-/// Task connection.
-#[derive(Clone, Debug, SimpleObject)]
-#[graphql(name = "TaskConnection")]
-pub struct GraphqlTaskConnection {
-    /// Ordered task edges.
-    pub edges: Vec<GraphqlTaskEdge>,
-    /// Pagination metadata.
-    pub page_info: GraphqlPageInfo,
-}
-
-/// Project edge.
-#[derive(Clone, Debug, SimpleObject)]
-#[graphql(name = "ProjectEdge")]
-pub struct GraphqlProjectEdge {
-    /// Opaque keyset cursor.
-    pub cursor: String,
-    /// Project node.
-    pub node: GraphqlProject,
-}
-
-/// Project connection.
-#[derive(Clone, Debug, SimpleObject)]
-#[graphql(name = "ProjectConnection")]
-pub struct GraphqlProjectConnection {
-    /// Ordered project edges.
-    pub edges: Vec<GraphqlProjectEdge>,
-    /// Pagination metadata.
-    pub page_info: GraphqlPageInfo,
-}
-
-/// Event edge.
-#[derive(Clone, Debug, SimpleObject)]
-#[graphql(name = "WorkEventEdge")]
-pub struct GraphqlWorkEventEdge {
-    /// Opaque event cursor.
-    pub cursor: String,
-    /// Event node.
-    pub node: GraphqlWorkEvent,
-}
-
-/// Work event connection.
-#[derive(Clone, Debug, SimpleObject)]
-#[graphql(name = "WorkEventConnection")]
-pub struct GraphqlWorkEventConnection {
-    /// Ordered event edges.
-    pub edges: Vec<GraphqlWorkEventEdge>,
-    /// Pagination metadata.
-    pub page_info: GraphqlPageInfo,
-}
-
-/// Derived attention edge.
-#[derive(Clone, Debug, SimpleObject)]
-#[graphql(name = "TaskAttentionEdge")]
-pub struct GraphqlTaskAttentionEdge {
-    /// Opaque attention cursor.
-    pub cursor: String,
-    /// Attention node.
-    pub node: GraphqlTaskAttention,
-}
-
-/// Derived attention connection.
-#[derive(Clone, Debug, SimpleObject)]
-#[graphql(name = "TaskAttentionConnection")]
-pub struct GraphqlTaskAttentionConnection {
-    /// Ordered attention edges.
-    pub edges: Vec<GraphqlTaskAttentionEdge>,
-    /// Pagination metadata.
-    pub page_info: GraphqlPageInfo,
-}
-
-macro_rules! history_connection {
-    ($edge:ident, $connection:ident, $node:ty, $edge_name:literal, $connection_name:literal) => {
-        #[derive(Clone, Debug, SimpleObject)]
-        #[graphql(name = $edge_name)]
-        pub struct $edge {
-            /// Opaque history cursor.
-            pub cursor: String,
-            /// History node.
-            pub node: $node,
-        }
-
-        #[derive(Clone, Debug, SimpleObject)]
-        #[graphql(name = $connection_name)]
-        pub struct $connection {
-            /// Ordered history edges.
-            pub edges: Vec<$edge>,
-            /// Pagination metadata.
-            pub page_info: GraphqlPageInfo,
-        }
+macro_rules! connection {
+    ($edge:ident, $connection:ident, $node:ty, $edge_name:literal, $connection_name:literal, $cursor_doc:literal, $nodes_doc:literal) => {
+        graphql_object! { "Connection edge." => pub struct $edge($edge_name) {
+            $cursor_doc => cursor: String,
+            "Connection node." => node: $node,
+        } }
+        graphql_object! { "Bounded connection." => pub struct $connection($connection_name) {
+            $nodes_doc => edges: Vec<$edge>,
+            "Pagination metadata." => page_info: GraphqlPageInfo,
+        } }
     };
 }
 
-history_connection!(
-    GraphqlTaskExecutionContractEdge,
-    GraphqlTaskExecutionContractConnection,
-    GraphqlTaskExecutionContract,
-    "TaskExecutionContractEdge",
-    "TaskExecutionContractConnection"
+connection!(
+    GraphqlTaskEdge,
+    GraphqlTaskConnection,
+    GraphqlTaskSummary,
+    "TaskEdge",
+    "TaskConnection",
+    "Opaque keyset cursor.",
+    "Ordered task edges."
 );
-history_connection!(
-    GraphqlTaskGateEdge,
-    GraphqlTaskGateConnection,
-    GraphqlTaskGate,
-    "TaskGateEdge",
-    "TaskGateConnection"
+connection!(
+    GraphqlProjectEdge,
+    GraphqlProjectConnection,
+    GraphqlProject,
+    "ProjectEdge",
+    "ProjectConnection",
+    "Opaque keyset cursor.",
+    "Ordered project edges."
 );
-history_connection!(
-    GraphqlTaskMessageEdge,
-    GraphqlTaskMessageConnection,
-    GraphqlTaskMessage,
-    "TaskMessageEdge",
-    "TaskMessageConnection"
+connection!(
+    GraphqlWorkEventEdge,
+    GraphqlWorkEventConnection,
+    GraphqlWorkEvent,
+    "WorkEventEdge",
+    "WorkEventConnection",
+    "Opaque event cursor.",
+    "Ordered event edges."
 );
-history_connection!(
-    GraphqlTaskRunEdge,
-    GraphqlTaskRunConnection,
-    GraphqlTaskRun,
-    "TaskRunEdge",
-    "TaskRunConnection"
+connection!(
+    GraphqlTaskAttentionEdge,
+    GraphqlTaskAttentionConnection,
+    GraphqlTaskAttention,
+    "TaskAttentionEdge",
+    "TaskAttentionConnection",
+    "Opaque attention cursor.",
+    "Ordered attention edges."
 );
-history_connection!(
-    GraphqlTaskSubmissionEdge,
-    GraphqlTaskSubmissionConnection,
-    GraphqlTaskSubmission,
-    "TaskSubmissionEdge",
-    "TaskSubmissionConnection"
-);
-history_connection!(
-    GraphqlTaskReviewEdge,
-    GraphqlTaskReviewConnection,
-    GraphqlTaskReview,
-    "TaskReviewEdge",
-    "TaskReviewConnection"
-);
-history_connection!(
-    GraphqlTaskArtifactEdge,
-    GraphqlTaskArtifactConnection,
-    crate::graphql::artifacts::GraphqlArtifact,
-    "TaskArtifactEdge",
-    "TaskArtifactConnection"
-);
-history_connection!(
+
+connection!(
     GraphqlTaskRunItemEdge,
     GraphqlTaskRunItemConnection,
     GraphqlTaskRunItem,
     "TaskRunItemEdge",
-    "TaskRunItemConnection"
+    "TaskRunItemConnection",
+    "Opaque history cursor.",
+    "Ordered history edges."
 );
 
-/// Project mutation payload.
-#[derive(Clone, Debug, SimpleObject)]
-#[graphql(name = "ProjectCommandPayload")]
-pub struct GraphqlProjectCommandPayload {
-    /// Authoritative project projection.
-    pub project: GraphqlProject,
-    /// Cursor for the event committed by the command.
-    pub event_cursor: String,
-    /// Echoed caller idempotency key.
-    pub client_mutation_id: String,
-}
-
-/// Task mutation payload.
-#[derive(Clone, Debug, SimpleObject)]
-#[graphql(name = "TaskCommandPayload")]
-pub struct GraphqlTaskCommandPayload {
-    /// Authoritative task projection.
-    pub task: GraphqlTaskDetail,
-    /// Cursor for the event committed by the command.
-    pub event_cursor: String,
-    /// Echoed caller idempotency key.
-    pub client_mutation_id: String,
-}
+graphql_object! { "Project mutation payload." => pub struct GraphqlProjectCommandPayload("ProjectCommandPayload") {
+    "Authoritative project projection." => project: GraphqlProject,
+    "Cursor for the event committed by the command." => event_cursor: String,
+    "Echoed caller idempotency key." => client_mutation_id: String,
+} }
+graphql_object! { "Task mutation payload." => pub struct GraphqlTaskCommandPayload("TaskCommandPayload") {
+    "Authoritative task projection." => task: GraphqlTaskDetail,
+    "Cursor for the event committed by the command." => event_cursor: String,
+    "Echoed caller idempotency key." => client_mutation_id: String,
+} }

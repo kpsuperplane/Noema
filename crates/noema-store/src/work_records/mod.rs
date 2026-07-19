@@ -10,17 +10,13 @@ mod overview;
 
 use noema_tasks::{
     AgentRunRecord, TaskExecutionContract, TaskGateRecord, TaskId, TaskReviewRecord,
-    TaskSubmissionRecord, WorkCommandResult, WorkEventRecord, WorkReconciliationSnapshot,
-    WorkflowDefinition, WorkflowStage, WorkflowStageBehavior,
+    TaskSubmissionRecord, WorkEventRecord, WorkReconciliationSnapshot, WorkflowStage,
+    WorkflowStageBehavior,
 };
 use noema_workspaces::{ProjectId, ProjectRecord, WorkspaceId, WorkspaceRecord};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
-pub use cursor::{
-    ProjectCursor, WorkCursorError, WorkEventCursor, WorkPageSize, WorkTaskArtifactCursor,
-    WorkTaskCursor,
-};
+pub use cursor::{ProjectCursor, WorkCursorError, WorkEventCursor, WorkPageSize, WorkTaskCursor};
 pub use history::*;
 pub use overview::*;
 
@@ -187,10 +183,6 @@ pub struct WorkTaskDetail {
     pub workspace: WorkspaceRecord,
     /// Current project, if the task is assigned to one.
     pub project: Option<ProjectRecord>,
-    /// Workflow definition that owns the stage.
-    pub workflow: WorkflowDefinition,
-    /// Complete immutable-at-read workflow stage set used by mutation projection.
-    pub workflow_stages: Vec<WorkflowStage>,
     /// Current workflow stage definition.
     pub stage: WorkflowStage,
     /// Immutable contract for the current generation, if any.
@@ -205,6 +197,16 @@ pub struct WorkTaskDetail {
     pub accepted_submission: Option<TaskSubmissionRecord>,
     /// Most recent immutable review, if any.
     pub latest_review: Option<TaskReviewRecord>,
+    /// Bounded recent human messages, newest first.
+    pub messages: Vec<noema_tasks::TaskMessageRecord>,
+    /// Bounded recent runs, newest first.
+    pub runs: Vec<AgentRunRecord>,
+    /// Bounded recent submissions, newest first.
+    pub submissions: Vec<TaskSubmissionRecord>,
+    /// Bounded recent reviews, newest first.
+    pub reviews: Vec<TaskReviewRecord>,
+    /// Bounded current task artifacts, newest first.
+    pub artifacts: Vec<WorkTaskArtifact>,
     /// Derived human-attention classification.
     pub attention: Option<WorkTaskAttention>,
     /// Commands allowed by the current durable state.
@@ -242,37 +244,31 @@ pub struct WorkPageInfo {
     pub has_next_page: bool,
 }
 
-/// One task edge.
+/// A cursor-bound node shared by every Work connection family.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WorkTaskEdge {
-    /// Opaque keyset cursor for this task.
-    pub cursor: String,
-    /// Task card at this edge.
-    pub node: WorkTaskSummary,
+pub struct WorkEdge<C, N> {
+    /// Opaque family-specific cursor.
+    pub cursor: C,
+    /// Node at this cursor.
+    pub node: N,
 }
 
-/// Bounded task connection.
+/// A bounded page shared by every Work connection family.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WorkTaskConnection {
-    /// Bounded task edges in query order.
-    pub edges: Vec<WorkTaskEdge>,
+pub struct WorkConnection<C, N> {
+    /// Ordered page edges.
+    pub edges: Vec<WorkEdge<C, N>>,
     /// Pagination metadata.
     pub page_info: WorkPageInfo,
 }
 
-/// Bounded artifact query for one task owner.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WorkTaskArtifactQuery {
-    /// Task that must directly own every returned artifact.
-    pub task_id: TaskId,
-    /// Validated page size.
-    pub first: WorkPageSize,
-    /// Exclusive query-bound keyset cursor.
-    pub after: Option<WorkTaskArtifactCursor>,
-}
+/// Task connection edge.
+pub type WorkTaskEdge = WorkEdge<String, WorkTaskSummary>;
+/// Bounded task connection.
+pub type WorkTaskConnection = WorkConnection<String, WorkTaskSummary>;
 
 /// One task-owned artifact hydrated with only its current immutable version.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorkTaskArtifact {
     /// Artifact metadata owned by the task.
     pub artifact: noema_artifacts::ArtifactRecord,
@@ -280,162 +276,11 @@ pub struct WorkTaskArtifact {
     pub current_version: noema_artifacts::ArtifactVersionRecord,
 }
 
-/// One task-artifact edge.
-#[derive(Debug, Clone, PartialEq)]
-pub struct WorkTaskArtifactEdge {
-    /// Opaque keyset cursor for this artifact.
-    pub cursor: String,
-    /// Artifact record at this edge.
-    pub node: WorkTaskArtifact,
-}
-
-/// Bounded task-artifact connection.
-#[derive(Debug, Clone, PartialEq)]
-pub struct WorkTaskArtifactConnection {
-    /// Bounded artifact edges in query order.
-    pub edges: Vec<WorkTaskArtifactEdge>,
-    /// Pagination metadata.
-    pub page_info: WorkPageInfo,
-}
-
-/// One project edge.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProjectEdge {
-    /// Opaque keyset cursor for this project.
-    pub cursor: String,
-    /// Project record at this edge.
-    pub node: ProjectRecord,
-}
-
+/// Project connection edge.
+pub type ProjectEdge = WorkEdge<String, ProjectRecord>;
 /// Bounded project connection.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProjectConnection {
-    /// Bounded project edges in query order.
-    pub edges: Vec<ProjectEdge>,
-    /// Pagination metadata.
-    pub page_info: WorkPageInfo,
-}
-
-/// One globally ordered Work-event edge.
-#[derive(Debug, Clone, PartialEq)]
-pub struct WorkEventEdge {
-    /// Global event cursor for this edge.
-    pub cursor: WorkEventCursor,
-    /// Immutable event record at this edge.
-    pub node: WorkEventRecord,
-}
-
-/// Bounded Work-event connection in the order promised by its read method.
-#[derive(Debug, Clone, PartialEq)]
-pub struct WorkEventConnection {
-    /// Bounded event edges in ascending sequence order.
-    pub edges: Vec<WorkEventEdge>,
-    /// Pagination metadata.
-    pub page_info: WorkPageInfo,
-}
-
-/// Notification outbox lifecycle owned by the store.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum WorkNotificationStatus {
-    /// Notification is ready to be leased.
-    Pending,
-    /// Notification is leased to a delivery worker.
-    Leased,
-    /// Notification delivery has been acknowledged.
-    Delivered,
-    /// Delivery failed and is either retryable or parked.
-    Failed,
-}
-
-impl WorkNotificationStatus {
-    /// Return the canonical persisted status value.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Pending => "pending",
-            Self::Leased => "leased",
-            Self::Delivered => "delivered",
-            Self::Failed => "failed",
-        }
-    }
-}
-
-impl std::str::FromStr for WorkNotificationStatus {
-    type Err = noema_tasks::WorkDomainError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "pending" => Ok(Self::Pending),
-            "leased" => Ok(Self::Leased),
-            "delivered" => Ok(Self::Delivered),
-            "failed" => Ok(Self::Failed),
-            other => Err(noema_tasks::WorkDomainError::InvalidInput {
-                field: "work_notification.status",
-                message: format!("unknown value {other}"),
-            }),
-        }
-    }
-}
-
-/// Durable generalized notification row.
-#[derive(Debug, Clone, PartialEq)]
-pub struct WorkNotificationRecord {
-    /// Stable outbox notification identity.
-    pub notification_id: String,
-    /// Source global event sequence.
-    pub event_sequence: u64,
-    /// Delivery destination vocabulary.
-    pub destination_kind: noema_tasks::NotificationDestination,
-    /// Destination identity, currently a human owner.
-    pub destination_id: String,
-    /// Notification card vocabulary.
-    pub notification_kind: noema_tasks::NotificationKind,
-    /// Redacted structured card payload.
-    pub payload: Value,
-    /// Current outbox lifecycle status.
-    pub status: WorkNotificationStatus,
-    /// Earliest timestamp at which this row may be claimed.
-    pub available_at: String,
-    /// Worker currently holding the lease.
-    pub lease_owner: Option<String>,
-    /// Opaque lease token required for acknowledgement.
-    pub lease_token: Option<String>,
-    /// Lease expiration timestamp.
-    pub lease_expires_at: Option<String>,
-    /// Number of claim attempts.
-    pub attempt_count: u32,
-    /// Safe failure code from the latest delivery attempt.
-    pub last_error_code: Option<String>,
-    /// Bounded diagnostic from the latest delivery attempt.
-    pub last_error_message: Option<String>,
-    /// Delivery acknowledgement timestamp.
-    pub delivered_at: Option<String>,
-    /// Creation timestamp.
-    pub created_at: String,
-    /// Last projection update timestamp.
-    pub updated_at: String,
-}
-
-/// Durable result of receipt-first command idempotency.
-#[derive(Debug, Clone, PartialEq)]
-pub struct WorkCommandReceiptRecord {
-    /// Authenticated actor namespace for the receipt.
-    pub actor_id: String,
-    /// Stable semantic command name.
-    pub command_name: String,
-    /// Caller-supplied idempotency key.
-    pub idempotency_key: String,
-    /// Canonical SHA-256 request fingerprint.
-    pub request_fingerprint: String,
-    /// Task affected by the command, if any.
-    pub result_task_id: Option<TaskId>,
-    /// Project affected by the command, if any.
-    pub result_project_id: Option<ProjectId>,
-    /// Last event sequence committed by the command.
-    pub result_event_sequence: u64,
-    /// Reconstructed command response.
-    pub response: WorkCommandResult,
-    /// Receipt creation timestamp.
-    pub created_at: String,
-}
+pub type ProjectConnection = WorkConnection<String, ProjectRecord>;
+/// Work event connection edge.
+pub type WorkEventEdge = WorkEdge<WorkEventCursor, WorkEventRecord>;
+/// Bounded Work event connection.
+pub type WorkEventConnection = WorkConnection<WorkEventCursor, WorkEventRecord>;

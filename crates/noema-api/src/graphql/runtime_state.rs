@@ -195,18 +195,6 @@ impl GraphqlState {
         self
     }
 
-    /// Install a deterministic test callback at the subscription handoff.
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) fn with_work_subscription_handoff<F, Fut>(mut self, callback: F) -> Self
-    where
-        F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
-    {
-        self.work_subscription_handoff = Some(Arc::new(move || Box::pin(callback())));
-        self
-    }
-
     required_service_accessors! {
         runtime => runtime: RuntimeHandle = "Noema runtime is unavailable";
         store => store: NoemaStore = "Noema store is unavailable";

@@ -62,6 +62,31 @@ graphql_enum!(
 );
 
 graphql_enum!(
+    /// Closed server-authorized task action.
+    GraphqlValidTaskAction,
+    "ValidTaskAction",
+    noema_store::WorkTaskValidAction,
+    {
+        /// Edit Inbox capture fields.
+        Edit,
+        /// Authorize dispatch.
+        Queue,
+        /// Answer a gate.
+        Answer,
+        /// Retry a recovery gate.
+        Retry,
+        /// Accept an approved result.
+        Accept,
+        /// Request changed work.
+        RequestChanges,
+        /// Cancel work.
+        Cancel,
+        /// Reopen terminal history.
+        Reopen,
+    }
+);
+
+graphql_enum!(
     /// Human gate category.
     GraphqlTaskGateKind,
     "TaskGateKind",
@@ -89,14 +114,6 @@ graphql_enum!(
         ConfigurationUnavailable,
         InvariantFault,
     }
-);
-
-graphql_enum!(
-    /// Kind of immutable human task message.
-    GraphqlTaskMessageKind,
-    "TaskMessageKind",
-    noema_tasks::TaskMessageKind,
-    { HumanAnswer, HumanChangeRequest, RetryNote }
 );
 
 graphql_enum!(
@@ -166,20 +183,4 @@ graphql_enum!(
     "TaskRunItemStatus",
     noema_tasks::AgentRunItemStatus,
     { Pending, Running, Completed, Failed, Cancelled, Skipped }
-);
-
-graphql_enum!(
-    /// Durable task provenance category.
-    GraphqlTaskSourceKind,
-    "TaskSourceKind",
-    noema_tasks::TaskSourceKind,
-    { ChatCapture, ChatDelegate, WorkUi, System }
-);
-
-graphql_enum!(
-    /// Origin of an immutable task contract.
-    GraphqlTaskContractOrigin,
-    "TaskContractOrigin",
-    noema_tasks::ContractOrigin,
-    { Delegated, Planned, HumanRevision }
 );

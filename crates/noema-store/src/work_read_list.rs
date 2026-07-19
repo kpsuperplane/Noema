@@ -1,7 +1,6 @@
 //! Bounded, batch-hydrated task connection reads.
 
 use noema_tasks::{TaskReviewVerdict, WorkflowStageBehavior};
-use ring::digest::{SHA256, digest};
 use rusqlite::{Transaction, params};
 
 use super::{
@@ -504,14 +503,7 @@ fn task_query_hash(query: &WorkTaskQuery) -> String {
         u8::from(query.attention_only),
         query.scope.as_str(),
     );
-    let hash = digest(&SHA256, canonical.as_bytes());
-    let mut encoded = String::with_capacity(64);
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    for byte in hash.as_ref() {
-        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
-    encoded
+    crate::work_row::sha256_hex(canonical.as_bytes())
 }
 
 fn invalid_task_cursor() -> StoreError {

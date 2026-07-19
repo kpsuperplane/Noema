@@ -6,9 +6,7 @@ use rusqlite::{OptionalExtension, params};
 
 use super::{
     NoemaStore, StoreError, WorkPageInfo, WorkRunFence, WorkRunItemConnection, WorkRunItemCursor,
-    WorkRunItemEdge, WorkRunItemQuery,
-    ids::allocate_id,
-    sqlite::{json_column, parse_column},
+    WorkRunItemEdge, WorkRunItemQuery, ids::allocate_id, work_runs::rows,
 };
 
 impl NoemaStore {
@@ -88,7 +86,7 @@ impl NoemaStore {
                     before.as_ref().map(|value| value.1.as_str()),
                     limit
                 ],
-                run_item_from_row,
+                |row| rows::decode_run_item(row, None),
             )?;
             let mut items = rows.collect::<Result<Vec<_>, _>>()?;
             let has_next_page = items.len() > first;
@@ -228,7 +226,7 @@ impl NoemaStore {
             conn.query_row(
                 "SELECT item_id, run_id, sequence_index, round_index, kind, status, correlation_id, parent_item_id, content_text, payload_json, created_at, updated_at FROM agent_run_items WHERE item_id = ?1 LIMIT 1",
                 [item_id],
-                run_item_from_row,
+                |row| rows::decode_run_item(row, None),
             )
             .optional()
             .map_err(StoreError::Sqlite)
@@ -295,24 +293,4 @@ fn require_active_fence(
     owns_lease
         .map(|_| ())
         .ok_or(StoreError::Work(noema_tasks::WorkDomainError::RunFenced))
-}
-
-fn run_item_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRunItemRecord> {
-    let kind = parse_column(row, 4)?;
-    let status = parse_column(row, 5)?;
-    let payload = json_column(row, 9)?;
-    Ok(AgentRunItemRecord {
-        item_id: row.get(0)?,
-        run_id: row.get(1)?,
-        sequence_index: row.get(2)?,
-        round_index: row.get(3)?,
-        kind,
-        status,
-        correlation_id: row.get(6)?,
-        parent_item_id: row.get(7)?,
-        content_text: row.get(8)?,
-        payload,
-        created_at: row.get(10)?,
-        updated_at: row.get(11)?,
-    })
 }

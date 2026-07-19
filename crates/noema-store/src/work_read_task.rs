@@ -5,6 +5,7 @@ use noema_tasks::{
 use noema_workspaces::{ProjectRecord, WorkspaceRecord};
 use rusqlite::Transaction;
 
+use super::history::WorkTaskHistory;
 use super::{
     evidence::{load_contract, load_review, load_submission},
     rows::{
@@ -19,8 +20,6 @@ pub(crate) struct LoadedWorkTask {
     pub(crate) task: noema_tasks::TaskRecord,
     pub(crate) workspace: WorkspaceRecord,
     pub(crate) project: Option<ProjectRecord>,
-    pub(crate) workflow: WorkflowDefinition,
-    pub(crate) workflow_stages: Vec<WorkflowStage>,
     pub(crate) stage: WorkflowStage,
     pub(crate) current_contract: Option<TaskExecutionContract>,
     pub(crate) latest_run: Option<AgentRunRecord>,
@@ -46,21 +45,6 @@ pub(crate) fn load_task_facts(
         .transpose()?;
     let workflow = load_workflow(transaction, &task.workflow_id)?;
     let stage = load_stage(transaction, &task.stage_id)?;
-    let workflow_stages = transaction
-        .prepare(
-            "SELECT stage_id, workflow_id, stable_key, display_name, ordinal, system_behavior,
-                    board_visible FROM workflow_stages WHERE workflow_id = ?1
-             ORDER BY ordinal, stage_id",
-        )?
-        .query_map([task.workflow_id.as_str()], |row| {
-            super::rows::decode_stage_record(row, 0)
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-    if workflow_stages.is_empty() {
-        return Err(StoreError::InvariantViolation {
-            message: format!("workflow {} has no stages", task.workflow_id),
-        });
-    }
     stage
         .belongs_to(&workflow.workflow_id)
         .map_err(StoreError::Work)?;
@@ -142,8 +126,6 @@ pub(crate) fn load_task_facts(
         task,
         workspace,
         project,
-        workflow,
-        workflow_stages,
         stage,
         current_contract,
         latest_run,
@@ -156,7 +138,11 @@ pub(crate) fn load_task_facts(
 }
 
 impl LoadedWorkTask {
-    pub(crate) fn into_detail(self) -> WorkTaskDetail {
+    pub(crate) fn into_detail(
+        self,
+        history: WorkTaskHistory,
+        artifacts: Vec<crate::WorkTaskArtifact>,
+    ) -> WorkTaskDetail {
         let approved_review = self
             .latest_review
             .as_ref()
@@ -170,8 +156,6 @@ impl LoadedWorkTask {
             task: self.task,
             workspace: self.workspace,
             project: self.project,
-            workflow: self.workflow,
-            workflow_stages: self.workflow_stages,
             stage: self.stage,
             current_contract: self.current_contract,
             current_run: self.current_run,
@@ -179,6 +163,11 @@ impl LoadedWorkTask {
             latest_submission: self.latest_submission,
             accepted_submission: self.accepted_submission,
             latest_review: self.latest_review,
+            messages: history.messages,
+            runs: history.runs,
+            submissions: history.submissions,
+            reviews: history.reviews,
+            artifacts,
             attention,
             valid_actions,
         }

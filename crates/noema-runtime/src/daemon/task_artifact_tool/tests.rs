@@ -18,25 +18,12 @@ async fn executor_reads_exact_versions_linked_to_its_task_contract() {
         .as_str()
         .expect("first version id");
 
-    let first = execute_task_read_artifact(
-        &fixture.store,
-        &fixture.artifact_operations,
-        &fixture.read_context,
-        &json!({
-            "artifact_id": artifact_id,
-            "artifact_version_id": first_version_id,
-        }),
-    )
-    .await
-    .expect("read exact linked version");
-    let current = execute_task_read_artifact(
-        &fixture.store,
-        &fixture.artifact_operations,
-        &fixture.read_context,
-        &json!({"artifact_id": artifact_id}),
-    )
-    .await
-    .expect("read current linked version");
+    let first = read_artifact(&fixture, artifact_id, Some(first_version_id))
+        .await
+        .expect("read exact linked version");
+    let current = read_artifact(&fixture, artifact_id, None)
+        .await
+        .expect("read current linked version");
 
     assert_eq!(first["content"].as_str(), Some("version one"));
     assert_eq!(current["content"].as_str(), Some("version two"));
@@ -83,22 +70,12 @@ async fn executor_rejects_unlinked_and_foreign_artifacts() {
         .await
         .expect("create foreign artifact");
 
-    let unlinked_error = execute_task_read_artifact(
-        &fixture.store,
-        &fixture.artifact_operations,
-        &fixture.read_context,
-        &json!({"artifact_id": unlinked.artifact.artifact_id}),
-    )
-    .await
-    .expect_err("unlinked artifact must be rejected");
-    let foreign_error = execute_task_read_artifact(
-        &fixture.store,
-        &fixture.artifact_operations,
-        &fixture.read_context,
-        &json!({"artifact_id": foreign.artifact.artifact_id}),
-    )
-    .await
-    .expect_err("foreign artifact must be rejected");
+    let unlinked_error = read_artifact(&fixture, &unlinked.artifact.artifact_id, None)
+        .await
+        .expect_err("unlinked artifact must be rejected");
+    let foreign_error = read_artifact(&fixture, &foreign.artifact.artifact_id, None)
+        .await
+        .expect_err("foreign artifact must be rejected");
     assert!(unlinked_error.contains("not linked to an Executor run"));
     assert!(foreign_error.contains("not owned by the current task"));
 }
@@ -154,17 +131,19 @@ async fn executor_rejects_artifact_from_prior_same_contract_run() {
         .await
         .expect("start successor Executor");
 
-    let error = execute_task_read_artifact(
-        &fixture.store,
-        &fixture.artifact_operations,
-        &TaskArtifactReadContext {
+    let successor_fixture = ExecutorArtifactFixture {
+        store: fixture.store,
+        read_context: TaskArtifactReadContext {
             task_id: fixture.read_context.task_id,
             run_id: successor.run.run_id,
         },
-        &json!({"artifact_id": artifact_id}),
-    )
-    .await
-    .expect_err("prior-run artifact must be rejected");
+        artifact_operations: fixture.artifact_operations,
+        agent_id: fixture.agent_id,
+        fence: successor_fence,
+    };
+    let error = read_artifact(&successor_fixture, &artifact_id, None)
+        .await
+        .expect_err("prior-run artifact must be rejected");
 
     assert!(error.contains("not linked to the current Executor run"));
 }
@@ -248,4 +227,22 @@ async fn create_linked_artifact(
         result.payload
     );
     result.payload
+}
+
+async fn read_artifact(
+    fixture: &ExecutorArtifactFixture,
+    artifact_id: &str,
+    artifact_version_id: Option<&str>,
+) -> Result<serde_json::Value, String> {
+    let mut arguments = json!({"artifact_id": artifact_id});
+    if let Some(version_id) = artifact_version_id {
+        arguments["artifact_version_id"] = json!(version_id);
+    }
+    execute_task_read_artifact(
+        &fixture.store,
+        &fixture.artifact_operations,
+        &fixture.read_context,
+        &arguments,
+    )
+    .await
 }

@@ -71,27 +71,22 @@ async fn work_v3_bootstrap_is_exact_idempotent_and_enforces_foreign_keys() {
         .expect("second bootstrap/open is idempotent");
     reopened
         .with_connection(|conn| {
-            assert_eq!(count_where(conn, "workspaces", "is_personal = 1")?, 1);
-            assert_eq!(
-                count_where(
-                    conn,
+            for (table, predicate, expected) in [
+                ("workspaces", "is_personal = 1", 1),
+                (
                     "workspace_memberships",
-                    "workspace_id = 'workspace:personal'"
-                )?,
-                1
-            );
-            assert_eq!(
-                count_where(
-                    conn,
+                    "workspace_id = 'workspace:personal'",
+                    1,
+                ),
+                (
                     "workflow_stages",
-                    "workflow_id = 'workflow:personal:default'"
-                )?,
-                7
-            );
-            assert_eq!(
-                count_where(conn, "task_execution_policy", "policy_id = 'default'")?,
-                1
-            );
+                    "workflow_id = 'workflow:personal:default'",
+                    7,
+                ),
+                ("task_execution_policy", "policy_id = 'default'", 1),
+            ] {
+                assert_eq!(count_where(conn, table, predicate)?, expected);
+            }
             Ok(())
         })
         .await

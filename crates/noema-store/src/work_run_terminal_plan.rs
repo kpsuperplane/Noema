@@ -43,6 +43,11 @@ pub(super) fn submit_plan_tx(
             correlation_id,
         );
     };
+    let event_context = || helpers::CommandEventContext {
+        actor_id,
+        causation_id,
+        correlation_id,
+    };
 
     let criteria = normalize_new_criteria_for_store(&plan.criteria)?;
     let (contract_id, _contract_event) = create_contract_tx(
@@ -56,11 +61,7 @@ pub(super) fn submit_plan_tx(
             criteria: &criteria,
             complexity: plan.complexity,
             supersedes_contract_id: None,
-            event: helpers::CommandEventContext {
-                actor_id,
-                causation_id,
-                correlation_id,
-            },
+            event: event_context(),
         },
     )?;
     mark_run_completed_tx(transaction, &run, &command.fence)?;
@@ -70,9 +71,7 @@ pub(super) fn submit_plan_tx(
         transaction,
         scope(
             &task,
-            actor_id,
-            causation_id,
-            correlation_id,
+            (actor_id, causation_id, correlation_id),
             Some(&run.run_id),
         ),
         WorkEventPayload::run_completed(run.run_kind, run.task_generation, RunTerminalKind::Plan)
@@ -91,21 +90,12 @@ pub(super) fn submit_plan_tx(
             parent_run_id: Some(&run.run_id),
             triggering_submission_id: None,
             triggering_review_id: None,
-            event: helpers::CommandEventContext {
-                actor_id,
-                causation_id,
-                correlation_id,
-            },
+            event: event_context(),
         },
     )?;
-    Ok(helpers::write_marker(
-        child_event,
-        Some(task.task_id),
-        None,
-        Some(contract_id),
-        None,
-        Some(child_run_id),
-    ))
+    Ok(helpers::task_write(child_event, task.task_id)
+        .contract(Some(contract_id))
+        .run(Some(child_run_id)))
 }
 
 pub(super) fn replay_tx(
@@ -116,14 +106,12 @@ pub(super) fn replay_tx(
     let Some(replay) = replay_plan_terminal_tx(transaction, &run, &command.terminal)? else {
         return Ok(None);
     };
-    Ok(Some(helpers::write_marker(
-        replay.event,
-        Some(run.task_id),
-        None,
-        replay.contract_id,
-        replay.gate_id,
-        Some(replay.run_id),
-    )))
+    Ok(Some(
+        helpers::task_write(replay.event, run.task_id)
+            .contract(replay.contract_id)
+            .gate(replay.gate_id)
+            .run(Some(replay.run_id)),
+    ))
 }
 
 fn block_for_human_tx(
@@ -158,15 +146,16 @@ fn block_for_human_tx(
     )?;
     let revision = bump_task_to_waiting_tx(transaction, task)?;
     mark_run_waiting_tx(transaction, run, &command.fence)?;
-    let _gate_event = append_work_event_tx(
-        transaction,
+    let run_scope = || {
         scope(
             task,
-            actor_id,
-            causation_id,
-            correlation_id,
+            (actor_id, causation_id, correlation_id),
             Some(&run.run_id),
-        ),
+        )
+    };
+    let _gate_event = append_work_event_tx(
+        transaction,
+        run_scope(),
         WorkEventPayload::gate_opened(
             gate_id.clone(),
             task.generation,
@@ -179,13 +168,7 @@ fn block_for_human_tx(
     )?;
     let _stage_event = append_work_event_tx(
         transaction,
-        scope(
-            task,
-            actor_id,
-            causation_id,
-            correlation_id,
-            Some(&run.run_id),
-        ),
+        run_scope(),
         WorkEventPayload::task_stage_changed(
             revision,
             task.generation,
@@ -197,13 +180,7 @@ fn block_for_human_tx(
     )?;
     let waiting_event = append_work_event_tx(
         transaction,
-        scope(
-            task,
-            actor_id,
-            causation_id,
-            correlation_id,
-            Some(&run.run_id),
-        ),
+        run_scope(),
         WorkEventPayload::run_waiting_for_approval(
             run.run_kind,
             run.task_generation,
@@ -219,12 +196,7 @@ fn block_for_human_tx(
         &serde_json::json!({"task_id": task.task_id.as_str(), "gate_id": gate_id.as_str()}),
     )?
     .ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))?;
-    Ok(helpers::write_marker(
-        event,
-        Some(task.task_id.clone()),
-        None,
-        None,
-        Some(gate_id),
-        Some(run.run_id.clone()),
-    ))
+    Ok(helpers::task_write(event, task.task_id.clone())
+        .gate(Some(gate_id))
+        .run(Some(run.run_id.clone())))
 }

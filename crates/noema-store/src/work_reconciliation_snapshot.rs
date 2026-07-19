@@ -52,20 +52,14 @@ pub(super) fn derive_envelope(
     } else {
         None
     };
-    let review_matches_submission = facts
-        .latest_review
-        .as_ref()
-        .zip(facts.latest_submission.as_ref())
-        .is_some_and(|(review, submission)| {
-            facts
-                .current_contract
-                .as_ref()
-                .is_some_and(|contract| review.contract_id == contract.contract_id)
-                && review.reviewed_submission_id == submission.submission_id
-        });
-    let submission_has_review = facts
-        .latest_submission
-        .as_ref()
+    let contract = facts.current_contract.as_ref();
+    let submission = facts.latest_submission.as_ref();
+    let review = facts.latest_review.as_ref();
+    let review_matches_submission = review.zip(submission).is_some_and(|(review, submission)| {
+        contract.is_some_and(|contract| review.contract_id == contract.contract_id)
+            && review.reviewed_submission_id == submission.submission_id
+    });
+    let submission_has_review = submission
         .map(|submission| {
             has_review_of_submission(transaction, &facts, submission.submission_id.as_str())
         })
@@ -77,30 +71,18 @@ pub(super) fn derive_envelope(
         ));
     }
     let approved_review = review_matches_submission
-        && facts
-            .latest_review
-            .as_ref()
-            .is_some_and(|review| review.overall_verdict == TaskReviewVerdict::Approve);
+        && review.is_some_and(|review| review.overall_verdict == TaskReviewVerdict::Approve);
     let review_requested_changes = review_matches_submission
-        && facts
-            .latest_review
+        && review.is_some_and(|review| review.overall_verdict == TaskReviewVerdict::RequestChanges);
+    let submission_waiting_for_review = submission.is_some_and(|submission| {
+        contract.is_some_and(|contract| submission.contract_id == contract.contract_id)
+    }) && !submission_has_review
+        && runnable_run
             .as_ref()
-            .is_some_and(|review| review.overall_verdict == TaskReviewVerdict::RequestChanges);
-    let submission_waiting_for_review =
-        facts.latest_submission.as_ref().is_some_and(|submission| {
-            facts
-                .current_contract
-                .as_ref()
-                .is_some_and(|contract| submission.contract_id == contract.contract_id)
-        }) && !submission_has_review
-            && runnable_run
-                .as_ref()
-                .is_none_or(|run| run.run_kind != RunKind::Reviewer);
+            .is_none_or(|run| run.run_kind != RunKind::Reviewer);
     let review_rounds_exhausted = review_requested_changes
-        && facts
-            .latest_submission
-            .as_ref()
-            .zip(facts.current_contract.as_ref())
+        && submission
+            .zip(contract)
             .is_some_and(|(submission, contract)| {
                 submission.review_round >= contract.execution_policy.max_review_rounds
             });

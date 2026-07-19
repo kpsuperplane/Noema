@@ -1,24 +1,24 @@
 //! Read-consistent, bounded execution context for a supervised Work run.
 
-use std::{collections::HashSet, str::FromStr};
+use std::collections::HashSet;
 
 use noema_tasks::{
-    AgentRunItemKind, AgentRunItemRecord, AgentRunItemStatus, AgentRunRecord,
-    ProjectContextSnapshot, RunKind, RunStatus, TaskContractId, TaskExecutionContract, TaskGateId,
-    TaskGateKind, TaskGateRecord, TaskGateState, TaskId, TaskMessageId, TaskMessageKind,
-    TaskMessageRecord, TaskRecord, TaskRecoveryReason, TaskReviewRecord, TaskSubmissionRecord,
-    WorkspaceContextSnapshot,
+    AgentRunItemRecord, AgentRunRecord, ProjectContextSnapshot, RunKind, RunStatus,
+    TaskExecutionContract, TaskGateRecord, TaskMessageKind, TaskMessageRecord, TaskRecord,
+    TaskReviewRecord, TaskSubmissionRecord, WorkspaceContextSnapshot,
 };
 use noema_workspaces::{ProjectRecord, WorkspaceRecord};
-use rusqlite::{Row, Transaction, params, types::Type};
+use rusqlite::{Row, Transaction, params};
 
 use crate::{
     NoemaStore, StoreError,
-    sqlite::conversion_failure,
-    work_reads::evidence::{load_contract, load_review, load_submission},
     work_reads::rows::{
-        load_active_gate, load_project, load_stage, load_task, load_workflow, load_workspace,
-        validate_current_links,
+        decode_gate, load_active_gate, load_project, load_stage, load_task, load_workflow,
+        load_workspace, validate_current_links,
+    },
+    work_reads::{
+        evidence::{load_contract, load_review, load_submission},
+        history::decode_message,
     },
     work_run_context_records::{
         WORK_RUN_CONTEXT_MAX_GATES, WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN,
@@ -451,108 +451,7 @@ fn load_lineage_items(
 }
 
 pub(super) fn decode_run_item(row: &Row<'_>) -> rusqlite::Result<AgentRunItemRecord> {
-    let payload_text = row.get::<_, String>(9)?;
-    if payload_text.len() > MAX_CONTEXT_PAYLOAD_BYTES {
-        return Err(conversion_failure(
-            9,
-            Type::Text,
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "run item payload exceeds bounded context",
-            ),
-        ));
-    }
-    Ok(AgentRunItemRecord {
-        item_id: row.get(0)?,
-        run_id: row.get(1)?,
-        sequence_index: row.get(2)?,
-        round_index: row.get(3)?,
-        kind: AgentRunItemKind::from_str(&row.get::<_, String>(4)?)
-            .map_err(|error| conversion_failure(4, Type::Text, error))?,
-        status: AgentRunItemStatus::from_str(&row.get::<_, String>(5)?)
-            .map_err(|error| conversion_failure(5, Type::Text, error))?,
-        correlation_id: row.get(6)?,
-        parent_item_id: row.get(7)?,
-        content_text: row.get(8)?,
-        payload: serde_json::from_str(&payload_text)
-            .map_err(|error| conversion_failure(9, Type::Text, error))?,
-        created_at: row.get(10)?,
-        updated_at: row.get(11)?,
-    })
-}
-
-fn decode_gate(row: &Row<'_>) -> rusqlite::Result<TaskGateRecord> {
-    Ok(TaskGateRecord {
-        gate_id: TaskGateId::new(row.get::<_, String>(0)?)
-            .map_err(|error| conversion_failure(0, Type::Text, error))?,
-        task_id: TaskId::new(row.get::<_, String>(1)?)
-            .map_err(|error| conversion_failure(1, Type::Text, error))?,
-        task_generation: positive_u64_sql(row, 2)?,
-        contract_id: row
-            .get::<_, Option<String>>(3)?
-            .map(TaskContractId::new)
-            .transpose()
-            .map_err(|error| conversion_failure(3, Type::Text, error))?,
-        kind: TaskGateKind::from_str(&row.get::<_, String>(4)?)
-            .map_err(|error| conversion_failure(4, Type::Text, error))?,
-        state: TaskGateState::from_str(&row.get::<_, String>(5)?)
-            .map_err(|error| conversion_failure(5, Type::Text, error))?,
-        recovery_reason: row
-            .get::<_, Option<String>>(6)?
-            .map(|value| TaskRecoveryReason::from_str(&value))
-            .transpose()
-            .map_err(|error| conversion_failure(6, Type::Text, error))?,
-        retry_run_kind: row
-            .get::<_, Option<String>>(7)?
-            .map(|value| RunKind::from_str(&value))
-            .transpose()
-            .map_err(|error| conversion_failure(7, Type::Text, error))?,
-        prompt_markdown: row.get(8)?,
-        context_markdown: row.get(9)?,
-        opened_by_actor_id: row.get(10)?,
-        originating_run_id: row.get(11)?,
-        resolved_by_actor_id: row.get(12)?,
-        resolution_message_id: row
-            .get::<_, Option<String>>(13)?
-            .map(TaskMessageId::new)
-            .transpose()
-            .map_err(|error| conversion_failure(13, Type::Text, error))?,
-        opened_at: row.get(14)?,
-        resolved_at: row.get(15)?,
-    })
-}
-
-fn decode_message(row: &Row<'_>) -> rusqlite::Result<TaskMessageRecord> {
-    Ok(TaskMessageRecord {
-        message_id: TaskMessageId::new(row.get::<_, String>(0)?)
-            .map_err(|error| conversion_failure(0, Type::Text, error))?,
-        task_id: TaskId::new(row.get::<_, String>(1)?)
-            .map_err(|error| conversion_failure(1, Type::Text, error))?,
-        task_generation: positive_u64_sql(row, 2)?,
-        contract_id: row
-            .get::<_, Option<String>>(3)?
-            .map(TaskContractId::new)
-            .transpose()
-            .map_err(|error| conversion_failure(3, Type::Text, error))?,
-        gate_id: row
-            .get::<_, Option<String>>(4)?
-            .map(TaskGateId::new)
-            .transpose()
-            .map_err(|error| conversion_failure(4, Type::Text, error))?,
-        review_id: row.get(5)?,
-        kind: TaskMessageKind::from_str(&row.get::<_, String>(6)?)
-            .map_err(|error| conversion_failure(6, Type::Text, error))?,
-        body_markdown: row.get(7)?,
-        approval_decision: row
-            .get::<_, Option<String>>(8)?
-            .map(|value| noema_tasks::ApprovalDecision::from_str(&value))
-            .transpose()
-            .map_err(|error| conversion_failure(8, Type::Text, error))?,
-        author_actor_id: row.get(9)?,
-        consumed_by_run_id: row.get(10)?,
-        consumed_at: row.get(11)?,
-        created_at: row.get(12)?,
-    })
+    crate::work_runs::rows::decode_run_item(row, Some(MAX_CONTEXT_PAYLOAD_BYTES))
 }
 
 fn validate_message(message: &TaskMessageRecord, task: &TaskRecord) -> Result<(), StoreError> {
@@ -640,38 +539,6 @@ fn ensure_context_text(value: &str, field: &'static str) -> Result<(), StoreErro
 }
 
 fn bounded_text(value: String, field: &'static str) -> Result<String, StoreError> {
-    if value.len() > MAX_CONTEXT_TEXT_BYTES {
-        return Err(StoreError::InvariantViolation {
-            message: format!("{field} exceeds bounded context size"),
-        });
-    }
+    ensure_context_text(&value, field)?;
     Ok(value)
-}
-
-fn positive_u64(value: i64, field: &'static str) -> Result<u64, StoreError> {
-    let value = u64::try_from(value).map_err(|_| {
-        StoreError::Work(noema_tasks::WorkDomainError::InvalidInput {
-            field,
-            message: "value must be positive".to_string(),
-        })
-    })?;
-    if value == 0 {
-        return Err(StoreError::Work(
-            noema_tasks::WorkDomainError::InvalidInput {
-                field,
-                message: "value must be positive".to_string(),
-            },
-        ));
-    }
-    Ok(value)
-}
-
-fn positive_u64_sql(row: &Row<'_>, index: usize) -> rusqlite::Result<u64> {
-    positive_u64(row.get(index)?, "persisted positive integer").map_err(|error| {
-        conversion_failure(
-            index,
-            Type::Integer,
-            std::io::Error::other(error.to_string()),
-        )
-    })
 }

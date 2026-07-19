@@ -6,24 +6,17 @@ use super::{WorkEventKind, WorkEventPayload, event_validation};
 use crate::{TaskId, WorkDomainError, WorkEventId, error::invalid_input};
 
 /// Scope and causal lineage shared by every event in the Work ledger.
-///
 /// The record constructor validates these fields together with event identity,
 /// timestamp, and payload data before exposing a durable event record.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct WorkEventContext {
-    /// Workspace that owns the affected object.
     pub workspace_id: WorkspaceId,
-    /// Optional project affected by the event.
     pub project_id: Option<ProjectId>,
-    /// Optional task affected by the event.
     pub task_id: Option<TaskId>,
-    /// Optional run affected by the event.
     pub run_id: Option<String>,
-    /// Actor or system component that caused the event.
     pub actor_id: String,
-    /// Immediate causation identity.
     pub causation_id: Option<String>,
-    /// Required cross-command correlation identity.
     pub correlation_id: String,
 }
 
@@ -33,30 +26,19 @@ pub struct WorkEventContext {
 /// [`WorkEventPayload`] instead.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct WorkEventRecord {
-    /// Stable event identity.
     pub event_id: WorkEventId,
-    /// Monotonic SQLite ledger cursor.
     pub event_sequence: u64,
-    /// Closed event vocabulary value.
     pub kind: WorkEventKind,
-    /// Owning workspace.
     pub workspace_id: WorkspaceId,
-    /// Optional project affected by the event.
     pub project_id: Option<ProjectId>,
-    /// Optional task affected by the event.
     pub task_id: Option<TaskId>,
-    /// Optional run affected by the event.
     pub run_id: Option<String>,
-    /// Actor/component that caused the event.
     pub actor_id: String,
-    /// Direct causation identifier.
     pub causation_id: Option<String>,
-    /// Required cross-run/user correlation identifier.
     pub correlation_id: String,
-    /// Redacted UI-safe payload beginning with `{"v": 1}`.
     pub safe_payload: Value,
-    /// Creation timestamp.
     pub created_at: String,
     /// Constructor provenance retained outside the public wire shape.
     #[serde(skip)]
@@ -65,9 +47,7 @@ pub struct WorkEventRecord {
 
 impl WorkEventRecord {
     /// Construct an event from its domain context and a typed, kind-matched payload.
-    ///
     /// # Errors
-    ///
     /// Returns [`WorkDomainError`] when sequence, actor, correlation,
     /// causation, run identity, timestamp, or the typed payload violates the
     /// durable event record contract.
@@ -98,9 +78,7 @@ impl WorkEventRecord {
     }
 
     /// Validate event identity and causal metadata.
-    ///
     /// # Errors
-    ///
     /// Returns [`WorkDomainError`] when the public and constructed kinds
     /// disagree, sequence is zero, actor or causal identifiers are malformed,
     /// timestamp is blank, or the safe payload violates its event schema.

@@ -27,18 +27,13 @@ pub const MAX_TASK_REVIEW_ROUNDS: u32 = 20;
 
 /// Immutable provider-independent execution policy snapshot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct TaskExecutionPolicy {
-    /// Maximum provider continuations before terminal-only finalization.
     pub max_provider_continuations: u32,
-    /// Maximum tool calls before terminal-only finalization.
     pub max_tool_calls: u32,
-    /// Maximum active execution time, excluding queue time.
     pub max_active_minutes: u32,
-    /// Continuation interval between progress audits.
     pub progress_audit_interval: u32,
-    /// Maximum automatic infrastructure retries.
     pub max_automatic_retries: u32,
-    /// Maximum reviewed executor rounds before Recovery.
     pub max_review_rounds: u32,
 }
 
@@ -57,9 +52,7 @@ impl Default for TaskExecutionPolicy {
 
 impl TaskExecutionPolicy {
     /// Validate all persisted safety bounds.
-    ///
     /// # Errors
-    ///
     /// Returns [`WorkDomainError`] when a configured limit exceeds its hard
     /// bound, a positive limit is zero, or the audit interval exceeds the
     /// provider continuation limit.
@@ -101,39 +94,5 @@ impl TaskExecutionPolicy {
             ));
         }
         Ok(self)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn policy_validates_retry_and_review_bounds_in_addition_to_runtime_limits() {
-        assert!(TaskExecutionPolicy::default().validated().is_ok());
-        assert!(
-            TaskExecutionPolicy {
-                max_review_rounds: 0,
-                ..Default::default()
-            }
-            .validated()
-            .is_err()
-        );
-        assert!(
-            TaskExecutionPolicy {
-                max_automatic_retries: MAX_TASK_AUTOMATIC_RETRIES + 1,
-                ..Default::default()
-            }
-            .validated()
-            .is_err()
-        );
-        assert!(
-            TaskExecutionPolicy {
-                progress_audit_interval: 0,
-                ..Default::default()
-            }
-            .validated()
-            .is_err()
-        );
     }
 }

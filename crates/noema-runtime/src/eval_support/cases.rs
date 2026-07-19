@@ -390,7 +390,7 @@ fn terminal_tool_request(
         role,
         input,
         instructions,
-    } = build_task_role_prompt(context)?;
+    } = build_task_role_prompt(context);
     let tools = task_role_builtin_tool_specs(role).map_err(|error| error.to_string())?;
     Ok(GenerateRequest {
         conversation_id: None,

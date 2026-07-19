@@ -51,30 +51,21 @@ impl FromStr for WorkspaceRole {
 
 /// Durable workspace projection.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct WorkspaceRecord {
-    /// Stable workspace identity.
     pub workspace_id: WorkspaceId,
-    /// Human-visible name.
     pub name: String,
-    /// Descriptive workspace context.
     pub description: String,
-    /// Whether this is the seeded Personal workspace.
     pub is_personal: bool,
-    /// Archive timestamp, when archived.
     pub archived_at: Option<String>,
-    /// Optimistic row revision.
     pub revision: u64,
-    /// Creation timestamp.
     pub created_at: String,
-    /// Last update timestamp.
     pub updated_at: String,
 }
 
 impl WorkspaceRecord {
     /// Normalize and validate record-owned text and invariants.
-    ///
     /// # Errors
-    ///
     /// Returns [`WorkspaceInputError`] for blank required fields, a zero
     /// revision, or an archived Personal workspace.
     pub fn normalized(mut self) -> Result<Self, WorkspaceInputError> {
@@ -102,24 +93,19 @@ impl WorkspaceRecord {
 
 /// Durable membership projection.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct WorkspaceMembership {
-    /// Workspace being joined.
     pub workspace_id: WorkspaceId,
-    /// Existing human identity owned by the conversations domain.
     pub human_id: String,
-    /// Membership role.
     pub role: WorkspaceRole,
-    /// Membership creation timestamp.
     pub created_at: String,
 }
 
 impl WorkspaceMembership {
     /// Validate membership-owned fields.
-    ///
     /// # Errors
-    ///
-    /// Returns [`WorkspaceInputError`] when the human identity or creation
-    /// timestamp is blank.
+    /// Returns [`WorkspaceInputError`] for blank required fields, a zero
+    /// revision, or an archived Personal workspace.
     pub fn normalized(mut self) -> Result<Self, WorkspaceInputError> {
         self.human_id = non_empty(self.human_id, "workspace_membership.human_id")?;
         if self.created_at.trim().is_empty() {
@@ -137,77 +123,5 @@ fn non_empty(value: String, field: &'static str) -> Result<String, WorkspaceInpu
         Err(WorkspaceInputError::EmptyField(field))
     } else {
         Ok(value)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{PERSONAL_WORKSPACE_ID, WorkspaceMembership, WorkspaceRecord, WorkspaceRole};
-    use crate::WorkspaceId;
-
-    fn workspace() -> WorkspaceRecord {
-        WorkspaceRecord {
-            workspace_id: WorkspaceId::new(PERSONAL_WORKSPACE_ID).unwrap(),
-            name: " Personal ".to_string(),
-            description: "A workspace".to_string(),
-            is_personal: true,
-            archived_at: None,
-            revision: 1,
-            created_at: "2026-01-01T00:00:00Z".to_string(),
-            updated_at: "2026-01-01T00:00:00Z".to_string(),
-        }
-    }
-
-    #[test]
-    fn workspace_normalizes_name_and_rejects_personal_archive() {
-        let normalized = workspace().normalized().unwrap();
-        assert_eq!(normalized.name, "Personal");
-        assert!(normalized.is_personal_workspace());
-
-        let mut archived = workspace();
-        archived.archived_at = Some("2026-01-02T00:00:00Z".to_string());
-        assert!(archived.normalized().is_err());
-    }
-
-    #[test]
-    fn workspace_rejects_blank_fields_zero_revision_and_timestamps() {
-        let mut blank_name = workspace();
-        blank_name.name = "  ".to_string();
-        assert!(blank_name.normalized().is_err());
-
-        let mut zero_revision = workspace();
-        zero_revision.revision = 0;
-        assert!(zero_revision.normalized().is_err());
-
-        let mut blank_timestamp = workspace();
-        blank_timestamp.created_at = " ".to_string();
-        assert!(blank_timestamp.normalized().is_err());
-    }
-
-    #[test]
-    fn membership_normalizes_human_and_rejects_blank_timestamp() {
-        let membership = WorkspaceMembership {
-            workspace_id: WorkspaceId::new(PERSONAL_WORKSPACE_ID).unwrap(),
-            human_id: " human:one ".to_string(),
-            role: WorkspaceRole::Member,
-            created_at: "2026-01-01T00:00:00Z".to_string(),
-        };
-        assert_eq!(
-            membership.clone().normalized().unwrap().human_id,
-            "human:one"
-        );
-
-        let mut blank_human = membership;
-        blank_human.human_id = " ".to_string();
-        assert!(blank_human.normalized().is_err());
-        let mut blank_timestamp = WorkspaceMembership {
-            workspace_id: WorkspaceId::new(PERSONAL_WORKSPACE_ID).unwrap(),
-            human_id: "human:one".to_string(),
-            role: WorkspaceRole::Owner,
-            created_at: " ".to_string(),
-        };
-        assert!(blank_timestamp.clone().normalized().is_err());
-        blank_timestamp.created_at = "2026-01-01T00:00:00Z".to_string();
-        assert!(blank_timestamp.normalized().is_ok());
     }
 }

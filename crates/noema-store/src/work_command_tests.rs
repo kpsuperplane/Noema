@@ -16,6 +16,26 @@ use crate::{
 
 const ACTOR: &str = "actor:human:local";
 
+macro_rules! task {
+    ($service:expr, $command:expr, $context:literal) => {
+        $service
+            .execute($command)
+            .await
+            .expect($context)
+            .task
+            .expect("task")
+    };
+}
+
+macro_rules! work_error {
+    ($service:expr, $command:expr, $error:pat, $context:literal) => {
+        assert!(
+            matches!($service.execute($command).await, Err($error)),
+            $context
+        )
+    };
+}
+
 async fn fixture() -> (NoemaStore, WorkCommandService) {
     let store = open_ephemeral_store().await.expect("open store");
     initialize_codex_provider_selections(&store)
@@ -131,6 +151,56 @@ async fn count_without_id(store: &NoemaStore, sql: &str) -> i64 {
         .expect("count durable rows")
 }
 
+async fn assert_one_durable_row(store: &NoemaStore, sql: &str) {
+    assert_eq!(count_without_id(store, sql).await, 1);
+}
+
+#[derive(Clone, Copy)]
+enum SourceReplayKind {
+    Capture,
+    Delegate,
+}
+
+async fn assert_source_replay(kind: SourceReplayKind) {
+    let (store, service) = fixture().await;
+    let command = |key| match kind {
+        SourceReplayKind::Capture => sourced_capture(key, "same-source"),
+        SourceReplayKind::Delegate => delegated(key, "same-source", None),
+    };
+    let first = service
+        .execute(command("idem:source:first"))
+        .await
+        .expect("create task");
+    let replay = service
+        .execute(command("idem:source:second"))
+        .await
+        .expect("source replay under another idempotency key");
+    assert_eq!(replay.event_id, first.event_id);
+    assert_eq!(replay.event_sequence, first.event_sequence);
+    assert_eq!(replay.task, first.task);
+    if matches!(kind, SourceReplayKind::Delegate) {
+        assert_eq!(replay.run_id, first.run_id);
+    }
+
+    let mut divergent = command("idem:source:third");
+    match &mut divergent {
+        WorkCommand::CaptureTask(command) => command.description_markdown = "divergent".to_string(),
+        WorkCommand::DelegateTask(command) => command.title = "Changed durable payload".to_string(),
+        _ => unreachable!(),
+    }
+    work_error!(
+        service,
+        divergent,
+        StoreError::Work(WorkDomainError::IdempotencyConflict),
+        "source replay with divergent payload must fail"
+    );
+    let source_kind = match kind {
+        SourceReplayKind::Capture => "capture-source",
+        SourceReplayKind::Delegate => "delegate-source",
+    };
+    assert_one_durable_row(&store, &format!("SELECT COUNT(*) FROM tasks WHERE source_conversation_id = 'conversation:{source_kind}' AND source_tool_call_id = 'tool_call:same-source'")).await;
+}
+
 #[tokio::test]
 async fn receipt_replay_is_exact_and_divergent_replay_is_rejected() {
     let (_store, service) = fixture().await;
@@ -144,26 +214,22 @@ async fn receipt_replay_is_exact_and_divergent_replay_is_rejected() {
     assert_eq!(replay.event_sequence, first.event_sequence);
     assert_eq!(replay.task, Some(returned_snapshot.clone()));
 
-    let conflict = service
-        .execute(capture("idem:capture", "different title"))
-        .await
-        .expect_err("same receipt key with a changed request must fail");
-    assert!(matches!(
-        conflict,
-        StoreError::Work(WorkDomainError::IdempotencyConflict)
-    ));
+    work_error!(
+        service,
+        capture("idem:capture", "different title"),
+        StoreError::Work(WorkDomainError::IdempotencyConflict),
+        "same receipt key with a changed request must fail"
+    );
 
     // The value returned by the first command is an immutable snapshot owned
     // by the caller; later writes cannot mutate it through shared store state.
-    let update_result = service
-        .execute(update("idem:update", &returned_snapshot, "edited title"))
-        .await
-        .expect("inbox update");
-    assert_eq!(returned_snapshot.title, "first title");
-    assert_eq!(
-        update_result.task.expect("updated task").title,
-        "edited title"
+    let updated = task!(
+        service,
+        update("idem:update", &returned_snapshot, "edited title"),
+        "inbox update"
     );
+    assert_eq!(returned_snapshot.title, "first title");
+    assert_eq!(updated.title, "edited title");
 }
 
 #[tokio::test]
@@ -175,18 +241,19 @@ async fn committed_detail_replay_does_not_reread_later_task_state() {
         .await
         .expect("capture committed detail");
     let first_detail = first.task_detail.clone().expect("task detail snapshot");
-    assert!(!first_detail.workflow_stages.is_empty());
+    assert_eq!(first_detail.stage.stage_id, first_detail.task.stage_id);
     assert!(first_detail.accepted_submission.is_none());
 
-    let updated = service
-        .execute(update(
+    let updated = task!(
+        service,
+        update(
             "idem:committed-detail:update",
             &first_detail.task,
             "later title",
-        ))
-        .await
-        .expect("mutate task after original receipt");
-    assert_eq!(updated.task.expect("updated task").title, "later title");
+        ),
+        "mutate task after original receipt"
+    );
+    assert_eq!(updated.title, "later title");
 
     let replay = service
         .execute_committed(command)
@@ -200,27 +267,25 @@ async fn committed_detail_replay_does_not_reread_later_task_state() {
 #[tokio::test]
 async fn stale_revision_is_atomic_and_inbox_edits_stop_at_queue() {
     let (store, service) = fixture().await;
-    let captured = service
-        .execute(capture("idem:stale:capture", "captured"))
-        .await
-        .expect("capture");
-    let original = captured.task.expect("captured task");
+    let original = task!(
+        service,
+        capture("idem:stale:capture", "captured"),
+        "capture"
+    );
 
-    let changed = service
-        .execute(update("idem:stale:update", &original, "edited"))
-        .await
-        .expect("first update");
-    let current = changed.task.clone().expect("updated task");
+    let current = task!(
+        service,
+        update("idem:stale:update", &original, "edited"),
+        "first update"
+    );
     let before_events = event_count(&store).await;
 
-    let stale = service
-        .execute(update("idem:stale:second", &original, "must not write"))
-        .await
-        .expect_err("old revision must be fenced");
-    assert!(matches!(
-        stale,
-        StoreError::Work(WorkDomainError::StaleRevision)
-    ));
+    work_error!(
+        service,
+        update("idem:stale:second", &original, "must not write"),
+        StoreError::Work(WorkDomainError::StaleRevision),
+        "old revision must be fenced"
+    );
     assert_eq!(event_count(&store).await, before_events);
     assert_eq!(
         service
@@ -242,25 +307,22 @@ async fn stale_revision_is_atomic_and_inbox_edits_stop_at_queue() {
     assert_eq!(queued_task.stage_id.as_str(), "stage:personal:queue");
     assert!(queued.run_id.is_some(), "queue must create one planner run");
 
-    let edit_after_queue = service
-        .execute(update("idem:after-queue", &queued_task, "must fail"))
-        .await
-        .expect_err("capture fields are Inbox-only");
-    assert!(matches!(
-        edit_after_queue,
-        StoreError::Work(WorkDomainError::InvalidTransition)
-    ));
+    work_error!(
+        service,
+        update("idem:after-queue", &queued_task, "must fail"),
+        StoreError::Work(WorkDomainError::InvalidTransition),
+        "capture fields are Inbox-only"
+    );
 }
 
 #[tokio::test]
 async fn stale_generation_is_rejected_even_when_revision_matches() {
     let (_store, service) = fixture().await;
-    let captured = service
-        .execute(capture("idem:generation:capture", "captured"))
-        .await
-        .expect("capture")
-        .task
-        .expect("task");
+    let captured = task!(
+        service,
+        capture("idem:generation:capture", "captured"),
+        "capture"
+    );
 
     let task_id = captured.task_id.clone();
     service
@@ -276,14 +338,12 @@ async fn stale_generation_is_rejected_even_when_revision_matches() {
         .await
         .expect("advance generation in test fixture");
 
-    let stale = service
-        .execute(update("idem:generation:stale", &captured, "must fail"))
-        .await
-        .expect_err("old generation must be fenced");
-    assert!(matches!(
-        stale,
-        StoreError::Work(WorkDomainError::StaleGeneration)
-    ));
+    work_error!(
+        service,
+        update("idem:generation:stale", &captured, "must fail"),
+        StoreError::Work(WorkDomainError::StaleGeneration),
+        "old generation must be fenced"
+    );
 }
 
 #[tokio::test]
@@ -300,8 +360,9 @@ async fn inbox_project_update_distinguishes_omitted_replacement_and_explicit_cle
         .expect("create project")
         .project
         .expect("project");
-    let captured = service
-        .execute(WorkCommand::CaptureTask(CaptureTask {
+    let captured = task!(
+        service,
+        WorkCommand::CaptureTask(CaptureTask {
             meta: metadata("idem:project:capture"),
             workspace_id: WorkspaceId::new("workspace:personal").expect("workspace id"),
             title: "Associated task".to_string(),
@@ -312,110 +373,45 @@ async fn inbox_project_update_distinguishes_omitted_replacement_and_explicit_cle
                 created_by_actor_id: ACTOR.to_string(),
                 ..TaskProvenance::default()
             },
-        }))
-        .await
-        .expect("capture associated task")
-        .task
-        .expect("task");
+        }),
+        "capture associated task"
+    );
 
-    let preserved = service
-        .execute(WorkCommand::UpdateInboxTask(UpdateInboxTask {
+    let preserved = task!(
+        service,
+        WorkCommand::UpdateInboxTask(UpdateInboxTask {
             meta: metadata("idem:project:preserve"),
             precondition: precondition(&captured),
             title: Some("Still associated".to_string()),
             description_markdown: None,
             project_id: None,
-        }))
-        .await
-        .expect("omitted project replacement")
-        .task
-        .expect("updated task");
+        }),
+        "omitted project replacement"
+    );
     assert_eq!(preserved.project_id.as_ref(), Some(&project.project_id));
 
-    let cleared = service
-        .execute(WorkCommand::UpdateInboxTask(UpdateInboxTask {
+    let cleared = task!(
+        service,
+        WorkCommand::UpdateInboxTask(UpdateInboxTask {
             meta: metadata("idem:project:clear"),
             precondition: precondition(&preserved),
             title: None,
             description_markdown: None,
             project_id: Some(None),
-        }))
-        .await
-        .expect("explicit project clear")
-        .task
-        .expect("cleared task");
+        }),
+        "explicit project clear"
+    );
     assert_eq!(cleared.project_id, None);
 }
 
 #[tokio::test]
 async fn delegate_source_replay_is_exact_across_idempotency_namespaces() {
-    let (store, service) = fixture().await;
-    let original = delegated("idem:delegate:first", "same-source", None);
-    let first = service.execute(original).await.expect("delegate task");
-    let replay = service
-        .execute(delegated("idem:delegate:second", "same-source", None))
-        .await
-        .expect("source replay under another idempotency key");
-    assert_eq!(replay.event_id, first.event_id);
-    assert_eq!(replay.event_sequence, first.event_sequence);
-    assert_eq!(replay.task, first.task);
-    assert_eq!(replay.run_id, first.run_id);
-
-    let mut divergent = delegated("idem:delegate:third", "same-source", None);
-    let WorkCommand::DelegateTask(command) = &mut divergent else {
-        unreachable!()
-    };
-    command.title = "Changed durable payload".to_string();
-    let error = service
-        .execute(divergent)
-        .await
-        .expect_err("source replay with divergent payload must fail");
-    assert!(matches!(
-        error,
-        StoreError::Work(WorkDomainError::IdempotencyConflict)
-    ));
-    assert_eq!(
-        count_without_id(
-            &store,
-            "SELECT COUNT(*) FROM tasks WHERE source_conversation_id = 'conversation:delegate-source' AND source_tool_call_id = 'tool_call:same-source'",
-        )
-        .await,
-        1
-    );
+    assert_source_replay(SourceReplayKind::Delegate).await;
 }
 
 #[tokio::test]
 async fn capture_source_replay_is_exact_across_idempotency_namespaces() {
-    let (store, service) = fixture().await;
-    let first = service
-        .execute(sourced_capture("idem:capture-source:first", "same-source"))
-        .await
-        .expect("capture task");
-    let replay = service
-        .execute(sourced_capture("idem:capture-source:second", "same-source"))
-        .await
-        .expect("source replay under another idempotency key");
-    assert_eq!(replay.event_id, first.event_id);
-    assert_eq!(replay.event_sequence, first.event_sequence);
-    assert_eq!(replay.task, first.task);
-
-    let mut divergent = sourced_capture("idem:capture-source:third", "same-source");
-    let WorkCommand::CaptureTask(command) = &mut divergent else {
-        unreachable!()
-    };
-    command.description_markdown = "divergent".to_string();
-    assert!(matches!(
-        service.execute(divergent).await,
-        Err(StoreError::Work(WorkDomainError::IdempotencyConflict))
-    ));
-    assert_eq!(
-        count_without_id(
-            &store,
-            "SELECT COUNT(*) FROM tasks WHERE source_conversation_id = 'conversation:capture-source' AND source_tool_call_id = 'tool_call:same-source'",
-        )
-        .await,
-        1
-    );
+    assert_source_replay(SourceReplayKind::Capture).await;
 }
 
 #[tokio::test]
@@ -436,23 +432,18 @@ async fn capture_source_replay_is_durable_without_an_idempotency_key() {
         .await
         .expect("exact source replay without an idempotency key");
     assert_eq!(replay, first);
-    assert_eq!(
-        count_without_id(
-            &store,
-            "SELECT COUNT(*) FROM work_command_receipts WHERE command_name = 'task.capture' AND idempotency_key LIKE 'source-replay:%'",
-        )
-        .await,
-        1
-    );
+    assert_one_durable_row(&store, "SELECT COUNT(*) FROM work_command_receipts WHERE command_name = 'task.capture' AND idempotency_key LIKE 'source-replay:%'").await;
 
     let WorkCommand::CaptureTask(command) = &mut original else {
         unreachable!()
     };
     command.title = "Divergent source payload".to_string();
-    assert!(matches!(
-        service.execute(original).await,
-        Err(StoreError::Work(WorkDomainError::IdempotencyConflict))
-    ));
+    work_error!(
+        service,
+        original,
+        StoreError::Work(WorkDomainError::IdempotencyConflict),
+        "source replay with a changed payload must fail"
+    );
 }
 
 #[tokio::test]
