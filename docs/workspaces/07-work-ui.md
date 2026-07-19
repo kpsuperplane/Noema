@@ -187,6 +187,11 @@ only outside the Work route, and Close appears when the host surface supplies a
 close action. The row lives in the task-detail header; the decision card remains
 focused on the prompt, supporting context, and response controls.
 
+The decision card renders one heading and one primary message instead of
+stacking the attention label, title, prompt, and summary. Recovery attention
+promotes the concrete failure context to primary copy; the prompt and summary
+are fallbacks when that context is unavailable.
+
 | Action | Interaction |
 | --- | --- |
 | Queue | Confirms the current Inbox version and submits its revision/generation. |

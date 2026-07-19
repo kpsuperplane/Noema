@@ -189,6 +189,7 @@ function mapWorkTaskDetail(task: WorkDetail): TaskDetail {
     canResume: false,
     blockingQuestion: task.activeGate?.prompt ?? null,
     attention: task.attention ? {
+      kind: task.attention.kind,
       title: task.attention.title,
       summary: task.attention.summary,
       context: task.activeGate?.contextMarkdown ?? null

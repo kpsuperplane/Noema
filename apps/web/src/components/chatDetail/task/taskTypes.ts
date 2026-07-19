@@ -26,6 +26,12 @@ export type TaskCriterionVerdict = "pending" | "pass" | "fail" | "uncertain";
 
 export type TaskReviewVerdict = "approve" | "request_changes" | "needs_human";
 
+export type TaskAttentionKind =
+  | "CLARIFICATION_REQUIRED"
+  | "APPROVAL_REQUIRED"
+  | "RECOVERY_REQUIRED"
+  | "REVIEW_READY";
+
 export type TaskModelSnapshot = {
   providerDisplayName?: string | null;
   modelProfile: string;
@@ -173,6 +179,11 @@ export type TaskDetail = {
   canCancel?: boolean;
   canResume?: boolean;
   blockingQuestion?: string | null;
-  attention?: { title: string; summary: string; context?: string | null } | null;
+  attention?: {
+    kind: TaskAttentionKind;
+    title: string;
+    summary: string;
+    context?: string | null;
+  } | null;
   messages?: readonly { id: string; author: string; body: string; createdAt: string }[];
 };
