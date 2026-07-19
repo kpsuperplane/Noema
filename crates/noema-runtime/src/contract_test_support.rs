@@ -280,6 +280,7 @@ impl WebFetchBackend for EmptyFetchBackend {
                 url: request.url.clone(),
                 final_url: request.url.clone(),
                 title: Some("Test page".to_string()),
+                links: Vec::new(),
                 format: "markdown".to_string(),
                 extraction: EXTRACTION_READABILITYRS.to_string(),
                 content_kind: FetchContentKind::RawMarkdown,

@@ -49,6 +49,9 @@ use noema_capabilities::web::fetch::WEB_FETCH_TOOL;
 
 const PROVIDER_ACCOUNT_UNAUTHENTICATED: &str = "provider account unauthenticated";
 
+mod web_actions;
+use web_actions::{insert_web_tool_fallback_metadata, is_provider_account_unauthenticated_payload};
+
 struct ProviderAuthFailureTarget {
     provider_account_id: String,
     credential_revision: u64,
@@ -112,7 +115,15 @@ impl RuntimeActor {
             GovernedActionPreparation::AwaitingApproval(action) => {
                 return awaiting_approval_result(call, &action);
             }
-            GovernedActionPreparation::Admitted { action, admission } => Some((action, admission)),
+            GovernedActionPreparation::Admitted {
+                action,
+                admission,
+                arguments,
+            } => Some((
+                action,
+                admission,
+                arguments.unwrap_or_else(|| call.payload.clone()),
+            )),
         };
 
         let runtime_invoker = Arc::new(RuntimeExecutionInvoker::new(
@@ -135,12 +146,12 @@ impl RuntimeActor {
         let router = CapabilityRegistryRouter::new(invokers)
             .expect("runtime capability invoker keys are unique");
         let dispatch = match governed.as_ref() {
-            Some((_, admission)) => {
+            Some((_, admission, arguments)) => {
                 router
                     .dispatch_governed(
                         snapshot.clone(),
                         call.name.clone(),
-                        call.payload.clone(),
+                        arguments.clone(),
                         admission.clone(),
                     )
                     .await
@@ -153,7 +164,7 @@ impl RuntimeActor {
         };
         match dispatch {
             Ok(dispatch) => {
-                if let Some((action, _)) = &governed {
+                if let Some((Some(action), _, _)) = &governed {
                     let outcome = if dispatch.output.success {
                         GovernedExecutionOutcome::Succeeded
                     } else {
@@ -165,7 +176,7 @@ impl RuntimeActor {
                             &action.action_id,
                             action.revision,
                             outcome,
-                            Some(&dispatch.output.payload),
+                            dispatch.persisted.output.as_ref(),
                             (!dispatch.output.success).then_some("tool_declared_failure"),
                         )
                         .await
@@ -188,7 +199,7 @@ impl RuntimeActor {
                 }
             }
             Err(failure) => {
-                if let Some((action, _)) = &governed {
+                if let Some((Some(action), _, _)) = &governed {
                     let outcome = if failure.error == CapabilityError::OutcomeUncertain {
                         GovernedExecutionOutcome::OutcomeUncertain
                     } else {
@@ -391,6 +402,11 @@ impl RuntimeActor {
                         fallback_from.as_deref(),
                         fallback_reason.as_deref(),
                     );
+                    if result.success {
+                        let source = call.call_id.as_deref().unwrap_or(&turn.turn_id);
+                        self.record_search_result_urls(source, &result.payload)
+                            .await;
+                    }
                     result
                 }
                 Err(message) => WebSearchToolResult {
@@ -434,6 +450,10 @@ impl RuntimeActor {
                         fallback_from.as_deref(),
                         fallback_reason.as_deref(),
                     );
+                    if result.success {
+                        let source = call.call_id.as_deref().unwrap_or(&turn.turn_id);
+                        self.record_fetched_link_urls(source, &result.payload).await;
+                    }
                     result
                 }
                 Err(message) => WebFetchToolResult {
@@ -667,15 +687,21 @@ impl CapabilityInvoker for RuntimeExecutionInvoker<'_> {
         invocation: CapabilityInvocation,
     ) -> CapabilityFuture<'_, Result<CapabilityOutput, CapabilityError>> {
         Box::pin(async move {
+            let observed_url_admission = invocation
+                .governed_admission
+                .as_ref()
+                .is_some_and(|admission| admission.action_id == "observed_url");
             if invocation.operation_token.as_str() != invocation.operation.as_str()
                 || invocation.operation.as_str() != self.call.name
-                || invocation.arguments != self.call.payload
+                || (invocation.arguments != self.call.payload && !observed_url_admission)
             {
                 return Err(CapabilityError::UnknownOperation);
             }
+            let mut dispatched_call = self.call.clone();
+            dispatched_call.payload = invocation.arguments;
             let result = self
                 .actor
-                .execute_bound_runtime_tool(self.turn, self.agent_identity, self.call)
+                .execute_bound_runtime_tool(self.turn, self.agent_identity, &dispatched_call)
                 .await?;
             let output = if result.success {
                 CapabilityOutput::success(result.payload.clone())
@@ -700,41 +726,6 @@ fn gateway_failure_result(
         true,
     )
     .with_persisted(failure.persisted)
-}
-
-fn insert_web_tool_fallback_metadata(
-    payload: &mut Value,
-    fallback_from: Option<&str>,
-    fallback_reason: Option<&str>,
-) {
-    let Some(object) = payload.as_object_mut() else {
-        return;
-    };
-    if let Some(fallback_from) = fallback_from
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        object.insert(
-            "fallback_from".to_string(),
-            Value::String(fallback_from.to_string()),
-        );
-    }
-    if let Some(fallback_reason) = fallback_reason
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        object.insert(
-            "fallback_reason".to_string(),
-            Value::String(fallback_reason.to_string()),
-        );
-    }
-}
-
-fn is_provider_account_unauthenticated_payload(payload: &Value) -> bool {
-    payload
-        .get("error")
-        .and_then(Value::as_str)
-        .is_some_and(|message| message == PROVIDER_ACCOUNT_UNAUTHENTICATED)
 }
 
 pub(super) use super::local_tool_results::{

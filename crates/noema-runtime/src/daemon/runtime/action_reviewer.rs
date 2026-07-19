@@ -48,6 +48,7 @@ impl RuntimeActor {
             "action_id": action.action_id,
             "revision": action.revision,
             "capability": action.capability_name,
+            "operation_token": action.operation_token,
             "effect": match action.effect {
                 noema_store::GovernedActionEffect::Write => "write",
                 noema_store::GovernedActionEffect::Export => "export",

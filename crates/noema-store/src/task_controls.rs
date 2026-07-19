@@ -12,6 +12,7 @@ use super::{ReportRunFailure, WorkRunFence, report_expired_failure_tx, rows};
 use crate::work_commands::{WorkCommandService, helpers};
 use crate::{
     StoreError,
+    governed_action_approvals::invalidate_run_governed_actions_tx,
     ids::allocate_id,
     work_events::{WorkEventScope, append_work_event_tx},
 };
@@ -311,6 +312,7 @@ fn recover_one_expired_run_tx(
 ) -> Result<(), StoreError> {
     let run = rows::load_run_tx(transaction, run_id)?
         .ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))?;
+    invalidate_run_governed_actions_tx(transaction, run_id, "actor:store:lease-recovery")?;
     let task = helpers::load_task_state_tx(transaction, &run.task_id)?;
     if run.cancellation_requested
         || run.task_generation != task.generation

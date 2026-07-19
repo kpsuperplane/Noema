@@ -5,7 +5,8 @@ use serde_json::Value;
 
 use crate::{
     NoemaStore, StoreError, WorkRunFence, governed_action_approvals::mark_origin_run_waiting_tx,
-    ids::allocate_id, work_row::sha256_hex,
+    governed_action_fencing::require_origin_execution_live_tx, ids::allocate_id,
+    work_row::sha256_hex,
 };
 
 const MAX_ARGUMENTS_BYTES: usize = 1_048_576;
@@ -70,7 +71,9 @@ pub enum GovernedActionState {
 }
 
 impl GovernedActionState {
-    pub(crate) fn as_str(self) -> &'static str {
+    /// Return the stable persisted state name.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Proposed => "proposed",
             Self::AwaitingApproval => "awaiting_approval",
@@ -401,7 +404,15 @@ impl NoemaStore {
                 ],
             )?;
             let next = match assessment.recommendation {
-                GovernedRecommendation::AutoExecute => GovernedActionState::Executable,
+                GovernedRecommendation::AutoExecute => {
+                    require_origin_execution_live_tx(
+                        transaction,
+                        action_id,
+                        revision,
+                        run_fence,
+                    )?;
+                    GovernedActionState::Executable
+                }
                 GovernedRecommendation::RequireApproval => {
                     mark_origin_run_waiting_tx(transaction, action_id, revision, run_fence)?;
                     transaction.execute(
@@ -447,8 +458,10 @@ impl NoemaStore {
         &self,
         action_id: &str,
         revision: u64,
+        run_fence: Option<&WorkRunFence>,
     ) -> Result<GovernedActionRecord, StoreError> {
         self.with_immediate_transaction_retry(|transaction| {
+            require_origin_execution_live_tx(transaction, action_id, revision, run_fence)?;
             let approval_state = transaction
                 .query_row(
                     "SELECT state FROM governed_action_approvals WHERE action_id = ?1 AND action_revision = ?2",

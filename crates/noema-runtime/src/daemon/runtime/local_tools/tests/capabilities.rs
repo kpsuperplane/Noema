@@ -83,6 +83,47 @@ async fn unconfigured_reviewer_blocks_external_write_before_invocation() {
     );
     assert_eq!(action.arguments, json!({"body":"exact"}));
     assert!(invoker.invocations.lock().expect("invocation lock").is_empty());
+
+    let observed_url = "https://example.com/public".to_string();
+    actor
+        .store
+        .record_observed_urls(
+            noema_store::ObservedUrlSource::SearchResult,
+            "tool_call:search",
+            std::slice::from_ref(&observed_url),
+        )
+        .await
+        .expect("record observed URL");
+    turn.initial_model_tools = test_governed_web_fetch_model_tools();
+    let fetched = actor
+        .execute_local_tool(
+            &turn,
+            &AgentPromptIdentity {
+                agent_id: "agent:primary".to_string(),
+                display_name: None,
+            },
+            &test_tool_call(
+                noema_capabilities::web::fetch::WEB_FETCH_TOOL,
+                json!({"url": observed_url}),
+            ),
+        )
+        .await;
+    assert!(fetched.success, "bare exact observed URL should bypass review");
+
+    let augmented = actor
+        .execute_local_tool(
+            &turn,
+            &AgentPromptIdentity {
+                agent_id: "agent:primary".to_string(),
+                display_name: None,
+            },
+            &test_tool_call(
+                noema_capabilities::web::fetch::WEB_FETCH_TOOL,
+                json!({"url": "https://example.com/public", "reason": "extra model data"}),
+            ),
+        )
+        .await;
+    assert_eq!(augmented.payload["status"], "awaiting_approval");
 }
 
 #[tokio::test]

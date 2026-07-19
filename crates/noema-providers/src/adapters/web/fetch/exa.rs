@@ -104,6 +104,7 @@ fn normalize_exa_contents_response(
         url: sanitized_display_url(requested_url),
         final_url,
         title,
+        links: Vec::new(),
         format: "markdown".to_string(),
         extraction: EXA_EXTRACTION.to_string(),
         content_kind: FetchContentKind::RawMarkdown,

@@ -10,6 +10,7 @@ mod context_summaries;
 mod conversations;
 mod error;
 mod governed_action_approvals;
+mod governed_action_fencing;
 mod governed_actions;
 mod ids;
 mod local_model_activation;
@@ -26,6 +27,7 @@ mod local_models_tests;
 mod mcp;
 mod memory_repository;
 mod memory_service;
+mod observed_urls;
 mod provider_account_port;
 mod provider_accounts;
 mod provider_capability_bindings;
@@ -79,6 +81,7 @@ pub use governed_actions::{
     GovernedAuthorization, GovernedExecutionOutcome, GovernedRecommendation, GovernedRisk,
     NewGovernedAction, NewGovernedActionAssessment,
 };
+pub use observed_urls::ObservedUrlSource;
 pub use runtime::{NoemaStore, StoreConfig};
 pub use work_command_result::CommittedWorkCommandResult;
 pub use work_commands::WorkCommandService;

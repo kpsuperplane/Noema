@@ -127,6 +127,8 @@ pub struct FetchResponse {
     pub final_url: String,
     /// Extracted page title.
     pub title: Option<String>,
+    /// Public links structurally extracted from fetched response bytes.
+    pub links: Vec<String>,
     /// Returned content format.
     pub format: String,
     /// Extraction implementation label.

@@ -3,7 +3,7 @@ use serde_json::json;
 use crate::{
     GovernedActionDecision, GovernedActionEffect, GovernedActionState, GovernedAssessmentStatus,
     GovernedAuthorization, GovernedExecutionOutcome, GovernedRecommendation, GovernedRisk,
-    NewGovernedAction, NewGovernedActionAssessment, tests::test_store,
+    NewGovernedAction, NewGovernedActionAssessment, ObservedUrlSource, tests::test_store,
 };
 
 fn proposed_action(arguments: serde_json::Value) -> NewGovernedAction {
@@ -37,6 +37,28 @@ async fn governed_action_preserves_exact_payload_and_digest() {
     assert_eq!(action.arguments, arguments);
     assert_eq!(action.state, GovernedActionState::Proposed);
     assert_eq!(action.arguments_sha256.len(), 64);
+
+    let observed = vec!["https://example.com/result?q=1".to_string()];
+    store
+        .record_observed_urls(
+            ObservedUrlSource::SearchResult,
+            "tool_call:search",
+            &observed,
+        )
+        .await
+        .expect("record observed URL");
+    assert!(
+        store
+            .has_observed_url(&observed[0])
+            .await
+            .expect("match observed URL")
+    );
+    assert!(
+        !store
+            .has_observed_url("https://example.com/result?q=2")
+            .await
+            .expect("reject changed URL")
+    );
 }
 
 #[tokio::test]
@@ -68,7 +90,7 @@ async fn unavailable_reviewer_requires_approval_and_cannot_be_claimed() {
     assert_eq!(reviewed.state, GovernedActionState::AwaitingApproval);
     assert!(
         store
-            .claim_governed_action_execution(&action.action_id, action.revision)
+            .claim_governed_action_execution(&action.action_id, action.revision, None)
             .await
             .is_err()
     );
@@ -122,18 +144,18 @@ async fn human_approval_is_owner_scoped_and_consumed_by_one_claim() {
     assert_eq!(approved.state, GovernedActionState::Executable);
     assert_eq!(
         store
-            .list_pending_governed_actions("human:local", 10)
+            .list_pending_governed_actions("human:local", None, None, 10)
             .await
             .expect("list pending"),
         Vec::new()
     );
     store
-        .claim_governed_action_execution(&action.action_id, action.revision)
+        .claim_governed_action_execution(&action.action_id, action.revision, None)
         .await
         .expect("consume approval");
     assert!(
         store
-            .claim_governed_action_execution(&action.action_id, action.revision)
+            .claim_governed_action_execution(&action.action_id, action.revision, None)
             .await
             .is_err()
     );
@@ -166,13 +188,13 @@ async fn clear_review_is_claimed_once_and_records_uncertain_outcome() {
     assert_eq!(reviewed.state, GovernedActionState::Executable);
 
     let claimed = store
-        .claim_governed_action_execution(&action.action_id, action.revision)
+        .claim_governed_action_execution(&action.action_id, action.revision, None)
         .await
         .expect("claim action");
     assert_eq!(claimed.state, GovernedActionState::Executing);
     assert!(
         store
-            .claim_governed_action_execution(&action.action_id, action.revision)
+            .claim_governed_action_execution(&action.action_id, action.revision, None)
             .await
             .is_err()
     );

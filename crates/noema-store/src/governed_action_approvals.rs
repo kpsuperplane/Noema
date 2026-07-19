@@ -25,6 +25,8 @@ impl NoemaStore {
     pub async fn list_pending_governed_actions(
         &self,
         owner_human_id: &str,
+        conversation_id: Option<&str>,
+        task_id: Option<&str>,
         limit: usize,
     ) -> Result<Vec<GovernedActionRecord>, StoreError> {
         let limit = i64::try_from(limit.clamp(1, 100)).unwrap_or(100);
@@ -35,13 +37,16 @@ impl NoemaStore {
                     SELECT action_id, revision
                     FROM governed_actions
                     WHERE owner_human_id = ?1 AND state = 'awaiting_approval'
+                      AND (?2 IS NULL OR conversation_id = ?2)
+                      AND (?3 IS NULL OR task_id = ?3)
                     ORDER BY created_at DESC, action_id DESC
-                    LIMIT ?2
+                    LIMIT ?4
                     "#,
                 )?
-                .query_map(params![owner_human_id, limit], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-                })?
+                .query_map(
+                    params![owner_human_id, conversation_id, task_id, limit],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+                )?
                 .collect::<Result<Vec<_>, _>>()?;
             ids.into_iter()
                 .map(|(action_id, revision)| {
@@ -252,29 +257,86 @@ pub(crate) fn cancel_task_governed_actions_tx(
 ) -> Result<(), StoreError> {
     let actions = transaction
         .prepare(
-            "SELECT action_id, revision FROM governed_actions WHERE task_id = ?1 AND state IN ('proposed', 'awaiting_approval', 'executable') ORDER BY created_at, action_id",
+            "SELECT action_id, revision, state FROM governed_actions WHERE task_id = ?1 AND state IN ('proposed', 'awaiting_approval', 'executable', 'executing') ORDER BY created_at, action_id",
         )?
         .query_map([task_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+            ))
         })?
         .collect::<Result<Vec<_>, _>>()?;
-    for (action_id, revision) in actions {
-        transaction.execute(
-            "UPDATE governed_actions SET state = 'cancelled', failure_code = 'task_cancelled', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE action_id = ?1 AND revision = ?2 AND state IN ('proposed', 'awaiting_approval', 'executable')",
-            params![action_id, revision],
-        )?;
-        transaction.execute(
-            "UPDATE governed_action_approvals SET state = 'superseded' WHERE action_id = ?1 AND action_revision = ?2 AND state IN ('pending', 'approved')",
-            params![action_id, revision],
-        )?;
-        insert_event(
+    for (action_id, revision, state) in actions {
+        invalidate_action_tx(
             transaction,
             &action_id,
-            u64::try_from(revision).map_err(|_| action_conflict("invalid revision"))?,
-            "cancelled",
+            revision,
+            &state,
             actor_id,
-            &serde_json::json!({"reason": "task_cancelled"}),
+            "task_cancelled",
         )?;
     }
     Ok(())
+}
+
+pub(crate) fn invalidate_run_governed_actions_tx(
+    transaction: &rusqlite::Transaction<'_>,
+    run_id: &str,
+    actor_id: &str,
+) -> Result<(), StoreError> {
+    let actions = transaction
+        .prepare(
+            "SELECT action_id, revision, state FROM governed_actions WHERE run_id = ?1 AND state IN ('proposed', 'awaiting_approval', 'executable', 'executing') ORDER BY created_at, action_id",
+        )?
+        .query_map([run_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    for (action_id, revision, state) in actions {
+        invalidate_action_tx(
+            transaction,
+            &action_id,
+            revision,
+            &state,
+            actor_id,
+            "origin_run_expired",
+        )?;
+    }
+    Ok(())
+}
+
+fn invalidate_action_tx(
+    transaction: &rusqlite::Transaction<'_>,
+    action_id: &str,
+    revision: i64,
+    current_state: &str,
+    actor_id: &str,
+    reason: &str,
+) -> Result<(), StoreError> {
+    let (state, event_kind) = if current_state == "executing" {
+        ("outcome_uncertain", "outcome_uncertain")
+    } else {
+        ("cancelled", "cancelled")
+    };
+    transaction.execute(
+        "UPDATE governed_actions SET state = ?3, failure_code = ?4, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE action_id = ?1 AND revision = ?2 AND state = ?5",
+        params![action_id, revision, state, reason, current_state],
+    )?;
+    transaction.execute(
+        "UPDATE governed_action_approvals SET state = 'superseded' WHERE action_id = ?1 AND action_revision = ?2 AND state IN ('pending', 'approved')",
+        params![action_id, revision],
+    )?;
+    insert_event(
+        transaction,
+        action_id,
+        u64::try_from(revision).map_err(|_| action_conflict("invalid revision"))?,
+        event_kind,
+        actor_id,
+        &serde_json::json!({"reason": reason}),
+    )
 }

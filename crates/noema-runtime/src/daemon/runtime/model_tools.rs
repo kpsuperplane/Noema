@@ -112,12 +112,18 @@ pub(super) async fn build_model_tools_for_role(
             declared_builtin_tools.push((tool, class));
         }
     }
-    let declared_web_tools = if role == ExecutionRole::TaskPlanner {
+    let declared_web_tools = if matches!(
+        role,
+        ExecutionRole::TaskPlanner | ExecutionRole::TaskReviewer
+    ) {
         Vec::new()
     } else {
         [web_search_tool, web_fetch_tool]
             .into_iter()
-            .filter(|tool| tool_policy.declare_tool(tool.name.as_str(), ToolAccessClass::ReadOnly))
+            .filter(|tool| {
+                tool_policy
+                    .declare_tool(tool.name.as_str(), ToolAccessClass::GovernedExternalAction)
+            })
             .collect::<Vec<_>>()
     };
 
@@ -141,7 +147,7 @@ pub(super) async fn build_model_tools_for_role(
         };
         add_binding(
             &mut catalog,
-            runtime_binding(tool, ToolAccessClass::ReadOnly, persistence),
+            runtime_binding(tool, ToolAccessClass::GovernedExternalAction, persistence),
         )?;
     }
     let unavailable_capabilities = capability_catalog
@@ -464,7 +470,15 @@ fn runtime_binding(
             scope: CapabilityScope::ConversationOwned,
         },
         ToolAccessClass::GovernedExternalAction => CapabilityAccess {
-            effect: CapabilityEffect::ExternalWrite,
+            effect: if matches!(
+                canonical_name.as_str(),
+                noema_capabilities::web::search::WEB_SEARCH_TOOL
+                    | noema_capabilities::web::fetch::WEB_FETCH_TOOL
+            ) {
+                CapabilityEffect::ExternalExport
+            } else {
+                CapabilityEffect::ExternalWrite
+            },
             scope: CapabilityScope::Global,
         },
         ToolAccessClass::Internal => CapabilityAccess {

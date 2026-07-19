@@ -6,13 +6,18 @@ use noema_capabilities::{
     CapabilityError, CapabilityInvoker, CapabilityRegistryRouter, CapabilityRouter,
     GovernedCapabilityAdmission,
 };
+use noema_conversations::{
+    ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
+};
 use noema_store::{
     GovernedActionDecision, GovernedActionEffect, GovernedActionRecord, GovernedActionState,
     GovernedExecutionOutcome, WorkCommandService,
 };
 
 use super::{action_gateway::capability_failure_code, actor::RuntimeActor};
-use crate::daemon::protocol::RuntimeError;
+use crate::daemon::{
+    ConversationRuntimeEvent, RuntimeError, TurnActivityStatus, TurnStreamEvent, TurnTranscriptItem,
+};
 
 impl RuntimeActor {
     pub(super) async fn resolve_governed_action(
@@ -62,42 +67,108 @@ impl RuntimeActor {
             return Ok(action);
         }
 
-        let catalog = self
-            .capability_bindings
-            .catalog()
-            .await
-            .map_err(|_| RuntimeError::Protocol("capability catalog is unavailable".to_string()))?
-            .snapshot;
-        let Some(binding) = catalog.resolve(&action.capability_name) else {
-            return self
-                .supersede_and_resume(action, human_id, "capability_removed")
-                .await;
+        let admission = GovernedCapabilityAdmission {
+            action_id: action.action_id.clone(),
+            revision: action.revision,
+            arguments_sha256: action.arguments_sha256.clone(),
         };
-        let current_effect = match binding.access().effect {
-            noema_capabilities::CapabilityEffect::ExternalWrite => {
-                Some(GovernedActionEffect::Write)
-            }
-            noema_capabilities::CapabilityEffect::ExternalExport => {
-                Some(GovernedActionEffect::Export)
-            }
-            noema_capabilities::CapabilityEffect::ExternalWriteAndExport => {
-                Some(GovernedActionEffect::WriteAndExport)
-            }
-            _ => None,
-        };
-        if binding.target().operation_token().as_str() != action.operation_token
-            || current_effect != Some(action.effect)
-            || binding.spec().input_schema.as_value() != &action.input_schema
-        {
+        if !admission.matches_arguments(&action.arguments) {
             return self
-                .supersede_and_resume(action, human_id, "capability_changed")
+                .supersede_and_resume(action, human_id, "payload_digest_changed")
                 .await;
         }
 
+        let web_spec = match action.capability_name.as_str() {
+            noema_capabilities::web::search::WEB_SEARCH_TOOL => {
+                Some(noema_capabilities::web::search::tool_spec())
+            }
+            noema_capabilities::web::fetch::WEB_FETCH_TOOL => {
+                Some(noema_capabilities::web::fetch::tool_spec())
+            }
+            _ => None,
+        }
+        .transpose()
+        .map_err(|_| RuntimeError::Protocol("web capability schema is unavailable".to_string()))?;
+        if web_spec.is_some()
+            && action.trusted_authority.get("destination")
+                != super::action_gateway::web_destination(&self.store, &action.capability_name)
+                    .await
+                    .as_ref()
+        {
+            return self
+                .supersede_and_resume(action, human_id, "destination_changed")
+                .await;
+        }
+        let catalog = if let Some(spec) = web_spec {
+            if action.effect != GovernedActionEffect::Export
+                || action.operation_token != action.capability_name
+                || spec.input_schema.as_value() != &action.input_schema
+            {
+                return self
+                    .supersede_and_resume(action, human_id, "capability_changed")
+                    .await;
+            }
+            None
+        } else {
+            let catalog = self
+                .capability_bindings
+                .catalog()
+                .await
+                .map_err(|_| {
+                    RuntimeError::Protocol("capability catalog is unavailable".to_string())
+                })?
+                .snapshot;
+            let Some(binding) = catalog.resolve(&action.capability_name) else {
+                return self
+                    .supersede_and_resume(action, human_id, "capability_removed")
+                    .await;
+            };
+            let current_effect = match binding.access().effect {
+                noema_capabilities::CapabilityEffect::ExternalWrite => {
+                    Some(GovernedActionEffect::Write)
+                }
+                noema_capabilities::CapabilityEffect::ExternalExport => {
+                    Some(GovernedActionEffect::Export)
+                }
+                noema_capabilities::CapabilityEffect::ExternalWriteAndExport => {
+                    Some(GovernedActionEffect::WriteAndExport)
+                }
+                _ => None,
+            };
+            if binding.target().operation_token().as_str() != action.operation_token
+                || current_effect != Some(action.effect)
+                || binding.spec().input_schema.as_value() != &action.input_schema
+            {
+                return self
+                    .supersede_and_resume(action, human_id, "capability_changed")
+                    .await;
+            }
+            Some(catalog)
+        };
+
         let claimed = self
             .store
-            .claim_governed_action_execution(action_id, revision)
+            .claim_governed_action_execution(action_id, revision, None)
             .await?;
+        if let Some(output) = self.execute_approved_web_action(&claimed).await {
+            let outcome = if output.success {
+                GovernedExecutionOutcome::Succeeded
+            } else {
+                GovernedExecutionOutcome::Failed
+            };
+            let finished = self
+                .store
+                .finish_governed_action_execution(
+                    action_id,
+                    revision,
+                    outcome,
+                    Some(&output.payload),
+                    (!output.success).then_some("tool_declared_failure"),
+                )
+                .await?;
+            self.resume_action_task(&finished, human_id).await?;
+            return Ok(finished);
+        }
         let router =
             CapabilityRegistryRouter::new(self.capability_invokers.iter().map(|registration| {
                 (
@@ -108,14 +179,10 @@ impl RuntimeActor {
             .expect("runtime capability invoker keys are unique");
         let dispatch = router
             .dispatch_governed(
-                catalog,
+                catalog.expect("non-web governed action has a live catalog"),
                 claimed.capability_name.clone(),
                 claimed.arguments.clone(),
-                GovernedCapabilityAdmission {
-                    action_id: claimed.action_id.clone(),
-                    revision: claimed.revision,
-                    arguments_sha256: claimed.arguments_sha256.clone(),
-                },
+                admission,
             )
             .await;
         let finished = match dispatch {
@@ -130,7 +197,7 @@ impl RuntimeActor {
                         action_id,
                         revision,
                         outcome,
-                        Some(&dispatch.output.payload),
+                        dispatch.persisted.output.as_ref(),
                         (!dispatch.output.success).then_some("tool_declared_failure"),
                     )
                     .await?
@@ -175,10 +242,124 @@ impl RuntimeActor {
         action: &GovernedActionRecord,
         human_id: &str,
     ) -> Result<(), RuntimeError> {
+        if action.task_id.is_none() {
+            return self.publish_foreground_action_outcome(action).await;
+        }
         let actor_id = format!("actor:{human_id}");
         WorkCommandService::new(self.store.clone(), self.provider_registry.clone())
             .resume_after_governed_action(&action.action_id, action.revision, &actor_id)
             .await?;
         Ok(())
+    }
+
+    async fn publish_foreground_action_outcome(
+        &self,
+        action: &GovernedActionRecord,
+    ) -> Result<(), RuntimeError> {
+        let Some(conversation_id) = action.conversation_id.as_ref() else {
+            return Err(RuntimeError::Protocol(
+                "foreground action has no conversation origin".to_string(),
+            ));
+        };
+        let (status, activity_status, summary) = action_display_state(action.state);
+        let activity_id = format!("governed_action:{}:{}", action.action_id, action.revision);
+        let metadata = serde_json::json!({
+            "action_id": action.action_id,
+            "revision": action.revision,
+            "state": action.state.as_str(),
+            "output": action.output,
+            "failure_code": action.failure_code,
+        });
+        let payload_json = serde_json::json!({
+            "id": activity_id,
+            "activity_kind": "governed_action",
+            "status": activity_status,
+            "title": action.safe_summary,
+            "summary": summary,
+            "metadata": metadata,
+        });
+        let (item, inserted) = self
+            .store
+            .append_conversation_item_with_id_if_absent(
+                format!(
+                    "item:governed_action:{}:{}",
+                    action.action_id, action.revision
+                ),
+                NewConversationItem {
+                    conversation_id: conversation_id.clone(),
+                    turn_id: action.turn_id.clone(),
+                    parent_item_id: None,
+                    kind: ConversationItemKind::ApprovalResult,
+                    status,
+                    author: ActorRef::agent("agent:primary")
+                        .expect("static primary agent id is valid"),
+                    content_text: Some(summary.to_string()),
+                    payload_json,
+                    metadata: serde_json::json!({"source": "governed_action"}),
+                },
+            )
+            .await?;
+        if inserted {
+            self.runtime_events
+                .publish_conversation(ConversationRuntimeEvent::Turn {
+                    client_message_id: None,
+                    event: Box::new(TurnStreamEvent::ConversationItem {
+                        conversation_id: item.conversation_id,
+                        item_id: item.item_id,
+                        cursor: Some(item.cursor),
+                        turn_id: item.turn_id,
+                        metadata: item.metadata,
+                        item: Box::new(TurnTranscriptItem::Activity {
+                            id: activity_id,
+                            activity_kind: "governed_action".to_string(),
+                            status: activity_status,
+                            title: action.safe_summary.clone(),
+                            summary: Some(summary.to_string()),
+                            metadata,
+                        }),
+                    }),
+                });
+        }
+        Ok(())
+    }
+}
+
+fn action_display_state(
+    state: GovernedActionState,
+) -> (ConversationItemStatus, TurnActivityStatus, &'static str) {
+    match state {
+        GovernedActionState::Succeeded => (
+            ConversationItemStatus::Completed,
+            TurnActivityStatus::Completed,
+            "Approved action completed",
+        ),
+        GovernedActionState::Declined => (
+            ConversationItemStatus::Cancelled,
+            TurnActivityStatus::Failed,
+            "Action declined",
+        ),
+        GovernedActionState::Failed => (
+            ConversationItemStatus::Failed,
+            TurnActivityStatus::Failed,
+            "Approved action failed",
+        ),
+        GovernedActionState::OutcomeUncertain => (
+            ConversationItemStatus::Interrupted,
+            TurnActivityStatus::Failed,
+            "Action outcome is uncertain",
+        ),
+        GovernedActionState::Superseded | GovernedActionState::Cancelled => (
+            ConversationItemStatus::Cancelled,
+            TurnActivityStatus::Failed,
+            "Action is no longer valid",
+        ),
+        GovernedActionState::Proposed
+        | GovernedActionState::AwaitingApproval
+        | GovernedActionState::Executable
+        | GovernedActionState::Executing => (
+            ConversationItemStatus::Failed,
+            TurnActivityStatus::Failed,
+            "Action resolution is incomplete",
+        ),
     }
 }

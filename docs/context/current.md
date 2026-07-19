@@ -106,9 +106,29 @@ subagents, reviews, and size measurement.
 - MCP secrets use atomic, path-safe storage. Transport input, process trees,
   timeouts, cancellation, OAuth state, and per-server mutations remain bounded
   and race-safe.
-- Write/export MCP tools stay hidden and fail closed until exact one-shot
-  approval is implemented. Ready read-only tools may be available under their
-  current fingerprint and policy.
+- Active model context is always treated as exposed to untrusted content.
+  External writes and exports pass through the action reviewer selected under
+  Safety > Privacy; an unset or failed reviewer creates a durable approval
+  request instead of executing.
+- A clear reviewer decision may execute automatically. Otherwise approval is
+  exact, revision-fenced, payload-bound, and consumed once. Foreground and Work
+  task actions use the same authority; waiting task runs release their lease
+  and resume through a pinned child run after the exact action outcome is
+  recorded.
+- Work reviewer authority comes from the exact source human item or
+  authenticated Work UI request, never the rendered task prompt. Task actions
+  are lease/generation fenced, and TaskReviewer has no export tools.
+- Ready MCP reads remain directly available under their current fingerprint and
+  policy. Ready MCP writes and exports are advertised through the governed
+  gateway, which revalidates the live binding before approved execution.
+- Web search and unobserved fetches are governed exports. Search-result URLs and
+  links extracted from fetched HTML enter the local `observed_urls` authority;
+  a later exact bare fetch may skip review, while every request still reruns
+  current URL, DNS, and SSRF checks. Approved web replay is destination- and
+  digest-bound; observations do not expire.
+- The web app surfaces pending actions above the primary composer, in task
+  detail, and in Work Needs You. The persisted action/event authority is
+  delivery-neutral so another client can project the same attention state.
 - Governed artifacts are versioned outputs owned by concrete contexts. Local
   writes use artifact storage helpers that reject traversal and symlinks;
   external versions accept validated HTTP(S) URLs only.

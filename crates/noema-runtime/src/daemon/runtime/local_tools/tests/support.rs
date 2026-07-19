@@ -189,6 +189,39 @@ fn test_web_model_tools() -> ModelTools {
     }
 }
 
+fn test_governed_web_fetch_model_tools() -> ModelTools {
+    let spec = noema_capabilities::web::fetch::tool_spec().expect("fetch spec");
+    let name = spec.name.as_str().to_string();
+    let mut builder = noema_capabilities::CapabilityCatalogBuilder::new();
+    builder
+        .add(noema_capabilities::CapabilityBinding::new(
+            spec,
+            noema_capabilities::CapabilityTarget::new(
+                noema_capabilities::InvokerKey::new("runtime-execution"),
+                noema_capabilities::OperationToken::new(name.clone()),
+            ),
+            noema_capabilities::CapabilityAccess {
+                effect: noema_capabilities::CapabilityEffect::ExternalExport,
+                scope: noema_capabilities::CapabilityScope::Global,
+            },
+            Arc::new(noema_capabilities::WebFetchPayloadSanitizer),
+        ))
+        .expect("unique binding");
+    let mut policy = crate::agent_execution::ToolPolicy::default();
+    policy.allow_tool_name(name.clone());
+    ModelTools {
+        transport: noema_providers::ProviderToolTransport::Native,
+        bindings: builder.build(),
+        prompt_rows: Vec::new(),
+        unavailable_rows: Vec::new(),
+        prompt_kinds: std::collections::BTreeMap::from([(
+            name,
+            crate::daemon::runtime::model_tools::ModelToolPromptKind::Web,
+        )]),
+        tool_policy: policy,
+    }
+}
+
 const TEST_CAPABILITY_NAME: &str = "extension.docs.read";
 
 fn test_injected_capability_model_tools(

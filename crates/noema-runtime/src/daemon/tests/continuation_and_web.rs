@@ -65,6 +65,14 @@ async fn native_provider_can_call_web_fetch_and_continue() {
         FakeCodexScenario::NativeWebFetchContinuation,
     ));
     let store = crate::test_support::test_store().await;
+    store
+        .record_observed_urls(
+            noema_store::ObservedUrlSource::SearchResult,
+            "tool_call:test_search",
+            &["https://example.com/page".to_string()],
+        )
+        .await
+        .expect("record observed URL");
     let handle = RuntimeHandle::spawn_with_provider(provider.clone(), store)
         .await
         .expect("runtime");

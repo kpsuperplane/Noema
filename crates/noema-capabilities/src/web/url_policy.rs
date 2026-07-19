@@ -30,6 +30,21 @@ pub fn validate_public_url(raw_url: &str) -> Result<Url, PublicUrlError> {
     validate_parsed_public_url(url)
 }
 
+/// Normalize one structured URL for exact observed-URL matching.
+///
+/// Fragments are discarded because they are not sent in an HTTP request.
+/// Credentials, unsupported schemes, and non-public literal targets remain
+/// rejected by the normal public URL policy.
+///
+/// # Errors
+///
+/// Returns [`PublicUrlError`] when the value is malformed or unsafe.
+pub fn normalize_observed_url(raw_url: &str) -> Result<String, PublicUrlError> {
+    let mut url = Url::parse(raw_url.trim()).map_err(|_| PublicUrlError::Malformed)?;
+    url.set_fragment(None);
+    validate_parsed_public_url(url).map(|url| url.to_string())
+}
+
 /// Apply pure policy to a parsed URL.
 ///
 /// # Errors
@@ -154,6 +169,12 @@ mod tests {
     fn accepts_public_url_without_resolving_dns() {
         let url = validate_public_url("https://www.rust-lang.org/learn").expect("public URL");
         assert_eq!(url.host_str(), Some("www.rust-lang.org"));
+        assert_eq!(
+            normalize_observed_url(" HTTPS://Example.COM:443/a/../b?q=1#section ")
+                .expect("normalize URL"),
+            "https://example.com/b?q=1"
+        );
+        assert!(normalize_observed_url("https://user:secret@example.com/").is_err());
         assert!(is_public_ip(
             "2606:4700:4700::1111".parse().expect("public IPv6")
         ));

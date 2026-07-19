@@ -5,9 +5,9 @@ capability actions that can create an external effect or disclose information.
 It refines the broader [security model](security.md),
 [capability registry](capabilities.md), and [event ledger](events.md).
 
-The design is intentionally implementation-facing, but it is not a statement
-that every control described here is already implemented. Decisions still under
-discussion are listed explicitly at the end.
+The design is intentionally implementation-facing. The core reviewer,
+governed-action, approval, task-resumption, attention, and observed-URL slices
+described here are implemented; future extensions remain labeled explicitly.
 
 ## Design thesis
 
@@ -65,7 +65,9 @@ The action reviewer instead receives a narrow trusted-authority channel:
 - The authenticated human message that initiated the primary turn.
 - A bounded human-only message history when the latest message is too
   elliptical to establish intent.
-- For Work, the originating human intent and the immutable task contract.
+- For Work, the exact originating human item or authenticated Work UI request,
+  plus fenced task/run/contract identifiers. Model-produced contract prose and
+  task evidence remain untrusted.
 - Explicit grants and prior human decisions.
 
 A model-produced task contract may narrow the originating human authority, but
@@ -313,8 +315,9 @@ For the primary conversation:
 
 1. Persist the governed action and finish or suspend the proposing generation.
 2. Render the pending action inline without blocking new conversation turns.
-3. After approval or decline, append the exact outcome and start a fresh,
-   bounded continuation when a model response is useful.
+3. After approval or decline, append and stream the exact durable outcome. A
+   fresh bounded model continuation when a response is useful is a future
+   enhancement rather than a synthetic user turn.
 
 For a Work task:
 
@@ -330,6 +333,12 @@ No client or runtime may reconstruct approval from free-form text. Cancellation
 or a new task generation supersedes pending actions. An adapter result whose
 external outcome is uncertain moves to `outcome_uncertain` and requires an
 explicit recovery decision rather than automatic retry.
+
+Task actions revalidate the live lease/generation fence before automatic
+execution and the waiting run/generation fence after human approval. Lease
+recovery or cancellation invalidates unstarted actions and marks an already
+claimed external effect `outcome_uncertain`. TaskReviewer has no governed web
+or other export tools.
 
 ## Human attention and delivery
 
@@ -399,16 +408,17 @@ already appeared in a governed web result. Whether the source calls the URL
 public is not important; the useful fact is that Noema's adapter previously
 observed the same structured value and the model has not added arguments to it.
 
-The web adapter maintains a bounded local `observed_urls` table. Candidate
-sources include:
+The web adapter maintains a local `observed_urls` table. Candidate sources
+include:
 
 - Search-result destinations.
 - Links extracted from fetched response bytes.
 
-Each row stores the normalized URL, source kind, source event reference,
-observation time, and expiration. The table stores ordinary URLs and compares
-them directly. It does not introduce an opaque `url_ref`, URL fingerprint, or
-HMAC layer.
+Each row stores the normalized URL, source kind, source event reference, and
+first/last observation time. Observations do not expire; current network safety
+is re-evaluated at every fetch instead of treating observation recency as a
+security property. The table stores ordinary URLs and compares them directly.
+It does not introduce an opaque `url_ref`, URL fingerprint, or HMAC layer.
 
 The model continues to call `web.fetch` with a normal URL. The gateway applies
 conservative normalization and performs an exact database match. Only the web
@@ -419,8 +429,8 @@ has no authority.
 
 Fetching a URL may bypass LLM and human review only when:
 
-1. The normalized URL exactly matches a fresh `observed_urls` row created by
-   the web adapter.
+1. The normalized URL exactly matches an `observed_urls` row created by the web
+   adapter.
 2. The request uses `GET` or `HEAD` with no body.
 3. No credentials, cookies, private headers, or additional user-supplied
    arguments are added.
@@ -446,9 +456,12 @@ A web search has two distinct security decisions:
 2. Following an exact returned destination is normally low risk once URL
    matching proves that Noema added no additional request data.
 
-A result URL can contain tracking or reflected query information. If the
-ancestor search disclosed private material, a cross-origin follow does not
-automatically receive the observed-URL fast path.
+A result URL can contain tracking or reflected query information. The search
+query itself therefore passes action review before execution; once that export
+is authorized, its structured result destinations become observed URLs.
+An approved web action is also bound to the exact resolved provider account,
+provider kind, credential revision, and argument digest; a changed destination
+is superseded instead of silently falling back.
 
 ### Future structured form continuations
 
@@ -498,7 +511,7 @@ observed action states.
 3. **Task and attention integration:** allow task runs to wait without holding
    leases, reuse the same approval component, and expose a global pending-action
    projection.
-4. **Observed URLs:** persist bounded normalized URLs from search results and
+4. **Observed URLs:** persist normalized URLs from search results and
    links extracted from fetched pages, then implement the exact-match fast
    path.
 5. **Adversarial evaluation:** measure action-shaping injection detection,

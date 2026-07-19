@@ -77,21 +77,14 @@ pub(super) async fn pending_governed_actions(
     let first = usize::try_from(first.unwrap_or(50).clamp(1, 100)).unwrap_or(50);
     let actions = state
         .store()?
-        .list_pending_governed_actions(principal, 100)
+        .list_pending_governed_actions(
+            principal,
+            conversation_id.as_deref(),
+            task_id.as_deref(),
+            first,
+        )
         .await?;
-    Ok(actions
-        .into_iter()
-        .filter(|action| {
-            conversation_id
-                .as_ref()
-                .is_none_or(|id| action.conversation_id.as_ref() == Some(id))
-                && task_id
-                    .as_ref()
-                    .is_none_or(|id| action.task_id.as_ref() == Some(id))
-        })
-        .take(first)
-        .map(Into::into)
-        .collect())
+    Ok(actions.into_iter().map(Into::into).collect())
 }
 
 pub(super) async fn resolve_governed_action(

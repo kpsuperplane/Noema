@@ -1,8 +1,8 @@
 /// Current schema version for pre-stable local SQLite data.
-pub const STORE_SCHEMA_VERSION: i64 = 5;
+pub const STORE_SCHEMA_VERSION: i64 = 6;
 
 /// Stable marker row identifying the exact schema accepted by this binary.
-pub(super) const STORE_SCHEMA_MARKER: &str = "sqlite_store_v5";
+pub(super) const STORE_SCHEMA_MARKER: &str = "sqlite_store_v6";
 
 /// SQLite bootstrap used by the Noema store.
 pub const STORE_SCHEMA_SQL: &str = r#"
@@ -1100,6 +1100,14 @@ CREATE TABLE governed_action_events (
 CREATE INDEX governed_action_events_action
 ON governed_action_events(action_id, action_revision, event_sequence);
 
+CREATE TABLE observed_urls (
+  normalized_url TEXT PRIMARY KEY NOT NULL CHECK (trim(normalized_url) <> ''),
+  source_kind TEXT NOT NULL CHECK (source_kind IN ('search_result', 'fetched_link')),
+  source_event_reference TEXT NOT NULL CHECK (trim(source_event_reference) <> ''),
+  first_observed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  last_observed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
 INSERT INTO workspaces (workspace_id, name, description, is_personal)
 VALUES ('workspace:personal', 'Personal', '', 1)
 ON CONFLICT (workspace_id) DO NOTHING;
@@ -1131,6 +1139,6 @@ INSERT INTO task_execution_policy (
 ON CONFLICT (policy_id) DO NOTHING;
 
 INSERT INTO schema_state (name, version, applied_at)
-VALUES ('sqlite_store_v5', 5, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+VALUES ('sqlite_store_v6', 6, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 ON CONFLICT (name) DO NOTHING;
 "#;

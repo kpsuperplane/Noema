@@ -422,7 +422,10 @@ async fn background_roles_expose_read_tools_and_terminal_contracts_across_transp
             for terminal in terminal_tools {
                 assert!(tools.tool_policy.allows_tool(terminal));
             }
-            assert!(tools.tool_policy.allows_tool("web.fetch"));
+            assert_eq!(
+                tools.tool_policy.allows_tool("web.fetch"),
+                role == ExecutionRole::TaskExecutor
+            );
             assert!(tools.tool_policy.allows_tool(TASK_LIST_TOOL));
             assert!(!tools.tool_policy.allows_tool(TASK_ANSWER_TOOL));
             if role == ExecutionRole::TaskExecutor {

@@ -60,6 +60,14 @@ pub struct GovernedCapabilityAdmission {
     pub arguments_sha256: String,
 }
 
+impl GovernedCapabilityAdmission {
+    /// Return whether this admission binds the exact canonical arguments.
+    #[must_use]
+    pub fn matches_arguments(&self, arguments: &Value) -> bool {
+        self.arguments_sha256 == arguments_sha256(arguments)
+    }
+}
+
 /// Model-visible capability result.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CapabilityOutput {
@@ -302,6 +310,17 @@ impl<'a> CapabilityRegistryRouter<'a> {
                 CapabilityError::Denied,
             ));
         }
+        if governed_admission
+            .as_ref()
+            .is_some_and(|admission| !admission.matches_arguments(&arguments))
+        {
+            return Err(CapabilityDispatchFailure::from_snapshot(
+                snapshot,
+                canonical_name,
+                &arguments,
+                CapabilityError::Denied,
+            ));
+        }
         let persisted_arguments = binding.persist_arguments(&arguments);
         match self
             .invoke_target(
@@ -349,6 +368,27 @@ impl<'a> CapabilityRegistryRouter<'a> {
             })
             .await
     }
+}
+
+impl GovernedCapabilityAdmission {
+    /// Build deterministic admission for a bare exact observed-URL fetch.
+    #[must_use]
+    pub fn for_observed_url(arguments: &Value) -> Self {
+        Self {
+            action_id: "observed_url".to_string(),
+            revision: 0,
+            arguments_sha256: arguments_sha256(arguments),
+        }
+    }
+}
+
+fn arguments_sha256(arguments: &Value) -> String {
+    let encoded = serde_json::to_vec(arguments).unwrap_or_default();
+    ring::digest::digest(&ring::digest::SHA256, &encoded)
+        .as_ref()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 impl CapabilityRouter for CapabilityRegistryRouter<'_> {
@@ -560,14 +600,15 @@ mod tests {
         assert_eq!(denied.error, CapabilityError::Denied);
         assert!(invoker.0.lock().expect("recording lock").is_empty());
 
+        let arguments = json!({"body":"exact"});
         poll_ready(router.dispatch_governed(
             snapshot,
             "mcp.docs.write".to_string(),
-            json!({"body":"exact"}),
+            arguments.clone(),
             GovernedCapabilityAdmission {
                 action_id: "action:test".to_string(),
                 revision: 1,
-                arguments_sha256: "a".repeat(64),
+                arguments_sha256: arguments_sha256(&arguments),
             },
         ))
         .expect("governed dispatch");

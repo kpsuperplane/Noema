@@ -228,6 +228,7 @@ async fn fetch_direct_http_checked(
             url: original_url,
             final_url,
             title: extracted.title,
+            links: extracted.links,
             format: "markdown".to_string(),
             extraction: EXTRACTION_READABILITYRS.to_string(),
             content_kind,
@@ -281,7 +282,7 @@ mod tests {
 
     #[tokio::test]
     async fn fetches_html_and_extracts_markdown() {
-        let body = "<html><head><title>Rust</title></head><body><article><h1>Rust</h1><p>Fast and reliable systems programming for everyone.</p><p>It helps teams build dependable software with confidence.</p></article></body></html>";
+        let body = "<html><head><title>Rust</title></head><body><article><h1>Rust</h1><p>Fast and reliable systems programming for everyone.</p><p>It helps teams build dependable software with confidence.</p><a href='https://example.com/docs#part'>Documentation</a></article></body></html>";
         let url = serve_once(&format!(
             "HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ncontent-length: {}\r\n\r\n{}",
             body.len(),
@@ -305,6 +306,7 @@ mod tests {
             FetchSummaryStrategy::NotSummarized
         );
         assert_eq!(response.title.as_deref(), Some("Rust"));
+        assert_eq!(response.links, ["https://example.com/docs"]);
         assert!(response.raw_chars > 0);
         assert!(!response.content.trim().is_empty());
     }
