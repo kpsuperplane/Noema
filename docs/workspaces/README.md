@@ -185,8 +185,9 @@ mirror stage-transition rules in TypeScript. After reconnect, clients refetch
 canonical reads and use the event cursor only to invalidate or advance them.
 
 The primary chat shows compact task markers and human decisions when action is
-needed. `/work` shows the Inbox, active board, history, project organization,
-and task detail. Both reuse the same task-detail and decision components.
+needed. Its task-only overview is labeled Tasks; Work names the broader `/work`
+surface containing the Inbox, active board, history, project organization, and
+task detail. Both reuse the same task-detail and decision components.
 Internal IDs, raw run counters, provider details, and audit evidence stay behind
 progressive disclosure unless they directly explain the next human action.
 

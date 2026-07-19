@@ -62,20 +62,20 @@ export function ChatWorkPanel({
     <div data-open={open} {...stylex.props(styles.root)}>
       <button type="button" aria-expanded={open} aria-controls="chat-work-panel" {...stylex.props(styles.toggle)} onClick={onToggle}>
         {open ? <X aria-hidden="true" size={15} /> : <BriefcaseBusiness aria-hidden="true" size={15} />}
-        <span>{open ? "Close Work" : "Work"}</span>
+        <span>{open ? "Close Tasks" : "Tasks"}</span>
       </button>
       {open ? (
-        <aside id="chat-work-panel" aria-label="Work overview" {...stylex.props(styles.panel)}>
+        <aside id="chat-work-panel" aria-label="Task overview" {...stylex.props(styles.panel)}>
           <header {...stylex.props(styles.header)}>
-            <strong {...stylex.props(styles.title)}>Work</strong>
+            <strong {...stylex.props(styles.title)}>Tasks</strong>
             <Link to="/work" search={{ view: "board", terminal: "all" }} {...stylex.props(styles.openWork)}>
               Open Work <ChevronRight aria-hidden="true" size={13} />
             </Link>
           </header>
-          {result.loading && !result.data ? <p role="status" {...stylex.props(styles.state)}>Loading work…</p> : null}
+          {result.loading && !result.data ? <p role="status" {...stylex.props(styles.state)}>Loading tasks…</p> : null}
           {result.error || subscription.error ? (
             <div role={result.data ? "status" : "alert"} {...stylex.props(styles.notice)}>
-              <span>{result.data ? "Work is reconnecting." : "Work could not load."}</span>
+              <span>{result.data ? "Tasks are reconnecting." : "Tasks could not load."}</span>
               <button type="button" {...stylex.props(styles.retry)} onClick={() => void result.refetch()}>Retry</button>
             </div>
           ) : null}
