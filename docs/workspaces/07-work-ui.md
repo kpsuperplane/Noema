@@ -165,8 +165,10 @@ surface.
 
 Detail uses progressive disclosure in this order:
 
-1. compact derived status and server-returned semantic actions;
-2. current attention and the original request;
+1. current human attention in a visually prominent top card, with its response
+   field and Answer action embedded in that same card;
+2. compact derived status, remaining server-returned semantic actions, and the
+   original request;
 3. the Planner/Executor/Reviewer timeline, with a selected run opening the
    existing conversation-style transcript in place;
 4. exact acceptance criteria and current evidence;

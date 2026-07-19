@@ -55,9 +55,13 @@ export function TaskDetailQueryPanel({
   }, [onTitleChange, task?.title]);
 
   const detail = React.useMemo(() => task ? mapWorkTaskDetail(task) : null, [task]);
+  const embedsAnswer = Boolean(
+    task && detail?.attention && task.validActions.includes("ANSWER")
+  );
   const actions = task ? (
     <TaskActions
       compact
+      inlineAnswer={embedsAnswer}
       task={task}
       validActions={task.validActions}
       projects={projects.projects}
@@ -67,7 +71,8 @@ export function TaskDetailQueryPanel({
 
   return (
     <TaskDetailPanel
-      actions={actions}
+      actions={embedsAnswer ? null : actions}
+      decisionActions={embedsAnswer ? actions : null}
       detail={detail}
       error={result.error ? "Task details could not be loaded." : null}
       loading={result.loading}

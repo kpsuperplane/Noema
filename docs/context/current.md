@@ -328,14 +328,18 @@ The next storage slice should stay small and concrete:
   440 px shared rail on wide screens and becomes a full detail surface on
   narrow screens. The layout follows the collection-plus-peek and opt-in
   property patterns documented by Linear, Todoist, Asana, and Notion rather
-  than duplicating task context across cards and detail views. Activity shows
+  than duplicating task context across cards and detail views. A task waiting
+  on an answer now leads with one high-prominence decision card containing the
+  gate question, supporting context, response field, and Answer action; the
+  generic action row no longer duplicates that interaction. Activity shows
   user-facing milestones with task identity and a compact terminal-run
   discriminator while retaining raw worker/outbox events only in the durable
   ledger and task detail. At mobile widths the closed off-canvas navigation is
   removed from the accessibility tree and focus order; opening restores the
   Home/Work/Memory/Settings controls and Escape restores focus to the opener.
-- The Work implementation was consolidated from its original branch diff of
-  `+43,106/-11,908` lines (net `+31,198`) to the final canonical branch diff of
+- At the initial Work wrap-up, the implementation had been consolidated from
+  its original branch diff of `+43,106/-11,908` lines (net `+31,198`) to a
+  canonical branch diff of
   `+34,108/-13,931` (net `+20,177`). That is 20.87% fewer additions and 35.33%
   fewer net additions; the user accepted that reduction during final wrap-up.
   All 615 Rust source test

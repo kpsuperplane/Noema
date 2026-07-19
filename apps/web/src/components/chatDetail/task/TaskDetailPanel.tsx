@@ -5,6 +5,7 @@ import { AlertCircle } from "lucide-react";
 import { TaskExpandableContent, TaskSection, TaskStaticSection } from "./TaskSection";
 import type { TaskDetail, TaskRunItem } from "./taskTypes";
 import { TaskCriteria } from "./TaskCriteria";
+import { TaskDecisionCard } from "./TaskDecisionCard";
 import { TaskDetails, TaskStatusSummary } from "./TaskOverview";
 import { TaskResult } from "./TaskResult";
 import { TaskRevisionTimeline } from "./TaskRevisionTimeline";
@@ -23,7 +24,8 @@ export function TaskDetailPanel({
   onCancelTask,
   onResumeTask,
   liveRunItems,
-  actions
+  actions,
+  decisionActions
 }: {
   taskId: string;
   detail?: TaskDetail | null;
@@ -33,6 +35,7 @@ export function TaskDetailPanel({
   onResumeTask?: (taskId: string, message?: string) => void | Promise<void>;
   liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
   actions?: React.ReactNode;
+  decisionActions?: React.ReactNode;
 }) {
   const [actionBusy, setActionBusy] = React.useState<"cancel" | "resume" | null>(null);
   const [actionError, setActionError] = React.useState<string | null>(null);
@@ -143,6 +146,14 @@ export function TaskDetailPanel({
 
     return (
       <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root)}>
+        {currentDetail.attention ? (
+          <TaskDecisionCard
+            attention={currentDetail.attention}
+            question={currentDetail.blockingQuestion}
+          >
+            {decisionActions}
+          </TaskDecisionCard>
+        ) : null}
         <TaskStatusSummary
           key={`status:${taskId}`}
           actionBusy={actionBusy}
@@ -152,20 +163,6 @@ export function TaskDetailPanel({
           onResume={onResumeTask ? (message) => runAction("resume", message) : undefined}
         />
         {actions ? <div {...stylex.props(styles.actions)}>{actions}</div> : null}
-        {currentDetail.attention ? (
-          <TaskStaticSection id="task-attention-title" title={currentDetail.attention.title}>
-            <div {...stylex.props(styles.attention)}>
-              <p {...stylex.props(styles.attentionSummary)}>{currentDetail.attention.summary}</p>
-              {currentDetail.attention.context ? (
-                <TaskExpandableContent id="task-attention-context">
-                  <Markdown autolink="gfm" contentWidth="100%" density="default" headingLevelStart={4} xstyle={markdownXStyle(styles.markdown)}>
-                    {currentDetail.attention.context}
-                  </Markdown>
-                </TaskExpandableContent>
-              ) : null}
-            </div>
-          </TaskStaticSection>
-        ) : null}
         <TaskTextSection key={`request:${taskId}`} text={currentDetail.request} />
         <TaskRevisionTimeline
           onSelectRun={(run) => {
@@ -302,8 +299,6 @@ const styles = stylex.create({
   unavailable: { padding: 8, color: "var(--noema-text-secondary)", fontSize: 13, lineHeight: 1.45 },
   markdown: { color: "var(--noema-text-secondary)", fontSize: 13, lineHeight: 1.55 },
   actions: { minWidth: 0, paddingBlock: 4, paddingInline: 8 },
-  attention: { display: "grid", gap: 7, borderLeftWidth: 2, borderLeftStyle: "solid", borderLeftColor: "var(--noema-pine-500)", paddingInlineStart: 10 },
-  attentionSummary: { margin: 0, color: "var(--noema-text-primary)", fontSize: 12, lineHeight: 1.45 },
   messages: { display: "grid", gap: 6, margin: 0, padding: 0, listStyle: "none" },
   message: { display: "grid", gap: 4, minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", paddingBlockStart: 7 },
   messageMeta: { display: "flex", justifyContent: "space-between", gap: 8, color: "var(--noema-text-muted)", fontSize: 10 },
