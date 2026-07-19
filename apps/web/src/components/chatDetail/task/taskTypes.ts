@@ -185,7 +185,6 @@ export type TaskDetail = {
   revisions: readonly TaskRevision[];
   finalResult?: TaskFinalResult | null;
   artifacts?: readonly TaskArtifact[];
-  failureReason?: string | null;
   canCancel?: boolean;
   canResume?: boolean;
   blockingQuestion?: string | null;

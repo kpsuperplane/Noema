@@ -47,6 +47,7 @@ function CriterionRow({ criterion }: { criterion: TaskCriterion }) {
         detail={hasDetails ? <CriterionEvidence criterion={criterion} /> : undefined}
         id={criterion.id}
         name={criterion.text}
+        presentation="content"
         status={criterionToolCallStatus(verdict)}
         target={criterionVerdictLabel(verdict)}
       />

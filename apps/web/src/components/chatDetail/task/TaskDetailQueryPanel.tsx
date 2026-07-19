@@ -201,7 +201,6 @@ function mapWorkTaskDetail(task: WorkDetail): TaskDetail {
       approvedAt: accepted?.createdAt ?? null
     } : null,
     artifacts,
-    failureReason: currentFailure(task),
     canCancel: task.validActions.includes("CANCEL"),
     canResume: false,
     blockingQuestion: task.activeGate?.prompt ?? null,
@@ -296,41 +295,6 @@ function taskStatus(task: WorkDetail): TaskStatus {
     case "DISPATCH":
     case "INTAKE": return "queued";
   }
-}
-
-function currentFailure(task: WorkDetail): string | null {
-  const gate = task.activeGate;
-  if (
-    task.stage.behavior !== "HUMAN_GATE" ||
-    gate?.kind !== "RECOVERY" ||
-    gate.state !== "OPEN" ||
-    gate.taskGeneration !== task.generation
-  ) {
-    return null;
-  }
-
-  const failed = task.runs.reduce<WorkDetail["runs"][number] | null>((latest, run) => {
-    if (
-      run.status !== "FAILED" ||
-      run.taskGeneration !== task.generation ||
-      (gate.originatingRunId && gate.originatingRunId !== run.runId)
-    ) {
-      return latest;
-    }
-    if (!latest || isLaterRun(run, latest)) return run;
-    return latest;
-  }, null);
-  const reason = failed ? [failed.errorMessage, failed.errorCode].filter(Boolean).join(" · ") : "";
-  return reason || null;
-}
-
-function isLaterRun(
-  candidate: WorkDetail["runs"][number],
-  current: WorkDetail["runs"][number]
-): boolean {
-  const candidateAt = candidate.endedAt ?? candidate.updatedAt ?? candidate.createdAt;
-  const currentAt = current.endedAt ?? current.updatedAt ?? current.createdAt;
-  return candidateAt > currentAt || (candidateAt === currentAt && candidate.attemptIndex > current.attemptIndex);
 }
 
 function sourceLabel(task: WorkDetail): string | null {

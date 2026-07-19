@@ -17,6 +17,7 @@ type ToolMarkerData =
   };
 
 type ToolMarkerCallStatus = "pending" | "running" | "complete" | "error";
+type ToolMarkerPresentation = "activity" | "content";
 
 type ToolMarkerCall = {
   key: string;
@@ -109,6 +110,14 @@ const styles = stylex.create({
     flexShrink: 1,
     color: "var(--noema-text-secondary)"
   },
+  contentName: {
+    display: "-webkit-box",
+    overflow: "hidden",
+    WebkitBoxOrient: "vertical",
+    WebkitLineClamp: 2,
+    fontFamily: "var(--noema-font-body)",
+    whiteSpace: "normal"
+  },
   target: {
     flexShrink: 10,
     color: "var(--noema-text-faint)"
@@ -138,13 +147,15 @@ export function ToolMarker({
   open,
   onToggle,
   detail,
-  renderDetail = true
+  renderDetail = true,
+  presentation = "activity"
 }: {
   data: ToolMarkerData;
   open: boolean;
   onToggle: () => void;
   detail?: ReactNode;
   renderDetail?: boolean;
+  presentation?: ToolMarkerPresentation;
 }) {
   const calls = toolMarkerCalls(data);
   const defaultCall = calls[0];
@@ -164,7 +175,7 @@ export function ToolMarker({
             onClick={onToggle}
             title={call.status === "error" ? call.errorMessage : undefined}
           >
-            <ToolMarkerRowContent call={call} open={open} />
+            <ToolMarkerRowContent call={call} open={open} presentation={presentation} />
           </button>
         ) : (
           <div
@@ -172,7 +183,7 @@ export function ToolMarker({
             data-slot="tool-marker-row"
             title={call.status === "error" ? call.errorMessage : undefined}
           >
-            <ToolMarkerRowContent call={call} open={false} />
+            <ToolMarkerRowContent call={call} open={false} presentation={presentation} />
           </div>
         )}
         {renderDetail && call.expandable && open && call.resultDetail ? (
@@ -183,11 +194,22 @@ export function ToolMarker({
   );
 }
 
-function ToolMarkerRowContent({ call, open }: { call: ToolMarkerCall; open: boolean }) {
+function ToolMarkerRowContent({
+  call,
+  open,
+  presentation
+}: {
+  call: ToolMarkerCall;
+  open: boolean;
+  presentation: ToolMarkerPresentation;
+}) {
   return (
     <>
       <ToolStatusIcon status={call.status} />
-      <span {...stylex.props(styles.text, styles.name)} data-slot="tool-marker-name">
+      <span
+        {...stylex.props(styles.text, styles.name, presentation === "content" && styles.contentName)}
+        data-slot="tool-marker-name"
+      >
         {call.name}
       </span>
       {call.target ? (

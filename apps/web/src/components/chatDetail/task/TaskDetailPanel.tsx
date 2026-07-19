@@ -1,7 +1,6 @@
 import * as React from "react";
 import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import * as stylex from "@stylexjs/stylex";
-import { AlertCircle } from "lucide-react";
 import { TaskDecisionCard } from "./TaskDecisionCard";
 import { TaskExpandableContent, TaskStaticSection } from "./TaskSection";
 import type { TaskDetail, TaskRunItem } from "./taskTypes";
@@ -206,7 +205,6 @@ function TaskCurrentState({
     ? <TaskResult embedded artifacts={detail.artifacts} result={detail.finalResult} />
     : null;
   const evidence = detail.stageBehavior === "ACCEPTANCE" ? latestReviewSummary(detail) : null;
-  const failure = detail.failureReason ? <FailureNotice message={detail.failureReason} /> : null;
   const description = taskStateDescription(detail);
 
   if (detail.attention) {
@@ -214,7 +212,6 @@ function TaskCurrentState({
       <TaskDecisionCard attention={detail.attention} question={detail.blockingQuestion}>
         {result}
         {evidence ? <ReviewEvidence summary={evidence} /> : null}
-        {failure}
         {actions}
       </TaskDecisionCard>
     );
@@ -228,7 +225,6 @@ function TaskCurrentState({
       ) : null}
       {result}
       {evidence ? <ReviewEvidence summary={evidence} /> : null}
-      {failure}
       {actions}
     </TaskStaticSection>
   );
@@ -306,15 +302,6 @@ function latestReviewSummary(detail: TaskDetail): string | null {
     ?.review?.summary?.trim() ?? null;
 }
 
-function FailureNotice({ message }: { message: string }) {
-  return (
-    <div role="alert" {...stylex.props(styles.failure)}>
-      <AlertCircle aria-hidden="true" size={15} />
-      <p {...stylex.props(styles.failureText)}>{message}</p>
-    </div>
-  );
-}
-
 function TaskUnavailable({ message }: { message: string }) {
   return <div role="status" {...stylex.props(styles.unavailable)}>{message}</div>;
 }
@@ -352,7 +339,5 @@ const styles = stylex.create({
   messages: { display: "grid", gap: "var(--spacing-1-5)", margin: 0, padding: 0, listStyle: "none" },
   message: { display: "grid", gap: "var(--spacing-1)", minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", paddingBlockStart: "var(--spacing-1-5)" },
   messageMeta: { display: "flex", justifyContent: "space-between", gap: "var(--spacing-2)", color: "var(--noema-text-muted)", fontSize: 10 },
-  reviewEvidence: { display: "grid", gap: "var(--spacing-1)", minWidth: 0 },
-  failure: { display: "flex", alignItems: "start", gap: "var(--spacing-2)", borderRadius: 8, backgroundColor: "color-mix(in srgb, var(--noema-red-100) 55%, transparent)", padding: "var(--spacing-2)", color: "var(--noema-red-700)", fontSize: 12, lineHeight: 1.4 },
-  failureText: { margin: 0 }
+  reviewEvidence: { display: "grid", gap: "var(--spacing-1)", minWidth: 0 }
 });

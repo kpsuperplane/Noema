@@ -13,6 +13,7 @@ type TaskToolMarkerProps = {
   target?: string;
   status: TaskToolMarkerStatus;
   errorMessage?: string;
+  presentation?: "activity" | "content";
 } & (
   | {
       input?: unknown;
@@ -39,6 +40,7 @@ export function TaskToolMarker({
   output,
   detail,
   errorMessage,
+  presentation,
   activationLabel,
   onActivate
 }: TaskToolMarkerProps) {
@@ -50,6 +52,7 @@ export function TaskToolMarker({
       detail={detail}
       open={open}
       onToggle={() => setOpen((value) => !value)}
+      presentation={presentation}
     />
   );
 
