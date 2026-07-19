@@ -5,7 +5,7 @@ use crate::{
     WorkDomainError, error::invalid_input,
 };
 
-string_enums! {
+string_enum! {
     /// Structured result of an Approval gate.
     pub enum ApprovalDecision, "approval_decision" {
         /// The governed action may continue.
@@ -100,7 +100,7 @@ pub(crate) const fn recovery_fields_are_valid(
     )
 }
 
-string_enums! {
+string_enum! {
     /// Closed reason for a Recovery gate.
     pub enum TaskRecoveryReason, "task_gate.recovery_reason" {
         /// Automatic infrastructure retry bound was exhausted.
@@ -208,30 +208,23 @@ impl TaskGateRecord {
                 "prompt and opener cannot be blank",
             ));
         }
-        match self.kind {
-            TaskGateKind::Recovery => {
-                if self.recovery_reason.is_none() {
-                    return Err(invalid_input(
-                        "task_gate.recovery_reason",
-                        "recovery gates require a reason",
-                    ));
+        if self.kind == TaskGateKind::Recovery && self.recovery_reason.is_none() {
+            return Err(invalid_input(
+                "task_gate.recovery_reason",
+                "recovery gates require a reason",
+            ));
+        }
+        if !recovery_fields_are_valid(self.kind, self.recovery_reason, self.retry_run_kind) {
+            let (field, message) = match self.kind {
+                TaskGateKind::Recovery => (
+                    "task_gate.retry_run_kind",
+                    "recovery reason and continuation role are inconsistent",
+                ),
+                TaskGateKind::Clarification | TaskGateKind::Approval => {
+                    ("task_gate", "only recovery gates carry recovery fields")
                 }
-                if !recovery_fields_are_valid(self.kind, self.recovery_reason, self.retry_run_kind)
-                {
-                    return Err(invalid_input(
-                        "task_gate.retry_run_kind",
-                        "recovery reason and continuation role are inconsistent",
-                    ));
-                }
-            }
-            TaskGateKind::Clarification | TaskGateKind::Approval => {
-                if self.recovery_reason.is_some() || self.retry_run_kind.is_some() {
-                    return Err(invalid_input(
-                        "task_gate",
-                        "only recovery gates carry recovery fields",
-                    ));
-                }
-            }
+            };
+            return Err(invalid_input(field, message));
         }
         match self.state {
             TaskGateState::Open

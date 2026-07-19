@@ -1,11 +1,7 @@
 use noema_providers::ProviderSelectionSnapshot;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    TaskContractId, TaskExecutionPolicy, TaskId, WorkDomainError,
-    error::invalid_input,
-    validation::{optional as normalize_optional, required},
-};
+use crate::{TaskContractId, TaskExecutionPolicy, TaskId, WorkDomainError, error::invalid_input};
 
 /// Stable built-in agent identity for planner/executor work.
 pub const TASK_EXECUTOR_AGENT_ID: &str = "agent:task-executor";
@@ -75,60 +71,6 @@ impl RunStatus {
     }
 }
 
-/// Input for one queued run created by a semantic command or reconciler.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
-pub struct NewAgentRun {
-    pub run_id: Option<String>,
-    pub task_id: TaskId,
-    pub task_generation: u64,
-    pub run_kind: RunKind,
-    pub agent_id: String,
-    pub contract_id: Option<TaskContractId>,
-    pub attempt_index: u32,
-    pub review_round: u32,
-    pub parent_run_id: Option<String>,
-    pub triggering_submission_id: Option<String>,
-    pub triggering_review_id: Option<String>,
-    pub model: ProviderSelectionSnapshot,
-    pub execution_policy: TaskExecutionPolicy,
-}
-
-impl NewAgentRun {
-    /// Validate role/contract lineage before persistence.
-    /// # Errors
-    /// Returns [`WorkDomainError`] when generation, agent identity, role and
-    /// trigger lineage, provider selection, or execution policy is invalid.
-    pub fn validated(mut self) -> Result<Self, WorkDomainError> {
-        if self.task_generation == 0 {
-            return Err(invalid_input(
-                "run.task_generation",
-                "generation must be positive",
-            ));
-        }
-        self.run_id = normalize_optional(self.run_id.as_deref());
-        self.agent_id = required(&self.agent_id, "run.agent_id")?;
-        self.parent_run_id = normalize_optional(self.parent_run_id.as_deref());
-        self.triggering_submission_id =
-            normalize_optional(self.triggering_submission_id.as_deref());
-        self.triggering_review_id = normalize_optional(self.triggering_review_id.as_deref());
-        validate_run_lineage(
-            self.run_kind,
-            self.contract_id.as_ref(),
-            self.review_round,
-            self.triggering_submission_id.as_deref(),
-            self.triggering_review_id.as_deref(),
-            self.agent_id.as_str(),
-        )?;
-        self.model = self
-            .model
-            .normalized_for_persistence()
-            .map_err(|error| invalid_input("run.model", error.to_string()))?;
-        self.execution_policy.validated()?;
-        Ok(self)
-    }
-}
-
 /// Persisted queue/lease/run projection.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
@@ -194,23 +136,6 @@ pub struct AgentRunHeartbeat {
     pub cancellation_requested: bool,
 }
 
-fn validate_run_contract(
-    kind: RunKind,
-    contract_id: Option<&TaskContractId>,
-) -> Result<(), WorkDomainError> {
-    match (kind, contract_id) {
-        (RunKind::Planner, None) | (RunKind::Executor | RunKind::Reviewer, Some(_)) => Ok(()),
-        (RunKind::Planner, Some(_)) => Err(invalid_input(
-            "run.contract_id",
-            "Planner runs cannot carry a contract",
-        )),
-        (RunKind::Executor | RunKind::Reviewer, None) => Err(invalid_input(
-            "run.contract_id",
-            "Executor and Reviewer runs require a contract",
-        )),
-    }
-}
-
 fn validate_run_lineage(
     kind: RunKind,
     contract_id: Option<&TaskContractId>,
@@ -219,7 +144,15 @@ fn validate_run_lineage(
     triggering_review_id: Option<&str>,
     agent_id: &str,
 ) -> Result<(), WorkDomainError> {
-    validate_run_contract(kind, contract_id)?;
+    if let Some(message) = match (kind, contract_id) {
+        (RunKind::Planner, Some(_)) => Some("Planner runs cannot carry a contract"),
+        (RunKind::Executor | RunKind::Reviewer, None) => {
+            Some("Executor and Reviewer runs require a contract")
+        }
+        _ => None,
+    } {
+        return Err(invalid_input("run.contract_id", message));
+    }
     match kind {
         RunKind::Planner => {
             if review_round != 0

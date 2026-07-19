@@ -16,7 +16,7 @@ mod record;
 pub use event_kind::{SafeErrorCode, WorkEventKind};
 pub use record::{WorkEventContext, WorkEventRecord};
 
-string_enums! {
+string_enum! {
     /// Project fields represented by `ProjectUpdated`.
     pub enum ProjectChangedField, "event.project.changed_field" {
         /// Project name.
@@ -125,12 +125,6 @@ impl WorkEventPayload {
         &self.value
     }
 
-    /// Consume the typed payload into its validated JSON representation.
-    #[must_use]
-    pub fn into_value(self) -> Value {
-        self.value
-    }
-
     /// Reconstruct a persisted payload through the same closed schema checks
     /// used by typed constructors.
     /// # Errors
@@ -146,22 +140,33 @@ impl WorkEventPayload {
         Ok(Self { kind, value })
     }
 
+    fn special(
+        kind: WorkEventKind,
+        allowed: bool,
+        value: Value,
+        message: &'static str,
+    ) -> Result<Self, WorkDomainError> {
+        if allowed {
+            Self::new(kind, value)
+        } else {
+            Err(invalid_input("event.kind", message))
+        }
+    }
+
     /// Payload for project archive/reopen events.
     /// # Errors
     /// Returns [`WorkDomainError`] when `kind` is not ProjectArchived or
     /// ProjectReopened, or when `revision` is zero.
     pub fn project_lifecycle(kind: WorkEventKind, revision: u64) -> Result<Self, WorkDomainError> {
-        if matches!(
+        Self::special(
             kind,
-            WorkEventKind::ProjectArchived | WorkEventKind::ProjectReopened
-        ) {
-            Self::new(kind, json!({"v": 1, "revision": revision}))
-        } else {
-            Err(invalid_input(
-                "event.kind",
-                "project lifecycle payload requires an archive/reopen kind",
-            ))
-        }
+            matches!(
+                kind,
+                WorkEventKind::ProjectArchived | WorkEventKind::ProjectReopened
+            ),
+            json!({"v": 1, "revision": revision}),
+            "project lifecycle payload requires an archive/reopen kind",
+        )
     }
 
     /// Payload for run claimed/started events.
@@ -175,17 +180,12 @@ impl WorkEventPayload {
         attempt_index: u32,
         review_round: u32,
     ) -> Result<Self, WorkDomainError> {
-        if matches!(kind, WorkEventKind::RunClaimed | WorkEventKind::RunStarted) {
-            Self::new(
-                kind,
-                json!({"v": 1, "run_kind": run_kind, "generation": generation, "attempt_index": attempt_index, "review_round": review_round}),
-            )
-        } else {
-            Err(invalid_input(
-                "event.kind",
-                "run lifecycle payload requires claimed/started kind",
-            ))
-        }
+        Self::special(
+            kind,
+            matches!(kind, WorkEventKind::RunClaimed | WorkEventKind::RunStarted),
+            json!({"v": 1, "run_kind": run_kind, "generation": generation, "attempt_index": attempt_index, "review_round": review_round}),
+            "run lifecycle payload requires claimed/started kind",
+        )
     }
 
     /// Payload for run interrupted/failed events.
@@ -200,20 +200,15 @@ impl WorkEventPayload {
         error_code: SafeErrorCode,
         retryable: bool,
     ) -> Result<Self, WorkDomainError> {
-        if matches!(
+        Self::special(
             kind,
-            WorkEventKind::RunInterrupted | WorkEventKind::RunFailed
-        ) {
-            Self::new(
+            matches!(
                 kind,
-                json!({"v": 1, "run_kind": run_kind, "generation": generation, "attempt_index": attempt_index, "error_code": error_code, "retryable": retryable}),
-            )
-        } else {
-            Err(invalid_input(
-                "event.kind",
-                "run failure payload requires interrupted/failed kind",
-            ))
-        }
+                WorkEventKind::RunInterrupted | WorkEventKind::RunFailed
+            ),
+            json!({"v": 1, "run_kind": run_kind, "generation": generation, "attempt_index": attempt_index, "error_code": error_code, "retryable": retryable}),
+            "run failure payload requires interrupted/failed kind",
+        )
     }
 
     /// Payload for run cancellation events.
@@ -226,20 +221,15 @@ impl WorkEventPayload {
         generation: u64,
         reason: RunCancellationReason,
     ) -> Result<Self, WorkDomainError> {
-        if matches!(
+        Self::special(
             kind,
-            WorkEventKind::RunCancelRequested | WorkEventKind::RunCancelled
-        ) {
-            Self::new(
+            matches!(
                 kind,
-                json!({"v": 1, "run_kind": run_kind, "generation": generation, "reason": reason}),
-            )
-        } else {
-            Err(invalid_input(
-                "event.kind",
-                "run cancellation payload requires cancel-requested/cancelled kind",
-            ))
-        }
+                WorkEventKind::RunCancelRequested | WorkEventKind::RunCancelled
+            ),
+            json!({"v": 1, "run_kind": run_kind, "generation": generation, "reason": reason}),
+            "run cancellation payload requires cancel-requested/cancelled kind",
+        )
     }
 }
 

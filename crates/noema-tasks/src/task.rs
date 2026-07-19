@@ -121,10 +121,4 @@ impl TaskRecord {
     pub fn validate(&self) -> Result<(), WorkDomainError> {
         self.normalized().map(|_| ())
     }
-
-    /// Whether the task can edit its capture fields directly.
-    #[must_use]
-    pub fn can_edit_capture_fields(&self, stage_behavior: crate::WorkflowStageBehavior) -> bool {
-        matches!(stage_behavior, crate::WorkflowStageBehavior::Intake)
-    }
 }

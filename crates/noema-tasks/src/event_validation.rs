@@ -79,7 +79,13 @@ fn validate_field(field: &'static str, value: &Value) -> Result<(), WorkDomainEr
         | "tool_call_count"
         | "active_milliseconds"
         | "artifact_count" => number(value, field).map(|_| ()),
-        "reason_present" | "retryable" => boolean(value, field),
+        "reason_present" | "retryable" => {
+            if value.is_boolean() {
+                Ok(())
+            } else {
+                Err(invalid_input(field, "value must be a boolean"))
+            }
+        }
         "stage_id" | "from_stage_id" | "to_stage_id" => {
             id::<WorkflowStageId>(value, field).map(drop)
         }
@@ -143,7 +149,7 @@ fn validate_invariants(
         }
         K::GateOpened => {
             id::<TaskGateId>(&object["gate_id"], "gate_id")?;
-            validate_gate_recovery(
+            let valid = recovery_fields_are_valid(
                 closed(&object["gate_kind"], "gate_kind")?,
                 nullable(&object["recovery_reason"], |value| {
                     closed(value, "recovery_reason")
@@ -151,7 +157,15 @@ fn validate_invariants(
                 nullable(&object["retry_run_kind"], |value| {
                     closed(value, "retry_run_kind")
                 })?,
-            )
+            );
+            if valid {
+                Ok(())
+            } else {
+                Err(invalid_input(
+                    "recovery_reason",
+                    "recovery reason and continuation role are inconsistent",
+                ))
+            }
         }
         K::GateResolved | K::GateSuperseded | K::RunWaitingForApproval => {
             id::<TaskGateId>(&object["gate_id"], "gate_id")?;
@@ -184,16 +198,6 @@ fn validate_run(object: &Map<String, Value>, queued: bool) -> Result<(), WorkDom
         role_contract(run, !object["contract_id"].is_null(), "run.queued")?;
     }
     Ok(())
-}
-
-fn required_string<'a>(value: &'a Value, field: &'static str) -> Result<&'a str, WorkDomainError> {
-    string(value, field).and_then(|value| {
-        if value.trim().is_empty() || value.len() > 255 || value.chars().any(char::is_control) {
-            Err(invalid_input(field, "invalid identifier"))
-        } else {
-            Ok(value)
-        }
-    })
 }
 
 fn string<'a>(value: &'a Value, field: &'static str) -> Result<&'a str, WorkDomainError> {
@@ -232,10 +236,13 @@ fn external_id(
     field: &'static str,
     prefix: &'static str,
 ) -> Result<(), WorkDomainError> {
-    let value = required_string(value, field)?;
-    if value
-        .strip_prefix(prefix)
-        .is_none_or(|suffix| suffix.trim().is_empty())
+    let value = string(value, field)?;
+    if value.trim().is_empty()
+        || value.len() > 255
+        || value.chars().any(char::is_control)
+        || value
+            .strip_prefix(prefix)
+            .is_none_or(|suffix| suffix.trim().is_empty())
     {
         Err(invalid_input(field, "invalid identifier"))
     } else {
@@ -254,14 +261,6 @@ fn positive(value: &Value, field: &'static str) -> Result<(), WorkDomainError> {
         Err(invalid_input(field, "value must be positive"))
     } else {
         Ok(())
-    }
-}
-
-fn boolean(value: &Value, field: &'static str) -> Result<(), WorkDomainError> {
-    if value.is_boolean() {
-        Ok(())
-    } else {
-        Err(invalid_input(field, "value must be a boolean"))
     }
 }
 
@@ -326,21 +325,6 @@ fn validate_terminal_role(run: RunKind, terminal: RunTerminalKind) -> Result<(),
         Err(invalid_input(
             "terminal_kind",
             "terminal kind does not match run role",
-        ))
-    }
-}
-
-fn validate_gate_recovery(
-    gate: TaskGateKind,
-    reason: Option<TaskRecoveryReason>,
-    retry: Option<RunKind>,
-) -> Result<(), WorkDomainError> {
-    if recovery_fields_are_valid(gate, reason, retry) {
-        Ok(())
-    } else {
-        Err(invalid_input(
-            "recovery_reason",
-            "recovery reason and continuation role are inconsistent",
         ))
     }
 }

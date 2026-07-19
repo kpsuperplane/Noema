@@ -281,13 +281,6 @@ impl WorkCommand {
             }
         }
     }
-
-    /// Validate without retaining the normalized value.
-    /// # Errors
-    /// Returns [`WorkDomainError`] when either revision or generation is zero.
-    pub fn validate(&self) -> Result<(), WorkDomainError> {
-        self.clone().normalized().map(|_| ())
-    }
 }
 
 impl DelegateExecutionIntent {

@@ -7,58 +7,46 @@
 
 macro_rules! string_enum {
     (
-        $(#[$enum_meta:meta])*
-        pub enum $name:ident, $field:literal {
-            $($(#[$variant_meta:meta])* $variant:ident => $wire:literal),+ $(,)?
-        }
+        $(
+            $(#[$enum_meta:meta])*
+            pub enum $name:ident, $field:literal {
+                $($(#[$variant_meta:meta])* $variant:ident => $wire:literal),+ $(,)?
+            }
+        )+
     ) => {
-        $(#[$enum_meta])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-        #[allow(missing_docs, reason = "variant names are stable domain vocabulary")]
-        pub enum $name {
-            $($(#[$variant_meta])* #[serde(rename = $wire)] $variant),+
-        }
-
-        impl $name {
-            /// Return the stable persisted representation.
-            #[must_use]
-            pub const fn as_str(self) -> &'static str {
-                match self { $(Self::$variant => $wire),+ }
+        $(
+            $(#[$enum_meta])*
+            #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+            #[allow(missing_docs, reason = "variant names are stable domain vocabulary")]
+            pub enum $name {
+                $($(#[$variant_meta])* #[serde(rename = $wire)] $variant),+
             }
-        }
 
-        impl std::fmt::Display for $name {
-            fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str(self.as_str())
-            }
-        }
-
-        impl std::str::FromStr for $name {
-            type Err = crate::WorkDomainError;
-
-            fn from_str(value: &str) -> Result<Self, Self::Err> {
-                match value {
-                    $($wire => Ok(Self::$variant)),+,
-                    other => Err(crate::error::invalid_input($field, format!("unknown value {other}"))),
+            impl $name {
+                /// Return the stable persisted representation.
+                #[must_use]
+                pub const fn as_str(self) -> &'static str {
+                    match self { $(Self::$variant => $wire),+ }
                 }
             }
-        }
-    };
-}
 
-macro_rules! string_enums {
-    ($(
-        $(#[$enum_meta:meta])*
-        pub enum $name:ident, $field:literal {
-            $($(#[$variant_meta:meta])* $variant:ident => $wire:literal),+ $(,)?
-        }
-    )+) => {
-        $(string_enum! {
-            $(#[$enum_meta])*
-            pub enum $name, $field {
-                $($(#[$variant_meta])* $variant => $wire),+
+            impl std::fmt::Display for $name {
+                fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    formatter.write_str(self.as_str())
+                }
             }
-        })+
+
+            impl std::str::FromStr for $name {
+                type Err = crate::WorkDomainError;
+
+                fn from_str(value: &str) -> Result<Self, Self::Err> {
+                    match value {
+                        $($wire => Ok(Self::$variant)),+,
+                        other => Err(crate::error::invalid_input($field, format!("unknown value {other}"))),
+                    }
+                }
+            }
+        )+
     };
 }
 
@@ -125,7 +113,7 @@ pub use review::{
     validate_review_verdict,
 };
 pub use run::{
-    AgentRunHeartbeat, AgentRunRecord, NewAgentRun, RunKind, RunStatus, TASK_EXECUTOR_AGENT_ID,
+    AgentRunHeartbeat, AgentRunRecord, RunKind, RunStatus, TASK_EXECUTOR_AGENT_ID,
     TASK_REVIEWER_AGENT_ID,
 };
 pub use state::TaskComplexity;

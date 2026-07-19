@@ -70,11 +70,11 @@ pub enum WorkReconciliationAction {
 }
 
 impl WorkReconciliationAction {
-    /// Validate the closed recovery reason/continuation-role matrix.
+    /// Validate run-role compatibility with the current contract presence.
     /// # Errors
-    /// Returns [`WorkDomainError`] when a Recovery action pairs a reason with
-    /// an unsupported continuation role.
-    pub fn validate(&self) -> Result<(), WorkDomainError> {
+    /// Returns [`WorkDomainError`] when the action has an invalid Recovery
+    /// pairing or its queued role is incompatible with contract presence.
+    pub fn validate_for_contract(&self, has_current_contract: bool) -> Result<(), WorkDomainError> {
         if let Self::OpenRecoveryGate {
             reason,
             retry_run_kind,
@@ -86,15 +86,6 @@ impl WorkReconciliationAction {
                 "recovery reason and continuation role are inconsistent",
             ));
         }
-        Ok(())
-    }
-
-    /// Validate run-role compatibility with the current contract presence.
-    /// # Errors
-    /// Returns [`WorkDomainError`] when the action has an invalid Recovery
-    /// pairing or its queued role is incompatible with contract presence.
-    pub fn validate_for_contract(&self, has_current_contract: bool) -> Result<(), WorkDomainError> {
-        self.validate()?;
         let run_kind = match self {
             Self::QueueRun { run_kind } | Self::MoveToQueueAndQueueRun { run_kind } => {
                 Some(*run_kind)
@@ -205,7 +196,7 @@ pub fn plan_reconciliation_action(
                 queue(RunKind::Executor, snapshot.has_current_contract)
             };
         }
-        return action(WorkReconciliationAction::OpenRecoveryGate {
+        return Ok(WorkReconciliationAction::OpenRecoveryGate {
             reason: TaskRecoveryReason::InvariantFault,
             retry_run_kind: None,
         });
@@ -214,18 +205,13 @@ pub fn plan_reconciliation_action(
         return if snapshot.approved_review {
             Ok(WorkReconciliationAction::Idle)
         } else {
-            action(WorkReconciliationAction::OpenRecoveryGate {
+            Ok(WorkReconciliationAction::OpenRecoveryGate {
                 reason: TaskRecoveryReason::InvariantFault,
                 retry_run_kind: None,
             })
         };
     }
     Ok(WorkReconciliationAction::Idle)
-}
-
-fn action(action: WorkReconciliationAction) -> Result<WorkReconciliationAction, WorkDomainError> {
-    action.validate()?;
-    Ok(action)
 }
 
 fn queue(
@@ -337,7 +323,7 @@ fn plan_failed_run_action(
 }
 
 fn invariant_recovery() -> Result<WorkReconciliationAction, WorkDomainError> {
-    action(WorkReconciliationAction::OpenRecoveryGate {
+    Ok(WorkReconciliationAction::OpenRecoveryGate {
         reason: TaskRecoveryReason::InvariantFault,
         retry_run_kind: None,
     })
