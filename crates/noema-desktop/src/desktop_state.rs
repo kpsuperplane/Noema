@@ -58,22 +58,18 @@ impl DesktopState {
 
     pub(crate) async fn schema(&self) -> Result<GraphqlSchema, String> {
         let inner = self.inner.lock().await;
-        match &*inner {
-            DesktopLifecycle::Running(runtime) => Ok(runtime.schema.clone()),
-            DesktopLifecycle::Uninitialized | DesktopLifecycle::Shutdown(_) => {
-                Err("Noema lost connection to its local app service.".to_string())
-            }
-        }
+        let DesktopLifecycle::Running(runtime) = &*inner else {
+            return Err("Noema lost connection to its local app service.".to_string());
+        };
+        Ok(runtime.schema.clone())
     }
 
     pub(crate) async fn mcp_oauth_callback_url(&self) -> Result<String, String> {
         let inner = self.inner.lock().await;
-        match &*inner {
-            DesktopLifecycle::Running(runtime) => Ok(runtime.mcp_oauth_callback_url.clone()),
-            DesktopLifecycle::Uninitialized | DesktopLifecycle::Shutdown(_) => {
-                Err("Noema lost connection to its local app service.".to_string())
-            }
-        }
+        let DesktopLifecycle::Running(runtime) = &*inner else {
+            return Err("Noema lost connection to its local app service.".to_string());
+        };
+        Ok(runtime.mcp_oauth_callback_url.clone())
     }
 
     pub(crate) async fn insert_subscription(
@@ -91,16 +87,18 @@ impl DesktopState {
 
     pub(crate) async fn remove_finished_subscription(&self, id: &str, generation: u64) {
         let mut inner = self.inner.lock().await;
-        if let DesktopLifecycle::Running(runtime) = &mut *inner {
-            runtime.subscriptions.remove_finished(id, generation);
-        }
+        let DesktopLifecycle::Running(runtime) = &mut *inner else {
+            return;
+        };
+        runtime.subscriptions.remove_finished(id, generation);
     }
 
     pub(crate) async fn remove_subscription(&self, id: &str) {
         let mut inner = self.inner.lock().await;
-        if let DesktopLifecycle::Running(runtime) = &mut *inner {
-            runtime.subscriptions.remove(id);
-        }
+        let DesktopLifecycle::Running(runtime) = &mut *inner else {
+            return;
+        };
+        runtime.subscriptions.remove(id);
     }
 
     pub(crate) async fn shutdown(&self) {
@@ -227,19 +225,18 @@ impl SubscriptionTasks {
         }
     }
 
-    fn remove_finished(&mut self, id: &str, generation: u64) -> bool {
-        let should_remove = self
+    fn remove_finished(&mut self, id: &str, generation: u64) {
+        if self
             .entries
             .get(id)
-            .is_some_and(|entry| entry.generation == generation);
-        if should_remove {
+            .is_some_and(|entry| entry.generation == generation)
+        {
             self.entries.remove(id);
         }
-        should_remove
     }
 
     fn abort_all(self) {
-        for (_, entry) in self.entries {
+        for entry in self.entries.into_values() {
             entry.handle.abort();
         }
     }
@@ -263,9 +260,9 @@ mod tests {
         let new_generation = subscriptions.insert("sub_1".to_string(), pending_handle());
 
         assert_ne!(old_generation, new_generation);
-        assert!(!subscriptions.remove_finished("sub_1", old_generation));
+        subscriptions.remove_finished("sub_1", old_generation);
         assert_eq!(subscriptions.entries["sub_1"].generation, new_generation);
-        assert!(subscriptions.remove_finished("sub_1", new_generation));
+        subscriptions.remove_finished("sub_1", new_generation);
         assert!(!subscriptions.entries.contains_key("sub_1"));
     }
 

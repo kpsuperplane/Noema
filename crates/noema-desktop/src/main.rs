@@ -10,10 +10,6 @@ mod graphql_ipc;
 mod mcp_oauth_callback;
 
 fn main() {
-    noema_desktop_main();
-}
-
-fn noema_desktop_main() {
     let app = tauri::Builder::default()
         .manage(desktop_state::DesktopState::new())
         .setup(|app| {
