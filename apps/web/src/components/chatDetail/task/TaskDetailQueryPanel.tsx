@@ -75,39 +75,46 @@ export function TaskDetailQueryPanel({
 
   const detail = React.useMemo(() => task ? mapWorkTaskDetail(task) : null, [task]);
   const navigation = { taskId, showWorkLink, onClose };
-  const needsInlineAnswer = Boolean(detail?.attention && task?.validActions.includes("ANSWER"));
-  const actions = task ? (
-    <TaskActions
-      compact
-      closeButtonRef={closeButtonRef}
-      controlsHostRef={controlsHostRef}
-      inlineAnswer={needsInlineAnswer}
-      navigation={navigation}
-      task={task}
-      validActions={task.validActions}
-      projects={projects.projects}
-      onUpdated={async () => { await result.refetch(); }}
-    />
-  ) : (
-    <TaskNavigationControls
-      navigation={navigation}
-      closeButtonRef={closeButtonRef}
-      controlsHostRef={controlsHostRef}
-    />
-  );
-  const navigationActions = (
-    <TaskNavigationControls navigation={navigation} controlsHostRef={controlsHostRef} />
-  );
-
-  return (
+  const needsInlineResponse = Boolean(detail?.attention && task?.validActions.some(
+    (action) => action === "ANSWER" || action === "RETRY"
+  ));
+  const renderPanel = (actions?: React.ReactNode) => (
     <TaskDetailPanel
       actions={actions}
       detail={detail}
       error={result.error ? "Task details could not be loaded." : null}
       loading={result.loading}
-      navigationActions={navigationActions}
       taskId={taskId}
     />
+  );
+
+  if (task) {
+    return (
+      <TaskActions
+        compact
+        closeButtonRef={closeButtonRef}
+        controlsHostRef={controlsHostRef}
+        inlineResponse={needsInlineResponse}
+        navigation={navigation}
+        task={task}
+        validActions={task.validActions}
+        projects={projects.projects}
+        onUpdated={async () => { await result.refetch(); }}
+      >
+        {renderPanel}
+      </TaskActions>
+    );
+  }
+
+  return (
+    <>
+      <TaskNavigationControls
+        navigation={navigation}
+        closeButtonRef={closeButtonRef}
+        controlsHostRef={controlsHostRef}
+      />
+      {renderPanel()}
+    </>
   );
 }
 

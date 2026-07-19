@@ -113,22 +113,31 @@ const styles = stylex.create({
   },
   list: {
     display: "grid",
-    gap: 4,
+    gap: "var(--spacing-1-5)",
     margin: 0,
     padding: 0,
     listStyle: "none"
   },
-  item: { minWidth: 0 },
+  item: {
+    minWidth: 0,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--noema-border-subtle)",
+    borderRadius: 7,
+    backgroundColor: "var(--noema-surface-sunken)",
+    paddingBlock: "var(--spacing-1)",
+    paddingInline: "var(--spacing-2)"
+  },
   evidence: {
     display: "grid",
-    gap: 10,
+    gap: "var(--spacing-2)",
     maxWidth: 520,
     margin: 0,
-    paddingBlock: 2
+    paddingBlock: "var(--spacing-0-5)"
   },
   evidenceRow: {
     display: "grid",
-    gap: 2
+    gap: "var(--spacing-0-5)"
   },
   evidenceLabel: {
     color: "var(--noema-text-muted)",

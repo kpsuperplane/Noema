@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { TaskDisclosure } from "./TaskSection";
+import { TaskStaticSection } from "./TaskSection";
 import type { TaskDetail } from "./taskTypes";
 
 export function TaskDetails({ detail }: { detail: TaskDetail }) {
@@ -8,7 +8,7 @@ export function TaskDetails({ detail }: { detail: TaskDetail }) {
   const provenance = [detail.createdBy, detail.sourceLabel].filter(Boolean).join(" · ");
 
   return (
-    <TaskDisclosure id="task-details-title" title="Details">
+    <TaskStaticSection id="task-details-title" title="Details">
       <dl {...stylex.props(styles.metadata)}>
         {detail.complexity ? <MetadataRow label="Complexity" value={capitalize(detail.complexity)} /> : null}
         <MetadataRow label="Current stage" value={stage} />
@@ -19,7 +19,7 @@ export function TaskDetails({ detail }: { detail: TaskDetail }) {
         {detail.createdAt ? <MetadataRow label="Created" value={formatDate(detail.createdAt)} /> : null}
         {provenance ? <MetadataRow label="Created from" value={provenance} /> : null}
       </dl>
-    </TaskDisclosure>
+    </TaskStaticSection>
   );
 }
 

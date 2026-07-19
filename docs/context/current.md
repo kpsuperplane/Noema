@@ -138,8 +138,9 @@ subagents, reviews, and size measurement.
 - The primary chat surfaces concise task markers and human decisions; `/work`
   provides denser management. Both reuse the same task detail and server-owned
   action vocabulary.
-- Task detail keeps a stable state, brief, disclosed activity, and disclosed
-  metadata stack; only the current-state object and controls vary by stage.
+- Task detail keeps a stable state, brief, activity, and metadata stack; only
+  the current-state object and controls vary by stage, while available
+  cancellation stays in the header.
 - Current Work behavior and `docs/workspaces/README.md` are authoritative. The
   completed multi-agent implementation packets remain in Git history and should
   not drive new implementation.

@@ -5,7 +5,7 @@ import { Button } from "@astryxdesign/core/Button";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import * as stylex from "@stylexjs/stylex";
-import { ExternalLink, X } from "lucide-react";
+import { Ban, ExternalLink, X } from "lucide-react";
 import type { WorkProject } from "./workTypes";
 import { useTaskCommands, type TaskCommandSubject } from "./useTaskCommands";
 import { TaskActionDialog } from "./TaskActionDialog";
@@ -32,8 +32,9 @@ type TaskActionsProps = {
   controlsHostRef: React.RefObject<HTMLElement | null>;
   projects?: readonly WorkProject[];
   compact?: boolean;
-  inlineAnswer?: boolean;
+  inlineResponse?: boolean;
   onUpdated?: () => void | Promise<void>;
+  children?: (actions: React.ReactNode) => React.ReactNode;
 };
 
 export function TaskNavigationControls({
@@ -60,8 +61,9 @@ export function TaskActions({
   controlsHostRef,
   projects = [],
   compact = false,
-  inlineAnswer = false,
-  onUpdated
+  inlineResponse = false,
+  onUpdated,
+  children
 }: TaskActionsProps) {
   const [activeCommand, setActiveCommand] = React.useState<ActiveCommand | null>(null);
   const [editLoadError, setEditLoadError] = React.useState<string | null>(null);
@@ -74,9 +76,12 @@ export function TaskActions({
   }, [onUpdated]);
   const commands = useTaskCommands({ task: commandTask, onUpdated: refresh });
   const activeAction = activeCommand?.action ?? null;
-  const hasInlineAnswer = inlineAnswer && validActions.includes("ANSWER");
+  const canAnswer = validActions.includes("ANSWER");
+  const canRetry = validActions.includes("RETRY");
+  const hasInlineResponse = inlineResponse && (canAnswer || canRetry);
+  const responseAction = answer.trim() && canAnswer ? "ANSWER" : canRetry ? "RETRY" : "ANSWER";
   const buttonActions = orderTaskActions(validActions.filter(
-    (action) => !(hasInlineAnswer && action === "ANSWER")
+    (action) => action !== "CANCEL" && !(hasInlineResponse && (action === "ANSWER" || action === "RETRY"))
   ));
   const primaryAction = buttonActions.find((action) => action !== "CANCEL") ?? null;
   const secondaryActions = buttonActions.filter(
@@ -123,21 +128,23 @@ export function TaskActions({
       <TaskControlsRow
         navigation={navigation}
         closeButtonRef={closeButtonRef}
+        busy={commands.busy !== null || editLoad.loading || activeCommand !== null}
+        onCancel={validActions.includes("CANCEL") ? () => openAction("CANCEL") : undefined}
       />
     </TaskControlsPortal>
   );
-  const hasActionBody = hasInlineAnswer || buttonActions.length > 0 || Boolean(editLoadError);
+  const hasActionBody = hasInlineResponse || buttonActions.length > 0 || Boolean(editLoadError);
   const actionBody = hasActionBody ? (
     <div {...stylex.props(styles.frame)}>
-      {hasInlineAnswer ? (
+      {hasInlineResponse ? (
         <form
-          aria-label="Answer this request"
+          aria-label={canRetry ? "Respond or retry" : "Answer this request"}
           {...stylex.props(styles.answerForm)}
           onSubmit={(event) => {
             event.preventDefault();
-            if (!answer.trim() || commands.busy || commands.requiresAcknowledgement) return;
-            void commands.run("ANSWER", {
-              message: answer,
+            if ((responseAction === "ANSWER" && !answer.trim()) || commands.busy || commands.requiresAcknowledgement) return;
+            void commands.run(responseAction, {
+              message: answer.trim() || undefined,
               approvalDecision: task.activeGate?.kind === "APPROVAL" ? approvalDecision : undefined
             }).then(() => setAnswer("")).catch(() => undefined);
           }}
@@ -157,9 +164,15 @@ export function TaskActions({
           ) : null}
           <TextArea
             isLabelHidden
-            label="Answer"
+            label={canRetry ? "Response or retry guidance" : "Answer"}
             onChange={setAnswer}
-            placeholder={task.activeGate?.kind === "APPROVAL" ? "Explain your decision" : "Type your answer"}
+            placeholder={task.activeGate?.kind === "APPROVAL"
+              ? "Explain your decision"
+              : canAnswer && canRetry
+                ? "Answer, or leave blank to retry"
+                : canRetry
+                  ? "Optional retry guidance"
+                  : "Type your answer"}
             rows={3}
             value={answer}
             width="100%"
@@ -183,9 +196,9 @@ export function TaskActions({
               type="submit"
               size="sm"
               variant="primary"
-              label={taskActionLabel("ANSWER", false, task.activeGate?.kind === "APPROVAL" ? approvalDecision : undefined)}
-              isLoading={commands.busy === "ANSWER"}
-              isDisabled={!answer.trim() || commands.busy !== null || commands.requiresAcknowledgement}
+              label={taskActionLabel(responseAction, false, task.activeGate?.kind === "APPROVAL" ? approvalDecision : undefined)}
+              isLoading={commands.busy === responseAction}
+              isDisabled={(responseAction === "ANSWER" && !answer.trim()) || commands.busy !== null || commands.requiresAcknowledgement}
             />
           </div>
         </form>
@@ -247,7 +260,9 @@ export function TaskActions({
   return (
     <>
       {controls}
-      {actionBody ? <div {...stylex.props(styles.defaultFrame)}>{actionBody}</div> : null}
+      {children ? children(actionBody ? <div {...stylex.props(styles.defaultFrame)}>{actionBody}</div> : null) : (
+        actionBody ? <div {...stylex.props(styles.defaultFrame)}>{actionBody}</div> : null
+      )}
       <span aria-live="polite" {...stylex.props(styles.srOnly)}>{commands.notice}</span>
       <TaskActionDialog
         key={activeAction ?? "closed"}
@@ -289,14 +304,30 @@ function TaskControlsPortal({
 
 function TaskControlsRow({
   navigation,
-  closeButtonRef
+  closeButtonRef,
+  busy = false,
+  onCancel
 }: {
   navigation: TaskActionNavigation;
   closeButtonRef?: React.RefObject<HTMLButtonElement | null>;
+  busy?: boolean;
+  onCancel?: () => void | Promise<void>;
 }) {
   const iconProps = { "aria-hidden": true, size: 15, strokeWidth: 2 } as const;
   return (
     <div role="toolbar" aria-label="Task controls" {...stylex.props(styles.controls)}>
+      {onCancel ? (
+        <IconButton
+          type="button"
+          size="sm"
+          variant="destructive"
+          label="Cancel task"
+          tooltip="Cancel task"
+          icon={<Ban {...iconProps} />}
+          isDisabled={busy}
+          onClick={() => void onCancel()}
+        />
+      ) : null}
       {navigation.showWorkLink ? (
         <IconButton
           href={`/work/tasks/${encodeURIComponent(navigation.taskId)}`}

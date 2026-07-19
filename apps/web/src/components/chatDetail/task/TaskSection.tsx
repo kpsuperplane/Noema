@@ -1,16 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import * as React from "react";
 
-export function TaskSection({
-  label,
-  children
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return <section aria-label={label} {...stylex.props(styles.section)}>{children}</section>;
-}
-
 export function TaskStaticSection({
   id,
   title,
@@ -32,28 +22,6 @@ export function TaskStaticSection({
       </div>
       {children}
     </section>
-  );
-}
-
-export function TaskDisclosure({
-  id,
-  title,
-  count,
-  children
-}: {
-  id: string;
-  title: string;
-  count?: number;
-  children: React.ReactNode;
-}) {
-  return (
-    <details {...stylex.props(styles.disclosure)}>
-      <summary id={id} {...stylex.props(styles.disclosureSummary)}>
-        <span>{title}</span>
-        {typeof count === "number" ? <span {...stylex.props(styles.count, styles.disclosureCount)}>{count}</span> : null}
-      </summary>
-      <div {...stylex.props(styles.disclosureContent)}>{children}</div>
-    </details>
   );
 }
 
@@ -143,35 +111,6 @@ const styles = stylex.create({
     color: "var(--noema-text-muted)",
     fontFamily: "var(--noema-font-mono)",
     fontSize: 9
-  },
-  disclosure: {
-    minWidth: 0,
-    marginBlock: "var(--spacing-1)",
-    marginInline: "var(--spacing-2)",
-    borderTopWidth: 1,
-    borderTopStyle: "solid",
-    borderTopColor: "var(--noema-border-subtle)"
-  },
-  disclosureSummary: {
-    minHeight: 32,
-    paddingBlock: "var(--spacing-2)",
-    color: "var(--noema-text-primary)",
-    fontSize: 12,
-    fontWeight: 650,
-    cursor: "pointer",
-    ":hover": { color: "var(--noema-text-secondary)" },
-    ":focus-visible": {
-      outlineWidth: 2,
-      outlineStyle: "solid",
-      outlineColor: "var(--noema-pine-500)",
-      outlineOffset: 1
-    }
-  },
-  disclosureCount: { marginInlineStart: "var(--spacing-1-5)" },
-  disclosureContent: {
-    display: "grid",
-    gap: "var(--spacing-2)",
-    paddingBottom: "var(--spacing-2)"
   },
   expandableContent: {
     maxHeight: "4.65em",

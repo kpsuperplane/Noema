@@ -3,7 +3,7 @@ import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import * as stylex from "@stylexjs/stylex";
 import { AlertCircle } from "lucide-react";
 import { TaskDecisionCard } from "./TaskDecisionCard";
-import { TaskDisclosure, TaskExpandableContent, TaskStaticSection } from "./TaskSection";
+import { TaskExpandableContent, TaskStaticSection } from "./TaskSection";
 import type { TaskDetail, TaskRunItem } from "./taskTypes";
 import { TaskCriteria } from "./TaskCriteria";
 import { TaskDetails, taskStateHeading } from "./TaskOverview";
@@ -22,8 +22,7 @@ export function TaskDetailPanel({
   loading = false,
   error = null,
   liveRunItems,
-  actions,
-  navigationActions
+  actions
 }: {
   taskId: string;
   detail?: TaskDetail | null;
@@ -31,7 +30,6 @@ export function TaskDetailPanel({
   error?: string | null;
   liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
   actions?: React.ReactNode;
-  navigationActions?: React.ReactNode;
 }) {
   const [selectedRunKey, setSelectedRunKey] = React.useState<{
     taskId: string;
@@ -107,7 +105,6 @@ export function TaskDetailPanel({
       if (runContext) {
         return (
           <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root, styles.runRoot)}>
-            {!transitioning ? navigationActions : null}
             <TaskRunConversationView
               liveItems={liveRunItems?.get(runContext.run.id)}
               onBack={handleRunBack}
@@ -142,10 +139,10 @@ export function TaskDetailPanel({
           request={currentDetail.request}
         />
         {activityCount > 0 ? (
-          <TaskDisclosure count={activityCount} id="task-timeline-title" title="Activity">
+          <TaskStaticSection count={activityCount} id="task-timeline-title" tabIndex={-1} title="Activity">
             <TaskRevisionTimeline embedded excludeRunId={currentRunId} onSelectRun={selectRun} revisions={currentDetail.revisions} />
             {currentDetail.messages?.length ? <TaskMessages messages={currentDetail.messages} /> : null}
-          </TaskDisclosure>
+          </TaskStaticSection>
         ) : null}
         <TaskDetails key={`details:${taskId}`} detail={currentDetail} />
       </div>
