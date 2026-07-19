@@ -108,9 +108,12 @@ where
     let result = tokio::select! {
         result = wait_for_child("web asset watcher", web) => result,
         result = wait_for_child("web server watcher", server) => result,
-        result = wait_for_optional_child("foundation bridge watcher", bridge.as_deref_mut()) => {
-            result
-        }
+        result = async {
+            match bridge.as_deref_mut() {
+                Some(child) => wait_for_child("foundation bridge watcher", child).await,
+                None => std::future::pending().await,
+            }
+        } => result,
         result = shutdown_signal => {
             match result {
                 Ok(signal) => {
@@ -124,7 +127,9 @@ where
 
     stop_child(web).await;
     stop_child(server).await;
-    stop_optional_child(bridge).await;
+    if let Some(bridge) = bridge {
+        stop_child(bridge).await;
+    }
     result
 }
 
@@ -251,22 +256,18 @@ fn spawn_dev_process(
 fn strip_cargo_run_env(command: &mut Command) {
     for (key, _) in env::vars_os() {
         if let Some(key) = key.to_str()
-            && is_cargo_run_injected_env(key)
+            && (matches!(
+                key,
+                "CARGO_MANIFEST_DIR"
+                    | "CARGO_MANIFEST_PATH"
+                    | "CARGO_CRATE_NAME"
+                    | "CARGO_BIN_NAME"
+                    | "CARGO_PRIMARY_PACKAGE"
+            ) || key.starts_with("CARGO_PKG_"))
         {
             command.env_remove(key);
         }
     }
-}
-
-fn is_cargo_run_injected_env(key: &str) -> bool {
-    matches!(
-        key,
-        "CARGO_MANIFEST_DIR"
-            | "CARGO_MANIFEST_PATH"
-            | "CARGO_CRATE_NAME"
-            | "CARGO_BIN_NAME"
-            | "CARGO_PRIMARY_PACKAGE"
-    ) || key.starts_with("CARGO_PKG_")
 }
 
 async fn wait_for_child(label: &'static str, child: &mut Child) -> Result<(), DevError> {
@@ -275,16 +276,6 @@ async fn wait_for_child(label: &'static str, child: &mut Child) -> Result<(), De
         .await
         .map_err(|source| DevError::WaitProcess { label, source })?;
     Err(DevError::ProcessExited { label, status })
-}
-
-async fn wait_for_optional_child(
-    label: &'static str,
-    child: Option<&mut Child>,
-) -> Result<(), DevError> {
-    match child {
-        Some(child) => wait_for_child(label, child).await,
-        None => std::future::pending().await,
-    }
 }
 
 async fn stop_child(child: &mut Child) {
@@ -306,12 +297,6 @@ async fn stop_child(child: &mut Child) {
 
     let _ = child.start_kill();
     let _ = child.wait().await;
-}
-
-async fn stop_optional_child(child: Option<&mut Child>) {
-    if let Some(child) = child {
-        stop_child(child).await;
-    }
 }
 
 async fn wait_for_child_exit(child: &mut Child, duration: Duration) -> bool {
