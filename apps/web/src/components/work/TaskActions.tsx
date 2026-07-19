@@ -1,8 +1,12 @@
 import * as React from "react";
 import { useLazyQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
+import { IconButton } from "@astryxdesign/core/IconButton";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import * as stylex from "@stylexjs/stylex";
+import { Ban, ExternalLink, RotateCcw, X } from "lucide-react";
+import { TaskDecisionCard } from "@/components/chatDetail/task/TaskDecisionCard";
+import type { TaskDetail } from "@/components/chatDetail/task/taskTypes";
 import type { WorkProject } from "./workTypes";
 import { useTaskCommands, type TaskCommandSubject } from "./useTaskCommands";
 import { TaskActionDialog } from "./TaskActionDialog";
@@ -15,7 +19,54 @@ type ActiveCommand = {
   subject: TaskCommandSubject;
 };
 
-export function TaskActions({ task, validActions, projects = [], compact = false, inlineAnswer = false, onUpdated }: { task: TaskCommandSubject; validActions: readonly string[]; projects?: readonly WorkProject[]; compact?: boolean; inlineAnswer?: boolean; onUpdated?: () => void | Promise<void> }) {
+type TaskActionNavigation = {
+  taskId: string;
+  showWorkLink: boolean;
+  onClose?: () => void;
+};
+
+type TaskActionDecision = {
+  attention: NonNullable<TaskDetail["attention"]>;
+  question?: string | null;
+};
+
+type TaskActionsProps = {
+  task: TaskCommandSubject;
+  validActions: readonly string[];
+  navigation: TaskActionNavigation;
+  closeButtonRef?: React.RefObject<HTMLButtonElement | null>;
+  decision?: TaskActionDecision;
+  projects?: readonly WorkProject[];
+  compact?: boolean;
+  inlineAnswer?: boolean;
+  onUpdated?: () => void | Promise<void>;
+};
+
+export function TaskNavigationControls({
+  navigation,
+  closeButtonRef
+}: {
+  navigation: TaskActionNavigation;
+  closeButtonRef?: React.RefObject<HTMLButtonElement | null>;
+}) {
+  return (
+    <div {...stylex.props(styles.defaultFrame)}>
+      <TaskControlsRow navigation={navigation} closeButtonRef={closeButtonRef} />
+    </div>
+  );
+}
+
+export function TaskActions({
+  task,
+  validActions,
+  navigation,
+  closeButtonRef,
+  decision,
+  projects = [],
+  compact = false,
+  inlineAnswer = false,
+  onUpdated
+}: TaskActionsProps) {
   const [activeCommand, setActiveCommand] = React.useState<ActiveCommand | null>(null);
   const [editLoadError, setEditLoadError] = React.useState<string | null>(null);
   const [answer, setAnswer] = React.useState("");
@@ -28,9 +79,9 @@ export function TaskActions({ task, validActions, projects = [], compact = false
   const commands = useTaskCommands({ task: commandTask, onUpdated: refresh });
   const activeAction = activeCommand?.action ?? null;
   const hasInlineAnswer = inlineAnswer && validActions.includes("ANSWER");
-  const buttonActions = hasInlineAnswer
-    ? validActions.filter((action) => action !== "ANSWER")
-    : validActions;
+  const buttonActions = validActions.filter(
+    (action) => !(hasInlineAnswer && action === "ANSWER") && !isControlAction(action)
+  );
   const primaryAction = buttonActions[0] ?? null;
   const secondaryActions = buttonActions.slice(1);
   const liveSubjectChanged = activeCommand ? taskSubjectChanged(activeCommand.subject, task) : false;
@@ -62,8 +113,17 @@ export function TaskActions({ task, validActions, projects = [], compact = false
     commands.acknowledge();
   }, [activeCommand, commands, loadEditTask, task]);
 
-  if (buttonActions.length === 0 && !hasInlineAnswer && !activeCommand) return null;
-  return (
+  const controls = (
+    <TaskControlsRow
+      navigation={navigation}
+      closeButtonRef={closeButtonRef}
+      busy={commands.busy !== null || editLoad.loading}
+      onCancel={validActions.includes("CANCEL") ? () => openAction("CANCEL") : undefined}
+      onRetry={validActions.includes("RETRY") ? () => openAction("RETRY") : undefined}
+    />
+  );
+  const hasActionBody = hasInlineAnswer || buttonActions.length > 0 || Boolean(editLoadError);
+  const actionBody = hasActionBody ? (
     <div {...stylex.props(styles.frame)}>
       {hasInlineAnswer ? (
         <form
@@ -131,7 +191,7 @@ export function TaskActions({ task, validActions, projects = [], compact = false
           <Button
             type="button"
             size="sm"
-            variant={primaryAction === "CANCEL" ? "destructive" : "primary"}
+            variant="primary"
             label={taskActionLabel(primaryAction, compact)}
             isDisabled={commands.busy !== null || editLoad.loading}
             onClick={(event) => { event.stopPropagation(); void openAction(primaryAction); }}
@@ -146,7 +206,7 @@ export function TaskActions({ task, validActions, projects = [], compact = false
                   key={action}
                   type="button"
                   size="sm"
-                  variant={action === "CANCEL" ? "destructive" : "ghost"}
+                  variant="ghost"
                   label={taskActionLabel(action, false)}
                   isDisabled={commands.busy !== null || editLoad.loading}
                   onClick={(event) => { event.stopPropagation(); void openAction(action); }}
@@ -159,15 +219,34 @@ export function TaskActions({ task, validActions, projects = [], compact = false
             key={action}
             type="button"
             size="sm"
-            variant={action === "CANCEL" ? "destructive" : "secondary"}
+            variant="secondary"
             label={taskActionLabel(action, false)}
             isDisabled={commands.busy !== null || editLoad.loading}
             onClick={(event) => { event.stopPropagation(); void openAction(action); }}
           />
         ))}
       </div> : null}
-      <span aria-live="polite" {...stylex.props(styles.srOnly)}>{commands.notice}</span>
       {editLoadError ? <span role="alert" {...stylex.props(styles.loadError)}>{editLoadError}</span> : null}
+    </div>
+  ) : null;
+
+  return (
+    <>
+      {decision ? (
+        <TaskDecisionCard
+          attention={decision.attention}
+          question={decision.question}
+          controls={controls}
+        >
+          {actionBody}
+        </TaskDecisionCard>
+      ) : (
+        <div {...stylex.props(styles.defaultFrame)}>
+          {controls}
+          {actionBody}
+        </div>
+      )}
+      <span aria-live="polite" {...stylex.props(styles.srOnly)}>{commands.notice}</span>
       <TaskActionDialog
         key={activeAction ?? "closed"}
         action={activeAction}
@@ -186,12 +265,84 @@ export function TaskActions({ task, validActions, projects = [], compact = false
           setActiveCommand(null);
         }}
       />
+    </>
+  );
+}
+
+function TaskControlsRow({
+  navigation,
+  closeButtonRef,
+  busy = false,
+  onCancel,
+  onRetry
+}: {
+  navigation: TaskActionNavigation;
+  closeButtonRef?: React.RefObject<HTMLButtonElement | null>;
+  busy?: boolean;
+  onCancel?: () => void | Promise<void>;
+  onRetry?: () => void | Promise<void>;
+}) {
+  const iconProps = { "aria-hidden": true, size: 15, strokeWidth: 2 } as const;
+  return (
+    <div role="toolbar" aria-label="Task controls" {...stylex.props(styles.controls)}>
+      {onCancel ? (
+        <IconButton
+          type="button"
+          size="sm"
+          variant="destructive"
+          label="Cancel task"
+          tooltip="Cancel task"
+          icon={<Ban {...iconProps} />}
+          isDisabled={busy}
+          onClick={() => void onCancel()}
+        />
+      ) : null}
+      {onRetry ? (
+        <IconButton
+          type="button"
+          size="sm"
+          variant="ghost"
+          label="Retry task"
+          tooltip="Retry task"
+          icon={<RotateCcw {...iconProps} />}
+          isDisabled={busy}
+          onClick={() => void onRetry()}
+        />
+      ) : null}
+      {navigation.showWorkLink ? (
+        <IconButton
+          href={`/work/tasks/${encodeURIComponent(navigation.taskId)}`}
+          size="sm"
+          variant="ghost"
+          label="Open in Work"
+          tooltip="Open in Work"
+          icon={<ExternalLink {...iconProps} />}
+        />
+      ) : null}
+      {navigation.onClose ? (
+        <IconButton
+          ref={closeButtonRef}
+          type="button"
+          size="sm"
+          variant="ghost"
+          label="Close task details"
+          tooltip="Close task details"
+          icon={<X {...iconProps} />}
+          onClick={navigation.onClose}
+        />
+      ) : null}
     </div>
   );
 }
 
+function isControlAction(action: string): boolean {
+  return action === "CANCEL" || action === "RETRY";
+}
+
 const styles = stylex.create({
   frame: { display: "grid", gap: 6 },
+  defaultFrame: { display: "grid", gap: 6, minWidth: 0, paddingBlock: 4, paddingInline: 8 },
+  controls: { display: "flex", minHeight: 28, alignItems: "center", justifyContent: "flex-end", gap: 2 },
   answerForm: { display: "grid", gap: 9, minWidth: 0 },
   decisionField: { display: "grid", gap: 5, color: "var(--noema-text-secondary)", fontSize: 11, fontWeight: 650 },
   decisionSelect: { minHeight: 34, width: "100%", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-default)", borderRadius: 7, backgroundColor: "var(--noema-surface-card)", paddingInline: 9, color: "var(--noema-text-primary)", font: "inherit", ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },

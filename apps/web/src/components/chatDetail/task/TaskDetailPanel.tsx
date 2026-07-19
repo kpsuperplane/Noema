@@ -5,7 +5,6 @@ import { AlertCircle } from "lucide-react";
 import { TaskExpandableContent, TaskSection, TaskStaticSection } from "./TaskSection";
 import type { TaskDetail, TaskRunItem } from "./taskTypes";
 import { TaskCriteria } from "./TaskCriteria";
-import { TaskDecisionCard } from "./TaskDecisionCard";
 import { TaskDetails, TaskStatusSummary } from "./TaskOverview";
 import { TaskResult } from "./TaskResult";
 import { TaskRevisionTimeline } from "./TaskRevisionTimeline";
@@ -25,7 +24,7 @@ export function TaskDetailPanel({
   onResumeTask,
   liveRunItems,
   actions,
-  decisionActions
+  navigationActions
 }: {
   taskId: string;
   detail?: TaskDetail | null;
@@ -35,7 +34,7 @@ export function TaskDetailPanel({
   onResumeTask?: (taskId: string, message?: string) => void | Promise<void>;
   liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
   actions?: React.ReactNode;
-  decisionActions?: React.ReactNode;
+  navigationActions?: React.ReactNode;
 }) {
   const [actionBusy, setActionBusy] = React.useState<"cancel" | "resume" | null>(null);
   const [actionError, setActionError] = React.useState<string | null>(null);
@@ -104,16 +103,19 @@ export function TaskDetailPanel({
 
   if (loading && !currentDetail) {
     return (
-      <div role="status" {...stylex.props(styles.status)}>
-        Loading task details...
+      <div {...stylex.props(styles.root)}>
+        {actions}
+        <div role="status" {...stylex.props(styles.status)}>
+          Loading task details...
+        </div>
       </div>
     );
   }
   if (error && !currentDetail) {
-    return <TaskUnavailable message={error} />;
+    return <div {...stylex.props(styles.root)}>{actions}<TaskUnavailable message={error} /></div>;
   }
   if (!currentDetail) {
-    return <TaskUnavailable message="Task details are unavailable." />;
+    return <div {...stylex.props(styles.root)}>{actions}<TaskUnavailable message="Task details are unavailable." /></div>;
   }
 
   const selectedView: TaskDetailView = selectedRunId
@@ -133,6 +135,7 @@ export function TaskDetailPanel({
       if (runContext) {
         return (
           <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root, styles.runRoot)}>
+            {navigationActions}
             <TaskRunConversationView
               liveItems={liveRunItems?.get(runContext.run.id)}
               onBack={handleRunBack}
@@ -146,14 +149,7 @@ export function TaskDetailPanel({
 
     return (
       <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root)}>
-        {currentDetail.attention ? (
-          <TaskDecisionCard
-            attention={currentDetail.attention}
-            question={currentDetail.blockingQuestion}
-          >
-            {decisionActions}
-          </TaskDecisionCard>
-        ) : null}
+        {actions}
         <TaskStatusSummary
           key={`status:${taskId}`}
           actionBusy={actionBusy}
@@ -162,7 +158,6 @@ export function TaskDetailPanel({
           onCancel={onCancelTask ? () => runAction("cancel") : undefined}
           onResume={onResumeTask ? (message) => runAction("resume", message) : undefined}
         />
-        {actions ? <div {...stylex.props(styles.actions)}>{actions}</div> : null}
         <TaskTextSection key={`request:${taskId}`} text={currentDetail.request} />
         <TaskRevisionTimeline
           onSelectRun={(run) => {
@@ -294,11 +289,10 @@ const styles = stylex.create({
   scrollFrame: { overflowX: "hidden", overflowY: "auto" },
   exitingFrame: { position: "absolute", inset: 0, pointerEvents: "none" },
   root: { display: "grid", minWidth: 0 },
-  runRoot: { minHeight: 0, height: "100%" },
+  runRoot: { gridTemplateRows: "auto minmax(0, 1fr)", minHeight: 0, height: "100%" },
   status: { padding: 8, color: "var(--noema-text-secondary)", fontSize: 13 },
   unavailable: { padding: 8, color: "var(--noema-text-secondary)", fontSize: 13, lineHeight: 1.45 },
   markdown: { color: "var(--noema-text-secondary)", fontSize: 13, lineHeight: 1.55 },
-  actions: { minWidth: 0, paddingBlock: 4, paddingInline: 8 },
   messages: { display: "grid", gap: 6, margin: 0, padding: 0, listStyle: "none" },
   message: { display: "grid", gap: 4, minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", paddingBlockStart: 7 },
   messageMeta: { display: "flex", justifyContent: "space-between", gap: 8, color: "var(--noema-text-muted)", fontSize: 10 },

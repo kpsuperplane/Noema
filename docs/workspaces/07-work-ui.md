@@ -180,6 +180,13 @@ Presentation labels may combine structured stage behavior, current run kind,
 and latest review verdict, but this adapter is not persisted and never becomes
 a second task-state authority.
 
+The top task-control row is capability-driven and uses icon controls with
+accessible labels and hover tooltips. Cancel and Retry appear only when the
+server includes those semantic actions in `validActions`; Open in Work appears
+only outside the Work route, and Close appears when the host surface supplies a
+close action. When human attention is active, this row lives inside the top of
+the decision card instead of being duplicated in the rail header.
+
 | Action | Interaction |
 | --- | --- |
 | Queue | Confirms the current Inbox version and submits its revision/generation. |

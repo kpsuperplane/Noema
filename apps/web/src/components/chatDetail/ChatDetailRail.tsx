@@ -1,6 +1,5 @@
 import React from "react";
 import * as stylex from "@stylexjs/stylex";
-import { Link } from "@tanstack/react-router";
 import {
   ArtifactDetailPanel,
   ArtifactDownloadAction,
@@ -10,7 +9,6 @@ import type { ChatDetailTarget } from "./chatDetailTypes";
 import { TaskDetailQueryPanel } from "./task/TaskDetailQueryPanel";
 import { ArtifactVersionSelector } from "./ArtifactVersionSelector";
 import { ChatDetailCloseButton } from "./ChatDetailCloseButton";
-import { normalizeWorkSearch } from "@/components/work/workTypes";
 
 export function ChatDetailRail({
   target,
@@ -143,13 +141,7 @@ export function ChatDetailRail({
       >
         <header {...stylex.props(styles.header)}>
           {target.type === "task" ? (
-            <div {...stylex.props(styles.taskTitleRow)}>
-              <h2 {...stylex.props(styles.title)}>{title}</h2>
-              <div {...stylex.props(styles.actions)}>
-                {showWorkLink ? <Link to="/work/tasks/$taskId" params={{ taskId: target.taskId }} search={(current) => normalizeWorkSearch(current)} {...stylex.props(styles.workLink)}>Open in Work</Link> : null}
-                <ChatDetailCloseButton closeButtonRef={closeButtonRef} onClose={onClose} />
-              </div>
-            </div>
+            <h2 {...stylex.props(styles.title)}>{title}</h2>
           ) : (
             <>
               <div {...stylex.props(styles.actionRow)}>
@@ -174,7 +166,10 @@ export function ChatDetailRail({
             <ArtifactDetailPanel version={target.version} onDetailChange={updateArtifactDetail} />
           ) : (
             <TaskDetailQueryPanel
+              closeButtonRef={closeButtonRef}
+              onClose={onClose}
               onTitleChange={handleTaskTitleChange}
+              showWorkLink={showWorkLink}
               taskId={target.taskId}
             />
           )}
@@ -237,13 +232,6 @@ const styles = stylex.create({
     alignItems: "start",
     gap: 12
   },
-  taskTitleRow: {
-    minWidth: 0,
-    display: "grid",
-    gridTemplateColumns: "minmax(0, 1fr) auto",
-    alignItems: "center",
-    gap: 12
-  },
   versionSlot: {
     minWidth: 0
   },
@@ -251,15 +239,6 @@ const styles = stylex.create({
     display: "flex",
     alignItems: "start",
     gap: 8
-  },
-  workLink: {
-    minHeight: 30,
-    display: "inline-flex",
-    alignItems: "center",
-    color: "var(--noema-pine-700)",
-    fontSize: 12,
-    fontWeight: 650,
-    textDecoration: "none"
   },
   title: {
     margin: 0,

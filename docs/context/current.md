@@ -331,7 +331,10 @@ The next storage slice should stay small and concrete:
   than duplicating task context across cards and detail views. A task waiting
   on an answer now leads with one high-prominence decision card containing the
   gate question, supporting context, response field, and Answer action; the
-  generic action row no longer duplicates that interaction. The compact chat
+  generic action row no longer duplicates that interaction. Its top control
+  row uses tooltip-backed icons for server-authorized Cancel/Retry and
+  host-supplied Open in Work/Close capabilities, with inapplicable controls
+  omitted. The compact chat
   Work panel also partitions current attention out of Active, so the same task
   never appears in both visible sections. Activity shows
   user-facing milestones with task identity and a compact terminal-run

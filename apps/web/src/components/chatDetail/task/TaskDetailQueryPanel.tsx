@@ -5,7 +5,7 @@ import {
   WorkTaskEventsDocument,
   type WorkTaskDetailQuery
 } from "@/generated/graphql";
-import { TaskActions } from "@/components/work/TaskActions";
+import { TaskActions, TaskNavigationControls } from "@/components/work/TaskActions";
 import { useAllWorkProjects } from "@/components/work/useAllWorkProjects";
 import { useTaskEventCursor } from "./taskEventCursor";
 import { TaskDetailPanel } from "./TaskDetailPanel";
@@ -25,10 +25,16 @@ type WorkDetail = NonNullable<WorkTaskDetailQuery["task"]>;
 
 export function TaskDetailQueryPanel({
   taskId,
-  onTitleChange
+  onTitleChange,
+  onClose,
+  closeButtonRef,
+  showWorkLink = true
 }: {
   taskId: string;
   onTitleChange?: (title: string | null) => void;
+  onClose: () => void;
+  closeButtonRef?: React.RefObject<HTMLButtonElement | null>;
+  showWorkLink?: boolean;
 }) {
   const result = useQuery(WorkTaskDetailDocument, {
     variables: { taskId },
@@ -55,27 +61,35 @@ export function TaskDetailQueryPanel({
   }, [onTitleChange, task?.title]);
 
   const detail = React.useMemo(() => task ? mapWorkTaskDetail(task) : null, [task]);
-  const embedsAnswer = Boolean(
-    task && detail?.attention && task.validActions.includes("ANSWER")
-  );
+  const navigation = { taskId, showWorkLink, onClose };
+  const decision = detail?.attention ? {
+    attention: detail.attention,
+    question: detail.blockingQuestion
+  } : undefined;
   const actions = task ? (
     <TaskActions
       compact
-      inlineAnswer={embedsAnswer}
+      closeButtonRef={closeButtonRef}
+      decision={decision}
+      inlineAnswer={Boolean(decision && task.validActions.includes("ANSWER"))}
+      navigation={navigation}
       task={task}
       validActions={task.validActions}
       projects={projects.projects}
       onUpdated={async () => { await result.refetch(); }}
     />
-  ) : null;
+  ) : <TaskNavigationControls navigation={navigation} closeButtonRef={closeButtonRef} />;
+  const navigationActions = (
+    <TaskNavigationControls navigation={navigation} />
+  );
 
   return (
     <TaskDetailPanel
-      actions={embedsAnswer ? null : actions}
-      decisionActions={embedsAnswer ? actions : null}
+      actions={actions}
       detail={detail}
       error={result.error ? "Task details could not be loaded." : null}
       loading={result.loading}
+      navigationActions={navigationActions}
       taskId={taskId}
     />
   );
