@@ -1,152 +1,236 @@
-# Noema Work
+# Work Contract
 
-## Status
+This document records the current durable contract for Noema Work. It replaces
+the completed design program and multi-agent implementation packets that
+originally built the subsystem. Git history owns those execution details; new
+work should follow the current code and this contract rather than reconstructing
+the old horizontal program.
 
-This package is the authoritative design and implementation program for Noema's
-first workspace, project, and task-management release. It expands the existing
-background-task system into a chat-first Work system without introducing a
-second task object or importing coding-project assumptions into Noema's core.
+## Product boundary
 
-The documents describe the implemented contract. The accepted packets replace
-the former `TaskStatus`-based background-task implementation with one Work
-domain shared by chat, runtime orchestration, GraphQL, and the `/work` surface.
+Work is Noema's durable system for capturing, organizing, executing, reviewing,
+and accepting tasks. Chat is the simplest entry point, while `/work` provides a
+denser management surface. Both operate on the same task and semantic command
+model.
 
-| Area | Contract revision | Implementation |
-| --- | --- | --- |
-| Product contract | Frozen | Not applicable |
-| Workspace/project/task domain | Frozen | Accepted |
-| SQLite and event ledger | Frozen | Accepted |
-| Commands and reconciliation | Frozen | Accepted |
-| Runtime and chat integration | Frozen | Accepted |
-| GraphQL contract | Frozen | Accepted |
-| Work UI | Frozen | Accepted |
-| Validation and rollout | Frozen | Accepted |
+The current product has:
 
-Update this table only when an implementation packet has passed its acceptance
-gate. "In progress" means an agent owns the packet; it does not mean partially
-implemented behavior is a supported product contract.
+- one seeded Personal workspace and one seeded Personal workflow;
+- optional projects that organize tasks without changing their execution;
+- one canonical task object shared by chat, runtime, API, and UI;
+- planner, executor, and reviewer runs supervised by the runtime;
+- explicit human gates for clarification, approval, recovery, and acceptance;
+- immutable execution contracts, submissions, and reviews;
+- a monotonic event ledger for audit and client invalidation.
 
-## Product Direction
+Work is a general personal-task system. Repository scanning, branches,
+worktrees, terminals, commits, and pull requests are adapter concerns rather
+than core task concepts.
 
-Noema remains centered on one simple, primary conversation. Work adds durable
-organization and asynchronous execution underneath that conversation, plus a
-more powerful `/work` surface for users who want to inspect and manage it
-directly.
+## State authority
 
-The first release has one Personal workspace, optional projects, and one
-canonical task object. Every task is intended for agent execution. Inbox holds
-captured work that has not been authorized; Queue authorizes Noema to plan and
-execute it; Doing covers automated work; Waiting and Review are the human gates;
-Completed and Cancelled live in history.
-
-## Source Of Truth
-
-Noema intentionally does not persist separate workflow, lifecycle, and
-task-execution status axes.
+Each question has one authority:
 
 | Question | Authority |
 | --- | --- |
-| Where is the task in the user workflow? | `tasks.stage_id` |
-| What is an agent doing right now? | Current `agent_runs.run_kind` and `agent_runs.status` |
-| What requirements and context govern this attempt? | Immutable `task_execution_contracts` version |
-| Why does the task need the human? | Unresolved `task_gates`, or an approved review while the task is in Review |
-| What happened and in what order? | Monotonic `work_events` ledger |
-| What result can be accepted? | Latest submission and independent review records |
+| Where is a task in the workflow? | `tasks.stage_id` |
+| What is an agent doing now? | Current `agent_runs.run_kind` and `agent_runs.status` |
+| What governs this attempt? | Current immutable `task_execution_contracts` generation |
+| Why does the human need to act? | The unresolved `task_gates` record, or an approved review awaiting acceptance |
+| What can be accepted? | The latest immutable submission and independent review |
+| What happened? | Monotonic `work_events` audit records |
 
-UI labels such as "reviewer queued" or "needs clarification" are projections
-of those authorities. They must never become another mutable task-status field.
+Attention labels, valid actions, completion labels, and board groupings are
+derived projections. They must not become mutable status fields or alternate
+state machines. The event ledger is audit and invalidation data, not a replay
+authority.
 
-## Reading Order
+## Workflow
 
-1. [Product contract](00-product-contract.md) defines the experience, user
-   journeys, release boundary, and non-goals.
-2. [System architecture](01-system-architecture.md) assigns subsystem ownership
-   and describes the end-to-end data flows.
-3. [Domain model](02-domain-model.md) defines the public types, stage semantics,
-   commands, invariants, and transition matrix.
-4. [Storage and events](03-storage-and-events.md) defines the pre-V1 schema,
-   transactional recipes, indexes, cursors, and idempotency rules.
-5. [Commands and reconciliation](04-commands-and-reconciliation.md) defines
-   every state-changing operation and crash-recovery decision.
-6. [Runtime and chat](05-runtime-and-chat.md) defines planning, execution,
-   review, tool visibility, context, gates, and chat delivery.
-7. [GraphQL contract](06-graphql-contract.md) defines all first-party client
-   queries, mutations, subscriptions, errors, and bounded projections.
-8. [Work UI](07-work-ui.md) defines routes, views, interactions, responsive
-   behavior, accessibility, and reuse of the current task detail rail.
-9. [Validation and rollout](08-validation-and-rollout.md) maps requirements to
-   tests and defines the schema-reset release gate.
-10. [Future roadmap](09-future-roadmap.md) sequences deferred orchestration,
-    planning, collaboration, context, and integration work.
+The Personal workflow maps seven fixed behaviors to user-facing stages:
 
-Implementation followed the [multi-agent program](implementation/README.md).
-Each accepted packet owned disjoint files and ended with a concrete handoff and
-validation gate.
-
-## Relationship To Existing Documentation
-
-This package specializes and extends, rather than replaces, the broader Noema
-contracts:
-
-- [Project direction](../project.md) defines Noema's overall product and object
-  model.
-- [Current durable context](../context/current.md) records the implementation
-  that exists today.
-- [Background task system](../superpowers/plans/2026-07-11-background-task-system.md)
-  defines the executor/reviewer foundation being generalized.
-- [Frontend object model](../frontend/object-model.md) defines common governed
-  objects and presentation principles.
-- [Frontend navigation workflows](../frontend/navigation-workflows.md) defines
-  chat-led progressive disclosure.
-- [Harness runtime](../harness/runtime.md), [capabilities](../harness/capabilities.md),
-  and [security](../harness/security.md) remain authoritative for run envelopes,
-  capabilities, approvals, and trust boundaries.
-- [SQLite](../sqlite.md) remains authoritative for local database ownership and
-  location.
-
-If this package conflicts with a general security, capability, or trust rule,
-the stricter general rule wins. For Work-specific schema and API behavior, this
-package records the accepted pre-V1 contract.
-
-## Claude-Kanban Mapping
-
-The local [Claude-Kanban](https://github.com/PeiAllen/claude-kanban) repository
-is useful architectural prior art, but Noema has a different product center.
-
-| Treatment | Concepts |
-| --- | --- |
-| Borrow | One backend source of truth, semantic commands, idempotent reconciliation, leases and generation fencing, durable inboxes, monotonic event feeds, attention queues, and archive/reopen |
-| Adapt | A card becomes a general Noema task; a live coding session becomes a bounded planner/executor/reviewer run; Needs You covers clarification, approval, recovery, and human acceptance |
-| Reject from core | Repository scanning, worktrees, branches, Git status, terminals, tmux, diffs, commits, pull requests, SSH topology, and the assumption that one task equals one process/session |
-
-Coding workflows may later implement optional execution adapters. They must not
-change the Work-domain task, stage, command, gate, or event contracts.
-
-## Settled First-Release Defaults
-
-- The only exposed workspace is seeded `workspace:personal`.
-- Projects are optional task containers with a name, description, and archive
-  state.
-- The global conversation has no sticky project scope. A task receives a
-  project only from an explicit reference.
-- All task execution uses the existing global executor and reviewer pools.
-- Human acceptance is required after automated reviewer approval.
-- Board transitions are semantic actions, not freeform drag-and-drop.
-- Task metadata is intentionally minimal: title, description, optional project,
-  stage, provenance, and derived run/review information.
-- Schema changes rewrite the pre-V1 bootstrap schema directly; there is no
-  compatibility layer or mixed-schema operation.
-
-## Implementation Program
-
-| Packet | Owner area | Depends on |
+| Stage | Behavior | Meaning |
 | --- | --- | --- |
-| [Domain contracts](implementation/01-domain-contracts.md) | `noema-workspaces`, `noema-tasks` | Contract freeze |
-| [Store and events](implementation/02-store-and-events.md) | Work-related `noema-store` modules | Domain contracts |
-| [Runtime and tools](implementation/03-runtime-and-tools.md) | Work-related `noema-runtime` modules | Domain contracts and store signatures |
-| [GraphQL API](implementation/04-graphql-api.md) | Work-related `noema-api` modules | Domain contracts and store signatures |
-| [Work UI](implementation/05-work-ui.md) | Work/task/shell areas of `apps/web` | Frozen GraphQL schema |
-| [Integration](implementation/06-integration.md) | Manifests, generated files, cross-crate integration, final gates | All packets |
+| Inbox | `Intake` | Captured but not authorized to run |
+| Queue | `Dispatch` | Authorized and waiting for the appropriate role |
+| Doing | `Active` | Planning, execution, or automated review is active |
+| Waiting | `HumanGate` | A structured human response is required |
+| Review | `Acceptance` | An approved result awaits human acceptance |
+| Completed | `TerminalSuccess` | The human accepted the result |
+| Cancelled | `TerminalCancelled` | The human cancelled the task |
 
-The program coordinator owns contract changes and generated files. Parallel
-agents may not create temporary duplicate contracts to bypass a dependency.
+Terminal stages are history-only. Stage behavior, rather than display text or
+English intent matching, controls transitions and available operations.
+
+The normal path is:
+
+1. Capture creates an Inbox task. Queue authorizes planning, while primary-chat
+   delegation may atomically capture and authorize a task.
+2. A Planner produces a complete execution plan or opens a structured gate. A
+   complete delegated intent may skip planning and queue an Executor directly.
+3. The accepted plan becomes a new immutable execution contract. An Executor
+   produces a submission or opens a gate.
+4. A Reviewer independently evaluates the submission. Requested changes queue
+   another bounded execution attempt; approval moves the task to Review.
+5. The human accepts the reviewed result, requests a new contract generation,
+   or cancels the task.
+
+## Commands and transactions
+
+Public mutations use semantic Work commands: capture, update Inbox, queue,
+answer, retry, accept, request changes, cancel, reopen, delegate, and the
+project create/update/archive/reopen operations. Do not expose a generic
+`set_stage` operation.
+
+Task commands carry the expected task revision and execution generation.
+Project commands carry the expected project revision. Idempotency keys,
+correlation IDs, actor identity, and causation IDs are command metadata, not
+resolver-local conventions.
+
+The store command service owns each mutation transaction. A successful command
+commits all of the following together when applicable:
+
+- canonical task, gate, contract, run, submission, review, or project state;
+- optimistic revision and generation changes;
+- the audit event and required notification outbox records;
+- the idempotency receipt and stable result.
+
+An idempotent retry returns the original result. A stale revision, stale
+generation, invalid stage, wrong gate, or superseded run fails without partial
+effects. API resolvers, runtime workers, and tools must not assemble these
+cross-table transitions themselves.
+
+Cancellation and reopen increment the generation so old runnable work cannot
+mutate the new task lifetime. Request changes also creates a new generation and
+an immutable amended contract. Answer and retry preserve the generation while
+resuming the role explicitly recorded by the gate.
+
+## Runs, gates, and reconciliation
+
+`RunKind` is Planner, Executor, or Reviewer. `RunStatus` is run-local queue and
+lease state; it is never task workflow state. A run persists its exact provider
+selection, execution policy, generation, contract lineage, parentage, attempt,
+and review round before it becomes runnable.
+
+Workers claim bounded leases, heartbeat while active, and publish only through
+role-specific terminal contracts. Generation, lease token, run kind, and
+contract lineage are rechecked when accepting terminal output. Provider calls,
+tool calls, token counts, timing, and errors remain attributable to the run.
+
+Human gates are typed records with one open gate at a time. Clarification and
+approval gates resume the recorded role after a valid answer. Recovery gates
+encode a closed recovery reason and an explicit safe continuation role when a
+retry is allowed. Free-form text does not decide gate semantics.
+
+Reconciliation derives one next action from durable facts. It may queue the
+role compatible with the current contract, materialize a completed plan, move
+an approved review to acceptance, resume a resolved gate, open a recovery gate,
+or fence stale runnable work. Contradictory state fails closed or opens an
+invariant-recovery gate; it does not guess from event text.
+
+The essential compatibility rule is simple: Planner runs exist before a
+contract, while Executor and Reviewer runs require a contract. Terminal and
+human-gated tasks cannot retain runnable work.
+
+## Persistence and events
+
+SQLite is canonical and is opened only by the Noema server. The pre-V1 schema
+may be rewritten directly; do not add migrations or compatibility layers
+without an explicit product requirement.
+
+Work persists concrete workspace, project, workflow, stage, task, contract,
+criterion, gate, run, run-item, submission, review, command-receipt, event, and
+notification records. Foreign keys and unique indexes enforce identity and
+lineage where SQLite can express them; command transactions enforce the
+cross-record behavioral invariants.
+
+`work_events` has a monotonic cursor and stable event identity. It supports
+audit, subscriptions, and invalidation, but clients recover canonical state
+through bounded reads after reconnect. Event payloads should identify affected
+objects and facts needed by those consumers, without duplicating the full
+aggregate.
+
+Runtime queue claims use transactional leases. Expired or interrupted work is
+reconciled against current generation and durable outputs before retrying, so a
+crash cannot silently duplicate an accepted terminal effect.
+
+## Runtime and tools
+
+The runtime owns worker supervision, provider dispatch, bounded context,
+role-specific prompts and tools, lease renewal, and reconciliation scheduling.
+The store remains the authority for admission and transition validity.
+
+Task workers receive only the context needed for their role: the current task,
+contract, relevant prior output, bounded transcript, provider snapshot, and
+execution policy. They do not receive unrestricted primary-chat authority.
+
+Tool visibility follows capability and approval policy. The primary agent may
+delegate a task through the semantic composition; task agents may publish only
+the structured outputs allowed for their run kind. External writes remain
+governed by the capability system and exact approval state.
+
+Task progress and task-originated notices appear in the primary conversation as
+concise durable markers. Detailed run transcripts remain attached to the task
+and should not flood the main chat.
+
+## API and UI
+
+GraphQL exposes bounded workspace, project, task-list, task-detail, transcript,
+and overview reads; semantic mutations; and a cursor-based Work event
+subscription. Inputs map to domain commands, and resolver projections derive
+attention and valid actions from canonical store facts.
+
+Clients must use generated GraphQL types and server-owned valid actions. Do not
+mirror stage-transition rules in TypeScript. After reconnect, clients refetch
+canonical reads and use the event cursor only to invalidate or advance them.
+
+The primary chat shows compact task markers and human decisions when action is
+needed. `/work` shows the Inbox, active board, history, project organization,
+and task detail. Both reuse the same task-detail and decision components.
+Internal IDs, raw run counters, provider details, and audit evidence stay behind
+progressive disclosure unless they directly explain the next human action.
+
+UI hierarchy and behavior follow `docs/frontend/product-design.md`. Backend
+field availability alone is not a reason to display a field, and controls stay
+hidden until their mutation is implemented.
+
+## Code ownership
+
+The current implementation is organized by responsibility:
+
+- `crates/noema-workspaces` owns workspace and project domain records;
+- `crates/noema-tasks` owns Work task, workflow, command, planning, gate, run,
+  event, contract, submission, and review vocabulary;
+- Work modules in `crates/noema-store` own SQLite commands, reads, leases,
+  reconciliation, events, and notifications;
+- Work modules in `crates/noema-runtime` own supervised task execution and
+  runtime tools;
+- task modules in `crates/noema-api` own GraphQL projections and resolvers;
+- `apps/web` owns chat and `/work` presentation using generated contracts.
+
+These are responsibility boundaries, not a mandate to split feature work
+horizontally. New behavior should be implemented as one small vertical slice,
+reuse the existing command path, and follow `docs/development/simplicity.md`.
+
+## Validation and deferred scope
+
+Tests should concentrate on transition authority, transactional atomicity,
+idempotency, revision/generation fencing, lease races, recovery decisions,
+provider/tool boundaries, and demonstrated regressions. Pass-through mappings,
+enum mirrors, and the same transition repeated at every layer do not need
+separate tests.
+
+The following remain outside the current contract until a concrete product
+slice requires them:
+
+- multiple user-configurable workflows or workspace administration;
+- dependency graphs, recurring schedules, collaborative assignment, and
+  multi-user permissions;
+- generic event replay or event-sourced aggregate reconstruction;
+- coding-specific Git, terminal, worktree, and pull-request concepts in core;
+- arbitrary drag-and-drop stage mutation;
+- compatibility machinery for obsolete pre-V1 schemas or APIs.
+
+When behavior changes, update this contract only for durable product or
+authority decisions. Keep implementation plans short, remove completed packets,
+and rely on Git history for execution detail.
