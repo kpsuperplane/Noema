@@ -194,7 +194,10 @@ controls; the task brief; activity; then metadata. The positions stay fixed
 while the current-state module changes for Intake, Dispatch, Active, human
 gates, Acceptance, completed work, and cancelled work. Recovery uses one
 response control: non-empty text resolves an eligible Answer, while an empty
-response requests Retry when the gate authorizes it.
+response requests Retry when the gate authorizes it. Activity is one
+chronological conversation stream: durable human task input uses the human
+message lane, while Planner, Executor, and Review runs use the response lane
+and remain available for transcript drill-in.
 Internal IDs, raw run counters, provider details, and audit evidence stay behind
 progressive disclosure unless they directly explain the next human action.
 

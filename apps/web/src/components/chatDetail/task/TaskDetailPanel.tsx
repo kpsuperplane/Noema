@@ -7,7 +7,7 @@ import type { TaskDetail, TaskRunItem } from "./taskTypes";
 import { TaskCriteria } from "./TaskCriteria";
 import { TaskDetails, taskStateHeading } from "./TaskOverview";
 import { TaskResult } from "./TaskResult";
-import { TaskCurrentRun, TaskRevisionTimeline, taskTimelineEntryCount } from "./TaskRevisionTimeline";
+import { TaskActivityTimeline, TaskCurrentRun, taskActivityEntryCount } from "./TaskRevisionTimeline";
 import { TaskRunConversationView } from "./TaskRunConversationView";
 
 type MarkdownXStyle = MarkdownProps["xstyle"];
@@ -115,7 +115,7 @@ export function TaskDetailPanel({
       }
     }
 
-    const selectRun = (run: Parameters<NonNullable<React.ComponentProps<typeof TaskRevisionTimeline>["onSelectRun"]>>[0]) => {
+    const selectRun = (run: Parameters<React.ComponentProps<typeof TaskActivityTimeline>["onSelectRun"]>[0]) => {
       if (!transitioning) {
         setSelectedRunKey({ taskId, runId: run.id });
       }
@@ -123,7 +123,8 @@ export function TaskDetailPanel({
     const currentRunId = currentDetail.stageBehavior === "ACTIVE"
       ? currentDetail.revisions.find((revision) => revision.latestRunId)?.latestRunId
       : null;
-    const activityCount = taskTimelineEntryCount(currentDetail.revisions, currentRunId) + (currentDetail.messages?.length ?? 0);
+    const messages = currentDetail.messages ?? [];
+    const activityCount = taskActivityEntryCount(currentDetail.revisions, messages, currentRunId);
 
     return (
       <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root)}>
@@ -139,8 +140,12 @@ export function TaskDetailPanel({
         />
         {activityCount > 0 ? (
           <TaskStaticSection count={activityCount} id="task-timeline-title" tabIndex={-1} title="Activity">
-            <TaskRevisionTimeline embedded excludeRunId={currentRunId} onSelectRun={selectRun} revisions={currentDetail.revisions} />
-            {currentDetail.messages?.length ? <TaskMessages messages={currentDetail.messages} /> : null}
+            <TaskActivityTimeline
+              excludeRunId={currentRunId}
+              messages={messages}
+              onSelectRun={selectRun}
+              revisions={currentDetail.revisions}
+            />
           </TaskStaticSection>
         ) : null}
         <TaskDetails key={`details:${taskId}`} detail={currentDetail} />
@@ -183,11 +188,6 @@ export function TaskDetailPanel({
   );
 }
 
-function formatDate(value: string): string {
-  const timestamp = Date.parse(value);
-  return Number.isNaN(timestamp) ? value : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(timestamp);
-}
-
 function taskViewKey(view: TaskDetailView): string {
   return view.kind === "run" ? `run:${view.runId}` : "overview";
 }
@@ -199,7 +199,7 @@ function TaskCurrentState({
 }: {
   detail: TaskDetail;
   actions?: React.ReactNode;
-  onSelectRun: React.ComponentProps<typeof TaskRevisionTimeline>["onSelectRun"];
+  onSelectRun: React.ComponentProps<typeof TaskActivityTimeline>["onSelectRun"];
 }) {
   const result = detail.stageBehavior === "ACCEPTANCE" || detail.stageBehavior === "TERMINAL_SUCCESS"
     ? <TaskResult embedded artifacts={detail.artifacts} result={detail.finalResult} />
@@ -266,26 +266,6 @@ function TaskBrief({
   );
 }
 
-function TaskMessages({ messages }: { messages: NonNullable<TaskDetail["messages"]> }) {
-  return (
-    <section aria-labelledby="task-updates-title" {...stylex.props(styles.activityGroup)}>
-      <h4 id="task-updates-title" {...stylex.props(styles.activityTitle)}>Updates</h4>
-      <ol {...stylex.props(styles.messages)}>
-        {messages.map((message) => (
-          <li key={message.id} {...stylex.props(styles.message)}>
-            <div {...stylex.props(styles.messageMeta)}>
-              <span>{message.author}</span><time dateTime={message.createdAt}>{formatDate(message.createdAt)}</time>
-            </div>
-            <TaskExpandableContent id={`task-message-${message.id}`}>
-              <Markdown autolink="gfm" contentWidth="100%" density="default" headingLevelStart={4} xstyle={markdownXStyle(styles.markdown)}>{message.body}</Markdown>
-            </TaskExpandableContent>
-          </li>
-        ))}
-      </ol>
-    </section>
-  );
-}
-
 function ReviewEvidence({ summary }: { summary: string }) {
   return (
     <div {...stylex.props(styles.reviewEvidence)}>
@@ -334,10 +314,5 @@ const styles = stylex.create({
   briefLabel: { margin: 0, color: "var(--noema-text-muted)", fontSize: 10, fontWeight: 650 },
   stateDescription: { margin: 0, color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: 1.45 },
   markdown: { color: "var(--noema-text-secondary)", fontSize: 13, lineHeight: 1.55 },
-  activityGroup: { display: "grid", gap: "var(--spacing-1-5)", minWidth: 0 },
-  activityTitle: { margin: 0, color: "var(--noema-text-secondary)", fontSize: 11, fontWeight: 650 },
-  messages: { display: "grid", gap: "var(--spacing-1-5)", margin: 0, padding: 0, listStyle: "none" },
-  message: { display: "grid", gap: "var(--spacing-1)", minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", paddingBlockStart: "var(--spacing-1-5)" },
-  messageMeta: { display: "flex", justifyContent: "space-between", gap: "var(--spacing-2)", color: "var(--noema-text-muted)", fontSize: 10 },
   reviewEvidence: { display: "grid", gap: "var(--spacing-1)", minWidth: 0 }
 });

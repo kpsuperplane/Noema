@@ -1,13 +1,19 @@
 import * as stylex from "@stylexjs/stylex";
 import * as React from "react";
-import { TaskStaticSection } from "./TaskSection";
+import { Message } from "@/components/transcript/Message";
+import { TranscriptChatBubble } from "@/components/transcript/TranscriptChatBubble";
 import { TaskToolMarker, type TaskToolMarkerStatus } from "./TaskToolMarker";
-import type { TaskRevision, TaskReview, TaskRun, TaskRunStatus } from "./taskTypes";
+import type { TaskDetail, TaskRevision, TaskReview, TaskRun, TaskRunStatus } from "./taskTypes";
 
 type TimelineEntry = {
   revision: TaskRevision;
   run: TaskRun;
 };
+
+type TaskMessage = NonNullable<TaskDetail["messages"]>[number];
+type ActivityEntry =
+  | { kind: "run"; id: string; occurredAt?: string | null; revision: TaskRevision; run: TaskRun }
+  | { kind: "message"; id: string; occurredAt: string; message: TaskMessage };
 
 export function TaskCurrentRun({
   revisions,
@@ -40,61 +46,72 @@ export function TaskCurrentRun({
   );
 }
 
-export function TaskRevisionTimeline({
+export function TaskActivityTimeline({
   revisions,
+  messages,
   onSelectRun,
-  embedded = false,
   excludeRunId = null
 }: {
   revisions: readonly TaskRevision[];
-  onSelectRun?: (run: TaskRun) => void;
-  embedded?: boolean;
+  messages: readonly TaskMessage[];
+  onSelectRun: (run: TaskRun) => void;
   excludeRunId?: string | null;
 }) {
-  const entries = timelineEntries(revisions).filter(({ run }) => run.id !== excludeRunId);
-  const now = useTaskRunClock(entries.some(({ run }) => run.status === "running"));
+  const entries = activityEntries(revisions, messages, excludeRunId);
+  const now = useTaskRunClock(entries.some((entry) => entry.kind === "run" && entry.run.status === "running"));
 
   if (entries.length === 0) {
     return null;
   }
 
-  const content = (
+  return (
     <ol {...stylex.props(styles.timeline)}>
-      {entries.map(({ revision, run }) => {
-        const label = runTimelineLabel(run, revision.review);
-        const status = runToolCallStatus(run, revision.review);
-        const duration = runDurationLabel(run, now);
-        const openRun = () => onSelectRun?.(run);
+      {entries.map((entry) => {
+        if (entry.kind === "message") {
+          return (
+            <li key={entry.id} {...stylex.props(styles.messageItem)}>
+              <Message
+                animate={false}
+                reserveAvatarSpace={false}
+                role="user"
+                showAvatar={false}
+                text={entry.message.body}
+              />
+              <time dateTime={entry.message.createdAt} {...stylex.props(styles.messageTime)}>
+                {formatActivityDate(entry.message.createdAt)}
+              </time>
+            </li>
+          );
+        }
+
+        const label = runTimelineLabel(entry.run, entry.revision.review);
         return (
-          <li key={run.id} {...stylex.props(styles.item)}>
-            <TaskToolMarker
-              activationLabel={`Open ${label} conversation`}
-              errorMessage={run.error ?? undefined}
-              id={run.id}
-              name={label}
-              onActivate={openRun}
-              status={status}
-              target={duration}
-            />
+          <li key={entry.id} {...stylex.props(styles.item)}>
+            <TranscriptChatBubble interactive reserveAvatarSpace={false} role="assistant" showAvatar={false}>
+              <button
+                type="button"
+                aria-label={`Open ${label} conversation`}
+                title={`Open ${label} conversation`}
+                onClick={() => onSelectRun(entry.run)}
+                {...stylex.props(styles.runButton)}
+              >
+                <span {...stylex.props(styles.runLabel)}>{label}</span>
+                <span {...stylex.props(styles.runDuration)}>{runDurationLabel(entry.run, now)}</span>
+              </button>
+            </TranscriptChatBubble>
           </li>
         );
       })}
     </ol>
   );
-
-  if (embedded) {
-    return content;
-  }
-
-  return (
-    <TaskStaticSection id="task-timeline-title" tabIndex={-1} title="Timeline">
-      {content}
-    </TaskStaticSection>
-  );
 }
 
-export function taskTimelineEntryCount(revisions: readonly TaskRevision[], excludeRunId?: string | null): number {
-  return timelineEntries(revisions).filter(({ run }) => run.id !== excludeRunId).length;
+export function taskActivityEntryCount(
+  revisions: readonly TaskRevision[],
+  messages: readonly TaskMessage[],
+  excludeRunId: string | null = null
+): number {
+  return activityEntries(revisions, messages, excludeRunId).length;
 }
 
 export function runTimelineLabel(run: TaskRun, review?: TaskReview | null): string {
@@ -175,6 +192,30 @@ function timelineEntries(revisions: readonly TaskRevision[]): TimelineEntry[] {
     });
 }
 
+function activityEntries(
+  revisions: readonly TaskRevision[],
+  messages: readonly TaskMessage[],
+  excludeRunId: string | null
+): ActivityEntry[] {
+  const entries: ActivityEntry[] = [
+    ...timelineEntries(revisions)
+      .filter(({ run }) => run.id !== excludeRunId)
+      .map(({ revision, run }) => ({ kind: "run" as const, id: run.id, occurredAt: run.createdAt, revision, run })),
+    ...messages.map((message) => ({
+      kind: "message" as const,
+      id: message.id,
+      occurredAt: message.createdAt,
+      message
+    }))
+  ];
+
+  return entries.sort((left, right) => {
+    const leftTimestamp = parseTimestamp(left.occurredAt) ?? Number.MAX_SAFE_INTEGER;
+    const rightTimestamp = parseTimestamp(right.occurredAt) ?? Number.MAX_SAFE_INTEGER;
+    return leftTimestamp - rightTimestamp || left.id.localeCompare(right.id);
+  });
+}
+
 function terminalRoleLabel(label: string, status: TaskRunStatus): string {
   switch (status) {
     case "failed":
@@ -216,13 +257,66 @@ function parseTimestamp(value?: string | null): number | null {
   return Number.isNaN(timestamp) ? null : timestamp;
 }
 
+function formatActivityDate(value: string): string {
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp)
+    ? value
+    : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(timestamp);
+}
+
 const styles = stylex.create({
   timeline: {
     display: "grid",
-    gap: 4,
+    gap: "var(--spacing-2)",
     margin: 0,
     padding: 0,
     listStyle: "none"
   },
-  item: { minWidth: 0 }
+  item: { minWidth: 0 },
+  messageItem: {
+    display: "grid",
+    minWidth: 0,
+    gap: "var(--spacing-0-5)",
+    justifyItems: "end"
+  },
+  messageTime: {
+    paddingInlineEnd: "var(--spacing-2)",
+    color: "var(--noema-text-faint)",
+    fontFamily: "var(--noema-font-mono)",
+    fontSize: 9,
+    lineHeight: 1.35,
+    whiteSpace: "nowrap"
+  },
+  runButton: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) auto",
+    minWidth: 0,
+    alignItems: "center",
+    gap: "var(--spacing-2)",
+    marginBlock: "calc(-1 * var(--spacing-2))",
+    marginInline: "calc(-1 * var(--spacing-4))",
+    borderWidth: 0,
+    borderRadius: 6,
+    backgroundColor: "transparent",
+    paddingBlock: "var(--spacing-2)",
+    paddingInline: "var(--spacing-4)",
+    color: "inherit",
+    font: "inherit",
+    outline: "none",
+    textAlign: "left",
+    cursor: "pointer"
+  },
+  runLabel: {
+    minWidth: 0,
+    color: "var(--noema-text-primary)",
+    fontWeight: 650,
+    overflowWrap: "anywhere"
+  },
+  runDuration: {
+    color: "var(--noema-text-muted)",
+    fontFamily: "var(--noema-font-mono)",
+    fontSize: 10,
+    fontVariantNumeric: "tabular-nums",
+    whiteSpace: "nowrap"
+  }
 });
