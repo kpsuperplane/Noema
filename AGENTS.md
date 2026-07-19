@@ -3,13 +3,15 @@
 ## Resources 
 - Project context: `docs/project.md`
 - Current project brief: `docs/context/current.md`
+- Engineering simplicity workflow: `docs/development/simplicity.md`
 - Product UI design guidance: `docs/frontend/product-design.md`
 
 ## Standards
 - Work on main branch unless explicitly instructed
-- Clean code and good architecture are of utmost priority. When implementing features or fixing bugs, take a bigger-picture look at the surrounding system before editing, and aggressively look for ways to deliver the change with the least new net code.
-- Unless specifically asked for a narrow fix, always fix the general failure mode or deeper architectural issue behind a bug. Do not special-case the exact prompt, example, input, or tool call that exposed it.
-- Consolidate existing logic whenever reasonable. Prefer improving or reusing the right abstraction over adding parallel paths, duplicate helpers, or narrowly scoped patches that leave the system more fragmented.
+- Optimize total system simplicity and net code, not local completeness. Read `docs/development/simplicity.md` before nontrivial implementation, refactoring, testing-policy, architecture, harness, or workflow work.
+- Fix the smallest general failure mode demonstrated by a bug. Do not expand into adjacent failure classes, redesign surrounding architecture, or add speculative extensibility unless the user requests it.
+- Prefer changing an existing authority over introducing a parallel abstraction. A new trait, port, DTO, compatibility layer, or generic framework requires at least two concrete production consumers; tests and hypothetical future use do not count.
+- Refactors must be net-negative unless they add named user-visible functionality. Consolidate existing logic whenever reasonable and stop a reduction slice that starts growing helper infrastructure.
 - The project is under active development, do not build backwards compatibility unless explicitly instructed
 - Early stage active development, schema changes may rewrite tables/docs directly. Do not add migrations or compatibility layers unless explicitly requested.
 - Try to keep code source files under 750 lines. It is not a hard rule, however any file exceeding that threshold should be inspected for refactor, split up, and cleanup opportunities
@@ -20,7 +22,10 @@
 - Preserve unrelated dirty worktree changes.
 - For architecture, memory, harness, frontend IA, or workflow work, read `docs/project.md`, `docs/context/current.md`, and the closest relevant docs first.
 - For nontrivial work, make the task mode explicit before proceeding: explore only, plan only, implement, adversarial review, or ship.
+- Before nontrivial implementation, state the observable outcome, non-goals, reuse/consolidation target, expected files, production/test code budget, planned tests with the unique risk each covers, and stop conditions. Do not edit until that brief is coherent.
+- Measure the patch with `bun run scripts/report-rust-size.ts --base <ref>` at milestone boundaries and before commit. Apply the task budget with `--max-production-net`, `--max-test-net`, and `--max-new-tests`; use `--require-net-negative` for refactors. Stop when the patch exceeds its production or test estimate by 50% or 500 lines, whichever is smaller.
 - Split long work at milestone boundaries. After a major commit or completed phase, summarize durable context into `docs/context/current.md` before continuing.
+- Keep `docs/context/current.md` below 300 lines. Replace stale material instead of appending milestone history; move durable subsystem decisions to the closest authoritative document and rely on Git history for completed execution detail.
 - Make a commit after finishing each unit of work unless explicitly instructed not to.
 - Treat raw `~/.codex/sessions` files as private source material. Read them only when asked, summarize durable decisions, and do not quote raw transcript unless explicitly requested.
 
@@ -32,9 +37,10 @@
 - For nontrivial visual work, ask for browser-inspection permission early when it has not already been granted. If visual inspection is not authorized, complete static and build validation but state that the layout was not visually verified.
 
 ## Review And Subagents
-- Keep narrow changes inline when delegation overhead would exceed the implementation work.
-- For implementation work, assign disjoint ownership by large areas (eg. frontend implementation, rust changes).
+- Keep changes expected to touch fewer than roughly 1,000 lines or two architectural areas inline when delegation overhead would exceed the work.
+- Parallel implementers own independently shippable vertical slices, not domain/store/runtime/API layers of one slice. The parent owns the total code and test budget and must stop local completeness from expanding global scope.
 - For adversarial review, reviewers should inspect and report findings without editing files.
+- Default to one review pass and one correction pass. Fix correctness, security, privacy, data-loss, and demonstrated-regression findings automatically; require explicit scope approval for speculative hardening, extensibility, or additional abstraction. Run another review only when the first found a serious unresolved defect.
 - The main agent owns final integration, validation, and the user-facing summary.
 
 ## Validation
@@ -46,6 +52,8 @@
   - `cargo clippy --workspace --all-targets -- -D warnings`
   - `cargo test --workspace --no-fail-fast`
 - Run unit tests only. Do not run smoke tests or fixture tests unless explicitly requested.
+- Add tests for unique risks at the authoritative layer. A bug normally gets one regression test; an ordinary feature normally gets three to eight focused tests. More than ten new Rust tests requires a written risk and redundancy justification before implementation continues.
+- Do not test derives, getters, constructors, enum mirrors, pass-through mappings/resolvers, or mock interactions unless they enforce an external compatibility or security contract. Do not repeat the same behavior through domain, store, API, and runtime layers unless each boundary owns materially different logic.
 - Do not write tests for UI/frontend work unless explicitly requested.
 - For frontend or UI work, do not inspect with browser tools unless explicitly requested.
 
