@@ -3,6 +3,7 @@
 ## Resources 
 - Project context: `docs/project.md`
 - Current project brief: `docs/context/current.md`
+- Product UI design guidance: `docs/frontend/product-design.md`
 
 ## Standards
 - Work on main branch unless explicitly instructed
@@ -22,6 +23,13 @@
 - Split long work at milestone boundaries. After a major commit or completed phase, summarize durable context into `docs/context/current.md` before continuing.
 - Make a commit after finishing each unit of work unless explicitly instructed not to.
 - Treat raw `~/.codex/sessions` files as private source material. Read them only when asked, summarize durable decisions, and do not quote raw transcript unless explicitly requested.
+
+## Product UI Work
+- Use the repo-local `noema-product-ui` skill for any task that designs, builds, reviews, or materially changes frontend layout, hierarchy, spacing, density, responsive behavior, or information disclosure.
+- Read `docs/frontend/product-design.md` and the closest surface contract before editing. Establish the human's job, the focal action or content, the information priority, and the intended grouping before choosing components or writing CSS.
+- Treat Noema as a dense product interface, not a marketing page. Do not add whitespace, cards, headings, icons, metadata, columns, or motion merely to make a screen feel designed; every structural device must communicate a relationship, priority, state, or action.
+- Use Astryx components and spacing tokens before one-off controls or raw spacing values. Reuse the existing shell, detail, transcript, and domain patterns instead of creating a parallel presentation for the same concept.
+- For nontrivial visual work, ask for browser-inspection permission early when it has not already been granted. If visual inspection is not authorized, complete static and build validation but state that the layout was not visually verified.
 
 ## Review And Subagents
 - Keep narrow changes inline when delegation overhead would exceed the implementation work.

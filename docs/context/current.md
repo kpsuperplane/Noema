@@ -561,6 +561,12 @@ The next storage slice should stay small and concrete:
   active Astryx/StyleX patterns in `apps/web` rather than copying
   design-kit demo components or CDN assumptions. (The former `design/` prototype
   kit and `mocks/` static IA prototype have been removed as dead scaffolding.)
+- Noema product UI work follows `docs/frontend/product-design.md` and the
+  repo-local `noema-product-ui` skill. Design starts from the human's job,
+  focal action, information priority, and semantic grouping; productive
+  surfaces use Astryx spacing tokens, reuse existing Noema presentation
+  patterns, and keep evidence or internals available through progressive
+  disclosure instead of flattening every field into the default view.
 - The route-derived L0 to L1 Settings navigation has landed from
   `docs/superpowers/specs/2026-06-30-route-derived-shell-settings-design.md`
   and

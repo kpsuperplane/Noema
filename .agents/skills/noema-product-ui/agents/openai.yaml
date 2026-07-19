@@ -1,0 +1,4 @@
+interface:
+  display_name: "Noema Product UI"
+  short_description: "Design dense, coherent Noema product interfaces"
+  default_prompt: "Use $noema-product-ui to design or review this Noema interface."
