@@ -33,7 +33,7 @@ Detailed subdocuments:
 - [Security model](harness/security.md): trust boundaries, ingress handling,
   egress protection, policy composition, durable approvals, and auditability.
 - [Governed actions](harness/action-governance.md): action-centered LLM review,
-  durable blocked actions, approval delivery, and public URL provenance.
+  durable blocked actions, approval delivery, and observed URL matching.
 - [Capability registry](harness/capabilities.md): tools, operations, adapters,
   contextual grants, schemas, and invocation lifecycle.
 - [Event ledger](harness/events.md): append-only run events, projections,

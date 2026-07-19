@@ -1,4 +1,4 @@
-# Governed Actions, Approvals, and Web Provenance
+# Governed Actions, Approvals, and Observed URLs
 
 This document is the working source of truth for how Noema reviews and executes
 capability actions that can create an external effect or disclose information.
@@ -27,17 +27,19 @@ agent proposes an exact action
   -> execute and record the outcome
 ```
 
-Untrusted context remains labeled and attributable, but its presence does not
-automatically disable capabilities. Provenance informs review of a particular
-action rather than becoming ambient permission state.
+Noema universally assumes that the active context may contain untrusted data
+and prompt injections. There is no runtime transition from clean to tainted and
+no attempt to reset or declassify the primary conversation. The action review
+compares one exact proposal with trusted human authority and the deterministic
+policy at the capability boundary.
 
 ## Core invariants
 
 1. Models may assess risk, but they do not create authority.
 2. Every write or export is represented as an exact structured action before
    adapter execution.
-3. An approval authorizes one immutable action fingerprint, not a prose intent
-   or a future model-generated replacement.
+3. An approval authorizes one immutable action revision and saved payload, not
+   a prose intent or a future model-generated replacement.
 4. Deterministic policy cannot be overridden by an LLM judgment.
 5. A failed or uncertain review becomes a human decision, not an automatic
    execution.
@@ -51,47 +53,63 @@ action rather than becoming ambient permission state.
 10. Product clients render server-owned action and approval state; they do not
     infer policy or workflow transitions.
 
-## Context exposure and action provenance
+## Universal exposure and trusted authority
 
-Noema records three related but distinct facts.
+Every agent run is treated as though it has already observed malicious or
+prompt-injected content. Noema does not persist a context-exposure boolean,
+ambient taint classes, or a clean/tainted session state because the long-lived
+primary conversation makes those distinctions permanently converge.
 
-### Context exposure
+The action reviewer instead receives a narrow trusted-authority channel:
 
-A run may record that it saw external or otherwise untrusted material. This is
-useful for audit and for selecting review policy, but it is not an execution
-gate by itself.
+- The authenticated human message that initiated the primary turn.
+- A bounded human-only message history when the latest message is too
+  elliptical to establish intent.
+- For Work, the originating human intent and the immutable task contract.
+- Explicit grants and prior human decisions.
 
-### Field provenance
+A model-produced task contract may narrow the originating human authority, but
+it cannot broaden it. Assistant text, model plans, tool results, web content,
+MCP content, and memory are always untrusted evidence rather than authority.
 
-Security-relevant action fields may carry provenance independently. Important
-examples include a destination, recipient, URL, resource identifier, local
-path, and data selected for export.
+### Structured evidence
 
-Provenance confidence has three levels:
+Noema makes provenance claims only for values whose origin can be reproduced
+through structured matching. Examples include:
 
-- **Verified:** the harness can prove the value came from a specific adapter
-  result or governed object, normally through an opaque reference.
-- **Model-claimed:** the model cites source references, but the harness cannot
-  prove that the generated value is an exact derivation.
-- **Unknown:** no useful lineage is available.
+- A URL exactly matching a URL previously emitted by a web adapter.
+- A recipient or object ID copied unchanged from a typed connector result.
+- A normalized phone number or email address matching a structured connector
+  field.
+- A file, task, artifact, or resource ID selected through a typed capability
+  result.
 
-Model-claimed provenance is evidence for the action reviewer, not a policy
-grant. Exact structural provenance should use opaque handles wherever possible
-so the harness can verify it without semantic inference.
+Finding the same value in arbitrary prose does not establish provenance. Model
+citations, textual similarity, and semantic classifiers cannot prove that a
+generated or reworded payload came from a particular source.
+
+### Payload identity is not payload provenance
+
+The gateway retains the exact canonical arguments proposed for execution so a
+human can inspect them and an approved action can later execute without model
+regeneration. The action ID, revision, and immutable payload snapshot provide
+the required identity. Noema does not claim which source sentences, memories,
+or tool results caused free-form payload content to be written.
 
 ### Action assessment
 
 The action gateway compares one canonical proposal against:
 
-- The current human instruction or immutable task contract.
+- Authenticated human intent, constrained by the immutable task contract when
+  the action belongs to Work.
 - Active grants, denies, revocations, and action-class policy.
 - The exact capability, operation, resource, destination, payload, and diff.
-- Field provenance and relevant context exposure.
+- Verified structured evidence where it exists.
 - The information leaving Noema and its expected audience.
 - Current capability metadata, schema, calibration, and authentication state.
 
-This assessment, rather than ambient conversation taint, decides whether the
-action can execute automatically.
+The reviewer assumes all other context is potentially hostile. This assessment
+decides whether the action can execute automatically.
 
 ## Action gateway
 
@@ -105,7 +123,7 @@ Deterministic validation runs before any LLM review. It includes:
 - Input schema validation and payload bounds.
 - Resource and destination constraints.
 - Active grants, hard denies, and revocations.
-- Tool metadata and calibration fingerprints.
+- Current tool metadata identity and calibration.
 - Secret and credential handling rules.
 - Network destination and SSRF policy where applicable.
 - Origin task generation, contract lineage, and cancellation state.
@@ -119,34 +137,52 @@ The reviewer answers semantic questions that deterministic policy cannot
 reliably answer, especially whether an action is supported by the human's
 intent or has been shaped unexpectedly by untrusted content.
 
+The reviewer follows the useful boundary demonstrated by
+[Hermes Guardian](https://github.com/kpsuperplane/hermes-guardian): authenticated
+owner intent is separated from model and tool context, deterministic hard rules
+run first, and the reviewer sees the real proposed action through a closed
+schema. Noema does not carry over Guardian's session-taint or semantic
+payload-provenance model.
+
 The reviewer receives a bounded, structured packet rather than an unrestricted
 conversation transcript:
 
-- The relevant human instruction or task contract.
+- The trusted-authority channel described above.
 - The canonical proposed action and human-readable diff or preview.
+- The actual bounded action arguments.
 - The deterministic policy result and active authority.
-- Provenance for security-relevant fields.
-- Relevant untrusted excerpts, clearly separated as evidence.
+- Verified structured evidence where available.
 - The proposed egress, destination, and audience.
 
 The reviewer has no capabilities or tools. Its response uses a closed schema:
 
 ```text
-authorization: supported | ambiguous | contradicted
-untrusted_influence: none | data_only | action_shaping | unknown
-egress: expected | unexpected | none | unknown
-recommendation: allow | manual_review
+authorization: explicit | substantive | weak | absent
+risk: low | medium | high | critical
+recommendation: auto_execute | require_approval
 reason_codes: [closed vocabulary]
 ```
 
-The audit record stores the reviewer model, prompt-policy version, action
-fingerprint, structured verdict, and evidence references. It should not copy a
-full sensitive transcript into an ordinary log.
+The reviewer assesses whether the proposed payload and destination are
+consistent with trusted human intent. This is semantic judgment, not a claim
+that Noema can trace paraphrased content to its source.
+
+The audit record stores the reviewer model, prompt-policy version, action ID and
+revision, structured verdict, authority references, and verified structured
+evidence. It should not copy the payload or a full sensitive transcript into an
+ordinary log.
 
 A timeout, provider failure, malformed response, unavailable reviewer, or
-unknown result becomes `manual_review`. The reviewer may clear automation only
-inside authority already supplied by deterministic policy, a human instruction,
-or a task contract.
+unknown result becomes `require_approval`. The reviewer may clear automation
+only inside authority already supplied by deterministic policy and the
+authenticated human instruction. A task contract can constrain that authority
+but cannot create it.
+
+When the current human message is too elliptical to decide authorization, the
+reviewer may request one retry with bounded human-only history. If the expanded
+context remains insufficient, the action requires approval. Reviewer results
+that request approval may be cached briefly for the same action revision;
+automatic-execution results are never cached across actions or revisions.
 
 ### Decision composition
 
@@ -159,12 +195,16 @@ hard deterministic violation
 deterministic approval requirement
   -> persist blocked action
 
-authorized action + clear LLM review
+authorized action + `auto_execute` LLM review
   -> execute
 
 review concern, contradiction, failure, or uncertainty
   -> persist blocked action
 ```
+
+The LLM reviewer does not issue non-approvable denials. Deterministic security
+rules are the sole authority for a hard deny; the reviewer either clears
+automation or asks the human.
 
 Some action classes may always require a human even when the review is clear.
 Candidate classes include public publication, destructive operations,
@@ -182,9 +222,9 @@ The record should contain:
 - Origin kind and origin reference.
 - Requesting agent and approving human.
 - Capability, operation, effect class, resource, and destination.
-- Canonical payload snapshot or governed payload reference.
-- Payload, schema, capability, calibration, and policy fingerprints.
-- Field provenance references.
+- Immutable canonical payload snapshot.
+- Schema, capability, calibration, and policy versions or identities.
+- Verified structured-evidence references, when present.
 - Deterministic decision and LLM assessment reference.
 - Current state, creation time, expiration, and supersession reason.
 - Continuation reference.
@@ -216,9 +256,9 @@ pending -> approved | declined | expired | superseded
 approved -> consumed | revoked
 ```
 
-An approval binds to the action ID, action revision, and complete action
-fingerprint. Changing the payload, destination, recipient, resource selector,
-capability metadata, policy version, or relevant origin state requires a new
+An approval binds to the action ID and immutable action revision. Changing the
+payload, destination, recipient, resource selector, capability metadata, policy
+version, or relevant origin state creates a new revision, which requires a new
 assessment and normally a new approval.
 
 "Approve with changes" creates a new action rather than mutating an approved
@@ -229,7 +269,7 @@ not silently become a permission system.
 Immediately before execution, the gateway rechecks:
 
 - Approval state, owner, expiry, and consumption state.
-- The complete action fingerprint.
+- The exact saved action revision and payload snapshot.
 - Capability availability, authentication, calibration, and current schema.
 - Active grants, denies, revocations, and policy version.
 - Origin cancellation, task generation, and contract lineage where relevant.
@@ -307,7 +347,7 @@ The default view shows:
 - Data leaving Noema and expected audience.
 - `Approve once` and `Decline` controls attached to the proposal.
 
-Judge evidence, provenance, policy versions, fingerprints, and raw adapter
+Judge evidence, verified structured matches, policy versions, and raw adapter
 details remain available through disclosure. Primary chat and task detail reuse
 one decision component and preserve the same information order at mobile
 widths.
@@ -316,60 +356,51 @@ The UI sends a semantic approval command with an expected action revision. It
 does not optimistically execute, infer approval from prose, or mirror the action
 state machine in TypeScript.
 
-## Web URL provenance
+## Observed URLs
 
-Web requests receive a narrow automatic fast path when Noema can prove that an
-exact URL came from a public, anonymous web chain and that Noema added no
-private request data.
+Web requests receive a narrow automatic fast path when the exact URL has
+already appeared in a governed web result. Whether the source calls the URL
+public is not important; the useful fact is that Noema's adapter previously
+observed the same structured value and the model has not added arguments to it.
 
-Public origin does not make a page or its instructions trustworthy. It only
-supports a lower egress-risk decision for retrieving the exact referenced URL.
-
-### URL references
-
-The web adapter should issue opaque `url_ref` values for:
+The web adapter maintains a bounded local `observed_urls` table. Candidate
+sources include:
 
 - Search-result destinations.
 - Links extracted from fetched response bytes.
 - Validated HTTP redirects.
 
-Each reference records:
+Each row stores the normalized URL, source kind, source event reference,
+observation time, and expiration. The table stores ordinary URLs and compares
+them directly. It does not introduce an opaque `url_ref`, URL fingerprint, or
+HMAC layer.
 
-- The exact and normalized URL.
-- The source search result, page, or redirect event.
-- The parent URL reference and provenance chain.
-- The originating request's egress and sensitivity classification.
-- Whether the source request was anonymous and public.
-- Creation and validation times.
+The model continues to call `web.fetch` with a normal URL. The gateway applies
+conservative normalization and performs an exact database match. Only the web
+adapter may insert observed rows; a model claim that a URL was previously seen
+has no authority.
 
-The model requests `web.fetch` using `url_ref` rather than copying the URL back
-as an unverified string. Arbitrary URL strings remain supported through the
-ordinary reviewed path.
+### Exact observed-URL predicate
 
-### Exact public-follow predicate
+Fetching a URL may bypass LLM and human review only when:
 
-Fetching a URL reference may bypass LLM and human review only when:
-
-1. Noema's web adapter created the reference from response bytes, a structured
-   search result, or a validated redirect.
-2. Every ancestor request was an anonymous public `GET` or `HEAD`.
-3. The new request remains `GET` or `HEAD` with no body.
-4. No credentials, cookies, private headers, or user-supplied arguments are
-   added.
-5. The URL is unchanged except for safe normalization such as dropping a
-   fragment.
-6. The ancestor chain did not carry private request material that could be
-   reflected into a cross-origin link.
-7. Current DNS, SSRF, redirect, scheme, and public-address checks pass again at
+1. The normalized URL exactly matches a fresh `observed_urls` row created by
+   the web adapter.
+2. The request uses `GET` or `HEAD` with no body.
+3. No credentials, cookies, private headers, or additional user-supplied
+   arguments are added.
+4. The URL is unchanged except for conservative normalization such as dropping
+   a fragment.
+5. Current DNS, SSRF, redirect, scheme, and public-address checks pass again at
    execution time.
 
 The fast path means `safe to retrieve automatically`, not `trusted content`.
-Fetched output remains untrusted, and links extracted from it receive their own
-provenance records.
+Fetched output remains untrusted, and URLs extracted from it are independently
+recorded in `observed_urls`.
 
 Changing query parameters, adding headers or a body, using authentication,
-submitting a non-read method, supplying a model-generated URL, or copying URL
-text breaks the exact chain and returns the request to ordinary action review.
+submitting a non-read method, or supplying an unobserved URL returns the request
+to ordinary action review.
 
 ### Search is two egress decisions
 
@@ -378,11 +409,24 @@ A web search has two distinct security decisions:
 1. Sending the query may disclose private context and can require redaction or
    LLM review.
 2. Following an exact returned destination is normally low risk once URL
-   provenance proves that Noema added no additional private data.
+   matching proves that Noema added no additional request data.
 
 A result URL can contain tracking or reflected query information. If the
 ancestor search disclosed private material, a cross-origin follow does not
-automatically receive the public fast path.
+automatically receive the observed-URL fast path.
+
+### Future structured form continuations
+
+The `GET`/`HEAD` rule is the first policy predicate, not a permanent statement
+that every request body is dangerous. A future browser adapter may record a
+structured form continuation containing the form action, method, field names,
+page-supplied values, and the values Noema proposes to add.
+
+That would let the gateway verify an unchanged form target and page-supplied
+fields while the action reviewer judges added values and the form's semantic
+effect. A harmless `POST`-backed search or navigation could then be treated as a
+read without treating arbitrary bodies or browser submissions as safe. The
+first implementation should not build this machinery.
 
 ## Audit events
 
@@ -409,17 +453,17 @@ observed action states.
 
 ## Implementation sequence
 
-1. **Action contract:** define governed-action, assessment, approval,
-   fingerprint, provenance, and revalidation invariants in the domain and
-   store authority.
+1. **Action contract:** define governed-action, assessment, approval, immutable
+   revision, trusted-authority, structured-evidence, and revalidation invariants
+   in the domain and store authority.
 2. **Primary write/export slice:** take one foreground MCP write or export from
    proposal through review, inline approval, exact execution, continuation,
    and audit.
 3. **Task and attention integration:** allow task runs to wait without holding
    leases, reuse the same approval component, and expose a global pending-action
    projection.
-4. **URL provenance:** introduce opaque references for search results, then
-   page links and redirects, and implement the exact-public-follow policy.
+4. **Observed URLs:** persist bounded normalized URLs from search results, then
+   page links and redirects, and implement the exact-match fast path.
 5. **Adversarial evaluation:** measure action-shaping injection detection,
    expected-data transformations, false escalations, provider failures, stale
    approvals, cancellation, and uncertain external outcomes.
@@ -442,5 +486,5 @@ runtime slice:
 4. How long should foreground and task approvals remain valid by default?
 5. Which reviewer model preference and fallback behavior should the first
    implementation expose?
-6. Should the first URL-reference slice support only search results, or search
-   results plus links extracted from fetched pages?
+6. Should the first `observed_urls` slice support only search results, or search
+   results plus links extracted from fetched pages and redirects?
