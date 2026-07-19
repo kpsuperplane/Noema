@@ -44,22 +44,15 @@ pub fn validate_parsed_public_url(url: Url) -> Result<Url, PublicUrlError> {
     }
     url.port_or_known_default()
         .ok_or(PublicUrlError::Malformed)?;
-    let host = url.host().ok_or(PublicUrlError::Malformed)?;
-    match host {
-        Host::Ipv4(ip) if !is_public_ip(IpAddr::V4(ip)) => {
-            return Err(PublicUrlError::BlockedTarget);
+    if match url.host().ok_or(PublicUrlError::Malformed)? {
+        Host::Ipv4(ip) => !is_public_ip(IpAddr::V4(ip)),
+        Host::Ipv6(ip) => !is_public_ip(IpAddr::V6(ip)),
+        Host::Domain(domain) => {
+            is_blocked_hostname(domain)
+                || is_alternate_ipv4_literal(domain).is_some_and(|ip| !is_public_ip(IpAddr::V4(ip)))
         }
-        Host::Ipv6(ip) if !is_public_ip(IpAddr::V6(ip)) => {
-            return Err(PublicUrlError::BlockedTarget);
-        }
-        Host::Domain(domain)
-            if is_blocked_hostname(domain)
-                || is_alternate_ipv4_literal(domain)
-                    .is_some_and(|ip| !is_public_ip(IpAddr::V4(ip))) =>
-        {
-            return Err(PublicUrlError::BlockedTarget);
-        }
-        Host::Ipv4(_) | Host::Ipv6(_) | Host::Domain(_) => {}
+    } {
+        return Err(PublicUrlError::BlockedTarget);
     }
     Ok(url)
 }
@@ -93,7 +86,7 @@ pub fn is_public_ip(ip: IpAddr) -> bool {
 }
 
 fn is_public_ipv4(ip: Ipv4Addr) -> bool {
-    let [a, b, _, _] = ip.octets();
+    let [a, b, c, _] = ip.octets();
     !(ip.is_private()
         || ip.is_loopback()
         || ip.is_link_local()
@@ -103,7 +96,7 @@ fn is_public_ipv4(ip: Ipv4Addr) -> bool {
         || a == 0
         || a == 100 && (64..=127).contains(&b)
         || a == 192 && b == 0
-        || a == 192 && b == 88 && ip.octets()[2] == 99
+        || a == 192 && b == 88 && c == 99
         || a == 198 && matches!(b, 18 | 19)
         || a >= 224)
 }

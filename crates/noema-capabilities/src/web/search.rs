@@ -122,7 +122,7 @@ pub fn tool_spec() -> Result<ToolSpec, ToolContractError> {
 ///
 /// Returns [`SearchArgumentError`] when arguments violate the contract.
 pub fn parse_arguments(payload: &Value) -> Result<SearchRequest, SearchArgumentError> {
-    let argument_value = nested_arguments(payload)?;
+    let argument_value = super::nested_arguments(payload).map_err(argument_error)?;
     let mut arguments: SearchArguments =
         serde_json::from_value(argument_value).map_err(|_| SearchArgumentError {
             message: "arguments do not match the web.search schema".to_string(),
@@ -136,18 +136,8 @@ pub fn parse_arguments(payload: &Value) -> Result<SearchRequest, SearchArgumentE
             "query must be {MAX_QUERY_CHARS} characters or fewer"
         )));
     }
-    let reason = arguments
-        .reason
-        .map(|reason| reason.trim().to_string())
-        .filter(|reason| !reason.is_empty());
-    if reason
-        .as_deref()
-        .is_some_and(|value| value.chars().count() > MAX_REASON_CHARS)
-    {
-        return Err(argument_error(&format!(
-            "reason must be {MAX_REASON_CHARS} characters or fewer"
-        )));
-    }
+    let reason = super::normalize_reason(arguments.reason, MAX_REASON_CHARS)
+        .map_err(|max| argument_error(&format!("reason must be {max} characters or fewer")))?;
     Ok(SearchRequest {
         query: arguments.query,
         reason,
@@ -156,22 +146,6 @@ pub fn parse_arguments(payload: &Value) -> Result<SearchRequest, SearchArgumentE
             .unwrap_or(DEFAULT_RESULTS)
             .clamp(1, MAX_RESULTS),
     })
-}
-
-fn nested_arguments(payload: &Value) -> Result<Value, SearchArgumentError> {
-    if let Some(arguments) = payload.get("arguments") {
-        let valid = payload
-            .as_object()
-            .is_some_and(|object| object.keys().all(|key| key == "arguments"));
-        if !valid {
-            return Err(argument_error(
-                "nested arguments payload cannot include outer fields",
-            ));
-        }
-        Ok(arguments.clone())
-    } else {
-        Ok(payload.clone())
-    }
 }
 
 fn argument_error(message: &str) -> SearchArgumentError {

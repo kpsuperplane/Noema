@@ -1,10 +1,12 @@
 //! Stable `web.fetch` request, result, schema, redaction, and parser contract.
 
-use crate::{ToolContractError, ToolSpec, web::url_policy};
+use crate::{ToolContractError, ToolSpec};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use thiserror::Error;
 use url::Url;
+
+use super::url_policy;
 
 /// Canonical web-fetch operation name.
 pub const WEB_FETCH_TOOL: &str = "web.fetch";
@@ -216,7 +218,7 @@ pub fn tool_spec() -> Result<ToolSpec, ToolContractError> {
 ///
 /// Returns [`FetchArgumentError`] when arguments violate the contract.
 pub fn parse_arguments(payload: &Value) -> Result<FetchRequest, FetchArgumentError> {
-    let argument_value = nested_arguments(payload)?;
+    let argument_value = super::nested_arguments(payload).map_err(argument_error)?;
     let mut arguments: FetchArguments =
         serde_json::from_value(argument_value).map_err(|_| FetchArgumentError {
             message: "arguments do not match the web.fetch schema".to_string(),
@@ -235,18 +237,8 @@ pub fn parse_arguments(payload: &Value) -> Result<FetchRequest, FetchArgumentErr
             "url must be {MAX_URL_CHARS} characters or fewer"
         )));
     }
-    let reason = arguments
-        .reason
-        .map(|reason| reason.trim().to_string())
-        .filter(|reason| !reason.is_empty());
-    if reason
-        .as_deref()
-        .is_some_and(|value| value.chars().count() > MAX_REASON_CHARS)
-    {
-        return Err(argument_error(&format!(
-            "reason must be {MAX_REASON_CHARS} characters or fewer"
-        )));
-    }
+    let reason = super::normalize_reason(arguments.reason, MAX_REASON_CHARS)
+        .map_err(|max| argument_error(&format!("reason must be {max} characters or fewer")))?;
     Ok(FetchRequest {
         url: arguments.url,
         reason,
@@ -316,22 +308,6 @@ fn sanitize_url_fields(value: &mut Value) {
             }
         }
         Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
-    }
-}
-
-fn nested_arguments(payload: &Value) -> Result<Value, FetchArgumentError> {
-    if let Some(arguments) = payload.get("arguments") {
-        let valid = payload
-            .as_object()
-            .is_some_and(|object| object.keys().all(|key| key == "arguments"));
-        if !valid {
-            return Err(argument_error(
-                "nested arguments payload cannot include outer fields",
-            ));
-        }
-        Ok(arguments.clone())
-    } else {
-        Ok(payload.clone())
     }
 }
 

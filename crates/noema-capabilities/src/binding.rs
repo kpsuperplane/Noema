@@ -124,7 +124,9 @@ pub trait PayloadSanitizer: Send + Sync {
 
     /// Produce an output view for success, tool-declared failure, or a fixed
     /// safe adapter/control-plane failure payload.
-    fn persist_output(&self, output: &Value) -> Option<Value>;
+    fn persist_output(&self, output: &Value) -> Option<Value> {
+        self.persist_arguments(output)
+    }
 }
 
 /// Recursively redact common secret fields while retaining ordinary payloads.
@@ -134,10 +136,6 @@ pub struct RedactingPayloadSanitizer;
 impl PayloadSanitizer for RedactingPayloadSanitizer {
     fn persist_arguments(&self, arguments: &Value) -> Option<Value> {
         Some(redact_secret_fields(arguments))
-    }
-
-    fn persist_output(&self, output: &Value) -> Option<Value> {
-        Some(redact_secret_fields(output))
     }
 }
 
@@ -151,12 +149,6 @@ impl PayloadSanitizer for WebFetchPayloadSanitizer {
             &web::fetch::sanitize_payload_for_storage(arguments),
         ))
     }
-
-    fn persist_output(&self, output: &Value) -> Option<Value> {
-        Some(redact_secret_fields(
-            &web::fetch::sanitize_payload_for_storage(output),
-        ))
-    }
 }
 
 /// Omit artifact file content and recursively redact remaining secrets.
@@ -167,10 +159,6 @@ impl PayloadSanitizer for ArtifactPayloadSanitizer {
     fn persist_arguments(&self, arguments: &Value) -> Option<Value> {
         Some(redact_secret_fields(&omit_artifact_content(arguments)))
     }
-
-    fn persist_output(&self, output: &Value) -> Option<Value> {
-        Some(redact_secret_fields(&omit_artifact_content(output)))
-    }
 }
 
 /// Omit arguments and outputs wholesale, as required for MCP payloads.
@@ -179,10 +167,6 @@ pub struct OmitPayloadSanitizer;
 
 impl PayloadSanitizer for OmitPayloadSanitizer {
     fn persist_arguments(&self, _arguments: &Value) -> Option<Value> {
-        None
-    }
-
-    fn persist_output(&self, _output: &Value) -> Option<Value> {
         None
     }
 }
@@ -286,14 +270,9 @@ impl CapabilityCatalogSnapshot {
         self.entries.iter()
     }
 
-    /// Return whether the catalog contains no bindings.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
     /// Return the number of bindings in the snapshot.
     #[must_use]
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.entries.len()
     }
@@ -400,6 +379,9 @@ pub trait CapabilityBindingSource: Send + Sync {
 /// Clonable source handle.
 pub type CapabilityBindingSourceHandle = Arc<dyn CapabilityBindingSource>;
 
+const SENSITIVE_FIELDS: &str =
+    "authorization api_key apikey access_token refresh_token password secret cookie";
+
 fn redact_secret_fields(value: &Value) -> Value {
     match value {
         Value::Object(object) => Value::Object(
@@ -407,21 +389,12 @@ fn redact_secret_fields(value: &Value) -> Value {
                 .iter()
                 .map(|(key, value)| {
                     let normalized = key.to_ascii_lowercase();
-                    let sensitive = [
-                        "authorization",
-                        "api_key",
-                        "apikey",
-                        "access_token",
-                        "refresh_token",
-                        "password",
-                        "secret",
-                        "cookie",
-                    ]
-                    .iter()
-                    .any(|needle| normalized.contains(needle));
                     (
                         key.clone(),
-                        if sensitive {
+                        if SENSITIVE_FIELDS
+                            .split_whitespace()
+                            .any(|needle| normalized.contains(needle))
+                        {
                             Value::String("[REDACTED]".to_string())
                         } else {
                             redact_secret_fields(value)
@@ -462,26 +435,26 @@ fn omit_artifact_version_contents(value: &Value) -> Value {
     Value::Array(
         versions
             .iter()
-            .map(|version| {
-                let Value::Object(object) = version else {
-                    return omit_artifact_content(version);
-                };
-                Value::Object(
+            .map(|version| match version {
+                Value::Object(object) => Value::Object(
                     object
                         .iter()
                         .map(|(key, value)| {
-                            let sanitized = if key == "content" {
-                                json!({
-                                    "omitted": true,
-                                    "character_count": value.as_str().map(|text| text.chars().count())
-                                })
-                            } else {
-                                omit_artifact_content(value)
-                            };
-                            (key.clone(), sanitized)
+                            (
+                                key.clone(),
+                                if key == "content" {
+                                    json!({
+                                        "omitted": true,
+                                        "character_count": value.as_str().map(|text| text.chars().count())
+                                    })
+                                } else {
+                                    omit_artifact_content(value)
+                                },
+                            )
                         })
                         .collect(),
-                )
+                ),
+                _ => omit_artifact_content(version),
             })
             .collect(),
     )

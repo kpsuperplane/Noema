@@ -1,12 +1,13 @@
 //! Serializable provider-visible tool contracts.
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::{fmt, str::FromStr};
 use thiserror::Error;
 
 /// Validated canonical Noema tool name.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
 pub struct ToolName(String);
 
 impl ToolName {
@@ -69,15 +70,6 @@ impl FromStr for ToolName {
     }
 }
 
-impl Serialize for ToolName {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(self.as_str())
-    }
-}
-
 impl<'de> Deserialize<'de> for ToolName {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -89,7 +81,8 @@ impl<'de> Deserialize<'de> for ToolName {
 }
 
 /// Validated JSON object schema.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(transparent)]
 pub struct ToolSchema {
     value: Value,
 }
@@ -101,17 +94,9 @@ impl ToolSchema {
     ///
     /// Returns [`ToolContractError::InvalidSchema`] for a non-object root.
     pub fn new_input(tool_name: &str, value: Value) -> Result<Self, ToolContractError> {
-        Self::new_with_kind(tool_name, "input", value)
-    }
-
-    fn new_with_kind(
-        tool_name: &str,
-        schema_kind: &str,
-        value: Value,
-    ) -> Result<Self, ToolContractError> {
         if value.get("type").and_then(Value::as_str) != Some("object") {
             return Err(ToolContractError::InvalidSchema(format!(
-                "tool {tool_name} {schema_kind} schema root must be an object"
+                "tool {tool_name} input schema root must be an object"
             )));
         }
         Ok(Self { value })
@@ -121,15 +106,6 @@ impl ToolSchema {
     #[must_use]
     pub fn as_value(&self) -> &Value {
         &self.value
-    }
-}
-
-impl Serialize for ToolSchema {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        self.value.serialize(serializer)
     }
 }
 

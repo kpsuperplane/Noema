@@ -280,16 +280,13 @@ impl<'a> CapabilityRegistryRouter<'a> {
                 },
                 output,
             }),
-            Err(error) => {
-                let mut failure = CapabilityDispatchFailure::from_snapshot(
-                    snapshot,
-                    canonical_name,
-                    &Value::Null,
-                    error,
-                );
-                failure.persisted.arguments = persisted_arguments;
-                Err(failure)
-            }
+            Err(error) => Err(CapabilityDispatchFailure {
+                persisted: PersistedCapabilityPayload {
+                    arguments: persisted_arguments,
+                    output: binding.persist_output(&error.safe_payload()),
+                },
+                error,
+            }),
         }
     }
 
