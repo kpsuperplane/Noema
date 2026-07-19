@@ -3,18 +3,37 @@ import { TaskStaticSection } from "./TaskSection";
 import { TaskToolMarker, type TaskToolMarkerStatus } from "./TaskToolMarker";
 import type { TaskCriterion, TaskCriterionVerdict } from "./taskTypes";
 
-export function TaskCriteria({ criteria }: { criteria: readonly TaskCriterion[] }) {
+export function TaskCriteria({
+  criteria,
+  embedded = false
+}: {
+  criteria: readonly TaskCriterion[];
+  embedded?: boolean;
+}) {
+  if (criteria.length === 0) {
+    return null;
+  }
+
+  const content = (
+    <ol {...stylex.props(styles.list)}>
+      {criteria.map((criterion) => (
+        <CriterionRow key={criterion.id} criterion={criterion} />
+      ))}
+    </ol>
+  );
+
+  if (embedded) {
+    return (
+      <div {...stylex.props(styles.embedded)}>
+        <h4 {...stylex.props(styles.embeddedTitle)}>Validation criteria</h4>
+        {content}
+      </div>
+    );
+  }
+
   return (
     <TaskStaticSection count={criteria.length} id="task-criteria-title" title="Validation criteria">
-      {criteria.length === 0 ? (
-        <p {...stylex.props(styles.empty)}>No validation criteria were recorded.</p>
-      ) : (
-        <ol {...stylex.props(styles.list)}>
-          {criteria.map((criterion) => (
-            <CriterionRow key={criterion.id} criterion={criterion} />
-          ))}
-        </ol>
-      )}
+      {content}
     </TaskStaticSection>
   );
 }
@@ -80,6 +99,18 @@ function criterionVerdictLabel(verdict: TaskCriterionVerdict): string {
 }
 
 const styles = stylex.create({
+  embedded: {
+    display: "grid",
+    gap: "var(--spacing-1-5)",
+    minWidth: 0,
+    paddingTop: "var(--spacing-1)"
+  },
+  embeddedTitle: {
+    margin: 0,
+    color: "var(--noema-text-secondary)",
+    fontSize: 11,
+    fontWeight: 650
+  },
   list: {
     display: "grid",
     gap: 4,
@@ -112,11 +143,5 @@ const styles = stylex.create({
     lineHeight: 1.45,
     overflowWrap: "anywhere",
     whiteSpace: "pre-wrap"
-  },
-  empty: {
-    margin: 0,
-    color: "var(--noema-text-secondary)",
-    fontSize: 12,
-    lineHeight: 1.45
   }
 });

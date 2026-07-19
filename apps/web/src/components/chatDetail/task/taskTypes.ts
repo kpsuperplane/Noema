@@ -10,6 +10,15 @@ export type TaskStatus =
 
 export type TaskComplexity = "simple" | "medium" | "difficult";
 
+export type TaskStageBehavior =
+  | "ACCEPTANCE"
+  | "ACTIVE"
+  | "DISPATCH"
+  | "HUMAN_GATE"
+  | "INTAKE"
+  | "TERMINAL_CANCELLED"
+  | "TERMINAL_SUCCESS";
+
 export type TaskRunRole = "planner" | "executor" | "reviewer";
 
 export type TaskRunStatus =
@@ -160,7 +169,8 @@ export type TaskDetail = {
   taskId: string;
   title: string;
   status: TaskStatus;
-  complexity: TaskComplexity;
+  stageBehavior: TaskStageBehavior;
+  complexity: TaskComplexity | null;
   request: string;
   criteria: readonly TaskCriterion[];
   createdAt?: string | null;

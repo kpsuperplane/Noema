@@ -169,7 +169,10 @@ function mapWorkTaskDetail(task: WorkDetail): TaskDetail {
     taskId: task.taskId,
     title: task.title,
     status: taskStatus(task),
-    complexity: (task.currentContract?.complexity.toLowerCase() ?? "medium") as TaskDetail["complexity"],
+    stageBehavior: task.stage.behavior,
+    complexity: task.currentContract
+      ? task.currentContract.complexity.toLowerCase() as TaskDetail["complexity"]
+      : null,
     request: task.currentContract?.requestMarkdown ?? task.description,
     criteria,
     createdAt: task.createdAt,
@@ -282,8 +285,38 @@ function taskStatus(task: WorkDetail): TaskStatus {
 }
 
 function currentFailure(task: WorkDetail): string | null {
-  const failed = task.runs.find((run) => run.status === "FAILED");
-  return failed ? [failed.errorMessage, failed.errorCode].filter(Boolean).join(" · ") : null;
+  const gate = task.activeGate;
+  if (
+    task.stage.behavior !== "HUMAN_GATE" ||
+    gate?.kind !== "RECOVERY" ||
+    gate.state !== "OPEN" ||
+    gate.taskGeneration !== task.generation
+  ) {
+    return null;
+  }
+
+  const failed = task.runs.reduce<WorkDetail["runs"][number] | null>((latest, run) => {
+    if (
+      run.status !== "FAILED" ||
+      run.taskGeneration !== task.generation ||
+      (gate.originatingRunId && gate.originatingRunId !== run.runId)
+    ) {
+      return latest;
+    }
+    if (!latest || isLaterRun(run, latest)) return run;
+    return latest;
+  }, null);
+  const reason = failed ? [failed.errorMessage, failed.errorCode].filter(Boolean).join(" · ") : "";
+  return reason || null;
+}
+
+function isLaterRun(
+  candidate: WorkDetail["runs"][number],
+  current: WorkDetail["runs"][number]
+): boolean {
+  const candidateAt = candidate.endedAt ?? candidate.updatedAt ?? candidate.createdAt;
+  const currentAt = current.endedAt ?? current.updatedAt ?? current.createdAt;
+  return candidateAt > currentAt || (candidateAt === currentAt && candidate.attemptIndex > current.attemptIndex);
 }
 
 function sourceLabel(task: WorkDetail): string | null {

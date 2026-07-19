@@ -5,13 +5,11 @@ import { Button } from "@astryxdesign/core/Button";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import * as stylex from "@stylexjs/stylex";
-import { Ban, ExternalLink, RotateCcw, X } from "lucide-react";
-import { TaskDecisionCard } from "@/components/chatDetail/task/TaskDecisionCard";
-import type { TaskDetail } from "@/components/chatDetail/task/taskTypes";
+import { ExternalLink, X } from "lucide-react";
 import type { WorkProject } from "./workTypes";
 import { useTaskCommands, type TaskCommandSubject } from "./useTaskCommands";
 import { TaskActionDialog } from "./TaskActionDialog";
-import { taskActionLabel } from "./taskActionModel";
+import { orderTaskActions, taskActionLabel } from "./taskActionModel";
 import { WorkTaskEditFieldsDocument } from "@/generated/graphql";
 import { snapshotTaskSubject, taskSubjectChanged } from "./semanticCommand";
 
@@ -26,18 +24,12 @@ type TaskActionNavigation = {
   onClose?: () => void;
 };
 
-type TaskActionDecision = {
-  attention: NonNullable<TaskDetail["attention"]>;
-  question?: string | null;
-};
-
 type TaskActionsProps = {
   task: TaskCommandSubject;
   validActions: readonly string[];
   navigation: TaskActionNavigation;
   closeButtonRef?: React.RefObject<HTMLButtonElement | null>;
   controlsHostRef: React.RefObject<HTMLElement | null>;
-  decision?: TaskActionDecision;
   projects?: readonly WorkProject[];
   compact?: boolean;
   inlineAnswer?: boolean;
@@ -66,7 +58,6 @@ export function TaskActions({
   navigation,
   closeButtonRef,
   controlsHostRef,
-  decision,
   projects = [],
   compact = false,
   inlineAnswer = false,
@@ -84,11 +75,14 @@ export function TaskActions({
   const commands = useTaskCommands({ task: commandTask, onUpdated: refresh });
   const activeAction = activeCommand?.action ?? null;
   const hasInlineAnswer = inlineAnswer && validActions.includes("ANSWER");
-  const buttonActions = validActions.filter(
-    (action) => !(hasInlineAnswer && action === "ANSWER") && !isControlAction(action)
+  const buttonActions = orderTaskActions(validActions.filter(
+    (action) => !(hasInlineAnswer && action === "ANSWER")
+  ));
+  const primaryAction = buttonActions.find((action) => action !== "CANCEL") ?? null;
+  const secondaryActions = buttonActions.filter(
+    (action) => action !== primaryAction
   );
-  const primaryAction = buttonActions[0] ?? null;
-  const secondaryActions = buttonActions.slice(1);
+  const selectedApprovalDecision = task.activeGate?.kind === "APPROVAL" ? approvalDecision : undefined;
   const liveSubjectChanged = activeCommand ? taskSubjectChanged(activeCommand.subject, task) : false;
   const requiresAcknowledgement = liveSubjectChanged || commands.requiresAcknowledgement;
   const actionUnavailable = Boolean(activeAction && !validActions.includes(activeAction));
@@ -123,9 +117,6 @@ export function TaskActions({
       <TaskControlsRow
         navigation={navigation}
         closeButtonRef={closeButtonRef}
-        busy={commands.busy !== null || editLoad.loading}
-        onCancel={validActions.includes("CANCEL") ? () => openAction("CANCEL") : undefined}
-        onRetry={validActions.includes("RETRY") ? () => openAction("RETRY") : undefined}
       />
     </TaskControlsPortal>
   );
@@ -186,7 +177,7 @@ export function TaskActions({
               type="submit"
               size="sm"
               variant="primary"
-              label="Answer"
+              label={taskActionLabel("ANSWER", false, task.activeGate?.kind === "APPROVAL" ? approvalDecision : undefined)}
               isLoading={commands.busy === "ANSWER"}
               isDisabled={!answer.trim() || commands.busy !== null || commands.requiresAcknowledgement}
             />
@@ -199,7 +190,7 @@ export function TaskActions({
             type="button"
             size="sm"
             variant="primary"
-            label={taskActionLabel(primaryAction, compact)}
+            label={taskActionLabel(primaryAction, compact, selectedApprovalDecision)}
             isDisabled={commands.busy !== null || editLoad.loading}
             onClick={(event) => { event.stopPropagation(); void openAction(primaryAction); }}
           />
@@ -214,7 +205,7 @@ export function TaskActions({
                   type="button"
                   size="sm"
                   variant="ghost"
-                  label={taskActionLabel(action, false)}
+                  label={taskActionLabel(action, false, selectedApprovalDecision)}
                   isDisabled={commands.busy !== null || editLoad.loading}
                   onClick={(event) => { event.stopPropagation(); void openAction(action); }}
                 />
@@ -227,7 +218,7 @@ export function TaskActions({
             type="button"
             size="sm"
             variant="secondary"
-            label={taskActionLabel(action, false)}
+            label={taskActionLabel(action, false, selectedApprovalDecision)}
             isDisabled={commands.busy !== null || editLoad.loading}
             onClick={(event) => { event.stopPropagation(); void openAction(action); }}
           />
@@ -240,16 +231,7 @@ export function TaskActions({
   return (
     <>
       {controls}
-      {decision ? (
-        <TaskDecisionCard
-          attention={decision.attention}
-          question={decision.question}
-        >
-          {actionBody}
-        </TaskDecisionCard>
-      ) : (
-        actionBody ? <div {...stylex.props(styles.defaultFrame)}>{actionBody}</div> : null
-      )}
+      {actionBody ? <div {...stylex.props(styles.defaultFrame)}>{actionBody}</div> : null}
       <span aria-live="polite" {...stylex.props(styles.srOnly)}>{commands.notice}</span>
       <TaskActionDialog
         key={activeAction ?? "closed"}
@@ -291,44 +273,14 @@ function TaskControlsPortal({
 
 function TaskControlsRow({
   navigation,
-  closeButtonRef,
-  busy = false,
-  onCancel,
-  onRetry
+  closeButtonRef
 }: {
   navigation: TaskActionNavigation;
   closeButtonRef?: React.RefObject<HTMLButtonElement | null>;
-  busy?: boolean;
-  onCancel?: () => void | Promise<void>;
-  onRetry?: () => void | Promise<void>;
 }) {
   const iconProps = { "aria-hidden": true, size: 15, strokeWidth: 2 } as const;
   return (
     <div role="toolbar" aria-label="Task controls" {...stylex.props(styles.controls)}>
-      {onCancel ? (
-        <IconButton
-          type="button"
-          size="sm"
-          variant="destructive"
-          label="Cancel task"
-          tooltip="Cancel task"
-          icon={<Ban {...iconProps} />}
-          isDisabled={busy}
-          onClick={() => void onCancel()}
-        />
-      ) : null}
-      {onRetry ? (
-        <IconButton
-          type="button"
-          size="sm"
-          variant="ghost"
-          label="Retry task"
-          tooltip="Retry task"
-          icon={<RotateCcw {...iconProps} />}
-          isDisabled={busy}
-          onClick={() => void onRetry()}
-        />
-      ) : null}
       {navigation.showWorkLink ? (
         <IconButton
           href={`/work/tasks/${encodeURIComponent(navigation.taskId)}`}
@@ -355,25 +307,21 @@ function TaskControlsRow({
   );
 }
 
-function isControlAction(action: string): boolean {
-  return action === "CANCEL" || action === "RETRY";
-}
-
 const styles = stylex.create({
-  frame: { display: "grid", gap: 6 },
+  frame: { display: "grid", gap: "var(--spacing-1-5)" },
   defaultFrame: { display: "grid", gap: "var(--spacing-1-5)", minWidth: 0, paddingBlock: "var(--spacing-1)", paddingInline: "var(--spacing-2)" },
   controls: { display: "flex", minHeight: 28, alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-0-5)" },
-  answerForm: { display: "grid", gap: 9, minWidth: 0 },
-  decisionField: { display: "grid", gap: 5, color: "var(--noema-text-secondary)", fontSize: 11, fontWeight: 650 },
-  decisionSelect: { minHeight: 34, width: "100%", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-default)", borderRadius: 7, backgroundColor: "var(--noema-surface-card)", paddingInline: 9, color: "var(--noema-text-primary)", font: "inherit", ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
+  answerForm: { display: "grid", gap: "var(--spacing-2)", minWidth: 0 },
+  decisionField: { display: "grid", gap: "var(--spacing-1-5)", color: "var(--noema-text-secondary)", fontSize: 11, fontWeight: 650 },
+  decisionSelect: { minHeight: 34, width: "100%", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-default)", borderRadius: 7, backgroundColor: "var(--noema-surface-card)", paddingInline: "var(--spacing-2)", color: "var(--noema-text-primary)", font: "inherit", ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
   answerActions: { display: "flex", justifyContent: "flex-end" },
-  stale: { display: "grid", justifyItems: "start", gap: 7, borderRadius: 7, backgroundColor: "var(--noema-surface-card)", padding: 9, color: "var(--noema-clay-600)", fontSize: 11, lineHeight: 1.4 },
+  stale: { display: "grid", justifyItems: "start", gap: "var(--spacing-2)", borderRadius: 7, backgroundColor: "var(--noema-surface-card)", padding: "var(--spacing-2)", color: "var(--noema-clay-600)", fontSize: 11, lineHeight: 1.4 },
   inlineError: { margin: 0, color: "var(--noema-red-700)", fontSize: 11, lineHeight: 1.4 },
-  actions: { display: "flex", flexWrap: "wrap", gap: 6 },
-  compactActions: { gap: 4 },
+  actions: { display: "flex", flexWrap: "wrap", gap: "var(--spacing-1-5)" },
+  compactActions: { gap: "var(--spacing-1)" },
   more: { position: "relative" },
-  moreSummary: { minHeight: 30, display: "inline-flex", alignItems: "center", borderRadius: 6, paddingInline: 8, color: "var(--noema-text-secondary)", fontSize: 11, fontWeight: 650, cursor: "pointer", listStyle: "none", ":hover": { backgroundColor: "var(--noema-surface-hover)" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
-  moreMenu: { position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 3, display: "grid", minWidth: 144, gap: 2, borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 7, backgroundColor: "var(--noema-surface-card)", padding: 4, boxShadow: "0 8px 24px color-mix(in srgb, var(--noema-text-primary) 12%, transparent)" },
+  moreSummary: { minHeight: 30, display: "inline-flex", alignItems: "center", borderRadius: 6, paddingInline: "var(--spacing-2)", color: "var(--noema-text-secondary)", fontSize: 11, fontWeight: 650, cursor: "pointer", listStyle: "none", ":hover": { backgroundColor: "var(--noema-surface-hover)" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
+  moreMenu: { position: "absolute", top: "calc(100% + var(--spacing-1))", right: 0, zIndex: 3, display: "grid", minWidth: 144, gap: "var(--spacing-0-5)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 7, backgroundColor: "var(--noema-surface-card)", padding: "var(--spacing-1)", boxShadow: "0 8px 24px color-mix(in srgb, var(--noema-text-primary) 12%, transparent)" },
   srOnly: { position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" },
   loadError: { color: "var(--destructive)", fontSize: 11 }
 });

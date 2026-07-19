@@ -25,6 +25,7 @@ export function ChatDetailRail({
   onMotionEnd: () => void;
   showWorkLink?: boolean;
 }) {
+  const isModal = useNarrowViewport();
   const railRef = React.useRef<HTMLElement>(null);
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
   const taskControlsHostRef = React.useRef<HTMLDivElement>(null);
@@ -58,16 +59,16 @@ export function ChatDetailRail({
   );
 
   React.useEffect(() => {
-    if (motionState === "opening" && returnFocusRef.current === null && document.activeElement instanceof HTMLElement) {
+    if (isModal && motionState === "opening" && returnFocusRef.current === null && document.activeElement instanceof HTMLElement) {
       returnFocusRef.current = document.activeElement;
     }
-  }, [motionState]);
+  }, [isModal, motionState]);
 
   React.useEffect(() => {
-    if (motionState === "open") {
+    if (isModal && motionState === "open") {
       closeButtonRef.current?.focus({ preventScroll: true });
     }
-  }, [motionState, target]);
+  }, [isModal, motionState, target]);
 
   const handleTransitionEnd = React.useCallback(
     (event: React.TransitionEvent<HTMLElement>) => {
@@ -102,7 +103,7 @@ export function ChatDetailRail({
       onClose();
       return;
     }
-    if (event.key !== "Tab") {
+    if (!isModal || event.key !== "Tab") {
       return;
     }
     const focusable = focusableElements(railRef.current);
@@ -120,18 +121,18 @@ export function ChatDetailRail({
       event.preventDefault();
       first.focus();
     }
-  }, [onClose]);
+  }, [isModal, onClose]);
 
   return (
     <aside
       data-slot="chat-detail-rail"
       data-state={motionState}
-      aria-modal="true"
-      aria-label="Chat detail"
+      aria-modal={isModal ? "true" : undefined}
+      aria-label={target.type === "task" ? "Task details" : "Artifact details"}
       ref={railRef}
-      role="dialog"
+      role={isModal ? "dialog" : "complementary"}
       {...stylex.props(styles.rail)}
-      tabIndex={-1}
+      tabIndex={isModal ? -1 : undefined}
       onKeyDown={handleKeyDown}
       onTransitionEnd={handleTransitionEnd}
     >
@@ -184,6 +185,30 @@ export function ChatDetailRail({
   );
 }
 
+const narrowViewportQuery = "(max-width: 979px)";
+
+function useNarrowViewport() {
+  const [isNarrow, setIsNarrow] = React.useState(() => (
+    typeof window !== "undefined" && typeof window.matchMedia === "function"
+      ? window.matchMedia(narrowViewportQuery).matches
+      : false
+  ));
+
+  React.useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
+    }
+
+    const query = window.matchMedia(narrowViewportQuery);
+    const sync = () => setIsNarrow(query.matches);
+    sync();
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
+
+  return isNarrow;
+}
+
 function focusableElements(root: HTMLElement | null): HTMLElement[] {
   if (!root) {
     return [];
@@ -223,9 +248,9 @@ const styles = stylex.create({
   header: {
     minWidth: 0,
     display: "grid",
-    gap: 10,
-    paddingBlock: 14,
-    paddingInline: 16,
+    gap: "var(--spacing-2)",
+    paddingBlock: "var(--spacing-3)",
+    paddingInline: "var(--spacing-4)",
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
     borderBottomColor: "var(--noema-border-subtle)"
@@ -235,7 +260,7 @@ const styles = stylex.create({
     display: "grid",
     gridTemplateColumns: "minmax(0, 1fr) auto",
     alignItems: "start",
-    gap: 12
+    gap: "var(--spacing-3)"
   },
   taskTitleRow: {
     minWidth: 0,
@@ -256,7 +281,7 @@ const styles = stylex.create({
   actions: {
     display: "flex",
     alignItems: "start",
-    gap: 8
+    gap: "var(--spacing-2)"
   },
   title: {
     margin: 0,
@@ -269,7 +294,7 @@ const styles = stylex.create({
   body: {
     minHeight: 0,
     overflow: "auto",
-    padding: 16
+    padding: "var(--spacing-4)"
   },
   taskBody: {
     overflow: "hidden",

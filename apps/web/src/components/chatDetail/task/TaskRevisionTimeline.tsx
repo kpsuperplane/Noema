@@ -11,43 +11,57 @@ type TimelineEntry = {
 
 export function TaskRevisionTimeline({
   revisions,
-  onSelectRun
+  onSelectRun,
+  embedded = false
 }: {
   revisions: readonly TaskRevision[];
   onSelectRun?: (run: TaskRun) => void;
+  embedded?: boolean;
 }) {
   const entries = timelineEntries(revisions);
   const now = useTaskRunClock(entries.some(({ run }) => run.status === "running"));
 
+  if (entries.length === 0) {
+    return null;
+  }
+
+  const content = (
+    <ol {...stylex.props(styles.timeline)}>
+      {entries.map(({ revision, run }) => {
+        const label = runTimelineLabel(run, revision.review);
+        const status = runToolCallStatus(run, revision.review);
+        const duration = runDurationLabel(run, now);
+        const openRun = () => onSelectRun?.(run);
+        return (
+          <li key={run.id} {...stylex.props(styles.item)}>
+            <TaskToolMarker
+              activationLabel={`Open ${label} conversation`}
+              errorMessage={run.error ?? undefined}
+              id={run.id}
+              name={label}
+              onActivate={openRun}
+              status={status}
+              target={duration}
+            />
+          </li>
+        );
+      })}
+    </ol>
+  );
+
+  if (embedded) {
+    return content;
+  }
+
   return (
     <TaskStaticSection id="task-timeline-title" tabIndex={-1} title="Timeline">
-      {entries.length === 0 ? (
-        <p {...stylex.props(styles.empty)}>Executor and review activity will appear here.</p>
-      ) : (
-        <ol {...stylex.props(styles.timeline)}>
-          {entries.map(({ revision, run }) => {
-            const label = runTimelineLabel(run, revision.review);
-            const status = runToolCallStatus(run, revision.review);
-            const duration = runDurationLabel(run, now);
-            const openRun = () => onSelectRun?.(run);
-            return (
-              <li key={run.id} {...stylex.props(styles.item)}>
-                <TaskToolMarker
-                  activationLabel={`Open ${label} conversation`}
-                  errorMessage={run.error ?? undefined}
-                  id={run.id}
-                  name={label}
-                  onActivate={openRun}
-                  status={status}
-                  target={duration}
-                />
-              </li>
-            );
-          })}
-        </ol>
-      )}
+      {content}
     </TaskStaticSection>
   );
+}
+
+export function taskTimelineEntryCount(revisions: readonly TaskRevision[]): number {
+  return timelineEntries(revisions).length;
 }
 
 export function runTimelineLabel(run: TaskRun, review?: TaskReview | null): string {
@@ -177,6 +191,5 @@ const styles = stylex.create({
     padding: 0,
     listStyle: "none"
   },
-  item: { minWidth: 0 },
-  empty: { margin: 0, color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: 1.45 }
+  item: { minWidth: 0 }
 });

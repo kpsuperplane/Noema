@@ -35,6 +35,28 @@ export function TaskStaticSection({
   );
 }
 
+export function TaskDisclosure({
+  id,
+  title,
+  count,
+  children
+}: {
+  id: string;
+  title: string;
+  count?: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <details {...stylex.props(styles.disclosure)}>
+      <summary id={id} {...stylex.props(styles.disclosureSummary)}>
+        <span>{title}</span>
+        {typeof count === "number" ? <span {...stylex.props(styles.count)}>{count}</span> : null}
+      </summary>
+      <div {...stylex.props(styles.disclosureContent)}>{children}</div>
+    </details>
+  );
+}
+
 export function TaskExpandableContent({
   id,
   children
@@ -90,16 +112,16 @@ export function TaskExpandableContent({
 const styles = stylex.create({
   section: {
     display: "grid",
-    gap: 6,
+    gap: "var(--spacing-1-5)",
     minWidth: 0,
-    paddingBlock: 4,
-    paddingInline: 8
+    paddingBlock: "var(--spacing-1)",
+    paddingInline: "var(--spacing-2)"
   },
   heading: {
     display: "flex",
     minWidth: 0,
     alignItems: "center",
-    gap: 7
+    gap: "var(--spacing-1-5)"
   },
   title: {
     margin: 0,
@@ -121,6 +143,37 @@ const styles = stylex.create({
     color: "var(--noema-text-muted)",
     fontFamily: "var(--noema-font-mono)",
     fontSize: 9
+  },
+  disclosure: {
+    minWidth: 0,
+    marginBlock: "var(--spacing-1)",
+    marginInline: "var(--spacing-2)",
+    borderTopWidth: 1,
+    borderTopStyle: "solid",
+    borderTopColor: "var(--noema-border-subtle)"
+  },
+  disclosureSummary: {
+    display: "flex",
+    minHeight: 32,
+    alignItems: "center",
+    gap: "var(--spacing-1-5)",
+    color: "var(--noema-text-primary)",
+    fontSize: 12,
+    fontWeight: 650,
+    cursor: "pointer",
+    listStyle: "none",
+    ":hover": { color: "var(--noema-text-secondary)" },
+    ":focus-visible": {
+      outlineWidth: 2,
+      outlineStyle: "solid",
+      outlineColor: "var(--noema-pine-500)",
+      outlineOffset: 1
+    }
+  },
+  disclosureContent: {
+    display: "grid",
+    gap: "var(--spacing-2)",
+    paddingBottom: "var(--spacing-2)"
   },
   expandableContent: {
     maxHeight: "4.65em",
@@ -165,7 +218,7 @@ const styles = stylex.create({
   readMoreExpanded: {
     position: "static",
     display: "block",
-    marginTop: 4,
+    marginTop: "var(--spacing-1)",
     borderRadius: 5,
     backgroundImage: "none",
     paddingBlockEnd: 3,
