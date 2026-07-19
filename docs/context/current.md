@@ -334,10 +334,11 @@ The next storage slice should stay small and concrete:
   ledger and task detail. At mobile widths the closed off-canvas navigation is
   removed from the accessibility tree and focus order; opening restores the
   Home/Work/Memory/Settings controls and Escape restores focus to the opener.
-- The Work implementation was consolidated from its original backend diff of
-  `+43,106/-11,908` lines (net `+31,198`) to `+26,700/-11,336` (net `+15,364`).
-  That is 38.06% fewer gross additions and 50.75% fewer net additions; the user
-  accepted that reduction during final wrap-up. All 615 Rust source test
+- The Work implementation was consolidated from its original branch diff of
+  `+43,106/-11,908` lines (net `+31,198`) to the final canonical branch diff of
+  `+34,108/-13,931` (net `+20,177`). That is 20.87% fewer additions and 35.33%
+  fewer net additions; the user accepted that reduction during final wrap-up.
+  All 615 Rust source test
   declarations remain present. The release gate is green: `cargo fmt --all
   --check`, workspace check, strict all-target Clippy, and the full workspace
   unit/doc-test suite pass. Generated GraphQL and route artifacts are current;
