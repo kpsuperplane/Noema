@@ -4,7 +4,7 @@ use noema_artifacts::{
 };
 
 use super::{ArtifactRow, ArtifactVersionRow, StoreError};
-use crate::sqlite::json_from_string;
+use crate::sqlite::deserialize_json;
 
 pub(crate) const ARTIFACT_SELECT: &str = r#"
 artifact_id, owner_object_type, owner_object_id, title, description,
@@ -94,7 +94,7 @@ pub(crate) fn artifact_from_row(row: ArtifactRow) -> Result<ArtifactRecord, Stor
             turn_id: row.source_turn_id,
             item_id: row.source_item_id,
         },
-        metadata: json_from_string(row.metadata_json)?,
+        metadata: deserialize_json(row.metadata_json)?,
         created_at: row.created_at,
         updated_at: row.updated_at,
     })
@@ -118,7 +118,7 @@ pub(crate) fn artifact_version_from_row(
             turn_id: row.source_turn_id,
             item_id: row.source_item_id,
         },
-        metadata: json_from_string(row.metadata_json)?,
+        metadata: deserialize_json(row.metadata_json)?,
         created_at: row.created_at,
     })
 }

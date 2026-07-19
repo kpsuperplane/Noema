@@ -5,7 +5,7 @@
 //! module owns the public service envelope and the request fingerprint rules.
 
 use noema_providers::ProviderRegistryHandle;
-use noema_tasks::{WorkCommand, WorkCommandResult, WorkDomainError};
+use noema_tasks::{WorkCommand, WorkCommandResult};
 
 use crate::{CommittedWorkCommandResult, NoemaStore, StoreError};
 
@@ -54,12 +54,6 @@ impl WorkCommandService {
         &self.store
     }
 
-    /// Borrow the readiness registry used by contract/run creation.
-    #[must_use]
-    pub const fn provider_registry(&self) -> &ProviderRegistryHandle {
-        &self.provider_registry
-    }
-
     /// Normalize and execute one semantic Work command.
     ///
     /// The actual command handlers are kept in this module so every path goes
@@ -86,7 +80,7 @@ impl WorkCommandService {
         &self,
         command: WorkCommand,
     ) -> Result<CommittedWorkCommandResult, StoreError> {
-        let command = command.normalized().map_err(work_domain_error)?;
+        let command = command.normalized().map_err(StoreError::Work)?;
         let write = execute_normalized_command(self, command).await?;
         crate::work_command_result::materialize_committed_result(write)
     }
@@ -163,15 +157,6 @@ fn command_meta(command: &WorkCommand) -> &noema_tasks::CommandMeta {
         WorkCommand::ReopenProject(input) => &input.meta,
         WorkCommand::DelegateTask(input) => &input.meta,
     }
-}
-
-/// Map a validated domain error through the existing store error boundary.
-///
-/// The integrator may replace this with a dedicated `StoreError::Work` variant
-/// once the API error bridge is wired.  Keeping the conversion in one helper
-/// prevents handlers from leaking `WorkDomainError` through ad-hoc strings.
-pub(crate) fn work_domain_error(error: WorkDomainError) -> StoreError {
-    StoreError::Work(error)
 }
 
 /// Dispatch a normalized command to the semantic transaction handlers.

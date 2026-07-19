@@ -66,27 +66,4 @@ impl NoemaStore {
             .filter(|entry| is_global_task_model_pool_setting_id(&entry.pool_entry_id))
             .collect())
     }
-
-    /// List enabled pool entries backed by an authenticated provider account.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError`] when settings cannot be read or their provider
-    /// selections cannot be validated.
-    pub async fn list_usable_task_model_pool_entries(
-        &self,
-    ) -> Result<Vec<TaskModelPoolEntry>, StoreError> {
-        let entries = self.list_task_model_pool_settings(None).await?;
-        let mut usable = Vec::new();
-        for entry in entries.into_iter().filter(|entry| entry.enabled) {
-            if self
-                .validate_task_model_snapshot(&entry.model)
-                .await
-                .is_ok()
-            {
-                usable.push(entry);
-            }
-        }
-        Ok(usable)
-    }
 }

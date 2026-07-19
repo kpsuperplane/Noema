@@ -7,7 +7,7 @@ pub(crate) use items::load_conversation_item_tx;
 use noema_conversations::{ConversationRecord, NewConversation};
 use rusqlite::{OptionalExtension, params};
 
-use super::{NoemaStore, StoreError, ids::allocate_id, sqlite::json_to_string};
+use super::{NoemaStore, StoreError, ids::allocate_id, sqlite::serialize_json};
 
 impl NoemaStore {
     /// Create a durable conversation row.
@@ -132,7 +132,7 @@ impl NoemaStore {
         conversation_id: String,
         conversation: NewConversation,
     ) -> Result<ConversationRecord, StoreError> {
-        let metadata_json = json_to_string(&conversation.metadata)?;
+        let metadata_json = serialize_json(&conversation.metadata)?;
         self.with_connection(|conn| {
             conn.execute(
                 r#"

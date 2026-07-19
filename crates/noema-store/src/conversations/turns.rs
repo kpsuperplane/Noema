@@ -5,7 +5,7 @@ use serde_json::Value;
 use super::{NoemaStore, StoreError};
 use crate::{
     ids::{allocate_id, now_string},
-    sqlite::{json_from_string, json_to_string},
+    sqlite::{deserialize_json, serialize_json},
 };
 
 impl NoemaStore {
@@ -32,7 +32,7 @@ impl NoemaStore {
             .await?;
         let mut max_index = 0;
         for metadata_json in metadata_values {
-            let metadata = json_from_string(metadata_json)?;
+            let metadata = deserialize_json::<Value>(metadata_json)?;
             if let Some(index) = metadata.get("turn_index").and_then(Value::as_u64) {
                 max_index = max_index.max(index);
             }
@@ -56,7 +56,7 @@ impl NoemaStore {
                 .await?;
         }
         let turn_id = allocate_id("turn");
-        let metadata_json = json_to_string(&turn.metadata)?;
+        let metadata_json = serialize_json(&turn.metadata)?;
         self.with_connection(|conn| {
             conn.execute(
                 r#"
@@ -102,7 +102,7 @@ impl NoemaStore {
             self.require_conversation_item_for_conversation(trigger_item_id, &turn.conversation_id)
                 .await?;
         }
-        let metadata_json = json_to_string(&turn.metadata)?;
+        let metadata_json = serialize_json(&turn.metadata)?;
         let (conversation_id, inserted) = self
             .with_connection(|conn| {
                 if let Some(existing_conversation_id) = conn

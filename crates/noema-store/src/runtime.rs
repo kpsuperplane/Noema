@@ -1,5 +1,3 @@
-#[cfg(any(test, feature = "test-support"))]
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -41,8 +39,6 @@ impl StoreConfig {
 pub struct NoemaStore {
     pub(super) conn: Arc<Mutex<Connection>>,
     pub(super) append_item_lock: Arc<Mutex<()>>,
-    #[cfg(any(test, feature = "test-support"))]
-    operation_count: Arc<AtomicUsize>,
 }
 
 impl NoemaStore {
@@ -84,8 +80,6 @@ impl NoemaStore {
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             append_item_lock: Arc::new(Mutex::new(())),
-            #[cfg(any(test, feature = "test-support"))]
-            operation_count: Arc::new(AtomicUsize::new(0)),
         })
     }
 
@@ -96,25 +90,10 @@ impl NoemaStore {
         self.conn.clone()
     }
 
-    /// Reset the test-only count of Store connection operations.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn reset_operation_count_for_tests(&self) {
-        self.operation_count.store(0, Ordering::Relaxed);
-    }
-
-    /// Return the test-only count of Store connection operations.
-    #[cfg(any(test, feature = "test-support"))]
-    #[must_use]
-    pub fn operation_count_for_tests(&self) -> usize {
-        self.operation_count.load(Ordering::Relaxed)
-    }
-
     pub(crate) async fn with_connection<T>(
         &self,
         work: impl FnOnce(&mut Connection) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
-        #[cfg(any(test, feature = "test-support"))]
-        self.operation_count.fetch_add(1, Ordering::Relaxed);
         let mut conn = self.conn.lock().await;
         work(&mut conn)
     }

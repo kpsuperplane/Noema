@@ -3,7 +3,7 @@ use serde_json::Value;
 
 use crate::{
     ids::{allocate_id, invalid_enum, now_string},
-    sqlite::{json_from_string, json_to_string},
+    sqlite::{deserialize_json, serialize_json},
 };
 use noema_providers::{
     NewProviderAccount, PersistedProviderAccountRecord, ProviderAccountStatus,
@@ -196,7 +196,7 @@ impl NoemaStore {
             .filter(|value| !value.is_empty())
             .unwrap_or("Exa")
             .to_string();
-        let metadata_json = json_to_string(&input.metadata)?;
+        let metadata_json = serialize_json(&input.metadata)?;
 
         self.with_connection(|conn| {
             conn.execute(
@@ -353,7 +353,7 @@ impl NoemaStore {
         status: Option<&ProviderAccountStatusUpdate>,
         metadata: Option<&Value>,
     ) -> Result<PersistedProviderAccountRecord, StoreError> {
-        let metadata_json = metadata.map(json_to_string).transpose()?;
+        let metadata_json = metadata.map(serialize_json).transpose()?;
         self.with_immediate_transaction_retry(|transaction| {
             let current = transaction
                 .query_row(
@@ -569,7 +569,7 @@ pub(super) fn provider_account_from_row(
         last_authenticated_at: row.last_authenticated_at,
         last_error_code: row.last_error_code,
         last_error_message: row.last_error_message,
-        metadata: json_from_string(row.metadata_json)?,
+        metadata: deserialize_json(row.metadata_json)?,
     })
 }
 

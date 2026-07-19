@@ -12,7 +12,7 @@ use super::{
         ARTIFACT_SELECT, ARTIFACT_VERSION_SELECT, artifact_from_row, artifact_row,
         artifact_version_from_row, artifact_version_row,
     },
-    sqlite::{json_to_string, now_timestamp_sql},
+    sqlite::{now_timestamp_sql, serialize_json},
 };
 
 pub(super) struct PreparedArtifactCreate {
@@ -63,8 +63,8 @@ pub(super) fn prepare_artifact_create(
         .artifact_version_id
         .clone()
         .unwrap_or_else(|| store.new_artifact_version_id());
-    let artifact_metadata_json = json_to_string(&artifact.metadata)?;
-    let version_metadata_json = json_to_string(&initial_version.metadata)?;
+    let artifact_metadata_json = serialize_json(&artifact.metadata)?;
+    let version_metadata_json = serialize_json(&initial_version.metadata)?;
     let storage = VersionStorageParts::try_from_storage(initial_version.storage.clone())?;
     Ok(PreparedArtifactCreate {
         artifact,
@@ -93,7 +93,7 @@ pub(super) fn prepare_artifact_append<'a>(
         .artifact_version_id
         .clone()
         .unwrap_or_else(|| store.new_artifact_version_id());
-    let version_metadata_json = json_to_string(&version.metadata)?;
+    let version_metadata_json = serialize_json(&version.metadata)?;
     let storage = VersionStorageParts::try_from_storage(version.storage.clone())?;
     Ok(PreparedArtifactAppend {
         artifact_id,

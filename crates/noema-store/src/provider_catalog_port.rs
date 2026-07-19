@@ -15,7 +15,7 @@ use super::{
         PROVIDER_ACCOUNT_SELECT, provider_account_from_row, provider_account_row,
         provider_status_str,
     },
-    sqlite::json_to_string,
+    sqlite::serialize_json,
 };
 
 impl ProviderModelCatalogPersistence for NoemaStore {
@@ -78,7 +78,7 @@ async fn persist_model_catalog(
                     Value::String(refreshed_at.to_string()),
                 );
             }
-            let metadata_json = json_to_string(&metadata)?;
+            let metadata_json = serialize_json(&metadata)?;
             let status_changed = current.status != request.resulting_status;
             let checked_at = status_changed.then(now_string);
             let last_authenticated_at = if status_changed

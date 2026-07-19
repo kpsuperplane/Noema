@@ -153,8 +153,7 @@ impl NoemaStore {
         scope_id: &str,
     ) -> Result<Option<MemoryArticleCacheRecord>, StoreError> {
         self.with_connection(|conn| {
-            sqlite::optional_row(
-                conn,
+            conn.query_row(
                 r#"
                 SELECT scope_id, fact_fingerprint, article_markdown, generated_at
                 FROM memory_article_cache
@@ -171,6 +170,8 @@ impl NoemaStore {
                     })
                 },
             )
+            .optional()
+            .map_err(StoreError::Sqlite)
         })
         .await
     }

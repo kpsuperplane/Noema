@@ -7,7 +7,7 @@ use rusqlite::params;
 use super::{NoemaStore, StoreError};
 use crate::{
     ids::allocate_id,
-    sqlite::{json_from_string, json_to_string},
+    sqlite::{deserialize_json, serialize_json},
 };
 
 const CONVERSATION_ITEM_CURSOR_PREFIX: &str = "conversation_item:";
@@ -115,8 +115,8 @@ impl NoemaStore {
                         item.status.as_str(),
                         item.author.actor_id.to_string(),
                         item.content_text,
-                        json_to_string(&item.payload_json)?,
-                        json_to_string(&item.metadata)?,
+                        serialize_json(&item.payload_json)?,
+                        serialize_json(&item.metadata)?,
                     ],
                 )?;
                 Ok((next_sequence, true))
@@ -453,7 +453,7 @@ fn conversation_item_from_row(
         kind: ConversationItemKind::parse(&row.kind).map_err(StoreError::from)?,
         status: ConversationItemStatus::parse(&row.status).map_err(StoreError::from)?,
         content_text: row.content_text,
-        payload_json: json_from_string(row.payload_json)?,
-        metadata: json_from_string(row.metadata_json)?,
+        payload_json: deserialize_json(row.payload_json)?,
+        metadata: deserialize_json(row.metadata_json)?,
     })
 }
