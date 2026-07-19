@@ -1,0 +1,250 @@
+{
+  "formatVersion": 1,
+  "tests": [
+    {
+      "category": "security",
+      "path": "crates/noema-artifacts/src/paths.rs",
+      "name": "artifact_version_dirs_stay_below_supported_owner_roots"
+    },
+    {
+      "category": "security",
+      "path": "crates/noema-artifacts/src/paths.rs",
+      "name": "safe_artifact_filename_rejects_unsafe_cross_platform_path_and_header_components"
+    },
+    {
+      "category": "security",
+      "path": "crates/noema-api/src/graphql/schema_tests/work_graphql.rs",
+      "name": "work_authorization_is_indistinguishable_before_identifier_validation"
+    },
+    {
+      "category": "security",
+      "path": "crates/noema-capabilities/mcp/src/connection_url.rs",
+      "name": "target_resolution_allows_public_https_and_explicit_loopback_only"
+    },
+    {
+      "category": "security",
+      "path": "crates/noema-capabilities/mcp/src/stdio/transport.rs",
+      "name": "stdio_decoder_rejects_a_frame_before_an_unbounded_line_can_accumulate"
+    },
+    {
+      "category": "security",
+      "path": "crates/noema-capabilities/src/router.rs",
+      "name": "strict_resolution_rejects_unknown_and_forwards_exact_target"
+    },
+    {
+      "category": "security",
+      "path": "crates/noema-capabilities/src/web/url_policy.rs",
+      "name": "rejects_private_literals_reserved_hosts_and_sensitive_components"
+    },
+    {
+      "category": "security",
+      "path": "crates/noema-server/src/web/authority.rs",
+      "name": "bind_ip_requires_numeric_loopback_except_in_debug_dev_mode"
+    },
+    {
+      "category": "privacy",
+      "path": "crates/noema-api/src/graphql/schema_tests/artifacts.rs",
+      "name": "artifact_operations_hide_foreign_human_resources"
+    },
+    {
+      "category": "privacy",
+      "path": "crates/noema-api/src/graphql/schema_tests/conversations.rs",
+      "name": "conversation_operations_reject_foreign_human_conversations"
+    },
+    {
+      "category": "privacy",
+      "path": "crates/noema-capabilities/mcp/src/secret_model.rs",
+      "name": "secret_models_redact_every_secret_value_from_debug_output"
+    },
+    {
+      "category": "privacy",
+      "path": "crates/noema-capabilities/mcp/src/secrets.rs",
+      "name": "filesystem_secret_persistence_privacy_and_removal_contracts"
+    },
+    {
+      "category": "privacy",
+      "path": "crates/noema-capabilities/mcp/src/secrets/unix_symlink_tests.rs",
+      "name": "filesystem_secret_store_symlink_and_root_identity_contracts"
+    },
+    {
+      "category": "privacy",
+      "path": "crates/noema-capabilities/src/web/fetch.rs",
+      "name": "sensitive_urls_are_redacted_at_every_persisted_position"
+    },
+    {
+      "category": "privacy",
+      "path": "crates/noema-providers/src/adapters/account_files.rs",
+      "name": "save_load_clear_and_protect_api_key"
+    },
+    {
+      "category": "privacy",
+      "path": "crates/noema-providers/src/adapters/codex/oauth/tests.rs",
+      "name": "oauth_debug_redacts_credentials_and_account_paths"
+    },
+    {
+      "category": "data-loss",
+      "path": "crates/noema-artifacts/src/filesystem/tests.rs",
+      "name": "publication_lifecycle_and_cancellation_contracts"
+    },
+    {
+      "category": "data-loss",
+      "path": "crates/noema-providers/src/adapters/account_service/filesystem.rs",
+      "name": "snapshot_and_restore_preserve_exact_bytes"
+    },
+    {
+      "category": "data-loss",
+      "path": "crates/noema-providers/src/adapters/account_service/tests.rs",
+      "name": "secret_mutation_update_failure_restores_exact_prior_bytes"
+    },
+    {
+      "category": "data-loss",
+      "path": "crates/noema-store/src/local_model_port_tests.rs",
+      "name": "activation_failure_rolls_back_every_earlier_write"
+    },
+    {
+      "category": "data-loss",
+      "path": "crates/noema-store/src/tests/conversations.rs",
+      "name": "idempotent_conversation_item_id_prevents_duplicate_task_delivery"
+    },
+    {
+      "category": "data-loss",
+      "path": "crates/noema-store/src/tests/schema.rs",
+      "name": "injected_mid_bootstrap_failure_rolls_back_every_schema_object"
+    },
+    {
+      "category": "data-loss",
+      "path": "crates/noema-store/src/tests/schema.rs",
+      "name": "rejected_pending_wal_schema_preserves_main_wal_and_shm_bytes"
+    },
+    {
+      "category": "data-loss",
+      "path": "crates/noema-store/src/local_model_port_tests.rs",
+      "name": "installation_state_rolls_back_when_event_append_fails"
+    },
+    {
+      "category": "durable-state",
+      "path": "crates/noema-providers/src/adapters/account_service/tests.rs",
+      "name": "delete_persistence_failure_restores_quarantined_account_home"
+    },
+    {
+      "category": "durable-state",
+      "path": "crates/noema-providers/src/adapters/account_service/tests.rs",
+      "name": "save_merges_metadata_and_increments_credential_revision"
+    },
+    {
+      "category": "durable-state",
+      "path": "crates/noema-store/src/local_models_tests.rs",
+      "name": "activation_assigns_every_current_model_workload_atomically"
+    },
+    {
+      "category": "durable-state",
+      "path": "crates/noema-store/src/work_command_tests.rs",
+      "name": "receipt_replay_is_exact_and_divergent_replay_is_rejected"
+    },
+    {
+      "category": "durable-state",
+      "path": "crates/noema-store/src/work_command_tests.rs",
+      "name": "stale_revision_is_atomic_and_inbox_edits_stop_at_queue"
+    },
+    {
+      "category": "durable-state",
+      "path": "crates/noema-store/src/provider_persistence_port_tests.rs",
+      "name": "catalog_commit_failure_rolls_back_metadata_and_status"
+    },
+    {
+      "category": "durable-state",
+      "path": "crates/noema-store/src/work_command_tests.rs",
+      "name": "capture_source_replay_is_durable_without_an_idempotency_key"
+    },
+    {
+      "category": "durable-state",
+      "path": "crates/noema-store/src/work_command_tests.rs",
+      "name": "committed_detail_replay_does_not_reread_later_task_state"
+    },
+    {
+      "category": "durable-state",
+      "path": "crates/noema-store/src/work_command_tests.rs",
+      "name": "capture_source_replay_is_exact_across_idempotency_namespaces"
+    },
+    {
+      "category": "concurrency",
+      "path": "crates/noema-capabilities/mcp/src/lifecycle.rs",
+      "name": "shutdown_rejects_new_work_and_drains_existing_admission"
+    },
+    {
+      "category": "concurrency",
+      "path": "crates/noema-host/src/artifact_store_composition_tests.rs",
+      "name": "conversation_append_race_has_one_winner_and_cleans_loser"
+    },
+    {
+      "category": "concurrency",
+      "path": "crates/noema-providers/src/local_models/runtime/generation_arbiter.rs",
+      "name": "foreground_overtakes_queued_background"
+    },
+    {
+      "category": "concurrency",
+      "path": "crates/noema-providers/src/local_models/runtime/generation_arbiter.rs",
+      "name": "serializes_active_generations"
+    },
+    {
+      "category": "concurrency",
+      "path": "crates/noema-providers/src/registry/tests.rs",
+      "name": "replacement_installs_a_new_generation_while_old_leases_remain_valid"
+    },
+    {
+      "category": "concurrency",
+      "path": "crates/noema-providers/src/registry/tests.rs",
+      "name": "retirement_rejects_new_leases_and_cleans_up_after_the_last_lease"
+    },
+    {
+      "category": "concurrency",
+      "path": "crates/noema-providers/src/routing/tests.rs",
+      "name": "successful_stale_lease_rechecks_the_canonical_selection"
+    },
+    {
+      "category": "concurrency",
+      "path": "crates/noema-runtime/src/daemon/tests/runtime_lifecycle.rs",
+      "name": "task_supervisor_starts_distinct_tasks_concurrently"
+    },
+    {
+      "category": "provider-protocol",
+      "path": "crates/noema-capabilities/mcp/src/limits.rs",
+      "name": "reviewed_provider_schema_preserves_exact_bounded_semantics"
+    },
+    {
+      "category": "provider-protocol",
+      "path": "crates/noema-providers/src/adapters/codex/responses/tests.rs",
+      "name": "codex_sse_mixed_streamed_text_and_function_call_returns_needs_tools"
+    },
+    {
+      "category": "provider-protocol",
+      "path": "crates/noema-providers/src/adapters/codex/responses/tests.rs",
+      "name": "sends_codex_input_as_response_message_list"
+    },
+    {
+      "category": "provider-protocol",
+      "path": "crates/noema-providers/src/adapters/responses/sse.rs",
+      "name": "response_from_sse_preserves_function_call_items_with_streamed_text"
+    },
+    {
+      "category": "provider-protocol",
+      "path": "crates/noema-providers/src/adapters/responses/sse.rs",
+      "name": "response_from_sse_prefers_streamed_text_over_output_item_done_text"
+    },
+    {
+      "category": "provider-protocol",
+      "path": "crates/noema-providers/src/adapters/responses/tests/mod.rs",
+      "name": "responses_request_profiles_preserve_provider_wire_differences"
+    },
+    {
+      "category": "provider-protocol",
+      "path": "crates/noema-providers/src/adapters/responses/tests/mod.rs",
+      "name": "responses_response_parses_function_call_output_items"
+    },
+    {
+      "category": "provider-protocol",
+      "path": "crates/noema-providers/src/adapters/responses/tests/mod.rs",
+      "name": "responses_response_rejects_malformed_native_tool_calls"
+    }
+  ]
+}

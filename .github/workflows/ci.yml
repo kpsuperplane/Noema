@@ -53,7 +53,7 @@ jobs:
           --all-targets
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace --no-fail-fast
-      - run: bun run scripts/verify-rust-test-inventory.ts
+      - run: bun run scripts/verify-rust-critical-tests.ts
 
   desktop-platform-check:
     name: Desktop check (${{ matrix.os }})
