@@ -5,6 +5,7 @@ members = [
     "crates/noema-capabilities",
     "crates/noema-capabilities/mcp",
     "crates/noema-conversations",
+    "crates/noema-dev",
     "crates/noema-desktop",
     "crates/noema-home",
     "crates/noema-host",
@@ -78,3 +79,8 @@ must_use_candidate = "warn"
 return_self_not_must_use = "warn"
 ref_option = "warn"
 unused_self = "warn"
+
+[profile.dev-launcher]
+inherits = "dev"
+debug = 1
+incremental = false

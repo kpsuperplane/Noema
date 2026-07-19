@@ -225,9 +225,9 @@ Rust implementation and refactoring:
 
 ```bash
 cargo fmt --all --check
-cargo check --workspace
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace --no-fail-fast
+cargo check-workspace
+cargo gate-lint
+cargo gate-test
 ```
 
 Frontend/UI work uses `bun run gen:types`, `bun run lint`, and `bun run build`

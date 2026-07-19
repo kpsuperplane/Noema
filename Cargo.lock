@@ -2784,6 +2784,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "noema-dev"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
 name = "noema-home"
 version = "0.1.0"
 dependencies = [

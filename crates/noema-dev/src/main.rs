@@ -1,10 +1,11 @@
 //! Local development supervisor for Noema web mode.
 
-#[path = "noema_dev/mnemosyne.rs"]
 mod mnemosyne;
+mod workflow;
 
 use std::{
     env,
+    ffi::OsString,
     future::Future,
     io,
     path::{Path, PathBuf},
@@ -28,6 +29,9 @@ const WEB_SERVER_WATCH_IGNORE_GLOBS: [&str; 3] = [
 
 #[derive(Debug, Error)]
 enum DevError {
+    #[error(transparent)]
+    Workflow(#[from] workflow::WorkflowError),
+
     #[error("failed to start {label}: {source}")]
     SpawnProcess {
         label: &'static str,
@@ -46,9 +50,6 @@ enum DevError {
         status: ExitStatus,
     },
 
-    #[error("failed to generate GraphQL schema: {source}")]
-    GenerateSchema { source: io::Error },
-
     #[error("failed to install dev Mnemosyne sidecar: {source}")]
     InstallMnemosyne { source: io::Error },
 
@@ -60,21 +61,36 @@ enum DevError {
 
     #[error("failed to install dev shutdown signal handler: {source}")]
     ShutdownSignal { source: io::Error },
+
+    #[error("unknown Noema development mode: {mode:?}")]
+    UnknownMode { mode: OsString },
 }
 
 #[tokio::main]
 async fn main() {
-    if let Err(error) = run().await {
-        eprintln!("failed to run Noema dev supervisor: {error}");
+    if let Err(error) = run_mode().await {
+        eprintln!("Noema Cargo workflow failed: {error}");
         std::process::exit(1);
     }
 }
 
-async fn run() -> Result<(), DevError> {
+async fn run_mode() -> Result<(), DevError> {
+    let mut args = env::args_os().skip(1);
+    match args.next() {
+        None => run_development().await,
+        Some(mode) if mode == "dev" => run_development().await,
+        Some(mode) if mode == "validate" => workflow::run_validation(args.collect())
+            .await
+            .map_err(Into::into),
+        Some(mode) => Err(DevError::UnknownMode { mode }),
+    }
+}
+
+async fn run_development() -> Result<(), DevError> {
     let repo_root = repo_root();
+    workflow::prepare_development(&repo_root).await?;
     let web_dir = repo_root.join("apps/web");
 
-    generate_graphql_schema(&repo_root)?;
     let mnemosyne_sidecar_command = mnemosyne::ensure_dev_sidecar(&repo_root).await?;
 
     let mut web = spawn_web_watcher(&web_dir)?;
@@ -171,6 +187,16 @@ fn spawn_web_server_watcher(
     mnemosyne_sidecar_command: Option<&str>,
 ) -> Result<Child, DevError> {
     let mut command = Command::new(cargo_exe());
+    configure_web_server_watcher(&mut command, repo_root, mnemosyne_sidecar_command);
+
+    spawn_dev_process("web server watcher", &mut command, repo_root)
+}
+
+fn configure_web_server_watcher(
+    command: &mut Command,
+    repo_root: &Path,
+    mnemosyne_sidecar_command: Option<&str>,
+) {
     command
         .arg("watch")
         .arg("-w")
@@ -186,12 +212,11 @@ fn spawn_web_server_watcher(
 
     command.arg("-x").arg(WEB_SERVER_WATCH_COMMAND);
     command.env("CARGO_TARGET_DIR", dev_rust_target_dir(repo_root));
+    command.env("CARGO_INCREMENTAL", "1");
     command.env("NOEMA_WEB__HOST", "0.0.0.0");
     if let Some(mnemosyne_sidecar_command) = mnemosyne_sidecar_command {
         command.env(mnemosyne::SIDECAR_COMMAND_ENV, mnemosyne_sidecar_command);
     }
-
-    spawn_dev_process("web server watcher", &mut command, repo_root)
 }
 
 fn dev_rust_target_dir(repo_root: &Path) -> PathBuf {
@@ -219,18 +244,6 @@ fn spawn_bridge_watcher(repo_root: &Path) -> Result<Option<Child>, DevError> {
     ]);
 
     spawn_dev_process("foundation bridge watcher", &mut command, &package_dir).map(Some)
-}
-
-fn generate_graphql_schema(repo_root: &Path) -> Result<(), DevError> {
-    let output_path = repo_root.join("apps/web/src/generated/schema.graphql");
-    if let Some(parent) = output_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|source| DevError::GenerateSchema { source })?;
-    }
-
-    std::fs::write(&output_path, noema_api::graphql::schema_sdl())
-        .map_err(|source| DevError::GenerateSchema { source })?;
-    eprintln!("wrote {}", output_path.display());
-    Ok(())
 }
 
 fn spawn_dev_process(
@@ -337,7 +350,7 @@ fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
-        .expect("noema-server lives under crates/noema-server")
+        .expect("noema-dev lives under crates/noema-dev")
         .to_path_buf()
 }
 
@@ -358,6 +371,21 @@ mod tests {
                 "crates/noema-memory/mnemosyne-sidecar/**",
                 "crates/noema-server/target/web-assets/**",
             ]
+        );
+    }
+
+    #[test]
+    fn server_watcher_restores_incremental_compilation() {
+        let mut command = Command::new("cargo");
+        configure_web_server_watcher(&mut command, Path::new("/workspace"), None);
+
+        assert_eq!(
+            command
+                .as_std()
+                .get_envs()
+                .find(|(key, _)| *key == "CARGO_INCREMENTAL")
+                .and_then(|(_, value)| value),
+            Some(std::ffi::OsStr::new("1"))
         );
     }
 

@@ -1,4 +1,4 @@
-//! Dev-only provisioning for the managed Mnemosyne sidecar.
+//! Development-only provisioning for the managed Mnemosyne sidecar.
 
 use std::{
     env,

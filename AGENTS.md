@@ -48,9 +48,9 @@
 - Never modify `CARGO_BUILD_RUSTC_WRAPPER` or attempt to work around the configured Rust compiler wrapper. Doing so invalidates shared cache state, causes 15min+ builds, and can break other agents building in parallel.
 - Default Rust validation:
   - `cargo fmt --all --check`
-  - `cargo check --workspace`
-  - `cargo clippy --workspace --all-targets -- -D warnings`
-  - `cargo test --workspace --no-fail-fast`
+  - `cargo check-workspace`
+  - `cargo gate-lint`
+  - `cargo gate-test`
 - Run unit tests only. Do not run smoke tests or fixture tests unless explicitly requested.
 - Add tests for unique risks at the authoritative layer. A bug normally gets one regression test; an ordinary feature normally gets three to eight focused tests. More than ten new Rust tests requires a written risk and redundancy justification before implementation continues.
 - Do not test derives, getters, constructors, enum mirrors, pass-through mappings/resolvers, or mock interactions unless they enforce an external compatibility or security contract. Do not repeat the same behavior through domain, store, API, and runtime layers unless each boundary owns materially different logic.

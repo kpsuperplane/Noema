@@ -114,9 +114,9 @@ General Rust validation:
 
 ```bash
 cargo fmt --all --check
-cargo check --workspace
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace --no-fail-fast
+cargo check-workspace
+cargo gate-lint
+cargo gate-test
 ```
 
 For the normal edit loop, use the package-scoped commands instead of the full
@@ -134,6 +134,12 @@ completion check. The gate pair is for cross-crate changes, milestone boundaries
 and pre-handoff validation; Clippy and tests already compile the workspace, so
 the gate does not run a redundant separate `cargo check`. Cargo aliases are
 single commands, so the format check is kept as an explicit first step.
+
+These aliases keep non-incremental validation artifacts in a disposable,
+size-bounded target while `cargo dev` retains its own incremental cache. The
+wrapper checks each cache at most every six hours and automatically rebuilds it
+after it exceeds its configured budget, so routine validation does not grow the
+workspace `target/debug` directory without bound.
 
 Frontend assets are built with Bun. The web build is emitted under
 `noema-server`, which validates and embeds those assets in release builds:
