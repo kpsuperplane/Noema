@@ -6,7 +6,7 @@ use noema_providers::{
 
 use crate::{
     memory::RuntimeMemorySampler,
-    model_report::{ModelEvalCaseResult, ModelEvalConfig, ModelEvalReport},
+    model_report::{ModelEvalConfig, ModelEvalReport},
     resource_probe::run_resource_probe,
 };
 
@@ -48,7 +48,7 @@ pub(crate) async fn run_provider_suite(config: ModelEvalConfig) -> Result<ModelE
     let process_id = session.process_id();
     let memory_sampler = process_id.map(RuntimeMemorySampler::start);
 
-    let results: Vec<ModelEvalCaseResult> =
+    let results =
         noema_runtime::eval_support::run_runtime_suite(&provider, &config.model_id).await?;
     let resource_probe = if config.run_resource_probe {
         Some(

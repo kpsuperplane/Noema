@@ -2,8 +2,6 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-pub(crate) type ModelEvalCaseResult = noema_runtime::eval_support::RuntimeEvalCaseResult;
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ModelEvalConfig {
     pub(crate) model_id: String,
@@ -44,7 +42,7 @@ pub(crate) struct ModelEvalReport {
     pub(crate) runtime_memory: Option<ModelEvalRuntimeMemory>,
     pub(crate) resource_probe: Option<ModelEvalResourceProbe>,
     pub(crate) runtime_error: Option<String>,
-    pub(crate) cases: Vec<ModelEvalCaseResult>,
+    pub(crate) cases: Vec<noema_runtime::eval_support::RuntimeEvalCaseResult>,
     pub(crate) passed_cases: usize,
     pub(crate) total_cases: usize,
     pub(crate) passed_critical_cases: usize,
