@@ -63,7 +63,12 @@ async fn load_prompt_context(
     let transcript_items = store
         .list_all_conversation_items_after_sequence_for_context(conversation_id, after_sequence)
         .await?;
-    let rendered_context = render_prompt_context(active_summary.as_ref());
+    let rendered_context = active_summary.as_ref().map(|summary| {
+        format!(
+            "Compacted conversation context:\n{}\n\nRecent transcript after this compacted checkpoint follows in subsequent messages.",
+            summary.summary_text
+        )
+    });
     Ok(PromptContext {
         active_summary,
         transcript_items,
@@ -332,15 +337,6 @@ fn action_string(action: &Value, key: &str) -> Option<String> {
 
 fn provider_function_call_item_id(action: &Value) -> Option<String> {
     action_string(action, "id").filter(|id| id.starts_with("fc"))
-}
-
-fn render_prompt_context(summary: Option<&ConversationContextSummaryRecord>) -> Option<String> {
-    summary.map(|summary| {
-        format!(
-            "Compacted conversation context:\n{}\n\nRecent transcript after this compacted checkpoint follows in subsequent messages.",
-            summary.summary_text
-        )
-    })
 }
 
 #[cfg(test)]

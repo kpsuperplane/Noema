@@ -118,7 +118,7 @@ impl RuntimeHandle {
     /// Returns an error when the configured runtime dependencies cannot be initialized.
     pub async fn spawn(config: RuntimeSpawnConfig) -> Result<Self, RuntimeError> {
         let (sender, receiver) = mpsc::channel(16);
-        let actor = RuntimeActor::from_spawn_config(config).await?;
+        let actor = RuntimeActor::from_spawn_config(config);
         let cancellation = Arc::new(RuntimeCancellation(actor.tasks.cancellation_token()));
         tokio::spawn(actor.run(receiver));
         Ok(Self {

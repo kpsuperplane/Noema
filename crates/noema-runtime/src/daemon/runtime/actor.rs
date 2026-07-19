@@ -76,7 +76,7 @@ impl RuntimeActor {
         let (capability_bindings, capability_invokers) =
             crate::contract_test_support::empty_capability_handles();
         let web_backends = crate::test_support::web_backends_for_store(&store);
-        Self::from_spawn_config(RuntimeSpawnConfig {
+        Ok(Self::from_spawn_config(RuntimeSpawnConfig {
             primary_provider: routing.primary,
             default_provider: routing.default,
             progress_audit_provider: routing.progress_audit,
@@ -90,14 +90,11 @@ impl RuntimeActor {
             web_backends,
             capability_bindings,
             capability_invokers,
-        })
-        .await
+        }))
     }
 
-    pub(in crate::daemon) async fn from_spawn_config(
-        config: RuntimeSpawnConfig,
-    ) -> Result<Self, RuntimeError> {
-        Ok(Self {
+    pub(in crate::daemon) fn from_spawn_config(config: RuntimeSpawnConfig) -> Self {
+        Self {
             primary_provider: config.primary_provider,
             default_provider: config.default_provider,
             progress_audit_provider: config.progress_audit_provider,
@@ -113,7 +110,7 @@ impl RuntimeActor {
             conversations: HashMap::new(),
             tasks: RuntimeTaskGroup::default(),
             runtime_events: config.runtime_events,
-        })
+        }
     }
 
     pub(in crate::daemon) async fn resolve_static_provider_route(
