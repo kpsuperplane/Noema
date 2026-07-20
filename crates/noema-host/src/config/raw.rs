@@ -1,12 +1,12 @@
 use super::{HostConfig, WebConfig, error::ConfigError};
 use noema_providers::{
     CodexProviderConfig, DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_TIMEOUT_SECONDS,
-    DEFAULT_FOUNDATION_LOCAL_PROFILE, DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS,
-    DEFAULT_LOCAL_MODELS_PROFILE, DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
-    DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS, DEFAULT_OPENAI_BASE_URL, DEFAULT_OPENAI_MODEL,
-    DEFAULT_OPENAI_TIMEOUT_SECONDS, DEFAULT_PROVIDER, FoundationLocalProviderConfig,
-    LocalModelBackend, LocalModelsProviderConfig, OPENAI_API_KEY_ENV, OpenAiProviderConfig,
-    ProviderConfig, ProviderKind, ReasoningEffort,
+    DEFAULT_FOUNDATION_LOCAL_PROFILE, DEFAULT_HOSTED_REASONING_EFFORT,
+    DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS, DEFAULT_LOCAL_MODELS_PROFILE,
+    DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS, DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS,
+    DEFAULT_OPENAI_BASE_URL, DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_TIMEOUT_SECONDS,
+    DEFAULT_PROVIDER, FoundationLocalProviderConfig, LocalModelBackend, LocalModelsProviderConfig,
+    OPENAI_API_KEY_ENV, OpenAiProviderConfig, ProviderConfig, ProviderKind, ReasoningEffort,
 };
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, str::FromStr};
@@ -68,6 +68,9 @@ impl RawConfig {
     pub(super) fn resolve_openai_config(&self) -> Result<OpenAiProviderConfig, ConfigError> {
         let explicit_model = non_empty_option(self.model.as_deref()).map(ToString::to_string);
         validate_reasoning_config(explicit_model.as_deref(), self.reasoning_effort, "openai")?;
+        let reasoning_effort = self.reasoning_effort.or(explicit_model
+            .is_none()
+            .then_some(DEFAULT_HOSTED_REASONING_EFFORT));
         let model = explicit_model
             .clone()
             .unwrap_or_else(|| DEFAULT_OPENAI_MODEL.to_string());
@@ -95,7 +98,7 @@ impl RawConfig {
             tool_classification_model: non_empty_option(self.tool_classification_model.as_deref())
                 .or_else(|| non_empty_option(self.openai.tool_classification_model.as_deref()))
                 .map(ToString::to_string),
-            reasoning_effort: self.reasoning_effort,
+            reasoning_effort,
             timeout_seconds,
             system_errors: None,
         })
@@ -113,10 +116,13 @@ impl RawConfig {
         let explicit_model = top_level_model.or(codex_model);
         let reasoning_effort = self.reasoning_effort.or(self.codex.reasoning_effort);
         validate_reasoning_config(explicit_model.as_deref(), reasoning_effort, "codex")?;
+        let reasoning_effort = reasoning_effort.or(explicit_model
+            .is_none()
+            .then_some(DEFAULT_HOSTED_REASONING_EFFORT));
 
         Ok(CodexProviderConfig {
             base_url,
-            default_model: explicit_model,
+            default_model: Some(explicit_model.unwrap_or_else(|| DEFAULT_OPENAI_MODEL.to_string())),
             tool_classification_model: non_empty_option(self.tool_classification_model.as_deref())
                 .or_else(|| non_empty_option(self.codex.tool_classification_model.as_deref()))
                 .map(ToString::to_string),

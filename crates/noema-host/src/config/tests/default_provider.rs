@@ -2,6 +2,22 @@ use super::*;
 
 #[test]
 fn provider_resolution_precedence_and_secrecy_contracts() {
+    let openai_file = write_config("provider: openai\n");
+    let resolved = load_resolved(
+        Some(openai_file.path().to_path_buf()),
+        None,
+        &[(OPENAI_API_KEY_ENV, "env-key")],
+    )
+    .expect("OpenAI defaults should resolve");
+    let ProviderConfig::OpenAi(openai) = resolved.provider else {
+        panic!("expected OpenAI config");
+    };
+    assert_eq!(openai.default_model, "gpt-5.6-luna");
+    assert_eq!(
+        openai.reasoning_effort,
+        Some(noema_providers::ReasoningEffort::Medium)
+    );
+
     // Case: codex_model_and_reasoning_effort_must_be_configured_together.
     for yaml in [
         r#"

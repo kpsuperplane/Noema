@@ -1,7 +1,8 @@
 use super::*;
 use figment::{Figment, providers::Serialized};
 use noema_providers::{
-    CodexProviderConfig, DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_TIMEOUT_SECONDS, LocalModelBackend,
+    CodexProviderConfig, DEFAULT_CODEX_BASE_URL, DEFAULT_CODEX_TIMEOUT_SECONDS,
+    DEFAULT_OPENAI_MODEL, LocalModelBackend,
 };
 use serde_json::{Number, Value};
 use std::path::PathBuf;
@@ -111,7 +112,7 @@ reasoning_effort: medium
     };
 
     assert_eq!(codex.base_url, DEFAULT_CODEX_BASE_URL);
-    assert_eq!(codex.default_model, None);
+    assert_eq!(codex.default_model.as_deref(), Some(DEFAULT_OPENAI_MODEL));
     assert_eq!(codex.timeout_seconds, DEFAULT_CODEX_TIMEOUT_SECONDS);
 
     // Case: local_models_config_resolves_without_cloud_credentials.

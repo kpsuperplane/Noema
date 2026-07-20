@@ -9,8 +9,10 @@ use crate::{LocalModelBackend, ReasoningEffort};
 
 /// Default provider used when config does not specify one.
 pub const DEFAULT_PROVIDER: &str = "openai";
+/// Product default reasoning effort shared by hosted model providers.
+pub const DEFAULT_HOSTED_REASONING_EFFORT: ReasoningEffort = ReasoningEffort::Medium;
 /// Default `OpenAI` model used when no model override is supplied.
-pub const DEFAULT_OPENAI_MODEL: &str = "gpt-5.5";
+pub const DEFAULT_OPENAI_MODEL: &str = "gpt-5.6-luna";
 /// Default `OpenAI` API base URL.
 pub const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 /// Default request timeout for `OpenAI` calls.
@@ -24,7 +26,7 @@ pub(crate) const CODEX_PROVIDER: &str = "codex";
 /// Default Codex Responses API base URL.
 pub const DEFAULT_CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 /// Default Codex Responses model used when no override is supplied.
-pub(crate) const DEFAULT_CODEX_MODEL: &str = "gpt-5.5";
+pub(crate) const DEFAULT_CODEX_MODEL: &str = DEFAULT_OPENAI_MODEL;
 /// Default request timeout for Codex Responses calls.
 pub const DEFAULT_CODEX_TIMEOUT_SECONDS: u64 = 300;
 /// Default Codex OAuth issuer.
@@ -231,7 +233,7 @@ impl Default for CodexProviderConfig {
             base_url: DEFAULT_CODEX_BASE_URL.to_string(),
             default_model: Some(DEFAULT_CODEX_MODEL.to_string()),
             tool_classification_model: None,
-            reasoning_effort: None,
+            reasoning_effort: Some(DEFAULT_HOSTED_REASONING_EFFORT),
             timeout_seconds: DEFAULT_CODEX_TIMEOUT_SECONDS,
             client_version: None,
             oauth: CodexOAuthConfig::default(),
@@ -356,6 +358,16 @@ impl ProviderConfig {
             Self::OpenAi(config) => Some(config.default_model.as_str()),
             Self::FoundationLocal(config) => Some(config.default_profile.as_str()),
             Self::LocalModels(config) => Some(config.default_model.as_str()),
+        }
+    }
+
+    /// Return the default reasoning effort configured for this provider.
+    #[must_use]
+    pub const fn reasoning_effort(&self) -> Option<ReasoningEffort> {
+        match self {
+            Self::Codex(config) => config.reasoning_effort,
+            Self::OpenAi(config) => config.reasoning_effort,
+            Self::FoundationLocal(_) | Self::LocalModels(_) => None,
         }
     }
 

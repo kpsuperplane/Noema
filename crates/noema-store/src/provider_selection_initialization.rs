@@ -210,9 +210,7 @@ mod tests {
     use super::*;
     use crate::{
         NewAgentRuntimePreference,
-        tests::{
-            exact_provider_selection, provider_selection, ready_provider_selection, test_store,
-        },
+        tests::{exact_provider_selection, ready_provider_selection, test_store},
     };
 
     async fn ready_codex_store() -> NoemaStore {
@@ -234,11 +232,12 @@ mod tests {
     }
 
     fn codex_default() -> ProviderReadySelection {
-        ready_provider_selection(provider_selection(
+        ready_provider_selection(ProviderSelectionSnapshot::explicit(
             "codex",
             "provider_account:codex:default",
             "gpt-5.6-luna",
-            "configured_default",
+            Some(noema_providers::ReasoningEffort::Medium),
+            Some("configured_default".to_string()),
         ))
     }
 
@@ -314,28 +313,24 @@ mod tests {
         let expected_key =
             provider_account_instance_key("provider_account:codex:default").expect("hosted key");
 
+        let default = store.default_provider_selection().await.expect("default");
+        assert_eq!(default.provider_instance_key, Some(expected_key.clone()));
+        assert_eq!(default.model_profile.as_deref(), Some("gpt-5.6-luna"));
         assert_eq!(
-            store
-                .default_provider_selection()
-                .await
-                .expect("default")
-                .provider_instance_key,
-            Some(expected_key.clone())
+            default.reasoning_effort,
+            Some(noema_providers::ReasoningEffort::Medium)
         );
         for agent_id in [
             "agent:primary",
             "agent:task-executor",
             "agent:task-reviewer",
         ] {
-            assert_eq!(
-                store
-                    .get_agent_runtime_preference(agent_id)
-                    .await
-                    .expect("agent preference")
-                    .expect("initialized agent")
-                    .provider_instance_key,
-                expected_key
-            );
+            let preference = store
+                .get_agent_runtime_preference(agent_id)
+                .await
+                .expect("agent preference")
+                .expect("initialized agent");
+            assert_eq!(preference.provider_instance_key, expected_key);
         }
         for task in AuxiliaryModelTask::ALL {
             let preference = store
@@ -344,10 +339,20 @@ mod tests {
                 .expect("auxiliary preference");
             match task.initial_default(&ProviderKind::Codex) {
                 AuxiliaryModelDefault::ConfiguredProvider => assert_eq!(
-                    preference
-                        .expect("initialized auxiliary")
-                        .provider_instance_key,
-                    expected_key
+                    (
+                        preference
+                            .as_ref()
+                            .map(|value| &value.provider_instance_key),
+                        preference
+                            .as_ref()
+                            .map(|value| value.model_profile.as_str()),
+                        preference.as_ref().and_then(|value| value.reasoning_effort),
+                    ),
+                    (
+                        Some(&expected_key),
+                        Some("gpt-5.6-luna"),
+                        Some(noema_providers::ReasoningEffort::Medium),
+                    )
                 ),
                 AuxiliaryModelDefault::ExplicitSelectionRequired => assert!(preference.is_none()),
             }
@@ -357,10 +362,11 @@ mod tests {
             .await
             .expect("pool settings");
         assert_eq!(pool.len(), 3);
-        assert!(
-            pool.iter()
-                .all(|entry| { entry.model.provider_instance_key.as_ref() == Some(&expected_key) })
-        );
+        assert!(pool.iter().all(|entry| {
+            entry.model.provider_instance_key.as_ref() == Some(&expected_key)
+                && entry.model.model_profile.as_deref() == Some("gpt-5.6-luna")
+                && entry.model.reasoning_effort == Some(noema_providers::ReasoningEffort::Medium)
+        }));
     }
 
     #[tokio::test]

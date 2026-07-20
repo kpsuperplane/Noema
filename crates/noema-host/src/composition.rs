@@ -99,6 +99,7 @@ async fn assemble_services(
         ..
     } = config.clone();
     let configured_provider_model = provider.model().map(str::to_string);
+    let configured_reasoning_effort = provider.reasoning_effort();
     let store = NoemaStore::open(&StoreConfig::new(paths.sqlite_db_path())).await?;
     store.ensure_default_provider_account().await?;
     store
@@ -182,7 +183,7 @@ async fn assemble_services(
             &default_provider_kind,
             model_provider_account_id(&default_provider_kind)?,
             configured_model_profile,
-            None,
+            configured_reasoning_effort,
             Some("configured_default".to_string()),
         );
         let configured_key = if default_provider_kind == ProviderKind::LocalModels.as_str() {

@@ -45,6 +45,18 @@ async fn startup_entrypoint_child() {
                 std::fs::read(paths.config_path()).expect("read generated config"),
                 DEFAULT_NOEMA_CONFIG_YAML.as_bytes()
             );
+            let store = NoemaStore::open(&StoreConfig::new(paths.sqlite_db_path()))
+                .await
+                .expect("open initialized store");
+            let selection = store
+                .default_provider_selection()
+                .await
+                .expect("read initialized default");
+            assert_eq!(selection.model_profile.as_deref(), Some("gpt-5.6-luna"));
+            assert_eq!(
+                selection.reasoning_effort,
+                Some(noema_providers::ReasoningEffort::Medium)
+            );
             host.shutdown().await;
         }
         "loaded_config" => {

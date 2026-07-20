@@ -78,8 +78,8 @@ impl AuxiliaryModelTask {
             ConfiguredProvider as Configured, ExplicitSelectionRequired as Explicit,
         };
         let defaults: [AuxiliaryModelDefault; Self::ALL.len()] = match provider {
-            ProviderKind::Codex => [Configured, Configured, Explicit, Configured],
-            ProviderKind::OpenAi => [Configured, Configured, Explicit, Configured],
+            ProviderKind::Codex => [Configured, Configured, Configured, Configured],
+            ProviderKind::OpenAi => [Configured, Configured, Configured, Configured],
             ProviderKind::FoundationLocal => [Configured, Configured, Explicit, Configured],
             ProviderKind::LocalModels => [Configured, Configured, Explicit, Configured],
         };
