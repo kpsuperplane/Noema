@@ -329,9 +329,9 @@ function TaskControlsRow({
             ref={cancelAnchorRef}
             type="button"
             size="sm"
-            variant="destructive"
+            variant="secondary"
             label="Cancel task"
-            icon={<Ban {...iconProps} />}
+            icon={<Ban {...iconProps} color="var(--color-error)" />}
             isDisabled={busy}
             onClick={() => void onCancel()}
           />
