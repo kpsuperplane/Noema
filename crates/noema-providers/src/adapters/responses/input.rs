@@ -214,6 +214,7 @@ pub struct ResponsesReasoningItem {
     kind: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     id: Option<String>,
+    summary: Vec<serde_json::Value>,
     encrypted_content: String,
 }
 
@@ -222,6 +223,7 @@ impl From<&GenerateReasoningInput> for ResponsesReasoningItem {
         Self {
             kind: "reasoning",
             id: reasoning.id.clone(),
+            summary: Vec::new(),
             encrypted_content: reasoning.encrypted_content.clone(),
         }
     }

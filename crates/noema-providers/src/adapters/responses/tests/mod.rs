@@ -458,6 +458,7 @@ fn serializes_reasoning_history_item_for_replay() {
     let value = serde_json::to_value(&items[0]).expect("json");
     assert_eq!(value["type"], "reasoning");
     assert_eq!(value["id"], "rs_1");
+    assert_eq!(value["summary"], json!([]));
     assert_eq!(value["encrypted_content"], "opaque-openai-reasoning");
 }
 
