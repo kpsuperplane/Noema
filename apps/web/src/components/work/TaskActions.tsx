@@ -393,8 +393,8 @@ const styles = stylex.create({
     boxShadow: "0 8px 22px color-mix(in srgb, var(--noema-text-primary) 14%, transparent)"
   },
   taskControlButton: {
-    minWidth: 44,
-    height: 44,
+    minWidth: 36,
+    height: 36,
     borderWidth: 0,
     backgroundColor: "transparent",
     boxShadow: "none"
