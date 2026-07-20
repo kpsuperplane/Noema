@@ -173,11 +173,13 @@ subagents, reviews, and size measurement.
   provides denser management. Both reuse the same task detail and server-owned
   action vocabulary.
 - Task detail keeps title, status, navigation, and available cancellation in
-  the header, then uses one chronological transcript as the primary surface.
-  Planner, Executor, and Review runs are marked inline with role, revision,
-  status, and duration; their persisted items reuse the shared response and
-  activity lanes. The brief, criteria, and metadata live in a compact bottom
-  context card, which expands and stays visible for unresolved human actions.
+  the header, then uses one padded chronological transcript as the primary
+  surface. Planner, Executor, and Review runs are marked inline with role,
+  revision, status, and duration; their persisted items reuse the shared
+  response and activity lanes. The brief, criteria, and metadata live in a
+  compact floating context card above the transcript; unresolved human
+  actions stay attached to that card while its full details remain behind
+  disclosure.
 - Current Work behavior and `docs/workspaces/README.md` are authoritative. The
   completed multi-agent implementation packets remain in Git history and should
   not drive new implementation.

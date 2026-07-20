@@ -156,21 +156,20 @@ function formatArguments(value: unknown) {
 const styles = stylex.create({
   list: {
     display: "grid",
-    gap: 10,
+    gap: "var(--spacing-2)",
     width: "100%"
   },
   compactList: {
-    width: "var(--chat-column-width)",
-    maxWidth: "calc(100% - 40px)",
-    marginInline: "auto",
-    marginBottom: 10
+    width: "100%",
+    maxWidth: "none",
+    margin: 0
   },
   card: {
     display: "flex",
     alignItems: "flex-start",
     justifyContent: "space-between",
-    gap: 16,
-    padding: 16,
+    gap: "var(--spacing-3)",
+    padding: "var(--spacing-3)",
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "var(--noema-border-subtle)",
@@ -182,12 +181,16 @@ const styles = stylex.create({
     }
   },
   compactCard: {
-    paddingBlock: 12,
-    paddingInline: 14
+    gap: "var(--spacing-2)",
+    borderRadius: 8,
+    backgroundColor: "var(--noema-surface-sunken)",
+    boxShadow: "none",
+    paddingBlock: "var(--spacing-2)",
+    paddingInline: "var(--spacing-2)"
   },
   copy: {
     display: "grid",
-    gap: 5,
+    gap: "var(--spacing-1)",
     minWidth: 0
   },
   eyebrow: {
@@ -201,25 +204,25 @@ const styles = stylex.create({
   },
   summary: {
     color: "var(--noema-text-primary)",
-    fontSize: 14,
+    fontSize: 12,
     lineHeight: 1.35
   },
   capability: {
     color: "var(--noema-text-muted)",
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-    fontSize: 11,
+    fontSize: 10,
     overflowWrap: "anywhere"
   },
   details: {
-    marginTop: 3,
+    marginTop: "var(--spacing-0-5)",
     color: "var(--noema-text-secondary)",
     fontSize: 12,
     cursor: "pointer"
   },
   arguments: {
     maxHeight: 180,
-    marginBlock: 8,
-    padding: 10,
+    marginBlock: "var(--spacing-2)",
+    padding: "var(--spacing-2)",
     overflow: "auto",
     borderRadius: 8,
     backgroundColor: "var(--noema-surface-subtle)",
@@ -232,7 +235,7 @@ const styles = stylex.create({
   actions: {
     display: "flex",
     flexShrink: 0,
-    gap: 6
+    gap: "var(--spacing-1)"
   },
   error: {
     color: "var(--noema-text-danger)",

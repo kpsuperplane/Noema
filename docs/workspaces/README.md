@@ -201,11 +201,12 @@ activity lanes. Run transcripts are merged into one scroll surface; tool
 activity remains expandable in place, and bounded paging continues from the
 oldest available run window.
 
-The bottom task-context card keeps the brief, validation criteria, and metadata
-available through compact disclosure. An unresolved clarification, approval,
-recovery, permission, or acceptance action expands that card and keeps its
-prompt and controls visible until resolved; after resolution, the decision is
-represented by the chronological task stream. Recovery uses one response
+The floating task-context card keeps the brief, validation criteria, and
+metadata available through compact disclosure while the padded transcript stays
+primary. An unresolved clarification, approval, recovery, permission, or
+acceptance action is attached to that card in a compact action region, keeping
+its prompt and controls visible until resolved; after resolution, the decision
+is represented by the chronological task stream. Recovery uses one response
 control: non-empty text resolves an eligible Answer, while an empty response
 requests Retry when the gate authorizes it.
 Internal IDs, raw run counters, provider details, and audit evidence stay behind

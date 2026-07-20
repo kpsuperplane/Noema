@@ -1,11 +1,11 @@
 import * as React from "react";
 import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import * as stylex from "@stylexjs/stylex";
-import { TaskDecisionCard } from "./TaskDecisionCard";
-import { TaskExpandableContent, TaskStaticSection } from "./TaskSection";
+import { ChevronDown } from "lucide-react";
+import { TaskExpandableContent } from "./TaskSection";
 import type { TaskDetail, TaskRunItem } from "./taskTypes";
 import { TaskCriteria } from "./TaskCriteria";
-import { TaskDetails, taskStageLabel } from "./TaskOverview";
+import { taskStageLabel } from "./TaskOverview";
 import { TaskResult } from "./TaskResult";
 import { TaskTranscript } from "./TaskTranscript";
 
@@ -50,8 +50,10 @@ export function TaskDetailPanel({
   return (
     <div data-slot="task-detail-view-viewport" {...stylex.props(styles.viewport)}>
       <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root)}>
-        <TaskTranscript detail={currentDetail} liveRunItems={liveRunItems} />
-        <TaskContextDock
+        <div {...stylex.props(styles.transcriptRegion)}>
+          <TaskTranscript detail={currentDetail} liveRunItems={liveRunItems} />
+        </div>
+        <TaskContextCard
           key={`context:${taskId}:${currentDetail.attention ? "attention" : "info"}`}
           actions={actions}
           detail={currentDetail}
@@ -63,33 +65,7 @@ export function TaskDetailPanel({
   );
 }
 
-function TaskBrief({
-  request,
-  criteria
-}: {
-  request: string;
-  criteria: TaskDetail["criteria"];
-}) {
-  return (
-    <TaskStaticSection id="task-brief-title" title="Task brief">
-      <div {...stylex.props(styles.briefLabel)}>Original request</div>
-      <TaskExpandableContent id="task-request-content">
-        <Markdown
-          autolink="gfm"
-          contentWidth="100%"
-          density="default"
-          headingLevelStart={4}
-          xstyle={markdownXStyle(styles.markdown)}
-        >
-          {request}
-        </Markdown>
-      </TaskExpandableContent>
-      <TaskCriteria embedded criteria={criteria} />
-    </TaskStaticSection>
-  );
-}
-
-function TaskContextDock({
+function TaskContextCard({
   detail,
   actions,
   governedActions,
@@ -100,55 +76,126 @@ function TaskContextDock({
   governedActions?: React.ReactNode;
   taskId: string;
 }) {
-  const [expanded, setExpanded] = React.useState(Boolean(detail.attention));
+  const [expanded, setExpanded] = React.useState(false);
+  const stageLabel = taskStageLabel(detail);
+  const criteriaSummary = detail.criteria.length > 0 ? `${detail.criteria.length} criteria` : "No criteria";
+
+  return (
+    <aside aria-label="Task context" {...stylex.props(styles.contextDock)}>
+      <div {...stylex.props(styles.contextCard)}>
+        <header {...stylex.props(styles.cardHeader)}>
+          <div {...stylex.props(styles.cardIdentity)}>
+            <span {...stylex.props(styles.cardState)}>{detail.attention ? "Needs you" : stageLabel}</span>
+            <span {...stylex.props(styles.cardMeta)}>{criteriaSummary}</span>
+            {detail.currentRevision ? <span {...stylex.props(styles.cardMeta)}>Revision {detail.currentRevision}</span> : null}
+          </div>
+          <button
+            type="button"
+            aria-controls={`task-context:${taskId}`}
+            aria-expanded={expanded}
+            aria-label={expanded ? "Collapse task info" : "Expand task info"}
+            onClick={() => setExpanded((current) => !current)}
+            {...stylex.props(styles.contextToggle)}
+          >
+            <ChevronDown aria-hidden="true" size={16} {...stylex.props(styles.contextToggleIcon, expanded && styles.contextToggleIconOpen)} />
+          </button>
+        </header>
+        {governedActions ? <div {...stylex.props(styles.governedActions)}>{governedActions}</div> : null}
+        {detail.attention ? <TaskAttention detail={detail} actions={actions} /> : actions ? <div {...stylex.props(styles.actionRow)}>{actions}</div> : null}
+        {expanded ? <TaskInfoBody detail={detail} taskId={taskId} /> : null}
+      </div>
+    </aside>
+  );
+}
+
+function TaskAttention({ detail, actions }: { detail: TaskDetail; actions?: React.ReactNode }) {
+  const prompt = detail.blockingQuestion?.trim() || null;
+  const context = detail.attention?.context?.trim() || null;
+  const contextIsPrimary = Boolean(context) && (detail.attention?.kind === "RECOVERY_REQUIRED" || !prompt);
+  const primaryText = contextIsPrimary ? null : prompt || (context ? null : detail.attention?.summary);
   const result = detail.stageBehavior === "ACCEPTANCE" || detail.stageBehavior === "TERMINAL_SUCCESS"
     ? <TaskResult embedded artifacts={detail.artifacts} result={detail.finalResult} />
     : null;
   const evidence = detail.stageBehavior === "ACCEPTANCE" ? latestReviewSummary(detail) : null;
 
   return (
-    <aside aria-label="Task context" {...stylex.props(styles.dock)}>
-      {governedActions}
-      {detail.attention ? (
-        <TaskDecisionCard attention={detail.attention} question={detail.blockingQuestion}>
-          {result}
-          {evidence ? <ReviewEvidence summary={evidence} /> : null}
-          {actions}
-        </TaskDecisionCard>
-      ) : actions ? (
-        <div {...stylex.props(styles.dockActions)}>{actions}</div>
+    <section aria-labelledby="task-attention-title" {...stylex.props(styles.attention)}>
+      <div {...stylex.props(styles.attentionEyebrow)}>Needs your input</div>
+      <h3 id="task-attention-title" {...stylex.props(styles.attentionTitle)}>{detail.attention?.title}</h3>
+      {primaryText ? <p {...stylex.props(styles.attentionText)}>{primaryText}</p> : null}
+      {context ? (
+        <Markdown
+          autolink="gfm"
+          contentWidth="100%"
+          density="compact"
+          headingLevelStart={4}
+          xstyle={markdownXStyle(contextIsPrimary ? styles.attentionPrimaryMarkdown : styles.attentionMarkdown)}
+        >
+          {context}
+        </Markdown>
       ) : null}
-      <button
-        type="button"
-        aria-controls={`task-context:${taskId}`}
-        aria-expanded={expanded}
-        onClick={() => setExpanded((current) => !current)}
-        {...stylex.props(styles.contextToggle)}
-      >
-        <span {...stylex.props(styles.contextToggleTitle)}>{detail.attention ? "Task context" : "Task info"}</span>
-        <span {...stylex.props(styles.contextToggleSummary)}>
-          {taskStageLabel(detail)}
-          {detail.currentRevision ? ` · Revision ${detail.currentRevision}` : ""}
-        </span>
-        <span aria-hidden="true" {...stylex.props(styles.contextToggleIcon, expanded && styles.contextToggleIconOpen)}>⌄</span>
-      </button>
-      {expanded ? (
-        <div id={`task-context:${taskId}`} {...stylex.props(styles.contextBody)}>
-          <TaskBrief key={`brief:${taskId}`} criteria={detail.criteria} request={detail.request} />
-          <TaskDetails key={`details:${taskId}`} detail={detail} />
-        </div>
-      ) : null}
-    </aside>
+      {result}
+      {evidence ? <div {...stylex.props(styles.attentionEvidence)}><span {...stylex.props(styles.infoLabel)}>Review evidence</span><Markdown autolink="gfm" contentWidth="100%" density="compact" headingLevelStart={4} xstyle={markdownXStyle(styles.attentionMarkdown)}>{evidence}</Markdown></div> : null}
+      {actions ? <div {...stylex.props(styles.attentionActions)}>{actions}</div> : null}
+    </section>
   );
 }
 
-function ReviewEvidence({ summary }: { summary: string }) {
+function TaskInfoBody({ detail, taskId }: { detail: TaskDetail; taskId: string }) {
+  const result = detail.stageBehavior === "ACCEPTANCE" || detail.stageBehavior === "TERMINAL_SUCCESS"
+    ? <TaskResult embedded artifacts={detail.artifacts} result={detail.finalResult} />
+    : null;
+
   return (
-    <div {...stylex.props(styles.reviewEvidence)}>
-      <h4 {...stylex.props(styles.briefLabel)}>Review evidence</h4>
-      <Markdown autolink="gfm" contentWidth="100%" density="default" headingLevelStart={4} xstyle={markdownXStyle(styles.markdown)}>{summary}</Markdown>
+    <div id={`task-context:${taskId}`} {...stylex.props(styles.infoBody)}>
+      {result ? <section {...stylex.props(styles.infoSection, styles.resultSection)}><span {...stylex.props(styles.infoLabel)}>Result</span>{result}</section> : null}
+      <section {...stylex.props(styles.infoSection)}>
+        <span {...stylex.props(styles.infoLabel)}>Request</span>
+        <TaskExpandableContent id={`task-request-content:${taskId}`}>
+          <Markdown autolink="gfm" contentWidth="100%" density="compact" headingLevelStart={4} xstyle={markdownXStyle(styles.markdown)}>{detail.request}</Markdown>
+        </TaskExpandableContent>
+      </section>
+      {detail.criteria.length > 0 ? <section {...stylex.props(styles.infoSection)}><TaskCriteria embedded criteria={detail.criteria} /></section> : null}
+      <TaskInfoMetadata detail={detail} />
     </div>
   );
+}
+
+function TaskInfoMetadata({ detail }: { detail: TaskDetail }) {
+  const revision = detail.currentRevision ?? latestRevision(detail);
+  const provenance = [detail.createdBy, detail.sourceLabel].filter(Boolean).join(" · ");
+  return (
+    <section {...stylex.props(styles.infoSection)}>
+      <span {...stylex.props(styles.infoLabel)}>Task details</span>
+      <dl {...stylex.props(styles.metadata)}>
+        {detail.complexity ? <MetadataRow label="Complexity" value={capitalize(detail.complexity)} /> : null}
+        <MetadataRow label="Stage" value={taskStageLabel(detail)} />
+        {revision > 0 ? <MetadataRow label="Revision" value={`${revision}`} /> : null}
+        {detail.maxReviewRounds ? <MetadataRow label="Review limit" value={`${detail.maxReviewRounds} rounds`} /> : null}
+        {detail.createdAt ? <MetadataRow label="Created" value={formatDate(detail.createdAt)} /> : null}
+        {provenance ? <MetadataRow label="From" value={provenance} /> : null}
+      </dl>
+    </section>
+  );
+}
+
+function MetadataRow({ label, value }: { label: string; value: string }) {
+  return <div {...stylex.props(styles.metadataRow)}><dt {...stylex.props(styles.metadataKey)}>{label}</dt><dd {...stylex.props(styles.metadataValue)}>{value}</dd></div>;
+}
+
+function latestRevision(detail: TaskDetail): number {
+  return detail.revisions.reduce((latest, revision) => Math.max(latest, revision.revision), 0);
+}
+
+function formatDate(value: string): string {
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp)
+    ? value
+    : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(timestamp);
+}
+
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function latestReviewSummary(detail: TaskDetail): string | null {
@@ -176,45 +223,58 @@ const styles = stylex.create({
     height: "100%",
     backgroundColor: "var(--noema-surface-card)"
   },
-  dock: {
+  transcriptRegion: {
+    minWidth: 0,
+    minHeight: 0,
+    paddingInline: "var(--spacing-4)",
+    paddingBlockEnd: "var(--spacing-2)",
+    boxSizing: "border-box"
+  },
+  contextDock: {
+    position: "relative",
+    zIndex: 2,
+    minWidth: 0,
+    marginInline: "var(--spacing-4)",
+    marginBlockEnd: "var(--spacing-3)",
+    marginBlockStart: "calc(-1 * var(--spacing-2))"
+  },
+  contextCard: {
     display: "grid",
     minWidth: 0,
-    gap: "var(--spacing-2)",
-    borderTopWidth: 1,
-    borderTopStyle: "solid",
-    borderTopColor: "var(--noema-border-subtle)",
+    overflow: "hidden",
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--noema-border-subtle)",
+    borderRadius: 12,
     backgroundColor: "var(--noema-surface-card)",
-    paddingBlock: "var(--spacing-2)",
-    paddingInline: "var(--spacing-2)",
-    boxShadow: "0 -8px 22px color-mix(in srgb, var(--noema-text-primary) 7%, transparent)"
+    boxShadow: "0 10px 28px color-mix(in srgb, var(--noema-text-primary) 13%, transparent)"
   },
-  dockActions: { minWidth: 0 },
-  contextToggle: {
-    display: "grid",
-    gridTemplateColumns: "auto minmax(0, 1fr) auto",
-    minWidth: 0,
-    alignItems: "center",
-    gap: "var(--spacing-2)",
-    borderWidth: 0,
-    borderRadius: 7,
-    backgroundColor: "var(--noema-surface-sunken)",
-    paddingBlock: "var(--spacing-2)",
-    paddingInline: "var(--spacing-2)",
-    color: "var(--noema-text-primary)",
-    font: "inherit",
-    textAlign: "left",
-    cursor: "pointer",
-    ":hover": { backgroundColor: "var(--noema-surface-hover)" },
-    ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 }
-  },
-  contextToggleTitle: { color: "var(--noema-text-primary)", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" },
-  contextToggleSummary: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-muted)", fontSize: 11, textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  contextToggleIcon: { color: "var(--noema-text-muted)", fontSize: 16, lineHeight: 1, transform: "translateY(-1px)", transition: "transform 140ms ease" },
-  contextToggleIconOpen: { transform: "rotate(180deg) translateY(1px)" },
-  contextBody: { minWidth: 0, maxHeight: "min(48vh, 420px)", overflowX: "hidden", overflowY: "auto", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 8, backgroundColor: "var(--noema-surface-sunken)" },
+  cardHeader: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-3)" },
+  cardIdentity: { display: "flex", minWidth: 0, alignItems: "center", flexWrap: "wrap", gap: "var(--spacing-1-5)" },
+  cardState: { color: "var(--noema-text-primary)", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" },
+  cardMeta: { color: "var(--noema-text-muted)", fontSize: 11, whiteSpace: "nowrap" },
+  contextToggle: { display: "inline-flex", width: 28, height: 28, alignItems: "center", justifyContent: "center", borderWidth: 0, borderRadius: 6, backgroundColor: "transparent", color: "var(--noema-text-muted)", cursor: "pointer", ":hover": { backgroundColor: "var(--noema-surface-hover)" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
+  contextToggleIcon: { transition: "transform 140ms ease" },
+  contextToggleIconOpen: { transform: "rotate(180deg)" },
+  governedActions: { minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-3)" },
+  actionRow: { minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-3)" },
+  attention: { display: "grid", gap: "var(--spacing-1-5)", minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "color-mix(in srgb, var(--noema-clay-600) 24%, transparent)", backgroundColor: "color-mix(in srgb, var(--noema-clay-50) 52%, var(--noema-surface-card))", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-3)" },
+  attentionEyebrow: { color: "var(--noema-clay-700)", fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase" },
+  attentionTitle: { margin: 0, color: "var(--noema-text-primary)", fontSize: 13, fontWeight: 700, lineHeight: 1.35 },
+  attentionText: { margin: 0, color: "var(--noema-text-primary)", fontSize: 12, lineHeight: 1.45 },
+  attentionMarkdown: { color: "var(--noema-text-secondary)", fontSize: 11, lineHeight: 1.45 },
+  attentionPrimaryMarkdown: { color: "var(--noema-text-primary)", fontSize: 12, fontWeight: 600, lineHeight: 1.45 },
+  attentionEvidence: { display: "grid", gap: "var(--spacing-1)", minWidth: 0 },
+  attentionActions: { minWidth: 0, marginBlockStart: "var(--spacing-1)", borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "color-mix(in srgb, var(--noema-clay-600) 22%, transparent)", paddingBlockStart: "var(--spacing-2)" },
+  infoBody: { minWidth: 0, maxHeight: "min(50vh, 420px)", overflowX: "hidden", overflowY: "auto", borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", backgroundColor: "var(--noema-surface-sunken)" },
+  infoSection: { display: "grid", gap: "var(--spacing-2)", minWidth: 0, borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--noema-border-subtle)", paddingBlock: "var(--spacing-3)", paddingInline: "var(--spacing-3)" },
+  resultSection: { backgroundColor: "var(--noema-surface-card)" },
+  infoLabel: { color: "var(--noema-text-muted)", fontSize: 10, fontWeight: 700, letterSpacing: "0.03em", textTransform: "uppercase" },
+  metadata: { display: "grid", gap: "var(--spacing-1-5)", margin: 0 },
+  metadataRow: { display: "grid", gridTemplateColumns: "minmax(88px, 0.42fr) minmax(0, 1fr)", gap: "var(--spacing-3)", alignItems: "baseline" },
+  metadataKey: { color: "var(--noema-text-muted)", fontSize: 11 },
+  metadataValue: { minWidth: 0, margin: 0, color: "var(--noema-text-secondary)", fontSize: 11, overflowWrap: "anywhere" },
   status: { padding: "var(--spacing-2)", color: "var(--noema-text-secondary)", fontSize: 13 },
   unavailable: { padding: "var(--spacing-2)", color: "var(--noema-text-secondary)", fontSize: 13, lineHeight: 1.45 },
-  briefLabel: { margin: 0, color: "var(--noema-text-muted)", fontSize: 10, fontWeight: 650 },
-  markdown: { color: "var(--noema-text-secondary)", fontSize: 13, lineHeight: 1.55 },
-  reviewEvidence: { display: "grid", gap: "var(--spacing-1)", minWidth: 0 }
+  markdown: { color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: 1.5 }
 });
