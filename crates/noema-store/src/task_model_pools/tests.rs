@@ -150,6 +150,7 @@ async fn ensuring_defaults_preserves_user_edits() {
             entry.model.provider_kind == "codex" && entry.complexity == TaskComplexity::Simple
         })
         .expect("simple default");
+    assert!(!simple.is_override);
 
     let input = NewTaskModelPoolEntry {
         pool_entry_id: Some(simple.pool_entry_id.clone()),
@@ -190,6 +191,7 @@ async fn ensuring_defaults_preserves_user_edits() {
     assert_eq!(edited.label.as_deref(), Some("My fast model"));
     assert_eq!(edited.model.model_profile.as_deref(), Some("gpt-5.6-terra"));
     assert_eq!(edited.model.reasoning_effort, Some(ReasoningEffort::High));
+    assert!(edited.is_override);
 }
 
 #[tokio::test]

@@ -10,8 +10,9 @@ use crate::{
     agents::BUILTIN_AGENTS,
     auxiliary_model_preferences::AuxiliaryModelDefault,
     provider_selections::{
-        CanonicalPreferenceOwner, SelectionEligibility, validate_provider_selection_tx,
-        validate_ready_selection_proof, write_preference_tx, write_task_pool_preference_tx,
+        CanonicalPreferenceOwner, PreferenceOrigin, SelectionEligibility,
+        validate_provider_selection_tx, validate_ready_selection_proof, write_preference_tx,
+        write_task_pool_preference_tx,
     },
 };
 
@@ -145,6 +146,7 @@ fn insert_missing_default(
         transaction,
         CanonicalPreferenceOwner::Default,
         selection,
+        PreferenceOrigin::Default,
         false,
     )
 }
@@ -158,6 +160,7 @@ fn insert_missing_agent_preferences(
             transaction,
             CanonicalPreferenceOwner::Agent(agent_id),
             selection,
+            PreferenceOrigin::Default,
             false,
         )?;
     }
@@ -169,7 +172,14 @@ fn insert_missing_task_pool(
     selection: &ProviderSelectionSnapshot,
 ) -> Result<(), StoreError> {
     for (pool_entry_id, complexity) in TASK_POOL_SETTINGS {
-        write_task_pool_preference_tx(transaction, pool_entry_id, complexity, selection, false)?;
+        write_task_pool_preference_tx(
+            transaction,
+            pool_entry_id,
+            complexity,
+            selection,
+            PreferenceOrigin::Default,
+            false,
+        )?;
     }
     Ok(())
 }
@@ -186,6 +196,7 @@ fn insert_missing_auxiliary_preferences(
             transaction,
             CanonicalPreferenceOwner::Auxiliary(task.as_str()),
             selection,
+            PreferenceOrigin::Default,
             false,
         )?;
     }
@@ -331,6 +342,7 @@ mod tests {
                 .expect("agent preference")
                 .expect("initialized agent");
             assert_eq!(preference.provider_instance_key, expected_key);
+            assert!(!preference.is_override);
         }
         for task in AuxiliaryModelTask::ALL {
             let preference = store
@@ -347,11 +359,13 @@ mod tests {
                             .as_ref()
                             .map(|value| value.model_profile.as_str()),
                         preference.as_ref().and_then(|value| value.reasoning_effort),
+                        preference.as_ref().map(|value| value.is_override),
                     ),
                     (
                         Some(&expected_key),
                         Some("gpt-5.6-luna"),
                         Some(noema_providers::ReasoningEffort::Medium),
+                        Some(false),
                     )
                 ),
                 AuxiliaryModelDefault::ExplicitSelectionRequired => assert!(preference.is_none()),
@@ -366,6 +380,7 @@ mod tests {
             entry.model.provider_instance_key.as_ref() == Some(&expected_key)
                 && entry.model.model_profile.as_deref() == Some("gpt-5.6-luna")
                 && entry.model.reasoning_effort == Some(noema_providers::ReasoningEffort::Medium)
+                && !entry.is_override
         }));
     }
 
@@ -406,6 +421,7 @@ mod tests {
             .upsert_agent_runtime_preference_with_ready_selection(preference, &ready_selection)
             .await
             .expect("update primary route");
+        assert!(updated.is_override);
 
         initialize_codex(&store)
             .await

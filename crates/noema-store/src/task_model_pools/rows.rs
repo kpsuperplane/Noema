@@ -28,9 +28,10 @@ pub(super) fn pool_entry_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<T
         complexity,
         label: row.get(2)?,
         model,
-        enabled: row.get::<_, i64>(8)? != 0,
-        sort_order: row.get(9)?,
-        created_at: row.get(10)?,
-        updated_at: row.get(11)?,
+        is_override: row.get(8)?,
+        enabled: row.get::<_, i64>(9)? != 0,
+        sort_order: row.get(10)?,
+        created_at: row.get(11)?,
+        updated_at: row.get(12)?,
     })
 }

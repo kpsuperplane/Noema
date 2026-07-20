@@ -31,6 +31,18 @@ pub(crate) enum CanonicalPreferenceOwner<'a> {
     Auxiliary(&'a str),
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum PreferenceOrigin {
+    Default,
+    Override,
+}
+
+impl PreferenceOrigin {
+    const fn is_override(self) -> bool {
+        matches!(self, Self::Override)
+    }
+}
+
 impl NoemaStore {
     /// Run a complete SQLite writer unit under an immediate transaction.
     ///
@@ -122,6 +134,7 @@ pub(crate) fn write_preference_tx(
     transaction: &Transaction<'_>,
     owner: CanonicalPreferenceOwner<'_>,
     selection: &ProviderSelectionSnapshot,
+    origin: PreferenceOrigin,
     overwrite: bool,
 ) -> Result<(), StoreError> {
     let (table, owner_column, owner_id) = match owner {
@@ -140,14 +153,14 @@ pub(crate) fn write_preference_tx(
         .as_ref()
         .ok_or(StoreError::ProviderInstanceKeyMissing)?;
     let conflict = if overwrite {
-        "DO UPDATE SET provider_kind = excluded.provider_kind, provider_account_id = excluded.provider_account_id, provider_instance_key = excluded.provider_instance_key, model_profile = excluded.model_profile, reasoning_effort = excluded.reasoning_effort, updated_at = excluded.updated_at"
+        "DO UPDATE SET provider_kind = excluded.provider_kind, provider_account_id = excluded.provider_account_id, provider_instance_key = excluded.provider_instance_key, model_profile = excluded.model_profile, reasoning_effort = excluded.reasoning_effort, is_override = excluded.is_override, updated_at = excluded.updated_at"
     } else {
         "DO NOTHING"
     };
     transaction.execute(
         &format!(
-            "INSERT INTO {table} ({owner_column}, provider_kind, provider_account_id, provider_instance_key, model_profile, reasoning_effort, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) \
+            "INSERT INTO {table} ({owner_column}, provider_kind, provider_account_id, provider_instance_key, model_profile, reasoning_effort, is_override, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) \
              ON CONFLICT({owner_column}) {conflict}"
         ),
         params![
@@ -157,6 +170,7 @@ pub(crate) fn write_preference_tx(
             key.as_str(),
             selection.model_profile,
             selection.reasoning_effort.map(noema_providers::ReasoningEffort::as_persistence_str),
+            origin.is_override(),
         ],
     )?;
     Ok(())
@@ -167,6 +181,7 @@ pub(crate) fn write_task_pool_preference_tx(
     pool_entry_id: &str,
     complexity: &str,
     selection: &ProviderSelectionSnapshot,
+    origin: PreferenceOrigin,
     overwrite: bool,
 ) -> Result<(), StoreError> {
     let key = selection
@@ -174,14 +189,14 @@ pub(crate) fn write_task_pool_preference_tx(
         .as_ref()
         .ok_or(StoreError::ProviderInstanceKeyMissing)?;
     let conflict = if overwrite {
-        "DO UPDATE SET provider_kind = excluded.provider_kind, provider_account_id = excluded.provider_account_id, provider_instance_key = excluded.provider_instance_key, model_profile = excluded.model_profile, reasoning_effort = excluded.reasoning_effort, enabled = 1, sort_order = 0, updated_at = excluded.updated_at"
+        "DO UPDATE SET provider_kind = excluded.provider_kind, provider_account_id = excluded.provider_account_id, provider_instance_key = excluded.provider_instance_key, model_profile = excluded.model_profile, reasoning_effort = excluded.reasoning_effort, is_override = excluded.is_override, enabled = 1, sort_order = 0, updated_at = excluded.updated_at"
     } else {
         "DO NOTHING"
     };
     transaction.execute(
         &format!(
-            "INSERT INTO task_model_pool_entries (pool_entry_id, complexity, label, provider_kind, provider_account_id, provider_instance_key, model_profile, reasoning_effort, enabled, sort_order, updated_at) \
-             VALUES (?1, ?2, NULL, ?3, ?4, ?5, ?6, ?7, 1, 0, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) \
+            "INSERT INTO task_model_pool_entries (pool_entry_id, complexity, label, provider_kind, provider_account_id, provider_instance_key, model_profile, reasoning_effort, is_override, enabled, sort_order, updated_at) \
+             VALUES (?1, ?2, NULL, ?3, ?4, ?5, ?6, ?7, ?8, 1, 0, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) \
              ON CONFLICT(pool_entry_id) {conflict}"
         ),
         params![
@@ -192,6 +207,7 @@ pub(crate) fn write_task_pool_preference_tx(
             key.as_str(),
             selection.model_profile,
             selection.reasoning_effort.map(noema_providers::ReasoningEffort::as_persistence_str),
+            origin.is_override(),
         ],
     )?;
     Ok(())

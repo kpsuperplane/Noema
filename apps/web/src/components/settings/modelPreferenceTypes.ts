@@ -23,6 +23,7 @@ export type ModelPreference = {
   providerAccountId: string;
   modelProfile: string;
   reasoningEffort?: ReasoningEffort | null;
+  isOverride: boolean;
 };
 
 export type ModelPreferenceSaveInput = {

@@ -1,4 +1,3 @@
-import { Badge } from "@astryxdesign/core/Badge";
 import * as stylex from "@stylexjs/stylex";
 import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
 import { selectedPreferenceWarning } from "./modelPreferenceMetadata";
@@ -38,12 +37,9 @@ export function UsageSettingsPaneContent({
   return (
     <section {...stylex.props(styles.card)} aria-labelledby="usage-progress-audit-title">
       <div {...stylex.props(styles.cardHeader)}>
-        <div {...stylex.props(styles.titleRow)}>
-          <h2 id="usage-progress-audit-title" {...stylex.props(styles.cardTitle)}>
-            Tool progress audit
-          </h2>
-          {!preference && progressAudit ? <Badge variant="neutral" label="Default" /> : null}
-        </div>
+        <h2 id="usage-progress-audit-title" {...stylex.props(styles.cardTitle)}>
+          Tool progress audit
+        </h2>
         <ModelPreferenceSelect
           options={progressAudit?.modelOptions ?? []}
           preference={preference}
@@ -88,12 +84,6 @@ const styles = stylex.create({
     flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12
-  },
-  titleRow: {
-    display: "flex",
-    flexWrap: "wrap",
-    alignItems: "center",
     gap: 12
   },
   cardTitle: {

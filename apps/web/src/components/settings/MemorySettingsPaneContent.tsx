@@ -1,4 +1,3 @@
-import { Badge } from "@astryxdesign/core/Badge";
 import * as stylex from "@stylexjs/stylex";
 import type { MemorySettingsQuery } from "@/generated/graphql";
 import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
@@ -50,12 +49,9 @@ export function MemorySettingsPaneContent({
   return (
     <section {...stylex.props(styles.card)} aria-labelledby="memory-settings-title">
       <div {...stylex.props(styles.cardHeader)}>
-        <div {...stylex.props(styles.titleRow)}>
-          <h2 id="memory-settings-title" {...stylex.props(styles.cardTitle)}>
-            Background memory updates
-          </h2>
-          {!preference ? <Badge variant="neutral" label="Default" /> : null}
-        </div>
+        <h2 id="memory-settings-title" {...stylex.props(styles.cardTitle)}>
+          Background memory updates
+        </h2>
         <span {...stylex.props(styles.scope)}>Local human only</span>
       </div>
       <p {...stylex.props(styles.mutedText)}>
@@ -85,7 +81,8 @@ function toPreference(value: NonNullable<NativeMemorySettings>["modelPreference"
         providerKind: value.providerKind,
         providerAccountId: value.providerAccountId,
         modelProfile: value.modelProfile,
-        reasoningEffort: value.reasoningEffort
+        reasoningEffort: value.reasoningEffort,
+        isOverride: value.isOverride
       }
     : null;
 }
@@ -124,12 +121,6 @@ const styles = stylex.create({
     flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: "var(--spacing-2)"
-  },
-  titleRow: {
-    display: "flex",
-    flexWrap: "wrap",
-    alignItems: "center",
     gap: "var(--spacing-2)"
   },
   cardTitle: {

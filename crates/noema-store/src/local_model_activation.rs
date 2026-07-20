@@ -14,7 +14,8 @@ use super::{
     local_model_rows::{INSTALLATION_SELECT, installation_from_raw, raw_installation_from_row},
     local_models::append_event,
     provider_selections::{
-        CanonicalPreferenceOwner, write_preference_tx, write_task_pool_preference_tx,
+        CanonicalPreferenceOwner, PreferenceOrigin, write_preference_tx,
+        write_task_pool_preference_tx,
     },
 };
 
@@ -100,6 +101,7 @@ impl NoemaStore {
                 transaction,
                 CanonicalPreferenceOwner::Default,
                 selection,
+                PreferenceOrigin::Default,
                 true,
             )?;
             save_agent_preferences(transaction, selection)?;
@@ -179,6 +181,7 @@ fn save_agent_preferences(
             transaction,
             CanonicalPreferenceOwner::Agent(agent_id),
             selection,
+            PreferenceOrigin::Default,
             true,
         )?;
     }
@@ -191,7 +194,14 @@ fn save_task_pool_preferences(
 ) -> Result<(), StoreError> {
     for complexity in ["simple", "medium", "difficult"] {
         let pool_entry_id = format!("task_pool:setting:{complexity}");
-        write_task_pool_preference_tx(transaction, &pool_entry_id, complexity, selection, true)?;
+        write_task_pool_preference_tx(
+            transaction,
+            &pool_entry_id,
+            complexity,
+            selection,
+            PreferenceOrigin::Default,
+            true,
+        )?;
     }
     Ok(())
 }
@@ -208,6 +218,7 @@ fn save_auxiliary_preferences(
             transaction,
             CanonicalPreferenceOwner::Auxiliary(task.as_str()),
             selection,
+            PreferenceOrigin::Default,
             true,
         )?;
     }

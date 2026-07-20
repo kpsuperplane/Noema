@@ -8,6 +8,7 @@ export const MemorySettingsDocument = gql`
         providerAccountId
         modelProfile
         reasoningEffort
+        isOverride
       }
       modelOptions {
         providerKind
@@ -159,6 +160,7 @@ export const SaveMemoryModelPreferenceDocument = gql`
       providerAccountId
       modelProfile
       reasoningEffort
+      isOverride
     }
   }
 `;

@@ -132,6 +132,7 @@ export const AgentsDocument = gql`
         providerAccountId
         modelProfile
         reasoningEffort
+        isOverride
       }
       modelOptions {
         providerKind
@@ -159,6 +160,7 @@ export const SaveAgentModelPreferenceDocument = gql`
       providerAccountId
       modelProfile
       reasoningEffort
+      isOverride
     }
   }
 `;
@@ -173,6 +175,7 @@ export const WebFetchSettingsDocument = gql`
           providerAccountId
           modelProfile
           reasoningEffort
+          isOverride
         }
         modelOptions {
           providerKind
@@ -201,6 +204,7 @@ export const SaveWebFetchSummarizerPreferenceDocument = gql`
       providerAccountId
       modelProfile
       reasoningEffort
+      isOverride
     }
   }
 `;
@@ -275,6 +279,7 @@ export const UsageSettingsDocument = gql`
           providerAccountId
           modelProfile
           reasoningEffort
+          isOverride
         }
         modelOptions {
           providerKind
@@ -303,6 +308,7 @@ export const SaveToolProgressAuditPreferenceDocument = gql`
       providerAccountId
       modelProfile
       reasoningEffort
+      isOverride
     }
   }
 `;
@@ -316,6 +322,7 @@ export const PrivacySettingsDocument = gql`
           providerAccountId
           modelProfile
           reasoningEffort
+          isOverride
         }
         modelOptions {
           providerKind
@@ -344,6 +351,7 @@ export const SaveActionReviewerPreferenceDocument = gql`
       providerAccountId
       modelProfile
       reasoningEffort
+      isOverride
     }
   }
 `;

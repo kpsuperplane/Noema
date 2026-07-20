@@ -128,6 +128,10 @@ type AgentModelPreference {
 	Optional explicit reasoning effort for reasoning-capable model profiles.
 	"""
 	reasoningEffort: ReasoningEffort
+	"""
+	Whether a human save replaced Noema's initialized default.
+	"""
+	isOverride: Boolean!
 }
 
 """
@@ -3489,6 +3493,10 @@ type TaskModelPoolEntry {
 	Optional reasoning effort.
 	"""
 	reasoningEffort: ReasoningEffort
+	"""
+	Whether a human save replaced Noema's initialized default.
+	"""
+	isOverride: Boolean!
 	"""
 	Whether this entry can be selected for new tasks.
 	"""

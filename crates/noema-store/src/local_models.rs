@@ -17,7 +17,8 @@ use super::local_model_rows::{
 use super::{
     NoemaStore, StoreError,
     provider_selections::{
-        CanonicalPreferenceOwner, resolve_new_canonical_selection_tx, write_preference_tx,
+        CanonicalPreferenceOwner, PreferenceOrigin, resolve_new_canonical_selection_tx,
+        write_preference_tx,
     },
     sqlite::parse_column,
 };
@@ -427,6 +428,7 @@ impl NoemaStore {
                 transaction,
                 CanonicalPreferenceOwner::Default,
                 &selection,
+                PreferenceOrigin::Override,
                 true,
             )?;
             default_preference_in_transaction(transaction)

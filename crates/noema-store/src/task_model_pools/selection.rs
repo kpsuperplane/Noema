@@ -67,7 +67,7 @@ impl NoemaStore {
                     r#"
                     SELECT pool_entry_id, complexity, label, provider_kind,
                            provider_account_id, provider_instance_key, model_profile,
-                           reasoning_effort, enabled, sort_order, created_at, updated_at
+                           reasoning_effort, is_override, enabled, sort_order, created_at, updated_at
                     FROM task_model_pool_entries
                     WHERE pool_entry_id = ?1
                     LIMIT 1
@@ -114,6 +114,7 @@ impl NoemaStore {
                     provider_instance_key = ?6,
                     model_profile = ?7,
                     reasoning_effort = ?8,
+                    is_override = 1,
                     enabled = ?9,
                     sort_order = ?10,
                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')

@@ -36,12 +36,12 @@ CREATE TABLE IF NOT EXISTS agent_runtime_preferences (
   provider_instance_key TEXT NOT NULL CHECK (provider_instance_key <> ''),
   model_profile TEXT NOT NULL CHECK (model_profile <> ''),
   reasoning_effort TEXT CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
+  is_override INTEGER NOT NULL DEFAULT 0 CHECK (is_override IN (0, 1)),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
-CREATE INDEX IF NOT EXISTS agent_runtime_preferences_instance
-ON agent_runtime_preferences(provider_instance_key);
+CREATE INDEX IF NOT EXISTS agent_runtime_preferences_instance ON agent_runtime_preferences(provider_instance_key);
 
 CREATE TABLE IF NOT EXISTS auxiliary_model_preferences (
   task_id TEXT PRIMARY KEY NOT NULL CHECK (task_id IN ('web_fetch_summarizer', 'tool_progress_audit', 'memory_extraction', 'action_reviewer')),
@@ -50,12 +50,12 @@ CREATE TABLE IF NOT EXISTS auxiliary_model_preferences (
   provider_instance_key TEXT NOT NULL CHECK (provider_instance_key <> ''),
   model_profile TEXT NOT NULL CHECK (model_profile <> ''),
   reasoning_effort TEXT CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
+  is_override INTEGER NOT NULL DEFAULT 0 CHECK (is_override IN (0, 1)),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
-CREATE INDEX IF NOT EXISTS auxiliary_model_preferences_instance
-ON auxiliary_model_preferences(provider_instance_key);
+CREATE INDEX IF NOT EXISTS auxiliary_model_preferences_instance ON auxiliary_model_preferences(provider_instance_key);
 
 CREATE TABLE IF NOT EXISTS provider_accounts (
   provider_account_id TEXT PRIMARY KEY NOT NULL,
@@ -148,12 +148,12 @@ CREATE TABLE IF NOT EXISTS default_model_preference (
   provider_instance_key TEXT NOT NULL CHECK (provider_instance_key <> ''),
   model_profile TEXT NOT NULL CHECK (model_profile <> ''),
   reasoning_effort TEXT CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
+  is_override INTEGER NOT NULL DEFAULT 0 CHECK (is_override IN (0, 1)),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
-CREATE INDEX IF NOT EXISTS default_model_preference_instance
-ON default_model_preference(provider_instance_key);
+CREATE INDEX IF NOT EXISTS default_model_preference_instance ON default_model_preference(provider_instance_key);
 
 CREATE TABLE IF NOT EXISTS conversations (
   conversation_id TEXT PRIMARY KEY NOT NULL,
@@ -333,6 +333,7 @@ CREATE TABLE IF NOT EXISTS task_model_pool_entries (
   provider_instance_key TEXT NOT NULL CHECK (provider_instance_key <> ''),
   model_profile TEXT NOT NULL CHECK (model_profile <> ''),
   reasoning_effort TEXT CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
+  is_override INTEGER NOT NULL DEFAULT 0 CHECK (is_override IN (0, 1)),
   enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
   sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
@@ -340,8 +341,7 @@ CREATE TABLE IF NOT EXISTS task_model_pool_entries (
   UNIQUE(complexity, provider_account_id, model_profile, reasoning_effort)
 );
 
-CREATE INDEX IF NOT EXISTS task_model_pool_entries_selection
-ON task_model_pool_entries(complexity, enabled, sort_order, label, pool_entry_id);
+CREATE INDEX IF NOT EXISTS task_model_pool_entries_selection ON task_model_pool_entries(complexity, enabled, sort_order, label, pool_entry_id);
 CREATE INDEX IF NOT EXISTS task_model_pool_entries_instance
 ON task_model_pool_entries(provider_instance_key)
 WHERE enabled = 1;

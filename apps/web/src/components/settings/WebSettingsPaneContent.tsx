@@ -229,10 +229,7 @@ function FetchSummarizerCard({
   return (
     <div {...stylex.props(styles.subcard)}>
       <div {...stylex.props(styles.cardHeader)}>
-        <div {...stylex.props(styles.titleRow)}>
-          <h3 {...stylex.props(styles.subcardTitle)}>Fetch summarizer</h3>
-          {!preference && settings ? <Badge variant="neutral" label="Default" /> : null}
-        </div>
+        <h3 {...stylex.props(styles.subcardTitle)}>Fetch summarizer</h3>
         <ModelPreferenceSelect
           options={settings?.modelOptions ?? []}
           preference={preference}

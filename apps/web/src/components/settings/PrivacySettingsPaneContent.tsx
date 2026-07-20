@@ -1,4 +1,3 @@
-import { Badge } from "@astryxdesign/core/Badge";
 import * as stylex from "@stylexjs/stylex";
 import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
 import { selectedPreferenceWarning } from "./modelPreferenceMetadata";
@@ -37,12 +36,9 @@ export function PrivacySettingsPaneContent({
   return (
     <section {...stylex.props(styles.card)} aria-labelledby="privacy-reviewer-title">
       <div {...stylex.props(styles.cardHeader)}>
-        <div {...stylex.props(styles.titleRow)}>
-          <h2 id="privacy-reviewer-title" {...stylex.props(styles.cardTitle)}>
-            Reviewer model
-          </h2>
-          {!preference && reviewer ? <Badge variant="neutral" label="Not configured" /> : null}
-        </div>
+        <h2 id="privacy-reviewer-title" {...stylex.props(styles.cardTitle)}>
+          Reviewer model
+        </h2>
         <ModelPreferenceSelect
           options={reviewer?.modelOptions ?? []}
           preference={preference}
@@ -90,12 +86,6 @@ const styles = stylex.create({
     flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12
-  },
-  titleRow: {
-    display: "flex",
-    flexWrap: "wrap",
-    alignItems: "center",
     gap: 12
   },
   cardTitle: {

@@ -48,6 +48,8 @@ pub struct GraphqlAgentModelPreference {
     pub model_profile: String,
     /// Optional explicit reasoning effort for reasoning-capable model profiles.
     pub reasoning_effort: Option<GraphqlReasoningEffort>,
+    /// Whether a human save replaced Noema's initialized default.
+    pub is_override: bool,
 }
 
 /// One selectable model/profile.
@@ -134,6 +136,7 @@ impl GraphqlAgent {
                 reasoning_effort: preference
                     .reasoning_effort
                     .map(GraphqlReasoningEffort::from),
+                is_override: preference.is_override,
             }),
             model_options: model_options.to_vec(),
         }
@@ -249,6 +252,7 @@ pub(super) async fn save_agent_model_preference(
         provider_account_id: saved.provider_account_id,
         model_profile: saved.model_profile,
         reasoning_effort: saved.reasoning_effort.map(GraphqlReasoningEffort::from),
+        is_override: saved.is_override,
     })
 }
 
@@ -326,6 +330,7 @@ pub(super) async fn auxiliary_model_settings(
             provider_account_id: preference.provider_account_id,
             model_profile: preference.model_profile,
             reasoning_effort: preference.reasoning_effort.map(Into::into),
+            is_override: preference.is_override,
         });
     Ok(AuxiliaryModelSettings {
         preference,
@@ -376,6 +381,7 @@ pub(super) async fn save_auxiliary_model_preference(
         provider_account_id: saved.provider_account_id,
         model_profile: saved.model_profile,
         reasoning_effort: saved.reasoning_effort.map(Into::into),
+        is_override: saved.is_override,
     })
 }
 

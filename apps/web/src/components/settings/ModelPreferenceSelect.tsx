@@ -1,4 +1,5 @@
 import { useMemo, type CSSProperties } from "react";
+import { Badge } from "@astryxdesign/core/Badge";
 import { Selector, type SelectorOptionType } from "@astryxdesign/core/Selector";
 import * as stylex from "@stylexjs/stylex";
 import type { ReasoningEffort } from "@/generated/graphql";
@@ -84,11 +85,23 @@ export function ModelPreferenceSelect({
       provider.profiles.some((profile) => !profile.disabledReason)
   );
   const disabled = isDisabled || saving || !hasEnabledChoice;
+  const originLabel = preference
+    ? preference.isOverride
+      ? "Override"
+      : "Default"
+    : providerOptions.length === 0
+      ? null
+      : requireExplicitSelection
+        ? "Not configured"
+        : "Default";
 
   return (
     <div {...stylex.props(styles.selector)}>
       <div {...stylex.props(styles.field)}>
-        <span {...stylex.props(styles.fieldLabel)}>Model</span>
+        <div {...stylex.props(styles.fieldHeading)}>
+          <span {...stylex.props(styles.fieldLabel)}>Model</span>
+          {originLabel ? <Badge variant="neutral" label={originLabel} /> : null}
+        </div>
         <div {...stylex.props(styles.controls)}>
           <Selector
             isLabelHidden
@@ -247,6 +260,11 @@ const styles = stylex.create({
     display: "flex",
     alignItems: "center",
     gap: 8
+  },
+  fieldHeading: {
+    display: "flex",
+    alignItems: "center",
+    gap: "var(--spacing-1-5)"
   },
   controls: {
     display: "flex",

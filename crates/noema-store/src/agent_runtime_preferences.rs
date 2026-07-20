@@ -7,7 +7,8 @@ use noema_providers::{
 use super::{
     NoemaStore, StoreError,
     provider_selections::{
-        CanonicalPreferenceOwner, resolve_new_canonical_selection_tx, write_preference_tx,
+        CanonicalPreferenceOwner, PreferenceOrigin, resolve_new_canonical_selection_tx,
+        write_preference_tx,
     },
     sqlite::{parse_column, reasoning_column},
 };
@@ -42,6 +43,8 @@ pub struct AgentRuntimePreferenceRecord {
     pub model_profile: String,
     /// Optional explicit reasoning effort for reasoning-capable model profiles.
     pub reasoning_effort: Option<ReasoningEffort>,
+    /// Whether a human save replaced Noema's initialized default.
+    pub is_override: bool,
 }
 
 impl NoemaStore {
@@ -58,7 +61,7 @@ impl NoemaStore {
             conn.query_row(
                 r#"
                 SELECT agent_id, provider_kind, provider_account_id,
-                       provider_instance_key, model_profile, reasoning_effort
+                       provider_instance_key, model_profile, reasoning_effort, is_override
                 FROM agent_runtime_preferences
                 WHERE agent_id = ?1
                 LIMIT 1
@@ -112,6 +115,7 @@ impl NoemaStore {
                 transaction,
                 CanonicalPreferenceOwner::Agent(&preference.agent_id),
                 &selection,
+                PreferenceOrigin::Override,
                 true,
             )?;
             Ok(AgentRuntimePreferenceRecord {
@@ -128,6 +132,7 @@ impl NoemaStore {
                     }
                 })?,
                 reasoning_effort: selection.reasoning_effort,
+                is_override: true,
             })
         })
         .await
@@ -142,5 +147,6 @@ fn preference_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRuntime
         provider_instance_key: parse_column(row, 3)?,
         model_profile: row.get(4)?,
         reasoning_effort: reasoning_column(row, 5)?,
+        is_override: row.get(6)?,
     })
 }

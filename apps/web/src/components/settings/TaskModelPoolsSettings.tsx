@@ -110,6 +110,7 @@ function PoolEntryRow({
       <div {...stylex.props(styles.entryCopy)}>
         <div {...stylex.props(styles.entryTitleRow)}>
           <strong {...stylex.props(styles.entryTitle)}>{entry.label || entry.modelProfile}</strong>
+          <Badge variant="neutral" label={entry.isOverride ? "Override" : "Default"} />
           <Badge variant={entry.enabled ? "success" : "neutral"} label={entry.enabled ? "Enabled" : "Disabled"} />
         </div>
         <p {...stylex.props(styles.entryMeta)}>

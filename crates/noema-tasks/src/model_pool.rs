@@ -74,6 +74,7 @@ pub struct TaskModelPoolEntry {
     pub complexity: TaskComplexity,
     pub label: Option<String>,
     pub model: ProviderSelectionSnapshot,
+    pub is_override: bool,
     pub enabled: bool,
     pub sort_order: i64,
     pub created_at: String,

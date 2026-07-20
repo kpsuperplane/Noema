@@ -34,13 +34,14 @@
                   saveAgentModelPreference(input: {{
                     agentId: "agent:primary", providerAccountId: "{account_id}",
                     modelProfile: "gpt-5.5", reasoningEffort: HIGH
-                  }}) {{ modelProfile reasoningEffort }}
+                  }}) {{ modelProfile reasoningEffort isOverride }}
                 }}"#,
             ))
             .await;
         assert!(valid.errors.is_empty(), "{:?}", valid.errors);
         let data = valid.data.into_json().expect("json");
         assert_eq!(data["saveAgentModelPreference"]["reasoningEffort"], "HIGH");
+        assert_eq!(data["saveAgentModelPreference"]["isOverride"], true);
 
         let task_executor = schema
             .execute(format!(
