@@ -146,7 +146,10 @@ impl ResponsesRequest {
                 .options
                 .reasoning_effort
                 .or(default_reasoning_effort)
-                .map(|effort| ResponsesReasoning { effort }),
+                .map(|effort| ResponsesReasoning {
+                    effort,
+                    summary: (effort != ReasoningEffort::None).then_some("auto"),
+                }),
             tools: tool_names.tools.clone(),
             tool_choice: responses_tool_choice(
                 &request.tool_choice,
@@ -183,4 +186,7 @@ impl ResponsesRequest {
 pub struct ResponsesReasoning {
     /// Reasoning effort requested from the provider.
     pub effort: ReasoningEffort,
+    /// Request a provider-authored, human-readable reasoning summary.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<&'static str>,
 }

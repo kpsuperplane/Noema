@@ -199,7 +199,7 @@ impl ResponsesResponse {
         Ok(calls)
     }
 
-    /// Collect encrypted reasoning output items for stateless replay.
+    /// Collect reasoning output items for stateless replay and display metadata.
     #[must_use]
     pub fn reasoning_items(&self) -> Vec<GenerateReasoningItem> {
         self.output
@@ -208,12 +208,23 @@ impl ResponsesResponse {
                 ResponsesOutputItem::Reasoning {
                     id,
                     encrypted_content,
-                } => encrypted_content
-                    .as_ref()
-                    .map(|encrypted_content| GenerateReasoningItem {
-                        id: id.clone(),
-                        encrypted_content: Some(encrypted_content.clone()),
-                    }),
+                    summary,
+                } => {
+                    let summary = summary
+                        .iter()
+                        .filter_map(|part| match part {
+                            ResponsesReasoningSummary::SummaryText { text } => Some(text.clone()),
+                            ResponsesReasoningSummary::Other => None,
+                        })
+                        .collect::<Vec<_>>();
+                    (encrypted_content.is_some() || !summary.is_empty()).then(|| {
+                        GenerateReasoningItem {
+                            id: id.clone(),
+                            encrypted_content: encrypted_content.clone(),
+                            summary,
+                        }
+                    })
+                }
                 _ => None,
             })
             .collect()
@@ -267,7 +278,18 @@ enum ResponsesOutputItem {
     Reasoning {
         id: Option<String>,
         encrypted_content: Option<String>,
+        #[serde(default)]
+        summary: Vec<ResponsesReasoningSummary>,
     },
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "type")]
+enum ResponsesReasoningSummary {
+    #[serde(rename = "summary_text")]
+    SummaryText { text: String },
     #[serde(other)]
     Other,
 }

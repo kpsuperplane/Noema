@@ -46,6 +46,7 @@ fn responses_request_profiles_preserve_provider_wire_differences() {
     assert_eq!(openai["include"][0], "reasoning.encrypted_content");
     assert!(openai.get("stream").is_none());
     assert_eq!(openai["reasoning"]["effort"], "low");
+    assert_eq!(openai["reasoning"]["summary"], "auto");
 
     assert_eq!(codex["input"][0]["role"], "user");
     assert_eq!(codex["input"][0]["content"], "hi");
@@ -54,6 +55,7 @@ fn responses_request_profiles_preserve_provider_wire_differences() {
     assert!(codex.get("include").is_none());
     assert_eq!(codex["stream"], true);
     assert_eq!(codex["reasoning"]["effort"], "high");
+    assert_eq!(codex["reasoning"]["summary"], "auto");
 
     for value in [&openai, &codex] {
         assert_eq!(value["instructions"], "Be brief.");
@@ -247,9 +249,14 @@ fn responses_request_reasoning_precedence_and_input_validation_are_shared() {
     assert!(matches!(
         body.reasoning,
         Some(ResponsesReasoning {
-            effort: ReasoningEffort::Medium
+            effort: ReasoningEffort::Medium,
+            summary: Some("auto"),
         })
     ));
+
+    request.options.reasoning_effort = Some(ReasoningEffort::None);
+    let value = lowered_json(&request, "gpt-test", None, OPENAI_RESPONSES_PROFILE);
+    assert!(value["reasoning"].get("summary").is_none());
 
     let error = ResponsesRequest::from_generate(
         &GenerateRequest::text(""),

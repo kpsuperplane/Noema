@@ -9,7 +9,7 @@ pub struct GenerateResponse {
     pub responses: Vec<GenerateResponseItem>,
     /// Tool calls requested by the provider.
     pub tool_calls: Vec<GenerateToolCall>,
-    /// Opaque encrypted reasoning items returned by the provider for replay.
+    /// Provider reasoning items returned for replay and display metadata.
     pub reasoning_items: Vec<GenerateReasoningItem>,
     /// Whether this response needs tool execution or completes the turn.
     pub response_status: GenerateResponseStatus,
@@ -23,7 +23,7 @@ pub struct GenerateResponse {
     pub usage: Option<TokenUsage>,
 }
 
-/// Encrypted reasoning item returned by a provider response.
+/// Reasoning item returned by a provider response.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GenerateReasoningItem {
     /// Provider reasoning item id, when available.
@@ -31,6 +31,9 @@ pub struct GenerateReasoningItem {
     pub id: Option<String>,
     /// Opaque provider-encrypted reasoning payload.
     pub encrypted_content: Option<String>,
+    /// Provider-authored, human-readable summaries intended for display.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub summary: Vec<String>,
 }
 
 /// Ephemeral events emitted while a provider response is still generating.

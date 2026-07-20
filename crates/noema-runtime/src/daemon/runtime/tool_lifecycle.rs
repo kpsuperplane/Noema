@@ -1,6 +1,7 @@
 use noema_capabilities::web::fetch::{WEB_FETCH_TOOL, sanitize_payload_for_storage};
 use noema_providers::{
-    AssistantTextPhase, GenerateActionItem, GenerateResponseItem, GenerateToolCall,
+    AssistantTextPhase, GenerateActionItem, GenerateReasoningItem, GenerateResponseItem,
+    GenerateToolCall,
 };
 use serde_json::Value;
 
@@ -45,6 +46,7 @@ pub(super) fn tool_call_action_item(call: &LocalToolCall) -> GenerateActionItem 
 
 pub(super) fn single_tool_display_description(
     responses: &[GenerateResponseItem],
+    reasoning_items: &[GenerateReasoningItem],
     tool_call_count: usize,
 ) -> Option<String> {
     if tool_call_count != 1 {
@@ -68,7 +70,22 @@ pub(super) fn single_tool_display_description(
         .flat_map(str::split_whitespace)
         .collect::<Vec<_>>()
         .join(" ");
-    (!description.is_empty()).then_some(description)
+    if !description.is_empty() {
+        return Some(description);
+    }
+
+    reasoning_items.iter().rev().find_map(|reasoning| {
+        reasoning
+            .summary
+            .iter()
+            .find_map(|summary| summary.lines().map(str::trim).find(|line| !line.is_empty()))
+            .map(|line| {
+                line.trim_matches(|character| matches!(character, '#' | '*' | '_' | '`'))
+                    .trim()
+                    .to_string()
+            })
+            .filter(|line| !line.is_empty())
+    })
 }
 
 #[cfg(test)]
@@ -113,9 +130,30 @@ mod tests {
         ];
 
         assert_eq!(
-            single_tool_display_description(&responses, 1).as_deref(),
+            single_tool_display_description(&responses, &[], 1).as_deref(),
             Some("Searching memory for the launch date.")
         );
-        assert_eq!(single_tool_display_description(&responses, 2), None);
+        assert_eq!(single_tool_display_description(&responses, &[], 2), None);
+    }
+
+    #[test]
+    fn tool_description_falls_back_to_provider_reasoning_summary() {
+        let reasoning_items = vec![GenerateReasoningItem {
+            id: Some("reasoning_1".to_string()),
+            encrypted_content: Some("opaque".to_string()),
+            summary: vec![
+                "\n**Searching the connected Notion workspace**\n\nI’ll locate a relevant page."
+                    .to_string(),
+            ],
+        }];
+
+        assert_eq!(
+            single_tool_display_description(&[], &reasoning_items, 1).as_deref(),
+            Some("Searching the connected Notion workspace")
+        );
+        assert_eq!(
+            single_tool_display_description(&[], &reasoning_items, 2),
+            None
+        );
     }
 }

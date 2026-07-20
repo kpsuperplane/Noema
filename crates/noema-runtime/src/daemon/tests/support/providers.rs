@@ -171,6 +171,7 @@ impl FakeCodexProvider {
                     response.reasoning_items.push(GenerateReasoningItem {
                         id: Some("rs_fake_1".to_string()),
                         encrypted_content: Some("opaque-turn-one".to_string()),
+                        summary: Vec::new(),
                     });
                 }
                 return Ok(response);

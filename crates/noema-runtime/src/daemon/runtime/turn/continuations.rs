@@ -446,6 +446,7 @@ impl RuntimeActor {
             let continuation_phase_has_tools = !continuation_tool_calls.is_empty();
             let continuation_tool_description = single_tool_display_description(
                 &continuation_response.responses,
+                &continuation_response.reasoning_items,
                 continuation_response.tool_calls.len(),
             );
             if !continuation_batch_kind.contains_delegation() {

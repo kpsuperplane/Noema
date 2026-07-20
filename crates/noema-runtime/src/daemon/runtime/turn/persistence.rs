@@ -62,6 +62,7 @@ impl RuntimeActor {
         let initial_tool_calls = local_tool_calls(&turn.response.tool_calls);
         let initial_tool_description = single_tool_display_description(
             &turn.response.responses,
+            &turn.response.reasoning_items,
             initial_tool_calls.len(),
         );
         let initial_batch_kind = ForegroundToolBatchKind::for_calls(&initial_tool_calls);

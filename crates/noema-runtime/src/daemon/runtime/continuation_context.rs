@@ -461,6 +461,7 @@ mod tests {
             reasoning_items: vec![GenerateReasoningItem {
                 id: Some("rs_1".to_string()),
                 encrypted_content: Some("encrypted".to_string()),
+                summary: Vec::new(),
             }],
             response_status: GenerateResponseStatus::NeedsTools,
             provider: "test".to_string(),

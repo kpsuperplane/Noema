@@ -222,7 +222,12 @@ mod tests {
               "id": "resp_test",
               "model": "gpt-test",
               "output": [
-                {"type": "reasoning", "id": "rs_1", "encrypted_content": "opaque"},
+                {
+                  "type": "reasoning",
+                  "id": "rs_1",
+                  "encrypted_content": "opaque",
+                  "summary": [{"type": "summary_text", "text": "Searching the workspace"}]
+                },
                 {"type": "message", "content": [
                   {"type": "output_text", "text": "Hello"},
                   {"type": "output_text", "text": ", world"}
@@ -283,6 +288,10 @@ mod tests {
         assert_eq!(
             response.reasoning_items[0].encrypted_content.as_deref(),
             Some("opaque")
+        );
+        assert_eq!(
+            response.reasoning_items[0].summary,
+            ["Searching the workspace"]
         );
         assert_eq!(
             response.usage,
