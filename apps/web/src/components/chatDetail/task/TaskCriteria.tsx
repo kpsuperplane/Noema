@@ -175,6 +175,8 @@ const styles = stylex.create({
     display: "grid",
     gap: "var(--spacing-1-5)",
     minWidth: 0,
+    minHeight: 0,
+    overflowY: "auto",
     paddingBlockEnd: "var(--spacing-2)",
     paddingInline: "var(--spacing-4)"
   },
