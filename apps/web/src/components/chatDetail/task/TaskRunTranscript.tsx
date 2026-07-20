@@ -1,8 +1,6 @@
 import { useQuery } from "@apollo/client/react";
 import * as React from "react";
 import { WorkTaskRunItemsDocument, type WorkTaskRunItemsQuery } from "@/generated/graphql";
-import { Transcript } from "@/components/Transcript";
-import { TranscriptSystemNotice } from "@/components/transcript/TranscriptSystemNotice";
 import {
   mapTaskRunItem,
   mergeTaskRunItems,
@@ -13,16 +11,44 @@ import type { TaskRun } from "./taskTypes";
 
 type RunItemNode = WorkTaskRunItemsQuery["taskRunItems"]["edges"][number]["node"];
 
-export function TaskRunTranscript({
+export type TaskRunTranscriptSnapshot = {
+  entries: ReturnType<typeof taskRunItemsToTranscriptEntries>;
+  error: string | null;
+  pageInfo: { hasNextPage: boolean } | null;
+  loadingOlder: boolean;
+  olderPageError: string | null;
+  loadOlder: () => void;
+};
+
+export function TaskRunTranscriptSource({
   run,
-  liveItems = []
+  liveItems = [],
+  onSnapshot
 }: {
   run: TaskRun;
   liveItems?: readonly TaskRunItem[];
+  onSnapshot: (snapshot: TaskRunTranscriptSnapshot) => void;
 }) {
+  const data = useTaskRunTranscriptData(run, liveItems);
+
+  React.useEffect(() => {
+    onSnapshot({
+      entries: data.entries,
+      error: data.error ? "Agent transcript could not be loaded." : null,
+      loadOlder: data.loadOlder,
+      loadingOlder: data.loadingOlder,
+      olderPageError: data.olderPageError,
+      pageInfo: data.pageInfo ? { hasNextPage: data.pageInfo.hasNextPage } : null
+    });
+  }, [data, onSnapshot]);
+
+  return null;
+}
+
+function useTaskRunTranscriptData(run: TaskRun, liveItems: readonly TaskRunItem[]) {
   const runId = run.id;
   const role = run.role;
-  const { data, error, loading, fetchMore } = useQuery(WorkTaskRunItemsDocument, {
+  const { data, error, fetchMore } = useQuery(WorkTaskRunItemsDocument, {
     fetchPolicy: "cache-and-network",
     variables: { runId, first: 50 }
   });
@@ -33,7 +59,6 @@ export function TaskRunTranscript({
   } | null>(null);
   const [loadingOlder, setLoadingOlder] = React.useState(false);
   const [olderPageError, setOlderPageError] = React.useState<string | null>(null);
-  const [expandedActivities, setExpandedActivities] = React.useState<Set<string>>(() => new Set());
   const pageInfo = pageInfoOverride ?? data?.taskRunItems.pageInfo ?? null;
   const currentItems = React.useMemo(
     () => data?.taskRunItems.edges.map((edge) => mapNode(edge.node, role)) ?? [],
@@ -44,14 +69,6 @@ export function TaskRunTranscript({
     [currentItems, liveItems, olderItems]
   );
   const entries = React.useMemo(() => taskRunItemsToTranscriptEntries(items), [items]);
-  const toggleActivity = React.useCallback((id: string) => {
-    setExpandedActivities((previous) => {
-      const next = new Set(previous);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
   const loadOlder = React.useCallback(async () => {
     if (!pageInfo?.hasNextPage || loadingOlder) return;
     setLoadingOlder(true);
@@ -75,45 +92,16 @@ export function TaskRunTranscript({
     }
   }, [currentItems, fetchMore, loadingOlder, pageInfo, role, runId]);
 
-  if (loading && entries.length === 0) {
-    return <TranscriptSystemNotice label="Loading">Agent transcript...</TranscriptSystemNotice>;
-  }
-  if (error && entries.length === 0) {
-    return (
-      <TranscriptSystemNotice role="alert" tone="error" label="Error">
-        Agent transcript could not be loaded.
-      </TranscriptSystemNotice>
-    );
-  }
-  if (entries.length === 0) {
-    return <TranscriptSystemNotice label="Empty">No transcript items were recorded for this run.</TranscriptSystemNotice>;
-  }
-
-  return (
-    <Transcript
-      ariaLabel={`${roleLabel(role)} agent transcript`}
-      agentStatus="IDLE"
-      awaitingAssistantTurn={false}
-      density="embedded"
-      entries={entries}
-      expandedActivities={expandedActivities}
-      hasMoreTranscriptBefore={Boolean(pageInfo?.hasNextPage)}
-      loadingOlderTranscript={loadingOlder}
-      olderTranscriptPageError={olderPageError}
-      onLoadOlderTranscript={loadOlder}
-      onSubmitMultipleChoiceSelection={() => undefined}
-      onToggleActivity={toggleActivity}
-      pending={false}
-      sentMessageScrollRequest={0}
-      showActorAvatars={false}
-    />
-  );
+  return React.useMemo(() => ({
+    entries,
+    error: error ? "Agent transcript could not be loaded." : null,
+    loadingOlder,
+    olderPageError,
+    pageInfo,
+    loadOlder,
+  }), [entries, error, loadingOlder, olderPageError, pageInfo, loadOlder]);
 }
 
 function mapNode(node: RunItemNode, role: TaskRunRole): TaskRunItem {
   return mapTaskRunItem(node, role);
-}
-
-function roleLabel(role: TaskRunRole): string {
-  return role.charAt(0).toUpperCase() + role.slice(1);
 }

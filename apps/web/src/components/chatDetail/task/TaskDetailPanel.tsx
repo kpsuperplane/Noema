@@ -5,15 +5,11 @@ import { TaskDecisionCard } from "./TaskDecisionCard";
 import { TaskExpandableContent, TaskStaticSection } from "./TaskSection";
 import type { TaskDetail, TaskRunItem } from "./taskTypes";
 import { TaskCriteria } from "./TaskCriteria";
-import { TaskDetails, taskStateHeading } from "./TaskOverview";
+import { TaskDetails, taskStageLabel } from "./TaskOverview";
 import { TaskResult } from "./TaskResult";
-import { TaskActivityTimeline, TaskCurrentRun, taskActivityEntryCount } from "./TaskRevisionTimeline";
-import { TaskRunConversationView } from "./TaskRunConversationView";
+import { TaskTranscript } from "./TaskTranscript";
 
 type MarkdownXStyle = MarkdownProps["xstyle"];
-type TaskDetailView = { kind: "overview" } | { kind: "run"; runId: string };
-
-const taskDetailTransitionMs = 300;
 
 export function TaskDetailPanel({
   taskId,
@@ -21,7 +17,8 @@ export function TaskDetailPanel({
   loading = false,
   error = null,
   liveRunItems,
-  actions
+  actions,
+  governedActions
 }: {
   taskId: string;
   detail?: TaskDetail | null;
@@ -29,46 +26,9 @@ export function TaskDetailPanel({
   error?: string | null;
   liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
   actions?: React.ReactNode;
+  governedActions?: React.ReactNode;
 }) {
-  const [selectedRunKey, setSelectedRunKey] = React.useState<{
-    taskId: string;
-    runId: string;
-  } | null>(null);
-  const [settledRunKey, setSettledRunKey] = React.useState<{
-    taskId: string;
-    runId: string;
-  } | null>(null);
-  const focusTimelineAfterTransitionRef = React.useRef(false);
   const currentDetail = detail?.taskId === taskId ? detail : null;
-  const selectedRunId = selectedRunKey?.taskId === taskId ? selectedRunKey.runId : null;
-  const settledRunId = settledRunKey?.taskId === taskId ? settledRunKey.runId : null;
-  const transitioning = selectedRunId !== settledRunId;
-  const transitionDirection = selectedRunId ? "forward" : "backward";
-  const handleRunBack = React.useCallback(() => {
-    if (transitioning) {
-      return;
-    }
-    focusTimelineAfterTransitionRef.current = true;
-    setSelectedRunKey(null);
-  }, [transitioning]);
-
-  React.useEffect(() => {
-    if (!transitioning) {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setSettledRunKey(selectedRunId ? { taskId, runId: selectedRunId } : null);
-      if (focusTimelineAfterTransitionRef.current && !selectedRunId) {
-        focusTimelineAfterTransitionRef.current = false;
-        window.requestAnimationFrame(() => {
-          (document.getElementById("task-timeline-title") ?? document.getElementById("task-current-state-title"))?.focus();
-        });
-      }
-    }, taskDetailTransitionMs);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [selectedRunId, taskId, transitioning]);
 
   if (loading && !currentDetail) {
     return (
@@ -87,157 +47,20 @@ export function TaskDetailPanel({
     return <div {...stylex.props(styles.root)}>{actions}<TaskUnavailable message="Task details are unavailable." /></div>;
   }
 
-  const selectedView: TaskDetailView = selectedRunId
-    ? { kind: "run", runId: selectedRunId }
-    : { kind: "overview" };
-  const settledView: TaskDetailView = settledRunId
-    ? { kind: "run", runId: settledRunId }
-    : { kind: "overview" };
-  const renderView = (view: TaskDetailView) => {
-    if (view.kind === "run") {
-      const runContext = currentDetail.revisions
-        .flatMap((revision) => [
-          ...revision.executors.map((run) => ({ revision, run })),
-          ...revision.reviewers.map((run) => ({ revision, run }))
-        ])
-        .find(({ run }) => run.id === view.runId);
-      if (runContext) {
-        return (
-          <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root, styles.runRoot)}>
-            <TaskRunConversationView
-              liveItems={liveRunItems?.get(runContext.run.id)}
-              onBack={handleRunBack}
-              review={runContext.revision.review}
-              run={runContext.run}
-            />
-          </div>
-        );
-      }
-    }
-
-    const selectRun = (run: Parameters<React.ComponentProps<typeof TaskActivityTimeline>["onSelectRun"]>[0]) => {
-      if (!transitioning) {
-        setSelectedRunKey({ taskId, runId: run.id });
-      }
-    };
-    const currentRunId = currentDetail.stageBehavior === "ACTIVE"
-      ? currentDetail.revisions.find((revision) => revision.latestRunId)?.latestRunId
-      : null;
-    const messages = currentDetail.messages ?? [];
-    const activityCount = taskActivityEntryCount(currentDetail.revisions, messages, currentRunId);
-
-    return (
-      <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root)}>
-        <TaskCurrentState
-          actions={actions}
-          detail={currentDetail}
-          onSelectRun={selectRun}
-        />
-        <TaskBrief
-          key={`brief:${taskId}`}
-          criteria={currentDetail.criteria}
-          request={currentDetail.request}
-        />
-        {activityCount > 0 ? (
-          <TaskStaticSection count={activityCount} id="task-timeline-title" tabIndex={-1} title="Activity">
-            <TaskActivityTimeline
-              excludeRunId={currentRunId}
-              messages={messages}
-              onSelectRun={selectRun}
-              revisions={currentDetail.revisions}
-            />
-          </TaskStaticSection>
-        ) : null}
-        <TaskDetails key={`details:${taskId}`} detail={currentDetail} />
-      </div>
-    );
-  };
-
   return (
     <div data-slot="task-detail-view-viewport" {...stylex.props(styles.viewport)}>
-      {transitioning ? (
-        <div
-          key={`exiting:${taskViewKey(settledView)}`}
-          data-slot="task-detail-view-frame"
-          data-task-detail-frame-state="exiting"
-          data-task-detail-transition-direction={transitionDirection}
-          aria-hidden="true"
-          inert
-          {...stylex.props(
-            styles.frame,
-            settledView.kind === "run" ? styles.runFrame : styles.scrollFrame,
-            styles.exitingFrame
-          )}
-        >
-          {renderView(settledView)}
-        </div>
-      ) : null}
-      <div
-        key={taskViewKey(selectedView)}
-        data-slot="task-detail-view-frame"
-        data-task-detail-frame-state={transitioning ? "entering" : "current"}
-        data-task-detail-transition-direction={transitionDirection}
-        {...stylex.props(
-          styles.frame,
-          selectedView.kind === "run" ? styles.runFrame : styles.scrollFrame
-        )}
-      >
-        {renderView(selectedView)}
+      <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root)}>
+        <TaskTranscript detail={currentDetail} liveRunItems={liveRunItems} />
+        <TaskContextDock
+          key={`context:${taskId}:${currentDetail.attention ? "attention" : "info"}`}
+          actions={actions}
+          detail={currentDetail}
+          governedActions={governedActions}
+          taskId={taskId}
+        />
       </div>
     </div>
   );
-}
-
-function taskViewKey(view: TaskDetailView): string {
-  return view.kind === "run" ? `run:${view.runId}` : "overview";
-}
-
-function TaskCurrentState({
-  detail,
-  actions,
-  onSelectRun
-}: {
-  detail: TaskDetail;
-  actions?: React.ReactNode;
-  onSelectRun: React.ComponentProps<typeof TaskActivityTimeline>["onSelectRun"];
-}) {
-  const result = detail.stageBehavior === "ACCEPTANCE" || detail.stageBehavior === "TERMINAL_SUCCESS"
-    ? <TaskResult embedded artifacts={detail.artifacts} result={detail.finalResult} />
-    : null;
-  const evidence = detail.stageBehavior === "ACCEPTANCE" ? latestReviewSummary(detail) : null;
-  const description = taskStateDescription(detail);
-
-  if (detail.attention) {
-    return (
-      <TaskDecisionCard attention={detail.attention} question={detail.blockingQuestion}>
-        {result}
-        {evidence ? <ReviewEvidence summary={evidence} /> : null}
-        {actions}
-      </TaskDecisionCard>
-    );
-  }
-
-  return (
-    <TaskStaticSection id="task-current-state-title" tabIndex={-1} title={taskStateHeading(detail)}>
-      {description ? <p {...stylex.props(styles.stateDescription)}>{description}</p> : null}
-      {detail.stageBehavior === "ACTIVE" ? (
-        <TaskCurrentRun onSelectRun={onSelectRun} revisions={detail.revisions} />
-      ) : null}
-      {result}
-      {evidence ? <ReviewEvidence summary={evidence} /> : null}
-      {actions}
-    </TaskStaticSection>
-  );
-}
-
-function taskStateDescription(detail: TaskDetail): string | null {
-  switch (detail.stageBehavior) {
-    case "INTAKE": return "This task has not started.";
-    case "DISPATCH": return "Waiting for an available executor.";
-    case "TERMINAL_CANCELLED": return "Work was cancelled.";
-    case "TERMINAL_SUCCESS": return detail.finalResult ? null : "The accepted work is complete.";
-    default: return null;
-  }
 }
 
 function TaskBrief({
@@ -266,6 +89,59 @@ function TaskBrief({
   );
 }
 
+function TaskContextDock({
+  detail,
+  actions,
+  governedActions,
+  taskId
+}: {
+  detail: TaskDetail;
+  actions?: React.ReactNode;
+  governedActions?: React.ReactNode;
+  taskId: string;
+}) {
+  const [expanded, setExpanded] = React.useState(Boolean(detail.attention));
+  const result = detail.stageBehavior === "ACCEPTANCE" || detail.stageBehavior === "TERMINAL_SUCCESS"
+    ? <TaskResult embedded artifacts={detail.artifacts} result={detail.finalResult} />
+    : null;
+  const evidence = detail.stageBehavior === "ACCEPTANCE" ? latestReviewSummary(detail) : null;
+
+  return (
+    <aside aria-label="Task context" {...stylex.props(styles.dock)}>
+      {governedActions}
+      {detail.attention ? (
+        <TaskDecisionCard attention={detail.attention} question={detail.blockingQuestion}>
+          {result}
+          {evidence ? <ReviewEvidence summary={evidence} /> : null}
+          {actions}
+        </TaskDecisionCard>
+      ) : actions ? (
+        <div {...stylex.props(styles.dockActions)}>{actions}</div>
+      ) : null}
+      <button
+        type="button"
+        aria-controls={`task-context:${taskId}`}
+        aria-expanded={expanded}
+        onClick={() => setExpanded((current) => !current)}
+        {...stylex.props(styles.contextToggle)}
+      >
+        <span {...stylex.props(styles.contextToggleTitle)}>{detail.attention ? "Task context" : "Task info"}</span>
+        <span {...stylex.props(styles.contextToggleSummary)}>
+          {taskStageLabel(detail)}
+          {detail.currentRevision ? ` · Revision ${detail.currentRevision}` : ""}
+        </span>
+        <span aria-hidden="true" {...stylex.props(styles.contextToggleIcon, expanded && styles.contextToggleIconOpen)}>⌄</span>
+      </button>
+      {expanded ? (
+        <div id={`task-context:${taskId}`} {...stylex.props(styles.contextBody)}>
+          <TaskBrief key={`brief:${taskId}`} criteria={detail.criteria} request={detail.request} />
+          <TaskDetails key={`details:${taskId}`} detail={detail} />
+        </div>
+      ) : null}
+    </aside>
+  );
+}
+
 function ReviewEvidence({ summary }: { summary: string }) {
   return (
     <div {...stylex.props(styles.reviewEvidence)}>
@@ -291,28 +167,54 @@ function markdownXStyle(...xstyle: unknown[]): MarkdownXStyle {
 }
 
 const styles = stylex.create({
-  viewport: { position: "relative", minWidth: 0, minHeight: 0, height: "100%", overflow: "hidden" },
-  frame: {
-    position: "relative",
-    boxSizing: "border-box",
+  viewport: { minWidth: 0, minHeight: 0, height: "100%", overflow: "hidden" },
+  root: {
+    display: "grid",
+    gridTemplateRows: "minmax(0, 1fr) auto",
     minWidth: 0,
     minHeight: 0,
     height: "100%",
-    width: "100%",
-    paddingBlock: "var(--spacing-1)",
-    paddingInline: 0,
-    backgroundColor: "var(--noema-surface-card)",
-    willChange: "transform, opacity"
+    backgroundColor: "var(--noema-surface-card)"
   },
-  runFrame: { overflow: "hidden" },
-  scrollFrame: { overflowX: "hidden", overflowY: "auto" },
-  exitingFrame: { position: "absolute", inset: 0, pointerEvents: "none" },
-  root: { display: "grid", minWidth: 0, gap: "var(--spacing-1)" },
-  runRoot: { minHeight: 0, height: "100%" },
+  dock: {
+    display: "grid",
+    minWidth: 0,
+    gap: "var(--spacing-2)",
+    borderTopWidth: 1,
+    borderTopStyle: "solid",
+    borderTopColor: "var(--noema-border-subtle)",
+    backgroundColor: "var(--noema-surface-card)",
+    paddingBlock: "var(--spacing-2)",
+    paddingInline: "var(--spacing-2)",
+    boxShadow: "0 -8px 22px color-mix(in srgb, var(--noema-text-primary) 7%, transparent)"
+  },
+  dockActions: { minWidth: 0 },
+  contextToggle: {
+    display: "grid",
+    gridTemplateColumns: "auto minmax(0, 1fr) auto",
+    minWidth: 0,
+    alignItems: "center",
+    gap: "var(--spacing-2)",
+    borderWidth: 0,
+    borderRadius: 7,
+    backgroundColor: "var(--noema-surface-sunken)",
+    paddingBlock: "var(--spacing-2)",
+    paddingInline: "var(--spacing-2)",
+    color: "var(--noema-text-primary)",
+    font: "inherit",
+    textAlign: "left",
+    cursor: "pointer",
+    ":hover": { backgroundColor: "var(--noema-surface-hover)" },
+    ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 }
+  },
+  contextToggleTitle: { color: "var(--noema-text-primary)", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" },
+  contextToggleSummary: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-muted)", fontSize: 11, textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  contextToggleIcon: { color: "var(--noema-text-muted)", fontSize: 16, lineHeight: 1, transform: "translateY(-1px)", transition: "transform 140ms ease" },
+  contextToggleIconOpen: { transform: "rotate(180deg) translateY(1px)" },
+  contextBody: { minWidth: 0, maxHeight: "min(48vh, 420px)", overflowX: "hidden", overflowY: "auto", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 8, backgroundColor: "var(--noema-surface-sunken)" },
   status: { padding: "var(--spacing-2)", color: "var(--noema-text-secondary)", fontSize: 13 },
   unavailable: { padding: "var(--spacing-2)", color: "var(--noema-text-secondary)", fontSize: 13, lineHeight: 1.45 },
   briefLabel: { margin: 0, color: "var(--noema-text-muted)", fontSize: 10, fontWeight: 650 },
-  stateDescription: { margin: 0, color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: 1.45 },
   markdown: { color: "var(--noema-text-secondary)", fontSize: 13, lineHeight: 1.55 },
   reviewEvidence: { display: "grid", gap: "var(--spacing-1)", minWidth: 0 }
 });

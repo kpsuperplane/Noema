@@ -192,16 +192,22 @@ The primary chat shows compact task markers and human decisions when action is
 needed. Its task-only overview is labeled Tasks; Work names the broader `/work`
 surface containing the Inbox, active board, history, project organization, and
 task detail. Both reuse the same task-detail and decision components.
-Task detail keeps one stable information stack: title, status, navigation, and
-available cancellation in the header; the state-specific object and its
-controls; the task brief; activity; then metadata. The positions stay fixed
-while the current-state module changes for Intake, Dispatch, Active, human
-gates, Acceptance, completed work, and cancelled work. Recovery uses one
-response control: non-empty text resolves an eligible Answer, while an empty
-response requests Retry when the gate authorizes it. Activity is one
-chronological conversation stream: durable human task input uses the human
-message lane, while Planner, Executor, and Review runs use the response lane
-and remain available for transcript drill-in.
+Task detail keeps title, status, navigation, and available cancellation in the
+header, then presents one chronological conversation stream as the primary
+surface. Durable human task input uses the human message lane. Planner,
+Executor, and Review runs are marked inline with role, revision, status, and
+duration, while their persisted transcript items use the existing response and
+activity lanes. Run transcripts are merged into one scroll surface; tool
+activity remains expandable in place, and bounded paging continues from the
+oldest available run window.
+
+The bottom task-context card keeps the brief, validation criteria, and metadata
+available through compact disclosure. An unresolved clarification, approval,
+recovery, permission, or acceptance action expands that card and keeps its
+prompt and controls visible until resolved; after resolution, the decision is
+represented by the chronological task stream. Recovery uses one response
+control: non-empty text resolves an eligible Answer, while an empty response
+requests Retry when the gate authorizes it.
 Internal IDs, raw run counters, provider details, and audit evidence stay behind
 progressive disclosure unless they directly explain the next human action.
 

@@ -81,11 +81,11 @@ export function TaskDetailQueryPanel({
   ));
   const renderPanel = (actions?: React.ReactNode) => (
     <>
-      <PendingGovernedActions taskId={taskId} />
       <TaskDetailPanel
         actions={actions}
         detail={detail}
         error={result.error ? "Task details could not be loaded." : null}
+        governedActions={<PendingGovernedActions compact taskId={taskId} />}
         loading={result.loading}
         taskId={taskId}
       />
