@@ -107,16 +107,8 @@ function isRedundantLifecycleNotice(items: readonly TaskRunItem[], index: number
     return true;
   }
 
-  const call = items[index - 1];
-  const result = items[index + 1];
-  const callCorrelationId = taskToolCorrelationId(call);
-  return (
-    call?.kind === "tool"
-    && result?.kind === "result"
-    && call.runId === result.runId
-    && callCorrelationId !== null
-    && callCorrelationId === taskToolCorrelationId(result)
-  );
+  const next = items[index + 1];
+  return next?.kind === "result" && next.runId === item.runId;
 }
 
 function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry | null {
@@ -224,10 +216,6 @@ function persistedCorrelationId(payload: Record<string, unknown> | null): string
     }
   }
   return null;
-}
-
-function taskToolCorrelationId(item: TaskRunItem | undefined): string | null {
-  return item?.correlationId ?? persistedCorrelationId(recordValue(item?.payload));
 }
 
 function persistedResultPayload(payload: Record<string, unknown> | null): unknown {
