@@ -186,7 +186,7 @@ impl FetchArgumentError {
 pub fn tool_spec() -> Result<ToolSpec, ToolContractError> {
     ToolSpec::new(
         WEB_FETCH_TOOL,
-        "Fetch and read a public web page using Noema's configured web fetch provider.",
+        "Fetch and read a public web page using Noema's configured web fetch provider. When following a search result or fetched-page link, pass its exact URL unchanged.",
         json!({
             "type": "object",
             "properties": {
@@ -329,7 +329,7 @@ mod tests {
             serde_json::to_value(tool_spec().expect("spec")).expect("serialize"),
             json!({
                 "name": "web.fetch",
-                "description": "Fetch and read a public web page using Noema's configured web fetch provider.",
+                "description": "Fetch and read a public web page using Noema's configured web fetch provider. When following a search result or fetched-page link, pass its exact URL unchanged.",
                 "input_schema": {
                     "type": "object",
                     "properties": {

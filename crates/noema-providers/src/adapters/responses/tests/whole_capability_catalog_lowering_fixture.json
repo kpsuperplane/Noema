@@ -34,7 +34,7 @@
     {
       "type": "function",
       "name": "web_x2e_fetch",
-      "description": "Fetch and read a public web page using Noema's configured web fetch provider.",
+      "description": "Fetch and read a public web page using Noema's configured web fetch provider. When following a search result or fetched-page link, pass its exact URL unchanged.",
       "parameters": {
         "type": "object",
         "properties": {
