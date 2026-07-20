@@ -78,6 +78,7 @@ export function TaskDetailQueryPanel({
         governedActions={<PendingGovernedActions compact taskId={taskId} />}
         inlineResponse={needsInlineResponse}
         loading={result.loading}
+        controlsHostRef={controlsHostRef}
         showWorkLink={showWorkLink}
         taskId={taskId}
       />

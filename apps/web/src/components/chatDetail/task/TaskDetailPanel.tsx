@@ -18,6 +18,7 @@ export function TaskDetailPanel({
   loading = false,
   error = null,
   liveRunItems,
+  controlsHostRef,
   inlineResponse = false,
   actions,
   governedActions,
@@ -28,6 +29,7 @@ export function TaskDetailPanel({
   loading?: boolean;
   error?: string | null;
   liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
+  controlsHostRef?: React.RefObject<HTMLDivElement | null>;
   showWorkLink?: boolean;
   inlineResponse?: boolean;
   actions?: React.ReactNode;
@@ -86,6 +88,7 @@ export function TaskDetailPanel({
           governedActions={governedActions}
           inlineResponse={inlineResponse}
           latestRunItems={latestRunItems}
+          controlsHostRef={controlsHostRef}
           showWorkLink={showWorkLink}
           taskId={taskId}
         />
@@ -99,6 +102,7 @@ function TaskContextCard({
   actions,
   governedActions,
   inlineResponse,
+  controlsHostRef,
   latestRunItems,
   showWorkLink,
   taskId
@@ -108,6 +112,7 @@ function TaskContextCard({
   actions?: React.ReactNode;
   governedActions?: React.ReactNode;
   inlineResponse: boolean;
+  controlsHostRef?: React.RefObject<HTMLDivElement | null>;
   latestRunItems: ReadonlyMap<string, TaskRunItem>;
   showWorkLink: boolean;
 }) {
@@ -117,6 +122,7 @@ function TaskContextCard({
         <TaskSummaryHeader
           detail={detail}
           latestRunItems={latestRunItems}
+          controlsHostRef={controlsHostRef}
           showWorkLink={showWorkLink}
           taskId={taskId}
         />
@@ -136,11 +142,13 @@ function TaskContextCard({
 function TaskSummaryHeader({
   detail,
   latestRunItems,
+  controlsHostRef,
   showWorkLink,
   taskId
 }: {
   detail: TaskDetail;
   latestRunItems: ReadonlyMap<string, TaskRunItem>;
+  controlsHostRef?: React.RefObject<HTMLDivElement | null>;
   showWorkLink: boolean;
   taskId: string;
 }) {
@@ -156,6 +164,7 @@ function TaskSummaryHeader({
         <span {...stylex.props(styles.summaryOutput)}>{latestRunOutput(run, latestItem)}</span>
       </span>
       <span {...stylex.props(styles.summaryActions)}>
+        {controlsHostRef ? <span ref={controlsHostRef} {...stylex.props(styles.summaryControlsHost)} /> : null}
         {showWorkLink ? (
           <IconButton
             href={`/work/tasks/${encodeURIComponent(taskId)}`}
@@ -440,6 +449,7 @@ const styles = stylex.create({
   summaryTitle: { minWidth: 0, color: "var(--noema-text-primary)", fontSize: 12, fontWeight: 700, lineHeight: 1.35, overflow: "hidden", overflowWrap: "anywhere", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   summaryOutput: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-secondary)", fontSize: 11, lineHeight: 1.35, textOverflow: "ellipsis", whiteSpace: "nowrap" },
   summaryActions: { display: "inline-flex", alignItems: "center", gap: "var(--spacing-1)" },
+  summaryControlsHost: { display: "inline-flex", alignItems: "center" },
   summaryAction: { width: 28, height: 28 },
   infoButton: { display: "inline-flex", width: 28, height: 28, alignItems: "center", justifyContent: "center", borderWidth: 0, borderRadius: 999, backgroundColor: "transparent", color: "var(--noema-text-muted)", cursor: "pointer", ":hover": { backgroundColor: "var(--noema-surface-hover)", color: "var(--noema-text-primary)" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
   infoPopover: { maxHeight: "min(70vh, 520px)", overflowX: "hidden", overflowY: "auto", padding: 0 },

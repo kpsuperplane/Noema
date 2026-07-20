@@ -139,7 +139,6 @@ export function ChatDetailRail({
             <div {...stylex.props(styles.taskTitleBar)}>
               <h2 {...stylex.props(styles.title)}>{taskTitle}</h2>
               <div {...stylex.props(styles.taskHeaderActions)}>
-                <div ref={taskControlsHostRef} {...stylex.props(styles.taskControls, styles.floatingTaskControls)} />
                 <ChatDetailCloseButton closeButtonRef={closeButtonRef} onClose={onClose} />
               </div>
             </div>
@@ -269,15 +268,6 @@ const styles = stylex.create({
     gridTemplateColumns: "minmax(0, 1fr) auto",
     alignItems: "start",
     gap: "var(--spacing-3)"
-  },
-  taskControls: {
-    display: "flex",
-    minHeight: 28,
-    alignItems: "center",
-    justifyContent: "flex-end"
-  },
-  floatingTaskControls: {
-    pointerEvents: "auto",
   },
   versionSlot: {
     minWidth: 0
