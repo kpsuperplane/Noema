@@ -102,7 +102,7 @@ export function TaskTranscript({
         continue;
       }
       const snapshot = snapshots.get(event.run.id);
-      const boundaries = runBoundaryEntries(event.run, event.revision, now);
+      const boundaries = runBoundaryEntries(event.run, now);
       next.push(...boundaries.slice(0, 1));
       if (snapshot?.error && snapshot.entries.length === 0) {
         next.push({ id: `${event.run.id}:error`, source: "replay", type: "error", message: snapshot.error, recoverable: true });
@@ -201,26 +201,21 @@ function submissionArtifactEntry(submissionId: string, artifact: TaskArtifact): 
   };
 }
 
-function runBoundaryEntries(run: TaskRun, revision: TaskRevision, now: number): TranscriptEntry[] {
+function runBoundaryEntries(run: TaskRun, now: number): TranscriptEntry[] {
   const role = runRoleLabel(run);
-  const revisionLabel = `R${revision.revision}`;
   const start = runBoundaryEntry(
     `run-start:${run.id}`,
     `run-start:${run.id}`,
     "task_run_start",
     run,
-    `${role} spawned and running · ${revisionLabel}`,
+    `${role} · Running`,
     { presentation: { tone: "neutral" }, instance_name: run.instanceName }
   );
   if (!isTerminalRun(run)) {
     return [start];
   }
 
-  const outcome = run.status === "completed"
-    ? `${role} completed successfully`
-    : run.status === "failed"
-      ? `${role} completed with failure`
-      : `${role} ${run.status}`;
+  const outcome = runStatusLabel(run);
   const duration = runDurationLabel(run, now);
   const durationSuffix = duration === "0s" ? "" : ` · ${duration}`;
   return [
@@ -230,10 +225,25 @@ function runBoundaryEntries(run: TaskRun, revision: TaskRevision, now: number): 
       `run-end:${run.id}`,
       "task_run_end",
       run,
-      `${outcome} · ${revisionLabel}${durationSuffix}`,
+      `${role} · ${outcome}${durationSuffix}`,
       { presentation: { tone: run.status === "completed" ? "neutral" : "error" }, instance_name: run.instanceName }
     )
   ];
+}
+
+function runStatusLabel(run: TaskRun): string {
+  switch (run.status) {
+    case "completed":
+      return "Completed";
+    case "failed":
+      return "Failed";
+    case "cancelled":
+      return "Cancelled";
+    case "interrupted":
+      return "Interrupted";
+    default:
+      return "Finished";
+  }
 }
 
 function runBoundaryEntry(
