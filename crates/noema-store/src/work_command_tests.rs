@@ -1,16 +1,17 @@
 //! Focused transactional tests for the semantic Work command writer.
 
 use noema_tasks::{
-    CaptureTask, CommandMeta, CreateProject, DelegateTask, QueueTask, TaskComplexity,
-    TaskPrecondition, TaskProvenance, TaskSourceKind, UpdateInboxTask, WorkCommand,
+    CaptureTask, CommandMeta, CreateProject, DelegateTask, QueueTask, RetryTask, SafeErrorCode,
+    TaskComplexity, TaskPrecondition, TaskProvenance, TaskSourceKind, UpdateInboxTask, WorkCommand,
     WorkDomainError,
 };
 use noema_workspaces::WorkspaceId;
 
 use crate::{
     GovernedActionDecision, GovernedActionEffect, GovernedActionState, GovernedAssessmentStatus,
-    GovernedRecommendation, NewGovernedAction, NewGovernedActionAssessment, NoemaStore, StoreError,
-    WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN, WorkCommandService, WorkRunFence,
+    GovernedRecommendation, NewGovernedAction, NewGovernedActionAssessment, NoemaStore,
+    ReportRunFailure, StoreError, WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN, WorkCommandService,
+    WorkRunFence,
     test_support::{
         initialize_codex_provider_selections, open_ephemeral_store, ready_hosted_provider_registry,
     },
@@ -517,6 +518,58 @@ async fn governed_action_approval_releases_and_resumes_a_task_run_once() {
         .start_work_run(&fence, ACTOR, None, "correlation:governed")
         .await
         .expect("start run");
+    let failed_run_id = fence.run_id.clone();
+    store
+        .with_connection(move |connection| {
+            connection.execute(
+                "UPDATE agent_runs SET max_automatic_retries = 0 WHERE run_id = ?1",
+                [failed_run_id],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("exhaust automatic retries");
+    let failed = service
+        .report_work_run_failure(
+            ReportRunFailure {
+                fence,
+                status: noema_tasks::RunStatus::Failed,
+                error_code: SafeErrorCode::new("work_runtime_failed").expect("safe error code"),
+                error_message: Some("retryable test failure".to_string()),
+                retryable: true,
+            },
+            ACTOR,
+            None,
+            "correlation:governed:failure",
+        )
+        .await
+        .expect("open recovery gate");
+    let failed_task = failed.task.expect("failed task");
+    let gate_id = failed.gate_id.expect("recovery gate");
+    service
+        .execute(WorkCommand::RetryTask(RetryTask {
+            meta: metadata("idem:governed:retry"),
+            precondition: precondition(&failed_task),
+            gate_id,
+            note: None,
+        }))
+        .await
+        .expect("retry failed run");
+    let claimed = service
+        .claim_next_work_run("worker:governed:retry", 60, &[])
+        .await
+        .expect("claim retry")
+        .expect("retry run");
+    let fence = WorkRunFence {
+        run_id: claimed.run.run_id,
+        lease_token: claimed.lease_token,
+        task_generation: claimed.run.task_generation,
+        contract_id: claimed.run.contract_id,
+    };
+    service
+        .start_work_run(&fence, ACTOR, None, "correlation:governed:retry")
+        .await
+        .expect("start retry");
     service
         .admit_work_run_execution_context(&fence, ACTOR, None, "correlation:governed")
         .await
