@@ -626,9 +626,6 @@ const styles = stylex.create({
   },
   memoryTreePopoverContent: {
     overflow: "hidden",
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "color-mix(in srgb, var(--border-default) 70%, transparent)",
     borderRadius: "var(--radius-container)",
     backgroundColor: "transparent",
     padding: "var(--spacing-2)",
