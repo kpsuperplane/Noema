@@ -1,5 +1,5 @@
 import { useQuery } from "@apollo/client/react";
-import type { ReactNode } from "react";
+import React, { type ReactNode } from "react";
 import * as stylex from "@stylexjs/stylex";
 import {
   MemoryPageDocument,
@@ -10,6 +10,7 @@ import {
 } from "@/generated/graphql";
 import { MemoryArticle } from "@/pages/MemoryArticle";
 import { styles } from "@/pages/memoryPageStyles";
+import { useShellSurface } from "@/components/shell/ShellSurfaceContext";
 
 export function MemoryPage({ pagePath = null }: { pagePath?: string | null }) {
   const treeResult = useQuery<MemoryTreeQuery>(MemoryTreeDocument, {
@@ -22,11 +23,25 @@ export function MemoryPage({ pagePath = null }: { pagePath?: string | null }) {
     skip: !activePageId || pagePath === null,
     fetchPolicy: "cache-and-network"
   });
-  const selectedPage = pagePath === null ? root : pageResult.data?.memoryPage ?? null;
+  const articlePage = pageResult.data?.memoryPage ?? null;
+  const selectedPage = pagePath === null ? root : articlePage;
+  const { setMemoryBreadcrumb } = useShellSurface();
   const tree = treeResult.data?.memoryTree;
   const loading = treeResult.loading && !treeResult.data;
   const error = treeResult.error?.message ?? null;
   const pageError = pageResult.error?.message ?? null;
+
+  React.useEffect(() => {
+    if (!pagePath || !articlePage || articlePage.path !== pagePath) {
+      setMemoryBreadcrumb(null);
+      return;
+    }
+    setMemoryBreadcrumb({
+      ancestors: articlePage.ancestors.map(({ path, title }) => ({ path, title })),
+      current: articlePage.title
+    });
+    return () => setMemoryBreadcrumb(null);
+  }, [articlePage, pagePath, setMemoryBreadcrumb]);
 
   return (
     <section data-slot="memory-surface" {...stylex.props(styles.surface)} aria-label="Memory">
@@ -37,10 +52,7 @@ export function MemoryPage({ pagePath = null }: { pagePath?: string | null }) {
 
       <div {...stylex.props(styles.articleScroller)}>
         {selectedPage && root ? (
-          <MemoryArticle
-            page={selectedPage}
-            isRoot={selectedPage.id === root.id}
-          />
+          <MemoryArticle page={selectedPage} />
         ) : pageResult.loading ? (
           <p {...stylex.props(styles.articleState)}>Loading article…</p>
         ) : (

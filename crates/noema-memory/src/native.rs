@@ -123,6 +123,8 @@ pub struct MemoryPage {
     pub sources: Vec<String>,
     /// Parent page path, when this page is nested below another page.
     pub parent: Option<String>,
+    /// Ordered ancestor references from the nearest root-level page downward.
+    pub ancestors: Vec<MemoryPageRef>,
     /// Deterministic direct child references.
     pub children: Vec<MemoryPageRef>,
 }
@@ -292,6 +294,13 @@ impl NativeMemory {
         };
         let parsed = self.parse_page(&path)?;
         let parent = parent_page_path(&path);
+        let mut ancestors = Vec::new();
+        let mut ancestor_path = parent.clone();
+        while let Some(current) = ancestor_path {
+            ancestors.push(page_reference(current.clone(), self.parse_page(&current)?));
+            ancestor_path = parent_page_path(&current);
+        }
+        ancestors.reverse();
         let mut children = Vec::new();
         let child_dir = if path == ROOT_PAGE_PATH {
             self.root().to_path_buf()
@@ -314,14 +323,10 @@ impl NativeMemory {
                 if child_path == ROOT_PAGE_PATH {
                     continue;
                 }
-                let child = self.parse_page(&child_path)?;
-                children.push(MemoryPageRef {
-                    id: child.id,
-                    path: child_path,
-                    title: child.title,
-                    excerpt: page_lead_excerpt(&child.body),
-                    hash: child.hash,
-                });
+                children.push(page_reference(
+                    child_path.clone(),
+                    self.parse_page(&child_path)?,
+                ));
             }
         }
         Ok(MemoryPage {
@@ -332,6 +337,7 @@ impl NativeMemory {
             hash: parsed.hash,
             sources: parsed.sources,
             parent,
+            ancestors,
             children,
         })
     }
@@ -616,6 +622,16 @@ impl NativeMemory {
         File::open(&temporary)?.sync_all()?;
         fs::rename(temporary, self.root().join(".state.md"))?;
         Ok(())
+    }
+}
+
+fn page_reference(path: String, page: ParsedPage) -> MemoryPageRef {
+    MemoryPageRef {
+        id: page.id,
+        path,
+        title: page.title,
+        excerpt: page_lead_excerpt(&page.body),
+        hash: page.hash,
     }
 }
 

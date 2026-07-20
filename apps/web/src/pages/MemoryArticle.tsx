@@ -14,7 +14,6 @@ type ItemXStyle = ItemProps["xstyle"];
 
 interface MemoryArticlePage {
   id: string;
-  path: string;
   title: string;
   body: string;
   sourceReferences: Array<{ source: string; excerpt: string | null }>;
@@ -27,21 +26,11 @@ const articleComponents: MarkdownComponents = {
   paragraph: ArticleParagraph
 };
 
-export function MemoryArticle({ page, isRoot }: {
-  page: MemoryArticlePage;
-  isRoot: boolean;
-}) {
+export function MemoryArticle({ page }: { page: MemoryArticlePage }) {
   const article = buildMemoryArticle(page.body, page.sourceReferences);
   const hasContents = article.outline.length > 0 || page.children.length > 0;
   return (
     <article {...stylex.props(styles.article)}>
-      {!isRoot ? (
-        <nav aria-label="Memory breadcrumb" {...stylex.props(styles.articleBreadcrumb)}>
-          <Link to="/memory" {...stylex.props(styles.breadcrumbLink)}>Memory</Link>
-          <span aria-hidden="true">/</span>
-          <span>{page.title}</span>
-        </nav>
-      ) : null}
       <header>
         <h1 {...stylex.props(styles.articleTitle)}>{page.title}</h1>
         <div {...stylex.props(styles.articleSubtitle)}>From Noema, the private memory encyclopedia</div>

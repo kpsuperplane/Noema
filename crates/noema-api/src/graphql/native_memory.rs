@@ -33,6 +33,7 @@ pub struct GraphqlNativeMemoryPage {
     pub sources: Vec<String>,
     pub source_references: Vec<GraphqlNativeMemorySourceReference>,
     pub parent: Option<String>,
+    pub ancestors: Vec<GraphqlNativeMemoryPageRef>,
     pub children: Vec<GraphqlNativeMemoryPageRef>,
 }
 
@@ -248,6 +249,7 @@ async fn page(state: &GraphqlState, page: MemoryPage) -> Result<GraphqlNativeMem
         sources: page.sources,
         source_references,
         parent: page.parent,
+        ancestors: page.ancestors.into_iter().map(child).collect(),
         children: page.children.into_iter().map(child).collect(),
     })
 }

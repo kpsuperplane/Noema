@@ -992,6 +992,7 @@ type GraphqlNativeMemoryPage {
 	sources: [String!]!
 	sourceReferences: [GraphqlNativeMemorySourceReference!]!
 	parent: String
+	ancestors: [GraphqlNativeMemoryPageRef!]!
 	children: [GraphqlNativeMemoryPageRef!]!
 }
 

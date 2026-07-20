@@ -1,17 +1,21 @@
 import React from "react";
 import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
+import { Link } from "@tanstack/react-router";
 import { Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type { LocalStatusQuery } from "@/generated/graphql";
 import { isTauriRuntime } from "@/graphql/transportMode";
-import type { AppRoute } from "@/app/routes";
+import { memoryPageUrlPath, type AppRoute } from "@/app/routes";
 import type { SocketState } from "@/shared/types";
 import {
   deckTransitionPropertyCanSettleSurfaceVisibility,
   useDeckNavigation
 } from "./deckNavigation";
 import { ShellSidebar } from "./ShellSidebar";
-import { ShellSurfaceProvider } from "./ShellSurfaceContext";
+import {
+  ShellSurfaceProvider,
+  type ShellMemoryBreadcrumb
+} from "./ShellSurfaceContext";
 import {
   breadcrumbForRoute,
   shellMenuLevelForRoute,
@@ -119,6 +123,35 @@ function ShellBreadcrumbLabel({ breadcrumb }: { breadcrumb: ShellBreadcrumb }) {
   );
 }
 
+function MemoryShellBreadcrumb({ breadcrumb }: { breadcrumb: ShellMemoryBreadcrumb }) {
+  return (
+    <nav aria-label="Memory breadcrumb" data-slot="shell-breadcrumb" {...stylex.props(styles.breadcrumb)}>
+      <Link to="/memory" {...stylex.props(styles.breadcrumbParent, styles.breadcrumbLink, styles.breadcrumbRoot)}>
+        Memory
+      </Link>
+      {[...breadcrumb.ancestors, { path: "", title: breadcrumb.current }].map((item, index) => (
+        <React.Fragment key={item.path || "current"}>
+          <span {...stylex.props(styles.breadcrumbSeparator)} aria-hidden="true">/</span>
+          {index < breadcrumb.ancestors.length ? (
+            <Link
+              to="/memory/$"
+              params={{ _splat: memoryPageUrlPath(item.path) }}
+              title={item.title}
+              {...stylex.props(styles.breadcrumbParent, styles.breadcrumbLink)}
+            >
+              {item.title}
+            </Link>
+          ) : (
+            <strong aria-current="page" title={item.title} data-slot="shell-breadcrumb-current" {...stylex.props(styles.breadcrumbCurrent)}>
+              {item.title}
+            </strong>
+          )}
+        </React.Fragment>
+      ))}
+    </nav>
+  );
+}
+
 function shellContentDeckStyle({
   dragging,
   offsetPx
@@ -155,10 +188,13 @@ export function AppShell({
   goBackFromSettings: () => void;
   children: React.ReactNode;
 }) {
+  const [memoryBreadcrumb, setMemoryBreadcrumb] = React.useState<ShellMemoryBreadcrumb | null>(null);
   const menuLevel = shellMenuLevelForRoute(route);
   const breadcrumb = breadcrumbForRoute(route);
   const primaryAgentName = primaryAgentNameForStatus(status);
-  const activeLabel = shellHeaderLabelForBreadcrumb(breadcrumb);
+  const activeLabel = route.kind === "memory" && memoryBreadcrumb
+    ? ["Memory", ...memoryBreadcrumb.ancestors.map((item) => item.title), memoryBreadcrumb.current].join(" / ")
+    : shellHeaderLabelForBreadcrumb(breadcrumb);
   const attention = shellAttentionForState({
     route,
     status,
@@ -323,7 +359,11 @@ export function AppShell({
               onClick={deckNavigation.navOpen ? closeNav : openNav}
             />
             <div {...stylex.props(styles.breadcrumbWrap)}>
-              <ShellBreadcrumbLabel breadcrumb={breadcrumb} />
+              {route.kind === "memory" && memoryBreadcrumb ? (
+                <MemoryShellBreadcrumb breadcrumb={memoryBreadcrumb} />
+              ) : (
+                <ShellBreadcrumbLabel breadcrumb={breadcrumb} />
+              )}
             </div>
           </div>
           {route.kind === "memory" ? (
@@ -334,7 +374,7 @@ export function AppShell({
           <div aria-hidden="true" data-slot="shell-header-scrim" {...stylex.props(styles.headerScrim)} />
         </header>
 
-        <ShellSurfaceProvider value={{ visibility: deckNavigation.surfaceVisibility }}>
+        <ShellSurfaceProvider value={{ visibility: deckNavigation.surfaceVisibility, setMemoryBreadcrumb }}>
           <div
             data-slot="shell-route-content"
             data-shell-surface-visibility={deckNavigation.surfaceVisibility}
@@ -526,20 +566,31 @@ const styles = stylex.create({
     display: "flex",
     minWidth: 0,
     alignItems: "center",
-    gap: 8
+    gap: 8,
+    overflow: "hidden"
   },
   breadcrumbParent: {
+    minWidth: 0,
+    flexShrink: 1,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
     fontSize: 14,
     color: "var(--muted-foreground)"
   },
+  breadcrumbLink: {
+    cursor: "pointer",
+    textDecoration: "none",
+    ":hover": { textDecoration: "underline" }
+  },
+  breadcrumbRoot: { flexShrink: 0 },
   breadcrumbSeparator: {
     color: "color-mix(in srgb, var(--muted-foreground) 70%, transparent)"
   },
   breadcrumbCurrent: {
     display: "block",
+    minWidth: 0,
+    flexShrink: 1,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",

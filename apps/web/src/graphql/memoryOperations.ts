@@ -75,7 +75,11 @@ export const MemoryPageDocument = gql`
         source
         excerpt
       }
-      parent
+      ancestors {
+        id
+        path
+        title
+      }
       children {
         id
         path

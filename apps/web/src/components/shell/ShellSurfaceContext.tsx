@@ -2,12 +2,19 @@ import React from "react";
 
 export type ShellSurfaceVisibility = "visible" | "hiding" | "hidden" | "showing";
 
+export type ShellMemoryBreadcrumb = {
+  ancestors: Array<{ path: string; title: string }>;
+  current: string;
+};
+
 export type ShellSurfaceState = {
   visibility: ShellSurfaceVisibility;
+  setMemoryBreadcrumb: (breadcrumb: ShellMemoryBreadcrumb | null) => void;
 };
 
 export const defaultShellSurfaceState: ShellSurfaceState = {
-  visibility: "visible"
+  visibility: "visible",
+  setMemoryBreadcrumb: () => undefined
 };
 
 const ShellSurfaceContext = React.createContext<ShellSurfaceState>(defaultShellSurfaceState);

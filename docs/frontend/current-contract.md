@@ -121,9 +121,10 @@ Current memory UX is Settings plus a top-level native article surface:
 - `/settings/memory` selects the model used for background memory updates.
 - `/memory` renders canonical Markdown as a full-width Wikipedia-style reading
   surface with article typography, numbered citations, related-article links,
-  and light child-page breadcrumbs. Child articles use their filesystem-derived
+  and no in-article navigation chrome. Child articles use their filesystem-derived
   path at `/memory/<article-path>` so direct loads and browser history resolve
-  the same page. The surface has no persistent page-tree sidebar.
+  the same page. Their complete ancestor chain appears as client-side links in
+  the shell title row. The surface has no persistent page-tree sidebar.
 - The shell's Memory title row owns pending-message state and the single
   `Update memory` action; implementation filenames are not rendered.
 - One initial tree query is kept current by authoritative GraphQL subscription

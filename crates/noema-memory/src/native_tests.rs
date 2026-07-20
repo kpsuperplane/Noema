@@ -277,10 +277,28 @@ fn native_memory_validates_final_hierarchy_and_preserves_ids_across_moves() {
                     body: String::new(),
                     sources: vec![],
                 },
+                MemoryPageChange {
+                    id: None,
+                    expected_hash: None,
+                    path: "people/alice/preferences.md".into(),
+                    title: "Preferences".into(),
+                    body: String::new(),
+                    sources: vec![],
+                },
             ],
             deletes: vec![],
         })
         .expect("create hierarchy");
+    assert_eq!(
+        memory
+            .read_page("people/alice/preferences.md")
+            .expect("deep page")
+            .ancestors
+            .into_iter()
+            .map(|ancestor| ancestor.path)
+            .collect::<Vec<_>>(),
+        ["people.md", "people/alice.md"]
+    );
     assert!(memory
         .publish(&MemoryChangeSet {
             upserts: vec![],
@@ -299,7 +317,7 @@ fn native_memory_validates_final_hierarchy_and_preserves_ids_across_moves() {
                 body: String::new(),
                 sources: vec![],
             }],
-            deletes: vec![],
+            deletes: vec!["people/alice/preferences.md".into()],
         })
         .expect("move page");
     assert!(memory.read_page("people/alice.md").is_err());
