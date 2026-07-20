@@ -129,11 +129,9 @@ Current memory UX is Settings plus a top-level native article surface:
   surface with article typography, numbered citations, related-article links,
   and no in-article navigation chrome. Child articles use their filesystem-derived
   path at `/memory/<article-path>` so direct loads and browser history resolve
-  the same page. Their complete ancestor chain appears as client-side links in
-  the shell title row. A lightweight filesystem-derived page tree provides
-  direct client-side navigation across the complete hierarchy beside the
-  article. On narrow screens the article title opens the same tree in a bottom
-  sheet instead of reserving inline space for it.
+  the same page. The shell title row presents the current ancestor chain as a
+  compact trigger; opening it reveals a filesystem-derived hierarchy dropdown
+  for client-side navigation across all pages on every viewport.
 - The shell's Memory title row owns pending-message state and the single
   `Update memory` action; implementation filenames are not rendered.
 - One initial tree query is kept current by authoritative GraphQL subscription

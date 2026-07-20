@@ -19,13 +19,11 @@ export function MemoryPageTree({
   root,
   pages,
   activePath,
-  presentation = "sidebar",
   onNavigate
 }: {
   root: TreePage;
   pages: TreePage[];
   activePath: string;
-  presentation?: "sidebar" | "sheet";
   onNavigate?: () => void;
 }) {
   const tree = React.useMemo(() => buildTree(root, pages), [pages, root]);
@@ -41,13 +39,7 @@ export function MemoryPageTree({
   }, []);
 
   return (
-    <nav
-      aria-label="Memory pages"
-      {...stylex.props(
-        styles.pageTree,
-        presentation === "sidebar" ? styles.pageTreeSidebar : styles.pageTreeSheet
-      )}
-    >
+    <nav aria-label="Memory pages" {...stylex.props(styles.pageTree)}>
       <ul {...stylex.props(styles.pageTreeList)}>
         <MemoryTreeItem
           activePath={activePath}

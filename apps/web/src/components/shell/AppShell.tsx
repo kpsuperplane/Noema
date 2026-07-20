@@ -1,11 +1,16 @@
 import React from "react";
+import { useQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
+import { Popover } from "@astryxdesign/core/Popover";
 import * as stylex from "@stylexjs/stylex";
-import { Link } from "@tanstack/react-router";
-import { Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
-import type { LocalStatusQuery } from "@/generated/graphql";
+import { ChevronDown, Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import {
+  MemoryTreeDocument,
+  type LocalStatusQuery,
+  type MemoryTreeQuery
+} from "@/generated/graphql";
 import { isTauriRuntime } from "@/graphql/transportMode";
-import { memoryPageUrlPath, type AppRoute } from "@/app/routes";
+import type { AppRoute } from "@/app/routes";
 import type { SocketState } from "@/shared/types";
 import {
   deckTransitionPropertyCanSettleSurfaceVisibility,
@@ -25,6 +30,7 @@ import {
 } from "./shellNavigation";
 import { useShellNavSwipe } from "./useShellNavSwipe";
 import { MemoryUpdateControl } from "@/pages/MemoryUpdateControl";
+import { MemoryPageTree } from "@/pages/MemoryPageTree";
 
 export type ShellAttention = {
   tone: "warning";
@@ -123,32 +129,70 @@ function ShellBreadcrumbLabel({ breadcrumb }: { breadcrumb: ShellBreadcrumb }) {
   );
 }
 
-function MemoryShellBreadcrumb({ breadcrumb }: { breadcrumb: ShellMemoryBreadcrumb }) {
+function MemoryShellBreadcrumb({
+  breadcrumb,
+  pages,
+  root
+}: {
+  breadcrumb: ShellMemoryBreadcrumb | null;
+  pages: MemoryTreeQuery["memoryTree"]["pages"];
+  root: NonNullable<MemoryTreeQuery["memoryTree"]["root"]>;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const pathItems = breadcrumb
+    ? [...breadcrumb.ancestors, { path: breadcrumb.currentPath, title: breadcrumb.current }]
+    : [];
+  const activePath = breadcrumb?.currentPath ?? root.path;
+
   return (
-    <nav aria-label="Memory breadcrumb" data-slot="shell-breadcrumb" {...stylex.props(styles.breadcrumb)}>
-      <Link to="/memory" {...stylex.props(styles.breadcrumbParent, styles.breadcrumbLink, styles.breadcrumbRoot)}>
-        Memory
-      </Link>
-      {[...breadcrumb.ancestors, { path: "", title: breadcrumb.current }].map((item, index) => (
-        <React.Fragment key={item.path || "current"}>
-          <span {...stylex.props(styles.breadcrumbSeparator)} aria-hidden="true">/</span>
-          {index < breadcrumb.ancestors.length ? (
-            <Link
-              to="/memory/$"
-              params={{ _splat: memoryPageUrlPath(item.path) }}
-              title={item.title}
-              {...stylex.props(styles.breadcrumbParent, styles.breadcrumbLink)}
-            >
-              {item.title}
-            </Link>
-          ) : (
-            <strong aria-current="page" title={item.title} data-slot="shell-breadcrumb-current" {...stylex.props(styles.breadcrumbCurrent)}>
-              {item.title}
-            </strong>
-          )}
-        </React.Fragment>
-      ))}
-    </nav>
+    <Popover
+      alignment="start"
+      content={(
+        <MemoryPageTree
+          activePath={activePath}
+          pages={pages}
+          root={root}
+          onNavigate={() => setOpen(false)}
+        />
+      )}
+      isOpen={open}
+      label="Memory pages"
+      onOpenChange={setOpen}
+      placement="below"
+      width="min(320px, calc(100vw - var(--spacing-6)))"
+    >
+      {(trigger) => (
+        <button
+          ref={(element) => trigger.ref(element)}
+          type="button"
+          aria-controls={trigger["aria-controls"]}
+          aria-expanded={trigger["aria-expanded"]}
+          aria-haspopup={trigger["aria-haspopup"]}
+          aria-label={`Browse memory pages; current page ${breadcrumb?.current ?? "Memory"}`}
+          data-slot="shell-breadcrumb"
+          onClick={trigger.onClick}
+          {...stylex.props(styles.memoryBreadcrumbTrigger)}
+        >
+          <span aria-hidden="true" {...stylex.props(styles.breadcrumb, styles.memoryBreadcrumbPath)}>
+            <span {...stylex.props(styles.breadcrumbParent, styles.breadcrumbRoot)}>Memory</span>
+            {pathItems.map((item, index) => (
+              <React.Fragment key={item.path}>
+                <span {...stylex.props(styles.breadcrumbSeparator)}>/</span>
+                <span
+                  title={item.title}
+                  {...stylex.props(
+                    index < pathItems.length - 1 ? styles.breadcrumbParent : styles.breadcrumbCurrent
+                  )}
+                >
+                  {item.title}
+                </span>
+              </React.Fragment>
+            ))}
+          </span>
+          <ChevronDown aria-hidden="true" size={14} strokeWidth={2} {...stylex.props(styles.breadcrumbChevron)} />
+        </button>
+      )}
+    </Popover>
   );
 }
 
@@ -189,6 +233,11 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   const [memoryBreadcrumb, setMemoryBreadcrumb] = React.useState<ShellMemoryBreadcrumb | null>(null);
+  const memoryTreeResult = useQuery<MemoryTreeQuery>(MemoryTreeDocument, {
+    fetchPolicy: "cache-only",
+    skip: route.kind !== "memory"
+  });
+  const memoryTree = memoryTreeResult.data?.memoryTree ?? null;
   const menuLevel = shellMenuLevelForRoute(route);
   const breadcrumb = breadcrumbForRoute(route);
   const primaryAgentName = primaryAgentNameForStatus(status);
@@ -359,8 +408,12 @@ export function AppShell({
               onClick={deckNavigation.navOpen ? closeNav : openNav}
             />
             <div {...stylex.props(styles.breadcrumbWrap)}>
-              {route.kind === "memory" && memoryBreadcrumb ? (
-                <MemoryShellBreadcrumb breadcrumb={memoryBreadcrumb} />
+              {route.kind === "memory" && memoryTree?.root ? (
+                <MemoryShellBreadcrumb
+                  breadcrumb={memoryBreadcrumb}
+                  pages={memoryTree.pages}
+                  root={memoryTree.root}
+                />
               ) : (
                 <ShellBreadcrumbLabel breadcrumb={breadcrumb} />
               )}
@@ -586,12 +639,30 @@ const styles = stylex.create({
     fontSize: 14,
     color: "var(--muted-foreground)"
   },
-  breadcrumbLink: {
-    cursor: "pointer",
-    textDecoration: "none",
-    ":hover": { textDecoration: "underline" }
-  },
   breadcrumbRoot: { flexShrink: 0 },
+  memoryBreadcrumbTrigger: {
+    display: "flex",
+    minWidth: 0,
+    maxWidth: "min(70vw, 720px)",
+    alignItems: "center",
+    gap: "var(--spacing-1)",
+    borderWidth: 0,
+    borderRadius: 4,
+    backgroundColor: "transparent",
+    padding: "var(--spacing-1) var(--spacing-1-5)",
+    color: "inherit",
+    textAlign: "left",
+    cursor: "pointer",
+    ":hover": { backgroundColor: "var(--surface-hover)" },
+    ":focus-visible": {
+      outlineWidth: 2,
+      outlineStyle: "solid",
+      outlineColor: "var(--ring)",
+      outlineOffset: 1
+    }
+  },
+  memoryBreadcrumbPath: { flex: 1 },
+  breadcrumbChevron: { flexShrink: 0, color: "var(--muted-foreground)" },
   breadcrumbSeparator: {
     color: "color-mix(in srgb, var(--muted-foreground) 70%, transparent)"
   },

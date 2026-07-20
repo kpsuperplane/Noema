@@ -5,6 +5,7 @@ export type ShellSurfaceVisibility = "visible" | "hiding" | "hidden" | "showing"
 export type ShellMemoryBreadcrumb = {
   ancestors: Array<{ path: string; title: string }>;
   current: string;
+  currentPath: string;
 };
 
 export type ShellSurfaceState = {
