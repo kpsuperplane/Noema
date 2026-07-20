@@ -330,14 +330,24 @@ function renderTranscriptEntry(
     );
   }
   if (entry.type === "task") {
+    const isAccepted = entry.item.notification_kind === "task_accepted";
     return (
       <TranscriptRow lane="assistant" reserveAvatarSpace={reserveAvatarSpace} showAvatar={showAvatar}>
+        {isAccepted ? (
+          <Message
+            animate={false}
+            reserveAvatarSpace={false}
+            role="assistant"
+            text={entry.item.message ?? "Task completed."}
+            showAvatar={false}
+          />
+        ) : null}
         <TaskReferenceCard
           revision={entry.item.revision}
           stageId={entry.item.stage_id}
           taskId={entry.item.task_id}
           title={entry.item.title}
-          message={entry.item.message}
+          message={isAccepted ? null : entry.item.message}
           onOpenDetail={onOpenDetail}
         />
       </TranscriptRow>
