@@ -1,6 +1,22 @@
 import * as React from "react";
 import * as stylex from "@stylexjs/stylex";
 
+const interactiveContentSelector = [
+  "a[href]",
+  "audio[controls]",
+  "button",
+  "input",
+  "label",
+  "select",
+  "summary",
+  "textarea",
+  "video[controls]",
+  "[contenteditable]:not([contenteditable='false'])",
+  "[role='button']",
+  "[role='link']",
+  "[tabindex]:not([tabindex='-1'])"
+].join(",");
+
 const styles = stylex.create({
   root: {
     position: "relative",
@@ -28,6 +44,9 @@ const styles = stylex.create({
     borderWidth: 0,
     cursor: "pointer",
     outline: "none"
+  },
+  expandedTrigger: {
+    pointerEvents: "none"
   }
 });
 
@@ -80,8 +99,18 @@ export function ExpandableTextBubbleContent({
     return () => observer.disconnect();
   }, [measure]);
 
+  const toggleExpanded = () => setExpanded((current) => !current);
+  const collapseFromContent = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!expanded || !(event.target instanceof Element)) {
+      return;
+    }
+    if (!event.target.closest(interactiveContentSelector)) {
+      setExpanded(false);
+    }
+  };
+
   return (
-    <div {...stylex.props(styles.root)}>
+    <div onClick={collapseFromContent} {...stylex.props(styles.root)}>
       <div
         ref={previewRef}
         {...stylex.props(styles.preview, expanded && styles.expanded, overflowing && !expanded && styles.faded)}
@@ -92,9 +121,9 @@ export function ExpandableTextBubbleContent({
         <button
           aria-expanded={expanded}
           aria-label={expanded ? "Collapse message" : "Expand message"}
-          onClick={() => setExpanded((current) => !current)}
+          onClick={toggleExpanded}
           type="button"
-          {...stylex.props(styles.trigger)}
+          {...stylex.props(styles.trigger, expanded && styles.expandedTrigger)}
         />
       ) : null}
     </div>
