@@ -6,11 +6,11 @@ import {
   PendingGovernedActionsDocument,
   ConversationEventsDocument,
   ResolveGovernedActionDocument,
-  WorkTaskRuntimeEventsDocument,
   type GovernedActionDecision,
   type GovernedActionEffect,
   type PendingGovernedActionsQuery
 } from "@/generated/graphql";
+import { WorkTaskRuntimeEventsDocument } from "@/graphql/workOperations";
 
 export type PendingGovernedAction = PendingGovernedActionsQuery["pendingGovernedActions"][number];
 
@@ -20,7 +20,7 @@ type Scope = {
 };
 
 export function usePendingGovernedActions(scope: Scope = {}) {
-  return useQuery(PendingGovernedActionsDocument, {
+  const result = useQuery(PendingGovernedActionsDocument, {
     variables: {
       conversationId: scope.conversationId ?? undefined,
       taskId: scope.taskId,

@@ -7,6 +7,7 @@ import {
   WorkNeedsYouDocument,
   WorkOverviewDocument,
   WorkTasksDocument,
+  PendingGovernedActionsDocument,
   type WorkEventsSubscription
 } from "@/generated/graphql";
 import type { WorkView } from "./workTypes";
@@ -54,7 +55,7 @@ function documentsForView(view: WorkView): readonly DocumentNode[] {
     case "list":
       return [WorkTasksDocument];
     case "needs-you":
-      return [WorkNeedsYouDocument];
+      return [WorkNeedsYouDocument, PendingGovernedActionsDocument];
     case "activity":
       return [WorkActivityDocument];
     case "archive":

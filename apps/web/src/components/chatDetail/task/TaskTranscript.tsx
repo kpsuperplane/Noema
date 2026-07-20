@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useSubscription } from "@apollo/client/react";
 import * as stylex from "@stylexjs/stylex";
-import { WorkTaskRuntimeEventsDocument } from "@/generated/graphql";
+import { WorkTaskRuntimeEventsDocument } from "@/graphql/workOperations";
 import { Transcript } from "@/components/Transcript";
 import type { TranscriptEntry } from "@/shared/types";
 import {
