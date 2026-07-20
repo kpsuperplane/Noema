@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use noema_store::{NewAuxiliaryModelPreference, WEB_FETCH_SUMMARIZER_TASK_ID};
+use noema_store::{AuxiliaryModelTask, NewAuxiliaryModelPreference};
 
 use crate::daemon::{
     agent_onboarding::AgentPromptIdentity,
@@ -29,7 +29,7 @@ async fn upsert_ready_auxiliary_model_preference(
             &preference.provider_account_id,
             &preference.model_profile,
             preference.reasoning_effort,
-            Some(format!("auxiliary_model_preference:{}", preference.task_id)),
+            Some(format!("auxiliary_model_preference:{}", preference.task)),
         ),
     );
     store

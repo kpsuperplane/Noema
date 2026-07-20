@@ -1,6 +1,6 @@
 use async_graphql::{InputObject, Result, SimpleObject};
 
-use noema_store::ACTION_REVIEWER_TASK_ID;
+use noema_store::AuxiliaryModelTask;
 
 use super::{
     agents::{
@@ -41,7 +41,7 @@ pub struct GraphqlSaveActionReviewerPreferenceInput {
 }
 
 pub(super) async fn privacy_settings(state: &GraphqlState) -> Result<GraphqlPrivacySettings> {
-    let settings = auxiliary_model_settings(state, ACTION_REVIEWER_TASK_ID).await?;
+    let settings = auxiliary_model_settings(state, AuxiliaryModelTask::ActionReviewer).await?;
     Ok(GraphqlPrivacySettings {
         reviewer: GraphqlActionReviewerSettings {
             model_preference: settings.preference,
@@ -56,7 +56,7 @@ pub(super) async fn save_action_reviewer_preference(
 ) -> Result<GraphqlAgentModelPreference> {
     save_auxiliary_model_preference(
         state,
-        ACTION_REVIEWER_TASK_ID,
+        AuxiliaryModelTask::ActionReviewer,
         input.provider_account_id,
         input.model_profile,
         input.reasoning_effort,

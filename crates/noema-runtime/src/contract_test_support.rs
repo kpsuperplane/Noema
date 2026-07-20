@@ -25,10 +25,7 @@ use noema_providers::{
     WebFetchContext, WebFetchError, WebOperationFuture, WebSearchBackend, WebSearchBackendHandle,
     WebSearchError, provider_account_instance_key,
 };
-use noema_store::{
-    ACTION_REVIEWER_TASK_ID, NoemaStore, TOOL_PROGRESS_AUDIT_TASK_ID, WEB_FETCH_SUMMARIZER_TASK_ID,
-    WorkCommandService,
-};
+use noema_store::{AuxiliaryModelTask, NoemaStore, WorkCommandService};
 use noema_tasks::{
     AgentRunRecord, CommandMeta, DelegateExecutionIntent, DelegateTask, NewTaskValidationCriterion,
     TaskComplexity, TaskProvenance, TaskRecord, TaskSourceKind, WorkCommand,
@@ -440,13 +437,13 @@ pub async fn spawn_runtime_with_provider(
         primary_provider: bind(store.agent_provider_selection_loader("agent:primary")),
         default_provider: bind(store.default_provider_selection_loader()),
         progress_audit_provider: bind(
-            store.auxiliary_provider_selection_loader(TOOL_PROGRESS_AUDIT_TASK_ID),
+            store.auxiliary_provider_selection_loader(AuxiliaryModelTask::ToolProgressAudit),
         ),
         action_reviewer_provider: bind(
-            store.auxiliary_provider_selection_loader(ACTION_REVIEWER_TASK_ID),
+            store.auxiliary_provider_selection_loader(AuxiliaryModelTask::ActionReviewer),
         ),
         web_summary_provider: bind(
-            store.auxiliary_provider_selection_loader(WEB_FETCH_SUMMARIZER_TASK_ID),
+            store.auxiliary_provider_selection_loader(AuxiliaryModelTask::WebFetchSummarizer),
         ),
         provider_registry: registry,
         store,

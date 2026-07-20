@@ -285,15 +285,19 @@ async fn assemble_services(
         provider_registry.clone(),
     );
     let progress_audit_provider = registry_route_resolver(
-        store.auxiliary_provider_selection_loader(noema_store::TOOL_PROGRESS_AUDIT_TASK_ID),
+        store.auxiliary_provider_selection_loader(
+            noema_store::AuxiliaryModelTask::ToolProgressAudit,
+        ),
         provider_registry.clone(),
     );
     let action_reviewer_provider = registry_route_resolver(
-        store.auxiliary_provider_selection_loader(noema_store::ACTION_REVIEWER_TASK_ID),
+        store.auxiliary_provider_selection_loader(noema_store::AuxiliaryModelTask::ActionReviewer),
         provider_registry.clone(),
     );
     let web_summary_provider = registry_route_resolver(
-        store.auxiliary_provider_selection_loader(noema_store::WEB_FETCH_SUMMARIZER_TASK_ID),
+        store.auxiliary_provider_selection_loader(
+            noema_store::AuxiliaryModelTask::WebFetchSummarizer,
+        ),
         provider_registry.clone(),
     );
     let capability_invokers: Arc<[noema_capabilities::CapabilityInvokerRegistration]> =

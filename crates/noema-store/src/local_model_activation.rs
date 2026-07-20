@@ -4,11 +4,13 @@ use rusqlite::{OptionalExtension, Transaction, params};
 
 use noema_providers::{
     LOCAL_MODELS_PROVIDER_ACCOUNT_ID, LocalModelEventKind, LocalModelInstallationRecord,
-    LocalModelInstallationStatus, ProviderReadySelection,
+    LocalModelInstallationStatus, ProviderKind, ProviderReadySelection,
 };
 
 use super::{
-    NoemaStore, StoreError,
+    AuxiliaryModelTask, NoemaStore, StoreError,
+    agents::BUILTIN_AGENTS,
+    auxiliary_model_preferences::AuxiliaryModelDefault,
     local_model_rows::{INSTALLATION_SELECT, installation_from_raw, raw_installation_from_row},
     local_models::append_event,
     provider_selections::{
@@ -153,19 +155,7 @@ fn ensure_local_provider_account(transaction: &Transaction<'_>) -> Result<(), St
 }
 
 fn ensure_builtin_agents(transaction: &Transaction<'_>) -> Result<(), StoreError> {
-    for (agent_id, display_name, system_role) in [
-        ("agent:primary", None, "primary"),
-        (
-            "agent:task-executor",
-            Some("Task Executor"),
-            "task_executor",
-        ),
-        (
-            "agent:task-reviewer",
-            Some("Task Reviewer"),
-            "task_reviewer",
-        ),
-    ] {
+    for (agent_id, display_name, system_role) in BUILTIN_AGENTS {
         transaction.execute(
             r#"
             INSERT INTO agents (agent_id, display_name, system_role)
@@ -184,11 +174,7 @@ fn save_agent_preferences(
     transaction: &Transaction<'_>,
     selection: &noema_providers::ProviderSelectionSnapshot,
 ) -> Result<(), StoreError> {
-    for agent_id in [
-        "agent:primary",
-        "agent:task-executor",
-        "agent:task-reviewer",
-    ] {
+    for (agent_id, _, _) in BUILTIN_AGENTS {
         write_preference_tx(
             transaction,
             CanonicalPreferenceOwner::Agent(agent_id),
@@ -214,14 +200,13 @@ fn save_auxiliary_preferences(
     transaction: &Transaction<'_>,
     selection: &noema_providers::ProviderSelectionSnapshot,
 ) -> Result<(), StoreError> {
-    for task_id in [
-        "tool_progress_audit",
-        "web_fetch_summarizer",
-        "memory_extraction",
-    ] {
+    for task in AuxiliaryModelTask::ALL.iter().copied().filter(|task| {
+        task.initial_default(&ProviderKind::LocalModels)
+            == AuxiliaryModelDefault::ConfiguredProvider
+    }) {
         write_preference_tx(
             transaction,
-            CanonicalPreferenceOwner::Auxiliary(task_id),
+            CanonicalPreferenceOwner::Auxiliary(task.as_str()),
             selection,
             true,
         )?;

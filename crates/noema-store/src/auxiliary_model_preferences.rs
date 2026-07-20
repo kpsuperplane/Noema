@@ -1,7 +1,10 @@
+use std::str::FromStr;
+
 use rusqlite::OptionalExtension;
 
 use noema_providers::{
-    ProviderInstanceKey, ProviderReadySelection, ProviderSelectionSnapshot, ReasoningEffort,
+    ProviderInstanceKey, ProviderKind, ProviderReadySelection, ProviderSelectionSnapshot,
+    ReasoningEffort,
 };
 
 use super::{
@@ -12,33 +15,83 @@ use super::{
     sqlite::{parse_column, reasoning_column},
 };
 
-/// Auxiliary model preference task id for `web.fetch` summarization.
-pub const WEB_FETCH_SUMMARIZER_TASK_ID: &str = "web_fetch_summarizer";
+macro_rules! auxiliary_model_tasks {
+    ($($variant:ident => ($id:literal, $docs:literal)),+ $(,)?) => {
+        /// Closed set of built-in settings backed by an auxiliary model preference.
+        #[repr(usize)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub enum AuxiliaryModelTask {
+            $(#[doc = $docs] $variant),+
+        }
 
-/// Auxiliary model preference task id for provider tool-continuation progress audits.
-pub const TOOL_PROGRESS_AUDIT_TASK_ID: &str = "tool_progress_audit";
+        impl AuxiliaryModelTask {
+            pub(crate) const ALL: &[Self] = &[$(Self::$variant),+];
 
-/// Auxiliary model preference task id for governed action review.
-pub const ACTION_REVIEWER_TASK_ID: &str = "action_reviewer";
+            /// Return the stable persisted task id.
+            #[must_use]
+            pub const fn as_str(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $id),+
+                }
+            }
+        }
 
-/// Auxiliary model preference task id for native Markdown memory updates.
-pub const MEMORY_CONSOLIDATION_TASK_ID: &str = "memory_extraction";
+        impl std::fmt::Display for AuxiliaryModelTask {
+            fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str(self.as_str())
+            }
+        }
 
-fn supported_auxiliary_model_task_id(task_id: &str) -> bool {
-    matches!(
-        task_id,
-        WEB_FETCH_SUMMARIZER_TASK_ID
-            | TOOL_PROGRESS_AUDIT_TASK_ID
-            | ACTION_REVIEWER_TASK_ID
-            | MEMORY_CONSOLIDATION_TASK_ID
-    )
+        impl FromStr for AuxiliaryModelTask {
+            type Err = StoreError;
+
+            fn from_str(value: &str) -> Result<Self, Self::Err> {
+                match value {
+                    $($id => Ok(Self::$variant)),+,
+                    other => Err(StoreError::InvalidEnum {
+                        kind: "auxiliary_model_preference_task_id",
+                        value: other.to_string(),
+                    }),
+                }
+            }
+        }
+    };
+}
+
+auxiliary_model_tasks! {
+    WebFetchSummarizer => ("web_fetch_summarizer", "`web.fetch` summarization."),
+    ToolProgressAudit => ("tool_progress_audit", "Provider tool-continuation progress audits."),
+    ActionReviewer => ("action_reviewer", "Governed write and export action review."),
+    MemoryConsolidation => ("memory_extraction", "Native Markdown memory consolidation."),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AuxiliaryModelDefault {
+    ConfiguredProvider,
+    ExplicitSelectionRequired,
+}
+
+impl AuxiliaryModelTask {
+    /// Initial-selection policy is exhaustive across both supported axes.
+    pub(crate) const fn initial_default(self, provider: &ProviderKind) -> AuxiliaryModelDefault {
+        use AuxiliaryModelDefault::{
+            ConfiguredProvider as Configured, ExplicitSelectionRequired as Explicit,
+        };
+        let defaults: [AuxiliaryModelDefault; Self::ALL.len()] = match provider {
+            ProviderKind::Codex => [Configured, Configured, Explicit, Configured],
+            ProviderKind::OpenAi => [Configured, Configured, Explicit, Configured],
+            ProviderKind::FoundationLocal => [Configured, Configured, Explicit, Configured],
+            ProviderKind::LocalModels => [Configured, Configured, Explicit, Configured],
+        };
+        defaults[self as usize]
+    }
 }
 
 /// New or updated auxiliary model preference.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewAuxiliaryModelPreference {
     /// Durable auxiliary task id.
-    pub task_id: String,
+    pub task: AuxiliaryModelTask,
     /// Provider kind selected for this auxiliary task.
     pub provider_kind: String,
     /// Provider account id selected for this auxiliary task.
@@ -53,7 +106,7 @@ pub struct NewAuxiliaryModelPreference {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuxiliaryModelPreferenceRecord {
     /// Durable auxiliary task id.
-    pub task_id: String,
+    pub task: AuxiliaryModelTask,
     /// Provider kind selected for this auxiliary task.
     pub provider_kind: String,
     /// Provider account id selected for this auxiliary task.
@@ -74,7 +127,7 @@ impl NoemaStore {
     /// Returns [`StoreError`] when the embedded store read fails.
     pub async fn get_auxiliary_model_preference(
         &self,
-        task_id: &str,
+        task: AuxiliaryModelTask,
     ) -> Result<Option<AuxiliaryModelPreferenceRecord>, StoreError> {
         self.with_connection(|conn| {
             conn.query_row(
@@ -85,7 +138,7 @@ impl NoemaStore {
                 WHERE task_id = ?1
                 LIMIT 1
                 "#,
-                [task_id],
+                [task.as_str()],
                 preference_from_row,
             )
             .optional()
@@ -106,30 +159,24 @@ impl NoemaStore {
         preference: NewAuxiliaryModelPreference,
         ready_selection: &ProviderReadySelection,
     ) -> Result<AuxiliaryModelPreferenceRecord, StoreError> {
-        if !supported_auxiliary_model_task_id(&preference.task_id) {
-            return Err(StoreError::InvalidEnum {
-                kind: "auxiliary_model_preference_task_id",
-                value: preference.task_id,
-            });
-        }
         let selection = ProviderSelectionSnapshot::explicit(
             &preference.provider_kind,
             &preference.provider_account_id,
             &preference.model_profile,
             preference.reasoning_effort,
-            Some(format!("auxiliary_model_preference:{}", preference.task_id)),
+            Some(format!("auxiliary_model_preference:{}", preference.task)),
         );
         self.with_immediate_transaction_retry(|transaction| {
             let selection =
                 resolve_new_canonical_selection_tx(transaction, &selection, Some(ready_selection))?;
             write_preference_tx(
                 transaction,
-                CanonicalPreferenceOwner::Auxiliary(&preference.task_id),
+                CanonicalPreferenceOwner::Auxiliary(preference.task.as_str()),
                 &selection,
                 true,
             )?;
             Ok(AuxiliaryModelPreferenceRecord {
-                task_id: preference.task_id.clone(),
+                task: preference.task,
                 provider_kind: selection.provider_kind.clone(),
                 provider_account_id: selection.provider_account_id.clone(),
                 provider_instance_key: selection
@@ -152,7 +199,7 @@ fn preference_from_row(
     row: &rusqlite::Row<'_>,
 ) -> rusqlite::Result<AuxiliaryModelPreferenceRecord> {
     Ok(AuxiliaryModelPreferenceRecord {
-        task_id: row.get(0)?,
+        task: parse_column(row, 0)?,
         provider_kind: row.get(1)?,
         provider_account_id: row.get(2)?,
         provider_instance_key: parse_column(row, 3)?,

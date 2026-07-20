@@ -1,7 +1,7 @@
 use async_graphql::{InputObject, Result, SimpleObject};
 use noema_providers::DEFAULT_TOOL_CLASSIFICATION_MODEL;
 
-use noema_store::TOOL_PROGRESS_AUDIT_TASK_ID;
+use noema_store::AuxiliaryModelTask;
 
 use super::{
     agents::{
@@ -44,7 +44,7 @@ pub struct GraphqlSaveToolProgressAuditPreferenceInput {
 }
 
 pub(super) async fn usage_settings(state: &GraphqlState) -> Result<GraphqlUsageSettings> {
-    let settings = auxiliary_model_settings(state, TOOL_PROGRESS_AUDIT_TASK_ID).await?;
+    let settings = auxiliary_model_settings(state, AuxiliaryModelTask::ToolProgressAudit).await?;
     Ok(GraphqlUsageSettings {
         progress_audit: GraphqlToolProgressAuditSettings {
             default_model_profile: DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string(),
@@ -60,7 +60,7 @@ pub(super) async fn save_tool_progress_audit_preference(
 ) -> Result<GraphqlAgentModelPreference> {
     save_auxiliary_model_preference(
         state,
-        TOOL_PROGRESS_AUDIT_TASK_ID,
+        AuxiliaryModelTask::ToolProgressAudit,
         input.provider_account_id,
         input.model_profile,
         input.reasoning_effort,

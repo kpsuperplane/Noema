@@ -17,7 +17,7 @@ async fn web_fetch_runtime_context_uses_only_available_saved_summarizer_selectio
     upsert_ready_auxiliary_model_preference(
         &store,
         NewAuxiliaryModelPreference {
-            task_id: WEB_FETCH_SUMMARIZER_TASK_ID.to_string(),
+            task: AuxiliaryModelTask::WebFetchSummarizer,
             provider_kind: "foundation_local".to_string(),
             provider_account_id: account.provider_account_id,
             model_profile: "default".to_string(),

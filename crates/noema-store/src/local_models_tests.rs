@@ -147,13 +147,13 @@ async fn activation_assigns_every_current_model_workload_atomically() {
             .iter()
             .all(|entry| entry.model.provider_kind == "local_models")
     );
-    for task_id in [
-        "tool_progress_audit",
-        "web_fetch_summarizer",
-        "memory_extraction",
+    for task in [
+        crate::AuxiliaryModelTask::ToolProgressAudit,
+        crate::AuxiliaryModelTask::WebFetchSummarizer,
+        crate::AuxiliaryModelTask::MemoryConsolidation,
     ] {
         let auxiliary = store
-            .get_auxiliary_model_preference(task_id)
+            .get_auxiliary_model_preference(task)
             .await
             .expect("auxiliary preference")
             .expect("saved auxiliary preference");

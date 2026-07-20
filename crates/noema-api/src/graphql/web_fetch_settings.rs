@@ -1,7 +1,7 @@
 use async_graphql::{InputObject, Result, SimpleObject};
 use noema_providers::DEFAULT_TOOL_CLASSIFICATION_MODEL;
 
-use noema_store::WEB_FETCH_SUMMARIZER_TASK_ID;
+use noema_store::AuxiliaryModelTask;
 
 use super::{
     agents::{
@@ -44,7 +44,7 @@ pub struct GraphqlSaveWebFetchSummarizerPreferenceInput {
 }
 
 pub(super) async fn web_fetch_settings(state: &GraphqlState) -> Result<GraphqlWebFetchSettings> {
-    let settings = auxiliary_model_settings(state, WEB_FETCH_SUMMARIZER_TASK_ID).await?;
+    let settings = auxiliary_model_settings(state, AuxiliaryModelTask::WebFetchSummarizer).await?;
     Ok(GraphqlWebFetchSettings {
         summarizer: GraphqlWebFetchSummarizerSettings {
             default_model_profile: DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string(),
@@ -60,7 +60,7 @@ pub(super) async fn save_web_fetch_summarizer_preference(
 ) -> Result<GraphqlAgentModelPreference> {
     save_auxiliary_model_preference(
         state,
-        WEB_FETCH_SUMMARIZER_TASK_ID,
+        AuxiliaryModelTask::WebFetchSummarizer,
         input.provider_account_id,
         input.model_profile,
         input.reasoning_effort,

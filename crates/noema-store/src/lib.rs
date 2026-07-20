@@ -69,8 +69,7 @@ pub(crate) mod tests;
 pub use agent_runtime_preferences::{AgentRuntimePreferenceRecord, NewAgentRuntimePreference};
 pub use agents::{AgentRecord, AgentSystemRole};
 pub use auxiliary_model_preferences::{
-    ACTION_REVIEWER_TASK_ID, AuxiliaryModelPreferenceRecord, MEMORY_CONSOLIDATION_TASK_ID,
-    NewAuxiliaryModelPreference, TOOL_PROGRESS_AUDIT_TASK_ID, WEB_FETCH_SUMMARIZER_TASK_ID,
+    AuxiliaryModelPreferenceRecord, AuxiliaryModelTask, NewAuxiliaryModelPreference,
 };
 pub use conversations::MemoryConversationSourceRange;
 pub use error::{SchemaIncompatibility, StoreError};

@@ -56,7 +56,7 @@ async fn upsert_ready_auxiliary_model_preference(
             &preference.provider_account_id,
             &preference.model_profile,
             preference.reasoning_effort,
-            Some(format!("auxiliary_model_preference:{}", preference.task_id)),
+            Some(format!("auxiliary_model_preference:{}", preference.task)),
         ),
     );
     store

@@ -159,8 +159,9 @@ impl RuntimeActor {
         &self,
     ) -> Result<ProviderRouteLease, RuntimeError> {
         RegistryProviderRouteResolver::new(
-            self.store
-                .auxiliary_provider_selection_loader(noema_store::MEMORY_CONSOLIDATION_TASK_ID),
+            self.store.auxiliary_provider_selection_loader(
+                noema_store::AuxiliaryModelTask::MemoryConsolidation,
+            ),
             Arc::clone(&self.provider_registry),
         )
         .resolve_route()
@@ -529,15 +530,17 @@ pub(super) async fn test_provider_routing(
     Ok(TestProviderRouting {
         primary: bind(store.agent_provider_selection_loader("agent:primary")),
         default: bind(store.default_provider_selection_loader()),
-        progress_audit: bind(
-            store.auxiliary_provider_selection_loader(noema_store::TOOL_PROGRESS_AUDIT_TASK_ID),
-        ),
+        progress_audit: bind(store.auxiliary_provider_selection_loader(
+            noema_store::AuxiliaryModelTask::ToolProgressAudit,
+        )),
         action_reviewer: bind(
-            store.auxiliary_provider_selection_loader(noema_store::ACTION_REVIEWER_TASK_ID),
+            store.auxiliary_provider_selection_loader(
+                noema_store::AuxiliaryModelTask::ActionReviewer,
+            ),
         ),
-        web_summary: bind(
-            store.auxiliary_provider_selection_loader(noema_store::WEB_FETCH_SUMMARIZER_TASK_ID),
-        ),
+        web_summary: bind(store.auxiliary_provider_selection_loader(
+            noema_store::AuxiliaryModelTask::WebFetchSummarizer,
+        )),
         registry,
     })
 }

@@ -1,11 +1,14 @@
 //! One-shot initialization of missing canonical provider selections.
 
-use noema_providers::{ProviderReadySelection, ProviderSelectionSnapshot};
+use std::str::FromStr;
+
+use noema_providers::{ProviderKind, ProviderReadySelection, ProviderSelectionSnapshot};
 use rusqlite::{Transaction, params};
 
 use crate::{
-    NoemaStore, StoreError,
+    AuxiliaryModelTask, NoemaStore, StoreError,
     agents::BUILTIN_AGENTS,
+    auxiliary_model_preferences::AuxiliaryModelDefault,
     provider_selections::{
         CanonicalPreferenceOwner, SelectionEligibility, validate_provider_selection_tx,
         validate_ready_selection_proof, write_preference_tx, write_task_pool_preference_tx,
@@ -16,12 +19,6 @@ const TASK_POOL_SETTINGS: [(&str, &str); 3] = [
     ("task_pool:setting:simple", "simple"),
     ("task_pool:setting:medium", "medium"),
     ("task_pool:setting:difficult", "difficult"),
-];
-
-const AUXILIARY_TASKS: [&str; 3] = [
-    "tool_progress_audit",
-    "web_fetch_summarizer",
-    "memory_extraction",
 ];
 
 impl NoemaStore {
@@ -46,8 +43,14 @@ impl NoemaStore {
                 .map_err(|error| StoreError::ConfiguredDefaultUnresolvable {
                     reason: error.to_string(),
                 })?;
+        let provider_kind =
+            ProviderKind::from_str(&configured_default.provider_kind).map_err(|provider_kind| {
+                StoreError::ConfiguredDefaultUnresolvable {
+                    reason: format!("unsupported configured model provider: {provider_kind}"),
+                }
+            })?;
         self.with_immediate_transaction_retry(|transaction| {
-            if canonical_selections_complete(transaction)? {
+            if canonical_selections_complete(transaction, &provider_kind)? {
                 return Ok(());
             }
             let ready_selection = ready_selection.ok_or_else(|| {
@@ -74,31 +77,48 @@ impl NoemaStore {
             insert_missing_default(transaction, &selection)?;
             insert_missing_agent_preferences(transaction, &selection)?;
             insert_missing_task_pool(transaction, &selection)?;
-            insert_missing_auxiliary_preferences(transaction, &selection)?;
+            insert_missing_auxiliary_preferences(transaction, &selection, &provider_kind)?;
             Ok(())
         })
         .await
     }
 }
 
-fn canonical_selections_complete(transaction: &Transaction<'_>) -> Result<bool, StoreError> {
-    transaction
-        .query_row(
-            r#"
-            SELECT
-              EXISTS(SELECT 1 FROM default_model_preference WHERE preference_id = 'default')
-              AND (SELECT COUNT(*) FROM agent_runtime_preferences
-                   WHERE agent_id IN ('agent:primary', 'agent:task-executor', 'agent:task-reviewer')) = 3
-              AND (SELECT COUNT(*) FROM task_model_pool_entries
-                   WHERE pool_entry_id IN ('task_pool:setting:simple', 'task_pool:setting:medium',
-                                           'task_pool:setting:difficult')) = 3
-              AND (SELECT COUNT(*) FROM auxiliary_model_preferences
-                   WHERE task_id IN ('tool_progress_audit', 'web_fetch_summarizer', 'memory_extraction')) = 3
-            "#,
-            [],
+fn canonical_selections_complete(
+    transaction: &Transaction<'_>,
+    provider_kind: &ProviderKind,
+) -> Result<bool, StoreError> {
+    let mut required = vec![("default_model_preference", "preference_id", "default")];
+    required.extend(
+        BUILTIN_AGENTS
+            .iter()
+            .map(|(agent_id, _, _)| ("agent_runtime_preferences", "agent_id", *agent_id)),
+    );
+    required.extend(
+        TASK_POOL_SETTINGS
+            .iter()
+            .map(|(pool_id, _)| ("task_model_pool_entries", "pool_entry_id", *pool_id)),
+    );
+    required.extend(
+        AuxiliaryModelTask::ALL
+            .iter()
+            .copied()
+            .filter(|task| {
+                task.initial_default(provider_kind) == AuxiliaryModelDefault::ConfiguredProvider
+            })
+            .map(|task| ("auxiliary_model_preferences", "task_id", task.as_str())),
+    );
+    for (table, owner_column, owner_id) in required {
+        let exists = transaction.query_row(
+            &format!("SELECT EXISTS(SELECT 1 FROM {table} WHERE {owner_column} = ?1)"),
+            [owner_id],
             |row| row.get::<_, bool>(0),
-        )
-        .map_err(StoreError::Sqlite)
+        )?;
+        if !exists {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 fn ensure_builtin_agents(transaction: &Transaction<'_>) -> Result<(), StoreError> {
@@ -157,11 +177,14 @@ fn insert_missing_task_pool(
 fn insert_missing_auxiliary_preferences(
     transaction: &Transaction<'_>,
     selection: &ProviderSelectionSnapshot,
+    provider_kind: &ProviderKind,
 ) -> Result<(), StoreError> {
-    for task_id in AUXILIARY_TASKS {
+    for task in AuxiliaryModelTask::ALL.iter().copied().filter(|task| {
+        task.initial_default(provider_kind) == AuxiliaryModelDefault::ConfiguredProvider
+    }) {
         write_preference_tx(
             transaction,
-            CanonicalPreferenceOwner::Auxiliary(task_id),
+            CanonicalPreferenceOwner::Auxiliary(task.as_str()),
             selection,
             false,
         )?;
@@ -186,7 +209,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        NewAgentRuntimePreference, WEB_FETCH_SUMMARIZER_TASK_ID,
+        NewAgentRuntimePreference,
         tests::{
             exact_provider_selection, provider_selection, ready_provider_selection, test_store,
         },
@@ -314,15 +337,21 @@ mod tests {
                 expected_key
             );
         }
-        assert_eq!(
-            store
-                .get_auxiliary_model_preference(WEB_FETCH_SUMMARIZER_TASK_ID)
+        for task in AuxiliaryModelTask::ALL {
+            let preference = store
+                .get_auxiliary_model_preference(*task)
                 .await
-                .expect("auxiliary preference")
-                .expect("initialized auxiliary")
-                .provider_instance_key,
-            expected_key
-        );
+                .expect("auxiliary preference");
+            match task.initial_default(&ProviderKind::Codex) {
+                AuxiliaryModelDefault::ConfiguredProvider => assert_eq!(
+                    preference
+                        .expect("initialized auxiliary")
+                        .provider_instance_key,
+                    expected_key
+                ),
+                AuxiliaryModelDefault::ExplicitSelectionRequired => assert!(preference.is_none()),
+            }
+        }
         let pool = store
             .list_task_model_pool_settings(None)
             .await
@@ -459,7 +488,7 @@ mod tests {
         ));
         assert!(
             store
-                .get_auxiliary_model_preference("web_fetch_summarizer")
+                .get_auxiliary_model_preference(AuxiliaryModelTask::WebFetchSummarizer)
                 .await
                 .expect("auxiliary read")
                 .is_none()

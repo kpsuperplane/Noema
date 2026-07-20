@@ -226,7 +226,7 @@ mod tests {
                 &preference.provider_account_id,
                 &preference.model_profile,
                 preference.reasoning_effort,
-                Some(format!("auxiliary_model_preference:{}", preference.task_id)),
+                Some(format!("auxiliary_model_preference:{}", preference.task)),
             ),
         );
         store
@@ -349,7 +349,7 @@ mod tests {
         upsert_ready_auxiliary_model_preference(
             &store,
             noema_store::NewAuxiliaryModelPreference {
-                task_id: noema_store::TOOL_PROGRESS_AUDIT_TASK_ID.to_string(),
+                task: noema_store::AuxiliaryModelTask::ToolProgressAudit,
                 provider_kind: "foundation_local".to_string(),
                 provider_account_id: foundation_account.provider_account_id,
                 model_profile: "default".to_string(),

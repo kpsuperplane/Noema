@@ -127,7 +127,7 @@ async fn assert_one_no_tools_finalization(scenario: FakeCodexScenario) {
         upsert_ready_auxiliary_model_preference(
             &store,
             noema_store::NewAuxiliaryModelPreference {
-                task_id: noema_store::TOOL_PROGRESS_AUDIT_TASK_ID.to_string(),
+                task: noema_store::AuxiliaryModelTask::ToolProgressAudit,
                 provider_kind: "codex".to_string(),
                 provider_account_id: codex.provider_account_id,
                 model_profile: "gpt-5.4-mini".to_string(),

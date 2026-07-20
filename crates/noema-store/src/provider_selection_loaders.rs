@@ -5,7 +5,7 @@ use noema_providers::{
     provider_selection_loader,
 };
 
-use crate::{NoemaStore, StoreError};
+use crate::{AuxiliaryModelTask, NoemaStore, StoreError};
 
 impl NoemaStore {
     /// Bind a fresh-per-resolution loader to the canonical global preference.
@@ -27,9 +27,9 @@ impl NoemaStore {
     #[must_use]
     pub fn auxiliary_provider_selection_loader(
         &self,
-        task_id: impl Into<String>,
+        task: AuxiliaryModelTask,
     ) -> ProviderSelectionLoaderHandle {
-        self.selection_loader(SelectionOwner::Auxiliary(task_id.into()))
+        self.selection_loader(SelectionOwner::Auxiliary(task))
     }
 
     fn selection_loader(&self, owner: SelectionOwner) -> ProviderSelectionLoaderHandle {
@@ -74,9 +74,9 @@ impl NoemaStore {
                     format!("agent_runtime_preference:{agent_id}"),
                 )
             }
-            SelectionOwner::Auxiliary(task_id) => {
+            SelectionOwner::Auxiliary(task) => {
                 let record = self
-                    .get_auxiliary_model_preference(&task_id)
+                    .get_auxiliary_model_preference(task)
                     .await?
                     .ok_or_else(missing_initialized_selection)?;
                 exact_selection(
@@ -85,7 +85,7 @@ impl NoemaStore {
                     record.provider_instance_key,
                     record.model_profile,
                     record.reasoning_effort,
-                    format!("auxiliary_model_preference:{task_id}"),
+                    format!("auxiliary_model_preference:{task}"),
                 )
             }
         }
@@ -108,7 +108,7 @@ impl NoemaStore {
 enum SelectionOwner {
     Default,
     Agent(String),
-    Auxiliary(String),
+    Auxiliary(AuxiliaryModelTask),
 }
 
 fn exact_selection(

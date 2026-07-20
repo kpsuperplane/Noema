@@ -87,16 +87,15 @@ impl RuntimeHandle {
         Self::spawn(RuntimeSpawnConfig {
             primary_provider: bind(store.agent_provider_selection_loader("agent:primary")),
             default_provider: bind(store.default_provider_selection_loader()),
-            progress_audit_provider: bind(
-                store.auxiliary_provider_selection_loader(noema_store::TOOL_PROGRESS_AUDIT_TASK_ID),
-            ),
-            action_reviewer_provider: bind(
-                store.auxiliary_provider_selection_loader(noema_store::ACTION_REVIEWER_TASK_ID),
-            ),
-            web_summary_provider: bind(
-                store
-                    .auxiliary_provider_selection_loader(noema_store::WEB_FETCH_SUMMARIZER_TASK_ID),
-            ),
+            progress_audit_provider: bind(store.auxiliary_provider_selection_loader(
+                noema_store::AuxiliaryModelTask::ToolProgressAudit,
+            )),
+            action_reviewer_provider: bind(store.auxiliary_provider_selection_loader(
+                noema_store::AuxiliaryModelTask::ActionReviewer,
+            )),
+            web_summary_provider: bind(store.auxiliary_provider_selection_loader(
+                noema_store::AuxiliaryModelTask::WebFetchSummarizer,
+            )),
             provider_registry,
             store,
             artifact_operations,

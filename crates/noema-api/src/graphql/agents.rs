@@ -10,7 +10,7 @@ use noema_tasks::TASK_EXECUTOR_AGENT_ID;
 use serde_json::Value;
 
 use noema_store::{
-    AgentRecord, AgentRuntimePreferenceRecord, NewAgentRuntimePreference,
+    AgentRecord, AgentRuntimePreferenceRecord, AuxiliaryModelTask, NewAgentRuntimePreference,
     NewAuxiliaryModelPreference,
 };
 
@@ -313,12 +313,12 @@ pub(super) struct AuxiliaryModelSettings {
 
 pub(super) async fn auxiliary_model_settings(
     state: &GraphqlState,
-    task_id: &str,
+    task: AuxiliaryModelTask,
 ) -> Result<AuxiliaryModelSettings> {
     let store = state.store()?;
     let accounts = active_default_model_accounts(state).await?;
     let preference = store
-        .get_auxiliary_model_preference(task_id)
+        .get_auxiliary_model_preference(task)
         .await
         .map_err(graphql_error)?
         .map(|preference| GraphqlAgentModelPreference {
@@ -335,7 +335,7 @@ pub(super) async fn auxiliary_model_settings(
 
 pub(super) async fn save_auxiliary_model_preference(
     state: &GraphqlState,
-    task_id: &str,
+    task: AuxiliaryModelTask,
     provider_account_id: String,
     model_profile: String,
     reasoning_effort: Option<GraphqlReasoningEffort>,
@@ -361,7 +361,7 @@ pub(super) async fn save_auxiliary_model_preference(
     let saved = store
         .upsert_auxiliary_model_preference_with_ready_selection(
             NewAuxiliaryModelPreference {
-                task_id: task_id.to_string(),
+                task,
                 provider_kind: account.provider_kind,
                 provider_account_id: account.provider_account_id,
                 model_profile,

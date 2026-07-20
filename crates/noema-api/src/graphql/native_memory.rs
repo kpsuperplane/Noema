@@ -3,7 +3,7 @@
 use async_graphql::{InputObject, Result, SimpleObject};
 use futures_util::Stream;
 use noema_memory::{MemoryPage, MemoryPageRef, NativeMemoryError};
-use noema_store::MEMORY_CONSOLIDATION_TASK_ID;
+use noema_store::AuxiliaryModelTask;
 
 use super::{
     agents::{
@@ -185,7 +185,7 @@ pub async fn update_memory(
 }
 
 pub async fn memory_settings(state: &GraphqlState) -> Result<GraphqlNativeMemorySettings> {
-    let settings = auxiliary_model_settings(state, MEMORY_CONSOLIDATION_TASK_ID).await?;
+    let settings = auxiliary_model_settings(state, AuxiliaryModelTask::MemoryConsolidation).await?;
     Ok(GraphqlNativeMemorySettings {
         model_preference: settings.preference,
         model_options: settings.options,
@@ -198,7 +198,7 @@ pub async fn save_memory_model_preference(
 ) -> Result<GraphqlAgentModelPreference> {
     save_auxiliary_model_preference(
         state,
-        MEMORY_CONSOLIDATION_TASK_ID,
+        AuxiliaryModelTask::MemoryConsolidation,
         input.provider_account_id,
         input.model_profile,
         input.reasoning_effort,
