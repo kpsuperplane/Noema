@@ -204,6 +204,25 @@ impl RuntimeActor {
         .await
     }
 
+    pub(super) async fn continue_after_governed_action(
+        &mut self,
+        conversation_id: String,
+        action_id: String,
+        trigger_item_id: String,
+        item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
+    ) -> Result<(), RuntimeError> {
+        self.turn_with_user_input(
+            conversation_id,
+            UserTurnInput::GovernedActionContinuation {
+                action_id,
+                trigger_item_id,
+            },
+            item_tx,
+            None,
+        )
+        .await
+    }
+
     async fn turn_with_multiple_choice_selection(
         &mut self,
         conversation_id: String,

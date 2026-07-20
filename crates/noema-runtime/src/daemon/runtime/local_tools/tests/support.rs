@@ -3,6 +3,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use noema_conversations::{
+    ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
+    NewConversationTurn, ReplayMode,
+};
 use noema_store::{AuxiliaryModelTask, NewAuxiliaryModelPreference};
 
 use crate::daemon::{

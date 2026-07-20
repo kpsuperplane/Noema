@@ -342,7 +342,7 @@ impl RuntimeActor {
                     decision,
                     reply,
                 } => {
-                    let actor = self.clone_for_background();
+                    let mut actor = self.clone_for_background();
                     self.tasks.spawn(async move {
                         let result = actor
                             .resolve_governed_action(&action_id, revision, &human_id, decision)

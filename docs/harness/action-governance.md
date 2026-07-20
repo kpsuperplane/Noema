@@ -313,11 +313,17 @@ Waiting for approval is durable asynchronous work.
 
 For the primary conversation:
 
-1. Persist the governed action and finish or suspend the proposing generation.
+1. Persist the governed action and finish the proposing generation without
+   emitting a failed tool result.
 2. Render the pending action inline without blocking new conversation turns.
-3. After approval or decline, append and stream the exact durable outcome. A
-   fresh bounded model continuation when a response is useful is a future
-   enhancement rather than a synthetic user turn.
+3. After approval or decline, append and stream one terminal tool result under
+   the original provider call identity, then start a fresh bounded model
+   continuation without adding a synthetic user turn. The continuation has a
+   stable action-derived turn identity, so repeated resolution cannot execute
+   the saved action or generate the follow-up twice.
+4. Treat continuation generation as downstream of the durable action outcome.
+   A model failure is recorded separately and never changes a succeeded action
+   into an approval failure that appears safe to retry.
 
 For a Work task:
 

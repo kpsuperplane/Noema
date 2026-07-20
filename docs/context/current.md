@@ -124,6 +124,10 @@ subagents, reviews, and size measurement.
   task actions use the same authority; waiting task runs release their lease
   and resume through a pinned child run after the exact action outcome is
   recorded.
+- A foreground approval request completes the proposing generation without a
+  failed tool result. Resolution records one terminal result under the original
+  provider call identity and starts an idempotent bounded continuation without
+  synthesizing another human message or retrying the external action.
 - Work reviewer authority comes from the exact source human item or
   authenticated Work UI request, never the rendered task prompt. Task actions
   are lease/generation fenced, and TaskReviewer has no export tools.

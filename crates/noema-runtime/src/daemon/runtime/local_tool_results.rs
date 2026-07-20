@@ -115,6 +115,18 @@ fn local_tool_result_payload(result: &LocalToolResult) -> Value {
 }
 
 pub(super) fn local_tool_result_action_item(result: &LocalToolResult) -> GenerateActionItem {
+    if let Some(action_id) = result.blocked_action_id.as_ref() {
+        return GenerateActionItem::ApprovalRequest {
+            id: Some(action_id.clone()),
+            method: result.name.clone(),
+            payload: json!({
+                "call_id": result.call_id,
+                "provider_call_id": result.provider_call_id,
+                "provider_name": result.provider_name,
+                "name": result.name,
+            }),
+        };
+    }
     let persisted_payload = if result.kind == LocalToolKind::Memory {
         if result.name == noema_memory::READ_MEMORY_PAGE_TOOL_NAME {
             result

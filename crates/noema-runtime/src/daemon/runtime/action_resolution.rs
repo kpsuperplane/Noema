@@ -7,7 +7,7 @@ use noema_capabilities::{
     GovernedCapabilityAdmission,
 };
 use noema_conversations::{
-    ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
+    ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem, ReplayMode,
 };
 use noema_store::{
     GovernedActionDecision, GovernedActionEffect, GovernedActionRecord, GovernedActionState,
@@ -21,7 +21,7 @@ use crate::daemon::{
 
 impl RuntimeActor {
     pub(super) async fn resolve_governed_action(
-        &self,
+        &mut self,
         action_id: &str,
         revision: u64,
         human_id: &str,
@@ -224,7 +224,7 @@ impl RuntimeActor {
     }
 
     async fn supersede_and_resume(
-        &self,
+        &mut self,
         action: GovernedActionRecord,
         human_id: &str,
         reason: &str,
@@ -238,7 +238,7 @@ impl RuntimeActor {
     }
 
     async fn resume_action_task(
-        &self,
+        &mut self,
         action: &GovernedActionRecord,
         human_id: &str,
     ) -> Result<(), RuntimeError> {
@@ -253,7 +253,7 @@ impl RuntimeActor {
     }
 
     async fn publish_foreground_action_outcome(
-        &self,
+        &mut self,
         action: &GovernedActionRecord,
     ) -> Result<(), RuntimeError> {
         let Some(conversation_id) = action.conversation_id.as_ref() else {
@@ -261,20 +261,58 @@ impl RuntimeActor {
                 "foreground action has no conversation origin".to_string(),
             ));
         };
+        let request = self
+            .store
+            .list_conversation_items(conversation_id, ReplayMode::Visible)
+            .await?
+            .into_iter()
+            .find_map(|item| approval_request_context(item, &action.action_id));
+        let Some(request) = request else {
+            crate::daemon::log_system_error(
+                &self.system_errors,
+                crate::daemon::SYSTEM_ERROR_RUNTIME_INVARIANT,
+                "governed action continuation origin is unavailable",
+                Some(serde_json::json!({
+                    "action_id": action.action_id,
+                    "conversation_id": conversation_id,
+                })),
+                RuntimeError::Protocol(
+                    "governed action approval request is unavailable".to_string(),
+                ),
+            );
+            return Ok(());
+        };
         let (status, activity_status, summary) = action_display_state(action.state);
+        let success = action.state == GovernedActionState::Succeeded;
         let activity_id = format!("governed_action:{}:{}", action.action_id, action.revision);
+        let tool_payload = action.output.clone().unwrap_or_else(|| {
+            serde_json::json!({
+                "status": action.state.as_str(),
+                "action_id": action.action_id,
+                "failure_code": action.failure_code,
+            })
+        });
         let metadata = serde_json::json!({
-            "action_id": action.action_id,
-            "revision": action.revision,
-            "state": action.state.as_str(),
-            "output": action.output,
-            "failure_code": action.failure_code,
+            "action": {
+                "call_id": request.call_id,
+                "provider_call_id": request.provider_call_id,
+                "provider_name": request.provider_name,
+                "name": request.name,
+                "success": success,
+                "payload": tool_payload,
+            },
+            "governed_action": {
+                "action_id": action.action_id,
+                "revision": action.revision,
+                "state": action.state.as_str(),
+                "failure_code": action.failure_code,
+            },
         });
         let payload_json = serde_json::json!({
             "id": activity_id,
-            "activity_kind": "governed_action",
+            "activity_kind": "tool_result",
             "status": activity_status,
-            "title": action.safe_summary,
+            "title": format!("Tool result: {}", request.name),
             "summary": summary,
             "metadata": metadata,
         });
@@ -288,8 +326,8 @@ impl RuntimeActor {
                 NewConversationItem {
                     conversation_id: conversation_id.clone(),
                     turn_id: action.turn_id.clone(),
-                    parent_item_id: None,
-                    kind: ConversationItemKind::ApprovalResult,
+                    parent_item_id: Some(request.item_id),
+                    kind: ConversationItemKind::ToolResult,
                     status,
                     author: ActorRef::agent("agent:primary")
                         .expect("static primary agent id is valid"),
@@ -299,6 +337,7 @@ impl RuntimeActor {
                 },
             )
             .await?;
+        let trigger_item_id = item.item_id.clone();
         if inserted {
             self.runtime_events
                 .publish_conversation(ConversationRuntimeEvent::Turn {
@@ -311,17 +350,85 @@ impl RuntimeActor {
                         metadata: item.metadata,
                         item: Box::new(TurnTranscriptItem::Activity {
                             id: activity_id,
-                            activity_kind: "governed_action".to_string(),
+                            activity_kind: "tool_result".to_string(),
                             status: activity_status,
-                            title: action.safe_summary.clone(),
+                            title: format!("Tool result: {}", request.name),
                             summary: Some(summary.to_string()),
                             metadata,
                         }),
                     }),
                 });
         }
+        let (item_tx, mut item_rx) = tokio::sync::mpsc::unbounded_channel();
+        let relay_events = self.runtime_events.clone();
+        let relay = async move {
+            while let Some(event) = item_rx.recv().await {
+                relay_events.publish_conversation(ConversationRuntimeEvent::Turn {
+                    client_message_id: None,
+                    event: Box::new(event),
+                });
+            }
+        };
+        let continuation = self.continue_after_governed_action(
+            conversation_id.clone(),
+            action.action_id.clone(),
+            trigger_item_id,
+            item_tx,
+        );
+        let (result, ()) = tokio::join!(continuation, relay);
+        self.runtime_events
+            .publish_conversation(ConversationRuntimeEvent::Completed {
+                conversation_id: conversation_id.clone(),
+                client_message_id: None,
+            });
+        if let Err(error) = result {
+            crate::daemon::log_system_error(
+                &self.system_errors,
+                crate::daemon::SYSTEM_ERROR_RUNTIME_INVARIANT,
+                "governed action continuation failed",
+                Some(serde_json::json!({
+                    "action_id": action.action_id,
+                    "conversation_id": conversation_id,
+                })),
+                error,
+            );
+        }
         Ok(())
     }
+}
+
+struct ApprovalRequestContext {
+    item_id: String,
+    call_id: Option<String>,
+    provider_call_id: Option<String>,
+    provider_name: Option<String>,
+    name: String,
+}
+
+fn approval_request_context(
+    item: noema_conversations::ConversationItemRecord,
+    action_id: &str,
+) -> Option<ApprovalRequestContext> {
+    if item.kind != ConversationItemKind::ApprovalRequest
+        || item.payload_json.pointer("/metadata/action/id")?.as_str()? != action_id
+    {
+        return None;
+    }
+    let payload = item.payload_json.pointer("/metadata/action/payload")?;
+    Some(ApprovalRequestContext {
+        item_id: item.item_id,
+        call_id: optional_string(payload, "call_id"),
+        provider_call_id: optional_string(payload, "provider_call_id"),
+        provider_name: optional_string(payload, "provider_name"),
+        name: optional_string(payload, "name")?,
+    })
+}
+
+fn optional_string(value: &serde_json::Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
 }
 
 fn action_display_state(

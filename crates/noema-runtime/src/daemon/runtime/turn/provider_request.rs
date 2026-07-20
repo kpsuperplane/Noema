@@ -18,14 +18,35 @@ impl RuntimeActor {
         let model_profile = provider_selection.model_profile.as_deref();
         let reasoning_effort = provider_selection.reasoning_effort;
         let turn_index = conversation.next_turn_index;
-        let turn = self
-            .store
-            .create_conversation_turn(NewConversationTurn {
-                conversation_id: conversation_id.clone(),
-                trigger_item_id: None,
-                metadata: json!({ "turn_index": turn_index }),
-            })
-            .await?;
+        let turn = if let Some((action_id, trigger_item_id)) = user_input.governed_action() {
+            let (turn, inserted) = self
+                .store
+                .create_conversation_turn_with_id_if_absent(
+                    format!("turn:governed_action:{action_id}"),
+                    NewConversationTurn {
+                        conversation_id: conversation_id.clone(),
+                        trigger_item_id: Some(trigger_item_id.to_string()),
+                        metadata: json!({
+                            "turn_index": turn_index,
+                            "source": "governed_action_continuation",
+                            "action_id": action_id,
+                        }),
+                    },
+                )
+                .await?;
+            if !inserted {
+                return Ok(());
+            }
+            turn
+        } else {
+            self.store
+                .create_conversation_turn(NewConversationTurn {
+                    conversation_id: conversation_id.clone(),
+                    trigger_item_id: None,
+                    metadata: json!({ "turn_index": turn_index }),
+                })
+                .await?
+        };
         let timing = TurnTiming::new(
             conversation_id.clone(),
             turn.turn_id.clone(),
@@ -127,12 +148,15 @@ impl RuntimeActor {
                 "reconciled_model_context_updates": reconciled_model_context_updates,
             }),
         );
-        let user_metadata = json!({
-            "turn_index": turn_index,
-            "client_message_id": client_message_id,
-        });
-        let (user_kind, parent_item_id, user_content_text, user_payload, transcript_item) =
-            match &user_input {
+        let user_item_id = if let Some((_, trigger_item_id)) = user_input.governed_action() {
+            trigger_item_id.to_string()
+        } else {
+            let user_metadata = json!({
+                "turn_index": turn_index,
+                "client_message_id": client_message_id,
+            });
+            let (user_kind, parent_item_id, user_content_text, user_payload, transcript_item) =
+                match &user_input {
                 UserTurnInput::Text(text) => (
                     ConversationItemKind::UserText,
                     None,
@@ -162,28 +186,31 @@ impl RuntimeActor {
                         selected_options: selection.selected_options.clone(),
                     },
                 ),
+                UserTurnInput::GovernedActionContinuation { .. } => unreachable!(),
             };
-        let user_item = self
-            .store
-            .append_conversation_item(NewConversationItem {
-                conversation_id: conversation_id.clone(),
-                turn_id: Some(turn.turn_id.clone()),
-                parent_item_id,
-                kind: user_kind,
-                status: ConversationItemStatus::Completed,
-                author: ActorRef::human("human:local")
-                    .expect("static local human actor id must be valid"),
-                content_text: user_content_text,
-                payload_json: user_payload,
-                metadata: user_metadata.clone(),
-            })
-            .await?;
-        let user_item_id = user_item.item_id.clone();
-        send_conversation_item(&item_tx, user_item, user_metadata, transcript_item);
-        if matches!(user_input, UserTurnInput::Text(_)) {
-            self.runtime_events
-                .publish_memory(crate::daemon::MemoryRuntimeEvent::Changed);
-        }
+            let user_item = self
+                .store
+                .append_conversation_item(NewConversationItem {
+                    conversation_id: conversation_id.clone(),
+                    turn_id: Some(turn.turn_id.clone()),
+                    parent_item_id,
+                    kind: user_kind,
+                    status: ConversationItemStatus::Completed,
+                    author: ActorRef::human("human:local")
+                        .expect("static local human actor id must be valid"),
+                    content_text: user_content_text,
+                    payload_json: user_payload,
+                    metadata: user_metadata.clone(),
+                })
+                .await?;
+            let user_item_id = user_item.item_id.clone();
+            send_conversation_item(&item_tx, user_item, user_metadata, transcript_item);
+            if matches!(user_input, UserTurnInput::Text(_)) {
+                self.runtime_events
+                    .publish_memory(crate::daemon::MemoryRuntimeEvent::Changed);
+            }
+            user_item_id
+        };
         timing.mark("runtime_user_item_persisted", json!({}));
         if !planned_context.fits {
             let compaction_started_at = std::time::Instant::now();

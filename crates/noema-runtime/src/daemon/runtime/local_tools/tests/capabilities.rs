@@ -165,6 +165,179 @@ async fn unconfigured_reviewer_blocks_external_write_before_invocation() {
 }
 
 #[tokio::test]
+async fn approved_foreground_action_resumes_the_model_with_its_tool_result() {
+    let mut actor = test_actor().await;
+    let conversation = actor
+        .store
+        .get_or_create_primary_conversation(
+            "human:local",
+            Some("gpt-test".to_string()),
+            None,
+        )
+        .await
+        .expect("primary conversation");
+    let durable_turn = actor
+        .store
+        .create_conversation_turn(NewConversationTurn {
+            conversation_id: conversation.conversation_id.clone(),
+            trigger_item_id: None,
+            metadata: json!({"turn_index": 1}),
+        })
+        .await
+        .expect("conversation turn");
+    let user_item = actor
+        .store
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation.conversation_id.clone(),
+            turn_id: Some(durable_turn.turn_id.clone()),
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::human("human:local").expect("human actor"),
+            content_text: Some("Fetch this page and summarize it.".to_string()),
+            payload_json: json!({}),
+            metadata: json!({"turn_index": 1}),
+        })
+        .await
+        .expect("user item");
+    let mut turn = test_turn();
+    turn.conversation_id = conversation.conversation_id.clone();
+    turn.turn_id = durable_turn.turn_id.clone();
+    turn.user_item_id = user_item.item_id.clone();
+    turn.initial_model_tools = test_governed_web_fetch_model_tools();
+    let call = test_tool_call(
+        noema_capabilities::web::fetch::WEB_FETCH_TOOL,
+        json!({"url": "https://example.com/requires-approval"}),
+    );
+    let action_turn = crate::daemon::runtime::turn::ProviderActionTurn {
+        conversation_id: turn.conversation_id.clone(),
+        turn_id: turn.turn_id.clone(),
+        turn_index: 1,
+        user_item_id: turn.user_item_id.clone(),
+        provider: "codex".to_string(),
+        model: "gpt-test".to_string(),
+        response_phase: "initial",
+        usage: None,
+        stream_id: Some("stream:test".to_string()),
+    };
+    let (item_tx, _item_rx) = tokio::sync::mpsc::unbounded_channel();
+    actor
+        .persist_provider_action_item(
+            &action_turn,
+            0,
+            crate::daemon::runtime::tool_lifecycle::tool_call_action_item(&call),
+            &item_tx,
+        )
+        .await
+        .expect("tool call item");
+    let result = actor
+        .execute_local_tool(
+            &turn,
+            &AgentPromptIdentity {
+                agent_id: "agent:primary".to_string(),
+                display_name: None,
+            },
+            &call,
+        )
+        .await;
+    let action_id = result.blocked_action_id.clone().expect("blocked action id");
+    actor
+        .persist_provider_action_item(
+            &action_turn,
+            1,
+            super::local_tool_result_action_item(&result),
+            &item_tx,
+        )
+        .await
+        .expect("approval request item");
+    actor
+        .store
+        .complete_conversation_turn(&turn.turn_id)
+        .await
+        .expect("complete original turn");
+
+    let pending_items = actor
+        .store
+        .list_conversation_items(
+            &conversation.conversation_id,
+            ReplayMode::Visible,
+        )
+        .await
+        .expect("pending transcript");
+    assert!(pending_items.iter().any(|item| {
+        item.kind == ConversationItemKind::ApprovalRequest
+            && item.payload_json.pointer("/metadata/action/id") == Some(&json!(action_id))
+    }));
+    assert!(pending_items.iter().all(|item| {
+        item.kind != ConversationItemKind::ToolResult
+    }));
+
+    let resolved = actor
+        .resolve_governed_action(
+            &action_id,
+            1,
+            "human:local",
+            noema_store::GovernedActionDecision::Approve,
+        )
+        .await
+        .expect("approve action");
+    assert_eq!(resolved.state, noema_store::GovernedActionState::Succeeded);
+
+    let resumed_items = actor
+        .store
+        .list_conversation_items(
+            &conversation.conversation_id,
+            ReplayMode::Visible,
+        )
+        .await
+        .expect("resumed transcript");
+    let tool_result = resumed_items
+        .iter()
+        .find(|item| item.kind == ConversationItemKind::ToolResult)
+        .expect("terminal tool result");
+    assert_eq!(
+        tool_result
+            .payload_json
+            .pointer("/metadata/action/provider_call_id"),
+        Some(&json!("provider_call:test"))
+    );
+    assert_eq!(
+        resumed_items
+            .iter()
+            .filter(|item| item.kind == ConversationItemKind::AssistantText)
+            .filter_map(|item| item.content_text.as_deref())
+            .collect::<Vec<_>>(),
+        vec!["summarized page"]
+    );
+    actor
+        .resolve_governed_action(
+            &action_id,
+            1,
+            "human:local",
+            noema_store::GovernedActionDecision::Approve,
+        )
+        .await
+        .expect("idempotent terminal resolution");
+    let replayed_items = actor
+        .store
+        .list_conversation_items(
+            &conversation.conversation_id,
+            ReplayMode::Visible,
+        )
+        .await
+        .expect("replayed transcript");
+    let count = |kind| replayed_items.iter().filter(|item| item.kind == kind).count();
+    assert_eq!(
+        (
+            count(ConversationItemKind::ToolResult),
+            count(ConversationItemKind::AssistantText),
+            count(ConversationItemKind::UserText),
+        ),
+        (1, 1, 1)
+    );
+}
+
+#[tokio::test]
 async fn unavailable_capability_remains_unadvertised_and_denied() {
     let mut actor = test_actor().await;
     let invoker = Arc::new(RecordingCapabilityInvoker::default());
