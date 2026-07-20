@@ -22,7 +22,9 @@ Current implementation direction:
 - Each file is written as a compact Wikipedia-style article: one generated
   title, a concise lead, coherent prose under distinct sections, inline
   footnotes, and collected source definitions. The root is the human's
-  biographical overview; child files are focused topic articles.
+  biographical overview; child files are focused topic articles. A developed
+  root must contain at least two thematic sections and cannot publish as an
+  unsectioned fact inventory.
 - The canonical SQLite database stores the selected Memory model and source
   conversations. A separate SQLite FTS database under `system/indexes/` is a
   disposable projection rebuilt from Markdown.
@@ -33,6 +35,8 @@ Current implementation direction:
   `sequence_index` order.
 - Source arrivals and update transitions publish runtime invalidations; GraphQL
   subscriptions refill the authoritative tree/status snapshot without polling.
+- A structurally invalid model response receives one corrective retry; a second
+  invalid response fails the update without advancing the checkpoint.
 - Direct editing, page history, private memory, additional scopes, and vectors
   are not part of this slice.
 

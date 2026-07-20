@@ -112,7 +112,9 @@ impl NativeMemory {
         let mut final_ids = std::collections::BTreeMap::new();
         for path in self.all_page_paths()? {
             if !deletes.contains(&path) && !upsert_paths.contains(&path) {
-                let id = self.parse_page(&path)?.id;
+                let page = self.parse_page(&path)?;
+                validate_article_structure(&path, &page.body)?;
+                let id = page.id;
                 if let Some(other_path) = final_ids.insert(id.clone(), path.clone()) {
                     return Err(NativeMemoryError::InvalidChangeSet(format!(
                         "stable id {id} is shared by {other_path} and {path}"

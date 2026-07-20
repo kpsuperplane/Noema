@@ -140,6 +140,7 @@ pub(super) fn validate_change_set(changes: &MemoryChangeSet) -> Result<(), Nativ
             )));
         }
         validate_page_content(&change.body)?;
+        validate_article_structure(&path, &change.body)?;
         validate_citations(&change.body, &change.sources)?;
     }
     for path in &changes.deletes {
@@ -153,6 +154,20 @@ pub(super) fn validate_change_set(changes: &MemoryChangeSet) -> Result<(), Nativ
             return Err(NativeMemoryError::InvalidChangeSet(format!(
                 "path appears more than once in change set: {path}"
             )));
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn validate_article_structure(path: &str, body: &str) -> Result<(), NativeMemoryError> {
+    let words = UnicodeSegmentation::unicode_words(body).count();
+    if path == ROOT_PAGE_PATH && words >= 120 {
+        let sections = body.lines().filter(|line| line.starts_with("## ")).count();
+        if sections < 2 {
+            return Err(NativeMemoryError::InvalidChangeSet(
+                "a developed root.md article must organize its prose under at least two ## sections"
+                    .to_string(),
+            ));
         }
     }
     Ok(())

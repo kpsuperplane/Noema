@@ -38,6 +38,28 @@ fn native_memory_initializes_root_and_rebuilds_search_index() {
         memory.read_page("people.md").expect("page").body,
         "Alice likes tea"
     );
+
+    std::fs::write(
+        directory.path().join("memory/human/root.md"),
+        format!(
+            "---\nschema: noema.memory.page/v1\nid: memory:human:root.md\nowner: human:local\nscope: human:local\ntitle: Kevin\nsources:\n---\n\n# Kevin\n\n{}",
+            "Kevin has a durable preference for thoughtful technical systems. ".repeat(24)
+        ),
+    )
+    .expect("write legacy root inventory");
+    assert!(memory
+        .publish(&MemoryChangeSet {
+            upserts: vec![MemoryPageChange {
+                id: None,
+                expected_hash: None,
+                path: "interests.md".into(),
+                title: "Interests".into(),
+                body: "Kevin enjoys hiking.".into(),
+                sources: vec![],
+            }],
+            deletes: vec![],
+        })
+        .is_err());
 }
 
 #[test]
@@ -64,6 +86,18 @@ fn native_memory_rejects_unsafe_paths_and_oversized_bodies() {
             path: "duplicate-title.md".into(),
             title: "Duplicate title".into(),
             body: "# Duplicate title\n\nLead".into(),
+            sources: vec![],
+        }],
+        deletes: vec![],
+    })
+    .is_err());
+    assert!(validate_change_set(&MemoryChangeSet {
+        upserts: vec![MemoryPageChange {
+            id: None,
+            expected_hash: None,
+            path: ROOT_PAGE_PATH.into(),
+            title: "Kevin".into(),
+            body: "Kevin has a durable preference for thoughtful technical systems. ".repeat(24),
             sources: vec![],
         }],
         deletes: vec![],

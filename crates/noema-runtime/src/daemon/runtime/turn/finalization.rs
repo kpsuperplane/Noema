@@ -420,49 +420,79 @@ impl RuntimeActor {
                 };
                 Some(format!("{} [{}] {}", role, item.item_id, item.content_text.as_deref().unwrap_or_default()))
             }).collect::<Vec<_>>().join("\n");
-            let response = provider.generate_streaming(
-                GenerateRequest {
-                    conversation_id: Some(conversation_id.to_string()),
-                    model: selection.model_profile.clone(),
-                    input: GenerateInput::Text(source),
-                    instructions: Some(memory_update_instructions(&canonical)),
-                    options: GenerateOptions { generation_priority: GenerationPriority::Background, max_output_tokens: Some(2_048), reasoning_effort: selection.reasoning_effort, ..GenerateOptions::default() },
-                    tools: Vec::new(), tool_choice: Default::default(), parallel_tool_calls: false,
-                },
-                &mut |_| {},
-            ).await.map_err(|error| error.to_string())?;
-            let text = response.assistant_text();
-            let json_start = text.find('{').ok_or_else(|| "memory model returned no JSON change set".to_string())?;
-            let json_end = text.rfind('}').ok_or_else(|| "memory model returned incomplete JSON change set".to_string())?;
-            let changes: noema_memory::MemoryChangeSet = serde_json::from_str(&text[json_start..=json_end]).map_err(|error| format!("invalid memory change set: {error}"))?;
-            if let Some(source) = changes
-                .upserts
-                .iter()
-                .flat_map(|change| &change.sources)
-                .find(|source| !allowed_sources.contains(*source))
-            {
-                return Err(format!(
-                    "memory change set cites source {source} that is neither existing provenance nor a human message in this chunk"
-                ));
-            }
             let last = chunk.last().expect("non-empty chunk");
-            native_memory.publish_with_state(&changes, &noema_memory::MemoryState {
+            let next_state = noema_memory::MemoryState {
                 conversation_id: Some(conversation_id.to_string()),
                 last_consolidated_sequence: last.sequence_index,
                 last_consolidated_item: Some(last.item_id.clone()),
                 updated_at: String::new(),
-            }).map_err(|error| error.to_string())?;
+            };
+            let mut correction = None;
+            loop {
+                let response = provider.generate_streaming(
+                    GenerateRequest {
+                        conversation_id: Some(conversation_id.to_string()),
+                        model: selection.model_profile.clone(),
+                        input: GenerateInput::Text(source.clone()),
+                        instructions: Some(memory_update_instructions(&canonical, correction.as_deref())),
+                        options: GenerateOptions { generation_priority: GenerationPriority::Background, max_output_tokens: Some(2_048), reasoning_effort: selection.reasoning_effort, ..GenerateOptions::default() },
+                        tools: Vec::new(), tool_choice: Default::default(), parallel_tool_calls: false,
+                    },
+                    &mut |_| {},
+                ).await.map_err(|error| error.to_string())?;
+                let changes = match parse_memory_change_set(&response.assistant_text(), &allowed_sources) {
+                    Ok(changes) => changes,
+                    Err(error) if correction.is_none() => { correction = Some(error); continue; }
+                    Err(error) => return Err(error),
+                };
+                match native_memory.publish_with_state(&changes, &next_state) {
+                    Ok(()) => break,
+                    Err(error @ (noema_memory::NativeMemoryError::InvalidChangeSet(_)
+                        | noema_memory::NativeMemoryError::InvalidPage(_))) if correction.is_none() => {
+                            correction = Some(error.to_string());
+                        }
+                    Err(error) => return Err(error.to_string()),
+                }
+            }
             offset = end;
         }
         Ok(())
     }
 }
 
-fn memory_update_instructions(canonical: &str) -> String {
+fn parse_memory_change_set(
+    text: &str,
+    allowed_sources: &std::collections::HashSet<String>,
+) -> Result<noema_memory::MemoryChangeSet, String> {
+    let json_start = text
+        .find('{')
+        .ok_or_else(|| "memory model returned no JSON change set".to_string())?;
+    let json_end = text
+        .rfind('}')
+        .ok_or_else(|| "memory model returned incomplete JSON change set".to_string())?;
+    let changes: noema_memory::MemoryChangeSet = serde_json::from_str(&text[json_start..=json_end])
+        .map_err(|error| format!("invalid memory change set: {error}"))?;
+    if let Some(source) = changes
+        .upserts
+        .iter()
+        .flat_map(|change| &change.sources)
+        .find(|source| !allowed_sources.contains(*source))
+    {
+        return Err(format!(
+            "memory change set cites source {source} that is neither existing provenance nor a human message in this chunk"
+        ));
+    }
+    Ok(changes)
+}
+
+fn memory_update_instructions(canonical: &str, correction: Option<&str>) -> String {
+    let correction = correction.map_or_else(String::new, |error| {
+        format!("\nYour previous response was rejected: {error}. Correct that failure in the replacement response.")
+    });
     format!(
-        "Update native Markdown memory. Existing canonical pages (including stable ids and exact hashes) are: {canonical}\n\
-Return only JSON matching {{\"upserts\":[{{\"id\":null,\"expected_hash\":null,\"path\":\"relative.md\",\"title\":\"Title\",\"body\":\"Lead paragraph with a cited fact.[^fact]\\n\\n## Distinct section\\n\\nCoherent prose.\\n\\n[^fact]: source-id\",\"sources\":[\"source-id\"]}}],\"deletes\":[]}}. \
-Write every page as a compact Wikipedia-style article: use a concise lead that identifies the subject, organize related facts into coherent prose under distinct ## sections, avoid one-fact-per-paragraph inventories and repeated claims, and collect footnote definitions at the end. The body must not contain a # title heading because Noema writes it from the title field. When the local human's name is known, root.md is their biographical overview and its title is their name. Rewrite nonconforming existing pages into this editorial style when updating them. \
-Every cited footnote must have one definition whose exact target is a source id, and the definitions must exactly match sources. Preserve ids, expected hashes, hierarchy, and user-authored meaning unless evidence requires a change. To move a page, keep its id and expected hash but change its path; the old path is removed automatically. Human messages are evidence; assistant messages are context only and never evidence. Do not copy secrets, tokens, credentials, or private keys. Use owner human:local and scope human:local."
+        "You are editing a compact personal encyclopedia, not recording a chronological fact list. Existing canonical pages (including stable ids and exact hashes) are: {canonical}\n\
+Return only JSON matching {{\"upserts\":[{{\"id\":null,\"expected_hash\":null,\"path\":\"relative.md\",\"title\":\"Human name or topic\",\"body\":\"Two-to-four sentence lead that identifies the subject and combines its defining themes.[^identity]\\n\\n## Career and learning\\n\\nA cohesive paragraph relating several facts instead of isolating each claim.[^career]\\n\\n## Interests and daily life\\n\\nAnother cohesive paragraph.\\n\\n[^identity]: source-id-1\\n[^career]: source-id-2\",\"sources\":[\"source-id-1\",\"source-id-2\"]}}],\"deletes\":[]}}.\n\
+Editorial contract: root.md is a biographical overview titled with the local human's name whenever known, never \"Human memory\" in that case. Begin each page with a natural human-language lead, then group related material into thematic ## sections. A developed root article must have at least two sections. Merge related claims into multi-sentence prose; never emit a sequence of one-sentence fact paragraphs, a field inventory, or a chronology of messages. Keep the root concise and create focused child pages when a domain has enough detail, rather than accumulating every fact in root.md. Do not put a # title in body because Noema generates it. Rewrite any existing page that violates this structure even when its facts remain correct. Put all footnote definitions together after the article.\n\
+Evidence contract: every cited footnote has one definition whose exact target is a source id, definitions exactly match sources, and assistant messages are context rather than independent evidence. Preserve stable ids, expected hashes, hierarchy, and user-authored meaning unless evidence requires a change. To move a page, retain its id and expected hash and change its path. Do not copy secrets, tokens, credentials, or private keys. Use owner human:local and scope human:local.{correction}"
     )
 }
