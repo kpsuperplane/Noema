@@ -394,7 +394,12 @@ fn report_blocked_tx(
         transaction,
         &event,
         noema_tasks::NotificationKind::TaskWaiting,
-        &serde_json::json!({"task_id": task.task_id.as_str(), "gate_id": gate_id.as_str()}),
+        &serde_json::json!({
+            "task_id": task.task_id.as_str(),
+            "gate_id": gate_id.as_str(),
+            "message": "This task needs your input.",
+            "action_needed": true,
+        }),
     )? {
         event = notification_event;
     }
@@ -584,7 +589,12 @@ fn report_failure_tx_inner(
         transaction,
         &event,
         noema_tasks::NotificationKind::TaskRecovery,
-        &serde_json::json!({"task_id": task.task_id.as_str(), "gate_id": gate_id.as_str()}),
+        &serde_json::json!({
+            "task_id": task.task_id.as_str(),
+            "gate_id": gate_id.as_str(),
+            "message": "Recovery decision needed — retry the task or provide guidance.",
+            "action_needed": true,
+        }),
     )? {
         event = notification_event;
     }

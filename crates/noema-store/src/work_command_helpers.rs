@@ -6,8 +6,9 @@ use noema_providers::{
     ProviderInstanceKey, ProviderSelectionMode, ProviderSelectionSnapshot, ReasoningEffort,
 };
 use noema_tasks::{
-    CaptureTask, DelegateTask, TaskContractId, TaskExecutionPolicy, TaskId, WorkCommand,
-    WorkDomainError, WorkEventRecord, WorkflowStageBehavior, WorkflowStageId,
+    CaptureTask, DelegateTask, PERSONAL_COMPLETED_STAGE_ID, TaskContractId, TaskExecutionPolicy,
+    TaskId, TaskStageChangeReason, WorkCommand, WorkDomainError, WorkEventPayload, WorkEventRecord,
+    WorkflowStageBehavior, WorkflowStageId,
 };
 use noema_workspaces::{ProjectId, WorkspaceId};
 use rusqlite::{OptionalExtension, Transaction, params};
@@ -20,6 +21,8 @@ use crate::{
         canonical_command_fingerprint, capture_source_fingerprint, command_actor_id,
         command_idempotency_key, delegate_source_fingerprint,
     },
+    work_events::append_work_event_tx,
+    work_notifications::enqueue_work_notification_tx,
 };
 
 pub(crate) async fn command_transaction(
@@ -127,6 +130,94 @@ pub(crate) fn event_context(meta: &noema_tasks::CommandMeta) -> CommandEventCont
         causation_id: meta.causation_id.as_deref(),
         correlation_id: &meta.correlation_id,
     }
+}
+
+/// Complete a reviewer-approved submission and enqueue the owner notification.
+///
+/// Callers must have already verified that the review is current and approved.
+/// Keeping the state mutation here gives manual acceptance and automatic
+/// acceptance one fenced transition and one notification shape.
+pub(crate) fn accept_review_tx(
+    transaction: &Transaction<'_>,
+    task: &mut TaskState,
+    review_id: &str,
+    submission_id: &str,
+    event: CommandEventContext<'_>,
+    run_id: Option<&str>,
+    automatic: bool,
+) -> Result<CommandWrite, StoreError> {
+    if task.active_gate_id.is_some()
+        || !matches!(
+            task.stage_behavior,
+            WorkflowStageBehavior::Active | WorkflowStageBehavior::Acceptance
+        )
+    {
+        return Err(StoreError::Work(WorkDomainError::InvalidTransition));
+    }
+    let revision = increment(task.revision, "task.revision")?;
+    let from_stage = task.stage_id.clone();
+    let changed = transaction.execute(
+        "UPDATE tasks SET stage_id = ?2, accepted_submission_id = ?3, completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), queued_at = NULL, revision = ?4, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND revision = ?5 AND generation = ?6",
+        params![
+            task.task_id.as_str(),
+            PERSONAL_COMPLETED_STAGE_ID,
+            submission_id,
+            revision,
+            task.revision,
+            task.generation,
+        ],
+    )?;
+    if changed != 1 {
+        return Err(StoreError::Work(WorkDomainError::StaleRevision));
+    }
+    task.stage_id = WorkflowStageId::new(PERSONAL_COMPLETED_STAGE_ID).map_err(StoreError::Work)?;
+    task.stage_behavior = WorkflowStageBehavior::TerminalSuccess;
+    task.revision = revision;
+    let scope = event.task_scope(task, run_id);
+    let _accepted_event = append_work_event_tx(
+        transaction,
+        scope.clone(),
+        WorkEventPayload::task_accepted(
+            revision,
+            task.generation,
+            submission_id.to_string(),
+            review_id.to_string(),
+        )
+        .map_err(StoreError::Work)?,
+    )?;
+    let mut event = append_work_event_tx(
+        transaction,
+        scope,
+        WorkEventPayload::task_stage_changed(
+            revision,
+            task.generation,
+            from_stage,
+            task.stage_id.clone(),
+            TaskStageChangeReason::Accepted,
+        )
+        .map_err(StoreError::Work)?,
+    )?;
+    let message = if automatic {
+        "Automatically accepted: the reviewer approved this simple task."
+    } else {
+        "Task accepted."
+    };
+    if let Some(notification_event) = enqueue_work_notification_tx(
+        transaction,
+        &event,
+        noema_tasks::NotificationKind::TaskAccepted,
+        &serde_json::json!({
+            "task_id": task.task_id.as_str(),
+            "submission_id": submission_id,
+            "review_id": review_id,
+            "message": message,
+            "auto_accepted": automatic,
+            "action_needed": false,
+        }),
+    )? {
+        event = notification_event;
+    }
+    Ok(task_write(event, task.task_id.clone()).contract(task.current_contract_id.clone()))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

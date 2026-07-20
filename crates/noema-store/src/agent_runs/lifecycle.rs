@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, str::FromStr};
 
 use noema_tasks::{
     AgentRunRecord, RunKind, RunStatus, TaskGateKind, TaskRecoveryReason, WorkDomainError,
@@ -393,6 +393,21 @@ pub(super) fn task_execution_policy_for_task(
         )?,
         max_review_rounds: helpers::positive_u32(values.5, "contract.max_review_rounds")?,
     })
+}
+
+pub(super) fn task_contract_complexity_tx(
+    transaction: &Transaction<'_>,
+    contract_id: &noema_tasks::TaskContractId,
+) -> Result<noema_tasks::TaskComplexity, StoreError> {
+    let value: String = transaction
+        .query_row(
+            "SELECT complexity FROM task_execution_contracts WHERE contract_id = ?1",
+            [contract_id.as_str()],
+            |row| row.get(0),
+        )
+        .optional()?
+        .ok_or(StoreError::Work(WorkDomainError::ContractRequired))?;
+    noema_tasks::TaskComplexity::from_str(&value).map_err(StoreError::Work)
 }
 
 pub(super) fn validate_namespace(

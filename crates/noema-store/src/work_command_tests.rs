@@ -1,17 +1,19 @@
 //! Focused transactional tests for the semantic Work command writer.
 
 use noema_tasks::{
-    CaptureTask, CommandMeta, CreateProject, DelegateTask, QueueTask, RetryTask, SafeErrorCode,
-    TaskComplexity, TaskPrecondition, TaskProvenance, TaskSourceKind, UpdateInboxTask, WorkCommand,
-    WorkDomainError,
+    CaptureTask, CommandMeta, CreateProject, CriterionOutcome, DelegateExecutionIntent,
+    DelegateTask, NewTaskReview, NewTaskSubmission, NewTaskValidationCriterion, QueueTask,
+    RetryTask, SafeErrorCode, SubmissionCriterionEvidence, TaskComplexity, TaskPrecondition,
+    TaskProvenance, TaskReviewCriterion, TaskReviewVerdict, TaskSourceKind, UpdateInboxTask,
+    WorkCommand, WorkDomainError,
 };
 use noema_workspaces::WorkspaceId;
 
 use crate::{
     GovernedActionDecision, GovernedActionEffect, GovernedActionState, GovernedAssessmentStatus,
     GovernedRecommendation, NewGovernedAction, NewGovernedActionAssessment, NoemaStore,
-    ReportRunFailure, StoreError, WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN, WorkCommandService,
-    WorkRunFence,
+    ReportRunFailure, StoreError, SubmitTaskResult, SubmitTaskReview,
+    WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN, WorkCommandService, WorkRunFence, WorkRunTerminal,
     test_support::{
         initialize_codex_provider_selections, open_ephemeral_store, ready_hosted_provider_registry,
     },
@@ -702,5 +704,180 @@ async fn governed_action_approval_releases_and_resumes_a_task_run_once() {
             .expect("parent run")
             .status,
         noema_tasks::RunStatus::Completed
+    );
+}
+
+fn delegated_review_case(key: &str, complexity: TaskComplexity) -> WorkCommand {
+    let WorkCommand::DelegateTask(mut command) = delegated(key, "review-case", None) else {
+        unreachable!()
+    };
+    command.execution_intent = Some(DelegateExecutionIntent {
+        request_markdown: "Complete the review acceptance fixture.".to_string(),
+        criteria: vec![NewTaskValidationCriterion {
+            criterion_id: Some("criterion:review-case".to_string()),
+            ordinal: 1,
+            description: "The fixture has a complete result.".to_string(),
+            expected_evidence: None,
+        }],
+        complexity,
+        execution_plan_markdown: Some("Use the fixture result.".to_string()),
+    });
+    WorkCommand::DelegateTask(command)
+}
+
+async fn run_review_case(
+    complexity: TaskComplexity,
+) -> (noema_tasks::TaskRecord, serde_json::Value) {
+    let (store, service) = fixture().await;
+    let created = service
+        .execute(delegated_review_case(
+            &format!("idem:review-case:{}", complexity.as_str()),
+            complexity,
+        ))
+        .await
+        .expect("delegate review case");
+    let task = created.task.expect("delegated task");
+    let claimed_executor = service
+        .claim_next_work_run("worker:review-case:executor", 60, &[])
+        .await
+        .expect("claim executor")
+        .expect("executor run");
+    let executor_fence = WorkRunFence {
+        run_id: claimed_executor.run.run_id.clone(),
+        lease_token: claimed_executor.lease_token,
+        task_generation: claimed_executor.run.task_generation,
+        contract_id: claimed_executor.run.contract_id.clone(),
+    };
+    let contract_id = executor_fence.contract_id.clone().expect("contract");
+    service
+        .start_work_run(
+            &executor_fence,
+            ACTOR,
+            None,
+            "correlation:review-case:executor",
+        )
+        .await
+        .expect("start executor");
+    service
+        .record_work_run_terminal(
+            WorkRunTerminal::TaskResult(SubmitTaskResult {
+                fence: executor_fence,
+                submission: NewTaskSubmission {
+                    submission_id: Some("submission:review-case".to_string()),
+                    task_id: task.task_id.clone(),
+                    contract_id: contract_id.clone(),
+                    executor_run_id: claimed_executor.run.run_id,
+                    review_round: 1,
+                    summary: "Fixture result".to_string(),
+                    result_markdown: "The fixture completed.".to_string(),
+                    criteria: vec![SubmissionCriterionEvidence {
+                        criterion_id: "criterion:review-case".to_string(),
+                        evidence_markdown: "The fixture result is present.".to_string(),
+                    }],
+                    artifact_ids: Vec::new(),
+                },
+            }),
+            ACTOR,
+            None,
+            "correlation:review-case:submission",
+        )
+        .await
+        .expect("submit executor result");
+    let claimed_reviewer = service
+        .claim_next_work_run("worker:review-case:reviewer", 60, &[])
+        .await
+        .expect("claim reviewer")
+        .expect("reviewer run");
+    let reviewer_fence = WorkRunFence {
+        run_id: claimed_reviewer.run.run_id.clone(),
+        lease_token: claimed_reviewer.lease_token,
+        task_generation: claimed_reviewer.run.task_generation,
+        contract_id: claimed_reviewer.run.contract_id.clone(),
+    };
+    service
+        .start_work_run(
+            &reviewer_fence,
+            ACTOR,
+            None,
+            "correlation:review-case:reviewer",
+        )
+        .await
+        .expect("start reviewer");
+    let result = service
+        .record_work_run_terminal(
+            WorkRunTerminal::Review(SubmitTaskReview {
+                fence: reviewer_fence,
+                review: NewTaskReview {
+                    review_id: Some("review:review-case".to_string()),
+                    task_id: task.task_id.clone(),
+                    contract_id,
+                    reviewer_run_id: claimed_reviewer.run.run_id,
+                    reviewed_submission_id: "submission:review-case".to_string(),
+                    review_attempt_index: 1,
+                    supersedes_review_id: None,
+                    overall_verdict: TaskReviewVerdict::Approve,
+                    human_gate_kind: None,
+                    overall_feedback: "All fixture evidence passes.".to_string(),
+                    criteria: vec![TaskReviewCriterion {
+                        criterion_id: "criterion:review-case".to_string(),
+                        outcome: CriterionOutcome::Pass,
+                        evidence_markdown: Some("The submitted evidence is complete.".to_string()),
+                        feedback: None,
+                    }],
+                },
+            }),
+            ACTOR,
+            None,
+            "correlation:review-case:review",
+        )
+        .await
+        .expect("submit reviewer result");
+    let notification_kind = if complexity == TaskComplexity::Simple {
+        "task_accepted"
+    } else {
+        "task_review_ready"
+    };
+    let payload_json: String = store
+        .with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT payload_json FROM work_notification_outbox WHERE notification_kind = ?1 ORDER BY notification_id DESC LIMIT 1",
+                    [notification_kind],
+                    |row| row.get(0),
+                )
+                .map_err(StoreError::Sqlite)
+        })
+        .await
+        .expect("review notification");
+    let payload = serde_json::from_str(&payload_json).expect("notification payload");
+    (result.task.expect("review task"), payload)
+}
+
+#[tokio::test]
+async fn simple_review_approval_auto_accepts_and_other_complexity_waits_for_acceptance() {
+    let (simple, simple_notification) = run_review_case(TaskComplexity::Simple).await;
+    assert_eq!(
+        simple.stage_id.as_str(),
+        noema_tasks::PERSONAL_COMPLETED_STAGE_ID
+    );
+    assert_eq!(
+        simple.accepted_submission_id.as_deref(),
+        Some("submission:review-case")
+    );
+    assert_eq!(simple_notification["auto_accepted"], true);
+    assert_eq!(
+        simple_notification["message"],
+        "Automatically accepted: the reviewer approved this simple task."
+    );
+
+    let (medium, medium_notification) = run_review_case(TaskComplexity::Medium).await;
+    assert_eq!(
+        medium.stage_id.as_str(),
+        noema_tasks::PERSONAL_REVIEW_STAGE_ID
+    );
+    assert_eq!(medium_notification["action_needed"], true);
+    assert_eq!(
+        medium_notification["message"],
+        "Review ready — accept the result or request changes."
     );
 }

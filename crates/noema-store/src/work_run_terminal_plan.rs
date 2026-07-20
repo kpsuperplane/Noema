@@ -193,7 +193,12 @@ fn block_for_human_tx(
         transaction,
         &waiting_event,
         noema_tasks::NotificationKind::TaskWaiting,
-        &serde_json::json!({"task_id": task.task_id.as_str(), "gate_id": gate_id.as_str()}),
+        &serde_json::json!({
+            "task_id": task.task_id.as_str(),
+            "gate_id": gate_id.as_str(),
+            "message": "This task needs your input.",
+            "action_needed": true,
+        }),
     )?
     .ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))?;
     Ok(helpers::task_write(event, task.task_id.clone())

@@ -230,6 +230,9 @@ fn work_notification_message_item(item: &ConversationItemRecord) -> Option<Gener
         "Noema Work notification {notification_kind} ({notification_id}): {title} ({task_id}) is in {stage_id} at revision {revision}."
     );
     if let Some(details) = item.metadata.get("work_notification") {
+        if let Some(message) = action_string(details, "message") {
+            content.push_str(&format!(" Message: {message}"));
+        }
         for (field, label) in [
             ("gate_id", "Gate"),
             ("review_id", "Review"),
@@ -417,7 +420,8 @@ mod tests {
                 "work_notification": {
                     "task_id": "task:1",
                     "title": "Research task",
-                    "gate_id": "gate:1"
+                    "gate_id": "gate:1",
+                    "message": "This task needs your input."
                 }
             }),
         };
@@ -431,6 +435,7 @@ mod tests {
         assert!(message.content.contains("stage:personal:waiting"));
         assert!(message.content.contains("revision 7"));
         assert!(message.content.contains("gate:1"));
+        assert!(message.content.contains("This task needs your input."));
         assert!(message.content.contains("task_waiting"));
         assert!(message.content.contains("notification:1"));
     }

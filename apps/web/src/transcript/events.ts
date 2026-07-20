@@ -172,7 +172,14 @@ function entryFromConversationItem(
     return { id: itemId, itemId, cursor, turnId, type: "artifact", item: transcriptItem };
   }
   if (transcriptItem.kind === "task_reference") {
-    return { id: itemId, itemId, cursor, turnId, type: "task", item: transcriptItem };
+    return {
+      id: itemId,
+      itemId,
+      cursor,
+      turnId,
+      type: "task",
+      item: { ...transcriptItem, ...taskNotificationDetails(metadata) }
+    };
   }
   if (transcriptItem.kind === "error_notice") {
     return {
@@ -186,6 +193,19 @@ function entryFromConversationItem(
     };
   }
   return null;
+}
+
+function taskNotificationDetails(metadata: unknown) {
+  if (!isRecord(metadata) || !isRecord(metadata.work_notification)) {
+    return {};
+  }
+  const notification = metadata.work_notification;
+  return {
+    message: typeof notification.message === "string" ? notification.message : undefined,
+    action_needed: typeof notification.action_needed === "boolean" ? notification.action_needed : undefined,
+    auto_accepted: typeof notification.auto_accepted === "boolean" ? notification.auto_accepted : undefined,
+    notification_kind: typeof metadata.notification_kind === "string" ? metadata.notification_kind : undefined
+  };
 }
 
 function clientMessageIdFromMetadata(metadata: unknown): string | undefined {

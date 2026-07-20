@@ -15,6 +15,7 @@ export function TaskReferenceCard({
   stageId,
   progress,
   revision,
+  message,
   onOpenDetail
 }: {
   taskId: string;
@@ -22,12 +23,13 @@ export function TaskReferenceCard({
   stageId: string;
   progress?: string | null;
   revision?: number | null;
+  message?: string | null;
   onOpenDetail?: (target: Extract<ChatDetailTarget, { type: "task" }>) => void;
 }) {
   const target = taskDetailTarget(taskId);
   const taskTarget = target?.type === "task" ? target : null;
   const opensDetail = Boolean(taskTarget && onOpenDetail);
-  const progressLine = progress ?? (revision ? `Revision ${revision}` : "Background task");
+  const progressLine = message ?? progress ?? (revision ? `Revision ${revision}` : "Background task");
   const stageName = sentenceCase(stageId.split(":").at(-1) ?? stageId);
   const description = (
     <span {...stylex.props(styles.description)}>

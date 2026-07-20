@@ -337,6 +337,7 @@ function renderTranscriptEntry(
           stageId={entry.item.stage_id}
           taskId={entry.item.task_id}
           title={entry.item.title}
+          message={entry.item.message}
           onOpenDetail={onOpenDetail}
         />
       </TranscriptRow>

@@ -1,13 +1,8 @@
-use noema_tasks::{
-    AcceptTask, PERSONAL_COMPLETED_STAGE_ID, PERSONAL_REVIEW_STAGE_ID, WorkCommand,
-    WorkDomainError, WorkEventPayload, WorkflowStageBehavior, WorkflowStageId,
-};
+use noema_tasks::{AcceptTask, WorkCommand, WorkDomainError, WorkflowStageBehavior};
 use rusqlite::{OptionalExtension, params};
 
 use super::{WorkCommandService, helpers, validation};
-use crate::{
-    StoreError, work_events::append_work_event_tx, work_notifications::enqueue_work_notification_tx,
-};
+use crate::StoreError;
 
 pub(super) async fn execute(
     service: &WorkCommandService,
@@ -33,20 +28,16 @@ pub(super) async fn execute(
                 WorkDomainError::ContractRequired,
             ))?,
         )?;
-        let revision = helpers::increment(task.revision, "task.revision")?;
-        transaction.execute("UPDATE tasks SET stage_id = ?2, accepted_submission_id = ?3, completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), queued_at = NULL, revision = ?4, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND revision = ?5 AND generation = ?6", params![task_id.as_str(), PERSONAL_COMPLETED_STAGE_ID, submission_id, revision, task.revision, task.generation])?;
-        task.stage_id = WorkflowStageId::new(PERSONAL_COMPLETED_STAGE_ID).map_err(StoreError::Work)?; task.stage_behavior = WorkflowStageBehavior::TerminalSuccess; task.revision = revision;
-        let _accepted_event = append_work_event_tx(transaction, helpers::event_context(&command.meta).task_scope(&task, None), WorkEventPayload::task_accepted(revision, task.generation, submission_id.clone(), review_id.clone()).map_err(StoreError::Work)?)?;
-        let mut event = append_work_event_tx(transaction, helpers::event_context(&command.meta).task_scope(&task, None), WorkEventPayload::task_stage_changed(revision, task.generation, WorkflowStageId::new(PERSONAL_REVIEW_STAGE_ID).map_err(StoreError::Work)?, task.stage_id.clone(), noema_tasks::TaskStageChangeReason::Accepted).map_err(StoreError::Work)?)?;
-        if let Some(notification_event) = enqueue_work_notification_tx(
+        let write = helpers::accept_review_tx(
             transaction,
-            &event,
-            noema_tasks::NotificationKind::TaskAccepted,
-            &serde_json::json!({"task_id": task_id.as_str(), "submission_id": submission_id}),
-        )? {
-            event = notification_event;
-        }
-        helpers::finish_write_tx(transaction, &envelope, helpers::task_write(event, task_id.clone()).contract(task.current_contract_id))
+            &mut task,
+            &review_id,
+            &submission_id,
+            helpers::event_context(&command.meta),
+            None,
+            false,
+        )?;
+        helpers::finish_write_tx(transaction, &envelope, write)
     }).await?;
     Ok(write)
 }
