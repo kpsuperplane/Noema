@@ -4,7 +4,7 @@ import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
 import type { ProviderUsageDebug } from "./debugUsage";
-import { ExpandableTextBubbleContent, TextBubbleDialog } from "./ExpandableTextBubble";
+import { ExpandableTextBubbleContent } from "./ExpandableTextBubble";
 import { ProviderUsageDebugDialog } from "./ProviderUsageDebugDialog";
 import { TranscriptChatBubble } from "./TranscriptChatBubble";
 import type { ChatBubbleGroup } from "./renderModel";
@@ -77,7 +77,6 @@ export function Message({
   debugUsage?: ProviderUsageDebug | null;
 }) {
   const [debugOpen, setDebugOpen] = React.useState(false);
-  const [fullMessageOpen, setFullMessageOpen] = React.useState(false);
   const [overflowing, setOverflowing] = React.useState(false);
   const bubble = (
     <TranscriptChatBubble
@@ -87,21 +86,14 @@ export function Message({
       role={role}
       showAvatar={showAvatar}
     >
-      <ExpandableTextBubbleContent onOpen={() => setFullMessageOpen(true)} onOverflowChange={setOverflowing}>
+      <ExpandableTextBubbleContent onOverflowChange={setOverflowing}>
         <MessageMarkdown animate={animate} role={role} text={text} />
       </ExpandableTextBubbleContent>
     </TranscriptChatBubble>
   );
 
   if (role !== "assistant") {
-    return (
-      <>
-        {bubble}
-        <TextBubbleDialog open={fullMessageOpen} title="Human message" onOpenChange={setFullMessageOpen}>
-          <MessageMarkdown animate={false} role={role} text={text} />
-        </TextBubbleDialog>
-      </>
-    );
+    return bubble;
   }
 
   return (
@@ -121,9 +113,6 @@ export function Message({
       >
         {bubble}
       </ContextMenu>
-      <TextBubbleDialog open={fullMessageOpen} title="Agent response" onOpenChange={setFullMessageOpen}>
-        <MessageMarkdown animate={false} role={role} text={text} />
-      </TextBubbleDialog>
       <ProviderUsageDebugDialog debug={debugUsage} open={debugOpen} onOpenChange={setDebugOpen} />
     </>
   );

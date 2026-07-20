@@ -1,6 +1,6 @@
 import * as React from "react";
 import * as stylex from "@stylexjs/stylex";
-import { ExpandableTextBubbleContent, TextBubbleDialog } from "./ExpandableTextBubble";
+import { ExpandableTextBubbleContent } from "./ExpandableTextBubble";
 import { TranscriptChatBubble } from "./TranscriptChatBubble";
 
 const styles = stylex.create({
@@ -17,21 +17,15 @@ const styles = stylex.create({
 });
 
 export function TranscriptInputMessage({ text }: { text: string }) {
-  const [fullMessageOpen, setFullMessageOpen] = React.useState(false);
   const [overflowing, setOverflowing] = React.useState(false);
   const content = React.useMemo(() => formatInputContent(text), [text]);
 
   return (
-    <>
-      <TranscriptChatBubble interactive={overflowing} reserveAvatarSpace={false} role="input" showAvatar={false}>
-        <ExpandableTextBubbleContent onOpen={() => setFullMessageOpen(true)} onOverflowChange={setOverflowing}>
-          <pre {...stylex.props(styles.text)}>{content}</pre>
-        </ExpandableTextBubbleContent>
-      </TranscriptChatBubble>
-      <TextBubbleDialog open={fullMessageOpen} title="System input" onOpenChange={setFullMessageOpen}>
+    <TranscriptChatBubble interactive={overflowing} reserveAvatarSpace={false} role="input" showAvatar={false}>
+      <ExpandableTextBubbleContent onOverflowChange={setOverflowing}>
         <pre {...stylex.props(styles.text)}>{content}</pre>
-      </TextBubbleDialog>
-    </>
+      </ExpandableTextBubbleContent>
+    </TranscriptChatBubble>
   );
 }
 
