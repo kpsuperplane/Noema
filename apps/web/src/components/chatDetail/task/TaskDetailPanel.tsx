@@ -160,7 +160,9 @@ function TaskSummaryHeader({
         <IdentityAvatar actorId={`subagent:${run.instanceName}`} actorType="agent" size="sm" />
       ) : null}
       <span {...stylex.props(styles.summaryCopy)}>
-        <strong {...stylex.props(styles.summaryTitle)}>{run?.instanceName ?? "No agent run yet"}</strong>
+        <strong {...stylex.props(styles.summaryTitle)}>
+          {run ? `${run.instanceName} · ${capitalize(run.role)}` : "No agent run yet"}
+        </strong>
         <span {...stylex.props(styles.summaryOutput)}>{latestRunOutput(run, latestItem)}</span>
       </span>
       <span {...stylex.props(styles.summaryActions)}>
@@ -361,9 +363,7 @@ function latestTaskRun(detail: TaskDetail): TaskRun | null {
 
 function latestRunOutput(run: TaskRun | null, item: TaskRunItem | null): string {
   if (item) {
-    return item.kind === "message"
-      ? item.summary?.trim() || item.title
-      : item.title + (item.summary?.trim() && item.summary.trim() !== item.title ? ` · ${item.summary.trim()}` : "");
+    return item.summary?.trim() || item.title;
   }
   if (run?.error) return run.error;
   switch (run?.status) {
