@@ -420,7 +420,7 @@ impl RuntimeActor {
                     conversation_id: Some(conversation_id.to_string()),
                     model: selection.model_profile.clone(),
                     input: GenerateInput::Text(source),
-                    instructions: Some(format!("Update native Markdown memory. Existing canonical pages (including stable ids and exact hashes) are: {canonical}\nReturn only JSON matching {{\"upserts\":[{{\"id\":null,\"expected_hash\":null,\"path\":\"relative.md\",\"title\":\"Title\",\"body\":\"Claim [^fact]\\n\\n[^fact]: source-id\",\"sources\":[\"source-id\"]}}],\"deletes\":[]}}. Every cited footnote must have one definition whose exact target is a source id, and the definitions must exactly match sources. Preserve ids, expected hashes, hierarchy, and user-authored prose unless evidence requires a change. To move a page, keep its id and expected hash but change its path; the old path is removed automatically. Human messages are evidence; assistant messages are context only and never evidence. Do not copy secrets, tokens, credentials, or private keys. Use owner human:local and scope human:local.")),
+                    instructions: Some(memory_update_instructions(&canonical)),
                     options: GenerateOptions { generation_priority: GenerationPriority::Background, max_output_tokens: Some(2_048), reasoning_effort: selection.reasoning_effort, ..GenerateOptions::default() },
                     tools: Vec::new(), tool_choice: Default::default(), parallel_tool_calls: false,
                 },
@@ -451,4 +451,13 @@ impl RuntimeActor {
         }
         Ok(())
     }
+}
+
+fn memory_update_instructions(canonical: &str) -> String {
+    format!(
+        "Update native Markdown memory. Existing canonical pages (including stable ids and exact hashes) are: {canonical}\n\
+Return only JSON matching {{\"upserts\":[{{\"id\":null,\"expected_hash\":null,\"path\":\"relative.md\",\"title\":\"Title\",\"body\":\"Lead paragraph with a cited fact.[^fact]\\n\\n## Distinct section\\n\\nCoherent prose.\\n\\n[^fact]: source-id\",\"sources\":[\"source-id\"]}}],\"deletes\":[]}}. \
+Write every page as a compact Wikipedia-style article: use a concise lead that identifies the subject, organize related facts into coherent prose under distinct ## sections, avoid one-fact-per-paragraph inventories and repeated claims, and collect footnote definitions at the end. The body must not contain a # title heading because Noema writes it from the title field. When the local human's name is known, root.md is their biographical overview and its title is their name. Rewrite nonconforming existing pages into this editorial style when updating them. \
+Every cited footnote must have one definition whose exact target is a source id, and the definitions must exactly match sources. Preserve ids, expected hashes, hierarchy, and user-authored meaning unless evidence requires a change. To move a page, keep its id and expected hash but change its path; the old path is removed automatically. Human messages are evidence; assistant messages are context only and never evidence. Do not copy secrets, tokens, credentials, or private keys. Use owner human:local and scope human:local."
+    )
 }

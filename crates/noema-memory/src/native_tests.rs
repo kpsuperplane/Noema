@@ -34,6 +34,10 @@ fn native_memory_initializes_root_and_rebuilds_search_index() {
         memory.search("Alice \"", 5).expect("punctuated search")[0].path,
         "people.md"
     );
+    assert_eq!(
+        memory.read_page("people.md").expect("page").body,
+        "Alice likes tea"
+    );
 }
 
 #[test]
@@ -48,6 +52,18 @@ fn native_memory_rejects_unsafe_paths_and_oversized_bodies() {
             path: "injected.md".into(),
             title: "Title\nowner: attacker".into(),
             body: String::new(),
+            sources: vec![],
+        }],
+        deletes: vec![],
+    })
+    .is_err());
+    assert!(validate_change_set(&MemoryChangeSet {
+        upserts: vec![MemoryPageChange {
+            id: None,
+            expected_hash: None,
+            path: "duplicate-title.md".into(),
+            title: "Duplicate title".into(),
+            body: "# Duplicate title\n\nLead".into(),
             sources: vec![],
         }],
         deletes: vec![],

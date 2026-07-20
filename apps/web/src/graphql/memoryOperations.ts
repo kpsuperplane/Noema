@@ -37,6 +37,7 @@ export const MemoryTreeDocument = gql`
         title
         body
         hash
+        sources
         parent
         children {
           id
@@ -66,6 +67,7 @@ export const MemoryPageDocument = gql`
       title
       body
       hash
+      sources
       parent
       children {
         id

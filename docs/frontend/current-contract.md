@@ -117,8 +117,10 @@ Current behavior:
 Current memory UX is Settings plus a top-level native tree:
 
 - `/settings/memory` selects the model used for background memory updates.
-- `/memory` renders the selected canonical Markdown page, deterministic child
-  filenames, pending-message state, and one `Update memory` action.
+- `/memory` renders the selected canonical Markdown page as a Wikipedia-style
+  reading surface with article typography, numbered citations, collected
+  references, deterministic child filenames, pending-message state, and one
+  `Update memory` action.
 - The update action is disabled and loading while the one server-owned job is
   queued or running; failed jobs retain their completed checkpoint for retry.
 - There is no `/memory/graph` route and no React Flow graph browser in the

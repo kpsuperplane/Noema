@@ -19,6 +19,10 @@ Current implementation direction:
 - One Markdown tree under `memory/human/` is the durable memory authority for
   `human:local`; page frontmatter owns semantic metadata and the filesystem
   hierarchy owns parent-child structure.
+- Each file is written as a compact Wikipedia-style article: one generated
+  title, a concise lead, coherent prose under distinct sections, inline
+  footnotes, and collected source definitions. The root is the human's
+  biographical overview; child files are focused topic articles.
 - The canonical SQLite database stores the selected Memory model and source
   conversations. A separate SQLite FTS database under `system/indexes/` is a
   disposable projection rebuilt from Markdown.

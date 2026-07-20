@@ -28,6 +28,7 @@ pub struct GraphqlNativeMemoryPage {
     pub title: String,
     pub body: String,
     pub hash: String,
+    pub sources: Vec<String>,
     pub parent: Option<String>,
     pub children: Vec<GraphqlNativeMemoryPageRef>,
 }
@@ -217,6 +218,7 @@ fn page(page: MemoryPage) -> GraphqlNativeMemoryPage {
         title: page.title,
         body: page.body,
         hash: page.hash,
+        sources: page.sources,
         parent: page.parent,
         children: page.children.into_iter().map(child).collect(),
     }

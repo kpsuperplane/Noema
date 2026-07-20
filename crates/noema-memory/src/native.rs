@@ -499,7 +499,14 @@ impl NativeMemory {
                     .unwrap_or(path)
                     .to_string()
             });
-        let body = body.trim().to_string();
+        let body = body.trim();
+        let generated_heading = format!("# {title}");
+        let body = body
+            .strip_prefix(&generated_heading)
+            .filter(|rest| rest.is_empty() || rest.starts_with('\n'))
+            .unwrap_or(body)
+            .trim()
+            .to_string();
         let id = frontmatter
             .get("id")
             .cloned()

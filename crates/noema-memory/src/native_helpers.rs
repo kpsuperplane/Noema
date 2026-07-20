@@ -134,6 +134,11 @@ pub(super) fn validate_change_set(changes: &MemoryChangeSet) -> Result<(), Nativ
         for source in &change.sources {
             validate_frontmatter_value("source", source)?;
         }
+        if change.body.lines().any(|line| line.starts_with("# ")) {
+            return Err(NativeMemoryError::InvalidChangeSet(format!(
+                "body for {path} must not repeat the generated title heading"
+            )));
+        }
         validate_page_content(&change.body)?;
         validate_citations(&change.body, &change.sources)?;
     }

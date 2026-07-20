@@ -86,6 +86,9 @@ subagents, reviews, and size measurement.
 
 - Markdown under `memory/human/` is the only memory authority for `human:local`.
   Frontmatter owns page metadata and provenance; the filesystem owns hierarchy.
+- Canonical pages use a compact Wikipedia editorial form: a single generated
+  title, concise lead, coherent sections, inline citations, and collected
+  references. The root is the human overview; children are topic articles.
 - `root.md` is bounded to 750 words and enters every ordinary turn. Native page
   reads and lexical search retrieve deeper detail; their page text is ephemeral
   while durable tool results retain references and hashes only.
