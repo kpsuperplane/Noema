@@ -176,7 +176,7 @@ const styles = stylex.create({
     gap: "var(--spacing-1-5)",
     minWidth: 0,
     paddingBlockEnd: "var(--spacing-2)",
-    paddingInline: "var(--spacing-3)"
+    paddingInline: "var(--spacing-4)"
   },
   embeddedTitle: {
     margin: 0,
