@@ -128,10 +128,11 @@ const styles = stylex.create({
     display: "grid",
     gridTemplateColumns: "minmax(0, auto) minmax(0, 1fr)",
     alignItems: "center",
-    minHeight: 44,
+    minHeight: "calc(44px + var(--shell-deck-header-height, 44px))",
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
     borderBottomColor: "var(--noema-border-subtle)",
+    paddingTop: "var(--shell-deck-header-height, 44px)",
     paddingInline: 12,
     "@media (max-width: 1240px)": {
       gridTemplateColumns: "minmax(0, 1fr)",

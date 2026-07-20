@@ -602,6 +602,8 @@ const styles = stylex.create({
   },
   routeContent: {
     minHeight: 0,
+    height: "calc(100% + var(--shell-deck-header-height))",
+    marginTop: "calc(var(--shell-deck-header-height) * -1)",
     overflow: "visible"
   },
   routeContentInactive: {

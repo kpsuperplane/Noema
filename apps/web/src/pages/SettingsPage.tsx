@@ -101,7 +101,9 @@ const styles = stylex.create({
     minHeight: 0,
     overflowY: "auto",
     overscrollBehavior: "contain",
-    padding: "24px 24px",
+    paddingTop: "calc(var(--shell-deck-header-height, 44px) + 24px)",
+    paddingBottom: 24,
+    paddingInline: 24,
     "@media (max-width: 760px)": {
       paddingInline: 20
     }

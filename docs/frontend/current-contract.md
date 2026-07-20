@@ -116,9 +116,10 @@ Current behavior:
 - When one provider phase has exactly one tool call, its commentary may label
   the compact tool marker; multi-call phases keep individual tool labels, and
   the exact tool identity remains available in the marker disclosure.
-- The shared shell title row owns the white-to-transparent content scrim, so
-  every routed surface inherits the same title treatment without page-local
-  overlays.
+- The shared shell title row owns the white-to-transparent content scrim, and
+  routed scroll viewports extend beneath it while their resting content keeps
+  a title-height inset. Every surface inherits the treatment without a
+  page-local overlay.
 
 ## Memory Frontend Contract
 

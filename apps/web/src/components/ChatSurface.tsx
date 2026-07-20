@@ -272,8 +272,7 @@ const styles = stylex.create({
     gridTemplateColumns: "minmax(0, 1fr)",
     gridTemplateRows: "minmax(0, 1fr)",
     minHeight: 0,
-    height: "calc(100% + var(--shell-deck-header-height, 44px))",
-    marginTop: "calc(var(--shell-deck-header-height, 44px) * -1)",
+    height: "100%",
     width: "100%",
     overflow: "hidden"
   },
