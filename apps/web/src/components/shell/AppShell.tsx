@@ -1,7 +1,7 @@
 import React from "react";
 import { useQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
-import { Popover } from "@astryxdesign/core/Popover";
+import { Popover, type PopoverProps } from "@astryxdesign/core/Popover";
 import * as stylex from "@stylexjs/stylex";
 import { ChevronDown, Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import {
@@ -160,6 +160,7 @@ function MemoryShellBreadcrumb({
       onOpenChange={setOpen}
       placement="below"
       width="min(320px, calc(100vw - var(--spacing-6)))"
+      xstyle={popoverXStyle(styles.memoryTreePopoverContent)}
     >
       {(trigger) => (
         <button
@@ -407,7 +408,7 @@ export function AppShell({
               {...stylex.props(styles.menuButton)}
               onClick={deckNavigation.navOpen ? closeNav : openNav}
             />
-            <div {...stylex.props(styles.breadcrumbWrap)}>
+            <div {...stylex.props(styles.breadcrumbWrap, route.kind === "memory" && styles.memoryPopoverScope)}>
               {route.kind === "memory" && memoryTree?.root ? (
                 <MemoryShellBreadcrumb
                   breadcrumb={memoryBreadcrumb}
@@ -618,6 +619,22 @@ const styles = stylex.create({
     minWidth: 0,
     paddingBlock: "0.2rem"
   },
+  memoryPopoverScope: {
+    "--color-background-popover": "color-mix(in srgb, var(--surface-sunken) 86%, transparent)",
+    "--radius-container": "10px",
+    "--shadow-low": "var(--shadow-med)"
+  },
+  memoryTreePopoverContent: {
+    overflow: "hidden",
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "color-mix(in srgb, var(--border-default) 70%, transparent)",
+    borderRadius: "var(--radius-container)",
+    backgroundColor: "transparent",
+    padding: "var(--spacing-2)",
+    backdropFilter: "blur(18px) saturate(1.12)",
+    WebkitBackdropFilter: "blur(18px) saturate(1.12)"
+  },
   headerAction: {
     position: "relative",
     zIndex: 1,
@@ -693,3 +710,7 @@ const styles = stylex.create({
     pointerEvents: "none"
   }
 });
+
+function popoverXStyle(...xstyle: unknown[]): PopoverProps["xstyle"] {
+  return xstyle as unknown as PopoverProps["xstyle"];
+}
