@@ -67,6 +67,37 @@ fn responses_request_profiles_preserve_provider_wire_differences() {
 }
 
 #[test]
+fn responses_tools_omit_lookaround_patterns_without_relaxing_other_patterns() {
+    let tool = noema_capabilities::ToolSpec::new(
+        "mcp.dex.create_calendar_event",
+        "Create a calendar event.",
+        json!({
+            "type": "object",
+            "properties": {
+                "attendees": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "pattern": r"^(?!\.)(?!.*\.\.)([A-Za-z0-9_'+\-\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$"
+                    }
+                },
+                "title": {"type": "string", "pattern": r".*\S.*"}
+            }
+        }),
+    )
+    .expect("tool");
+    let request = GenerateRequest {
+        tools: vec![tool],
+        ..GenerateRequest::text("hi")
+    };
+
+    let value = lowered_json(&request, "gpt-codex", None, CODEX_RESPONSES_PROFILE);
+    let properties = &value["tools"][0]["parameters"]["properties"];
+    assert!(properties["attendees"]["items"].get("pattern").is_none());
+    assert_eq!(properties["title"]["pattern"], r".*\S.*");
+}
+
+#[test]
 fn openai_profile_serializes_allowed_tools_with_provider_safe_names() {
     let request = GenerateRequest {
         tools: vec![test_tool(), test_tool_named("mcp.docs:read")],

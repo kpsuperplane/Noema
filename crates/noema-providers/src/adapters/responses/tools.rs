@@ -99,10 +99,12 @@ impl ResponsesToolNameMap {
 
             provider_to_canonical.insert(provider_safe.clone(), canonical.to_string());
             canonical_to_provider.insert(canonical.to_string(), provider_safe.clone());
+            let mut parameters = tool.input_schema.as_value().clone();
+            normalize_responses_schema(&mut parameters);
             responses_tools.push(ResponsesTool::function(
                 provider_safe,
                 tool.description.clone(),
-                tool.input_schema.as_value().clone(),
+                parameters,
             ));
         }
 
@@ -124,6 +126,37 @@ impl ResponsesToolNameMap {
             .get(canonical_name)
             .map(String::as_str)
     }
+}
+
+fn normalize_responses_schema(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            let has_lookaround = object
+                .get("pattern")
+                .and_then(Value::as_str)
+                .is_some_and(regex_contains_lookaround);
+            if has_lookaround {
+                // Responses cannot compile lookarounds into its constrained
+                // decoder; execution retains the canonical tool schema.
+                object.remove("pattern");
+            }
+            for child in object.values_mut() {
+                normalize_responses_schema(child);
+            }
+        }
+        Value::Array(values) => {
+            for child in values {
+                normalize_responses_schema(child);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn regex_contains_lookaround(pattern: &str) -> bool {
+    ["(?=", "(?!", "(?<=", "(?<!"]
+        .iter()
+        .any(|lookaround| pattern.contains(lookaround))
 }
 
 pub(crate) fn responses_tool_choice(
