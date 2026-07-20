@@ -381,7 +381,8 @@ fn task_precondition(input: &TaskPreconditionArguments) -> Result<TaskPreconditi
 }
 
 fn project_id(id: Option<String>) -> Result<Option<ProjectId>, String> {
-    id.map(|id| ProjectId::new(id).map_err(|error| error.to_string()))
+    id.filter(|id| !id.trim().is_empty())
+        .map(|id| ProjectId::new(id).map_err(|error| error.to_string()))
         .transpose()
 }
 
@@ -475,4 +476,15 @@ async fn list_projects(
     Ok(
         json!({"projects": connection.edges.into_iter().map(|edge| json!({"project_id":edge.node.project_id,"name":edge.node.name,"description":edge.node.description,"revision":edge.node.revision,"archived":edge.node.archived_at.is_some()})).collect::<Vec<_>>(),"has_next_page":connection.page_info.has_next_page,"end_cursor":connection.page_info.end_cursor}),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::project_id;
+
+    #[test]
+    fn blank_optional_project_ids_are_omitted() {
+        assert!(project_id(Some(String::new())).unwrap().is_none());
+        assert!(project_id(Some(" \t".to_string())).unwrap().is_none());
+    }
 }
