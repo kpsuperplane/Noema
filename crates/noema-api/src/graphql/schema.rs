@@ -3,8 +3,6 @@ use crate::test_support::TestEnvironment;
 use async_graphql::{Context, Object, Result, Schema};
 #[cfg(test)]
 use noema_runtime::RuntimeEventRegistry;
-#[cfg(test)]
-use std::sync::Arc;
 
 mod mutation;
 mod query;
@@ -42,9 +40,10 @@ use super::{
         GraphqlStartMcpServerOAuthSetupInput, GraphqlStartMcpServerReauthenticationOAuthSetupInput,
         GraphqlToolCalibration,
     },
-    memory::{
-        self, GraphqlMemoryArticle, GraphqlMemoryGraph, GraphqlMemoryGraphInput,
-        GraphqlMemoryServiceStatus, GraphqlMemorySettings, GraphqlSaveMemoryServiceSettingsInput,
+    native_memory::{
+        self, GraphqlNativeMemoryPage, GraphqlNativeMemorySearchResult,
+        GraphqlNativeMemorySettings, GraphqlNativeMemoryTree, GraphqlNativeMemoryUpdateResult,
+        GraphqlSaveMemoryModelPreferenceInput,
     },
     onboarding::{
         self, GraphqlOnboardingStatus, GraphqlProviderAuthAttempt,

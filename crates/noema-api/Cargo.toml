@@ -42,7 +42,7 @@ ts-rs.workspace = true
 [dev-dependencies]
 noema-artifacts = { path = "../noema-artifacts", default-features = false, features = ["filesystem"] }
 noema-home = { path = "../noema-home", default-features = false }
-noema-memory = { path = "../noema-memory", default-features = false, features = ["service"] }
+noema-memory = { path = "../noema-memory", default-features = false }
 noema-providers = { path = "../noema-providers", default-features = false, features = ["adapters", "local-models"] }
 noema-runtime = { path = "../noema-runtime", default-features = false, features = ["test-support"] }
 noema-store = { path = "../noema-store", default-features = false, features = ["test-support"] }

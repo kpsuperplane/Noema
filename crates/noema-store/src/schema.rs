@@ -322,44 +322,6 @@ CREATE TABLE IF NOT EXISTS tool_calibrations (
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
-CREATE TABLE IF NOT EXISTS memory_service_settings (
-  settings_id TEXT PRIMARY KEY NOT NULL CHECK (settings_id = 'default'),
-  mode TEXT NOT NULL CHECK (mode IN ('managed', 'external')),
-  base_url TEXT,
-  port INTEGER CHECK (port IS NULL OR (port > 0 AND port <= 65535)),
-  provider_account_id TEXT,
-  provider_instance_key TEXT CHECK (provider_instance_key IS NULL OR provider_instance_key <> ''),
-  provider_kind TEXT CHECK (provider_kind IS NULL OR provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models')),
-  model_profile TEXT,
-  reasoning_effort TEXT CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  CHECK (mode = 'managed' OR base_url IS NOT NULL),
-  CHECK (
-    (provider_account_id IS NULL AND provider_instance_key IS NULL AND provider_kind IS NULL AND model_profile IS NULL)
-    OR
-    (provider_account_id IS NOT NULL AND provider_instance_key IS NOT NULL AND provider_kind IS NOT NULL AND model_profile IS NOT NULL)
-  )
-);
-
-CREATE INDEX IF NOT EXISTS memory_service_settings_instance
-ON memory_service_settings(provider_instance_key)
-WHERE provider_instance_key IS NOT NULL;
-
-INSERT INTO memory_service_settings (settings_id, mode, base_url, port)
-VALUES ('default', 'managed', NULL, NULL)
-ON CONFLICT(settings_id) DO NOTHING;
-
-CREATE TABLE IF NOT EXISTS memory_article_cache (
-  scope_id TEXT PRIMARY KEY NOT NULL,
-  fact_fingerprint TEXT NOT NULL,
-  article_markdown TEXT NOT NULL,
-  generated_at TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-);
-
-
 -- The provider-backed task model pool is generic configuration retained
 -- across the Work schema rewrite.
 CREATE TABLE IF NOT EXISTS task_model_pool_entries (

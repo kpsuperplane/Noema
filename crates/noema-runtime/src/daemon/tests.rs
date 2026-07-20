@@ -1,11 +1,6 @@
 use super::*;
 use super::{protocol::TurnStreamEvent, runtime::RuntimeHandle};
 use noema_conversations::{ActorRef, ConversationItemKind, ConversationItemStatus, ReplayMode};
-use noema_home::NoemaPaths;
-use noema_memory::{
-    AddMemoryRequest, ListMemoriesRequest, ListMemoriesResponse, MemoryOperationFuture,
-    MemoryOperations, MemoryServiceReadiness, SearchMemoriesRequest, SearchMemoriesResponse,
-};
 use noema_providers::{
     AssistantTextPhase, GenerateActionItem, GenerateInput, GenerateInputItem,
     GenerateReasoningItem, GenerateRequest, GenerateResponse, GenerateResponseItem,
@@ -22,7 +17,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tokio::sync::{Mutex as AsyncMutex, Notify, mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot};
 
 fn read_system_error_events(path: &Path) -> Vec<Value> {
     std::fs::read_to_string(path)
@@ -75,7 +70,6 @@ include!("tests/conversation_turns.rs");
 include!("tests/prompt_context.rs");
 include!("tests/compaction_routing.rs");
 include!("tests/replay_and_tools.rs");
-include!("tests/memory.rs");
 include!("tests/continuation_and_web.rs");
 include!("tests/identity_and_memory.rs");
 include!("tests/support/runtime.rs");

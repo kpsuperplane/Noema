@@ -633,8 +633,7 @@ not what the first shell emphasizes.
 | Route | Visible label | Backed by | Capability | Status |
 | --- | --- | --- | --- | --- |
 | `/` | Home | setup health, local service state, primary conversation | route to the durable primary conversation when ready; show setup readiness if blocked | Current |
-| `/memory` | Memory settings | GraphQL memory read model | secondary list and supported filters with redacted metadata; richer search waits for backend support | Current |
-| `/memory/graph` | Memory graph | GraphQL `memoryGraph` and `memoryClaim` read models | bounded graph canvas and selected-claim detail panel; redacted by default where required | Current |
+| `/memory` | Memory | GraphQL native memory tree, page, search, and model-preference operations | native Markdown tree with bounded page reads/search and Memory update controls | Current |
 | `/settings` | Settings default | provider account metadata from GraphQL, gated by onboarding | route-derived Settings L1 inside the main shell deck; defaults to Providers | Current |
 | `/settings/providers` | Settings / Providers | provider account metadata from GraphQL, gated by onboarding | Providers tab with only non-secret account metadata | Current |
 | `/settings/agents` | Settings / Agents | agent metadata from GraphQL, gated by onboarding | read-only registered-agent list with safe local technical metadata such as agent ids | Current |

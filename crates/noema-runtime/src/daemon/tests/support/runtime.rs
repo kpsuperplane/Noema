@@ -94,7 +94,7 @@ async fn test_runtime_handle_with_store_and_system_errors(
 ) {
     let store = crate::test_support::test_store().await;
     let system_errors = crate::test_support::system_error_logger();
-    let handle = RuntimeHandle::spawn_with_provider_map_and_memory(
+    let handle = RuntimeHandle::spawn_with_provider_map_and_events(
         "codex".to_string(),
         HashMap::from([(
             "codex".to_string(),
@@ -103,7 +103,6 @@ async fn test_runtime_handle_with_store_and_system_errors(
         store.clone(),
         crate::test_support::artifact_operations(&store).expect("artifact operations"),
         system_errors.clone(),
-        None,
         crate::daemon::RuntimeEventRegistry::default(),
     )
     .await
@@ -125,119 +124,6 @@ async fn test_runtime_handle_with_task_delegation(
         .await
         .expect("runtime");
     (handle, store)
-}
-
-async fn test_runtime_handle_with_mnemosyne(
-    provider: FakeCodexProvider,
-    memory: Arc<RecordingMemoryOperations>,
-) -> (
-    RuntimeHandle,
-    noema_store::NoemaStore,
-    Arc<RecordingMemoryOperations>,
-) {
-    spawn_runtime_with_memory_provider(Arc::new(provider), memory).await
-}
-
-async fn spawn_runtime_with_memory_provider(
-    provider: noema_providers::ProviderHandle,
-    memory: Arc<RecordingMemoryOperations>,
-) -> (
-    RuntimeHandle,
-    noema_store::NoemaStore,
-    Arc<RecordingMemoryOperations>,
-) {
-    let store = crate::test_support::test_store().await;
-    let handle = RuntimeHandle::spawn_with_provider_and_memory(
-        provider,
-        store.clone(),
-        Some(memory.clone()),
-    )
-    .await
-    .expect("runtime");
-    (handle, store, memory)
-}
-
-#[derive(Debug)]
-struct RecordingMemoryOperations {
-    search_response: SearchMemoriesResponse,
-    search_requests: AsyncMutex<Vec<SearchMemoriesRequest>>,
-    add_requests: AsyncMutex<Vec<AddMemoryRequest>>,
-    add_started: Notify,
-    block_add: bool,
-}
-
-impl Default for RecordingMemoryOperations {
-    fn default() -> Self {
-        Self::returning(SearchMemoriesResponse::default())
-    }
-}
-
-impl RecordingMemoryOperations {
-    fn returning(search_response: SearchMemoriesResponse) -> Self {
-        Self {
-            search_response,
-            search_requests: AsyncMutex::new(Vec::new()),
-            add_requests: AsyncMutex::new(Vec::new()),
-            add_started: Notify::new(),
-            block_add: false,
-        }
-    }
-
-    fn blocking_add() -> Self {
-        Self {
-            block_add: true,
-            ..Self::default()
-        }
-    }
-
-    async fn add_requests(&self) -> Vec<AddMemoryRequest> {
-        self.add_requests.lock().await.clone()
-    }
-
-    async fn search_requests(&self) -> Vec<SearchMemoriesRequest> {
-        self.search_requests.lock().await.clone()
-    }
-
-    async fn wait_for_add(&self) {
-        while self.add_requests.lock().await.is_empty() {
-            self.add_started.notified().await;
-        }
-    }
-}
-
-impl MemoryOperations for RecordingMemoryOperations {
-    fn check_readiness(&self) -> MemoryOperationFuture<'_, MemoryServiceReadiness> {
-        Box::pin(async { Ok(MemoryServiceReadiness { ready: true }) })
-    }
-
-    fn add_memory(&self, request: AddMemoryRequest) -> MemoryOperationFuture<'_, ()> {
-        Box::pin(async move {
-            self.add_requests.lock().await.push(request);
-            self.add_started.notify_waiters();
-            if self.block_add {
-                std::future::pending().await
-            }
-            Ok(())
-        })
-    }
-
-    fn search_memories(
-        &self,
-        request: SearchMemoriesRequest,
-    ) -> MemoryOperationFuture<'_, SearchMemoriesResponse> {
-        let response = self.search_response.clone();
-        Box::pin(async move {
-            self.search_requests.lock().await.push(request);
-            Ok(response)
-        })
-    }
-
-    fn list_memories(
-        &self,
-        _request: ListMemoriesRequest,
-    ) -> MemoryOperationFuture<'_, ListMemoriesResponse> {
-        Box::pin(async { Ok(ListMemoriesResponse::default()) })
-    }
 }
 
 async fn append_test_text_item(store: &noema_store::NoemaStore, conversation_id: &str, text: &str) {

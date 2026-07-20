@@ -25,8 +25,6 @@ mod local_models;
 #[cfg(test)]
 mod local_models_tests;
 mod mcp;
-mod memory_repository;
-mod memory_service;
 mod observed_urls;
 mod provider_account_port;
 mod provider_accounts;
@@ -71,9 +69,10 @@ pub(crate) mod tests;
 pub use agent_runtime_preferences::{AgentRuntimePreferenceRecord, NewAgentRuntimePreference};
 pub use agents::{AgentRecord, AgentSystemRole};
 pub use auxiliary_model_preferences::{
-    ACTION_REVIEWER_TASK_ID, AuxiliaryModelPreferenceRecord, NewAuxiliaryModelPreference,
-    TOOL_PROGRESS_AUDIT_TASK_ID, WEB_FETCH_SUMMARIZER_TASK_ID,
+    ACTION_REVIEWER_TASK_ID, AuxiliaryModelPreferenceRecord, MEMORY_CONSOLIDATION_TASK_ID,
+    NewAuxiliaryModelPreference, TOOL_PROGRESS_AUDIT_TASK_ID, WEB_FETCH_SUMMARIZER_TASK_ID,
 };
+pub use conversations::MemoryConversationSourceRange;
 pub use error::{SchemaIncompatibility, StoreError};
 pub use governed_action_approvals::GovernedActionDecision;
 pub use governed_actions::{

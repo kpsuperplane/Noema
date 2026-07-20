@@ -309,20 +309,34 @@ impl QueryRoot {
         mcp::mcp_oauth_setup_attempt(state, attempt_id).await
     }
 
-    /// Return memory service settings and readiness status.
-    async fn memory_settings(&self, ctx: &Context<'_>) -> Result<GraphqlMemorySettings> {
+    /// Return the native memory model preference and selectable options.
+    async fn memory_settings(&self, ctx: &Context<'_>) -> Result<GraphqlNativeMemorySettings> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        memory::memory_settings(state).await
+        native_memory::memory_settings(state).await
     }
 
-    /// Return graph documents for the local human memory scope.
-    async fn memory_graph(
+    /// Return the canonical native Markdown memory tree.
+    async fn memory_tree(&self, ctx: &Context<'_>) -> Result<GraphqlNativeMemoryTree> {
+        native_memory::memory_tree(ctx.data_unchecked::<GraphqlState>()).await
+    }
+
+    /// Read one native Markdown memory page.
+    async fn memory_page(
         &self,
         ctx: &Context<'_>,
-        input: Option<GraphqlMemoryGraphInput>,
-    ) -> Result<GraphqlMemoryGraph> {
-        let state = ctx.data_unchecked::<GraphqlState>();
-        memory::memory_graph(state, input.unwrap_or_default()).await
+        page_id: String,
+    ) -> Result<Option<GraphqlNativeMemoryPage>> {
+        native_memory::memory_page(ctx.data_unchecked::<GraphqlState>(), page_id).await
+    }
+
+    /// Search native Markdown memory and return snippets/page references.
+    async fn search_memory(
+        &self,
+        ctx: &Context<'_>,
+        query: String,
+        limit: Option<i32>,
+    ) -> Result<Vec<GraphqlNativeMemorySearchResult>> {
+        native_memory::search_memory(ctx.data_unchecked::<GraphqlState>(), query, limit).await
     }
 
     /// Return the primary conversation identity without creating it or replaying transcript.

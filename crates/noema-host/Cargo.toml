@@ -18,7 +18,6 @@ composition = [
     "dep:serde_json",
     "noema-artifacts/filesystem",
     "noema-capabilities-mcp/transport",
-    "noema-memory/service",
     "noema-providers/adapters",
     "noema-providers/local-models",
 ]

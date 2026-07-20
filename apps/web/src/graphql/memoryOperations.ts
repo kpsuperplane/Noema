@@ -3,15 +3,6 @@ import { gql } from "@apollo/client";
 export const MemorySettingsDocument = gql`
   query MemorySettings {
     memorySettings {
-      mode
-      baseUrl
-      port
-      status {
-        status
-        checkedAt
-        lastErrorCode
-        lastErrorMessage
-      }
       modelPreference {
         providerKind
         providerAccountId
@@ -37,100 +28,78 @@ export const MemorySettingsDocument = gql`
   }
 `;
 
-export const MemoryGraphDocument = gql`
-  query MemoryGraph($page: Int, $limit: Int) {
-    memoryGraph(input: { page: $page, limit: $limit }) {
-      status {
-        status
-        lastErrorCode
-        lastErrorMessage
-      }
-      article {
-        title
-        subtitle
-        markdown
-        isGenerated
-        generatedAt
-      }
-      documents {
+export const MemoryTreeDocument = gql`
+  query MemoryTree {
+    memoryTree {
+      root {
         id
+        path
         title
-        summary
-        type
-        createdAt
-        updatedAt
-        memoryEntries {
+        body
+        hash
+        parent
+        children {
           id
-          citationKey
-          documentId
-          content
-          summary
+          path
           title
-          type
-          source {
-            kind
-            conversationId
-            turnId
-            itemId
-            messageText
-          }
-          metadata
-          createdAt
-          updatedAt
-          spaceContainerTag
-          relation
-          parentMemoryId
-          rootMemoryId
-          memoryRelations
-          isLatest
-          spaceId
+          hash
         }
       }
-      pageInfo {
-        page
-        limit
-        hasMore
-        total
+      pendingCount
+      updateStatus {
+        state
+        active
+        lastConsolidatedSequence
+        lastConsolidatedItem
+        error
+        updatedAt
       }
     }
   }
 `;
 
-export const RegenerateMemoryArticleDocument = gql`
-  mutation RegenerateMemoryArticle {
-    regenerateMemoryArticle {
+export const MemoryPageDocument = gql`
+  query MemoryPage($pageId: String!) {
+    memoryPage(pageId: $pageId) {
+      id
+      path
       title
-      subtitle
-      markdown
-      isGenerated
-      generatedAt
-    }
-  }
-`;
-
-export const SaveMemoryServiceSettingsDocument = gql`
-  mutation SaveMemoryServiceSettings($input: SaveMemoryServiceSettingsInput!) {
-    saveMemoryServiceSettings(input: $input) {
-      mode
-      baseUrl
-      port
-      status {
-        status
-        checkedAt
-        lastErrorCode
-        lastErrorMessage
+      body
+      hash
+      parent
+      children {
+        id
+        path
+        title
+        hash
       }
     }
   }
 `;
 
-export const CheckMemoryServiceDocument = gql`
-  mutation CheckMemoryService {
-    checkMemoryService {
-      status
-      checkedAt
-      lastErrorCode
-      lastErrorMessage
+export const UpdateMemoryDocument = gql`
+  mutation UpdateMemory {
+    updateMemory {
+      accepted
+      status {
+        state
+        active
+        lastConsolidatedSequence
+        lastConsolidatedItem
+        error
+        updatedAt
+      }
+    }
+  }
+`;
+
+export const SaveMemoryModelPreferenceDocument = gql`
+  mutation SaveMemoryModelPreference($input: GraphqlSaveMemoryModelPreferenceInput!) {
+    saveMemoryModelPreference(input: $input) {
+      providerKind
+      providerAccountId
+      modelProfile
+      reasoningEffort
     }
   }
 `;

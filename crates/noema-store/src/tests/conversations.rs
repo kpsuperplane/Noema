@@ -40,3 +40,72 @@ async fn idempotent_conversation_item_id_prevents_duplicate_task_delivery() {
     assert_eq!(first.item_id, second.item_id);
     assert_eq!(rows.len(), 1);
 }
+
+#[tokio::test]
+async fn memory_source_range_captures_one_conversation_head_and_resumes_after_it() {
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let conversation = store
+        .get_or_create_primary_conversation("human:local", None, None)
+        .await
+        .expect("conversation");
+
+    let append = |kind, author, text: &str| noema_conversations::NewConversationItem {
+        conversation_id: conversation.conversation_id.clone(),
+        turn_id: None,
+        parent_item_id: None,
+        kind,
+        status: noema_conversations::ConversationItemStatus::Completed,
+        author,
+        content_text: Some(text.to_string()),
+        payload_json: serde_json::json!({}),
+        metadata: serde_json::json!({}),
+    };
+    store
+        .append_conversation_item(append(
+            noema_conversations::ConversationItemKind::UserText,
+            noema_conversations::ActorRef::human("human:local").expect("human actor"),
+            "first",
+        ))
+        .await
+        .expect("first item");
+    store
+        .append_conversation_item(append(
+            noema_conversations::ConversationItemKind::AssistantText,
+            noema_conversations::ActorRef::agent("agent:primary").expect("agent actor"),
+            "context",
+        ))
+        .await
+        .expect("second item");
+
+    let first = store
+        .capture_memory_source_range(&conversation.conversation_id, 0)
+        .await
+        .expect("first source range");
+    assert_eq!(first.captured_head_sequence, 2);
+    assert_eq!(
+        first
+            .items
+            .iter()
+            .map(|item| item.sequence_index)
+            .collect::<Vec<_>>(),
+        vec![1, 2]
+    );
+
+    store
+        .append_conversation_item(append(
+            noema_conversations::ConversationItemKind::UserText,
+            noema_conversations::ActorRef::human("human:local").expect("human actor"),
+            "later",
+        ))
+        .await
+        .expect("later item");
+    let resumed = store
+        .capture_memory_source_range(&conversation.conversation_id, first.captured_head_sequence)
+        .await
+        .expect("resumed source range");
+
+    assert_eq!(resumed.captured_head_sequence, 3);
+    assert_eq!(resumed.items.len(), 1);
+    assert_eq!(resumed.items[0].content_text.as_deref(), Some("later"));
+}

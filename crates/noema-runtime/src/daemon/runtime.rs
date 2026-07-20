@@ -48,8 +48,8 @@ pub struct RuntimeSpawnConfig {
     pub artifact_operations: noema_artifacts::ArtifactOperationsHandle,
     /// Redacted system diagnostic sink.
     pub system_errors: noema_home::SystemErrorLogger,
-    /// Optional memory service operations.
-    pub memory_operations: Option<noema_memory::MemoryOperationsHandle>,
+    /// Native Markdown memory tree shared by runtime and API.
+    pub native_memory: Option<noema_memory::NativeMemory>,
     /// Runtime event registry shared with API adapters.
     pub runtime_events: super::RuntimeEventRegistry,
     /// Host-owned concrete web backend resolver.

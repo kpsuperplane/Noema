@@ -5,20 +5,20 @@ It should be updated whenever the GraphQL contract, runtime events, embedded
 store schema, or route model changes.
 
 The current route source supports chat at `/`, Settings at `/settings`, and
-nested Settings sections including `/settings/memory`. `/memory` redirects to
-`/settings/memory`. `/memory/graph` is not a current route.
+nested Settings sections including `/settings/memory`. `/memory` is the native
+memory tree surface. `/memory/graph` is not a current route.
 
 ## Current Sources
 
 | Source | Current authority |
 | --- | --- |
-| GraphQL client API | Local status, onboarding, provider auth, chat startup, chat turns, transcript items, MCP settings, web-tool settings, memory service settings, daemon errors |
+| GraphQL client API | Local status, onboarding, provider auth, chat startup, chat turns, transcript items, MCP settings, web-tool settings, native memory, daemon errors |
 | Daemon web server | Local React shell, GraphQL HTTP, and GraphQL WebSocket subscription endpoints |
 | `A2uiCard` payloads | Structured cards inside the chat stream when backed by current runtime behavior |
 | `config.yaml` and environment-derived config | Provider/model/default setup state; secrets remain outside SQLite |
-| `NoemaPaths` and store config | Noema home, runtime directory, SQLite database path, and Mnemosyne data/runtime paths |
-| SQLite store | Concrete object rows, conversations, conversation turns/items, provider accounts, MCP setup/calibration state, approvals, auxiliary preferences, and memory service settings/status |
-| Local Mnemosyne | Durable memory truth, extraction, updates, and memory search indexes |
+| `NoemaPaths` and store config | Noema home, runtime directory, SQLite database path, and native memory paths |
+| SQLite store | Concrete object rows, conversations, conversation turns/items, provider accounts, MCP setup/calibration state, approvals, auxiliary preferences, and the Memory model preference |
+| Native Markdown memory | Durable local-human memory prose, metadata, provenance, hierarchy, and consolidation state |
 
 ## Frontend Code Organization
 
@@ -36,7 +36,7 @@ home route. They do not imply primary navigation priority.
 | Route | Label | Backing | Capability | Status |
 | --- | --- | --- | --- | --- |
 | `/` | Home | setup health, local service state, primary conversation | route to the durable primary conversation when ready; show guided readiness state if blocked | Current |
-| `/memory` | Memory redirect | route model | redirects to `/settings/memory` | Current |
+| `/memory` | Memory | GraphQL native-memory read/update model | inspect the local-human tree and request one background update | Current |
 | `/settings` | Settings default | GraphQL settings read models | route-derived Settings utility surface; defaults to Agents | Current |
 | `/settings/agents` | Settings / Agents | agent metadata and model preference options from GraphQL | registered-agent list and model preference editor | Current |
 | `/settings/tools/web` | Settings / Web | provider capability bindings and auxiliary summarizer preference | first-party `web.search`/`web.fetch` status and model preference | Current |
@@ -45,14 +45,13 @@ home route. They do not imply primary navigation priority.
 | `/settings/safety/identities` | Settings / Trusted identities | trusted identity selectors from GraphQL | selector rows used to resolve tool-result ownership | Current |
 | `/settings/safety/usage` | Settings / Usage | auxiliary model preferences from GraphQL | progress-audit model preference | Current |
 | `/settings/system/providers` | Settings / Providers | provider account metadata from GraphQL | provider metadata, auth method, readiness, and safe error state | Current |
-| `/settings/memory` | Settings / Memory | GraphQL `memorySettings`, `saveMemoryServiceSettings`, and `checkMemoryService` | view managed/external Mnemosyne status, configure external endpoint and extraction model preference, and check readiness | Current |
+| `/settings/memory` | Settings / Memory | GraphQL `memorySettings` and `saveMemoryModelPreference` | choose the model used for native memory updates | Current |
 
 Future route groups:
 
 - `/settings/safety/privacy`, backed by the governed-action reviewer model
   preference and privacy posture once that runtime authority is implemented.
-- `/memory/:id`, `/memory/review`, and richer memory browsing backed by Mnemosyne
-  visibility APIs.
+- `/memory/:id`, `/memory/review`, and richer provenance review flows.
 - `/inspect`, `/inspect/context-graph`, `/inspect/context-packets`.
 - `/threads`, `/threads/:id`.
 - `/workspaces`, `/workspaces/:id`.
@@ -115,20 +114,18 @@ Current behavior:
 
 ## Memory Frontend Contract
 
-Current memory UX is Settings plus a top-level memory list:
+Current memory UX is Settings plus a top-level native tree:
 
-- `/settings/memory` shows Mnemosyne mode, readiness, and the model preference used
-  for memory extraction.
-- External-mode base URL edits are live for the next `search_memory` call.
-- Managed mode is read-only in the current slice because the managed Mnemosyne child
-  process is started by the runtime host at startup.
-- `/memory` lists Mnemosyne-backed human memories through the shared Noema
-  GraphQL API.
+- `/settings/memory` selects the model used for background memory updates.
+- `/memory` renders the selected canonical Markdown page, deterministic child
+  filenames, pending-message state, and one `Update memory` action.
+- The update action is disabled and loading while the one server-owned job is
+  queued or running; failed jobs retain their completed checkpoint for retry.
 - There is no `/memory/graph` route and no React Flow graph browser in the
   current slice.
 - Transcript memory markers and `/remember` are intentionally absent for now.
-- `search_memory` remains model-visible as an explicit tool-only recall path;
-  automatic pre-turn memory injection is not part of the frontend contract.
+- The bounded root page enters ordinary turns automatically. `read_memory_page`
+  and `search_memory` retrieve deeper pages for the current continuation.
 
 ## Setup Health Read Model
 
@@ -159,7 +156,7 @@ Show:
 - Config file existence and assistant connection status.
 - Whether config was initialized by defaults.
 - SQLite store availability/readiness state.
-- Mnemosyne readiness state in Settings > Memory.
+- Native memory storage readiness through the normal local-service status.
 - Local service reachable/unreachable.
 - Provider readiness in beginner language: connected, not connected, timed out,
   or error.
@@ -167,6 +164,5 @@ Show:
 ## Inspection Boundaries
 
 Context graph browsing is a future owner/admin-only surface. The first slice
-must not expose a graph browser or Noema-owned memory claim tables. Richer
-Mnemosyne-backed visibility should avoid leaking private memory existence through
-normal-user text and should keep graph details out of default chat.
+does not expose a graph browser, private-memory existence, or Noema-owned claim
+tables; exact page provenance remains available without entering default chat.

@@ -39,12 +39,14 @@ pub(super) struct PromptPlanRequest<'a> {
     pub(super) provider_kind: &'a str,
     pub(super) model_profile: Option<&'a str>,
     pub(super) current_input: &'a str,
+    pub(super) memory_root_context: Option<&'a str>,
 }
 
 struct LoadedPromptPlanRequest<'a> {
     provider: &'a dyn ProviderOperations,
     model_profile: Option<&'a str>,
     current_input: &'a str,
+    memory_root_context: Option<&'a str>,
     context: PromptContext,
 }
 
@@ -90,6 +92,7 @@ pub(super) async fn plan_prompt_context(
         provider: request.provider,
         model_profile: request.model_profile,
         current_input: request.current_input,
+        memory_root_context: request.memory_root_context,
         context,
     })
     .await
@@ -103,6 +106,7 @@ async fn plan_loaded_prompt_context(
         request.context.rendered_context.as_deref(),
         &request.context.transcript_items,
         request.current_input,
+        request.memory_root_context,
     );
     let metadata = request.provider.context_metadata(request.model_profile);
     let budget = ContextBudget::from_metadata(metadata);
@@ -129,6 +133,7 @@ fn build_turn_input(
     rendered_context: Option<&str>,
     transcript_items: &[ConversationItemRecord],
     current_input: &str,
+    memory_root_context: Option<&str>,
 ) -> GenerateInput {
     let mut has_structured_items = false;
     let mut items = rendered_context
@@ -140,6 +145,15 @@ fn build_turn_input(
         })
         .into_iter()
         .collect::<Vec<_>>();
+    if let Some(memory) = memory_root_context.filter(|memory| !memory.trim().is_empty()) {
+        items.insert(
+            0,
+            GenerateInputItem::Message(GenerateMessage {
+                role: GenerateMessageRole::Developer,
+                content: format!("Native local-human memory (canonical root page):\n{memory}"),
+            }),
+        );
+    }
     items.extend(
         transcript_items
             .iter()

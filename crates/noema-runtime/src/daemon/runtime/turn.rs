@@ -5,13 +5,12 @@ use noema_conversations::{
 
 use chrono::{Local, SecondsFormat};
 use noema_home::SystemErrorEvent;
-use noema_memory::HUMAN_MEMORY_SCOPE_ID;
 use noema_providers::{
     GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
-    GenerateStreamEvent, GenerateToolCall, MultipleChoiceOption, MultipleChoiceSelectionMode,
-    NoemaAllowedToolsMode, NoemaToolChoice, PromptCacheMode, PromptCacheOptions,
-    PromptCacheRetention, ProviderError, ProviderRouteLease, ProviderToolCapabilities,
-    ProviderToolTransport, TokenUsage,
+    GenerateStreamEvent, GenerateToolCall, GenerationPriority, MultipleChoiceOption,
+    MultipleChoiceSelectionMode, NoemaAllowedToolsMode, NoemaToolChoice, PromptCacheMode,
+    PromptCacheOptions, PromptCacheRetention, ProviderError, ProviderRouteLease,
+    ProviderToolCapabilities, ProviderToolTransport, TokenUsage,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -22,7 +21,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 
 use super::{
     actor::RuntimeActor,
@@ -62,27 +61,6 @@ use crate::daemon::{
     protocol::{RuntimeError, StartedConversation, TurnStreamEvent, TurnTranscriptItem},
     task_tool::is_task_delegate_tool,
 };
-
-const MEMORY_OBSERVATION_CONTEXT_ITEM_LIMIT: usize = 4;
-const MEMORY_OBSERVATION_CONTEXT_CHAR_LIMIT: usize = 2_000;
-
-#[derive(Debug)]
-struct TurnCompletionSignal(Option<oneshot::Sender<()>>);
-
-impl TurnCompletionSignal {
-    fn new() -> (Self, oneshot::Receiver<()>) {
-        let (sender, receiver) = oneshot::channel();
-        (Self(Some(sender)), receiver)
-    }
-}
-
-impl Drop for TurnCompletionSignal {
-    fn drop(&mut self) {
-        if let Some(sender) = self.0.take() {
-            let _ = sender.send(());
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub(in crate::daemon::runtime) struct MultipleChoiceSelectionInput {
@@ -229,99 +207,6 @@ fn model_context_state(
             catalog_rows,
         ),
     )
-}
-
-fn build_memory_observation_add_request(
-    conversation_id: &str,
-    turn_id: &str,
-    user_item_id: &str,
-    user_text: &str,
-    assistant_context: Vec<String>,
-) -> Option<noema_memory::AddMemoryRequest> {
-    let source_observation = user_text.trim();
-    if source_observation.is_empty() {
-        return None;
-    }
-
-    let mut messages = assistant_context
-        .into_iter()
-        .filter_map(|content| {
-            let content = content.trim();
-            (!content.is_empty()).then(|| noema_memory::MemoryMessage {
-                role: "assistant".to_string(),
-                content: content.to_string(),
-            })
-        })
-        .collect::<Vec<_>>();
-    messages.push(noema_memory::MemoryMessage {
-        role: "user".to_string(),
-        content: source_observation.to_string(),
-    });
-
-    Some(noema_memory::AddMemoryRequest {
-        messages,
-        user_id: HUMAN_MEMORY_SCOPE_ID.to_string(),
-        agent_id: Some("agent:local".to_string()),
-        run_id: Some(conversation_id.to_string()),
-        metadata: json!({
-            "noemaConversationId": conversation_id,
-            "turnId": turn_id,
-            "userItemId": user_item_id,
-            "sourceKind": "user_message",
-            "sourceObservation": source_observation,
-        }),
-    })
-}
-
-fn bound_memory_observation_assistant_context(messages: Vec<String>) -> Vec<String> {
-    let recent = messages
-        .into_iter()
-        .rev()
-        .take(MEMORY_OBSERVATION_CONTEXT_ITEM_LIMIT)
-        .collect::<Vec<_>>();
-    let mut remaining = MEMORY_OBSERVATION_CONTEXT_CHAR_LIMIT;
-    let mut bounded = Vec::new();
-
-    for message in recent.into_iter().rev() {
-        let message = message.trim();
-        if message.is_empty() || remaining == 0 {
-            continue;
-        }
-        let content = message.chars().take(remaining).collect::<String>();
-        remaining = remaining.saturating_sub(content.chars().count());
-        bounded.push(content);
-    }
-
-    bounded
-}
-
-#[cfg(test)]
-mod memory_observation_tests {
-    use super::build_memory_observation_add_request;
-    use serde_json::json;
-
-    #[test]
-    fn observation_keeps_assistant_context_and_current_user_as_the_source() {
-        let request = build_memory_observation_add_request(
-            "conversation:1",
-            "turn:2",
-            "item:3",
-            "  cars  ",
-            vec![" question one ".to_string(), "question two".to_string()],
-        )
-        .expect("observation");
-
-        assert_eq!(
-            serde_json::to_value(request.messages).unwrap(),
-            json!([
-                {"role": "assistant", "content": "question one"},
-                {"role": "assistant", "content": "question two"},
-                {"role": "user", "content": "cars"}
-            ])
-        );
-        assert_eq!(request.metadata["sourceObservation"], "cars");
-        assert_eq!(request.metadata["userItemId"], "item:3");
-    }
 }
 
 include!("turn/startup.rs");

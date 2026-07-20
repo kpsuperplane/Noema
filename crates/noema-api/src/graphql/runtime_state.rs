@@ -1,7 +1,7 @@
 use noema_store::NoemaStore;
 
 use noema_capabilities_mcp::McpControlPlaneHandle;
-use noema_memory::{MemoryRepositoryHandle, MemoryServiceAccessHandle};
+use noema_memory::NativeMemory;
 use noema_providers::{LocalModelManager, ProviderAccountOperationsHandle, ProviderRegistryHandle};
 use noema_runtime::{RuntimeEventRegistry, RuntimeHandle};
 
@@ -29,9 +29,7 @@ pub struct GraphqlState {
     local_model_manager: Option<LocalModelManager>,
     onboarding: Option<noema_host::OnboardingService>,
     provider_registry: Option<ProviderRegistryHandle>,
-    memory_repository: Option<MemoryRepositoryHandle>,
-    memory_service_access: Option<MemoryServiceAccessHandle>,
-    memory_startup_error: Option<String>,
+    native_memory: Option<NativeMemory>,
     subscriptions: RuntimeEventRegistry,
     memory_storage: GraphqlMemoryStorageStatus,
 }
@@ -50,9 +48,7 @@ impl GraphqlState {
             local_model_manager: Some(services.local_model_manager.clone()),
             onboarding: Some(services.onboarding.clone()),
             provider_registry: Some(services.provider_registry.clone()),
-            memory_repository: Some(services.memory_repository.clone()),
-            memory_service_access: Some(services.memory_service_access.clone()),
-            memory_startup_error: services.memory_startup_error.clone(),
+            native_memory: Some(services.native_memory.clone()),
             subscriptions: services.runtime_events.clone(),
             memory_storage: GraphqlMemoryStorageStatus::Ready,
         }
@@ -111,12 +107,10 @@ impl GraphqlState {
                 test_provider_account_operations_for_environment(store.clone(), environment.clone())
             },
         );
-        let memory_repository: MemoryRepositoryHandle = std::sync::Arc::new(store.clone());
         let mut state = Self {
             store: Some(store),
             provider_account_operations: Some(provider_account_operations),
             provider_registry: Some(crate::test_support::ready_test_provider_registry()),
-            memory_repository: Some(memory_repository),
             ..Self::for_schema_definition()
         };
         if let Some(environment) = environment {
@@ -174,17 +168,6 @@ impl GraphqlState {
         self
     }
 
-    /// Attach explicit memory-service access to existing test state.
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) fn with_memory_service_access(
-        mut self,
-        memory_service_access: MemoryServiceAccessHandle,
-    ) -> Self {
-        self.memory_service_access = Some(memory_service_access);
-        self
-    }
-
     required_service_accessors! {
         runtime => runtime: RuntimeHandle = "Noema runtime is unavailable";
         store => store: NoemaStore = "Noema store is unavailable";
@@ -194,7 +177,6 @@ impl GraphqlState {
         local_model_manager => local_model_manager: LocalModelManager = "Noema local-model service is unavailable";
         onboarding => onboarding: noema_host::OnboardingService = "Noema onboarding service is unavailable";
         provider_registry => provider_registry: ProviderRegistryHandle = "Noema provider registry is unavailable";
-        memory_repository => memory_repository: MemoryRepositoryHandle = "Noema memory repository is unavailable";
     }
 
     pub(crate) fn optional_store(&self) -> Option<&NoemaStore> {
@@ -207,20 +189,16 @@ impl GraphqlState {
         }
     }
 
-    pub(crate) fn memory_service_access(&self) -> Option<&MemoryServiceAccessHandle> {
-        self.memory_service_access.as_ref()
-    }
-
-    pub(crate) fn memory_startup_error(&self) -> Option<&str> {
-        self.memory_startup_error.as_deref()
-    }
-
     pub(crate) fn subscriptions(&self) -> &RuntimeEventRegistry {
         &self.subscriptions
     }
 
     pub(crate) fn memory_storage(&self) -> GraphqlMemoryStorageStatus {
         self.memory_storage
+    }
+
+    pub(crate) fn native_memory(&self) -> Option<&NativeMemory> {
+        self.native_memory.as_ref()
     }
 }
 

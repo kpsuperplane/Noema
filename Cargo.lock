@@ -2829,17 +2829,15 @@ dependencies = [
 name = "noema-memory"
 version = "0.1.0"
 dependencies = [
- "http",
  "noema-capabilities",
- "noema-home",
- "noema-providers",
- "reqwest",
+ "ring",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",
- "tokio",
- "url",
+ "time",
+ "unicode-segmentation",
 ]
 
 [[package]]

@@ -30,19 +30,6 @@ impl FakeCodexProvider {
         self
     }
 
-    fn with_response_continuation(
-        mut self,
-        response_continuation: ProviderResponseContinuation,
-    ) -> Self {
-        self.response_continuation = response_continuation;
-        self
-    }
-
-    fn rejecting_first_chained_request(self) -> Self {
-        *self.reject_chained_once.lock().expect("reject chained") = true;
-        self
-    }
-
     fn requests(&self) -> Vec<GenerateRequest> {
         self.requests.lock().expect("requests").clone()
     }
@@ -99,11 +86,8 @@ enum FakeCodexScenario {
     TurnError,
     MultipleTaskDelegation,
     MixedTaskDelegation,
-    ToolCallBeforeCommentary,
     ToolItemThenFailure,
     SearchMemoryContinuation,
-    NativeSearchMemoryContinuation,
-    InvalidSearchMemory,
     NativeWebFetchContinuation,
     NativeArtifactCreateLocalFileContinuation,
     LongContinuationThenFinalization,
@@ -255,20 +239,6 @@ impl FakeCodexProvider {
                     )
                 }
             }
-            FakeCodexScenario::ToolCallBeforeCommentary => {
-                if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
-                    assistant_with_no_memories("The memory check is complete.")
-                } else {
-                    assistant_with_tools(
-                        "Checking memory.",
-                        Some(AssistantTextPhase::Commentary),
-                        vec![search_memory_tool_call(
-                            "call_1",
-                            json!({"arguments": {"query": "trains"}}),
-                        )],
-                    )
-                }
-            }
             FakeCodexScenario::ToolItemThenFailure => {
                 return Err(ProviderError::PartialResponse {
                     provider: "codex".to_string(),
@@ -296,44 +266,6 @@ impl FakeCodexProvider {
                     )
                 } else {
                     assistant_with_no_memories("fake answer")
-                }
-            }
-            FakeCodexScenario::NativeSearchMemoryContinuation => {
-                let results = input_tool_results(&request.input);
-                if results.iter().any(|result| {
-                    result.call_id == "call_native_1" && result.name == "search_memory"
-                }) {
-                    assistant_with_no_memories("native tool result received")
-                } else if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
-                    assistant_with_no_memories("tool result received")
-                } else if input.contains("What do you remember about trains?") {
-                    assistant_with_tools(
-                        "Searching memory.",
-                        None,
-                        vec![GenerateToolCall {
-                            id: Some("item_native_1".to_string()),
-                            provider_call_id: Some("call_native_1".to_string()),
-                            provider_name: Some("search_memory".to_string()),
-                            name: "search_memory".to_string(),
-                            payload: json!({"arguments": {"query": "trains"}}),
-                        }],
-                    )
-                } else {
-                    assistant_with_no_memories("fake answer")
-                }
-            }
-            FakeCodexScenario::InvalidSearchMemory => {
-                if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
-                    assistant_with_no_memories("invalid request handled")
-                } else {
-                    assistant_with_tools(
-                        "Trying memory.",
-                        None,
-                        vec![search_memory_tool_call(
-                            "call_invalid",
-                            json!({"arguments": {"query": "all", "purpose": "dump_everything"}}),
-                        )],
-                    )
                 }
             }
             FakeCodexScenario::NativeWebFetchContinuation => {

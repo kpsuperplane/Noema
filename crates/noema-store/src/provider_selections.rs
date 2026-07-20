@@ -197,35 +197,6 @@ pub(crate) fn write_task_pool_preference_tx(
     Ok(())
 }
 
-pub(crate) fn write_memory_preference_tx(
-    transaction: &Transaction<'_>,
-    selection: &ProviderSelectionSnapshot,
-    overwrite: bool,
-) -> Result<(), StoreError> {
-    let key = selection
-        .provider_instance_key
-        .as_ref()
-        .ok_or(StoreError::ProviderInstanceKeyMissing)?;
-    let missing = if overwrite {
-        ""
-    } else {
-        "AND provider_kind IS NULL AND provider_account_id IS NULL AND provider_instance_key IS NULL AND model_profile IS NULL"
-    };
-    transaction.execute(
-        &format!(
-            "UPDATE memory_service_settings SET provider_kind = ?1, provider_account_id = ?2, provider_instance_key = ?3, model_profile = ?4, reasoning_effort = ?5, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE settings_id = 'default' {missing}"
-        ),
-        params![
-            selection.provider_kind,
-            selection.provider_account_id,
-            key.as_str(),
-            selection.model_profile,
-            selection.reasoning_effort.map(noema_providers::ReasoningEffort::as_persistence_str),
-        ],
-    )?;
-    Ok(())
-}
-
 /// Verify that an opaque registry proof covers this exact normalized snapshot.
 pub(crate) fn validate_ready_selection_proof(
     selection: &ProviderSelectionSnapshot,

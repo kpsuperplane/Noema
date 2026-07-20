@@ -1,5 +1,5 @@
 use noema_capabilities::ToolSpec;
-use noema_memory::search_memory_tool_spec;
+use noema_memory::native_search_memory_tool_spec;
 use noema_providers::{
     GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
     GenerateRequest, GenerateToolCallInput, GenerateToolResultInput,
@@ -50,7 +50,7 @@ pub(super) fn evaluation_cases(model_id: &str) -> Result<Vec<EvalCase>, String> 
         Vec::new(),
         Vec::new(),
     );
-    let search_memory = search_memory_tool_spec().map_err(|error| error.to_string())?;
+    let search_memory = native_search_memory_tool_spec().map_err(|error| error.to_string())?;
     let memory_rows = prompt_rows(std::slice::from_ref(&search_memory));
     let memory_names = vec!["search_memory".to_string()];
     let memory_tools_context = primary_context(

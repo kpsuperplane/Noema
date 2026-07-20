@@ -37,7 +37,7 @@ mod local_models;
 mod local_models_tests;
 mod local_status;
 mod mcp;
-mod memory;
+mod native_memory;
 mod onboarding;
 mod privacy_settings;
 mod provider_accounts;

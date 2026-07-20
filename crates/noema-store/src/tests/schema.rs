@@ -215,7 +215,6 @@ async fn bootstrap_rejection_and_explicit_recovery_schema_contracts() {
                 ("local_model_installations", "retirement_claimed_at"),
                 ("local_model_installations", "runtime_retired_at"),
                 ("default_model_preference", "provider_instance_key"),
-                ("memory_service_settings", "provider_instance_key"),
                 ("task_model_pool_entries", "provider_instance_key"),
                 ("task_execution_contracts", "executor_provider_instance_key"),
                 ("task_execution_contracts", "reviewer_provider_instance_key"),

@@ -457,9 +457,6 @@ fn provider_account_is_referenced(
               SELECT 1 FROM auxiliary_model_preferences
               WHERE provider_account_id = ?1
               UNION ALL
-              SELECT 1 FROM memory_service_settings
-              WHERE provider_account_id = ?1
-              UNION ALL
               SELECT 1 FROM task_model_pool_entries
               WHERE provider_account_id = ?1
               UNION ALL

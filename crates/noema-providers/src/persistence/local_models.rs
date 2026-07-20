@@ -25,8 +25,6 @@ pub enum LocalModelInstanceReferenceSource {
         /// Auxiliary workload identity.
         workload: String,
     },
-    /// Managed memory model selection.
-    MemoryService,
     /// One enabled task-model pool entry.
     TaskModelPool {
         /// Referencing pool-entry identity.

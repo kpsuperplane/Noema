@@ -38,9 +38,8 @@ Noema at another directory with `NOEMA_HOME`.
   db/
     noema.sqlite3         # Noema-owned structured state
 
-  mnemosyne/
-    data/                 # Mnemosyne-owned memory state and indexes
-    run/                  # Mnemosyne sidecar runtime state
+  memory/
+    human/                # canonical local-human Markdown memory tree
 
   models/
     blobs/                # checksum-verified, content-addressed GGUF files
@@ -94,10 +93,10 @@ tables.
 | Data | Source of truth |
 | --- | --- |
 | Structured state: humans, agents, tools, conversations, transcript items, provider accounts, local-model installations, MCP setup, tasks, permissions, approvals, and audit events | SQLite |
-| Memory truth, extraction, updates, inferred memories, and memory search indexes | Local Mnemosyne |
+| Memory prose, semantic metadata, provenance, and consolidation state | `memory/human/` Markdown |
 | Verified local model weights | `${NOEMA_HOME}/models/blobs/` |
 | Human-authored docs, imported files, attachments, and durable artifacts | filesystem |
-| Indexes, caches, temporary files, and derived search/vector state | `system/` |
+| Indexes, caches, temporary files, and derived search/vector state | `system/`, including rebuildable memory FTS |
 | Introspection into database-backed state | chat/work drill-ins, advanced inspection, and explicit export tools |
 
 ## Primary objects
@@ -132,7 +131,7 @@ Context Runtime
         │
         ▼
 Canonical Store
-  SQLite + local Mnemosyne + durable object-owned files
+  SQLite + canonical memory Markdown + durable object-owned files
         │
         └── System State
               indexes, caches, vectors, temp files
@@ -261,7 +260,11 @@ tasks
 memory
 ```
 
-Use SQLite as Noema's canonical structured store. Use local Mnemosyne for durable memory truth, extraction, updates, and memory search indexes. Use the filesystem for durable object-owned documents and artifacts. Use chat/work drill-ins, advanced inspection, and explicit export tools for introspection into database-backed state.
+Use SQLite as Noema's canonical structured store. Use the native Markdown tree
+for durable memory truth and a separate rebuildable SQLite FTS projection for
+search. Use the filesystem for durable object-owned documents and artifacts.
+Use chat/work drill-ins, advanced inspection, and explicit export tools for
+introspection into database-backed state.
 
 [Memory Plan Index](memory.md)
 

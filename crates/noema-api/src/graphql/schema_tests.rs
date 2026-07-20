@@ -82,21 +82,6 @@ mod tests {
         conversation
     }
 
-    async fn configure_external_memory(store: &noema_store::NoemaStore, base_url: String) {
-        store
-            .save_memory_service_settings(noema_memory::SaveMemoryServiceSettings {
-                mode: noema_memory::MemoryServiceMode::External,
-                base_url: Some(base_url),
-                port: None,
-                provider_account_id: None,
-                provider_kind: None,
-                model_profile: None,
-                reasoning_effort: None,
-            })
-            .await
-            .expect("memory settings");
-    }
-
     async fn schema_with_reasoning_profile() -> (GraphqlSchema, String) {
         use crate::test_support::test_store;
 
@@ -121,19 +106,6 @@ mod tests {
             build_schema(GraphqlState::for_tests_with_store(store)),
             account_id,
         )
-    }
-
-    mod runtime_support {
-        use super::*;
-        include!("schema_tests/runtime_support.rs");
-    }
-
-    use runtime_support::*;
-
-    mod memory {
-        use super::*;
-        include!("schema_tests/memory_graph.rs");
-        include!("schema_tests/memory_article.rs");
     }
 
     mod settings {

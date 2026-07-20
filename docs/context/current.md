@@ -16,7 +16,7 @@ The current product foundation is:
 - one continuously available Noema server with web and desktop shells;
 - SQLite-backed structured state owned exclusively by the server process;
 - Noema-owned Codex OAuth plus first-party local GGUF inference;
-- a managed local Mnemosyne sidecar for memory truth and retrieval;
+- a native local-human Markdown memory tree with rebuildable lexical search;
 - persisted conversations, transcript items, tools, artifacts, approvals, and
   provider/model settings;
 - Work as the durable workspace/project/task and supervised-agent system;
@@ -84,16 +84,19 @@ subagents, reviews, and size measurement.
 
 ### Memory
 
-- Local Mnemosyne owns durable memory facts, extraction, updates, and search
-  indexes under `mnemosyne/data`; Noema does not mirror memory truth in SQLite.
-- Mnemosyne runs as a private managed sidecar. Noema exposes a bounded private
-  model proxy and injects the selected Memory model route.
-- Persisted user messages are the authoritative memory observations. Bounded
-  prior assistant context may disambiguate the current user text but is not an
-  independent memory source. Observation failure never blocks the chat turn.
-- The `/memory` page renders a cached, cited personal article generated from
-  Mnemosyne facts. The browser talks only to Noema GraphQL, never directly to
-  Mnemosyne. Source evidence and provenance remain inspectable.
+- Markdown under `memory/human/` is the only memory authority for `human:local`.
+  Frontmatter owns page metadata and provenance; the filesystem owns hierarchy.
+- `root.md` is bounded to 750 words and enters every ordinary turn. Native page
+  reads and lexical search retrieve deeper detail; their page text is ephemeral
+  while durable tool results retain references and hashes only.
+- Memory updates read one captured range from the primary conversation using
+  its existing `sequence_index`. Completed human text is evidence; assistant
+  text may provide context but is not independent evidence.
+- Context compaction and the Memory-page action schedule the same separate,
+  single-flight background job through the selected Memory model. Publication
+  recovers forward from `.pending`, rebuilds FTS, and advances `.state.md` last.
+- Direct editing, history, private memory, additional scopes, vectors, and
+  migration from the retired service remain outside the first slice.
 
 ### Capabilities, MCP, and artifacts
 
@@ -186,9 +189,8 @@ subagents, reviews, and size measurement.
 - Complete third-party MCP installation/auth management, approval decision
   mutations, and richer audit persistence without reviving deprecated
   transports or implicit approval.
-- Decide whether richer Mnemosyne browsing needs entity, provenance, and history
-  drill-ins, and how extraction failures should surface without transcript
-  marker noise.
+- Evaluate native-memory recall, citation accuracy, page churn, secret-copy
+  behavior, and root growth before adding scopes, vectors, or editing.
 - Decide which export formats ship first and how preview/redaction works.
 - Add signing, notarization, updates, and production distribution after the
   unsigned developer desktop build is stable.

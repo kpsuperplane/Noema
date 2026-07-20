@@ -25,7 +25,7 @@ const settingsSectionCopy: Record<SettingsSection, { title: string; description:
   },
   memory: {
     title: "Memory",
-    description: "Configure the local Mnemosyne service Noema uses for recall."
+    description: "Choose the model used for background updates to native Markdown memory."
   },
   "tools-web": {
     title: "Web",

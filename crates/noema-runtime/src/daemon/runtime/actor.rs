@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock, atomic::AtomicBool};
 
 use noema_capabilities::{CapabilityBindingSourceHandle, CapabilityInvokerRegistration};
 use noema_conversations::{ConversationItemKind, ConversationItemRecord};
@@ -30,7 +30,9 @@ pub(in crate::daemon) struct RuntimeActor {
     pub(in crate::daemon) store: NoemaStore,
     pub(in crate::daemon) artifact_operations: noema_artifacts::ArtifactOperationsHandle,
     pub(in crate::daemon) system_errors: SystemErrorLogger,
-    pub(in crate::daemon) memory_operations: Option<noema_memory::MemoryOperationsHandle>,
+    pub(in crate::daemon) native_memory: Option<noema_memory::NativeMemory>,
+    pub(in crate::daemon) native_memory_update_active: Arc<AtomicBool>,
+    pub(in crate::daemon) native_memory_update_error: Arc<RwLock<Option<String>>>,
     pub(in crate::daemon) web_backends: crate::WebBackendResolverHandle,
     pub(in crate::daemon) capability_bindings: CapabilityBindingSourceHandle,
     pub(in crate::daemon) capability_invokers: Arc<[CapabilityInvokerRegistration]>,
@@ -52,10 +54,6 @@ impl std::fmt::Debug for RuntimeActor {
             .field("store", &self.store)
             .field("artifact_operations", &"[CONFIGURED]")
             .field("system_errors", &self.system_errors)
-            .field(
-                "memory_operations_configured",
-                &self.memory_operations.is_some(),
-            )
             .field("web_backends", &"[CONFIGURED]")
             .field("capability_bindings", &"[CONFIGURED]")
             .field("capability_invokers", &self.capability_invokers.len())
@@ -65,6 +63,21 @@ impl std::fmt::Debug for RuntimeActor {
 }
 
 impl RuntimeActor {
+    pub(super) fn native_memory_context(&self) -> Option<String> {
+        let root = self.native_memory.as_ref()?.read_root().ok()?;
+        let mut rendered = root.body;
+        if !root.children.is_empty() {
+            rendered.push_str("\n\nDirect child pages:\n");
+            for child in root.children {
+                rendered.push_str(&format!(
+                    "- {} ({}, {})\n",
+                    child.title, child.path, child.id
+                ));
+            }
+        }
+        Some(rendered)
+    }
+
     #[cfg(test)]
     pub(in crate::daemon) async fn new(
         default_provider_kind: String,
@@ -88,7 +101,7 @@ impl RuntimeActor {
             store,
             artifact_operations,
             system_errors,
-            memory_operations: None,
+            native_memory: None,
             runtime_events: crate::daemon::RuntimeEventRegistry::default(),
             web_backends,
             capability_bindings,
@@ -107,7 +120,9 @@ impl RuntimeActor {
             store: config.store,
             artifact_operations: config.artifact_operations,
             system_errors: config.system_errors,
-            memory_operations: config.memory_operations,
+            native_memory: config.native_memory,
+            native_memory_update_active: Arc::new(AtomicBool::new(false)),
+            native_memory_update_error: Arc::new(RwLock::new(None)),
             web_backends: config.web_backends,
             capability_bindings: config.capability_bindings,
             capability_invokers: config.capability_invokers,
@@ -144,7 +159,8 @@ impl RuntimeActor {
         &self,
     ) -> Result<ProviderRouteLease, RuntimeError> {
         RegistryProviderRouteResolver::new(
-            noema_memory::memory_provider_selection_loader(Arc::new(self.store.clone())),
+            self.store
+                .auxiliary_provider_selection_loader(noema_store::MEMORY_CONSOLIDATION_TASK_ID),
             Arc::clone(&self.provider_registry),
         )
         .resolve_route()
@@ -163,7 +179,9 @@ impl RuntimeActor {
             store: self.store.clone(),
             artifact_operations: self.artifact_operations.clone(),
             system_errors: self.system_errors.clone(),
-            memory_operations: self.memory_operations.clone(),
+            native_memory: self.native_memory.clone(),
+            native_memory_update_active: Arc::clone(&self.native_memory_update_active),
+            native_memory_update_error: Arc::clone(&self.native_memory_update_error),
             web_backends: self.web_backends.clone(),
             capability_bindings: self.capability_bindings.clone(),
             capability_invokers: self.capability_invokers.clone(),
@@ -330,6 +348,39 @@ impl RuntimeActor {
                             .await;
                         let _ = reply.send(result);
                     });
+                }
+                RuntimeCommand::UpdateNativeMemory {
+                    conversation_id,
+                    reply,
+                } => {
+                    let result = match self
+                        .store
+                        .primary_conversation_for_human("human:local")
+                        .await
+                    {
+                        Ok(Some(primary)) if primary.conversation_id == conversation_id => {
+                            Ok(self.schedule_background_native_memory_update(conversation_id))
+                        }
+                        Ok(_) => Err(RuntimeError::Protocol(
+                            "native memory updates are limited to the primary conversation"
+                                .to_string(),
+                        )),
+                        Err(error) => Err(error.into()),
+                    };
+                    let _ = reply.send(result);
+                }
+                RuntimeCommand::NativeMemoryStatus { reply } => {
+                    let _ = reply.send(Ok(self
+                        .native_memory_update_active
+                        .load(std::sync::atomic::Ordering::Acquire)));
+                }
+                RuntimeCommand::NativeMemoryError { reply } => {
+                    let error = self
+                        .native_memory_update_error
+                        .read()
+                        .ok()
+                        .and_then(|value| value.clone());
+                    let _ = reply.send(Ok(error));
                 }
                 RuntimeCommand::Shutdown { reply } => {
                     shutdown_reply = Some(reply);

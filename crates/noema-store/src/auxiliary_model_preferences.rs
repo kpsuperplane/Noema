@@ -21,10 +21,16 @@ pub const TOOL_PROGRESS_AUDIT_TASK_ID: &str = "tool_progress_audit";
 /// Auxiliary model preference task id for governed action review.
 pub const ACTION_REVIEWER_TASK_ID: &str = "action_reviewer";
 
+/// Auxiliary model preference task id for native Markdown memory updates.
+pub const MEMORY_CONSOLIDATION_TASK_ID: &str = "memory_extraction";
+
 fn supported_auxiliary_model_task_id(task_id: &str) -> bool {
     matches!(
         task_id,
-        WEB_FETCH_SUMMARIZER_TASK_ID | TOOL_PROGRESS_AUDIT_TASK_ID | ACTION_REVIEWER_TASK_ID
+        WEB_FETCH_SUMMARIZER_TASK_ID
+            | TOOL_PROGRESS_AUDIT_TASK_ID
+            | ACTION_REVIEWER_TASK_ID
+            | MEMORY_CONSOLIDATION_TASK_ID
     )
 }
 

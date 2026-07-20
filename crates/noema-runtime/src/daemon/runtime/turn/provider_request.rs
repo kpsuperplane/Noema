@@ -7,6 +7,7 @@ impl RuntimeActor {
         client_message_id: Option<String>,
     ) -> Result<(), RuntimeError> {
         let input = user_input.model_input();
+        let memory_root_context = self.native_memory_context();
         let pre_turn_started_at = std::time::Instant::now();
         let conversation = self
             .hydrate_active_conversation(&conversation_id, None)
@@ -100,6 +101,7 @@ impl RuntimeActor {
                 provider_kind,
                 model_profile,
                 current_input: &input,
+                memory_root_context: memory_root_context.as_deref(),
             })
             .await?;
         let reconciled_model_context_updates = self
@@ -177,24 +179,8 @@ impl RuntimeActor {
             })
             .await?;
         let user_item_id = user_item.item_id.clone();
-        let user_sequence_index = user_item.sequence_index;
         send_conversation_item(&item_tx, user_item, user_metadata, transcript_item);
         timing.mark("runtime_user_item_persisted", json!({}));
-        let _memory_observation_turn_guard = if let UserTurnInput::Text(text) = &user_input {
-            let (turn_finished, await_turn_finished) = TurnCompletionSignal::new();
-            self.enqueue_user_message_memory_observation(
-                &conversation_id,
-                &turn.turn_id,
-                &user_item_id,
-                user_sequence_index,
-                text,
-                await_turn_finished,
-            )
-            .await;
-            Some(turn_finished)
-        } else {
-            None
-        };
         if !planned_context.fits {
             let compaction_started_at = std::time::Instant::now();
             timing.mark("runtime_foreground_compaction_started", json!({}));
@@ -229,6 +215,7 @@ impl RuntimeActor {
                 self.conversations.remove(&conversation_id);
                 return Err(error);
             }
+            self.schedule_background_native_memory_update(conversation_id.clone());
             timing.mark(
                 "runtime_foreground_compaction_finished",
                 json!({
@@ -253,6 +240,7 @@ impl RuntimeActor {
                     provider_kind,
                     model_profile,
                     current_input: &input,
+                    memory_root_context: memory_root_context.as_deref(),
                 },
             )
             .await?;
@@ -333,6 +321,7 @@ impl RuntimeActor {
                         provider_kind,
                         model_profile,
                         current_input: &input,
+                        memory_root_context: memory_root_context.as_deref(),
                     },
                 )
                 .await?;

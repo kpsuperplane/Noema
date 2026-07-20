@@ -63,6 +63,7 @@ tower-http = { version = "0.6.11", features = ["limit", "set-header"] }
 tower-sessions = { version = "0.15.0", default-features = false, features = ["axum-core", "memory-store", "private"] }
 ts-rs = "12.0"
 url = "2.5"
+unicode-segmentation = "1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

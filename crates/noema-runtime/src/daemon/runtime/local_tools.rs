@@ -6,7 +6,6 @@ use noema_capabilities::{
     CapabilityDispatchFailure, CapabilityError, CapabilityFuture, CapabilityInvocation,
     CapabilityInvoker, CapabilityOutput, CapabilityRegistryRouter, CapabilityRouter, InvokerKey,
 };
-use noema_memory::{MemorySearchAuthority, execute_search_memory, is_search_memory_tool};
 use noema_store::GovernedExecutionOutcome;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
@@ -29,7 +28,6 @@ use crate::daemon::{
         ArtifactToolRuntimeContext, execute_artifact_create_local_file,
         is_artifact_create_local_file_tool,
     },
-    memory::context::project_scope_from_cwd,
     task_artifact_tool::{
         TaskArtifactReadContext, execute_task_read_artifact, is_task_read_artifact_tool,
     },
@@ -51,6 +49,10 @@ const PROVIDER_ACCOUNT_UNAUTHENTICATED: &str = "provider account unauthenticated
 
 mod web_actions;
 use web_actions::{insert_web_tool_fallback_metadata, is_provider_account_unauthenticated_payload};
+
+#[path = "native_memory_tools.rs"]
+mod native_memory_tools;
+use native_memory_tools::execute_native_memory_tool;
 
 struct ProviderAuthFailureTarget {
     provider_account_id: String,
@@ -231,25 +233,10 @@ impl RuntimeActor {
         agent_identity: &AgentPromptIdentity,
         call: &LocalToolCall,
     ) -> Result<LocalToolResult, CapabilityError> {
-        let result = if is_search_memory_tool(&call.name) {
-            let authority = MemorySearchAuthority::for_conversation(
-                &turn.conversation_id,
-                project_scope_from_cwd(turn.cwd.as_deref()),
-            );
-            let result = execute_search_memory(
-                self.memory_operations.as_deref(),
-                &authority,
-                call.call_id.clone(),
-                &call.payload,
-            )
-            .await;
-            LocalToolResult::from_call(
-                call,
-                LocalToolKind::Memory,
-                result.success,
-                result.payload,
-                true,
-            )
+        let result = if let Some(result) =
+            execute_native_memory_tool(self.native_memory.as_ref(), call)
+        {
+            result
         } else if is_update_own_name_tool(&call.name) {
             let context = AgentNameToolRuntimeContext {
                 agent_id: agent_identity.agent_id.clone(),

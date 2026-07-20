@@ -2,6 +2,8 @@ mod items;
 mod runtime;
 mod turns;
 
+pub use items::MemoryConversationSourceRange;
+
 pub(crate) use items::load_conversation_item_tx;
 
 use noema_conversations::{ConversationRecord, NewConversation};

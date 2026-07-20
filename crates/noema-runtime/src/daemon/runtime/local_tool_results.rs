@@ -115,13 +115,53 @@ fn local_tool_result_payload(result: &LocalToolResult) -> Value {
 }
 
 pub(super) fn local_tool_result_action_item(result: &LocalToolResult) -> GenerateActionItem {
+    let persisted_payload = if result.kind == LocalToolKind::Memory {
+        if result.name == noema_memory::READ_MEMORY_PAGE_TOOL_NAME {
+            result
+                .payload
+                .get("page")
+                .map(|page| {
+                    json!({
+                        "page_ref": {
+                            "id": page.get("id"),
+                            "path": page.get("path"),
+                            "hash": page.get("hash"),
+                        }
+                    })
+                })
+                .unwrap_or_else(|| json!({"page_ref": null}))
+        } else if result.name == noema_memory::NATIVE_SEARCH_MEMORY_TOOL_NAME {
+            let pages = result
+                .payload
+                .get("pages")
+                .and_then(Value::as_array)
+                .map(|pages| {
+                    pages
+                        .iter()
+                        .map(|page| {
+                            json!({
+                                "id": page.get("id"),
+                                "path": page.get("path"),
+                                "hash": page.get("hash"),
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            json!({"pages": pages})
+        } else {
+            json!({"memory_result": "omitted"})
+        }
+    } else {
+        result.payload.clone()
+    };
     GenerateActionItem::ToolResult {
         call_id: result.call_id.clone(),
         provider_call_id: result.provider_call_id.clone(),
         provider_name: result.provider_name.clone(),
         name: Some(result.name.clone()),
         success: Some(result.success),
-        payload: result.payload.clone(),
+        payload: persisted_payload,
     }
 }
 

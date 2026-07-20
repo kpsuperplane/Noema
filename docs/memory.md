@@ -16,12 +16,19 @@ Current authorities:
 
 Current implementation direction:
 
-- Durable memory truth and retrieval behavior belong to local Mnemosyne.
-- Noema stores only memory service configuration and readiness in SQLite.
-- Noema uses `search_memory` as an explicit tool-only recall path.
-- Noema maps trusted active scopes to Mnemosyne user/run filters where available.
-- Memory transcript markers, `/remember`, graph browsing, and automatic
-  pre-turn recall are not part of the current slice.
+- One Markdown tree under `memory/human/` is the durable memory authority for
+  `human:local`; page frontmatter owns semantic metadata and the filesystem
+  hierarchy owns parent-child structure.
+- The canonical SQLite database stores the selected Memory model and source
+  conversations. A separate SQLite FTS database under `system/indexes/` is a
+  disposable projection rebuilt from Markdown.
+- Every ordinary primary-conversation turn receives the bounded root page.
+  `read_memory_page` and `search_memory` retrieve deeper pages on demand.
+- Context compaction and the explicit Memory-page action schedule a separate,
+  single-flight background update over the primary conversation's existing
+  `sequence_index` order.
+- Direct editing, page history, private memory, additional scopes, and vectors
+  are not part of this slice.
 
 Older broad memory proposals should be treated as historical target context only
 when they agree with the current context and frontend contract above.

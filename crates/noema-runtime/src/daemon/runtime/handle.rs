@@ -32,7 +32,6 @@ struct RuntimeCancellation(CancellationToken);
 struct TestRuntimeServices {
     artifact_operations: noema_artifacts::ArtifactOperationsHandle,
     system_errors: SystemErrorLogger,
-    memory_operations: Option<noema_memory::MemoryOperationsHandle>,
     runtime_events: crate::daemon::RuntimeEventRegistry,
     web_backends: crate::WebBackendResolverHandle,
 }
@@ -45,13 +44,12 @@ impl Drop for RuntimeCancellation {
 
 impl RuntimeHandle {
     #[cfg(test)]
-    pub(crate) async fn spawn_with_provider_map_and_memory(
+    pub(crate) async fn spawn_with_provider_map_and_events(
         default_provider_kind: String,
         providers: HashMap<String, ProviderHandle>,
         store: NoemaStore,
         artifact_operations: noema_artifacts::ArtifactOperationsHandle,
         system_errors: SystemErrorLogger,
-        memory_operations: Option<noema_memory::MemoryOperationsHandle>,
         runtime_events: crate::daemon::RuntimeEventRegistry,
     ) -> Result<Self, RuntimeError> {
         Self::spawn_with_provider_map_inner(
@@ -61,7 +59,6 @@ impl RuntimeHandle {
             TestRuntimeServices {
                 artifact_operations,
                 system_errors,
-                memory_operations,
                 runtime_events,
                 web_backends: crate::test_support::web_backends(),
             },
@@ -70,12 +67,11 @@ impl RuntimeHandle {
     }
 
     #[cfg(test)]
-    pub(crate) async fn spawn_with_provider_registry_and_memory(
+    pub(crate) async fn spawn_with_provider_registry(
         provider_registry: noema_providers::ProviderRegistryHandle,
         store: NoemaStore,
         artifact_operations: noema_artifacts::ArtifactOperationsHandle,
         system_errors: SystemErrorLogger,
-        memory_operations: Option<noema_memory::MemoryOperationsHandle>,
         runtime_events: crate::daemon::RuntimeEventRegistry,
     ) -> Result<Self, RuntimeError> {
         use noema_providers::RegistryProviderRouteResolver;
@@ -105,7 +101,7 @@ impl RuntimeHandle {
             store,
             artifact_operations,
             system_errors,
-            memory_operations,
+            native_memory: None,
             runtime_events,
             web_backends: crate::test_support::web_backends(),
             capability_bindings,
@@ -136,31 +132,6 @@ impl RuntimeHandle {
         store: NoemaStore,
     ) -> Result<Self, RuntimeError> {
         Self::spawn_with_provider_kind(provider, store, "codex").await
-    }
-
-    #[cfg(test)]
-    pub(crate) async fn spawn_with_provider_and_memory(
-        provider: ProviderHandle,
-        store: NoemaStore,
-        memory_operations: Option<noema_memory::MemoryOperationsHandle>,
-    ) -> Result<Self, RuntimeError> {
-        let provider_kind = "codex".to_string();
-        let system_errors = crate::test_support::system_error_logger();
-        let artifact_operations =
-            crate::test_support::artifact_operations(&store).map_err(RuntimeError::Protocol)?;
-        Self::spawn_with_provider_map_inner(
-            provider_kind.clone(),
-            HashMap::from([(provider_kind, provider)]),
-            store,
-            TestRuntimeServices {
-                artifact_operations,
-                system_errors,
-                memory_operations,
-                runtime_events: crate::daemon::RuntimeEventRegistry::default(),
-                web_backends: crate::test_support::web_backends(),
-            },
-        )
-        .await
     }
 
     #[cfg(test)]
@@ -197,7 +168,6 @@ impl RuntimeHandle {
             TestRuntimeServices {
                 artifact_operations,
                 system_errors,
-                memory_operations: None,
                 runtime_events: crate::daemon::RuntimeEventRegistry::default(),
                 web_backends: crate::test_support::web_backends(),
             },
@@ -232,7 +202,7 @@ impl RuntimeHandle {
             store,
             artifact_operations: services.artifact_operations,
             system_errors: services.system_errors,
-            memory_operations: services.memory_operations,
+            native_memory: None,
             runtime_events: services.runtime_events,
             web_backends: services.web_backends,
             capability_bindings,
@@ -366,6 +336,43 @@ impl RuntimeHandle {
             GenerateOnceModelPolicy::ProviderToolClassification,
         )
         .await
+    }
+
+    /// Queue one native-memory update for the local primary conversation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] if the runtime is stopped or rejects the
+    /// requested conversation.
+    pub async fn trigger_native_memory_update(
+        &self,
+        conversation_id: String,
+    ) -> Result<bool, RuntimeError> {
+        self.request(|reply| RuntimeCommand::UpdateNativeMemory {
+            conversation_id,
+            reply,
+        })
+        .await
+    }
+
+    /// Return whether a native memory update is currently active.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] if the runtime is stopped before answering.
+    pub async fn native_memory_update_active(&self) -> Result<bool, RuntimeError> {
+        self.request(|reply| RuntimeCommand::NativeMemoryStatus { reply })
+            .await
+    }
+
+    /// Return the last native-memory update error, if the previous run failed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] if the runtime is stopped before answering.
+    pub async fn native_memory_update_error(&self) -> Result<Option<String>, RuntimeError> {
+        self.request(|reply| RuntimeCommand::NativeMemoryError { reply })
+            .await
     }
 
     async fn send_generate_once(
@@ -511,6 +518,16 @@ pub(super) enum RuntimeCommand {
         human_id: String,
         decision: noema_store::GovernedActionDecision,
         reply: oneshot::Sender<Result<noema_store::GovernedActionRecord, RuntimeError>>,
+    },
+    UpdateNativeMemory {
+        conversation_id: String,
+        reply: oneshot::Sender<Result<bool, RuntimeError>>,
+    },
+    NativeMemoryStatus {
+        reply: oneshot::Sender<Result<bool, RuntimeError>>,
+    },
+    NativeMemoryError {
+        reply: oneshot::Sender<Result<Option<String>, RuntimeError>>,
     },
     Shutdown {
         reply: oneshot::Sender<()>,

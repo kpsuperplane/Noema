@@ -86,21 +86,6 @@ pub(crate) async fn test_store_for_environment(
         .expect("open store")
 }
 
-pub(crate) fn memory_service_access(
-    repository: noema_memory::MemoryRepositoryHandle,
-) -> noema_memory::MemoryServiceAccessHandle {
-    noema_memory::MnemosyneMemoryServiceAccess::new(repository, None).into_handle()
-}
-
-pub(crate) async fn spawn_runtime_with_provider(
-    provider: noema_providers::ProviderHandle,
-    store: noema_store::NoemaStore,
-) -> Result<noema_runtime::RuntimeHandle, noema_runtime::RuntimeError> {
-    let artifacts = artifact_operations(&store).map_err(noema_runtime::RuntimeError::Protocol)?;
-    noema_runtime::contract_test_support::spawn_runtime_with_provider(provider, store, artifacts)
-        .await
-}
-
 pub(crate) async fn spawn_runtime_with_provider_registry(
     provider_registry: noema_providers::ProviderRegistryHandle,
     store: noema_store::NoemaStore,
@@ -130,7 +115,7 @@ pub(crate) async fn spawn_runtime_with_provider_registry(
         store,
         artifact_operations,
         system_errors: noema_home::SystemErrorLogger::new(test_environment().errors_log_path()),
-        memory_operations: None,
+        native_memory: None,
         runtime_events: noema_runtime::RuntimeEventRegistry::default(),
         web_backends: Arc::new(UnavailableWebBackends),
         capability_bindings: Arc::new(EmptyCapabilityBindings),

@@ -23,7 +23,7 @@ use noema_capabilities::{
     CapabilityEffect, CapabilityScope, CapabilityTarget, InvokerKey, RedactingPayloadSanitizer,
     ToolContractError, ToolName, ToolSpec, WebFetchPayloadSanitizer,
 };
-use noema_memory::search_memory_tool_spec;
+use noema_memory::{native_search_memory_tool_spec, read_memory_page_tool_spec};
 use noema_providers::{
     NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderToolCapabilities,
     ProviderToolTransport,
@@ -131,7 +131,9 @@ pub(super) async fn build_model_tools_for_role(
     let mut prompt_kinds = BTreeMap::new();
     for (tool, class) in declared_builtin_tools {
         prompt_kinds.insert(tool.name.as_str().to_string(), ModelToolPromptKind::Builtin);
-        let persistence = if tool.name.as_str() == "artifact.create_local_file" {
+        let persistence = if matches!(tool.name.as_str(), "search_memory" | "read_memory_page") {
+            BindingPersistence::Memory
+        } else if tool.name.as_str() == "artifact.create_local_file" {
             BindingPersistence::Artifact
         } else {
             BindingPersistence::Redacted
@@ -335,7 +337,9 @@ fn builtin_tool_access_class(role: ExecutionRole, name: &str) -> ToolAccessClass
     match name {
         // This tool is read-only and can be safely used by executor/reviewer
         // roles once their scope context is supplied by the task runtime.
-        "search_memory" | TASK_LIST_TOOL | TASK_READ_ARTIFACT_TOOL => ToolAccessClass::ReadOnly,
+        "search_memory" | "read_memory_page" | TASK_LIST_TOOL | TASK_READ_ARTIFACT_TOOL => {
+            ToolAccessClass::ReadOnly
+        }
         "artifact.create_local_file"
             if matches!(
                 role,
@@ -378,7 +382,10 @@ fn capability_access_class(access: CapabilityAccess) -> Option<ToolAccessClass> 
 }
 
 fn builtin_tool_specs(include_agent_name_tool: bool) -> Result<Vec<ToolSpec>, ToolContractError> {
-    let mut specs = vec![search_memory_tool_spec()?];
+    let mut specs = vec![
+        native_search_memory_tool_spec()?,
+        read_memory_page_tool_spec()?,
+    ];
     if include_agent_name_tool {
         specs.push(update_own_name_tool_spec()?);
     }
@@ -446,6 +453,35 @@ enum BindingPersistence {
     Redacted,
     WebFetch,
     Artifact,
+    Memory,
+}
+
+#[derive(Debug, Default)]
+struct NativeMemoryPayloadSanitizer;
+
+impl noema_capabilities::PayloadSanitizer for NativeMemoryPayloadSanitizer {
+    fn persist_arguments(&self, arguments: &serde_json::Value) -> Option<serde_json::Value> {
+        Some(
+            arguments
+                .get("arguments")
+                .cloned()
+                .unwrap_or_else(|| arguments.clone()),
+        )
+    }
+
+    fn persist_output(&self, output: &serde_json::Value) -> Option<serde_json::Value> {
+        if let Some(page) = output.get("page") {
+            return Some(
+                serde_json::json!({"page_ref": {"id": page.get("id"), "path": page.get("path"), "hash": page.get("hash")}}),
+            );
+        }
+        if let Some(pages) = output.get("pages") {
+            return Some(
+                serde_json::json!({"pages": pages.as_array().map(|pages| pages.iter().map(|page| serde_json::json!({"id": page.get("id"), "path": page.get("path"), "hash": page.get("hash")})).collect::<Vec<_>>())}),
+            );
+        }
+        Some(serde_json::json!({"memory_result": "omitted"}))
+    }
 }
 
 fn runtime_binding(
@@ -490,6 +526,7 @@ fn runtime_binding(
         BindingPersistence::Redacted => Arc::new(RedactingPayloadSanitizer),
         BindingPersistence::WebFetch => Arc::new(WebFetchPayloadSanitizer),
         BindingPersistence::Artifact => Arc::new(ArtifactPayloadSanitizer),
+        BindingPersistence::Memory => Arc::new(NativeMemoryPayloadSanitizer),
     };
     CapabilityBinding::new(
         spec,

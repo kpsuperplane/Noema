@@ -147,12 +147,11 @@ async fn activation_assigns_every_current_model_workload_atomically() {
             .iter()
             .all(|entry| entry.model.provider_kind == "local_models")
     );
-    let memory = store
-        .memory_service_settings()
-        .await
-        .expect("memory settings");
-    assert_eq!(memory.provider_kind.as_deref(), Some("local_models"));
-    for task_id in ["tool_progress_audit", "web_fetch_summarizer"] {
+    for task_id in [
+        "tool_progress_audit",
+        "web_fetch_summarizer",
+        "memory_extraction",
+    ] {
         let auxiliary = store
             .get_auxiliary_model_preference(task_id)
             .await

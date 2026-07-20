@@ -15,6 +15,52 @@ const DEFAULT_TRANSCRIPT_PAGE_LIMIT: i64 = 80;
 const MAX_TRANSCRIPT_PAGE_LIMIT: i64 = 200;
 
 impl NoemaStore {
+    /// Capture one finite conversation head and its completed text evidence in
+    /// a single SQLite snapshot. Human text is evidence; assistant text is
+    /// bounded context for the memory model.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the conversation is missing or the snapshot
+    /// query cannot be completed.
+    pub async fn capture_memory_source_range(
+        &self,
+        conversation_id: &str,
+        last_consolidated_sequence: i64,
+    ) -> Result<MemoryConversationSourceRange, StoreError> {
+        self.require_conversation(conversation_id).await?;
+        self.with_connection(|conn| {
+            let captured_head_sequence = conn.query_row(
+                "SELECT COALESCE(MAX(sequence_index), 0) FROM conversation_items WHERE conversation_id = ?1 AND deleted_at IS NULL",
+                [conversation_id],
+                |row| row.get::<_, i64>(0),
+            )?;
+            let rows = collect_conversation_item_rows(
+                conn,
+                r#"
+                WHERE conversation_id = ?1
+                  AND deleted_at IS NULL
+                  AND sequence_index > ?2
+                  AND sequence_index <= ?3
+                  AND status = 'completed'
+                  AND kind IN ('user_text', 'assistant_text')
+                ORDER BY sequence_index ASC
+                "#,
+                params![conversation_id, last_consolidated_sequence, captured_head_sequence],
+            )?;
+            let items = rows
+                .into_iter()
+                .map(conversation_item_from_row)
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(MemoryConversationSourceRange {
+                conversation_id: conversation_id.to_string(),
+                captured_head_sequence,
+                items,
+            })
+        })
+        .await
+    }
+
     /// Append a durable item to a conversation stream.
     ///
     /// # Errors
@@ -353,6 +399,17 @@ impl NoemaStore {
             .await?;
         rows.into_iter().map(conversation_item_from_row).collect()
     }
+}
+
+/// Finite source range captured for one native-memory update.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MemoryConversationSourceRange {
+    /// Conversation id used by the query.
+    pub conversation_id: String,
+    /// Maximum sequence index captured before reading rows.
+    pub captured_head_sequence: i64,
+    /// Completed user and assistant text items in sequence order.
+    pub items: Vec<ConversationItemRecord>,
 }
 
 fn collect_conversation_item_rows<P>(

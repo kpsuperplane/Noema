@@ -112,21 +112,3 @@ jobs:
         working-directory: apps/web
       - name: Verify release assets are embeddable
         run: cargo build -p noema-server --release
-
-  python:
-    name: Python sidecar
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: crates/noema-memory/mnemosyne-sidecar
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: crates/noema-memory/mnemosyne-sidecar/pyproject.toml
-      - run: python -m pip install --upgrade pip
-      - run: python -m pip install --group dev .
-      - run: python -m pytest -q tests

@@ -37,10 +37,6 @@ SELECT provider_instance_key, 'auxiliary_model_preference', task_id
 FROM auxiliary_model_preferences
 WHERE provider_kind = 'local_models'
 UNION ALL
-SELECT provider_instance_key, 'memory_service', NULL
-FROM memory_service_settings
-WHERE provider_kind = 'local_models'
-UNION ALL
 SELECT provider_instance_key, 'task_model_pool', pool_entry_id
 FROM task_model_pool_entries
 WHERE provider_kind = 'local_models' AND enabled = 1
@@ -401,7 +397,6 @@ fn reference_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalModelIns
                 workload: required_source_id(source_id, &source_kind)?,
             }
         }
-        "memory_service" => LocalModelInstanceReferenceSource::MemoryService,
         "task_model_pool" => LocalModelInstanceReferenceSource::TaskModelPool {
             pool_entry_id: required_source_id(source_id, &source_kind)?,
         },

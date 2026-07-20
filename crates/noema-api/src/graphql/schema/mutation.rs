@@ -347,26 +347,21 @@ impl MutationRoot {
         privacy_settings::save_action_reviewer_preference(state, input).await
     }
 
-    /// Save memory service settings.
-    async fn save_memory_service_settings(
+    /// Queue one native Markdown memory update for the local primary conversation.
+    async fn update_memory(&self, ctx: &Context<'_>) -> Result<GraphqlNativeMemoryUpdateResult> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        native_memory::update_memory(state, principal).await
+    }
+
+    /// Save the model preference used by native Markdown memory updates.
+    async fn save_memory_model_preference(
         &self,
         ctx: &Context<'_>,
-        input: GraphqlSaveMemoryServiceSettingsInput,
-    ) -> Result<GraphqlMemorySettings> {
-        let state = ctx.data_unchecked::<GraphqlState>();
-        memory::save_memory_service_settings(state, input).await
-    }
-
-    /// Force regeneration of the AI-written memory article.
-    async fn regenerate_memory_article(&self, ctx: &Context<'_>) -> Result<GraphqlMemoryArticle> {
-        let state = ctx.data_unchecked::<GraphqlState>();
-        memory::regenerate_memory_article(state).await
-    }
-
-    /// Check memory service readiness and persist the sanitized result.
-    async fn check_memory_service(&self, ctx: &Context<'_>) -> Result<GraphqlMemoryServiceStatus> {
-        let state = ctx.data_unchecked::<GraphqlState>();
-        memory::check_memory_service(state).await
+        input: GraphqlSaveMemoryModelPreferenceInput,
+    ) -> Result<GraphqlAgentModelPreference> {
+        native_memory::save_memory_model_preference(ctx.data_unchecked::<GraphqlState>(), input)
+            .await
     }
 
     /// Ensure the primary conversation exists.

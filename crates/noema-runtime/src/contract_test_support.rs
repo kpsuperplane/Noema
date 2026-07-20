@@ -452,7 +452,7 @@ pub async fn spawn_runtime_with_provider(
         store,
         artifact_operations,
         system_errors: isolated_system_error_logger(),
-        memory_operations: None,
+        native_memory: None,
         runtime_events: RuntimeEventRegistry::default(),
         web_backends: test_web_backends(None),
         capability_bindings,

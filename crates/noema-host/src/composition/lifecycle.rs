@@ -2,7 +2,6 @@
 
 use noema_capabilities_mcp::LocalMcpService;
 use noema_home::{SystemErrorEvent, SystemErrorLogger};
-use noema_memory::MnemosyneLifecycle;
 use noema_providers::{LocalModelManager, ProviderAccountService};
 use noema_runtime::{RuntimeHandle, TaskRuntimeHandle};
 
@@ -10,7 +9,6 @@ use noema_runtime::{RuntimeHandle, TaskRuntimeHandle};
 pub(crate) struct StartupResources {
     pub(super) provider_accounts: Option<ProviderAccountService>,
     pub(super) local_models: Option<LocalModelManager>,
-    pub(super) mnemosyne: Option<MnemosyneLifecycle>,
     pub(super) mcp: Option<LocalMcpService>,
     pub(super) runtime: Option<RuntimeHandle>,
     pub(super) task_runtime: Option<TaskRuntimeHandle>,
@@ -22,7 +20,6 @@ impl StartupResources {
         Self {
             provider_accounts: None,
             local_models: None,
-            mnemosyne: None,
             mcp: None,
             runtime: None,
             task_runtime: None,
@@ -42,9 +39,6 @@ impl StartupResources {
         }
         if let Some(runtime) = self.runtime.take() {
             runtime.shutdown().await;
-        }
-        if let Some(mnemosyne) = self.mnemosyne.take() {
-            mnemosyne.shutdown().await;
         }
         if let Some(local_models) = self.local_models.take()
             && let Err(error) = local_models.shutdown().await

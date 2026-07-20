@@ -8,8 +8,7 @@ use crate::{
     agents::BUILTIN_AGENTS,
     provider_selections::{
         CanonicalPreferenceOwner, SelectionEligibility, validate_provider_selection_tx,
-        validate_ready_selection_proof, write_memory_preference_tx, write_preference_tx,
-        write_task_pool_preference_tx,
+        validate_ready_selection_proof, write_preference_tx, write_task_pool_preference_tx,
     },
 };
 
@@ -19,7 +18,11 @@ const TASK_POOL_SETTINGS: [(&str, &str); 3] = [
     ("task_pool:setting:difficult", "difficult"),
 ];
 
-const AUXILIARY_TASKS: [&str; 2] = ["tool_progress_audit", "web_fetch_summarizer"];
+const AUXILIARY_TASKS: [&str; 3] = [
+    "tool_progress_audit",
+    "web_fetch_summarizer",
+    "memory_extraction",
+];
 
 impl NoemaStore {
     /// Fill every absent canonical selection from one ready configured default.
@@ -71,7 +74,6 @@ impl NoemaStore {
             insert_missing_default(transaction, &selection)?;
             insert_missing_agent_preferences(transaction, &selection)?;
             insert_missing_task_pool(transaction, &selection)?;
-            initialize_missing_memory_selection(transaction, &selection)?;
             insert_missing_auxiliary_preferences(transaction, &selection)?;
             Ok(())
         })
@@ -90,16 +92,8 @@ fn canonical_selections_complete(transaction: &Transaction<'_>) -> Result<bool, 
               AND (SELECT COUNT(*) FROM task_model_pool_entries
                    WHERE pool_entry_id IN ('task_pool:setting:simple', 'task_pool:setting:medium',
                                            'task_pool:setting:difficult')) = 3
-              AND EXISTS(
-                SELECT 1 FROM memory_service_settings
-                WHERE settings_id = 'default'
-                  AND provider_kind IS NOT NULL
-                  AND provider_account_id IS NOT NULL
-                  AND provider_instance_key IS NOT NULL
-                  AND model_profile IS NOT NULL
-              )
               AND (SELECT COUNT(*) FROM auxiliary_model_preferences
-                   WHERE task_id IN ('tool_progress_audit', 'web_fetch_summarizer')) = 2
+                   WHERE task_id IN ('tool_progress_audit', 'web_fetch_summarizer', 'memory_extraction')) = 3
             "#,
             [],
             |row| row.get::<_, bool>(0),
@@ -158,13 +152,6 @@ fn insert_missing_task_pool(
         write_task_pool_preference_tx(transaction, pool_entry_id, complexity, selection, false)?;
     }
     Ok(())
-}
-
-fn initialize_missing_memory_selection(
-    transaction: &Transaction<'_>,
-    selection: &ProviderSelectionSnapshot,
-) -> Result<(), StoreError> {
-    write_memory_preference_tx(transaction, selection, false)
 }
 
 fn insert_missing_auxiliary_preferences(
@@ -335,14 +322,6 @@ mod tests {
                 .expect("initialized auxiliary")
                 .provider_instance_key,
             expected_key
-        );
-        assert_eq!(
-            store
-                .memory_service_settings()
-                .await
-                .expect("memory settings")
-                .provider_instance_key,
-            Some(expected_key.clone())
         );
         let pool = store
             .list_task_model_pool_settings(None)

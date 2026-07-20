@@ -1,6 +1,5 @@
 //! Local development supervisor for Noema web mode.
 
-mod mnemosyne;
 mod workflow;
 
 use std::{
@@ -21,11 +20,8 @@ use tokio::{
 const WEB_ASSET_WATCH_SCRIPT: &str = "dev:assets";
 const DEV_RUST_TARGET_DIR: &str = "target/noema-dev";
 const WEB_SERVER_WATCH_COMMAND: &str = "run -p noema-server --bin noema_web --features dev-no-auth";
-const WEB_SERVER_WATCH_IGNORE_GLOBS: [&str; 3] = [
-    "apps/web/**",
-    "crates/noema-memory/mnemosyne-sidecar/**",
-    "crates/noema-server/target/web-assets/**",
-];
+const WEB_SERVER_WATCH_IGNORE_GLOBS: [&str; 2] =
+    ["apps/web/**", "crates/noema-server/target/web-assets/**"];
 
 #[derive(Debug, Error)]
 enum DevError {
@@ -49,15 +45,6 @@ enum DevError {
         label: &'static str,
         status: ExitStatus,
     },
-
-    #[error("failed to install dev Mnemosyne sidecar: {source}")]
-    InstallMnemosyne { source: io::Error },
-
-    #[error("dev Mnemosyne sidecar installer exited with status {status}")]
-    MnemosyneInstallerExited { status: ExitStatus },
-
-    #[error("Python 3.10 or newer is required for the Mnemosyne sidecar")]
-    MissingMnemosynePython,
 
     #[error("failed to install dev shutdown signal handler: {source}")]
     ShutdownSignal { source: io::Error },
@@ -91,10 +78,8 @@ async fn run_development() -> Result<(), DevError> {
     workflow::prepare_development(&repo_root).await?;
     let web_dir = repo_root.join("apps/web");
 
-    let mnemosyne_sidecar_command = mnemosyne::ensure_dev_sidecar(&repo_root).await?;
-
     let mut web = spawn_web_watcher(&web_dir)?;
-    let mut server = spawn_web_server_watcher(&repo_root, mnemosyne_sidecar_command.as_deref())?;
+    let mut server = spawn_web_server_watcher(&repo_root)?;
     let mut bridge = spawn_bridge_watcher(&repo_root)?;
 
     eprintln!("Noema dev supervisor started");
@@ -182,21 +167,14 @@ fn spawn_web_watcher(web_dir: &Path) -> Result<Child, DevError> {
     spawn_dev_process("web asset watcher", &mut command, web_dir)
 }
 
-fn spawn_web_server_watcher(
-    repo_root: &Path,
-    mnemosyne_sidecar_command: Option<&str>,
-) -> Result<Child, DevError> {
+fn spawn_web_server_watcher(repo_root: &Path) -> Result<Child, DevError> {
     let mut command = Command::new(cargo_exe());
-    configure_web_server_watcher(&mut command, repo_root, mnemosyne_sidecar_command);
+    configure_web_server_watcher(&mut command, repo_root);
 
     spawn_dev_process("web server watcher", &mut command, repo_root)
 }
 
-fn configure_web_server_watcher(
-    command: &mut Command,
-    repo_root: &Path,
-    mnemosyne_sidecar_command: Option<&str>,
-) {
+fn configure_web_server_watcher(command: &mut Command, repo_root: &Path) {
     command
         .arg("watch")
         .arg("-w")
@@ -214,9 +192,6 @@ fn configure_web_server_watcher(
     command.env("CARGO_TARGET_DIR", dev_rust_target_dir(repo_root));
     command.env("CARGO_INCREMENTAL", "1");
     command.env("NOEMA_WEB__HOST", "0.0.0.0");
-    if let Some(mnemosyne_sidecar_command) = mnemosyne_sidecar_command {
-        command.env(mnemosyne::SIDECAR_COMMAND_ENV, mnemosyne_sidecar_command);
-    }
 }
 
 fn dev_rust_target_dir(repo_root: &Path) -> PathBuf {
@@ -366,18 +341,14 @@ mod tests {
     fn server_watcher_ignores_web_sources_and_generated_assets() {
         assert_eq!(
             WEB_SERVER_WATCH_IGNORE_GLOBS,
-            [
-                "apps/web/**",
-                "crates/noema-memory/mnemosyne-sidecar/**",
-                "crates/noema-server/target/web-assets/**",
-            ]
+            ["apps/web/**", "crates/noema-server/target/web-assets/**",]
         );
     }
 
     #[test]
     fn server_watcher_restores_incremental_compilation() {
         let mut command = Command::new("cargo");
-        configure_web_server_watcher(&mut command, Path::new("/workspace"), None);
+        configure_web_server_watcher(&mut command, Path::new("/workspace"));
 
         assert_eq!(
             command

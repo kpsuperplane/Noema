@@ -16,22 +16,13 @@ use noema_runtime::{
     WebBackendRequest, WebBackendResolver, WebBackendResolverError,
 };
 
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use noema_capabilities_mcp::{
     FilesystemMcpSecretStore, LocalMcpService, LocalMcpServiceConfig, McpHttpAuthorizationHandle,
     McpRepositoryHandle, McpSessionFactoryHandle, McpSessionFactoryRouter, StdioMcpSessionFactory,
     StreamableHttpMcpSessionFactory, SystemErrorMcpDiagnostics,
 };
-use noema_home::{
-    NoemaHomeInitOptions, NoemaPaths, SystemErrorEvent, SystemErrorLogger, init_noema_home,
-};
-#[cfg(test)]
-use noema_memory::SaveMemoryServiceSettings;
-use noema_memory::{
-    MemoryModelProxy, MemoryModelProxyConfig, MemoryRepositoryHandle, MemoryServiceMode,
-    MemoryServicePaths, MnemosyneLifecycle, MnemosyneMemoryService, MnemosyneMemoryServiceAccess,
-    memory_provider_selection_loader,
-};
+use noema_home::{NoemaHomeInitOptions, NoemaPaths, SystemErrorLogger, init_noema_home};
+use noema_memory::NativeMemory;
 use noema_providers::{
     CodexProviderConfig, DEFAULT_FOUNDATION_LOCAL_PROFILE, EXA_FETCH_PROVIDER_ID,
     EXA_SEARCH_PROVIDER_ID, ExaFetchClient, ExaSearchClient, FoundationLocalProviderConfig,
@@ -44,7 +35,6 @@ use noema_providers::{
     default_web_search_backend, hosted_provider_from_config, provider_account_instance_key,
     provider_bootstrap_from_config,
 };
-use ring::rand::{SecureRandom, SystemRandom};
 use std::sync::Arc;
 
 pub(crate) async fn start_from_process_env_with_local_model_runtime_root(
@@ -237,103 +227,21 @@ async fn assemble_services(
             ready_configured_default.as_ref(),
         )
         .await?;
-    let memory_repository: MemoryRepositoryHandle = Arc::new(store.clone());
-    let memory_settings = store.memory_service_settings().await?;
-    let external_memory_connection = (memory_settings.mode == MemoryServiceMode::External)
-        .then(|| {
-            memory_settings
-                .base_url
-                .clone()
-                .map(|base_url| noema_memory::MnemosyneConnection::new(base_url, None))
-        })
-        .flatten();
-    let mut managed_memory_connection = None;
-    let mut memory_startup_error = None;
-    let memory_model_proxy = match memory_settings.mode {
-        MemoryServiceMode::External => None,
-        MemoryServiceMode::Managed => {
-            let proxy = async {
-                let mut bytes = [0_u8; 32];
-                SystemRandom::new()
-                    .fill(&mut bytes)
-                    .map_err(|_| "could not generate memory model proxy API key".to_string())?;
-                let api_key = format!("noema-memory-{}", URL_SAFE_NO_PAD.encode(bytes));
-                let config = memory_model_proxy_config_from_settings(
-                    provider_registry.clone(),
-                    memory_repository.clone(),
-                    api_key,
-                    system_errors.clone(),
-                )
-                .await?;
-                MemoryModelProxy::start(config)
-                    .await
-                    .map_err(|error| error.to_string())
-            }
-            .await;
-            match proxy {
-                Ok(proxy) => Some(proxy),
-                Err(error) => {
-                    memory_startup_error = Some(error.clone());
-                    system_errors.try_append(
-                        SystemErrorEvent::new(
-                            "memory_model_proxy_unavailable",
-                            "Memory model proxy is unavailable",
-                        )
-                        .with_error_chain([error]),
-                    );
-                    None
-                }
-            }
-        }
-    };
-
-    let memory_paths = MemoryServicePaths::from_noema_root(paths.root());
-    let mnemosyne = if memory_settings.mode == MemoryServiceMode::Managed
-        && memory_model_proxy.is_none()
-        && memory_startup_error.is_some()
-    {
-        None
-    } else {
-        match MnemosyneLifecycle::start(
-            &memory_paths.data_dir(),
-            &memory_paths.runtime_dir(),
-            &memory_settings,
-            system_errors.clone(),
-            memory_model_proxy,
-        )
-        .await
-        {
-            Ok(lifecycle) => {
-                if let Some(connection) = lifecycle.connection().cloned() {
-                    managed_memory_connection = Some(connection);
-                }
-                Some(lifecycle)
-            }
-            Err(error) => {
-                memory_startup_error = Some(error.to_string());
-                system_errors.try_append(
-                    SystemErrorEvent::new(
-                        "mnemosyne_lifecycle_unavailable",
-                        "Mnemosyne lifecycle is unavailable",
-                    )
-                    .with_error_chain([error.to_string()]),
-                );
-                None
-            }
-        }
-    };
-    if let Some(mnemosyne) = mnemosyne {
-        resources.mnemosyne = Some(mnemosyne);
+    let old_memory_root = paths.root().join("mnemosyne");
+    if old_memory_root.exists() {
+        std::fs::remove_dir_all(&old_memory_root).map_err(|error| {
+            RuntimeHostError::Composition(format!(
+                "could not remove old mnemosyne directory: {error}"
+            ))
+        })?;
     }
-    let memory_service_access = MnemosyneMemoryServiceAccess::new(
-        memory_repository.clone(),
-        managed_memory_connection.clone(),
-    )
-    .into_handle();
-    let runtime_memory_operations = managed_memory_connection
-        .or(external_memory_connection)
-        .map(|connection| MnemosyneMemoryService::from_connection(Some(connection)).into_handle());
-
+    let native_memory = NativeMemory::new(
+        paths.root().join("memory/human"),
+        paths.root().join("system/indexes/memory.sqlite3"),
+    );
+    native_memory.initialize().map_err(|error| {
+        RuntimeHostError::Composition(format!("native memory startup failed: {error}"))
+    })?;
     let runtime_events = RuntimeEventRegistry::default();
     let artifact_metadata: noema_artifacts::ArtifactMetadataStoreHandle =
         std::sync::Arc::new(store.clone());
@@ -400,7 +308,7 @@ async fn assemble_services(
         store: store.clone(),
         artifact_operations: artifact_operations.clone(),
         system_errors: system_errors.clone(),
-        memory_operations: runtime_memory_operations,
+        native_memory: Some(native_memory.clone()),
         runtime_events: runtime_events.clone(),
         web_backends,
         capability_bindings: mcp_service.binding_source(),
@@ -433,42 +341,13 @@ async fn assemble_services(
         mcp_operations,
         local_model_manager: local_model_manager.clone(),
         provider_registry,
-        memory_repository,
-        memory_service_access,
         onboarding,
-        memory_startup_error,
+        native_memory,
         runtime_events,
     };
     let web_config = config.web().clone();
 
     Ok((services, web_config))
-}
-
-async fn memory_model_proxy_config_from_settings(
-    provider_registry: ProviderRegistryHandle,
-    memory_repository: MemoryRepositoryHandle,
-    api_key: String,
-    system_errors: SystemErrorLogger,
-) -> Result<MemoryModelProxyConfig, String> {
-    let settings = memory_repository
-        .memory_service_settings()
-        .await
-        .map_err(|error| format!("memory model settings are unavailable: {error}"))?;
-    let selection = noema_memory::memory_provider_selection(&settings)
-        .map_err(|error| format!("memory model selection is unavailable: {error}"))?;
-    let route_resolver = registry_route_resolver(
-        memory_provider_selection_loader(memory_repository),
-        provider_registry,
-    );
-    let model_profile = selection
-        .model_profile
-        .ok_or_else(|| "memory model selection has no model profile".to_string())?;
-    Ok(MemoryModelProxyConfig {
-        route_resolver,
-        api_key,
-        model_profile,
-        system_errors: Some(system_errors),
-    })
 }
 
 fn registry_route_resolver(

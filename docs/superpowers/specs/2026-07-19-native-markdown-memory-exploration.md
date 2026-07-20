@@ -2,10 +2,9 @@
 
 ## Status
 
-This is the durable working proposal for replacing Mnemosyne with native
-Markdown memory. It is not yet approved architecture. Approval of this proposal
-authorizes a memory-specific exception to the current storage contract and a
-destructive, migration-free cutover from Mnemosyne.
+This is the approved first-slice contract for replacing Mnemosyne with native
+Markdown memory. It authorizes a memory-specific exception to the previous
+storage contract and a destructive, migration-free cutover from Mnemosyne.
 
 ## First-Slice Contract
 

@@ -12,8 +12,7 @@ use super::{
     local_model_rows::{INSTALLATION_SELECT, installation_from_raw, raw_installation_from_row},
     local_models::append_event,
     provider_selections::{
-        CanonicalPreferenceOwner, write_memory_preference_tx, write_preference_tx,
-        write_task_pool_preference_tx,
+        CanonicalPreferenceOwner, write_preference_tx, write_task_pool_preference_tx,
     },
 };
 
@@ -103,7 +102,6 @@ impl NoemaStore {
             )?;
             save_agent_preferences(transaction, selection)?;
             save_task_pool_preferences(transaction, selection)?;
-            write_memory_preference_tx(transaction, selection, true)?;
             save_auxiliary_preferences(transaction, selection)?;
             append_event(
                 transaction,
@@ -216,7 +214,11 @@ fn save_auxiliary_preferences(
     transaction: &Transaction<'_>,
     selection: &noema_providers::ProviderSelectionSnapshot,
 ) -> Result<(), StoreError> {
-    for task_id in ["tool_progress_audit", "web_fetch_summarizer"] {
+    for task_id in [
+        "tool_progress_audit",
+        "web_fetch_summarizer",
+        "memory_extraction",
+    ] {
         write_preference_tx(
             transaction,
             CanonicalPreferenceOwner::Auxiliary(task_id),

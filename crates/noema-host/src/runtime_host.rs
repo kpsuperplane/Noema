@@ -5,7 +5,7 @@ use std::sync::Arc;
 use noema_capabilities_mcp::McpControlPlaneHandle;
 #[cfg(feature = "composition")]
 use noema_home::{SystemErrorEvent, SystemErrorLogger};
-use noema_memory::{MemoryRepositoryHandle, MemoryServiceAccessHandle};
+use noema_memory::NativeMemory;
 use noema_providers::{LocalModelManager, ProviderAccountOperationsHandle, ProviderRegistryHandle};
 use noema_runtime::{RuntimeEventRegistry, RuntimeHandle};
 use noema_store::NoemaStore;
@@ -44,14 +44,10 @@ pub struct HostServices {
     pub local_model_manager: LocalModelManager,
     /// Exact provider-instance registry.
     pub provider_registry: ProviderRegistryHandle,
-    /// Memory settings and article repository.
-    pub memory_repository: MemoryRepositoryHandle,
-    /// Request-scoped memory service access.
-    pub memory_service_access: MemoryServiceAccessHandle,
+    /// Native Markdown memory tree handle shared by runtime and API.
+    pub native_memory: NativeMemory,
     /// Cross-subsystem onboarding operations.
     pub onboarding: OnboardingService,
-    /// Managed memory startup detail, when startup degraded.
-    pub memory_startup_error: Option<String>,
     /// Transport-neutral runtime event registry.
     pub runtime_events: RuntimeEventRegistry,
 }

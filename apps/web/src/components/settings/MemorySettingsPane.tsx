@@ -1,12 +1,10 @@
 import { useMutation, useQuery } from "@apollo/client/react";
 import {
-  CheckMemoryServiceDocument,
   MemorySettingsDocument,
-  SaveMemoryServiceSettingsDocument,
-  type CheckMemoryServiceMutation,
+  SaveMemoryModelPreferenceDocument,
   type MemorySettingsQuery,
-  type SaveMemoryServiceSettingsMutation,
-  type SaveMemoryServiceSettingsMutationVariables
+  type SaveMemoryModelPreferenceMutation,
+  type SaveMemoryModelPreferenceMutationVariables
 } from "@/generated/graphql";
 import { MemorySettingsPaneContent } from "./MemorySettingsPaneContent";
 
@@ -16,20 +14,13 @@ export function MemorySettingsPane() {
   const settingsResult = useQuery<MemorySettingsQuery>(MemorySettingsDocument, {
     fetchPolicy: "cache-and-network"
   });
-  const [saveSettings, saveResult] = useMutation<
-    SaveMemoryServiceSettingsMutation,
-    SaveMemoryServiceSettingsMutationVariables
-  >(SaveMemoryServiceSettingsDocument, {
+  const [savePreference, saveResult] = useMutation<
+    SaveMemoryModelPreferenceMutation,
+    SaveMemoryModelPreferenceMutationVariables
+  >(SaveMemoryModelPreferenceDocument, {
     refetchQueries: [{ query: MemorySettingsDocument }],
     awaitRefetchQueries: true
   });
-  const [checkService, checkResult] = useMutation<CheckMemoryServiceMutation>(
-    CheckMemoryServiceDocument,
-    {
-      refetchQueries: [{ query: MemorySettingsDocument }],
-      awaitRefetchQueries: true
-    }
-  );
 
   return (
     <MemorySettingsPaneContent
@@ -37,10 +28,18 @@ export function MemorySettingsPane() {
       loading={settingsResult.loading && !settingsResult.data}
       error={settingsResult.error?.message ?? null}
       saving={saveResult.loading}
-      checking={checkResult.loading}
       saveError={saveResult.error?.message ?? null}
-      onSave={(input) => saveSettings({ variables: { input } })}
-      onCheck={() => checkService()}
+      onSave={(input) =>
+        savePreference({
+          variables: {
+            input: {
+              providerAccountId: input.providerAccountId,
+              modelProfile: input.modelProfile,
+              reasoningEffort: input.reasoningEffort ?? null
+            }
+          }
+        })
+      }
     />
   );
 }

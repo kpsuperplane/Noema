@@ -983,6 +983,62 @@ enum GovernedActionState {
 	CANCELLED
 }
 
+type GraphqlNativeMemoryPage {
+	id: String!
+	path: String!
+	title: String!
+	body: String!
+	hash: String!
+	parent: String
+	children: [GraphqlNativeMemoryPageRef!]!
+}
+
+type GraphqlNativeMemoryPageRef {
+	id: String!
+	path: String!
+	title: String!
+	hash: String!
+}
+
+type GraphqlNativeMemorySearchResult {
+	id: String!
+	path: String!
+	title: String!
+	snippet: String!
+	hash: String!
+}
+
+type GraphqlNativeMemorySettings {
+	modelPreference: AgentModelPreference
+	modelOptions: [AgentModelProviderOption!]!
+}
+
+type GraphqlNativeMemoryTree {
+	root: GraphqlNativeMemoryPage
+	pendingCount: Int!
+	updateStatus: GraphqlNativeMemoryUpdateStatus!
+}
+
+type GraphqlNativeMemoryUpdateResult {
+	accepted: Boolean!
+	status: GraphqlNativeMemoryUpdateStatus!
+}
+
+type GraphqlNativeMemoryUpdateStatus {
+	state: String!
+	active: Boolean!
+	lastConsolidatedSequence: Int!
+	lastConsolidatedItem: String
+	error: String
+	updatedAt: String
+}
+
+input GraphqlSaveMemoryModelPreferenceInput {
+	providerAccountId: String!
+	modelProfile: String!
+	reasoningEffort: ReasoningEffort
+}
+
 """
 Import a public GGUF or a GGUF already on this machine.
 """
@@ -1647,357 +1703,19 @@ type McpTool {
 }
 
 """
-AI-written article describing the local human memory record.
-"""
-type MemoryArticle {
-	"""
-	Article title.
-	"""
-	title: String!
-	"""
-	Article subtitle.
-	"""
-	subtitle: String!
-	"""
-	Markdown body for the article.
-	"""
-	markdown: String!
-	"""
-	Whether a model generated this article.
-	"""
-	isGenerated: Boolean!
-	"""
-	Article generation timestamp.
-	"""
-	generatedAt: String
-}
-
-"""
-Memory graph response for the local human.
-"""
-type MemoryGraph {
-	"""
-	Memory service availability for this request.
-	"""
-	status: MemoryServiceStatus!
-	"""
-	AI-written article describing the local human from memory facts.
-	"""
-	article: MemoryArticle!
-	"""
-	Documents and memory entries in the graph.
-	"""
-	documents: [MemoryGraphDocument!]!
-	"""
-	Pagination metadata.
-	"""
-	pageInfo: MemoryGraphPageInfo!
-}
-
-"""
-One document displayed in the memory graph.
-"""
-type MemoryGraphDocument {
-	"""
-	Memory document/group id.
-	"""
-	id: String!
-	"""
-	Caller supplied document id.
-	"""
-	customId: String
-	"""
-	Document title.
-	"""
-	title: String
-	"""
-	Document content.
-	"""
-	content: String
-	"""
-	Document summary.
-	"""
-	summary: String
-	"""
-	Source URL.
-	"""
-	url: String
-	"""
-	Source label.
-	"""
-	source: String
-	"""
-	Memory document/group type.
-	"""
-	type: String
-	"""
-	Memory document/group status.
-	"""
-	status: String!
-	"""
-	Document metadata.
-	"""
-	metadata: JSON
-	"""
-	Creation timestamp.
-	"""
-	createdAt: String!
-	"""
-	Update timestamp.
-	"""
-	updatedAt: String!
-	"""
-	Memory entries extracted from the document.
-	"""
-	memoryEntries: [MemoryGraphMemoryEntry!]!
-}
-
-"""
-Input for reading the human memory graph.
-"""
-input MemoryGraphInput {
-	"""
-	One-based document page.
-	"""
-	page: Int
-	"""
-	Maximum document count.
-	"""
-	limit: Int
-}
-
-"""
-One memory entry displayed in the memory graph.
-"""
-type MemoryGraphMemoryEntry {
-	"""
-	Memory entry id.
-	"""
-	id: String!
-	"""
-	Stable key used by generated article footnotes to cite this memory.
-	"""
-	citationKey: String!
-	"""
-	Source document id.
-	"""
-	documentId: String!
-	"""
-	Memory content.
-	"""
-	content: String
-	"""
-	Memory summary.
-	"""
-	summary: String
-	"""
-	Memory title.
-	"""
-	title: String
-	"""
-	Memory type.
-	"""
-	type: String
-	"""
-	Noema source observation that produced this memory, when known.
-	"""
-	source: MemoryGraphMemorySource
-	"""
-	Memory metadata.
-	"""
-	metadata: JSON
-	"""
-	Creation timestamp.
-	"""
-	createdAt: String!
-	"""
-	Update timestamp.
-	"""
-	updatedAt: String!
-	"""
-	Memory scope tag.
-	"""
-	spaceContainerTag: String
-	"""
-	Relationship to another memory.
-	"""
-	relation: String
-	"""
-	Parent memory id when available.
-	"""
-	parentMemoryId: String
-	"""
-	Root memory id for the memory graph branch.
-	"""
-	rootMemoryId: String
-	"""
-	Memory relation map keyed by target memory id.
-	"""
-	memoryRelations: JSON
-	"""
-	Whether this is the latest memory.
-	"""
-	isLatest: Boolean
-	"""
-	Memory space id.
-	"""
-	spaceId: String
-}
-
-"""
-Noema provenance for a memory entry.
-"""
-type MemoryGraphMemorySource {
-	"""
-	Source kind recorded by Noema.
-	"""
-	kind: String
-	"""
-	Durable Noema conversation id, when known.
-	"""
-	conversationId: String
-	"""
-	Durable Noema turn id, when known.
-	"""
-	turnId: String
-	"""
-	Durable Noema conversation item id, when known.
-	"""
-	itemId: String
-	"""
-	Exact persisted user message text when available, otherwise the stored source observation.
-	"""
-	messageText: String
-}
-
-"""
-Memory graph pagination metadata.
-"""
-type MemoryGraphPageInfo {
-	"""
-	One-based document page.
-	"""
-	page: Int!
-	"""
-	Requested document limit.
-	"""
-	limit: Int!
-	"""
-	Whether more documents are available.
-	"""
-	hasMore: Boolean!
-	"""
-	Total memory count when returned by the memory service.
-	"""
-	total: Int
-}
-
-"""
-Memory service operating mode.
-"""
-enum MemoryServiceMode {
-	"""
-	Noema manages a local memory service.
-	"""
-	MANAGED
-	"""
-	Noema connects to an externally managed memory service.
-	"""
-	EXTERNAL
-}
-
-"""
-Memory service readiness exposed to Settings.
-"""
-type MemoryServiceStatus {
-	"""
-	Current readiness status.
-	"""
-	status: MemoryServiceStatusKind!
-	"""
-	Last readiness check timestamp.
-	"""
-	checkedAt: String
-	"""
-	Sanitized last error code.
-	"""
-	lastErrorCode: String
-	"""
-	Sanitized last error message.
-	"""
-	lastErrorMessage: String
-}
-
-"""
-Memory service readiness status kind.
-"""
-enum MemoryServiceStatusKind {
-	"""
-	Service configuration has not been checked.
-	"""
-	NOT_CONFIGURED
-	"""
-	Managed service startup is in progress.
-	"""
-	STARTING
-	"""
-	Service is reachable and ready.
-	"""
-	READY
-	"""
-	Service is not reachable.
-	"""
-	UNAVAILABLE
-	"""
-	Service authentication failed.
-	"""
-	AUTH_ERROR
-}
-
-"""
-Memory service settings exposed to Settings.
-"""
-type MemorySettings {
-	"""
-	Memory service mode.
-	"""
-	mode: MemoryServiceMode!
-	"""
-	External memory service base URL.
-	"""
-	baseUrl: String
-	"""
-	External service port, when configured.
-	"""
-	port: Int
-	"""
-	Current readiness status.
-	"""
-	status: MemoryServiceStatus!
-	"""
-	Current persisted extraction model preference, when configured.
-	"""
-	modelPreference: AgentModelPreference
-	"""
-	Provider/profile options available for memory extraction.
-	"""
-	modelOptions: [AgentModelProviderOption!]!
-}
-
-"""
 Memory storage readiness shown by clients.
 """
 enum MemoryStorageStatus {
 	"""
-	The local memory service is ready.
+	The local Markdown memory tree is ready.
 	"""
 	READY
 	"""
-	The local memory service is initializing.
+	The local Markdown memory tree is initializing.
 	"""
 	INITIALIZING
 	"""
-	Memory service writes and retrieval are not available yet.
+	Markdown memory writes and retrieval are not available yet.
 	"""
 	UNAVAILABLE
 }
@@ -2200,17 +1918,13 @@ type MutationRoot {
 	"""
 	saveActionReviewerPreference(input: SaveActionReviewerPreferenceInput!): AgentModelPreference!
 	"""
-	Save memory service settings.
+	Queue one native Markdown memory update for the local primary conversation.
 	"""
-	saveMemoryServiceSettings(input: SaveMemoryServiceSettingsInput!): MemorySettings!
+	updateMemory: GraphqlNativeMemoryUpdateResult!
 	"""
-	Force regeneration of the AI-written memory article.
+	Save the model preference used by native Markdown memory updates.
 	"""
-	regenerateMemoryArticle: MemoryArticle!
-	"""
-	Check memory service readiness and persist the sanitized result.
-	"""
-	checkMemoryService: MemoryServiceStatus!
+	saveMemoryModelPreference(input: GraphqlSaveMemoryModelPreferenceInput!): AgentModelPreference!
 	"""
 	Ensure the primary conversation exists.
 	"""
@@ -2786,13 +2500,21 @@ type QueryRoot {
 	"""
 	mcpOauthSetupAttempt(attemptId: String!): McpOAuthSetupAttempt
 	"""
-	Return memory service settings and readiness status.
+	Return the native memory model preference and selectable options.
 	"""
-	memorySettings: MemorySettings!
+	memorySettings: GraphqlNativeMemorySettings!
 	"""
-	Return graph documents for the local human memory scope.
+	Return the canonical native Markdown memory tree.
 	"""
-	memoryGraph(input: MemoryGraphInput): MemoryGraph!
+	memoryTree: GraphqlNativeMemoryTree!
+	"""
+	Read one native Markdown memory page.
+	"""
+	memoryPage(pageId: String!): GraphqlNativeMemoryPage
+	"""
+	Search native Markdown memory and return snippets/page references.
+	"""
+	searchMemory(query: String!, limit: Int): [GraphqlNativeMemorySearchResult!]!
 	"""
 	Return the primary conversation identity without creating it or replaying transcript.
 	"""
@@ -3023,36 +2745,6 @@ input SaveDefaultModelPreferenceInput {
 	Optional provider-specific reasoning effort.
 	"""
 	reasoningEffort: String
-}
-
-"""
-Input for saving memory service settings.
-"""
-input SaveMemoryServiceSettingsInput {
-	"""
-	Memory service mode.
-	"""
-	mode: MemoryServiceMode!
-	"""
-	External memory service base URL.
-	"""
-	baseUrl: String
-	"""
-	External service port, when configured.
-	"""
-	port: Int
-	"""
-	Provider account id to use for memory extraction.
-	"""
-	providerAccountId: String
-	"""
-	Provider-specific model id or profile id.
-	"""
-	modelProfile: String
-	"""
-	Optional explicit reasoning effort for reasoning-capable model profiles.
-	"""
-	reasoningEffort: ReasoningEffort
 }
 
 """

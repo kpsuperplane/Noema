@@ -23,7 +23,6 @@ NOEMA_HOME=.noema-dev cargo dev
 
 - Rust and Cargo
 - Bun for frontend dependency installation and builds
-- Python 3.10 or newer for the managed Mnemosyne sidecar
 - For macOS desktop builds: Xcode (including its command-line tools) and the
   Cargo Tauri CLI
 - A provider account for chat:
@@ -40,11 +39,12 @@ local HTTP server.
 
 `noema-host` owns configuration, startup, composition, and dependency-ordered
 shutdown. During startup it uses `noema-home` to initialize `${NOEMA_HOME}`,
-composes the SQLite-backed `noema-store`, starts the `noema-memory` Mnemosyne
-adapter, and assembles provider and capability implementations. SQLite lives at
-`${NOEMA_HOME:-$HOME/.noema}/db/noema.sqlite3`, local Mnemosyne state lives under
-`${NOEMA_HOME:-$HOME/.noema}/mnemosyne/`, and provider credential material lives
-under `${NOEMA_HOME:-$HOME/.noema}/providers/<provider>/<account>/`.
+composes the SQLite-backed `noema-store`, starts the native `noema-memory`
+subsystem, and assembles provider and capability implementations. SQLite lives
+at `${NOEMA_HOME:-$HOME/.noema}/db/noema.sqlite3`, canonical human memory lives
+under `${NOEMA_HOME:-$HOME/.noema}/memory/human/`, its rebuildable FTS index
+lives under `system/indexes/`, and provider credential material lives under
+`${NOEMA_HOME:-$HOME/.noema}/providers/<provider>/<account>/`.
 
 ## Configuration
 
@@ -201,12 +201,8 @@ Then, from the repository root:
 cd crates/noema-desktop && bun run build:no-bundle
 ```
 
-The current desktop bundle is developer-only, not a clean-machine
-self-contained release: managed Mnemosyne still launches through an ambient
-Python 3.10+ installation, requires its dependencies to be installed in that
-interpreter, and uses the source-tree sidecar directory. The desktop bundle does
-not provision that environment; an explicit sidecar command is the current
-alternative.
+The current desktop bundle is developer-only; signing, notarization, updates,
+and clean-machine distribution validation remain future release work.
 
 Use the Rust desktop crate for desktop-side validation:
 
@@ -226,7 +222,7 @@ crates/noema-capabilities/    Provider-neutral capability and tool contracts
   mcp/                        MCP contracts and optional local transport adapter
 crates/noema-providers/       Provider contracts, adapters, and local GGUF models
 crates/noema-tasks/           Task, run, submission, and review domain contracts
-crates/noema-memory/          Memory contracts and local Mnemosyne adapter
+crates/noema-memory/          Native Markdown memory and derived search
 crates/noema-store/           SQLite persistence and persistence read models
 crates/noema-runtime/         Governed, transport-neutral agent execution
 crates/noema-host/            Configuration, composition, startup, and shutdown

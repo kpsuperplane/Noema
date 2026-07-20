@@ -22,12 +22,12 @@ pub enum GraphqlAssistantConnection {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Enum)]
 #[graphql(name = "MemoryStorageStatus")]
 pub enum GraphqlMemoryStorageStatus {
-    /// The local memory service is ready.
+    /// The local Markdown memory tree is ready.
     #[default]
     Ready,
-    /// The local memory service is initializing.
+    /// The local Markdown memory tree is initializing.
     Initializing,
-    /// Memory service writes and retrieval are not available yet.
+    /// Markdown memory writes and retrieval are not available yet.
     Unavailable,
 }
 

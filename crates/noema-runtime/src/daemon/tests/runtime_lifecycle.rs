@@ -76,7 +76,7 @@ async fn notification_delivery_waits_for_foreground_turn_and_publishes_exact_ite
     let events = crate::daemon::RuntimeEventRegistry::default();
     let mut conversation_events = events.subscribe_conversation(&conversation.conversation_id);
     let mut work_events = events.subscribe_work("workspace:personal");
-    let runtime = RuntimeHandle::spawn_with_provider_map_and_memory(
+    let runtime = RuntimeHandle::spawn_with_provider_map_and_events(
         "codex".to_string(),
         HashMap::from([(
             "codex".to_string(),
@@ -85,7 +85,6 @@ async fn notification_delivery_waits_for_foreground_turn_and_publishes_exact_ite
         store.clone(),
         crate::test_support::artifact_operations(&store).expect("artifact operations"),
         crate::test_support::system_error_logger(),
-        None,
         events,
     )
     .await
@@ -342,12 +341,11 @@ async fn background_task_pins_local_provider_generation_across_replacement() {
             old_provider.clone() as noema_providers::ProviderHandle,
         )
         .expect("register old provider");
-    let runtime = RuntimeHandle::spawn_with_provider_registry_and_memory(
+    let runtime = RuntimeHandle::spawn_with_provider_registry(
         provider_registry.clone(),
         store.clone(),
         crate::test_support::artifact_operations(&store).expect("artifact operations"),
         crate::test_support::system_error_logger(),
-        None,
         crate::daemon::RuntimeEventRegistry::default(),
     )
     .await

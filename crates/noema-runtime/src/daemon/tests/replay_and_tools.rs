@@ -223,62 +223,6 @@ async fn runtime_actor_persists_provider_tool_items_before_turn_failure() {
 }
 
 #[tokio::test]
-async fn runtime_displays_commentary_before_tool_lifecycle_when_provider_orders_tool_first() {
-    let (handle, _store, _server) = test_runtime_handle_with_mnemosyne(
-        fake_provider(FakeCodexScenario::ToolCallBeforeCommentary),
-        Arc::new(RecordingMemoryOperations::default()),
-    )
-    .await;
-    let conversation_id = handle
-        .start_conversation(None)
-        .await
-        .expect("conversation")
-        .conversation_id;
-
-    let items = collect_turn(&handle, conversation_id, "Check memory.".to_string())
-        .await
-        .expect("turn");
-    handle.shutdown().await;
-
-    let commentary_position = items
-        .iter()
-        .position(|item| {
-            matches!(item, TurnTranscriptItem::AssistantText { text } if text == "Checking memory.")
-        })
-        .expect("commentary item");
-    let tool_started_position = items
-        .iter()
-        .position(|item| matches!(
-            item,
-            TurnTranscriptItem::Activity {
-                activity_kind,
-                status: TurnActivityStatus::Started,
-                title,
-                metadata,
-                ..
-            } if activity_kind == "tool_call"
-                && title == "Tool call: search_memory"
-                && metadata.get("provider").and_then(serde_json::Value::as_str) == Some("noema_local")
-        ))
-        .expect("tool started item");
-    let tool_result_position = items
-        .iter()
-        .position(|item| matches!(
-            item,
-            TurnTranscriptItem::Activity {
-                activity_kind,
-                status: TurnActivityStatus::Completed,
-                title,
-                ..
-            } if activity_kind == "tool_result" && title == "Tool result: search_memory"
-        ))
-        .expect("tool result item");
-
-    assert!(commentary_position < tool_started_position, "{items:?}");
-    assert!(tool_started_position < tool_result_position, "{items:?}");
-}
-
-#[tokio::test]
 async fn runtime_executes_every_homogeneous_delegation_and_writes_truthful_receipt() {
     let (handle, store) = test_runtime_handle_with_task_delegation(fake_provider(
         FakeCodexScenario::MultipleTaskDelegation,

@@ -27,14 +27,6 @@ pub(crate) async fn test_store() -> noema_store::NoemaStore {
         .expect("open ephemeral store")
 }
 
-pub(crate) async fn test_store_for_paths(
-    paths: &noema_home::NoemaPaths,
-) -> noema_store::NoemaStore {
-    noema_store::NoemaStore::open(&noema_store::StoreConfig::new(paths.sqlite_db_path()))
-        .await
-        .expect("open store")
-}
-
 pub(crate) fn provider_route(
     mut selection: noema_providers::ProviderSelectionSnapshot,
     provider: noema_providers::ProviderHandle,

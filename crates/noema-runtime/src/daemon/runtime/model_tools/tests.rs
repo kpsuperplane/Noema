@@ -3,9 +3,49 @@ use std::sync::{Arc, RwLock};
 use super::*;
 use noema_capabilities::{
     CapabilityBindingSource, CapabilityCatalogResult, CapabilityFuture, OmitPayloadSanitizer,
+    PayloadSanitizer,
 };
 use noema_providers::{ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport};
 use serde_json::json;
+
+#[test]
+fn native_memory_payload_persistence_omits_page_bodies_and_search_snippets() {
+    let sanitizer = NativeMemoryPayloadSanitizer;
+    assert_eq!(
+        sanitizer.persist_output(&json!({
+            "page": {
+                "id": "memory:human:people.md",
+                "path": "people.md",
+                "hash": "abc",
+                "body": "private page body"
+            }
+        })),
+        Some(json!({
+            "page_ref": {
+                "id": "memory:human:people.md",
+                "path": "people.md",
+                "hash": "abc"
+            }
+        }))
+    );
+    assert_eq!(
+        sanitizer.persist_output(&json!({
+            "pages": [{
+                "id": "memory:human:people.md",
+                "path": "people.md",
+                "hash": "abc",
+                "snippet": "private search excerpt"
+            }]
+        })),
+        Some(json!({
+            "pages": [{
+                "id": "memory:human:people.md",
+                "path": "people.md",
+                "hash": "abc"
+            }]
+        }))
+    );
+}
 
 #[derive(Clone, Default)]
 struct TestCapabilityBindingSource {
@@ -242,6 +282,7 @@ async fn complete_catalog_is_stable_for_native_and_envelope_transports() {
                 .collect::<Vec<_>>(),
             vec![
                 "search_memory",
+                "read_memory_page",
                 "update_own_name",
                 "artifact.create_local_file",
                 "task.capture",

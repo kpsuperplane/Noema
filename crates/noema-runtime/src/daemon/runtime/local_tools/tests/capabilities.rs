@@ -1,3 +1,41 @@
+#[test]
+fn persisted_native_memory_search_keeps_references_but_omits_snippets() {
+    let result = super::LocalToolResult {
+        call_id: Some("call-1".into()),
+        provider_call_id: None,
+        provider_name: None,
+        name: noema_memory::NATIVE_SEARCH_MEMORY_TOOL_NAME.into(),
+        arguments: json!({"query": "Alice"}),
+        persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
+        success: true,
+        payload: json!({
+            "pages": [{
+                "id": "memory:human:people.md",
+                "path": "people.md",
+                "title": "People",
+                "hash": "abc",
+                "snippet": "private search excerpt"
+            }]
+        }),
+        requires_provider_continuation: true,
+        blocked_action_id: None,
+        kind: super::LocalToolKind::Memory,
+    };
+    let GenerateActionItem::ToolResult { payload, .. } =
+        super::local_tool_result_action_item(&result)
+    else {
+        panic!("expected tool result");
+    };
+    assert_eq!(
+        payload,
+        json!({"pages": [{
+            "id": "memory:human:people.md",
+            "path": "people.md",
+            "hash": "abc"
+        }]})
+    );
+}
+
 #[tokio::test]
 async fn injected_capability_invoker_receives_the_opaque_advertised_target() {
     let mut actor = test_actor().await;

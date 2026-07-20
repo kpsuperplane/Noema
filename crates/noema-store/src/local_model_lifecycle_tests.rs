@@ -52,7 +52,6 @@ async fn reconstruction_snapshot_contains_canonical_and_future_reference_owners(
         LocalModelInstanceReferenceSource::AuxiliaryModelPreference {
             workload: "web_fetch_summarizer".to_string(),
         },
-        LocalModelInstanceReferenceSource::MemoryService,
         LocalModelInstanceReferenceSource::TaskModelPool {
             pool_entry_id: "task_pool:setting:simple".to_string(),
         },
