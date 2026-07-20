@@ -296,6 +296,7 @@ fn publish_committed(subscriptions: &RuntimeEventRegistry, context: &WorkRunExec
     let task_id = context.task.task_id.to_string();
     subscriptions.publish_task(TaskRuntimeEvent::Changed {
         task_id: task_id.clone(),
+        run_id: None,
     });
     subscriptions.publish_work(WorkRuntimeEvent::Committed {
         workspace_id: context.task.workspace_id.to_string(),

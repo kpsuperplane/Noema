@@ -348,6 +348,7 @@ impl RuntimeActor {
                 self.runtime_events
                     .publish_task(crate::daemon::TaskRuntimeEvent::Changed {
                         task_id: task_id.to_string(),
+                        run_id: None,
                     });
                 self.runtime_events
                     .publish_work(crate::daemon::WorkRuntimeEvent::Committed {

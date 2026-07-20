@@ -35,6 +35,8 @@ pub enum TaskRuntimeEvent {
     Changed {
         /// Durable task identifier.
         task_id: String,
+        /// Run whose transcript changed, when the event came from a run item write.
+        run_id: Option<String>,
     },
 }
 
@@ -107,7 +109,7 @@ impl RuntimeEventRegistry {
     /// Publish one task detail update.
     pub fn publish_task(&self, event: TaskRuntimeEvent) {
         let task_id = match &event {
-            TaskRuntimeEvent::Changed { task_id } => task_id,
+            TaskRuntimeEvent::Changed { task_id, .. } => task_id,
         };
         let _ = self.task_sender(task_id).send(event);
     }
@@ -209,10 +211,11 @@ mod tests {
 
         registry.publish_task(TaskRuntimeEvent::Changed {
             task_id: "task_1".to_string(),
+            run_id: None,
         });
 
         assert!(
-            matches!(receiver.recv().await, Ok(TaskRuntimeEvent::Changed { task_id }) if task_id == "task_1")
+            matches!(receiver.recv().await, Ok(TaskRuntimeEvent::Changed { task_id, run_id }) if task_id == "task_1" && run_id.is_none())
         );
 
         let mut receiver = registry.subscribe_work("workspace:personal");

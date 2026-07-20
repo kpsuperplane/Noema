@@ -298,6 +298,7 @@ export const WorkTaskRuntimeEventsDocument = gql`
   subscription WorkTaskRuntimeEvents($taskId: String!) {
     taskRuntimeEvents(taskId: $taskId) {
       taskId
+      runId
     }
   }
 `;

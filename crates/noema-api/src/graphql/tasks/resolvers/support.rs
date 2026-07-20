@@ -60,6 +60,7 @@ pub(crate) async fn execute_command(
             .subscriptions()
             .publish_task(noema_runtime::TaskRuntimeEvent::Changed {
                 task_id: task_id.to_string(),
+                run_id: None,
             });
     }
     Ok(committed)

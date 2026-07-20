@@ -533,6 +533,7 @@ async fn reconcile_one(
                 .subscriptions
                 .publish_task(TaskRuntimeEvent::Changed {
                     task_id: task_id.to_string(),
+                    run_id: None,
                 });
             if let Some(task) = result.task.as_ref() {
                 services
@@ -556,6 +557,7 @@ async fn reconcile_one(
 fn publish_task_changed(subscriptions: &RuntimeEventRegistry, task_id: &noema_tasks::TaskId) {
     subscriptions.publish_task(TaskRuntimeEvent::Changed {
         task_id: task_id.to_string(),
+        run_id: None,
     });
 }
 

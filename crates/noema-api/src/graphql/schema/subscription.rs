@@ -14,6 +14,7 @@ use noema_workspaces::WorkspaceId;
 #[derive(Clone, async_graphql::SimpleObject)]
 struct GraphqlTaskRuntimeEvent {
     task_id: String,
+    run_id: Option<String>,
 }
 
 pub struct SubscriptionRoot;
@@ -157,8 +158,8 @@ impl SubscriptionRoot {
         Ok(async_stream::stream! {
             loop {
                 match receiver.recv().await {
-                    Ok(noema_runtime::TaskRuntimeEvent::Changed { task_id }) => {
-                        yield Ok(GraphqlTaskRuntimeEvent { task_id });
+                    Ok(noema_runtime::TaskRuntimeEvent::Changed { task_id, run_id }) => {
+                        yield Ok(GraphqlTaskRuntimeEvent { task_id, run_id });
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,

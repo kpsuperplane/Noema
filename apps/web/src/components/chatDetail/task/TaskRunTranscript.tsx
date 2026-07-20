@@ -27,15 +27,15 @@ export function TaskRunTranscriptSource({
   liveItems = EMPTY_RUN_ITEMS,
   onSnapshot,
   onLatestRunItemChange,
-  refreshToken = 0
+  refreshEvent
 }: {
   run: TaskRun;
   liveItems?: readonly TaskRunItem[];
   onSnapshot: (runId: string, snapshot: TaskRunTranscriptSnapshot) => void;
   onLatestRunItemChange?: (runId: string, item: TaskRunItem | null) => void;
-  refreshToken?: number;
+  refreshEvent?: { runId: string; sequence: number } | null;
 }) {
-  const data = useTaskRunTranscriptData(run, liveItems, refreshToken);
+  const data = useTaskRunTranscriptData(run, liveItems, refreshEvent);
 
   React.useEffect(() => {
     onSnapshot(run.id, {
@@ -53,16 +53,39 @@ export function TaskRunTranscriptSource({
   return null;
 }
 
-function useTaskRunTranscriptData(run: TaskRun, liveItems: readonly TaskRunItem[], refreshToken: number) {
+function useTaskRunTranscriptData(
+  run: TaskRun,
+  liveItems: readonly TaskRunItem[],
+  refreshEvent: { runId: string; sequence: number } | null | undefined
+) {
   const runId = run.id;
   const role = run.role;
   const { data, error, fetchMore, refetch } = useQuery(WorkTaskRunItemsDocument, {
     fetchPolicy: "cache-and-network",
     variables: { runId, first: 50 }
   });
+  const refetchInFlight = React.useRef(false);
+  const refetchPending = React.useRef(false);
+  const refresh = React.useCallback(() => {
+    const run = () => {
+      if (refetchInFlight.current) {
+        refetchPending.current = true;
+        return;
+      }
+      refetchInFlight.current = true;
+      void refetch().finally(() => {
+        refetchInFlight.current = false;
+        if (refetchPending.current) {
+          refetchPending.current = false;
+          run();
+        }
+      });
+    };
+    run();
+  }, [refetch]);
   React.useEffect(() => {
-    if (refreshToken > 0) void refetch();
-  }, [refreshToken, refetch]);
+    if (refreshEvent?.runId === runId) refresh();
+  }, [refresh, refreshEvent, runId]);
   const [olderItems, setOlderItems] = React.useState<readonly TaskRunItem[]>([]);
   const [pageInfoOverride, setPageInfoOverride] = React.useState<{
     endCursor: string | null;

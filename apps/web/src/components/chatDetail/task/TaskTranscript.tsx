@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useSubscription } from "@apollo/client/react";
 import * as stylex from "@stylexjs/stylex";
-import { WorkTaskRuntimeEventsDocument } from "@/graphql/workOperations";
+import { WorkTaskRuntimeEventsDocument } from "@/generated/graphql";
 import { Transcript } from "@/components/Transcript";
 import type { TranscriptEntry } from "@/shared/types";
 import {
@@ -30,10 +30,21 @@ export function TaskTranscript({
   onLatestRunItemChange?: (runId: string, item: import("./taskTypes").TaskRunItem | null) => void;
 }) {
   const runs = React.useMemo(() => taskRunsInOrder(detail.revisions), [detail.revisions]);
-  const [refreshToken, setRefreshToken] = React.useState(0);
+  const [refreshEvent, setRefreshEvent] = React.useState<{
+    runId: string;
+    sequence: number;
+  } | null>(null);
   useSubscription(WorkTaskRuntimeEventsDocument, {
     variables: { taskId: detail.taskId },
-    onData: () => setRefreshToken((previous) => previous + 1)
+    onData: ({ data }) => {
+      const runId = data.data?.taskRuntimeEvents.runId;
+      if (runId) {
+        setRefreshEvent((previous) => ({
+          runId,
+          sequence: (previous?.sequence ?? 0) + 1
+        }));
+      }
+    }
   });
   const [snapshots, setSnapshots] = React.useState<ReadonlyMap<string, TaskRunTranscriptSnapshot>>(
     () => new Map()
@@ -144,7 +155,7 @@ export function TaskTranscript({
           liveItems={liveRunItems?.get(run.run.id)}
           onSnapshot={onSnapshot}
           onLatestRunItemChange={onLatestRunItemChange}
-          refreshToken={refreshToken}
+          refreshEvent={refreshEvent}
           run={run.run}
         />
       ))}

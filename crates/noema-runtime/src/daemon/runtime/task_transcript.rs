@@ -92,6 +92,7 @@ impl RuntimeActor {
                             {
                                 subscriptions_for_writer.publish_task(TaskRuntimeEvent::Changed {
                                     task_id: task_id_for_writer.clone(),
+                                    run_id: Some(run_id_for_writer.clone()),
                                 });
                             }
                         }
@@ -113,6 +114,7 @@ impl RuntimeActor {
                 {
                     subscriptions_for_writer.publish_task(TaskRuntimeEvent::Changed {
                         task_id: task_id_for_writer.clone(),
+                        run_id: Some(run_id_for_writer.clone()),
                     });
                 }
             }
@@ -195,6 +197,7 @@ impl RuntimeActor {
                 .await?;
             subscriptions.publish_task(TaskRuntimeEvent::Changed {
                 task_id: task_id.to_string(),
+                run_id: Some(run_id.to_string()),
             });
             if !saw_assistant_delta.load(Ordering::Relaxed) {
                 let assistant_text = response.assistant_text();
@@ -261,9 +264,11 @@ impl RuntimeActor {
         item: NewAgentRunItem,
         fence: &WorkRunFence,
     ) {
+        let run_id = item.run_id.clone();
         if self.store.append_agent_run_item(item, fence).await.is_ok() {
             subscriptions.publish_task(TaskRuntimeEvent::Changed {
                 task_id: task_id.to_string(),
+                run_id: Some(run_id),
             });
         }
     }

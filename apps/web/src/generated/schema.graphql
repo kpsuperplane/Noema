@@ -1059,6 +1059,7 @@ input GraphqlSaveMemoryModelPreferenceInput {
 
 type GraphqlTaskRuntimeEvent {
 	taskId: String!
+	runId: String
 }
 
 """
