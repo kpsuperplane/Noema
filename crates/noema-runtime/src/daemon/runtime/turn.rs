@@ -42,7 +42,7 @@ use super::{
     progress_audit::{
         ProgressAuditDecision, ProgressAuditError, build_no_tools_finalization_prompt,
     },
-    tool_lifecycle::{LocalToolCall, local_tool_calls},
+    tool_lifecycle::{LocalToolCall, local_tool_calls, single_tool_display_description},
     transcript_persistence::{
         assistant_response_stream_id, assistant_stream_id, handle_provider_stream_event,
         send_conversation_item,

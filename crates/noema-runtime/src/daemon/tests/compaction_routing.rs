@@ -432,6 +432,10 @@ async fn runtime_turn_streams_tool_call_started_before_durable_response_items() 
         .iter()
         .position(|item| item.kind == ConversationItemKind::ToolCall)
         .expect("durable tool item");
+    assert_eq!(
+        replay[durable_tool].payload_json["metadata"]["display"]["description"],
+        "Searching memory."
+    );
     assert!(
         durable_assistant < durable_tool,
         "replay should keep durable commentary before durable tool execution: {replay:?}"

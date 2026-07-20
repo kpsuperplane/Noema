@@ -60,6 +60,10 @@ impl RuntimeActor {
         .await?;
         let mut initial_assistant_response = ProviderAssistantResponse::default();
         let initial_tool_calls = local_tool_calls(&turn.response.tool_calls);
+        let initial_tool_description = single_tool_display_description(
+            &turn.response.responses,
+            initial_tool_calls.len(),
+        );
         let initial_batch_kind = ForegroundToolBatchKind::for_calls(&initial_tool_calls);
         let initial_phase_has_tools = !initial_tool_calls.is_empty();
         if !initial_batch_kind.contains_delegation() {
@@ -112,6 +116,7 @@ impl RuntimeActor {
                 &local_action_turn,
                 initial_response_count + call.output_index,
                 call,
+                initial_tool_description.as_deref(),
                 item_tx,
             )
             .await?;

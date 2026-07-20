@@ -6,10 +6,7 @@ export function toolMarkerPending(marker: ToolMarkerGroup): boolean {
 }
 
 export function toolMarkerLabel(marker: ToolMarkerGroup): string {
-  const toolName =
-    firstPartyToolMarkerName(marker) ??
-    toolNameFromMetadata(marker.call?.item.metadata) ??
-    toolNameFromMetadata(marker.result?.item.metadata);
+  const toolName = toolMarkerIdentity(marker);
   if (toolName) {
     if (marker.call && !marker.result && marker.call.item.status === "STARTED") {
       return `Using ${toolName}`;
@@ -20,16 +17,21 @@ export function toolMarkerLabel(marker: ToolMarkerGroup): string {
 }
 
 export function toolMarkerName(marker: ToolMarkerGroup): string {
-  const firstPartyName = firstPartyToolMarkerName(marker);
-  if (firstPartyName) {
-    return firstPartyName;
+  const description = toolDisplayString(marker.call?.item.metadata, "description");
+  if (description) {
+    return description;
   }
+  return toolMarkerIdentity(marker) ?? "Tool activity";
+}
+
+function toolMarkerIdentity(marker: ToolMarkerGroup): string | null {
   return (
+    firstPartyToolMarkerName(marker) ??
     toolNameFromMetadata(marker.call?.item.metadata) ??
     toolNameFromMetadata(marker.result?.item.metadata) ??
     marker.call?.item.title ??
     marker.result?.item.title ??
-    "Tool activity"
+    null
   );
 }
 
@@ -42,15 +44,16 @@ export function formatToolDetail(fallback: string, metadata: unknown): string {
 }
 
 export function toolDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] {
+  const identityRows = toolIdentityDetailRows(marker);
   const completeRows = completeToolDetailRows(marker);
   if (completeRows) {
-    return completeRows;
+    return dedupeToolDetailRows([...identityRows, ...completeRows]);
   }
   if (isSuccessfulWebSearchMarker(marker) || isSuccessfulWebFetchMarker(marker)) {
-    return webFallbackDetailRows(marker);
+    return dedupeToolDetailRows([...identityRows, ...webFallbackDetailRows(marker)]);
   }
 
-  const rows: ToolDetailRowData[] = [];
+  const rows: ToolDetailRowData[] = [...identityRows];
   const call = marker.call?.item;
   const result = marker.result?.item;
 
@@ -65,6 +68,12 @@ export function toolDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] {
   }
 
   return dedupeToolDetailRows(rows);
+}
+
+function toolIdentityDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] {
+  const description = toolDisplayString(marker.call?.item.metadata, "description");
+  const identity = toolMarkerIdentity(marker);
+  return description && identity && description !== identity ? [{ label: "Tool", value: identity }] : [];
 }
 
 function completeToolDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] | null {

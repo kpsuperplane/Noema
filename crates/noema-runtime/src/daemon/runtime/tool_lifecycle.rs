@@ -1,5 +1,7 @@
 use noema_capabilities::web::fetch::{WEB_FETCH_TOOL, sanitize_payload_for_storage};
-use noema_providers::{GenerateActionItem, GenerateToolCall};
+use noema_providers::{
+    AssistantTextPhase, GenerateActionItem, GenerateResponseItem, GenerateToolCall,
+};
 use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -41,6 +43,34 @@ pub(super) fn tool_call_action_item(call: &LocalToolCall) -> GenerateActionItem 
     }
 }
 
+pub(super) fn single_tool_display_description(
+    responses: &[GenerateResponseItem],
+    tool_call_count: usize,
+) -> Option<String> {
+    if tool_call_count != 1 {
+        return None;
+    }
+
+    let description = responses
+        .iter()
+        .filter_map(|response| match response {
+            GenerateResponseItem::Text {
+                phase: None | Some(AssistantTextPhase::Commentary),
+                text,
+            } => Some(text.as_str()),
+            GenerateResponseItem::Text {
+                phase: Some(AssistantTextPhase::FinalAnswer),
+                ..
+            }
+            | GenerateResponseItem::MultipleChoice { .. }
+            | GenerateResponseItem::Structured { .. } => None,
+        })
+        .flat_map(str::split_whitespace)
+        .collect::<Vec<_>>()
+        .join(" ");
+    (!description.is_empty()).then_some(description)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -67,5 +97,25 @@ mod tests {
             noema_capabilities::web::fetch::REDACTED_SENSITIVE_URL
         );
         assert_eq!(calls[0].payload["__noema_rejected_sensitive_url"], true);
+    }
+
+    #[test]
+    fn tool_description_requires_one_unambiguous_call() {
+        let responses = vec![
+            GenerateResponseItem::Text {
+                phase: Some(AssistantTextPhase::Commentary),
+                text: "  Searching memory\nfor the launch date.  ".to_string(),
+            },
+            GenerateResponseItem::Text {
+                phase: Some(AssistantTextPhase::FinalAnswer),
+                text: "This must not label a pending call.".to_string(),
+            },
+        ];
+
+        assert_eq!(
+            single_tool_display_description(&responses, 1).as_deref(),
+            Some("Searching memory for the launch date.")
+        );
+        assert_eq!(single_tool_display_description(&responses, 2), None);
     }
 }

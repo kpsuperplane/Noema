@@ -444,6 +444,10 @@ impl RuntimeActor {
                 }
             }
             let continuation_phase_has_tools = !continuation_tool_calls.is_empty();
+            let continuation_tool_description = single_tool_display_description(
+                &continuation_response.responses,
+                continuation_response.tool_calls.len(),
+            );
             if !continuation_batch_kind.contains_delegation() {
                 for (offset, response_item) in
                     continuation_response.responses.iter().cloned().enumerate()
@@ -530,6 +534,7 @@ impl RuntimeActor {
                     &local_action_turn,
                     continuation_output_base + continuation_response_count + call.output_index,
                     call,
+                    continuation_tool_description.as_deref(),
                     item_tx,
                 )
                 .await?;

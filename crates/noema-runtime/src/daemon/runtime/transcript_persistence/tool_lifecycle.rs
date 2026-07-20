@@ -4,6 +4,7 @@ impl RuntimeActor {
         turn: &ProviderActionTurn,
         index: usize,
         call: &LocalToolCall,
+        display_description: Option<&str>,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), RuntimeError> {
         let GenerateActionItem::ToolCall {
@@ -16,7 +17,12 @@ impl RuntimeActor {
         else {
             return Ok(());
         };
-        let display = tool_call_display(&name, &payload);
+        let mut display = tool_call_display(&name, &payload);
+        insert_display_value(
+            &mut display,
+            "description",
+            display_description.map(ToString::to_string),
+        );
         self.persist_provider_action_output(
             turn,
             ProviderActionOutput {

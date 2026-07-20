@@ -113,6 +113,9 @@ Current behavior:
   history.
 - `conversation_items` include user text, assistant text, durable activity rows,
   A2UI cards, tool calls/results, approvals, and meaningful errors.
+- When one provider phase has exactly one tool call, its commentary may label
+  the compact tool marker; multi-call phases keep individual tool labels, and
+  the exact tool identity remains available in the marker disclosure.
 
 ## Memory Frontend Contract
 
