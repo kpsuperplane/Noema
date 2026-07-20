@@ -25,6 +25,10 @@ body {
   background: var(--surface-page);
 }
 
+div[role="dialog"]:has(> .astryx-popover) {
+  border: 1px solid var(--noema-border-subtle);
+}
+
 button,
 .astryx-date-input,
 .astryx-date-range-input,
