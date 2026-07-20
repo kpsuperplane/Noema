@@ -1,9 +1,11 @@
 import * as React from "react";
+import { IconButton } from "@astryxdesign/core/IconButton";
 import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import { Popover } from "@astryxdesign/core/Popover";
 import * as stylex from "@stylexjs/stylex";
-import { Info } from "lucide-react";
-import type { TaskDetail, TaskRunItem } from "./taskTypes";
+import { ExternalLink, Info } from "lucide-react";
+import { IdentityAvatar } from "@/components/IdentityAvatar";
+import type { TaskDetail, TaskRun, TaskRunItem } from "./taskTypes";
 import { TaskCriteria } from "./TaskCriteria";
 import { taskStageLabel } from "./TaskOverview";
 import { TaskTranscript } from "./TaskTranscript";
@@ -18,18 +20,37 @@ export function TaskDetailPanel({
   liveRunItems,
   inlineResponse = false,
   actions,
-  governedActions
+  governedActions,
+  showWorkLink = false
 }: {
   taskId: string;
   detail?: TaskDetail | null;
   loading?: boolean;
   error?: string | null;
   liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
+  showWorkLink?: boolean;
   inlineResponse?: boolean;
   actions?: React.ReactNode;
   governedActions?: React.ReactNode;
 }) {
   const currentDetail = detail?.taskId === taskId ? detail : null;
+  const [latestRunItems, setLatestRunItems] = React.useState<ReadonlyMap<string, TaskRunItem>>(
+    () => new Map()
+  );
+  const onLatestRunItemChange = React.useCallback((runId: string, item: TaskRunItem | null) => {
+    setLatestRunItems((previous) => {
+      if (!item) {
+        if (!previous.has(runId)) return previous;
+        const next = new Map(previous);
+        next.delete(runId);
+        return next;
+      }
+      if (previous.get(runId) === item) return previous;
+      const next = new Map(previous);
+      next.set(runId, item);
+      return next;
+    });
+  }, []);
 
   if (loading && !currentDetail) {
     return (
@@ -52,7 +73,11 @@ export function TaskDetailPanel({
     <div data-slot="task-detail-view-viewport" {...stylex.props(styles.viewport)}>
       <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root)}>
         <div {...stylex.props(styles.transcriptRegion)}>
-          <TaskTranscript detail={currentDetail} liveRunItems={liveRunItems} />
+          <TaskTranscript
+            detail={currentDetail}
+            liveRunItems={liveRunItems}
+            onLatestRunItemChange={onLatestRunItemChange}
+          />
         </div>
         <TaskContextCard
           key={`context:${taskId}:${currentDetail.attention ? "attention" : "info"}`}
@@ -60,6 +85,9 @@ export function TaskDetailPanel({
           detail={currentDetail}
           governedActions={governedActions}
           inlineResponse={inlineResponse}
+          latestRunItems={latestRunItems}
+          showWorkLink={showWorkLink}
+          taskId={taskId}
         />
       </div>
     </div>
@@ -70,17 +98,28 @@ function TaskContextCard({
   detail,
   actions,
   governedActions,
-  inlineResponse
+  inlineResponse,
+  latestRunItems,
+  showWorkLink,
+  taskId
 }: {
+  taskId: string;
   detail: TaskDetail;
   actions?: React.ReactNode;
   governedActions?: React.ReactNode;
   inlineResponse: boolean;
+  latestRunItems: ReadonlyMap<string, TaskRunItem>;
+  showWorkLink: boolean;
 }) {
   return (
     <aside aria-label="Task summary" {...stylex.props(styles.contextDock)}>
       <div {...stylex.props(styles.contextCard)}>
-        <TaskSummaryHeader detail={detail} />
+        <TaskSummaryHeader
+          detail={detail}
+          latestRunItems={latestRunItems}
+          showWorkLink={showWorkLink}
+          taskId={taskId}
+        />
         {detail.attention ? (
           <TaskAttention detail={detail} actions={actions} governedActions={governedActions} inlineResponse={inlineResponse} />
         ) : governedActions ? (
@@ -94,11 +133,42 @@ function TaskContextCard({
   );
 }
 
-function TaskSummaryHeader({ detail }: { detail: TaskDetail }) {
+function TaskSummaryHeader({
+  detail,
+  latestRunItems,
+  showWorkLink,
+  taskId
+}: {
+  detail: TaskDetail;
+  latestRunItems: ReadonlyMap<string, TaskRunItem>;
+  showWorkLink: boolean;
+  taskId: string;
+}) {
+  const run = latestTaskRun(detail);
+  const latestItem = run ? latestRunItems.get(run.id) ?? null : null;
   return (
     <header {...stylex.props(styles.summaryHeader)}>
-      <h2 {...stylex.props(styles.summaryTitle)}>{detail.title}</h2>
-      <TaskInfoTrigger detail={detail} />
+      {run ? (
+        <IdentityAvatar actorId={`subagent:${run.instanceName}`} actorType="agent" size="sm" />
+      ) : null}
+      <span {...stylex.props(styles.summaryCopy)}>
+        <strong {...stylex.props(styles.summaryTitle)}>{run?.instanceName ?? "No agent run yet"}</strong>
+        <span {...stylex.props(styles.summaryOutput)}>{latestRunOutput(run, latestItem)}</span>
+      </span>
+      <span {...stylex.props(styles.summaryActions)}>
+        {showWorkLink ? (
+          <IconButton
+            href={`/work/tasks/${encodeURIComponent(taskId)}`}
+            icon={<ExternalLink aria-hidden="true" size={15} />}
+            label="Open in Work"
+            size="sm"
+            tooltip="Open in Work"
+            variant="ghost"
+            xstyle={iconButtonXStyle(styles.summaryAction)}
+          />
+        ) : null}
+        <TaskInfoTrigger detail={detail} />
+      </span>
     </header>
   );
 }
@@ -273,6 +343,38 @@ function latestRevision(detail: TaskDetail): number {
   return detail.revisions.reduce((latest, revision) => Math.max(latest, revision.revision), 0);
 }
 
+function latestTaskRun(detail: TaskDetail): TaskRun | null {
+  const runs = detail.revisions
+    .flatMap((revision) => [...revision.executors, ...revision.reviewers])
+    .sort((left, right) => parseTimestamp(right.updatedAt ?? right.createdAt) - parseTimestamp(left.updatedAt ?? left.createdAt));
+  return runs.find((run) => run.status === "running" || run.status === "leased" || run.status === "queued") ?? runs[0] ?? null;
+}
+
+function latestRunOutput(run: TaskRun | null, item: TaskRunItem | null): string {
+  if (item) {
+    return item.kind === "message"
+      ? item.summary?.trim() || item.title
+      : item.title + (item.summary?.trim() && item.summary.trim() !== item.title ? ` · ${item.summary.trim()}` : "");
+  }
+  if (run?.error) return run.error;
+  switch (run?.status) {
+    case "running": return "Running";
+    case "leased": return "Starting";
+    case "queued": return "Queued";
+    case "completed": return run.output?.trim() || "Completed";
+    case "failed": return "Failed";
+    case "cancelled": return "Cancelled";
+    case "interrupted": return "Interrupted";
+    case "waiting_for_approval": return "Waiting for approval";
+    default: return "No output yet";
+  }
+}
+
+function parseTimestamp(value?: string | null): number {
+  const timestamp = value ? Date.parse(value) : Number.NaN;
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
 function formatDate(value: string): string {
   const timestamp = Date.parse(value);
   return Number.isNaN(timestamp)
@@ -294,6 +396,10 @@ function markdownXStyle(...xstyle: unknown[]): MarkdownXStyle {
 
 function popoverXStyle(...xstyle: unknown[]): React.ComponentProps<typeof Popover>["xstyle"] {
   return xstyle as React.ComponentProps<typeof Popover>["xstyle"];
+}
+
+function iconButtonXStyle(...xstyle: unknown[]): React.ComponentProps<typeof IconButton>["xstyle"] {
+  return xstyle as React.ComponentProps<typeof IconButton>["xstyle"];
 }
 
 const styles = stylex.create({
@@ -329,8 +435,12 @@ const styles = stylex.create({
     backgroundColor: "var(--noema-surface-card)",
     boxShadow: "0 10px 28px color-mix(in srgb, var(--noema-text-primary) 13%, transparent)"
   },
-  summaryHeader: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)" },
-  summaryTitle: { minWidth: 0, margin: 0, color: "var(--noema-text-primary)", fontSize: 13, fontWeight: 700, lineHeight: 1.35, overflowWrap: "anywhere" },
+  summaryHeader: { display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)" },
+  summaryCopy: { display: "grid", minWidth: 0, gap: "var(--spacing-0-5)" },
+  summaryTitle: { minWidth: 0, color: "var(--noema-text-primary)", fontSize: 12, fontWeight: 700, lineHeight: 1.35, overflow: "hidden", overflowWrap: "anywhere", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  summaryOutput: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-secondary)", fontSize: 11, lineHeight: 1.35, textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  summaryActions: { display: "inline-flex", alignItems: "center", gap: "var(--spacing-1)" },
+  summaryAction: { width: 28, height: 28 },
   infoButton: { display: "inline-flex", width: 28, height: 28, alignItems: "center", justifyContent: "center", borderWidth: 0, borderRadius: 999, backgroundColor: "transparent", color: "var(--noema-text-muted)", cursor: "pointer", ":hover": { backgroundColor: "var(--noema-surface-hover)", color: "var(--noema-text-primary)" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
   infoPopover: { maxHeight: "min(70vh, 520px)", overflowX: "hidden", overflowY: "auto", padding: 0 },
   actionRow: { minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)", ":empty": { display: "none" } },
