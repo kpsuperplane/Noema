@@ -177,6 +177,8 @@ fn spawn_web_server_watcher(repo_root: &Path) -> Result<Child, DevError> {
 fn configure_web_server_watcher(command: &mut Command, repo_root: &Path) {
     command
         .arg("watch")
+        .arg("-E")
+        .arg("CARGO_INCREMENTAL=0")
         .arg("-w")
         .arg("crates")
         .arg("-w")
@@ -190,7 +192,6 @@ fn configure_web_server_watcher(command: &mut Command, repo_root: &Path) {
 
     command.arg("-x").arg(WEB_SERVER_WATCH_COMMAND);
     command.env("CARGO_TARGET_DIR", dev_rust_target_dir(repo_root));
-    command.env("CARGO_INCREMENTAL", "1");
     command.env("NOEMA_WEB__HOST", "0.0.0.0");
 }
 
@@ -346,17 +347,15 @@ mod tests {
     }
 
     #[test]
-    fn server_watcher_restores_incremental_compilation() {
+    fn server_watcher_disables_incremental_mode_for_sccache() {
         let mut command = Command::new("cargo");
         configure_web_server_watcher(&mut command, Path::new("/workspace"));
 
-        assert_eq!(
-            command
-                .as_std()
-                .get_envs()
-                .find(|(key, _)| *key == "CARGO_INCREMENTAL")
-                .and_then(|(_, value)| value),
-            Some(std::ffi::OsStr::new("1"))
+        let arguments = command.as_std().get_args().collect::<Vec<_>>();
+        assert!(
+            arguments
+                .windows(2)
+                .any(|pair| pair == ["-E", "CARGO_INCREMENTAL=0"])
         );
     }
 
