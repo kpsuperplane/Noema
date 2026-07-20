@@ -52,6 +52,11 @@ const styles = stylex.create({
     textDecorationColor: "color-mix(in srgb, currentColor 76%, transparent)",
     textDecorationThickness: 1,
     textUnderlineOffset: 3
+  },
+  assistantContextMenu: {
+    width: "100%",
+    maxWidth: "100%",
+    minWidth: 0
   }
 });
 
@@ -99,21 +104,23 @@ export function Message({
 
   return (
     <>
-      <ContextMenu
-        items={[
-          {
-            label: "Debug",
-            isDisabled: !debugUsage,
-            onClick: () => {
-              if (debugUsage) {
-                setDebugOpen(true);
+      <div {...stylex.props(styles.assistantContextMenu)}>
+        <ContextMenu
+          items={[
+            {
+              label: "Debug",
+              isDisabled: !debugUsage,
+              onClick: () => {
+                if (debugUsage) {
+                  setDebugOpen(true);
+                }
               }
             }
-          }
-        ]}
-      >
-        {bubble}
-      </ContextMenu>
+          ]}
+        >
+          {bubble}
+        </ContextMenu>
+      </div>
       <ProviderUsageDebugDialog debug={debugUsage} open={debugOpen} onOpenChange={setDebugOpen} />
     </>
   );
