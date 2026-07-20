@@ -356,7 +356,7 @@ const styles = stylex.create({
   attention: { display: "grid", gap: "var(--spacing-2)", minWidth: 0, borderBlockWidth: 1, borderBlockStyle: "solid", borderBlockColor: "var(--noema-red-700)", paddingBlock: "var(--spacing-1)" },
   attentionComposer: { display: "grid", gap: "var(--spacing-2)", minWidth: 0, paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-3)" },
   attentionComposerCopy: { display: "grid", gap: "var(--spacing-1)", minWidth: 0 },
-  attentionTitle: { margin: 0, color: "var(--noema-text-primary)", fontSize: 13, fontWeight: 700, lineHeight: 1.35 },
+  attentionTitle: { margin: 0, color: "var(--noema-red-700)", fontSize: 13, fontWeight: 700, lineHeight: 1.35 },
   attentionText: { margin: 0, color: "var(--noema-text-primary)", fontSize: 12, lineHeight: 1.45 },
   attentionMarkdown: { color: "var(--noema-text-secondary)", fontSize: 11, lineHeight: 1.45 },
   attentionPrimaryMarkdown: { color: "var(--noema-text-primary)", fontSize: 12, fontWeight: 600, lineHeight: 1.45 },
