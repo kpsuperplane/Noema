@@ -117,7 +117,7 @@ function TaskContextCard({
   showWorkLink: boolean;
 }) {
   return (
-    <aside aria-label="Task summary" {...stylex.props(styles.contextDock)}>
+    <aside aria-label="Task summary" {...stylex.props(styles.contextDock, detail.criteria.length > 0 && styles.contextDockWithValidation)}>
       <div {...stylex.props(styles.contextCard)}>
         <TaskSummaryHeader
           detail={detail}
@@ -416,6 +416,7 @@ const styles = stylex.create({
   root: {
     display: "grid",
     gridTemplateRows: "minmax(0, 1fr) auto",
+    position: "relative",
     minWidth: 0,
     minHeight: 0,
     height: "100%",
@@ -428,21 +429,25 @@ const styles = stylex.create({
   contextDock: {
     display: "flex",
     flexDirection: "column",
-    position: "relative",
+    position: "absolute",
+    insetInlineStart: 0,
+    insetInlineEnd: 0,
+    insetBlockEnd: 0,
     zIndex: 2,
     minWidth: 0,
     minHeight: 0,
     maxHeight: "30%",
     marginInline: "var(--spacing-4)",
-    marginBlockEnd: "var(--spacing-4)",
-    marginBlockStart: "calc(-1 * var(--spacing-2))"
+    marginBlockEnd: "var(--spacing-4)"
   },
+  contextDockWithValidation: { height: "30%" },
   contextCard: {
     display: "flex",
     flexDirection: "column",
     minWidth: 0,
     minHeight: 0,
     maxHeight: "100%",
+    height: "100%",
     flex: "1 1 auto",
     overflow: "hidden",
     borderWidth: 1,
