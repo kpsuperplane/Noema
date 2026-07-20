@@ -434,16 +434,11 @@ fn load_lineage_items(
         let rows = statement.query_map(
             params![
                 lineage_run.run_id.as_str(),
-                (WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN + 1) as i64
+                WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN as i64
             ],
             decode_run_item,
         )?;
         let mut run_items = rows.collect::<Result<Vec<_>, _>>()?;
-        if run_items.len() > WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN {
-            return Err(StoreError::InvariantViolation {
-                message: format!("run {} exceeds bounded lineage context", lineage_run.run_id),
-            });
-        }
         run_items.reverse();
         items.extend(run_items);
     }

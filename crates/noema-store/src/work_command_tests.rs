@@ -10,7 +10,7 @@ use noema_workspaces::WorkspaceId;
 use crate::{
     GovernedActionDecision, GovernedActionEffect, GovernedActionState, GovernedAssessmentStatus,
     GovernedRecommendation, NewGovernedAction, NewGovernedActionAssessment, NoemaStore, StoreError,
-    WorkCommandService, WorkRunFence,
+    WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN, WorkCommandService, WorkRunFence,
     test_support::{
         initialize_codex_provider_selections, open_ephemeral_store, ready_hosted_provider_registry,
     },
@@ -517,6 +517,25 @@ async fn governed_action_approval_releases_and_resumes_a_task_run_once() {
         .start_work_run(&fence, ACTOR, None, "correlation:governed")
         .await
         .expect("start run");
+    service
+        .admit_work_run_execution_context(&fence, ACTOR, None, "correlation:governed")
+        .await
+        .expect("admit parent checkpoint");
+    let parent_item_limit =
+        i64::try_from(WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN).expect("lineage limit fits i64");
+    let parent_run_id = fence.run_id.clone();
+    store
+        .with_connection(move |connection| {
+            connection.execute(
+                "WITH RECURSIVE item(n) AS (SELECT 0 UNION ALL SELECT n + 1 FROM item WHERE n < ?2)
+                 INSERT INTO agent_run_items (item_id, run_id, sequence_index, round_index, kind, status, content_text)
+                 SELECT 'run_item:governed:' || n, ?1, n + 1, 0, 'progress_notice', 'completed', 'parent item ' || n FROM item",
+                rusqlite::params![parent_run_id, parent_item_limit],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("append oversized parent transcript");
     let action = store
         .create_governed_action(NewGovernedAction {
             owner_human_id: "human:local".to_string(),
@@ -592,7 +611,35 @@ async fn governed_action_approval_releases_and_resumes_a_task_run_once() {
             .resume_after_governed_action(&action.action_id, action.revision, ACTOR)
             .await
             .expect("idempotent resume"),
-        Some(child)
+        Some(child.clone())
+    );
+    let claimed_child = service
+        .claim_next_work_run("worker:governed:child", 60, &[])
+        .await
+        .expect("claim child")
+        .expect("child run");
+    assert_eq!(claimed_child.run.run_id, child);
+    let child_fence = WorkRunFence {
+        run_id: claimed_child.run.run_id,
+        lease_token: claimed_child.lease_token,
+        task_generation: claimed_child.run.task_generation,
+        contract_id: claimed_child.run.contract_id,
+    };
+    service
+        .start_work_run(&child_fence, ACTOR, None, "correlation:governed:child")
+        .await
+        .expect("start child");
+    let admitted_child = service
+        .admit_work_run_execution_context(&child_fence, ACTOR, None, "correlation:governed:child")
+        .await
+        .expect("admit child from bounded parent transcript");
+    assert_eq!(
+        admitted_child.context.lineage.len(),
+        WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN
+    );
+    assert_eq!(
+        admitted_child.context.lineage[0].content_text.as_deref(),
+        Some("parent item 2")
     );
     assert_eq!(
         store
