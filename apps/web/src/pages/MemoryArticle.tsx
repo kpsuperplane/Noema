@@ -2,9 +2,10 @@ import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import { HoverCard } from "@astryxdesign/core/HoverCard";
 import { Item, type ItemProps } from "@astryxdesign/core/Item";
 import * as stylex from "@stylexjs/stylex";
+import { Link } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
 import type { ReactNode } from "react";
-import { memoryPageHref } from "@/app/routes";
+import { memoryPageUrlPath } from "@/app/routes";
 import { buildMemoryArticle, memoryHeadingId } from "@/pages/memoryArticleModel";
 import { styles } from "@/pages/memoryPageStyles";
 
@@ -36,7 +37,7 @@ export function MemoryArticle({ page, isRoot }: {
     <article {...stylex.props(styles.article)}>
       {!isRoot ? (
         <nav aria-label="Memory breadcrumb" {...stylex.props(styles.articleBreadcrumb)}>
-          <a href="/memory" {...stylex.props(styles.breadcrumbLink)}>Memory</a>
+          <Link to="/memory" {...stylex.props(styles.breadcrumbLink)}>Memory</Link>
           <span aria-hidden="true">/</span>
           <span>{page.title}</span>
         </nav>
@@ -85,9 +86,10 @@ export function MemoryArticle({ page, isRoot }: {
           <ul {...stylex.props(styles.relatedArticleList)}>
             {page.children.map((child) => (
               <li key={child.id} {...stylex.props(styles.relatedArticleEntry)}>
-                <a
+                <Link
                   data-slot="memory-related-article"
-                  href={memoryPageHref(child.path)}
+                  to="/memory/$"
+                  params={{ _splat: memoryPageUrlPath(child.path) }}
                   {...stylex.props(styles.relatedArticleCardLink)}
                 >
                   <Item
@@ -100,7 +102,7 @@ export function MemoryArticle({ page, isRoot }: {
                     labelLines={1}
                     xstyle={itemXStyle(styles.relatedArticleCard)}
                   />
-                </a>
+                </Link>
               </li>
             ))}
           </ul>

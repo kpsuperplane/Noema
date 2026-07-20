@@ -1,8 +1,8 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  memoryPageHref,
   memoryPagePathFromUrl,
+  memoryPageUrlPath,
   pathForRoute,
   routeFromPathname
 } from "./routes";
@@ -73,7 +73,7 @@ describe("settings routes", () => {
     assert.deepEqual(routeFromPathname("/memory/technical/noema"), { kind: "memory" });
     assert.equal(pathForRoute({ kind: "memory" }), "/memory");
     assert.equal(pathForRoute({ kind: "settings", section: "memory" }), "/settings/memory");
-    assert.equal(memoryPageHref("technical/noema.md"), "/memory/technical/noema");
+    assert.equal(memoryPageUrlPath("technical/noema.md"), "technical/noema");
     assert.equal(memoryPagePathFromUrl("technical/noema"), "technical/noema.md");
   });
 });

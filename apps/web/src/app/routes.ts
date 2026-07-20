@@ -63,9 +63,8 @@ export function routeFromPathname(pathname: string): AppRoute {
   return { kind: "chat" };
 }
 
-export function memoryPageHref(pagePath: string): string {
-  const articlePath = pagePath.endsWith(".md") ? pagePath.slice(0, -3) : pagePath;
-  return `/memory/${articlePath.split("/").map(encodeURIComponent).join("/")}`;
+export function memoryPageUrlPath(pagePath: string): string {
+  return pagePath.endsWith(".md") ? pagePath.slice(0, -3) : pagePath;
 }
 
 export function memoryPagePathFromUrl(urlPath: string): string {
