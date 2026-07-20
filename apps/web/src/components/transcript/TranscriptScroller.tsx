@@ -181,7 +181,7 @@ const styles = stylex.create({
     }
   },
   embeddedScrollButton: {
-    bottom: 8
+    bottom: "var(--spacing-4)"
   },
   hidden: {
     pointerEvents: "none",
