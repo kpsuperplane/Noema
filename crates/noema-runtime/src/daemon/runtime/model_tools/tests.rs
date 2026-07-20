@@ -317,7 +317,12 @@ async fn complete_catalog_is_stable_for_native_and_envelope_transports() {
         assert!(delegate.description.contains("Projects are optional"));
         assert_eq!(
             delegate.input_schema.as_value()["required"],
-            json!(["title", "description"])
+            json!(["title", "description", "project"])
+        );
+        assert_eq!(
+            delegate.input_schema.as_value()["properties"]["project"]["oneOf"][0]["properties"]["kind"]
+                ["enum"],
+            json!(["none"])
         );
         assert!(
             tools

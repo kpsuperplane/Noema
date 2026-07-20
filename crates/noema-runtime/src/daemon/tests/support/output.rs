@@ -62,6 +62,7 @@ fn task_delegate_tool_call(id: &str, title: &str, valid: bool) -> GenerateToolCa
         json!({
             "title": title,
             "description": format!("Complete {title} and report the result."),
+            "project": {"kind": "none"},
             "execution_intent": {
                 "request_markdown": format!("Complete {title} and report the result."),
                 "complexity": "simple",

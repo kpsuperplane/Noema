@@ -26,9 +26,10 @@ use super::{
     TASK_REQUEST_CHANGES_TOOL, TASK_RETRY_TOOL, TASK_UPDATE_TOOL, TaskDelegateRuntimeContext,
     TaskToolResult,
     catalog::{
-        CancelArguments, CaptureArguments, DelegateArguments, GateArguments,
-        ProjectCreateArguments, ProjectPreconditionArguments, ProjectUpdateArguments,
-        RequestChangesArguments, RetryArguments, TaskPreconditionArguments, UpdateArguments,
+        CancelArguments, CaptureArguments, DelegateArguments, DelegateProjectArguments,
+        GateArguments, ProjectCreateArguments, ProjectPreconditionArguments,
+        ProjectUpdateArguments, RequestChangesArguments, RetryArguments, TaskPreconditionArguments,
+        UpdateArguments,
     },
 };
 
@@ -192,7 +193,10 @@ async fn execute_primary_inner(
         }
         TASK_DELEGATE_TOOL => {
             execute_command!(service, args, input: DelegateArguments => {
-                let project_id = project_id(input.project_id)?;
+                let project_id = match input.project {
+                    DelegateProjectArguments::None => None,
+                    DelegateProjectArguments::Existing { project_id: id } => project_id(Some(id))?,
+                };
                 let complexity_hint = input.execution_intent.is_none().then_some(input.complexity_hint).flatten();
                 let intent = input
                     .execution_intent

@@ -551,6 +551,7 @@ async fn task_delegate_uses_the_initialized_reviewer_route() {
                 json!({
                     "title": "Preserve the source account",
                     "description": "Verify exact task delegation provenance.",
+                    "project": {"kind": "none"},
                     "complexity_hint": "difficult",
                     "execution_intent": {
                         "request_markdown": "Verify exact task delegation provenance.",
