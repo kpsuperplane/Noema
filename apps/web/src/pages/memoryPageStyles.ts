@@ -21,6 +21,11 @@ export const styles = stylex.create({
   nestedContentsItem: { marginLeft: "var(--spacing-3)" },
   articleLink: { color: "var(--text-accent)", textDecoration: "none", ":hover": { textDecoration: "underline" } },
   articleBody: { color: "var(--foreground)", fontFamily: wikiSerif, fontSize: 15, lineHeight: 1.65 },
+  citation: { position: "relative", top: "-0.15em", marginLeft: 2, fontFamily: wikiSans, fontSize: "0.72em", lineHeight: 0, verticalAlign: "baseline" },
+  citationTrigger: { borderWidth: 0, backgroundColor: "transparent", padding: 0, color: "var(--text-accent)", font: "inherit", lineHeight: 1, cursor: "pointer", ":hover": { textDecoration: "underline" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--ring)", outlineOffset: 2 } },
+  citationCard: { display: "grid", gap: "var(--spacing-2)", width: 320, maxWidth: "calc(100vw - var(--spacing-6))" },
+  citationExcerpt: { color: "var(--foreground)", fontFamily: wikiSerif, fontSize: 13, lineHeight: 1.55, overflowWrap: "anywhere" },
+  citationContext: { color: "var(--muted-foreground)", fontFamily: wikiSans, fontSize: 11, lineHeight: 1.4 },
   articleParagraph: { margin: "var(--spacing-4) 0 0", color: "var(--foreground)", fontFamily: wikiSerif, fontSize: 15, lineHeight: 1.65, overflowWrap: "anywhere" },
   articleHeading: { clear: "both", color: "var(--foreground)", fontFamily: wikiSerif, fontWeight: 400, overflowWrap: "anywhere", scrollMarginTop: "var(--spacing-4)" },
   articleHeadingMajor: { margin: "var(--spacing-6) 0 var(--spacing-2)", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-default)", paddingBottom: "var(--spacing-1)", fontSize: 24, lineHeight: 1.25 },
@@ -28,11 +33,6 @@ export const styles = stylex.create({
   subpagesSection: { clear: "both", paddingTop: "var(--spacing-1)" },
   subpageList: { display: "grid", gap: "var(--spacing-1)", margin: 0, paddingLeft: "var(--spacing-5)", fontFamily: wikiSerif, fontSize: 15, lineHeight: 1.6 },
   subpageLink: { borderWidth: 0, backgroundColor: "transparent", padding: 0, color: "var(--text-accent)", font: "inherit", textAlign: "start", cursor: "pointer", ":hover": { textDecoration: "underline" } },
-  referencesSection: { clear: "both", paddingTop: "var(--spacing-1)" },
-  referenceList: { display: "grid", gap: "var(--spacing-2)", margin: 0, padding: 0, color: "var(--muted-foreground)", fontFamily: wikiSans, fontSize: 12, lineHeight: 1.5, listStyle: "none" },
-  referenceItem: { display: "grid", gridTemplateColumns: "24px minmax(0, 1fr)", gap: "var(--spacing-1-5)" },
-  referenceNumber: { textAlign: "right", fontVariantNumeric: "tabular-nums" },
-  referenceCode: { color: "var(--foreground)", fontFamily: "var(--font-mono)", fontSize: 11, overflowWrap: "anywhere" },
   stub: { marginTop: "var(--spacing-4)", borderLeftWidth: 4, borderLeftStyle: "solid", borderLeftColor: "var(--border-default)", backgroundColor: "var(--surface-sunken)", padding: "var(--spacing-2) var(--spacing-3)", color: "var(--muted-foreground)", fontFamily: wikiSans, fontSize: 13 },
   articleState: { margin: "var(--spacing-6)", color: "var(--muted-foreground)", fontFamily: wikiSans, fontSize: 13 }
 });

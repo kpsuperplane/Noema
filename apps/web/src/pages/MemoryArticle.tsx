@@ -1,4 +1,5 @@
 import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
+import { HoverCard } from "@astryxdesign/core/HoverCard";
 import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
 import { buildMemoryArticle, memoryHeadingId } from "@/pages/memoryArticleModel";
@@ -10,11 +11,12 @@ interface MemoryArticlePage {
   id: string;
   title: string;
   body: string;
-  sources: string[];
+  sourceReferences: Array<{ source: string; excerpt: string | null }>;
   children: Array<{ id: string; title: string }>;
 }
 
 const articleComponents: MarkdownComponents = {
+  citation: ArticleCitation,
   heading: ArticleHeading,
   paragraph: ArticleParagraph
 };
@@ -30,8 +32,8 @@ export function MemoryArticle({
   onSelectPage: (id: string) => void;
   onSelectRoot: () => void;
 }) {
-  const article = buildMemoryArticle(page.body, page.sources);
-  const hasContents = article.outline.length > 0 || page.children.length > 0 || article.references.length > 0;
+  const article = buildMemoryArticle(page.body, page.sourceReferences);
+  const hasContents = article.outline.length > 0 || page.children.length > 0;
   return (
     <article {...stylex.props(styles.article)}>
       {!isRoot ? (
@@ -57,9 +59,6 @@ export function MemoryArticle({
             ))}
             {page.children.length > 0 ? (
               <li><a href="#subpages" {...stylex.props(styles.articleLink)}>Subpages</a></li>
-            ) : null}
-            {article.references.length > 0 ? (
-              <li><a href="#references" {...stylex.props(styles.articleLink)}>References</a></li>
             ) : null}
           </ol>
         </nav>
@@ -96,21 +95,29 @@ export function MemoryArticle({
           </ul>
         </section>
       ) : null}
-
-      {article.references.length > 0 ? (
-        <section id="references" {...stylex.props(styles.referencesSection)}>
-          <h2 {...stylex.props(styles.articleHeading, styles.articleHeadingMajor)}>References</h2>
-          <ol {...stylex.props(styles.referenceList)}>
-            {article.references.map((reference) => (
-              <li key={reference.source} {...stylex.props(styles.referenceItem)}>
-                <span {...stylex.props(styles.referenceNumber)}>{reference.number}.</span>
-                <span>Local conversation item <code {...stylex.props(styles.referenceCode)}>{reference.source}</code></span>
-              </li>
-            ))}
-          </ol>
-        </section>
-      ) : null}
     </article>
+  );
+}
+
+function ArticleCitation({ source, number }: { source: { title?: string }; number: number; variant: "label" | "number" }) {
+  const excerpt = source.title ?? "The source conversation message is no longer available.";
+  return (
+    <sup {...stylex.props(styles.citation)}>
+      <HoverCard
+        content={(
+          <span {...stylex.props(styles.citationCard)}>
+            <span {...stylex.props(styles.citationExcerpt)}>&ldquo;{excerpt}&rdquo;</span>
+            <span {...stylex.props(styles.citationContext)}>Your message in the primary conversation</span>
+          </span>
+        )}
+        placement="above"
+        alignment="start"
+        delay={120}
+        hasHoverIndication={false}
+      >
+        <button type="button" aria-label={`Show source ${number}`} {...stylex.props(styles.citationTrigger)}>[{number}]</button>
+      </HoverCard>
+    </sup>
   );
 }
 

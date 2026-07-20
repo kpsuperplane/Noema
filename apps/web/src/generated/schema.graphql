@@ -990,6 +990,7 @@ type GraphqlNativeMemoryPage {
 	body: String!
 	hash: String!
 	sources: [String!]!
+	sourceReferences: [GraphqlNativeMemorySourceReference!]!
 	parent: String
 	children: [GraphqlNativeMemoryPageRef!]!
 }
@@ -1012,6 +1013,11 @@ type GraphqlNativeMemorySearchResult {
 type GraphqlNativeMemorySettings {
 	modelPreference: AgentModelPreference
 	modelOptions: [AgentModelProviderOption!]!
+}
+
+type GraphqlNativeMemorySourceReference {
+	source: String!
+	excerpt: String
 }
 
 type GraphqlNativeMemoryTree {

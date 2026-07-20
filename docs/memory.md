@@ -25,6 +25,9 @@ Current implementation direction:
   biographical overview; child files are focused topic articles. A developed
   root must contain at least two thematic sections and cannot publish as an
   unsectioned fact inventory.
+- Article citations render as superscript reference numbers whose hover/focus
+  cards resolve to a bounded excerpt of the cited human message. Raw item ids
+  remain implementation detail and there is no separate references appendix.
 - The canonical SQLite database stores the selected Memory model and source
   conversations. A separate SQLite FTS database under `system/indexes/` is a
   disposable projection rebuilt from Markdown.

@@ -4,11 +4,15 @@ import type { MarkdownSource } from "@astryxdesign/core/Markdown";
 export interface MemoryArticleModel {
   content: string;
   outline: OutlineItem[];
-  references: Array<{ source: string; number: number }>;
   sources: Record<string, MarkdownSource>;
 }
 
-export function buildMemoryArticle(body: string, manifest: readonly string[]): MemoryArticleModel {
+export interface MemorySourceReference {
+  source: string;
+  excerpt: string | null;
+}
+
+export function buildMemoryArticle(body: string, sourceReferences: readonly MemorySourceReference[]): MemoryArticleModel {
   const sourceByLabel = new Map<string, string>();
   const definitionPattern = /^\[\^([^\]\s]+)\]:\s*`?([^`\n]+?)`?\s*$/gm;
   const withoutDefinitions = body.replace(definitionPattern, (_definition, label: string, source: string) => {
@@ -25,14 +29,13 @@ export function buildMemoryArticle(body: string, manifest: readonly string[]): M
     })
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  const manifestSet = new Set(manifest);
-  const references = orderedSources
-    .filter((source) => manifestSet.has(source))
-    .map((source, index) => ({ source, number: index + 1 }));
-  const sources = Object.fromEntries(
-    references.map(({ source, number }) => [source, { title: `Conversation source ${number}` }])
-  );
-  return { content, outline: parseOutlineFromMarkdown(content), references, sources };
+  const referenceBySource = new Map(sourceReferences.map((reference) => [reference.source, reference]));
+  const sources: Record<string, MarkdownSource> = {};
+  for (const source of orderedSources) {
+    const reference = referenceBySource.get(source);
+    if (reference) sources[source] = { title: reference.excerpt ?? "The source conversation message is no longer available." };
+  }
+  return { content, outline: parseOutlineFromMarkdown(content), sources };
 }
 
 export function memoryHeadingId(label: string): string {

@@ -30,8 +30,15 @@ pub struct GraphqlNativeMemoryPage {
     pub body: String,
     pub hash: String,
     pub sources: Vec<String>,
+    pub source_references: Vec<GraphqlNativeMemorySourceReference>,
     pub parent: Option<String>,
     pub children: Vec<GraphqlNativeMemoryPageRef>,
+}
+
+#[derive(Clone, Debug, SimpleObject)]
+pub struct GraphqlNativeMemorySourceReference {
+    pub source: String,
+    pub excerpt: Option<String>,
 }
 
 #[derive(Clone, Debug, SimpleObject)]
@@ -85,7 +92,7 @@ pub async fn memory_tree(state: &GraphqlState) -> Result<GraphqlNativeMemoryTree
         .ok_or_else(|| async_graphql::Error::new("native memory is unavailable"))?;
     let root = memory.read_root().map_err(native_error)?;
     Ok(GraphqlNativeMemoryTree {
-        root: Some(page(root)),
+        root: Some(page(state, root).await?),
         pending_count: pending_count(state, memory).await,
         update_status: update_status(state, memory).await?,
     })
@@ -120,7 +127,7 @@ pub async fn memory_page(
         return Ok(None);
     };
     match memory.read_page(&page_id) {
-        Ok(value) => Ok(Some(page(value))),
+        Ok(value) => Ok(Some(page(state, value).await?)),
         Err(NativeMemoryError::InvalidPage(_)) => Ok(None),
         Err(error) => Err(native_error(error)),
     }
@@ -229,17 +236,48 @@ async fn update_status(
     })
 }
 
-fn page(page: MemoryPage) -> GraphqlNativeMemoryPage {
-    GraphqlNativeMemoryPage {
+async fn page(state: &GraphqlState, page: MemoryPage) -> Result<GraphqlNativeMemoryPage> {
+    let source_references = source_references(state.store()?, &page.sources).await?;
+    Ok(GraphqlNativeMemoryPage {
         id: page.id,
         path: page.path,
         title: page.title,
         body: page.body,
         hash: page.hash,
         sources: page.sources,
+        source_references,
         parent: page.parent,
         children: page.children.into_iter().map(child).collect(),
+    })
+}
+
+async fn source_references(
+    store: &noema_store::NoemaStore,
+    sources: &[String],
+) -> Result<Vec<GraphqlNativeMemorySourceReference>> {
+    let mut references = Vec::with_capacity(sources.len());
+    for source in sources {
+        let excerpt = store
+            .get_visible_conversation_item(source)
+            .await
+            .map_err(graphql_error)?
+            .and_then(|item| item.content_text)
+            .map(|text| bounded_reference_excerpt(&text));
+        references.push(GraphqlNativeMemorySourceReference {
+            source: source.clone(),
+            excerpt,
+        });
     }
+    Ok(references)
+}
+
+fn bounded_reference_excerpt(text: &str) -> String {
+    const LIMIT: usize = 360;
+    let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let Some((boundary, _)) = normalized.char_indices().nth(LIMIT) else {
+        return normalized;
+    };
+    format!("{}…", normalized[..boundary].trim_end())
 }
 fn child(child: MemoryPageRef) -> GraphqlNativeMemoryPageRef {
     GraphqlNativeMemoryPageRef {
