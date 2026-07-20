@@ -103,12 +103,14 @@ export function TaskTranscript({
       }
 
       const snapshot = snapshots.get(event.run.id);
-      next.push(...runBoundaryEntries(event.run, event.revision, now));
+      const boundaries = runBoundaryEntries(event.run, event.revision, now);
+      next.push(...boundaries.slice(0, 1));
       if (snapshot?.error && snapshot.entries.length === 0) {
         next.push({ id: `${event.run.id}:error`, source: "replay", type: "error", message: snapshot.error, recoverable: true });
       } else if (snapshot) {
         next.push(...snapshot.entries);
       }
+      next.push(...boundaries.slice(1));
     }
     return next;
   }, [events, now, snapshots]);
