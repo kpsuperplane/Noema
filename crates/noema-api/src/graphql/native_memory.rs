@@ -46,6 +46,7 @@ pub struct GraphqlNativeMemorySourceReference {
 #[derive(Clone, Debug, SimpleObject)]
 pub struct GraphqlNativeMemoryTree {
     pub root: Option<GraphqlNativeMemoryPage>,
+    pub pages: Vec<GraphqlNativeMemoryPageRef>,
     pub pending_count: i32,
     pub update_status: GraphqlNativeMemoryUpdateStatus,
 }
@@ -93,8 +94,16 @@ pub async fn memory_tree(state: &GraphqlState) -> Result<GraphqlNativeMemoryTree
         .native_memory()
         .ok_or_else(|| async_graphql::Error::new("native memory is unavailable"))?;
     let root = memory.read_root().map_err(native_error)?;
+    let pages = memory
+        .list_pages()
+        .map_err(native_error)?
+        .iter()
+        .map(MemoryPageRef::from)
+        .map(child)
+        .collect();
     Ok(GraphqlNativeMemoryTree {
         root: Some(page(state, root).await?),
+        pages,
         pending_count: pending_count(state, memory).await,
         update_status: update_status(state, memory).await?,
     })

@@ -9,6 +9,7 @@ import {
   type MemoryTreeQuery
 } from "@/generated/graphql";
 import { MemoryArticle } from "@/pages/MemoryArticle";
+import { MemoryPageTree } from "@/pages/MemoryPageTree";
 import { styles } from "@/pages/memoryPageStyles";
 import { useShellSurface } from "@/components/shell/ShellSurfaceContext";
 
@@ -50,14 +51,23 @@ export function MemoryPage({ pagePath = null }: { pagePath?: string | null }) {
       {pageError ? <MemoryNotice error>Could not load this memory article: {pageError}</MemoryNotice> : null}
       {loading ? <MemoryNotice>Loading native memory…</MemoryNotice> : null}
 
-      <div {...stylex.props(styles.articleScroller)}>
-        {selectedPage && root ? (
-          <MemoryArticle page={selectedPage} />
-        ) : pageResult.loading ? (
-          <p {...stylex.props(styles.articleState)}>Loading article…</p>
-        ) : (
-          <p {...stylex.props(styles.articleState)}>No memory article is available.</p>
-        )}
+      <div {...stylex.props(styles.memoryLayout)}>
+        {root ? (
+          <MemoryPageTree
+            activePath={selectedPage?.path ?? pagePath ?? root.path}
+            pages={tree?.pages ?? []}
+            root={root}
+          />
+        ) : null}
+        <div {...stylex.props(styles.articleScroller)}>
+          {selectedPage && root ? (
+            <MemoryArticle page={selectedPage} />
+          ) : pageResult.loading ? (
+            <p {...stylex.props(styles.articleState)}>Loading article…</p>
+          ) : (
+            <p {...stylex.props(styles.articleState)}>No memory article is available.</p>
+          )}
+        </div>
       </div>
     </section>
   );

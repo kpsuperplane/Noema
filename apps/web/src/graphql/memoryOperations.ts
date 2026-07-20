@@ -50,6 +50,11 @@ export const MemoryTreeDocument = gql`
           hash
         }
       }
+      pages {
+        id
+        path
+        title
+      }
       pendingCount
       updateStatus {
         state
@@ -112,6 +117,11 @@ export const MemoryEventsDocument = gql`
           excerpt
           hash
         }
+      }
+      pages {
+        id
+        path
+        title
       }
       pendingCount
       updateStatus {

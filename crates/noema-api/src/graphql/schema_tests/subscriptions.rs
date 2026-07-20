@@ -26,6 +26,7 @@
             r#"subscription {
               memoryEvents {
                 root { title children { title } }
+                pages { path title }
                 pendingCount
                 updateStatus { state active }
               }
@@ -41,14 +42,24 @@
 
         memory
             .publish(&noema_memory::MemoryChangeSet {
-                upserts: vec![noema_memory::MemoryPageChange {
-                    id: None,
-                    expected_hash: None,
-                    path: "career.md".to_string(),
-                    title: "Career".to_string(),
-                    body: "Engineering career.".to_string(),
-                    sources: vec![],
-                }],
+                upserts: vec![
+                    noema_memory::MemoryPageChange {
+                        id: None,
+                        expected_hash: None,
+                        path: "career.md".to_string(),
+                        title: "Career".to_string(),
+                        body: "Engineering career.".to_string(),
+                        sources: vec![],
+                    },
+                    noema_memory::MemoryPageChange {
+                        id: None,
+                        expected_hash: None,
+                        path: "career/learning.md".to_string(),
+                        title: "Learning".to_string(),
+                        body: "Technical learning.".to_string(),
+                        sources: vec![],
+                    },
+                ],
                 deletes: vec![],
             })
             .expect("publish page");
@@ -57,6 +68,11 @@
         let changed = stream.next().await.expect("changed memory snapshot");
         assert_json_fields!(changed.data.into_json().expect("changed json"),
             "/memoryEvents/root/children/0/title" => "Career",
+            "/memoryEvents/pages" => json!([
+                { "path": "career.md", "title": "Career" },
+                { "path": "career/learning.md", "title": "Learning" },
+                { "path": "root.md", "title": "Human memory" },
+            ]),
         );
     }
 

@@ -144,6 +144,18 @@ pub struct MemoryPageRef {
     pub hash: String,
 }
 
+impl From<&MemoryPage> for MemoryPageRef {
+    fn from(page: &MemoryPage) -> Self {
+        Self {
+            id: page.id.clone(),
+            path: page.path.clone(),
+            title: page.title.clone(),
+            excerpt: page_lead_excerpt(&page.body),
+            hash: page.hash.clone(),
+        }
+    }
+}
+
 /// A lexical search result.  Search never returns a complete page body.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemorySearchResult {
