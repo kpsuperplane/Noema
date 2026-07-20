@@ -2,6 +2,7 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import { useLazyQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
+import { ButtonGroup } from "@astryxdesign/core/ButtonGroup";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import * as stylex from "@stylexjs/stylex";
@@ -176,6 +177,7 @@ export function TaskActions({
             rows={3}
             value={answer}
             width="100%"
+            className={stylex.props(styles.answerInput).className}
           />
           {commands.requiresAcknowledgement ? (
             <div role="alert" {...stylex.props(styles.stale)}>
@@ -315,7 +317,8 @@ function TaskControlsRow({
 }) {
   const iconProps = { "aria-hidden": true, size: 15, strokeWidth: 2 } as const;
   return (
-    <div role="toolbar" aria-label="Task controls" {...stylex.props(styles.controls)}>
+    <div {...stylex.props(styles.controls)}>
+      <ButtonGroup label="Task controls" size="sm">
       {onCancel ? (
         <IconButton
           type="button"
@@ -350,6 +353,7 @@ function TaskControlsRow({
           onClick={navigation.onClose}
         />
       ) : null}
+      </ButtonGroup>
     </div>
   );
 }
@@ -357,11 +361,12 @@ function TaskControlsRow({
 const styles = stylex.create({
   frame: { display: "grid", gap: "var(--spacing-1-5)" },
   defaultFrame: { display: "grid", gap: "var(--spacing-1-5)", minWidth: 0 },
-  controls: { display: "flex", minHeight: 28, alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-0-5)" },
-  answerForm: { display: "grid", gap: "var(--spacing-2)", minWidth: 0 },
+  controls: { display: "inline-flex", minHeight: 28, alignItems: "center", justifyContent: "flex-end" },
+  answerForm: { display: "grid", gap: 0, minWidth: 0, borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, backgroundColor: "var(--noema-surface-card)", padding: "var(--spacing-2)" },
+  answerInput: { borderWidth: 0, borderColor: "transparent", backgroundColor: "transparent", boxShadow: "none", paddingBlock: "var(--spacing-1)", paddingInline: "var(--spacing-1)" },
   decisionField: { display: "grid", gap: "var(--spacing-1-5)", color: "var(--noema-text-secondary)", fontSize: 11, fontWeight: 650 },
   decisionSelect: { minHeight: 34, width: "100%", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-default)", borderRadius: 7, backgroundColor: "var(--noema-surface-card)", paddingInline: "var(--spacing-2)", color: "var(--noema-text-primary)", font: "inherit", ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
-  answerActions: { display: "flex", justifyContent: "flex-end" },
+  answerActions: { display: "flex", justifyContent: "flex-end", paddingBlockStart: "var(--spacing-1)" },
   stale: { display: "grid", justifyItems: "start", gap: "var(--spacing-2)", borderRadius: 7, backgroundColor: "var(--noema-surface-card)", padding: "var(--spacing-2)", color: "var(--noema-clay-600)", fontSize: 11, lineHeight: 1.4 },
   inlineError: { margin: 0, color: "var(--noema-red-700)", fontSize: 11, lineHeight: 1.4 },
   actions: { display: "flex", flexWrap: "wrap", gap: "var(--spacing-1-5)" },

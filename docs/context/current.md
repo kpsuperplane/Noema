@@ -172,14 +172,14 @@ subagents, reviews, and size measurement.
 - The primary chat surfaces concise task markers and human decisions; `/work`
   provides denser management. Both reuse the same task detail and server-owned
   action vocabulary.
-- Task detail keeps title, status, navigation, and available cancellation in
-  the header, then uses one padded chronological transcript as the primary
-  surface. Planner, Executor, and Review runs are marked inline with role,
+- Task detail uses one padded chronological transcript as the primary surface;
+  the outer rail header is reduced to floating cancel, Work, and close
+  controls. Planner, Executor, and Review runs are marked inline with role,
   revision, status, and duration; their persisted items reuse the shared
-  response and activity lanes. The brief, criteria, and metadata live in a
-  compact floating context card above the transcript; unresolved human
-  actions stay attached to that card while its full details remain behind
-  disclosure.
+  response and activity lanes. A compact floating task card carries the title
+  and info trigger, an optional needs-input row, and a validation summary row.
+  The info popover exposes compact metadata and completed results, while
+  validation details remain available through the row disclosure.
 - Current Work behavior and `docs/workspaces/README.md` are authoritative. The
   completed multi-agent implementation packets remain in Git history and should
   not drive new implementation.

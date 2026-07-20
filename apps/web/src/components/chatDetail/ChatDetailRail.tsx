@@ -6,8 +6,7 @@ import {
   type ArtifactDetail
 } from "./ArtifactDetailPanel";
 import type { ChatDetailTarget } from "./chatDetailTypes";
-import { TaskDetailQueryPanel, type TaskDetailHeader } from "./task/TaskDetailQueryPanel";
-import { TaskStatusBadge } from "./task/TaskStatusBadge";
+import { TaskDetailQueryPanel } from "./task/TaskDetailQueryPanel";
 import { ArtifactVersionSelector } from "./ArtifactVersionSelector";
 import { ChatDetailCloseButton } from "./ChatDetailCloseButton";
 
@@ -36,28 +35,14 @@ export function ChatDetailRail({
     detail: ArtifactDetail | null;
     latestDetail: ArtifactDetail | null;
   } | null>(null);
-  const [taskHeaderState, setTaskHeaderState] = React.useState<{ taskId: string; header: TaskDetailHeader } | null>(null);
   const artifactVersion = target.type === "artifact" ? target.version : null;
-  const taskId = target.type === "task" ? target.taskId : null;
   const artifactDetail = artifactVersion && artifactDetailState?.version === artifactVersion
     ? artifactDetailState.detail
     : null;
   const latestArtifactDetail = artifactDetailState?.latestDetail ?? null;
-  const taskHeader = taskHeaderState?.taskId === taskId ? taskHeaderState.header : null;
   const title = artifactDetail?.title ??
     latestArtifactDetail?.title ??
-    (target.type === "artifact"
-      ? "Artifact"
-      : taskHeader
-        ? taskHeader.title
-        : "Task details");
-  const handleTaskHeaderChange = React.useCallback(
-    (nextHeader: TaskDetailHeader | null) => {
-      setTaskHeaderState(nextHeader && taskId ? { taskId, header: nextHeader } : null);
-    },
-    [taskId]
-  );
-
+    (target.type === "artifact" ? "Artifact" : "Task details");
   React.useEffect(() => {
     if (isModal && motionState === "opening" && returnFocusRef.current === null && document.activeElement instanceof HTMLElement) {
       returnFocusRef.current = document.activeElement;
@@ -139,17 +124,11 @@ export function ChatDetailRail({
       <div
         data-slot="chat-detail-rail-surface"
         data-state={motionState}
-        {...stylex.props(styles.surface)}
+        {...stylex.props(styles.surface, target.type === "task" && styles.taskSurface)}
       >
-        <header {...stylex.props(styles.header)}>
+        <header {...stylex.props(styles.header, target.type === "task" && styles.taskHeader)}>
           {target.type === "task" ? (
-            <div {...stylex.props(styles.taskTitleRow)}>
-              <h2 {...stylex.props(styles.title)}>{title}</h2>
-              {taskHeader ? (
-                <TaskStatusBadge stageBehavior={taskHeader.stageBehavior} status={taskHeader.status} />
-              ) : null}
-              <div ref={taskControlsHostRef} {...stylex.props(styles.taskControls)} />
-            </div>
+            <div ref={taskControlsHostRef} {...stylex.props(styles.taskControls, styles.floatingTaskControls)} />
           ) : (
             <>
               <div {...stylex.props(styles.actionRow)}>
@@ -177,7 +156,6 @@ export function ChatDetailRail({
               closeButtonRef={closeButtonRef}
               controlsHostRef={taskControlsHostRef}
               onClose={onClose}
-              onHeaderChange={handleTaskHeaderChange}
               showWorkLink={showWorkLink}
               taskId={target.taskId}
             />
@@ -248,6 +226,10 @@ const styles = stylex.create({
     height: "100%",
     backgroundColor: "var(--noema-surface-card)"
   },
+  taskSurface: {
+    position: "relative",
+    gridTemplateRows: "minmax(0, 1fr)"
+  },
   header: {
     minWidth: 0,
     display: "grid",
@@ -258,6 +240,16 @@ const styles = stylex.create({
     borderBottomStyle: "solid",
     borderBottomColor: "var(--noema-border-subtle)"
   },
+  taskHeader: {
+    position: "absolute",
+    top: "var(--spacing-3)",
+    right: "var(--spacing-3)",
+    zIndex: 5,
+    display: "block",
+    padding: 0,
+    borderBottomWidth: 0,
+    pointerEvents: "none"
+  },
   actionRow: {
     minWidth: 0,
     display: "grid",
@@ -265,18 +257,21 @@ const styles = stylex.create({
     alignItems: "start",
     gap: "var(--spacing-3)"
   },
-  taskTitleRow: {
-    minWidth: 0,
-    display: "grid",
-    gridTemplateColumns: "minmax(0, 1fr) auto auto",
-    alignItems: "center",
-    gap: "var(--spacing-3)"
-  },
   taskControls: {
     display: "flex",
     minHeight: 28,
     alignItems: "center",
     justifyContent: "flex-end"
+  },
+  floatingTaskControls: {
+    pointerEvents: "auto",
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--noema-border-subtle)",
+    borderRadius: 999,
+    backgroundColor: "color-mix(in srgb, var(--noema-surface-card) 92%, transparent)",
+    boxShadow: "0 6px 18px color-mix(in srgb, var(--noema-text-primary) 12%, transparent)",
+    padding: "var(--spacing-0-5)"
   },
   versionSlot: {
     minWidth: 0

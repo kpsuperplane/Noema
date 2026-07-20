@@ -192,23 +192,26 @@ The primary chat shows compact task markers and human decisions when action is
 needed. Its task-only overview is labeled Tasks; Work names the broader `/work`
 surface containing the Inbox, active board, history, project organization, and
 task detail. Both reuse the same task-detail and decision components.
-Task detail keeps title, status, navigation, and available cancellation in the
-header, then presents one chronological conversation stream as the primary
-surface. Durable human task input uses the human message lane. Planner,
+Task detail presents one padded chronological conversation stream as the
+primary surface. The outer rail header is reduced to floating cancel, Work,
+and close controls, while a compact floating task card carries the title and
+info trigger. Durable human task input uses the human message lane. Planner,
 Executor, and Review runs are marked inline with role, revision, status, and
 duration, while their persisted transcript items use the existing response and
 activity lanes. Run transcripts are merged into one scroll surface; tool
 activity remains expandable in place, and bounded paging continues from the
 oldest available run window.
 
-The floating task-context card keeps the brief, validation criteria, and
-metadata available through compact disclosure while the padded transcript stays
-primary. An unresolved clarification, approval, recovery, permission, or
-acceptance action is attached to that card in a compact action region, keeping
-its prompt and controls visible until resolved; after resolution, the decision
-is represented by the chronological task stream. Recovery uses one response
-control: non-empty text resolves an eligible Answer, while an empty response
-requests Retry when the gate authorizes it.
+The floating task-context card keeps an optional needs-input row and compact
+validation summary above the transcript. The info popover exposes compact
+metadata and completed results; the validation row discloses individual
+criteria. An
+unresolved clarification, approval, recovery, permission, or acceptance
+action is attached to the needs-input row, keeping its prompt and controls
+visible until resolved; after resolution, the decision is represented by the
+chronological task stream. Recovery uses one response control: non-empty text
+resolves an eligible Answer, while an empty response requests Retry when the
+gate authorizes it.
 Internal IDs, raw run counters, provider details, and audit evidence stay behind
 progressive disclosure unless they directly explain the next human action.
 

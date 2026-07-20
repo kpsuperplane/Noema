@@ -18,28 +18,20 @@ import type {
   TaskRun,
   TaskRunRole,
   TaskRunStatus,
-  TaskStageBehavior,
   TaskStatus,
   TaskSubmission
 } from "./taskTypes";
 
 type WorkDetail = NonNullable<WorkTaskDetailQuery["task"]>;
-export type TaskDetailHeader = {
-  title: string;
-  status: TaskStatus;
-  stageBehavior: TaskStageBehavior;
-};
 
 export function TaskDetailQueryPanel({
   taskId,
-  onHeaderChange,
   onClose,
   closeButtonRef,
   controlsHostRef,
   showWorkLink = true
 }: {
   taskId: string;
-  onHeaderChange?: (header: TaskDetailHeader | null) => void;
   onClose: () => void;
   closeButtonRef?: React.RefObject<HTMLButtonElement | null>;
   controlsHostRef: React.RefObject<HTMLDivElement | null>;
@@ -65,14 +57,6 @@ export function TaskDetailQueryPanel({
       void result.refetch();
     }
   });
-
-  React.useEffect(() => {
-    onHeaderChange?.(task ? {
-      title: task.title,
-      status: taskStatus(task),
-      stageBehavior: task.stage.behavior
-    } : null);
-  }, [onHeaderChange, task]);
 
   const detail = React.useMemo(() => task ? mapWorkTaskDetail(task) : null, [task]);
   const navigation = { taskId, showWorkLink, onClose };

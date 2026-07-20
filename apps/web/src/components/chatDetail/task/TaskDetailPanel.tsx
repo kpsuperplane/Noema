@@ -1,8 +1,8 @@
 import * as React from "react";
 import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
+import { Popover } from "@astryxdesign/core/Popover";
 import * as stylex from "@stylexjs/stylex";
-import { ChevronDown } from "lucide-react";
-import { TaskExpandableContent } from "./TaskSection";
+import { ChevronDown, Info } from "lucide-react";
 import type { TaskDetail, TaskRunItem } from "./taskTypes";
 import { TaskCriteria } from "./TaskCriteria";
 import { taskStageLabel } from "./TaskOverview";
@@ -76,39 +76,108 @@ function TaskContextCard({
   governedActions?: React.ReactNode;
   taskId: string;
 }) {
-  const [expanded, setExpanded] = React.useState(false);
-  const stageLabel = taskStageLabel(detail);
-  const criteriaSummary = detail.criteria.length > 0 ? `${detail.criteria.length} criteria` : "No criteria";
-
   return (
-    <aside aria-label="Task context" {...stylex.props(styles.contextDock)}>
+    <aside aria-label="Task summary" {...stylex.props(styles.contextDock)}>
       <div {...stylex.props(styles.contextCard)}>
-        <header {...stylex.props(styles.cardHeader)}>
-          <div {...stylex.props(styles.cardIdentity)}>
-            <span {...stylex.props(styles.cardState)}>{detail.attention ? "Needs you" : stageLabel}</span>
-            <span {...stylex.props(styles.cardMeta)}>{criteriaSummary}</span>
-            {detail.currentRevision ? <span {...stylex.props(styles.cardMeta)}>Revision {detail.currentRevision}</span> : null}
-          </div>
-          <button
-            type="button"
-            aria-controls={`task-context:${taskId}`}
-            aria-expanded={expanded}
-            aria-label={expanded ? "Collapse task info" : "Expand task info"}
-            onClick={() => setExpanded((current) => !current)}
-            {...stylex.props(styles.contextToggle)}
-          >
-            <ChevronDown aria-hidden="true" size={16} {...stylex.props(styles.contextToggleIcon, expanded && styles.contextToggleIconOpen)} />
-          </button>
-        </header>
-        {governedActions ? <div {...stylex.props(styles.governedActions)}>{governedActions}</div> : null}
-        {detail.attention ? <TaskAttention detail={detail} actions={actions} /> : actions ? <div {...stylex.props(styles.actionRow)}>{actions}</div> : null}
-        {expanded ? <TaskInfoBody detail={detail} taskId={taskId} /> : null}
+        <TaskSummaryHeader detail={detail} />
+        {detail.attention ? (
+          <TaskAttention detail={detail} actions={actions} governedActions={governedActions} />
+        ) : governedActions ? (
+          <div {...stylex.props(styles.actionRow)}>{governedActions}</div>
+        ) : actions ? (
+          <div {...stylex.props(styles.actionRow)}>{actions}</div>
+        ) : null}
+        {detail.criteria.length > 0 ? <TaskValidationRow criteria={detail.criteria} taskId={taskId} /> : null}
       </div>
     </aside>
   );
 }
 
-function TaskAttention({ detail, actions }: { detail: TaskDetail; actions?: React.ReactNode }) {
+function TaskSummaryHeader({ detail }: { detail: TaskDetail }) {
+  return (
+    <header {...stylex.props(styles.summaryHeader)}>
+      <h2 {...stylex.props(styles.summaryTitle)}>{detail.title}</h2>
+      <TaskInfoTrigger detail={detail} />
+    </header>
+  );
+}
+
+function TaskInfoTrigger({ detail }: { detail: TaskDetail }) {
+  const [open, setOpen] = React.useState(false);
+  const pinnedRef = React.useRef(false);
+  const hoveringRef = React.useRef(false);
+  const closeTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearCloseTimeout = React.useCallback(() => {
+    if (closeTimeoutRef.current) {
+      clearTimeout(closeTimeoutRef.current);
+      closeTimeoutRef.current = null;
+    }
+  }, []);
+  const scheduleClose = React.useCallback(() => {
+    clearCloseTimeout();
+    if (pinnedRef.current || hoveringRef.current) return;
+    closeTimeoutRef.current = setTimeout(() => {
+      closeTimeoutRef.current = null;
+      setOpen(false);
+    }, 180);
+  }, [clearCloseTimeout]);
+  React.useEffect(() => () => clearCloseTimeout(), [clearCloseTimeout]);
+
+  return (
+    <Popover
+      alignment="end"
+      content={(
+        <div onMouseEnter={() => { hoveringRef.current = true; clearCloseTimeout(); }} onMouseLeave={() => { hoveringRef.current = false; scheduleClose(); }}>
+          <TaskInfoPopoverContent detail={detail} />
+        </div>
+      )}
+      hasAutoFocus={false}
+      isOpen={open}
+      label="Task information"
+      onOpenChange={(next) => {
+        if (!next) {
+          pinnedRef.current = false;
+          setOpen(false);
+        }
+      }}
+      placement="above"
+      width="min(320px, calc(100vw - var(--spacing-6)))"
+      xstyle={popoverXStyle(styles.infoPopover)}
+    >
+      {(trigger) => (
+        <button
+          ref={(element) => trigger.ref(element)}
+          type="button"
+          aria-controls={trigger["aria-controls"]}
+          aria-expanded={trigger["aria-expanded"]}
+          aria-haspopup={trigger["aria-haspopup"]}
+          aria-label="Show task information"
+          onClick={() => {
+            clearCloseTimeout();
+            pinnedRef.current = !pinnedRef.current;
+            setOpen(pinnedRef.current);
+          }}
+          onFocus={() => { clearCloseTimeout(); setOpen(true); }}
+          onMouseEnter={() => { hoveringRef.current = true; clearCloseTimeout(); setOpen(true); }}
+          onMouseLeave={() => { hoveringRef.current = false; scheduleClose(); }}
+          {...stylex.props(styles.infoButton)}
+        >
+          <Info aria-hidden="true" size={15} strokeWidth={2} />
+        </button>
+      )}
+    </Popover>
+  );
+}
+
+function TaskAttention({
+  detail,
+  actions,
+  governedActions
+}: {
+  detail: TaskDetail;
+  actions?: React.ReactNode;
+  governedActions?: React.ReactNode;
+}) {
   const prompt = detail.blockingQuestion?.trim() || null;
   const context = detail.attention?.context?.trim() || null;
   const contextIsPrimary = Boolean(context) && (detail.attention?.kind === "RECOVERY_REQUIRED" || !prompt);
@@ -120,7 +189,6 @@ function TaskAttention({ detail, actions }: { detail: TaskDetail; actions?: Reac
 
   return (
     <section aria-labelledby="task-attention-title" {...stylex.props(styles.attention)}>
-      <div {...stylex.props(styles.attentionEyebrow)}>Needs your input</div>
       <h3 id="task-attention-title" {...stylex.props(styles.attentionTitle)}>{detail.attention?.title}</h3>
       {primaryText ? <p {...stylex.props(styles.attentionText)}>{primaryText}</p> : null}
       {context ? (
@@ -135,27 +203,51 @@ function TaskAttention({ detail, actions }: { detail: TaskDetail; actions?: Reac
         </Markdown>
       ) : null}
       {result}
-      {evidence ? <div {...stylex.props(styles.attentionEvidence)}><span {...stylex.props(styles.infoLabel)}>Review evidence</span><Markdown autolink="gfm" contentWidth="100%" density="compact" headingLevelStart={4} xstyle={markdownXStyle(styles.attentionMarkdown)}>{evidence}</Markdown></div> : null}
+      {evidence ? <div {...stylex.props(styles.attentionEvidence)}><Markdown autolink="gfm" contentWidth="100%" density="compact" headingLevelStart={4} xstyle={markdownXStyle(styles.attentionMarkdown)}>{evidence}</Markdown></div> : null}
+      {governedActions ? <div {...stylex.props(styles.attentionGovernedActions)}>{governedActions}</div> : null}
       {actions ? <div {...stylex.props(styles.attentionActions)}>{actions}</div> : null}
     </section>
   );
 }
 
-function TaskInfoBody({ detail, taskId }: { detail: TaskDetail; taskId: string }) {
+function TaskValidationRow({ criteria, taskId }: { criteria: TaskDetail["criteria"]; taskId: string }) {
+  const [expanded, setExpanded] = React.useState(false);
+  const passed = criteria.filter((criterion) => criterion.verdict === "pass").length;
+  const failed = criteria.filter((criterion) => criterion.verdict === "fail").length;
+  const summary = failed > 0
+    ? `${failed} failed · ${criteria.length} criteria`
+    : passed === criteria.length
+      ? `${passed} passed · ${criteria.length} criteria`
+      : `${passed} passed · ${criteria.length - passed} pending`;
+
+  return (
+    <section {...stylex.props(styles.validationRow)}>
+      <button
+        type="button"
+        aria-controls={`task-validation-details:${taskId}`}
+        aria-expanded={expanded}
+        onClick={() => setExpanded((current) => !current)}
+        {...stylex.props(styles.validationToggle)}
+      >
+        <span {...stylex.props(styles.validationIdentity)}>
+          <span {...stylex.props(styles.validationLabel)}>Validation</span>
+          <span {...stylex.props(styles.validationSummary)}>{summary}</span>
+        </span>
+        <ChevronDown aria-hidden="true" size={15} {...stylex.props(styles.validationIcon, expanded && styles.validationIconOpen)} />
+      </button>
+      {expanded ? <div id={`task-validation-details:${taskId}`} {...stylex.props(styles.validationDetails)}><TaskCriteria embedded criteria={criteria} showTitle={false} /></div> : null}
+    </section>
+  );
+}
+
+function TaskInfoPopoverContent({ detail }: { detail: TaskDetail }) {
   const result = detail.stageBehavior === "ACCEPTANCE" || detail.stageBehavior === "TERMINAL_SUCCESS"
     ? <TaskResult embedded artifacts={detail.artifacts} result={detail.finalResult} />
     : null;
 
   return (
-    <div id={`task-context:${taskId}`} {...stylex.props(styles.infoBody)}>
-      {result ? <section {...stylex.props(styles.infoSection, styles.resultSection)}><span {...stylex.props(styles.infoLabel)}>Result</span>{result}</section> : null}
-      <section {...stylex.props(styles.infoSection)}>
-        <span {...stylex.props(styles.infoLabel)}>Request</span>
-        <TaskExpandableContent id={`task-request-content:${taskId}`}>
-          <Markdown autolink="gfm" contentWidth="100%" density="compact" headingLevelStart={4} xstyle={markdownXStyle(styles.markdown)}>{detail.request}</Markdown>
-        </TaskExpandableContent>
-      </section>
-      {detail.criteria.length > 0 ? <section {...stylex.props(styles.infoSection)}><TaskCriteria embedded criteria={detail.criteria} /></section> : null}
+    <div {...stylex.props(styles.infoContent)}>
+      {result ? <section {...stylex.props(styles.infoSection, styles.resultSection)}>{result}</section> : null}
       <TaskInfoMetadata detail={detail} />
     </div>
   );
@@ -165,17 +257,14 @@ function TaskInfoMetadata({ detail }: { detail: TaskDetail }) {
   const revision = detail.currentRevision ?? latestRevision(detail);
   const provenance = [detail.createdBy, detail.sourceLabel].filter(Boolean).join(" · ");
   return (
-    <section {...stylex.props(styles.infoSection)}>
-      <span {...stylex.props(styles.infoLabel)}>Task details</span>
-      <dl {...stylex.props(styles.metadata)}>
-        {detail.complexity ? <MetadataRow label="Complexity" value={capitalize(detail.complexity)} /> : null}
-        <MetadataRow label="Stage" value={taskStageLabel(detail)} />
-        {revision > 0 ? <MetadataRow label="Revision" value={`${revision}`} /> : null}
-        {detail.maxReviewRounds ? <MetadataRow label="Review limit" value={`${detail.maxReviewRounds} rounds`} /> : null}
-        {detail.createdAt ? <MetadataRow label="Created" value={formatDate(detail.createdAt)} /> : null}
-        {provenance ? <MetadataRow label="From" value={provenance} /> : null}
-      </dl>
-    </section>
+    <dl {...stylex.props(styles.metadataSection, styles.metadata)}>
+      {detail.complexity ? <MetadataRow label="Complexity" value={capitalize(detail.complexity)} /> : null}
+      <MetadataRow label="Stage" value={taskStageLabel(detail)} />
+      {revision > 0 ? <MetadataRow label="Revision" value={`${revision}`} /> : null}
+      {detail.maxReviewRounds ? <MetadataRow label="Review limit" value={`${detail.maxReviewRounds} rounds`} /> : null}
+      {detail.createdAt ? <MetadataRow label="Created" value={formatDate(detail.createdAt)} /> : null}
+      {provenance ? <MetadataRow label="From" value={provenance} /> : null}
+    </dl>
   );
 }
 
@@ -211,6 +300,10 @@ function TaskUnavailable({ message }: { message: string }) {
 
 function markdownXStyle(...xstyle: unknown[]): MarkdownXStyle {
   return xstyle as unknown as MarkdownXStyle;
+}
+
+function popoverXStyle(...xstyle: unknown[]): React.ComponentProps<typeof Popover>["xstyle"] {
+  return xstyle as React.ComponentProps<typeof Popover>["xstyle"];
 }
 
 const styles = stylex.create({
@@ -249,32 +342,35 @@ const styles = stylex.create({
     backgroundColor: "var(--noema-surface-card)",
     boxShadow: "0 10px 28px color-mix(in srgb, var(--noema-text-primary) 13%, transparent)"
   },
-  cardHeader: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-3)" },
-  cardIdentity: { display: "flex", minWidth: 0, alignItems: "center", flexWrap: "wrap", gap: "var(--spacing-1-5)" },
-  cardState: { color: "var(--noema-text-primary)", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" },
-  cardMeta: { color: "var(--noema-text-muted)", fontSize: 11, whiteSpace: "nowrap" },
-  contextToggle: { display: "inline-flex", width: 28, height: 28, alignItems: "center", justifyContent: "center", borderWidth: 0, borderRadius: 6, backgroundColor: "transparent", color: "var(--noema-text-muted)", cursor: "pointer", ":hover": { backgroundColor: "var(--noema-surface-hover)" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
-  contextToggleIcon: { transition: "transform 140ms ease" },
-  contextToggleIconOpen: { transform: "rotate(180deg)" },
-  governedActions: { minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-3)" },
+  summaryHeader: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-3)" },
+  summaryTitle: { minWidth: 0, margin: 0, color: "var(--noema-text-primary)", fontSize: 13, fontWeight: 700, lineHeight: 1.35, overflowWrap: "anywhere" },
+  infoButton: { display: "inline-flex", width: 28, height: 28, alignItems: "center", justifyContent: "center", borderWidth: 0, borderRadius: 999, backgroundColor: "transparent", color: "var(--noema-text-muted)", cursor: "pointer", ":hover": { backgroundColor: "var(--noema-surface-hover)", color: "var(--noema-text-primary)" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
+  infoPopover: { maxHeight: "min(70vh, 520px)", overflowX: "hidden", overflowY: "auto" },
   actionRow: { minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-3)" },
-  attention: { display: "grid", gap: "var(--spacing-1-5)", minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "color-mix(in srgb, var(--noema-clay-600) 24%, transparent)", backgroundColor: "color-mix(in srgb, var(--noema-clay-50) 52%, var(--noema-surface-card))", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-3)" },
-  attentionEyebrow: { color: "var(--noema-clay-700)", fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase" },
+  attention: { display: "grid", gap: "var(--spacing-2)", minWidth: 0, backgroundColor: "var(--noema-surface-sunken)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-3)" },
   attentionTitle: { margin: 0, color: "var(--noema-text-primary)", fontSize: 13, fontWeight: 700, lineHeight: 1.35 },
   attentionText: { margin: 0, color: "var(--noema-text-primary)", fontSize: 12, lineHeight: 1.45 },
   attentionMarkdown: { color: "var(--noema-text-secondary)", fontSize: 11, lineHeight: 1.45 },
   attentionPrimaryMarkdown: { color: "var(--noema-text-primary)", fontSize: 12, fontWeight: 600, lineHeight: 1.45 },
   attentionEvidence: { display: "grid", gap: "var(--spacing-1)", minWidth: 0 },
-  attentionActions: { minWidth: 0, marginBlockStart: "var(--spacing-1)", borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "color-mix(in srgb, var(--noema-clay-600) 22%, transparent)", paddingBlockStart: "var(--spacing-2)" },
-  infoBody: { minWidth: 0, maxHeight: "min(50vh, 420px)", overflowX: "hidden", overflowY: "auto", borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", backgroundColor: "var(--noema-surface-sunken)" },
-  infoSection: { display: "grid", gap: "var(--spacing-2)", minWidth: 0, borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--noema-border-subtle)", paddingBlock: "var(--spacing-3)", paddingInline: "var(--spacing-3)" },
+  attentionGovernedActions: { minWidth: 0 },
+  attentionActions: { minWidth: 0 },
+  validationRow: { minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)" },
+  validationToggle: { display: "flex", width: "100%", minWidth: 0, alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-2)", borderWidth: 0, backgroundColor: "transparent", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-3)", color: "inherit", font: "inherit", textAlign: "left", cursor: "pointer", ":hover": { backgroundColor: "var(--noema-surface-hover)" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: -2 } },
+  validationIdentity: { display: "flex", minWidth: 0, alignItems: "baseline", gap: "var(--spacing-2)" },
+  validationLabel: { color: "var(--noema-text-primary)", fontSize: 11, fontWeight: 700 },
+  validationSummary: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-muted)", fontSize: 11, textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  validationIcon: { flexShrink: 0, color: "var(--noema-text-muted)", transition: "transform 140ms ease" },
+  validationIconOpen: { transform: "rotate(180deg)" },
+  validationDetails: { minWidth: 0, backgroundColor: "var(--noema-surface-card)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-2)" },
+  infoContent: { display: "grid", minWidth: 0, backgroundColor: "var(--noema-surface-card)" },
+  infoSection: { display: "grid", gap: "var(--spacing-2)", minWidth: 0, paddingBlock: "var(--spacing-3)", paddingInline: "var(--spacing-3)" },
   resultSection: { backgroundColor: "var(--noema-surface-card)" },
-  infoLabel: { color: "var(--noema-text-muted)", fontSize: 10, fontWeight: 700, letterSpacing: "0.03em", textTransform: "uppercase" },
+  metadataSection: { paddingBlock: "var(--spacing-3)", paddingInline: "var(--spacing-3)" },
   metadata: { display: "grid", gap: "var(--spacing-1-5)", margin: 0 },
   metadataRow: { display: "grid", gridTemplateColumns: "minmax(88px, 0.42fr) minmax(0, 1fr)", gap: "var(--spacing-3)", alignItems: "baseline" },
   metadataKey: { color: "var(--noema-text-muted)", fontSize: 11 },
   metadataValue: { minWidth: 0, margin: 0, color: "var(--noema-text-secondary)", fontSize: 11, overflowWrap: "anywhere" },
   status: { padding: "var(--spacing-2)", color: "var(--noema-text-secondary)", fontSize: 13 },
   unavailable: { padding: "var(--spacing-2)", color: "var(--noema-text-secondary)", fontSize: 13, lineHeight: 1.45 },
-  markdown: { color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: 1.5 }
 });

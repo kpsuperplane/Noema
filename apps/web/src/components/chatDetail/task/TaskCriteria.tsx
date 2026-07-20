@@ -5,10 +5,12 @@ import type { TaskCriterion, TaskCriterionVerdict } from "./taskTypes";
 
 export function TaskCriteria({
   criteria,
-  embedded = false
+  embedded = false,
+  showTitle = true
 }: {
   criteria: readonly TaskCriterion[];
   embedded?: boolean;
+  showTitle?: boolean;
 }) {
   if (criteria.length === 0) {
     return null;
@@ -25,7 +27,7 @@ export function TaskCriteria({
   if (embedded) {
     return (
       <div {...stylex.props(styles.embedded)}>
-        <h4 {...stylex.props(styles.embeddedTitle)}>Validation criteria</h4>
+        {showTitle ? <h4 {...stylex.props(styles.embeddedTitle)}>Validation criteria</h4> : null}
         {content}
       </div>
     );
@@ -49,7 +51,6 @@ function CriterionRow({ criterion }: { criterion: TaskCriterion }) {
         name={criterion.text}
         presentation="content"
         status={criterionToolCallStatus(verdict)}
-        target={criterionVerdictLabel(verdict)}
       />
     </li>
   );
@@ -83,19 +84,6 @@ function criterionToolCallStatus(verdict: TaskCriterionVerdict): TaskToolMarkerS
     case "uncertain":
     case "pending":
       return "pending";
-  }
-}
-
-function criterionVerdictLabel(verdict: TaskCriterionVerdict): string {
-  switch (verdict) {
-    case "pass":
-      return "Passed";
-    case "fail":
-      return "Failed";
-    case "uncertain":
-      return "Uncertain";
-    case "pending":
-      return "Pending";
   }
 }
 
