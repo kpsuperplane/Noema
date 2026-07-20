@@ -354,7 +354,7 @@ const styles = stylex.create({
   infoPopover: { maxHeight: "min(70vh, 520px)", overflowX: "hidden", overflowY: "auto" },
   actionRow: { minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-3)" },
   attention: { display: "grid", gap: "var(--spacing-2)", minWidth: 0, borderBlockWidth: 1, borderBlockStyle: "solid", borderBlockColor: "var(--noema-red-700)", paddingBlock: "var(--spacing-1)" },
-  attentionComposer: { display: "grid", gap: "var(--spacing-2)", minWidth: 0, borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, backgroundColor: "var(--noema-surface-card)", padding: "var(--spacing-2)" },
+  attentionComposer: { display: "grid", gap: "var(--spacing-2)", minWidth: 0, paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-3)" },
   attentionComposerCopy: { display: "grid", gap: "var(--spacing-1)", minWidth: 0 },
   attentionTitle: { margin: 0, color: "var(--noema-text-primary)", fontSize: 13, fontWeight: 700, lineHeight: 1.35 },
   attentionText: { margin: 0, color: "var(--noema-text-primary)", fontSize: 12, lineHeight: 1.45 },
