@@ -18,33 +18,34 @@ export type TaskRunItemSource = {
 };
 
 export function mapTaskRunItem(item: TaskRunItemSource, role: TaskRunRole): TaskRunItem {
-  const isToolCall = item.kind === "tool_call";
-  const isToolResult = item.kind === "tool_result";
+  const sourceKind = item.kind.toLowerCase();
+  const isToolCall = sourceKind === "tool_call";
+  const isToolResult = sourceKind === "tool_result";
   const details = isToolCall || isToolResult ? jsonText(item.payload) : null;
   return {
     id: item.itemId,
     runId: item.runId,
     sequenceIndex: item.sequenceIndex,
     roundIndex: item.roundIndex,
-    sourceKind: item.kind,
+    sourceKind,
     kind:
       isToolCall
           ? "tool"
-          : item.kind === "assistant_output"
+          : sourceKind === "assistant_output"
             ? "message"
             : isToolResult
               ? "result"
-              : item.kind === "artifact"
+              : sourceKind === "artifact_reference"
                 ? "artifact"
                 : "status",
     title:
       isToolCall
           ? `Tool call · ${item.contentText || "unnamed"}`
-          : item.kind === "assistant_output"
+          : sourceKind === "assistant_output"
             ? "Agent"
             : isToolResult
               ? `Tool result · ${item.contentText || "unnamed"}`
-              : humanize(item.kind),
+              : humanize(sourceKind),
     summary: item.contentText,
     details,
     payload: item.payload,
@@ -79,7 +80,10 @@ export function mergeTaskRunItems(
 
 export function taskRunItemsToTranscriptEntries(items: readonly TaskRunItem[]): TranscriptEntry[] {
   const entries: TranscriptEntry[] = [];
-  for (const item of items) {
+  for (const [index, item] of items.entries()) {
+    if (isRedundantLifecycleNotice(items, index)) {
+      continue;
+    }
     const entry = taskRunItemToTranscriptEntry(item);
     if (!entry) {
       continue;
@@ -92,6 +96,27 @@ export function taskRunItemsToTranscriptEntries(items: readonly TaskRunItem[]): 
     }
   }
   return entries;
+}
+
+function isRedundantLifecycleNotice(items: readonly TaskRunItem[], index: number): boolean {
+  const item = items[index];
+  if (item?.sourceKind !== "progress_notice") {
+    return false;
+  }
+  if (recordValue(item.payload)?.phase === "provider_response") {
+    return true;
+  }
+
+  const call = items[index - 1];
+  const result = items[index + 1];
+  const callCorrelationId = taskToolCorrelationId(call);
+  return (
+    call?.kind === "tool"
+    && result?.kind === "result"
+    && call.runId === result.runId
+    && callCorrelationId !== null
+    && callCorrelationId === taskToolCorrelationId(result)
+  );
 }
 
 function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry | null {
@@ -201,6 +226,10 @@ function persistedCorrelationId(payload: Record<string, unknown> | null): string
   return null;
 }
 
+function taskToolCorrelationId(item: TaskRunItem | undefined): string | null {
+  return item?.correlationId ?? persistedCorrelationId(recordValue(item?.payload));
+}
+
 function persistedResultPayload(payload: Record<string, unknown> | null): unknown {
   if (!payload) {
     return undefined;
@@ -227,14 +256,17 @@ function taskActivityStatus(status: TaskRunItem["status"]): TurnActivityStatus {
 }
 
 function runItemStatus(value: string | null | undefined): TaskRunItem["status"] {
-  switch (value) {
+  const normalized = value?.toLowerCase();
+  switch (normalized) {
+    case "pending":
+      return "queued";
     case "queued":
     case "running":
     case "completed":
     case "failed":
     case "cancelled":
     case "skipped":
-      return value;
+      return normalized;
     default:
       return null;
   }
