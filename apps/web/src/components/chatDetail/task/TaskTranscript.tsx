@@ -20,10 +20,12 @@ type TranscriptEvent =
 
 export function TaskTranscript({
   detail,
-  liveRunItems
+  liveRunItems,
+  onLatestRunItemChange
 }: {
   detail: TaskDetail;
   liveRunItems?: ReadonlyMap<string, readonly import("./taskTypes").TaskRunItem[]>;
+  onLatestRunItemChange?: (runId: string, item: import("./taskTypes").TaskRunItem | null) => void;
 }) {
   const runs = React.useMemo(() => taskRunsInOrder(detail.revisions), [detail.revisions]);
   const [snapshots, setSnapshots] = React.useState<ReadonlyMap<string, TaskRunTranscriptSnapshot>>(
@@ -134,6 +136,7 @@ export function TaskTranscript({
           key={run.run.id}
           liveItems={liveRunItems?.get(run.run.id)}
           onSnapshot={onSnapshot}
+          onLatestRunItemChange={onLatestRunItemChange}
           run={run.run}
         />
       ))}

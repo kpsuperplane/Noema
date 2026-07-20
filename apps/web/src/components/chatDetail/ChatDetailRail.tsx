@@ -30,6 +30,8 @@ export function ChatDetailRail({
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
   const taskControlsHostRef = React.useRef<HTMLDivElement>(null);
   const returnFocusRef = React.useRef<HTMLElement | null>(null);
+  const taskTargetId = target.type === "task" ? target.taskId : null;
+  const [taskTitleState, setTaskTitleState] = React.useState<{ taskId: string; title: string } | null>(null);
   const [artifactDetailState, setArtifactDetailState] = React.useState<{
     version: string;
     detail: ArtifactDetail | null;
@@ -43,6 +45,12 @@ export function ChatDetailRail({
   const title = artifactDetail?.title ??
     latestArtifactDetail?.title ??
     (target.type === "artifact" ? "Artifact" : "Task details");
+  const taskTitle = target.type === "task" && taskTitleState?.taskId === target.taskId
+    ? taskTitleState.title
+    : "Task details";
+  const handleTaskTitleChange = React.useCallback((nextTitle: string) => {
+    if (taskTargetId) setTaskTitleState({ taskId: taskTargetId, title: nextTitle });
+  }, [taskTargetId]);
   React.useEffect(() => {
     if (isModal && motionState === "opening" && returnFocusRef.current === null && document.activeElement instanceof HTMLElement) {
       returnFocusRef.current = document.activeElement;
@@ -128,7 +136,13 @@ export function ChatDetailRail({
       >
         <header {...stylex.props(styles.header, target.type === "task" && styles.taskHeader)}>
           {target.type === "task" ? (
-            <div ref={taskControlsHostRef} {...stylex.props(styles.taskControls, styles.floatingTaskControls)} />
+            <div {...stylex.props(styles.taskTitleBar)}>
+              <h2 {...stylex.props(styles.title)}>{taskTitle}</h2>
+              <div {...stylex.props(styles.taskHeaderActions)}>
+                <div ref={taskControlsHostRef} {...stylex.props(styles.taskControls, styles.floatingTaskControls)} />
+                <ChatDetailCloseButton closeButtonRef={closeButtonRef} onClose={onClose} />
+              </div>
+            </div>
           ) : (
             <>
               <div {...stylex.props(styles.actionRow)}>
@@ -156,6 +170,7 @@ export function ChatDetailRail({
               closeButtonRef={closeButtonRef}
               controlsHostRef={taskControlsHostRef}
               onClose={onClose}
+              onTaskTitleChange={handleTaskTitleChange}
               showWorkLink={showWorkLink}
               taskId={target.taskId}
             />
@@ -228,7 +243,7 @@ const styles = stylex.create({
   },
   taskSurface: {
     position: "relative",
-    gridTemplateRows: "minmax(0, 1fr)"
+    gridTemplateRows: "auto minmax(0, 1fr)"
   },
   header: {
     minWidth: 0,
@@ -241,15 +256,13 @@ const styles = stylex.create({
     borderBottomColor: "var(--noema-border-subtle)"
   },
   taskHeader: {
-    position: "absolute",
-    top: "var(--spacing-3)",
-    right: "var(--spacing-3)",
     zIndex: 5,
-    display: "block",
-    padding: 0,
-    borderBottomWidth: 0,
-    pointerEvents: "none"
+    paddingBlock: "var(--spacing-2)",
+    paddingInline: "var(--spacing-4)",
+    pointerEvents: "auto"
   },
+  taskTitleBar: { display: "grid", minWidth: 0, gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "center", gap: "var(--spacing-3)" },
+  taskHeaderActions: { display: "inline-flex", alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-1)" },
   actionRow: {
     minWidth: 0,
     display: "grid",

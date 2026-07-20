@@ -348,7 +348,7 @@ const styles = stylex.create({
   validationIdentity: { display: "flex", minWidth: 0, alignItems: "baseline", gap: "var(--spacing-2)" },
   validationLabel: { color: "var(--noema-text-primary)", fontSize: 11, fontWeight: 700 },
   validationSummary: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-muted)", fontSize: 11, textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  infoContent: { display: "grid", minWidth: 0, backgroundColor: "var(--noema-surface-card)" },
+  infoContent: { display: "grid", minWidth: 0, overflow: "hidden", borderRadius: "inherit", backgroundColor: "var(--noema-surface-card)" },
   metadataSection: { paddingBlock: "var(--spacing-3)", paddingInline: "var(--spacing-3)" },
   metadata: { display: "grid", gap: "var(--spacing-1-5)", margin: 0 },
   metadataRow: { display: "grid", gridTemplateColumns: "minmax(88px, 0.42fr) minmax(0, 1fr)", gap: "var(--spacing-3)", alignItems: "baseline" },

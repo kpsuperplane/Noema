@@ -29,13 +29,15 @@ export function TaskDetailQueryPanel({
   onClose,
   closeButtonRef,
   controlsHostRef,
-  showWorkLink = true
+  showWorkLink = true,
+  onTaskTitleChange
 }: {
   taskId: string;
   onClose: () => void;
   closeButtonRef?: React.RefObject<HTMLButtonElement | null>;
   controlsHostRef: React.RefObject<HTMLDivElement | null>;
   showWorkLink?: boolean;
+  onTaskTitleChange?: (title: string) => void;
 }) {
   const result = useQuery(WorkTaskDetailDocument, {
     variables: { taskId },
@@ -46,6 +48,9 @@ export function TaskDetailQueryPanel({
   const queriedTask = result.data?.task ?? null;
   const task = queriedTask?.taskId === taskId ? queriedTask : null;
   const [cursor, recordCursor] = useTaskEventCursor(taskId);
+  React.useEffect(() => {
+    if (task?.title) onTaskTitleChange?.(task.title);
+  }, [onTaskTitleChange, task?.title]);
 
   useSubscription(WorkTaskEventsDocument, {
     variables: { taskId, after: cursor },
@@ -60,6 +65,7 @@ export function TaskDetailQueryPanel({
 
   const detail = React.useMemo(() => task ? mapWorkTaskDetail(task) : null, [task]);
   const navigation = { taskId, showWorkLink, onClose };
+  const portalNavigation = { ...navigation, showWorkLink: false, onClose: undefined };
   const needsInlineResponse = Boolean(detail?.attention && task?.validActions.some(
     (action) => action === "ANSWER" || action === "RETRY"
   ));
@@ -72,6 +78,7 @@ export function TaskDetailQueryPanel({
         governedActions={<PendingGovernedActions compact taskId={taskId} />}
         inlineResponse={needsInlineResponse}
         loading={result.loading}
+        showWorkLink={showWorkLink}
         taskId={taskId}
       />
     </>
@@ -84,7 +91,7 @@ export function TaskDetailQueryPanel({
         closeButtonRef={closeButtonRef}
         controlsHostRef={controlsHostRef}
         inlineResponse={needsInlineResponse}
-        navigation={navigation}
+        navigation={portalNavigation}
         task={task}
         validActions={task.validActions}
         projects={projects.projects}
@@ -98,7 +105,7 @@ export function TaskDetailQueryPanel({
   return (
     <>
       <TaskNavigationControls
-        navigation={navigation}
+        navigation={portalNavigation}
         closeButtonRef={closeButtonRef}
         controlsHostRef={controlsHostRef}
       />
@@ -262,7 +269,7 @@ function mapReview(review: WorkDetail["reviews"][number]): TaskReview {
 
 function taskStatus(task: WorkDetail): TaskStatus {
   switch (task.stage.behavior) {
-    case "TERMINAL_SUCCESS": return "completed";
+    case "TERMINAL_SUCCESS": return "archived";
     case "TERMINAL_CANCELLED": return "cancelled";
     case "HUMAN_GATE":
     case "ACCEPTANCE": return "waiting_for_human";

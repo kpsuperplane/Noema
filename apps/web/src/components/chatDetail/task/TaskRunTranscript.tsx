@@ -14,6 +14,7 @@ const EMPTY_RUN_ITEMS: readonly TaskRunItem[] = [];
 
 export type TaskRunTranscriptSnapshot = {
   entries: ReturnType<typeof taskRunItemsToTranscriptEntries>;
+  latestItem: TaskRunItem | null;
   error: string | null;
   pageInfo: { hasNextPage: boolean } | null;
   loadingOlder: boolean;
@@ -24,11 +25,13 @@ export type TaskRunTranscriptSnapshot = {
 export function TaskRunTranscriptSource({
   run,
   liveItems = EMPTY_RUN_ITEMS,
-  onSnapshot
+  onSnapshot,
+  onLatestRunItemChange
 }: {
   run: TaskRun;
   liveItems?: readonly TaskRunItem[];
   onSnapshot: (runId: string, snapshot: TaskRunTranscriptSnapshot) => void;
+  onLatestRunItemChange?: (runId: string, item: TaskRunItem | null) => void;
 }) {
   const data = useTaskRunTranscriptData(run, liveItems);
 
@@ -36,12 +39,14 @@ export function TaskRunTranscriptSource({
     onSnapshot(run.id, {
       entries: data.entries,
       error: data.error ? "Agent transcript could not be loaded." : null,
+      latestItem: data.latestItem,
       loadOlder: data.loadOlder,
       loadingOlder: data.loadingOlder,
       olderPageError: data.olderPageError,
       pageInfo: data.pageInfo ? { hasNextPage: data.pageInfo.hasNextPage } : null
     });
-  }, [data, onSnapshot, run.id]);
+    onLatestRunItemChange?.(run.id, data.latestItem);
+  }, [data, onLatestRunItemChange, onSnapshot, run.id]);
 
   return null;
 }
@@ -96,11 +101,12 @@ function useTaskRunTranscriptData(run: TaskRun, liveItems: readonly TaskRunItem[
   return React.useMemo(() => ({
     entries,
     error: error ? "Agent transcript could not be loaded." : null,
+    latestItem: items.at(-1) ?? null,
     loadingOlder,
     olderPageError,
     pageInfo,
     loadOlder,
-  }), [entries, error, loadingOlder, olderPageError, pageInfo, loadOlder]);
+  }), [entries, error, items, loadingOlder, olderPageError, pageInfo, loadOlder]);
 }
 
 function mapNode(node: RunItemNode, role: TaskRunRole): TaskRunItem {
