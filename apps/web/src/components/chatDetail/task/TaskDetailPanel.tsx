@@ -334,7 +334,7 @@ const styles = stylex.create({
     zIndex: 2,
     minWidth: 0,
     marginInline: "var(--spacing-4)",
-    marginBlockEnd: "var(--spacing-3)",
+    marginBlockEnd: "var(--spacing-4)",
     marginBlockStart: "calc(-1 * var(--spacing-2))"
   },
   contextCard: {
@@ -348,7 +348,7 @@ const styles = stylex.create({
     backgroundColor: "var(--noema-surface-card)",
     boxShadow: "0 10px 28px color-mix(in srgb, var(--noema-text-primary) 13%, transparent)"
   },
-  summaryHeader: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-3)" },
+  summaryHeader: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlockStart: "var(--spacing-3)", paddingBlockEnd: "var(--spacing-2)", paddingInline: "var(--spacing-3)" },
   summaryTitle: { minWidth: 0, margin: 0, color: "var(--noema-text-primary)", fontSize: 13, fontWeight: 700, lineHeight: 1.35, overflowWrap: "anywhere" },
   infoButton: { display: "inline-flex", width: 28, height: 28, alignItems: "center", justifyContent: "center", borderWidth: 0, borderRadius: 999, backgroundColor: "transparent", color: "var(--noema-text-muted)", cursor: "pointer", ":hover": { backgroundColor: "var(--noema-surface-hover)", color: "var(--noema-text-primary)" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
   infoPopover: { maxHeight: "min(70vh, 520px)", overflowX: "hidden", overflowY: "auto" },
