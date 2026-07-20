@@ -32,6 +32,13 @@ const styles = stylex.create({
     wordBreak: "break-word",
     textAlign: "center"
   },
+  avatar: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    alignSelf: "center"
+  },
   label: {
     fontWeight: 650
   },
@@ -58,11 +65,13 @@ const styles = stylex.create({
 
 export function TranscriptSystemNotice({
   label,
+  avatar,
   children,
   role,
   tone = "default"
 }: {
   label?: ReactNode;
+  avatar?: ReactNode;
   children: ReactNode;
   role?: AriaRole;
   tone?: TranscriptSystemNoticeTone;
@@ -81,6 +90,7 @@ export function TranscriptSystemNotice({
       <span
         {...stylex.props(styles.content)}
       >
+        {avatar ? <span {...stylex.props(styles.avatar)} aria-hidden="true">{avatar}</span> : null}
         {label ? <strong {...stylex.props(styles.label)}>{label}</strong> : null}
         <span {...stylex.props(styles.message)}>{children}</span>
       </span>

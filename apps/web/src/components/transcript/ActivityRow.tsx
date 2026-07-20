@@ -2,6 +2,7 @@ import * as stylex from "@stylexjs/stylex";
 import { ChevronDown } from "lucide-react";
 import { statusLabel } from "@/shared/format";
 import type { TurnTranscriptItem } from "@/shared/types";
+import { IdentityAvatar } from "../IdentityAvatar";
 import { TranscriptAttachmentCard } from "./TranscriptAttachmentCard";
 import { TranscriptSystemNotice } from "./TranscriptSystemNotice";
 
@@ -59,10 +60,13 @@ export function ActivityRow({
         ? "success"
         : "default";
   const detail = activityDetail(item);
+  const avatar = activityInstanceName(item)
+    ? <IdentityAvatar actorId={`subagent:${activityInstanceName(item)}`} actorType="agent" size="xs" />
+    : undefined;
 
   if (item.activity_kind === "task_run_start" || item.activity_kind === "task_run_end") {
     return (
-      <TranscriptSystemNotice role={item.status === "FAILED" ? "alert" : "status"} tone={noticeTone}>
+      <TranscriptSystemNotice avatar={avatar} role={item.status === "FAILED" ? "alert" : "status"} tone={noticeTone}>
         {item.title}
       </TranscriptSystemNotice>
     );
@@ -128,4 +132,12 @@ function activityDetail(item: Extract<TurnTranscriptItem, { kind: "activity" }>)
   }
   const detail = item.metadata.detail;
   return typeof detail === "string" && detail.trim() ? detail : null;
+}
+
+function activityInstanceName(item: Extract<TurnTranscriptItem, { kind: "activity" }>): string | null {
+  if (!item.metadata || typeof item.metadata !== "object" || !("instance_name" in item.metadata)) {
+    return null;
+  }
+  const instanceName = item.metadata.instance_name;
+  return typeof instanceName === "string" && instanceName.trim() ? instanceName : null;
 }

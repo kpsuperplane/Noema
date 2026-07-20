@@ -210,7 +210,7 @@ function runBoundaryEntries(run: TaskRun, revision: TaskRevision, now: number): 
     "task_run_start",
     run,
     `${role} spawned and running · ${revisionLabel}`,
-    { presentation: { tone: "neutral" } }
+    { presentation: { tone: "neutral" }, instance_name: run.instanceName }
   );
   if (!isTerminalRun(run)) {
     return [start];
@@ -231,7 +231,7 @@ function runBoundaryEntries(run: TaskRun, revision: TaskRevision, now: number): 
       "task_run_end",
       run,
       `${outcome} · ${revisionLabel}${durationSuffix}`,
-      { presentation: { tone: run.status === "completed" ? "neutral" : "error" } }
+      { presentation: { tone: run.status === "completed" ? "neutral" : "error" }, instance_name: run.instanceName }
     )
   ];
 }
