@@ -332,15 +332,16 @@ function TaskControlsRow({
   const workAnchorRef = React.useRef<HTMLButtonElement>(null);
   const fallbackCloseAnchorRef = React.useRef<HTMLButtonElement>(null);
   const closeAnchorRef = closeButtonRef ?? fallbackCloseAnchorRef;
+  const taskControlsGroupClassName = stylex.props(styles.taskControlsGroup).className;
   return (
     <>
-      <ButtonGroup label="Task controls" size="lg">
+      <ButtonGroup label="Task controls" size="lg" className={taskControlsGroupClassName}>
         {onCancel ? (
           <IconButton
             ref={cancelAnchorRef}
             type="button"
-            size="sm"
-            variant="secondary"
+            size="lg"
+            variant="ghost"
             label="Cancel task"
             icon={<Ban {...iconProps} color="var(--color-error)" />}
             isDisabled={busy}
@@ -352,8 +353,8 @@ function TaskControlsRow({
           <IconButton
             ref={workAnchorRef}
             href={`/work/tasks/${encodeURIComponent(navigation.taskId)}`}
-            size="sm"
-            variant="secondary"
+            size="lg"
+            variant="ghost"
             label="Open in Work"
             icon={<ExternalLink {...iconProps} />}
             xstyle={taskControlXStyle(styles.taskControlButton)}
@@ -363,8 +364,8 @@ function TaskControlsRow({
           <IconButton
             ref={closeButtonRef}
             type="button"
-            size="sm"
-            variant="secondary"
+            size="lg"
+            variant="ghost"
             label="Close task details"
             icon={<X {...iconProps} />}
             onClick={navigation.onClose}
@@ -382,12 +383,21 @@ function TaskControlsRow({
 const styles = stylex.create({
   frame: { display: "grid", gap: "var(--spacing-1-5)" },
   defaultFrame: { display: "grid", gap: "var(--spacing-1-5)", minWidth: 0 },
-  taskControlButton: {
+  taskControlsGroup: {
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "var(--noema-border-subtle)",
+    borderRadius: 14,
     backgroundColor: "#fff",
-    boxShadow: "0 8px 22px color-mix(in srgb, var(--noema-text-primary) 14%, transparent)",
+    padding: "var(--spacing-1)",
+    boxShadow: "0 8px 22px color-mix(in srgb, var(--noema-text-primary) 14%, transparent)"
+  },
+  taskControlButton: {
+    minWidth: 44,
+    height: 44,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    boxShadow: "none"
   },
   answerForm: { display: "grid", gap: "var(--spacing-1-5)", minWidth: 0, borderWidth: 0, borderColor: "transparent", backgroundColor: "transparent", padding: 0 },
   answerComposerRow: { display: "flex", minWidth: 0, alignItems: "flex-end", gap: "var(--spacing-1-5)" },
