@@ -105,7 +105,7 @@ pub enum GraphqlWorkTaskScope {
     /// Nonterminal workflow stages.
     #[default]
     Active,
-    /// Completed and cancelled history.
+    /// Archived and cancelled history.
     Terminal,
     /// Both active and terminal tasks.
     All,

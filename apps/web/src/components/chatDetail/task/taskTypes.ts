@@ -4,7 +4,7 @@ export type TaskStatus =
   | "reviewing"
   | "revision_requested"
   | "waiting_for_human"
-  | "completed"
+  | "archived"
   | "failed"
   | "cancelled";
 

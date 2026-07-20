@@ -145,9 +145,9 @@ export const WorkActivityDocument = gql`
   ${WorkPageInfoFields}
 `;
 
-export const WorkCompletedTasksDocument = gql`
-  query WorkCompletedTasks($workspaceId: String!, $projectId: String, $kind: TerminalTaskKind, $text: String, $first: Int = 50, $after: String) {
-    completedTasks(workspaceId: $workspaceId, projectId: $projectId, kind: $kind, text: $text, first: $first, after: $after) {
+export const WorkArchiveTasksDocument = gql`
+  query WorkArchiveTasks($workspaceId: String!, $projectId: String, $kind: TerminalTaskKind, $text: String, $first: Int = 50, $after: String) {
+    archiveTasks(workspaceId: $workspaceId, projectId: $projectId, kind: $kind, text: $text, first: $first, after: $after) {
       edges {
         cursor
         node {

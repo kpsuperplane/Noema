@@ -858,7 +858,7 @@ async fn simple_review_approval_auto_accepts_and_other_complexity_waits_for_acce
     let (simple, simple_notification) = run_review_case(TaskComplexity::Simple).await;
     assert_eq!(
         simple.stage_id.as_str(),
-        noema_tasks::PERSONAL_COMPLETED_STAGE_ID
+        noema_tasks::PERSONAL_ARCHIVE_STAGE_ID
     );
     assert_eq!(
         simple.accepted_submission_id.as_deref(),
@@ -873,11 +873,11 @@ async fn simple_review_approval_auto_accepts_and_other_complexity_waits_for_acce
     let (medium, medium_notification) = run_review_case(TaskComplexity::Medium).await;
     assert_eq!(
         medium.stage_id.as_str(),
-        noema_tasks::PERSONAL_REVIEW_STAGE_ID
+        noema_tasks::PERSONAL_DONE_STAGE_ID
     );
     assert_eq!(medium_notification["action_needed"], true);
     assert_eq!(
         medium_notification["message"],
-        "Review ready — accept the result or request changes."
+        "Done — accept the result or request changes."
     );
 }

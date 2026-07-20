@@ -154,7 +154,7 @@ pub(super) fn submit_review_tx(
                 &serde_json::json!({
                     "task_id": task.task_id.as_str(),
                     "review_id": persisted_review_id,
-                    "message": "Review ready — accept the result or request changes.",
+                    "message": "Done — accept the result or request changes.",
                     "action_needed": true,
                 }),
             )? {

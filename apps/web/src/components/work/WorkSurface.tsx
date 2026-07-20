@@ -6,7 +6,7 @@ import type { WorkSearch, WorkView } from "./workTypes";
 import { CaptureTaskDialog } from "./CaptureTaskDialog";
 import { ProjectManagerDialog } from "./ProjectManagerDialog";
 import { WorkToolbar } from "./WorkToolbar";
-import { WorkActivity, WorkBoard, WorkCompleted, WorkList, WorkNeedsYou } from "./WorkViews";
+import { WorkActivity, WorkArchive, WorkBoard, WorkList, WorkNeedsYou } from "./WorkViews";
 import { useWorkEventCursor } from "./workEventCursor";
 import { PERSONAL_WORKSPACE_ID } from "./workTypes";
 import { useAllWorkProjects } from "./useAllWorkProjects";
@@ -83,7 +83,7 @@ export function WorkSurface({ search, onSearchChange }: { search: WorkSearch; on
         {search.view === "list" ? <WorkList projectId={search.project} query={search.q} onClearFilters={() => onSearchChange({ view: "list" })} /> : null}
         {search.view === "needs-you" ? <WorkNeedsYou projectId={search.project} /> : null}
         {search.view === "activity" ? <WorkActivity projectId={search.project} /> : null}
-        {search.view === "completed" ? <WorkCompleted projectId={search.project} query={search.q} terminal={search.terminal ?? "all"} onTerminalChange={(terminal) => onSearchChange({ ...search, terminal })} /> : null}
+        {search.view === "archive" ? <WorkArchive projectId={search.project} query={search.q} terminal={search.terminal ?? "all"} onTerminalChange={(terminal) => onSearchChange({ ...search, terminal })} /> : null}
       </main>
       <CaptureTaskDialog key={`${search.project ?? "all"}:${captureOpen ? "open" : "closed"}`} open={captureOpen} projects={projects} initialProjectId={search.project} onOpenChange={setCaptureOpen} onCreated={refresh} />
       <ProjectManagerDialog open={projectsOpen} projects={projects} onOpenChange={setProjectsOpen} onUpdated={refresh} />

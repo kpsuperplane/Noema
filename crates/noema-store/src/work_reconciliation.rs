@@ -158,7 +158,7 @@ impl WorkCommandService {
                             )
                         }
                     }
-                    WorkReconciliationAction::MoveToReview => {
+                    WorkReconciliationAction::MoveToDone => {
                         if task.stage_behavior == WorkflowStageBehavior::Acceptance {
                             let approved = if let Some(review_id) = task.latest_review_id.as_deref()
                             {
@@ -296,14 +296,14 @@ fn move_to_review_tx(
     }
     let revision = helpers::increment(task.revision, "task.revision")?;
     let changed = transaction.execute(
-        "UPDATE tasks SET stage_id = 'stage:personal:review', queued_at = NULL, revision = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND generation = ?3 AND revision = ?4",
+        "UPDATE tasks SET stage_id = 'stage:personal:done', queued_at = NULL, revision = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND generation = ?3 AND revision = ?4",
         params![task.task_id.as_str(), revision, task.generation, task.revision],
     )?;
     if changed != 1 {
         return Err(StoreError::Work(WorkDomainError::StaleRevision));
     }
     let from_stage = task.stage_id.clone();
-    task.stage_id = WorkflowStageId::new("stage:personal:review").map_err(StoreError::Work)?;
+    task.stage_id = WorkflowStageId::new("stage:personal:done").map_err(StoreError::Work)?;
     task.stage_behavior = WorkflowStageBehavior::Acceptance;
     task.revision = revision;
     let event = append_work_event_tx(
@@ -327,7 +327,7 @@ fn move_to_review_tx(
             &serde_json::json!({
                 "task_id": task.task_id.as_str(),
                 "review_id": review_id,
-                "message": "Review ready — accept the result or request changes.",
+                "message": "Done — accept the result or request changes.",
                 "action_needed": true,
             }),
         )?

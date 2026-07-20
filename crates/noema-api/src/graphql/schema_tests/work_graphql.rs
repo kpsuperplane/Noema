@@ -31,7 +31,7 @@ fn work_schema_exposes_semantic_operations_without_task_status_aliases() {
         "projects",
         "needsYou",
         "workActivity",
-        "completedTasks",
+        "archiveTasks",
         "taskRunItems",
         "captureTask",
         "queueTask",

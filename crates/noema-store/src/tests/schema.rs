@@ -47,8 +47,8 @@ async fn work_v6_bootstrap_is_exact_idempotent_and_enforces_foreign_keys() {
                     stage("queue", "Queue", 20, "dispatch", 1),
                     stage("doing", "Doing", 30, "active", 1),
                     stage("waiting", "Waiting", 40, "human_gate", 1),
-                    stage("review", "Review", 50, "acceptance", 1),
-                    stage("completed", "Completed", 60, "terminal_success", 0),
+                    stage("done", "Done", 50, "acceptance", 1),
+                    stage("archive", "Archive", 60, "terminal_success", 0),
                     stage("cancelled", "Cancelled", 70, "terminal_cancelled", 0),
                 ]
             );

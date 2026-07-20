@@ -1093,8 +1093,8 @@ INSERT INTO workflow_stages (
   ('stage:personal:queue',     'workflow:personal:default', 'queue',     'Queue',     20, 'dispatch',           1),
   ('stage:personal:doing',     'workflow:personal:default', 'doing',     'Doing',     30, 'active',             1),
   ('stage:personal:waiting',   'workflow:personal:default', 'waiting',   'Waiting',   40, 'human_gate',         1),
-  ('stage:personal:review',    'workflow:personal:default', 'review',    'Review',    50, 'acceptance',         1),
-  ('stage:personal:completed', 'workflow:personal:default', 'completed', 'Completed', 60, 'terminal_success',   0),
+  ('stage:personal:done',      'workflow:personal:default', 'done',      'Done',      50, 'acceptance',         1),
+  ('stage:personal:archive',   'workflow:personal:default', 'archive',   'Archive',   60, 'terminal_success',   0),
   ('stage:personal:cancelled', 'workflow:personal:default', 'cancelled', 'Cancelled', 70, 'terminal_cancelled', 0)
 ON CONFLICT (stage_id) DO NOTHING;
 

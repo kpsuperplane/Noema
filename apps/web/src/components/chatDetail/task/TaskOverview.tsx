@@ -47,9 +47,9 @@ export function taskStageLabel(detail: TaskDetail): string {
     case "HUMAN_GATE":
       return "Waiting";
     case "ACCEPTANCE":
-      return "Review";
+      return "Done";
     case "TERMINAL_SUCCESS":
-      return "Completed";
+      return "Archive";
     case "TERMINAL_CANCELLED":
       return "Cancelled";
   }
@@ -70,9 +70,9 @@ export function taskStateHeading(detail: TaskDetail): string {
     case "HUMAN_GATE":
       return detail.attention?.title ?? "Decision needed";
     case "ACCEPTANCE":
-      return "Review the result";
+      return "Accept the result";
     case "TERMINAL_SUCCESS":
-      return "Completed";
+      return "Archive";
     case "TERMINAL_CANCELLED":
       return "Cancelled";
   }

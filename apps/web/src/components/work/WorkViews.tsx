@@ -9,7 +9,7 @@ import {
 } from "@/components/actions/PendingGovernedActions";
 import {
   WorkActivityDocument,
-  WorkCompletedTasksDocument,
+  WorkArchiveTasksDocument,
   WorkNeedsYouDocument,
   WorkOverviewDocument,
   WorkTasksDocument,
@@ -111,7 +111,7 @@ export function WorkList({ projectId, query, onClearFilters }: { projectId?: str
             <option value="DISPATCH">Queue</option>
             <option value="ACTIVE">Doing</option>
             <option value="HUMAN_GATE">Waiting</option>
-            <option value="ACCEPTANCE">Review</option>
+            <option value="ACCEPTANCE">Done</option>
           </select>
         </label>
         <label {...stylex.props(styles.checkbox)}><input type="checkbox" checked={attentionOnly} onChange={(event) => setAttentionOnly(event.currentTarget.checked)} /> Needs attention</label>
@@ -139,7 +139,7 @@ export function WorkList({ projectId, query, onClearFilters }: { projectId?: str
 
 function TaskRows({ tasks, terminal = false }: { tasks: readonly WorkTask[]; terminal?: boolean }) {
   return (
-    <div role="table" aria-label={terminal ? "Completed tasks" : "Active tasks"} {...stylex.props(styles.table)}>
+    <div role="table" aria-label={terminal ? "Archive tasks" : "Active tasks"} {...stylex.props(styles.table)}>
       <div role="row" {...stylex.props(styles.tableHeader)}>
         <span role="columnheader">Task</span><span role="columnheader" {...stylex.props(styles.hiddenMobile)}>Project</span><span role="columnheader" {...stylex.props(styles.hiddenMobile)}>Stage</span><span role="columnheader">Updated</span>
       </div>
@@ -272,27 +272,27 @@ export function WorkActivity({ projectId }: { projectId?: string }) {
   );
 }
 
-export function WorkCompleted({ projectId, query, terminal, onTerminalChange }: { projectId?: string; query?: string; terminal: "all" | "accepted" | "cancelled"; onTerminalChange: (value: "all" | "accepted" | "cancelled") => void }) {
+export function WorkArchive({ projectId, query, terminal, onTerminalChange }: { projectId?: string; query?: string; terminal: "all" | "accepted" | "cancelled"; onTerminalChange: (value: "all" | "accepted" | "cancelled") => void }) {
   const kind = terminal === "accepted" ? "ACCEPTED" : terminal === "cancelled" ? "CANCELLED" : "ALL";
-  const result = useQuery(WorkCompletedTasksDocument, {
+  const result = useQuery(WorkArchiveTasksDocument, {
     variables: { workspaceId: PERSONAL_WORKSPACE_ID, projectId, text: query, kind, first: 50 },
     fetchPolicy: "cache-and-network"
   });
-  const connection = result.data?.completedTasks;
+  const connection = result.data?.archiveTasks;
   const tasks = connection?.edges.map((edge) => edge.node) ?? [];
   return (
-    <section aria-label="Completed work" {...stylex.props(styles.stack)}>
+    <section aria-label="Archive work" {...stylex.props(styles.stack)}>
       <div {...stylex.props(styles.inlineFilters)}>
         <label {...stylex.props(styles.filterLabel)}>Show
           <select value={terminal} {...stylex.props(styles.select)} onChange={(event) => onTerminalChange(event.currentTarget.value as typeof terminal)}>
-            <option value="all">Completed and cancelled</option><option value="accepted">Completed</option><option value="cancelled">Cancelled</option>
+            <option value="all">Archived and cancelled</option><option value="accepted">Archived</option><option value="cancelled">Cancelled</option>
           </select>
         </label>
       </div>
       {!connection ? <QueryState loading={result.loading} error={Boolean(result.error)} retry={() => result.refetch()} label="history" /> : null}
-      {connection && !tasks.length ? <EmptyState title="No matching history" detail="Accepted and cancelled tasks remain available here." /> : null}
+      {connection && !tasks.length ? <EmptyState title="No matching archive items" detail="Archived and cancelled tasks remain available here." /> : null}
       {tasks.length ? <TaskRows tasks={tasks} terminal /> : null}
-      <LoadMore connection={connection} loading={result.loading} onLoad={() => result.fetchMore({ variables: { after: connection?.pageInfo.endCursor }, updateQuery: (previous, { fetchMoreResult }) => ({ ...fetchMoreResult, completedTasks: { ...fetchMoreResult.completedTasks, edges: [...previous.completedTasks.edges, ...fetchMoreResult.completedTasks.edges] } }) })} />
+      <LoadMore connection={connection} loading={result.loading} onLoad={() => result.fetchMore({ variables: { after: connection?.pageInfo.endCursor }, updateQuery: (previous, { fetchMoreResult }) => ({ ...fetchMoreResult, archiveTasks: { ...fetchMoreResult.archiveTasks, edges: [...previous.archiveTasks.edges, ...fetchMoreResult.archiveTasks.edges] } }) })} />
     </section>
   );
 }
@@ -315,7 +315,7 @@ function attentionLabel(kind: string): string {
   if (kind === "CLARIFICATION_REQUIRED") return "Question";
   if (kind === "APPROVAL_REQUIRED") return "Approval";
   if (kind === "RECOVERY_REQUIRED") return "Recovery";
-  return "Review";
+  return "Done";
 }
 
 function groupEvents(events: readonly WorkEvent[]) {

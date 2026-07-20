@@ -252,7 +252,7 @@ fn attention_projection(
             gate.ok_or_else(unavailable)?.prompt_markdown.clone(),
         ),
         noema_store::WorkTaskAttention::ReadyForAcceptance => (
-            "Review ready",
+            "Done",
             review.ok_or_else(unavailable)?.overall_feedback.clone(),
         ),
     };

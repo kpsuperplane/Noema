@@ -26,7 +26,7 @@ pub use overview::*;
 pub enum WorkTaskScope {
     /// The five nonterminal Personal workflow stages.
     Active,
-    /// Completed and Cancelled history.
+    /// Archive and Cancelled history.
     Terminal,
     /// Both active work and terminal history, ordered by last update.
     All,

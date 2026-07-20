@@ -6,7 +6,7 @@ use noema_providers::{
     ProviderInstanceKey, ProviderSelectionMode, ProviderSelectionSnapshot, ReasoningEffort,
 };
 use noema_tasks::{
-    CaptureTask, DelegateTask, PERSONAL_COMPLETED_STAGE_ID, TaskContractId, TaskExecutionPolicy,
+    CaptureTask, DelegateTask, PERSONAL_ARCHIVE_STAGE_ID, TaskContractId, TaskExecutionPolicy,
     TaskId, TaskStageChangeReason, WorkCommand, WorkDomainError, WorkEventPayload, WorkEventRecord,
     WorkflowStageBehavior, WorkflowStageId,
 };
@@ -160,7 +160,7 @@ pub(crate) fn accept_review_tx(
         "UPDATE tasks SET stage_id = ?2, accepted_submission_id = ?3, completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), queued_at = NULL, revision = ?4, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND revision = ?5 AND generation = ?6",
         params![
             task.task_id.as_str(),
-            PERSONAL_COMPLETED_STAGE_ID,
+            PERSONAL_ARCHIVE_STAGE_ID,
             submission_id,
             revision,
             task.revision,
@@ -170,7 +170,7 @@ pub(crate) fn accept_review_tx(
     if changed != 1 {
         return Err(StoreError::Work(WorkDomainError::StaleRevision));
     }
-    task.stage_id = WorkflowStageId::new(PERSONAL_COMPLETED_STAGE_ID).map_err(StoreError::Work)?;
+    task.stage_id = WorkflowStageId::new(PERSONAL_ARCHIVE_STAGE_ID).map_err(StoreError::Work)?;
     task.stage_behavior = WorkflowStageBehavior::TerminalSuccess;
     task.revision = revision;
     let scope = event.task_scope(task, run_id);

@@ -2474,9 +2474,9 @@ type QueryRoot {
 	"""
 	workActivity(workspaceId: String!, projectId: String, taskId: String, first: Int, after: String): WorkEventConnection!
 	"""
-	Return completed/cancelled task history through the terminal scope.
+	Return archived/cancelled task history through the terminal scope.
 	"""
-	completedTasks(workspaceId: String!, projectId: String, kind: TerminalTaskKind, text: String, first: Int, after: String): TaskConnection!
+	archiveTasks(workspaceId: String!, projectId: String, kind: TerminalTaskKind, text: String, first: Int, after: String): TaskConnection!
 	"""
 	Return a newest-page, owner-authorized task-run transcript connection.
 	"""
@@ -4669,7 +4669,7 @@ enum WorkTaskScope {
 	"""
 	ACTIVE
 	"""
-	Completed and cancelled history.
+	Archived and cancelled history.
 	"""
 	TERMINAL
 	"""

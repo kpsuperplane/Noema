@@ -232,12 +232,12 @@ pub(in crate::graphql) async fn work_activity(
         .and_then(event_connection)
 }
 
-/// Resolve terminal task history with a stable kind filter.
+/// Resolve archived task history with a stable kind filter.
 #[allow(
     clippy::too_many_arguments,
     reason = "mirrors the GraphQL field contract"
 )]
-pub(in crate::graphql) async fn completed_tasks(
+pub(in crate::graphql) async fn archive_tasks(
     state: &GraphqlState,
     principal_subject: &str,
     workspace_id: String,

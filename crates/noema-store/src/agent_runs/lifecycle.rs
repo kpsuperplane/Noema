@@ -296,8 +296,8 @@ pub(super) fn bump_task_to_review_tx(
     task: &mut helpers::TaskState,
 ) -> Result<u64, StoreError> {
     let revision = helpers::increment(task.revision, "task.revision")?;
-    transaction.execute("UPDATE tasks SET stage_id = 'stage:personal:review', queued_at = NULL, revision = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND generation = ?3 AND revision = ?4", params![task.task_id.as_str(), revision, task.generation, task.revision])?;
-    task.stage_id = WorkflowStageId::new("stage:personal:review").map_err(StoreError::Work)?;
+    transaction.execute("UPDATE tasks SET stage_id = 'stage:personal:done', queued_at = NULL, revision = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND generation = ?3 AND revision = ?4", params![task.task_id.as_str(), revision, task.generation, task.revision])?;
+    task.stage_id = WorkflowStageId::new("stage:personal:done").map_err(StoreError::Work)?;
     task.stage_behavior = WorkflowStageBehavior::Acceptance;
     task.revision = revision;
     Ok(revision)

@@ -1,6 +1,6 @@
 import type {
   WorkActivityQuery,
-  WorkCompletedTasksQuery,
+  WorkArchiveTasksQuery,
   WorkNeedsYouQuery,
   WorkOverviewQuery,
   WorkProjectsQuery,
@@ -11,11 +11,11 @@ import type {
 
 export const PERSONAL_WORKSPACE_ID = "workspace:personal";
 
-export type WorkView = "board" | "list" | "needs-you" | "activity" | "completed";
+export type WorkView = "board" | "list" | "needs-you" | "activity" | "archive";
 export type WorkProject = WorkProjectsQuery["projects"]["edges"][number]["node"];
 export type WorkOverview = WorkOverviewQuery["workOverview"];
 export type WorkTask = WorkTasksQuery["workTasks"]["edges"][number]["node"];
-export type CompletedWorkTask = WorkCompletedTasksQuery["completedTasks"]["edges"][number]["node"];
+export type ArchiveWorkTask = WorkArchiveTasksQuery["archiveTasks"]["edges"][number]["node"];
 export type WorkAttention = WorkNeedsYouQuery["needsYou"]["edges"][number]["node"];
 export type WorkEvent = WorkActivityQuery["workActivity"]["edges"][number]["node"];
 export type WorkTaskDetail = NonNullable<WorkTaskDetailQuery["task"]>;
@@ -46,7 +46,7 @@ function isWorkView(value: unknown): value is WorkView {
     value === "list" ||
     value === "needs-you" ||
     value === "activity" ||
-    value === "completed"
+    value === "archive"
   );
 }
 

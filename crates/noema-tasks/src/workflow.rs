@@ -14,10 +14,10 @@ pub const PERSONAL_QUEUE_STAGE_ID: &str = "stage:personal:queue";
 pub const PERSONAL_DOING_STAGE_ID: &str = "stage:personal:doing";
 /// Seeded Personal Waiting stage identity.
 pub const PERSONAL_WAITING_STAGE_ID: &str = "stage:personal:waiting";
-/// Seeded Personal Review stage identity.
-pub const PERSONAL_REVIEW_STAGE_ID: &str = "stage:personal:review";
-/// Seeded Personal Completed stage identity.
-pub const PERSONAL_COMPLETED_STAGE_ID: &str = "stage:personal:completed";
+/// Seeded Personal Done stage identity.
+pub const PERSONAL_DONE_STAGE_ID: &str = "stage:personal:done";
+/// Seeded Personal Archive stage identity.
+pub const PERSONAL_ARCHIVE_STAGE_ID: &str = "stage:personal:archive";
 /// Seeded Personal Cancelled stage identity.
 pub const PERSONAL_CANCELLED_STAGE_ID: &str = "stage:personal:cancelled";
 
@@ -166,8 +166,8 @@ pub fn personal_stages() -> Vec<WorkflowStage> {
         (PERSONAL_QUEUE_STAGE_ID, "queue", "Queue", 20, WorkflowStageBehavior::Dispatch),
         (PERSONAL_DOING_STAGE_ID, "doing", "Doing", 30, WorkflowStageBehavior::Active),
         (PERSONAL_WAITING_STAGE_ID, "waiting", "Waiting", 40, WorkflowStageBehavior::HumanGate),
-        (PERSONAL_REVIEW_STAGE_ID, "review", "Review", 50, WorkflowStageBehavior::Acceptance),
-        (PERSONAL_COMPLETED_STAGE_ID, "completed", "Completed", 60, WorkflowStageBehavior::TerminalSuccess),
+        (PERSONAL_DONE_STAGE_ID, "done", "Done", 50, WorkflowStageBehavior::Acceptance),
+        (PERSONAL_ARCHIVE_STAGE_ID, "archive", "Archive", 60, WorkflowStageBehavior::TerminalSuccess),
         (PERSONAL_CANCELLED_STAGE_ID, "cancelled", "Cancelled", 70, WorkflowStageBehavior::TerminalCancelled),
     ];
     definitions

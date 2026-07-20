@@ -141,13 +141,13 @@ work_commands! {
     AnswerTask => "task.answer", "Resolve a human gate." { meta: CommandMeta, precondition: TaskPrecondition, gate_id: TaskGateId, answer: TaskGateAnswer }
     /// Retry a supported Recovery gate, optionally adding a durable note.
     RetryTask => "task.retry", "Retry a Recovery gate." { meta: CommandMeta, precondition: TaskPrecondition, gate_id: TaskGateId, note: Option<String> }
-    /// Accept a reviewer-approved result and move the task to Completed.
+    /// Accept a reviewer-approved result and move the task to Archive.
     AcceptTask => "task.accept", "Accept a reviewed result." { meta: CommandMeta, precondition: TaskPrecondition }
     /// Human request for a changed result, creating a new contract generation.
     RequestTaskChanges => "task.request_changes", "Request a new contract revision." { meta: CommandMeta, precondition: TaskPrecondition, amendment: TaskContractAmendment }
     /// Cancel any nonterminal task and fence its runnable work.
     CancelTask => "task.cancel", "Cancel active work." { meta: CommandMeta, precondition: TaskPrecondition, reason: Option<String> }
-    /// Reopen Completed/Cancelled history into a fresh Inbox generation.
+    /// Reopen Archive/Cancelled history into a fresh Inbox generation.
     ReopenTask => "task.reopen", "Reopen terminal history." { meta: CommandMeta, precondition: TaskPrecondition }
     /// Create an active project container.
     CreateProject => "project.create", "Create project." { meta: CommandMeta, workspace_id: WorkspaceId, name: String, description: String }

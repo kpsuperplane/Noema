@@ -55,8 +55,8 @@ The Personal workflow maps seven fixed behaviors to user-facing stages:
 | Queue | `Dispatch` | Authorized and waiting for the appropriate role |
 | Doing | `Active` | Planning, execution, or automated review is active |
 | Waiting | `HumanGate` | A structured human response is required |
-| Review | `Acceptance` | An approved result awaits human acceptance |
-| Completed | `TerminalSuccess` | The human accepted the result |
+| Done | `Acceptance` | An approved result awaits human acceptance |
+| Archive | `TerminalSuccess` | The human accepted the result |
 | Cancelled | `TerminalCancelled` | The human cancelled the task |
 
 Terminal stages are history-only. Stage behavior, rather than display text or
@@ -71,7 +71,7 @@ The normal path is:
 3. The accepted plan becomes a new immutable execution contract. An Executor
    produces a submission or opens a gate.
 4. A Reviewer independently evaluates the submission. Requested changes queue
-   another bounded execution attempt; approval moves the task to Review.
+   another bounded execution attempt; approval moves the task to Done.
 5. The human accepts the reviewed result, requests a new contract generation,
    or cancels the task.
 

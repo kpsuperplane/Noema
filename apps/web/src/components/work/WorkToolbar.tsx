@@ -9,7 +9,7 @@ const views: ReadonlyArray<{ id: WorkView; label: string }> = [
   { id: "list", label: "List" },
   { id: "needs-you", label: "Needs You" },
   { id: "activity", label: "Activity" },
-  { id: "completed", label: "Completed" }
+  { id: "archive", label: "Archive" }
 ];
 
 export function WorkToolbar({
@@ -33,7 +33,7 @@ export function WorkToolbar({
   onNewTask: () => void;
   onManageProjects: () => void;
 }) {
-  const searchable = view === "list" || view === "completed";
+  const searchable = view === "list" || view === "archive";
   const tabRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
   return (
     <header {...stylex.props(styles.root)}>
@@ -80,7 +80,7 @@ export function WorkToolbar({
           >
             <option value="">All work</option>
             {projects
-              .filter((project) => !project.archivedAt || view === "completed")
+              .filter((project) => !project.archivedAt || view === "archive")
               .map((project) => (
                 <option key={project.projectId} value={project.projectId}>
                   {project.name}{project.archivedAt ? " (archived)" : ""}
@@ -95,7 +95,7 @@ export function WorkToolbar({
             <input
               type="search"
               value={query}
-              placeholder={view === "completed" ? "Search history" : "Search tasks"}
+              placeholder={view === "archive" ? "Search archive" : "Search tasks"}
               {...stylex.props(styles.searchInput)}
               onChange={(event) => onQueryChange(event.currentTarget.value)}
             />

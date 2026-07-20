@@ -412,7 +412,7 @@ async fn seed_task_and_run_references(
         .with_connection(|conn| {
             for (task_id, stage_id) in [
                 ("task:lifecycle-future", "stage:personal:queue"),
-                ("task:lifecycle-terminal", "stage:personal:completed"),
+                ("task:lifecycle-terminal", "stage:personal:archive"),
             ] {
                 conn.execute(
                     r#"

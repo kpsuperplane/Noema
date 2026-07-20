@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use noema_tasks::{
-    ContractOrigin, NewTaskValidationCriterion, PERSONAL_QUEUE_STAGE_ID, PERSONAL_REVIEW_STAGE_ID,
+    ContractOrigin, NewTaskValidationCriterion, PERSONAL_DONE_STAGE_ID, PERSONAL_QUEUE_STAGE_ID,
     RequestTaskChanges, RunKind, TaskComplexity, TaskMessageKind, WorkCommand, WorkDomainError,
     WorkEventPayload, WorkflowStageBehavior, WorkflowStageId,
 };
@@ -115,7 +115,7 @@ pub(super) async fn execute(
         )?;
         let _message_event = append_work_event_tx(transaction, helpers::event_context(&command.meta).task_scope(&next_task, None), WorkEventPayload::task_message_appended(message_id, next_generation, TaskMessageKind::HumanChangeRequest, None, Some(contract_id.clone())).map_err(StoreError::Work)?)?;
         let _queued_event = append_work_event_tx(transaction, helpers::event_context(&command.meta).task_scope(&next_task, None), WorkEventPayload::task_queued(next_revision, next_generation, Some(contract_id.clone()), RunKind::Executor).map_err(StoreError::Work)?)?;
-        let _stage_event = append_work_event_tx(transaction, helpers::event_context(&command.meta).task_scope(&next_task, None), WorkEventPayload::task_stage_changed(next_revision, next_generation, WorkflowStageId::new(PERSONAL_REVIEW_STAGE_ID).map_err(StoreError::Work)?, next_task.stage_id.clone(), noema_tasks::TaskStageChangeReason::RequestChanges).map_err(StoreError::Work)?)?;
+        let _stage_event = append_work_event_tx(transaction, helpers::event_context(&command.meta).task_scope(&next_task, None), WorkEventPayload::task_stage_changed(next_revision, next_generation, WorkflowStageId::new(PERSONAL_DONE_STAGE_ID).map_err(StoreError::Work)?, next_task.stage_id.clone(), noema_tasks::TaskStageChangeReason::RequestChanges).map_err(StoreError::Work)?)?;
         let (run_id, run_event) = helpers::queue_run_tx(
             transaction,
             service.provider_registry.as_ref(),

@@ -124,8 +124,8 @@ pub use submission::{
 pub use task::{TaskProvenance, TaskRecord, TaskSourceKind};
 pub use transcript::{AgentRunItemKind, AgentRunItemRecord, AgentRunItemStatus, NewAgentRunItem};
 pub use workflow::{
-    PERSONAL_CANCELLED_STAGE_ID, PERSONAL_COMPLETED_STAGE_ID, PERSONAL_DOING_STAGE_ID,
-    PERSONAL_INBOX_STAGE_ID, PERSONAL_QUEUE_STAGE_ID, PERSONAL_REVIEW_STAGE_ID,
+    PERSONAL_ARCHIVE_STAGE_ID, PERSONAL_CANCELLED_STAGE_ID, PERSONAL_DOING_STAGE_ID,
+    PERSONAL_DONE_STAGE_ID, PERSONAL_INBOX_STAGE_ID, PERSONAL_QUEUE_STAGE_ID,
     PERSONAL_WAITING_STAGE_ID, PERSONAL_WORKFLOW_ID, WorkflowDefinition, WorkflowStage,
     WorkflowStageBehavior, personal_stages,
 };

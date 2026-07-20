@@ -139,7 +139,7 @@ function attentionLabel(kind: string): string {
   if (kind === "CLARIFICATION_REQUIRED") return "Question";
   if (kind === "APPROVAL_REQUIRED") return "Approval";
   if (kind === "RECOVERY_REQUIRED") return "Recovery";
-  return "Review";
+  return "Done";
 }
 
 const styles = stylex.create({

@@ -57,8 +57,8 @@ pub enum WorkReconciliationAction {
         /// Role resumed after the resolved gate.
         run_kind: RunKind,
     },
-    /// Move an approved review to the human acceptance stage.
-    MoveToReview,
+    /// Move an approved review to the Done stage.
+    MoveToDone,
     /// Open a human Recovery gate.
     OpenRecoveryGate {
         /// Closed reason for the gate.
@@ -174,7 +174,7 @@ pub fn plan_reconciliation_action(
             return Ok(WorkReconciliationAction::Idle);
         }
         if snapshot.approved_review {
-            return Ok(WorkReconciliationAction::MoveToReview);
+            return Ok(WorkReconciliationAction::MoveToDone);
         }
         if snapshot.planner_plan_ready && !snapshot.has_current_contract {
             return Ok(WorkReconciliationAction::MaterializePlannedContractAndQueueExecutor);
