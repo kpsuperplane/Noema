@@ -528,10 +528,11 @@ const styles = stylex.create({
     top: 0,
     right: 0,
     left: 0,
-    height: "calc(var(--shell-deck-header-height) + 72px)",
+    height: "calc(var(--shell-deck-header-height) + 52px)",
     zIndex: 0,
     pointerEvents: "none",
-    background: "linear-gradient(to bottom, var(--background), rgb(255 255 255 / 0))"
+    background:
+      "linear-gradient(to bottom, var(--background) 0, rgb(255 255 255 / 0.74) 54px, rgb(255 255 255 / 0) 96px)"
   },
   headerOffset: {
     position: "relative",
