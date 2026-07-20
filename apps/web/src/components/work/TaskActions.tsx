@@ -5,6 +5,7 @@ import { Button } from "@astryxdesign/core/Button";
 import { ButtonGroup } from "@astryxdesign/core/ButtonGroup";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { TextArea } from "@astryxdesign/core/TextArea";
+import { Tooltip } from "@astryxdesign/core/Tooltip";
 import * as stylex from "@stylexjs/stylex";
 import { Ban, ExternalLink, X } from "lucide-react";
 import type { WorkProject } from "./workTypes";
@@ -316,52 +317,57 @@ function TaskControlsRow({
   onCancel?: () => void | Promise<void>;
 }) {
   const iconProps = { "aria-hidden": true, size: 15, strokeWidth: 2 } as const;
+  const cancelAnchorRef = React.useRef<HTMLButtonElement>(null);
+  const workAnchorRef = React.useRef<HTMLButtonElement>(null);
+  const fallbackCloseAnchorRef = React.useRef<HTMLButtonElement>(null);
+  const closeAnchorRef = closeButtonRef ?? fallbackCloseAnchorRef;
   return (
-    <div {...stylex.props(styles.controls)}>
+    <>
       <ButtonGroup label="Task controls" size="sm">
-      {onCancel ? (
-        <IconButton
-          type="button"
-          size="sm"
-          variant="destructive"
-          label="Cancel task"
-          tooltip="Cancel task"
-          icon={<Ban {...iconProps} />}
-          isDisabled={busy}
-          onClick={() => void onCancel()}
-        />
-      ) : null}
-      {navigation.showWorkLink ? (
-        <IconButton
-          href={`/work/tasks/${encodeURIComponent(navigation.taskId)}`}
-          size="sm"
-          variant="ghost"
-          label="Open in Work"
-          tooltip="Open in Work"
-          icon={<ExternalLink {...iconProps} />}
-        />
-      ) : null}
-      {navigation.onClose ? (
-        <IconButton
-          ref={closeButtonRef}
-          type="button"
-          size="sm"
-          variant="ghost"
-          label="Close task details"
-          tooltip="Close task details"
-          icon={<X {...iconProps} />}
-          onClick={navigation.onClose}
-        />
-      ) : null}
+        {onCancel ? (
+          <IconButton
+            ref={cancelAnchorRef}
+            type="button"
+            size="sm"
+            variant="destructive"
+            label="Cancel task"
+            icon={<Ban {...iconProps} />}
+            isDisabled={busy}
+            onClick={() => void onCancel()}
+          />
+        ) : null}
+        {navigation.showWorkLink ? (
+          <IconButton
+            ref={workAnchorRef}
+            href={`/work/tasks/${encodeURIComponent(navigation.taskId)}`}
+            size="sm"
+            variant="secondary"
+            label="Open in Work"
+            icon={<ExternalLink {...iconProps} />}
+          />
+        ) : null}
+        {navigation.onClose ? (
+          <IconButton
+            ref={closeButtonRef}
+            type="button"
+            size="sm"
+            variant="secondary"
+            label="Close task details"
+            icon={<X {...iconProps} />}
+            onClick={navigation.onClose}
+          />
+        ) : null}
       </ButtonGroup>
-    </div>
+      {onCancel ? <Tooltip anchorRef={cancelAnchorRef} content="Cancel task" /> : null}
+      {navigation.showWorkLink ? <Tooltip anchorRef={workAnchorRef} content="Open in Work" /> : null}
+      {navigation.onClose ? <Tooltip anchorRef={closeAnchorRef} content="Close task details" /> : null}
+    </>
   );
 }
 
 const styles = stylex.create({
   frame: { display: "grid", gap: "var(--spacing-1-5)" },
   defaultFrame: { display: "grid", gap: "var(--spacing-1-5)", minWidth: 0 },
-  controls: { display: "inline-flex", minHeight: 28, alignItems: "center", justifyContent: "flex-end" },
   answerForm: { display: "grid", gap: 0, minWidth: 0, borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, backgroundColor: "var(--noema-surface-card)", padding: "var(--spacing-2)" },
   answerInput: { borderWidth: 0, borderColor: "transparent", backgroundColor: "transparent", boxShadow: "none", paddingBlock: "var(--spacing-1)", paddingInline: "var(--spacing-1)" },
   decisionField: { display: "grid", gap: "var(--spacing-1-5)", color: "var(--noema-text-secondary)", fontSize: 11, fontWeight: 650 },

@@ -265,13 +265,6 @@ const styles = stylex.create({
   },
   floatingTaskControls: {
     pointerEvents: "auto",
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "var(--noema-border-subtle)",
-    borderRadius: 999,
-    backgroundColor: "color-mix(in srgb, var(--noema-surface-card) 92%, transparent)",
-    boxShadow: "0 6px 18px color-mix(in srgb, var(--noema-text-primary) 12%, transparent)",
-    padding: "var(--spacing-0-5)"
   },
   versionSlot: {
     minWidth: 0
