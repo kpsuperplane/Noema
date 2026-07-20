@@ -321,9 +321,10 @@ function TaskControlsRow({
   const workAnchorRef = React.useRef<HTMLButtonElement>(null);
   const fallbackCloseAnchorRef = React.useRef<HTMLButtonElement>(null);
   const closeAnchorRef = closeButtonRef ?? fallbackCloseAnchorRef;
+  const taskControlsGroupClassName = stylex.props(styles.taskControlsGroup).className;
   return (
     <>
-      <ButtonGroup label="Task controls" size="sm">
+      <ButtonGroup label="Task controls" size="sm" className={taskControlsGroupClassName}>
         {onCancel ? (
           <IconButton
             ref={cancelAnchorRef}
@@ -368,6 +369,13 @@ function TaskControlsRow({
 const styles = stylex.create({
   frame: { display: "grid", gap: "var(--spacing-1-5)" },
   defaultFrame: { display: "grid", gap: "var(--spacing-1-5)", minWidth: 0 },
+  taskControlsGroup: {
+    borderRadius: "var(--radius-element)",
+    backgroundColor: "color-mix(in srgb, var(--noema-surface-card) 72%, transparent)",
+    boxShadow: "0 8px 22px color-mix(in srgb, var(--noema-text-primary) 14%, transparent)",
+    backdropFilter: "blur(12px) saturate(1.08)",
+    WebkitBackdropFilter: "blur(12px) saturate(1.08)"
+  },
   answerForm: { display: "grid", gap: 0, minWidth: 0, borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, backgroundColor: "var(--noema-surface-card)", padding: "var(--spacing-2)" },
   answerInput: { borderWidth: 0, borderColor: "transparent", backgroundColor: "transparent", boxShadow: "none", paddingBlock: "var(--spacing-1)", paddingInline: "var(--spacing-1)" },
   decisionField: { display: "grid", gap: "var(--spacing-1-5)", color: "var(--noema-text-secondary)", fontSize: 11, fontWeight: 650 },
