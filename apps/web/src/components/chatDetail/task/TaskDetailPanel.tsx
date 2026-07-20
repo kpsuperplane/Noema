@@ -2,7 +2,7 @@ import * as React from "react";
 import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import { Popover } from "@astryxdesign/core/Popover";
 import * as stylex from "@stylexjs/stylex";
-import { ChevronDown, Info } from "lucide-react";
+import { Info } from "lucide-react";
 import type { TaskDetail, TaskRunItem } from "./taskTypes";
 import { TaskCriteria } from "./TaskCriteria";
 import { taskStageLabel } from "./TaskOverview";
@@ -61,7 +61,6 @@ export function TaskDetailPanel({
           detail={currentDetail}
           governedActions={governedActions}
           inlineResponse={inlineResponse}
-          taskId={taskId}
         />
       </div>
     </div>
@@ -72,14 +71,12 @@ function TaskContextCard({
   detail,
   actions,
   governedActions,
-  inlineResponse,
-  taskId
+  inlineResponse
 }: {
   detail: TaskDetail;
   actions?: React.ReactNode;
   governedActions?: React.ReactNode;
   inlineResponse: boolean;
-  taskId: string;
 }) {
   return (
     <aside aria-label="Task summary" {...stylex.props(styles.contextDock)}>
@@ -92,7 +89,7 @@ function TaskContextCard({
         ) : actions ? (
           <div {...stylex.props(styles.actionRow)}>{actions}</div>
         ) : null}
-        {detail.criteria.length > 0 ? <TaskValidationRow criteria={detail.criteria} taskId={taskId} /> : null}
+        {detail.criteria.length > 0 ? <TaskValidationRow criteria={detail.criteria} /> : null}
       </div>
     </aside>
   );
@@ -230,8 +227,7 @@ function TaskAttention({
   );
 }
 
-function TaskValidationRow({ criteria, taskId }: { criteria: TaskDetail["criteria"]; taskId: string }) {
-  const [expanded, setExpanded] = React.useState(false);
+function TaskValidationRow({ criteria }: { criteria: TaskDetail["criteria"] }) {
   const passed = criteria.filter((criterion) => criterion.verdict === "pass").length;
   const failed = criteria.filter((criterion) => criterion.verdict === "fail").length;
   const summary = failed > 0
@@ -242,20 +238,13 @@ function TaskValidationRow({ criteria, taskId }: { criteria: TaskDetail["criteri
 
   return (
     <section {...stylex.props(styles.validationRow)}>
-      <button
-        type="button"
-        aria-controls={`task-validation-details:${taskId}`}
-        aria-expanded={expanded}
-        onClick={() => setExpanded((current) => !current)}
-        {...stylex.props(styles.validationToggle)}
-      >
+      <div {...stylex.props(styles.validationHeader)}>
         <span {...stylex.props(styles.validationIdentity)}>
           <span {...stylex.props(styles.validationLabel)}>Validation</span>
           <span {...stylex.props(styles.validationSummary)}>{summary}</span>
         </span>
-        <ChevronDown aria-hidden="true" size={15} {...stylex.props(styles.validationIcon, expanded && styles.validationIconOpen)} />
-      </button>
-      {expanded ? <div id={`task-validation-details:${taskId}`} {...stylex.props(styles.validationDetails)}><TaskCriteria embedded criteria={criteria} showTitle={false} /></div> : null}
+      </div>
+      <TaskCriteria embedded criteria={criteria} showTitle={false} />
     </section>
   );
 }
@@ -379,13 +368,10 @@ const styles = stylex.create({
   attentionGovernedActions: { minWidth: 0 },
   attentionActions: { minWidth: 0 },
   validationRow: { minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)" },
-  validationToggle: { display: "flex", width: "100%", minWidth: 0, alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-2)", borderWidth: 0, backgroundColor: "transparent", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-3)", color: "inherit", font: "inherit", textAlign: "left", cursor: "pointer", ":hover": { backgroundColor: "var(--noema-surface-hover)" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: -2 } },
+  validationHeader: { display: "flex", width: "100%", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-3)" },
   validationIdentity: { display: "flex", minWidth: 0, alignItems: "baseline", gap: "var(--spacing-2)" },
   validationLabel: { color: "var(--noema-text-primary)", fontSize: 11, fontWeight: 700 },
   validationSummary: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-muted)", fontSize: 11, textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  validationIcon: { flexShrink: 0, color: "var(--noema-text-muted)", transition: "transform 140ms ease" },
-  validationIconOpen: { transform: "rotate(180deg)" },
-  validationDetails: { minWidth: 0, backgroundColor: "var(--noema-surface-card)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-2)" },
   infoContent: { display: "grid", minWidth: 0, backgroundColor: "var(--noema-surface-card)" },
   infoSection: { display: "grid", gap: "var(--spacing-2)", minWidth: 0, paddingBlock: "var(--spacing-3)", paddingInline: "var(--spacing-3)" },
   resultSection: { backgroundColor: "var(--noema-surface-card)" },
