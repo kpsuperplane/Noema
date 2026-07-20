@@ -387,14 +387,14 @@ const styles = stylex.create({
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "var(--noema-border-subtle)",
-    borderRadius: 14,
+    borderRadius: 999,
     backgroundColor: "#fff",
     padding: "var(--spacing-1)",
     boxShadow: "0 8px 22px color-mix(in srgb, var(--noema-text-primary) 14%, transparent)"
   },
   taskControlButton: {
-    minWidth: 36,
-    height: 36,
+    minWidth: 32,
+    height: 32,
     borderWidth: 0,
     backgroundColor: "transparent",
     boxShadow: "none"
