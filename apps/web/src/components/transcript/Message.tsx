@@ -77,16 +77,17 @@ export function Message({
   debugUsage?: ProviderUsageDebug | null;
 }) {
   const [debugOpen, setDebugOpen] = React.useState(false);
+  const [expanded, setExpanded] = React.useState(false);
   const [overflowing, setOverflowing] = React.useState(false);
   const bubble = (
     <TranscriptChatBubble
       group={group}
-      interactive={overflowing}
+      interactive={overflowing && !expanded}
       reserveAvatarSpace={reserveAvatarSpace}
       role={role}
       showAvatar={showAvatar}
     >
-      <ExpandableTextBubbleContent onOverflowChange={setOverflowing}>
+      <ExpandableTextBubbleContent onExpandedChange={setExpanded} onOverflowChange={setOverflowing}>
         <MessageMarkdown animate={animate} role={role} text={text} />
       </ExpandableTextBubbleContent>
     </TranscriptChatBubble>

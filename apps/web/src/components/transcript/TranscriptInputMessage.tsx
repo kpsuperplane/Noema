@@ -17,12 +17,18 @@ const styles = stylex.create({
 });
 
 export function TranscriptInputMessage({ text }: { text: string }) {
+  const [expanded, setExpanded] = React.useState(false);
   const [overflowing, setOverflowing] = React.useState(false);
   const content = React.useMemo(() => formatInputContent(text), [text]);
 
   return (
-    <TranscriptChatBubble interactive={overflowing} reserveAvatarSpace={false} role="input" showAvatar={false}>
-      <ExpandableTextBubbleContent onOverflowChange={setOverflowing}>
+    <TranscriptChatBubble
+      interactive={overflowing && !expanded}
+      reserveAvatarSpace={false}
+      role="input"
+      showAvatar={false}
+    >
+      <ExpandableTextBubbleContent onExpandedChange={setExpanded} onOverflowChange={setOverflowing}>
         <pre {...stylex.props(styles.text)}>{content}</pre>
       </ExpandableTextBubbleContent>
     </TranscriptChatBubble>

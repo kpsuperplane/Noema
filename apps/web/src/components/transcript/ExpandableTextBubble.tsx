@@ -13,14 +13,17 @@ const interactiveContentSelector = [
   "video[controls]",
   "[contenteditable]:not([contenteditable='false'])",
   "[role='button']",
-  "[role='link']",
-  "[tabindex]:not([tabindex='-1'])"
+  "[role='link']"
 ].join(",");
 
 const styles = stylex.create({
   root: {
     position: "relative",
-    minWidth: 0
+    minWidth: 0,
+    marginBlock: "calc(-1 * var(--spacing-2))",
+    marginInline: "calc(-1 * var(--spacing-4))",
+    paddingBlock: "var(--spacing-2)",
+    paddingInline: "var(--spacing-4)"
   },
   preview: {
     maxHeight: "10.2em",
@@ -36,8 +39,7 @@ const styles = stylex.create({
   },
   trigger: {
     position: "absolute",
-    insetBlock: "calc(-1 * var(--spacing-2))",
-    insetInline: "calc(-1 * var(--spacing-4))",
+    inset: 0,
     padding: 0,
     appearance: "none",
     backgroundColor: "transparent",
@@ -52,9 +54,11 @@ const styles = stylex.create({
 
 export function ExpandableTextBubbleContent({
   children,
+  onExpandedChange,
   onOverflowChange
 }: {
   children: React.ReactNode;
+  onExpandedChange: (expanded: boolean) => void;
   onOverflowChange: (overflowing: boolean) => void;
 }) {
   const previewRef = React.useRef<HTMLDivElement>(null);
@@ -99,13 +103,18 @@ export function ExpandableTextBubbleContent({
     return () => observer.disconnect();
   }, [measure]);
 
-  const toggleExpanded = () => setExpanded((current) => !current);
+  const toggleExpanded = () => {
+    const next = !expanded;
+    setExpanded(next);
+    onExpandedChange(next);
+  };
   const collapseFromContent = (event: React.MouseEvent<HTMLDivElement>) => {
     if (!expanded || !(event.target instanceof Element)) {
       return;
     }
     if (!event.target.closest(interactiveContentSelector)) {
       setExpanded(false);
+      onExpandedChange(false);
     }
   };
 
