@@ -14,8 +14,8 @@ mod web_backend;
 mod web_fetch;
 
 pub use daemon::{
-    AgentStatus, ConversationRuntimeEvent, RuntimeError, RuntimeEventRegistry, RuntimeHandle,
-    RuntimeSpawnConfig, StartedConversation, TaskRuntimeEvent, TaskRuntimeHandle,
+    AgentStatus, ConversationRuntimeEvent, MemoryRuntimeEvent, RuntimeError, RuntimeEventRegistry,
+    RuntimeHandle, RuntimeSpawnConfig, StartedConversation, TaskRuntimeEvent, TaskRuntimeHandle,
     TurnActivityStatus, TurnStreamEvent, TurnTranscriptItem, WorkRuntimeEvent,
     mark_turn_timing_event,
 };

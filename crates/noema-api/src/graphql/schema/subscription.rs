@@ -45,6 +45,16 @@ impl SubscriptionRoot {
         chat::conversation_events(state, principal, conversation_id).await
     }
 
+    /// Stream authoritative native-memory snapshots after each invalidation.
+    async fn memory_events(
+        &self,
+        ctx: &Context<'_>,
+    ) -> Result<impl Stream<Item = Result<GraphqlNativeMemoryTree>>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        native_memory::memory_events(state, principal).await
+    }
+
     /// Replay and stream the workspace-scoped durable Work ledger.
     async fn work_events(
         &self,

@@ -2934,6 +2934,10 @@ type SubscriptionRoot {
 	"""
 	conversationEvents(conversationId: String!): ConversationEvent!
 	"""
+	Stream authoritative native-memory snapshots after each invalidation.
+	"""
+	memoryEvents: GraphqlNativeMemoryTree!
+	"""
 	Replay and stream the workspace-scoped durable Work ledger.
 	"""
 	workEvents(workspaceId: String!, after: String): WorkEvent!

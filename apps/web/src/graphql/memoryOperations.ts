@@ -79,6 +79,37 @@ export const MemoryPageDocument = gql`
   }
 `;
 
+export const MemoryEventsDocument = gql`
+  subscription MemoryEvents {
+    memoryEvents {
+      root {
+        id
+        path
+        title
+        body
+        hash
+        sources
+        parent
+        children {
+          id
+          path
+          title
+          hash
+        }
+      }
+      pendingCount
+      updateStatus {
+        state
+        active
+        lastConsolidatedSequence
+        lastConsolidatedItem
+        error
+        updatedAt
+      }
+    }
+  }
+`;
+
 export const UpdateMemoryDocument = gql`
   mutation UpdateMemory {
     updateMemory {

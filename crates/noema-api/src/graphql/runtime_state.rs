@@ -168,6 +168,14 @@ impl GraphqlState {
         self
     }
 
+    /// Attach native memory to an isolated resolver test state.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn with_native_memory(mut self, native_memory: NativeMemory) -> Self {
+        self.native_memory = Some(native_memory);
+        self
+    }
+
     required_service_accessors! {
         runtime => runtime: RuntimeHandle = "Noema runtime is unavailable";
         store => store: NoemaStore = "Noema store is unavailable";

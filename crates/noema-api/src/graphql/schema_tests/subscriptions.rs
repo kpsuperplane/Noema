@@ -11,6 +11,56 @@
     }
 
     #[tokio::test]
+    async fn memory_events_emits_initial_and_invalidated_snapshots() {
+        let environment = crate::test_support::test_environment();
+        let memory = noema_memory::NativeMemory::new(
+            environment.root().join("memory/human"),
+            environment.root().join("system/indexes/memory.sqlite3"),
+        );
+        memory.initialize().expect("initialize memory");
+        let state = GraphqlState::for_tests_with_store(crate::test_support::test_store().await)
+            .with_native_memory(memory.clone());
+        let subscriptions = state.subscriptions().clone();
+        let schema = build_schema(state);
+        let mut stream = schema.execute_stream(async_graphql::Request::new(
+            r#"subscription {
+              memoryEvents {
+                root { title children { title } }
+                pendingCount
+                updateStatus { state active }
+              }
+            }"#,
+        ));
+
+        let initial = stream.next().await.expect("initial memory snapshot");
+        assert_json_fields!(initial.data.into_json().expect("initial json"),
+            "/memoryEvents/root/title" => "Human memory",
+            "/memoryEvents/pendingCount" => 0,
+            "/memoryEvents/updateStatus/state" => "idle",
+        );
+
+        memory
+            .publish(&noema_memory::MemoryChangeSet {
+                upserts: vec![noema_memory::MemoryPageChange {
+                    id: None,
+                    expected_hash: None,
+                    path: "career.md".to_string(),
+                    title: "Career".to_string(),
+                    body: "Engineering career.".to_string(),
+                    sources: vec![],
+                }],
+                deletes: vec![],
+            })
+            .expect("publish page");
+        subscriptions.publish_memory(noema_runtime::MemoryRuntimeEvent::Changed);
+
+        let changed = stream.next().await.expect("changed memory snapshot");
+        assert_json_fields!(changed.data.into_json().expect("changed json"),
+            "/memoryEvents/root/children/0/title" => "Career",
+        );
+    }
+
+    #[tokio::test]
     async fn conversation_events_emits_ready_before_live_events() {
         let (state, subscriptions, conversation_id) =
             local_conversation_subscription_fixture().await;

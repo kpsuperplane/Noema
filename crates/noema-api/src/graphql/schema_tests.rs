@@ -72,6 +72,12 @@ mod tests {
         ));
         let subscription_response = stream.next().await.expect("subscription response");
         assert_single_graphql_error(&subscription_response, "request is unauthenticated");
+
+        let mut memory_stream = schema.execute_stream(async_graphql::Request::new(
+            r#"subscription { memoryEvents { pendingCount } }"#,
+        ));
+        let memory_response = memory_stream.next().await.expect("memory subscription response");
+        assert_single_graphql_error(&memory_response, "request is unauthenticated");
     }
 
     fn conversation_for_human(human_id: &str) -> noema_conversations::NewConversation {

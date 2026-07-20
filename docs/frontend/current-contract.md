@@ -123,6 +123,8 @@ Current memory UX is Settings plus a top-level native article surface:
   persistent page-tree sidebar.
 - The shell's Memory title row owns pending-message state and the single
   `Update memory` action; implementation filenames are not rendered.
+- One initial tree query is kept current by authoritative GraphQL subscription
+  snapshots after source arrivals and update transitions; the page does not poll.
 - The update action is disabled and loading while the one server-owned job is
   queued or running; failed jobs retain their completed checkpoint for retry.
 - There is no `/memory/graph` route and no React Flow graph browser in the

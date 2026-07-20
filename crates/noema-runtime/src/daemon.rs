@@ -33,7 +33,8 @@ pub(crate) mod task_tool;
 mod tests;
 
 pub use events::{
-    ConversationRuntimeEvent, RuntimeEventRegistry, TaskRuntimeEvent, WorkRuntimeEvent,
+    ConversationRuntimeEvent, MemoryRuntimeEvent, RuntimeEventRegistry, TaskRuntimeEvent,
+    WorkRuntimeEvent,
 };
 pub use protocol::TurnStreamEvent;
 pub use protocol::{

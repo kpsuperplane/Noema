@@ -1,6 +1,7 @@
 //! GraphQL adapters for the native Markdown memory tree.
 
 use async_graphql::{InputObject, Result, SimpleObject};
+use futures_util::Stream;
 use noema_memory::{MemoryPage, MemoryPageRef, NativeMemoryError};
 use noema_store::MEMORY_CONSOLIDATION_TASK_ID;
 
@@ -90,6 +91,27 @@ pub async fn memory_tree(state: &GraphqlState) -> Result<GraphqlNativeMemoryTree
     })
 }
 
+pub async fn memory_events(
+    state: &GraphqlState,
+    principal: &str,
+) -> Result<impl Stream<Item = Result<GraphqlNativeMemoryTree>>> {
+    require_memory_owner(principal)?;
+    let mut receiver = state.subscriptions().subscribe_memory();
+    let initial = memory_tree(state).await?;
+    let state = state.clone();
+    Ok(async_stream::stream! {
+        yield Ok(initial);
+        loop {
+            match receiver.recv().await {
+                Ok(noema_runtime::MemoryRuntimeEvent::Changed)
+                | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+            yield memory_tree(&state).await;
+        }
+    })
+}
+
 pub async fn memory_page(
     state: &GraphqlState,
     page_id: String,
@@ -133,11 +155,7 @@ pub async fn update_memory(
     state: &GraphqlState,
     principal: &str,
 ) -> Result<GraphqlNativeMemoryUpdateResult> {
-    if principal != "human:local" {
-        return Err(async_graphql::Error::new(
-            "memory belongs to the local human",
-        ));
-    }
+    require_memory_owner(principal)?;
     let primary = state
         .store()?
         .primary_conversation_for_human(principal)
@@ -255,4 +273,14 @@ async fn pending_count(state: &GraphqlState, memory: &noema_memory::NativeMemory
 }
 fn native_error(error: NativeMemoryError) -> async_graphql::Error {
     async_graphql::Error::new(error.to_string())
+}
+
+fn require_memory_owner(principal: &str) -> Result<()> {
+    if principal == "human:local" {
+        Ok(())
+    } else {
+        Err(async_graphql::Error::new(
+            "memory belongs to the local human",
+        ))
+    }
 }

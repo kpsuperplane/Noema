@@ -323,6 +323,8 @@ impl RuntimeActor {
         if active.swap(true, Ordering::AcqRel) {
             return false;
         }
+        self.runtime_events
+            .publish_memory(crate::daemon::MemoryRuntimeEvent::Changed);
         let actor = self.clone_for_background();
         self.tasks.spawn(async move {
             let result = actor.run_native_memory_update(&native_memory, &conversation_id).await;
@@ -330,6 +332,9 @@ impl RuntimeActor {
             if let Ok(mut last_error) = actor.native_memory_update_error.write() {
                 *last_error = result.as_ref().err().cloned();
             }
+            actor
+                .runtime_events
+                .publish_memory(crate::daemon::MemoryRuntimeEvent::Changed);
             if let Err(error) = result {
                 actor.system_errors.try_append(SystemErrorEvent::new(
                     "native_memory_update_failed",

@@ -53,6 +53,13 @@ pub enum WorkRuntimeEvent {
     },
 }
 
+/// Live invalidation for native-memory projections.
+#[derive(Clone, Debug)]
+pub enum MemoryRuntimeEvent {
+    /// Pending source items, update status, or canonical pages changed.
+    Changed,
+}
+
 impl ConversationRuntimeEvent {
     /// Return the durable conversation id for this event.
     #[must_use]
@@ -72,6 +79,7 @@ pub struct RuntimeEventRegistry {
     conversations: Arc<Mutex<HashMap<String, broadcast::Sender<ConversationRuntimeEvent>>>>,
     tasks: Arc<Mutex<HashMap<String, broadcast::Sender<TaskRuntimeEvent>>>>,
     workspaces: Arc<Mutex<HashMap<String, broadcast::Sender<WorkRuntimeEvent>>>>,
+    memory: Arc<Mutex<Option<broadcast::Sender<MemoryRuntimeEvent>>>>,
 }
 
 impl RuntimeEventRegistry {
@@ -118,6 +126,17 @@ impl RuntimeEventRegistry {
         let _ = self.work_sender(workspace_id).send(event);
     }
 
+    /// Subscribe to native-memory projection invalidations.
+    #[must_use]
+    pub fn subscribe_memory(&self) -> broadcast::Receiver<MemoryRuntimeEvent> {
+        self.memory_sender().subscribe()
+    }
+
+    /// Publish one native-memory projection invalidation.
+    pub fn publish_memory(&self, event: MemoryRuntimeEvent) {
+        let _ = self.memory_sender().send(event);
+    }
+
     fn conversation_sender(
         &self,
         conversation_id: &str,
@@ -151,6 +170,16 @@ impl RuntimeEventRegistry {
         workspaces
             .entry(workspace_id.to_string())
             .or_insert_with(|| broadcast::channel(256).0)
+            .clone()
+    }
+
+    fn memory_sender(&self) -> broadcast::Sender<MemoryRuntimeEvent> {
+        let mut memory = self
+            .memory
+            .lock()
+            .expect("runtime memory event registry poisoned");
+        memory
+            .get_or_insert_with(|| broadcast::channel(32).0)
             .clone()
     }
 }
@@ -195,6 +224,13 @@ mod tests {
             receiver.recv().await,
             Ok(WorkRuntimeEvent::Committed { workspace_id, task_id })
                 if workspace_id == "workspace:personal" && task_id.as_deref() == Some("task_1")
+        ));
+
+        let mut receiver = registry.subscribe_memory();
+        registry.publish_memory(MemoryRuntimeEvent::Changed);
+        assert!(matches!(
+            receiver.recv().await,
+            Ok(MemoryRuntimeEvent::Changed)
         ));
     }
 }

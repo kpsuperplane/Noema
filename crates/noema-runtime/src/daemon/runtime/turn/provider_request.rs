@@ -180,6 +180,10 @@ impl RuntimeActor {
             .await?;
         let user_item_id = user_item.item_id.clone();
         send_conversation_item(&item_tx, user_item, user_metadata, transcript_item);
+        if matches!(user_input, UserTurnInput::Text(_)) {
+            self.runtime_events
+                .publish_memory(crate::daemon::MemoryRuntimeEvent::Changed);
+        }
         timing.mark("runtime_user_item_persisted", json!({}));
         if !planned_context.fits {
             let compaction_started_at = std::time::Instant::now();

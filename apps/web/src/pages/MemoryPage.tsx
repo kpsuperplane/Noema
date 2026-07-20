@@ -13,9 +13,7 @@ import { styles } from "@/pages/memoryPageStyles";
 
 export function MemoryPage() {
   const treeResult = useQuery<MemoryTreeQuery>(MemoryTreeDocument, {
-    fetchPolicy: "cache-and-network",
-    notifyOnNetworkStatusChange: true,
-    pollInterval: 3000
+    fetchPolicy: "cache-and-network"
   });
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
   const root = treeResult.data?.memoryTree.root ?? null;

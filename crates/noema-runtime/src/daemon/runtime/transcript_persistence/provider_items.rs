@@ -101,6 +101,8 @@ impl RuntimeActor {
                     metadata,
                     TurnTranscriptItem::AssistantText { text },
                 );
+                self.runtime_events
+                    .publish_memory(crate::daemon::MemoryRuntimeEvent::Changed);
             }
             GenerateResponseItem::Structured { schema, payload } => {
                 let output_index = position.output_index.unwrap_or(position.response_index);

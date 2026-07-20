@@ -98,6 +98,8 @@ subagents, reviews, and size measurement.
 - Context compaction and the Memory-page action schedule the same separate,
   single-flight background job through the selected Memory model. Publication
   recovers forward from `.pending`, rebuilds FTS, and advances `.state.md` last.
+- Memory source arrivals and job transitions invalidate a GraphQL subscription
+  that refills the canonical tree/status snapshot without browser polling.
 - Direct editing, history, private memory, additional scopes, vectors, and
   migration from the retired service remain outside the first slice.
 

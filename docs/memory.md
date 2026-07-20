@@ -31,6 +31,8 @@ Current implementation direction:
 - Context compaction and the explicit Memory-page action schedule a separate,
   single-flight background update over the primary conversation's existing
   `sequence_index` order.
+- Source arrivals and update transitions publish runtime invalidations; GraphQL
+  subscriptions refill the authoritative tree/status snapshot without polling.
 - Direct editing, page history, private memory, additional scopes, and vectors
   are not part of this slice.
 
