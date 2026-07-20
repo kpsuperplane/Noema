@@ -1,4 +1,5 @@
 import { useQuery } from "@apollo/client/react";
+import { Dialog, DialogHeader, type DialogProps } from "@astryxdesign/core/Dialog";
 import React, { type ReactNode } from "react";
 import * as stylex from "@stylexjs/stylex";
 import {
@@ -14,6 +15,7 @@ import { styles } from "@/pages/memoryPageStyles";
 import { useShellSurface } from "@/components/shell/ShellSurfaceContext";
 
 export function MemoryPage({ pagePath = null }: { pagePath?: string | null }) {
+  const [isPageTreeOpen, setIsPageTreeOpen] = React.useState(false);
   const treeResult = useQuery<MemoryTreeQuery>(MemoryTreeDocument, {
     fetchPolicy: "cache-and-network"
   });
@@ -57,11 +59,12 @@ export function MemoryPage({ pagePath = null }: { pagePath?: string | null }) {
             activePath={selectedPage?.path ?? pagePath ?? root.path}
             pages={tree?.pages ?? []}
             root={root}
+            presentation="sidebar"
           />
         ) : null}
         <div {...stylex.props(styles.articleScroller)}>
           {selectedPage && root ? (
-            <MemoryArticle page={selectedPage} />
+            <MemoryArticle page={selectedPage} onOpenPageTree={() => setIsPageTreeOpen(true)} />
           ) : pageResult.loading ? (
             <p {...stylex.props(styles.articleState)}>Loading article…</p>
           ) : (
@@ -69,6 +72,28 @@ export function MemoryPage({ pagePath = null }: { pagePath?: string | null }) {
           )}
         </div>
       </div>
+      {root ? (
+        <Dialog
+          aria-label="Memory pages"
+          isOpen={isPageTreeOpen}
+          maxHeight="min(75dvh, 640px)"
+          onOpenChange={setIsPageTreeOpen}
+          padding={0}
+          position={{ bottom: 0, left: 0, right: 0 }}
+          purpose="info"
+          width="100dvw"
+          xstyle={dialogXStyle(styles.pageTreeSheetDialog)}
+        >
+          <DialogHeader title="Memory pages" onOpenChange={setIsPageTreeOpen} hasDivider />
+          <MemoryPageTree
+            activePath={selectedPage?.path ?? pagePath ?? root.path}
+            pages={tree?.pages ?? []}
+            root={root}
+            presentation="sheet"
+            onNavigate={() => setIsPageTreeOpen(false)}
+          />
+        </Dialog>
+      ) : null}
     </section>
   );
 }
@@ -79,4 +104,8 @@ function MemoryNotice({ children, error = false }: { children: ReactNode; error?
       {children}
     </div>
   );
+}
+
+function dialogXStyle(...xstyle: unknown[]): DialogProps["xstyle"] {
+  return xstyle as unknown as DialogProps["xstyle"];
 }

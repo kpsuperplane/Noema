@@ -133,7 +133,8 @@ Current memory UX is Settings plus a top-level native article surface:
   the same page. Their complete ancestor chain appears as client-side links in
   the shell title row. A lightweight filesystem-derived page tree provides
   direct client-side navigation across the complete hierarchy beside the
-  article, moving above it on narrow screens.
+  article. On narrow screens the article title opens the same tree in a bottom
+  sheet instead of reserving inline space for it.
 - The shell's Memory title row owns pending-message state and the single
   `Update memory` action; implementation filenames are not rendered.
 - One initial tree query is kept current by authoritative GraphQL subscription

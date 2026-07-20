@@ -3,7 +3,7 @@ import { HoverCard } from "@astryxdesign/core/HoverCard";
 import { Item, type ItemProps } from "@astryxdesign/core/Item";
 import * as stylex from "@stylexjs/stylex";
 import { Link } from "@tanstack/react-router";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, ChevronDown } from "lucide-react";
 import type { ReactNode } from "react";
 import { memoryPageUrlPath } from "@/app/routes";
 import { buildMemoryArticle, memoryHeadingId } from "@/pages/memoryArticleModel";
@@ -26,13 +26,31 @@ const articleComponents: MarkdownComponents = {
   paragraph: ArticleParagraph
 };
 
-export function MemoryArticle({ page }: { page: MemoryArticlePage }) {
+export function MemoryArticle({
+  page,
+  onOpenPageTree
+}: {
+  page: MemoryArticlePage;
+  onOpenPageTree: () => void;
+}) {
   const article = buildMemoryArticle(page.body, page.sourceReferences);
   const hasContents = article.outline.length > 0 || page.children.length > 0;
   return (
     <article {...stylex.props(styles.article)}>
       <header>
-        <h1 {...stylex.props(styles.articleTitle)}>{page.title}</h1>
+        <h1 {...stylex.props(styles.articleTitle)}>
+          <span {...stylex.props(styles.articleTitleDesktop)}>{page.title}</span>
+          <button
+            type="button"
+            aria-haspopup="dialog"
+            aria-label={`Open page navigation for ${page.title}`}
+            onClick={onOpenPageTree}
+            {...stylex.props(styles.articleTitleMobileButton)}
+          >
+            <span>{page.title}</span>
+            <ChevronDown aria-hidden="true" size={18} strokeWidth={1.75} />
+          </button>
+        </h1>
         <div {...stylex.props(styles.articleSubtitle)}>From Noema, the private memory encyclopedia</div>
       </header>
 

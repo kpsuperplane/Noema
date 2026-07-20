@@ -18,11 +18,15 @@ type TreeNode = TreePage & {
 export function MemoryPageTree({
   root,
   pages,
-  activePath
+  activePath,
+  presentation = "sidebar",
+  onNavigate
 }: {
   root: TreePage;
   pages: TreePage[];
   activePath: string;
+  presentation?: "sidebar" | "sheet";
+  onNavigate?: () => void;
 }) {
   const tree = React.useMemo(() => buildTree(root, pages), [pages, root]);
   const [collapsedPaths, setCollapsedPaths] = React.useState<Set<string>>(() => new Set());
@@ -37,13 +41,20 @@ export function MemoryPageTree({
   }, []);
 
   return (
-    <nav aria-label="Memory pages" {...stylex.props(styles.pageTree)}>
+    <nav
+      aria-label="Memory pages"
+      {...stylex.props(
+        styles.pageTree,
+        presentation === "sidebar" ? styles.pageTreeSidebar : styles.pageTreeSheet
+      )}
+    >
       <ul {...stylex.props(styles.pageTreeList)}>
         <MemoryTreeItem
           activePath={activePath}
           collapsedPaths={collapsedPaths}
           node={tree}
           rootPath={root.path}
+          onNavigate={onNavigate}
           onToggle={toggle}
         />
       </ul>
@@ -56,12 +67,14 @@ function MemoryTreeItem({
   rootPath,
   activePath,
   collapsedPaths,
+  onNavigate,
   onToggle
 }: {
   node: TreeNode;
   rootPath: string;
   activePath: string;
   collapsedPaths: Set<string>;
+  onNavigate?: () => void;
   onToggle: (path: string) => void;
 }) {
   const hasChildren = node.children.length > 0;
@@ -88,6 +101,7 @@ function MemoryTreeItem({
           to={node.path === rootPath ? "/memory" : "/memory/$"}
           params={node.path === rootPath ? undefined : { _splat: memoryPageUrlPath(node.path) }}
           aria-current={active ? "page" : undefined}
+          onClick={onNavigate}
           {...stylex.props(styles.pageTreeLink, active && styles.pageTreeLinkActive)}
         >
           {node.title}
@@ -102,6 +116,7 @@ function MemoryTreeItem({
               collapsedPaths={collapsedPaths}
               node={child}
               rootPath={rootPath}
+              onNavigate={onNavigate}
               onToggle={onToggle}
             />
           ))}
