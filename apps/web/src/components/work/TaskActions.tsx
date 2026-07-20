@@ -71,6 +71,7 @@ export function TaskActions({
   const [editLoadError, setEditLoadError] = React.useState<string | null>(null);
   const [answer, setAnswer] = React.useState("");
   const [approvalDecision, setApprovalDecision] = React.useState<"APPROVED" | "DECLINED">("APPROVED");
+  const answerInputRef = React.useRef<HTMLTextAreaElement>(null);
   const [loadEditTask, editLoad] = useLazyQuery(WorkTaskEditFieldsDocument, { fetchPolicy: "network-only" });
   const commandTask = activeCommand?.subject ?? task;
   const refresh = React.useCallback(async () => {
@@ -99,6 +100,15 @@ export function TaskActions({
   const liveSubjectChanged = activeCommand ? taskSubjectChanged(activeCommand.subject, task) : false;
   const requiresAcknowledgement = liveSubjectChanged || commands.requiresAcknowledgement;
   const actionUnavailable = Boolean(activeAction && !validActions.includes(activeAction));
+
+  React.useLayoutEffect(() => {
+    const input = answerInputRef.current;
+    if (!input) return;
+    input.style.height = "0px";
+    input.style.overflowY = "hidden";
+    input.style.resize = "none";
+    input.style.height = `${input.scrollHeight}px`;
+  }, [answer]);
 
   const openAction = React.useCallback(async (action: string) => {
     commands.clearError();
@@ -164,22 +174,33 @@ export function TaskActions({
               </select>
             </label>
           ) : null}
-          <TextArea
-            isLabelHidden
-            label={canRetry ? "Response or retry guidance" : "Answer"}
-            onChange={setAnswer}
-            placeholder={task.activeGate?.kind === "APPROVAL"
-              ? "Explain your decision"
-              : canAnswer && canRetry
-                ? "Answer, or leave blank to retry"
-                : canRetry
-                  ? "Optional retry guidance"
-                  : "Type your answer"}
-            rows={3}
-            value={answer}
-            width="100%"
-            className={stylex.props(styles.answerInput).className}
-          />
+          <div {...stylex.props(styles.answerComposerRow)}>
+            <TextArea
+              ref={answerInputRef}
+              isLabelHidden
+              label={canRetry ? "Response or retry guidance" : "Answer"}
+              onChange={setAnswer}
+              placeholder={task.activeGate?.kind === "APPROVAL"
+                ? "Explain your decision"
+                : canAnswer && canRetry
+                  ? "Answer, or leave blank to retry"
+                  : canRetry
+                    ? "Optional retry guidance"
+                    : "Type your answer"}
+              rows={1}
+              value={answer}
+              width="100%"
+              className={stylex.props(styles.answerInputField).className}
+            />
+            <Button
+              type="submit"
+              size="sm"
+              variant="primary"
+              label={taskActionLabel(responseAction, false, task.activeGate?.kind === "APPROVAL" ? approvalDecision : undefined)}
+              isLoading={commands.busy === responseAction}
+              isDisabled={(responseAction === "ANSWER" && !answer.trim()) || commands.busy !== null || commands.requiresAcknowledgement}
+            />
+          </div>
           {commands.requiresAcknowledgement ? (
             <div role="alert" {...stylex.props(styles.stale)}>
               <span>{commands.error}</span>
@@ -194,16 +215,6 @@ export function TaskActions({
           ) : commands.error ? (
             <p role="alert" {...stylex.props(styles.inlineError)}>{commands.error}</p>
           ) : null}
-          <div {...stylex.props(styles.answerActions)}>
-            <Button
-              type="submit"
-              size="sm"
-              variant="primary"
-              label={taskActionLabel(responseAction, false, task.activeGate?.kind === "APPROVAL" ? approvalDecision : undefined)}
-              isLoading={commands.busy === responseAction}
-              isDisabled={(responseAction === "ANSWER" && !answer.trim()) || commands.busy !== null || commands.requiresAcknowledgement}
-            />
-          </div>
         </form>
       ) : null}
       {buttonActions.length ? <div aria-label="Task actions" {...stylex.props(styles.actions, compact && styles.compactActions)}>
@@ -376,11 +387,11 @@ const styles = stylex.create({
     backdropFilter: "blur(12px) saturate(1.08)",
     WebkitBackdropFilter: "blur(12px) saturate(1.08)"
   },
-  answerForm: { display: "grid", gap: 0, minWidth: 0, borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, backgroundColor: "var(--noema-surface-card)", padding: "var(--spacing-2)" },
-  answerInput: { borderWidth: 0, borderColor: "transparent", backgroundColor: "transparent", boxShadow: "none", paddingBlock: "var(--spacing-1)", paddingInline: "var(--spacing-1)" },
+  answerForm: { display: "grid", gap: "var(--spacing-1-5)", minWidth: 0, borderWidth: 0, borderColor: "transparent", backgroundColor: "transparent", padding: 0 },
+  answerComposerRow: { display: "flex", minWidth: 0, alignItems: "flex-end", gap: "var(--spacing-1-5)" },
+  answerInputField: { flex: 1, minWidth: 0, borderWidth: 0, borderColor: "transparent", backgroundColor: "transparent", boxShadow: "none", paddingBlock: 0, paddingInline: 0 },
   decisionField: { display: "grid", gap: "var(--spacing-1-5)", color: "var(--noema-text-secondary)", fontSize: 11, fontWeight: 650 },
   decisionSelect: { minHeight: 34, width: "100%", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-default)", borderRadius: 7, backgroundColor: "var(--noema-surface-card)", paddingInline: "var(--spacing-2)", color: "var(--noema-text-primary)", font: "inherit", ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
-  answerActions: { display: "flex", justifyContent: "flex-end", paddingBlockStart: "var(--spacing-1)" },
   stale: { display: "grid", justifyItems: "start", gap: "var(--spacing-2)", borderRadius: 7, backgroundColor: "var(--noema-surface-card)", padding: "var(--spacing-2)", color: "var(--noema-clay-600)", fontSize: 11, lineHeight: 1.4 },
   inlineError: { margin: 0, color: "var(--noema-red-700)", fontSize: 11, lineHeight: 1.4 },
   actions: { display: "flex", flexWrap: "wrap", gap: "var(--spacing-1-5)" },

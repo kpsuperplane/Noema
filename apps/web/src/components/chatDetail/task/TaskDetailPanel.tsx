@@ -17,6 +17,7 @@ export function TaskDetailPanel({
   loading = false,
   error = null,
   liveRunItems,
+  inlineResponse = false,
   actions,
   governedActions
 }: {
@@ -25,6 +26,7 @@ export function TaskDetailPanel({
   loading?: boolean;
   error?: string | null;
   liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
+  inlineResponse?: boolean;
   actions?: React.ReactNode;
   governedActions?: React.ReactNode;
 }) {
@@ -58,6 +60,7 @@ export function TaskDetailPanel({
           actions={actions}
           detail={currentDetail}
           governedActions={governedActions}
+          inlineResponse={inlineResponse}
           taskId={taskId}
         />
       </div>
@@ -69,11 +72,13 @@ function TaskContextCard({
   detail,
   actions,
   governedActions,
+  inlineResponse,
   taskId
 }: {
   detail: TaskDetail;
   actions?: React.ReactNode;
   governedActions?: React.ReactNode;
+  inlineResponse: boolean;
   taskId: string;
 }) {
   return (
@@ -81,7 +86,7 @@ function TaskContextCard({
       <div {...stylex.props(styles.contextCard)}>
         <TaskSummaryHeader detail={detail} />
         {detail.attention ? (
-          <TaskAttention detail={detail} actions={actions} governedActions={governedActions} />
+          <TaskAttention detail={detail} actions={actions} governedActions={governedActions} inlineResponse={inlineResponse} />
         ) : governedActions ? (
           <div {...stylex.props(styles.actionRow)}>{governedActions}</div>
         ) : actions ? (
@@ -172,11 +177,13 @@ function TaskInfoTrigger({ detail }: { detail: TaskDetail }) {
 function TaskAttention({
   detail,
   actions,
-  governedActions
+  governedActions,
+  inlineResponse
 }: {
   detail: TaskDetail;
   actions?: React.ReactNode;
   governedActions?: React.ReactNode;
+  inlineResponse: boolean;
 }) {
   const prompt = detail.blockingQuestion?.trim() || null;
   const context = detail.attention?.context?.trim() || null;
@@ -187,8 +194,8 @@ function TaskAttention({
     : null;
   const evidence = detail.stageBehavior === "ACCEPTANCE" ? latestReviewSummary(detail) : null;
 
-  return (
-    <section aria-labelledby="task-attention-title" {...stylex.props(styles.attention)}>
+  const attentionCopy = (
+    <>
       <h3 id="task-attention-title" {...stylex.props(styles.attentionTitle)}>{detail.attention?.title}</h3>
       {primaryText ? <p {...stylex.props(styles.attentionText)}>{primaryText}</p> : null}
       {context ? (
@@ -202,10 +209,23 @@ function TaskAttention({
           {context}
         </Markdown>
       ) : null}
+    </>
+  );
+
+  return (
+    <section aria-labelledby="task-attention-title" {...stylex.props(styles.attention)}>
+      {inlineResponse && actions ? (
+        <div {...stylex.props(styles.attentionComposer)}>
+          <div {...stylex.props(styles.attentionComposerCopy)}>{attentionCopy}</div>
+          <div {...stylex.props(styles.attentionActions)}>{actions}</div>
+        </div>
+      ) : (
+        attentionCopy
+      )}
       {result}
       {evidence ? <div {...stylex.props(styles.attentionEvidence)}><Markdown autolink="gfm" contentWidth="100%" density="compact" headingLevelStart={4} xstyle={markdownXStyle(styles.attentionMarkdown)}>{evidence}</Markdown></div> : null}
       {governedActions ? <div {...stylex.props(styles.attentionGovernedActions)}>{governedActions}</div> : null}
-      {actions ? <div {...stylex.props(styles.attentionActions)}>{actions}</div> : null}
+      {!inlineResponse && actions ? <div {...stylex.props(styles.attentionActions)}>{actions}</div> : null}
     </section>
   );
 }
@@ -349,6 +369,8 @@ const styles = stylex.create({
   infoPopover: { maxHeight: "min(70vh, 520px)", overflowX: "hidden", overflowY: "auto" },
   actionRow: { minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-3)" },
   attention: { display: "grid", gap: "var(--spacing-2)", minWidth: 0, backgroundColor: "var(--noema-surface-sunken)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-3)" },
+  attentionComposer: { display: "grid", gap: "var(--spacing-2)", minWidth: 0, borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, backgroundColor: "var(--noema-surface-card)", padding: "var(--spacing-2)" },
+  attentionComposerCopy: { display: "grid", gap: "var(--spacing-1)", minWidth: 0 },
   attentionTitle: { margin: 0, color: "var(--noema-text-primary)", fontSize: 13, fontWeight: 700, lineHeight: 1.35 },
   attentionText: { margin: 0, color: "var(--noema-text-primary)", fontSize: 12, lineHeight: 1.45 },
   attentionMarkdown: { color: "var(--noema-text-secondary)", fontSize: 11, lineHeight: 1.45 },

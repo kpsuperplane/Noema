@@ -70,6 +70,7 @@ export function TaskDetailQueryPanel({
         detail={detail}
         error={result.error ? "Task details could not be loaded." : null}
         governedActions={<PendingGovernedActions compact taskId={taskId} />}
+        inlineResponse={needsInlineResponse}
         loading={result.loading}
         taskId={taskId}
       />
