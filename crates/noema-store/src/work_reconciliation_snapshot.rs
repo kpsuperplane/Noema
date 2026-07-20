@@ -99,6 +99,10 @@ pub(super) fn derive_envelope(
             gate.task_generation == facts.task.generation && gate.state == TaskGateState::Open
         }),
         has_runnable_run: runnable_run.is_some(),
+        has_run_waiting_for_approval: facts
+            .latest_run
+            .as_ref()
+            .is_some_and(|run| run.status == RunStatus::WaitingForApproval),
         resolved_gate_resume_run_kind,
         approved_review,
         // Planner completion creates the contract, completes the Planner, and

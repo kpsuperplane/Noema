@@ -29,6 +29,7 @@ pub struct WorkReconciliationSnapshot {
     pub has_current_contract: bool,
     pub has_open_gate: bool,
     pub has_runnable_run: bool,
+    pub has_run_waiting_for_approval: bool,
     pub resolved_gate_resume_run_kind: Option<RunKind>,
     pub approved_review: bool,
     pub planner_plan_ready: bool,
@@ -169,6 +170,9 @@ pub fn plan_reconciliation_action(
         );
     }
     if snapshot.stage_behavior == Active {
+        if snapshot.has_run_waiting_for_approval {
+            return Ok(WorkReconciliationAction::Idle);
+        }
         if snapshot.approved_review {
             return Ok(WorkReconciliationAction::MoveToReview);
         }

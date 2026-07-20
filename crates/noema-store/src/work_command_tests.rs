@@ -562,6 +562,15 @@ async fn governed_action_approval_releases_and_resumes_a_task_run_once() {
             .status,
         noema_tasks::RunStatus::WaitingForApproval
     );
+    let snapshot = store
+        .load_work_reconciliation_snapshot(&captured.task_id)
+        .await
+        .expect("load waiting reconciliation snapshot")
+        .expect("task snapshot");
+    assert_eq!(
+        crate::plan_work_reconciliation(&snapshot).expect("plan waiting reconciliation"),
+        noema_tasks::WorkReconciliationAction::Idle
+    );
 
     let declined = store
         .decide_governed_action(

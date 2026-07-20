@@ -190,38 +190,27 @@ async fn observed_fetch_arguments(
     store: &noema_store::NoemaStore,
     payload: &serde_json::Value,
 ) -> Result<Option<serde_json::Value>, noema_store::StoreError> {
-    let Some(outer) = payload.as_object() else {
+    let Ok(request) = noema_capabilities::web::fetch::parse_arguments(payload) else {
         return Ok(None);
     };
-    let nested = outer.len() == 1
-        && outer
-            .get("arguments")
-            .and_then(serde_json::Value::as_object)
-            .is_some();
-    let arguments = if nested {
-        outer
-            .get("arguments")
-            .and_then(serde_json::Value::as_object)
-            .expect("nested object checked above")
-    } else {
-        outer
-    };
-    if arguments.len() != 1 {
-        return Ok(None);
-    }
-    let Some(url) = arguments.get("url").and_then(serde_json::Value::as_str) else {
-        return Ok(None);
-    };
-    let Ok(normalized) = noema_capabilities::web::url_policy::normalize_observed_url(url) else {
+    let Ok(normalized) = noema_capabilities::web::url_policy::normalize_observed_url(&request.url)
+    else {
         return Ok(None);
     };
     if !store.has_observed_url(&normalized).await? {
         return Ok(None);
     }
-    let normalized = if nested {
-        serde_json::json!({"arguments": {"url": normalized}})
+    let mut arguments = serde_json::json!({
+        "url": normalized,
+        "max_chars": request.max_chars,
+    });
+    if let Some(reason) = request.reason {
+        arguments["reason"] = serde_json::Value::String(reason);
+    }
+    let normalized = if payload.get("arguments").is_some() {
+        serde_json::json!({"arguments": arguments})
     } else {
-        serde_json::json!({"url": normalized})
+        arguments
     };
     Ok(Some(normalized))
 }

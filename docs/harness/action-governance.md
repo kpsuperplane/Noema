@@ -438,8 +438,9 @@ Fetching a URL may bypass LLM and human review only when:
 1. The normalized URL exactly matches an `observed_urls` row created by the web
    adapter.
 2. The request uses `GET` or `HEAD` with no body.
-3. No credentials, cookies, private headers, or additional user-supplied
-   arguments are added.
+3. No credentials, cookies, private headers, method, body, or other
+   request-shaping data are added. Local-only fetch controls such as the
+   model's reason and the returned-character limit do not change the request.
 4. The URL is unchanged except for conservative normalization such as dropping
    a fragment.
 5. Current DNS, SSRF, redirect, scheme, and public-address checks pass again at

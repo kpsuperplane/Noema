@@ -128,6 +128,10 @@ an approved review to acceptance, resume a resolved gate, open a recovery gate,
 or fence stale runnable work. Contradictory state fails closed or opens an
 invariant-recovery gate; it does not guess from event text.
 
+An Active task whose current run is waiting for a governed action decision is
+intentionally idle. The run resumes through the governed-action continuation;
+reconciliation must not reinterpret that pause as missing durable work.
+
 The essential compatibility rule is simple: Planner runs exist before a
 contract, while Executor and Reviewer runs require a contract. Terminal and
 human-gated tasks cannot retain runnable work.

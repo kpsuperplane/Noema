@@ -157,11 +157,18 @@ async fn unconfigured_reviewer_blocks_external_write_before_invocation() {
             },
             &test_tool_call(
                 noema_capabilities::web::fetch::WEB_FETCH_TOOL,
-                json!({"url": "https://example.com/public", "reason": "extra model data"}),
+                json!({
+                    "url": "https://example.com/public",
+                    "reason": "Read the public source.",
+                    "max_chars": 12_000,
+                }),
             ),
         )
         .await;
-    assert_eq!(augmented.payload["status"], "awaiting_approval");
+    assert!(
+        augmented.success,
+        "local-only fetch controls should not force review of an observed URL"
+    );
 }
 
 #[tokio::test]

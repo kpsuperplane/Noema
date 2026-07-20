@@ -136,9 +136,10 @@ subagents, reviews, and size measurement.
   gateway, which revalidates the live binding before approved execution.
 - Web search and unobserved fetches are governed exports. Search-result URLs and
   links extracted from fetched HTML enter the local `observed_urls` authority;
-  a later exact bare fetch may skip review, while every request still reruns
-  current URL, DNS, and SSRF checks. Approved web replay is destination- and
-  digest-bound; observations do not expire.
+  a later exact fetch may skip review when its remaining arguments are
+  local-only controls, while every request still reruns current URL, DNS, and
+  SSRF checks. Approved web replay is destination- and digest-bound;
+  observations do not expire.
 - The web app surfaces pending actions above the primary composer, in task
   detail, and in Work Needs You. The persisted action/event authority is
   delivery-neutral so another client can project the same attention state.
