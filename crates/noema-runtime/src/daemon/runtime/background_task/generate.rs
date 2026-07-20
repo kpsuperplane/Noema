@@ -46,7 +46,10 @@ impl RuntimeActor {
         let conversation_id = format!("task_run:{}", request.run_id);
         let turn_id = format!("task_turn:{}", request.run_id);
         let user_item_id = format!("task_input:{}", request.run_id);
-        let tool_instructions = background_tool_instructions(&request.instructions, &model_tools);
+        let tool_instructions = render_background_instance_identity(
+            background_tool_instructions(&request.instructions, &model_tools),
+            &request.instance_name,
+        );
         let mut context = ContinuationContext::new(&request.input);
         let initial_response = self
             .generate_task_provider_round(
@@ -574,4 +577,11 @@ impl RuntimeActor {
         }
         unreachable!("task continuation loop exits through a terminal outcome")
     }
+}
+
+fn render_background_instance_identity(instructions: String, instance_name: &str) -> String {
+    format!(
+        "{instructions}\n\nSubagent instance identity:\n- instance_name: {}\n- This label is assigned by Noema and remains stable for this run. Do not rename it or claim it is user-chosen.",
+        serde_json::to_string(instance_name).expect("serializing an instance name should not fail")
+    )
 }

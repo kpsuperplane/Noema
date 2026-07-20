@@ -52,6 +52,8 @@ pub(crate) struct BackgroundTaskGenerateRequest {
     pub cancellation: CancellationToken,
     /// Built-in agent identity that owns this run.
     pub agent_id: String,
+    /// Stable human-friendly name for this conversation-history instance.
+    pub instance_name: String,
     /// Role policy applied to advertised and dispatched tools.
     pub role: ExecutionRole,
     /// Complete immutable provider selection retained from the durable run.
@@ -136,5 +138,14 @@ mod tests {
         let error = propagate_compaction_result(Err(error)).expect_err("propagate error");
         assert!(matches!(error, RuntimeError::Provider(_)));
         assert!(error.to_string().contains("continuation compaction failed"));
+    }
+
+    #[test]
+    fn background_prompt_contains_escaped_stable_instance_name() {
+        let prompt =
+            render_background_instance_identity("task instructions".to_string(), "Amber\nFinch");
+        assert!(prompt.contains("Subagent instance identity:"));
+        assert!(prompt.contains(r#"instance_name: "Amber\nFinch""#));
+        assert!(prompt.contains("remains stable for this run"));
     }
 }

@@ -3,25 +3,25 @@ import type { TaskReview, TaskRun, TaskRunStatus } from "./taskTypes";
 
 export function runTimelineLabel(run: TaskRun, review?: TaskReview | null): string {
   if (run.role === "planner") {
-    return terminalRoleLabel("Planner", run.status);
+    return terminalRoleLabel(`${run.instanceName} · Planner`, run.status);
   }
   if (run.role === "executor") {
-    return terminalRoleLabel("Executor", run.status);
+    return terminalRoleLabel(`${run.instanceName} · Executor`, run.status);
   }
   if (run.status === "failed" || run.status === "cancelled" || run.status === "interrupted") {
-    return terminalRoleLabel("Review", run.status);
+    return terminalRoleLabel(`${run.instanceName} · Review`, run.status);
   }
   if (review?.reviewerRunId === run.id) {
     switch (review.verdict) {
       case "approve":
-        return "Review, Passed";
+        return `${run.instanceName} · Review, Passed`;
       case "request_changes":
-        return "Review, Failed";
+        return `${run.instanceName} · Review, Failed`;
       case "needs_human":
-        return "Review, Needs input";
+        return `${run.instanceName} · Review, Needs input`;
     }
   }
-  return terminalRoleLabel("Review", run.status);
+  return terminalRoleLabel(`${run.instanceName} · Review`, run.status);
 }
 
 export function runDurationLabel(run: TaskRun, now = Date.now()): string {

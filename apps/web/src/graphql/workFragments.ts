@@ -65,6 +65,7 @@ export const WorkReviewSummaryFields = gql`
 export const WorkCurrentRunFields = gql`
   fragment WorkCurrentRunFields on CurrentRunSummary {
     runId
+    instanceName
     kind
     status
     attemptIndex
@@ -274,6 +275,7 @@ export const WorkReviewFields = gql`
 export const WorkRunFields = gql`
   fragment WorkRunFields on TaskRun {
     runId
+    instanceName
     kind
     status
     agentId

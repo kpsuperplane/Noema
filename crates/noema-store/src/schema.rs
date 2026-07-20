@@ -1,8 +1,8 @@
 /// Current schema version for pre-stable local SQLite data.
-pub const STORE_SCHEMA_VERSION: i64 = 6;
+pub const STORE_SCHEMA_VERSION: i64 = 7;
 
 /// Stable marker row identifying the exact schema accepted by this binary.
-pub(super) const STORE_SCHEMA_MARKER: &str = "sqlite_store_v6";
+pub(super) const STORE_SCHEMA_MARKER: &str = "sqlite_store_v7";
 
 /// SQLite bootstrap used by the Noema store.
 pub const STORE_SCHEMA_SQL: &str = r#"
@@ -686,6 +686,7 @@ ON task_messages(task_id, created_at, message_id);
 
 CREATE TABLE agent_runs (
   run_id TEXT PRIMARY KEY NOT NULL CHECK (run_id GLOB 'run:*'),
+  instance_name TEXT NOT NULL CHECK (trim(instance_name) <> ''),
   task_id TEXT NOT NULL,
   task_generation INTEGER NOT NULL CHECK (task_generation >= 1),
   contract_id TEXT,
@@ -756,6 +757,9 @@ WHERE status = 'queued';
 
 CREATE INDEX agent_runs_task_history
 ON agent_runs(task_id, created_at, run_id);
+
+CREATE UNIQUE INDEX agent_runs_instance_name
+ON agent_runs(instance_name);
 
 CREATE INDEX agent_runs_expired_leases
 ON agent_runs(status, lease_expires_at, run_id)
@@ -1101,6 +1105,6 @@ INSERT INTO task_execution_policy (
 ON CONFLICT (policy_id) DO NOTHING;
 
 INSERT INTO schema_state (name, version, applied_at)
-VALUES ('sqlite_store_v6', 6, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+VALUES ('sqlite_store_v7', 7, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 ON CONFLICT (name) DO NOTHING;
 "#;

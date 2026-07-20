@@ -76,6 +76,7 @@ impl RunStatus {
 #[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct AgentRunRecord {
     pub run_id: String,
+    pub instance_name: String,
     pub task_id: TaskId,
     pub task_generation: u64,
     pub contract_id: Option<TaskContractId>,

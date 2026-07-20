@@ -469,19 +469,20 @@ async fn seed_task_and_run_references(
                 conn.execute(
                     r#"
                     INSERT INTO agent_runs (
-                      run_id, task_id, task_generation, contract_id, run_kind, agent_id,
+                      run_id, instance_name, task_id, task_generation, contract_id, run_kind, agent_id,
                       attempt_index, review_round,
                       provider_kind,
                       provider_account_id, provider_instance_key, selection_mode,
                       model_profile, max_provider_continuations, max_tool_calls,
                       max_active_minutes, progress_audit_interval,
                       max_automatic_retries, max_review_rounds, status
-                    ) VALUES (?1, ?2, 1, ?7, 'executor', 'agent:task-executor',
-                              0, 1, 'local_models', ?3, ?4, 'explicit_profile', ?5,
-                              80, 400, 120, 20, 3, 3, ?6)
+                    ) VALUES (?1, ?2, ?3, 1, ?8, 'executor', 'agent:task-executor',
+                              0, 1, 'local_models', ?4, ?5, 'explicit_profile', ?6,
+                              80, 400, 120, 20, 3, 3, ?7)
                     "#,
                     params![
                         run_id,
+                        format!("Instance {run_id}"),
                         task_id,
                         LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
                         installation.provider_instance_key.as_str(),

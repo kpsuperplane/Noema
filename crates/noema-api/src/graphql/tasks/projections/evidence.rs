@@ -34,6 +34,7 @@ graphql_object_from! { "Human message in the immutable task history." => pub str
 graphql_object_from! { "Current run projection, intentionally separate from task stage." => pub struct GraphqlCurrentRunSummary("CurrentRunSummary")
     from AgentRunRecord as value {
     "Run identity." => run_id: String = value.run_id,
+    "Human-friendly instance identity." => instance_name: String = value.instance_name,
     "Planner, Executor, or Reviewer." => kind: GraphqlTaskRunKind = value.run_kind.into(),
     "Run-local queue/lease status." => status: GraphqlTaskRunStatus = value.status.into(),
     "Lineage attempt." => attempt_index: i64 = i64::from(value.attempt_index),
@@ -134,6 +135,7 @@ graphql_object_from! { "Compact review projection used by task cards." => pub st
 graphql_object_from! { "Safe audit projection of one run." => pub struct GraphqlTaskRun("TaskRun")
     try_from AgentRunRecord as value {
     "Run identity." => run_id: String = value.run_id,
+    "Human-friendly instance identity." => instance_name: String = value.instance_name,
     "Run role." => kind: GraphqlTaskRunKind = value.run_kind.into(),
     "Run-local status." => status: GraphqlTaskRunStatus = value.status.into(),
     "Agent identity." => agent_id: String = value.agent_id,

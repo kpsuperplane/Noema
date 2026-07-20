@@ -59,7 +59,7 @@ async fn work_v6_bootstrap_is_exact_idempotent_and_enforces_foreign_keys() {
                 |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?, row.get::<_, i64>(3)?, row.get::<_, i64>(4)?, row.get::<_, i64>(5)?)),
             )?;
             assert_eq!(policy, (80, 400, 120, 20, 3, 3));
-            assert_eq!(count_where(conn, "schema_state", "name = 'sqlite_store_v6' AND version = 6")?, 1);
+        assert_eq!(count_where(conn, "schema_state", "name = 'sqlite_store_v7' AND version = 7")?, 1);
             assert_eq!(count_where(conn, "auxiliary_model_preferences", "task_id = 'action_reviewer'")?, 0);
             Ok(())
         })
@@ -688,19 +688,19 @@ fn insert_planner_run(conn: &Connection, run_id: &str) -> rusqlite::Result<usize
     conn.execute(
         r#"
         INSERT INTO agent_runs (
-          run_id, task_id, task_generation, contract_id, run_kind, agent_id,
+          run_id, instance_name, task_id, task_generation, contract_id, run_kind, agent_id,
           attempt_index, review_round, provider_kind, provider_account_id,
           provider_instance_key, selection_mode, model_profile,
           max_provider_continuations, max_tool_calls, max_active_minutes,
           progress_audit_interval, max_automatic_retries, max_review_rounds, status
         ) VALUES (
-          ?1, 'task:valid', 1, NULL, 'planner', 'agent:task-executor',
+          ?1, ?2, 'task:valid', 1, NULL, 'planner', 'agent:task-executor',
           0, 0, 'codex', 'provider_account:codex:default',
           'provider_account:codex:default', 'explicit_profile', 'gpt-5.6-luna',
           80, 400, 120, 20, 3, 3, 'queued'
         )
         "#,
-        [run_id],
+        [run_id, &format!("Planner {run_id}")],
     )
 }
 

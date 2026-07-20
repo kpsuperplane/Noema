@@ -580,6 +580,7 @@ fn fixture_work_context(
     };
     let run = AgentRunRecord {
         run_id,
+        instance_name: format!("Evaluation {}", run_kind.as_str()),
         task_id,
         task_generation: 1,
         contract_id: contract

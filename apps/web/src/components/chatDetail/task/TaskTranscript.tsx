@@ -261,13 +261,14 @@ function runBoundaryEntry(
 }
 
 function runRoleLabel(run: TaskRun): string {
+  const name = `${run.instanceName} · `;
   switch (run.role) {
     case "planner":
-      return "Planner";
+      return `${name}Planner`;
     case "executor":
-      return "Executor";
+      return `${name}Executor`;
     case "reviewer":
-      return "Reviewer";
+      return `${name}Reviewer`;
   }
 }
 

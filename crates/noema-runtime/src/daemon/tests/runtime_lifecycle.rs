@@ -368,6 +368,7 @@ async fn background_task_pins_local_provider_generation_across_replacement() {
                 contract_id: claimed_contract_id,
                 cancellation: tokio_util::sync::CancellationToken::new(),
                 agent_id: claimed_agent_id,
+                instance_name: claimed.run.instance_name.clone(),
                 role: crate::agent_execution::ExecutionRole::TaskExecutor,
                 provider_selection: {
                     let mut selection = noema_providers::ProviderSelectionSnapshot::explicit(

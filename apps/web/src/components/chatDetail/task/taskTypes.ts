@@ -115,6 +115,7 @@ export type TaskRunItem = {
 
 export type TaskRun = {
   id: string;
+  instanceName: string;
   role: TaskRunRole;
   status: TaskRunStatus;
   revision?: number | null;

@@ -12,8 +12,11 @@ use super::{
     positive_u32,
 };
 use crate::{
-    StoreError, ids::allocate_id, provider_selections::prove_selection_ready,
-    tasks::provider_selection::pool_selection_tx, work_events::append_work_event_tx,
+    StoreError,
+    ids::{allocate_id, allocate_instance_name},
+    provider_selections::prove_selection_ready,
+    tasks::provider_selection::pool_selection_tx,
+    work_events::append_work_event_tx,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -168,24 +171,26 @@ fn insert_run_snapshot_tx(
     policy: &TaskExecutionPolicy,
 ) -> Result<(String, WorkEventRecord), StoreError> {
     let run_id = allocate_id("run");
+    let instance_name = allocate_instance_name(transaction)?;
     let agent_id = match request.run_kind {
         RunKind::Reviewer => noema_tasks::TASK_REVIEWER_AGENT_ID,
         RunKind::Planner | RunKind::Executor => noema_tasks::TASK_EXECUTOR_AGENT_ID,
     };
     transaction.execute(
         r#"INSERT INTO agent_runs (
-             run_id, task_id, task_generation, contract_id, run_kind, agent_id,
+             run_id, instance_name, task_id, task_generation, contract_id, run_kind, agent_id,
              attempt_index, review_round, parent_run_id, triggering_submission_id,
              triggering_review_id, provider_kind, provider_account_id,
              provider_instance_key, selection_mode, model_profile,
              reasoning_effort, selection_source, max_provider_continuations,
              max_tool_calls, max_active_minutes, progress_audit_interval,
              max_automatic_retries, max_review_rounds, status
-           ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
-                     ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23,
-                     ?24, 'queued')"#,
+           ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
+                     ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24,
+                     ?25, 'queued')"#,
         params![
             run_id,
+            instance_name,
             task.task_id.as_str(),
             task.generation,
             request.contract_id.map(ToString::to_string),

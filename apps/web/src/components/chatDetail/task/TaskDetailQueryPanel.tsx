@@ -195,6 +195,7 @@ function mapWorkTaskDetail(task: WorkDetail): TaskDetail {
 function mapRun(run: WorkDetail["runs"][number]): TaskRun {
   return {
     id: run.runId,
+    instanceName: run.instanceName,
     role: run.kind.toLowerCase() as TaskRunRole,
     status: run.status.toLowerCase() as TaskRunStatus,
     revision: run.reviewRound,

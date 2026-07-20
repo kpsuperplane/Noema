@@ -860,6 +860,10 @@ type CurrentRunSummary {
 	"""
 	runId: String!
 	"""
+	Human-friendly instance identity.
+	"""
+	instanceName: String!
+	"""
 	Planner, Executor, or Reviewer.
 	"""
 	kind: TaskRunKind!
@@ -3739,6 +3743,10 @@ type TaskRun {
 	Run identity.
 	"""
 	runId: String!
+	"""
+	Human-friendly instance identity.
+	"""
+	instanceName: String!
 	"""
 	Run role.
 	"""

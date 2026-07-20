@@ -68,7 +68,7 @@ pub(crate) fn load_runs(
     }
     let ids_json = serde_json::to_string(ids)?;
     let mut statement = transaction.prepare(
-        "SELECT ar.run_id, ar.task_id, ar.task_generation, ar.contract_id, ar.run_kind,
+        "SELECT ar.run_id, ar.instance_name, ar.task_id, ar.task_generation, ar.contract_id, ar.run_kind,
                 ar.agent_id, ar.attempt_index, ar.review_round, ar.parent_run_id,
                 ar.triggering_submission_id, ar.triggering_review_id, ar.provider_kind,
                 ar.provider_account_id, ar.provider_instance_key, ar.selection_mode,
@@ -93,85 +93,86 @@ pub(crate) fn load_runs(
 }
 
 fn decode_run(row: &Row<'_>) -> rusqlite::Result<AgentRunRecord> {
-    let contract_id = optional_contract_id(row, 3)?;
-    let joined_contract_id = row.get::<_, Option<String>>(39)?;
+    let contract_id = optional_contract_id(row, 4)?;
+    let joined_contract_id = row.get::<_, Option<String>>(40)?;
     if contract_id.as_ref().map(TaskContractId::as_str) != joined_contract_id.as_deref() {
-        return Err(invalid_sql(39, "run references a missing contract"));
+        return Err(invalid_sql(40, "run references a missing contract"));
     }
     let model = ProviderSelectionSnapshot {
-        provider_kind: row.get(11)?,
-        provider_account_id: row.get(12)?,
+        provider_kind: row.get(12)?,
+        provider_account_id: row.get(13)?,
         provider_instance_key: Some(
-            ProviderInstanceKey::new(row.get::<_, String>(13)?)
-                .map_err(|error| conversion_failure(13, Type::Text, error))?,
+            ProviderInstanceKey::new(row.get::<_, String>(14)?)
+                .map_err(|error| conversion_failure(14, Type::Text, error))?,
         ),
-        selection_mode: ProviderSelectionMode::from_str(&row.get::<_, String>(14)?)
-            .map_err(|error| conversion_failure(14, Type::Text, error))?,
-        model_profile: row.get(15)?,
+        selection_mode: ProviderSelectionMode::from_str(&row.get::<_, String>(15)?)
+            .map_err(|error| conversion_failure(15, Type::Text, error))?,
+        model_profile: row.get(16)?,
         reasoning_effort: row
-            .get::<_, Option<String>>(16)?
+            .get::<_, Option<String>>(17)?
             .map(|value| {
                 ReasoningEffort::from_persistence_str(&value)
-                    .ok_or_else(|| invalid_sql(16, "unknown reasoning effort"))
+                    .ok_or_else(|| invalid_sql(17, "unknown reasoning effort"))
             })
             .transpose()?,
-        selection_source: row.get(17)?,
+        selection_source: row.get(18)?,
     };
     if model
         .normalized_for_persistence()
-        .map_err(|error| conversion_failure(11, Type::Text, error))?
+        .map_err(|error| conversion_failure(12, Type::Text, error))?
         != model
     {
-        return Err(invalid_sql(11, "run model is not canonically normalized"));
+        return Err(invalid_sql(12, "run model is not canonically normalized"));
     }
     let execution_policy = TaskExecutionPolicy {
-        max_provider_continuations: positive_u32(row, 40)?,
-        max_tool_calls: positive_u32(row, 41)?,
-        max_active_minutes: positive_u32(row, 42)?,
-        progress_audit_interval: positive_u32(row, 43)?,
-        max_automatic_retries: nonnegative_u32(row, 44)?,
-        max_review_rounds: positive_u32(row, 45)?,
+        max_provider_continuations: positive_u32(row, 41)?,
+        max_tool_calls: positive_u32(row, 42)?,
+        max_active_minutes: positive_u32(row, 43)?,
+        progress_audit_interval: positive_u32(row, 44)?,
+        max_automatic_retries: nonnegative_u32(row, 45)?,
+        max_review_rounds: positive_u32(row, 46)?,
     }
     .validated()
-    .map_err(|error| conversion_failure(40, Type::Integer, error))?;
+    .map_err(|error| conversion_failure(41, Type::Integer, error))?;
     let record = AgentRunRecord {
         run_id: row.get(0)?,
-        task_id: TaskId::new(row.get::<_, String>(1)?)
-            .map_err(|error| conversion_failure(1, Type::Text, error))?,
-        task_generation: positive_u64(row, 2)?,
+        instance_name: row.get(1)?,
+        task_id: TaskId::new(row.get::<_, String>(2)?)
+            .map_err(|error| conversion_failure(2, Type::Text, error))?,
+        task_generation: positive_u64(row, 3)?,
         contract_id,
-        run_kind: RunKind::from_str(&row.get::<_, String>(4)?)
-            .map_err(|error| conversion_failure(4, Type::Text, error))?,
-        agent_id: row.get(5)?,
-        attempt_index: nonnegative_u32(row, 6)?,
-        review_round: nonnegative_u32(row, 7)?,
-        parent_run_id: row.get(8)?,
-        triggering_submission_id: row.get(9)?,
-        triggering_review_id: row.get(10)?,
+        run_kind: RunKind::from_str(&row.get::<_, String>(5)?)
+            .map_err(|error| conversion_failure(5, Type::Text, error))?,
+        agent_id: row.get(6)?,
+        attempt_index: nonnegative_u32(row, 7)?,
+        review_round: nonnegative_u32(row, 8)?,
+        parent_run_id: row.get(9)?,
+        triggering_submission_id: row.get(10)?,
+        triggering_review_id: row.get(11)?,
         model,
-        actual_provider_kind: row.get(18)?,
-        actual_model_profile: row.get(19)?,
+        actual_provider_kind: row.get(19)?,
+        actual_model_profile: row.get(20)?,
         execution_policy,
-        status: RunStatus::from_str(&row.get::<_, String>(20)?)
-            .map_err(|error| conversion_failure(20, Type::Text, error))?,
-        queued_at: row.get(21)?,
-        lease_owner: row.get(22)?,
-        lease_token: row.get(23)?,
-        lease_expires_at: row.get(24)?,
-        heartbeat_at: row.get(25)?,
-        started_at: row.get(26)?,
-        ended_at: row.get(27)?,
-        cancellation_requested: strict_bool(row, 28)?,
-        error_code: row.get(29)?,
-        error_message: row.get(30)?,
-        provider_call_count: nonnegative_u32(row, 31)?,
-        tool_call_count: nonnegative_u32(row, 32)?,
-        input_tokens: nonnegative_u64(row, 33)?,
-        cached_input_tokens: nonnegative_u64(row, 34)?,
-        output_tokens: nonnegative_u64(row, 35)?,
-        active_milliseconds: nonnegative_u64(row, 36)?,
-        created_at: row.get(37)?,
-        updated_at: row.get(38)?,
+        status: RunStatus::from_str(&row.get::<_, String>(21)?)
+            .map_err(|error| conversion_failure(21, Type::Text, error))?,
+        queued_at: row.get(22)?,
+        lease_owner: row.get(23)?,
+        lease_token: row.get(24)?,
+        lease_expires_at: row.get(25)?,
+        heartbeat_at: row.get(26)?,
+        started_at: row.get(27)?,
+        ended_at: row.get(28)?,
+        cancellation_requested: strict_bool(row, 29)?,
+        error_code: row.get(30)?,
+        error_message: row.get(31)?,
+        provider_call_count: nonnegative_u32(row, 32)?,
+        tool_call_count: nonnegative_u32(row, 33)?,
+        input_tokens: nonnegative_u64(row, 34)?,
+        cached_input_tokens: nonnegative_u64(row, 35)?,
+        output_tokens: nonnegative_u64(row, 36)?,
+        active_milliseconds: nonnegative_u64(row, 37)?,
+        created_at: row.get(38)?,
+        updated_at: row.get(39)?,
     };
     record
         .validate_contract_lineage()

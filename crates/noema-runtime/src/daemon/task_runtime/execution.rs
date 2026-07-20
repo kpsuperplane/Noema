@@ -282,6 +282,7 @@ fn background_task_generate_request(
         contract_id: fence.contract_id.clone(),
         cancellation: cancellation.clone(),
         agent_id: run.agent_id.clone(),
+        instance_name: run.instance_name.clone(),
         role: prompt.role,
         provider_selection: run.model.clone(),
         execution_policy: run.execution_policy,
