@@ -87,7 +87,7 @@ const styles = stylex.create({
     minWidth: 0,
     minHeight: "100%",
     marginInline: "auto",
-    paddingTop: 24,
+    paddingTop: "var(--chat-transcript-top-fade)",
     paddingBottom: "max(80px, calc(var(--chat-composer-dock-height, 0px) + 16px))",
     paddingInline: 2
   },
