@@ -7,10 +7,11 @@ import { styles } from "@/pages/memoryPageStyles";
 type MarkdownComponents = NonNullable<MarkdownProps["components"]>;
 
 interface MemoryArticlePage {
+  id: string;
   title: string;
-  path: string;
   body: string;
   sources: string[];
+  children: Array<{ id: string; title: string }>;
 }
 
 const articleComponents: MarkdownComponents = {
@@ -18,16 +19,34 @@ const articleComponents: MarkdownComponents = {
   paragraph: ArticleParagraph
 };
 
-export function MemoryArticle({ page }: { page: MemoryArticlePage }) {
+export function MemoryArticle({
+  page,
+  isRoot,
+  onSelectPage,
+  onSelectRoot
+}: {
+  page: MemoryArticlePage;
+  isRoot: boolean;
+  onSelectPage: (id: string) => void;
+  onSelectRoot: () => void;
+}) {
   const article = buildMemoryArticle(page.body, page.sources);
+  const hasContents = article.outline.length > 0 || page.children.length > 0 || article.references.length > 0;
   return (
     <article {...stylex.props(styles.article)}>
+      {!isRoot ? (
+        <nav aria-label="Memory breadcrumb" {...stylex.props(styles.articleBreadcrumb)}>
+          <button type="button" {...stylex.props(styles.breadcrumbLink)} onClick={onSelectRoot}>Memory</button>
+          <span aria-hidden="true">/</span>
+          <span>{page.title}</span>
+        </nav>
+      ) : null}
       <header>
         <h1 {...stylex.props(styles.articleTitle)}>{page.title}</h1>
-        <div {...stylex.props(styles.articleSubtitle)}>From Noema, the private memory encyclopedia · {page.path}</div>
+        <div {...stylex.props(styles.articleSubtitle)}>From Noema, the private memory encyclopedia</div>
       </header>
 
-      {article.outline.length > 0 ? (
+      {hasContents ? (
         <nav {...stylex.props(styles.contentsBox)} aria-label="Article contents">
           <strong {...stylex.props(styles.contentsTitle)}>Contents</strong>
           <ol {...stylex.props(styles.contentsList)}>
@@ -36,6 +55,9 @@ export function MemoryArticle({ page }: { page: MemoryArticlePage }) {
                 <a href={`#${item.id}`} {...stylex.props(styles.articleLink)}>{item.label}</a>
               </li>
             ))}
+            {page.children.length > 0 ? (
+              <li><a href="#subpages" {...stylex.props(styles.articleLink)}>Subpages</a></li>
+            ) : null}
             {article.references.length > 0 ? (
               <li><a href="#references" {...stylex.props(styles.articleLink)}>References</a></li>
             ) : null}
@@ -59,6 +81,21 @@ export function MemoryArticle({ page }: { page: MemoryArticlePage }) {
       ) : (
         <p {...stylex.props(styles.stub)}>This memory article has not developed a lead yet.</p>
       )}
+
+      {page.children.length > 0 ? (
+        <section id="subpages" {...stylex.props(styles.subpagesSection)}>
+          <h2 {...stylex.props(styles.articleHeading, styles.articleHeadingMajor)}>Subpages</h2>
+          <ul {...stylex.props(styles.subpageList)}>
+            {page.children.map((child) => (
+              <li key={child.id}>
+                <button type="button" {...stylex.props(styles.subpageLink)} onClick={() => onSelectPage(child.id)}>
+                  {child.title}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {article.references.length > 0 ? (
         <section id="references" {...stylex.props(styles.referencesSection)}>

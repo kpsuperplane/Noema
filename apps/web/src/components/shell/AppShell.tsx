@@ -20,6 +20,7 @@ import {
   type ShellMenuItem
 } from "./shellNavigation";
 import { useShellNavSwipe } from "./useShellNavSwipe";
+import { MemoryUpdateControl } from "@/pages/MemoryUpdateControl";
 
 export type ShellAttention = {
   tone: "warning";
@@ -325,6 +326,11 @@ export function AppShell({
               <ShellBreadcrumbLabel breadcrumb={breadcrumb} />
             </div>
           </div>
+          {route.kind === "memory" ? (
+            <div {...stylex.props(styles.headerAction)}>
+              <MemoryUpdateControl />
+            </div>
+          ) : null}
           <div aria-hidden="true" data-slot="shell-header-scrim" {...stylex.props(styles.headerScrim)} />
         </header>
 
@@ -467,6 +473,7 @@ const styles = stylex.create({
     zIndex: 2,
     display: "flex",
     alignItems: "center",
+    justifyContent: "space-between",
     gap: 12,
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
@@ -490,6 +497,7 @@ const styles = stylex.create({
     position: "relative",
     zIndex: 1,
     display: "flex",
+    minWidth: 0,
     alignItems: "center",
     transitionProperty: "transform",
     transitionDuration: "300ms",
@@ -508,6 +516,11 @@ const styles = stylex.create({
   breadcrumbWrap: {
     minWidth: 0,
     paddingBlock: "0.2rem"
+  },
+  headerAction: {
+    position: "relative",
+    zIndex: 1,
+    minWidth: 0
   },
   breadcrumb: {
     display: "flex",

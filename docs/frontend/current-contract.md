@@ -6,7 +6,7 @@ store schema, or route model changes.
 
 The current route source supports chat at `/`, Settings at `/settings`, and
 nested Settings sections including `/settings/memory`. `/memory` is the native
-memory tree surface. `/memory/graph` is not a current route.
+memory article surface. `/memory/graph` is not a current route.
 
 ## Current Sources
 
@@ -114,13 +114,15 @@ Current behavior:
 
 ## Memory Frontend Contract
 
-Current memory UX is Settings plus a top-level native tree:
+Current memory UX is Settings plus a top-level native article surface:
 
 - `/settings/memory` selects the model used for background memory updates.
-- `/memory` renders the selected canonical Markdown page as a Wikipedia-style
-  reading surface with article typography, numbered citations, collected
-  references, deterministic child filenames, pending-message state, and one
-  `Update memory` action.
+- `/memory` renders canonical Markdown as a full-width Wikipedia-style reading
+  surface with article typography, numbered citations, collected references,
+  in-article subpage links, and light child-page breadcrumbs. It has no
+  persistent page-tree sidebar.
+- The shell's Memory title row owns pending-message state and the single
+  `Update memory` action; implementation filenames are not rendered.
 - The update action is disabled and loading while the one server-owned job is
   queued or running; failed jobs retain their completed checkpoint for retry.
 - There is no `/memory/graph` route and no React Flow graph browser in the
