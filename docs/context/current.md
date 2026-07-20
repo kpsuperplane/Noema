@@ -176,10 +176,11 @@ subagents, reviews, and size measurement.
   the outer rail header is reduced to floating cancel, Work, and close
   controls. Planner, Executor, and Review runs are marked inline with role,
   revision, status, and duration; their persisted items reuse the shared
-  response and activity lanes. A compact floating task card carries the title
-  and info trigger, an optional needs-input row, and a validation summary row.
-  The info popover exposes compact metadata and completed results, while
-  validation details remain available through the row disclosure.
+  response and activity lanes, and each immutable executor submission renders
+  once as the durable result in that chronological stream. A compact floating
+  task card carries the title and info trigger, an optional needs-input row,
+  and a validation summary row. The info popover exposes compact metadata only,
+  while validation details remain available through the row disclosure.
 - Current Work behavior and `docs/workspaces/README.md` are authoritative. The
   completed multi-agent implementation packets remain in Git history and should
   not drive new implementation.

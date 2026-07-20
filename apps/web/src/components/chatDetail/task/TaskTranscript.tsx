@@ -10,7 +10,7 @@ import {
   runDurationLabel,
   useTaskRunClock,
 } from "./TaskRevisionTimeline";
-import type { TaskDetail, TaskRevision, TaskRun } from "./taskTypes";
+import type { TaskArtifact, TaskDetail, TaskRevision, TaskRun, TaskSubmission } from "./taskTypes";
 
 type TaskRunTimelineEntry = { revision: TaskRevision; run: TaskRun };
 
@@ -101,7 +101,6 @@ export function TaskTranscript({
         next.push(event.entry);
         continue;
       }
-
       const snapshot = snapshots.get(event.run.id);
       const boundaries = runBoundaryEntries(event.run, event.revision, now);
       next.push(...boundaries.slice(0, 1));
@@ -111,6 +110,9 @@ export function TaskTranscript({
         next.push(...snapshot.entries);
       }
       next.push(...boundaries.slice(1));
+      if (event.revision.submission?.executorRunId === event.run.id) {
+        next.push(...submissionTranscriptEntries(event.revision.submission));
+      }
     }
     return next;
   }, [events, now, snapshots]);
@@ -163,6 +165,40 @@ function taskRunsInOrder(revisions: readonly TaskRevision[]): TaskRunTimelineEnt
       ...revision.reviewers.map((run) => ({ revision, run }))
     ])
     .sort((left, right) => parseTimestamp(left.run.createdAt) - parseTimestamp(right.run.createdAt) || left.revision.revision - right.revision.revision || left.run.attemptIndex - right.run.attemptIndex);
+}
+
+function submissionTranscriptEntries(submission: TaskSubmission): TranscriptEntry[] {
+  const entries: TranscriptEntry[] = [];
+  const result = submission.result?.trim() || submission.summary?.trim();
+  if (result) {
+    entries.push({
+      id: `submission-result:${submission.id}`,
+      source: "replay",
+      type: "assistant",
+      text: result
+    });
+  }
+  entries.push(...(submission.artifacts ?? []).map((artifact) => submissionArtifactEntry(submission.id, artifact)));
+  return entries;
+}
+
+function submissionArtifactEntry(submissionId: string, artifact: TaskArtifact): TranscriptEntry {
+  return {
+    id: `submission-artifact:${submissionId}:${artifact.id}`,
+    source: "replay",
+    type: "artifact",
+    item: {
+      kind: "artifact_reference",
+      artifact_id: artifact.id,
+      artifact_version_id: artifact.versionId ?? null,
+      title: artifact.title,
+      artifact_kind: artifact.kind ?? "artifact",
+      storage_kind: artifact.storageKind ?? "local_file",
+      external_url: artifact.externalUrl ?? null,
+      download_url: artifact.downloadUrl ?? null,
+      media_type: artifact.mediaType ?? null
+    }
+  };
 }
 
 function runBoundaryEntries(run: TaskRun, revision: TaskRevision, now: number): TranscriptEntry[] {

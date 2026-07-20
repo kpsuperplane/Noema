@@ -219,12 +219,6 @@ export const WorkTaskDetailDocument = gql`
       currentContract {
         ...WorkContractFields
       }
-      latestSubmission {
-        ...WorkSubmissionFields
-      }
-      acceptedResult {
-        ...WorkSubmissionFields
-      }
       latestReview {
         ...WorkReviewSummaryFields
       }
@@ -247,16 +241,6 @@ export const WorkTaskDetailDocument = gql`
       }
       reviews {
         ...WorkReviewFields
-      }
-      artifacts {
-        artifactId
-        title
-        artifactKind
-        currentVersion {
-          externalUrl
-          downloadUrl
-          mediaType
-        }
       }
     }
   }

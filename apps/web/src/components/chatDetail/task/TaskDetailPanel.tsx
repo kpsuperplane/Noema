@@ -6,7 +6,6 @@ import { Info } from "lucide-react";
 import type { TaskDetail, TaskRunItem } from "./taskTypes";
 import { TaskCriteria } from "./TaskCriteria";
 import { taskStageLabel } from "./TaskOverview";
-import { TaskResult } from "./TaskResult";
 import { TaskTranscript } from "./TaskTranscript";
 
 type MarkdownXStyle = MarkdownProps["xstyle"];
@@ -186,10 +185,6 @@ function TaskAttention({
   const context = detail.attention?.context?.trim() || null;
   const contextIsPrimary = Boolean(context) && (detail.attention?.kind === "RECOVERY_REQUIRED" || !prompt);
   const primaryText = contextIsPrimary ? null : prompt || (context ? null : detail.attention?.summary);
-  const result = detail.stageBehavior === "ACCEPTANCE" || detail.stageBehavior === "TERMINAL_SUCCESS"
-    ? <TaskResult embedded artifacts={detail.artifacts} result={detail.finalResult} />
-    : null;
-  const evidence = detail.stageBehavior === "ACCEPTANCE" ? latestReviewSummary(detail) : null;
 
   const attentionCopy = (
     <>
@@ -219,8 +214,6 @@ function TaskAttention({
       ) : (
         attentionCopy
       )}
-      {result}
-      {evidence ? <div {...stylex.props(styles.attentionEvidence)}><Markdown autolink="gfm" contentWidth="100%" density="compact" headingLevelStart={4} xstyle={markdownXStyle(styles.attentionMarkdown)}>{evidence}</Markdown></div> : null}
       {governedActions ? <div {...stylex.props(styles.attentionGovernedActions)}>{governedActions}</div> : null}
       {!inlineResponse && actions ? <div {...stylex.props(styles.attentionActions)}>{actions}</div> : null}
     </section>
@@ -250,13 +243,8 @@ function TaskValidationRow({ criteria }: { criteria: TaskDetail["criteria"] }) {
 }
 
 function TaskInfoPopoverContent({ detail }: { detail: TaskDetail }) {
-  const result = detail.stageBehavior === "ACCEPTANCE" || detail.stageBehavior === "TERMINAL_SUCCESS"
-    ? <TaskResult embedded artifacts={detail.artifacts} result={detail.finalResult} />
-    : null;
-
   return (
     <div {...stylex.props(styles.infoContent)}>
-      {result ? <section {...stylex.props(styles.infoSection, styles.resultSection)}>{result}</section> : null}
       <TaskInfoMetadata detail={detail} />
     </div>
   );
@@ -294,13 +282,6 @@ function formatDate(value: string): string {
 
 function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
-function latestReviewSummary(detail: TaskDetail): string | null {
-  return [...detail.revisions]
-    .sort((left, right) => right.revision - left.revision)
-    .find((revision) => revision.review?.summary?.trim())
-    ?.review?.summary?.trim() ?? null;
 }
 
 function TaskUnavailable({ message }: { message: string }) {
@@ -360,7 +341,6 @@ const styles = stylex.create({
   attentionText: { margin: 0, color: "var(--noema-text-primary)", fontSize: 12, lineHeight: 1.45 },
   attentionMarkdown: { color: "var(--noema-text-secondary)", fontSize: 11, lineHeight: 1.45 },
   attentionPrimaryMarkdown: { color: "var(--noema-text-primary)", fontSize: 12, fontWeight: 600, lineHeight: 1.45 },
-  attentionEvidence: { display: "grid", gap: "var(--spacing-1)", minWidth: 0 },
   attentionGovernedActions: { minWidth: 0, ":empty": { display: "none" } },
   attentionActions: { minWidth: 0 },
   validationRow: { minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)" },
@@ -369,8 +349,6 @@ const styles = stylex.create({
   validationLabel: { color: "var(--noema-text-primary)", fontSize: 11, fontWeight: 700 },
   validationSummary: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-muted)", fontSize: 11, textOverflow: "ellipsis", whiteSpace: "nowrap" },
   infoContent: { display: "grid", minWidth: 0, backgroundColor: "var(--noema-surface-card)" },
-  infoSection: { display: "grid", gap: "var(--spacing-2)", minWidth: 0, paddingBlock: "var(--spacing-3)", paddingInline: "var(--spacing-3)" },
-  resultSection: { backgroundColor: "var(--noema-surface-card)" },
   metadataSection: { paddingBlock: "var(--spacing-3)", paddingInline: "var(--spacing-3)" },
   metadata: { display: "grid", gap: "var(--spacing-1-5)", margin: 0 },
   metadataRow: { display: "grid", gridTemplateColumns: "minmax(88px, 0.42fr) minmax(0, 1fr)", gap: "var(--spacing-3)", alignItems: "baseline" },

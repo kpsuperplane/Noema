@@ -198,14 +198,15 @@ and close controls, while a compact floating task card carries the title and
 info trigger. Durable human task input uses the human message lane. Planner,
 Executor, and Review runs are marked inline with role, revision, status, and
 duration, while their persisted transcript items use the existing response and
-activity lanes. Run transcripts are merged into one scroll surface; tool
-activity remains expandable in place, and bounded paging continues from the
-oldest available run window.
+activity lanes. Each immutable executor submission appears once as the durable
+result in that chronological stream, followed by its artifact references. Run
+transcripts are merged into one scroll surface; tool activity remains
+expandable in place, and bounded paging continues from the oldest available run
+window.
 
 The floating task-context card keeps an optional needs-input row and compact
 validation summary above the transcript. The info popover exposes compact
-metadata and completed results; the validation row discloses individual
-criteria. An
+metadata only; the validation row discloses individual criteria. An
 unresolved clarification, approval, recovery, permission, or acceptance
 action is attached to the needs-input row, keeping its prompt and controls
 visible until resolved; after resolution, the decision is represented by the

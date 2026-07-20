@@ -68,6 +68,7 @@ export type TaskToolActivity = {
 
 export type TaskSubmission = {
   id: string;
+  executorRunId: string;
   revision?: number | null;
   summary?: string | null;
   result?: string | null;
@@ -153,16 +154,13 @@ export type TaskRevision = {
 
 export type TaskArtifact = {
   id: string;
+  versionId?: string | null;
   title: string;
   kind?: string | null;
+  storageKind?: "external_url" | "local_file" | null;
   mediaType?: string | null;
-  href?: string | null;
-};
-
-export type TaskFinalResult = {
-  summary?: string | null;
-  body?: string | null;
-  approvedAt?: string | null;
+  downloadUrl?: string | null;
+  externalUrl?: string | null;
 };
 
 export type TaskDetail = {
@@ -183,8 +181,6 @@ export type TaskDetail = {
   reviewerModel?: TaskModelSnapshot | null;
   reviewerModelInherited?: boolean;
   revisions: readonly TaskRevision[];
-  finalResult?: TaskFinalResult | null;
-  artifacts?: readonly TaskArtifact[];
   canCancel?: boolean;
   canResume?: boolean;
   blockingQuestion?: string | null;

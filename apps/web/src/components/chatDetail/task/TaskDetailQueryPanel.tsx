@@ -158,16 +158,6 @@ function mapWorkTaskDetail(task: WorkDetail): TaskDetail {
       evidence: reviewed?.evidenceMarkdown ?? submitted?.evidenceMarkdown ?? null
     };
   });
-  const accepted = task.acceptedResult;
-  const displayedSubmission = accepted ?? task.latestSubmission;
-  const artifacts = task.artifacts.map((artifact) => ({
-    id: artifact.artifactId,
-    title: artifact.title,
-    kind: artifact.artifactKind,
-    mediaType: artifact.currentVersion.mediaType,
-    href: artifact.currentVersion.downloadUrl ?? artifact.currentVersion.externalUrl
-  }));
-
   return {
     taskId: task.taskId,
     title: task.title,
@@ -184,12 +174,6 @@ function mapWorkTaskDetail(task: WorkDetail): TaskDetail {
     currentRevision: task.generation,
     maxReviewRounds: task.currentContract?.executionPolicy.maxReviewRounds ?? null,
     revisions,
-    finalResult: displayedSubmission ? {
-      summary: displayedSubmission.summary,
-      body: displayedSubmission.resultMarkdown,
-      approvedAt: accepted?.createdAt ?? null
-    } : null,
-    artifacts,
     canCancel: task.validActions.includes("CANCEL"),
     canResume: false,
     blockingQuestion: task.activeGate?.prompt ?? null,
@@ -240,16 +224,20 @@ function mapSubmission(
 ): TaskSubmission {
   return {
     id: submission.submissionId,
+    executorRunId: submission.executorRunId,
     revision: submission.reviewRound,
     summary: submission.summary,
     result: submission.resultMarkdown,
     evidence: submission.criteria.map((criterion) => criterion.evidenceMarkdown).join("\n\n"),
     artifacts: submission.artifacts.map((artifact) => ({
       id: artifact.artifactId,
+      versionId: artifact.artifactVersionId,
       title: artifact.title,
       kind: artifact.artifactKind,
+      storageKind: artifact.storageKind === "EXTERNAL_URL" ? "external_url" : "local_file",
       mediaType: artifact.mediaType,
-      href: artifact.downloadUrl ?? artifact.externalUrl
+      downloadUrl: artifact.downloadUrl,
+      externalUrl: artifact.externalUrl
     })),
     createdAt: submission.createdAt
   };
