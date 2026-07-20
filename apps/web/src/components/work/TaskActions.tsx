@@ -388,6 +388,7 @@ const styles = stylex.create({
     borderStyle: "solid",
     borderColor: "var(--noema-border-subtle)",
     borderRadius: 999,
+    overflow: "hidden",
     backgroundColor: "#fff",
     padding: 0,
     boxShadow: "0 8px 22px color-mix(in srgb, var(--noema-text-primary) 14%, transparent)"
