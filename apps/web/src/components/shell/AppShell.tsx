@@ -334,7 +334,7 @@ export function AppShell({
         <header
           data-slot="shell-deck-header"
           data-tauri-drag-region
-          {...stylex.props(styles.deckHeader)}
+          {...stylex.props(styles.deckHeader, route.kind !== "chat" && styles.deckHeaderSolid)}
         >
           <div
             data-slot="shell-header-offset"
@@ -371,7 +371,9 @@ export function AppShell({
               <MemoryUpdateControl />
             </div>
           ) : null}
-          <div aria-hidden="true" data-slot="shell-header-scrim" {...stylex.props(styles.headerScrim)} />
+          {route.kind === "chat" ? (
+            <div aria-hidden="true" data-slot="shell-header-scrim" {...stylex.props(styles.headerScrim)} />
+          ) : null}
         </header>
 
         <ShellSurfaceProvider value={{ visibility: deckNavigation.surfaceVisibility, setMemoryBreadcrumb }}>
@@ -522,6 +524,10 @@ const styles = stylex.create({
     minHeight: "var(--shell-deck-header-height)",
     paddingBlock: 4,
     paddingInline: 16
+  },
+  deckHeaderSolid: {
+    borderBottomColor: "var(--border-subtle)",
+    backgroundColor: "var(--background)"
   },
   headerScrim: {
     position: "absolute",
