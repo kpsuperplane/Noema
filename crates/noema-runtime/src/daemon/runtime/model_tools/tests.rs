@@ -309,6 +309,16 @@ async fn complete_catalog_is_stable_for_native_and_envelope_transports() {
         assert!(tools.provider_tools().iter().any(|tool| {
             tool.name.as_str() == "mcp.mcp:docs.read" && tool.description == "Read a document."
         }));
+        let provider_tools = tools.provider_tools();
+        let delegate = provider_tools
+            .iter()
+            .find(|tool| tool.name.as_str() == "task.delegate")
+            .expect("delegate tool");
+        assert!(delegate.description.contains("Projects are optional"));
+        assert_eq!(
+            delegate.input_schema.as_value()["required"],
+            json!(["title", "description"])
+        );
         assert!(
             tools
                 .prompt_rows

@@ -469,7 +469,7 @@ Use scope_ids to choose the concrete memory owner or context, and query only to 
 For broad questions about what Noema remembers about the user, call search_memory with "scope_ids":["human:local"] and "query":"".
 For topical questions about the user, keep "scope_ids":["human:local"] and use a concise topic query.
 Never invent scope IDs. Use the stable current-human scope "human:local", explicit scopes from the user's request, or scopes returned by prior Noema tools.
-If project or conversation scope is needed but not already known from the user's request or prior tool result context, ask one blocking question instead of inventing a scope.
+For `search_memory`, ask one blocking question instead of inventing a project or conversation memory scope that is not already known from the user's request or prior tool results.
 Do not tell the user Noema has no memories unless the scoped tool result is empty for the scope actually being discussed."#,
         );
     }
@@ -624,6 +624,7 @@ mod tests {
 
         assert!(rendered.contains("transport: native"));
         assert!(rendered.contains("provided through the native tool channel"));
+        assert!(rendered.contains("For `search_memory`, ask one blocking question"));
         assert!(!rendered.contains("strict Noema JSON response envelope"));
 
         let rendered = ModelContextSectionSnapshot::ToolVisibility(ToolVisibilityContext::new(
