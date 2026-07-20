@@ -32,6 +32,7 @@ export function MemoryPageTree({
       <ul {...stylex.props(styles.pageTreeList)}>
         <MemoryTreeItem
           activePath={activePath}
+          depth={0}
           node={tree}
           rootPath={root.path}
           onNavigate={onNavigate}
@@ -45,17 +46,19 @@ function MemoryTreeItem({
   node,
   rootPath,
   activePath,
+  depth,
   onNavigate
 }: {
   node: TreeNode;
   rootPath: string;
   activePath: string;
+  depth: number;
   onNavigate?: () => void;
 }) {
   const active = node.path === activePath;
 
   return (
-    <li {...stylex.props(styles.pageTreeItem)}>
+    <li {...stylex.props(styles.pageTreeItem, depth > 0 && styles.pageTreeNestedItem)}>
       <Link
         to={node.path === rootPath ? "/memory" : "/memory/$"}
         params={node.path === rootPath ? undefined : { _splat: memoryPageUrlPath(node.path) }}
@@ -71,6 +74,7 @@ function MemoryTreeItem({
             <MemoryTreeItem
               key={child.id}
               activePath={activePath}
+              depth={depth + 1}
               node={child}
               rootPath={rootPath}
               onNavigate={onNavigate}
