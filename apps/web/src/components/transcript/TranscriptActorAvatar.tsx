@@ -11,7 +11,10 @@ const styles = stylex.create({
     justifyContent: "center",
     alignSelf: "flex-end",
     flexShrink: 0,
-    overflow: "hidden"
+    overflow: "hidden",
+    "@container chat-transcript (width < 600px)": {
+      display: "none"
+    }
   },
   hidden: {
     visibility: "hidden"

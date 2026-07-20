@@ -12,6 +12,9 @@ const styles = stylex.create({
     gap: 8,
     fontSize: 14,
     alignItems: "flex-end",
+    "@container chat-transcript (width < 600px)": {
+      gap: 0
+    }
   },
   human: {
     flexDirection: "row-reverse"
@@ -26,7 +29,10 @@ const styles = stylex.create({
     minWidth: 0,
     flexDirection: "column",
     gap: 10,
-    overflowWrap: "anywhere"
+    overflowWrap: "anywhere",
+    "@container chat-transcript (width < 600px)": {
+      maxWidth: "100%"
+    }
   },
   humanContent: {
     alignItems: "flex-end"

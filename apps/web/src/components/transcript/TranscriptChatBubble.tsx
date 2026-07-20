@@ -14,7 +14,11 @@ const styles = stylex.create({
     width: "calc(100% - var(--chat-opposite-avatar-gutter, 40px))",
     maxWidth: 720,
     minWidth: 0,
-    alignItems: "flex-end"
+    alignItems: "flex-end",
+    "@container chat-transcript (width < 600px)": {
+      width: "100%",
+      gap: 0
+    }
   },
   messageWithoutAvatar: {
     width: "100%"

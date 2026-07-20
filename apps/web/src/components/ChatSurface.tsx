@@ -301,6 +301,8 @@ const styles = stylex.create({
     }
   },
   contentLayer: {
+    containerName: "chat-transcript",
+    containerType: "inline-size",
     gridArea: "1 / 1",
     minHeight: 0,
     overflow: "hidden"
