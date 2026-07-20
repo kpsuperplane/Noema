@@ -382,6 +382,7 @@ export function AppShell({
             data-shell-surface-visibility={deckNavigation.surfaceVisibility}
             {...stylex.props(
               styles.routeContent,
+              route.kind !== "chat" && styles.routeContentBelowHeader,
               deckNavigation.surfaceVisibility !== "visible" && styles.routeContentInactive
             )}
           >
@@ -611,6 +612,11 @@ const styles = stylex.create({
     height: "calc(100% + var(--shell-deck-header-height))",
     marginTop: "calc(var(--shell-deck-header-height) * -1)",
     overflow: "visible"
+  },
+  routeContentBelowHeader: {
+    "--shell-deck-header-height": "0px",
+    height: "100%",
+    marginTop: 0
   },
   routeContentInactive: {
     pointerEvents: "none"

@@ -118,8 +118,7 @@ Current behavior:
   the exact tool identity remains available in the marker disclosure.
 - The shared shell title row keeps the white-to-transparent content scrim on
   home chat. Other routed surfaces use an opaque title row with a hard bottom
-  divider. Their scroll viewports still extend beneath the shared header while
-  resting content keeps a title-height inset.
+  divider, and their body and scroll viewport begin below the shared header.
 
 ## Memory Frontend Contract
 
