@@ -5,8 +5,7 @@ const wikiSans = "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
 export const styles = stylex.create({
   surface: { display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0, height: "100%", overflow: "hidden", backgroundColor: "var(--surface-base)" },
-  shellUpdate: { display: "flex", alignItems: "center", justifyContent: "end", gap: "var(--spacing-2)", fontFamily: wikiSans },
-  status: { color: "var(--muted-foreground)", fontSize: 12, "@media (max-width: 520px)": { display: "none" } },
+  shellUpdate: { display: "flex", alignItems: "center", justifyContent: "end", fontFamily: wikiSans },
   notice: { flexShrink: 0, margin: "var(--spacing-3) var(--spacing-4) 0", borderRadius: 4, backgroundColor: "var(--surface-sunken)", padding: "var(--spacing-2) var(--spacing-3)", color: "var(--muted-foreground)", fontFamily: wikiSans, fontSize: 13, lineHeight: 1.45 },
   errorNotice: { backgroundColor: "color-mix(in srgb, var(--destructive) 8%, var(--surface-base))", color: "var(--destructive)" },
   pageTree: { boxSizing: "border-box", width: "100%", maxHeight: "min(420px, calc(100dvh - 96px))", minWidth: 0, overflowY: "auto", fontFamily: wikiSans },

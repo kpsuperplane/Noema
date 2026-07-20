@@ -25,17 +25,20 @@ export function MemoryUpdateControl() {
   const updating = Boolean(updateResult.loading || status?.active);
   const pendingCount = tree?.pendingCount ?? 0;
   const retryable = status?.state === "error" || Boolean(updateResult.error);
+  const tooltip = updateTooltip(
+    pendingCount,
+    status?.updatedAt,
+    updating ? "Updating now" : retryable ? "Last update failed" : subscription.error ? "Reconnecting" : null
+  );
 
   return (
     <div {...stylex.props(styles.shellUpdate)}>
-      <span role="status" title={status?.error ?? updateResult.error?.message ?? subscription.error?.message} {...stylex.props(styles.status)}>
-        {statusLabel(Boolean(status?.active), status?.state, pendingCount, Boolean(updateResult.error), Boolean(subscription.error))}
-      </span>
       <Button
         type="button"
         size="sm"
         variant="primary"
-        label={retryable ? "Retry memory" : "Update memory"}
+        label={retryable ? "Retry" : "Update"}
+        tooltip={tooltip}
         isLoading={updating}
         isDisabled={updating || !tree || (pendingCount === 0 && !retryable)}
         onClick={() => void updateMemory()}
@@ -44,10 +47,13 @@ export function MemoryUpdateControl() {
   );
 }
 
-function statusLabel(active: boolean, state: string | null | undefined, pendingCount: number, launchFailed: boolean, reconnecting: boolean): string {
-  if (active) return "Updating…";
-  if (state === "error" || launchFailed) return "Update failed";
-  if (reconnecting) return "Reconnecting…";
-  if (pendingCount > 0) return `${pendingCount} pending`;
-  return "Up to date";
+function updateTooltip(pendingCount: number, updatedAt: string | null | undefined, state: string | null): string {
+  const pending = `${pendingCount} ${pendingCount === 1 ? "message" : "messages"} pending`;
+  if (!updatedAt) return [pending, "Not updated yet", state].filter(Boolean).join(" · ");
+
+  const timestamp = Date.parse(updatedAt);
+  const formatted = Number.isNaN(timestamp)
+    ? updatedAt
+    : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(timestamp);
+  return [pending, `Last updated ${formatted}`, state].filter(Boolean).join(" · ");
 }
