@@ -33,7 +33,7 @@ export function routeFromPathname(pathname: string): AppRoute {
   if (pathname === "/work" || pathname.startsWith("/work/")) {
     return { kind: "work" };
   }
-  if (pathname === "/memory") {
+  if (pathname === "/memory" || pathname.startsWith("/memory/")) {
     return { kind: "memory" };
   }
   if (pathname === "/settings/memory") {
@@ -61,6 +61,15 @@ export function routeFromPathname(pathname: string): AppRoute {
     return { kind: "settings", section: "system-providers" };
   }
   return { kind: "chat" };
+}
+
+export function memoryPageHref(pagePath: string): string {
+  const articlePath = pagePath.endsWith(".md") ? pagePath.slice(0, -3) : pagePath;
+  return `/memory/${articlePath.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+export function memoryPagePathFromUrl(urlPath: string): string {
+  return `${urlPath}.md`;
 }
 
 export function pathForRoute(route: AppRoute): AppPath {

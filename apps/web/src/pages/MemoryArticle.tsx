@@ -4,6 +4,7 @@ import { Item, type ItemProps } from "@astryxdesign/core/Item";
 import * as stylex from "@stylexjs/stylex";
 import { ArrowRight } from "lucide-react";
 import type { ReactNode } from "react";
+import { memoryPageHref } from "@/app/routes";
 import { buildMemoryArticle, memoryHeadingId } from "@/pages/memoryArticleModel";
 import { styles } from "@/pages/memoryPageStyles";
 
@@ -12,10 +13,11 @@ type ItemXStyle = ItemProps["xstyle"];
 
 interface MemoryArticlePage {
   id: string;
+  path: string;
   title: string;
   body: string;
   sourceReferences: Array<{ source: string; excerpt: string | null }>;
-  children: Array<{ id: string; title: string; excerpt: string }>;
+  children: Array<{ id: string; path: string; title: string; excerpt: string }>;
 }
 
 const articleComponents: MarkdownComponents = {
@@ -24,16 +26,9 @@ const articleComponents: MarkdownComponents = {
   paragraph: ArticleParagraph
 };
 
-export function MemoryArticle({
-  page,
-  isRoot,
-  onSelectPage,
-  onSelectRoot
-}: {
+export function MemoryArticle({ page, isRoot }: {
   page: MemoryArticlePage;
   isRoot: boolean;
-  onSelectPage: (id: string) => void;
-  onSelectRoot: () => void;
 }) {
   const article = buildMemoryArticle(page.body, page.sourceReferences);
   const hasContents = article.outline.length > 0 || page.children.length > 0;
@@ -41,7 +36,7 @@ export function MemoryArticle({
     <article {...stylex.props(styles.article)}>
       {!isRoot ? (
         <nav aria-label="Memory breadcrumb" {...stylex.props(styles.articleBreadcrumb)}>
-          <button type="button" {...stylex.props(styles.breadcrumbLink)} onClick={onSelectRoot}>Memory</button>
+          <a href="/memory" {...stylex.props(styles.breadcrumbLink)}>Memory</a>
           <span aria-hidden="true">/</span>
           <span>{page.title}</span>
         </nav>
@@ -90,18 +85,22 @@ export function MemoryArticle({
           <ul {...stylex.props(styles.relatedArticleList)}>
             {page.children.map((child) => (
               <li key={child.id} {...stylex.props(styles.relatedArticleEntry)}>
-                <Item
-                  align="start"
+                <a
                   data-slot="memory-related-article"
-                  density="balanced"
-                  description={child.excerpt || "Focused memory article"}
-                  descriptionLines={2}
-                  endContent={<ArrowRight aria-hidden="true" size={14} strokeWidth={2} />}
-                  label={child.title}
-                  labelLines={1}
-                  onClick={() => onSelectPage(child.id)}
-                  xstyle={itemXStyle(styles.relatedArticleCard)}
-                />
+                  href={memoryPageHref(child.path)}
+                  {...stylex.props(styles.relatedArticleCardLink)}
+                >
+                  <Item
+                    align="start"
+                    density="balanced"
+                    description={child.excerpt || "Focused memory article"}
+                    descriptionLines={2}
+                    endContent={<ArrowRight aria-hidden="true" size={14} strokeWidth={2} />}
+                    label={child.title}
+                    labelLines={1}
+                    xstyle={itemXStyle(styles.relatedArticleCard)}
+                  />
+                </a>
               </li>
             ))}
           </ul>

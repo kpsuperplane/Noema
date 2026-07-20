@@ -6,7 +6,8 @@ store schema, or route model changes.
 
 The current route source supports chat at `/`, Settings at `/settings`, and
 nested Settings sections including `/settings/memory`. `/memory` is the native
-memory article surface. `/memory/graph` is not a current route.
+memory root and `/memory/<article-path>` addresses child articles. `/memory/graph`
+is not a current route.
 
 ## Current Sources
 
@@ -37,6 +38,7 @@ home route. They do not imply primary navigation priority.
 | --- | --- | --- | --- | --- |
 | `/` | Home | setup health, local service state, primary conversation | route to the durable primary conversation when ready; show guided readiness state if blocked | Current |
 | `/memory` | Memory | GraphQL native-memory read/update model | inspect the local-human tree and request one background update | Current |
+| `/memory/$` | Memory article | GraphQL native-memory page read model | load a child article from its canonical Markdown path | Current |
 | `/settings` | Settings default | GraphQL settings read models | route-derived Settings utility surface; defaults to Agents | Current |
 | `/settings/agents` | Settings / Agents | agent metadata and model preference options from GraphQL | registered-agent list and model preference editor | Current |
 | `/settings/tools/web` | Settings / Web | provider capability bindings and auxiliary summarizer preference | first-party `web.search`/`web.fetch` status and model preference | Current |
@@ -51,7 +53,7 @@ Future route groups:
 
 - `/settings/safety/privacy`, backed by the governed-action reviewer model
   preference and privacy posture once that runtime authority is implemented.
-- `/memory/:id`, `/memory/review`, and richer provenance review flows.
+- `/memory/review` and richer provenance review flows.
 - `/inspect`, `/inspect/context-graph`, `/inspect/context-packets`.
 - `/threads`, `/threads/:id`.
 - `/workspaces`, `/workspaces/:id`.
@@ -118,9 +120,10 @@ Current memory UX is Settings plus a top-level native article surface:
 
 - `/settings/memory` selects the model used for background memory updates.
 - `/memory` renders canonical Markdown as a full-width Wikipedia-style reading
-  surface with article typography, numbered citations, collected references,
-  in-article subpage links, and light child-page breadcrumbs. It has no
-  persistent page-tree sidebar.
+  surface with article typography, numbered citations, related-article links,
+  and light child-page breadcrumbs. Child articles use their filesystem-derived
+  path at `/memory/<article-path>` so direct loads and browser history resolve
+  the same page. The surface has no persistent page-tree sidebar.
 - The shell's Memory title row owns pending-message state and the single
   `Update memory` action; implementation filenames are not rendered.
 - One initial tree query is kept current by authoritative GraphQL subscription

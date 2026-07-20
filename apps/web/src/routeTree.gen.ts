@@ -15,9 +15,11 @@ import { Route as MemoryRouteImport } from './routes/memory'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorkIndexRouteImport } from './routes/work/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
+import { Route as MemoryIndexRouteImport } from './routes/memory/index'
 import { Route as SettingsModelsRouteImport } from './routes/settings/models'
 import { Route as SettingsMemoryRouteImport } from './routes/settings/memory'
 import { Route as SettingsAgentsRouteImport } from './routes/settings/agents'
+import { Route as MemorySplatRouteImport } from './routes/memory/$'
 import { Route as WorkTasksTaskIdRouteImport } from './routes/work/tasks/$taskId'
 import { Route as SettingsToolsWebRouteImport } from './routes/settings/tools/web'
 import { Route as SettingsToolsMcpsRouteImport } from './routes/settings/tools/mcps'
@@ -55,6 +57,11 @@ const SettingsIndexRoute = SettingsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => SettingsRoute,
 } as any)
+const MemoryIndexRoute = MemoryIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => MemoryRoute,
+} as any)
 const SettingsModelsRoute = SettingsModelsRouteImport.update({
   id: '/models',
   path: '/models',
@@ -69,6 +76,11 @@ const SettingsAgentsRoute = SettingsAgentsRouteImport.update({
   id: '/agents',
   path: '/agents',
   getParentRoute: () => SettingsRoute,
+} as any)
+const MemorySplatRoute = MemorySplatRouteImport.update({
+  id: '/$',
+  path: '/$',
+  getParentRoute: () => MemoryRoute,
 } as any)
 const WorkTasksTaskIdRoute = WorkTasksTaskIdRouteImport.update({
   id: '/tasks/$taskId',
@@ -103,12 +115,14 @@ const SettingsSafetyPrivacyRoute = SettingsSafetyPrivacyRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/memory': typeof MemoryRoute
+  '/memory': typeof MemoryRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/work': typeof WorkRouteWithChildren
+  '/memory/$': typeof MemorySplatRoute
   '/settings/agents': typeof SettingsAgentsRoute
   '/settings/memory': typeof SettingsMemoryRoute
   '/settings/models': typeof SettingsModelsRoute
+  '/memory/': typeof MemoryIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/work/': typeof WorkIndexRoute
   '/settings/safety/privacy': typeof SettingsSafetyPrivacyRoute
@@ -120,10 +134,11 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/memory': typeof MemoryRoute
+  '/memory/$': typeof MemorySplatRoute
   '/settings/agents': typeof SettingsAgentsRoute
   '/settings/memory': typeof SettingsMemoryRoute
   '/settings/models': typeof SettingsModelsRoute
+  '/memory': typeof MemoryIndexRoute
   '/settings': typeof SettingsIndexRoute
   '/work': typeof WorkIndexRoute
   '/settings/safety/privacy': typeof SettingsSafetyPrivacyRoute
@@ -136,12 +151,14 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/memory': typeof MemoryRoute
+  '/memory': typeof MemoryRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/work': typeof WorkRouteWithChildren
+  '/memory/$': typeof MemorySplatRoute
   '/settings/agents': typeof SettingsAgentsRoute
   '/settings/memory': typeof SettingsMemoryRoute
   '/settings/models': typeof SettingsModelsRoute
+  '/memory/': typeof MemoryIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/work/': typeof WorkIndexRoute
   '/settings/safety/privacy': typeof SettingsSafetyPrivacyRoute
@@ -158,9 +175,11 @@ export interface FileRouteTypes {
     | '/memory'
     | '/settings'
     | '/work'
+    | '/memory/$'
     | '/settings/agents'
     | '/settings/memory'
     | '/settings/models'
+    | '/memory/'
     | '/settings/'
     | '/work/'
     | '/settings/safety/privacy'
@@ -172,10 +191,11 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/memory'
+    | '/memory/$'
     | '/settings/agents'
     | '/settings/memory'
     | '/settings/models'
+    | '/memory'
     | '/settings'
     | '/work'
     | '/settings/safety/privacy'
@@ -190,9 +210,11 @@ export interface FileRouteTypes {
     | '/memory'
     | '/settings'
     | '/work'
+    | '/memory/$'
     | '/settings/agents'
     | '/settings/memory'
     | '/settings/models'
+    | '/memory/'
     | '/settings/'
     | '/work/'
     | '/settings/safety/privacy'
@@ -205,7 +227,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  MemoryRoute: typeof MemoryRoute
+  MemoryRoute: typeof MemoryRouteWithChildren
   SettingsRoute: typeof SettingsRouteWithChildren
   WorkRoute: typeof WorkRouteWithChildren
 }
@@ -254,6 +276,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsIndexRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/memory/': {
+      id: '/memory/'
+      path: '/'
+      fullPath: '/memory/'
+      preLoaderRoute: typeof MemoryIndexRouteImport
+      parentRoute: typeof MemoryRoute
+    }
     '/settings/models': {
       id: '/settings/models'
       path: '/models'
@@ -274,6 +303,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings/agents'
       preLoaderRoute: typeof SettingsAgentsRouteImport
       parentRoute: typeof SettingsRoute
+    }
+    '/memory/$': {
+      id: '/memory/$'
+      path: '/$'
+      fullPath: '/memory/$'
+      preLoaderRoute: typeof MemorySplatRouteImport
+      parentRoute: typeof MemoryRoute
     }
     '/work/tasks/$taskId': {
       id: '/work/tasks/$taskId'
@@ -320,6 +356,19 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface MemoryRouteChildren {
+  MemorySplatRoute: typeof MemorySplatRoute
+  MemoryIndexRoute: typeof MemoryIndexRoute
+}
+
+const MemoryRouteChildren: MemoryRouteChildren = {
+  MemorySplatRoute: MemorySplatRoute,
+  MemoryIndexRoute: MemoryIndexRoute,
+}
+
+const MemoryRouteWithChildren =
+  MemoryRoute._addFileChildren(MemoryRouteChildren)
+
 interface SettingsRouteChildren {
   SettingsAgentsRoute: typeof SettingsAgentsRoute
   SettingsMemoryRoute: typeof SettingsMemoryRoute
@@ -362,7 +411,7 @@ const WorkRouteWithChildren = WorkRoute._addFileChildren(WorkRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  MemoryRoute: MemoryRoute,
+  MemoryRoute: MemoryRouteWithChildren,
   SettingsRoute: SettingsRouteWithChildren,
   WorkRoute: WorkRouteWithChildren,
 }

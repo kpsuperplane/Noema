@@ -1,6 +1,11 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { pathForRoute, routeFromPathname } from "./routes";
+import {
+  memoryPageHref,
+  memoryPagePathFromUrl,
+  pathForRoute,
+  routeFromPathname
+} from "./routes";
 
 describe("settings routes", () => {
   test("settings root resolves to agents", () => {
@@ -65,7 +70,10 @@ describe("settings routes", () => {
 
   test("routes memory to top-level memory", () => {
     assert.deepEqual(routeFromPathname("/memory"), { kind: "memory" });
+    assert.deepEqual(routeFromPathname("/memory/technical/noema"), { kind: "memory" });
     assert.equal(pathForRoute({ kind: "memory" }), "/memory");
     assert.equal(pathForRoute({ kind: "settings", section: "memory" }), "/settings/memory");
+    assert.equal(memoryPageHref("technical/noema.md"), "/memory/technical/noema");
+    assert.equal(memoryPagePathFromUrl("technical/noema"), "technical/noema.md");
   });
 });

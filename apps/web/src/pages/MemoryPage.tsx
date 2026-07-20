@@ -1,5 +1,5 @@
 import { useQuery } from "@apollo/client/react";
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import * as stylex from "@stylexjs/stylex";
 import {
   MemoryPageDocument,
@@ -11,19 +11,18 @@ import {
 import { MemoryArticle } from "@/pages/MemoryArticle";
 import { styles } from "@/pages/memoryPageStyles";
 
-export function MemoryPage() {
+export function MemoryPage({ pagePath = null }: { pagePath?: string | null }) {
   const treeResult = useQuery<MemoryTreeQuery>(MemoryTreeDocument, {
     fetchPolicy: "cache-and-network"
   });
-  const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
   const root = treeResult.data?.memoryTree.root ?? null;
-  const activePageId = selectedPageId ?? root?.id ?? null;
+  const activePageId = pagePath ?? root?.id ?? null;
   const pageResult = useQuery<MemoryPageQuery, MemoryPageQueryVariables>(MemoryPageDocument, {
     variables: { pageId: activePageId ?? "" },
-    skip: !activePageId || activePageId === root?.id,
+    skip: !activePageId || pagePath === null,
     fetchPolicy: "cache-and-network"
   });
-  const selectedPage = activePageId === root?.id ? root : pageResult.data?.memoryPage ?? null;
+  const selectedPage = pagePath === null ? root : pageResult.data?.memoryPage ?? null;
   const tree = treeResult.data?.memoryTree;
   const loading = treeResult.loading && !treeResult.data;
   const error = treeResult.error?.message ?? null;
@@ -41,8 +40,6 @@ export function MemoryPage() {
           <MemoryArticle
             page={selectedPage}
             isRoot={selectedPage.id === root.id}
-            onSelectPage={setSelectedPageId}
-            onSelectRoot={() => setSelectedPageId(root.id)}
           />
         ) : pageResult.loading ? (
           <p {...stylex.props(styles.articleState)}>Loading article…</p>

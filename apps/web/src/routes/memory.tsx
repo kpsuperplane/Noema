@@ -1,6 +1,9 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { MemoryPage } from "@/pages/MemoryPage";
+import { createFileRoute, Outlet } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/memory")({
-  component: MemoryPage
+  component: MemoryLayoutRoute
 });
+
+function MemoryLayoutRoute() {
+  return <Outlet />;
+}
