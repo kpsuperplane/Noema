@@ -133,7 +133,7 @@ export function TaskTranscript({
         <TaskRunTranscriptSource
           key={run.run.id}
           liveItems={liveRunItems?.get(run.run.id)}
-          onSnapshot={(snapshot) => onSnapshot(run.run.id, snapshot)}
+          onSnapshot={onSnapshot}
           run={run.run}
         />
       ))}

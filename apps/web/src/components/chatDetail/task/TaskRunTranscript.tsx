@@ -10,6 +10,7 @@ import type { TaskRunItem, TaskRunRole } from "./taskTypes";
 import type { TaskRun } from "./taskTypes";
 
 type RunItemNode = WorkTaskRunItemsQuery["taskRunItems"]["edges"][number]["node"];
+const EMPTY_RUN_ITEMS: readonly TaskRunItem[] = [];
 
 export type TaskRunTranscriptSnapshot = {
   entries: ReturnType<typeof taskRunItemsToTranscriptEntries>;
@@ -22,17 +23,17 @@ export type TaskRunTranscriptSnapshot = {
 
 export function TaskRunTranscriptSource({
   run,
-  liveItems = [],
+  liveItems = EMPTY_RUN_ITEMS,
   onSnapshot
 }: {
   run: TaskRun;
   liveItems?: readonly TaskRunItem[];
-  onSnapshot: (snapshot: TaskRunTranscriptSnapshot) => void;
+  onSnapshot: (runId: string, snapshot: TaskRunTranscriptSnapshot) => void;
 }) {
   const data = useTaskRunTranscriptData(run, liveItems);
 
   React.useEffect(() => {
-    onSnapshot({
+    onSnapshot(run.id, {
       entries: data.entries,
       error: data.error ? "Agent transcript could not be loaded." : null,
       loadOlder: data.loadOlder,
@@ -40,7 +41,7 @@ export function TaskRunTranscriptSource({
       olderPageError: data.olderPageError,
       pageInfo: data.pageInfo ? { hasNextPage: data.pageInfo.hasNextPage } : null
     });
-  }, [data, onSnapshot]);
+  }, [data, onSnapshot, run.id]);
 
   return null;
 }
