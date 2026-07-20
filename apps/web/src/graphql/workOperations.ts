@@ -294,6 +294,14 @@ export const WorkTaskEventsDocument = gql`
   ${WorkEventFields}
 `;
 
+export const WorkTaskRuntimeEventsDocument = gql`
+  subscription WorkTaskRuntimeEvents($taskId: String!) {
+    taskRuntimeEvents(taskId: $taskId) {
+      taskId
+    }
+  }
+`;
+
 export const WorkCreateProjectDocument = gql`
   mutation WorkCreateProject($input: CreateProjectInput!) {
     createProject(input: $input) { project { ...WorkProjectFields } eventCursor clientMutationId }

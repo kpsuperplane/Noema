@@ -11,6 +11,11 @@ use noema_store::{WorkEventCursor, WorkEventQuery, WorkOverviewQuery, WorkPageSi
 use noema_tasks::TaskId;
 use noema_workspaces::WorkspaceId;
 
+#[derive(Clone, async_graphql::SimpleObject)]
+struct GraphqlTaskRuntimeEvent {
+    task_id: String,
+}
+
 pub struct SubscriptionRoot;
 
 #[Subscription]
@@ -130,6 +135,36 @@ impl SubscriptionRoot {
             Some(task_id),
             start_cursor,
         ))
+    }
+
+    /// Wake subscribers when live task-run transcript items are persisted.
+    async fn task_runtime_events(
+        &self,
+        ctx: &Context<'_>,
+        task_id: String,
+    ) -> Result<impl Stream<Item = Result<GraphqlTaskRuntimeEvent>>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        require_work_owner(principal)?;
+        let task_id = TaskId::new(task_id.trim()).map_err(|_| work_unavailable_error())?;
+        state
+            .store()?
+            .get_work_task(&task_id)
+            .await
+            .map_err(tasks::work_error)?
+            .ok_or_else(work_unavailable_error)?;
+        let mut receiver = state.subscriptions().subscribe_task(task_id.as_str());
+        Ok(async_stream::stream! {
+            loop {
+                match receiver.recv().await {
+                    Ok(noema_runtime::TaskRuntimeEvent::Changed { task_id }) => {
+                        yield Ok(GraphqlTaskRuntimeEvent { task_id });
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        })
     }
 }
 

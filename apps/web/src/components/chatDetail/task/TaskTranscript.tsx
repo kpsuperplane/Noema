@@ -1,5 +1,7 @@
 import * as React from "react";
+import { useSubscription } from "@apollo/client/react";
 import * as stylex from "@stylexjs/stylex";
+import { WorkTaskRuntimeEventsDocument } from "@/generated/graphql";
 import { Transcript } from "@/components/Transcript";
 import type { TranscriptEntry } from "@/shared/types";
 import {
@@ -28,6 +30,11 @@ export function TaskTranscript({
   onLatestRunItemChange?: (runId: string, item: import("./taskTypes").TaskRunItem | null) => void;
 }) {
   const runs = React.useMemo(() => taskRunsInOrder(detail.revisions), [detail.revisions]);
+  const [refreshToken, setRefreshToken] = React.useState(0);
+  useSubscription(WorkTaskRuntimeEventsDocument, {
+    variables: { taskId: detail.taskId },
+    onData: () => setRefreshToken((previous) => previous + 1)
+  });
   const [snapshots, setSnapshots] = React.useState<ReadonlyMap<string, TaskRunTranscriptSnapshot>>(
     () => new Map()
   );
@@ -137,6 +144,7 @@ export function TaskTranscript({
           liveItems={liveRunItems?.get(run.run.id)}
           onSnapshot={onSnapshot}
           onLatestRunItemChange={onLatestRunItemChange}
+          refreshToken={refreshToken}
           run={run.run}
         />
       ))}

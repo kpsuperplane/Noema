@@ -1057,6 +1057,10 @@ input GraphqlSaveMemoryModelPreferenceInput {
 	reasoningEffort: ReasoningEffort
 }
 
+type GraphqlTaskRuntimeEvent {
+	taskId: String!
+}
+
 """
 Import a public GGUF or a GGUF already on this machine.
 """
@@ -2962,6 +2966,10 @@ type SubscriptionRoot {
 	Stream the task-filtered projection of the same durable Work ledger.
 	"""
 	taskEvents(taskId: String!, after: String): WorkEvent!
+	"""
+	Wake subscribers when live task-run transcript items are persisted.
+	"""
+	taskRuntimeEvents(taskId: String!): GraphqlTaskRuntimeEvent!
 }
 
 """

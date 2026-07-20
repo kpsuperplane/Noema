@@ -26,14 +26,16 @@ export function TaskRunTranscriptSource({
   run,
   liveItems = EMPTY_RUN_ITEMS,
   onSnapshot,
-  onLatestRunItemChange
+  onLatestRunItemChange,
+  refreshToken = 0
 }: {
   run: TaskRun;
   liveItems?: readonly TaskRunItem[];
   onSnapshot: (runId: string, snapshot: TaskRunTranscriptSnapshot) => void;
   onLatestRunItemChange?: (runId: string, item: TaskRunItem | null) => void;
+  refreshToken?: number;
 }) {
-  const data = useTaskRunTranscriptData(run, liveItems);
+  const data = useTaskRunTranscriptData(run, liveItems, refreshToken);
 
   React.useEffect(() => {
     onSnapshot(run.id, {
@@ -51,13 +53,16 @@ export function TaskRunTranscriptSource({
   return null;
 }
 
-function useTaskRunTranscriptData(run: TaskRun, liveItems: readonly TaskRunItem[]) {
+function useTaskRunTranscriptData(run: TaskRun, liveItems: readonly TaskRunItem[], refreshToken: number) {
   const runId = run.id;
   const role = run.role;
-  const { data, error, fetchMore } = useQuery(WorkTaskRunItemsDocument, {
+  const { data, error, fetchMore, refetch } = useQuery(WorkTaskRunItemsDocument, {
     fetchPolicy: "cache-and-network",
     variables: { runId, first: 50 }
   });
+  React.useEffect(() => {
+    if (refreshToken > 0) void refetch();
+  }, [refreshToken, refetch]);
   const [olderItems, setOlderItems] = React.useState<readonly TaskRunItem[]>([]);
   const [pageInfoOverride, setPageInfoOverride] = React.useState<{
     endCursor: string | null;

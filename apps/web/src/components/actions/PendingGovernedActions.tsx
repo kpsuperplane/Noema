@@ -1,10 +1,12 @@
 import * as React from "react";
-import { useMutation, useQuery } from "@apollo/client/react";
+import { useMutation, useQuery, useSubscription } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
 import {
   PendingGovernedActionsDocument,
+  ConversationEventsDocument,
   ResolveGovernedActionDocument,
+  WorkTaskRuntimeEventsDocument,
   type GovernedActionDecision,
   type GovernedActionEffect,
   type PendingGovernedActionsQuery
@@ -25,9 +27,19 @@ export function usePendingGovernedActions(scope: Scope = {}) {
       first: 50
     },
     skip: scope.conversationId === null,
-    fetchPolicy: "cache-and-network",
-    pollInterval: 2_000
+    fetchPolicy: "cache-and-network"
   });
+  useSubscription(ConversationEventsDocument, {
+    variables: { conversationId: scope.conversationId ?? "" },
+    skip: !scope.conversationId,
+    onData: () => void result.refetch()
+  });
+  useSubscription(WorkTaskRuntimeEventsDocument, {
+    variables: { taskId: scope.taskId ?? "" },
+    skip: !scope.taskId,
+    onData: () => void result.refetch()
+  });
+  return result;
 }
 
 export function PendingGovernedActions({
