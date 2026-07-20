@@ -19,6 +19,7 @@ pub struct GraphqlNativeMemoryPageRef {
     pub id: String,
     pub path: String,
     pub title: String,
+    pub excerpt: String,
     pub hash: String,
 }
 
@@ -284,6 +285,7 @@ fn child(child: MemoryPageRef) -> GraphqlNativeMemoryPageRef {
         id: child.id,
         path: child.path,
         title: child.title,
+        excerpt: child.excerpt,
         hash: child.hash,
     }
 }

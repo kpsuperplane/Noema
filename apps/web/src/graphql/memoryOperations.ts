@@ -46,6 +46,7 @@ export const MemoryTreeDocument = gql`
           id
           path
           title
+          excerpt
           hash
         }
       }
@@ -79,6 +80,7 @@ export const MemoryPageDocument = gql`
         id
         path
         title
+        excerpt
         hash
       }
     }
@@ -103,6 +105,7 @@ export const MemoryEventsDocument = gql`
           id
           path
           title
+          excerpt
           hash
         }
       }

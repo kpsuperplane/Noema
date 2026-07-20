@@ -1,18 +1,21 @@
 import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import { HoverCard } from "@astryxdesign/core/HoverCard";
+import { Item, type ItemProps } from "@astryxdesign/core/Item";
 import * as stylex from "@stylexjs/stylex";
+import { ArrowRight } from "lucide-react";
 import type { ReactNode } from "react";
 import { buildMemoryArticle, memoryHeadingId } from "@/pages/memoryArticleModel";
 import { styles } from "@/pages/memoryPageStyles";
 
 type MarkdownComponents = NonNullable<MarkdownProps["components"]>;
+type ItemXStyle = ItemProps["xstyle"];
 
 interface MemoryArticlePage {
   id: string;
   title: string;
   body: string;
   sourceReferences: Array<{ source: string; excerpt: string | null }>;
-  children: Array<{ id: string; title: string }>;
+  children: Array<{ id: string; title: string; excerpt: string }>;
 }
 
 const articleComponents: MarkdownComponents = {
@@ -58,7 +61,7 @@ export function MemoryArticle({
               </li>
             ))}
             {page.children.length > 0 ? (
-              <li><a href="#subpages" {...stylex.props(styles.articleLink)}>Subpages</a></li>
+              <li><a href="#related-articles" {...stylex.props(styles.articleLink)}>Related Articles</a></li>
             ) : null}
           </ol>
         </nav>
@@ -82,14 +85,23 @@ export function MemoryArticle({
       )}
 
       {page.children.length > 0 ? (
-        <section id="subpages" {...stylex.props(styles.subpagesSection)}>
-          <h2 {...stylex.props(styles.articleHeading, styles.articleHeadingMajor)}>Subpages</h2>
-          <ul {...stylex.props(styles.subpageList)}>
+        <section id="related-articles" {...stylex.props(styles.relatedArticlesSection)}>
+          <h2 {...stylex.props(styles.articleHeading, styles.articleHeadingMajor)}>Related Articles</h2>
+          <ul {...stylex.props(styles.relatedArticleList)}>
             {page.children.map((child) => (
-              <li key={child.id}>
-                <button type="button" {...stylex.props(styles.subpageLink)} onClick={() => onSelectPage(child.id)}>
-                  {child.title}
-                </button>
+              <li key={child.id} {...stylex.props(styles.relatedArticleEntry)}>
+                <Item
+                  align="start"
+                  data-slot="memory-related-article"
+                  density="balanced"
+                  description={child.excerpt || "Focused memory article"}
+                  descriptionLines={2}
+                  endContent={<ArrowRight aria-hidden="true" size={14} strokeWidth={2} />}
+                  label={child.title}
+                  labelLines={1}
+                  onClick={() => onSelectPage(child.id)}
+                  xstyle={itemXStyle(styles.relatedArticleCard)}
+                />
               </li>
             ))}
           </ul>
@@ -143,4 +155,8 @@ function textFromChildren(children: ReactNode): string {
 
 function markdownXStyle(...xstyle: unknown[]): MarkdownProps["xstyle"] {
   return xstyle as unknown as MarkdownProps["xstyle"];
+}
+
+function itemXStyle(...xstyle: unknown[]): ItemXStyle {
+  return xstyle as unknown as ItemXStyle;
 }

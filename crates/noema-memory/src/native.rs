@@ -136,6 +136,8 @@ pub struct MemoryPageRef {
     pub path: String,
     /// Human-facing page title.
     pub title: String,
+    /// Bounded plain-text lead for navigation surfaces.
+    pub excerpt: String,
     /// SHA-256 hash of the canonical page bytes.
     pub hash: String,
 }
@@ -276,17 +278,17 @@ impl NativeMemory {
     }
 
     fn read_page_unlocked(&self, page: &str) -> Result<MemoryPage, NativeMemoryError> {
-        let path = if page.ends_with(".md") {
-            normalize_page_path(page)?
-        } else {
-            self.all_page_paths()?
+        let path = match normalize_page_path(page) {
+            Ok(candidate) if self.root().join(&candidate).is_file() => candidate,
+            _ => self
+                .all_page_paths()?
                 .into_iter()
                 .find(|candidate| {
                     self.parse_page(candidate)
                         .map(|parsed| parsed.id == page)
                         .unwrap_or(false)
                 })
-                .ok_or_else(|| NativeMemoryError::InvalidPage(format!("unknown page {page}")))?
+                .ok_or_else(|| NativeMemoryError::InvalidPage(format!("unknown page {page}")))?,
         };
         let parsed = self.parse_page(&path)?;
         let parent = parent_page_path(&path);
@@ -317,6 +319,7 @@ impl NativeMemory {
                     id: child.id,
                     path: child_path,
                     title: child.title,
+                    excerpt: page_lead_excerpt(&child.body),
                     hash: child.hash,
                 });
             }
@@ -614,6 +617,35 @@ impl NativeMemory {
         fs::rename(temporary, self.root().join(".state.md"))?;
         Ok(())
     }
+}
+
+fn page_lead_excerpt(body: &str) -> String {
+    const LIMIT: usize = 180;
+    let lead = body
+        .split("\n\n")
+        .map(str::trim)
+        .find(|paragraph| !paragraph.is_empty() && !paragraph.starts_with('#'))
+        .unwrap_or_default()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut plain = String::with_capacity(lead.len());
+    let mut remainder = lead.as_str();
+    while let Some(start) = remainder.find("[^") {
+        plain.push_str(&remainder[..start]);
+        let Some(end) = remainder[start + 2..].find(']') else {
+            plain.push_str(&remainder[start..]);
+            remainder = "";
+            break;
+        };
+        remainder = &remainder[start + end + 3..];
+    }
+    plain.push_str(remainder);
+    let Some((boundary, _)) = plain.char_indices().nth(LIMIT) else {
+        return plain;
+    };
+    let boundary = plain[..boundary].rfind(' ').unwrap_or(boundary);
+    format!("{}…", plain[..boundary].trim_end())
 }
 
 #[cfg(test)]

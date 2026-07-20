@@ -22,10 +22,9 @@ fn native_memory_initializes_root_and_rebuilds_search_index() {
             deletes: vec![],
         })
         .expect("publish");
-    assert_eq!(
-        memory.read_root().expect("root").children[0].path,
-        "people.md"
-    );
+    let child = &memory.read_root().expect("root").children[0];
+    assert_eq!(child.path, "people.md");
+    assert_eq!(child.excerpt, "Alice likes tea");
     assert_eq!(
         memory.search("Alice", 5).expect("search")[0].path,
         "people.md"
@@ -37,6 +36,13 @@ fn native_memory_initializes_root_and_rebuilds_search_index() {
     assert_eq!(
         memory.read_page("people.md").expect("page").body,
         "Alice likes tea"
+    );
+    assert_eq!(
+        memory
+            .read_page("memory:human:people.md")
+            .expect("page by stable id")
+            .path,
+        "people.md"
     );
 
     std::fs::write(

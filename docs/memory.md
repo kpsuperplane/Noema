@@ -28,6 +28,9 @@ Current implementation direction:
 - Article citations render as superscript reference numbers whose hover/focus
   cards resolve to a bounded excerpt of the cited human message. Raw item ids
   remain implementation detail and there is no separate references appendix.
+- Filesystem-derived child pages appear as compact Related Articles cards using
+  their lead excerpts. Stable ids and relative paths are both valid selectors,
+  including generated ids that end in `.md`.
 - The canonical SQLite database stores the selected Memory model and source
   conversations. A separate SQLite FTS database under `system/indexes/` is a
   disposable projection rebuilt from Markdown.

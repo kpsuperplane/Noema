@@ -30,9 +30,10 @@ export const styles = stylex.create({
   articleHeading: { clear: "both", color: "var(--foreground)", fontFamily: wikiSerif, fontWeight: 400, overflowWrap: "anywhere", scrollMarginTop: "var(--spacing-4)" },
   articleHeadingMajor: { margin: "var(--spacing-6) 0 var(--spacing-2)", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-default)", paddingBottom: "var(--spacing-1)", fontSize: 24, lineHeight: 1.25 },
   articleHeadingMinor: { margin: "var(--spacing-4) 0 var(--spacing-2)", fontSize: 19, lineHeight: 1.3 },
-  subpagesSection: { clear: "both", paddingTop: "var(--spacing-1)" },
-  subpageList: { display: "grid", gap: "var(--spacing-1)", margin: 0, paddingLeft: "var(--spacing-5)", fontFamily: wikiSerif, fontSize: 15, lineHeight: 1.6 },
-  subpageLink: { borderWidth: 0, backgroundColor: "transparent", padding: 0, color: "var(--text-accent)", font: "inherit", textAlign: "start", cursor: "pointer", ":hover": { textDecoration: "underline" } },
+  relatedArticlesSection: { clear: "both", paddingTop: "var(--spacing-1)" },
+  relatedArticleList: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(260px, 100%), 1fr))", gap: "var(--spacing-3)", margin: 0, padding: 0, listStyle: "none" },
+  relatedArticleEntry: { minWidth: 0 },
+  relatedArticleCard: { width: "100%", minHeight: 84, borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 8, backgroundColor: "var(--surface-card)", boxShadow: "0 1px 0 color-mix(in srgb, black 4%, transparent)", color: "var(--foreground)", transitionProperty: "background-color, border-color, box-shadow", transitionDuration: "120ms", ":hover": { borderColor: "var(--border-default)", backgroundColor: "var(--surface-sunken)", boxShadow: "0 2px 8px color-mix(in srgb, black 6%, transparent)" } },
   stub: { marginTop: "var(--spacing-4)", borderLeftWidth: 4, borderLeftStyle: "solid", borderLeftColor: "var(--border-default)", backgroundColor: "var(--surface-sunken)", padding: "var(--spacing-2) var(--spacing-3)", color: "var(--muted-foreground)", fontFamily: wikiSans, fontSize: 13 },
   articleState: { margin: "var(--spacing-6)", color: "var(--muted-foreground)", fontFamily: wikiSans, fontSize: 13 }
 });
