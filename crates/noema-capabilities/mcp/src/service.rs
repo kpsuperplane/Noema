@@ -304,9 +304,9 @@ pub(crate) fn map_secret_operation_error(_error: &McpSecretStoreError) -> McpOpe
 pub(crate) fn map_client_operation_error(error: &McpClientError) -> McpOperationError {
     match error {
         McpClientError::AuthenticationRequired(_) => McpOperationError::AuthenticationRequired,
-        McpClientError::Unavailable(_) | McpClientError::Protocol(_) => {
-            McpOperationError::Unavailable
-        }
+        McpClientError::Unavailable(_)
+        | McpClientError::UnsupportedMetadata(_)
+        | McpClientError::Protocol(_) => McpOperationError::Unavailable,
         McpClientError::Malformed(_) => McpOperationError::MalformedResponse,
         McpClientError::Timeout { .. } => McpOperationError::TimedOut,
         McpClientError::Cancelled { .. } => McpOperationError::Cancelled,

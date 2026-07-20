@@ -11,7 +11,7 @@ pub(crate) const MAX_TOOL_DESCRIPTION_BYTES: usize = 8 * 1024;
 #[cfg(feature = "transport")]
 pub(crate) const MAX_PAGINATION_CURSOR_BYTES: usize = 8 * 1024;
 #[cfg(any(feature = "transport", test))]
-pub(crate) const MAX_SCHEMA_BYTES: usize = 64 * 1024;
+pub(crate) const MAX_SCHEMA_BYTES: usize = 256 * 1024;
 #[cfg(feature = "transport")]
 pub(crate) const MAX_ANNOTATIONS_BYTES: usize = 16 * 1024;
 #[cfg(feature = "transport")]
@@ -21,26 +21,54 @@ pub(crate) const MAX_WIRE_FRAME_BYTES: usize = 32 * 1024 * 1024;
 pub(crate) const MAX_DIAGNOSTIC_TEXT_BYTES: usize = 2 * 1024;
 pub(crate) const MAX_DIAGNOSTIC_RAW_BYTES: usize = 16 * 1024;
 
-const MAX_JSON_DEPTH: usize = 24;
-const MAX_JSON_NODES: usize = 4_096;
-const MAX_JSON_COLLECTION_ITEMS: usize = 256;
+const MAX_JSON_DEPTH: usize = 64;
+const MAX_JSON_NODES: usize = 16_384;
+const MAX_JSON_COLLECTION_ITEMS: usize = 1_024;
 const MAX_JSON_STRING_BYTES: usize = 1024 * 1024;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum JsonLimitViolation {
+    EncodedBytes,
+    Depth,
+    Nodes,
+    CollectionItems,
+    StringBytes,
+}
+
+impl JsonLimitViolation {
+    pub(crate) const fn description(self) -> &'static str {
+        match self {
+            Self::EncodedBytes => "encoded byte limit",
+            Self::Depth => "nesting depth limit",
+            Self::Nodes => "JSON node limit",
+            Self::CollectionItems => "collection item limit",
+            Self::StringBytes => "string byte limit",
+        }
+    }
+}
+
 pub(crate) fn json_within_limits(value: &Value, max_bytes: usize) -> bool {
+    json_limit_violation(value, max_bytes).is_none()
+}
+
+pub(crate) fn json_limit_violation(value: &Value, max_bytes: usize) -> Option<JsonLimitViolation> {
     let mut budget = JsonBudget {
         bytes_left: max_bytes,
         nodes_left: MAX_JSON_NODES,
     };
-    visit_json(value, 0, &mut budget)
+    visit_json(value, 0, &mut budget).err()
 }
 
 #[cfg(feature = "transport")]
-pub(crate) fn json_object_within_limits(value: &Map<String, Value>, max_bytes: usize) -> bool {
+pub(crate) fn json_object_limit_violation(
+    value: &Map<String, Value>,
+    max_bytes: usize,
+) -> Option<JsonLimitViolation> {
     let mut budget = JsonBudget {
         bytes_left: max_bytes,
         nodes_left: MAX_JSON_NODES,
     };
-    visit_object(value, 0, &mut budget)
+    visit_object(value, 0, &mut budget).err()
 }
 
 pub(crate) fn bounded_diagnostic_text(value: impl AsRef<str>) -> String {
@@ -67,9 +95,16 @@ struct JsonBudget {
     nodes_left: usize,
 }
 
-fn visit_json(value: &Value, depth: usize, budget: &mut JsonBudget) -> bool {
-    if depth > MAX_JSON_DEPTH || budget.nodes_left == 0 {
-        return false;
+fn visit_json(
+    value: &Value,
+    depth: usize,
+    budget: &mut JsonBudget,
+) -> Result<(), JsonLimitViolation> {
+    if depth > MAX_JSON_DEPTH {
+        return Err(JsonLimitViolation::Depth);
+    }
+    if budget.nodes_left == 0 {
+        return Err(JsonLimitViolation::Nodes);
     }
     budget.nodes_left -= 1;
     match value {
@@ -77,36 +112,48 @@ fn visit_json(value: &Value, depth: usize, budget: &mut JsonBudget) -> bool {
         Value::Bool(_) => consume(budget, 5),
         Value::Number(number) => consume(budget, number.to_string().len()),
         Value::String(value) => {
-            value.len() <= MAX_JSON_STRING_BYTES
-                && consume(budget, escaped_json_string_len(value).saturating_add(2))
+            if value.len() > MAX_JSON_STRING_BYTES {
+                return Err(JsonLimitViolation::StringBytes);
+            }
+            consume(budget, escaped_json_string_len(value).saturating_add(2))
         }
         Value::Array(values) => {
-            values.len() <= MAX_JSON_COLLECTION_ITEMS
-                && consume(budget, values.len().saturating_add(2))
-                && values
-                    .iter()
-                    .all(|value| visit_json(value, depth + 1, budget))
+            if values.len() > MAX_JSON_COLLECTION_ITEMS {
+                return Err(JsonLimitViolation::CollectionItems);
+            }
+            consume(budget, values.len().saturating_add(2))?;
+            values
+                .iter()
+                .try_for_each(|value| visit_json(value, depth + 1, budget))
         }
         Value::Object(values) => visit_object(values, depth, budget),
     }
 }
 
-fn visit_object(values: &Map<String, Value>, depth: usize, budget: &mut JsonBudget) -> bool {
-    values.len() <= MAX_JSON_COLLECTION_ITEMS
-        && consume(budget, values.len().saturating_add(2))
-        && values.iter().all(|(key, value)| {
-            key.len() <= MAX_JSON_STRING_BYTES
-                && consume(budget, escaped_json_string_len(key).saturating_add(3))
-                && visit_json(value, depth + 1, budget)
-        })
+fn visit_object(
+    values: &Map<String, Value>,
+    depth: usize,
+    budget: &mut JsonBudget,
+) -> Result<(), JsonLimitViolation> {
+    if values.len() > MAX_JSON_COLLECTION_ITEMS {
+        return Err(JsonLimitViolation::CollectionItems);
+    }
+    consume(budget, values.len().saturating_add(2))?;
+    values.iter().try_for_each(|(key, value)| {
+        if key.len() > MAX_JSON_STRING_BYTES {
+            return Err(JsonLimitViolation::StringBytes);
+        }
+        consume(budget, escaped_json_string_len(key).saturating_add(3))?;
+        visit_json(value, depth + 1, budget)
+    })
 }
 
-fn consume(budget: &mut JsonBudget, bytes: usize) -> bool {
+fn consume(budget: &mut JsonBudget, bytes: usize) -> Result<(), JsonLimitViolation> {
     let Some(remaining) = budget.bytes_left.checked_sub(bytes) else {
-        return false;
+        return Err(JsonLimitViolation::EncodedBytes);
     };
     budget.bytes_left = remaining;
-    true
+    Ok(())
 }
 
 fn escaped_json_string_len(value: &str) -> usize {
@@ -155,5 +202,23 @@ mod tests {
             &Value::String("x".repeat(MAX_JSON_STRING_BYTES + 1)),
             MAX_SCHEMA_BYTES
         ));
+    }
+
+    #[test]
+    fn hosted_mcp_scale_schema_is_admitted_but_remains_bounded() {
+        let supported = json!({
+            "type": "object",
+            "description": "x".repeat(128 * 1024),
+        });
+        let oversized = json!({
+            "type": "object",
+            "description": "x".repeat(MAX_SCHEMA_BYTES),
+        });
+
+        assert!(json_within_limits(&supported, MAX_SCHEMA_BYTES));
+        assert_eq!(
+            json_limit_violation(&oversized, MAX_SCHEMA_BYTES),
+            Some(JsonLimitViolation::EncodedBytes)
+        );
     }
 }

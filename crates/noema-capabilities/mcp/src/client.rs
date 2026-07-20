@@ -26,7 +26,8 @@ use crate::{
     limits::{
         MAX_ANNOTATIONS_BYTES, MAX_DISCOVERED_TOOLS, MAX_PAGINATION_CURSOR_BYTES, MAX_SCHEMA_BYTES,
         MAX_TOOL_DESCRIPTION_BYTES, MAX_TOOL_NAME_BYTES, MAX_TOOL_RESULT_BYTES,
-        bounded_diagnostic_text, json_object_within_limits, json_within_limits,
+        bounded_diagnostic_text, json_limit_violation, json_object_limit_violation,
+        json_within_limits,
     },
 };
 
@@ -51,6 +52,9 @@ pub enum McpClientError {
     /// The peer returned data that cannot be represented by the MCP contract.
     #[error("MCP response is malformed: {0}")]
     Malformed(String),
+    /// The peer returned valid metadata beyond Noema's bounded support.
+    #[error("MCP metadata is unsupported: {0}")]
+    UnsupportedMetadata(String),
     /// The peer returned a valid protocol-level failure.
     #[error("MCP protocol operation failed: {0}")]
     Protocol(String),
@@ -444,24 +448,36 @@ fn validate_rmcp_tool_metadata(tool: &Tool) -> McpClientResult<()> {
             "MCP tool description exceeded the supported size".to_string(),
         ));
     }
-    if !json_object_within_limits(tool.input_schema.as_ref(), MAX_SCHEMA_BYTES)
-        || tool
-            .output_schema
-            .as_deref()
-            .is_some_and(|schema| !json_object_within_limits(schema, MAX_SCHEMA_BYTES))
+    if let Some(violation) =
+        json_object_limit_violation(tool.input_schema.as_ref(), MAX_SCHEMA_BYTES)
     {
-        return Err(McpClientError::Malformed(
-            "MCP tool schema exceeded the supported structural limits".to_string(),
-        ));
+        return Err(McpClientError::UnsupportedMetadata(format!(
+            "MCP tool `{}` input schema exceeded the supported {}",
+            tool.name,
+            violation.description()
+        )));
+    }
+    if let Some(violation) = tool
+        .output_schema
+        .as_deref()
+        .and_then(|schema| json_object_limit_violation(schema, MAX_SCHEMA_BYTES))
+    {
+        return Err(McpClientError::UnsupportedMetadata(format!(
+            "MCP tool `{}` output schema exceeded the supported {}",
+            tool.name,
+            violation.description()
+        )));
     }
     if let Some(annotations) = &tool.annotations {
         let annotations = serde_json::to_value(annotations).map_err(|error| {
             McpClientError::Malformed(format!("MCP tool annotations were invalid: {error}"))
         })?;
-        if !json_within_limits(&annotations, MAX_ANNOTATIONS_BYTES) {
-            return Err(McpClientError::Malformed(
-                "MCP tool annotations exceeded the supported structural limits".to_string(),
-            ));
+        if let Some(violation) = json_limit_violation(&annotations, MAX_ANNOTATIONS_BYTES) {
+            return Err(McpClientError::UnsupportedMetadata(format!(
+                "MCP tool `{}` annotations exceeded the supported {}",
+                tool.name,
+                violation.description()
+            )));
         }
     }
     Ok(())

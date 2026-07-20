@@ -222,6 +222,7 @@ pub(super) fn client_failure_projection(
         },
         McpClientError::Malformed(_) => malformed_projection(),
         McpClientError::Unavailable(_)
+        | McpClientError::UnsupportedMetadata(_)
         | McpClientError::Protocol(_)
         | McpClientError::Timeout { .. }
         | McpClientError::Cancelled { .. } => SetupFailureProjection {

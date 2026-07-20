@@ -116,3 +116,19 @@ async fn request_context_transport_and_redaction_contracts() {
     assert!(!debug.contains("secret-token"));
     assert!(debug.contains("[REDACTED]"));
 }
+
+#[test]
+fn schema_limit_is_unsupported_not_malformed_and_identifies_the_bound() {
+    let mut tool = Tool::default();
+    tool.name = "notion-update-page".into();
+    tool.input_schema = Arc::new(Map::from_iter([(
+        "enum".to_string(),
+        Value::Array(vec![Value::Null; 1_025]),
+    )]));
+
+    let error = validate_rmcp_tool_metadata(&tool).expect_err("oversized collection");
+
+    assert!(error.to_string().contains(
+        "MCP metadata is unsupported: MCP tool `notion-update-page` input schema exceeded the supported collection item limit"
+    ));
+}
