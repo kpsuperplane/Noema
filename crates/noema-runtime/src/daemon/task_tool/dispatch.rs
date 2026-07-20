@@ -193,6 +193,7 @@ async fn execute_primary_inner(
         TASK_DELEGATE_TOOL => {
             execute_command!(service, args, input: DelegateArguments => {
                 let project_id = project_id(input.project_id)?;
+                let complexity_hint = input.execution_intent.is_none().then_some(input.complexity_hint).flatten();
                 let intent = input
                     .execution_intent
                     .map(|intent| -> Result<DelegateExecutionIntent, String> {
@@ -211,7 +212,7 @@ async fn execute_primary_inner(
                     description_markdown: input.description,
                     project_id,
                     provenance: provenance(context, TaskSourceKind::ChatDelegate, call_id.clone()),
-                    complexity_hint: input.complexity_hint,
+                    complexity_hint,
                     execution_intent: intent,
                 })
             })

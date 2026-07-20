@@ -378,6 +378,7 @@ async fn task_delegate_uses_the_initialized_reviewer_route() {
                 json!({
                     "title": "Preserve the source account",
                     "description": "Verify exact task delegation provenance.",
+                    "complexity_hint": "difficult",
                     "execution_intent": {
                         "request_markdown": "Verify exact task delegation provenance.",
                         "complexity": "simple",
@@ -400,6 +401,7 @@ async fn task_delegate_uses_the_initialized_reviewer_route() {
         .expect("read task")
         .expect("created task");
     let contract = task.current_contract.expect("created contract");
+    assert_eq!(contract.complexity, noema_tasks::TaskComplexity::Simple);
     assert_eq!(contract.reviewer_model.provider_kind, "codex");
     assert_eq!(
         contract.reviewer_model.provider_account_id,
