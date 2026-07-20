@@ -96,9 +96,9 @@ const styles = stylex.create({
     maxWidth: "100%",
     minHeight: 0,
     marginInline: 0,
-    paddingTop: 0,
-    paddingBottom: 24,
-    paddingInline: 0
+    paddingTop: "var(--spacing-8)",
+    paddingBottom: "calc(var(--spacing-6) + var(--spacing-2))",
+    paddingInline: "var(--spacing-4)"
   },
   virtualSizer: {
     position: "relative",

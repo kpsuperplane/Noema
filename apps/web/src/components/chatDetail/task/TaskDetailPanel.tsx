@@ -328,10 +328,6 @@ const styles = stylex.create({
   transcriptRegion: {
     minWidth: 0,
     minHeight: 0,
-    paddingInline: "var(--spacing-4)",
-    paddingBlockStart: "var(--spacing-8)",
-    paddingBlockEnd: "var(--spacing-2)",
-    boxSizing: "border-box"
   },
   contextDock: {
     position: "relative",
