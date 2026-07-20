@@ -200,8 +200,30 @@ pub(crate) fn task_submit_review_tool_spec()
     ToolSpec::new(
         TASK_SUBMIT_REVIEW_TOOL,
         "Submit one typed review verdict and one outcome for every criterion.",
-        json!({"type":"object","properties":{"overall_verdict":{"type":"string","enum":["approve","request_changes","needs_human"]},"overall_feedback":{"type":"string","minLength":1,"maxLength":20000},"criteria":{"type":"array","minItems":1,"items":{"type":"object","properties":{"criterion_id":{"type":"string","minLength":1,"maxLength":200},"outcome":{"type":"string","enum":["pass","fail","uncertain"]},"evidence_markdown":{"type":"string","maxLength":20000},"feedback":{"type":"string","maxLength":20000}},"required":["criterion_id","outcome"],"additionalProperties":false}},"human_gate_kind":{"type":"string","enum":["clarification","approval"]},"human_question":{"type":"string","maxLength":4000}},"required":["overall_verdict","overall_feedback","criteria"],"additionalProperties":false}),
+        task_review_schema(),
     )
+}
+
+fn task_review_schema() -> Value {
+    let review = json!({"type":"object","properties":{"overall_verdict":{"type":"string"},"overall_feedback":{"type":"string","minLength":1,"maxLength":20000},"criteria":{"type":"array","minItems":1,"items":{"type":"object","properties":{"criterion_id":{"type":"string","minLength":1,"maxLength":200},"outcome":{"type":"string","enum":["pass","fail","uncertain"]},"evidence_markdown":{"type":"string","maxLength":20000},"feedback":{"type":"string","maxLength":20000}},"required":["criterion_id","outcome"],"additionalProperties":false}}},"required":["overall_verdict","overall_feedback","criteria"],"additionalProperties":false});
+    let mut approve = review.clone();
+    approve["properties"]["overall_verdict"]["enum"] = json!(["approve"]);
+    let mut request_changes = review.clone();
+    request_changes["properties"]["overall_verdict"]["enum"] = json!(["request_changes"]);
+    let mut needs_human = review;
+    needs_human["properties"]["overall_verdict"]["enum"] = json!(["needs_human"]);
+    needs_human["properties"]["human_gate_kind"] =
+        json!({"type":"string","enum":["clarification","approval"]});
+    needs_human["properties"]["human_question"] =
+        json!({"type":"string","minLength":1,"maxLength":4000});
+    needs_human["required"] = json!([
+        "overall_verdict",
+        "overall_feedback",
+        "criteria",
+        "human_gate_kind",
+        "human_question"
+    ]);
+    json!({"type":"object","oneOf":[approve,request_changes,needs_human]})
 }
 
 /// Build the background-role task inspection contract. The runtime supplies
@@ -218,4 +240,36 @@ pub(crate) fn task_list_scoped_tool_spec() -> Result<ToolSpec, noema_capabilitie
             "additionalProperties": false
         }),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reviewer_schema_only_exposes_gate_fields_for_needs_human() {
+        let schema = task_submit_review_tool_spec().expect("review tool");
+        let variants = schema.input_schema.as_value()["oneOf"]
+            .as_array()
+            .expect("review variants");
+
+        for variant in &variants[..2] {
+            assert!(variant["properties"].get("human_gate_kind").is_none());
+            assert!(variant["properties"].get("human_question").is_none());
+        }
+        assert_eq!(
+            variants[2]["properties"]["overall_verdict"]["enum"],
+            json!(["needs_human"])
+        );
+        assert_eq!(
+            variants[2]["required"],
+            json!([
+                "overall_verdict",
+                "overall_feedback",
+                "criteria",
+                "human_gate_kind",
+                "human_question"
+            ])
+        );
+    }
 }
