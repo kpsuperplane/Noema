@@ -66,7 +66,7 @@ export function MemoryArticle({ page }: { page: MemoryArticlePage }) {
           {article.content}
         </Markdown>
       ) : (
-        <p {...stylex.props(styles.stub)}>This memory article has not developed a lead yet.</p>
+        <p {...stylex.props(styles.stub)}>This biographical article is a stub. It will expand once the first durable facts are recorded.</p>
       )}
 
       {page.children.length > 0 ? (
