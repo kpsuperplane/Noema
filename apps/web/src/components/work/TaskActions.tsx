@@ -332,10 +332,9 @@ function TaskControlsRow({
   const workAnchorRef = React.useRef<HTMLButtonElement>(null);
   const fallbackCloseAnchorRef = React.useRef<HTMLButtonElement>(null);
   const closeAnchorRef = closeButtonRef ?? fallbackCloseAnchorRef;
-  const taskControlsGroupClassName = stylex.props(styles.taskControlsGroup).className;
   return (
     <>
-      <ButtonGroup label="Task controls" size="lg" className={taskControlsGroupClassName}>
+      <ButtonGroup label="Task controls" size="lg">
         {onCancel ? (
           <IconButton
             ref={cancelAnchorRef}
@@ -346,6 +345,7 @@ function TaskControlsRow({
             icon={<Ban {...iconProps} color="var(--color-error)" />}
             isDisabled={busy}
             onClick={() => void onCancel()}
+            xstyle={taskControlXStyle(styles.taskControlButton)}
           />
         ) : null}
         {navigation.showWorkLink ? (
@@ -356,6 +356,7 @@ function TaskControlsRow({
             variant="secondary"
             label="Open in Work"
             icon={<ExternalLink {...iconProps} />}
+            xstyle={taskControlXStyle(styles.taskControlButton)}
           />
         ) : null}
         {navigation.onClose ? (
@@ -367,6 +368,7 @@ function TaskControlsRow({
             label="Close task details"
             icon={<X {...iconProps} />}
             onClick={navigation.onClose}
+            xstyle={taskControlXStyle(styles.taskControlButton)}
           />
         ) : null}
       </ButtonGroup>
@@ -380,13 +382,11 @@ function TaskControlsRow({
 const styles = stylex.create({
   frame: { display: "grid", gap: "var(--spacing-1-5)" },
   defaultFrame: { display: "grid", gap: "var(--spacing-1-5)", minWidth: 0 },
-  taskControlsGroup: {
-    borderRadius: "var(--radius-element)",
+  taskControlButton: {
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "var(--noema-border-subtle)",
     backgroundColor: "#fff",
-    padding: "var(--spacing-1)",
     boxShadow: "0 8px 22px color-mix(in srgb, var(--noema-text-primary) 14%, transparent)",
   },
   answerForm: { display: "grid", gap: "var(--spacing-1-5)", minWidth: 0, borderWidth: 0, borderColor: "transparent", backgroundColor: "transparent", padding: 0 },
@@ -404,3 +404,7 @@ const styles = stylex.create({
   srOnly: { position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" },
   loadError: { color: "var(--destructive)", fontSize: 11 }
 });
+
+function taskControlXStyle(...xstyle: unknown[]): React.ComponentProps<typeof IconButton>["xstyle"] {
+  return xstyle as React.ComponentProps<typeof IconButton>["xstyle"];
+}
