@@ -134,12 +134,12 @@ subagents, reviews, and size measurement.
 - Ready MCP reads remain directly available under their current fingerprint and
   policy. Ready MCP writes and exports are advertised through the governed
   gateway, which revalidates the live binding before approved execution.
-- Web search and unobserved fetches are governed exports. Search-result URLs and
-  links extracted from fetched HTML enter the local `observed_urls` authority;
-  a later exact fetch may skip review when its remaining arguments are
-  local-only controls, while every request still reruns current URL, DNS, and
-  SSRF checks. Approved web replay is destination- and digest-bound;
-  observations do not expire.
+- Web search is a trusted query to the configured search provider and does not
+  require an approval prompt. Search-result URLs and links extracted from
+  fetched HTML enter the local `observed_urls` authority; a later exact fetch
+  may skip review when its remaining arguments are local-only controls, while
+  every request still reruns current URL, DNS, and SSRF checks. Approved web
+  replay is destination- and digest-bound; observations do not expire.
 - The web app surfaces pending actions above the primary composer, in task
   detail, and in Work Needs You. The persisted action/event authority is
   delivery-neutral so another client can project the same attention state.

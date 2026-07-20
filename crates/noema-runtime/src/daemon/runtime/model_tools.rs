@@ -121,8 +121,10 @@ pub(super) async fn build_model_tools_for_role(
         [web_search_tool, web_fetch_tool]
             .into_iter()
             .filter(|tool| {
-                tool_policy
-                    .declare_tool(tool.name.as_str(), ToolAccessClass::GovernedExternalAction)
+                tool_policy.declare_tool(
+                    tool.name.as_str(),
+                    web_tool_access_class(tool.name.as_str()),
+                )
             })
             .collect::<Vec<_>>()
     };
@@ -142,15 +144,13 @@ pub(super) async fn build_model_tools_for_role(
     }
     for tool in declared_web_tools {
         prompt_kinds.insert(tool.name.as_str().to_string(), ModelToolPromptKind::Web);
+        let class = web_tool_access_class(tool.name.as_str());
         let persistence = if tool.name.as_str() == noema_capabilities::web::fetch::WEB_FETCH_TOOL {
             BindingPersistence::WebFetch
         } else {
             BindingPersistence::Redacted
         };
-        add_binding(
-            &mut catalog,
-            runtime_binding(tool, ToolAccessClass::GovernedExternalAction, persistence),
-        )?;
+        add_binding(&mut catalog, runtime_binding(tool, class, persistence))?;
     }
     let unavailable_capabilities = capability_catalog
         .availability_notices
@@ -358,6 +358,17 @@ fn builtin_tool_access_class(role: ExecutionRole, name: &str) -> ToolAccessClass
         TASK_SUBMIT_RESULT_TOOL => ToolAccessClass::ExecutorTerminal,
         TASK_SUBMIT_REVIEW_TOOL => ToolAccessClass::ReviewerTerminal,
         _ => ToolAccessClass::Internal,
+    }
+}
+
+fn web_tool_access_class(name: &str) -> ToolAccessClass {
+    match name {
+        // Search only sends a query to the configured, trusted search provider;
+        // it is a routine retrieval and must not create an approval prompt.
+        noema_capabilities::web::search::WEB_SEARCH_TOOL => ToolAccessClass::ReadOnly,
+        // Fetch can target an arbitrary origin, so keep it behind the
+        // governed-action gateway (with its existing observed-URL admission).
+        _ => ToolAccessClass::GovernedExternalAction,
     }
 }
 

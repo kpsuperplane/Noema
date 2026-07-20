@@ -1,4 +1,4 @@
-//! First-party governed web search capability.
+//! First-party trusted web search capability.
 
 pub(crate) mod tool;
 pub(crate) mod types;

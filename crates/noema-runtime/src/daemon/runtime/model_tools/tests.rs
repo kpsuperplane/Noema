@@ -2,8 +2,8 @@ use std::sync::{Arc, RwLock};
 
 use super::*;
 use noema_capabilities::{
-    CapabilityBindingSource, CapabilityCatalogResult, CapabilityFuture, OmitPayloadSanitizer,
-    PayloadSanitizer,
+    CapabilityBindingSource, CapabilityCatalogResult, CapabilityEffect, CapabilityFuture,
+    CapabilityScope, OmitPayloadSanitizer, PayloadSanitizer,
 };
 use noema_providers::{ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport};
 use serde_json::json;
@@ -346,6 +346,36 @@ async fn complete_catalog_is_stable_for_native_and_envelope_transports() {
             );
         }
     }
+}
+
+#[tokio::test]
+async fn web_search_is_trusted_while_fetch_stays_governed() {
+    let store = crate::test_support::test_store().await;
+    let (_, capability_bindings) = ready_mcp_source();
+    let tools = build_model_tools(
+        &store,
+        &capability_bindings,
+        false,
+        ProviderToolCapabilities {
+            tool_transport: ProviderToolTransport::Native,
+            ..ProviderToolCapabilities::default()
+        },
+    )
+    .await
+    .expect("web tools");
+
+    let search = tools
+        .bindings
+        .resolve("web.search")
+        .expect("search binding");
+    assert_eq!(search.access().effect, CapabilityEffect::ReadOnly);
+    assert_eq!(search.access().scope, CapabilityScope::Global);
+    assert!(!search.access().effect.requires_governed_admission());
+
+    let fetch = tools.bindings.resolve("web.fetch").expect("fetch binding");
+    assert_eq!(fetch.access().effect, CapabilityEffect::ExternalExport);
+    assert_eq!(fetch.access().scope, CapabilityScope::Global);
+    assert!(fetch.access().effect.requires_governed_admission());
 }
 
 #[tokio::test]

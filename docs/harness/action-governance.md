@@ -454,21 +454,22 @@ Changing query parameters, adding headers or a body, using authentication,
 submitting a non-read method, or supplying an unobserved URL returns the request
 to ordinary action review.
 
-### Search is two egress decisions
+### Search query is trusted; destination fetch remains bounded
 
 A web search has two distinct security decisions:
 
-1. Sending the query may disclose private context and can require redaction or
-   LLM review.
+1. Sending the query goes to the configured trusted search provider and does
+   not require an approval prompt; the exact query remains visible in normal
+   tool activity and audit surfaces.
 2. Following an exact returned destination is normally low risk once URL
    matching proves that Noema added no additional request data.
 
-A result URL can contain tracking or reflected query information. The search
-query itself therefore passes action review before execution; once that export
-is authorized, its structured result destinations become observed URLs.
-An approved web action is also bound to the exact resolved provider account,
-provider kind, credential revision, and argument digest; a changed destination
-is superseded instead of silently falling back.
+A result URL can contain tracking or reflected query information. Its structured
+destinations become observed URLs, but an exact fetch still reruns current URL,
+DNS, and SSRF checks. Any fetch that does not qualify for observed-URL
+admission remains subject to ordinary action review and is bound to the exact
+resolved provider account, provider kind, credential revision, and argument
+digest; a changed destination is superseded instead of silently falling back.
 
 ### Future structured form continuations
 
