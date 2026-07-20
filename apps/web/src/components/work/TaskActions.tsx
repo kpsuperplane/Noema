@@ -327,7 +327,7 @@ function TaskControlsRow({
   busy?: boolean;
   onCancel?: () => void | Promise<void>;
 }) {
-  const iconProps = { "aria-hidden": true, size: 15, strokeWidth: 2 } as const;
+  const iconProps = { "aria-hidden": true, size: 17, strokeWidth: 2 } as const;
   const cancelAnchorRef = React.useRef<HTMLButtonElement>(null);
   const workAnchorRef = React.useRef<HTMLButtonElement>(null);
   const fallbackCloseAnchorRef = React.useRef<HTMLButtonElement>(null);
@@ -335,7 +335,7 @@ function TaskControlsRow({
   const taskControlsGroupClassName = stylex.props(styles.taskControlsGroup).className;
   return (
     <>
-      <ButtonGroup label="Task controls" size="sm" className={taskControlsGroupClassName}>
+      <ButtonGroup label="Task controls" size="lg" className={taskControlsGroupClassName}>
         {onCancel ? (
           <IconButton
             ref={cancelAnchorRef}
@@ -382,10 +382,12 @@ const styles = stylex.create({
   defaultFrame: { display: "grid", gap: "var(--spacing-1-5)", minWidth: 0 },
   taskControlsGroup: {
     borderRadius: "var(--radius-element)",
-    backgroundColor: "color-mix(in srgb, var(--noema-surface-card) 72%, transparent)",
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--noema-border-subtle)",
+    backgroundColor: "#fff",
+    padding: "var(--spacing-1)",
     boxShadow: "0 8px 22px color-mix(in srgb, var(--noema-text-primary) 14%, transparent)",
-    backdropFilter: "blur(12px) saturate(1.08)",
-    WebkitBackdropFilter: "blur(12px) saturate(1.08)"
   },
   answerForm: { display: "grid", gap: "var(--spacing-1-5)", minWidth: 0, borderWidth: 0, borderColor: "transparent", backgroundColor: "transparent", padding: 0 },
   answerComposerRow: { display: "flex", minWidth: 0, alignItems: "flex-end", gap: "var(--spacing-1-5)" },
