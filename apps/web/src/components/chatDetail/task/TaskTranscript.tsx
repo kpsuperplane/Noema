@@ -8,7 +8,6 @@ import {
 } from "./TaskRunTranscript";
 import {
   runDurationLabel,
-  runTimelineLabel,
   useTaskRunClock,
 } from "./TaskRevisionTimeline";
 import type { TaskDetail, TaskRevision, TaskRun } from "./taskTypes";
@@ -104,7 +103,7 @@ export function TaskTranscript({
       }
 
       const snapshot = snapshots.get(event.run.id);
-      next.push(runBoundaryEntry(event.run, event.revision, now));
+      next.push(...runBoundaryEntries(event.run, event.revision, now));
       if (snapshot?.error && snapshot.entries.length === 0) {
         next.push({ id: `${event.run.id}:error`, source: "replay", type: "error", message: snapshot.error, recoverable: true });
       } else if (snapshot) {
@@ -164,25 +163,78 @@ function taskRunsInOrder(revisions: readonly TaskRevision[]): TaskRunTimelineEnt
     .sort((left, right) => parseTimestamp(left.run.createdAt) - parseTimestamp(right.run.createdAt) || left.revision.revision - right.revision.revision || left.run.attemptIndex - right.run.attemptIndex);
 }
 
-function runBoundaryEntry(run: TaskRun, revision: TaskRevision, now: number): TranscriptEntry {
-  const label = `${runTimelineLabel(run, revision.review)} · R${revision.revision}`;
+function runBoundaryEntries(run: TaskRun, revision: TaskRevision, now: number): TranscriptEntry[] {
+  const role = runRoleLabel(run);
+  const revisionLabel = `R${revision.revision}`;
+  const start = runBoundaryEntry(
+    `run-start:${run.id}`,
+    `run-start:${run.id}`,
+    "task_run_start",
+    run,
+    `${role} spawned and running · ${revisionLabel}`,
+    { presentation: { tone: "neutral" } }
+  );
+  if (!isTerminalRun(run)) {
+    return [start];
+  }
+
+  const outcome = run.status === "completed"
+    ? `${role} completed successfully`
+    : run.status === "failed"
+      ? `${role} completed with failure`
+      : `${role} ${run.status}`;
   const duration = runDurationLabel(run, now);
+  const durationSuffix = duration === "0s" ? "" : ` · ${duration}`;
+  return [
+    start,
+    runBoundaryEntry(
+      `run-end:${run.id}`,
+      `run-end:${run.id}`,
+      "task_run_end",
+      run,
+      `${outcome} · ${revisionLabel}${durationSuffix}`,
+      { presentation: { tone: run.status === "completed" ? "neutral" : "error" } }
+    )
+  ];
+}
+
+function runBoundaryEntry(
+  id: string,
+  itemId: string,
+  activityKind: "task_run_start" | "task_run_end",
+  run: TaskRun,
+  message: string,
+  metadata: Record<string, unknown>
+): TranscriptEntry {
   return {
-    id: `run-boundary:${run.id}`,
+    id,
     source: "replay",
     type: "activity",
     item: {
       kind: "activity",
-      id: `run-boundary:${run.id}`,
-      activity_kind: "task_run",
+      id: itemId,
+      activity_kind: activityKind,
       status: runActivityStatus(run),
-      title: label,
-      summary: run.status === "queued" || run.status === "leased" || run.status === "waiting_for_approval"
-        ? `Waiting · ${duration}`
-        : duration,
-      metadata: run.error ? { detail: run.error, presentation: { tone: "neutral" } } : { presentation: { tone: "neutral" } }
+      title: message,
+      summary: null,
+      metadata
     }
   };
+}
+
+function runRoleLabel(run: TaskRun): string {
+  switch (run.role) {
+    case "planner":
+      return "Planner";
+    case "executor":
+      return "Executor";
+    case "reviewer":
+      return "Reviewer";
+  }
+}
+
+function isTerminalRun(run: TaskRun): boolean {
+  return run.status === "completed" || run.status === "failed" || run.status === "cancelled" || run.status === "interrupted";
 }
 
 function runActivityStatus(run: TaskRun): "STARTED" | "COMPLETED" | "FAILED" {

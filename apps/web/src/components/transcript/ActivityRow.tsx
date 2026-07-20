@@ -60,6 +60,14 @@ export function ActivityRow({
         : "default";
   const detail = activityDetail(item);
 
+  if (item.activity_kind === "task_run_start" || item.activity_kind === "task_run_end") {
+    return (
+      <TranscriptSystemNotice role={item.status === "FAILED" ? "alert" : "status"} tone={noticeTone}>
+        {item.title}
+      </TranscriptSystemNotice>
+    );
+  }
+
   if (detail) {
     return (
       <div {...stylex.props(styles.root)}>
