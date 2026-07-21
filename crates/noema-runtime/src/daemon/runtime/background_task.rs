@@ -14,7 +14,7 @@ use crate::{
 use noema_providers::{
     GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
     NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderError,
-    ProviderSelectionSnapshot, TokenUsage,
+    ProviderResponseContinuation, ProviderSelectionSnapshot, ProviderToolCapabilities, TokenUsage,
 };
 
 use super::{

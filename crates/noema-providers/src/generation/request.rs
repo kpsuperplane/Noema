@@ -2,7 +2,7 @@ use noema_capabilities::ToolSpec;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::NoemaToolChoice;
+use crate::{NoemaToolChoice, ProviderToolTransport};
 
 /// Scheduling priority for generation on providers with constrained local capacity.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -29,6 +29,13 @@ pub struct GenerateRequest {
     pub options: GenerateOptions,
     /// Provider-neutral model-visible tools for this request.
     pub tools: Vec<ToolSpec>,
+    /// Effective tool transport selected for this request.
+    ///
+    /// Runtime callers derive this from the selected provider/model
+    /// capabilities and the effective catalog. Adapters must use it as the
+    /// response-contract authority instead of inferring transport from the
+    /// number of tools or returned calls.
+    pub tool_transport: ProviderToolTransport,
     /// Tool selection policy requested by Noema.
     pub tool_choice: NoemaToolChoice,
     /// Whether Noema allows the provider to emit independent tool calls in parallel.
@@ -46,6 +53,7 @@ impl GenerateRequest {
             instructions: None,
             options: GenerateOptions::default(),
             tools: Vec::new(),
+            tool_transport: ProviderToolTransport::None,
             tool_choice: NoemaToolChoice::default(),
             parallel_tool_calls: false,
         }

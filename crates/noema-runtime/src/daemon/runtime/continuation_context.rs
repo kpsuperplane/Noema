@@ -263,6 +263,7 @@ impl ContinuationContext {
                         ..GenerateOptions::default()
                     },
                     tools: Vec::new(),
+                    tool_transport: provider.tool_capabilities(model).tool_transport,
                     tool_choice: Default::default(),
                     parallel_tool_calls: false,
                 },

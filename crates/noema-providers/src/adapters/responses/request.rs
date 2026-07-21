@@ -5,7 +5,8 @@ use super::{
     tools::{ResponsesToolNameMap, responses_tool_choice},
 };
 use crate::{
-    GenerateRequest, PromptCacheOptions, PromptCacheRetention, ProviderError, ReasoningEffort,
+    GenerateRequest, PromptCacheOptions, PromptCacheRetention, ProviderError,
+    ProviderToolTransport, ReasoningEffort,
     response_support::{noema_native_response_text_format, noema_response_text_format},
 };
 use serde::Serialize;
@@ -106,7 +107,7 @@ impl ResponsesRequest {
         model: String,
         default_reasoning_effort: Option<ReasoningEffort>,
         profile: ResponsesRequestProfile,
-    ) -> Result<(Self, ResponsesToolNameMap), ProviderError> {
+    ) -> Result<(Self, ResponsesToolNameMap, ProviderToolTransport), ProviderError> {
         if request.input.is_empty() {
             return Err(ProviderError::InvalidRequest {
                 message: "input cannot be empty".to_string(),
@@ -115,6 +116,11 @@ impl ResponsesRequest {
 
         let tool_names = ResponsesToolNameMap::from_tools(&request.tools)?;
         let has_tools = !tool_names.tools.is_empty();
+        if request.tool_transport == ProviderToolTransport::None && has_tools {
+            return Err(ProviderError::InvalidRequest {
+                message: "tool transport is disabled but the request includes tools".to_string(),
+            });
+        }
         let body = Self {
             model,
             input: ResponsesInput::from_generate(
@@ -138,13 +144,15 @@ impl ResponsesRequest {
                 .then_some(request.options.max_output_tokens)
                 .flatten(),
             temperature: request.options.temperature,
-            text: request.options.require_noema_response.then(|| {
-                if has_tools {
-                    noema_native_response_text_format()
-                } else {
-                    noema_response_text_format()
-                }
-            }),
+            text: request
+                .options
+                .require_noema_response
+                .then(|| match request.tool_transport {
+                    ProviderToolTransport::NoemaEnvelope => noema_response_text_format(),
+                    ProviderToolTransport::Native | ProviderToolTransport::None => {
+                        noema_native_response_text_format()
+                    }
+                }),
             reasoning: request
                 .options
                 .reasoning_effort
@@ -180,7 +188,7 @@ impl ResponsesRequest {
                 .flatten(),
             stream: profile.stream.then_some(true),
         };
-        Ok((body, tool_names))
+        Ok((body, tool_names, request.tool_transport))
     }
 }
 

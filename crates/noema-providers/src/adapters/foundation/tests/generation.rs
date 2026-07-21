@@ -1,7 +1,7 @@
 use crate::{
     AssistantTextPhase, FoundationLocalProviderConfig, GenerateInput, GenerateOptions,
     GenerateRequest, GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent,
-    ModelProvider,
+    ModelProvider, ProviderToolTransport,
 };
 
 use super::{
@@ -86,6 +86,7 @@ fn required_response_request() -> GenerateRequest {
             ..GenerateOptions::default()
         },
         tools: Vec::new(),
+        tool_transport: ProviderToolTransport::NoemaEnvelope,
         tool_choice: Default::default(),
         parallel_tool_calls: false,
     }

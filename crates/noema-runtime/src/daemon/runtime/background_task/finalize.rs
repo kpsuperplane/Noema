@@ -6,6 +6,8 @@ impl RuntimeActor {
         provider: &dyn noema_providers::ProviderOperations,
         conversation_id: &str,
         model_tools: &ModelTools,
+        capabilities: ProviderToolCapabilities,
+        response_continuation: ProviderResponseContinuation,
         context: &ContinuationContext,
         reason: &str,
         deadline: tokio::time::Instant,
@@ -26,10 +28,6 @@ impl RuntimeActor {
             model_tools,
             &terminal_tools,
         );
-        let capabilities =
-            provider.tool_capabilities(request.provider_selection.model_profile.as_deref());
-        let response_continuation =
-            provider.response_continuation(request.provider_selection.model_profile.as_deref());
         let continuation_input =
             context.next_provider_input(capabilities.native_tool_results, response_continuation);
         let (finalization_tools, finalization_tool_choice) = if capabilities.allowed_tools {
@@ -61,6 +59,7 @@ impl RuntimeActor {
                 ..GenerateOptions::default()
             },
             tools: finalization_tools.clone(),
+            tool_transport: model_tools.transport,
             tool_choice: finalization_tool_choice.clone(),
             parallel_tool_calls: false,
         };
@@ -88,11 +87,7 @@ impl RuntimeActor {
                         conversation_id: Some(conversation_id.to_string()),
                         model: request.provider_selection.model_profile.clone(),
                         input: context.provider_input(
-                            provider
-                                .tool_capabilities(
-                                    request.provider_selection.model_profile.as_deref(),
-                                )
-                                .native_tool_results,
+                            capabilities.native_tool_results,
                         ),
                         instructions: Some(instructions),
                         options: GenerateOptions {
@@ -103,6 +98,7 @@ impl RuntimeActor {
                             ..GenerateOptions::default()
                         },
                         tools: finalization_tools,
+                        tool_transport: model_tools.transport,
                         tool_choice: finalization_tool_choice,
                         parallel_tool_calls: false,
                     },

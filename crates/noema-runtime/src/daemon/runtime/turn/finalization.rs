@@ -35,6 +35,7 @@ impl RuntimeActor {
                         ..GenerateOptions::default()
                     },
                     tools: Vec::new(),
+                    tool_transport: turn.tool_capabilities.tool_transport,
                     tool_choice: Default::default(),
                     parallel_tool_calls: false,
                 },
@@ -436,7 +437,11 @@ impl RuntimeActor {
                         input: GenerateInput::Text(source.clone()),
                         instructions: Some(memory_update_instructions(&canonical, correction.as_deref())),
                         options: GenerateOptions { generation_priority: GenerationPriority::Background, max_output_tokens: Some(2_048), reasoning_effort: selection.reasoning_effort, ..GenerateOptions::default() },
-                        tools: Vec::new(), tool_choice: Default::default(), parallel_tool_calls: false,
+                        tools: Vec::new(),
+                        tool_transport: provider
+                            .tool_capabilities(selection.model_profile.as_deref())
+                            .tool_transport,
+                        tool_choice: Default::default(), parallel_tool_calls: false,
                     },
                     &mut |_| {},
                 ).await.map_err(|error| error.to_string())?;

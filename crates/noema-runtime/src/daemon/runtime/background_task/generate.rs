@@ -67,6 +67,7 @@ impl RuntimeActor {
                         ..GenerateOptions::default()
                     },
                     tools: model_tools.provider_tools(),
+                    tool_transport: model_tools.transport,
                     tool_choice: if capabilities.allowed_tools {
                         model_tools.allowed_tool_choice(NoemaAllowedToolsMode::Auto)
                     } else {
@@ -98,6 +99,8 @@ impl RuntimeActor {
                         provider,
                         &conversation_id,
                         &model_tools,
+                        capabilities,
+                        response_continuation,
                         &context,
                         "task active wall-time safety ceiling reached",
                         deadline,
@@ -130,6 +133,8 @@ impl RuntimeActor {
                         provider,
                         &conversation_id,
                         &model_tools,
+                        capabilities,
+                        response_continuation,
                         &context,
                         "model returned without the required terminal contract",
                         deadline,
@@ -165,6 +170,8 @@ impl RuntimeActor {
                         provider,
                         &conversation_id,
                         &model_tools,
+                        capabilities,
+                        response_continuation,
                         &context,
                         "task active wall-time safety ceiling reached",
                         deadline,
@@ -191,6 +198,8 @@ impl RuntimeActor {
                         provider,
                         &conversation_id,
                         &model_tools,
+                        capabilities,
+                        response_continuation,
                         &context,
                         "task tool-call safety ceiling reached",
                         deadline,
@@ -251,6 +260,8 @@ impl RuntimeActor {
                             provider,
                             &conversation_id,
                             &model_tools,
+                            capabilities,
+                            response_continuation,
                             &context,
                             "task active wall-time safety ceiling reached",
                             deadline,
@@ -344,6 +355,8 @@ impl RuntimeActor {
                         provider,
                         &conversation_id,
                         &model_tools,
+                        capabilities,
+                        response_continuation,
                         &context,
                         "task active wall-time safety ceiling reached",
                         deadline,
@@ -384,6 +397,8 @@ impl RuntimeActor {
                         provider,
                         &conversation_id,
                         &model_tools,
+                        capabilities,
+                        response_continuation,
                         &context,
                         reason,
                         deadline,
@@ -405,6 +420,8 @@ impl RuntimeActor {
                             provider,
                             &conversation_id,
                             &model_tools,
+                            capabilities,
+                            response_continuation,
                             &context,
                             "task active wall-time safety ceiling reached",
                             deadline,
@@ -437,6 +454,8 @@ impl RuntimeActor {
                                 provider,
                                 &conversation_id,
                                 &model_tools,
+                                capabilities,
+                                response_continuation,
                                 &context,
                                 reason,
                                 deadline,
@@ -458,6 +477,8 @@ impl RuntimeActor {
                         provider,
                         &conversation_id,
                         &model_tools,
+                        capabilities,
+                        response_continuation,
                         &context,
                         "maximum provider tool continuations reached",
                         deadline,
@@ -486,6 +507,7 @@ impl RuntimeActor {
                     ..GenerateOptions::default()
                 },
                 tools: model_tools.provider_tools(),
+                tool_transport: model_tools.transport,
                 tool_choice: if capabilities.allowed_tools {
                     model_tools.allowed_tool_choice(NoemaAllowedToolsMode::Auto)
                 } else {
@@ -531,6 +553,7 @@ impl RuntimeActor {
                                 ..GenerateOptions::default()
                             },
                             tools: model_tools.provider_tools(),
+                            tool_transport: model_tools.transport,
                             tool_choice: if capabilities.allowed_tools {
                                 model_tools.allowed_tool_choice(NoemaAllowedToolsMode::Auto)
                             } else {
@@ -563,6 +586,8 @@ impl RuntimeActor {
                             provider,
                             &conversation_id,
                             &model_tools,
+                            capabilities,
+                            response_continuation,
                             &context,
                             "task active wall-time safety ceiling reached",
                             deadline,

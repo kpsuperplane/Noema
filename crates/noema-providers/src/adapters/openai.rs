@@ -177,7 +177,7 @@ impl ModelProvider for OpenAiProvider {
         let default_reasoning_effort = using_config_default_model
             .then_some(self.config.reasoning_effort)
             .flatten();
-        let (body, tool_names) = ResponsesRequest::from_generate(
+        let (body, tool_names, tool_transport) = ResponsesRequest::from_generate(
             &request,
             model.clone(),
             default_reasoning_effort,
@@ -201,6 +201,7 @@ impl ModelProvider for OpenAiProvider {
             .await?;
         response.finalize(
             &tool_names,
+            tool_transport,
             request.options.require_noema_response,
             &diagnostics,
         )

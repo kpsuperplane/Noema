@@ -6,9 +6,11 @@ use crate::{
     GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
     GenerateReasoningInput, GenerateRequest, GenerateToolCallInput, GenerateToolResultInput,
     NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, PromptCacheMode, PromptCacheOptions,
-    PromptCacheRetention, PromptCacheTtl, ProviderError, ReasoningEffort,
+    PromptCacheRetention, PromptCacheTtl, ProviderError, ProviderToolTransport, ReasoningEffort,
 };
 use serde_json::{Value, json};
+
+mod tool_transport;
 
 #[test]
 fn responses_request_profiles_preserve_provider_wire_differences() {
@@ -22,6 +24,7 @@ fn responses_request_profiles_preserve_provider_wire_differences() {
             ..GenerateOptions::default()
         },
         tools: vec![test_tool()],
+        tool_transport: ProviderToolTransport::Native,
         tool_choice: NoemaToolChoice::Required,
         parallel_tool_calls: true,
         ..GenerateRequest::text("hi")
@@ -99,6 +102,7 @@ fn responses_tools_omit_lookaround_patterns_without_relaxing_other_patterns() {
     .expect("tool");
     let request = GenerateRequest {
         tools: vec![tool],
+        tool_transport: ProviderToolTransport::Native,
         ..GenerateRequest::text("hi")
     };
 
@@ -112,6 +116,7 @@ fn responses_tools_omit_lookaround_patterns_without_relaxing_other_patterns() {
 fn openai_profile_serializes_allowed_tools_with_provider_safe_names() {
     let request = GenerateRequest {
         tools: vec![test_tool(), test_tool_named("mcp.docs:read")],
+        tool_transport: ProviderToolTransport::Native,
         tool_choice: NoemaToolChoice::Allowed(NoemaAllowedTools {
             mode: NoemaAllowedToolsMode::Required,
             tools: vec![noema_capabilities::ToolName::new("mcp.docs:read").expect("tool name")],
@@ -134,6 +139,7 @@ fn openai_profile_serializes_allowed_tools_with_provider_safe_names() {
 fn allowed_tools_are_profile_gated_and_must_reference_the_catalog() {
     let mut request = GenerateRequest {
         tools: vec![test_tool()],
+        tool_transport: ProviderToolTransport::Native,
         tool_choice: NoemaToolChoice::Allowed(NoemaAllowedTools {
             mode: NoemaAllowedToolsMode::Auto,
             tools: vec![noema_capabilities::ToolName::new("search_memory").expect("tool name")],
@@ -248,7 +254,7 @@ fn prompt_cache_breakpoints_reject_invalid_filtered_message_indices() {
 fn responses_request_reasoning_precedence_and_input_validation_are_shared() {
     let mut request = GenerateRequest::text("hi");
     request.options.reasoning_effort = Some(ReasoningEffort::Medium);
-    let (body, _) = ResponsesRequest::from_generate(
+    let (body, _, _) = ResponsesRequest::from_generate(
         &request,
         "gpt-test".into(),
         Some(ReasoningEffort::Low),
@@ -295,6 +301,7 @@ fn whole_catalog_lowering_and_native_envelope_reconciliation_are_stable() {
             )
             .expect("MCP spec"),
         ],
+        tool_transport: ProviderToolTransport::Native,
         tool_choice: NoemaToolChoice::Allowed(NoemaAllowedTools {
             mode: NoemaAllowedToolsMode::Required,
             tools: vec![noema_capabilities::ToolName::new("mcp.mcp:docs.read").expect("tool name")],
@@ -312,7 +319,7 @@ fn whole_catalog_lowering_and_native_envelope_reconciliation_are_stable() {
         expected
     );
 
-    let response = crate::required_noema_response_from_text_with_native_tool_calls(
+    let response = crate::required_noema_response_from_text_with_tool_transport(
         r#"{"response_status":"needs_tools","responses":[{"kind":"text","phase":"commentary","text":"Searching."}]}"#
             .to_string(),
         vec![crate::GenerateToolCall {
@@ -322,7 +329,7 @@ fn whole_catalog_lowering_and_native_envelope_reconciliation_are_stable() {
             name: "search_memory".to_string(),
             payload: json!({"query": "trains"}),
         }],
-        true,
+        ProviderToolTransport::Native,
     )
     .expect("native tool response");
     assert_eq!(
@@ -356,7 +363,12 @@ fn responses_finalize_native_final_without_calls_accepts_missing_envelope_tool_c
     .expect("response");
     let diagnostics = ResponsesDiagnosticContext::new(None, "test", "gpt-test", None);
     let response = response
-        .finalize(&test_tool_names(), true, &diagnostics)
+        .finalize(
+            &test_tool_names(),
+            ProviderToolTransport::Native,
+            true,
+            &diagnostics,
+        )
         .expect("native-capable final response");
 
     assert_eq!(
@@ -368,7 +380,7 @@ fn responses_finalize_native_final_without_calls_accepts_missing_envelope_tool_c
 
 #[test]
 fn native_tool_response_rejects_legacy_envelope_tool_calls() {
-    let error = crate::required_noema_response_from_text_with_native_tool_calls(
+    let error = crate::required_noema_response_from_text_with_tool_transport(
         r#"{"response_status":"needs_tools","responses":[],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{}}]}"#
             .to_string(),
         vec![crate::GenerateToolCall {
@@ -378,7 +390,7 @@ fn native_tool_response_rejects_legacy_envelope_tool_calls() {
             name: "search_memory".to_string(),
             payload: json!({}),
         }],
-        true,
+        ProviderToolTransport::Native,
     )
     .expect_err("native and envelope calls must not be combined");
 
@@ -620,8 +632,9 @@ fn lowered_json(
     reasoning: Option<ReasoningEffort>,
     profile: ResponsesRequestProfile,
 ) -> Value {
-    let (body, _) = ResponsesRequest::from_generate(request, model.to_string(), reasoning, profile)
-        .expect("lowering");
+    let (body, _, _) =
+        ResponsesRequest::from_generate(request, model.to_string(), reasoning, profile)
+            .expect("lowering");
     serde_json::to_value(body).expect("request JSON")
 }
 

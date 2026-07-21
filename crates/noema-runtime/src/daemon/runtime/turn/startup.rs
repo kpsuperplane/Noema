@@ -124,6 +124,7 @@ impl RuntimeActor {
                         ..GenerateOptions::default()
                     },
                     tools: Vec::new(),
+                    tool_transport: tool_capabilities.tool_transport,
                     tool_choice: Default::default(),
                     parallel_tool_calls: false,
                 },

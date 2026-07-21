@@ -3,8 +3,8 @@
 use super::{ResponsesDiagnosticContext, tools::ResponsesToolNameMap};
 use crate::{
     GenerateReasoningItem, GenerateResponse, GenerateResponseStatus, ParsedNoemaResponse,
-    ProviderError, TokenUsage, output_items_from_text,
-    required_noema_response_from_text_with_native_tool_calls,
+    ProviderError, ProviderToolTransport, TokenUsage, output_items_from_text,
+    required_noema_response_from_text_with_tool_transport, validate_native_tool_transport,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -33,19 +33,30 @@ impl ResponsesResponse {
     pub(crate) fn finalize(
         self,
         tool_names: &ResponsesToolNameMap,
+        tool_transport: ProviderToolTransport,
         require_noema_response: bool,
         diagnostics: &ResponsesDiagnosticContext,
     ) -> Result<GenerateResponse, ProviderError> {
         let native_tool_calls = self.native_tool_calls_with_names(tool_names)?;
-        let native_tools_enabled = !tool_names.tools.is_empty();
+        validate_native_tool_transport(&native_tool_calls, tool_transport)?;
         let text = match self.output_text() {
             Ok(text) => text,
             Err(ProviderError::MalformedResponse { .. }) if !native_tool_calls.is_empty() => {
-                let parsed = ParsedNoemaResponse {
-                    responses: Vec::new(),
-                    tool_calls: native_tool_calls,
-                    response_status: GenerateResponseStatus::NeedsTools,
-                };
+                let parsed = required_noema_response_from_text_with_tool_transport(
+                    r#"{"response_status":"needs_tools","responses":[]}"#.to_string(),
+                    native_tool_calls,
+                    tool_transport,
+                )
+                .inspect_err(|error| {
+                    diagnostics.log_malformed_error(
+                        error,
+                        self.id.as_deref(),
+                        serde_json::json!({
+                            "provider_output": &self.output,
+                            "native_tool_calls": true,
+                        }),
+                    );
+                })?;
                 return Ok(self.generate_response(parsed, diagnostics));
             }
             Err(error @ ProviderError::MalformedResponse { .. }) => {
@@ -64,10 +75,10 @@ impl ResponsesResponse {
         };
 
         let parsed = if require_noema_response {
-            required_noema_response_from_text_with_native_tool_calls(
+            required_noema_response_from_text_with_tool_transport(
                 text.clone(),
                 native_tool_calls,
-                native_tools_enabled,
+                tool_transport,
             )
             .inspect_err(|error| {
                 diagnostics.log_malformed_error(

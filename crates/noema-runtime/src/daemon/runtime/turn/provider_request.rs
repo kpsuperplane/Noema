@@ -484,6 +484,7 @@ impl RuntimeActor {
                         ..GenerateOptions::default()
                     },
                     tools: initial_tools,
+                    tool_transport: model_tools.transport,
                     tool_choice: initial_tool_choice,
                     parallel_tool_calls: model_tools.transport == ProviderToolTransport::Native
                         && model_tools.has_callable_tools()

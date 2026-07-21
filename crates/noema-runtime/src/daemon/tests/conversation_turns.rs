@@ -107,6 +107,7 @@ async fn runtime_turn_passes_conversation_id_to_provider_request() {
 
     assert!(provider.requests().iter().any(|request| {
         request.conversation_id.as_deref() == Some(conversation_id.as_str())
+            && request.tool_transport == noema_providers::ProviderToolTransport::NoemaEnvelope
     }));
 }
 

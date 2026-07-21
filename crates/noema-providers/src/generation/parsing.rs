@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+#[cfg(any(feature = "adapters", feature = "local-models"))]
+use crate::ProviderToolTransport;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -46,27 +48,37 @@ pub(crate) fn required_noema_response_from_text(
     noema_response_from_text(text, true)
 }
 
-/// Parse required Noema text when executable tool calls arrived through a
-/// provider-native channel.
+/// Parse required Noema text under one explicit effective tool transport.
 ///
-/// Native calls satisfy the `needs_tools` requirement, so the JSON envelope
-/// must not also include Noema response-envelope `tool_calls`.
-/// `native_tools_enabled` remains meaningful when the provider returns no
-/// native calls: final responses from that request shape may omit the legacy
-/// envelope field entirely.
+/// The transport is fixed before provider generation. Native calls satisfy the
+/// `needs_tools` requirement, while the Noema envelope remains authoritative
+/// for envelope requests and disabled requests cannot carry executable calls.
 ///
 /// # Errors
 ///
 /// Returns [`ProviderError::MalformedResponse`] when the text is invalid,
 /// contains envelope tool calls, or contains final-answer text.
-#[cfg(feature = "adapters")]
-pub(crate) fn required_noema_response_from_text_with_native_tool_calls(
+#[cfg(any(feature = "adapters", feature = "local-models"))]
+pub(crate) fn required_noema_response_from_text_with_tool_transport(
     text: String,
     native_tool_calls: Vec<GenerateToolCall>,
-    native_tools_enabled: bool,
+    tool_transport: ProviderToolTransport,
 ) -> Result<ParsedNoemaResponse, ProviderError> {
-    if !native_tools_enabled {
+    validate_native_tool_transport(&native_tool_calls, tool_transport)?;
+    if tool_transport == ProviderToolTransport::NoemaEnvelope {
         return required_noema_response_from_text(text);
+    }
+
+    if tool_transport == ProviderToolTransport::None {
+        let parsed = noema_response_from_text_with_options(text, true, true)?;
+        if !parsed.tool_calls.is_empty() {
+            return Err(ProviderError::MalformedResponse {
+                message:
+                    "disabled tool transport cannot include Noema response-envelope tool_calls"
+                        .to_string(),
+            });
+        }
+        return Ok(parsed);
     }
 
     let mut parsed = noema_response_from_text_with_options(text, false, true)?;
@@ -89,6 +101,30 @@ pub(crate) fn required_noema_response_from_text_with_native_tool_calls(
     parsed.tool_calls = native_tool_calls;
     parsed.response_status = GenerateResponseStatus::NeedsTools;
     Ok(parsed)
+}
+
+/// Reject provider-native calls when the admitted request selected another
+/// transport. This check is shared by structured and plain response paths.
+#[cfg(any(feature = "adapters", feature = "local-models"))]
+pub(crate) fn validate_native_tool_transport(
+    native_tool_calls: &[GenerateToolCall],
+    tool_transport: ProviderToolTransport,
+) -> Result<(), ProviderError> {
+    if native_tool_calls.is_empty() || tool_transport == ProviderToolTransport::Native {
+        return Ok(());
+    }
+    let message = match tool_transport {
+        ProviderToolTransport::None => {
+            "tool response returned calls while tool transport is disabled"
+        }
+        ProviderToolTransport::NoemaEnvelope => {
+            "Noema envelope response cannot include provider-native tool calls"
+        }
+        ProviderToolTransport::Native => unreachable!("native transport returned early"),
+    };
+    Err(ProviderError::MalformedResponse {
+        message: message.to_string(),
+    })
 }
 
 fn balanced_json_object_candidates(text: &str) -> Vec<&str> {

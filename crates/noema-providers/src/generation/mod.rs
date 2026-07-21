@@ -9,10 +9,12 @@ mod response;
 use std::future::Future;
 
 pub use error::{ProviderError, ProviderTransportContext, ProviderTransportKind};
-#[cfg(feature = "adapters")]
-pub(crate) use parsing::required_noema_response_from_text_with_native_tool_calls;
 #[cfg(any(test, feature = "adapters", feature = "local-models"))]
 pub(crate) use parsing::{output_items_from_text, required_noema_response_from_text};
+#[cfg(any(feature = "adapters", feature = "local-models"))]
+pub(crate) use parsing::{
+    required_noema_response_from_text_with_tool_transport, validate_native_tool_transport,
+};
 pub use request::{
     GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
     GenerateReasoningInput, GenerateRequest, GenerateToolCallInput, GenerateToolResultInput,

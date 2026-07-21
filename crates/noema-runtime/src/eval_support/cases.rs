@@ -196,6 +196,7 @@ fn structured_request(
             ..GenerateOptions::default()
         },
         tools,
+        tool_transport: ProviderToolTransport::NoemaEnvelope,
         tool_choice,
         parallel_tool_calls: false,
     }
@@ -208,6 +209,7 @@ fn plain_request(
     max_output_tokens: u32,
 ) -> GenerateRequest {
     let mut request = GenerateRequest::text(input).with_model(model_id);
+    request.tool_transport = ProviderToolTransport::NoemaEnvelope;
     request.instructions = Some(instructions);
     request.options.max_output_tokens = Some(max_output_tokens);
     request.options.temperature = Some(0.0);
@@ -404,6 +406,7 @@ fn terminal_tool_request(
             ..GenerateOptions::default()
         },
         tools,
+        tool_transport: ProviderToolTransport::NoemaEnvelope,
         tool_choice: NoemaToolChoice::Required,
         parallel_tool_calls: false,
     })

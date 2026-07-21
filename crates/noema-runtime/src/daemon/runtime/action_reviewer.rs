@@ -65,6 +65,10 @@ impl RuntimeActor {
         } else {
             GenerationPriority::Foreground
         };
+        let tool_transport = route
+            .operations()
+            .tool_capabilities(Some(&model))
+            .tool_transport;
         let mut ignore_event = |_| {};
         let response = route
             .operations()
@@ -81,6 +85,7 @@ impl RuntimeActor {
                         ..GenerateOptions::default()
                     },
                     tools: Vec::new(),
+                    tool_transport,
                     tool_choice: Default::default(),
                     parallel_tool_calls: false,
                 },

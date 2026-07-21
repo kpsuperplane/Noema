@@ -5,7 +5,7 @@ use crate::adapters::{
 };
 use crate::{
     CodexOAuthTokens, GenerateInput, GenerateOptions, GenerateResponseStatus,
-    response_support::SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE,
+    ProviderToolTransport, response_support::SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE,
 };
 use noema_capabilities::ToolSpec;
 use serde_json::Value;
@@ -172,6 +172,7 @@ async fn codex_sse_mixed_streamed_text_and_function_call_returns_needs_tools() {
                 ..GenerateOptions::default()
             },
             tools: vec![search_memory_tool()],
+            tool_transport: ProviderToolTransport::Native,
             ..GenerateRequest::text("Search memory")
         })
         .await
@@ -290,6 +291,7 @@ async fn logs_required_noema_response_parse_failure() {
                 ..GenerateOptions::default()
             },
             tools: Vec::new(),
+            tool_transport: ProviderToolTransport::Native,
             tool_choice: Default::default(),
             parallel_tool_calls: false,
         })

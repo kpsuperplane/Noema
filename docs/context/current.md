@@ -66,6 +66,11 @@ subagents, reviews, and size measurement.
 - Provider selections persist exact provider instance, account, model/profile,
   and reasoning effort. Foreground work resolves current selections; admitted
   background runs retain their exact snapshots.
+- Every generation request also carries the effective `ProviderToolTransport`
+  selected from that pinned provider/model capability. Request lowering,
+  response normalization, and runtime continuations use that same value, so
+  native calls and the legacy Noema envelope cannot be inferred from tool
+  counts or from whichever fields a provider happened to return.
 - First-party local inference is the `local_models` provider over a supervised,
   loopback-only pinned llama.cpp runtime. Runtime lookup never trusts ambient
   `PATH`; packaged assets and explicit development overrides are authoritative.

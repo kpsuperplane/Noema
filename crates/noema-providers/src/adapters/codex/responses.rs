@@ -246,7 +246,7 @@ impl CodexResponsesProvider {
         let default_reasoning_effort = using_config_default_model
             .then_some(self.config.reasoning_effort)
             .flatten();
-        let (body, tool_names) = ResponsesRequest::from_generate(
+        let (body, tool_names, tool_transport) = ResponsesRequest::from_generate(
             &request,
             model.clone(),
             default_reasoning_effort,
@@ -302,7 +302,12 @@ impl CodexResponsesProvider {
             }
             Err(error) => return Err(error),
         };
-        response.finalize(&tool_names, require_noema_response, &diagnostics)
+        response.finalize(
+            &tool_names,
+            tool_transport,
+            require_noema_response,
+            &diagnostics,
+        )
     }
 }
 

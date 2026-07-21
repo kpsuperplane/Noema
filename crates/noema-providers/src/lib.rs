@@ -71,8 +71,6 @@ pub use config::{
     LocalModelsProviderConfig, OPENAI_API_KEY_ENV, OpenAiProviderConfig, ProviderConfig,
     ProviderKind,
 };
-#[cfg(feature = "adapters")]
-pub(crate) use generation::required_noema_response_from_text_with_native_tool_calls;
 pub use generation::{
     AssistantTextPhase, DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateActionItem, GenerateInput,
     GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
@@ -87,6 +85,10 @@ pub use generation::{
 #[cfg(any(feature = "adapters", feature = "local-models"))]
 pub(crate) use generation::{
     ParsedNoemaResponse, output_items_from_text, required_noema_response_from_text,
+};
+#[cfg(feature = "adapters")]
+pub(crate) use generation::{
+    required_noema_response_from_text_with_tool_transport, validate_native_tool_transport,
 };
 pub use local_model::{
     DefaultModelPreferenceRecord, DegradedLocalModelInstance, HuggingFaceLocalModelImport,

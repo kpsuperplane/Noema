@@ -1,6 +1,6 @@
 use crate::{
     FoundationLocalProviderConfig, GenerateInput, GenerateMessage, GenerateMessageRole,
-    GenerateOptions, GenerateRequest, ModelProvider,
+    GenerateOptions, GenerateRequest, ModelProvider, ProviderToolTransport,
 };
 
 use super::{
@@ -40,6 +40,7 @@ async fn generate_reuses_bridge_session_for_canonical_required_response() {
                     ..GenerateOptions::default()
                 },
                 tools: Vec::new(),
+                tool_transport: ProviderToolTransport::NoemaEnvelope,
                 tool_choice: Default::default(),
                 parallel_tool_calls: false,
             })
@@ -78,6 +79,7 @@ async fn generate_recreates_bridge_session_when_static_instructions_change() {
                 instructions: Some(instructions.to_string()),
                 options: GenerateOptions::default(),
                 tools: Vec::new(),
+                tool_transport: ProviderToolTransport::NoemaEnvelope,
                 tool_choice: Default::default(),
                 parallel_tool_calls: false,
             })
@@ -169,6 +171,7 @@ fn session_request(messages: Vec<GenerateMessage>) -> GenerateRequest {
         instructions: Some("stable kernel".to_string()),
         options: GenerateOptions::default(),
         tools: Vec::new(),
+        tool_transport: ProviderToolTransport::NoemaEnvelope,
         tool_choice: Default::default(),
         parallel_tool_calls: false,
     }

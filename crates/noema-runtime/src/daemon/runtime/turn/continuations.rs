@@ -295,6 +295,7 @@ impl RuntimeActor {
                     ..GenerateOptions::default()
                 },
                 tools: continuation_tools.clone(),
+                tool_transport: turn.continuation_model_tools.transport,
                 tool_choice: continuation_tool_choice.clone(),
                 parallel_tool_calls: !task_handoff
                     && turn.continuation_model_tools.transport == ProviderToolTransport::Native
@@ -337,6 +338,7 @@ impl RuntimeActor {
                                 ..GenerateOptions::default()
                             },
                             tools: continuation_tools,
+                            tool_transport: turn.continuation_model_tools.transport,
                             tool_choice: continuation_tool_choice,
                             parallel_tool_calls: !task_handoff
                                 && turn.continuation_model_tools.transport
