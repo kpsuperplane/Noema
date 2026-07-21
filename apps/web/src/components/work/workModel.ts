@@ -34,7 +34,7 @@ const DISPLAYED_ACTIVITY_KINDS = new Set([
   "task.stage_changed",
   "task.cancelled",
   "task.reopened",
-  "task.accepted",
+  "task.completed",
   "task.message_appended",
   "contract.created",
   "gate.opened",
@@ -75,7 +75,7 @@ export function eventLabel(event: WorkEvent): string {
     "gate.superseded": "Human request superseded",
     "submission.created": "Result submitted",
     "review.created": "Review completed",
-    "task.accepted": "Result accepted"
+    "task.completed": "Task completed"
   };
   return labels[event.kind] ?? sentenceCase(event.kind);
 }

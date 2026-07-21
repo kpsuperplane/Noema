@@ -92,8 +92,7 @@ graphql_enum_bridge! { "Runtime behavior of one workflow stage." =>
         "Authorized work awaiting a worker." => Dispatch,
         "Planning, execution, or automated review is active." => Active,
         "A human gate is open." => HumanGate,
-        "A reviewer-approved result awaits acceptance." => Acceptance,
-        "Human-accepted terminal work." => TerminalSuccess,
+        "Reviewer-approved terminal work." => TerminalSuccess,
         "Human-cancelled terminal work." => TerminalCancelled,
     }
 }
@@ -105,7 +104,7 @@ pub enum GraphqlWorkTaskScope {
     /// Nonterminal workflow stages.
     #[default]
     Active,
-    /// Archived and cancelled history.
+    /// Done and cancelled history.
     Terminal,
     /// Both active and terminal tasks.
     All,
@@ -125,8 +124,8 @@ impl From<GraphqlWorkTaskScope> for noema_store::WorkTaskScope {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
 #[graphql(name = "TerminalTaskKind")]
 pub enum GraphqlTerminalTaskKind {
-    /// Accepted tasks only.
-    Accepted,
+    /// Completed tasks only.
+    Completed,
     /// Cancelled tasks only.
     Cancelled,
     /// Both terminal kinds.
@@ -214,12 +213,6 @@ graphql_input! { "Retry an eligible Recovery gate." => GraphqlRetryTaskInput("Re
     "Caller idempotency key." => client_mutation_id: String,
 } }
 
-fenced_task_input!(
-    /// Accept an approved task result.
-    GraphqlAcceptTaskInput,
-    "AcceptTaskInput"
-);
-
 graphql_input! { "One replacement validation criterion." => GraphqlTaskValidationCriterionInput("TaskValidationCriterionInput") {
     "Optional stable criterion identity." => criterion_id: Option<String>,
     "One-based ordinal." => ordinal: i32,
@@ -242,7 +235,7 @@ impl GraphqlTaskValidationCriterionInput {
     }
 }
 
-graphql_input! { "Human request for a changed result." => GraphqlRequestTaskChangesInput("RequestTaskChangesInput") {
+graphql_input! { "Reopen a completed task with new direction." => GraphqlReopenTaskInput("ReopenTaskInput") {
     "Task target." => task_id: String,
     "Expected current revision." => expected_revision: i64,
     "Expected execution generation." => expected_generation: i64,
@@ -259,9 +252,3 @@ graphql_input! { "Cancel a task." => GraphqlCancelTaskInput("CancelTaskInput") {
     "Optional safe cancellation reason." => reason: Option<String>,
     "Caller idempotency key." => client_mutation_id: String,
 } }
-
-fenced_task_input!(
-    /// Reopen terminal task history.
-    GraphqlReopenTaskInput,
-    "ReopenTaskInput"
-);

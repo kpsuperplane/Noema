@@ -180,28 +180,6 @@ impl MutationRoot {
         tasks::retry_task(state, principal, input).await
     }
 
-    /// Accept a reviewer-approved task result.
-    async fn accept_task(
-        &self,
-        ctx: &Context<'_>,
-        input: GraphqlAcceptTaskInput,
-    ) -> Result<GraphqlTaskCommandPayload> {
-        let state = ctx.data_unchecked::<GraphqlState>();
-        let principal = crate::graphql::request_principal_subject(ctx)?;
-        tasks::accept_task(state, principal, input).await
-    }
-
-    /// Request changes to an approved result.
-    async fn request_task_changes(
-        &self,
-        ctx: &Context<'_>,
-        input: GraphqlRequestTaskChangesInput,
-    ) -> Result<GraphqlTaskCommandPayload> {
-        let state = ctx.data_unchecked::<GraphqlState>();
-        let principal = crate::graphql::request_principal_subject(ctx)?;
-        tasks::request_task_changes(state, principal, input).await
-    }
-
     /// Cancel a nonterminal task.
     async fn cancel_task(
         &self,
@@ -213,7 +191,7 @@ impl MutationRoot {
         tasks::cancel_task(state, principal, input).await
     }
 
-    /// Reopen terminal task history into Inbox.
+    /// Reopen a completed task into Queue with new direction.
     async fn reopen_task(
         &self,
         ctx: &Context<'_>,

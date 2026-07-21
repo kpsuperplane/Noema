@@ -70,10 +70,10 @@ mod validation;
 mod workflow;
 
 pub use command::{
-    AcceptTask, AnswerTask, ArchiveProject, CancelTask, CaptureTask, CommandMeta, CreateProject,
+    AnswerTask, ArchiveProject, CancelTask, CaptureTask, CommandMeta, CreateProject,
     DelegateExecutionIntent, DelegateTask, ProjectPrecondition, QueueTask, ReopenProject,
-    ReopenTask, RequestTaskChanges, RetryTask, TaskPrecondition, UpdateInboxTask, UpdateProject,
-    WorkCommand, WorkCommandResult,
+    ReopenTask, RetryTask, TaskPrecondition, UpdateInboxTask, UpdateProject, WorkCommand,
+    WorkCommandResult,
 };
 pub use contract::{
     ContractOrigin, ProjectContextSnapshot, TaskContractAmendment, TaskExecutionContract,
@@ -124,8 +124,8 @@ pub use submission::{
 pub use task::{TaskProvenance, TaskRecord, TaskSourceKind};
 pub use transcript::{AgentRunItemKind, AgentRunItemRecord, AgentRunItemStatus, NewAgentRunItem};
 pub use workflow::{
-    PERSONAL_ARCHIVE_STAGE_ID, PERSONAL_CANCELLED_STAGE_ID, PERSONAL_DOING_STAGE_ID,
-    PERSONAL_DONE_STAGE_ID, PERSONAL_INBOX_STAGE_ID, PERSONAL_QUEUE_STAGE_ID,
-    PERSONAL_WAITING_STAGE_ID, PERSONAL_WORKFLOW_ID, WorkflowDefinition, WorkflowStage,
-    WorkflowStageBehavior, personal_stages,
+    PERSONAL_CANCELLED_STAGE_ID, PERSONAL_DOING_STAGE_ID, PERSONAL_DONE_STAGE_ID,
+    PERSONAL_INBOX_STAGE_ID, PERSONAL_QUEUE_STAGE_ID, PERSONAL_WAITING_STAGE_ID,
+    PERSONAL_WORKFLOW_ID, WorkflowDefinition, WorkflowStage, WorkflowStageBehavior,
+    personal_stages,
 };

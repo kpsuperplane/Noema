@@ -26,7 +26,7 @@ pub use overview::*;
 pub enum WorkTaskScope {
     /// The five nonterminal Personal workflow stages.
     Active,
-    /// Archive and Cancelled history.
+    /// Done and Cancelled history.
     Terminal,
     /// Both active work and terminal history, ordered by last update.
     All,
@@ -126,10 +126,6 @@ pub enum WorkTaskValidAction {
     Answer,
     /// Retry an eligible recovery gate.
     Retry,
-    /// Accept an approved submission.
-    Accept,
-    /// Request a revised execution contract.
-    RequestChanges,
     /// Cancel active work.
     Cancel,
     /// Reopen terminal task history.
@@ -146,8 +142,6 @@ pub enum WorkTaskAttention {
     Approval,
     /// The task is stopped in recovery and needs a human choice.
     Recovery,
-    /// A reviewed result is ready for human acceptance.
-    ReadyForAcceptance,
 }
 
 /// One bounded task card with related rows loaded in the same query/batch.
@@ -193,8 +187,8 @@ pub struct WorkTaskDetail {
     pub active_gate: Option<TaskGateRecord>,
     /// Most recent immutable submission, if any.
     pub latest_submission: Option<TaskSubmissionRecord>,
-    /// Submission explicitly accepted by the human, when the task completed.
-    pub accepted_submission: Option<TaskSubmissionRecord>,
+    /// Reviewer-approved submission that completed the task.
+    pub completed_submission: Option<TaskSubmissionRecord>,
     /// Most recent immutable review, if any.
     pub latest_review: Option<TaskReviewRecord>,
     /// Bounded recent human messages, newest first.

@@ -292,8 +292,6 @@ async fn complete_catalog_is_stable_for_native_and_envelope_transports() {
                 "task.delegate",
                 "task.answer",
                 "task.retry",
-                "task.accept",
-                "task.request_changes",
                 "task.cancel",
                 "task.reopen",
                 "project.create",

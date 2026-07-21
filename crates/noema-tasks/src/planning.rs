@@ -205,16 +205,6 @@ pub fn plan_reconciliation_action(
             retry_run_kind: None,
         });
     }
-    if snapshot.stage_behavior == Acceptance {
-        return if snapshot.approved_review {
-            Ok(WorkReconciliationAction::Idle)
-        } else {
-            Ok(WorkReconciliationAction::OpenRecoveryGate {
-                reason: TaskRecoveryReason::InvariantFault,
-                retry_run_kind: None,
-            })
-        };
-    }
     Ok(WorkReconciliationAction::Idle)
 }
 

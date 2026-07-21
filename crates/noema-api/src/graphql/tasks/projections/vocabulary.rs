@@ -55,9 +55,6 @@ graphql_enum!(
         /// Automated work requires a recovery choice.
         #[graphql(name = "RECOVERY_REQUIRED")]
         Recovery,
-        /// A reviewed result is ready for acceptance.
-        #[graphql(name = "REVIEW_READY")]
-        ReadyForAcceptance,
     }
 );
 
@@ -75,10 +72,6 @@ graphql_enum!(
         Answer,
         /// Retry a recovery gate.
         Retry,
-        /// Accept an approved result.
-        Accept,
-        /// Request changed work.
-        RequestChanges,
         /// Cancel work.
         Cancel,
         /// Reopen terminal history.

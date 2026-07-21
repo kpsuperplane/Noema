@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, str::FromStr};
+use std::collections::BTreeSet;
 
 use noema_tasks::{
     AgentRunRecord, RunKind, RunStatus, TaskGateKind, TaskRecoveryReason, WorkDomainError,
@@ -291,18 +291,6 @@ pub(super) fn bump_task_to_waiting_tx(
     Ok(revision)
 }
 
-pub(super) fn bump_task_to_review_tx(
-    transaction: &Transaction<'_>,
-    task: &mut helpers::TaskState,
-) -> Result<u64, StoreError> {
-    let revision = helpers::increment(task.revision, "task.revision")?;
-    transaction.execute("UPDATE tasks SET stage_id = 'stage:personal:done', queued_at = NULL, revision = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND generation = ?3 AND revision = ?4", params![task.task_id.as_str(), revision, task.generation, task.revision])?;
-    task.stage_id = WorkflowStageId::new("stage:personal:done").map_err(StoreError::Work)?;
-    task.stage_behavior = WorkflowStageBehavior::Acceptance;
-    task.revision = revision;
-    Ok(revision)
-}
-
 pub(super) struct OpenGate<'a> {
     pub gate_kind: TaskGateKind,
     pub prompt: &'a str,
@@ -393,21 +381,6 @@ pub(super) fn task_execution_policy_for_task(
         )?,
         max_review_rounds: helpers::positive_u32(values.5, "contract.max_review_rounds")?,
     })
-}
-
-pub(super) fn task_contract_complexity_tx(
-    transaction: &Transaction<'_>,
-    contract_id: &noema_tasks::TaskContractId,
-) -> Result<noema_tasks::TaskComplexity, StoreError> {
-    let value: String = transaction
-        .query_row(
-            "SELECT complexity FROM task_execution_contracts WHERE contract_id = ?1",
-            [contract_id.as_str()],
-            |row| row.get(0),
-        )
-        .optional()?
-        .ok_or(StoreError::Work(WorkDomainError::ContractRequired))?;
-    noema_tasks::TaskComplexity::from_str(&value).map_err(StoreError::Work)
 }
 
 pub(super) fn validate_namespace(

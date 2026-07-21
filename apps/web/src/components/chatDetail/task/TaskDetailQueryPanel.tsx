@@ -270,10 +270,9 @@ function mapReview(review: WorkDetail["reviews"][number]): TaskReview {
 
 function taskStatus(task: WorkDetail): TaskStatus {
   switch (task.stage.behavior) {
-    case "TERMINAL_SUCCESS": return "archived";
+    case "TERMINAL_SUCCESS": return "done";
     case "TERMINAL_CANCELLED": return "cancelled";
-    case "HUMAN_GATE":
-    case "ACCEPTANCE": return "waiting_for_human";
+    case "HUMAN_GATE": return "waiting_for_human";
     case "ACTIVE":
       if (task.currentRun?.kind === "REVIEWER") return "reviewing";
       if (task.latestReview?.verdict === "REQUEST_CHANGES") return "revision_requested";

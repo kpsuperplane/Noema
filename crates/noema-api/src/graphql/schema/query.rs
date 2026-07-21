@@ -200,12 +200,12 @@ impl QueryRoot {
         .await
     }
 
-    /// Return archived/cancelled task history through the terminal scope.
+    /// Return Done and Cancelled task history through the terminal scope.
     #[allow(
         clippy::too_many_arguments,
-        reason = "GraphQL preserves the existing flat archiveTasks field contract"
+        reason = "GraphQL preserves the flat taskHistory field contract"
     )]
-    async fn archive_tasks(
+    async fn task_history(
         &self,
         ctx: &Context<'_>,
         workspace_id: String,
@@ -217,7 +217,7 @@ impl QueryRoot {
     ) -> Result<GraphqlTaskConnection> {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
-        tasks::archive_tasks(
+        tasks::task_history(
             state,
             principal,
             workspace_id,

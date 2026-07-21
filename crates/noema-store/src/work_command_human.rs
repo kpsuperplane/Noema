@@ -1,4 +1,4 @@
-//! Human gate, acceptance, cancellation, and reopen command transactions.
+//! Human gate, cancellation, and completion-reopen command transactions.
 
 use std::str::FromStr;
 
@@ -12,12 +12,10 @@ use rusqlite::{OptionalExtension, Transaction, params};
 use super::{WorkCommandService, helpers};
 use crate::{StoreError, ids::allocate_id, work_events::append_work_event_tx};
 
-#[path = "work_command_accept.rs"]
-mod accept;
 #[path = "work_command_cancel_reopen.rs"]
 mod cancel_reopen;
-#[path = "work_command_request_changes.rs"]
-mod request_changes;
+#[path = "work_command_reopen.rs"]
+mod reopen;
 #[path = "work_command_human_validation.rs"]
 mod validation;
 
@@ -44,10 +42,8 @@ pub(super) async fn execute(
     match command {
         WorkCommand::AnswerTask(value) => answer(service, value).await,
         WorkCommand::RetryTask(value) => retry(service, value).await,
-        WorkCommand::AcceptTask(value) => accept::execute(service, value).await,
-        WorkCommand::RequestTaskChanges(value) => request_changes::execute(service, value).await,
         WorkCommand::CancelTask(value) => cancel_reopen::cancel(service, value).await,
-        WorkCommand::ReopenTask(value) => cancel_reopen::reopen(service, value).await,
+        WorkCommand::ReopenTask(value) => reopen::execute(service, value).await,
         _ => Err(StoreError::InvariantViolation {
             message: "human writer received an unsupported command".to_string(),
         }),

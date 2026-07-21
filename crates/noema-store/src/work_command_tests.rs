@@ -3,9 +3,9 @@
 use noema_tasks::{
     CaptureTask, CommandMeta, CreateProject, CriterionOutcome, DelegateExecutionIntent,
     DelegateTask, NewTaskReview, NewTaskSubmission, NewTaskValidationCriterion, QueueTask,
-    RetryTask, SafeErrorCode, SubmissionCriterionEvidence, TaskComplexity, TaskPrecondition,
-    TaskProvenance, TaskReviewCriterion, TaskReviewVerdict, TaskSourceKind, UpdateInboxTask,
-    WorkCommand, WorkDomainError,
+    ReopenTask, RetryTask, SafeErrorCode, SubmissionCriterionEvidence, TaskComplexity,
+    TaskContractAmendment, TaskPrecondition, TaskProvenance, TaskReviewCriterion,
+    TaskReviewVerdict, TaskSourceKind, UpdateInboxTask, WorkCommand, WorkDomainError,
 };
 use noema_workspaces::WorkspaceId;
 
@@ -247,7 +247,7 @@ async fn committed_detail_replay_does_not_reread_later_task_state() {
         .expect("capture committed detail");
     let first_detail = first.task_detail.clone().expect("task detail snapshot");
     assert_eq!(first_detail.stage.stage_id, first_detail.task.stage_id);
-    assert!(first_detail.accepted_submission.is_none());
+    assert!(first_detail.completed_submission.is_none());
 
     let updated = task!(
         service,
@@ -711,7 +711,7 @@ fn delegated_review_case(key: &str, complexity: TaskComplexity) -> WorkCommand {
         unreachable!()
     };
     command.execution_intent = Some(DelegateExecutionIntent {
-        request_markdown: "Complete the review acceptance fixture.".to_string(),
+        request_markdown: "Complete the review fixture.".to_string(),
         criteria: vec![NewTaskValidationCriterion {
             criterion_id: Some("criterion:review-case".to_string()),
             ordinal: 1,
@@ -726,7 +726,12 @@ fn delegated_review_case(key: &str, complexity: TaskComplexity) -> WorkCommand {
 
 async fn run_review_case(
     complexity: TaskComplexity,
-) -> (noema_tasks::TaskRecord, serde_json::Value) {
+) -> (
+    NoemaStore,
+    WorkCommandService,
+    noema_tasks::TaskRecord,
+    serde_json::Value,
+) {
     let (store, service) = fixture().await;
     let created = service
         .execute(delegated_review_case(
@@ -831,11 +836,7 @@ async fn run_review_case(
         )
         .await
         .expect("submit reviewer result");
-    let notification_kind = if complexity == TaskComplexity::Simple {
-        "task_accepted"
-    } else {
-        "task_review_ready"
-    };
+    let notification_kind = "task_completed";
     let payload_json: String = store
         .with_connection(|connection| {
             connection
@@ -849,28 +850,75 @@ async fn run_review_case(
         .await
         .expect("review notification");
     let payload = serde_json::from_str(&payload_json).expect("notification payload");
-    (result.task.expect("review task"), payload)
+    (store, service, result.task.expect("review task"), payload)
 }
 
 #[tokio::test]
-async fn simple_review_approval_auto_accepts_and_other_complexity_waits_for_acceptance() {
-    let (simple, simple_notification) = run_review_case(TaskComplexity::Simple).await;
-    assert_eq!(
-        simple.stage_id.as_str(),
-        noema_tasks::PERSONAL_ARCHIVE_STAGE_ID
-    );
-    assert_eq!(
-        simple.accepted_submission_id.as_deref(),
-        Some("submission:review-case")
-    );
-    assert_eq!(simple_notification["auto_accepted"], true);
-    assert!(simple_notification.get("message").is_none());
+async fn approved_reviews_complete_tasks_at_every_complexity() {
+    for complexity in [TaskComplexity::Simple, TaskComplexity::Medium] {
+        let (_, _, task, notification) = run_review_case(complexity).await;
+        assert_eq!(task.stage_id.as_str(), noema_tasks::PERSONAL_DONE_STAGE_ID);
+        assert_eq!(
+            task.completed_submission_id.as_deref(),
+            Some("submission:review-case")
+        );
+        assert_eq!(notification["action_needed"], false);
+    }
+}
 
-    let (medium, medium_notification) = run_review_case(TaskComplexity::Medium).await;
-    assert_eq!(
-        medium.stage_id.as_str(),
-        noema_tasks::PERSONAL_DONE_STAGE_ID
+#[tokio::test]
+async fn reopen_requires_direction_and_queues_a_fresh_contract_generation() {
+    let (store, service, completed, _) = run_review_case(TaskComplexity::Medium).await;
+    let command = |feedback_markdown: &str, key: &str| {
+        WorkCommand::ReopenTask(ReopenTask {
+            meta: metadata(key),
+            precondition: TaskPrecondition {
+                task_id: completed.task_id.clone(),
+                expected_revision: completed.revision,
+                expected_generation: completed.generation,
+            },
+            amendment: TaskContractAmendment {
+                feedback_markdown: feedback_markdown.to_string(),
+                request_markdown: None,
+                replacement_criteria: None,
+                complexity: None,
+            },
+        })
+    };
+    work_error!(
+        service,
+        command("  ", "reopen-blank"),
+        StoreError::Work(WorkDomainError::InvalidInput { .. }),
+        "blank reopen direction must fail before mutation"
     );
-    assert_eq!(medium_notification["action_needed"], true);
-    assert!(medium_notification.get("message").is_none());
+    let reopened = task!(
+        service,
+        command(
+            "Include the newly discovered edge case.",
+            "reopen-completed"
+        ),
+        "reopen completed task"
+    );
+    assert_eq!(
+        reopened.stage_id.as_str(),
+        noema_tasks::PERSONAL_QUEUE_STAGE_ID
+    );
+    assert_eq!(reopened.generation, completed.generation + 1);
+    assert_ne!(reopened.current_contract_id, completed.current_contract_id);
+    assert!(reopened.completed_submission_id.is_none());
+    assert!(reopened.completed_at.is_none());
+
+    let detail = store
+        .get_work_task(&reopened.task_id)
+        .await
+        .expect("load reopened detail")
+        .expect("reopened detail");
+    assert_eq!(
+        detail.current_run.as_ref().map(|run| run.run_kind),
+        Some(noema_tasks::RunKind::Executor)
+    );
+    assert!(detail.messages.iter().any(|message| {
+        message.body_markdown == "Include the newly discovered edge case."
+            && message.task_generation == reopened.generation
+    }));
 }

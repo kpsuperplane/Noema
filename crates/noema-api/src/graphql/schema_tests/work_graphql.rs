@@ -31,11 +31,10 @@ fn work_schema_exposes_semantic_operations_without_task_status_aliases() {
         "projects",
         "needsYou",
         "workActivity",
-        "archiveTasks",
+        "taskHistory",
         "taskRunItems",
         "captureTask",
         "queueTask",
-        "requestTaskChanges",
         "reopenTask",
         "workEvents",
         "taskEvents",
@@ -72,7 +71,7 @@ fn work_schema_exposes_exact_detail_attention_and_closed_vocabularies() {
     }
     for field in [
         "descriptionPreview: String!",
-        "acceptedResult: TaskSubmission",
+        "completedResult: TaskSubmission",
         "messages: [TaskMessage!]!",
         "runs: [TaskRun!]!",
         "submissions: [TaskSubmission!]!",
@@ -89,7 +88,7 @@ fn work_schema_exposes_exact_detail_attention_and_closed_vocabularies() {
         "WorkEvent.kind stays dotted text"
     );
     assert!(sdl.contains("CLARIFICATION_REQUIRED"));
-    assert!(sdl.contains("REVIEW_READY"));
+    assert!(!sdl.contains("REVIEW_READY"));
 }
 
 #[tokio::test]
@@ -241,7 +240,7 @@ async fn capture_task_returns_authoritative_work_projection() {
                   stage { key behavior }
                   revision
                   generation
-                  acceptedResult { submissionId }
+                  completedResult { submissionId }
                   artifacts { artifactId }
                 }
                 eventCursor
@@ -259,7 +258,7 @@ async fn capture_task_returns_authoritative_work_projection() {
             ("/captureTask/task/description", json!("A durable capture")),
             ("/captureTask/task/revision", json!(1)),
             ("/captureTask/task/generation", json!(1)),
-            ("/captureTask/task/acceptedResult", serde_json::Value::Null),
+            ("/captureTask/task/completedResult", serde_json::Value::Null),
             ("/captureTask/task/artifacts", json!([])),
         ],
     );

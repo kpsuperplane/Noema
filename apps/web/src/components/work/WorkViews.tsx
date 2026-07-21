@@ -9,7 +9,7 @@ import {
 } from "@/components/actions/PendingGovernedActions";
 import {
   WorkActivityDocument,
-  WorkArchiveTasksDocument,
+  WorkTaskHistoryDocument,
   WorkNeedsYouDocument,
   WorkOverviewDocument,
   WorkTasksDocument,
@@ -27,20 +27,20 @@ export function WorkBoard({ projectId, onNewTask }: { projectId?: string; onNewT
   if (!overview) return <QueryState loading={result.loading} error={Boolean(result.error)} retry={() => result.refetch()} label="board" />;
   return (
     <div role="region" aria-label="Work board" {...stylex.props(styles.board)}>
-      {overview.activeColumns.map((column) => (
+      {overview.boardColumns.map((column) => (
         <BoardLane key={column.stage.stageId} column={column} projectId={projectId} />
       ))}
-      {overview.activeColumns.length === 0 ? (
+      {overview.boardColumns.length === 0 ? (
         <EmptyState title="Your board is clear" detail="Captured and delegated tasks appear here." action="New task" onAction={onNewTask} />
       ) : null}
     </div>
   );
 }
 
-function BoardLane({ column, projectId }: { column: WorkOverview["activeColumns"][number]; projectId?: string }) {
+function BoardLane({ column, projectId }: { column: WorkOverview["boardColumns"][number]; projectId?: string }) {
   const result = useQuery(WorkTasksDocument, {
     variables: {
-      input: { workspaceId: PERSONAL_WORKSPACE_ID, projectId, stageIds: [column.stage.stageId], scope: "ACTIVE" },
+      input: { workspaceId: PERSONAL_WORKSPACE_ID, projectId, stageIds: [column.stage.stageId], scope: "ALL" },
       first: 50
     },
     fetchPolicy: "cache-and-network"
@@ -111,7 +111,6 @@ export function WorkList({ projectId, query, onClearFilters }: { projectId?: str
             <option value="DISPATCH">Queue</option>
             <option value="ACTIVE">Doing</option>
             <option value="HUMAN_GATE">Waiting</option>
-            <option value="ACCEPTANCE">Done</option>
           </select>
         </label>
         <label {...stylex.props(styles.checkbox)}><input type="checkbox" checked={attentionOnly} onChange={(event) => setAttentionOnly(event.currentTarget.checked)} /> Needs attention</label>
@@ -139,7 +138,7 @@ export function WorkList({ projectId, query, onClearFilters }: { projectId?: str
 
 function TaskRows({ tasks, terminal = false }: { tasks: readonly WorkTask[]; terminal?: boolean }) {
   return (
-    <div role="table" aria-label={terminal ? "Archive tasks" : "Active tasks"} {...stylex.props(styles.table)}>
+    <div role="table" aria-label={terminal ? "Task history" : "Active tasks"} {...stylex.props(styles.table)}>
       <div role="row" {...stylex.props(styles.tableHeader)}>
         <span role="columnheader">Task</span><span role="columnheader" {...stylex.props(styles.hiddenMobile)}>Project</span><span role="columnheader" {...stylex.props(styles.hiddenMobile)}>Stage</span><span role="columnheader">Updated</span>
       </div>
@@ -272,27 +271,27 @@ export function WorkActivity({ projectId }: { projectId?: string }) {
   );
 }
 
-export function WorkArchive({ projectId, query, terminal, onTerminalChange }: { projectId?: string; query?: string; terminal: "all" | "accepted" | "cancelled"; onTerminalChange: (value: "all" | "accepted" | "cancelled") => void }) {
-  const kind = terminal === "accepted" ? "ACCEPTED" : terminal === "cancelled" ? "CANCELLED" : "ALL";
-  const result = useQuery(WorkArchiveTasksDocument, {
+export function WorkHistory({ projectId, query, terminal, onTerminalChange }: { projectId?: string; query?: string; terminal: "all" | "completed" | "cancelled"; onTerminalChange: (value: "all" | "completed" | "cancelled") => void }) {
+  const kind = terminal === "completed" ? "COMPLETED" : terminal === "cancelled" ? "CANCELLED" : "ALL";
+  const result = useQuery(WorkTaskHistoryDocument, {
     variables: { workspaceId: PERSONAL_WORKSPACE_ID, projectId, text: query, kind, first: 50 },
     fetchPolicy: "cache-and-network"
   });
-  const connection = result.data?.archiveTasks;
+  const connection = result.data?.taskHistory;
   const tasks = connection?.edges.map((edge) => edge.node) ?? [];
   return (
-    <section aria-label="Archive work" {...stylex.props(styles.stack)}>
+    <section aria-label="Task history" {...stylex.props(styles.stack)}>
       <div {...stylex.props(styles.inlineFilters)}>
         <label {...stylex.props(styles.filterLabel)}>Show
           <select value={terminal} {...stylex.props(styles.select)} onChange={(event) => onTerminalChange(event.currentTarget.value as typeof terminal)}>
-            <option value="all">Archived and cancelled</option><option value="accepted">Archived</option><option value="cancelled">Cancelled</option>
+            <option value="all">Done and cancelled</option><option value="completed">Done</option><option value="cancelled">Cancelled</option>
           </select>
         </label>
       </div>
       {!connection ? <QueryState loading={result.loading} error={Boolean(result.error)} retry={() => result.refetch()} label="history" /> : null}
-      {connection && !tasks.length ? <EmptyState title="No matching archive items" detail="Archived and cancelled tasks remain available here." /> : null}
+      {connection && !tasks.length ? <EmptyState title="No matching history" detail="Done and cancelled tasks remain available here." /> : null}
       {tasks.length ? <TaskRows tasks={tasks} terminal /> : null}
-      <LoadMore connection={connection} loading={result.loading} onLoad={() => result.fetchMore({ variables: { after: connection?.pageInfo.endCursor }, updateQuery: (previous, { fetchMoreResult }) => ({ ...fetchMoreResult, archiveTasks: { ...fetchMoreResult.archiveTasks, edges: [...previous.archiveTasks.edges, ...fetchMoreResult.archiveTasks.edges] } }) })} />
+      <LoadMore connection={connection} loading={result.loading} onLoad={() => result.fetchMore({ variables: { after: connection?.pageInfo.endCursor }, updateQuery: (previous, { fetchMoreResult }) => ({ ...fetchMoreResult, taskHistory: { ...fetchMoreResult.taskHistory, edges: [...previous.taskHistory.edges, ...fetchMoreResult.taskHistory.edges] } }) })} />
     </section>
   );
 }

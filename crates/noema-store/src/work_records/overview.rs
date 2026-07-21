@@ -41,8 +41,8 @@ pub struct WorkOverview {
     pub workspace: WorkspaceRecord,
     /// Default workflow and every ordered stage.
     pub default_workflow: WorkWorkflowWithStages,
-    /// Board-visible active stages and counts in workflow order.
-    pub active_stage_counts: Vec<WorkStageTaskCount>,
+    /// Board-visible stages and counts in workflow order.
+    pub board_stage_counts: Vec<WorkStageTaskCount>,
     /// Bounded recent active cards in Store connection order.
     pub recent_tasks: WorkTaskConnection,
     /// Total active cards requiring human attention in the same scope.

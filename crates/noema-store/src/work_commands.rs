@@ -149,8 +149,6 @@ fn command_meta(command: &WorkCommand) -> &noema_tasks::CommandMeta {
         WorkCommand::QueueTask(input) => &input.meta,
         WorkCommand::AnswerTask(input) => &input.meta,
         WorkCommand::RetryTask(input) => &input.meta,
-        WorkCommand::AcceptTask(input) => &input.meta,
-        WorkCommand::RequestTaskChanges(input) => &input.meta,
         WorkCommand::CancelTask(input) => &input.meta,
         WorkCommand::ReopenTask(input) => &input.meta,
         WorkCommand::CreateProject(input) => &input.meta,
@@ -177,8 +175,6 @@ async fn execute_normalized_command(
         | WorkCommand::ReopenProject(_) => projects::execute(service, &command).await,
         WorkCommand::AnswerTask(_)
         | WorkCommand::RetryTask(_)
-        | WorkCommand::AcceptTask(_)
-        | WorkCommand::RequestTaskChanges(_)
         | WorkCommand::CancelTask(_)
         | WorkCommand::ReopenTask(_) => human::execute(service, &command).await,
         _ => tasks::execute(service, &command).await,

@@ -25,7 +25,7 @@ pub(crate) fn load_task(
                     description_markdown, source_kind, source_conversation_id, source_turn_id,
                     source_item_id, source_tool_call_id, created_by_actor_id, generation, revision,
                     current_contract_id, active_gate_id, latest_run_id, latest_submission_id,
-                    latest_review_id, accepted_submission_id, queued_at, created_at, updated_at,
+                    latest_review_id, completed_submission_id, queued_at, created_at, updated_at,
                     completed_at, cancelled_at
              FROM tasks WHERE task_id = ?1 LIMIT 1",
             [task_id.as_str()],
@@ -68,7 +68,7 @@ pub(crate) fn decode_task_record(row: &Row<'_>) -> rusqlite::Result<noema_tasks:
         latest_run_id: row.get(17)?,
         latest_submission_id: row.get(18)?,
         latest_review_id: row.get(19)?,
-        accepted_submission_id: row.get(20)?,
+        completed_submission_id: row.get(20)?,
         queued_at: row.get(21)?,
         created_at: row.get(22)?,
         updated_at: row.get(23)?,
@@ -321,34 +321,25 @@ pub(crate) fn validate_current_links(
 pub(super) fn derive_attention_actions(
     behavior: WorkflowStageBehavior,
     gate: Option<&TaskGateRecord>,
-    approved_review: Option<bool>,
 ) -> (Option<WorkTaskAttention>, Vec<WorkTaskValidAction>) {
     use WorkTaskValidAction as A;
-    let attention = match (behavior, gate.map(|gate| gate.kind), approved_review) {
-        (WorkflowStageBehavior::HumanGate, Some(TaskGateKind::Clarification), _) => {
+    let attention = match (behavior, gate.map(|gate| gate.kind)) {
+        (WorkflowStageBehavior::HumanGate, Some(TaskGateKind::Clarification)) => {
             Some(WorkTaskAttention::Clarification)
         }
-        (WorkflowStageBehavior::HumanGate, Some(TaskGateKind::Approval), _) => {
+        (WorkflowStageBehavior::HumanGate, Some(TaskGateKind::Approval)) => {
             Some(WorkTaskAttention::Approval)
         }
-        (WorkflowStageBehavior::HumanGate, Some(TaskGateKind::Recovery), _) => {
+        (WorkflowStageBehavior::HumanGate, Some(TaskGateKind::Recovery)) => {
             Some(WorkTaskAttention::Recovery)
-        }
-        (WorkflowStageBehavior::Acceptance, _, Some(true)) => {
-            Some(WorkTaskAttention::ReadyForAcceptance)
         }
         _ => None,
     };
     let actions = match behavior {
         WorkflowStageBehavior::Intake => vec![A::Edit, A::Queue, A::Cancel],
         WorkflowStageBehavior::Dispatch | WorkflowStageBehavior::Active => vec![A::Cancel],
-        WorkflowStageBehavior::Acceptance if approved_review == Some(true) => {
-            vec![A::Accept, A::RequestChanges, A::Cancel]
-        }
-        WorkflowStageBehavior::Acceptance => vec![A::Cancel],
-        WorkflowStageBehavior::TerminalSuccess | WorkflowStageBehavior::TerminalCancelled => {
-            vec![A::Reopen]
-        }
+        WorkflowStageBehavior::TerminalSuccess => vec![A::Reopen],
+        WorkflowStageBehavior::TerminalCancelled => vec![A::Reopen],
         WorkflowStageBehavior::HumanGate => gate.map_or_else(Vec::new, recovery_actions),
     };
     (attention, actions)

@@ -16,8 +16,6 @@ pub const PERSONAL_DOING_STAGE_ID: &str = "stage:personal:doing";
 pub const PERSONAL_WAITING_STAGE_ID: &str = "stage:personal:waiting";
 /// Seeded Personal Done stage identity.
 pub const PERSONAL_DONE_STAGE_ID: &str = "stage:personal:done";
-/// Seeded Personal Archive stage identity.
-pub const PERSONAL_ARCHIVE_STAGE_ID: &str = "stage:personal:archive";
 /// Seeded Personal Cancelled stage identity.
 pub const PERSONAL_CANCELLED_STAGE_ID: &str = "stage:personal:cancelled";
 
@@ -32,9 +30,7 @@ pub enum WorkflowStageBehavior, "workflow_stage_behavior" {
     Active => "active",
     /// A human gate is open.
     HumanGate => "human_gate",
-    /// A reviewer-approved result awaits human acceptance.
-    Acceptance => "acceptance",
-    /// Human accepted the result.
+    /// An approved result completed successfully.
     TerminalSuccess => "terminal_success",
     /// Human cancelled the task.
     TerminalCancelled => "terminal_cancelled",
@@ -48,10 +44,10 @@ impl WorkflowStageBehavior {
         matches!(self, Self::TerminalSuccess | Self::TerminalCancelled)
     }
 
-    /// Whether this stage appears in the active five-column board.
+    /// Whether this stage appears on the board.
     #[must_use]
     pub const fn board_visible(self) -> bool {
-        !self.is_terminal()
+        !matches!(self, Self::TerminalCancelled)
     }
 }
 
@@ -137,7 +133,7 @@ impl WorkflowStage {
         if self.board_visible != self.system_behavior.board_visible() {
             return Err(WorkDomainError::InvalidInput {
                 field: "workflow_stage.board_visible",
-                message: "terminal stages are history-only and other stages are board-visible"
+                message: "cancelled history is hidden from the board and other stages are visible"
                     .to_string(),
             });
         }
@@ -156,7 +152,7 @@ impl WorkflowStage {
     }
 }
 
-/// Return the seven fixed Personal stage definitions in ordinal order.
+/// Return the six fixed Personal stage definitions in ordinal order.
 #[must_use]
 pub fn personal_stages() -> Vec<WorkflowStage> {
     let workflow_id = WorkflowId::new(PERSONAL_WORKFLOW_ID).expect("fixed workflow id");
@@ -166,9 +162,8 @@ pub fn personal_stages() -> Vec<WorkflowStage> {
         (PERSONAL_QUEUE_STAGE_ID, "queue", "Queue", 20, WorkflowStageBehavior::Dispatch),
         (PERSONAL_DOING_STAGE_ID, "doing", "Doing", 30, WorkflowStageBehavior::Active),
         (PERSONAL_WAITING_STAGE_ID, "waiting", "Waiting", 40, WorkflowStageBehavior::HumanGate),
-        (PERSONAL_DONE_STAGE_ID, "done", "Done", 50, WorkflowStageBehavior::Acceptance),
-        (PERSONAL_ARCHIVE_STAGE_ID, "archive", "Archive", 60, WorkflowStageBehavior::TerminalSuccess),
-        (PERSONAL_CANCELLED_STAGE_ID, "cancelled", "Cancelled", 70, WorkflowStageBehavior::TerminalCancelled),
+        (PERSONAL_DONE_STAGE_ID, "done", "Done", 50, WorkflowStageBehavior::TerminalSuccess),
+        (PERSONAL_CANCELLED_STAGE_ID, "cancelled", "Cancelled", 60, WorkflowStageBehavior::TerminalCancelled),
     ];
     definitions
         .into_iter()

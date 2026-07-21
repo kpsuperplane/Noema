@@ -28,7 +28,7 @@ const statusMeta: Record<TaskStatus, TaskStatusMeta> = {
   reviewing: { label: "Reviewing", variant: "warning", icon: <CircleDot {...iconProps} /> },
   revision_requested: { label: "Revising", variant: "warning", icon: <RotateCcw {...iconProps} /> },
   waiting_for_human: { label: "Needs you", variant: "warning", icon: <UserRound {...iconProps} /> },
-  archived: { label: "Archived", variant: "success", icon: <Check {...iconProps} /> },
+  done: { label: "Done", variant: "success", icon: <Check {...iconProps} /> },
   failed: { label: "Failed", variant: "error", icon: <AlertCircle {...iconProps} /> },
   cancelled: { label: "Cancelled", variant: "neutral", icon: <X {...iconProps} /> }
 };
@@ -65,7 +65,6 @@ export function TaskStatusBadge({
 function stageStatusLabel(behavior?: TaskStageBehavior): string | null {
   switch (behavior) {
     case "INTAKE": return "Inbox";
-    case "ACCEPTANCE": return "Needs acceptance";
     default: return null;
   }
 }

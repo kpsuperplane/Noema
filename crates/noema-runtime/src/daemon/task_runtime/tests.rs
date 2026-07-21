@@ -13,8 +13,8 @@ use noema_providers::{
 };
 use noema_store::WorkCommandService;
 use noema_tasks::{
-    CancelTask, CaptureTask, CommandMeta, QueueTask, ReopenTask, RunStatus, TaskPrecondition,
-    TaskProvenance, TaskSourceKind, WorkCommand,
+    CancelTask, CaptureTask, CommandMeta, QueueTask, ReopenTask, RunStatus, TaskContractAmendment,
+    TaskPrecondition, TaskProvenance, TaskSourceKind, WorkCommand,
 };
 use noema_workspaces::WorkspaceId;
 use tokio::sync::mpsc;
@@ -377,15 +377,21 @@ async fn cancelled_run_stays_excluded_until_its_provider_future_fully_settles() 
         .execute(WorkCommand::ReopenTask(ReopenTask {
             meta: command_meta("reopen-overlap"),
             precondition: precondition(&cancelled),
+            amendment: TaskContractAmendment {
+                feedback_markdown: "Try again after the prior run settles.".to_string(),
+                request_markdown: None,
+                replacement_criteria: None,
+                complexity: None,
+            },
         }))
         .await
         .expect("reopen task")
         .task
         .expect("reopened task");
-    service
-        .execute(queue_command("queue-overlap", &reopened))
-        .await
-        .expect("queue successor");
+    assert_eq!(
+        reopened.stage_id.as_str(),
+        noema_tasks::PERSONAL_QUEUE_STAGE_ID
+    );
     publish_task(&subscriptions, &task.task_id);
     let successor = tokio::time::timeout(Duration::from_secs(2), async {
         loop {

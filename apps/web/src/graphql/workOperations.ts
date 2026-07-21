@@ -50,7 +50,7 @@ export const WorkOverviewDocument = gql`
           ...WorkStageFields
         }
       }
-      activeColumns {
+      boardColumns {
         stage {
           ...WorkStageFields
         }
@@ -145,9 +145,9 @@ export const WorkActivityDocument = gql`
   ${WorkPageInfoFields}
 `;
 
-export const WorkArchiveTasksDocument = gql`
-  query WorkArchiveTasks($workspaceId: String!, $projectId: String, $kind: TerminalTaskKind, $text: String, $first: Int = 50, $after: String) {
-    archiveTasks(workspaceId: $workspaceId, projectId: $projectId, kind: $kind, text: $text, first: $first, after: $after) {
+export const WorkTaskHistoryDocument = gql`
+  query WorkTaskHistory($workspaceId: String!, $projectId: String, $kind: TerminalTaskKind, $text: String, $first: Int = 50, $after: String) {
+    taskHistory(workspaceId: $workspaceId, projectId: $projectId, kind: $kind, text: $text, first: $first, after: $after) {
       edges {
         cursor
         node {
@@ -376,20 +376,6 @@ export const WorkAnswerTaskDocument = gql`
 export const WorkRetryTaskDocument = gql`
   mutation WorkRetryTask($input: RetryTaskInput!) {
     retryTask(input: $input) { task { ...WorkCommandTaskFields } eventCursor clientMutationId }
-  }
-  ${WorkCommandTaskFields}
-`;
-
-export const WorkAcceptTaskDocument = gql`
-  mutation WorkAcceptTask($input: AcceptTaskInput!) {
-    acceptTask(input: $input) { task { ...WorkCommandTaskFields } eventCursor clientMutationId }
-  }
-  ${WorkCommandTaskFields}
-`;
-
-export const WorkRequestTaskChangesDocument = gql`
-  mutation WorkRequestTaskChanges($input: RequestTaskChangesInput!) {
-    requestTaskChanges(input: $input) { task { ...WorkCommandTaskFields } eventCursor clientMutationId }
   }
   ${WorkCommandTaskFields}
 `;

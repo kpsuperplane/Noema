@@ -1,12 +1,10 @@
 import * as React from "react";
 import { useMutation } from "@apollo/client/react";
 import {
-  WorkAcceptTaskDocument,
   WorkAnswerTaskDocument,
   WorkCancelTaskDocument,
   WorkQueueTaskDocument,
   WorkReopenTaskDocument,
-  WorkRequestTaskChangesDocument,
   WorkRetryTaskDocument,
   WorkUpdateInboxTaskDocument
 } from "@/generated/graphql";
@@ -41,8 +39,6 @@ export function useTaskCommands({
   const [queue] = useMutation(WorkQueueTaskDocument);
   const [answer] = useMutation(WorkAnswerTaskDocument);
   const [retry] = useMutation(WorkRetryTaskDocument);
-  const [accept] = useMutation(WorkAcceptTaskDocument);
-  const [requestChanges] = useMutation(WorkRequestTaskChangesDocument);
   const [cancel] = useMutation(WorkCancelTaskDocument);
   const [reopen] = useMutation(WorkReopenTaskDocument);
   const [updateInbox] = useMutation(WorkUpdateInboxTaskDocument);
@@ -101,21 +97,13 @@ export function useTaskCommands({
               }
             });
             break;
-          case "ACCEPT":
-            await accept({ variables: { input: base } });
-            break;
-          case "REQUEST_CHANGES":
-            await requestChanges({
-              variables: {
-                input: { ...base, feedbackMarkdown: requiredMessage(draft.message) }
-              }
-            });
-            break;
           case "CANCEL":
             await cancel({ variables: { input: { ...base, reason: draft.message || null } } });
             break;
           case "REOPEN":
-            await reopen({ variables: { input: base } });
+            await reopen({
+              variables: { input: { ...base, feedbackMarkdown: requiredMessage(draft.message) } }
+            });
             break;
           default:
             return;
@@ -145,7 +133,7 @@ export function useTaskCommands({
         setBusy(null);
       }
     },
-    [accept, answer, busy, cancel, onUpdated, queue, reopen, requestChanges, requiresAcknowledgement, retry, task, updateInbox]
+    [answer, busy, cancel, onUpdated, queue, reopen, requiresAcknowledgement, retry, task, updateInbox]
   );
 
   const acknowledge = React.useCallback(() => {
@@ -181,10 +169,8 @@ function actionNotice(action: string): string {
     QUEUE: "Task queued.",
     ANSWER: "Answer sent.",
     RETRY: "Retry requested.",
-    ACCEPT: "Result accepted.",
-    REQUEST_CHANGES: "Changes requested.",
     CANCEL: "Task cancelled.",
-    REOPEN: "Task reopened in Inbox."
+    REOPEN: "Task reopened in Queue."
   };
   return labels[action] ?? "Task updated.";
 }

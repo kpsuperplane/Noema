@@ -4,14 +4,13 @@ export type TaskStatus =
   | "reviewing"
   | "revision_requested"
   | "waiting_for_human"
-  | "archived"
+  | "done"
   | "failed"
   | "cancelled";
 
 export type TaskComplexity = "simple" | "medium" | "difficult";
 
 export type TaskStageBehavior =
-  | "ACCEPTANCE"
   | "ACTIVE"
   | "DISPATCH"
   | "HUMAN_GATE"
@@ -38,8 +37,7 @@ export type TaskReviewVerdict = "approve" | "request_changes" | "needs_human";
 export type TaskAttentionKind =
   | "CLARIFICATION_REQUIRED"
   | "APPROVAL_REQUIRED"
-  | "RECOVERY_REQUIRED"
-  | "REVIEW_READY";
+  | "RECOVERY_REQUIRED";
 
 export type TaskModelSnapshot = {
   providerDisplayName?: string | null;

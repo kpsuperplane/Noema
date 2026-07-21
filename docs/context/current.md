@@ -166,14 +166,16 @@ subagents, reviews, and size measurement.
 - `tasks.stage_id` is the workflow-state authority. Current run, gate, review,
   attention, and completion labels are derived projections, not parallel
   status fields.
-- The seven stage behaviors are Intake, Dispatch, Active, HumanGate,
-  Acceptance, TerminalSuccess, and TerminalCancelled.
+- The six stage behaviors are Intake, Dispatch, Active, HumanGate,
+  TerminalSuccess, and TerminalCancelled. Done is terminal success and remains
+  board-visible; there is no separate task Archive stage.
 - Semantic commands are revision- and generation-fenced, idempotent SQLite
   transactions. State updates, audit events, required notifications, and
   command receipts commit together.
 - Planner, Executor, and Reviewer runs are bounded and supervised. Human gates,
-  contracts, submissions, reviews, cancellation, retry, acceptance, and
-  request-changes preserve generation and lease authority.
+  contracts, submissions, reviews, cancellation, retry, and reopen preserve
+  generation and lease authority. Reviewer approval completes a task directly;
+  Reopen requires new human direction and queues a fresh generation.
 - The global `work_events` ledger is an audit and invalidation surface. Do not
   turn it into a second state authority or add replay infrastructure without a
   concrete runtime requirement.

@@ -1,6 +1,6 @@
 //! Bounded, batch-hydrated task connection reads.
 
-use noema_tasks::{TaskReviewVerdict, WorkflowStageBehavior};
+use noema_tasks::WorkflowStageBehavior;
 use rusqlite::{Transaction, params};
 
 use super::{
@@ -35,7 +35,7 @@ const TASK_COLUMNS: &str = "
     task.latest_run_id,
     task.latest_submission_id,
     task.latest_review_id,
-    task.accepted_submission_id,
+    task.completed_submission_id,
     task.queued_at,
     task.created_at,
     task.updated_at,
@@ -206,18 +206,6 @@ pub(crate) fn load_connection(
                       AND gate.task_generation = task.generation
                       AND gate.gate_state = 'open'
                 ))
-                OR
-                (stage.system_behavior = 'acceptance' AND EXISTS (
-                    SELECT 1
-                    FROM task_reviews review
-                    JOIN task_submissions submission
-                      ON submission.submission_id = task.latest_submission_id
-                    WHERE review.review_id = task.latest_review_id
-                      AND review.task_id = task.task_id
-                      AND review.contract_id = task.current_contract_id
-                      AND review.reviewed_submission_id = submission.submission_id
-                      AND review.overall_verdict = 'approve'
-                ))
            ))
            AND {scope_predicate}
            AND {cursor_predicate}
@@ -356,16 +344,8 @@ fn task_edge(
         active_gate.as_ref(),
         latest_review.as_ref(),
     )?;
-    let approved_review = latest_review.as_ref().map(|review| {
-        review.overall_verdict == TaskReviewVerdict::Approve
-            && row.task.latest_submission_id.as_deref()
-                == Some(review.reviewed_submission_id.as_str())
-    });
-    let (attention, valid_actions) = derive_attention_actions(
-        row.stage.system_behavior,
-        active_gate.as_ref(),
-        approved_review,
-    );
+    let (attention, valid_actions) =
+        derive_attention_actions(row.stage.system_behavior, active_gate.as_ref());
     let cursor = if query.scope == WorkTaskScope::Terminal {
         WorkTaskCursor::terminal(
             query.query_hash.clone(),
@@ -436,7 +416,7 @@ fn validate_lifecycle(
         WorkflowStageBehavior::TerminalSuccess => {
             task.completed_at.is_some()
                 && task.cancelled_at.is_none()
-                && task.accepted_submission_id.is_some()
+                && task.completed_submission_id.is_some()
         }
         WorkflowStageBehavior::TerminalCancelled => {
             task.completed_at.is_none() && task.cancelled_at.is_some()

@@ -44,12 +44,10 @@ string_enum! {
         RunStarted => "run_started",
         GateOpened => "gate_opened",
         GateResolved => "gate_resolved",
-        ReviewReady => "review_ready",
-        Accepted => "accepted",
+        Completed => "completed",
         Cancelled => "cancelled",
         Reopened => "reopened",
         Recovery => "recovery",
-        RequestChanges => "request_changes",
     }
 
 
@@ -91,9 +89,8 @@ string_enum! {
     pub enum NotificationKind, "event.notification.kind" {
         TaskCreated => "task_created",
         TaskWaiting => "task_waiting",
-        TaskReviewReady => "task_review_ready",
         TaskRecovery => "task_recovery",
-        TaskAccepted => "task_accepted",
+        TaskCompleted => "task_completed",
     }
 
 
@@ -273,7 +270,7 @@ event_payload_schema! {
     task_stage_changed(revision: u64, generation: u64, from_stage_id: WorkflowStageId, to_stage_id: WorkflowStageId, reason: TaskStageChangeReason) => TaskStageChanged;
     task_cancelled(revision: u64, generation: u64, reason_present: bool) => TaskCancelled;
     task_reopened(revision: u64, generation: u64, stage_id: WorkflowStageId) => TaskReopened;
-    task_accepted(revision: u64, generation: u64, submission_id: String, review_id: String) => TaskAccepted;
+    task_completed(revision: u64, generation: u64, submission_id: String, review_id: String) => TaskCompleted;
     contract_created(contract_id: TaskContractId, version: u32, generation: u64, origin: ContractOrigin, complexity: TaskComplexity, criteria_count: u32, supersedes_contract_id: Option<TaskContractId>) => ContractCreated;
     gate_opened(gate_id: TaskGateId, generation: u64, gate_kind: TaskGateKind, originating_run_id: Option<String>, recovery_reason: Option<TaskRecoveryReason>, retry_run_kind: Option<RunKind>) => GateOpened;
     gate_resolved(gate_id: TaskGateId, generation: u64, gate_kind: TaskGateKind, message_id: TaskMessageId, resolution_kind: GateResolutionKind) => GateResolved;

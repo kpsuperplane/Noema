@@ -1,27 +1,33 @@
+//! Reopen completed or cancelled tasks with required new human direction.
+
 use std::str::FromStr;
 
 use noema_tasks::{
     ContractOrigin, NewTaskValidationCriterion, PERSONAL_DONE_STAGE_ID, PERSONAL_QUEUE_STAGE_ID,
-    RequestTaskChanges, RunKind, TaskComplexity, TaskMessageKind, WorkCommand, WorkDomainError,
+    ReopenTask, RunKind, TaskComplexity, TaskMessageKind, WorkCommand, WorkDomainError,
     WorkEventPayload, WorkflowStageBehavior, WorkflowStageId,
 };
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{OptionalExtension, Transaction, params};
 
 use super::{WorkCommandService, helpers, validation};
 use crate::{StoreError, ids::allocate_id, work_events::append_work_event_tx};
 
 pub(super) async fn execute(
     service: &WorkCommandService,
-    command: &RequestTaskChanges,
+    command: &ReopenTask,
 ) -> Result<helpers::CommandWrite, StoreError> {
-    let envelope = WorkCommand::RequestTaskChanges(command.clone());
+    let envelope = WorkCommand::ReopenTask(command.clone());
     let task_id = command.precondition.task_id.clone();
     let write = service.store.with_immediate_transaction_retry(|transaction| {
         if let Some(replay) = helpers::lookup_receipt_tx(transaction, &envelope)? {
             return Ok(replay);
         }
         let task = helpers::load_fenced_task_tx(transaction, &command.precondition)?;
-        if task.stage_behavior != WorkflowStageBehavior::Acceptance || task.active_gate_id.is_some() {
+        if task.stage_behavior == WorkflowStageBehavior::TerminalCancelled {
+            let write = reopen_cancelled_tx(transaction, service, command, task)?;
+            return helpers::finish_write_tx(transaction, &envelope, write);
+        }
+        if task.stage_behavior != WorkflowStageBehavior::TerminalSuccess || task.active_gate_id.is_some() {
             return Err(StoreError::Work(WorkDomainError::InvalidTransition));
         }
         let current_contract_id = task.current_contract_id.clone().ok_or(StoreError::Work(WorkDomainError::ReviewNotApproved))?;
@@ -110,12 +116,13 @@ pub(super) async fn execute(
             params![message_id.as_str(), task_id.as_str(), next_generation, contract_id.as_str(), review_id, command.amendment.feedback_markdown, command.meta.actor_id],
         )?;
         transaction.execute(
-            "UPDATE tasks SET generation = ?2, revision = ?3, stage_id = ?4, current_contract_id = ?5, active_gate_id = NULL, latest_run_id = NULL, latest_submission_id = NULL, latest_review_id = NULL, accepted_submission_id = NULL, queued_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), completed_at = NULL, cancelled_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND generation = ?6 AND revision = ?7",
+            "UPDATE tasks SET generation = ?2, revision = ?3, stage_id = ?4, current_contract_id = ?5, active_gate_id = NULL, latest_run_id = NULL, latest_submission_id = NULL, latest_review_id = NULL, completed_submission_id = NULL, queued_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), completed_at = NULL, cancelled_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND generation = ?6 AND revision = ?7",
             params![task_id.as_str(), next_generation, next_revision, PERSONAL_QUEUE_STAGE_ID, contract_id.as_str(), task.generation, task.revision],
         )?;
         let _message_event = append_work_event_tx(transaction, helpers::event_context(&command.meta).task_scope(&next_task, None), WorkEventPayload::task_message_appended(message_id, next_generation, TaskMessageKind::HumanChangeRequest, None, Some(contract_id.clone())).map_err(StoreError::Work)?)?;
+        let _reopened_event = append_work_event_tx(transaction, helpers::event_context(&command.meta).task_scope(&next_task, None), WorkEventPayload::task_reopened(next_revision, next_generation, next_task.stage_id.clone()).map_err(StoreError::Work)?)?;
         let _queued_event = append_work_event_tx(transaction, helpers::event_context(&command.meta).task_scope(&next_task, None), WorkEventPayload::task_queued(next_revision, next_generation, Some(contract_id.clone()), RunKind::Executor).map_err(StoreError::Work)?)?;
-        let _stage_event = append_work_event_tx(transaction, helpers::event_context(&command.meta).task_scope(&next_task, None), WorkEventPayload::task_stage_changed(next_revision, next_generation, WorkflowStageId::new(PERSONAL_DONE_STAGE_ID).map_err(StoreError::Work)?, next_task.stage_id.clone(), noema_tasks::TaskStageChangeReason::RequestChanges).map_err(StoreError::Work)?)?;
+        let _stage_event = append_work_event_tx(transaction, helpers::event_context(&command.meta).task_scope(&next_task, None), WorkEventPayload::task_stage_changed(next_revision, next_generation, WorkflowStageId::new(PERSONAL_DONE_STAGE_ID).map_err(StoreError::Work)?, next_task.stage_id.clone(), noema_tasks::TaskStageChangeReason::Reopened).map_err(StoreError::Work)?)?;
         let (run_id, run_event) = helpers::queue_run_tx(
             transaction,
             service.provider_registry.as_ref(),
@@ -139,4 +146,98 @@ pub(super) async fn execute(
         )
     }).await?;
     Ok(write)
+}
+
+fn reopen_cancelled_tx(
+    transaction: &Transaction<'_>,
+    service: &WorkCommandService,
+    command: &ReopenTask,
+    task: helpers::TaskState,
+) -> Result<helpers::CommandWrite, StoreError> {
+    if command.amendment.request_markdown.is_some()
+        || command.amendment.replacement_criteria.is_some()
+        || command.amendment.complexity.is_some()
+    {
+        return Err(StoreError::Work(WorkDomainError::InvalidInput {
+            field: "task.reopen",
+            message: "cancelled tasks support additional direction only".to_string(),
+        }));
+    }
+    let next_generation = helpers::increment(task.generation, "task.generation")?;
+    let next_revision = helpers::increment(task.revision, "task.revision")?;
+    let from_stage = task.stage_id.clone();
+    let mut next_task = task.clone();
+    next_task.generation = next_generation;
+    next_task.revision = next_revision;
+    next_task.stage_id = WorkflowStageId::new(PERSONAL_QUEUE_STAGE_ID).map_err(StoreError::Work)?;
+    next_task.stage_behavior = WorkflowStageBehavior::Dispatch;
+    next_task.current_contract_id = None;
+    next_task.active_gate_id = None;
+    next_task.latest_run_id = None;
+    next_task.latest_submission_id = None;
+    next_task.latest_review_id = None;
+    let message_id =
+        noema_tasks::TaskMessageId::new(allocate_id("task_message")).map_err(StoreError::Work)?;
+    transaction.execute(
+        "INSERT INTO task_messages (message_id, task_id, task_generation, message_kind, body_markdown, author_actor_id) VALUES (?1, ?2, ?3, 'human_change_request', ?4, ?5)",
+        params![message_id.as_str(), task.task_id.as_str(), next_generation, command.amendment.feedback_markdown, command.meta.actor_id],
+    )?;
+    transaction.execute(
+        "UPDATE tasks SET generation = ?2, revision = ?3, stage_id = ?4, current_contract_id = NULL, active_gate_id = NULL, latest_run_id = NULL, latest_submission_id = NULL, latest_review_id = NULL, completed_submission_id = NULL, queued_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), completed_at = NULL, cancelled_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND generation = ?5 AND revision = ?6",
+        params![task.task_id.as_str(), next_generation, next_revision, PERSONAL_QUEUE_STAGE_ID, task.generation, task.revision],
+    )?;
+    let event_context = helpers::event_context(&command.meta);
+    let _message_event = append_work_event_tx(
+        transaction,
+        event_context.task_scope(&next_task, None),
+        WorkEventPayload::task_message_appended(
+            message_id,
+            next_generation,
+            TaskMessageKind::HumanChangeRequest,
+            None,
+            None,
+        )
+        .map_err(StoreError::Work)?,
+    )?;
+    let _reopened_event = append_work_event_tx(
+        transaction,
+        event_context.task_scope(&next_task, None),
+        WorkEventPayload::task_reopened(next_revision, next_generation, next_task.stage_id.clone())
+            .map_err(StoreError::Work)?,
+    )?;
+    let _queued_event = append_work_event_tx(
+        transaction,
+        event_context.task_scope(&next_task, None),
+        WorkEventPayload::task_queued(next_revision, next_generation, None, RunKind::Planner)
+            .map_err(StoreError::Work)?,
+    )?;
+    let _stage_event = append_work_event_tx(
+        transaction,
+        event_context.task_scope(&next_task, None),
+        WorkEventPayload::task_stage_changed(
+            next_revision,
+            next_generation,
+            from_stage,
+            next_task.stage_id.clone(),
+            noema_tasks::TaskStageChangeReason::Reopened,
+        )
+        .map_err(StoreError::Work)?,
+    )?;
+    let (run_id, run_event) = helpers::queue_run_tx(
+        transaction,
+        service.provider_registry.as_ref(),
+        &next_task,
+        helpers::QueueRun {
+            run_kind: RunKind::Planner,
+            contract_id: None,
+            planner_complexity: None,
+            review_round: 0,
+            attempt_index: 0,
+            parent_run_id: None,
+            triggering_submission_id: None,
+            triggering_review_id: None,
+            event: event_context,
+        },
+    )?;
+    Ok(helpers::task_write(run_event, task.task_id).run(Some(run_id)))
 }

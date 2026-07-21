@@ -26,7 +26,7 @@ pub(crate) struct LoadedWorkTask {
     pub(crate) current_run: Option<AgentRunRecord>,
     pub(crate) active_gate: Option<TaskGateRecord>,
     pub(crate) latest_submission: Option<TaskSubmissionRecord>,
-    pub(crate) accepted_submission: Option<TaskSubmissionRecord>,
+    pub(crate) completed_submission: Option<TaskSubmissionRecord>,
     pub(crate) latest_review: Option<TaskReviewRecord>,
 }
 
@@ -91,8 +91,8 @@ pub(crate) fn load_task_facts(
         .as_deref()
         .map(|id| load_submission(transaction, id, &expected_criteria))
         .transpose()?;
-    let accepted_submission = task
-        .accepted_submission_id
+    let completed_submission = task
+        .completed_submission_id
         .as_deref()
         .map(|id| load_submission(transaction, id, &expected_criteria))
         .transpose()?;
@@ -132,7 +132,7 @@ pub(crate) fn load_task_facts(
         current_run,
         active_gate,
         latest_submission,
-        accepted_submission,
+        completed_submission,
         latest_review,
     }))
 }
@@ -143,15 +143,8 @@ impl LoadedWorkTask {
         history: WorkTaskHistory,
         artifacts: Vec<crate::WorkTaskArtifact>,
     ) -> WorkTaskDetail {
-        let approved_review = self
-            .latest_review
-            .as_ref()
-            .map(|review| review.overall_verdict == noema_tasks::TaskReviewVerdict::Approve);
-        let (attention, valid_actions) = derive_attention_actions(
-            self.stage.system_behavior,
-            self.active_gate.as_ref(),
-            approved_review,
-        );
+        let (attention, valid_actions) =
+            derive_attention_actions(self.stage.system_behavior, self.active_gate.as_ref());
         WorkTaskDetail {
             task: self.task,
             workspace: self.workspace,
@@ -161,7 +154,7 @@ impl LoadedWorkTask {
             current_run: self.current_run,
             active_gate: self.active_gate,
             latest_submission: self.latest_submission,
-            accepted_submission: self.accepted_submission,
+            completed_submission: self.completed_submission,
             latest_review: self.latest_review,
             messages: history.messages,
             runs: history.runs,

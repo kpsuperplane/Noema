@@ -1,9 +1,8 @@
 use async_graphql::Result;
 use noema_tasks::{
-    AcceptTask, AnswerTask, ArchiveProject, CancelTask, CaptureTask, CreateProject,
-    ProjectPrecondition, QueueTask, ReopenProject, ReopenTask, RequestTaskChanges, RetryTask,
-    TaskContractAmendment, TaskGateId, TaskProvenance, TaskSourceKind, UpdateInboxTask,
-    UpdateProject, WorkCommand,
+    AnswerTask, ArchiveProject, CancelTask, CaptureTask, CreateProject, ProjectPrecondition,
+    QueueTask, ReopenProject, ReopenTask, RetryTask, TaskContractAmendment, TaskGateId,
+    TaskProvenance, TaskSourceKind, UpdateInboxTask, UpdateProject, WorkCommand,
 };
 
 use super::*;
@@ -270,17 +269,9 @@ fenced_task_mutation! {
     }
 }
 
-simple_task_mutation!(
-    /// Accept a reviewed task through the semantic command service.
-    accept_task,
-    GraphqlAcceptTaskInput,
-    AcceptTask,
-    AcceptTask
-);
-
 fenced_task_mutation! {
-    /// Request a changed result through the semantic command service.
-    request_task_changes(GraphqlRequestTaskChangesInput, input) {
+    /// Reopen a completed task with new direction.
+    reopen_task(GraphqlReopenTaskInput, input) {
         prepare {
             let replacement_criteria = input
                 .replacement_criteria
@@ -298,7 +289,7 @@ fenced_task_mutation! {
                 complexity: input.complexity.map(Into::into),
             }
         }
-        command |meta, precondition| WorkCommand::RequestTaskChanges(RequestTaskChanges { meta, precondition, amendment })
+        command |meta, precondition| WorkCommand::ReopenTask(ReopenTask { meta, precondition, amendment })
     }
 }
 
@@ -309,11 +300,3 @@ fenced_task_mutation! {
         command |meta, precondition| WorkCommand::CancelTask(CancelTask { meta, precondition, reason: input.reason })
     }
 }
-
-simple_task_mutation!(
-    /// Reopen terminal task history through the semantic command service.
-    reopen_task,
-    GraphqlReopenTaskInput,
-    ReopenTask,
-    ReopenTask
-);

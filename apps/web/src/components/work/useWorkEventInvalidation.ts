@@ -3,7 +3,7 @@ import type { ApolloClient } from "@apollo/client";
 import type { DocumentNode } from "graphql";
 import {
   WorkActivityDocument,
-  WorkArchiveTasksDocument,
+  WorkTaskHistoryDocument,
   WorkNeedsYouDocument,
   WorkOverviewDocument,
   WorkTasksDocument,
@@ -58,7 +58,7 @@ function documentsForView(view: WorkView): readonly DocumentNode[] {
       return [WorkNeedsYouDocument, PendingGovernedActionsDocument];
     case "activity":
       return [WorkActivityDocument];
-    case "archive":
-      return [WorkArchiveTasksDocument];
+    case "history":
+      return [WorkTaskHistoryDocument];
   }
 }

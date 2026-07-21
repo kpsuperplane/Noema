@@ -10,10 +10,9 @@ use noema_store::{
 };
 use noema_tasks::{
     AnswerTask, ArchiveProject, CancelTask, CaptureTask, CommandMeta, CreateProject,
-    DelegateExecutionIntent, DelegateTask, QueueTask, ReopenProject, ReopenTask,
-    RequestTaskChanges, RetryTask, TaskContractAmendment, TaskGateAnswer, TaskGateId, TaskId,
-    TaskPrecondition, TaskProvenance, TaskSourceKind, UpdateInboxTask, UpdateProject, WorkCommand,
-    WorkflowStageBehavior,
+    DelegateExecutionIntent, DelegateTask, QueueTask, ReopenProject, ReopenTask, RetryTask,
+    TaskContractAmendment, TaskGateAnswer, TaskGateId, TaskId, TaskPrecondition, TaskProvenance,
+    TaskSourceKind, UpdateInboxTask, UpdateProject, WorkCommand, WorkflowStageBehavior,
 };
 use noema_workspaces::{ProjectId, WorkspaceId};
 use serde::de::DeserializeOwned;
@@ -21,14 +20,13 @@ use serde_json::{Value, json};
 
 use super::{
     PROJECT_ARCHIVE_TOOL, PROJECT_CREATE_TOOL, PROJECT_LIST_TOOL, PROJECT_REOPEN_TOOL,
-    PROJECT_UPDATE_TOOL, TASK_ACCEPT_TOOL, TASK_ANSWER_TOOL, TASK_CANCEL_TOOL, TASK_CAPTURE_TOOL,
-    TASK_DELEGATE_TOOL, TASK_LIST_TOOL, TASK_QUEUE_TOOL, TASK_REOPEN_TOOL,
-    TASK_REQUEST_CHANGES_TOOL, TASK_RETRY_TOOL, TASK_UPDATE_TOOL, TaskDelegateRuntimeContext,
-    TaskToolResult,
+    PROJECT_UPDATE_TOOL, TASK_ANSWER_TOOL, TASK_CANCEL_TOOL, TASK_CAPTURE_TOOL, TASK_DELEGATE_TOOL,
+    TASK_LIST_TOOL, TASK_QUEUE_TOOL, TASK_REOPEN_TOOL, TASK_RETRY_TOOL, TASK_UPDATE_TOOL,
+    TaskDelegateRuntimeContext, TaskToolResult,
     catalog::{
         CancelArguments, CaptureArguments, DelegateArguments, DelegateProjectArguments,
         GateArguments, ProjectCreateArguments, ProjectPreconditionArguments,
-        ProjectUpdateArguments, RequestChangesArguments, RetryArguments, TaskPreconditionArguments,
+        ProjectUpdateArguments, ReopenArguments, RetryArguments, TaskPreconditionArguments,
         UpdateArguments,
     },
 };
@@ -268,29 +266,6 @@ async fn execute_primary_inner(
                 })
             )
         }
-        TASK_ACCEPT_TOOL => {
-            execute_command!(service, args, input: TaskPreconditionArguments =>
-                WorkCommand::AcceptTask(noema_tasks::AcceptTask {
-                    meta: meta(call_id.clone()),
-                    precondition: task_precondition(&input)?,
-                })
-            )
-        }
-        TASK_REQUEST_CHANGES_TOOL => {
-            execute_command!(service, args, input: RequestChangesArguments => {
-                let replacement_criteria = input.replacement_criteria.map(criteria).transpose()?;
-                WorkCommand::RequestTaskChanges(RequestTaskChanges {
-                    meta: meta(call_id.clone()),
-                    precondition: task_precondition(&input.precondition)?,
-                    amendment: TaskContractAmendment {
-                        feedback_markdown: input.feedback_markdown,
-                        request_markdown: input.request_markdown,
-                        replacement_criteria,
-                        complexity: input.complexity,
-                    },
-                })
-            })
-        }
         TASK_CANCEL_TOOL => {
             execute_command!(service, args, input: CancelArguments =>
                 WorkCommand::CancelTask(CancelTask {
@@ -301,12 +276,19 @@ async fn execute_primary_inner(
             )
         }
         TASK_REOPEN_TOOL => {
-            execute_command!(service, args, input: TaskPreconditionArguments =>
+            execute_command!(service, args, input: ReopenArguments => {
+                let replacement_criteria = input.replacement_criteria.map(criteria).transpose()?;
                 WorkCommand::ReopenTask(ReopenTask {
                     meta: meta(call_id.clone()),
-                    precondition: task_precondition(&input)?,
+                    precondition: task_precondition(&input.precondition)?,
+                    amendment: TaskContractAmendment {
+                        feedback_markdown: input.feedback_markdown,
+                        request_markdown: input.request_markdown,
+                        replacement_criteria,
+                        complexity: input.complexity,
+                    },
                 })
-            )
+            })
         }
         PROJECT_CREATE_TOOL => {
             execute_command!(service, args, input: ProjectCreateArguments =>

@@ -232,12 +232,12 @@ pub(in crate::graphql) async fn work_activity(
         .and_then(event_connection)
 }
 
-/// Resolve archived task history with a stable kind filter.
+/// Resolve Done and Cancelled task history with a stable kind filter.
 #[allow(
     clippy::too_many_arguments,
     reason = "mirrors the GraphQL field contract"
 )]
-pub(in crate::graphql) async fn archive_tasks(
+pub(in crate::graphql) async fn task_history(
     state: &GraphqlState,
     principal_subject: &str,
     workspace_id: String,
@@ -249,7 +249,7 @@ pub(in crate::graphql) async fn archive_tasks(
 ) -> Result<GraphqlTaskConnection> {
     require_owner(principal_subject)?;
     let stage_behaviors = match kind {
-        GraphqlTerminalTaskKind::Accepted => {
+        GraphqlTerminalTaskKind::Completed => {
             vec![noema_tasks::WorkflowStageBehavior::TerminalSuccess]
         }
         GraphqlTerminalTaskKind::Cancelled => {

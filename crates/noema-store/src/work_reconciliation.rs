@@ -122,11 +122,9 @@ impl WorkCommandService {
             .store
             .with_immediate_transaction_retry(|transaction| {
                 request.validate().map_err(StoreError::Work)?;
-                let facts = crate::work_reads::task::load_task_facts(
-                    transaction,
-                    &request.task_id,
-                )?
-                .ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))?;
+                let facts =
+                    crate::work_reads::task::load_task_facts(transaction, &request.task_id)?
+                        .ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))?;
                 let envelope = snapshot::derive_envelope(transaction, facts)?;
                 let action = plan_work_reconciliation(&envelope)?;
                 action
@@ -137,7 +135,8 @@ impl WorkCommandService {
                     WorkReconciliationAction::Idle => latest_task_marker(transaction, &task),
                     WorkReconciliationAction::QueueRun { run_kind }
                     | WorkReconciliationAction::MoveToQueueAndQueueRun { run_kind } => {
-                        if let Some(marker) = already_queued_run_tx(transaction, &task, *run_kind)? {
+                        if let Some(marker) = already_queued_run_tx(transaction, &task, *run_kind)?
+                        {
                             return capture_snapshot(transaction, marker);
                         }
                         if matches!(action, WorkReconciliationAction::QueueRun { .. }) {
@@ -159,36 +158,31 @@ impl WorkCommandService {
                         }
                     }
                     WorkReconciliationAction::MoveToDone => {
-                        if task.stage_behavior == WorkflowStageBehavior::Acceptance {
-                            let approved = if let Some(review_id) = task.latest_review_id.as_deref()
-                            {
-                                let verdict = transaction
-                                    .query_row(
-                                    "SELECT overall_verdict FROM task_reviews WHERE review_id = ?1 AND task_id = ?2 AND contract_id = ?3",
-                                    params![review_id, task.task_id.as_str(), task.current_contract_id.as_ref().map(ToString::to_string)],
-                                    |row| row.get::<_, String>(0),
-                                )
-                                    .optional()?
-                                    .ok_or_else(|| StoreError::InvariantViolation {
-                                        message: format!(
-                                            "task {} points at a missing current review",
-                                            task.task_id
-                                        ),
-                                    })?;
-                                noema_tasks::TaskReviewVerdict::from_str(&verdict)
-                                    .map_err(StoreError::Work)?
-                                    == noema_tasks::TaskReviewVerdict::Approve
-                            } else {
-                                false
-                            };
-                            if approved {
-                                return capture_snapshot(
-                                    transaction,
-                                    latest_task_marker(transaction, &task)?,
-                                );
+                        let review_id = task.latest_review_id.clone().ok_or_else(|| {
+                            StoreError::InvariantViolation {
+                                message: format!("task {} has no approved review", task.task_id),
                             }
-                        }
-                        move_to_review_tx(transaction, &mut task, &request)
+                        })?;
+                        let submission_id = task.latest_submission_id.clone().ok_or_else(|| {
+                            StoreError::InvariantViolation {
+                                message: format!(
+                                    "task {} has no reviewed submission",
+                                    task.task_id
+                                ),
+                            }
+                        })?;
+                        helpers::complete_review_tx(
+                            transaction,
+                            &mut task,
+                            &review_id,
+                            &submission_id,
+                            helpers::CommandEventContext {
+                                actor_id: &request.actor_id,
+                                causation_id: request.causation_id.as_deref(),
+                                correlation_id: &request.correlation_id,
+                            },
+                            None,
+                        )
                     }
                     WorkReconciliationAction::OpenRecoveryGate {
                         reason,
@@ -284,56 +278,6 @@ fn already_queued_run_tx(
         .optional()?
         .ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))?;
     Ok(Some(task_write(event, task).run(Some(run_id))))
-}
-
-fn move_to_review_tx(
-    transaction: &Transaction<'_>,
-    task: &mut helpers::TaskState,
-    request: &ApplyReconciliation,
-) -> Result<helpers::CommandWrite, StoreError> {
-    if task.stage_behavior != WorkflowStageBehavior::Active {
-        return Err(StoreError::Work(WorkDomainError::InvalidTransition));
-    }
-    let revision = helpers::increment(task.revision, "task.revision")?;
-    let changed = transaction.execute(
-        "UPDATE tasks SET stage_id = 'stage:personal:done', queued_at = NULL, revision = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND generation = ?3 AND revision = ?4",
-        params![task.task_id.as_str(), revision, task.generation, task.revision],
-    )?;
-    if changed != 1 {
-        return Err(StoreError::Work(WorkDomainError::StaleRevision));
-    }
-    let from_stage = task.stage_id.clone();
-    task.stage_id = WorkflowStageId::new("stage:personal:done").map_err(StoreError::Work)?;
-    task.stage_behavior = WorkflowStageBehavior::Acceptance;
-    task.revision = revision;
-    let event = append_work_event_tx(
-        transaction,
-        request.scope(task, None),
-        WorkEventPayload::task_stage_changed(
-            revision,
-            task.generation,
-            from_stage,
-            task.stage_id.clone(),
-            noema_tasks::TaskStageChangeReason::ReviewReady,
-        )
-        .map_err(StoreError::Work)?,
-    )?;
-    let mut event = event;
-    if let Some(review_id) = task.latest_review_id.as_deref()
-        && let Some(notification_event) = enqueue_work_notification_tx(
-            transaction,
-            &event,
-            noema_tasks::NotificationKind::TaskReviewReady,
-            &serde_json::json!({
-                "task_id": task.task_id.as_str(),
-                "review_id": review_id,
-                "action_needed": true,
-            }),
-        )?
-    {
-        event = notification_event;
-    }
-    Ok(task_write(event, task).run(task.latest_run_id.clone()))
 }
 
 fn open_recovery_gate_tx(

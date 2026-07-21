@@ -394,14 +394,8 @@ fn publish_conversation_item(
 }
 
 fn should_narrate(kind: NotificationKind, payload: Option<&Value>) -> bool {
-    match kind.as_str() {
-        "task_created" => false,
-        "task_accepted" => payload
-            .and_then(|payload| payload.get("auto_accepted"))
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
-        _ => true,
-    }
+    let _ = payload;
+    kind != NotificationKind::TaskCreated
 }
 
 fn referenced_submission<'a>(
@@ -434,7 +428,7 @@ fn submission_with_id<'a>(
                 .filter(|submission| submission.submission_id == submission_id)
         })
         .or_else(|| {
-            task.accepted_submission
+            task.completed_submission
                 .as_ref()
                 .filter(|submission| submission.submission_id == submission_id)
         })
@@ -532,10 +526,7 @@ fn build_notification_prompt(
 
 fn notification_instruction(kind: NotificationKind) -> Option<&'static str> {
     match kind.as_str() {
-        "task_review_ready" => Some(
-            "The result is ready. Summarize what was delivered and ask whether the human wants to accept it or request changes.",
-        ),
-        "task_accepted" => Some(
+        "task_completed" => Some(
             "The background task completed successfully. Tell the human what was delivered and point them to useful artifacts when appropriate.",
         ),
         "task_waiting" | "task_recovery" => Some(
@@ -550,29 +541,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn narration_policy_leaves_creation_and_manual_acceptance_structured() {
+    fn narration_policy_leaves_creation_structured() {
         assert!(!should_narrate(NotificationKind::TaskCreated, None));
-        assert!(!should_narrate(
-            NotificationKind::TaskAccepted,
-            Some(&json!({"auto_accepted": false}))
-        ));
     }
 
     #[test]
-    fn narration_policy_reports_auto_acceptance_and_human_attention() {
-        assert!(should_narrate(
-            NotificationKind::TaskAccepted,
-            Some(&json!({"auto_accepted": true}))
-        ));
+    fn narration_policy_reports_completion_and_human_attention() {
+        assert!(should_narrate(NotificationKind::TaskCompleted, None));
         assert!(should_narrate(NotificationKind::TaskWaiting, None));
         assert!(should_narrate(NotificationKind::TaskRecovery, None));
-        assert!(should_narrate(NotificationKind::TaskReviewReady, None));
-
-        let review_ready = notification_instruction(NotificationKind::TaskReviewReady)
-            .expect("review-ready narration instruction");
-        assert!(review_ready.contains("The result is ready"));
-        assert!(!review_ready.contains("review"));
-        assert!(!review_ready.contains("approved"));
+        assert!(
+            notification_instruction(NotificationKind::TaskCompleted)
+                .expect("completion narration instruction")
+                .contains("completed successfully")
+        );
     }
 
     #[test]

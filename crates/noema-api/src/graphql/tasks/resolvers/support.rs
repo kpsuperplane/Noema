@@ -72,8 +72,6 @@ pub(crate) fn command_task_id(command: &WorkCommand) -> Option<TaskId> {
         WorkCommand::QueueTask(value) => Some(value.precondition.task_id.clone()),
         WorkCommand::AnswerTask(value) => Some(value.precondition.task_id.clone()),
         WorkCommand::RetryTask(value) => Some(value.precondition.task_id.clone()),
-        WorkCommand::AcceptTask(value) => Some(value.precondition.task_id.clone()),
-        WorkCommand::RequestTaskChanges(value) => Some(value.precondition.task_id.clone()),
         WorkCommand::CancelTask(value) => Some(value.precondition.task_id.clone()),
         WorkCommand::ReopenTask(value) => Some(value.precondition.task_id.clone()),
         WorkCommand::CaptureTask(_)

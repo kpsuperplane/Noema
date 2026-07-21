@@ -82,7 +82,7 @@ pub struct TaskRecord {
     pub latest_run_id: Option<String>,
     pub latest_submission_id: Option<String>,
     pub latest_review_id: Option<String>,
-    pub accepted_submission_id: Option<String>,
+    pub completed_submission_id: Option<String>,
     pub queued_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,

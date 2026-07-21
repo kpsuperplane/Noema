@@ -33,7 +33,7 @@ pub enum WorkDomainError {
     /// An operation cannot proceed while a gate remains open.
     #[error("the task gate is unresolved")]
     GateUnresolved,
-    /// Acceptance lacked a complete approving review.
+    /// Completion or reopen lacked a complete approving review.
     #[error("the latest review is not approved")]
     ReviewNotApproved,
     /// Another automated review round would exceed the configured bound.

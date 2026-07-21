@@ -1,6 +1,6 @@
 import type {
   WorkActivityQuery,
-  WorkArchiveTasksQuery,
+  WorkTaskHistoryQuery,
   WorkNeedsYouQuery,
   WorkOverviewQuery,
   WorkProjectsQuery,
@@ -11,11 +11,11 @@ import type {
 
 export const PERSONAL_WORKSPACE_ID = "workspace:personal";
 
-export type WorkView = "board" | "list" | "needs-you" | "activity" | "archive";
+export type WorkView = "board" | "list" | "needs-you" | "activity" | "history";
 export type WorkProject = WorkProjectsQuery["projects"]["edges"][number]["node"];
 export type WorkOverview = WorkOverviewQuery["workOverview"];
 export type WorkTask = WorkTasksQuery["workTasks"]["edges"][number]["node"];
-export type ArchiveWorkTask = WorkArchiveTasksQuery["archiveTasks"]["edges"][number]["node"];
+export type HistoryWorkTask = WorkTaskHistoryQuery["taskHistory"]["edges"][number]["node"];
 export type WorkAttention = WorkNeedsYouQuery["needsYou"]["edges"][number]["node"];
 export type WorkEvent = WorkActivityQuery["workActivity"]["edges"][number]["node"];
 export type WorkTaskDetail = NonNullable<WorkTaskDetailQuery["task"]>;
@@ -26,7 +26,7 @@ export type WorkSearch = {
   view: WorkView;
   project?: string;
   q?: string;
-  terminal?: "all" | "accepted" | "cancelled";
+  terminal?: "all" | "completed" | "cancelled";
 };
 
 export function normalizeWorkSearch(search: Record<string, unknown>): WorkSearch {
@@ -34,7 +34,7 @@ export function normalizeWorkSearch(search: Record<string, unknown>): WorkSearch
   const project = normalizedText(search.project);
   const q = normalizedText(search.q);
   const terminal =
-    search.terminal === "accepted" || search.terminal === "cancelled"
+    search.terminal === "completed" || search.terminal === "cancelled"
       ? search.terminal
       : "all";
   return { view, project, q, terminal };
@@ -46,7 +46,7 @@ function isWorkView(value: unknown): value is WorkView {
     value === "list" ||
     value === "needs-you" ||
     value === "activity" ||
-    value === "archive"
+    value === "history"
   );
 }
 

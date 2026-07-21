@@ -424,8 +424,8 @@ CREATE TABLE workflow_stages (
   display_name TEXT NOT NULL CHECK (trim(display_name) <> ''),
   ordinal INTEGER NOT NULL CHECK (ordinal >= 1),
   system_behavior TEXT NOT NULL CHECK (system_behavior IN (
-    'intake', 'dispatch', 'active', 'human_gate', 'acceptance',
-    'terminal_success', 'terminal_cancelled'
+    'intake', 'dispatch', 'active', 'human_gate', 'terminal_success',
+    'terminal_cancelled'
   )),
   board_visible INTEGER NOT NULL CHECK (board_visible IN (0, 1)),
   UNIQUE (workflow_id, stage_id),
@@ -433,9 +433,9 @@ CREATE TABLE workflow_stages (
   UNIQUE (workflow_id, ordinal),
   UNIQUE (workflow_id, system_behavior),
   CHECK (
-    (system_behavior IN ('terminal_success', 'terminal_cancelled') AND board_visible = 0)
+    (system_behavior = 'terminal_cancelled' AND board_visible = 0)
     OR
-    (system_behavior NOT IN ('terminal_success', 'terminal_cancelled') AND board_visible = 1)
+    (system_behavior != 'terminal_cancelled' AND board_visible = 1)
   ),
   FOREIGN KEY (workflow_id) REFERENCES workflow_definitions(workflow_id) ON DELETE RESTRICT
 );
@@ -466,7 +466,7 @@ CREATE TABLE tasks (
   latest_run_id TEXT,
   latest_submission_id TEXT,
   latest_review_id TEXT,
-  accepted_submission_id TEXT,
+  completed_submission_id TEXT,
   queued_at TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
@@ -921,7 +921,7 @@ CREATE TABLE work_notification_outbox (
   destination_kind TEXT NOT NULL CHECK (destination_kind = 'human_primary_conversation'),
   destination_id TEXT NOT NULL CHECK (trim(destination_id) <> ''),
   notification_kind TEXT NOT NULL CHECK (notification_kind IN (
-    'task_created', 'task_waiting', 'task_review_ready', 'task_recovery', 'task_accepted'
+    'task_created', 'task_waiting', 'task_recovery', 'task_completed'
   )),
   payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'leased', 'delivered', 'failed')),
@@ -1093,9 +1093,8 @@ INSERT INTO workflow_stages (
   ('stage:personal:queue',     'workflow:personal:default', 'queue',     'Queue',     20, 'dispatch',           1),
   ('stage:personal:doing',     'workflow:personal:default', 'doing',     'Doing',     30, 'active',             1),
   ('stage:personal:waiting',   'workflow:personal:default', 'waiting',   'Waiting',   40, 'human_gate',         1),
-  ('stage:personal:done',      'workflow:personal:default', 'done',      'Done',      50, 'acceptance',         1),
-  ('stage:personal:archive',   'workflow:personal:default', 'archive',   'Archive',   60, 'terminal_success',   0),
-  ('stage:personal:cancelled', 'workflow:personal:default', 'cancelled', 'Cancelled', 70, 'terminal_cancelled', 0)
+  ('stage:personal:done',      'workflow:personal:default', 'done',      'Done',      50, 'terminal_success',   1),
+  ('stage:personal:cancelled', 'workflow:personal:default', 'cancelled', 'Cancelled', 60, 'terminal_cancelled', 0)
 ON CONFLICT (stage_id) DO NOTHING;
 
 INSERT INTO task_execution_policy (

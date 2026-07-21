@@ -17,28 +17,6 @@ type A2UiCard {
 }
 
 """
-Accept an approved task result.
-"""
-input AcceptTaskInput {
-	"""
-	Task target.
-	"""
-	taskId: String!
-	"""
-	Expected current revision.
-	"""
-	expectedRevision: Int!
-	"""
-	Expected execution generation.
-	"""
-	expectedGeneration: Int!
-	"""
-	Caller idempotency key.
-	"""
-	clientMutationId: String!
-}
-
-"""
 Governed-action reviewer model settings.
 """
 type ActionReviewerSettings {
@@ -1877,19 +1855,11 @@ type MutationRoot {
 	"""
 	retryTask(input: RetryTaskInput!): TaskCommandPayload!
 	"""
-	Accept a reviewer-approved task result.
-	"""
-	acceptTask(input: AcceptTaskInput!): TaskCommandPayload!
-	"""
-	Request changes to an approved result.
-	"""
-	requestTaskChanges(input: RequestTaskChangesInput!): TaskCommandPayload!
-	"""
 	Cancel a nonterminal task.
 	"""
 	cancelTask(input: CancelTaskInput!): TaskCommandPayload!
 	"""
-	Reopen terminal task history into Inbox.
+	Reopen a completed task into Queue with new direction.
 	"""
 	reopenTask(input: ReopenTaskInput!): TaskCommandPayload!
 	"""
@@ -2479,9 +2449,9 @@ type QueryRoot {
 	"""
 	workActivity(workspaceId: String!, projectId: String, taskId: String, first: Int, after: String): WorkEventConnection!
 	"""
-	Return archived/cancelled task history through the terminal scope.
+	Return Done and Cancelled task history through the terminal scope.
 	"""
-	archiveTasks(workspaceId: String!, projectId: String, kind: TerminalTaskKind, text: String, first: Int, after: String): TaskConnection!
+	taskHistory(workspaceId: String!, projectId: String, kind: TerminalTaskKind, text: String, first: Int, after: String): TaskConnection!
 	"""
 	Return a newest-page, owner-authorized task-run transcript connection.
 	"""
@@ -2610,31 +2580,9 @@ input ReopenProjectInput {
 }
 
 """
-Reopen terminal task history.
+Reopen a completed task with new direction.
 """
 input ReopenTaskInput {
-	"""
-	Task target.
-	"""
-	taskId: String!
-	"""
-	Expected current revision.
-	"""
-	expectedRevision: Int!
-	"""
-	Expected execution generation.
-	"""
-	expectedGeneration: Int!
-	"""
-	Caller idempotency key.
-	"""
-	clientMutationId: String!
-}
-
-"""
-Human request for a changed result.
-"""
-input RequestTaskChangesInput {
 	"""
 	Task target.
 	"""
@@ -3051,10 +2999,6 @@ enum TaskAttentionKind {
 	Automated work requires a recovery choice.
 	"""
 	RECOVERY_REQUIRED
-	"""
-	A reviewed result is ready for acceptance.
-	"""
-	REVIEW_READY
 }
 
 """
@@ -3102,7 +3046,7 @@ type TaskCard {
 	"""
 	updatedAt: String!
 	"""
-	Acceptance timestamp, when any.
+	Completion timestamp, when any.
 	"""
 	completedAt: String
 	"""
@@ -3223,7 +3167,7 @@ type TaskDetail {
 	"""
 	updatedAt: String!
 	"""
-	Acceptance timestamp, when any.
+	Completion timestamp, when any.
 	"""
 	completedAt: String
 	"""
@@ -3247,9 +3191,9 @@ type TaskDetail {
 	"""
 	latestSubmission: TaskSubmission
 	"""
-	Human-accepted immutable result, keyed by the accepted submission.
+	Reviewer-approved immutable result that completed the task.
 	"""
-	acceptedResult: TaskSubmission
+	completedResult: TaskSubmission
 	"""
 	Latest immutable review.
 	"""
@@ -4141,7 +4085,7 @@ type TaskSummary {
 	"""
 	updatedAt: String!
 	"""
-	Acceptance timestamp, when any.
+	Completion timestamp, when any.
 	"""
 	completedAt: String
 	"""
@@ -4215,9 +4159,9 @@ Terminal history filter.
 """
 enum TerminalTaskKind {
 	"""
-	Accepted tasks only.
+	Completed tasks only.
 	"""
-	ACCEPTED
+	COMPLETED
 	"""
 	Cancelled tasks only.
 	"""
@@ -4466,14 +4410,6 @@ enum ValidTaskAction {
 	"""
 	RETRY
 	"""
-	Accept an approved result.
-	"""
-	ACCEPT
-	"""
-	Request changed work.
-	"""
-	REQUEST_CHANGES
-	"""
 	Cancel work.
 	"""
 	CANCEL
@@ -4630,9 +4566,9 @@ type WorkOverview {
 	"""
 	workflow: Workflow!
 	"""
-	Board-visible active columns in workflow order.
+	Board-visible columns in workflow order.
 	"""
-	activeColumns: [WorkStageColumn!]!
+	boardColumns: [WorkStageColumn!]!
 	"""
 	Bounded recent active task cards.
 	"""
@@ -4666,7 +4602,7 @@ enum WorkTaskScope {
 	"""
 	ACTIVE
 	"""
-	Archived and cancelled history.
+	Done and cancelled history.
 	"""
 	TERMINAL
 	"""
@@ -4778,11 +4714,7 @@ enum WorkflowStageBehavior {
 	"""
 	HUMAN_GATE
 	"""
-	A reviewer-approved result awaits acceptance.
-	"""
-	ACCEPTANCE
-	"""
-	Human-accepted terminal work.
+	Reviewer-approved terminal work.
 	"""
 	TERMINAL_SUCCESS
 	"""

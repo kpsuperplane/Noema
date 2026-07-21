@@ -109,7 +109,7 @@ graphql_object! { "One workflow-driven active board column and its authoritative
 graphql_object! { "Transactionally coherent board bootstrap projection." => pub struct GraphqlWorkOverview("WorkOverview") {
     "Authorized workspace metadata." => workspace: GraphqlWorkspace,
     "Default workflow and all ordered stages." => workflow: GraphqlWorkflow,
-    "Board-visible active columns in workflow order." => active_columns: Vec<GraphqlWorkStageColumn>,
+    "Board-visible columns in workflow order." => board_columns: Vec<GraphqlWorkStageColumn>,
     "Bounded recent active task cards." => recent_tasks: GraphqlTaskConnection,
     "Active cards requiring human attention." => needs_you_count: i64,
 } }

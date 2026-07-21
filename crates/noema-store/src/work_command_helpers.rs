@@ -6,8 +6,8 @@ use noema_providers::{
     ProviderInstanceKey, ProviderSelectionMode, ProviderSelectionSnapshot, ReasoningEffort,
 };
 use noema_tasks::{
-    CaptureTask, DelegateTask, PERSONAL_ARCHIVE_STAGE_ID, TaskContractId, TaskExecutionPolicy,
-    TaskId, TaskStageChangeReason, WorkCommand, WorkDomainError, WorkEventPayload, WorkEventRecord,
+    CaptureTask, DelegateTask, PERSONAL_DONE_STAGE_ID, TaskContractId, TaskExecutionPolicy, TaskId,
+    TaskStageChangeReason, WorkCommand, WorkDomainError, WorkEventPayload, WorkEventRecord,
     WorkflowStageBehavior, WorkflowStageId,
 };
 use noema_workspaces::{ProjectId, WorkspaceId};
@@ -135,32 +135,25 @@ pub(crate) fn event_context(meta: &noema_tasks::CommandMeta) -> CommandEventCont
 /// Complete a reviewer-approved submission and enqueue the owner notification.
 ///
 /// Callers must have already verified that the review is current and approved.
-/// Keeping the state mutation here gives manual acceptance and automatic
-/// acceptance one fenced transition and one notification shape.
-pub(crate) fn accept_review_tx(
+/// The approved review is the completion authority.
+pub(crate) fn complete_review_tx(
     transaction: &Transaction<'_>,
     task: &mut TaskState,
     review_id: &str,
     submission_id: &str,
     event: CommandEventContext<'_>,
     run_id: Option<&str>,
-    automatic: bool,
 ) -> Result<CommandWrite, StoreError> {
-    if task.active_gate_id.is_some()
-        || !matches!(
-            task.stage_behavior,
-            WorkflowStageBehavior::Active | WorkflowStageBehavior::Acceptance
-        )
-    {
+    if task.active_gate_id.is_some() || task.stage_behavior != WorkflowStageBehavior::Active {
         return Err(StoreError::Work(WorkDomainError::InvalidTransition));
     }
     let revision = increment(task.revision, "task.revision")?;
     let from_stage = task.stage_id.clone();
     let changed = transaction.execute(
-        "UPDATE tasks SET stage_id = ?2, accepted_submission_id = ?3, completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), queued_at = NULL, revision = ?4, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND revision = ?5 AND generation = ?6",
+        "UPDATE tasks SET stage_id = ?2, completed_submission_id = ?3, completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), queued_at = NULL, revision = ?4, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND revision = ?5 AND generation = ?6",
         params![
             task.task_id.as_str(),
-            PERSONAL_ARCHIVE_STAGE_ID,
+            PERSONAL_DONE_STAGE_ID,
             submission_id,
             revision,
             task.revision,
@@ -170,14 +163,14 @@ pub(crate) fn accept_review_tx(
     if changed != 1 {
         return Err(StoreError::Work(WorkDomainError::StaleRevision));
     }
-    task.stage_id = WorkflowStageId::new(PERSONAL_ARCHIVE_STAGE_ID).map_err(StoreError::Work)?;
+    task.stage_id = WorkflowStageId::new(PERSONAL_DONE_STAGE_ID).map_err(StoreError::Work)?;
     task.stage_behavior = WorkflowStageBehavior::TerminalSuccess;
     task.revision = revision;
     let scope = event.task_scope(task, run_id);
-    let _accepted_event = append_work_event_tx(
+    let _completed_event = append_work_event_tx(
         transaction,
         scope.clone(),
-        WorkEventPayload::task_accepted(
+        WorkEventPayload::task_completed(
             revision,
             task.generation,
             submission_id.to_string(),
@@ -193,19 +186,18 @@ pub(crate) fn accept_review_tx(
             task.generation,
             from_stage,
             task.stage_id.clone(),
-            TaskStageChangeReason::Accepted,
+            TaskStageChangeReason::Completed,
         )
         .map_err(StoreError::Work)?,
     )?;
     if let Some(notification_event) = enqueue_work_notification_tx(
         transaction,
         &event,
-        noema_tasks::NotificationKind::TaskAccepted,
+        noema_tasks::NotificationKind::TaskCompleted,
         &serde_json::json!({
             "task_id": task.task_id.as_str(),
             "submission_id": submission_id,
             "review_id": review_id,
-            "auto_accepted": automatic,
             "action_needed": false,
         }),
     )? {

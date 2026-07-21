@@ -16,7 +16,6 @@ pub(crate) fn summary_from_store(
         task.clone(),
         value.attention,
         value.active_gate.as_ref(),
-        value.latest_review.as_ref(),
         &value.valid_actions,
     )?;
     Ok(GraphqlTaskSummary { task, attention })
@@ -71,14 +70,13 @@ pub(crate) fn detail_from_store(value: WorkTaskDetail) -> async_graphql::Result<
         task,
         value.attention,
         value.active_gate.as_ref(),
-        value.latest_review.as_ref(),
         &value.valid_actions,
     )?;
     let current_contract = value.current_contract.map(TryInto::try_into).transpose()?;
     let current_gate = value.active_gate.map(TryInto::try_into).transpose()?;
     let current_run = value.current_run.map(Into::into);
     let latest_submission = value.latest_submission.map(Into::into);
-    let accepted_result = value.accepted_submission.map(Into::into);
+    let completed_result = value.completed_submission.map(Into::into);
     let latest_review = value.latest_review.map(Into::into);
     let messages = value.messages.into_iter().map(Into::into).collect();
     let runs = value
@@ -114,7 +112,7 @@ pub(crate) fn detail_from_store(value: WorkTaskDetail) -> async_graphql::Result<
         current_run,
         active_gate: current_gate,
         latest_submission,
-        accepted_result,
+        completed_result,
         latest_review,
         messages,
         runs,
@@ -209,8 +207,8 @@ pub(crate) fn overview_from_store(
         value.default_workflow.workflow,
         value.default_workflow.stages.clone(),
     );
-    let active_columns = value
-        .active_stage_counts
+    let board_columns = value
+        .board_stage_counts
         .into_iter()
         .map(|count| -> async_graphql::Result<_> {
             Ok(GraphqlWorkStageColumn {
@@ -222,7 +220,7 @@ pub(crate) fn overview_from_store(
     Ok(GraphqlWorkOverview {
         workspace: value.workspace.into(),
         workflow,
-        active_columns,
+        board_columns,
         recent_tasks: task_connection(value.recent_tasks)?,
         needs_you_count: exact_u64(value.needs_you_count)?,
     })
@@ -232,7 +230,6 @@ fn attention_projection(
     task: GraphqlTaskCard,
     attention: Option<noema_store::WorkTaskAttention>,
     gate: Option<&noema_tasks::TaskGateRecord>,
-    review: Option<&noema_tasks::TaskReviewRecord>,
     actions: &[noema_store::WorkTaskValidAction],
 ) -> async_graphql::Result<Option<GraphqlTaskAttention>> {
     let Some(attention) = attention else {
@@ -251,17 +248,13 @@ fn attention_projection(
             "Recovery decision required",
             gate.ok_or_else(unavailable)?.prompt_markdown.clone(),
         ),
-        noema_store::WorkTaskAttention::ReadyForAcceptance => (
-            "Done",
-            review.ok_or_else(unavailable)?.overall_feedback.clone(),
-        ),
     };
     Ok(Some(GraphqlTaskAttention {
         kind: attention.into(),
         title: title.to_string(),
         summary: preview(&summary, 400),
         gate: gate.cloned().map(TryInto::try_into).transpose()?,
-        review: review.cloned().map(Into::into),
+        review: None,
         task,
         valid_actions: actions.iter().copied().map(Into::into).collect(),
     }))

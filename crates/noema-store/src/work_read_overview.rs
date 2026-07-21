@@ -1,6 +1,6 @@
 //! Workflow and one-transaction board-bootstrap reads.
 
-use noema_tasks::{WorkflowDefinition, WorkflowId, WorkflowStageBehavior};
+use noema_tasks::{WorkflowDefinition, WorkflowId};
 use noema_workspaces::{ProjectId, WorkspaceId};
 use rusqlite::{Row, Transaction, params, types::Type};
 
@@ -54,7 +54,7 @@ impl NoemaStore {
             }
             let workflows = load_workflows(&transaction, &query.workspace_id)?;
             let default_workflow = one_default_workflow(workflows)?;
-            let active_stage_counts = load_stage_counts(
+            let board_stage_counts = load_stage_counts(
                 &transaction,
                 &query.workspace_id,
                 query.project_id.as_ref(),
@@ -79,7 +79,7 @@ impl NoemaStore {
             Ok(WorkOverview {
                 workspace,
                 default_workflow,
-                active_stage_counts,
+                board_stage_counts,
                 recent_tasks,
                 needs_you_count,
             })
@@ -189,7 +189,7 @@ fn load_stage_counts(
         "SELECT stage_id, COUNT(*) FROM tasks
          WHERE workspace_id = ?1 AND workflow_id = ?2
            AND (?3 IS NULL OR project_id = ?3)
-           AND completed_at IS NULL AND cancelled_at IS NULL
+           AND cancelled_at IS NULL
          GROUP BY stage_id",
     )?;
     let rows = statement.query_map(
@@ -204,14 +204,7 @@ fn load_stage_counts(
     workflow
         .stages
         .iter()
-        .filter(|stage| {
-            stage.board_visible
-                && !matches!(
-                    stage.system_behavior,
-                    WorkflowStageBehavior::TerminalSuccess
-                        | WorkflowStageBehavior::TerminalCancelled
-                )
-        })
+        .filter(|stage| stage.board_visible)
         .map(|stage| {
             let raw = counts.get(stage.stage_id.as_str()).copied().unwrap_or(0);
             Ok(WorkStageTaskCount {
@@ -239,14 +232,6 @@ fn load_needs_you_count(
                SELECT 1 FROM task_gates gate
                WHERE gate.gate_id = task.active_gate_id AND gate.task_id = task.task_id
                  AND gate.task_generation = task.generation AND gate.gate_state = 'open'
-             )) OR
-             (stage.system_behavior = 'acceptance' AND EXISTS (
-               SELECT 1 FROM task_reviews review
-               WHERE review.review_id = task.latest_review_id
-                 AND review.task_id = task.task_id
-                 AND review.contract_id = task.current_contract_id
-                 AND review.reviewed_submission_id = task.latest_submission_id
-                 AND review.overall_verdict = 'approve'
              ))
            )",
         params![workspace_id.as_str(), project_id.map(ProjectId::as_str)],

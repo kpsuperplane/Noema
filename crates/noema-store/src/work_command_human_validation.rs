@@ -1,4 +1,4 @@
-//! Transaction-local validation for human gate and acceptance decisions.
+//! Transaction-local validation for human gates and approved review lineage.
 
 use noema_tasks::{GateResolutionKind, WorkDomainError};
 use rusqlite::{OptionalExtension, Transaction, params};

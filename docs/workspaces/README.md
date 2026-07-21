@@ -9,7 +9,7 @@ the old horizontal program.
 ## Product boundary
 
 Work is Noema's durable system for capturing, organizing, executing, reviewing,
-and accepting tasks. Chat is the simplest entry point, while `/work` provides a
+and completing tasks. Chat is the simplest entry point, while `/work` provides a
 denser management surface. Both operate on the same task and semantic command
 model.
 
@@ -19,7 +19,7 @@ The current product has:
 - optional projects that organize tasks without changing their execution;
 - one canonical task object shared by chat, runtime, API, and UI;
 - planner, executor, and reviewer runs supervised by the runtime;
-- explicit human gates for clarification, approval, recovery, and acceptance;
+- explicit human gates for clarification, approval, and recovery;
 - immutable execution contracts, submissions, and reviews;
 - a monotonic event ledger for audit and client invalidation.
 
@@ -36,8 +36,8 @@ Each question has one authority:
 | Where is a task in the workflow? | `tasks.stage_id` |
 | What is an agent doing now? | Current `agent_runs.run_kind` and `agent_runs.status` |
 | What governs this attempt? | Current immutable `task_execution_contracts` generation |
-| Why does the human need to act? | The unresolved `task_gates` record, or an approved review awaiting acceptance |
-| What can be accepted? | The latest immutable submission and independent review |
+| Why does the human need to act? | The unresolved `task_gates` record |
+| What completed successfully? | The latest immutable submission and approving independent review |
 | What happened? | Monotonic `work_events` audit records |
 
 Attention labels, valid actions, completion labels, and board groupings are
@@ -47,7 +47,7 @@ authority.
 
 ## Workflow
 
-The Personal workflow maps seven fixed behaviors to user-facing stages:
+The Personal workflow maps six fixed behaviors to user-facing stages:
 
 | Stage | Behavior | Meaning |
 | --- | --- | --- |
@@ -55,12 +55,12 @@ The Personal workflow maps seven fixed behaviors to user-facing stages:
 | Queue | `Dispatch` | Authorized and waiting for the appropriate role |
 | Doing | `Active` | Planning, execution, or automated review is active |
 | Waiting | `HumanGate` | A structured human response is required |
-| Done | `Acceptance` | An approved result awaits human acceptance |
-| Archive | `TerminalSuccess` | The human accepted the result |
+| Done | `TerminalSuccess` | The reviewer approved the result |
 | Cancelled | `TerminalCancelled` | The human cancelled the task |
 
-Terminal stages are history-only. Stage behavior, rather than display text or
-English intent matching, controls transitions and available operations.
+Done remains visible on the board and in history; Cancelled is history-only.
+Stage behavior, rather than display text or English intent matching, controls
+transitions and available operations.
 
 The normal path is:
 
@@ -71,14 +71,14 @@ The normal path is:
 3. The accepted plan becomes a new immutable execution contract. An Executor
    produces a submission or opens a gate.
 4. A Reviewer independently evaluates the submission. Requested changes queue
-   another bounded execution attempt; approval moves the task to Done.
-5. The human accepts the reviewed result, requests a new contract generation,
-   or cancels the task.
+   another bounded execution attempt; approval completes the task in Done.
+5. The human may reopen Done with additional direction, which creates a new
+   contract generation and queues another bounded execution attempt.
 
 ## Commands and transactions
 
 Public mutations use semantic Work commands: capture, update Inbox, queue,
-answer, retry, accept, request changes, cancel, reopen, delegate, and the
+answer, retry, cancel, reopen, delegate, and the
 project create/update/archive/reopen operations. Do not expose a generic
 `set_stage` operation.
 
@@ -101,9 +101,10 @@ effects. API resolvers, runtime workers, and tools must not assemble these
 cross-table transitions themselves.
 
 Cancellation and reopen increment the generation so old runnable work cannot
-mutate the new task lifetime. Request changes also creates a new generation and
-an immutable amended contract. Answer and retry preserve the generation while
-resuming the role explicitly recorded by the gate.
+mutate the new task lifetime. Reopening Done creates an immutable amended
+contract from the completed contract plus the human's required direction;
+reopening Cancelled queues planning with that direction. Answer and retry
+preserve the generation while resuming the role explicitly recorded by the gate.
 
 ## Runs, gates, and reconciliation
 
@@ -124,7 +125,7 @@ retry is allowed. Free-form text does not decide gate semantics.
 
 Reconciliation derives one next action from durable facts. It may queue the
 role compatible with the current contract, materialize a completed plan, move
-an approved review to acceptance, resume a resolved gate, open a recovery gate,
+an approved review to terminal Done, resume a resolved gate, open a recovery gate,
 or fence stale runnable work. Contradictory state fails closed or opens an
 invariant-recovery gate; it does not guess from event text.
 
@@ -156,7 +157,7 @@ aggregate.
 
 Runtime queue claims use transactional leases. Expired or interrupted work is
 reconciled against current generation and durable outputs before retrying, so a
-crash cannot silently duplicate an accepted terminal effect.
+crash cannot silently duplicate a completed terminal effect.
 
 ## Runtime and tools
 
@@ -211,7 +212,7 @@ hidden provider reasoning is not rendered.
 The floating task-context card keeps an optional needs-input row and compact
 validation summary above the transcript. The info popover exposes compact
 metadata only; the validation row discloses individual criteria. An
-unresolved clarification, approval, recovery, permission, or acceptance
+unresolved clarification, approval, recovery, or permission
 action is attached to the needs-input row, keeping its prompt and controls
 visible until resolved; after resolution, the decision is represented by the
 chronological task stream. Recovery uses one response control: non-empty text

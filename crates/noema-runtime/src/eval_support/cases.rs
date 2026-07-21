@@ -574,7 +574,7 @@ fn fixture_work_context(
         latest_run_id: Some(run_id.clone()),
         latest_submission_id: latest_submission_id.clone(),
         latest_review_id: None,
-        accepted_submission_id: None,
+        completed_submission_id: None,
         queued_at: Some("2026-07-15T00:00:00Z".to_string()),
         created_at: "2026-07-15T00:00:00Z".to_string(),
         updated_at: "2026-07-15T00:00:01Z".to_string(),

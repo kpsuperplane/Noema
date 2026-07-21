@@ -141,14 +141,10 @@ work_commands! {
     AnswerTask => "task.answer", "Resolve a human gate." { meta: CommandMeta, precondition: TaskPrecondition, gate_id: TaskGateId, answer: TaskGateAnswer }
     /// Retry a supported Recovery gate, optionally adding a durable note.
     RetryTask => "task.retry", "Retry a Recovery gate." { meta: CommandMeta, precondition: TaskPrecondition, gate_id: TaskGateId, note: Option<String> }
-    /// Accept a reviewer-approved result and move the task to Archive.
-    AcceptTask => "task.accept", "Accept a reviewed result." { meta: CommandMeta, precondition: TaskPrecondition }
-    /// Human request for a changed result, creating a new contract generation.
-    RequestTaskChanges => "task.request_changes", "Request a new contract revision." { meta: CommandMeta, precondition: TaskPrecondition, amendment: TaskContractAmendment }
     /// Cancel any nonterminal task and fence its runnable work.
     CancelTask => "task.cancel", "Cancel active work." { meta: CommandMeta, precondition: TaskPrecondition, reason: Option<String> }
-    /// Reopen Archive/Cancelled history into a fresh Inbox generation.
-    ReopenTask => "task.reopen", "Reopen terminal history." { meta: CommandMeta, precondition: TaskPrecondition }
+    /// Reopen terminal history into a fresh queued generation with new direction.
+    ReopenTask => "task.reopen", "Reopen terminal history." { meta: CommandMeta, precondition: TaskPrecondition, amendment: TaskContractAmendment }
     /// Create an active project container.
     CreateProject => "project.create", "Create project." { meta: CommandMeta, workspace_id: WorkspaceId, name: String, description: String }
     /// Update an existing project name/description.
@@ -218,22 +214,14 @@ impl WorkCommand {
                 command.note = normalize_optional(command.note.as_deref());
                 Ok(Self::RetryTask(command))
             }
-            Self::AcceptTask(command) => {
-                command.precondition.validate()?;
-                Ok(Self::AcceptTask(command))
-            }
-            Self::RequestTaskChanges(mut command) => {
-                command.precondition.validate()?;
-                command.amendment = command.amendment.normalized()?;
-                Ok(Self::RequestTaskChanges(command))
-            }
             Self::CancelTask(mut command) => {
                 command.precondition.validate()?;
                 command.reason = normalize_optional(command.reason.as_deref());
                 Ok(Self::CancelTask(command))
             }
-            Self::ReopenTask(command) => {
+            Self::ReopenTask(mut command) => {
                 command.precondition.validate()?;
+                command.amendment = command.amendment.normalized()?;
                 Ok(Self::ReopenTask(command))
             }
             Self::CreateProject(mut command) => {

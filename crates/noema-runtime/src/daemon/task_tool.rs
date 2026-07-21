@@ -22,8 +22,6 @@ pub(crate) const TASK_QUEUE_TOOL: &str = "task.queue";
 pub(crate) const TASK_DELEGATE_TOOL: &str = "task.delegate";
 pub(crate) const TASK_ANSWER_TOOL: &str = "task.answer";
 pub(crate) const TASK_RETRY_TOOL: &str = "task.retry";
-pub(crate) const TASK_ACCEPT_TOOL: &str = "task.accept";
-pub(crate) const TASK_REQUEST_CHANGES_TOOL: &str = "task.request_changes";
 pub(crate) const TASK_CANCEL_TOOL: &str = "task.cancel";
 pub(crate) const TASK_REOPEN_TOOL: &str = "task.reopen";
 pub(crate) const PROJECT_CREATE_TOOL: &str = "project.create";
@@ -67,8 +65,6 @@ pub(crate) fn is_primary_task_tool(name: &str) -> bool {
             | TASK_DELEGATE_TOOL
             | TASK_ANSWER_TOOL
             | TASK_RETRY_TOOL
-            | TASK_ACCEPT_TOOL
-            | TASK_REQUEST_CHANGES_TOOL
             | TASK_CANCEL_TOOL
             | TASK_REOPEN_TOOL
             | PROJECT_CREATE_TOOL

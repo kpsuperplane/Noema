@@ -1,5 +1,5 @@
 use noema_tasks::{
-    RunKind, RunTerminalKind, TaskComplexity, TaskGateKind, TaskRecoveryReason, TaskReviewVerdict,
+    RunKind, RunTerminalKind, TaskGateKind, TaskRecoveryReason, TaskReviewVerdict,
     TaskStageChangeReason, WorkDomainError, WorkEventPayload, WorkflowStageBehavior,
     WorkflowStageId,
 };
@@ -7,10 +7,9 @@ use rusqlite::{OptionalExtension, Transaction, params};
 
 use super::super::SubmitTaskReview;
 use super::terminal_helpers::{
-    OpenGate, bump_task_to_review_tx, bump_task_to_waiting_tx, child_run_event_tx,
-    contract_criterion_ids_tx, insert_gate_tx, load_running_fence_tx,
-    load_terminal_run_identity_tx, mark_run_completed_tx, mark_run_waiting_tx,
-    notification_queued_event_for_run_tx, run_scope, task_contract_complexity_tx,
+    OpenGate, bump_task_to_waiting_tx, child_run_event_tx, contract_criterion_ids_tx,
+    insert_gate_tx, load_running_fence_tx, load_terminal_run_identity_tx, mark_run_completed_tx,
+    mark_run_waiting_tx, notification_queued_event_for_run_tx, run_scope,
     task_execution_policy_for_task, validate_namespace,
 };
 use crate::{
@@ -117,51 +116,20 @@ pub(super) fn submit_review_tx(
                 )
                 .map_err(StoreError::Work)?,
             )?;
-            if task_contract_complexity_tx(transaction, contract_id)? == TaskComplexity::Simple {
-                let mut write = helpers::accept_review_tx(
-                    transaction,
-                    &mut task,
-                    &persisted_review_id,
-                    &submission_id,
-                    helpers::CommandEventContext {
-                        actor_id,
-                        causation_id,
-                        correlation_id,
-                    },
-                    Some(&run.run_id),
-                    true,
-                )?;
-                write.run_id = Some(run.run_id);
-                return Ok(write);
-            }
-            let revision = bump_task_to_review_tx(transaction, &mut task)?;
-            let mut event = append_work_event_tx(
+            let mut write = helpers::complete_review_tx(
                 transaction,
-                run_scope(&task, (actor_id, causation_id, correlation_id), &run.run_id),
-                WorkEventPayload::task_stage_changed(
-                    revision,
-                    task.generation,
-                    WorkflowStageId::new("stage:personal:doing").map_err(StoreError::Work)?,
-                    task.stage_id.clone(),
-                    TaskStageChangeReason::ReviewReady,
-                )
-                .map_err(StoreError::Work)?,
+                &mut task,
+                &persisted_review_id,
+                &submission_id,
+                helpers::CommandEventContext {
+                    actor_id,
+                    causation_id,
+                    correlation_id,
+                },
+                Some(&run.run_id),
             )?;
-            if let Some(notification_event) = enqueue_work_notification_tx(
-                transaction,
-                &event,
-                noema_tasks::NotificationKind::TaskReviewReady,
-                &serde_json::json!({
-                    "task_id": task.task_id.as_str(),
-                    "review_id": persisted_review_id,
-                    "action_needed": true,
-                }),
-            )? {
-                event = notification_event;
-            }
-            Ok(helpers::task_write(event, task.task_id)
-                .contract(Some(contract_id.clone()))
-                .run(Some(run.run_id)))
+            write.run_id = Some(run.run_id);
+            Ok(write)
         }
         TaskReviewVerdict::RequestChanges => {
             mark_run_completed_tx(transaction, &run, &command.fence)?;
@@ -424,17 +392,11 @@ fn replay_review_branch_tx(
         })
     };
     match review.overall_verdict {
-        TaskReviewVerdict::Approve => {
-            let notification_kind =
-                if task_contract_complexity_tx(transaction, &review.contract_id)?
-                    == TaskComplexity::Simple
-                {
-                    noema_tasks::NotificationKind::TaskAccepted
-                } else {
-                    noema_tasks::NotificationKind::TaskReviewReady
-                };
-            Ok((notification(notification_kind)?, None, run.run_id.clone()))
-        }
+        TaskReviewVerdict::Approve => Ok((
+            notification(noema_tasks::NotificationKind::TaskCompleted)?,
+            None,
+            run.run_id.clone(),
+        )),
         TaskReviewVerdict::NeedsHuman => {
             let gate_id = replay_gate_id_tx(transaction, &run.run_id, task_id)?;
             Ok((
