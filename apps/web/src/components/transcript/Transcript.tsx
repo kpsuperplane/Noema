@@ -60,6 +60,7 @@ export function Transcript({
   onOpenDetail,
   density = "full",
   showActorAvatars = true,
+  collapseConsecutiveToolCalls = false,
   ariaLabel = "Conversation transcript"
 }: {
   entries: TranscriptEntry[];
@@ -77,11 +78,17 @@ export function Transcript({
   onOpenDetail?: (target: ChatDetailTarget) => void;
   density?: TranscriptDensity;
   showActorAvatars?: boolean;
+  collapseConsecutiveToolCalls?: boolean;
   ariaLabel?: string;
 }) {
   void awaitingAssistantTurn;
   const displayEntries = React.useMemo(() => collapseTaskReferenceEntries(entries), [entries]);
-  const renderedEntries = renderableTranscriptEntries(displayEntries, pending, agentStatus);
+  const renderedEntries = renderableTranscriptEntries(
+    displayEntries,
+    pending,
+    agentStatus,
+    collapseConsecutiveToolCalls
+  );
   const [seenArrivalMessageIds, setSeenArrivalMessageIds] = React.useState<ReadonlySet<string>>(() =>
     initialSeenArrivalMessageIds(renderedEntries)
   );
@@ -220,6 +227,21 @@ function renderTranscriptRenderEntry(
   followBottomRef: React.MutableRefObject<boolean>,
   onOpenDetail: ((target: ChatDetailTarget) => void) | undefined
 ) {
+  if (entry.kind === "tool_marker_group") {
+    const open = expandedActivities.has(entry.id);
+    return (
+      <TranscriptRow lane="assistant" reserveAvatarSpace={reserveAvatarSpace} showAvatar={showAvatar}>
+        <ToolMarker
+          data={{ kind: "tool_group", markers: entry.markers }}
+          expandedMarkers={expandedActivities}
+          onToggleMarker={onToggleActivity}
+          open={open}
+          onToggle={() => onToggleActivity(entry.id)}
+        />
+      </TranscriptRow>
+    );
+  }
+
   if (entry.kind === "tool_marker") {
     const open = expandedActivities.has(entry.id);
     return (

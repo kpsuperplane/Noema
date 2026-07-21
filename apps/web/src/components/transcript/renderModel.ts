@@ -8,6 +8,13 @@ export type ToolMarkerGroup = {
   result?: ActivityTranscriptEntry;
 };
 
+export type ToolMarkerCluster = {
+  id: string;
+  markers: ToolMarkerGroup[];
+  source?: TranscriptEntry["source"];
+  suppressArrival?: boolean;
+};
+
 export type RenderTranscriptEntry =
   | { kind: "entry"; id: string; entry: TranscriptEntry; suppressArrival?: boolean }
   | { kind: "typing"; id: string }
@@ -17,7 +24,8 @@ export type RenderTranscriptEntry =
       source?: TranscriptEntry["source"];
       marker: ToolMarkerGroup;
       suppressArrival?: boolean;
-    };
+    }
+  | ({ kind: "tool_marker_group" } & ToolMarkerCluster);
 
 export type TranscriptLane = "human" | "assistant";
 export type ChatBubbleGroup = "first" | "middle" | "last";
@@ -25,19 +33,24 @@ export type ChatBubbleGroup = "first" | "middle" | "last";
 type TranscriptEntryAnchorCandidate =
   | { kind: "entry"; entryType: TranscriptEntry["type"] }
   | { kind: "typing" }
-  | { kind: "tool_marker" };
+  | { kind: "tool_marker" }
+  | { kind: "tool_marker_group" };
 
 type RenderTranscriptLaneCandidate =
   | { kind: "entry"; entryType: TranscriptEntry["type"] }
   | { kind: "typing" }
-  | { kind: "tool_marker" };
+  | { kind: "tool_marker" }
+  | { kind: "tool_marker_group" };
 
 export function renderableTranscriptEntries(
   entries: TranscriptEntry[],
   pending: boolean,
-  agentStatus: ConversationAgentStatus
+  agentStatus: ConversationAgentStatus,
+  collapseConsecutiveToolCalls = false
 ): RenderTranscriptEntry[] {
-  const renderedEntries = groupTranscriptMarkers(entries);
+  const renderedEntries = collapseConsecutiveToolCalls
+    ? collapseConsecutiveToolMarkers(groupTranscriptMarkers(entries))
+    : groupTranscriptMarkers(entries);
   if (shouldShowTypingIndicator(entries, pending, agentStatus)) {
     renderedEntries.push({ kind: "typing", id: "typing-indicator" });
   }
@@ -73,6 +86,7 @@ export function shouldAnchorTranscriptEntry(entry: TranscriptEntryAnchorCandidat
     case "entry":
     case "typing":
     case "tool_marker":
+    case "tool_marker_group":
       return false;
   }
 }
@@ -234,7 +248,7 @@ function shouldAnimateRenderedEntryArrival(entry: RenderTranscriptEntry): boolea
   if (entry.kind === "entry" && entry.suppressArrival) {
     return false;
   }
-  if (entry.kind === "tool_marker" && entry.suppressArrival) {
+  if ((entry.kind === "tool_marker" || entry.kind === "tool_marker_group") && entry.suppressArrival) {
     return false;
   }
   if (entry.kind === "typing") {
@@ -263,7 +277,7 @@ function isTextTranscriptEntry(entry: TranscriptEntry): entry is Extract<Transcr
 }
 
 function isMarkerRenderEntry(entry: RenderTranscriptEntry): boolean {
-  return entry.kind === "tool_marker";
+  return entry.kind === "tool_marker" || entry.kind === "tool_marker_group";
 }
 
 function isTextMessageRenderEntry(entry: RenderTranscriptEntry): boolean {
@@ -390,6 +404,68 @@ function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEnt
   }
 
   return rendered;
+}
+
+function collapseConsecutiveToolMarkers(entries: RenderTranscriptEntry[]): RenderTranscriptEntry[] {
+  const collapsed: RenderTranscriptEntry[] = [];
+
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (entry.kind !== "tool_marker") {
+      collapsed.push(entry);
+      continue;
+    }
+
+    const markers = [entry];
+    while (true) {
+      const next = entries[index + 1];
+      if (next?.kind !== "tool_marker" || !sameToolMarkerOwner(entry.marker, next.marker)) {
+        break;
+      }
+      index += 1;
+      markers.push(next);
+    }
+
+    if (markers.length === 1) {
+      collapsed.push(entry);
+      continue;
+    }
+
+    collapsed.push({
+      kind: "tool_marker_group",
+      id: `tool-group:${markers[0].id}`,
+      source: markers.every((marker) => marker.source === "replay") ? "replay" : undefined,
+      markers: markers.map((marker) => marker.marker),
+      suppressArrival: markers.every((marker) => marker.suppressArrival)
+    });
+  }
+
+  return collapsed;
+}
+
+function sameToolMarkerOwner(left: ToolMarkerGroup, right: ToolMarkerGroup): boolean {
+  const leftEntry = left.call ?? left.result;
+  const rightEntry = right.call ?? right.result;
+  if (!leftEntry?.turnId || !rightEntry?.turnId || leftEntry.turnId !== rightEntry.turnId) {
+    return false;
+  }
+
+  return toolMarkerAgentKey(left) === toolMarkerAgentKey(right);
+}
+
+function toolMarkerAgentKey(marker: ToolMarkerGroup): string | undefined {
+  const metadata = (marker.call ?? marker.result)?.item.metadata;
+  if (!isRecord(metadata)) {
+    return undefined;
+  }
+
+  for (const key of ["agent_id", "agentId", "instance_name", "instanceName"]) {
+    const value = stringValue(metadata[key]);
+    if (value) {
+      return value;
+    }
+  }
+  return undefined;
 }
 
 function toolActivityCorrelationId(entry: ActivityTranscriptEntry): string | undefined {

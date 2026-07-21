@@ -2,6 +2,7 @@ import {
   renderedEntryMessageId,
   shouldAnimateRenderedEntryArrivalForSeen,
   transcriptEntryRenderId,
+  type ToolMarkerGroup,
   type RenderTranscriptEntry
 } from "./renderModel";
 import type { TranscriptEntry } from "@/shared/types";
@@ -37,12 +38,19 @@ function renderedEntryScrollFingerprint(entry: RenderTranscriptEntry): string {
   if (entry.kind === "typing") {
     return entry.id;
   }
+  if (entry.kind === "tool_marker") {
+    return toolMarkerScrollFingerprint(entry.id, entry.marker);
+  }
+  return [entry.id, ...entry.markers.map((marker) => toolMarkerScrollFingerprint("", marker))].join("|");
+}
+
+function toolMarkerScrollFingerprint(id: string, marker: ToolMarkerGroup): string {
   return [
-    entry.id,
-    entry.marker.call?.item.status ?? "",
-    entry.marker.call?.item.summary ?? "",
-    entry.marker.result?.item.status ?? "",
-    entry.marker.result?.item.summary ?? ""
+    id,
+    marker.call?.item.status ?? "",
+    marker.call?.item.summary ?? "",
+    marker.result?.item.status ?? "",
+    marker.result?.item.summary ?? ""
   ].join(":");
 }
 

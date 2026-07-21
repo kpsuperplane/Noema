@@ -211,6 +211,7 @@ export function ChatSurface({
               onSubmitMultipleChoiceSelection={onSubmitMultipleChoiceSelection}
               onLoadOlderTranscript={onLoadOlderTranscript}
               onOpenDetail={openDetail}
+              collapseConsecutiveToolCalls
             />
           )}
         </div>

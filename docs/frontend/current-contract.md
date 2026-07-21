@@ -114,8 +114,9 @@ Current behavior:
 - `conversation_items` include user text, assistant text, durable activity rows,
   A2UI cards, tool calls/results, approvals, and meaningful errors.
 - When one provider phase has exactly one tool call, its commentary may label
-  the compact tool marker; multi-call phases keep individual tool labels, and
-  the exact tool identity remains available in the marker disclosure.
+  the compact tool marker. Consecutive tool calls from the same agent collapse
+  to the latest call plus a count; expanding the group restores each individual
+  marker and its exact tool identity.
 - The shared shell title row keeps the white-to-transparent content scrim on
   home chat. Other routed surfaces use an opaque title row with a hard bottom
   divider, and their body and scroll viewport begin below the shared header.

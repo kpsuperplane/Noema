@@ -175,6 +175,7 @@ export function TaskTranscript({
         pending={false}
         sentMessageScrollRequest={0}
         showActorAvatars={false}
+        collapseConsecutiveToolCalls
       />
     </div>
   );
