@@ -7,6 +7,7 @@ import { ExternalLink, Info } from "lucide-react";
 import { IdentityAvatar } from "@/components/IdentityAvatar";
 import type { TaskDetail, TaskRun, TaskRunItem } from "./taskTypes";
 import { TaskCriterionStatusPopover } from "./TaskCriteria";
+import { TaskCompletedBody } from "./TaskCompletedBody";
 import { taskStageLabel } from "./TaskOverview";
 import { TaskTranscript } from "./TaskTranscript";
 
@@ -74,13 +75,22 @@ export function TaskDetailPanel({
   return (
     <div data-slot="task-detail-view-viewport" {...stylex.props(styles.viewport)}>
       <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root)}>
-        <div {...stylex.props(styles.transcriptRegion)}>
-          <TaskTranscript
+        {currentDetail.stageBehavior === "TERMINAL_SUCCESS" && currentDetail.completedResult ? (
+          <TaskCompletedBody
+            key={`completed:${currentDetail.taskId}:${currentDetail.completedResult.id}`}
             detail={currentDetail}
             liveRunItems={liveRunItems}
             onLatestRunItemChange={onLatestRunItemChange}
           />
-        </div>
+        ) : (
+          <div {...stylex.props(styles.transcriptRegion)}>
+            <TaskTranscript
+              detail={currentDetail}
+              liveRunItems={liveRunItems}
+              onLatestRunItemChange={onLatestRunItemChange}
+            />
+          </div>
+        )}
         <TaskContextCard
           key={`context:${taskId}:${currentDetail.attention ? "attention" : "info"}`}
           actions={actions}

@@ -196,10 +196,13 @@ The primary chat shows compact task markers and human decisions when action is
 needed. Its task-only overview is labeled Tasks; Work names the broader `/work`
 surface containing the Inbox, active board, history, project organization, and
 task detail. Both reuse the same task-detail and decision components.
-Task detail presents one padded chronological conversation stream as the
-primary surface. The outer rail header is reduced to floating cancel, Work,
-and close controls, while a compact floating task card carries the title and
-info trigger. Durable human task input uses the human message lane. Planner,
+While a task is active, task detail presents one padded chronological
+conversation stream as the primary surface. After reviewer approval completes
+the task, its body presents the accepted final response by default with the
+chronological transcript available in a neighboring tab. The outer rail header
+is reduced to floating cancel, Work, and close controls, while a compact
+floating task card carries the title and info trigger. Durable human task input
+uses the human message lane. Planner,
 Executor, and Review runs are marked inline with role, revision, status, and
 duration, while their persisted transcript items use the existing response and
 activity lanes. Each immutable executor submission appears once as the durable

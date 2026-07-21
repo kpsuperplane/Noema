@@ -181,6 +181,7 @@ function mapWorkTaskDetail(task: WorkDetail): TaskDetail {
     sourceLabel: sourceLabel(task),
     currentRevision: task.generation,
     maxReviewRounds: task.currentContract?.executionPolicy.maxReviewRounds ?? null,
+    completedResult: task.completedResult ? mapSubmission(task.completedResult) : null,
     revisions,
     canCancel: task.validActions.includes("CANCEL"),
     canResume: false,

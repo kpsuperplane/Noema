@@ -236,6 +236,9 @@ export const WorkTaskDetailDocument = gql`
       latestReview {
         ...WorkReviewSummaryFields
       }
+      completedResult {
+        ...WorkSubmissionFields
+      }
       attention {
         kind
         title
