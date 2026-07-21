@@ -241,43 +241,38 @@ function renderTranscriptRenderEntry(
   onOpenDetail: ((target: ChatDetailTarget) => void) | undefined,
   onDebug: (target: RuntimeDebugTarget) => void
 ) {
-  if (entry.kind === "tool_marker_group") {
-    const open = expandedActivities.has(entry.id);
-    return (
-      <TranscriptRow lane="assistant" reserveAvatarSpace={reserveAvatarSpace} showAvatar={showAvatar}>
-        <DebugMarkerMenu target={toolGroupDebugTarget(entry.markers)} onDebug={onDebug}>
-          <ToolMarker
-            data={{ kind: "tool_group", markers: entry.markers }}
-            expandedMarkers={expandedActivities}
-            onToggleMarker={onToggleActivity}
-            open={open}
-            onToggle={() => onToggleActivity(entry.id)}
-          />
-        </DebugMarkerMenu>
-      </TranscriptRow>
-    );
-  }
-
-  if (entry.kind === "tool_marker") {
-    const open = expandedActivities.has(entry.id);
+  if (entry.kind === "tool_marker" || entry.kind === "tool_marker_group") {
+    const grouped = entry.kind === "tool_marker_group";
+    const disclosureId = grouped && entry.markers.length > 1 ? `tool-group:${entry.id}` : entry.id;
+    const directMarker = grouped ? entry.markers.length === 1 ? entry.markers[0] : undefined : entry.marker;
+    const open = expandedActivities.has(disclosureId);
     return (
       <>
         <TranscriptRow lane="assistant" reserveAvatarSpace={reserveAvatarSpace} showAvatar={showAvatar}>
-          <DebugMarkerMenu target={toolDebugTarget(entry.marker)} onDebug={onDebug}>
+          <DebugMarkerMenu
+            target={grouped ? toolGroupDebugTarget(entry.markers) : toolDebugTarget(entry.marker)}
+            onDebug={onDebug}
+          >
             <ToolMarker
-              data={{ kind: "tool", marker: entry.marker }}
+              data={grouped
+                ? { kind: "tool_group", markers: entry.markers }
+                : { kind: "tool", marker: entry.marker }}
+              expandedMarkers={grouped ? expandedActivities : undefined}
+              onToggleMarker={grouped ? onToggleActivity : undefined}
               open={open}
-              onToggle={() => onToggleActivity(entry.id)}
-              renderDetail={false}
+              onToggle={() => onToggleActivity(disclosureId)}
+              renderDetail={grouped}
             />
           </DebugMarkerMenu>
         </TranscriptRow>
-        <AnimatedToolDetailRow
-          open={open && toolMarkerExpandable(entry.marker)}
-          marker={entry.marker}
-          followBottomRef={followBottomRef}
-          reserveAvatarSpace={reserveAvatarSpace}
-        />
+        {directMarker ? (
+          <AnimatedToolDetailRow
+            open={open && toolMarkerExpandable(directMarker)}
+            marker={directMarker}
+            followBottomRef={followBottomRef}
+            reserveAvatarSpace={reserveAvatarSpace}
+          />
+        ) : null}
       </>
     );
   }

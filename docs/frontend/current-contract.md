@@ -124,8 +124,11 @@ Current behavior:
   each individual marker and its exact tool identity.
 - Collapsed tool-group labels and live task-stage badge labels use the shared
   rolling text transition for state changes. Words cross-fade vertically while
-  their container width adjusts; reduced-motion preferences replace text
-  immediately.
+  their container width adjusts. Collapsed transcripts represent one or many
+  consecutive calls through the same cluster path and preserve the first call's
+  render identity. A one-call cluster sends disclosure directly to that call;
+  later calls activate the group disclosure without remounting the summary.
+  Reduced-motion preferences replace text immediately.
 - The shared shell title row keeps the white-to-transparent content scrim on
   home chat. Other routed surfaces use an opaque title row with a hard bottom
   divider, and their body and scroll viewport begin below the shared header.

@@ -433,14 +433,9 @@ function collapseConsecutiveToolMarkers(entries: RenderTranscriptEntry[]): Rende
       markers.push(next);
     }
 
-    if (markers.length === 1) {
-      collapsed.push(entry);
-      continue;
-    }
-
     collapsed.push({
       kind: "tool_marker_group",
-      id: `tool-group:${markers[0].id}`,
+      id: markers[0].id,
       source: markers.every((marker) => marker.source === "replay") ? "replay" : undefined,
       markers: markers.map((marker) => marker.marker),
       suppressArrival: markers.every((marker) => marker.suppressArrival)

@@ -226,62 +226,83 @@ export function ToolMarker({
   }
 
   if (data.kind === "tool_group") {
+    const singleCall = calls.length === 1;
+    const expandable = !singleCall || collapsedCall.expandable;
     const groupContentId = `${data.markers[0]?.id ?? "tool-group"}-calls`;
+    const rowContent = (
+      <>
+        {open && !singleCall ? (
+          <>
+            <span {...stylex.props(styles.groupIcon)} aria-hidden="true">
+              <WrenchIcon size={15} strokeWidth={1.8} />
+            </span>
+            <span {...stylex.props(styles.groupLabel)}>{calls.length} tool calls</span>
+          </>
+        ) : (
+          <ToolMarkerRowContent
+            animateText
+            call={collapsedCall}
+            open={singleCall && open}
+            presentation={presentation}
+            showChevron={false}
+          />
+        )}
+        {expandable ? (
+          <span {...stylex.props(styles.chevron, open && styles.chevronOpen)} aria-hidden="true">
+            <ChevronDownIcon size={14} strokeWidth={2} />
+          </span>
+        ) : null}
+      </>
+    );
     return (
       <div {...stylex.props(styles.root)}>
         <div {...stylex.props(styles.frame, styles.groupFrame)} data-slot="tool-marker-group">
-          <button
-            type="button"
-            {...stylex.props(styles.row, styles.rowButton)}
-            aria-controls={groupContentId}
-            aria-expanded={open}
-            data-slot="tool-marker-group-row"
-            onClick={onToggle}
-            title={collapsedCall.status === "error" ? collapsedCall.errorMessage : undefined}
-          >
-            {open ? (
-              <>
-                <span {...stylex.props(styles.groupIcon)} aria-hidden="true">
-                  <WrenchIcon size={15} strokeWidth={1.8} />
-                </span>
-                <span {...stylex.props(styles.groupLabel)}>{calls.length} tool calls</span>
-              </>
-            ) : (
-              <ToolMarkerRowContent
-                animateText
-                call={collapsedCall}
-                open={false}
-                presentation={presentation}
-                showChevron={false}
-              />
-            )}
-            <span {...stylex.props(styles.chevron, open && styles.chevronOpen)} aria-hidden="true">
-              <ChevronDownIcon size={14} strokeWidth={2} />
-            </span>
-          </button>
-          <div
-            id={groupContentId}
-            aria-hidden={!open}
-            inert={!open ? true : undefined}
-            {...stylex.props(styles.groupContent, open && styles.groupContentOpen)}
-          >
-            <div {...stylex.props(styles.groupContentInner)}>
-              <div {...stylex.props(styles.groupList)}>
-                {data.markers.map((marker) => (
-                  <ToolMarker
-                    key={marker.id}
-                    data={{ kind: "tool", marker }}
-                    expandedMarkers={expandedMarkers}
-                    onToggleMarker={onToggleMarker}
-                    onToggle={() => onToggleMarker?.(marker.id)}
-                    open={expandedMarkers?.has(marker.id) ?? false}
-                    presentation={presentation}
-                    renderDetail={renderDetail}
-                  />
-                ))}
+          {expandable ? (
+            <button
+              type="button"
+              {...stylex.props(styles.row, styles.rowButton)}
+              aria-controls={singleCall ? undefined : groupContentId}
+              aria-expanded={open}
+              data-slot="tool-marker-group-row"
+              onClick={onToggle}
+              title={collapsedCall.status === "error" ? collapsedCall.errorMessage : undefined}
+            >
+              {rowContent}
+            </button>
+          ) : (
+            <div
+              {...stylex.props(styles.row)}
+              data-slot="tool-marker-group-row"
+              title={collapsedCall.status === "error" ? collapsedCall.errorMessage : undefined}
+            >
+              {rowContent}
+            </div>
+          )}
+          {!singleCall ? (
+            <div
+              id={groupContentId}
+              aria-hidden={!open}
+              inert={!open ? true : undefined}
+              {...stylex.props(styles.groupContent, open && styles.groupContentOpen)}
+            >
+              <div {...stylex.props(styles.groupContentInner)}>
+                <div {...stylex.props(styles.groupList)}>
+                  {data.markers.map((marker) => (
+                    <ToolMarker
+                      key={marker.id}
+                      data={{ kind: "tool", marker }}
+                      expandedMarkers={expandedMarkers}
+                      onToggleMarker={onToggleMarker}
+                      onToggle={() => onToggleMarker?.(marker.id)}
+                      open={expandedMarkers?.has(marker.id) ?? false}
+                      presentation={presentation}
+                      renderDetail={renderDetail}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
+          ) : null}
         </div>
       </div>
     );
