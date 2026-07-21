@@ -232,12 +232,12 @@ export function ToolMarker({
                 <span {...stylex.props(styles.groupLabel)}>{calls.length} tool calls</span>
               </>
             ) : (
-              <>
-                <span {...stylex.props(styles.groupIcon)} aria-hidden="true">
-                  <WrenchIcon size={14} strokeWidth={1.8} />
-                </span>
-                <span {...stylex.props(styles.groupLabel)}>{toolGroupLabel(calls)}</span>
-              </>
+              <ToolMarkerRowContent
+                call={latestCall}
+                open={false}
+                presentation={presentation}
+                showChevron={false}
+              />
             )}
             <span {...stylex.props(styles.chevron, open && styles.chevronOpen)} aria-hidden="true">
               <ChevronDownIcon size={14} strokeWidth={2} />
@@ -400,15 +400,6 @@ function activityToolMarkerCall(marker: ToolMarkerGroup): ToolMarkerCall {
   }
 
   return call;
-}
-
-function toolGroupLabel(calls: readonly ToolMarkerCall[]): string {
-  const firstName = calls[0]?.name;
-  const sameName = firstName !== undefined && calls.every((call) => call.name === firstName);
-  if (sameName) {
-    return `${firstName} · ${calls.length} ${calls.length === 1 ? "call" : "calls"}`;
-  }
-  return `${calls.length} tool calls`;
 }
 
 function toolMarkerStatus(marker: ToolMarkerGroup): ToolMarkerCallStatus {

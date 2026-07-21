@@ -119,8 +119,8 @@ Current behavior:
   provider reasoning is never part of this transcript contract.
 - When one provider phase has exactly one tool call, its commentary may label
   the compact tool marker. Consecutive tool calls from the same agent collapse
-  to a compact type/count summary; expanding the group restores each individual
-  marker and its exact tool identity.
+  to the latest call's status, name, and target; expanding the group restores
+  each individual marker and its exact tool identity.
 - The shared shell title row keeps the white-to-transparent content scrim on
   home chat. Other routed surfaces use an opaque title row with a hard bottom
   divider, and their body and scroll viewport begin below the shared header.
