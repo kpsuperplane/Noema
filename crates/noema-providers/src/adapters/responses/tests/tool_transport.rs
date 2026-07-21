@@ -55,6 +55,18 @@ fn responses_schema_and_parser_follow_explicit_tool_transport() {
 }
 
 #[test]
+fn native_tool_requests_can_use_plain_text_without_response_envelope() {
+    let request = GenerateRequest {
+        tools: vec![super::test_tool()],
+        tool_transport: ProviderToolTransport::Native,
+        ..GenerateRequest::text("hi")
+    };
+
+    let native = super::lowered_json(&request, "gpt-test", None, OPENAI_RESPONSES_PROFILE);
+    assert!(native.get("text").is_none());
+}
+
+#[test]
 fn responses_finalize_without_text_still_honors_tool_transport() {
     let diagnostics = ResponsesDiagnosticContext::new(None, "test", "gpt-test", None);
     let native = super::response_with_call(Some("call_1"), "search_memory", "{}");
@@ -83,4 +95,39 @@ fn responses_finalize_without_text_still_honors_tool_transport() {
             .to_string()
             .contains("Noema envelope response cannot include provider-native tool calls")
     );
+}
+
+#[test]
+fn native_tool_response_uses_native_calls_with_plain_text() {
+    let diagnostics = ResponsesDiagnosticContext::new(None, "test", "gpt-test", None);
+    let response: ResponsesResponse = serde_json::from_value(json!({
+        "id": "resp_1",
+        "model": "gpt-test",
+        "output": [
+            {
+                "type": "message",
+                "content": [{"type": "output_text", "text": "Checking."}]
+            },
+            {
+                "type": "function_call",
+                "id": "item_1",
+                "call_id": "call_1",
+                "name": "search_memory",
+                "arguments": "{}"
+            }
+        ]
+    }))
+    .expect("response");
+
+    let response = response
+        .finalize(
+            &super::test_tool_names(),
+            ProviderToolTransport::Native,
+            false,
+            &diagnostics,
+        )
+        .expect("native response");
+    assert_eq!(response.response_status, GenerateResponseStatus::NeedsTools);
+    assert_eq!(response.assistant_text(), "Checking.");
+    assert_eq!(response.tool_calls.len(), 1);
 }

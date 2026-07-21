@@ -60,7 +60,7 @@ impl RuntimeActor {
                     input: GenerateInput::Text(request.input.clone()),
                     instructions: Some(tool_instructions),
                     options: GenerateOptions {
-                        require_noema_response: true,
+                        require_noema_response: task_requires_response_envelope(model_tools.transport),
                         reasoning_effort: provider_selection.reasoning_effort,
                         max_output_tokens: Some(8_000),
                         store_response: response_continuation.store_response(),
@@ -499,7 +499,7 @@ impl RuntimeActor {
                 input: continuation_input.input,
                 instructions: Some(instructions.clone()),
                 options: GenerateOptions {
-                    require_noema_response: true,
+                    require_noema_response: task_requires_response_envelope(model_tools.transport),
                     reasoning_effort: provider_selection.reasoning_effort,
                     max_output_tokens: Some(8_000),
                     previous_response_id: continuation_input.previous_response_id.clone(),
@@ -546,7 +546,7 @@ impl RuntimeActor {
                             input: context.provider_input(capabilities.native_tool_results),
                             instructions: Some(instructions),
                             options: GenerateOptions {
-                                require_noema_response: true,
+                                require_noema_response: task_requires_response_envelope(model_tools.transport),
                                 reasoning_effort: provider_selection.reasoning_effort,
                                 max_output_tokens: Some(8_000),
                                 store_response: response_continuation.store_response(),
