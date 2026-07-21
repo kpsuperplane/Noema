@@ -19,7 +19,7 @@ fn proposed_action(arguments: serde_json::Value) -> NewGovernedAction {
         effect: GovernedActionEffect::Write,
         arguments,
         input_schema: json!({"type":"object"}),
-        trusted_authority: json!({"human_or_task_request":"update the record"}),
+        authorization_context: json!({"human_or_task_request":"update the record"}),
         safe_summary: "mcp.example.write wants to write external data".to_string(),
     }
 }

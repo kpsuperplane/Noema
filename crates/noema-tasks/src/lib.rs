@@ -121,7 +121,10 @@ pub use submission::{
     NewTaskSubmission, SubmissionCriterionEvidence, TaskSubmissionArtifactRecord,
     TaskSubmissionRecord,
 };
-pub use task::{TaskProvenance, TaskRecord, TaskSourceKind};
+pub use task::{
+    TASK_AUTHORIZATION_CONTEXT_MAX_MESSAGES, TaskAuthorizationContext, TaskAuthorizationMessage,
+    TaskAuthorizationMessageRole, TaskProvenance, TaskRecord, TaskSourceKind,
+};
 pub use transcript::{AgentRunItemKind, AgentRunItemRecord, AgentRunItemStatus, NewAgentRunItem};
 pub use workflow::{
     PERSONAL_CANCELLED_STAGE_ID, PERSONAL_DOING_STAGE_ID, PERSONAL_DONE_STAGE_ID,

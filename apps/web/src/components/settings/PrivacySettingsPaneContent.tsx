@@ -56,7 +56,7 @@ export function PrivacySettingsPaneContent({
       ) : (
         <>
           <p {...stylex.props(styles.mutedText)}>
-            Noema sends the proposed action and trusted authorization context to this model.
+            Noema sends the proposed action and bounded authorization context to this model.
             Clear reviews may execute automatically; if no reviewer is selected or it is
             unavailable, the action waits for your approval.
           </p>

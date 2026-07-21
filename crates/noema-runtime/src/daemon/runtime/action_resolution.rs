@@ -90,7 +90,7 @@ impl RuntimeActor {
         .transpose()
         .map_err(|_| RuntimeError::Protocol("web capability schema is unavailable".to_string()))?;
         if web_spec.is_some()
-            && action.trusted_authority.get("destination")
+            && action.authorization_context.get("destination")
                 != super::action_gateway::web_destination(&self.store, &action.capability_name)
                     .await
                     .as_ref()

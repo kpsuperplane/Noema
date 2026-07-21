@@ -5,6 +5,7 @@ mod agents;
 mod artifact_metadata_port;
 mod artifact_writes;
 mod artifacts;
+mod authorization_context;
 mod auxiliary_model_preferences;
 mod context_summaries;
 mod conversations;

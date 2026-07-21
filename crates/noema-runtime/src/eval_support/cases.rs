@@ -560,6 +560,7 @@ fn fixture_work_context(
         stage_id: stage_id.clone(),
         title: title.to_string(),
         description_markdown: request_markdown.to_string(),
+        authorization_context: noema_tasks::TaskAuthorizationContext::None,
         provenance: TaskProvenance {
             source_kind: TaskSourceKind::System,
             created_by_actor_id: "actor:agent:primary".to_string(),

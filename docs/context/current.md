@@ -136,9 +136,13 @@ subagents, reviews, and size measurement.
   failed tool result. Resolution records one terminal result under the original
   provider call identity and starts an idempotent bounded continuation without
   synthesizing another human message or retrying the external action.
-- Work reviewer authority comes from the exact source human item or
-  authenticated Work UI request, never the rendered task prompt. Task actions
-  are lease/generation fenced, and TaskReviewer has no export tools.
+- Primary actions review a seven-message human/assistant excerpt ending at the
+  source human item. Human entries alone create authority; assistant entries
+  only resolve later human references. Agent-created tasks snapshot that
+  excerpt, while manual creation or a human Inbox body edit stores the task
+  title and description. Work actions use that task-owned snapshot, never the
+  rendered task prompt or a later conversation reread. Task actions remain
+  lease/generation fenced, and TaskReviewer has no export tools.
 - Ready MCP reads remain directly available under their current fingerprint and
   policy. Ready MCP writes and exports are advertised through the governed
   gateway, which revalidates the live binding before approved execution.

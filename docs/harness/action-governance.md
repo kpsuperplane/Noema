@@ -53,26 +53,32 @@ policy at the capability boundary.
 10. Product clients render server-owned action and approval state; they do not
     infer policy or workflow transitions.
 
-## Universal exposure and trusted authority
+## Universal exposure and authorization context
 
 Every agent run is treated as though it has already observed malicious or
 prompt-injected content. Noema does not persist a context-exposure boolean,
 ambient taint classes, or a clean/tainted session state because the long-lived
 primary conversation makes those distinctions permanently converge.
 
-The action reviewer instead receives a narrow trusted-authority channel:
+The action reviewer instead receives one bounded authorization context:
 
-- The authenticated human message that initiated the primary turn.
-- A bounded human-only message history when the latest message is too
-  elliptical to establish intent.
-- For Work, the exact originating human item or authenticated Work UI request,
-  plus fenced task/run/contract identifiers. Model-produced contract prose and
-  task evidence remain untrusted.
+- Primary chat contributes the latest seven completed human/assistant
+  user-facing messages ending at the authenticated human item that initiated
+  the turn. Same-turn assistant output is excluded.
+- Human entries create authority. Assistant entries are untrusted generated
+  context that may resolve a reference adopted by a later human message, but
+  cannot independently create, broaden, or strengthen authorization.
+- Agent-created Work tasks snapshot that same bounded excerpt at creation.
+  Manually created tasks, and Inbox tasks whose body is later edited by a
+  human, store the authenticated title and description instead.
+- Work review reads the task-owned snapshot plus fenced task/run/contract
+  identifiers; it does not reread mutable conversation history. Model-produced
+  contract prose and task evidence remain untrusted.
 - Explicit grants and prior human decisions.
 
 A model-produced task contract may narrow the originating human authority, but
 it cannot broaden it. Assistant text, model plans, tool results, web content,
-MCP content, and memory are always untrusted evidence rather than authority.
+MCP content, and memory never independently create authority.
 
 ### Structured evidence
 
@@ -149,7 +155,7 @@ payload-provenance model.
 The reviewer receives a bounded, structured packet rather than an unrestricted
 conversation transcript:
 
-- The trusted-authority channel described above.
+- The bounded authorization context described above.
 - The canonical proposed action and human-readable diff or preview.
 - The actual bounded action arguments.
 - The deterministic policy result and active authority.
@@ -181,10 +187,9 @@ only inside authority already supplied by deterministic policy and the
 authenticated human instruction. A task contract can constrain that authority
 but cannot create it.
 
-When the current human message is too elliptical to decide authorization, the
-reviewer may request one retry with bounded human-only history. If the expanded
-context remains insufficient, the action requires approval. Reviewer results
-that request approval may be cached briefly for the same action revision;
+The fixed seven-message excerpt is the only conversational review packet. If
+it remains insufficient, the action requires approval. Reviewer results that
+request approval may be cached briefly for the same action revision;
 automatic-execution results are never cached across actions or revisions.
 
 ### Reviewer model setting
@@ -201,7 +206,7 @@ produced its verdict.
 
 The page should keep this model selector as its focal control. Supporting copy
 explains that the selected provider receives the proposed action payload and
-trusted authorization context. Raw reviewer prompts, verdict metadata, and
+bounded authorization context. Raw reviewer prompts, verdict metadata, and
 audit internals remain behind inspection rather than appearing in the default
 settings view.
 
@@ -529,7 +534,7 @@ observed action states.
 ## Implementation sequence
 
 1. **Action contract:** define governed-action, assessment, approval, immutable
-   revision, trusted-authority, structured-evidence, reviewer-model preference,
+   revision, authorization-context, structured-evidence, reviewer-model preference,
    exact reviewer selection, and revalidation invariants in the domain and
    store authority.
 2. **Primary write/export slice:** take one foreground MCP write or export from

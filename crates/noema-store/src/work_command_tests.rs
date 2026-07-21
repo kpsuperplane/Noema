@@ -3,8 +3,8 @@
 use noema_tasks::{
     CaptureTask, CommandMeta, CreateProject, CriterionOutcome, DelegateExecutionIntent,
     DelegateTask, NewTaskReview, NewTaskSubmission, NewTaskValidationCriterion, QueueTask,
-    ReopenTask, RetryTask, SafeErrorCode, SubmissionCriterionEvidence, TaskComplexity,
-    TaskContractAmendment, TaskPrecondition, TaskProvenance, TaskReviewCriterion,
+    ReopenTask, RetryTask, SafeErrorCode, SubmissionCriterionEvidence, TaskAuthorizationContext,
+    TaskComplexity, TaskContractAmendment, TaskPrecondition, TaskProvenance, TaskReviewCriterion,
     TaskReviewVerdict, TaskSourceKind, UpdateInboxTask, WorkCommand, WorkDomainError,
 };
 use noema_workspaces::WorkspaceId;
@@ -43,6 +43,33 @@ macro_rules! work_error {
 
 async fn fixture() -> (NoemaStore, WorkCommandService) {
     let store = open_ephemeral_store().await.expect("open store");
+    store
+        .with_connection(|connection| {
+            connection.execute_batch(
+                r#"
+                INSERT INTO conversations (
+                  conversation_id, owner_object_type, owner_object_id, primary_human_id,
+                  primary_agent_id, provider
+                ) VALUES
+                  ('conversation:capture-source', 'human', 'human:local', 'human:local', 'agent:primary', 'codex'),
+                  ('conversation:delegate-source', 'human', 'human:local', 'human:local', 'agent:primary', 'codex');
+                INSERT INTO conversation_turns (turn_id, conversation_id, status) VALUES
+                  ('turn:capture-source', 'conversation:capture-source', 'completed'),
+                  ('turn:delegate-source', 'conversation:delegate-source', 'completed');
+                INSERT INTO conversation_items (
+                  item_id, conversation_id, turn_id, sequence_index, kind, status,
+                  author_actor_id, content_text
+                ) VALUES
+                  ('item:capture-source', 'conversation:capture-source', 'turn:capture-source', 1,
+                   'user_text', 'completed', 'human:local', 'Capture the requested task.'),
+                  ('item:delegate-source', 'conversation:delegate-source', 'turn:delegate-source', 1,
+                   'user_text', 'completed', 'human:local', 'Delegate the requested task.');
+                "#,
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("authorization source fixtures");
     initialize_codex_provider_selections(&store)
         .await
         .expect("initialize provider selections");
@@ -69,7 +96,7 @@ fn capture(key: &str, title: &str) -> WorkCommand {
         description_markdown: "captured description".to_string(),
         project_id: None,
         provenance: TaskProvenance {
-            source_kind: TaskSourceKind::ChatCapture,
+            source_kind: TaskSourceKind::WorkUi,
             created_by_actor_id: ACTOR.to_string(),
             ..TaskProvenance::default()
         },
@@ -81,6 +108,9 @@ fn sourced_capture(key: &str, source: &str) -> WorkCommand {
         unreachable!()
     };
     command.provenance.conversation_id = Some("conversation:capture-source".to_string());
+    command.provenance.turn_id = Some("turn:capture-source".to_string());
+    command.provenance.item_id = Some("item:capture-source".to_string());
+    command.provenance.source_kind = TaskSourceKind::ChatCapture;
     command.provenance.source_tool_call_id = Some(format!("tool_call:{source}"));
     WorkCommand::CaptureTask(command)
 }
@@ -125,9 +155,10 @@ fn delegated(key: &str, source: &str, complexity_hint: Option<TaskComplexity>) -
         provenance: TaskProvenance {
             source_kind: TaskSourceKind::ChatDelegate,
             conversation_id: Some("conversation:delegate-source".to_string()),
+            turn_id: Some("turn:delegate-source".to_string()),
+            item_id: Some("item:delegate-source".to_string()),
             source_tool_call_id: Some(format!("tool_call:{source}")),
             created_by_actor_id: ACTOR.to_string(),
-            ..TaskProvenance::default()
         },
         complexity_hint,
         execution_intent: None,
@@ -183,6 +214,18 @@ async fn assert_source_replay(kind: SourceReplayKind) {
     assert_eq!(replay.event_id, first.event_id);
     assert_eq!(replay.event_sequence, first.event_sequence);
     assert_eq!(replay.task, first.task);
+    let TaskAuthorizationContext::ConversationExcerpt { messages } = &first
+        .task
+        .as_ref()
+        .expect("created task")
+        .authorization_context
+    else {
+        panic!("chat-created task must retain a conversation excerpt");
+    };
+    assert_eq!(
+        messages[0].role,
+        noema_tasks::TaskAuthorizationMessageRole::Human
+    );
     if matches!(kind, SourceReplayKind::Delegate) {
         assert_eq!(replay.run_id, first.run_id);
     }
@@ -213,6 +256,13 @@ async fn receipt_replay_is_exact_and_divergent_replay_is_rejected() {
 
     let first = service.execute(command.clone()).await.expect("capture");
     let returned_snapshot = first.task.clone().expect("captured task");
+    assert_eq!(
+        returned_snapshot.authorization_context,
+        TaskAuthorizationContext::ManualTaskBody {
+            title: "first title".to_string(),
+            description_markdown: "captured description".to_string(),
+        }
+    );
     let replay = service.execute(command).await.expect("idempotent replay");
 
     assert_eq!(replay.event_id, first.event_id);
@@ -235,6 +285,50 @@ async fn receipt_replay_is_exact_and_divergent_replay_is_rejected() {
     );
     assert_eq!(returned_snapshot.title, "first title");
     assert_eq!(updated.title, "edited title");
+    assert_eq!(
+        updated.authorization_context,
+        TaskAuthorizationContext::ManualTaskBody {
+            title: "edited title".to_string(),
+            description_markdown: "captured description".to_string(),
+        }
+    );
+}
+
+#[tokio::test]
+async fn agent_inbox_edit_preserves_existing_authorization_context() {
+    let (_store, service) = fixture().await;
+    let mut forged_manual = capture("idem:forged-manual", "Forged title");
+    let WorkCommand::CaptureTask(command) = &mut forged_manual else {
+        unreachable!()
+    };
+    command.provenance.created_by_actor_id = "actor:agent:primary".to_string();
+    assert!(service.execute(forged_manual).await.is_err());
+
+    let original = task!(
+        service,
+        capture("idem:agent-edit:capture", "Human title"),
+        "manual capture"
+    );
+    let original_context = original.authorization_context.clone();
+    let updated = task!(
+        service,
+        WorkCommand::UpdateInboxTask(UpdateInboxTask {
+            meta: CommandMeta {
+                actor_id: "actor:agent:primary".to_string(),
+                causation_id: None,
+                correlation_id: "correlation:agent-edit".to_string(),
+                idempotency_key: Some("idem:agent-edit:update".to_string()),
+            },
+            precondition: precondition(&original),
+            title: Some("Agent rewrite".to_string()),
+            description_markdown: None,
+            project_id: None,
+        }),
+        "agent edit"
+    );
+
+    assert_eq!(updated.title, "Agent rewrite");
+    assert_eq!(updated.authorization_context, original_context);
 }
 
 #[tokio::test]
@@ -604,7 +698,7 @@ async fn governed_action_approval_releases_and_resumes_a_task_run_once() {
             effect: GovernedActionEffect::Write,
             arguments: serde_json::json!({"record_id": "42"}),
             input_schema: serde_json::json!({"type": "object"}),
-            trusted_authority: serde_json::json!({"origin": "task"}),
+            authorization_context: serde_json::json!({"origin": "task"}),
             safe_summary: "write an external record".to_string(),
         })
         .await

@@ -22,6 +22,7 @@ const TASK_COLUMNS: &str = "
     task.stage_id,
     task.title,
     task.description_markdown,
+    task.authorization_context_json,
     task.source_kind,
     task.source_conversation_id,
     task.source_turn_id,

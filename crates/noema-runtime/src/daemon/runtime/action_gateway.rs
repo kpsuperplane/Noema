@@ -45,7 +45,8 @@ impl RuntimeActor {
                 arguments: Some(arguments),
             });
         }
-        let trusted_authority = trusted_action_authority(&self.store, turn, &call.name).await?;
+        let authorization_context =
+            action_authorization_context(&self.store, turn, &call.name).await?;
         let action = self
             .store
             .create_governed_action(NewGovernedAction {
@@ -63,7 +64,7 @@ impl RuntimeActor {
                 effect,
                 arguments: call.payload.clone(),
                 input_schema: binding.spec().input_schema.as_value().clone(),
-                trusted_authority,
+                authorization_context,
                 safe_summary: safe_action_summary(&call.name, effect),
             })
             .await?;
@@ -101,17 +102,25 @@ impl RuntimeActor {
     }
 }
 
-async fn trusted_action_authority(
+async fn action_authorization_context(
     store: &noema_store::NoemaStore,
     turn: &SuccessfulProviderTurn,
     capability_name: &str,
 ) -> Result<serde_json::Value, noema_store::StoreError> {
     let destination = web_destination(store, capability_name).await;
     let Some(run_id) = turn.task_run_id.as_deref() else {
+        let context = store
+            .conversation_authorization_context(
+                &turn.conversation_id,
+                &turn.turn_id,
+                &turn.user_item_id,
+            )
+            .await?;
         return Ok(serde_json::json!({
             "origin": "primary_conversation",
-            "human_request": turn.user_input,
+            "context": context,
             "conversation_id": turn.conversation_id,
+            "source_human_item_id": turn.user_item_id,
             "destination": destination,
         }));
     };
@@ -121,35 +130,9 @@ async fn trusted_action_authority(
         .ok_or_else(|| noema_store::StoreError::InvariantViolation {
             message: "governed action has no exact task context".to_string(),
         })?;
-    let source = &context.task.provenance;
-    let human_request = match source.source_kind {
-        noema_tasks::TaskSourceKind::ChatCapture | noema_tasks::TaskSourceKind::ChatDelegate => {
-            if let Some(item_id) = source.item_id.as_deref() {
-                store
-                    .get_visible_conversation_item(item_id)
-                    .await?
-                    .filter(|item| {
-                        item.kind == noema_conversations::ConversationItemKind::UserText
-                            && source
-                                .conversation_id
-                                .as_ref()
-                                .is_none_or(|id| &item.conversation_id == id)
-                    })
-                    .and_then(|item| item.content_text)
-            } else {
-                None
-            }
-        }
-        noema_tasks::TaskSourceKind::WorkUi
-            if source.created_by_actor_id == "actor:human:local" =>
-        {
-            Some(context.task.description_markdown.clone())
-        }
-        noema_tasks::TaskSourceKind::WorkUi | noema_tasks::TaskSourceKind::System => None,
-    };
     Ok(serde_json::json!({
         "origin": "task",
-        "human_request": human_request,
+        "context": context.task.authorization_context,
         "task_id": context.task.task_id,
         "task_generation": context.task.generation,
         "run_id": context.run.run_id,
@@ -157,7 +140,7 @@ async fn trusted_action_authority(
             "contract_id": contract.contract_id,
             "version": contract.version,
         })),
-        "source": source,
+        "source": context.task.provenance,
         "destination": destination,
     }))
 }

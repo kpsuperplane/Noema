@@ -7,6 +7,95 @@ use crate::{
     validation::{optional as normalize_optional, required},
 };
 
+/// Maximum number of user-facing conversation messages retained as execution
+/// authorization context.
+pub const TASK_AUTHORIZATION_CONTEXT_MAX_MESSAGES: usize = 7;
+
+string_enum! {
+/// Authorship role carried by one conversation authorization-context message.
+pub enum TaskAuthorizationMessageRole, "task.authorization_context.message.role" {
+    /// Authenticated human authority.
+    Human => "human",
+    /// Generated context that may resolve later human references but creates no authority.
+    Assistant => "assistant",
+}
+}
+
+/// One exact durable conversation message retained for later action review.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TaskAuthorizationMessage {
+    /// Durable source item identity.
+    pub item_id: String,
+    /// Server-derived authorship role.
+    pub role: TaskAuthorizationMessageRole,
+    /// Exact user-facing message text.
+    pub text: String,
+}
+
+/// Human authority captured with a task and reused by governed action review.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum TaskAuthorizationContext {
+    /// Bounded primary-conversation excerpt ending at an authenticated human item.
+    ConversationExcerpt {
+        /// Oldest-to-newest exact messages.
+        messages: Vec<TaskAuthorizationMessage>,
+    },
+    /// Authenticated task body submitted through Work UI.
+    ManualTaskBody {
+        /// Human-authored task title.
+        title: String,
+        /// Human-authored task description.
+        description_markdown: String,
+    },
+    /// No authenticated human authority is attached.
+    #[default]
+    None,
+}
+
+impl TaskAuthorizationContext {
+    /// Validate bounded context without rewriting exact source text.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkDomainError`] when an excerpt is empty, over the message
+    /// limit, does not end with a human message, or contains invalid fields.
+    pub fn validate(&self) -> Result<(), WorkDomainError> {
+        match self {
+            Self::ConversationExcerpt { messages } => {
+                if messages.is_empty() || messages.len() > TASK_AUTHORIZATION_CONTEXT_MAX_MESSAGES {
+                    return Err(invalid_input(
+                        "task.authorization_context.messages",
+                        "conversation excerpt must contain between one and seven messages",
+                    ));
+                }
+                for message in messages {
+                    if message.item_id.trim().is_empty() || message.text.trim().is_empty() {
+                        return Err(invalid_input(
+                            "task.authorization_context.messages",
+                            "message item id and text are required",
+                        ));
+                    }
+                }
+                if messages.last().map(|message| message.role)
+                    != Some(TaskAuthorizationMessageRole::Human)
+                {
+                    return Err(invalid_input(
+                        "task.authorization_context.messages",
+                        "conversation excerpt must end with authenticated human authority",
+                    ));
+                }
+                Ok(())
+            }
+            Self::ManualTaskBody { title, .. } => {
+                required(title, "task.authorization_context.title").map(drop)
+            }
+            Self::None => Ok(()),
+        }
+    }
+}
+
 string_enum! {
 /// Durable source/provenance classification for a captured task.
 pub enum TaskSourceKind, "task.provenance.source_kind" {
@@ -74,6 +163,7 @@ pub struct TaskRecord {
     pub stage_id: WorkflowStageId,
     pub title: String,
     pub description_markdown: String,
+    pub authorization_context: TaskAuthorizationContext,
     pub provenance: TaskProvenance,
     pub generation: u64,
     pub revision: u64,
@@ -99,6 +189,7 @@ impl TaskRecord {
         let mut normalized = self.clone();
         normalized.title = required(&normalized.title, "task.title")?;
         normalized.description_markdown = normalized.description_markdown.trim().to_string();
+        normalized.authorization_context.validate()?;
         normalized.provenance = normalized.provenance.normalized()?;
         if normalized.generation == 0 || normalized.revision == 0 {
             return Err(invalid_input(

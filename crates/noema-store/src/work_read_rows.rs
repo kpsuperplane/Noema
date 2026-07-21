@@ -22,8 +22,9 @@ pub(crate) fn load_task(
     transaction
         .query_row(
             "SELECT task_id, workspace_id, project_id, workflow_id, stage_id, title,
-                    description_markdown, source_kind, source_conversation_id, source_turn_id,
-                    source_item_id, source_tool_call_id, created_by_actor_id, generation, revision,
+                    description_markdown, authorization_context_json, source_kind,
+                    source_conversation_id, source_turn_id, source_item_id, source_tool_call_id,
+                    created_by_actor_id, generation, revision,
                     current_contract_id, active_gate_id, latest_run_id, latest_submission_id,
                     latest_review_id, completed_submission_id, queued_at, created_at, updated_at,
                     completed_at, cancelled_at
@@ -52,28 +53,30 @@ pub(crate) fn decode_task_record(row: &Row<'_>) -> rusqlite::Result<noema_tasks:
             .map_err(|e| conversion_failure(4, Type::Text, e))?,
         title: row.get(5)?,
         description_markdown: row.get(6)?,
+        authorization_context: serde_json::from_str(&row.get::<_, String>(7)?)
+            .map_err(|e| conversion_failure(7, Type::Text, e))?,
         provenance: TaskProvenance {
-            source_kind: TaskSourceKind::from_str(&row.get::<_, String>(7)?)
-                .map_err(|e| conversion_failure(7, Type::Text, e))?,
-            conversation_id: row.get(8)?,
-            turn_id: row.get(9)?,
-            item_id: row.get(10)?,
-            source_tool_call_id: row.get(11)?,
-            created_by_actor_id: row.get(12)?,
+            source_kind: TaskSourceKind::from_str(&row.get::<_, String>(8)?)
+                .map_err(|e| conversion_failure(8, Type::Text, e))?,
+            conversation_id: row.get(9)?,
+            turn_id: row.get(10)?,
+            item_id: row.get(11)?,
+            source_tool_call_id: row.get(12)?,
+            created_by_actor_id: row.get(13)?,
         },
-        generation: positive_u64(row, 13)?,
-        revision: positive_u64(row, 14)?,
-        current_contract_id: optional_id(row, 15, noema_tasks::TaskContractId::new)?,
-        active_gate_id: optional_id(row, 16, TaskGateId::new)?,
-        latest_run_id: row.get(17)?,
-        latest_submission_id: row.get(18)?,
-        latest_review_id: row.get(19)?,
-        completed_submission_id: row.get(20)?,
-        queued_at: row.get(21)?,
-        created_at: row.get(22)?,
-        updated_at: row.get(23)?,
-        completed_at: row.get(24)?,
-        cancelled_at: row.get(25)?,
+        generation: positive_u64(row, 14)?,
+        revision: positive_u64(row, 15)?,
+        current_contract_id: optional_id(row, 16, noema_tasks::TaskContractId::new)?,
+        active_gate_id: optional_id(row, 17, TaskGateId::new)?,
+        latest_run_id: row.get(18)?,
+        latest_submission_id: row.get(19)?,
+        latest_review_id: row.get(20)?,
+        completed_submission_id: row.get(21)?,
+        queued_at: row.get(22)?,
+        created_at: row.get(23)?,
+        updated_at: row.get(24)?,
+        completed_at: row.get(25)?,
+        cancelled_at: row.get(26)?,
     };
     let normalized = task
         .normalized()

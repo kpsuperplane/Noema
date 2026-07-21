@@ -4,14 +4,14 @@ use rusqlite::{OptionalExtension, Transaction, params};
 use serde_json::Value;
 
 use crate::{
-    NoemaStore, StoreError, WorkRunFence, governed_action_approvals::mark_origin_run_waiting_tx,
+    NoemaStore, StoreError, WorkRunFence, authorization_context::MAX_AUTHORIZATION_CONTEXT_BYTES,
+    governed_action_approvals::mark_origin_run_waiting_tx,
     governed_action_fencing::require_origin_execution_live_tx, ids::allocate_id,
     work_row::sha256_hex,
 };
 
 const MAX_ARGUMENTS_BYTES: usize = 1_048_576;
 const MAX_SCHEMA_BYTES: usize = 262_144;
-const MAX_AUTHORITY_BYTES: usize = 262_144;
 const MAX_EXPLANATION_CHARS: usize = 4_000;
 const MAX_REASON_CODES: usize = 16;
 
@@ -130,8 +130,8 @@ pub struct NewGovernedAction {
     pub arguments: Value,
     /// Exact advertised input schema.
     pub input_schema: Value,
-    /// Structured trusted human or task authority.
-    pub trusted_authority: Value,
+    /// Structured human authority plus bounded role-labelled context.
+    pub authorization_context: Value,
     /// Payload-free summary safe for attention surfaces.
     pub safe_summary: String,
 }
@@ -167,8 +167,8 @@ pub struct GovernedActionRecord {
     pub arguments_sha256: String,
     /// Exact advertised input schema.
     pub input_schema: Value,
-    /// Structured trusted human or task authority.
-    pub trusted_authority: Value,
+    /// Structured human authority plus bounded role-labelled context.
+    pub authorization_context: Value,
     /// Payload-free summary safe for attention surfaces.
     pub safe_summary: String,
     /// Current action state.
@@ -309,10 +309,10 @@ impl NoemaStore {
         let revision = 1_u64;
         let arguments_json = bounded_json(&action.arguments, MAX_ARGUMENTS_BYTES, "arguments")?;
         let input_schema_json = bounded_json(&action.input_schema, MAX_SCHEMA_BYTES, "schema")?;
-        let trusted_authority_json = bounded_json(
-            &action.trusted_authority,
-            MAX_AUTHORITY_BYTES,
-            "trusted_authority",
+        let authorization_context_json = bounded_json(
+            &action.authorization_context,
+            MAX_AUTHORIZATION_CONTEXT_BYTES,
+            "authorization_context",
         )?;
         let arguments_sha256 = sha256_hex(arguments_json.as_bytes());
         self.with_immediate_transaction_retry(|transaction| {
@@ -322,7 +322,7 @@ impl NoemaStore {
                   action_id, revision, owner_human_id, conversation_id, turn_id,
                   task_id, run_id, requesting_agent_id, capability_name, operation_token,
                   effect, arguments_json, arguments_sha256, input_schema_json,
-                  trusted_authority_json, safe_summary, state
+                  authorization_context_json, safe_summary, state
                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, 'proposed')
                 "#,
                 params![
@@ -340,7 +340,7 @@ impl NoemaStore {
                     arguments_json,
                     arguments_sha256,
                     input_schema_json,
-                    trusted_authority_json,
+                    authorization_context_json,
                     action.safe_summary,
                 ],
             )?;
@@ -697,7 +697,7 @@ pub(crate) fn action_from_tx(
             SELECT action_id, revision, owner_human_id, conversation_id, turn_id,
                    task_id, run_id, requesting_agent_id, capability_name, operation_token,
                    effect, arguments_json, arguments_sha256, input_schema_json,
-                   trusted_authority_json, safe_summary, state, output_json, failure_code
+                   authorization_context_json, safe_summary, state, output_json, failure_code
             FROM governed_actions
             WHERE action_id = ?1 AND revision = ?2
             "#,
@@ -743,7 +743,7 @@ pub(crate) fn action_from_tx(
             arguments: serde_json::from_str(&raw.11)?,
             arguments_sha256: raw.12,
             input_schema: serde_json::from_str(&raw.13)?,
-            trusted_authority: serde_json::from_str(&raw.14)?,
+            authorization_context: serde_json::from_str(&raw.14)?,
             safe_summary: raw.15,
             state: GovernedActionState::parse(&raw.16)?,
             output: raw

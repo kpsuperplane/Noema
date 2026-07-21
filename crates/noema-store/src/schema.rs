@@ -1,8 +1,8 @@
 /// Current schema version for pre-stable local SQLite data.
-pub const STORE_SCHEMA_VERSION: i64 = 7;
+pub const STORE_SCHEMA_VERSION: i64 = 8;
 
 /// Stable marker row identifying the exact schema accepted by this binary.
-pub(super) const STORE_SCHEMA_MARKER: &str = "sqlite_store_v7";
+pub(super) const STORE_SCHEMA_MARKER: &str = "sqlite_store_v8";
 
 /// SQLite bootstrap used by the Noema store.
 pub const STORE_SCHEMA_SQL: &str = r#"
@@ -451,6 +451,7 @@ CREATE TABLE tasks (
   stage_id TEXT NOT NULL,
   title TEXT NOT NULL CHECK (trim(title) <> ''),
   description_markdown TEXT NOT NULL DEFAULT '',
+  authorization_context_json TEXT NOT NULL DEFAULT '{"kind":"none"}' CHECK (json_valid(authorization_context_json)),
   source_kind TEXT NOT NULL CHECK (source_kind IN (
     'chat_capture', 'chat_delegate', 'work_ui', 'system'
   )),
@@ -979,7 +980,7 @@ CREATE TABLE governed_actions (
   arguments_json TEXT NOT NULL CHECK (json_valid(arguments_json)),
   arguments_sha256 TEXT NOT NULL CHECK (length(arguments_sha256) = 64 AND arguments_sha256 = lower(arguments_sha256)),
   input_schema_json TEXT NOT NULL CHECK (json_valid(input_schema_json)),
-  trusted_authority_json TEXT NOT NULL CHECK (json_valid(trusted_authority_json)),
+  authorization_context_json TEXT NOT NULL CHECK (json_valid(authorization_context_json)),
   safe_summary TEXT NOT NULL CHECK (trim(safe_summary) <> ''),
   state TEXT NOT NULL CHECK (state IN (
     'proposed', 'awaiting_approval', 'executable', 'executing', 'succeeded',
@@ -1104,6 +1105,6 @@ INSERT INTO task_execution_policy (
 ON CONFLICT (policy_id) DO NOTHING;
 
 INSERT INTO schema_state (name, version, applied_at)
-VALUES ('sqlite_store_v7', 7, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+VALUES ('sqlite_store_v8', 8, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 ON CONFLICT (name) DO NOTHING;
 "#;

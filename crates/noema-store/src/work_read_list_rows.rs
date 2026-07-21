@@ -31,7 +31,7 @@ pub(super) struct TaskPageRow {
 pub(super) fn decode_task_page_row(row: &Row<'_>) -> rusqlite::Result<TaskPageRow> {
     Ok(TaskPageRow {
         task: decode_task_record(row)?,
-        stage: decode_stage_record(row, 26)?,
+        stage: decode_stage_record(row, 27)?,
     })
 }
 

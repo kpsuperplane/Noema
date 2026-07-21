@@ -13,6 +13,9 @@ use rusqlite::{OptionalExtension, Transaction, params};
 use super::{WorkCommandService, helpers};
 use crate::{
     StoreError,
+    authorization_context::{
+        bounded_authorization_context_json, conversation_authorization_context,
+    },
     ids::allocate_id,
     tasks::provider_selection::{pool_selection_tx, reviewer_preference_tx},
     work_events::append_work_event_tx,
@@ -38,6 +41,19 @@ async fn capture(
     service: &WorkCommandService,
     command: &CaptureTask,
 ) -> Result<helpers::CommandWrite, StoreError> {
+    if command.provenance.source_kind == TaskSourceKind::ChatDelegate {
+        return Err(invalid_provenance(
+            "capture cannot use delegated provenance",
+        ));
+    }
+    if command.provenance.source_kind == TaskSourceKind::WorkUi
+        && (!command.meta.actor_id.starts_with("actor:human:")
+            || command.provenance.created_by_actor_id != command.meta.actor_id)
+    {
+        return Err(invalid_provenance(
+            "work UI authority requires the matching authenticated human actor",
+        ));
+    }
     let task_id = noema_tasks::TaskId::new(allocate_id("task")).map_err(StoreError::Work)?;
     let workspace_id = command.workspace_id.clone();
     let envelope = WorkCommand::CaptureTask(command.clone());
@@ -47,13 +63,19 @@ async fn capture(
         }
         require_workspace(transaction, &workspace_id)?;
         validate_project_target(transaction, &workspace_id, command.project_id.as_ref())?;
+        let authorization_context = task_authorization_context(
+            transaction,
+            &command.provenance,
+            &command.title,
+            &command.description_markdown,
+        )?;
         transaction.execute(
             r#"INSERT INTO tasks (
                      task_id, workspace_id, project_id, workflow_id, stage_id,
-                     title, description_markdown, source_kind, source_conversation_id,
-                     source_turn_id, source_item_id, source_tool_call_id,
-                     created_by_actor_id
-                   ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"#,
+                     title, description_markdown, authorization_context_json, source_kind,
+                     source_conversation_id, source_turn_id, source_item_id,
+                     source_tool_call_id, created_by_actor_id
+                   ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"#,
             params![
                 task_id.as_str(),
                 workspace_id.as_str(),
@@ -62,6 +84,7 @@ async fn capture(
                 PERSONAL_INBOX_STAGE_ID,
                 command.title,
                 command.description_markdown,
+                authorization_context,
                 command.provenance.source_kind.as_str(),
                 command.provenance.conversation_id,
                 command.provenance.turn_id,
@@ -122,14 +145,26 @@ async fn update_inbox(
                 .description_markdown
                 .as_deref()
                 .unwrap_or(&task.description_markdown);
+            let authorization_context = (command.meta.actor_id.starts_with("actor:human:")
+                && (command.title.is_some() || command.description_markdown.is_some()))
+            .then(|| {
+                bounded_authorization_context_json(
+                    &noema_tasks::TaskAuthorizationContext::ManualTaskBody {
+                        title: title.to_string(),
+                        description_markdown: description.to_string(),
+                    },
+                )
+            })
+            .transpose()?;
             let revision = helpers::increment(task.revision, "task.revision")?;
             transaction.execute(
-                "UPDATE tasks SET title = ?2, description_markdown = ?3, project_id = ?4, revision = ?5, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND revision = ?6 AND generation = ?7",
+                "UPDATE tasks SET title = ?2, description_markdown = ?3, project_id = ?4, authorization_context_json = COALESCE(?5, authorization_context_json), revision = ?6, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND revision = ?7 AND generation = ?8",
                 params![
                     task_id.as_str(),
                     title,
                     description,
                     project_id.map(ProjectId::as_str),
+                    authorization_context,
                     revision,
                     task.revision,
                     task.generation,
@@ -244,6 +279,11 @@ async fn delegate(
     service: &WorkCommandService,
     command: &DelegateTask,
 ) -> Result<helpers::CommandWrite, StoreError> {
+    if command.provenance.source_kind != TaskSourceKind::ChatDelegate {
+        return Err(invalid_provenance(
+            "delegate requires chat-delegate provenance",
+        ));
+    }
     if command.meta.idempotency_key.is_none() {
         return Err(StoreError::Work(WorkDomainError::InvalidInput {
             field: "task.delegate.meta.idempotency_key",
@@ -259,13 +299,19 @@ async fn delegate(
         }
         require_workspace(transaction, &workspace_id)?;
         validate_project_target(transaction, &workspace_id, command.project_id.as_ref())?;
+        let authorization_context = task_authorization_context(
+            transaction,
+            &command.provenance,
+            &command.title,
+            &command.description_markdown,
+        )?;
         transaction.execute(
             r#"INSERT INTO tasks (
                      task_id, workspace_id, project_id, workflow_id, stage_id,
-                     title, description_markdown, source_kind, source_conversation_id,
-                     source_turn_id, source_item_id, source_tool_call_id,
-                     created_by_actor_id, queued_at
-                   ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
+                     title, description_markdown, authorization_context_json, source_kind,
+                     source_conversation_id, source_turn_id, source_item_id,
+                     source_tool_call_id, created_by_actor_id, queued_at
+                   ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
                              strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"#,
             params![
                 task_id.as_str(),
@@ -275,6 +321,7 @@ async fn delegate(
                 PERSONAL_QUEUE_STAGE_ID,
                 command.title,
                 command.description_markdown,
+                authorization_context,
                 TaskSourceKind::ChatDelegate.as_str(),
                 command.provenance.conversation_id,
                 command.provenance.turn_id,
@@ -355,6 +402,41 @@ async fn delegate(
             .into())
     })
     .await
+}
+
+fn task_authorization_context(
+    transaction: &Transaction<'_>,
+    provenance: &noema_tasks::TaskProvenance,
+    title: &str,
+    description_markdown: &str,
+) -> Result<String, StoreError> {
+    let context = match provenance.source_kind {
+        TaskSourceKind::ChatCapture | TaskSourceKind::ChatDelegate => {
+            let (Some(conversation_id), Some(turn_id), Some(item_id)) = (
+                provenance.conversation_id.as_deref(),
+                provenance.turn_id.as_deref(),
+                provenance.item_id.as_deref(),
+            ) else {
+                return Err(invalid_provenance(
+                    "chat-created tasks require conversation, turn, and human item provenance",
+                ));
+            };
+            conversation_authorization_context(transaction, conversation_id, turn_id, item_id)?
+        }
+        TaskSourceKind::WorkUi => noema_tasks::TaskAuthorizationContext::ManualTaskBody {
+            title: title.to_string(),
+            description_markdown: description_markdown.to_string(),
+        },
+        TaskSourceKind::System => noema_tasks::TaskAuthorizationContext::None,
+    };
+    bounded_authorization_context_json(&context)
+}
+
+fn invalid_provenance(message: &str) -> StoreError {
+    StoreError::Work(WorkDomainError::InvalidInput {
+        field: "task.provenance",
+        message: message.to_string(),
+    })
 }
 
 fn require_workspace(

@@ -174,6 +174,7 @@ impl WorkCommand {
         match self {
             Self::CaptureTask(mut command) => {
                 command.title = required(&command.title, "task.title")?;
+                command.description_markdown = command.description_markdown.trim().to_string();
                 command.provenance = command.provenance.normalized()?;
                 Ok(Self::CaptureTask(command))
             }
@@ -254,6 +255,7 @@ impl WorkCommand {
             }
             Self::DelegateTask(mut command) => {
                 command.title = required(&command.title, "task.title")?;
+                command.description_markdown = command.description_markdown.trim().to_string();
                 command.provenance = command.provenance.normalized()?;
                 if command.complexity_hint.is_some() && command.execution_intent.is_some() {
                     return Err(invalid_input(

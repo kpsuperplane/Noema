@@ -82,17 +82,16 @@ async fn unconfigured_reviewer_blocks_external_write_before_invocation() {
             noema_capabilities::InvokerKey::new("external:test"),
             invoker.clone(),
         )]);
-    let conversation = actor
-        .store
-        .get_or_create_primary_conversation(
-            "human:local",
-            Some("gpt-test".to_string()),
-            None,
-        )
-        .await
-        .expect("primary conversation");
     let mut turn = test_turn();
-    turn.conversation_id = conversation.conversation_id;
+    let (conversation_id, turn_id, item_id) =
+        crate::contract_test_support::seed_authorization_source(
+            &actor.store,
+            "Write the exact body.",
+        )
+        .await;
+    turn.conversation_id = conversation_id;
+    turn.turn_id = turn_id;
+    turn.user_item_id = item_id;
     turn.initial_model_tools = test_governed_capability_model_tools();
 
     let result = actor
@@ -120,6 +119,10 @@ async fn unconfigured_reviewer_blocks_external_write_before_invocation() {
         noema_store::GovernedActionState::AwaitingApproval
     );
     assert_eq!(action.arguments, json!({"body":"exact"}));
+    assert_eq!(
+        action.authorization_context["context"]["messages"][0]["text"],
+        "Write the exact body."
+    );
     assert!(invoker.invocations.lock().expect("invocation lock").is_empty());
 
     let observed_url = "https://example.com/public".to_string();
@@ -538,13 +541,19 @@ async fn task_delegate_uses_the_initialized_reviewer_route() {
     )
     .await
     .expect("actor");
-    let turn = test_turn_with_selection(noema_providers::ProviderSelectionSnapshot::explicit(
+    let mut turn = test_turn_with_selection(noema_providers::ProviderSelectionSnapshot::explicit(
         "foundation_local",
         provider_account_id.clone(),
         "default",
         None,
         Some("agent:primary".to_string()),
     ));
+    let (conversation_id, turn_id, item_id) =
+        crate::contract_test_support::seed_authorization_source(&store, "Delegate this task.")
+            .await;
+    turn.conversation_id = conversation_id;
+    turn.turn_id = turn_id;
+    turn.user_item_id = item_id;
 
     let result = actor
         .execute_bound_runtime_tool(

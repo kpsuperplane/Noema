@@ -14,6 +14,10 @@ use noema_capabilities::{
         search::{SearchRequest, SearchResponse},
     },
 };
+use noema_conversations::{
+    ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
+    NewConversationTurn,
+};
 use noema_providers::{
     DIRECT_HTTP_PROVIDER_ID, DUCKDUCKGO_PUBLIC_PROVIDER_ID, EXTRACTION_READABILITYRS,
     NewProviderAccount, PersistedProviderAccountRecord, ProviderAccountPersistence,
@@ -124,11 +128,43 @@ pub async fn initialize_codex_provider_selections(store: &NoemaStore) {
         .expect("initialized provider selections");
 }
 
+/// Persist one authenticated primary-conversation source for contract tests.
+pub async fn seed_authorization_source(store: &NoemaStore, text: &str) -> (String, String, String) {
+    let conversation = store
+        .get_or_create_primary_conversation("human:local", None, None)
+        .await
+        .expect("seed conversation");
+    let turn = store
+        .create_conversation_turn(NewConversationTurn {
+            conversation_id: conversation.conversation_id.clone(),
+            trigger_item_id: None,
+            metadata: serde_json::json!({}),
+        })
+        .await
+        .expect("seed source turn");
+    let item = store
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation.conversation_id.clone(),
+            turn_id: Some(turn.turn_id.clone()),
+            parent_item_id: None,
+            kind: ConversationItemKind::UserText,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::human("human:local").expect("human actor"),
+            content_text: Some(text.to_string()),
+            payload_json: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+        })
+        .await
+        .expect("seed source item");
+    (conversation.conversation_id, turn.turn_id, item.item_id)
+}
+
 /// Seed a simple task and its executor run through the semantic Work writer.
 pub async fn seed_task(store: &NoemaStore, title: &str) -> (TaskRecord, AgentRunRecord) {
     initialize_codex_provider_selections(store).await;
     let service = WorkCommandService::new(store.clone(), ready_test_provider_registry());
     let seed_id = NEXT_DIAGNOSTIC_ID.fetch_add(1, Ordering::Relaxed);
+    let (conversation_id, turn_id, item_id) = seed_authorization_source(store, title).await;
     let result = service
         .execute(WorkCommand::DelegateTask(DelegateTask {
             meta: CommandMeta {
@@ -143,8 +179,11 @@ pub async fn seed_task(store: &NoemaStore, title: &str) -> (TaskRecord, AgentRun
             project_id: None,
             provenance: TaskProvenance {
                 source_kind: TaskSourceKind::ChatDelegate,
+                conversation_id: Some(conversation_id),
+                turn_id: Some(turn_id),
+                item_id: Some(item_id),
                 created_by_actor_id: "actor:test:runtime".to_string(),
-                ..TaskProvenance::default()
+                source_tool_call_id: Some(format!("tool_call:seed-task:{seed_id}")),
             },
             complexity_hint: None,
             execution_intent: Some(DelegateExecutionIntent {
