@@ -584,7 +584,7 @@ async fn governed_action_approval_releases_and_resumes_a_task_run_once() {
             connection.execute(
                 "WITH RECURSIVE item(n) AS (SELECT 0 UNION ALL SELECT n + 1 FROM item WHERE n < ?2)
                  INSERT INTO agent_run_items (item_id, run_id, sequence_index, round_index, kind, status, content_text)
-                 SELECT 'run_item:governed:' || n, ?1, n + 1, 0, 'progress_notice', 'completed', 'parent item ' || n FROM item",
+                 SELECT 'run_item:governed:' || n, ?1, n + 1, 0, 'progress_notice', 'completed', replace(printf('%6000c', 'x'), ' ', 'x') || ' parent item ' || n FROM item",
                 rusqlite::params![parent_run_id, parent_item_limit],
             )?;
             Ok(())
@@ -687,14 +687,12 @@ async fn governed_action_approval_releases_and_resumes_a_task_run_once() {
         .admit_work_run_execution_context(&child_fence, ACTOR, None, "correlation:governed:child")
         .await
         .expect("admit child from bounded parent transcript");
-    assert_eq!(
-        admitted_child.context.lineage.len(),
-        WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN
-    );
-    assert_eq!(
-        admitted_child.context.lineage[0].content_text.as_deref(),
-        Some("parent item 2")
-    );
+    assert!(admitted_child.context.lineage.len() < WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN);
+    assert!(admitted_child.context.lineage.iter().any(|item| {
+        item.content_text
+            .as_deref()
+            .is_some_and(|content| content.ends_with("parent item 24"))
+    }));
     assert_eq!(
         store
             .get_work_run_record(&fence.run_id)

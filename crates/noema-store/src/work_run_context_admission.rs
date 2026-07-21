@@ -175,13 +175,26 @@ fn insert_checkpoint_tx(
             message.consumed_at = Some(created_at.clone());
         }
     }
-    let payload = serde_json::to_string(&serde_json::json!({
+    let mut payload = serde_json::to_string(&serde_json::json!({
         "v": 1,
         "task_id": &context.task.task_id,
         "generation": context.task.generation,
         "contract_id": &context.run.contract_id,
         "context": &context,
     }))?;
+    while payload.len() > MAX_CONTEXT_PAYLOAD_BYTES && !context.lineage.is_empty() {
+        // Immutable contract/submission context is more valuable than the
+        // oldest transcript item, so discard lineage from the front until the
+        // checkpoint fits the durable bound.
+        context.lineage.remove(0);
+        payload = serde_json::to_string(&serde_json::json!({
+            "v": 1,
+            "task_id": &context.task.task_id,
+            "generation": context.task.generation,
+            "contract_id": &context.run.contract_id,
+            "context": &context,
+        }))?;
+    }
     if payload.len() > MAX_CONTEXT_PAYLOAD_BYTES {
         return Err(StoreError::Work(WorkDomainError::InvalidInput {
             field: "run.context_checkpoint",
