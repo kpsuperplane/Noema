@@ -202,7 +202,8 @@ activity lanes. Each immutable executor submission appears once as the durable
 result in that chronological stream, followed by its artifact references. Run
 transcripts are merged into one scroll surface; tool activity remains
 expandable in place, and bounded paging continues from the oldest available run
-window.
+window. Executor commentary before a non-terminal tool batch is user-visible;
+hidden provider reasoning is not rendered.
 
 The floating task-context card keeps an optional needs-input row and compact
 validation summary above the transcript. The info popover exposes compact

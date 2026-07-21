@@ -113,9 +113,13 @@ Current behavior:
   history.
 - `conversation_items` include user text, assistant text, durable activity rows,
   A2UI cards, tool calls/results, approvals, and meaningful errors.
+- Task executors may emit one concise user-visible commentary sentence before a
+  non-terminal tool batch; it is rendered as an assistant bubble while the
+  adjacent tool calls remain grouped and individually expandable. Hidden
+  provider reasoning is never part of this transcript contract.
 - When one provider phase has exactly one tool call, its commentary may label
   the compact tool marker. Consecutive tool calls from the same agent collapse
-  to the latest call plus a count; expanding the group restores each individual
+  to a compact type/count summary; expanding the group restores each individual
   marker and its exact tool identity.
 - The shared shell title row keeps the white-to-transparent content scrim on
   home chat. Other routed surfaces use an opaque title row with a hard bottom

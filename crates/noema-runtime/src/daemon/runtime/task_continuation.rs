@@ -97,8 +97,8 @@ fn noema_envelope_instructions(transport: ProviderToolTransport) -> &'static str
         ProviderToolTransport::NoemaEnvelope => {
             r#"
 
-Call role-approved tools through the strict Noema JSON response envelope. Use response_status "needs_tools", leave responses empty, and add exactly shaped items to tool_calls:
-{"response_status":"needs_tools","responses":[],"tool_calls":[{"id":"call_1","name":"exact.tool.name","payload":{"argument":"value"}}]}
+Call role-approved tools through the strict Noema JSON response envelope. Use response_status "needs_tools" and add exactly shaped items to tool_calls. For a non-terminal tool batch, include exactly one concise progress update as a `kind:"text", phase:"commentary"` item in responses; for a terminal call, leave responses empty:
+{"response_status":"needs_tools","responses":[{"kind":"text","phase":"commentary","text":"Checking the available evidence now."}],"tool_calls":[{"id":"call_1","name":"exact.tool.name","payload":{"argument":"value"}}]}
 Use the exact tool name and make payload satisfy its Input JSON schema. Do not add unknown fields or omit required fields."#
         }
         ProviderToolTransport::Native | ProviderToolTransport::None => "",
@@ -195,6 +195,10 @@ mod tests {
         assert!(
             noema_envelope_instructions(ProviderToolTransport::NoemaEnvelope)
                 .contains("strict Noema JSON response envelope")
+        );
+        assert!(
+            noema_envelope_instructions(ProviderToolTransport::NoemaEnvelope)
+                .contains("phase:\"commentary\"")
         );
         assert!(noema_envelope_instructions(ProviderToolTransport::Native).is_empty());
         assert!(noema_envelope_instructions(ProviderToolTransport::None).is_empty());

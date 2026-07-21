@@ -37,7 +37,7 @@ pub(crate) fn format_executor_prompt(context: &WorkRunExecutionContext) -> Strin
         .map(format_submission)
         .unwrap_or_else(|| "None".to_string());
     format!(
-        "You are Noema's task executor. Execute only the immutable contract below using role-approved tools. Do not change the task/project, select a provider, grant authority, or invent artifact IDs.\n\n<TASK_DATA>\nTask ID: {}\nContract: {} v{}\nRequest:\n{}\n\nExecution plan:\n{}\n\nWorkspace snapshot:\n{}\n{}Criteria:\n{}\n\nPrior submission:\n{}\n\nPrior review and feedback:\n{}\n</TASK_DATA>\n\nProduce criterion evidence for every criterion and call task.submit_result exactly once. If safe progress requires human input, call task.report_blocked with one clarification or approval gate. Ordinary assistant text is never a terminal result.",
+        "You are Noema's task executor. Execute only the immutable contract below using role-approved tools. Do not change the task/project, select a provider, grant authority, or invent artifact IDs.\n\n<TASK_DATA>\nTask ID: {}\nContract: {} v{}\nRequest:\n{}\n\nExecution plan:\n{}\n\nWorkspace snapshot:\n{}\n{}Criteria:\n{}\n\nPrior submission:\n{}\n\nPrior review and feedback:\n{}\n</TASK_DATA>\n\nProduce criterion evidence for every criterion and call task.submit_result exactly once. Before each non-terminal tool batch, emit exactly one concise user-visible commentary sentence explaining what you are checking and what the results will determine. Keep it to one sentence; do not expose hidden reasoning or repeat tool arguments. This commentary is progress, not the terminal result. If safe progress requires human input, call task.report_blocked with one clarification or approval gate. Ordinary assistant text is never a terminal result.",
         context.task.task_id,
         contract.contract_id,
         contract.version,
@@ -104,7 +104,7 @@ pub(crate) fn build_task_role_prompt(context: &WorkRunExecutionContext) -> TaskR
         RunKind::Executor => (
             ExecutionRole::TaskExecutor,
             format_executor_prompt(context),
-            "You are Noema's task Executor. Work under the exact immutable contract, provide evidence for every criterion, and finish through task.submit_result or task.report_blocked.",
+            "You are Noema's task Executor. Work under the exact immutable contract, provide evidence for every criterion, and finish through task.submit_result or task.report_blocked. Before each non-terminal tool batch, emit exactly one concise user-visible commentary sentence; do not expose hidden reasoning or repeat tool arguments.",
         ),
         RunKind::Reviewer => (
             ExecutionRole::TaskReviewer,

@@ -161,13 +161,6 @@ const styles = stylex.create({
     fontFamily: "var(--noema-font-body)",
     fontWeight: 500
   },
-  groupCount: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "var(--spacing-1)",
-    flexShrink: 0,
-    color: "var(--noema-text-faint)"
-  },
   groupList: {
     display: "grid",
     minWidth: 0,
@@ -240,11 +233,10 @@ export function ToolMarker({
               </>
             ) : (
               <>
-                <ToolMarkerRowContent call={latestCall} open={false} presentation={presentation} showChevron={false} />
-                <span {...stylex.props(styles.groupCount)}>
+                <span {...stylex.props(styles.groupIcon)} aria-hidden="true">
                   <WrenchIcon size={14} strokeWidth={1.8} />
-                  {calls.length}
                 </span>
+                <span {...stylex.props(styles.groupLabel)}>{toolGroupLabel(calls)}</span>
               </>
             )}
             <span {...stylex.props(styles.chevron, open && styles.chevronOpen)} aria-hidden="true">
@@ -408,6 +400,15 @@ function activityToolMarkerCall(marker: ToolMarkerGroup): ToolMarkerCall {
   }
 
   return call;
+}
+
+function toolGroupLabel(calls: readonly ToolMarkerCall[]): string {
+  const firstName = calls[0]?.name;
+  const sameName = firstName !== undefined && calls.every((call) => call.name === firstName);
+  if (sameName) {
+    return `${firstName} · ${calls.length} ${calls.length === 1 ? "call" : "calls"}`;
+  }
+  return `${calls.length} tool calls`;
 }
 
 function toolMarkerStatus(marker: ToolMarkerGroup): ToolMarkerCallStatus {
