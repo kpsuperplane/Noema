@@ -338,11 +338,13 @@ function TaskValidationRow({
         <span {...stylex.props(styles.validationIdentity)}>
           <span {...stylex.props(styles.validationLabel)}>Validation</span>
         </span>
-        <span aria-hidden="true" {...stylex.props(styles.validationStatuses)}>
-          {criteria.map((criterion) => (
-            <TaskCriterionStatusIcon key={criterion.id} size={14} verdict={criterion.verdict} />
-          ))}
-        </span>
+        {!expanded ? (
+          <span aria-hidden="true" {...stylex.props(styles.validationStatuses)}>
+            {criteria.map((criterion) => (
+              <TaskCriterionStatusIcon key={criterion.id} size={14} verdict={criterion.verdict} />
+            ))}
+          </span>
+        ) : null}
         <ChevronDown
           aria-hidden="true"
           size={14}
