@@ -454,6 +454,9 @@ fn noema_response_text_format_covers_text_and_multiple_choice_contracts() {
     );
     assert_eq!(schema["additionalProperties"], false);
     assert_eq!(value["format"]["strict"], true);
+    assert!(value["format"]["schema"]["$defs"]["node"].is_object());
+    assert!(value["format"].get("$defs").is_none());
+    assert_eq!(any_of[2]["properties"]["payload"]["$ref"], "#/$defs/node");
     assert_eq!(
         value["format"]["schema"]["properties"]["tool_calls"]["items"]["required"],
         json!(["id", "name", "payload"])

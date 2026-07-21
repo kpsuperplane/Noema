@@ -122,10 +122,10 @@ fn response_text_format(include_tool_calls: bool, strict: bool) -> Value {
                     }
                 },
                 "required": ["response_status", "responses", "tool_calls"],
-                "additionalProperties": false
-            },
-            "$defs": {
-                "node": recursive_json_schema()["$defs"]["node"]
+                "additionalProperties": false,
+                "$defs": {
+                    "node": recursive_json_schema()["$defs"]["node"]
+                }
             }
         }
     });
