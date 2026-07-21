@@ -1,6 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { CheckIcon, ChevronDownIcon, ClockIcon, Loader2Icon, WrenchIcon, XIcon } from "lucide-react";
 import type { ReactNode } from "react";
+import { RollingText } from "@/components/RollingText";
 import {
   toolMarkerExpandable,
   toolMarkerName,
@@ -237,6 +238,7 @@ export function ToolMarker({
               </>
             ) : (
               <ToolMarkerRowContent
+                animateText
                 call={latestCall}
                 open={false}
                 presentation={presentation}
@@ -313,11 +315,13 @@ export function ToolMarker({
 
 function ToolMarkerRowContent({
   call,
+  animateText = false,
   open,
   presentation,
   showChevron = true
 }: {
   call: ToolMarkerCall;
+  animateText?: boolean;
   open: boolean;
   presentation: ToolMarkerPresentation;
   showChevron?: boolean;
@@ -325,13 +329,19 @@ function ToolMarkerRowContent({
   return (
     <>
       <ToolStatusIcon status={call.status} />
-      <span
-        {...stylex.props(styles.text, styles.name, presentation === "content" && styles.contentName)}
-        data-slot="tool-marker-name"
-      >
-        {call.name}
-      </span>
-      {call.target ? (
+      {animateText ? (
+        <RollingText value={call.name} {...stylex.props(styles.name)} data-slot="tool-marker-name" />
+      ) : (
+        <span
+          {...stylex.props(styles.text, styles.name, presentation === "content" && styles.contentName)}
+          data-slot="tool-marker-name"
+        >
+          {call.name}
+        </span>
+      )}
+      {animateText ? (
+        <RollingText value={call.target ?? ""} {...stylex.props(styles.target)} data-slot="tool-marker-target" />
+      ) : call.target ? (
         <span {...stylex.props(styles.text, styles.target)} data-slot="tool-marker-target">
           {call.target}
         </span>

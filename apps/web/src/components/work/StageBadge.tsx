@@ -1,7 +1,8 @@
 import * as stylex from "@stylexjs/stylex";
+import { RollingText } from "@/components/RollingText";
 
 export function StageBadge({ name }: { name: string; behavior?: string }) {
-  return <span {...stylex.props(styles.label)}>{name}</span>;
+  return <RollingText value={name} {...stylex.props(styles.label)} />;
 }
 
 const styles = stylex.create({

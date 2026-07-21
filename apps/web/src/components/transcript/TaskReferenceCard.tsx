@@ -49,7 +49,7 @@ export function TaskReferenceCard({
   const progressLine = taskProgress(task);
   const description = (
     <span {...stylex.props(styles.description)}>
-      <StageBadge name={stageName} behavior="" />
+      <StageBadge key={task ? "ready" : "placeholder"} name={stageName} behavior="" />
       <span {...stylex.props(styles.progress)}>{progressLine}</span>
     </span>
   );

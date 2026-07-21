@@ -121,6 +121,10 @@ Current behavior:
   the compact tool marker. Consecutive tool calls from the same agent collapse
   to the latest call's status, name, and target; expanding the group restores
   each individual marker and its exact tool identity.
+- Collapsed tool-group labels and live task-stage badge labels use the shared
+  rolling text transition for state changes. Words cross-fade vertically while
+  their container width adjusts; reduced-motion preferences replace text
+  immediately.
 - The shared shell title row keeps the white-to-transparent content scrim on
   home chat. Other routed surfaces use an opaque title row with a hard bottom
   divider, and their body and scroll viewport begin below the shared header.
