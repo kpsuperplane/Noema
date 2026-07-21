@@ -37,6 +37,28 @@ const categoryCode: Record<RuntimeDebugSpanCategory, string> = {
   RUNTIME: "R",
   PERSISTENCE: "S"
 };
+const chartWidth = 1_000;
+const plotX = 116;
+const plotWidth = chartWidth - plotX;
+const firstLaneY = 34;
+const laneGap = 16;
+const trackGap = 4;
+const barHeight = 32;
+const shortSpanWidth = 12;
+
+type PackedSpan = {
+  span: Span;
+  spanIndex: number;
+  trackIndex: number;
+};
+
+type FlameLane = {
+  category: RuntimeDebugSpanCategory;
+  spans: PackedSpan[];
+  trackCount: number;
+  y: number;
+  height: number;
+};
 
 export function RuntimeDebugDialog({
   target,
@@ -120,9 +142,10 @@ function ProfileSummary({ profile }: { profile: Profile }) {
       </div>
       <div {...stylex.props(styles.breakdown)}>
         {categories.map((category) => {
-          const duration = profile.spans
-            .filter((span) => span.category === category)
-            .reduce((total, span) => total + span.durationMilliseconds, 0);
+          const duration = coveredDuration(
+            profile.spans.filter((span) => span.category === category),
+            profile.elapsedMilliseconds
+          );
           return duration > 0 ? <span key={category}>{humanize(category)} {formatDuration(duration)}</span> : null;
         })}
         <span>Uninstrumented {formatDuration(profile.uninstrumentedMilliseconds)}</span>
@@ -141,27 +164,37 @@ function FlameChart({
   onSelect: (id: string) => void;
 }) {
   const elapsed = Math.max(profile.elapsedMilliseconds, 1);
-  const lanes = categories
-    .map((category) => ({ category, spans: profile.spans.filter((span) => span.category === category) }))
-    .filter((lane) => lane.spans.length > 0);
-  const chartWidth = 1_000;
-  const plotX = 116;
-  const plotWidth = chartWidth - plotX;
-  const firstLaneY = 34;
-  const lanePitch = 48;
-  const barHeight = 32;
-  const chartHeight = firstLaneY + lanes.length * lanePitch;
+  const layout = categories.reduce<{ lanes: FlameLane[]; nextY: number }>((result, category) => {
+    const spans = packLaneSpans(
+      profile.spans.filter((span) => span.category === category),
+      elapsed
+    );
+    if (spans.length === 0) return result;
+    const trackCount = Math.max(...spans.map((span) => span.trackIndex)) + 1;
+    const height = trackCount * barHeight + (trackCount - 1) * trackGap;
+    return {
+      lanes: [...result.lanes, { category, spans, trackCount, y: result.nextY, height }],
+      nextY: result.nextY + height + laneGap
+    };
+  }, { lanes: [], nextY: firstLaneY });
+  const chartHeight = layout.nextY - laneGap + 12;
+  const lanes = layout.lanes;
   const clipPrefix = React.useId().replaceAll(":", "");
-  const positioned = lanes.flatMap(({ category, spans }, laneIndex) => spans.map((span, spanIndex) => {
-    const naturalX = plotX + (span.startOffsetMilliseconds / elapsed) * plotWidth;
-    const naturalWidth = (span.durationMilliseconds / elapsed) * plotWidth;
-    const width = Math.max(4, Math.min(plotWidth, naturalWidth));
-    const x = Math.min(plotX + plotWidth - width, Math.max(plotX, naturalX));
+  const positioned = lanes.flatMap(({ category, spans, y }, laneIndex) => spans.map(({ span, spanIndex, trackIndex }) => {
+    const anchorX = plotX
+      + Math.min(1, Math.max(0, span.startOffsetMilliseconds / elapsed)) * plotWidth;
+    const timelineDuration = timelineDurationMilliseconds(span);
+    const naturalWidth = Math.max(0, (timelineDuration / elapsed) * plotWidth);
+    const marker = naturalWidth < shortSpanWidth;
+    const width = marker ? shortSpanWidth : Math.min(plotWidth, naturalWidth);
+    const x = marker
+      ? Math.min(plotX + plotWidth - width, Math.max(plotX, anchorX - width / 2))
+      : Math.min(plotX + plotWidth - width, Math.max(plotX, anchorX));
     const code = `${categoryCode[category]}${spanIndex + 1}`;
-    const duration = formatDuration(span.durationMilliseconds);
+    const duration = formatDuration(timelineDuration);
     const fullLabel = `${code} ${span.name} · ${duration}`;
     const compactLabel = `${code} · ${duration}`;
-    const label = width >= estimatedTextWidth(fullLabel) ? fullLabel
+    const label = marker ? null : width >= estimatedTextWidth(fullLabel) ? fullLabel
       : width >= estimatedTextWidth(compactLabel) ? compactLabel
         : width >= estimatedTextWidth(code) ? code : null;
     return {
@@ -169,9 +202,12 @@ function FlameChart({
       category,
       code,
       color: categoryPalette[category][spanIndex % categoryPalette[category].length],
+      anchorX,
       x,
-      y: firstLaneY + laneIndex * lanePitch,
+      y: y + trackIndex * (barHeight + trackGap),
       width,
+      marker,
+      timelineDuration,
       label,
       clipId: `${clipPrefix}-${laneIndex}-${spanIndex}`
     };
@@ -185,6 +221,9 @@ function FlameChart({
   return (
     <section aria-label="Chronological runtime flame chart" {...stylex.props(styles.chart)}>
       <div {...stylex.props(styles.legend)} aria-label="Span categories">
+        {lanes.some((lane) => lane.trackCount > 1) ? (
+          <span {...stylex.props(styles.overlapNote)}>Stacked traces overlap in time</span>
+        ) : null}
         {lanes.map(({ category }) => (
           <span key={category} {...stylex.props(styles.legendItem)}>
             <i aria-hidden="true" style={{ backgroundColor: categoryPalette[category][0] }} {...stylex.props(styles.legendSwatch)} />
@@ -207,17 +246,24 @@ function FlameChart({
               </clipPath>
             ))}
           </defs>
-          {lanes.map(({ category, spans }, laneIndex) => {
-            const y = firstLaneY + laneIndex * lanePitch;
-            return (
-              <g key={category}>
-                <text x={0} y={y + barHeight / 2} dominantBaseline="middle" {...stylex.props(styles.svgLaneLabel)}>
+          {lanes.map(({ category, spans, trackCount, y, height }) => (
+            <g key={category}>
+              <text x={0} y={y + height / 2} dominantBaseline="middle" {...stylex.props(styles.svgLaneLabel)}>
                   {humanize(category)} · {spans.length}
-                </text>
-                <rect x={plotX} y={y} width={plotWidth} height={barHeight} rx={4} {...stylex.props(styles.svgTrack)} />
-              </g>
-            );
-          })}
+              </text>
+              {Array.from({ length: trackCount }, (_, trackIndex) => (
+                <rect
+                  key={trackIndex}
+                  x={plotX}
+                  y={y + trackIndex * (barHeight + trackGap)}
+                  width={plotWidth}
+                  height={barHeight}
+                  rx={4}
+                  {...stylex.props(styles.svgTrack)}
+                />
+              ))}
+            </g>
+          ))}
           {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
             const x = plotX + plotWidth * ratio;
             return (
@@ -243,19 +289,50 @@ function FlameChart({
                 onKeyDown={(event) => selectFromKeyboard(event, item.span.id)}
                 {...stylex.props(styles.svgSpan)}
               >
-                <title>{item.code} · {item.span.name} · {formatDuration(item.span.durationMilliseconds)} · {statusLabel}</title>
-                <rect
-                  x={item.x}
-                  y={item.y}
-                  width={item.width}
-                  height={barHeight}
-                  rx={3}
-                  fill={item.color}
-                  stroke={selected ? "#111827" : "#ffffff"}
-                  strokeWidth={selected ? 3 : 1.5}
-                  strokeDasharray={item.span.status === "COMPLETED" ? undefined : "5 3"}
-                  vectorEffect="non-scaling-stroke"
-                />
+                <title>{item.code} · {item.span.name} · {formatDuration(item.timelineDuration)} · {statusLabel}</title>
+                {item.marker ? (
+                  <>
+                    <rect
+                      x={item.x - 2}
+                      y={item.y}
+                      width={item.width + 4}
+                      height={barHeight}
+                      fill="transparent"
+                    />
+                    <line
+                      x1={item.anchorX}
+                      x2={item.anchorX}
+                      y1={item.y + 3}
+                      y2={item.y + barHeight - 3}
+                      stroke={selected ? "#111827" : item.color}
+                      strokeWidth={selected ? 6 : 4}
+                      strokeLinecap="round"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                    <circle
+                      cx={item.anchorX}
+                      cy={item.y + 6}
+                      r={selected ? 5 : 4}
+                      fill={item.color}
+                      stroke="#ffffff"
+                      strokeWidth={1.5}
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  </>
+                ) : (
+                  <rect
+                    x={item.x}
+                    y={item.y}
+                    width={item.width}
+                    height={barHeight}
+                    rx={3}
+                    fill={item.color}
+                    stroke={selected ? "#111827" : "#ffffff"}
+                    strokeWidth={selected ? 3 : 1.5}
+                    strokeDasharray={item.span.status === "COMPLETED" ? undefined : "5 3"}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                )}
                 {item.label ? (
                   <text
                     x={item.x + 6}
@@ -289,7 +366,7 @@ function FlameChart({
                 <strong>{item.code}</strong>
                 <span>{item.span.name}</span>
                 <small>
-                  {formatDuration(item.span.durationMilliseconds)}
+                  {formatDuration(item.timelineDuration)}
                   {item.span.status === "COMPLETED" ? "" : ` · ${humanize(item.span.status)}`}
                 </small>
               </button>
@@ -302,12 +379,16 @@ function FlameChart({
 }
 
 function SpanDetails({ span }: { span: Span }) {
+  const timelineDuration = timelineDurationMilliseconds(span);
   const rows: Array<[string, string]> = [
     ["Span", span.name],
     ["Start", formatDuration(span.startOffsetMilliseconds)],
-    ["Duration", formatDuration(span.durationMilliseconds)],
+    ["Timeline duration", formatDuration(timelineDuration)],
     ["Status", humanize(span.status)]
   ];
+  if (Math.abs(timelineDuration - span.durationMilliseconds) >= 10) {
+    rows.splice(3, 0, ["Monotonic duration", formatDuration(span.durationMilliseconds)]);
+  }
   for (const [label, value] of [
     ["Provider", span.provider], ["Model", span.model], ["Phase", span.phase],
     ["Tool", span.toolName], ["Response", span.responseIndex], ["Round", span.roundIndex],
@@ -351,6 +432,66 @@ function focusedSpan(spans: Span[], focus?: RuntimeDebugFocus): Span | undefined
     ?? providerSpans[0];
 }
 
+function packLaneSpans(spans: Span[], elapsed: number): PackedSpan[] {
+  const markerDuration = elapsed * (shortSpanWidth / plotWidth);
+  const trackEnds: number[] = [];
+  return spans
+    .map((span, originalIndex) => ({ span, originalIndex }))
+    .sort((left, right) => left.span.startOffsetMilliseconds - right.span.startOffsetMilliseconds
+      || left.originalIndex - right.originalIndex)
+    .map(({ span }, spanIndex) => {
+      const start = span.startOffsetMilliseconds;
+      const timelineDuration = timelineDurationMilliseconds(span);
+      const marker = timelineDuration < markerDuration;
+      const collisionStart = marker ? start - markerDuration / 2 : start;
+      const collisionEnd = marker
+        ? start + markerDuration / 2
+        : start + timelineDuration;
+      let trackIndex = trackEnds.findIndex((end) => end <= collisionStart);
+      if (trackIndex === -1) {
+        trackIndex = trackEnds.length;
+        trackEnds.push(collisionEnd);
+      } else {
+        trackEnds[trackIndex] = collisionEnd;
+      }
+      return { span, spanIndex, trackIndex };
+    });
+}
+
+function coveredDuration(spans: Span[], elapsed: number): number {
+  const intervals = spans
+    .map((span) => {
+      const start = Math.max(0, Math.min(elapsed, span.startOffsetMilliseconds));
+      const end = Math.max(start, Math.min(elapsed, start + timelineDurationMilliseconds(span)));
+      return { start, end };
+    })
+    .filter((interval) => interval.end > interval.start)
+    .sort((left, right) => left.start - right.start);
+  if (intervals.length === 0) return 0;
+  let covered = 0;
+  let currentStart = intervals[0].start;
+  let currentEnd = intervals[0].end;
+  for (const interval of intervals.slice(1)) {
+    if (interval.start <= currentEnd) {
+      currentEnd = Math.max(currentEnd, interval.end);
+    } else {
+      covered += currentEnd - currentStart;
+      currentStart = interval.start;
+      currentEnd = interval.end;
+    }
+  }
+  return covered + currentEnd - currentStart;
+}
+
+function timelineDurationMilliseconds(span: Span): number {
+  if (!span.endedAt) return span.durationMilliseconds;
+  const started = Date.parse(span.startedAt);
+  const ended = Date.parse(span.endedAt);
+  return Number.isFinite(started) && Number.isFinite(ended) && ended >= started
+    ? ended - started
+    : span.durationMilliseconds;
+}
+
 function estimatedTextWidth(value: string): number {
   return value.length * 6.2 + 12;
 }
@@ -380,6 +521,7 @@ const styles = stylex.create({
   breakdown: { display: "flex", flexWrap: "wrap", gap: "var(--spacing-1-5) var(--spacing-3)", color: "var(--muted-foreground)", fontSize: 11 },
   chart: { display: "grid", gap: "var(--spacing-2)" },
   legend: { display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: "var(--spacing-1-5) var(--spacing-3)", color: "var(--muted-foreground)", fontSize: 10 },
+  overlapNote: { marginInlineEnd: "auto", color: "var(--muted-foreground)" },
   legendItem: { display: "inline-flex", alignItems: "center", gap: "var(--spacing-1)" },
   legendSwatch: { width: 10, height: 10, borderRadius: 2, boxShadow: "inset 0 0 0 1px color-mix(in srgb, #111827 20%, transparent)" },
   chartViewport: { overflowX: "auto", paddingBottom: "var(--spacing-1)" },

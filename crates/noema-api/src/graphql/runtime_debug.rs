@@ -138,11 +138,20 @@ fn project_profile(
     for span in profile.spans {
         spans.push(project_span(span, started, effective_end, terminal)?);
     }
-    let accounted = spans
+    let intervals = spans
         .iter()
-        .map(|span| span.duration_milliseconds)
-        .sum::<i64>()
-        .min(elapsed);
+        .map(|span| {
+            Ok((
+                span.start_offset_milliseconds,
+                timeline_duration_milliseconds(
+                    &span.started_at,
+                    span.ended_at.as_deref(),
+                    span.duration_milliseconds,
+                )?,
+            ))
+        })
+        .collect::<async_graphql::Result<Vec<_>>>()?;
+    let accounted = union_milliseconds(intervals, elapsed);
     let (kind, scope_id) = match profile.scope {
         RuntimeDebugScope::ConversationTurn(id) => {
             (GraphqlRuntimeDebugScopeKind::ConversationTurn, id)
@@ -258,10 +267,65 @@ fn milliseconds(duration: chrono::TimeDelta) -> i64 {
     duration.num_milliseconds().max(0)
 }
 
+fn timeline_duration_milliseconds(
+    started_at: &str,
+    ended_at: Option<&str>,
+    monotonic_duration: i64,
+) -> async_graphql::Result<i64> {
+    ended_at.map_or(Ok(monotonic_duration), |ended| {
+        Ok(milliseconds(parse_time(ended)? - parse_time(started_at)?))
+    })
+}
+
+fn union_milliseconds(intervals: impl IntoIterator<Item = (i64, i64)>, elapsed: i64) -> i64 {
+    let mut intervals = intervals
+        .into_iter()
+        .filter_map(|(start, duration)| {
+            let start = start.clamp(0, elapsed);
+            let end = start.saturating_add(duration.max(0)).clamp(0, elapsed);
+            (end > start).then_some((start, end))
+        })
+        .collect::<Vec<_>>();
+    intervals.sort_unstable_by_key(|interval| interval.0);
+    let Some((mut start, mut end)) = intervals.first().copied() else {
+        return 0;
+    };
+    let mut covered = 0i64;
+    for (next_start, next_end) in intervals.into_iter().skip(1) {
+        if next_start <= end {
+            end = end.max(next_end);
+        } else {
+            covered = covered.saturating_add(end - start);
+            (start, end) = (next_start, next_end);
+        }
+    }
+    covered.saturating_add(end - start).min(elapsed)
+}
+
 fn exact_u64(value: u64) -> i64 {
     i64::try_from(value).unwrap_or(i64::MAX)
 }
 
 fn unavailable() -> async_graphql::Error {
     async_graphql::Error::new("runtime debug profile is unavailable")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{timeline_duration_milliseconds, union_milliseconds};
+
+    #[test]
+    fn wall_clock_intervals_do_not_double_count_clock_adjustment() {
+        let timeline_duration = timeline_duration_milliseconds(
+            "2026-07-21T21:00:00.000Z",
+            Some("2026-07-21T21:00:03.600Z"),
+            4_200,
+        )
+        .expect("valid timestamps");
+        assert_eq!(timeline_duration, 3_600);
+        assert_eq!(
+            union_milliseconds([(0, timeline_duration), (3_600, 2_500), (3_950, 7)], 6_100),
+            6_100
+        );
+    }
 }
