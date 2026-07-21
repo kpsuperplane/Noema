@@ -11,9 +11,9 @@ use noema_workspaces::WorkspaceId;
 
 use crate::{
     GovernedActionDecision, GovernedActionEffect, GovernedActionState, GovernedAssessmentStatus,
-    GovernedRecommendation, NewGovernedAction, NewGovernedActionAssessment, NoemaStore,
-    ReportRunFailure, StoreError, SubmitTaskResult, SubmitTaskReview,
-    WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN, WorkCommandService, WorkRunFence, WorkRunTerminal,
+    NewGovernedAction, NewGovernedActionAssessment, NoemaStore, ReportRunFailure, StoreError,
+    SubmitTaskResult, SubmitTaskReview, WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN,
+    WorkCommandService, WorkRunFence, WorkRunTerminal,
     test_support::{
         initialize_codex_provider_selections, open_ephemeral_store, ready_hosted_provider_registry,
     },
@@ -618,7 +618,6 @@ async fn governed_action_approval_releases_and_resumes_a_task_run_once() {
                 reviewer_selection: None,
                 authorization: None,
                 risk: None,
-                recommendation: GovernedRecommendation::RequireApproval,
                 reason_codes: vec!["authorization_ambiguous".to_string()],
                 explanation: "human approval required".to_string(),
             },

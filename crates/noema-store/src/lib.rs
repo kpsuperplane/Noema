@@ -76,8 +76,8 @@ pub use error::{SchemaIncompatibility, StoreError};
 pub use governed_action_approvals::GovernedActionDecision;
 pub use governed_actions::{
     GovernedActionEffect, GovernedActionRecord, GovernedActionState, GovernedAssessmentStatus,
-    GovernedAuthorization, GovernedExecutionOutcome, GovernedRecommendation, GovernedRisk,
-    NewGovernedAction, NewGovernedActionAssessment,
+    GovernedAuthorization, GovernedExecutionOutcome, GovernedRisk, NewGovernedAction,
+    NewGovernedActionAssessment,
 };
 pub use observed_urls::ObservedUrlSource;
 pub use runtime::{NoemaStore, StoreConfig};

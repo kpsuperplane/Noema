@@ -161,13 +161,14 @@ The reviewer has no capabilities or tools. Its response uses a closed schema:
 ```text
 authorization: explicit | substantive | weak | absent
 risk: low | medium | high | critical
-recommendation: auto_execute | require_approval
 reason_codes: [closed vocabulary]
 ```
 
-The reviewer assesses whether the proposed payload and destination are
-consistent with trusted human intent. This is semantic judgment, not a claim
-that Noema can trace paraphrased content to its source.
+The reviewer assesses authorization and risk independently. A novel or
+unmentioned destination may weaken authorization, but it does not raise risk
+by itself. This is semantic judgment, not a claim that Noema can trace
+paraphrased content to its source. Noema composes the final recommendation
+from the two classifications after the reviewer returns.
 
 The audit record stores the reviewer model, prompt-policy version, action ID and
 revision, structured verdict, authority references, and verified structured
@@ -219,12 +220,30 @@ hard deterministic violation
 deterministic approval requirement
   -> persist blocked action
 
-authorized action + `auto_execute` LLM review
-  -> execute
+completed review + global authorization/risk policy
+  -> execute or persist a blocked action
 
 review concern, contradiction, failure, or uncertainty
   -> persist blocked action
 ```
+
+The global completed-review policy is:
+
+```text
+explicit or substantive authorization + low or medium risk
+  -> auto-execute
+
+weak authorization + low risk
+  -> auto-execute
+
+all other authorization/risk pairs
+  -> require human approval
+```
+
+Absent authorization never becomes automatic solely because the assessed risk
+is low. Invalid or unavailable reviews also require approval. The composed
+recommendation is persisted with the assessment for audit, but it is not an
+LLM-provided authority.
 
 The LLM reviewer does not issue non-approvable denials. Deterministic security
 rules are the sole authority for a hard deny; the reviewer either clears

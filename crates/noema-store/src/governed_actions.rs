@@ -248,9 +248,9 @@ impl GovernedRisk {
     }
 }
 
-/// Closed reviewer recommendation. A reviewer never hard-denies an action.
+/// Composed execution recommendation. A reviewer never hard-denies an action.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GovernedRecommendation {
+pub(crate) enum GovernedRecommendation {
     /// Permit one automatic execution claim.
     AutoExecute,
     /// Require one human decision.
@@ -277,8 +277,6 @@ pub struct NewGovernedActionAssessment {
     pub authorization: Option<GovernedAuthorization>,
     /// Closed risk judgment.
     pub risk: Option<GovernedRisk>,
-    /// Composed execution recommendation.
-    pub recommendation: GovernedRecommendation,
     /// Closed, bounded reason codes.
     pub reason_codes: Vec<String>,
     /// Bounded reviewer explanation.
@@ -376,6 +374,7 @@ impl NoemaStore {
         run_fence: Option<&WorkRunFence>,
     ) -> Result<GovernedActionRecord, StoreError> {
         validate_assessment(&assessment)?;
+        let recommendation = compose_recommendation(&assessment);
         let selection_json = assessment
             .reviewer_selection
             .as_ref()
@@ -398,12 +397,12 @@ impl NoemaStore {
                     selection_json,
                     assessment.authorization.map(GovernedAuthorization::as_str),
                     assessment.risk.map(GovernedRisk::as_str),
-                    assessment.recommendation.as_str(),
+                    recommendation.as_str(),
                     reason_codes_json,
                     assessment.explanation,
                 ],
             )?;
-            let next = match assessment.recommendation {
+            let next = match recommendation {
                 GovernedRecommendation::AutoExecute => {
                     require_origin_execution_live_tx(
                         transaction,
@@ -440,7 +439,7 @@ impl NoemaStore {
                 revision,
                 "reviewed",
                 "system:action_reviewer",
-                &serde_json::json!({"recommendation": assessment.recommendation.as_str()}),
+                &serde_json::json!({"recommendation": recommendation.as_str()}),
             )?;
             action_from_tx(transaction, action_id, revision)?.ok_or_else(|| StoreError::InvariantViolation {
                 message: "reviewed governed action could not be reloaded".to_string(),
@@ -609,13 +608,28 @@ fn validate_assessment(assessment: &NewGovernedActionAssessment) -> Result<(), S
         != (assessment.reviewer_selection.is_some()
             && assessment.authorization.is_some()
             && assessment.risk.is_some())
-        || (!completed && assessment.recommendation != GovernedRecommendation::RequireApproval)
     {
         return Err(action_conflict(
             "reviewer assessment fields are inconsistent",
         ));
     }
     Ok(())
+}
+
+fn compose_recommendation(assessment: &NewGovernedActionAssessment) -> GovernedRecommendation {
+    if assessment.status != GovernedAssessmentStatus::Completed {
+        return GovernedRecommendation::RequireApproval;
+    }
+    match (assessment.authorization, assessment.risk) {
+        (
+            Some(GovernedAuthorization::Explicit | GovernedAuthorization::Substantive),
+            Some(GovernedRisk::Low | GovernedRisk::Medium),
+        )
+        | (Some(GovernedAuthorization::Weak), Some(GovernedRisk::Low)) => {
+            GovernedRecommendation::AutoExecute
+        }
+        _ => GovernedRecommendation::RequireApproval,
+    }
 }
 
 fn bounded_json(value: &Value, max_bytes: usize, kind: &str) -> Result<String, StoreError> {

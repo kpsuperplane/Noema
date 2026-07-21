@@ -124,8 +124,11 @@ subagents, reviews, and size measurement.
   External writes and exports pass through the action reviewer selected under
   Safety > Privacy; an unset or failed reviewer creates a durable approval
   request instead of executing.
-- A clear reviewer decision may execute automatically. Otherwise approval is
-  exact, revision-fenced, payload-bound, and consumed once. Foreground and Work
+- A completed reviewer assessment is composed by one global authorization/risk
+  policy: explicit/substantive authorization with low/medium risk, or weak
+  authorization with low risk, may execute automatically; all other pairs
+  require approval. Approval is exact, revision-fenced, payload-bound, and
+  consumed once. Foreground and Work
   task actions use the same authority; waiting task runs release their lease
   and resume through a pinned child run after the exact action outcome is
   recorded.

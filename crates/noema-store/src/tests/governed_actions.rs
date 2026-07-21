@@ -2,8 +2,8 @@ use serde_json::json;
 
 use crate::{
     GovernedActionDecision, GovernedActionEffect, GovernedActionState, GovernedAssessmentStatus,
-    GovernedAuthorization, GovernedExecutionOutcome, GovernedRecommendation, GovernedRisk,
-    NewGovernedAction, NewGovernedActionAssessment, ObservedUrlSource, tests::test_store,
+    GovernedAuthorization, GovernedExecutionOutcome, GovernedRisk, NewGovernedAction,
+    NewGovernedActionAssessment, ObservedUrlSource, tests::test_store,
 };
 
 fn proposed_action(arguments: serde_json::Value) -> NewGovernedAction {
@@ -78,7 +78,6 @@ async fn unavailable_reviewer_requires_approval_and_cannot_be_claimed() {
                 reviewer_selection: None,
                 authorization: None,
                 risk: None,
-                recommendation: GovernedRecommendation::RequireApproval,
                 reason_codes: vec!["authorization_ambiguous".to_string()],
                 explanation: "reviewer is unavailable".to_string(),
             },
@@ -112,7 +111,6 @@ async fn human_approval_is_owner_scoped_and_consumed_by_one_claim() {
                 reviewer_selection: None,
                 authorization: None,
                 risk: None,
-                recommendation: GovernedRecommendation::RequireApproval,
                 reason_codes: vec!["authorization_ambiguous".to_string()],
                 explanation: "reviewer is unavailable".to_string(),
             },
@@ -177,7 +175,6 @@ async fn clear_review_is_claimed_once_and_records_uncertain_outcome() {
                 reviewer_selection: Some(json!({"model_profile":"reviewer"})),
                 authorization: Some(GovernedAuthorization::Explicit),
                 risk: Some(GovernedRisk::Low),
-                recommendation: GovernedRecommendation::AutoExecute,
                 reason_codes: vec!["action_matches_request".to_string()],
                 explanation: "exact action is authorized".to_string(),
             },
@@ -209,4 +206,48 @@ async fn clear_review_is_claimed_once_and_records_uncertain_outcome() {
         .await
         .expect("finish action");
     assert_eq!(finished.state, GovernedActionState::OutcomeUncertain);
+}
+
+#[tokio::test]
+async fn composed_authorization_risk_policy_has_one_global_matrix() {
+    let cases = [
+        (GovernedAuthorization::Explicit, GovernedRisk::Low, true),
+        (
+            GovernedAuthorization::Substantive,
+            GovernedRisk::Medium,
+            true,
+        ),
+        (GovernedAuthorization::Weak, GovernedRisk::Low, true),
+        (GovernedAuthorization::Absent, GovernedRisk::Low, false),
+        (GovernedAuthorization::Weak, GovernedRisk::Medium, false),
+        (GovernedAuthorization::Explicit, GovernedRisk::High, false),
+    ];
+    for (authorization, risk, executable) in cases {
+        let store = test_store().await;
+        let action = store
+            .create_governed_action(proposed_action(json!({"record_id":"42"})))
+            .await
+            .expect("create action");
+        let reviewed = store
+            .record_governed_action_assessment(
+                &action.action_id,
+                action.revision,
+                NewGovernedActionAssessment {
+                    status: GovernedAssessmentStatus::Completed,
+                    reviewer_selection: Some(json!({"model_profile":"reviewer"})),
+                    authorization: Some(authorization),
+                    risk: Some(risk),
+                    reason_codes: vec!["action_matches_request".to_string()],
+                    explanation: "bounded review".to_string(),
+                },
+                None,
+            )
+            .await
+            .expect("record assessment");
+        assert_eq!(
+            reviewed.state == GovernedActionState::Executable,
+            executable,
+            "authorization={authorization:?}, risk={risk:?}"
+        );
+    }
 }
