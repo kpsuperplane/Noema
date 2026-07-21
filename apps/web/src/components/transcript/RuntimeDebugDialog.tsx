@@ -25,6 +25,18 @@ export type RuntimeDebugTarget = {
 };
 
 const categories: RuntimeDebugSpanCategory[] = ["PROVIDER", "TOOL", "RUNTIME", "PERSISTENCE"];
+const categoryPalette: Record<RuntimeDebugSpanCategory, readonly string[]> = {
+  PROVIDER: ["#fbbf24", "#f59e0b", "#fde047", "#fb923c"],
+  TOOL: ["#22d3ee", "#06b6d4", "#38bdf8", "#2dd4bf"],
+  RUNTIME: ["#a78bfa", "#8b5cf6", "#c084fc", "#818cf8"],
+  PERSISTENCE: ["#4ade80", "#22c55e", "#a3e635", "#34d399"]
+};
+const categoryCode: Record<RuntimeDebugSpanCategory, string> = {
+  PROVIDER: "P",
+  TOOL: "T",
+  RUNTIME: "R",
+  PERSISTENCE: "S"
+};
 
 export function RuntimeDebugDialog({
   target,
@@ -63,7 +75,7 @@ export function RuntimeDebugDialog({
       isOpen={Boolean(target)}
       onOpenChange={onOpenChange}
       purpose="info"
-      width="min(760px, calc(100vw - var(--spacing-4)))"
+      width="min(900px, calc(100vw - var(--spacing-4)))"
       maxHeight="min(760px, calc(100vh - var(--spacing-4)))"
       aria-label="Runtime debug profile"
     >
@@ -129,38 +141,162 @@ function FlameChart({
   onSelect: (id: string) => void;
 }) {
   const elapsed = Math.max(profile.elapsedMilliseconds, 1);
+  const lanes = categories
+    .map((category) => ({ category, spans: profile.spans.filter((span) => span.category === category) }))
+    .filter((lane) => lane.spans.length > 0);
+  const chartWidth = 1_000;
+  const plotX = 116;
+  const plotWidth = chartWidth - plotX;
+  const firstLaneY = 34;
+  const lanePitch = 48;
+  const barHeight = 32;
+  const chartHeight = firstLaneY + lanes.length * lanePitch;
+  const clipPrefix = React.useId().replaceAll(":", "");
+  const positioned = lanes.flatMap(({ category, spans }, laneIndex) => spans.map((span, spanIndex) => {
+    const naturalX = plotX + (span.startOffsetMilliseconds / elapsed) * plotWidth;
+    const naturalWidth = (span.durationMilliseconds / elapsed) * plotWidth;
+    const width = Math.max(4, Math.min(plotWidth, naturalWidth));
+    const x = Math.min(plotX + plotWidth - width, Math.max(plotX, naturalX));
+    const code = `${categoryCode[category]}${spanIndex + 1}`;
+    const duration = formatDuration(span.durationMilliseconds);
+    const fullLabel = `${code} ${span.name} · ${duration}`;
+    const compactLabel = `${code} · ${duration}`;
+    const label = width >= estimatedTextWidth(fullLabel) ? fullLabel
+      : width >= estimatedTextWidth(compactLabel) ? compactLabel
+        : width >= estimatedTextWidth(code) ? code : null;
+    return {
+      span,
+      category,
+      code,
+      color: categoryPalette[category][spanIndex % categoryPalette[category].length],
+      x,
+      y: firstLaneY + laneIndex * lanePitch,
+      width,
+      label,
+      clipId: `${clipPrefix}-${laneIndex}-${spanIndex}`
+    };
+  }));
+  const keyedSpans = positioned.filter((item) => !item.label?.includes(item.span.name));
+  const selectFromKeyboard = (event: React.KeyboardEvent<SVGGElement>, id: string) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onSelect(id);
+  };
   return (
     <section aria-label="Chronological runtime flame chart" {...stylex.props(styles.chart)}>
-      <div {...stylex.props(styles.axis)}><span>0</span><span>{formatDuration(elapsed)}</span></div>
-      {categories.map((category) => {
-        const spans = profile.spans.filter((span) => span.category === category);
-        if (spans.length === 0) return null;
-        return (
-          <div key={category} {...stylex.props(styles.lane)}>
-            <span {...stylex.props(styles.laneLabel)}>{humanize(category)}</span>
-            <div {...stylex.props(styles.track)}>
-              {spans.map((span) => {
-                const left = Math.min(100, (span.startOffsetMilliseconds / elapsed) * 100);
-                const width = Math.max(0.8, Math.min(100 - left, (span.durationMilliseconds / elapsed) * 100));
-                return (
-                  <button
-                    key={span.id}
-                    type="button"
-                    aria-label={`${span.name}, ${formatDuration(span.durationMilliseconds)}, ${humanize(span.status)}`}
-                    aria-pressed={span.id === selectedId}
-                    title={`${span.name} · ${formatDuration(span.durationMilliseconds)}`}
-                    style={{ left: `${left}%`, width: `${width}%` }}
-                    {...stylex.props(styles.bar, categoryStyle(category), span.id === selectedId && styles.barSelected)}
-                    onClick={() => onSelect(span.id)}
+      <div {...stylex.props(styles.legend)} aria-label="Span categories">
+        {lanes.map(({ category }) => (
+          <span key={category} {...stylex.props(styles.legendItem)}>
+            <i aria-hidden="true" style={{ backgroundColor: categoryPalette[category][0] }} {...stylex.props(styles.legendSwatch)} />
+            {humanize(category)}
+          </span>
+        ))}
+      </div>
+      <div {...stylex.props(styles.chartViewport)}>
+        <svg
+          viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+          role="group"
+          aria-label={`Runtime spans from zero to ${formatDuration(elapsed)}`}
+          preserveAspectRatio="xMinYMin meet"
+          {...stylex.props(styles.svg)}
+        >
+          <defs>
+            {positioned.map((item) => (
+              <clipPath key={item.clipId} id={item.clipId}>
+                <rect x={item.x + 5} y={item.y} width={Math.max(0, item.width - 10)} height={barHeight} />
+              </clipPath>
+            ))}
+          </defs>
+          {lanes.map(({ category, spans }, laneIndex) => {
+            const y = firstLaneY + laneIndex * lanePitch;
+            return (
+              <g key={category}>
+                <text x={0} y={y + barHeight / 2} dominantBaseline="middle" {...stylex.props(styles.svgLaneLabel)}>
+                  {humanize(category)} · {spans.length}
+                </text>
+                <rect x={plotX} y={y} width={plotWidth} height={barHeight} rx={4} {...stylex.props(styles.svgTrack)} />
+              </g>
+            );
+          })}
+          {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+            const x = plotX + plotWidth * ratio;
+            return (
+              <g key={ratio} aria-hidden="true">
+                <line x1={x} x2={x} y1={22} y2={chartHeight - 10} {...stylex.props(styles.gridLine)} />
+                <text x={x} y={14} textAnchor={ratio === 0 ? "start" : ratio === 1 ? "end" : "middle"} {...stylex.props(styles.tickLabel)}>
+                  {formatDuration(elapsed * ratio)}
+                </text>
+              </g>
+            );
+          })}
+          {positioned.map((item) => {
+            const selected = item.span.id === selectedId;
+            const statusLabel = humanize(item.span.status);
+            return (
+              <g
+                key={item.span.id}
+                role="button"
+                tabIndex={0}
+                aria-label={`${item.code}, ${item.span.name}, ${formatDuration(item.span.durationMilliseconds)}, ${statusLabel}`}
+                aria-pressed={selected}
+                onClick={() => onSelect(item.span.id)}
+                onKeyDown={(event) => selectFromKeyboard(event, item.span.id)}
+                {...stylex.props(styles.svgSpan)}
+              >
+                <title>{item.code} · {item.span.name} · {formatDuration(item.span.durationMilliseconds)} · {statusLabel}</title>
+                <rect
+                  x={item.x}
+                  y={item.y}
+                  width={item.width}
+                  height={barHeight}
+                  rx={3}
+                  fill={item.color}
+                  stroke={selected ? "#111827" : "#ffffff"}
+                  strokeWidth={selected ? 3 : 1.5}
+                  strokeDasharray={item.span.status === "COMPLETED" ? undefined : "5 3"}
+                  vectorEffect="non-scaling-stroke"
+                />
+                {item.label ? (
+                  <text
+                    x={item.x + 6}
+                    y={item.y + barHeight / 2}
+                    dominantBaseline="middle"
+                    clipPath={`url(#${item.clipId})`}
+                    {...stylex.props(styles.spanLabel)}
                   >
-                    <span>{span.name}</span>
-                  </button>
-                );
-              })}
-            </div>
+                    {item.label}
+                  </text>
+                ) : null}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+      {keyedSpans.length > 0 ? (
+        <div {...stylex.props(styles.traceKey)}>
+          <span {...stylex.props(styles.traceKeyLabel)}>Trace key</span>
+          <div {...stylex.props(styles.traceItems)}>
+            {keyedSpans.map((item) => (
+              <button
+                key={item.span.id}
+                type="button"
+                aria-pressed={item.span.id === selectedId}
+                title={`${humanize(item.category)} · ${humanize(item.span.status)}`}
+                {...stylex.props(styles.traceItem, item.span.id === selectedId && styles.traceItemSelected)}
+                onClick={() => onSelect(item.span.id)}
+              >
+                <i aria-hidden="true" style={{ backgroundColor: item.color }} {...stylex.props(styles.traceSwatch)} />
+                <strong>{item.code}</strong>
+                <span>{item.span.name}</span>
+                <small>
+                  {formatDuration(item.span.durationMilliseconds)}
+                  {item.span.status === "COMPLETED" ? "" : ` · ${humanize(item.span.status)}`}
+                </small>
+              </button>
+            ))}
           </div>
-        );
-      })}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -168,6 +304,7 @@ function FlameChart({
 function SpanDetails({ span }: { span: Span }) {
   const rows: Array<[string, string]> = [
     ["Span", span.name],
+    ["Start", formatDuration(span.startOffsetMilliseconds)],
     ["Duration", formatDuration(span.durationMilliseconds)],
     ["Status", humanize(span.status)]
   ];
@@ -214,11 +351,8 @@ function focusedSpan(spans: Span[], focus?: RuntimeDebugFocus): Span | undefined
     ?? providerSpans[0];
 }
 
-function categoryStyle(category: RuntimeDebugSpanCategory) {
-  if (category === "PROVIDER") return styles.provider;
-  if (category === "TOOL") return styles.tool;
-  if (category === "PERSISTENCE") return styles.persistence;
-  return styles.runtime;
+function estimatedTextWidth(value: string): number {
+  return value.length * 6.2 + 12;
 }
 
 function formatDuration(milliseconds: number): string {
@@ -245,16 +379,23 @@ const styles = stylex.create({
   status: { marginInlineStart: "var(--spacing-2)", color: "var(--muted-foreground)", fontSize: 12 },
   breakdown: { display: "flex", flexWrap: "wrap", gap: "var(--spacing-1-5) var(--spacing-3)", color: "var(--muted-foreground)", fontSize: 11 },
   chart: { display: "grid", gap: "var(--spacing-2)" },
-  axis: { display: "flex", justifyContent: "space-between", paddingInlineStart: 92, color: "var(--muted-foreground)", fontFamily: "var(--noema-font-mono)", fontSize: 10 },
-  lane: { display: "grid", gridTemplateColumns: "84px minmax(0, 1fr)", alignItems: "center", gap: "var(--spacing-2)" },
-  laneLabel: { color: "var(--muted-foreground)", fontSize: 11 },
-  track: { position: "relative", height: 30, borderRadius: 6, backgroundColor: "var(--muted)", overflow: "hidden" },
-  bar: { position: "absolute", insetBlock: 3, minWidth: 6, borderWidth: 0, borderRadius: 4, paddingInline: "var(--spacing-1)", overflow: "hidden", color: "var(--foreground)", fontFamily: "inherit", fontSize: 10, lineHeight: "24px", textAlign: "start", whiteSpace: "nowrap", cursor: "pointer", ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--ring)", outlineOffset: -2 } },
-  barSelected: { boxShadow: "inset 0 0 0 2px var(--foreground)" },
-  provider: { backgroundColor: "var(--accent)" },
-  tool: { backgroundColor: "var(--secondary)" },
-  runtime: { backgroundColor: "var(--muted-foreground)" },
-  persistence: { backgroundColor: "var(--clay-100)" },
+  legend: { display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: "var(--spacing-1-5) var(--spacing-3)", color: "var(--muted-foreground)", fontSize: 10 },
+  legendItem: { display: "inline-flex", alignItems: "center", gap: "var(--spacing-1)" },
+  legendSwatch: { width: 10, height: 10, borderRadius: 2, boxShadow: "inset 0 0 0 1px color-mix(in srgb, #111827 20%, transparent)" },
+  chartViewport: { overflowX: "auto", paddingBottom: "var(--spacing-1)" },
+  svg: { display: "block", width: "100%", minWidth: 680, height: "auto", overflow: "visible" },
+  gridLine: { stroke: "var(--border)", strokeWidth: 1, strokeDasharray: "2 4", vectorEffect: "non-scaling-stroke" },
+  tickLabel: { fill: "var(--muted-foreground)", fontFamily: "var(--noema-font-mono)", fontSize: 10 },
+  svgLaneLabel: { fill: "var(--muted-foreground)", fontSize: 11 },
+  svgTrack: { fill: "color-mix(in srgb, var(--muted) 72%, var(--background))", stroke: "var(--border)", strokeWidth: 1, vectorEffect: "non-scaling-stroke" },
+  svgSpan: { cursor: "pointer", outline: "none", ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--ring)", outlineOffset: 2 } },
+  spanLabel: { fill: "#111827", fontFamily: "var(--noema-font-mono)", fontSize: 10, fontWeight: 600, pointerEvents: "none" },
+  traceKey: { display: "grid", gridTemplateColumns: "80px minmax(0, 1fr)", alignItems: "start", gap: "var(--spacing-2)", paddingTop: "var(--spacing-1)" },
+  traceKeyLabel: { color: "var(--muted-foreground)", fontSize: 10, lineHeight: "24px" },
+  traceItems: { display: "flex", flexWrap: "wrap", gap: "var(--spacing-1)" },
+  traceItem: { display: "inline-flex", minWidth: 0, alignItems: "center", gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border)", borderRadius: 4, paddingBlock: "var(--spacing-1)", paddingInline: "var(--spacing-1-5)", backgroundColor: "transparent", color: "var(--foreground)", fontFamily: "inherit", fontSize: 10, lineHeight: 1.3, cursor: "pointer", ":hover": { backgroundColor: "var(--muted)" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--ring)", outlineOffset: 1 } },
+  traceItemSelected: { borderColor: "var(--foreground)", backgroundColor: "var(--muted)" },
+  traceSwatch: { flex: "0 0 auto", width: 8, height: 14, borderRadius: 2, boxShadow: "inset 0 0 0 1px color-mix(in srgb, #111827 20%, transparent)" },
   detailsSection: { display: "grid", gap: "var(--spacing-2)", borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--border)", paddingTop: "var(--spacing-3)" },
   sectionTitle: { margin: 0, color: "var(--foreground)", fontSize: 12, fontWeight: 600 },
   details: { display: "grid", gap: "var(--spacing-1-5)", margin: 0 },
