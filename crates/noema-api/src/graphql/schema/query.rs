@@ -243,6 +243,17 @@ impl QueryRoot {
         tasks::task_run_items(state, principal, run_id, after, first).await
     }
 
+    /// Return a live or durable runtime profile for one authorized turn or run.
+    async fn runtime_debug_profile(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlRuntimeDebugProfileInput,
+    ) -> Result<Option<GraphqlRuntimeDebugProfile>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        runtime_debug::runtime_debug_profile(state, principal, input).await
+    }
+
     /// Return human-controlled executor model-pool entries.
     async fn task_model_pools(
         &self,

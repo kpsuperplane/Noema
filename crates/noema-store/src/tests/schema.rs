@@ -11,10 +11,10 @@ use crate::{
 };
 
 #[tokio::test]
-async fn work_v8_bootstrap_is_exact_idempotent_and_enforces_foreign_keys() {
+async fn work_v9_bootstrap_is_exact_idempotent_and_enforces_foreign_keys() {
     let home = TempDir::new().expect("temp store root");
     let config = store_config(home.path());
-    let store = NoemaStore::open(&config).await.expect("bootstrap V8 store");
+    let store = NoemaStore::open(&config).await.expect("bootstrap V9 store");
 
     store
         .with_connection(|conn| {
@@ -58,12 +58,12 @@ async fn work_v8_bootstrap_is_exact_idempotent_and_enforces_foreign_keys() {
                 |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?, row.get::<_, i64>(3)?, row.get::<_, i64>(4)?, row.get::<_, i64>(5)?)),
             )?;
             assert_eq!(policy, (80, 400, 120, 20, 3, 3));
-            assert_eq!(count_where(conn, "schema_state", "name = 'sqlite_store_v8' AND version = 8")?, 1);
+            assert_eq!(count_where(conn, "schema_state", "name = 'sqlite_store_v9' AND version = 9")?, 1);
             assert_eq!(count_where(conn, "auxiliary_model_preferences", "task_id = 'action_reviewer'")?, 0);
             Ok(())
         })
         .await
-        .expect("inspect V8 bootstrap");
+        .expect("inspect V9 bootstrap");
 
     drop(store);
     let reopened = NoemaStore::open(&config)
@@ -94,11 +94,11 @@ async fn work_v8_bootstrap_is_exact_idempotent_and_enforces_foreign_keys() {
 }
 
 #[tokio::test]
-async fn work_v8_schema_enforces_projection_history_and_ledger_invariants() {
+async fn work_v9_schema_enforces_projection_history_and_ledger_invariants() {
     let home = TempDir::new().expect("temp store root");
     let store = NoemaStore::open(&store_config(home.path()))
         .await
-        .expect("bootstrap V8 store");
+        .expect("bootstrap V9 store");
 
     store
         .with_connection(|conn| {

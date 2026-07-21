@@ -2457,6 +2457,10 @@ type QueryRoot {
 	"""
 	taskRunItems(runId: String!, first: Int, after: String): TaskRunItemConnection!
 	"""
+	Return a live or durable runtime profile for one authorized turn or run.
+	"""
+	runtimeDebugProfile(input: RuntimeDebugProfileInput!): RuntimeDebugProfile
+	"""
 	Return human-controlled executor model-pool entries.
 	"""
 	taskModelPools(complexity: TaskComplexity): [TaskModelPoolEntry!]!
@@ -2654,6 +2658,65 @@ input RetryTaskInput {
 	Caller idempotency key.
 	"""
 	clientMutationId: String!
+}
+
+type RuntimeDebugProfile {
+	kind: RuntimeDebugScopeKind!
+	scopeId: String!
+	status: RuntimeDebugStatus!
+	startedAt: String!
+	endedAt: String
+	elapsedMilliseconds: Int!
+	accountedMilliseconds: Int!
+	uninstrumentedMilliseconds: Int!
+	spans: [RuntimeDebugSpan!]!
+}
+
+input RuntimeDebugProfileInput {
+	kind: RuntimeDebugScopeKind!
+	scopeId: String!
+}
+
+enum RuntimeDebugScopeKind {
+	CONVERSATION_TURN
+	TASK_RUN
+}
+
+type RuntimeDebugSpan {
+	id: String!
+	category: RuntimeDebugSpanCategory!
+	name: String!
+	status: RuntimeDebugStatus!
+	startedAt: String!
+	endedAt: String
+	startOffsetMilliseconds: Int!
+	durationMilliseconds: Int!
+	provider: String
+	model: String
+	phase: String
+	responseIndex: Int
+	roundIndex: Int
+	toolName: String
+	correlationId: String
+	inputTokens: Int
+	cachedInputTokens: Int
+	outputTokens: Int
+	totalTokens: Int
+}
+
+enum RuntimeDebugSpanCategory {
+	PROVIDER
+	TOOL
+	RUNTIME
+	PERSISTENCE
+}
+
+enum RuntimeDebugStatus {
+	RUNNING
+	COMPLETED
+	FAILED
+	CANCELLED
+	INTERRUPTED
 }
 
 """

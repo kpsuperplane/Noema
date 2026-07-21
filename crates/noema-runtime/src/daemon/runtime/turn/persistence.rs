@@ -122,6 +122,20 @@ impl RuntimeActor {
             )
             .await?;
             let tool_started_at = std::time::Instant::now();
+            let tool_debug = RuntimeDebugSpan::begin(
+                &self.store,
+                RuntimeDebugScope::ConversationTurn(turn.turn_id.clone()),
+                RuntimeDebugSpanCategory::Tool,
+                call.name.clone(),
+                RuntimeDebugMetadata {
+                    phase: Some("initial".to_string()),
+                    round_index: Some(0),
+                    tool_name: Some(call.name.clone()),
+                    correlation_id: call.provider_call_id.clone().or(call.call_id.clone()),
+                    ..RuntimeDebugMetadata::default()
+                },
+            )
+            .await;
             timing.mark(
                 "runtime_tool_execution_started",
                 json!({
@@ -136,6 +150,16 @@ impl RuntimeActor {
                 self.execute_local_tool(turn, &turn.agent_identity, call)
                     .await
             };
+            tool_debug
+                .finish(
+                    if result.success {
+                        RuntimeDebugSpanStatus::Completed
+                    } else {
+                        RuntimeDebugSpanStatus::Failed
+                    },
+                    None,
+                )
+                .await;
             timing.mark(
                 "runtime_tool_execution_completed",
                 json!({

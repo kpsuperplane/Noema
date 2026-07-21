@@ -60,6 +60,11 @@ subagents, reviews, and size measurement.
   transport-neutral events live in `noema-runtime`. Host composition lives in
   `noema-host`; GraphQL lives in `noema-api`; server and desktop remain process
   shells.
+- New Chat turns and Planner, Executor, and Reviewer runs record safe wall-clock
+  spans in `runtime_debug_spans`, owned by exactly one turn or run. The shared
+  transcript Debug dialog reads this durable profile, polls only while running,
+  and keeps provider rounds, tool execution, persistence, and uninstrumented
+  gaps distinct without storing prompts, arguments, results, or raw errors.
 
 ### Providers and local models
 

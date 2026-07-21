@@ -1,6 +1,7 @@
 mod artifacts;
 mod conversations;
 mod governed_actions;
+mod runtime_debug;
 mod schema;
 mod schema_support;
 mod support;

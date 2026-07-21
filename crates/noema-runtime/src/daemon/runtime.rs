@@ -16,6 +16,7 @@ pub(crate) mod model_tools;
 mod progress;
 pub(crate) mod progress_audit;
 mod prompt_context;
+mod runtime_debug;
 mod task_continuation;
 mod task_transcript;
 mod tasks;

@@ -198,6 +198,7 @@ function submissionTranscriptEntries(submission: TaskSubmission): TranscriptEntr
       id: `submission-result:${submission.id}`,
       source: "replay",
       type: "assistant",
+      debugScope: { kind: "TASK_RUN", scopeId: submission.executorRunId },
       text: result
     });
   }

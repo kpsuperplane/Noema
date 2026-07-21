@@ -145,4 +145,9 @@ mod tests {
         include!("schema_tests/work_graphql.rs");
     }
 
+    mod runtime_debug {
+        use super::*;
+        include!("schema_tests/runtime_debug.rs");
+    }
+
 }

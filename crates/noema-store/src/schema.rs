@@ -1,8 +1,8 @@
 /// Current schema version for pre-stable local SQLite data.
-pub const STORE_SCHEMA_VERSION: i64 = 8;
+pub const STORE_SCHEMA_VERSION: i64 = 9;
 
 /// Stable marker row identifying the exact schema accepted by this binary.
-pub(super) const STORE_SCHEMA_MARKER: &str = "sqlite_store_v8";
+pub(super) const STORE_SCHEMA_MARKER: &str = "sqlite_store_v9";
 
 /// SQLite bootstrap used by the Noema store.
 pub const STORE_SCHEMA_SQL: &str = r#"
@@ -797,6 +797,34 @@ CREATE TABLE agent_run_items (
 CREATE INDEX agent_run_items_run_sequence
 ON agent_run_items(run_id, sequence_index, item_id);
 
+CREATE TABLE runtime_debug_spans (
+  span_id TEXT PRIMARY KEY NOT NULL CHECK (span_id GLOB 'debug_span:*'),
+  conversation_turn_id TEXT,
+  agent_run_id TEXT,
+  category TEXT NOT NULL CHECK (category IN ('provider', 'tool', 'runtime', 'persistence')),
+  name TEXT NOT NULL CHECK (trim(name) <> ''),
+  status TEXT NOT NULL DEFAULT 'running' CHECK (status IN (
+    'running', 'completed', 'failed', 'cancelled', 'interrupted'
+  )),
+  duration_milliseconds INTEGER CHECK (duration_milliseconds IS NULL OR duration_milliseconds >= 0),
+  metadata_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata_json)),
+  started_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  ended_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  CHECK ((conversation_turn_id IS NOT NULL) <> (agent_run_id IS NOT NULL)),
+  FOREIGN KEY (conversation_turn_id) REFERENCES conversation_turns(turn_id) ON DELETE CASCADE,
+  FOREIGN KEY (agent_run_id) REFERENCES agent_runs(run_id) ON DELETE CASCADE
+);
+
+CREATE INDEX runtime_debug_spans_turn
+ON runtime_debug_spans(conversation_turn_id, started_at, span_id)
+WHERE conversation_turn_id IS NOT NULL;
+
+CREATE INDEX runtime_debug_spans_run
+ON runtime_debug_spans(agent_run_id, started_at, span_id)
+WHERE agent_run_id IS NOT NULL;
+
 CREATE TABLE task_submissions (
   submission_id TEXT PRIMARY KEY NOT NULL CHECK (submission_id GLOB 'submission:*'),
   task_id TEXT NOT NULL,
@@ -1105,6 +1133,6 @@ INSERT INTO task_execution_policy (
 ON CONFLICT (policy_id) DO NOTHING;
 
 INSERT INTO schema_state (name, version, applied_at)
-VALUES ('sqlite_store_v8', 8, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+VALUES ('sqlite_store_v9', 9, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 ON CONFLICT (name) DO NOTHING;
 "#;

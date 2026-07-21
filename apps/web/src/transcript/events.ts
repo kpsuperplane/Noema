@@ -69,6 +69,7 @@ export function appendAssistantTextDeltaEntry(
       {
         id: event.streamId,
         turnId: event.turnId,
+        debugScope: { kind: "CONVERSATION_TURN", scopeId: event.turnId },
         type: "assistant_stream",
         streamId: event.streamId,
         responseIndex: event.responseIndex,
@@ -152,6 +153,7 @@ function entryFromConversationItem(
       itemId,
       cursor,
       turnId,
+      debugScope: turnId ? { kind: "CONVERSATION_TURN", scopeId: turnId } : undefined,
       type: "assistant",
       streamId: streamIdFromMetadata(metadata),
       responseIndex: responseIndexFromMetadata(metadata),
@@ -160,7 +162,15 @@ function entryFromConversationItem(
     };
   }
   if (transcriptItem.kind === "activity") {
-    return { id: itemId, itemId, cursor, turnId, type: "activity", item: transcriptItem };
+    return {
+      id: itemId,
+      itemId,
+      cursor,
+      turnId,
+      debugScope: turnId ? { kind: "CONVERSATION_TURN", scopeId: turnId } : undefined,
+      type: "activity",
+      item: transcriptItem
+    };
   }
   if (transcriptItem.kind === "a2ui_card") {
     return { id: itemId, itemId, cursor, turnId, type: "card", item: transcriptItem };

@@ -1,6 +1,7 @@
 import * as React from "react";
+import { ContextMenu } from "@astryxdesign/core/ContextMenu";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
-import type { TranscriptEntry } from "@/shared/types";
+import type { RuntimeDebugScope, TranscriptEntry } from "@/shared/types";
 import { ActivityRow } from "./ActivityRow";
 import { ArtifactReferenceCard } from "./ArtifactReferenceCard";
 import { ErrorNotice } from "./ErrorNotice";
@@ -39,6 +40,10 @@ import { TranscriptScroller, TranscriptScrollerItem, TranscriptScrollerProvider,
 import { TypingMessage } from "./TypingMessage";
 import type { ConversationAgentStatus } from "@/shared/types";
 import { parseProviderUsageDebug } from "./debugUsage";
+import {
+  RuntimeDebugDialog,
+  type RuntimeDebugTarget
+} from "./RuntimeDebugDialog";
 
 const TOOL_DETAIL_EXIT_DURATION_MS = 400;
 
@@ -93,6 +98,7 @@ export function Transcript({
     initialSeenArrivalMessageIds(renderedEntries)
   );
   const [textAnimatingMessageIds, setTextAnimatingMessageIds] = React.useState<ReadonlySet<string>>(() => new Set());
+  const [debugTarget, setDebugTarget] = React.useState<RuntimeDebugTarget | null>(null);
   const followBottomRef = React.useRef(true);
   const scrollKey = transcriptScrollKey(renderedEntries);
   const arrivalScrollKey = transcriptArrivalScrollKey(renderedEntries, seenArrivalMessageIds);
@@ -191,7 +197,8 @@ export function Transcript({
                   bubbleGroup,
                   animateText,
                   followBottomRef,
-                  onOpenDetail
+                  onOpenDetail,
+                  setDebugTarget
                 )}
               </RenderedTranscriptEntryFrame>
             </TranscriptScrollerItem>
@@ -203,6 +210,12 @@ export function Transcript({
         followBottomRef={followBottomRef}
         sentMessageScrollRequest={sentMessageScrollRequest}
         scrollKey={scrollKey}
+      />
+      <RuntimeDebugDialog
+        target={debugTarget}
+        onOpenChange={(open) => {
+          if (!open) setDebugTarget(null);
+        }}
       />
     </TranscriptScrollerProvider>
   );
@@ -225,19 +238,22 @@ function renderTranscriptRenderEntry(
   bubbleGroup: ChatBubbleGroup | undefined,
   animateText: boolean,
   followBottomRef: React.MutableRefObject<boolean>,
-  onOpenDetail: ((target: ChatDetailTarget) => void) | undefined
+  onOpenDetail: ((target: ChatDetailTarget) => void) | undefined,
+  onDebug: (target: RuntimeDebugTarget) => void
 ) {
   if (entry.kind === "tool_marker_group") {
     const open = expandedActivities.has(entry.id);
     return (
       <TranscriptRow lane="assistant" reserveAvatarSpace={reserveAvatarSpace} showAvatar={showAvatar}>
-        <ToolMarker
-          data={{ kind: "tool_group", markers: entry.markers }}
-          expandedMarkers={expandedActivities}
-          onToggleMarker={onToggleActivity}
-          open={open}
-          onToggle={() => onToggleActivity(entry.id)}
-        />
+        <DebugMarkerMenu target={toolGroupDebugTarget(entry.markers)} onDebug={onDebug}>
+          <ToolMarker
+            data={{ kind: "tool_group", markers: entry.markers }}
+            expandedMarkers={expandedActivities}
+            onToggleMarker={onToggleActivity}
+            open={open}
+            onToggle={() => onToggleActivity(entry.id)}
+          />
+        </DebugMarkerMenu>
       </TranscriptRow>
     );
   }
@@ -247,12 +263,14 @@ function renderTranscriptRenderEntry(
     return (
       <>
         <TranscriptRow lane="assistant" reserveAvatarSpace={reserveAvatarSpace} showAvatar={showAvatar}>
-          <ToolMarker
-            data={{ kind: "tool", marker: entry.marker }}
-            open={open}
-            onToggle={() => onToggleActivity(entry.id)}
-            renderDetail={false}
-          />
+          <DebugMarkerMenu target={toolDebugTarget(entry.marker)} onDebug={onDebug}>
+            <ToolMarker
+              data={{ kind: "tool", marker: entry.marker }}
+              open={open}
+              onToggle={() => onToggleActivity(entry.id)}
+              renderDetail={false}
+            />
+          </DebugMarkerMenu>
         </TranscriptRow>
         <AnimatedToolDetailRow
           open={open && toolMarkerExpandable(entry.marker)}
@@ -276,7 +294,8 @@ function renderTranscriptRenderEntry(
     reserveAvatarSpace,
     bubbleGroup,
     animateText,
-    onOpenDetail
+    onOpenDetail,
+    onDebug
   );
 }
 
@@ -290,7 +309,8 @@ function renderTranscriptEntry(
   reserveAvatarSpace: boolean,
   bubbleGroup: ChatBubbleGroup | undefined,
   animateText: boolean,
-  onOpenDetail: ((target: ChatDetailTarget) => void) | undefined
+  onOpenDetail: ((target: ChatDetailTarget) => void) | undefined,
+  onDebug: (target: RuntimeDebugTarget) => void
 ) {
   if (entry.type === "user") {
     return (
@@ -308,6 +328,13 @@ function renderTranscriptEntry(
     return <TranscriptInputMessage text={entry.text} />;
   }
   if (entry.type === "assistant") {
+    const debugUsage = parseProviderUsageDebug(entry.metadata);
+    const debugTarget = messageDebugTarget(
+      entry.debugScope,
+      debugUsage,
+      entry.responseIndex,
+      entry.debugRoundIndex
+    );
     return (
       <Message
         animate={animateText}
@@ -316,11 +343,13 @@ function renderTranscriptEntry(
         role="assistant"
         text={entry.text}
         showAvatar={showAvatar}
-        debugUsage={parseProviderUsageDebug(entry.metadata)}
+        debugUsage={debugUsage}
+        onDebug={debugTarget ? () => onDebug(debugTarget) : undefined}
       />
     );
   }
   if (entry.type === "assistant_stream") {
+    const debugTarget = messageDebugTarget(entry.debugScope, null, entry.responseIndex);
     return (
       <Message
         animate={animateText}
@@ -329,6 +358,7 @@ function renderTranscriptEntry(
         role="assistant"
         text={entry.text}
         showAvatar={showAvatar}
+        onDebug={debugTarget ? () => onDebug(debugTarget) : undefined}
       />
     );
   }
@@ -389,6 +419,72 @@ function renderTranscriptEntry(
     );
   }
   return <ErrorNotice message={entry.message} recoverable={entry.recoverable} />;
+}
+
+function DebugMarkerMenu({
+  target,
+  onDebug,
+  children
+}: {
+  target: RuntimeDebugTarget | null;
+  onDebug: (target: RuntimeDebugTarget) => void;
+  children: React.ReactNode;
+}) {
+  if (!target) return children;
+  return (
+    <ContextMenu items={[{ label: "Debug", onClick: () => onDebug(target) }]}>
+      {children}
+    </ContextMenu>
+  );
+}
+
+function messageDebugTarget(
+  scope: RuntimeDebugScope | undefined,
+  legacyUsage: ReturnType<typeof parseProviderUsageDebug>,
+  responseIndex: number | undefined,
+  roundIndex?: number
+): RuntimeDebugTarget | null {
+  if (!scope && !legacyUsage) return null;
+  return {
+    scope,
+    legacyUsage,
+    focus: {
+      kind: "provider",
+      phase: legacyUsage?.phase,
+      responseIndex: roundIndex === undefined ? legacyUsage?.responseIndex ?? responseIndex : undefined,
+      roundIndex
+    }
+  };
+}
+
+function toolDebugTarget(marker: Extract<RenderTranscriptEntry, { kind: "tool_marker" }>["marker"]): RuntimeDebugTarget | null {
+  const item = marker.call ?? marker.result;
+  if (!item?.debugScope) return null;
+  const correlationId = toolCorrelationId(item);
+  return {
+    scope: item.debugScope,
+    legacyUsage: null,
+    focus: correlationId ? { kind: "tool", correlationId } : undefined
+  };
+}
+
+function toolGroupDebugTarget(
+  markers: Extract<RenderTranscriptEntry, { kind: "tool_marker_group" }>["markers"]
+): RuntimeDebugTarget | null {
+  const scope = (markers[0]?.call ?? markers[0]?.result)?.debugScope;
+  return scope ? { scope, legacyUsage: null } : null;
+}
+
+function toolCorrelationId(entry: Extract<TranscriptEntry, { type: "activity" }>): string | undefined {
+  const metadata = entry.item.metadata;
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return undefined;
+  const action = (metadata as Record<string, unknown>).action;
+  if (!action || typeof action !== "object" || Array.isArray(action)) return undefined;
+  const record = action as Record<string, unknown>;
+  for (const value of [record.correlation_id, record.id, record.call_id]) {
+    if (typeof value === "string" && value) return value;
+  }
+  return undefined;
 }
 
 function multipleChoicePromptSelectedOptionIds(entries: TranscriptEntry[], promptItemId: string): ReadonlySet<string> {

@@ -253,6 +253,20 @@ impl RuntimeActor {
                 }),
             );
             let continuation_provider_started_at = std::time::Instant::now();
+            let continuation_debug = RuntimeDebugSpan::begin(
+                &self.store,
+                RuntimeDebugScope::ConversationTurn(turn.turn_id.clone()),
+                RuntimeDebugSpanCategory::Provider,
+                format!("Provider continuation {continuation_step}"),
+                RuntimeDebugMetadata {
+                    provider: Some(turn.provider_kind.clone()),
+                    model: turn.model.clone(),
+                    phase: Some("continuation".to_string()),
+                    response_index: Some(continuation_step as u64),
+                    ..RuntimeDebugMetadata::default()
+                },
+            )
+            .await;
             let chained = continuation_input.previous_response_id.is_some();
             let continuation_prompt_cache_breakpoints =
                 prompt_cache_breakpoints_for(&continuation_input.input, turn.tool_capabilities);
@@ -350,7 +364,33 @@ impl RuntimeActor {
                     )
                     .await;
             }
-            let continuation_response = continuation_result?;
+            let continuation_response = match continuation_result {
+                Ok(response) => response,
+                Err(error) => {
+                    continuation_debug
+                        .finish(RuntimeDebugSpanStatus::Failed, None)
+                        .await;
+                    return Err(RuntimeError::Provider(error));
+                }
+            };
+            let continuation_usage = continuation_response.usage.as_ref();
+            continuation_debug
+                .finish(
+                    RuntimeDebugSpanStatus::Completed,
+                    Some(RuntimeDebugMetadata {
+                        provider: Some(continuation_response.provider.clone()),
+                        model: Some(continuation_response.model.clone()),
+                        phase: Some("continuation".to_string()),
+                        response_index: Some(continuation_step as u64),
+                        input_tokens: continuation_usage.map(|value| value.input_tokens),
+                        cached_input_tokens: continuation_usage
+                            .and_then(|value| value.cached_input_tokens),
+                        output_tokens: continuation_usage.map(|value| value.output_tokens),
+                        total_tokens: continuation_usage.map(|value| value.total_tokens),
+                        ..RuntimeDebugMetadata::default()
+                    }),
+                )
+                .await;
             timing.mark(
                 "provider_continuation_response_completed",
                 json!({
@@ -542,6 +582,20 @@ impl RuntimeActor {
                 )
                 .await?;
                 let tool_started_at = std::time::Instant::now();
+                let tool_debug = RuntimeDebugSpan::begin(
+                    &self.store,
+                    RuntimeDebugScope::ConversationTurn(continuation_turn.turn_id.clone()),
+                    RuntimeDebugSpanCategory::Tool,
+                    call.name.clone(),
+                    RuntimeDebugMetadata {
+                        phase: Some("continuation".to_string()),
+                        round_index: Some(continuation_step as u64),
+                        tool_name: Some(call.name.clone()),
+                        correlation_id: call.provider_call_id.clone().or(call.call_id.clone()),
+                        ..RuntimeDebugMetadata::default()
+                    },
+                )
+                .await;
                 timing.mark(
                     "runtime_tool_execution_started",
                     json!({
@@ -565,6 +619,16 @@ impl RuntimeActor {
                     )
                     .await
                 };
+                tool_debug
+                    .finish(
+                        if result.success {
+                            RuntimeDebugSpanStatus::Completed
+                        } else {
+                            RuntimeDebugSpanStatus::Failed
+                        },
+                        None,
+                    )
+                    .await;
                 timing.mark(
                     "runtime_tool_execution_completed",
                     json!({

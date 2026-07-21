@@ -19,6 +19,19 @@ impl RuntimeActor {
             }),
         );
         let started_at = std::time::Instant::now();
+        let finalization_debug = RuntimeDebugSpan::begin(
+            &self.store,
+            RuntimeDebugScope::ConversationTurn(turn.turn_id.clone()),
+            RuntimeDebugSpanCategory::Provider,
+            "Final provider request",
+            RuntimeDebugMetadata {
+                provider: Some(turn.provider_kind.clone()),
+                model: turn.model.clone(),
+                phase: Some("finalization".to_string()),
+                ..RuntimeDebugMetadata::default()
+            },
+        )
+        .await;
         let response = provider
             .generate_streaming(
                 GenerateRequest {
@@ -41,7 +54,32 @@ impl RuntimeActor {
                 },
                 &mut ignore_event,
             )
-            .await?;
+            .await;
+        let response = match response {
+            Ok(response) => response,
+            Err(error) => {
+                finalization_debug
+                    .finish(RuntimeDebugSpanStatus::Failed, None)
+                    .await;
+                return Err(RuntimeError::Provider(error));
+            }
+        };
+        let usage = response.usage.as_ref();
+        finalization_debug
+            .finish(
+                RuntimeDebugSpanStatus::Completed,
+                Some(RuntimeDebugMetadata {
+                    provider: Some(response.provider.clone()),
+                    model: Some(response.model.clone()),
+                    phase: Some("finalization".to_string()),
+                    input_tokens: usage.map(|value| value.input_tokens),
+                    cached_input_tokens: usage.and_then(|value| value.cached_input_tokens),
+                    output_tokens: usage.map(|value| value.output_tokens),
+                    total_tokens: usage.map(|value| value.total_tokens),
+                    ..RuntimeDebugMetadata::default()
+                }),
+            )
+            .await;
         timing.mark(
             "provider_progress_finalization_response_completed",
             json!({

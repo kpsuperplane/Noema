@@ -11,7 +11,10 @@ use std::{
 
 use tokio_util::sync::CancellationToken;
 
-use noema_store::{WorkCommandService, WorkRunFence, WorkRunProgress};
+use noema_store::{
+    RuntimeDebugMetadata, RuntimeDebugScope, RuntimeDebugSpanCategory, RuntimeDebugSpanStatus,
+    WorkCommandService, WorkRunFence, WorkRunProgress,
+};
 use noema_tasks::NewAgentRunItem;
 
 use crate::daemon::{RuntimeError, RuntimeEventRegistry, TaskRuntimeEvent};
@@ -22,7 +25,7 @@ use noema_providers::{
 
 use super::{
     actor::RuntimeActor, background_task::BackgroundTaskGenerateRequest,
-    tool_lifecycle::LocalToolCall,
+    runtime_debug::RuntimeDebugSpan, tool_lifecycle::LocalToolCall,
 };
 
 impl RuntimeActor {
@@ -37,12 +40,30 @@ impl RuntimeActor {
         lease_token: &str,
         task_generation: u64,
         contract_id: Option<&noema_tasks::TaskContractId>,
+        phase: &'static str,
         round_index: i64,
         deadline: tokio::time::Instant,
         cancellation: &CancellationToken,
         subscriptions: &RuntimeEventRegistry,
     ) -> Result<GenerateResponse, RuntimeError> {
         request.options.generation_priority = GenerationPriority::Background;
+        let debug_span = RuntimeDebugSpan::begin(
+            &self.store,
+            RuntimeDebugScope::AgentRun(run_id.to_string()),
+            RuntimeDebugSpanCategory::Provider,
+            match phase {
+                "initial" => "Initial provider round".to_string(),
+                "finalization" => "Final provider round".to_string(),
+                _ => format!("Provider continuation {round_index}"),
+            },
+            RuntimeDebugMetadata {
+                phase: Some(phase.to_string()),
+                round_index: u64::try_from(round_index).ok(),
+                model: request.model.clone(),
+                ..RuntimeDebugMetadata::default()
+            },
+        )
+        .await;
         let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
         let store = self.store.clone();
         let run_id_for_writer = run_id.to_string();
@@ -133,7 +154,47 @@ impl RuntimeActor {
         };
         drop(event_tx);
         let _ = writer.await;
+        let (debug_status, debug_metadata) = match result.as_ref() {
+            Ok(response) => {
+                let usage = response.usage.as_ref();
+                (
+                    RuntimeDebugSpanStatus::Completed,
+                    RuntimeDebugMetadata {
+                        provider: Some(response.provider.clone()),
+                        model: Some(response.model.clone()),
+                        phase: Some(phase.to_string()),
+                        round_index: u64::try_from(round_index).ok(),
+                        input_tokens: usage.map(|value| value.input_tokens),
+                        cached_input_tokens: usage.and_then(|value| value.cached_input_tokens),
+                        output_tokens: usage.map(|value| value.output_tokens),
+                        total_tokens: usage.map(|value| value.total_tokens),
+                        ..RuntimeDebugMetadata::default()
+                    },
+                )
+            }
+            Err(_) => (
+                RuntimeDebugSpanStatus::Failed,
+                RuntimeDebugMetadata {
+                    phase: Some(phase.to_string()),
+                    round_index: u64::try_from(round_index).ok(),
+                    ..RuntimeDebugMetadata::default()
+                },
+            ),
+        };
+        debug_span.finish(debug_status, Some(debug_metadata)).await;
         if let Ok(response) = result.as_ref() {
+            let persistence_debug = RuntimeDebugSpan::begin(
+                &self.store,
+                RuntimeDebugScope::AgentRun(run_id.to_string()),
+                RuntimeDebugSpanCategory::Persistence,
+                "Persist provider response",
+                RuntimeDebugMetadata {
+                    phase: Some(phase.to_string()),
+                    round_index: u64::try_from(round_index).ok(),
+                    ..RuntimeDebugMetadata::default()
+                },
+            )
+            .await;
             let active_milliseconds =
                 u64::try_from(provider_started_at.elapsed().as_millis()).unwrap_or(u64::MAX);
             let tool_call_count_delta = u32::try_from(response.tool_calls.len()).map_err(|_| {
@@ -253,6 +314,9 @@ impl RuntimeActor {
                 )
                 .await;
             }
+            persistence_debug
+                .finish(RuntimeDebugSpanStatus::Completed, None)
+                .await;
         }
         result
     }

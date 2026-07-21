@@ -12,6 +12,9 @@ use noema_providers::{
     PromptCacheOptions, PromptCacheRetention, ProviderError, ProviderRouteLease,
     ProviderToolCapabilities, ProviderToolTransport, TokenUsage,
 };
+use noema_store::{
+    RuntimeDebugMetadata, RuntimeDebugScope, RuntimeDebugSpanCategory, RuntimeDebugSpanStatus,
+};
 use serde::Deserialize;
 use serde_json::json;
 use std::{
@@ -42,6 +45,7 @@ use super::{
     progress_audit::{
         ProgressAuditDecision, ProgressAuditError, build_no_tools_finalization_prompt,
     },
+    runtime_debug::RuntimeDebugSpan,
     tool_lifecycle::{LocalToolCall, local_tool_calls, single_tool_display_description},
     transcript_persistence::{
         assistant_stream_id, handle_provider_stream_event, send_conversation_item,

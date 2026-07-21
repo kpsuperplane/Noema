@@ -5,7 +5,6 @@ import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
 import type { ProviderUsageDebug } from "./debugUsage";
 import { ExpandableTextBubbleContent } from "./ExpandableTextBubble";
-import { ProviderUsageDebugDialog } from "./ProviderUsageDebugDialog";
 import { TranscriptChatBubble } from "./TranscriptChatBubble";
 import type { ChatBubbleGroup } from "./renderModel";
 
@@ -71,7 +70,8 @@ export function Message({
   text,
   showAvatar,
   reserveAvatarSpace = true,
-  debugUsage = null
+  debugUsage = null,
+  onDebug
 }: {
   animate: boolean;
   group?: ChatBubbleGroup;
@@ -80,8 +80,8 @@ export function Message({
   showAvatar: boolean;
   reserveAvatarSpace?: boolean;
   debugUsage?: ProviderUsageDebug | null;
+  onDebug?: () => void;
 }) {
-  const [debugOpen, setDebugOpen] = React.useState(false);
   const [expanded, setExpanded] = React.useState(false);
   const [overflowing, setOverflowing] = React.useState(false);
   const bubble = (
@@ -103,26 +103,11 @@ export function Message({
   }
 
   return (
-    <>
-      <div {...stylex.props(styles.assistantContextMenu)}>
-        <ContextMenu
-          items={[
-            {
-              label: "Debug",
-              isDisabled: !debugUsage,
-              onClick: () => {
-                if (debugUsage) {
-                  setDebugOpen(true);
-                }
-              }
-            }
-          ]}
-        >
-          {bubble}
-        </ContextMenu>
-      </div>
-      <ProviderUsageDebugDialog debug={debugUsage} open={debugOpen} onOpenChange={setDebugOpen} />
-    </>
+    <div {...stylex.props(styles.assistantContextMenu)}>
+      <ContextMenu items={[{ label: "Debug", isDisabled: !onDebug && !debugUsage, onClick: onDebug }]}>
+        {bubble}
+      </ContextMenu>
+    </div>
   );
 }
 

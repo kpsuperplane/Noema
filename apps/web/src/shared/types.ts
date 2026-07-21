@@ -1,9 +1,19 @@
-import type { AgentStatus, MultipleChoiceSelectionMode, TurnActivityStatus } from "@/generated/graphql";
+import type {
+  AgentStatus,
+  MultipleChoiceSelectionMode,
+  RuntimeDebugScopeKind,
+  TurnActivityStatus
+} from "@/generated/graphql";
 
 export type SocketState = "connecting" | "ready" | "closed";
 export type ConversationAgentStatus = AgentStatus | "connecting" | "closed";
 
 export type TranscriptEntrySource = "replay";
+
+export type RuntimeDebugScope = {
+  kind: RuntimeDebugScopeKind;
+  scopeId: string;
+};
 
 export type TurnTranscriptItem =
   | { kind: "user_text"; text: string }
@@ -81,6 +91,8 @@ export type TranscriptEntry =
       type: "assistant";
       streamId?: string;
       responseIndex?: number;
+      debugRoundIndex?: number;
+      debugScope?: RuntimeDebugScope;
       metadata?: unknown;
       text: string;
     }
@@ -91,6 +103,7 @@ export type TranscriptEntry =
       type: "assistant_stream";
       streamId: string;
       responseIndex?: number;
+      debugScope?: RuntimeDebugScope;
       text: string;
     }
   | {
@@ -99,6 +112,7 @@ export type TranscriptEntry =
       cursor?: string | null;
       source?: TranscriptEntrySource;
       turnId?: string;
+      debugScope?: RuntimeDebugScope;
       type: "activity";
       item: Extract<TurnTranscriptItem, { kind: "activity" }>;
     }

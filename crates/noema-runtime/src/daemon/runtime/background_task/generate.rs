@@ -4,6 +4,14 @@ impl RuntimeActor {
         request: BackgroundTaskGenerateRequest,
     ) -> Result<GenerateResponse, RuntimeError> {
         let started_at = Instant::now();
+        let setup_debug = RuntimeDebugSpan::begin(
+            &self.store,
+            RuntimeDebugScope::AgentRun(request.run_id.clone()),
+            RuntimeDebugSpanCategory::Runtime,
+            "Prepare agent run",
+            RuntimeDebugMetadata::default(),
+        )
+        .await;
         let run_fence = request.work_run_fence();
         let max_continuations =
             usize::try_from(request.execution_policy.max_provider_continuations)
@@ -43,6 +51,9 @@ impl RuntimeActor {
             agent_id: agent.agent_id,
             display_name: agent.display_name,
         };
+        setup_debug
+            .finish(RuntimeDebugSpanStatus::Completed, None)
+            .await;
         let conversation_id = format!("task_run:{}", request.run_id);
         let turn_id = format!("task_turn:{}", request.run_id);
         let user_item_id = format!("task_input:{}", request.run_id);
@@ -84,6 +95,7 @@ impl RuntimeActor {
                 &request.lease_token,
                 request.task_generation,
                 request.contract_id.as_ref(),
+                "initial",
                 0,
                 deadline,
                 &request.cancellation,
@@ -242,6 +254,19 @@ impl RuntimeActor {
                     request.run_id, continuation_index, correlation_id
                 );
                 let tool_started_at = Instant::now();
+                let tool_debug_span = RuntimeDebugSpan::begin(
+                    &self.store,
+                    RuntimeDebugScope::AgentRun(request.run_id.clone()),
+                    RuntimeDebugSpanCategory::Tool,
+                    call.name.clone(),
+                    RuntimeDebugMetadata {
+                        round_index: Some(continuation_index as u64),
+                        tool_name: Some(call.name.clone()),
+                        correlation_id: Some(correlation_id.clone()),
+                        ..RuntimeDebugMetadata::default()
+                    },
+                )
+                .await;
                 let result = tokio::select! {
                     _ = request.cancellation.cancelled() => {
                         return Err(RuntimeError::Protocol("task execution cancelled".to_string()));
@@ -275,6 +300,16 @@ impl RuntimeActor {
                         &model_tools.tool_policy,
                     ) => result,
                 };
+                tool_debug_span
+                    .finish(
+                        if result.success {
+                            RuntimeDebugSpanStatus::Completed
+                        } else {
+                            RuntimeDebugSpanStatus::Failed
+                        },
+                        None,
+                    )
+                    .await;
                 self.persist_progress_notice(
                     &request,
                     &format!(
@@ -528,6 +563,7 @@ impl RuntimeActor {
                     &request.lease_token,
                     request.task_generation,
                     request.contract_id.as_ref(),
+                    "continuation",
                     continuation_step as i64,
                     deadline,
                     &request.cancellation,
@@ -570,6 +606,7 @@ impl RuntimeActor {
                         &request.lease_token,
                         request.task_generation,
                         request.contract_id.as_ref(),
+                        "continuation",
                         continuation_step as i64,
                         deadline,
                         &request.cancellation,

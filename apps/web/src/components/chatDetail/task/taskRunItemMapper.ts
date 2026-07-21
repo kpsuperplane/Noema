@@ -116,7 +116,14 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry | null
     return null;
   }
   const turnId = `${item.runId ?? "task-run"}:${item.roundIndex ?? "setup"}:${item.responseIndex ?? "default"}`;
-  const base = { id: item.id, source: "replay" as const, turnId };
+  const base = {
+    id: item.id,
+    source: "replay" as const,
+    turnId,
+    debugScope: item.runId
+      ? { kind: "TASK_RUN" as const, scopeId: item.runId }
+      : undefined
+  };
 
   if (item.kind === "tool" || item.kind === "result") {
     const isCall = item.kind === "tool";
@@ -176,6 +183,8 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry | null
   return {
     ...base,
     type: "assistant",
+    responseIndex: item.responseIndex ?? undefined,
+    debugRoundIndex: item.roundIndex ?? undefined,
     text: item.summary ?? item.details ?? item.title
   };
 }

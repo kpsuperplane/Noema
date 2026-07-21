@@ -43,6 +43,7 @@ mod privacy_settings;
 mod provider_accounts;
 mod provider_selection;
 mod replay;
+mod runtime_debug;
 mod runtime_state;
 mod schema;
 #[cfg(test)]

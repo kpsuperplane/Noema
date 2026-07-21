@@ -56,6 +56,7 @@ use super::{
         GraphqlProviderAccount, GraphqlProviderAccountCatalogEntry, GraphqlProviderCapability,
         GraphqlProviderSecretInput,
     },
+    runtime_debug::{self, GraphqlRuntimeDebugProfile, GraphqlRuntimeDebugProfileInput},
     tasks::{
         self, GraphqlAnswerTaskInput, GraphqlArchiveProjectInput, GraphqlCancelTaskInput,
         GraphqlCaptureTaskInput, GraphqlCreateProjectInput, GraphqlProjectCommandPayload,

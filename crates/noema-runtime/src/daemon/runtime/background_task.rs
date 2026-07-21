@@ -5,6 +5,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+use noema_store::{
+    RuntimeDebugMetadata, RuntimeDebugScope, RuntimeDebugSpanCategory, RuntimeDebugSpanStatus,
+};
 use noema_tasks::NewAgentRunItem;
 
 use crate::{
@@ -23,6 +26,7 @@ use super::{
     model_tools::{ModelTools, build_model_tools_for_role},
     progress::{ContinuationProgressTracker, DeterministicProgressStop},
     progress_audit::ProgressAuditDecision,
+    runtime_debug::RuntimeDebugSpan,
     task_continuation::{
         add_usage, background_tool_instructions, build_task_finalization_prompt,
         is_task_terminal_tool, is_valid_terminal_tool, render_continuation_tool_names,

@@ -69,8 +69,19 @@ impl RuntimeActor {
             .agent_identity_for_conversation()
             .await?;
         let tools_started_at = std::time::Instant::now();
+        let tools_debug = RuntimeDebugSpan::begin(
+            &self.store,
+            RuntimeDebugScope::ConversationTurn(turn.turn_id.clone()),
+            RuntimeDebugSpanCategory::Runtime,
+            "Resolve tool catalog",
+            RuntimeDebugMetadata::default(),
+        )
+        .await;
         let model_tools = self.model_tools(true, tool_capabilities).await?;
         let continuation_model_tools = self.model_tools(false, tool_capabilities).await?;
+        tools_debug
+            .finish(RuntimeDebugSpanStatus::Completed, None)
+            .await;
         timing.mark(
             "runtime_model_tools_ready",
             json!({
@@ -114,6 +125,14 @@ impl RuntimeActor {
             json!({ "update_count": model_context_updates.len() }),
         );
         let prompt_started_at = std::time::Instant::now();
+        let context_debug = RuntimeDebugSpan::begin(
+            &self.store,
+            RuntimeDebugScope::ConversationTurn(turn.turn_id.clone()),
+            RuntimeDebugSpanCategory::Runtime,
+            "Plan model context",
+            RuntimeDebugMetadata::default(),
+        )
+        .await;
         let mut planned_context =
             super::prompt_context::plan_prompt_context(super::prompt_context::PromptPlanRequest {
                 store: &self.store,
@@ -137,6 +156,9 @@ impl RuntimeActor {
                 &mut planned_context,
             )
             .await?;
+        context_debug
+            .finish(RuntimeDebugSpanStatus::Completed, None)
+            .await;
         timing.mark(
             "runtime_prompt_context_planned",
             json!({
@@ -452,6 +474,20 @@ impl RuntimeActor {
             }),
         );
         let initial_provider_started_at = std::time::Instant::now();
+        let initial_provider_debug = RuntimeDebugSpan::begin(
+            &self.store,
+            RuntimeDebugScope::ConversationTurn(turn.turn_id.clone()),
+            RuntimeDebugSpanCategory::Provider,
+            "Initial provider request",
+            RuntimeDebugMetadata {
+                provider: Some(provider_kind.to_string()),
+                model: model_profile.map(str::to_string),
+                phase: Some("initial".to_string()),
+                response_index: Some(0),
+                ..RuntimeDebugMetadata::default()
+            },
+        )
+        .await;
         let initial_provider_input = planned_context.input.clone();
         let initial_prompt_cache_breakpoints =
             prompt_cache_breakpoints_for(&planned_context.input, tool_capabilities);
@@ -495,6 +531,23 @@ impl RuntimeActor {
             .await
         {
             Ok(response) => {
+                let usage = response.usage.as_ref();
+                initial_provider_debug
+                    .finish(
+                        RuntimeDebugSpanStatus::Completed,
+                        Some(RuntimeDebugMetadata {
+                            provider: Some(response.provider.clone()),
+                            model: Some(response.model.clone()),
+                            phase: Some("initial".to_string()),
+                            response_index: Some(0),
+                            input_tokens: usage.map(|value| value.input_tokens),
+                            cached_input_tokens: usage.and_then(|value| value.cached_input_tokens),
+                            output_tokens: usage.map(|value| value.output_tokens),
+                            total_tokens: usage.map(|value| value.total_tokens),
+                            ..RuntimeDebugMetadata::default()
+                        }),
+                    )
+                    .await;
                 let initial_batch_kind =
                     ForegroundToolBatchKind::for_calls(&local_tool_calls(&response.tool_calls));
                 if initial_batch_kind != ForegroundToolBatchKind::MixedDelegation {
@@ -579,6 +632,9 @@ impl RuntimeActor {
                 Ok(())
             }
             Err(error) => {
+                initial_provider_debug
+                    .finish(RuntimeDebugSpanStatus::Failed, None)
+                    .await;
                 timing.mark(
                     "provider_initial_response_failed",
                     json!({
