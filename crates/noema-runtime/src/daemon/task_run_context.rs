@@ -327,7 +327,6 @@ pub(crate) struct ExecutorSubmissionResponse {
     pub(super) summary: String,
     pub(super) result_markdown: String,
     pub(super) criteria: Vec<ExecutorCriterionResponse>,
-    #[serde(default)]
     pub(super) artifact_ids: Vec<String>,
 }
 
@@ -373,7 +372,32 @@ pub(super) struct ReviewerCriterionResponse {
 #[cfg(test)]
 mod tests {
     use super::ExecutorSubmissionResponse;
-    use serde_json::json;
+    use serde_json::{Value, json};
+
+    #[test]
+    fn executor_submission_requires_artifact_array() {
+        let payload = json!({
+            "summary": "done",
+            "result_markdown": "evidence",
+            "criteria": [{
+                "criterion_id": "criterion:one",
+                "evidence_markdown": "checked"
+            }],
+            "artifact_ids": []
+        });
+        assert!(serde_json::from_value::<ExecutorSubmissionResponse>(payload.clone()).is_ok());
+
+        let mut null_artifacts = payload.clone();
+        null_artifacts["artifact_ids"] = Value::Null;
+        assert!(serde_json::from_value::<ExecutorSubmissionResponse>(null_artifacts).is_err());
+
+        let mut missing_artifacts = payload;
+        missing_artifacts
+            .as_object_mut()
+            .expect("executor payload object")
+            .remove("artifact_ids");
+        assert!(serde_json::from_value::<ExecutorSubmissionResponse>(missing_artifacts).is_err());
+    }
 
     #[test]
     fn executor_criterion_rejects_unknown_fields() {
