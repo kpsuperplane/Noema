@@ -26,8 +26,8 @@ pub(crate) fn output_items_from_text(
         });
     }
     let parsed = serde_json::from_str::<Value>(trimmed)
-        .map(|value| noema_response_from_structured_value(value, false))
-        .unwrap_or_else(|_| embedded_noema_response(trimmed, true));
+        .map(|value| noema_response_from_structured_value(value, false, false))
+        .unwrap_or_else(|_| embedded_noema_response(trimmed, true, false));
     if let Ok(Some(response)) = parsed {
         return Ok(response.responses);
     }
@@ -65,7 +65,7 @@ pub(crate) fn required_noema_response_from_text_with_native_tool_calls(
         return required_noema_response_from_text(text);
     }
 
-    let mut parsed = noema_response_from_text(text, false)?;
+    let mut parsed = noema_response_from_text_with_options(text, false, true)?;
     if !parsed.tool_calls.is_empty() {
         return Err(ProviderError::MalformedResponse {
             message: "native tool response cannot include Noema response-envelope tool_calls"
@@ -129,6 +129,14 @@ fn noema_response_from_text(
     text: String,
     require_noema_response: bool,
 ) -> Result<ParsedNoemaResponse, ProviderError> {
+    noema_response_from_text_with_options(text, require_noema_response, false)
+}
+
+fn noema_response_from_text_with_options(
+    text: String,
+    require_noema_response: bool,
+    allow_missing_tool_calls: bool,
+) -> Result<ParsedNoemaResponse, ProviderError> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return Err(ProviderError::MalformedResponse {
@@ -137,8 +145,11 @@ fn noema_response_from_text(
     }
 
     if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
-        if let Some(response) = noema_response_from_structured_value(value, require_noema_response)?
-        {
+        if let Some(response) = noema_response_from_structured_value(
+            value,
+            require_noema_response,
+            allow_missing_tool_calls,
+        )? {
             return Ok(response);
         }
         if require_noema_response {
@@ -148,7 +159,9 @@ fn noema_response_from_text(
         }
     }
 
-    if let Some(response) = embedded_noema_response(trimmed, require_noema_response)? {
+    if let Some(response) =
+        embedded_noema_response(trimmed, require_noema_response, allow_missing_tool_calls)?
+    {
         return Ok(response);
     }
 
@@ -160,11 +173,17 @@ fn noema_response_from_text(
 fn noema_response_from_structured_value(
     value: Value,
     require_noema_response: bool,
+    allow_missing_tool_calls: bool,
 ) -> Result<Option<ParsedNoemaResponse>, ProviderError> {
     if !looks_like_noema_response_object(&value) && !require_noema_response {
         return Ok(None);
     }
 
+    if !allow_missing_tool_calls && value.get("tool_calls").is_none() {
+        return Err(ProviderError::MalformedResponse {
+            message: "invalid Noema structured response: missing field `tool_calls`".to_string(),
+        });
+    }
     let response_object: NoemaResponseObject =
         serde_json::from_value(value).map_err(|source| ProviderError::MalformedResponse {
             message: format!("invalid Noema structured response: {source}"),
@@ -192,6 +211,7 @@ fn looks_like_noema_response_object(value: &Value) -> bool {
 struct NoemaResponseObject {
     response_status: GenerateResponseStatus,
     responses: Vec<GenerateResponseItem>,
+    #[serde(default)]
     tool_calls: Vec<GenerateToolCall>,
 }
 
@@ -322,6 +342,7 @@ fn is_multiple_choice_response(item: &GenerateResponseItem) -> bool {
 fn embedded_noema_response(
     text: &str,
     require_noema_response: bool,
+    allow_missing_tool_calls: bool,
 ) -> Result<Option<ParsedNoemaResponse>, ProviderError> {
     let mut output = None;
     for candidate in balanced_json_object_candidates(text) {
@@ -331,8 +352,11 @@ fn embedded_noema_response(
         if !looks_like_noema_response_object(&value) {
             continue;
         }
-        let Some(candidate_output) =
-            noema_response_from_structured_value(value, require_noema_response)?
+        let Some(candidate_output) = noema_response_from_structured_value(
+            value,
+            require_noema_response,
+            allow_missing_tool_calls,
+        )?
         else {
             continue;
         };

@@ -5,7 +5,20 @@ use serde_json::Value;
 /// Build the strict JSON schema used for Noema's structured response envelope.
 #[must_use]
 pub fn noema_response_text_format() -> Value {
-    serde_json::json!({
+    response_text_format(true)
+}
+
+/// Build the structured response schema used alongside provider-native tools.
+///
+/// Native tool calls arrive as provider output items, so the assistant text
+/// envelope must not advertise a second, legacy `tool_calls` channel.
+#[must_use]
+pub fn noema_native_response_text_format() -> Value {
+    response_text_format(false)
+}
+
+fn response_text_format(include_tool_calls: bool) -> Value {
+    let mut format = serde_json::json!({
         "format": {
             "type": "json_schema",
             "name": "noema_response",
@@ -111,5 +124,17 @@ pub fn noema_response_text_format() -> Value {
                 "additionalProperties": false
             }
         }
-    })
+    });
+
+    if !include_tool_calls {
+        let schema = &mut format["format"]["schema"];
+        if let Some(properties) = schema["properties"].as_object_mut() {
+            properties.remove("tool_calls");
+        }
+        if let Some(required) = schema["required"].as_array_mut() {
+            required.retain(|field| field.as_str() != Some("tool_calls"));
+        }
+    }
+
+    format
 }

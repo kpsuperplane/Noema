@@ -6,7 +6,7 @@ use super::{
 };
 use crate::{
     GenerateRequest, PromptCacheOptions, PromptCacheRetention, ProviderError, ReasoningEffort,
-    response_support::noema_response_text_format,
+    response_support::{noema_native_response_text_format, noema_response_text_format},
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -138,10 +138,13 @@ impl ResponsesRequest {
                 .then_some(request.options.max_output_tokens)
                 .flatten(),
             temperature: request.options.temperature,
-            text: request
-                .options
-                .require_noema_response
-                .then(noema_response_text_format),
+            text: request.options.require_noema_response.then(|| {
+                if has_tools {
+                    noema_native_response_text_format()
+                } else {
+                    noema_response_text_format()
+                }
+            }),
             reasoning: request
                 .options
                 .reasoning_effort

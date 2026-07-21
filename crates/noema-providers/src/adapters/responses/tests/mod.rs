@@ -60,6 +60,15 @@ fn responses_request_profiles_preserve_provider_wire_differences() {
     for value in [&openai, &codex] {
         assert_eq!(value["instructions"], "Be brief.");
         assert_eq!(value["text"]["format"]["name"], "noema_response");
+        assert!(
+            value["text"]["format"]["schema"]["properties"]
+                .get("tool_calls")
+                .is_none()
+        );
+        assert_eq!(
+            value["text"]["format"]["schema"]["required"],
+            json!(["response_status", "responses"])
+        );
         assert_eq!(value["tools"][0]["name"], "search_memory");
         assert_eq!(value["tool_choice"], "required");
         assert_eq!(value["parallel_tool_calls"], true);
@@ -304,7 +313,7 @@ fn whole_catalog_lowering_and_native_envelope_reconciliation_are_stable() {
     );
 
     let response = crate::required_noema_response_from_text_with_native_tool_calls(
-        r#"{"response_status":"final","responses":[{"kind":"text","phase":"commentary","text":"Searching."}],"tool_calls":[]}"#
+        r#"{"response_status":"needs_tools","responses":[{"kind":"text","phase":"commentary","text":"Searching."}]}"#
             .to_string(),
         vec![crate::GenerateToolCall {
             id: Some("item_1".to_string()),
@@ -321,6 +330,28 @@ fn whole_catalog_lowering_and_native_envelope_reconciliation_are_stable() {
             response.tool_calls[0].provider_call_id.as_deref()
         ),
         (crate::GenerateResponseStatus::NeedsTools, Some("call_1"))
+    );
+}
+
+#[test]
+fn native_tool_response_rejects_legacy_envelope_tool_calls() {
+    let error = crate::required_noema_response_from_text_with_native_tool_calls(
+        r#"{"response_status":"needs_tools","responses":[],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{}}]}"#
+            .to_string(),
+        vec![crate::GenerateToolCall {
+            id: Some("item_1".to_string()),
+            provider_call_id: Some("provider_call_1".to_string()),
+            provider_name: Some("search_memory".to_string()),
+            name: "search_memory".to_string(),
+            payload: json!({}),
+        }],
+    )
+    .expect_err("native and envelope calls must not be combined");
+
+    assert!(
+        error
+            .to_string()
+            .contains("native tool response cannot include Noema response-envelope tool_calls")
     );
 }
 
