@@ -418,6 +418,17 @@ fn select_inherited_review(
     ancestor: &WorkRunExecutionContext,
     current: &WorkRunExecutionContext,
 ) -> Option<noema_tasks::TaskReviewRecord> {
+    if current.run.run_kind == noema_tasks::RunKind::Reviewer {
+        return current
+            .latest_review
+            .as_ref()
+            .filter(|review| {
+                current.run.triggering_submission_id.as_deref()
+                    == Some(review.reviewed_submission_id.as_str())
+            })
+            .cloned()
+            .or_else(|| ancestor.latest_review.clone());
+    }
     current
         .run
         .triggering_review_id

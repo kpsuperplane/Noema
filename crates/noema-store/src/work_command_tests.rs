@@ -1,11 +1,12 @@
 //! Focused transactional tests for the semantic Work command writer.
 
 use noema_tasks::{
-    CaptureTask, CommandMeta, CreateProject, CriterionOutcome, DelegateExecutionIntent,
+    AnswerTask, CaptureTask, CommandMeta, CreateProject, CriterionOutcome, DelegateExecutionIntent,
     DelegateTask, NewTaskReview, NewTaskSubmission, NewTaskValidationCriterion, QueueTask,
     ReopenTask, RetryTask, SafeErrorCode, SubmissionCriterionEvidence, TaskAuthorizationContext,
-    TaskComplexity, TaskContractAmendment, TaskPrecondition, TaskProvenance, TaskReviewCriterion,
-    TaskReviewVerdict, TaskSourceKind, UpdateInboxTask, WorkCommand, WorkDomainError,
+    TaskComplexity, TaskContractAmendment, TaskGateAnswer, TaskGateId, TaskGateKind,
+    TaskPrecondition, TaskProvenance, TaskReviewCriterion, TaskReviewVerdict, TaskSourceKind,
+    UpdateInboxTask, WorkCommand, WorkDomainError,
 };
 use noema_workspaces::WorkspaceId;
 
@@ -818,11 +819,13 @@ fn delegated_review_case(key: &str, complexity: TaskComplexity) -> WorkCommand {
 
 async fn run_review_case(
     complexity: TaskComplexity,
+    verdict: TaskReviewVerdict,
 ) -> (
     NoemaStore,
     WorkCommandService,
     noema_tasks::TaskRecord,
     serde_json::Value,
+    Option<TaskGateId>,
 ) {
     let (store, service) = fixture().await;
     let created = service
@@ -937,12 +940,17 @@ async fn run_review_case(
                     reviewed_submission_id: "submission:review-case".to_string(),
                     review_attempt_index: 1,
                     supersedes_review_id: None,
-                    overall_verdict: TaskReviewVerdict::Approve,
-                    human_gate_kind: None,
+                    overall_verdict: verdict,
+                    human_gate_kind: (verdict == TaskReviewVerdict::NeedsHuman)
+                        .then_some(TaskGateKind::Clarification),
                     overall_feedback: "All fixture evidence passes.".to_string(),
                     criteria: vec![TaskReviewCriterion {
                         criterion_id: "criterion:review-case".to_string(),
-                        outcome: CriterionOutcome::Pass,
+                        outcome: if verdict == TaskReviewVerdict::NeedsHuman {
+                            CriterionOutcome::Uncertain
+                        } else {
+                            CriterionOutcome::Pass
+                        },
                         evidence_markdown: Some("The submitted evidence is complete.".to_string()),
                         feedback: None,
                     }],
@@ -954,7 +962,12 @@ async fn run_review_case(
         )
         .await
         .expect("submit reviewer result");
-    let notification_kind = "task_completed";
+    let gate_id = result.gate_id.clone();
+    let notification_kind = if verdict == TaskReviewVerdict::Approve {
+        "task_completed"
+    } else {
+        "task_waiting"
+    };
     let payload_json: String = store
         .with_connection(|connection| {
             connection
@@ -968,13 +981,20 @@ async fn run_review_case(
         .await
         .expect("review notification");
     let payload = serde_json::from_str(&payload_json).expect("notification payload");
-    (store, service, result.task.expect("review task"), payload)
+    (
+        store,
+        service,
+        result.task.expect("review task"),
+        payload,
+        gate_id,
+    )
 }
 
 #[tokio::test]
 async fn approved_reviews_complete_tasks_at_every_complexity() {
     for complexity in [TaskComplexity::Simple, TaskComplexity::Medium] {
-        let (_, _, task, notification) = run_review_case(complexity).await;
+        let (_, _, task, notification, _) =
+            run_review_case(complexity, TaskReviewVerdict::Approve).await;
         assert_eq!(task.stage_id.as_str(), noema_tasks::PERSONAL_DONE_STAGE_ID);
         assert_eq!(
             task.completed_submission_id.as_deref(),
@@ -985,8 +1005,60 @@ async fn approved_reviews_complete_tasks_at_every_complexity() {
 }
 
 #[tokio::test]
+async fn reviewer_answer_carries_prior_review_into_continuation_context() {
+    let (_, service, waiting, _, gate_id) =
+        run_review_case(TaskComplexity::Medium, TaskReviewVerdict::NeedsHuman).await;
+    service
+        .execute(WorkCommand::AnswerTask(AnswerTask {
+            meta: metadata("idem:review-case:answer"),
+            precondition: precondition(&waiting),
+            gate_id: gate_id.expect("reviewer gate"),
+            answer: TaskGateAnswer {
+                message_markdown: "The secondary evidence is acceptable.".to_string(),
+                approval_decision: None,
+            },
+        }))
+        .await
+        .expect("answer reviewer gate");
+    let claimed = service
+        .claim_next_work_run("worker:review-case:continuation", 60, &[])
+        .await
+        .expect("claim reviewer continuation")
+        .expect("reviewer continuation");
+    assert!(claimed.run.triggering_review_id.is_none());
+    let fence = WorkRunFence {
+        run_id: claimed.run.run_id,
+        lease_token: claimed.lease_token,
+        task_generation: claimed.run.task_generation,
+        contract_id: claimed.run.contract_id,
+    };
+    service
+        .start_work_run(&fence, ACTOR, None, "correlation:review-case:continuation")
+        .await
+        .expect("start reviewer continuation");
+    let admitted = service
+        .admit_work_run_execution_context(
+            &fence,
+            ACTOR,
+            None,
+            "correlation:review-case:continuation-context",
+        )
+        .await
+        .expect("admit reviewer continuation");
+    assert_eq!(
+        admitted
+            .context
+            .latest_review
+            .as_ref()
+            .map(|review| review.review_id.as_str()),
+        Some("review:review-case")
+    );
+}
+
+#[tokio::test]
 async fn reopen_requires_direction_and_queues_a_fresh_contract_generation() {
-    let (store, service, completed, _) = run_review_case(TaskComplexity::Medium).await;
+    let (store, service, completed, _, _) =
+        run_review_case(TaskComplexity::Medium, TaskReviewVerdict::Approve).await;
     let command = |feedback_markdown: &str, key: &str| {
         WorkCommand::ReopenTask(ReopenTask {
             meta: metadata(key),
