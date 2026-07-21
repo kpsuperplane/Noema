@@ -51,7 +51,20 @@ function CriterionRow({ criterion }: { criterion: TaskCriterion }) {
   );
 }
 
-function CriterionDetailsPopover({ criterion }: { criterion: TaskCriterion }) {
+export function TaskCriterionStatusPopover({ criterion, size = 14 }: { criterion: TaskCriterion; size?: number }) {
+  const hasDetails = Boolean(criterion.expectedEvidence?.trim() || criterion.evidence?.trim());
+  if (!hasDetails) {
+    const verdict = criterion.verdict === "pass" ? "passed" : criterion.verdict === "fail" ? "failed" : criterion.verdict === "uncertain" ? "uncertain" : "pending";
+    return (
+      <span role="img" aria-label={`${verdict} validation: ${criterion.text}`}>
+        <TaskCriterionStatusIcon size={size} verdict={criterion.verdict} />
+      </span>
+    );
+  }
+  return <CriterionDetailsPopover criterion={criterion} iconOnly iconSize={size} />;
+}
+
+function CriterionDetailsPopover({ criterion, iconOnly = false, iconSize = 15 }: { criterion: TaskCriterion; iconOnly?: boolean; iconSize?: number }) {
   const [open, setOpen] = React.useState(false);
   const pinnedRef = React.useRef(false);
   const hoveringRef = React.useRef(false);
@@ -115,10 +128,10 @@ function CriterionDetailsPopover({ criterion }: { criterion: TaskCriterion }) {
           onFocus={() => { clearCloseTimeout(); setOpen(true); }}
           onMouseEnter={() => { hoveringRef.current = true; clearCloseTimeout(); setOpen(true); }}
           onMouseLeave={() => { hoveringRef.current = false; scheduleClose(); }}
-          {...stylex.props(styles.criterionRow, styles.criterionInteractive)}
+          {...stylex.props(iconOnly ? styles.statusOnlyTrigger : styles.criterionRow, !iconOnly && styles.criterionInteractive)}
         >
-          <TaskCriterionStatusIcon verdict={criterion.verdict} />
-          <span {...stylex.props(styles.criterionText)}>{criterion.text}</span>
+          <TaskCriterionStatusIcon size={iconSize} verdict={criterion.verdict} />
+          {!iconOnly ? <span {...stylex.props(styles.criterionText)}>{criterion.text}</span> : null}
         </button>
       )}
     </Popover>
@@ -215,6 +228,22 @@ const styles = stylex.create({
     },
     ":focus-visible": {
       borderRadius: 5,
+      outlineWidth: 2,
+      outlineStyle: "solid",
+      outlineColor: "color-mix(in srgb, var(--noema-pine-500) 40%, transparent)",
+      outlineOffset: 2
+    }
+  },
+  statusOnlyTrigger: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    padding: 0,
+    cursor: "pointer",
+    ":focus-visible": {
+      borderRadius: 999,
       outlineWidth: 2,
       outlineStyle: "solid",
       outlineColor: "color-mix(in srgb, var(--noema-pine-500) 40%, transparent)",

@@ -3,10 +3,10 @@ import { IconButton } from "@astryxdesign/core/IconButton";
 import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import { Popover } from "@astryxdesign/core/Popover";
 import * as stylex from "@stylexjs/stylex";
-import { ChevronDown, ExternalLink, Info } from "lucide-react";
+import { ExternalLink, Info } from "lucide-react";
 import { IdentityAvatar } from "@/components/IdentityAvatar";
 import type { TaskDetail, TaskRun, TaskRunItem } from "./taskTypes";
-import { TaskCriteria, TaskCriterionStatusIcon } from "./TaskCriteria";
+import { TaskCriterionStatusPopover } from "./TaskCriteria";
 import { taskStageLabel } from "./TaskOverview";
 import { TaskTranscript } from "./TaskTranscript";
 
@@ -116,7 +116,6 @@ function TaskContextCard({
   latestRunItems: ReadonlyMap<string, TaskRunItem>;
   showWorkLink: boolean;
 }) {
-  const [validationExpanded, setValidationExpanded] = React.useState(false);
   const hasValidation = detail.criteria.length > 0;
   return (
     <aside aria-label="Task summary" {...stylex.props(styles.contextDock)}>
@@ -136,13 +135,7 @@ function TaskContextCard({
           ) : actions ? (
             <div {...stylex.props(styles.actionRow)}>{actions}</div>
           ) : null}
-          {hasValidation ? (
-            <TaskValidationRow
-              criteria={detail.criteria}
-              expanded={validationExpanded}
-              onExpandedChange={setValidationExpanded}
-            />
-          ) : null}
+          {hasValidation ? <TaskValidationRow criteria={detail.criteria} /> : null}
         </div>
       </div>
     </aside>
@@ -311,51 +304,17 @@ function TaskAttention({
   );
 }
 
-function TaskValidationRow({
-  criteria,
-  expanded,
-  onExpandedChange
-}: {
-  criteria: TaskDetail["criteria"];
-  expanded: boolean;
-  onExpandedChange: (expanded: boolean) => void;
-}) {
-  const criteriaId = React.useId();
-  const statusLabel = criteria
-    .map((criterion) => criterion.verdict === "pass" ? "passed" : criterion.verdict === "fail" ? "failed" : criterion.verdict === "uncertain" ? "uncertain" : "pending")
-    .join(", ");
-
+function TaskValidationRow({ criteria }: { criteria: TaskDetail["criteria"] }) {
   return (
     <section aria-label="Validation" {...stylex.props(styles.validationRow)}>
-      <button
-        type="button"
-        aria-controls={criteriaId}
-        aria-expanded={expanded}
-        aria-label={`Validation: ${statusLabel}`}
-        onClick={() => onExpandedChange(!expanded)}
-        {...stylex.props(styles.validationHeader)}
-      >
-        <span {...stylex.props(styles.validationIdentity)}>
-          <span {...stylex.props(styles.validationLabel)}>Validation</span>
+      <div {...stylex.props(styles.validationHeader)}>
+        <span {...stylex.props(styles.validationLabel)}>Validation</span>
+        <span {...stylex.props(styles.validationStatuses)}>
+          {criteria.map((criterion) => (
+            <TaskCriterionStatusPopover key={criterion.id} criterion={criterion} />
+          ))}
         </span>
-        {!expanded ? (
-          <span aria-hidden="true" {...stylex.props(styles.validationStatuses)}>
-            {criteria.map((criterion) => (
-              <TaskCriterionStatusIcon key={criterion.id} size={14} verdict={criterion.verdict} />
-            ))}
-          </span>
-        ) : null}
-        <ChevronDown
-          aria-hidden="true"
-          size={14}
-          {...stylex.props(styles.validationChevron, expanded && styles.validationChevronExpanded)}
-        />
-      </button>
-      {expanded ? (
-        <div id={criteriaId} {...stylex.props(styles.validationDetails)}>
-          <TaskCriteria embedded criteria={criteria} showTitle={false} />
-        </div>
-      ) : null}
+      </div>
     </section>
   );
 }
@@ -510,13 +469,9 @@ const styles = stylex.create({
   attentionGovernedActions: { minWidth: 0, ":empty": { display: "none" } },
   attentionActions: { minWidth: 0 },
   validationRow: { display: "grid", minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)" },
-  validationHeader: { display: "flex", width: "100%", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", borderWidth: 0, backgroundColor: "transparent", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)", color: "inherit", font: "inherit", textAlign: "left", cursor: "pointer" },
-  validationIdentity: { display: "flex", minWidth: 0, alignItems: "baseline", gap: "var(--spacing-2)" },
+  validationHeader: { display: "flex", width: "100%", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)" },
   validationLabel: { color: "var(--noema-text-primary)", fontSize: 11, fontWeight: 700 },
-  validationStatuses: { display: "inline-flex", minWidth: 0, flex: "1 1 auto", alignItems: "center", gap: "var(--spacing-1)" },
-  validationChevron: { flexShrink: 0, color: "var(--noema-text-muted)", transition: "transform 120ms ease" },
-  validationChevronExpanded: { transform: "rotate(180deg)" },
-  validationDetails: { minWidth: 0 },
+  validationStatuses: { display: "inline-flex", minWidth: 0, alignItems: "center", gap: "var(--spacing-1)" },
   infoContent: { display: "grid", minWidth: 0, overflow: "hidden", borderRadius: "inherit", backgroundColor: "var(--noema-surface-card)" },
   metadataSection: { paddingBlock: "var(--spacing-3)", paddingInline: "var(--spacing-3)" },
   metadata: { display: "grid", gap: "var(--spacing-1-5)", margin: 0 },
