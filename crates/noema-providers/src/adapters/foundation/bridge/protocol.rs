@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bridge protocol version supported by this Noema build.
-pub const BRIDGE_PROTOCOL_VERSION: u32 = 1;
+pub const BRIDGE_PROTOCOL_VERSION: u32 = 2;
 
 /// Request sent from Rust to the Swift bridge.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,6 +48,9 @@ pub enum BridgeRequestPayload {
         /// Optional maximum response tokens.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         max_output_tokens: Option<u32>,
+        /// Optional JSON Schema used for guided structured generation.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        schema: Option<String>,
     },
     /// Count tokens for instructions and input.
     CountTokens {

@@ -24,7 +24,7 @@ struct BridgeRequest: Decodable {
         case health
         case createSession(conversationID: String, modelProfile: String, instructions: String?)
         case replayTurns(sessionID: String, turns: [ReplayTurn])
-        case generate(sessionID: String, input: String, maxOutputTokens: Int?)
+        case generate(sessionID: String, input: String, maxOutputTokens: Int?, schema: String?)
         case countTokens(instructions: String?, input: String)
         case cancel(requestID: String)
         case closeSession(sessionID: String)
@@ -41,6 +41,7 @@ struct BridgeRequest: Decodable {
             case turns
             case input
             case maxOutputTokens = "max_output_tokens"
+            case schema
             case requestID = "request_id"
         }
 
@@ -71,10 +72,12 @@ struct BridgeRequest: Decodable {
                 let sessionID = try container.decode(String.self, forKey: .sessionID)
                 let input = try container.decode(String.self, forKey: .input)
                 let maxOutputTokens = try container.decodeIfPresent(Int.self, forKey: .maxOutputTokens)
+                let schema = try container.decodeIfPresent(String.self, forKey: .schema)
                 self = .generate(
                     sessionID: sessionID,
                     input: input,
-                    maxOutputTokens: maxOutputTokens
+                    maxOutputTokens: maxOutputTokens,
+                    schema: schema
                 )
             case "count_tokens":
                 let instructions = try container.decodeIfPresent(String.self, forKey: .instructions)
@@ -104,7 +107,12 @@ protocol BridgeRequestHandling {
     ) -> [String: Any]
     func replayTurns(sessionID: String, turns: [BridgeRequest.ReplayTurn]) -> [String: Any]
     func countTokens(instructions: String?, input: String) async -> [String: Any]
-    func generate(sessionID: String, input: String, maxOutputTokens: Int?) async -> [[String: Any]]
+    func generate(
+        sessionID: String,
+        input: String,
+        maxOutputTokens: Int?,
+        schema: String?
+    ) async -> [[String: Any]]
     func cancel(requestID: String) -> [String: Any]
     func closeSession(sessionID: String) -> [String: Any]
 }
@@ -174,7 +182,12 @@ final class UnavailableHandler: BridgeRequestHandling {
         errorPayload(code: "foundation_unavailable", message: reason)
     }
 
-    func generate(sessionID: String, input: String, maxOutputTokens: Int?) async -> [[String: Any]] {
+    func generate(
+        sessionID: String,
+        input: String,
+        maxOutputTokens: Int?,
+        schema: String?
+    ) async -> [[String: Any]] {
         [errorPayload(code: "foundation_unavailable", message: reason)]
     }
 
@@ -193,6 +206,102 @@ final class UnavailableHandler: BridgeRequestHandling {
 }
 
 #if canImport(FoundationModels)
+@available(macOS 26.0, *)
+private func makeGenerationSchema(from schemaJSON: String) -> GenerationSchema? {
+    guard
+        let data = schemaJSON.data(using: .utf8),
+        let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else {
+        return nil
+    }
+
+    let definitions = root["$defs"] as? [String: Any] ?? [:]
+    let dependencies = definitions.compactMap { name, value in
+        makeDynamicSchema(value, name: name)
+    }
+    guard let rootSchema = makeDynamicSchema(root, name: "NoemaResponse") else {
+        return nil
+    }
+    return try? GenerationSchema(root: rootSchema, dependencies: dependencies)
+}
+
+@available(macOS 26.0, *)
+private func makeDynamicSchema(_ raw: Any, name: String) -> DynamicGenerationSchema? {
+    guard let object = raw as? [String: Any] else {
+        return nil
+    }
+    if let reference = object["$ref"] as? String {
+        return DynamicGenerationSchema(referenceTo: reference.split(separator: "/").last.map(String.init) ?? reference)
+    }
+    if let choices = object["anyOf"] as? [Any] {
+        let schemas = choices.enumerated().compactMap { index, value in
+            makeDynamicSchema(value, name: "(name)_choice(index)")
+        }
+        guard !schemas.isEmpty else { return nil }
+        if schemas.count == 1 { return schemas[0] }
+        return DynamicGenerationSchema(name: name, anyOf: schemas)
+    }
+    if let types = object["type"] as? [String] {
+        let schemas = types.enumerated().compactMap { index, type in
+            makeDynamicSchema(["type": type], name: "(name)_type(index)")
+        }
+        guard !schemas.isEmpty else { return nil }
+        if schemas.count == 1 { return schemas[0] }
+        return DynamicGenerationSchema(name: name, anyOf: schemas)
+    }
+    if let type = object["type"] as? String {
+        switch type {
+        case "null":
+            // Nullable fields remain represented by their concrete branch on
+            // macOS 26.0; the Rust parser accepts the value and applies the
+            // canonical optional-field semantics after generation.
+            return nil
+        case "string":
+            return DynamicGenerationSchema(type: String.self)
+        case "integer":
+            return DynamicGenerationSchema(type: Int.self)
+        case "number":
+            return DynamicGenerationSchema(type: Double.self)
+        case "boolean":
+            return DynamicGenerationSchema(type: Bool.self)
+        case "array":
+            guard let items = object["items"],
+                  let itemSchema = makeDynamicSchema(items, name: "(name)_item") else {
+                return nil
+            }
+            let minimum = object["minItems"] as? Int
+            let maximum = object["maxItems"] as? Int
+            return DynamicGenerationSchema(
+                arrayOf: itemSchema,
+                minimumElements: minimum,
+                maximumElements: maximum
+            )
+        case "object":
+            let properties = object["properties"] as? [String: Any] ?? [:]
+            let required = Set(object["required"] as? [String] ?? [])
+            let dynamicProperties = properties.keys.sorted().compactMap { key -> DynamicGenerationSchema.Property? in
+                guard let child = properties[key],
+                      let childSchema = makeDynamicSchema(child, name: "(name)_(key)") else {
+                    return nil
+                }
+                return DynamicGenerationSchema.Property(
+                    name: key,
+                    description: (child as? [String: Any])?["description"] as? String,
+                    schema: childSchema,
+                    isOptional: !required.contains(key)
+                )
+            }
+            return DynamicGenerationSchema(
+                name: name,
+                properties: dynamicProperties
+            )
+        default:
+            return nil
+        }
+    }
+    return nil
+}
+
 @available(macOS 26.0, *)
 final class FoundationModelsHandler: BridgeRequestHandling {
     private var sessions: [String: LanguageModelSession] = [:]
@@ -283,7 +392,12 @@ final class FoundationModelsHandler: BridgeRequestHandling {
         }
     }
 
-    func generate(sessionID: String, input: String, maxOutputTokens: Int?) async -> [[String: Any]] {
+    func generate(
+        sessionID: String,
+        input: String,
+        maxOutputTokens: Int?,
+        schema: String?
+    ) async -> [[String: Any]] {
         guard let session = sessions[sessionID] else {
             return [
                 errorPayload(
@@ -303,6 +417,23 @@ final class FoundationModelsHandler: BridgeRequestHandling {
 
         do {
             let options = GenerationOptions(maximumResponseTokens: maxOutputTokens)
+            if let schema {
+                guard let generationSchema = makeGenerationSchema(from: schema) else {
+                    return [errorPayload(
+                        code: "unsupported_schema",
+                        message: "Foundation Models could not build the requested guided schema."
+                    )]
+                }
+                let response = try await session.respond(
+                    to: input,
+                    schema: generationSchema,
+                    options: options
+                )
+                return [[
+                    "type": "generate_complete",
+                    "text": response.content.jsonString
+                ]]
+            }
             let response = try await session.respond(to: input, options: options)
             return [
                 [
@@ -444,11 +575,12 @@ func runBridge(handler: BridgeRequestHandling) async {
             emit(request.id, handler.replayTurns(sessionID: sessionID, turns: turns))
         case .countTokens(let instructions, let input):
             emit(request.id, await handler.countTokens(instructions: instructions, input: input))
-        case .generate(let sessionID, let input, let maxOutputTokens):
+        case .generate(let sessionID, let input, let maxOutputTokens, let schema):
             for payload in await handler.generate(
                 sessionID: sessionID,
                 input: input,
-                maxOutputTokens: maxOutputTokens
+                maxOutputTokens: maxOutputTokens,
+                schema: schema
             ) {
                 emit(request.id, payload)
             }

@@ -5,6 +5,9 @@ use crate::ProviderToolTransport;
 use serde::Deserialize;
 use serde_json::Value;
 
+#[cfg(any(feature = "adapters", feature = "local-models"))]
+use crate::response_support::decode_recursive_json;
+
 use super::{
     AssistantTextPhase, GenerateResponseItem, GenerateResponseStatus, GenerateToolCall,
     MultipleChoiceOption, ParsedNoemaResponse, ProviderError,
@@ -232,15 +235,40 @@ fn noema_response_from_structured_value(
         serde_json::from_value(value).map_err(|source| ProviderError::MalformedResponse {
             message: format!("invalid Noema structured response: {source}"),
         })?;
-    let parsed = ParsedNoemaResponse {
+    let mut parsed = ParsedNoemaResponse {
         responses: response_object.responses,
         tool_calls: response_object.tool_calls,
         response_status: response_object.response_status,
     };
+    decode_structured_payloads(&mut parsed)?;
     if require_noema_response {
         validate_required_noema_response(&parsed)?;
     }
     Ok(Some(parsed))
+}
+
+#[cfg(any(feature = "adapters", feature = "local-models"))]
+fn decode_structured_payloads(parsed: &mut ParsedNoemaResponse) -> Result<(), ProviderError> {
+    for response in &mut parsed.responses {
+        let GenerateResponseItem::Structured { payload, .. } = response else {
+            continue;
+        };
+        let Some(kind) = payload
+            .as_object()
+            .and_then(|object| object.get("kind"))
+            .and_then(Value::as_str)
+        else {
+            continue;
+        };
+        if !matches!(kind, "scalar" | "array" | "object") {
+            continue;
+        }
+        *payload =
+            decode_recursive_json(payload).map_err(|message| ProviderError::MalformedResponse {
+                message: format!("invalid recursive structured payload: {message}"),
+            })?;
+    }
+    Ok(())
 }
 
 fn looks_like_noema_response_object(value: &Value) -> bool {

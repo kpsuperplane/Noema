@@ -6,6 +6,8 @@ use crate::ProviderError;
 
 /// Diagnostic category for malformed provider responses.
 pub const SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE: &str = "provider_malformed_response";
+/// Diagnostic category for a tool that had to use best-effort schema lowering.
+pub const SYSTEM_ERROR_PROVIDER_SCHEMA_FALLBACK: &str = "provider_schema_fallback";
 
 /// Redacted diagnostic context for structured provider responses.
 #[derive(Debug, Clone)]
@@ -65,6 +67,19 @@ impl StructuredResponseDiagnosticContext {
                     .with_context(self.context_json(request_id))
                     .with_error_chain([message])
                     .with_raw(raw),
+            );
+        }
+    }
+
+    /// Record a provider-safe schema fallback without persisting the schema or
+    /// any tool payload.
+    pub fn log_schema_fallback(&self, tool_name: &str, reason: &str) {
+        if let Some(logger) = &self.logger {
+            let message = format!("tool {tool_name} used best-effort schema enforcement: {reason}");
+            logger.try_append(
+                SystemErrorEvent::new(SYSTEM_ERROR_PROVIDER_SCHEMA_FALLBACK, message.clone())
+                    .with_context(self.context_json(None))
+                    .with_error_chain([message]),
             );
         }
     }

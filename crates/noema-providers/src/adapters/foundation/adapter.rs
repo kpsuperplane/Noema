@@ -11,8 +11,8 @@ use tokio::sync::Mutex;
 use crate::{
     FoundationLocalProviderConfig, GenerateRequest, GenerateResponse, GenerateResponseStatus,
     GenerateStreamEvent, ModelProvider, ParsedNoemaResponse, ProviderContextMetadata,
-    ProviderError, ProviderToolCapabilities, ProviderToolTransport, output_items_from_text,
-    required_noema_response_from_text,
+    ProviderError, ProviderSchemaCapabilities, ProviderToolCapabilities, ProviderToolTransport,
+    SchemaEnforcement, output_items_from_text, required_noema_response_from_text,
     response_support::{NoemaAssistantTextDeltaExtractor, StructuredResponseDiagnosticContext},
 };
 
@@ -215,7 +215,16 @@ impl ModelProvider for FoundationLocalProvider {
     fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
         ProviderToolCapabilities {
             tool_transport: ProviderToolTransport::NoemaEnvelope,
+            strict_schema: true,
             ..ProviderToolCapabilities::default()
+        }
+    }
+
+    fn schema_capabilities(&self, _model: Option<&str>) -> ProviderSchemaCapabilities {
+        ProviderSchemaCapabilities {
+            native_tool_arguments: SchemaEnforcement::Unsupported,
+            structured_output: SchemaEnforcement::Strict,
+            structured_output_with_tools: SchemaEnforcement::Strict,
         }
     }
 
@@ -278,12 +287,23 @@ impl ModelProvider for FoundationLocalProvider {
             .session_for_request(runtime, key.clone(), prompt.replay_turns)
             .await?;
         let generated_input = prompt.generate_input.clone();
+        let schema = require_noema_response
+            .then(|| {
+                let format = crate::response_support::noema_response_text_format();
+                serde_json::to_string(&format["format"]["schema"]).map_err(|error| {
+                    ProviderError::InvalidRequest {
+                        message: format!("failed to encode Foundation structured schema: {error}"),
+                    }
+                })
+            })
+            .transpose()?;
         let output_text = match runtime
             .process
             .generate_in_session(
                 session_id.clone(),
                 prompt.generate_input,
                 request.options.max_output_tokens,
+                schema,
                 &mut relay_delta,
             )
             .await

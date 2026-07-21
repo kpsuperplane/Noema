@@ -224,6 +224,7 @@ impl FoundationBridgeProcess {
         session_id: String,
         input: String,
         max_output_tokens: Option<u32>,
+        schema: Option<String>,
         on_delta: &mut (dyn FnMut(String) + Send),
     ) -> Result<String, FoundationBridgeError> {
         let request_id = "generate".to_string();
@@ -233,6 +234,7 @@ impl FoundationBridgeProcess {
                 session_id,
                 input,
                 max_output_tokens,
+                schema,
             },
         };
         self.write_request(&request).await?;

@@ -8,7 +8,7 @@ use std::{fmt::Debug, future::Future, pin::Pin, sync::Arc};
 use crate::{
     DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, GenerateStreamEvent,
     ModelProvider, ProviderContextMetadata, ProviderError, ProviderResponseContinuation,
-    ProviderToolCapabilities,
+    ProviderSchemaCapabilities, ProviderToolCapabilities,
 };
 
 /// Boxed future returned by object-safe provider generation operations.
@@ -55,6 +55,12 @@ pub trait ProviderOperations: Debug + Send + Sync {
     /// Return native tool-calling capabilities for this provider/model.
     fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
         ProviderToolCapabilities::default()
+    }
+
+    /// Return independent schema-enforcement capabilities for native tools and
+    /// structured assistant output.
+    fn schema_capabilities(&self, model: Option<&str>) -> ProviderSchemaCapabilities {
+        self.tool_capabilities(model).schema_capabilities()
     }
 
     /// Count request tokens when the provider has an authoritative tokenizer.
@@ -130,6 +136,10 @@ where
 
     fn tool_capabilities(&self, model: Option<&str>) -> ProviderToolCapabilities {
         ModelProvider::tool_capabilities(&self.0, model)
+    }
+
+    fn schema_capabilities(&self, model: Option<&str>) -> ProviderSchemaCapabilities {
+        ModelProvider::schema_capabilities(&self.0, model)
     }
 
     fn count_tokens<'a>(

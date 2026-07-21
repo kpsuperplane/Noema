@@ -7,6 +7,7 @@ use crate::{
     GenerateReasoningInput, GenerateRequest, GenerateToolCallInput, GenerateToolResultInput,
     NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, PromptCacheMode, PromptCacheOptions,
     PromptCacheRetention, PromptCacheTtl, ProviderError, ProviderToolTransport, ReasoningEffort,
+    SchemaEnforcement,
 };
 use serde_json::{Value, json};
 
@@ -428,17 +429,17 @@ fn valid_unknown_provider_tool_name_is_rejected_without_fallback() {
 #[test]
 fn noema_response_text_format_covers_text_and_multiple_choice_contracts() {
     let value = noema_response_text_format();
-    let one_of = value["format"]["schema"]["properties"]["responses"]["items"]["oneOf"]
+    let any_of = value["format"]["schema"]["properties"]["responses"]["items"]["anyOf"]
         .as_array()
-        .expect("responses items oneOf");
-    let text_schema = one_of
+        .expect("responses items anyOf");
+    let text_schema = any_of
         .iter()
         .find(|schema| schema["properties"]["kind"]["enum"] == json!(["text"]))
         .expect("text response schema");
 
     assert_eq!(text_schema["required"], json!(["kind", "phase", "text"]));
     assert_eq!(text_schema["additionalProperties"], false);
-    let schema = one_of
+    let schema = any_of
         .iter()
         .find(|schema| schema["properties"]["kind"]["enum"] == json!(["multiple_choice"]))
         .expect("multiple choice response schema");
@@ -452,6 +453,11 @@ fn noema_response_text_format_covers_text_and_multiple_choice_contracts() {
         json!(["pick_one", "pick_many"])
     );
     assert_eq!(schema["additionalProperties"], false);
+    assert_eq!(value["format"]["strict"], true);
+    assert_eq!(
+        value["format"]["schema"]["properties"]["tool_calls"]["items"]["required"],
+        json!(["id", "name", "payload"])
+    );
 }
 
 #[test]
@@ -602,6 +608,67 @@ fn responses_tool_name_map_rejects_provider_safe_name_collisions() {
             .to_string()
             .contains("provider-safe tool name collision")
     );
+}
+
+#[test]
+fn strict_tool_lowering_closes_optional_fields_and_marks_nullable() {
+    let tool = noema_capabilities::ToolSpec::new(
+        "mcp.docs.read",
+        "Read a document.",
+        json!({
+            "type": "object",
+            "properties": {
+                "document_id": {"type": "string"},
+                "context": {
+                    "type": "object",
+                    "properties": {"mode": {"type": "string"}},
+                    "required": [],
+                    "additionalProperties": false
+                }
+            },
+            "required": ["document_id"],
+            "additionalProperties": false
+        }),
+    )
+    .expect("tool");
+    let names =
+        ResponsesToolNameMap::from_tools_with_enforcement(&[tool], SchemaEnforcement::Strict)
+            .expect("strict lowering");
+    let wire = serde_json::to_value(&names.tools[0]).expect("tool wire");
+    assert_eq!(wire["strict"], true);
+    assert_eq!(
+        wire["parameters"]["required"],
+        json!(["document_id", "context"])
+    );
+    assert_eq!(
+        wire["parameters"]["properties"]["context"]["type"],
+        json!(["object", "null"])
+    );
+    assert_eq!(
+        wire["parameters"]["properties"]["context"]["properties"]["mode"]["type"],
+        json!(["string", "null"])
+    );
+}
+
+#[test]
+fn strict_tool_lowering_falls_back_for_unsupported_unique_items() {
+    let tool = noema_capabilities::ToolSpec::new(
+        "mcp.docs.read",
+        "Read a document.",
+        json!({
+            "type": "object",
+            "properties": {"ids": {"type": "array", "uniqueItems": true}},
+            "required": ["ids"],
+            "additionalProperties": false
+        }),
+    )
+    .expect("tool");
+    let names =
+        ResponsesToolNameMap::from_tools_with_enforcement(&[tool], SchemaEnforcement::Strict)
+            .expect("best-effort fallback");
+    let wire = serde_json::to_value(&names.tools[0]).expect("tool wire");
+    assert_eq!(wire["strict"], false);
+    assert_eq!(names.strict_fallbacks.len(), 1);
 }
 
 #[test]

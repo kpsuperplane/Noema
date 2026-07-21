@@ -38,7 +38,7 @@ async fn bridge_generate_returns_session_output_and_deltas() {
         .await
         .expect("session should be created");
     let text = process
-        .generate_in_session(session_id, "hello".to_string(), None, &mut |delta| {
+        .generate_in_session(session_id, "hello".to_string(), None, None, &mut |delta| {
             deltas.push(delta);
         })
         .await
@@ -64,7 +64,7 @@ async fn bridge_generate_waits_longer_than_control_timeout() {
         .await
         .expect("session should be created");
     let text = process
-        .generate_in_session(session_id, "hello".to_string(), None, &mut |_| {})
+        .generate_in_session(session_id, "hello".to_string(), None, None, &mut |_| {})
         .await
         .expect("generate should wait beyond control timeout");
 
@@ -161,7 +161,7 @@ cat > .build/debug/noema-foundation-bridge <<'BRIDGE'
 #!/bin/sh
 while IFS= read -r line; do
   case "$line" in
-    *'"id":"handshake"'*) printf '%s\n' '{"id":"handshake","payload":{"type":"handshake_ok","protocol_version":1}}' ;;
+    *'"id":"handshake"'*) printf '%s\n' '{"id":"handshake","payload":{"type":"handshake_ok","protocol_version":2}}' ;;
     *'"id":"health"'*) printf '%s\n' '{"id":"health","payload":{"type":"health","available":true,"profiles":[{"id":"default","label":"Default"}],"unavailable_reason":null}}' ;;
     *) printf '%s\n' '{"id":"unknown","payload":{"type":"error","code":"unsupported_request","message":"Unsupported request."}}' ;;
   esac
@@ -252,7 +252,7 @@ fn scripted_bridge(extra_cases: &str, available: bool) -> String {
         r#"#!/bin/sh
 while IFS= read -r line; do
   case "$line" in
-    *'"id":"handshake"'*) printf '%s\n' '{{"id":"handshake","payload":{{"type":"handshake_ok","protocol_version":1}}}}' ;;
+    *'"id":"handshake"'*) printf '%s\n' '{{"id":"handshake","payload":{{"type":"handshake_ok","protocol_version":2}}}}' ;;
     *'"id":"health"'*) printf '%s\n' '{health}' ;;
     {extra_cases}
     *) printf '%s\n' '{{"id":"unknown","payload":{{"type":"error","code":"unsupported_request","message":"Unsupported request."}}}}' ;;

@@ -11,8 +11,9 @@ use super::{
 use crate::{
     GenerateRequest, GenerateResponse, GenerateResponseStatus, GenerateStreamEvent,
     LocalModelsProviderConfig, ModelProvider, ParsedNoemaResponse, ProviderContextMetadata,
-    ProviderError, ProviderToolCapabilities, ProviderToolTransport, output_items_from_text,
-    required_noema_response_from_text, reqwest_transport_error,
+    ProviderError, ProviderSchemaCapabilities, ProviderToolCapabilities, ProviderToolTransport,
+    SchemaEnforcement, output_items_from_text, required_noema_response_from_text,
+    reqwest_transport_error,
     response_support::{NoemaAssistantTextDeltaExtractor, StructuredResponseDiagnosticContext},
 };
 
@@ -115,6 +116,7 @@ impl LocalModelsProvider {
         &self,
         request: &GenerateRequest,
         model: &str,
+        diagnostics: &StructuredResponseDiagnosticContext,
         on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
     ) -> Result<ChatStreamOutput, ProviderError> {
         let _generation_permit = self
@@ -134,6 +136,16 @@ impl LocalModelsProvider {
                 message: format!("invalid local inference endpoint: {error}"),
             })?;
         let body = ChatCompletionRequest::from_generate(request, model.to_string())?;
+        if body
+            .response_format
+            .as_ref()
+            .is_some_and(|format| format["json_schema"]["strict"] == Value::Bool(false))
+        {
+            diagnostics.log_schema_fallback(
+                "local_response",
+                "the selected tool catalog is outside the llama.cpp strict subset",
+            );
+        }
         let response = self
             .client
             .post(url)
@@ -228,7 +240,16 @@ impl ModelProvider for LocalModelsProvider {
     fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
         ProviderToolCapabilities {
             tool_transport: ProviderToolTransport::NoemaEnvelope,
+            strict_schema: true,
             ..ProviderToolCapabilities::default()
+        }
+    }
+
+    fn schema_capabilities(&self, _model: Option<&str>) -> ProviderSchemaCapabilities {
+        ProviderSchemaCapabilities {
+            native_tool_arguments: SchemaEnforcement::Unsupported,
+            structured_output: SchemaEnforcement::Strict,
+            structured_output_with_tools: SchemaEnforcement::Strict,
         }
     }
 
@@ -292,7 +313,9 @@ impl ModelProvider for LocalModelsProvider {
             model.clone(),
             request.conversation_id.clone(),
         );
-        let stream = self.send_chat_stream(&request, &model, on_event).await?;
+        let stream = self
+            .send_chat_stream(&request, &model, &diagnostics, on_event)
+            .await?;
         let parsed = if request.options.require_noema_response {
             required_local_noema_response_from_text(&stream.text).inspect_err(|error| {
                 diagnostics.log_malformed(
@@ -475,11 +498,11 @@ mod tests {
         assert_eq!(schema["properties"]["tool_calls"]["minItems"], 1);
         assert_eq!(schema["properties"]["tool_calls"]["maxItems"], 1);
         assert_eq!(
-            schema["properties"]["tool_calls"]["items"]["oneOf"][0]["properties"]["name"]["enum"],
+            schema["properties"]["tool_calls"]["items"]["anyOf"][0]["properties"]["name"]["enum"],
             serde_json::json!(["task.submit_result"])
         );
         assert_eq!(
-            schema["properties"]["tool_calls"]["items"]["oneOf"][0]["properties"]["payload"]["required"],
+            schema["properties"]["tool_calls"]["items"]["anyOf"][0]["properties"]["payload"]["required"],
             serde_json::json!(["summary"])
         );
     }
@@ -514,7 +537,7 @@ mod tests {
                 tools: vec![first.name],
             }),
         );
-        let tool_variants = &schema["properties"]["tool_calls"]["items"]["oneOf"];
+        let tool_variants = &schema["properties"]["tool_calls"]["items"]["anyOf"];
 
         assert_eq!(tool_variants.as_array().map(Vec::len), Some(1));
         assert_eq!(
@@ -541,7 +564,7 @@ mod tests {
         );
         let source_schema = tool.input_schema.clone();
         let schema = tool_response_schema(vec![tool], noema_providers::NoemaToolChoice::Auto);
-        let title = &schema["properties"]["tool_calls"]["items"]["oneOf"][0]["properties"]["payload"]
+        let title = &schema["properties"]["tool_calls"]["items"]["anyOf"][0]["properties"]["payload"]
             ["properties"]["title"];
 
         assert_eq!(title["type"], "string");

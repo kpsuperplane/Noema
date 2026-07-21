@@ -31,6 +31,8 @@ mod transport_error;
 mod web;
 
 #[cfg(any(feature = "adapters", feature = "local-models"))]
+pub use response_support::{decode_recursive_json, encode_recursive_json, recursive_json_schema};
+#[cfg(any(feature = "adapters", feature = "local-models"))]
 pub(crate) use transport_error::reqwest_transport_error;
 
 pub use account_operations::{
@@ -141,8 +143,8 @@ pub use selection::{
     ProviderInstanceKey, ProviderSelectionError, ProviderSelectionMode, ProviderSelectionSnapshot,
 };
 pub use tools::{
-    NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderToolCapabilities,
-    ProviderToolSchemaDialect, ProviderToolTransport,
+    NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderSchemaCapabilities,
+    ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport, SchemaEnforcement,
 };
 pub use web::{
     BEST_EFFORT_PUBLIC_CONTRACT, DIRECT_HTTP_PROVIDER_ID, DUCKDUCKGO_PUBLIC_PROVIDER_ID,

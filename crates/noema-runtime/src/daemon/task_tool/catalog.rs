@@ -194,7 +194,7 @@ pub(crate) fn task_submit_result_tool_spec()
     ToolSpec::new(
         TASK_SUBMIT_RESULT_TOOL,
         "Submit one complete executor result with evidence for every contract criterion.",
-        json!({"type":"object","properties":{"summary":{"type":"string","minLength":1,"maxLength":4000},"result_markdown":{"type":"string","minLength":1,"maxLength":100000},"criteria":{"type":"array","minItems":1,"items":{"type":"object","properties":{"criterion_id":{"type":"string","minLength":1,"maxLength":200},"evidence_markdown":{"type":"string","minLength":1,"maxLength":20000}},"required":["criterion_id","evidence_markdown"],"additionalProperties":false}},"artifact_ids":{"type":"array","maxItems":100,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":200}}},"required":["summary","result_markdown","criteria"],"additionalProperties":false}),
+        json!({"type":"object","properties":{"summary":{"type":"string","minLength":1,"maxLength":4000},"result_markdown":{"type":"string","minLength":1,"maxLength":100000},"criteria":{"type":"array","minItems":1,"items":{"type":"object","properties":{"criterion_id":{"type":"string","minLength":1,"maxLength":200},"evidence_markdown":{"type":"string","minLength":1,"maxLength":20000}},"required":["criterion_id","evidence_markdown"],"additionalProperties":false}},"artifact_ids":{"type":"array","maxItems":100,"items":{"type":"string","minLength":1,"maxLength":200}}},"required":["summary","result_markdown","criteria"],"additionalProperties":false}),
     )
 }
 

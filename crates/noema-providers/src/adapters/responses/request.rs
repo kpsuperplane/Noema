@@ -6,8 +6,8 @@ use super::{
 };
 use crate::{
     GenerateRequest, PromptCacheOptions, PromptCacheRetention, ProviderError,
-    ProviderToolTransport, ReasoningEffort,
-    response_support::{noema_native_response_text_format, noema_response_text_format},
+    ProviderSchemaCapabilities, ProviderToolTransport, ReasoningEffort, SchemaEnforcement,
+    response_support::noema_response_text_format_with_strict,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -102,10 +102,28 @@ pub(crate) const CODEX_RESPONSES_PROFILE: ResponsesRequestProfile = ResponsesReq
 
 impl ResponsesRequest {
     /// Lower one provider-neutral request according to a Responses wire profile.
+    #[cfg(test)]
     pub(crate) fn from_generate(
         request: &GenerateRequest,
         model: String,
         default_reasoning_effort: Option<ReasoningEffort>,
+        profile: ResponsesRequestProfile,
+    ) -> Result<(Self, ResponsesToolNameMap, ProviderToolTransport), ProviderError> {
+        Self::from_generate_with_schema_capabilities(
+            request,
+            model,
+            default_reasoning_effort,
+            ProviderSchemaCapabilities::default(),
+            profile,
+        )
+    }
+
+    /// Lower one request with provider/model-specific schema enforcement.
+    pub(crate) fn from_generate_with_schema_capabilities(
+        request: &GenerateRequest,
+        model: String,
+        default_reasoning_effort: Option<ReasoningEffort>,
+        schema_capabilities: ProviderSchemaCapabilities,
         profile: ResponsesRequestProfile,
     ) -> Result<(Self, ResponsesToolNameMap, ProviderToolTransport), ProviderError> {
         if request.input.is_empty() {
@@ -114,13 +132,22 @@ impl ResponsesRequest {
             });
         }
 
-        let tool_names = ResponsesToolNameMap::from_tools(&request.tools)?;
+        let tool_names = ResponsesToolNameMap::from_tools_with_enforcement(
+            &request.tools,
+            schema_capabilities.native_tool_arguments,
+        )?;
         let has_tools = !tool_names.tools.is_empty();
         if request.tool_transport == ProviderToolTransport::None && has_tools {
             return Err(ProviderError::InvalidRequest {
                 message: "tool transport is disabled but the request includes tools".to_string(),
             });
         }
+        let structured_enforcement = if has_tools {
+            schema_capabilities.structured_output_with_tools
+        } else {
+            schema_capabilities.structured_output
+        };
+        let strict_structured = structured_enforcement == SchemaEnforcement::Strict;
         let body = Self {
             model,
             input: ResponsesInput::from_generate(
@@ -144,15 +171,18 @@ impl ResponsesRequest {
                 .then_some(request.options.max_output_tokens)
                 .flatten(),
             temperature: request.options.temperature,
-            text: request
-                .options
-                .require_noema_response
-                .then(|| match request.tool_transport {
-                    ProviderToolTransport::NoemaEnvelope => noema_response_text_format(),
-                    ProviderToolTransport::Native | ProviderToolTransport::None => {
-                        noema_native_response_text_format()
-                    }
-                }),
+            text: request.options.require_noema_response.then(|| {
+                if structured_enforcement == SchemaEnforcement::Unsupported {
+                    return noema_response_text_format_with_strict(
+                        request.tool_transport == ProviderToolTransport::NoemaEnvelope,
+                        false,
+                    );
+                }
+                noema_response_text_format_with_strict(
+                    request.tool_transport == ProviderToolTransport::NoemaEnvelope,
+                    strict_structured,
+                )
+            }),
             reasoning: request
                 .options
                 .reasoning_effort

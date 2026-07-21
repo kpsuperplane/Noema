@@ -8,6 +8,7 @@ use noema_tasks::{
     CriterionOutcome, NewTaskReview, NewTaskSubmission, NewTaskValidationCriterion, RunKind,
     TaskReviewCriterion, TaskReviewVerdict,
 };
+use std::collections::HashSet;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -142,6 +143,7 @@ fn execute_executor(
             .contract
             .as_ref()
             .ok_or_else(|| "Executor terminal has no contract".to_string())?;
+        validate_unique_artifact_ids(&result.artifact_ids)?;
         let submission = NewTaskSubmission {
             submission_id: None,
             task_id: context.task.task_id.clone(),
@@ -227,6 +229,13 @@ fn execute_reviewer(
     if verdict == TaskReviewVerdict::NeedsHuman && human_question.is_none() {
         return Err("needs_human review requires a human question".to_string());
     }
+    if verdict != TaskReviewVerdict::NeedsHuman
+        && (parsed.human_gate_kind.is_some() || parsed.human_question.is_some())
+    {
+        return Err(
+            "approve and request_changes reviews cannot include human gate fields".to_string(),
+        );
+    }
     let review = NewTaskReview {
         review_id: None,
         task_id: context.task.task_id.clone(),
@@ -311,6 +320,17 @@ fn criterion_ordinal(index: usize) -> Result<u32, String> {
         .ok_or_else(|| "criterion count exceeds the supported bound".to_string())
 }
 
+fn validate_unique_artifact_ids(artifact_ids: &[String]) -> Result<(), String> {
+    let mut seen = HashSet::with_capacity(artifact_ids.len());
+    if artifact_ids
+        .iter()
+        .any(|artifact_id| !seen.insert(artifact_id))
+    {
+        return Err("Executor terminal contains duplicate artifact ids".to_string());
+    }
+    Ok(())
+}
+
 fn blocked_context(context: String, suggested_answers: Vec<String>) -> String {
     if suggested_answers.is_empty() {
         context
@@ -332,4 +352,15 @@ fn parse_payload<T: serde::de::DeserializeOwned>(
 ) -> Result<T, String> {
     serde_json::from_value(call.payload.clone())
         .map_err(|error| format!("invalid {contract} payload: {error}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_unique_artifact_ids;
+
+    #[test]
+    fn duplicate_artifact_ids_are_rejected_at_runtime() {
+        let ids = vec!["artifact:one".to_string(), "artifact:one".to_string()];
+        assert!(validate_unique_artifact_ids(&ids).is_err());
+    }
 }

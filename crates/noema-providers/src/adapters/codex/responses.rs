@@ -14,8 +14,9 @@ use crate::adapters::{
 use crate::{
     CodexProviderConfig, DEFAULT_CODEX_MODEL, DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest,
     GenerateResponse, GenerateStreamEvent, ModelProvider, ProviderError,
-    ProviderResponseContinuation, ProviderToolCapabilities, ProviderToolSchemaDialect,
-    ProviderToolTransport, response_support::NoemaAssistantTextDeltaExtractor,
+    ProviderResponseContinuation, ProviderSchemaCapabilities, ProviderToolCapabilities,
+    ProviderToolSchemaDialect, ProviderToolTransport, SchemaEnforcement,
+    response_support::NoemaAssistantTextDeltaExtractor,
 };
 use noema_home::SystemErrorLogger;
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue, USER_AGENT};
@@ -246,18 +247,23 @@ impl CodexResponsesProvider {
         let default_reasoning_effort = using_config_default_model
             .then_some(self.config.reasoning_effort)
             .flatten();
-        let (body, tool_names, tool_transport) = ResponsesRequest::from_generate(
-            &request,
-            model.clone(),
-            default_reasoning_effort,
-            CODEX_RESPONSES_PROFILE,
-        )?;
+        let (body, tool_names, tool_transport) =
+            ResponsesRequest::from_generate_with_schema_capabilities(
+                &request,
+                model.clone(),
+                default_reasoning_effort,
+                self.schema_capabilities(Some(&model)),
+                CODEX_RESPONSES_PROFILE,
+            )?;
         let diagnostics = ResponsesDiagnosticContext::new(
             self.system_errors.clone(),
             "codex",
             model.clone(),
             request.conversation_id.clone(),
         );
+        for (tool_name, reason) in &tool_names.strict_fallbacks {
+            diagnostics.log_schema_fallback(tool_name, reason);
+        }
 
         let access_token = self.access_token().await?;
         let request_headers = self
@@ -328,7 +334,7 @@ impl ModelProvider for CodexResponsesProvider {
             tool_choice: true,
             allowed_tools: false,
             schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
-            strict_schema: false,
+            strict_schema: true,
             custom_tools: false,
             native_tool_results: true,
             prompt_cache_retention: false,
@@ -336,6 +342,16 @@ impl ModelProvider for CodexResponsesProvider {
             prompt_cache_options: false,
             prompt_cache_breakpoints: false,
             encrypted_reasoning: codex_encrypted_reasoning_supported(),
+        }
+    }
+
+    fn schema_capabilities(&self, _model: Option<&str>) -> ProviderSchemaCapabilities {
+        ProviderSchemaCapabilities {
+            native_tool_arguments: SchemaEnforcement::Strict,
+            structured_output: SchemaEnforcement::Strict,
+            // The private Codex backend is kept best effort for the combined
+            // text-envelope path until its strict-format canary is green.
+            structured_output_with_tools: SchemaEnforcement::BestEffort,
         }
     }
 

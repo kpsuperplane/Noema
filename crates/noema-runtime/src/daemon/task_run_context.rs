@@ -369,3 +369,23 @@ pub(super) struct ReviewerCriterionResponse {
     pub(super) evidence_markdown: Option<String>,
     pub(super) feedback: Option<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ExecutorSubmissionResponse;
+    use serde_json::json;
+
+    #[test]
+    fn executor_criterion_rejects_unknown_fields() {
+        let payload = json!({
+            "summary": "done",
+            "result_markdown": "evidence",
+            "criteria": [{
+                "criterion_id": "criterion:one",
+                "evidence_markdown": "checked",
+                "unexpected": "lineage"
+            }]
+        });
+        assert!(serde_json::from_value::<ExecutorSubmissionResponse>(payload).is_err());
+    }
+}

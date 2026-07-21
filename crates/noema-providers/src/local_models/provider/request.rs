@@ -4,7 +4,7 @@ use serde_json::Value;
 use crate::{
     GenerateInput, GenerateInputItem, GenerateMessageRole, GenerateRequest, NoemaAllowedTools,
     NoemaAllowedToolsMode, NoemaToolChoice, ProviderError,
-    response_support::noema_response_text_format,
+    response_support::{lower_strict_schema, noema_response_text_format},
 };
 
 #[derive(Debug, Serialize)]
@@ -104,7 +104,7 @@ fn chat_noema_response_format(request: &GenerateRequest) -> Result<Value, Provid
                 })
             })
             .collect::<Vec<_>>();
-        schema["properties"]["tool_calls"]["items"] = serde_json::json!({"oneOf": tool_schemas});
+        schema["properties"]["tool_calls"]["items"] = serde_json::json!({"anyOf": tool_schemas});
     }
     if !tools_allowed {
         schema["properties"]["response_status"]["enum"] = serde_json::json!(["final"]);
@@ -126,6 +126,11 @@ fn chat_noema_response_format(request: &GenerateRequest) -> Result<Value, Provid
     }
     if tools_allowed && !request.parallel_tool_calls {
         schema["properties"]["tool_calls"]["maxItems"] = serde_json::json!(1);
+    }
+    let best_effort_schema = schema.clone();
+    if lower_strict_schema(schema).is_err() {
+        *schema = best_effort_schema;
+        response_format["json_schema"]["strict"] = Value::Bool(false);
     }
     Ok(response_format)
 }

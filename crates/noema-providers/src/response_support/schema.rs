@@ -2,27 +2,28 @@
 
 use serde_json::Value;
 
+use super::strict_schema::recursive_json_schema;
+
 /// Build the strict JSON schema used for Noema's structured response envelope.
 #[must_use]
 pub fn noema_response_text_format() -> Value {
-    response_text_format(true)
+    response_text_format(true, true)
 }
 
-/// Build the structured response schema used alongside provider-native tools.
-///
-/// Native tool calls arrive as provider output items, so the assistant text
-/// envelope must not advertise a second, legacy `tool_calls` channel.
-#[must_use]
-pub fn noema_native_response_text_format() -> Value {
-    response_text_format(false)
+/// Build the shared response format with an explicit provider strictness bit.
+pub(crate) fn noema_response_text_format_with_strict(
+    include_tool_calls: bool,
+    strict: bool,
+) -> Value {
+    response_text_format(include_tool_calls, strict)
 }
 
-fn response_text_format(include_tool_calls: bool) -> Value {
+fn response_text_format(include_tool_calls: bool, strict: bool) -> Value {
     let mut format = serde_json::json!({
         "format": {
             "type": "json_schema",
             "name": "noema_response",
-            "strict": false,
+            "strict": strict,
             "schema": {
                 "type": "object",
                 "properties": {
@@ -33,7 +34,7 @@ fn response_text_format(include_tool_calls: bool) -> Value {
                     "responses": {
                         "type": "array",
                         "items": {
-                            "oneOf": [
+                            "anyOf": [
                                 {
                                     "type": "object",
                                     "properties": {
@@ -97,7 +98,7 @@ fn response_text_format(include_tool_calls: bool) -> Value {
                                             "type": "string"
                                         },
                                         "payload": {
-                                            "type": "object"
+                                            "$ref": "#/$defs/node"
                                         }
                                     },
                                     "required": ["kind", "schema", "payload"],
@@ -115,13 +116,16 @@ fn response_text_format(include_tool_calls: bool) -> Value {
                                 "name": {"type": "string"},
                                 "payload": {"type": "object"}
                             },
-                            "required": ["name", "payload"],
+                            "required": ["id", "name", "payload"],
                             "additionalProperties": false
                         }
                     }
                 },
                 "required": ["response_status", "responses", "tool_calls"],
                 "additionalProperties": false
+            },
+            "$defs": {
+                "node": recursive_json_schema()["$defs"]["node"]
             }
         }
     });

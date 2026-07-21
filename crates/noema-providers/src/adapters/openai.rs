@@ -7,8 +7,8 @@ use super::responses::{
 };
 use crate::{
     DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, ModelProvider,
-    OpenAiProviderConfig, ProviderError, ProviderResponseContinuation, ProviderToolCapabilities,
-    ProviderToolSchemaDialect, ProviderToolTransport,
+    OpenAiProviderConfig, ProviderError, ProviderResponseContinuation, ProviderSchemaCapabilities,
+    ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport,
 };
 use noema_home::SystemErrorLogger;
 use reqwest::header::{HeaderMap, HeaderName};
@@ -142,7 +142,7 @@ impl ModelProvider for OpenAiProvider {
             tool_choice: true,
             allowed_tools: true,
             schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
-            strict_schema: false,
+            strict_schema: true,
             custom_tools: false,
             native_tool_results: true,
             prompt_cache_retention: !explicit_prompt_cache,
@@ -151,6 +151,10 @@ impl ModelProvider for OpenAiProvider {
             prompt_cache_breakpoints: explicit_prompt_cache,
             encrypted_reasoning: true,
         }
+    }
+
+    fn schema_capabilities(&self, _model: Option<&str>) -> ProviderSchemaCapabilities {
+        ProviderSchemaCapabilities::strict()
     }
 
     fn response_continuation(&self, _model: Option<&str>) -> ProviderResponseContinuation {
@@ -177,12 +181,14 @@ impl ModelProvider for OpenAiProvider {
         let default_reasoning_effort = using_config_default_model
             .then_some(self.config.reasoning_effort)
             .flatten();
-        let (body, tool_names, tool_transport) = ResponsesRequest::from_generate(
-            &request,
-            model.clone(),
-            default_reasoning_effort,
-            OPENAI_RESPONSES_PROFILE,
-        )?;
+        let (body, tool_names, tool_transport) =
+            ResponsesRequest::from_generate_with_schema_capabilities(
+                &request,
+                model.clone(),
+                default_reasoning_effort,
+                self.schema_capabilities(Some(&model)),
+                OPENAI_RESPONSES_PROFILE,
+            )?;
 
         let diagnostics = ResponsesDiagnosticContext::new(
             self.system_errors.clone(),
@@ -190,6 +196,9 @@ impl ModelProvider for OpenAiProvider {
             model.clone(),
             request.conversation_id.clone(),
         );
+        for (tool_name, reason) in &tool_names.strict_fallbacks {
+            diagnostics.log_schema_fallback(tool_name, reason);
+        }
         let response = self
             .transport
             .send(

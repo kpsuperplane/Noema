@@ -5,7 +5,10 @@ use std::collections::HashMap;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::{NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderError};
+use crate::response_support::lower_strict_schema;
+use crate::{
+    NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderError, SchemaEnforcement,
+};
 
 /// Native Responses API tool definition.
 #[derive(Debug, Clone, Serialize)]
@@ -15,6 +18,8 @@ pub struct ResponsesTool {
     pub(super) name: String,
     description: String,
     parameters: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    strict: Option<bool>,
 }
 
 /// Responses API tool selection policy.
@@ -51,12 +56,14 @@ impl ResponsesTool {
         name: impl Into<String>,
         description: impl Into<String>,
         parameters: Value,
+        strict: Option<bool>,
     ) -> Self {
         Self {
             kind: "function",
             name: name.into(),
             description: description.into(),
             parameters,
+            strict,
         }
     }
 }
@@ -65,6 +72,7 @@ impl ResponsesTool {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ResponsesToolNameMap {
     pub(crate) tools: Vec<ResponsesTool>,
+    pub(crate) strict_fallbacks: Vec<(String, String)>,
     provider_to_canonical: HashMap<String, String>,
     canonical_to_provider: HashMap<String, String>,
 }
@@ -76,12 +84,21 @@ impl ResponsesToolNameMap {
     ///
     /// Returns [`ProviderError::InvalidRequest`] when two canonical names map
     /// to the same provider-safe name.
+    #[cfg(test)]
     pub(crate) fn from_tools(
         tools: &[noema_capabilities::ToolSpec],
+    ) -> Result<Self, ProviderError> {
+        Self::from_tools_with_enforcement(tools, SchemaEnforcement::BestEffort)
+    }
+
+    pub(crate) fn from_tools_with_enforcement(
+        tools: &[noema_capabilities::ToolSpec],
+        enforcement: SchemaEnforcement,
     ) -> Result<Self, ProviderError> {
         let mut responses_tools = Vec::with_capacity(tools.len());
         let mut provider_to_canonical = HashMap::with_capacity(tools.len());
         let mut canonical_to_provider = HashMap::with_capacity(tools.len());
+        let mut strict_fallbacks = Vec::new();
 
         for tool in tools {
             let canonical = tool.name.as_str();
@@ -100,16 +117,30 @@ impl ResponsesToolNameMap {
             provider_to_canonical.insert(provider_safe.clone(), canonical.to_string());
             canonical_to_provider.insert(canonical.to_string(), provider_safe.clone());
             let mut parameters = tool.input_schema.as_value().clone();
-            normalize_responses_schema(&mut parameters);
+            let strict = if enforcement == SchemaEnforcement::Strict {
+                match lower_strict_schema(&mut parameters) {
+                    Ok(()) => Some(true),
+                    Err(error) => {
+                        normalize_responses_schema(&mut parameters);
+                        strict_fallbacks.push((canonical.to_string(), error));
+                        Some(false)
+                    }
+                }
+            } else {
+                normalize_responses_schema(&mut parameters);
+                (enforcement == SchemaEnforcement::BestEffort).then_some(false)
+            };
             responses_tools.push(ResponsesTool::function(
                 provider_safe,
                 tool.description.clone(),
                 parameters,
+                strict,
             ));
         }
 
         Ok(Self {
             tools: responses_tools,
+            strict_fallbacks,
             provider_to_canonical,
             canonical_to_provider,
         })
