@@ -744,8 +744,9 @@ async fn run_review_case(
         .await
         .expect("claim executor")
         .expect("executor run");
+    let executor_run_id = claimed_executor.run.run_id.clone();
     let executor_fence = WorkRunFence {
-        run_id: claimed_executor.run.run_id.clone(),
+        run_id: executor_run_id.clone(),
         lease_token: claimed_executor.lease_token,
         task_generation: claimed_executor.run.task_generation,
         contract_id: claimed_executor.run.contract_id.clone(),
@@ -768,7 +769,7 @@ async fn run_review_case(
                     submission_id: Some("submission:review-case".to_string()),
                     task_id: task.task_id.clone(),
                     contract_id: contract_id.clone(),
-                    executor_run_id: claimed_executor.run.run_id,
+                    executor_run_id: executor_run_id.clone(),
                     review_round: 1,
                     summary: "Fixture result".to_string(),
                     result_markdown: "The fixture completed.".to_string(),
@@ -785,6 +786,20 @@ async fn run_review_case(
         )
         .await
         .expect("submit executor result");
+    store
+        .with_connection(move |connection| {
+            connection.execute(
+                "INSERT INTO agent_run_items (item_id, run_id, sequence_index, round_index, kind, status, content_text, payload_json)
+                 VALUES (?1, ?2, (SELECT COALESCE(MAX(sequence_index), 0) + 1 FROM agent_run_items WHERE run_id = ?2), 0, 'assistant_output', 'completed', 'executor transcript should stay out of reviewer context', '{}')",
+                rusqlite::params![
+                    format!("run_item:review-case:executor-transcript:{executor_run_id}"),
+                    executor_run_id,
+                ],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("append executor transcript");
     let claimed_reviewer = service
         .claim_next_work_run("worker:review-case:reviewer", 60, &[])
         .await
@@ -805,6 +820,17 @@ async fn run_review_case(
         )
         .await
         .expect("start reviewer");
+    let reviewer_context = service
+        .admit_work_run_execution_context(
+            &reviewer_fence,
+            ACTOR,
+            None,
+            "correlation:review-case:reviewer-context",
+        )
+        .await
+        .expect("admit reviewer context");
+    assert!(reviewer_context.context.lineage.is_empty());
+    assert!(reviewer_context.context.latest_submission.is_some());
     let result = service
         .record_work_run_terminal(
             WorkRunTerminal::Review(SubmitTaskReview {

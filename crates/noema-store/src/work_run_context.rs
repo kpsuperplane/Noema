@@ -160,7 +160,14 @@ pub(super) fn load_work_run_execution_context_tx(
     }
     validate_review_link(&run, &task, contract.as_ref(), latest_review.as_ref())?;
 
-    let lineage = load_lineage_items(transaction, &run)?;
+    // Reviewers receive the immutable contract and latest submission below;
+    // executor transcript items are neither authoritative evidence nor needed
+    // to perform the review, so keep them out of the reviewer checkpoint.
+    let lineage = if run.run_kind == RunKind::Reviewer {
+        Vec::new()
+    } else {
+        load_lineage_items(transaction, &run)?
+    };
     Ok(Some(WorkRunExecutionContext {
         run,
         task,

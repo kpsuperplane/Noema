@@ -54,7 +54,8 @@ pub struct WorkRunExecutionContext {
     /// a continuation or the task's latest immutable review.
     pub latest_review: Option<TaskReviewRecord>,
     /// Recent transcript material from this run and its bounded parent lineage,
-    /// ordered from oldest run/item to newest.
+    /// ordered from oldest run/item to newest. Reviewer contexts intentionally
+    /// leave this empty because their submission projection is authoritative.
     pub lineage: Vec<AgentRunItemRecord>,
 }
 
