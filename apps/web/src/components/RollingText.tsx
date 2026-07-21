@@ -4,6 +4,7 @@ import { type HTMLAttributes, type Ref, useLayoutEffect, useRef, useState } from
 const WORD_STAGGER_MS = 16;
 const MAX_STAGGER_INDEX = 7;
 const TEXT_MOTION_MS = 220;
+const TEXT_MOTION_EASING = "cubic-bezier(0.45, 0, 0.55, 1)";
 const WIDTH_MOTION_MS = 240;
 const SETTLE_DELAY_MS = TEXT_MOTION_MS + MAX_STAGGER_INDEX * WORD_STAGGER_MS + 40;
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
@@ -20,13 +21,13 @@ type RollingTextMotion = {
 };
 
 const rollIn = stylex.keyframes({
-  from: { opacity: 0, transform: "translateY(0.8em)" },
-  to: { opacity: 1, transform: "translateY(0)" }
+  from: { opacity: 0, transform: "perspective(10em) translateY(0.8em) rotateX(-22deg)" },
+  to: { opacity: 1, transform: "perspective(10em) translateY(0) rotateX(0deg)" }
 });
 
 const rollOut = stylex.keyframes({
-  from: { opacity: 1, transform: "translateY(0)" },
-  to: { opacity: 0, transform: "translateY(-0.6em)" }
+  from: { opacity: 1, transform: "perspective(10em) translateY(0) rotateX(0deg)" },
+  to: { opacity: 0, transform: "perspective(10em) translateY(-0.6em) rotateX(22deg)" }
 });
 
 const styles = stylex.create({
@@ -64,11 +65,15 @@ const styles = stylex.create({
   word: {
     display: "inline-block"
   },
+  motionWord: {
+    backfaceVisibility: "hidden",
+    transformOrigin: "50% 50%"
+  },
   incomingWord: {
     animationDuration: `${TEXT_MOTION_MS}ms`,
     animationFillMode: "both",
     animationName: rollIn,
-    animationTimingFunction: "linear",
+    animationTimingFunction: TEXT_MOTION_EASING,
     "@media (prefers-reduced-motion: reduce)": {
       animationName: "none"
     }
@@ -77,7 +82,7 @@ const styles = stylex.create({
     animationDuration: `${TEXT_MOTION_MS}ms`,
     animationFillMode: "both",
     animationName: rollOut,
-    animationTimingFunction: "cubic-bezier(0.4, 0, 1, 1)",
+    animationTimingFunction: TEXT_MOTION_EASING,
     "@media (prefers-reduced-motion: reduce)": {
       display: "none",
       animationName: "none"
@@ -185,6 +190,7 @@ function RollingTextLayer({
             key={`${index}:${segment.text}`}
             {...stylex.props(
               styles.word,
+              animated && styles.motionWord,
               animated && direction === "in" && styles.incomingWord,
               animated && direction === "out" && styles.outgoingWord
             )}
