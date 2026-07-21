@@ -117,7 +117,7 @@ function CriterionDetailsPopover({ criterion }: { criterion: TaskCriterion }) {
           onMouseLeave={() => { hoveringRef.current = false; scheduleClose(); }}
           {...stylex.props(styles.criterionRow, styles.criterionInteractive)}
         >
-          <CriterionStatusIcon verdict={criterion.verdict} />
+          <TaskCriterionStatusIcon verdict={criterion.verdict} />
           <span {...stylex.props(styles.criterionText)}>{criterion.text}</span>
         </button>
       )}
@@ -128,23 +128,23 @@ function CriterionDetailsPopover({ criterion }: { criterion: TaskCriterion }) {
 function CriterionStaticRow({ criterion }: { criterion: TaskCriterion }) {
   return (
     <div {...stylex.props(styles.criterionRow)}>
-      <CriterionStatusIcon verdict={criterion.verdict} />
+      <TaskCriterionStatusIcon verdict={criterion.verdict} />
       <span {...stylex.props(styles.criterionText)}>{criterion.text}</span>
     </div>
   );
 }
 
-function CriterionStatusIcon({ verdict }: { verdict?: TaskCriterionVerdict | null }) {
+export function TaskCriterionStatusIcon({ verdict, size = 15 }: { verdict?: TaskCriterionVerdict | null; size?: number }) {
   if (verdict === "pass") {
-    return <Check aria-hidden="true" size={15} strokeWidth={2.2} {...stylex.props(styles.statusIcon, styles.complete)} />;
+    return <Check aria-hidden="true" size={size} strokeWidth={2.2} {...stylex.props(styles.statusIcon, styles.complete)} />;
   }
   if (verdict === "fail") {
-    return <X aria-hidden="true" size={15} strokeWidth={2.2} {...stylex.props(styles.statusIcon, styles.error)} />;
+    return <X aria-hidden="true" size={size} strokeWidth={2.2} {...stylex.props(styles.statusIcon, styles.error)} />;
   }
   if (verdict === "uncertain") {
-    return <CircleAlert aria-hidden="true" size={15} strokeWidth={2} {...stylex.props(styles.statusIcon, styles.uncertain)} />;
+    return <CircleAlert aria-hidden="true" size={size} strokeWidth={2} {...stylex.props(styles.statusIcon, styles.uncertain)} />;
   }
-  return <Clock3 aria-hidden="true" size={15} strokeWidth={2} {...stylex.props(styles.statusIcon, styles.pending)} />;
+  return <Clock3 aria-hidden="true" size={size} strokeWidth={2} {...stylex.props(styles.statusIcon, styles.pending)} />;
 }
 
 function CriterionEvidence({ criterion }: { criterion: TaskCriterion }) {
@@ -175,8 +175,6 @@ const styles = stylex.create({
     display: "grid",
     gap: "var(--spacing-1-5)",
     minWidth: 0,
-    minHeight: 0,
-    overflowY: "auto",
     paddingBlockEnd: "var(--spacing-2)",
     paddingInline: "var(--spacing-4)"
   },

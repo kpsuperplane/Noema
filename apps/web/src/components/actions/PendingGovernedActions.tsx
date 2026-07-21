@@ -207,12 +207,14 @@ const styles = stylex.create({
   },
   eyebrow: {
     display: "flex",
+    flexWrap: "nowrap",
     gap: 8,
     color: "var(--noema-text-muted)",
     fontSize: 11,
     fontWeight: 600,
     textTransform: "uppercase",
-    letterSpacing: "0.045em"
+    letterSpacing: "0.045em",
+    whiteSpace: "nowrap"
   },
   summary: {
     color: "var(--noema-text-primary)",

@@ -3,10 +3,10 @@ import { IconButton } from "@astryxdesign/core/IconButton";
 import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import { Popover } from "@astryxdesign/core/Popover";
 import * as stylex from "@stylexjs/stylex";
-import { ExternalLink, Info } from "lucide-react";
+import { ChevronDown, ExternalLink, Info } from "lucide-react";
 import { IdentityAvatar } from "@/components/IdentityAvatar";
 import type { TaskDetail, TaskRun, TaskRunItem } from "./taskTypes";
-import { TaskCriteria } from "./TaskCriteria";
+import { TaskCriteria, TaskCriterionStatusIcon } from "./TaskCriteria";
 import { taskStageLabel } from "./TaskOverview";
 import { TaskTranscript } from "./TaskTranscript";
 
@@ -116,9 +116,18 @@ function TaskContextCard({
   latestRunItems: ReadonlyMap<string, TaskRunItem>;
   showWorkLink: boolean;
 }) {
+  const [validationExpanded, setValidationExpanded] = React.useState(false);
+  const hasValidation = detail.criteria.length > 0;
   return (
-    <aside aria-label="Task summary" {...stylex.props(styles.contextDock, detail.criteria.length > 0 && styles.contextDockWithValidation)}>
-      <div {...stylex.props(styles.contextCard)}>
+    <aside
+      aria-label="Task summary"
+      {...stylex.props(
+        styles.contextDock,
+        hasValidation && styles.contextDockWithValidation,
+        validationExpanded && styles.contextDockExpanded
+      )}
+    >
+      <div {...stylex.props(styles.contextCard, validationExpanded && styles.contextCardExpanded)}>
         <TaskSummaryHeader
           detail={detail}
           latestRunItems={latestRunItems}
@@ -126,14 +135,22 @@ function TaskContextCard({
           showWorkLink={showWorkLink}
           taskId={taskId}
         />
-        {detail.attention ? (
-          <TaskAttention detail={detail} actions={actions} governedActions={governedActions} inlineResponse={inlineResponse} />
-        ) : governedActions ? (
-          <div {...stylex.props(styles.actionRow)}>{governedActions}</div>
-        ) : actions ? (
-          <div {...stylex.props(styles.actionRow)}>{actions}</div>
-        ) : null}
-        {detail.criteria.length > 0 ? <TaskValidationRow criteria={detail.criteria} /> : null}
+        <div {...stylex.props(styles.contextBody)}>
+          {detail.attention ? (
+            <TaskAttention detail={detail} actions={actions} governedActions={governedActions} inlineResponse={inlineResponse} />
+          ) : governedActions ? (
+            <div {...stylex.props(styles.actionRow)}>{governedActions}</div>
+          ) : actions ? (
+            <div {...stylex.props(styles.actionRow)}>{actions}</div>
+          ) : null}
+          {hasValidation ? (
+            <TaskValidationRow
+              criteria={detail.criteria}
+              expanded={validationExpanded}
+              onExpandedChange={setValidationExpanded}
+            />
+          ) : null}
+        </div>
       </div>
     </aside>
   );
@@ -301,24 +318,49 @@ function TaskAttention({
   );
 }
 
-function TaskValidationRow({ criteria }: { criteria: TaskDetail["criteria"] }) {
-  const passed = criteria.filter((criterion) => criterion.verdict === "pass").length;
-  const failed = criteria.filter((criterion) => criterion.verdict === "fail").length;
-  const summary = failed > 0
-    ? `${failed} failed · ${criteria.length} criteria`
-    : passed === criteria.length
-      ? `${passed} passed · ${criteria.length} criteria`
-      : `${passed} passed · ${criteria.length - passed} pending`;
+function TaskValidationRow({
+  criteria,
+  expanded,
+  onExpandedChange
+}: {
+  criteria: TaskDetail["criteria"];
+  expanded: boolean;
+  onExpandedChange: (expanded: boolean) => void;
+}) {
+  const criteriaId = React.useId();
+  const statusLabel = criteria
+    .map((criterion) => criterion.verdict === "pass" ? "passed" : criterion.verdict === "fail" ? "failed" : criterion.verdict === "uncertain" ? "uncertain" : "pending")
+    .join(", ");
 
   return (
-    <section {...stylex.props(styles.validationRow)}>
-      <div {...stylex.props(styles.validationHeader)}>
+    <section aria-label="Validation" {...stylex.props(styles.validationRow)}>
+      <button
+        type="button"
+        aria-controls={criteriaId}
+        aria-expanded={expanded}
+        aria-label={`Validation: ${statusLabel}`}
+        onClick={() => onExpandedChange(!expanded)}
+        {...stylex.props(styles.validationHeader)}
+      >
         <span {...stylex.props(styles.validationIdentity)}>
           <span {...stylex.props(styles.validationLabel)}>Validation</span>
-          <span {...stylex.props(styles.validationSummary)}>{summary}</span>
         </span>
-      </div>
-      <TaskCriteria embedded criteria={criteria} showTitle={false} />
+        <span aria-hidden="true" {...stylex.props(styles.validationStatuses)}>
+          {criteria.map((criterion) => (
+            <TaskCriterionStatusIcon key={criterion.id} size={14} verdict={criterion.verdict} />
+          ))}
+        </span>
+        <ChevronDown
+          aria-hidden="true"
+          size={14}
+          {...stylex.props(styles.validationChevron, expanded && styles.validationChevronExpanded)}
+        />
+      </button>
+      {expanded ? (
+        <div id={criteriaId} {...stylex.props(styles.validationDetails)}>
+          <TaskCriteria embedded criteria={criteria} showTitle={false} />
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -441,6 +483,7 @@ const styles = stylex.create({
     marginBlockEnd: "var(--spacing-4)"
   },
   contextDockWithValidation: { height: "30%" },
+  contextDockExpanded: { height: "auto", maxHeight: "none" },
   contextCard: {
     display: "flex",
     flexDirection: "column",
@@ -457,6 +500,8 @@ const styles = stylex.create({
     backgroundColor: "var(--noema-surface-card)",
     boxShadow: "0 10px 28px color-mix(in srgb, var(--noema-text-primary) 13%, transparent)"
   },
+  contextCardExpanded: { height: "auto", maxHeight: "none" },
+  contextBody: { minWidth: 0, minHeight: 0, flex: "1 1 auto" },
   summaryHeader: { display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)" },
   summaryCopy: { display: "grid", minWidth: 0, gap: "var(--spacing-0-5)" },
   summaryTitle: { minWidth: 0, color: "var(--noema-text-primary)", fontSize: 12, fontWeight: 700, lineHeight: 1.35, overflow: "hidden", overflowWrap: "anywhere", textOverflow: "ellipsis", whiteSpace: "nowrap" },
@@ -467,7 +512,7 @@ const styles = stylex.create({
   infoButton: { display: "inline-flex", width: 28, height: 28, alignItems: "center", justifyContent: "center", borderWidth: 0, borderRadius: 999, backgroundColor: "transparent", color: "var(--noema-text-muted)", cursor: "pointer", ":hover": { backgroundColor: "var(--noema-surface-hover)", color: "var(--noema-text-primary)" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
   infoPopover: { maxHeight: "min(70vh, 520px)", overflowX: "hidden", overflowY: "auto", padding: 0, borderRadius: "var(--radius-container)" },
   actionRow: { minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)", ":empty": { display: "none" } },
-  attention: { display: "grid", gap: "var(--spacing-2)", minWidth: 0, maxHeight: "min(50vh, 360px)", overflowX: "hidden", overflowY: "auto", overscrollBehavior: "contain", borderBlockWidth: 1, borderBlockStyle: "solid", borderBlockColor: "var(--noema-red-700)", paddingBlock: "var(--spacing-1)", paddingInline: "var(--spacing-4)" },
+  attention: { display: "grid", gap: "var(--spacing-2)", minWidth: 0, borderBlockWidth: 1, borderBlockStyle: "solid", borderBlockColor: "var(--noema-red-700)", paddingBlock: "var(--spacing-1)", paddingInline: "var(--spacing-4)" },
   attentionComposer: { display: "grid", gap: "var(--spacing-2)", minWidth: 0, paddingBlock: "var(--spacing-2)" },
   attentionComposerCopy: { display: "grid", gap: "var(--spacing-1)", minWidth: 0 },
   attentionTitle: { margin: 0, color: "var(--noema-red-700)", fontSize: 13, fontWeight: 700, lineHeight: 1.35 },
@@ -476,11 +521,14 @@ const styles = stylex.create({
   attentionPrimaryMarkdown: { color: "var(--noema-text-primary)", fontSize: 12, fontWeight: 600, lineHeight: 1.45 },
   attentionGovernedActions: { minWidth: 0, ":empty": { display: "none" } },
   attentionActions: { minWidth: 0 },
-  validationRow: { display: "grid", gridTemplateRows: "auto minmax(0, 1fr)", minWidth: 0, minHeight: 0, flex: "1 1 auto", overflow: "hidden", borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)" },
-  validationHeader: { display: "flex", width: "100%", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)" },
+  validationRow: { display: "grid", minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)" },
+  validationHeader: { display: "flex", width: "100%", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", borderWidth: 0, backgroundColor: "transparent", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)", color: "inherit", font: "inherit", textAlign: "left", cursor: "pointer" },
   validationIdentity: { display: "flex", minWidth: 0, alignItems: "baseline", gap: "var(--spacing-2)" },
   validationLabel: { color: "var(--noema-text-primary)", fontSize: 11, fontWeight: 700 },
-  validationSummary: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-muted)", fontSize: 11, textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  validationStatuses: { display: "inline-flex", minWidth: 0, flex: "1 1 auto", alignItems: "center", gap: "var(--spacing-1)" },
+  validationChevron: { flexShrink: 0, color: "var(--noema-text-muted)", transition: "transform 120ms ease" },
+  validationChevronExpanded: { transform: "rotate(180deg)" },
+  validationDetails: { minWidth: 0 },
   infoContent: { display: "grid", minWidth: 0, overflow: "hidden", borderRadius: "inherit", backgroundColor: "var(--noema-surface-card)" },
   metadataSection: { paddingBlock: "var(--spacing-3)", paddingInline: "var(--spacing-3)" },
   metadata: { display: "grid", gap: "var(--spacing-1-5)", margin: 0 },
