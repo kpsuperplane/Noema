@@ -3,9 +3,9 @@ import { type HTMLAttributes, type Ref, useLayoutEffect, useRef, useState } from
 
 const WORD_STAGGER_MS = 16;
 const MAX_STAGGER_INDEX = 7;
-const TEXT_MOTION_MS = 220;
+const TEXT_MOTION_MS = 240;
 const TEXT_MOTION_EASING = "cubic-bezier(0.45, 0, 0.55, 1)";
-const WIDTH_MOTION_MS = 240;
+const WIDTH_MOTION_MS = 260;
 const SETTLE_DELAY_MS = TEXT_MOTION_MS + MAX_STAGGER_INDEX * WORD_STAGGER_MS + 40;
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 
