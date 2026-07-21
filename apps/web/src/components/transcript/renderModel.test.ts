@@ -1,9 +1,11 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  collapseTaskReferenceEntries,
   renderedChatBubbleGroup,
   renderedEntryMessageId,
-  renderableTranscriptEntries
+  renderableTranscriptEntries,
+  taskReferenceNotificationMessage
 } from "./renderModel";
 import type { TranscriptEntry } from "@/shared/types";
 
@@ -125,6 +127,57 @@ describe("renderableTranscriptEntries", () => {
     assert.deepEqual(
       rendered.map((entry) => entry.kind),
       ["entry", "entry"]
+    );
+  });
+});
+
+describe("task transcript notices", () => {
+  test("moves the latest task reference to the conversation edge", () => {
+    const collapsed = collapseTaskReferenceEntries([
+      { id: "task-created", type: "task", item: { kind: "task_reference", task_id: "task:1", title: "Research", stage_id: "stage:personal:doing", revision: 1 } },
+      { id: "receipt", type: "assistant", text: "Started the task." },
+      { id: "task-waiting", type: "task", item: { kind: "task_reference", task_id: "task:1", title: "Research", stage_id: "stage:personal:waiting", revision: 2, message: "This task needs your input.", action_needed: true, notification_kind: "task_waiting" } }
+    ]);
+
+    assert.deepEqual(collapsed.map((entry) => entry.id), ["receipt", "task-waiting"]);
+  });
+
+  test("surfaces attention and completion messages", () => {
+    assert.equal(
+      taskReferenceNotificationMessage({
+        kind: "task_reference",
+        task_id: "task:1",
+        title: "Research",
+        stage_id: "stage:personal:waiting",
+        revision: 2,
+        action_needed: true,
+        notification_kind: "task_waiting",
+        message: "Which trail should I use?"
+      }),
+      "Which trail should I use?"
+    );
+    assert.equal(
+      taskReferenceNotificationMessage({
+        kind: "task_reference",
+        task_id: "task:1",
+        title: "Research",
+        stage_id: "stage:personal:archive",
+        revision: 3,
+        notification_kind: "task_accepted",
+        action_needed: false
+      }),
+      "Task completed."
+    );
+    assert.equal(
+      taskReferenceNotificationMessage({
+        kind: "task_reference",
+        task_id: "task:1",
+        title: "Research",
+        stage_id: "stage:personal:doing",
+        revision: 1,
+        notification_kind: "task_created"
+      }),
+      null
     );
   });
 });

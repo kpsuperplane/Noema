@@ -18,6 +18,7 @@ import {
   shouldAnimateRenderedEntryTextForSeen,
   shouldCompactMarkerClusterSpacing,
   collapseTaskReferenceEntries,
+  taskReferenceNotificationMessage,
   type ChatBubbleGroup,
   type RenderTranscriptEntry
 } from "./renderModel";
@@ -352,24 +353,26 @@ function renderTranscriptEntry(
     );
   }
   if (entry.type === "task") {
-    const isAccepted = entry.item.notification_kind === "task_accepted";
+    const notificationMessage = taskReferenceNotificationMessage(entry.item);
+    const actionNeeded = entry.item.action_needed === true;
     return (
       <TranscriptRow lane="assistant" reserveAvatarSpace={reserveAvatarSpace} showAvatar={showAvatar}>
-        {isAccepted ? (
+        {notificationMessage ? (
           <Message
             animate={false}
             reserveAvatarSpace={false}
             role="assistant"
-            text={entry.item.message ?? "Task completed."}
+            text={notificationMessage}
             showAvatar={false}
           />
         ) : null}
         <TaskReferenceCard
+          progress={notificationMessage ? (actionNeeded ? "Needs your input" : "Completed") : undefined}
           revision={entry.item.revision}
           stageId={entry.item.stage_id}
           taskId={entry.item.task_id}
           title={entry.item.title}
-          message={isAccepted ? null : entry.item.message}
+          message={notificationMessage ? null : entry.item.message}
           onOpenDetail={onOpenDetail}
         />
       </TranscriptRow>
