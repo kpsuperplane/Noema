@@ -130,11 +130,9 @@ fn make_nullable(value: &mut Value) {
         }
         Some(_) => {}
         None => {
-            if let Some(any_of) = object.get_mut("anyOf") {
-                if let Value::Array(variants) = any_of {
-                    variants.push(json!({"type": "null"}));
-                    return;
-                }
+            if let Some(Value::Array(variants)) = object.get_mut("anyOf") {
+                variants.push(json!({"type": "null"}));
+                return;
             }
             let original = Value::Object(std::mem::take(object));
             *value = json!({"anyOf": [original, {"type": "null"}]});
@@ -178,6 +176,11 @@ pub fn encode_recursive_json(value: &Value) -> Value {
 }
 
 /// Decode a recursive tagged payload back into ordinary JSON.
+///
+/// # Errors
+///
+/// Returns an error when the payload is not a closed recursive node, contains
+/// an unknown field, or repeats an object key.
 pub fn decode_recursive_json(value: &Value) -> Result<Value, String> {
     let Value::Object(object) = value else {
         return Err("recursive JSON payload must be an object".to_string());
@@ -192,13 +195,11 @@ pub fn decode_recursive_json(value: &Value) -> Result<Value, String> {
         .get("kind")
         .and_then(Value::as_str)
         .ok_or_else(|| "recursive JSON payload is missing kind".to_string())?;
+    // Some guided runtimes cannot represent JSON null in a dynamic schema and
+    // emit empty/typed padding for the inactive sibling fields. The tag is the
+    // authority, so decode only the branch selected by `kind`.
     match kind {
         "scalar" => {
-            if object.get("items") != Some(&Value::Null)
-                || object.get("entries") != Some(&Value::Null)
-            {
-                return Err("scalar recursive JSON payload has non-null children".to_string());
-            }
             let value = object
                 .get("value")
                 .ok_or_else(|| "scalar recursive JSON payload is missing value".to_string())?;
@@ -208,11 +209,6 @@ pub fn decode_recursive_json(value: &Value) -> Result<Value, String> {
             Ok(value.clone())
         }
         "array" => {
-            if object.get("value") != Some(&Value::Null)
-                || object.get("entries") != Some(&Value::Null)
-            {
-                return Err("array recursive JSON payload has non-null siblings".to_string());
-            }
             let items = object
                 .get("items")
                 .and_then(Value::as_array)
@@ -224,11 +220,6 @@ pub fn decode_recursive_json(value: &Value) -> Result<Value, String> {
                 .map(Value::Array)
         }
         "object" => {
-            if object.get("value") != Some(&Value::Null)
-                || object.get("items") != Some(&Value::Null)
-            {
-                return Err("object recursive JSON payload has non-null siblings".to_string());
-            }
             let entries = object
                 .get("entries")
                 .and_then(Value::as_array)
@@ -328,6 +319,28 @@ mod tests {
     }
 
     #[test]
+    fn strict_lowering_preserves_closed_composition_variants() {
+        let mut schema = json!({
+            "type": "object",
+            "oneOf": [
+                {"type":"object","properties":{"kind":{"type":"string","enum":["a"]}},"required":["kind"]},
+                {"type":"object","properties":{"kind":{"type":"string","enum":["b"]}},"required":["kind"]}
+            ]
+        });
+        lower_strict_schema(&mut schema).expect("strict composition");
+        assert!(schema.get("type").is_none());
+        assert!(schema.get("additionalProperties").is_none());
+        assert_eq!(schema["anyOf"].as_array().map(Vec::len), Some(2));
+        assert!(
+            schema["anyOf"]
+                .as_array()
+                .expect("variants")
+                .iter()
+                .all(|variant| variant["additionalProperties"] == false)
+        );
+    }
+
+    #[test]
     fn recursive_payload_round_trips_and_rejects_duplicate_keys() {
         let value = json!({"a": [true, null], "b": "text"});
         let encoded = encode_recursive_json(&value);
@@ -344,5 +357,12 @@ mod tests {
             "kind":"scalar", "value":1, "items":null, "entries":null, "extra":true
         });
         assert!(decode_recursive_json(&extra).is_err());
+        let padded = json!({
+            "kind":"scalar", "value":"text", "items":[], "entries":[]
+        });
+        assert_eq!(
+            decode_recursive_json(&padded).expect("padded decode"),
+            json!("text")
+        );
     }
 }
