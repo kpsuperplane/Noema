@@ -135,7 +135,10 @@ const styles = stylex.create({
     justifyContent: "center",
     color: "var(--noema-text-faint)",
     transitionDuration: "160ms",
-    transitionProperty: "transform"
+    transitionProperty: "transform",
+    "@media (prefers-reduced-motion: reduce)": {
+      transitionDuration: "0ms"
+    }
   },
   chevronOpen: {
     transform: "rotate(180deg)"
@@ -169,6 +172,23 @@ const styles = stylex.create({
     display: "grid",
     minWidth: 0,
     gap: "var(--spacing-0-5)"
+  },
+  groupContent: {
+    display: "grid",
+    gridTemplateRows: "0fr",
+    transitionDuration: "180ms",
+    transitionProperty: "grid-template-rows",
+    transitionTimingFunction: "ease-out",
+    "@media (prefers-reduced-motion: reduce)": {
+      transitionDuration: "0ms"
+    }
+  },
+  groupContentOpen: {
+    gridTemplateRows: "1fr"
+  },
+  groupContentInner: {
+    minHeight: 0,
+    overflow: "hidden"
   }
 });
 
@@ -231,22 +251,29 @@ export function ToolMarker({
               <ChevronDownIcon size={14} strokeWidth={2} />
             </span>
           </button>
-          {open ? (
-            <div id={groupContentId} {...stylex.props(styles.groupList)}>
-              {data.markers.map((marker) => (
-                <ToolMarker
-                  key={marker.id}
-                  data={{ kind: "tool", marker }}
-                  expandedMarkers={expandedMarkers}
-                  onToggleMarker={onToggleMarker}
-                  onToggle={() => onToggleMarker?.(marker.id)}
-                  open={expandedMarkers?.has(marker.id) ?? false}
-                  presentation={presentation}
-                  renderDetail={renderDetail}
-                />
-              ))}
+          <div
+            id={groupContentId}
+            aria-hidden={!open}
+            inert={!open ? true : undefined}
+            {...stylex.props(styles.groupContent, open && styles.groupContentOpen)}
+          >
+            <div {...stylex.props(styles.groupContentInner)}>
+              <div {...stylex.props(styles.groupList)}>
+                {data.markers.map((marker) => (
+                  <ToolMarker
+                    key={marker.id}
+                    data={{ kind: "tool", marker }}
+                    expandedMarkers={expandedMarkers}
+                    onToggleMarker={onToggleMarker}
+                    onToggle={() => onToggleMarker?.(marker.id)}
+                    open={expandedMarkers?.has(marker.id) ?? false}
+                    presentation={presentation}
+                    renderDetail={renderDetail}
+                  />
+                ))}
+              </div>
             </div>
-          ) : null}
+          </div>
         </div>
       </div>
     );
