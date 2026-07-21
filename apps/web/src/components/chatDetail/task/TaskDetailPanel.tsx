@@ -119,15 +119,8 @@ function TaskContextCard({
   const [validationExpanded, setValidationExpanded] = React.useState(false);
   const hasValidation = detail.criteria.length > 0;
   return (
-    <aside
-      aria-label="Task summary"
-      {...stylex.props(
-        styles.contextDock,
-        hasValidation && styles.contextDockWithValidation,
-        validationExpanded && styles.contextDockExpanded
-      )}
-    >
-      <div {...stylex.props(styles.contextCard, validationExpanded && styles.contextCardExpanded)}>
+    <aside aria-label="Task summary" {...stylex.props(styles.contextDock)}>
+      <div {...stylex.props(styles.contextCard)}>
         <TaskSummaryHeader
           detail={detail}
           latestRunItems={latestRunItems}
@@ -471,27 +464,20 @@ const styles = stylex.create({
   contextDock: {
     display: "flex",
     flexDirection: "column",
-    position: "absolute",
-    insetInlineStart: 0,
-    insetInlineEnd: 0,
-    insetBlockEnd: 0,
+    position: "relative",
     zIndex: 2,
     minWidth: 0,
     minHeight: 0,
-    maxHeight: "30%",
     marginInline: "var(--spacing-4)",
-    marginBlockEnd: "var(--spacing-4)"
+    marginBlockEnd: "var(--spacing-4)",
+    marginBlockStart: "calc(-1 * var(--spacing-2))"
   },
-  contextDockWithValidation: { height: "30%" },
-  contextDockExpanded: { height: "auto", maxHeight: "none" },
   contextCard: {
     display: "flex",
     flexDirection: "column",
     minWidth: 0,
     minHeight: 0,
-    maxHeight: "100%",
-    height: "100%",
-    flex: "1 1 auto",
+    flex: "0 0 auto",
     overflow: "hidden",
     borderWidth: 1,
     borderStyle: "solid",
@@ -500,8 +486,7 @@ const styles = stylex.create({
     backgroundColor: "var(--noema-surface-card)",
     boxShadow: "0 10px 28px color-mix(in srgb, var(--noema-text-primary) 13%, transparent)"
   },
-  contextCardExpanded: { height: "auto", maxHeight: "none" },
-  contextBody: { minWidth: 0, minHeight: 0, flex: "1 1 auto" },
+  contextBody: { minWidth: 0, minHeight: 0 },
   summaryHeader: { display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)" },
   summaryCopy: { display: "grid", minWidth: 0, gap: "var(--spacing-0-5)" },
   summaryTitle: { minWidth: 0, color: "var(--noema-text-primary)", fontSize: 12, fontWeight: 700, lineHeight: 1.35, overflow: "hidden", overflowWrap: "anywhere", textOverflow: "ellipsis", whiteSpace: "nowrap" },
