@@ -20,7 +20,7 @@ type RollingTextMotion = {
 };
 
 const rollIn = stylex.keyframes({
-  from: { opacity: 0, transform: "translateY(0.6em)" },
+  from: { opacity: 0, transform: "translateY(0.8em)" },
   to: { opacity: 1, transform: "translateY(0)" }
 });
 
@@ -68,7 +68,7 @@ const styles = stylex.create({
     animationDuration: `${TEXT_MOTION_MS}ms`,
     animationFillMode: "both",
     animationName: rollIn,
-    animationTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+    animationTimingFunction: "linear",
     "@media (prefers-reduced-motion: reduce)": {
       animationName: "none"
     }
