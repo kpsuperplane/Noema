@@ -51,6 +51,9 @@ pub(crate) fn required_noema_response_from_text(
 ///
 /// Native calls satisfy the `needs_tools` requirement, so the JSON envelope
 /// must not also include Noema response-envelope `tool_calls`.
+/// `native_tools_enabled` remains meaningful when the provider returns no
+/// native calls: final responses from that request shape may omit the legacy
+/// envelope field entirely.
 ///
 /// # Errors
 ///
@@ -60,8 +63,9 @@ pub(crate) fn required_noema_response_from_text(
 pub(crate) fn required_noema_response_from_text_with_native_tool_calls(
     text: String,
     native_tool_calls: Vec<GenerateToolCall>,
+    native_tools_enabled: bool,
 ) -> Result<ParsedNoemaResponse, ProviderError> {
-    if native_tool_calls.is_empty() {
+    if !native_tools_enabled {
         return required_noema_response_from_text(text);
     }
 
@@ -71,6 +75,10 @@ pub(crate) fn required_noema_response_from_text_with_native_tool_calls(
             message: "native tool response cannot include Noema response-envelope tool_calls"
                 .to_string(),
         });
+    }
+    if native_tool_calls.is_empty() {
+        validate_required_noema_response(&parsed)?;
+        return Ok(parsed);
     }
     if parsed.responses.iter().any(is_final_answer_text_response) {
         return Err(ProviderError::MalformedResponse {

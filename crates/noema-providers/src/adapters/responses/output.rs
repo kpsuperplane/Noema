@@ -37,6 +37,7 @@ impl ResponsesResponse {
         diagnostics: &ResponsesDiagnosticContext,
     ) -> Result<GenerateResponse, ProviderError> {
         let native_tool_calls = self.native_tool_calls_with_names(tool_names)?;
+        let native_tools_enabled = !tool_names.tools.is_empty();
         let text = match self.output_text() {
             Ok(text) => text,
             Err(ProviderError::MalformedResponse { .. }) if !native_tool_calls.is_empty() => {
@@ -66,6 +67,7 @@ impl ResponsesResponse {
             required_noema_response_from_text_with_native_tool_calls(
                 text.clone(),
                 native_tool_calls,
+                native_tools_enabled,
             )
             .inspect_err(|error| {
                 diagnostics.log_malformed_error(

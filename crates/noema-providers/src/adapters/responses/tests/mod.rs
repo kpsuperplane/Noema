@@ -322,6 +322,7 @@ fn whole_catalog_lowering_and_native_envelope_reconciliation_are_stable() {
             name: "search_memory".to_string(),
             payload: json!({"query": "trains"}),
         }],
+        true,
     )
     .expect("native tool response");
     assert_eq!(
@@ -331,6 +332,38 @@ fn whole_catalog_lowering_and_native_envelope_reconciliation_are_stable() {
         ),
         (crate::GenerateResponseStatus::NeedsTools, Some("call_1"))
     );
+}
+
+#[test]
+fn responses_finalize_native_final_without_calls_accepts_missing_envelope_tool_calls() {
+    let text = json!({
+        "response_status": "final",
+        "responses": [{
+            "kind": "text",
+            "phase": "final_answer",
+            "text": "Done."
+        }]
+    })
+    .to_string();
+    let response: ResponsesResponse = serde_json::from_value(json!({
+        "id": "resp_1",
+        "model": "gpt-test",
+        "output": [{
+            "type": "message",
+            "content": [{"type": "output_text", "text": text}]
+        }]
+    }))
+    .expect("response");
+    let diagnostics = ResponsesDiagnosticContext::new(None, "test", "gpt-test", None);
+    let response = response
+        .finalize(&test_tool_names(), true, &diagnostics)
+        .expect("native-capable final response");
+
+    assert_eq!(
+        response.response_status,
+        crate::GenerateResponseStatus::Final
+    );
+    assert!(response.tool_calls.is_empty());
 }
 
 #[test]
@@ -345,6 +378,7 @@ fn native_tool_response_rejects_legacy_envelope_tool_calls() {
             name: "search_memory".to_string(),
             payload: json!({}),
         }],
+        true,
     )
     .expect_err("native and envelope calls must not be combined");
 
