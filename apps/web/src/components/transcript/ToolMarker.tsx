@@ -49,6 +49,9 @@ const styles = stylex.create({
     minWidth: 0,
     gap: 8
   },
+  groupFrame: {
+    gap: 0
+  },
   row: {
     display: "inline-flex",
     width: "100%",
@@ -164,7 +167,8 @@ const styles = stylex.create({
   groupList: {
     display: "grid",
     minWidth: 0,
-    gap: "var(--spacing-0-5)"
+    gap: "var(--spacing-0-5)",
+    paddingTop: "var(--spacing-2)"
   },
   groupContent: {
     display: "grid",
@@ -214,7 +218,7 @@ export function ToolMarker({
     const groupContentId = `${data.markers[0]?.id ?? "tool-group"}-calls`;
     return (
       <div {...stylex.props(styles.root)}>
-        <div {...stylex.props(styles.frame)} data-slot="tool-marker-group">
+        <div {...stylex.props(styles.frame, styles.groupFrame)} data-slot="tool-marker-group">
           <button
             type="button"
             {...stylex.props(styles.row, styles.rowButton)}
