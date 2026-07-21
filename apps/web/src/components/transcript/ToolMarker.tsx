@@ -1,6 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { CheckIcon, ChevronDownIcon, ClockIcon, Loader2Icon, WrenchIcon, XIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { RollingText } from "@/components/RollingText";
 import {
   toolMarkerExpandable,
@@ -210,12 +210,22 @@ export function ToolMarker({
   onToggleMarker?: (id: string) => void;
 }) {
   const calls = toolMarkerCalls(data);
+  const [lastCollapsedCallKey, setLastCollapsedCallKey] = useState<string | null>(
+    () => data.kind === "tool_group" ? calls[calls.length - 1]?.key ?? null : null
+  );
+  const activeCall = latestActiveCall(calls);
+  const retainedCall = calls.find((call) => call.key === lastCollapsedCallKey);
+  const collapsedCall = activeCall ?? retainedCall ?? calls[calls.length - 1];
+
+  if (data.kind === "tool_group" && !open && collapsedCall && collapsedCall.key !== lastCollapsedCallKey) {
+    setLastCollapsedCallKey(collapsedCall.key);
+  }
+
   if (calls.length === 0) {
     return null;
   }
 
   if (data.kind === "tool_group") {
-    const latestCall = calls[calls.length - 1];
     const groupContentId = `${data.markers[0]?.id ?? "tool-group"}-calls`;
     return (
       <div {...stylex.props(styles.root)}>
@@ -227,7 +237,7 @@ export function ToolMarker({
             aria-expanded={open}
             data-slot="tool-marker-group-row"
             onClick={onToggle}
-            title={latestCall.status === "error" ? latestCall.errorMessage : undefined}
+            title={collapsedCall.status === "error" ? collapsedCall.errorMessage : undefined}
           >
             {open ? (
               <>
@@ -239,7 +249,7 @@ export function ToolMarker({
             ) : (
               <ToolMarkerRowContent
                 animateText
-                call={latestCall}
+                call={collapsedCall}
                 open={false}
                 presentation={presentation}
                 showChevron={false}
@@ -388,6 +398,16 @@ function toolMarkerCalls(data: ToolMarkerData): ToolMarkerCall[] {
   return data.kind === "tool_group"
     ? data.markers.map(activityToolMarkerCall)
     : [activityToolMarkerCall(data.marker)];
+}
+
+function latestActiveCall(calls: ToolMarkerCall[]): ToolMarkerCall | undefined {
+  for (let index = calls.length - 1; index >= 0; index -= 1) {
+    const call = calls[index];
+    if (call && (call.status === "pending" || call.status === "running")) {
+      return call;
+    }
+  }
+  return undefined;
 }
 
 function activityToolMarkerCall(marker: ToolMarkerGroup): ToolMarkerCall {

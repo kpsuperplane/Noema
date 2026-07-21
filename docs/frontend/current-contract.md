@@ -119,7 +119,8 @@ Current behavior:
   provider reasoning is never part of this transcript contract.
 - When one provider phase has exactly one tool call, its commentary may label
   the compact tool marker. Consecutive tool calls from the same agent collapse
-  to the latest call's status, name, and target; expanding the group restores
+  to the newest call that has not completed; once every call is terminal, the
+  summary retains the call it was already showing. Expanding the group restores
   each individual marker and its exact tool identity.
 - Collapsed tool-group labels and live task-stage badge labels use the shared
   rolling text transition for state changes. Words cross-fade vertically while
