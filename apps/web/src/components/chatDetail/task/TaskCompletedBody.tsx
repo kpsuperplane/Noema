@@ -111,7 +111,7 @@ const styles = stylex.create({
   },
   tabBar: {
     minWidth: 0,
-    paddingBlockStart: "calc(var(--shell-deck-header-height, 44px) + var(--spacing-2))",
+    paddingBlockStart: "var(--spacing-3)",
     paddingInline: "var(--spacing-4)"
   },
   content: {
