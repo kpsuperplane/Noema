@@ -107,12 +107,6 @@ pub enum TurnTranscriptItem {
     TaskReference {
         /// Stable task id.
         task_id: String,
-        /// Display title captured when the reference was written.
-        title: String,
-        /// Canonical workflow-stage identifier at the time of the reference.
-        stage_id: String,
-        /// Current executor revision at the time of the reference.
-        revision: i64,
     },
 }
 

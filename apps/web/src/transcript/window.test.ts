@@ -235,7 +235,7 @@ describe("transcript window model", () => {
     );
   });
 
-  test("replaces every reconciled provider stream with one runtime-owned assistant receipt", () => {
+  test("replaces every reconciled provider stream with one durable assistant message", () => {
     const current: TranscriptWindowState = {
       durableEntries: [
         {
@@ -274,7 +274,7 @@ describe("transcript window model", () => {
               "assistant_stream:turn:1:initial:response:1"
             ]
           },
-          text: "Started 2 background tasks."
+          text: "I started two background tasks."
         }
       ],
       {
@@ -298,7 +298,7 @@ describe("transcript window model", () => {
             "assistant_stream:turn:1:initial:response:1"
           ]
         },
-        text: "Started 2 background tasks."
+        text: "I started two background tasks."
       }
     ]);
   });

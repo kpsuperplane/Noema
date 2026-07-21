@@ -44,8 +44,7 @@ use super::{
     },
     tool_lifecycle::{LocalToolCall, local_tool_calls, single_tool_display_description},
     transcript_persistence::{
-        assistant_response_stream_id, assistant_stream_id, handle_provider_stream_event,
-        send_conversation_item,
+        assistant_stream_id, handle_provider_stream_event, send_conversation_item,
     },
     turn_timing::TurnTiming,
 };
@@ -398,32 +397,6 @@ fn rejected_mixed_delegation_result(
     .with_persisted(failure.persisted)
 }
 
-fn task_delegation_receipt(results: &[LocalToolResult]) -> String {
-    let (successful, failed) = results.iter().fold((0usize, 0usize), |counts, result| {
-        if result.success {
-            (counts.0 + 1, counts.1)
-        } else {
-            (counts.0, counts.1 + 1)
-        }
-    });
-    match (successful, failed) {
-        (1, 0) => "Started 1 background task.".to_string(),
-        (successful, 0) => format!("Started {successful} background tasks."),
-        (0, 1) => "1 task delegation failed.".to_string(),
-        (0, failed) => format!("{failed} task delegations failed."),
-        (1, 1) => "Started 1 background task; 1 delegation failed.".to_string(),
-        (1, failed) => {
-            format!("Started 1 background task; {failed} delegations failed.")
-        }
-        (successful, 1) => {
-            format!("Started {successful} background tasks; 1 delegation failed.")
-        }
-        (successful, failed) => {
-            format!("Started {successful} background tasks; {failed} delegations failed.")
-        }
-    }
-}
-
 fn is_disallowed_continuation_tool_call(call: &GenerateToolCall) -> bool {
     is_update_own_name_tool(&call.name)
 }
@@ -433,7 +406,7 @@ mod delegation_batch_tests {
     use super::*;
 
     #[test]
-    fn batch_policy_and_receipts_cover_homogeneous_and_mixed_delegation() {
+    fn batch_policy_covers_homogeneous_and_mixed_delegation() {
         let call = |name: &str| LocalToolCall {
             output_index: 0,
             call_id: None,
@@ -449,20 +422,6 @@ mod delegation_batch_tests {
         assert_eq!(
             ForegroundToolBatchKind::for_calls(&[call("task.delegate"), call("web.search")]),
             ForegroundToolBatchKind::MixedDelegation
-        );
-
-        let result = |success| {
-            LocalToolResult::from_call(
-                &call("task.delegate"),
-                LocalToolKind::Gateway,
-                success,
-                json!({}),
-                false,
-            )
-        };
-        assert_eq!(
-            task_delegation_receipt(&[result(true), result(true), result(false)]),
-            "Started 2 background tasks; 1 delegation failed."
         );
     }
 }

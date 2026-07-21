@@ -88,25 +88,6 @@ export function collapseTaskReferenceEntries(entries: TranscriptEntry[]): Transc
   return collapsed;
 }
 
-/** Return the durable notice that should bring an actionable task update into chat. */
-export function taskReferenceNotificationMessage(
-  item: Extract<TranscriptEntry, { type: "task" }>["item"]
-): string | null {
-  const notificationKind = item.notification_kind;
-  const actionNeeded = item.action_needed === true;
-  if (notificationKind === "task_created" || (!actionNeeded && notificationKind !== "task_accepted")) {
-    return null;
-  }
-  const message = item.message?.trim();
-  if (message) {
-    return message;
-  }
-  if (notificationKind === "task_accepted") {
-    return "Task completed.";
-  }
-  return actionNeeded ? "This task needs your input." : null;
-}
-
 export function shouldAnchorTranscriptEntry(entry: TranscriptEntryAnchorCandidate): boolean {
   switch (entry.kind) {
     case "entry":

@@ -327,7 +327,6 @@ fn move_to_review_tx(
             &serde_json::json!({
                 "task_id": task.task_id.as_str(),
                 "review_id": review_id,
-                "message": "Done — accept the result or request changes.",
                 "action_needed": true,
             }),
         )?
@@ -411,7 +410,6 @@ fn open_recovery_gate_tx(
         &serde_json::json!({
             "task_id": task.task_id.as_str(),
             "gate_id": gate_id.as_str(),
-            "message": "Recovery decision needed — retry the task or provide guidance.",
             "action_needed": true,
         }),
     )? {

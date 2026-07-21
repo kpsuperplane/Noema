@@ -197,11 +197,6 @@ pub(crate) fn accept_review_tx(
         )
         .map_err(StoreError::Work)?,
     )?;
-    let message = if automatic {
-        "Automatically accepted: the reviewer approved this simple task."
-    } else {
-        "Task accepted."
-    };
     if let Some(notification_event) = enqueue_work_notification_tx(
         transaction,
         &event,
@@ -210,7 +205,6 @@ pub(crate) fn accept_review_tx(
             "task_id": task.task_id.as_str(),
             "submission_id": submission_id,
             "review_id": review_id,
-            "message": message,
             "auto_accepted": automatic,
             "action_needed": false,
         }),

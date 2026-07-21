@@ -151,12 +151,7 @@ async fn notification_delivery_waits_for_foreground_turn_and_publishes_exact_ite
     else {
         panic!("expected notification conversation item");
     };
-    let TurnTranscriptItem::TaskReference {
-        task_id,
-        stage_id,
-        revision,
-        ..
-    } = item.as_ref()
+    let TurnTranscriptItem::TaskReference { task_id } = item.as_ref()
     else {
         panic!("expected task reference");
     };
@@ -174,8 +169,43 @@ async fn notification_delivery_waits_for_foreground_turn_and_publishes_exact_ite
         metadata["work_notification"]["task_id"].as_str(),
         Some(task_id.as_str())
     );
-    assert_eq!(stage_id, "stage:personal:waiting");
-    assert!(*revision > 0);
+    let stored_items = store
+        .list_conversation_items(&conversation.conversation_id, ReplayMode::Visible)
+        .await
+        .expect("stored conversation items");
+    let task_reference = stored_items
+        .iter()
+        .find(|item| item.kind == ConversationItemKind::TaskReference)
+        .expect("stored task reference");
+    assert_eq!(
+        task_reference.payload_json,
+        json!({"task_id": expected_task_id})
+    );
+    assert!(task_reference.content_text.is_none());
+    let narration_event = tokio::time::timeout(Duration::from_secs(1), conversation_events.recv())
+        .await
+        .expect("narration wakeup")
+        .expect("narration conversation event");
+    let crate::daemon::ConversationRuntimeEvent::Turn { event, .. } = narration_event else {
+        panic!("expected narration turn event");
+    };
+    let TurnStreamEvent::ConversationItem {
+        metadata,
+        item,
+        ..
+    } = event.as_ref()
+    else {
+        panic!("expected narration conversation item");
+    };
+    let TurnTranscriptItem::AssistantText { text } = item.as_ref() else {
+        panic!("expected assistant narration");
+    };
+    assert_eq!(text, "slow answer");
+    assert_eq!(metadata["source"].as_str(), Some("work_notification"));
+    assert_eq!(
+        metadata["notification_id"].as_str(),
+        Some(expected_notification_id.as_str())
+    );
     let work_event = tokio::time::timeout(Duration::from_secs(1), work_events.recv())
         .await
         .expect("Work notification wakeup")

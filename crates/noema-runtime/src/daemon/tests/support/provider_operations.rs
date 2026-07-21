@@ -162,18 +162,15 @@ impl noema_providers::ProviderOperations for BlockingOnceProvider {
             if let Some(started) = self.started.lock().expect("started lock").take() {
                 let _ = started.send(());
             }
-            let release = self
-                .release
-                .lock()
-                .expect("release lock")
-                .take()
-                .expect("release receiver");
-            release
-                .await
-                .map_err(|_| ProviderError::ProviderUnavailable {
-                    provider: "test".to_string(),
-                    message: "release signal dropped".to_string(),
-                })?;
+            let release = self.release.lock().expect("release lock").take();
+            if let Some(release) = release {
+                release
+                    .await
+                    .map_err(|_| ProviderError::ProviderUnavailable {
+                        provider: "test".to_string(),
+                        message: "release signal dropped".to_string(),
+                    })?;
+            }
             Ok(fake_generate_response(
                 assistant_with_no_memories("slow answer"),
                 "test",

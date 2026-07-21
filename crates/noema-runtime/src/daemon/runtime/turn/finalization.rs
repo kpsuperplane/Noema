@@ -125,60 +125,6 @@ impl RuntimeActor {
         Ok(())
     }
 
-    async fn persist_task_delegation_receipt(
-        &mut self,
-        turn: &SuccessfulProviderTurn,
-        response_stream_id: &str,
-        response_count: usize,
-        results: &[LocalToolResult],
-        item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
-    ) -> Result<(), RuntimeError> {
-        let delegation_results = results
-            .iter()
-            .filter(|result| is_task_delegate_tool(&result.name))
-            .cloned()
-            .collect::<Vec<_>>();
-        if delegation_results.is_empty() {
-            return Ok(());
-        }
-        let text = task_delegation_receipt(&delegation_results);
-        let reconciled_stream_ids = (0..response_count)
-            .map(|response_index| assistant_response_stream_id(response_stream_id, response_index))
-            .collect::<Vec<_>>();
-        let metadata = json!({
-            "turn_index": turn.turn_index,
-            "response_index": 0,
-            "stream_id": reconciled_stream_ids.first(),
-            "reconciled_stream_ids": reconciled_stream_ids,
-            "phase": "final_answer",
-            "source": "task_delegation_receipt",
-            "delegation_success_count": delegation_results.iter().filter(|result| result.success).count(),
-            "delegation_failure_count": delegation_results.iter().filter(|result| !result.success).count(),
-        });
-        let assistant_item = self
-            .store
-            .append_conversation_item(NewConversationItem {
-                conversation_id: turn.conversation_id.clone(),
-                turn_id: Some(turn.turn_id.clone()),
-                parent_item_id: Some(turn.user_item_id.clone()),
-                kind: ConversationItemKind::AssistantText,
-                status: ConversationItemStatus::Completed,
-                author: ActorRef::agent("agent:primary")
-                    .expect("static primary agent id must be valid"),
-                content_text: Some(text.clone()),
-                payload_json: json!({}),
-                metadata: metadata.clone(),
-            })
-            .await?;
-        send_conversation_item(
-            item_tx,
-            assistant_item,
-            metadata,
-            TurnTranscriptItem::AssistantText { text },
-        );
-        Ok(())
-    }
-
     async fn agent_identity_for_conversation(&self) -> Result<AgentPromptIdentity, RuntimeError> {
         let agent_id = "agent:primary".to_string();
         let agent = self

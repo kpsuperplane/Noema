@@ -177,9 +177,11 @@ subagents, reviews, and size measurement.
 - The global `work_events` ledger is an audit and invalidation surface. Do not
   turn it into a second state authority or add replay infrastructure without a
   concrete runtime requirement.
-- The primary chat surfaces concise task markers and human decisions; `/work`
-  provides denser management. Both reuse the same task detail and server-owned
-  action vocabulary.
+- The primary chat stores task cards as `task_reference` message items whose
+  payload contains only the task id. GraphQL hydrates each card from the live
+  task projection and a Work-event subscription keeps it current; the primary
+  agent narrates durable task updates naturally, while `/work` provides denser
+  management. Both reuse the same task detail and server-owned action vocabulary.
 - Task detail uses one padded chronological transcript as the primary surface;
   the outer rail header is reduced to floating cancel, Work, and close
   controls. Planner, Executor, and Review runs are marked inline with role,

@@ -3619,18 +3619,6 @@ type TaskReference {
 	Stable task id.
 	"""
 	taskId: String!
-	"""
-	Display title captured when the reference was written.
-	"""
-	title: String!
-	"""
-	Canonical workflow stage id captured in the task reference.
-	"""
-	stageId: String!
-	"""
-	Executor revision represented by this reference.
-	"""
-	revision: Int!
 }
 
 """

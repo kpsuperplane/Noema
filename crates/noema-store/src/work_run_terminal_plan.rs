@@ -196,7 +196,6 @@ fn block_for_human_tx(
         &serde_json::json!({
             "task_id": task.task_id.as_str(),
             "gate_id": gate_id.as_str(),
-            "message": "This task needs your input.",
             "action_needed": true,
         }),
     )?

@@ -208,34 +208,16 @@ impl RuntimeActor {
                     }),
                     json!({ "turn_index": context.turn_index }),
                 ),
-                TurnTranscriptItem::TaskReference {
-                    task_id,
-                    title,
-                    stage_id,
-                    revision,
-                } => {
-                    let stage_id = stage_id.trim().to_string();
-                    if stage_id.is_empty() {
-                        return Err(RuntimeError::Protocol(format!(
-                            "task reference stage_id is empty for {task_id}"
-                        )));
-                    }
-                    (
+                TurnTranscriptItem::TaskReference { task_id } => (
                         ConversationItemKind::TaskReference,
                         ConversationItemStatus::Completed,
                         ActorRef::agent("agent:primary")
                             .expect("static primary agent id must be valid"),
                         default_parent_item_id,
-                        Some(title.clone()),
-                        json!({
-                            "task_id": task_id,
-                            "title": title,
-                            "stage_id": stage_id,
-                            "revision": revision,
-                        }),
+                        None,
+                        json!({ "task_id": task_id }),
                         json!({ "turn_index": context.turn_index }),
-                    )
-                }
+                    ),
             };
 
         let record = self

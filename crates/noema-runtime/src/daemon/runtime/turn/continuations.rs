@@ -621,16 +621,6 @@ impl RuntimeActor {
                     break;
                 }
             }
-            if continuation_batch_kind.contains_delegation() {
-                self.persist_task_delegation_receipt(
-                    &continuation_turn,
-                    &continuation_stream_id,
-                    continuation_response_count,
-                    &local_tool_results,
-                    item_tx,
-                )
-                .await?;
-            }
             task_handoff = continuation_batch_kind.is_terminal_handoff();
             continuation_tool_results = if task_handoff {
                 Vec::new()
@@ -646,7 +636,17 @@ impl RuntimeActor {
             continuation_context.finish_round();
             all_local_tool_results.extend(local_tool_results.clone());
         }
-        if !continuation_tool_results.is_empty() {
+        if task_handoff && !all_local_tool_results.is_empty() {
+            self.finalize_after_progress_stop(
+                turn,
+                &all_local_tool_results,
+                next_output_index,
+                "background task handoff completed",
+                item_tx,
+                timing,
+            )
+            .await?;
+        } else if !continuation_tool_results.is_empty() {
             self.finalize_after_progress_stop(
                 turn,
                 &all_local_tool_results,

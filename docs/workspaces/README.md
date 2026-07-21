@@ -174,7 +174,10 @@ the structured outputs allowed for their run kind. External writes remain
 governed by the capability system and exact approval state.
 
 Task progress and task-originated notices appear in the primary conversation as
-concise durable markers. Detailed run transcripts remain attached to the task
+agent-authored updates alongside a durable task attachment. The attachment is
+stored as a `task_reference` conversation item containing only the task id;
+GraphQL clients hydrate the current task projection and subscribe to Work events
+so the card stays live. Detailed run transcripts remain attached to the task
 and should not flood the main chat.
 
 ## API and UI

@@ -46,6 +46,7 @@ struct LoadedPromptPlanRequest<'a> {
     provider: &'a dyn ProviderOperations,
     model_profile: Option<&'a str>,
     current_input: &'a str,
+    current_input_role: GenerateMessageRole,
     memory_root_context: Option<&'a str>,
     context: PromptContext,
 }
@@ -81,6 +82,13 @@ async fn load_prompt_context(
 pub(super) async fn plan_prompt_context(
     request: PromptPlanRequest<'_>,
 ) -> Result<PlannedPromptContext, RuntimeError> {
+    plan_prompt_context_with_input_role(request, GenerateMessageRole::User).await
+}
+
+pub(super) async fn plan_prompt_context_with_input_role(
+    request: PromptPlanRequest<'_>,
+    current_input_role: GenerateMessageRole,
+) -> Result<PlannedPromptContext, RuntimeError> {
     let context = load_prompt_context(
         request.store,
         request.conversation_id,
@@ -92,6 +100,7 @@ pub(super) async fn plan_prompt_context(
         provider: request.provider,
         model_profile: request.model_profile,
         current_input: request.current_input,
+        current_input_role,
         memory_root_context: request.memory_root_context,
         context,
     })
@@ -106,6 +115,7 @@ async fn plan_loaded_prompt_context(
         request.context.rendered_context.as_deref(),
         &request.context.transcript_items,
         request.current_input,
+        request.current_input_role,
         request.memory_root_context,
     );
     let metadata = request.provider.context_metadata(request.model_profile);
@@ -133,6 +143,7 @@ fn build_turn_input(
     rendered_context: Option<&str>,
     transcript_items: &[ConversationItemRecord],
     current_input: &str,
+    current_input_role: GenerateMessageRole,
     memory_root_context: Option<&str>,
 ) -> GenerateInput {
     let mut has_structured_items = false;
@@ -161,7 +172,7 @@ fn build_turn_input(
     );
     if !current_input.trim().is_empty() {
         items.push(GenerateInputItem::Message(GenerateMessage {
-            role: GenerateMessageRole::User,
+            role: current_input_role,
             content: current_input.to_string(),
         }));
     }
@@ -220,19 +231,10 @@ fn work_notification_message_item(item: &ConversationItemRecord) -> Option<Gener
     let notification_kind = action_string(&item.metadata, "notification_kind")?;
     let notification_id = action_string(&item.metadata, "notification_id")?;
     let task_id = action_string(&item.payload_json, "task_id")?;
-    let title = action_string(&item.payload_json, "title")
-        .or_else(|| item.content_text.clone())
-        .unwrap_or_else(|| "Delegated task".to_string());
-    let stage_id = action_string(&item.payload_json, "stage_id")
-        .or_else(|| action_string(item.payload_json.get("stage")?, "stage_id"))?;
-    let revision = item.payload_json.get("revision")?.as_i64()?;
     let mut content = format!(
-        "Noema Work notification {notification_kind} ({notification_id}): {title} ({task_id}) is in {stage_id} at revision {revision}."
+        "Noema Work notification {notification_kind} ({notification_id}) references task {task_id}."
     );
     if let Some(details) = item.metadata.get("work_notification") {
-        if let Some(message) = action_string(details, "message") {
-            content.push_str(&format!(" Message: {message}"));
-        }
         for (field, label) in [
             ("gate_id", "Gate"),
             ("review_id", "Review"),
@@ -407,21 +409,16 @@ mod tests {
             cursor: "conversation_item:2".to_string(),
             kind: ConversationItemKind::TaskReference,
             status: ConversationItemStatus::Completed,
-            content_text: Some("Research task".to_string()),
+            content_text: None,
             payload_json: serde_json::json!({
-                "task_id": "task:1",
-                "title": "Research task",
-                "stage_id": "stage:personal:waiting",
-                "revision": 7
+                "task_id": "task:1"
             }),
             metadata: serde_json::json!({
                 "notification_kind": "task_waiting",
                 "notification_id": "notification:1",
                 "work_notification": {
                     "task_id": "task:1",
-                    "title": "Research task",
-                    "gate_id": "gate:1",
-                    "message": "This task needs your input."
+                    "gate_id": "gate:1"
                 }
             }),
         };
@@ -432,10 +429,7 @@ mod tests {
         };
         assert_eq!(message.role, GenerateMessageRole::Developer);
         assert!(message.content.contains("task:1"));
-        assert!(message.content.contains("stage:personal:waiting"));
-        assert!(message.content.contains("revision 7"));
         assert!(message.content.contains("gate:1"));
-        assert!(message.content.contains("This task needs your input."));
         assert!(message.content.contains("task_waiting"));
         assert!(message.content.contains("notification:1"));
     }
@@ -450,11 +444,9 @@ mod tests {
             cursor: "conversation_item:2".to_string(),
             kind: ConversationItemKind::TaskReference,
             status: ConversationItemStatus::Completed,
-            content_text: Some("Research task".to_string()),
+            content_text: None,
             payload_json: serde_json::json!({
-                "task_id": "task:1",
-                "title": "Research task",
-                "stage_id": "stage:personal:waiting",
+                "task_id": "task:1"
             }),
             metadata: serde_json::json!({"source": "background_task_status"}),
         };

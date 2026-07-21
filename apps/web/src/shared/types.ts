@@ -44,13 +44,6 @@ export type TurnTranscriptItem =
   | {
       kind: "task_reference";
       task_id: string;
-      title: string;
-      stage_id: string;
-      revision: number;
-      message?: string | null;
-      action_needed?: boolean;
-      auto_accepted?: boolean;
-      notification_kind?: string;
     }
   | { kind: "error_notice"; message: string; recoverable: boolean };
 

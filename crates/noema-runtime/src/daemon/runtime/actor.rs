@@ -324,12 +324,28 @@ impl RuntimeActor {
                     work_event,
                     reply,
                 } => {
-                    let result = match self.store.complete_work_notification(completion).await {
+                    let result = match self
+                        .store
+                        .prepare_work_notification(completion.clone())
+                        .await
+                    {
                         Ok(item) => {
                             self.runtime_events.publish_work(work_event);
-                            notification_conversation_event(item).map(|event| {
-                                self.runtime_events.publish_conversation(event);
-                            })
+                            match notification_conversation_event(item.clone()) {
+                                Ok(event) => {
+                                    self.runtime_events.publish_conversation(event);
+                                    match self.narrate_work_notification(&item).await {
+                                        Ok(()) => self
+                                            .store
+                                            .complete_work_notification(completion)
+                                            .await
+                                            .map(|_| ())
+                                            .map_err(RuntimeError::from),
+                                        Err(error) => Err(error),
+                                    }
+                                }
+                                Err(error) => Err(error),
+                            }
                         }
                         Err(error) => Err(RuntimeError::from(error)),
                     };
@@ -406,18 +422,6 @@ fn notification_conversation_event(
         )));
     }
     let task_id = notification_field(&item, "task_id")?;
-    let title = notification_field(&item, "title")?;
-    let stage_id = notification_field(&item, "stage_id")?;
-    let revision = item
-        .payload_json
-        .get("revision")
-        .and_then(serde_json::Value::as_i64)
-        .ok_or_else(|| {
-            RuntimeError::Protocol(format!(
-                "notification item {} has no exact task revision",
-                item.item_id
-            ))
-        })?;
     Ok(ConversationRuntimeEvent::Turn {
         client_message_id: None,
         event: Box::new(TurnStreamEvent::ConversationItem {
@@ -426,12 +430,7 @@ fn notification_conversation_event(
             cursor: Some(item.cursor),
             turn_id: item.turn_id,
             metadata: item.metadata,
-            item: Box::new(TurnTranscriptItem::TaskReference {
-                task_id,
-                title,
-                stage_id,
-                revision,
-            }),
+            item: Box::new(TurnTranscriptItem::TaskReference { task_id }),
         }),
     })
 }

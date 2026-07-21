@@ -107,9 +107,6 @@ fn turn_transcript_item_from_record(
             let payload: ReplayTaskReferencePayload = replay_payload(record)?;
             Ok(Some(TurnTranscriptItem::TaskReference {
                 task_id: payload.task_id,
-                title: payload.title,
-                stage_id: payload.stage_id,
-                revision: payload.revision,
             }))
         }
     }
@@ -202,7 +199,4 @@ struct ReplayArtifactReferencePayload {
 #[derive(Debug, Deserialize)]
 struct ReplayTaskReferencePayload {
     task_id: String,
-    title: String,
-    stage_id: String,
-    revision: i64,
 }

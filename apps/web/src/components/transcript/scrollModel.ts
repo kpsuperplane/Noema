@@ -81,7 +81,7 @@ function transcriptEntryScrollFingerprint(entry: TranscriptEntry): string {
     return `${renderId}:${entry.item.artifact_id}:${entry.item.artifact_version_id ?? ""}`;
   }
   if (entry.type === "task") {
-    return `${renderId}:${entry.item.task_id}:${entry.item.stage_id}:${entry.item.revision}`;
+    return `${renderId}:${entry.item.task_id}`;
   }
   return `${renderId}:${entry.message.length}`;
 }

@@ -1,9 +1,10 @@
 //! Notification outbox lease and deterministic delivery contracts.
 //!
 //! The outbox is durable work state, not a best-effort broadcast.  A delivery
-//! worker leases rows, writes one deterministic conversation item, and then
-//! acknowledges the lease.  Retrying after a crash therefore observes the same
-//! item identity instead of inserting another card.
+//! worker leases rows, writes one deterministic conversation item, lets the
+//! primary agent narrate from that attachment, and then acknowledges the lease.
+//! Retrying after a crash therefore observes the same item identity instead of
+//! inserting another card.
 
 use std::str::FromStr;
 
@@ -148,6 +149,43 @@ impl NoemaStore {
         .await
     }
 
+    /// Insert a deterministic task attachment while keeping the outbox lease.
+    ///
+    /// The caller can perform provider work after this step and acknowledge the
+    /// lease with [`Self::complete_work_notification`]. A retry reuses the same
+    /// attachment instead of inserting a second message item.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the completion identity is invalid, the lease is
+    /// stale, or deterministic delivery persistence fails.
+    pub async fn prepare_work_notification(
+        &self,
+        completion: CompleteWorkNotification,
+    ) -> Result<ConversationItemRecord, StoreError> {
+        completion.validate().map_err(StoreError::Work)?;
+        self.with_immediate_transaction_retry(|transaction| {
+            let row = load_leased_notification_tx(
+                transaction,
+                &completion.notification_id,
+                &completion.lease_token,
+            )?;
+            let destination_kind = NotificationDestination::from_str(&row.destination_kind)
+                .map_err(StoreError::Work)?;
+            let notification_kind =
+                NotificationKind::from_str(&row.kind).map_err(StoreError::Work)?;
+            insert_notification_item_tx(
+                transaction,
+                &row,
+                destination_kind,
+                notification_kind,
+                &completion.notification_id,
+                &completion.conversation_id,
+            )
+        })
+        .await
+    }
+
     /// Acknowledge a delivered card after inserting its deterministic item.
     ///
     /// # Errors
@@ -169,83 +207,14 @@ impl NoemaStore {
                 .map_err(StoreError::Work)?;
             let notification_kind =
                 NotificationKind::from_str(&row.kind).map_err(StoreError::Work)?;
-            let expected_conversation: Option<String> = transaction
-                .query_row(
-                    "SELECT primary_conversation_id FROM humans WHERE human_id = ?1",
-                    [&row.destination_id],
-                    |value| value.get(0),
-                )
-                .optional()?
-                .flatten();
-            if expected_conversation.as_deref() != Some(completion.conversation_id.as_str()) {
-                return Err(StoreError::Work(WorkDomainError::WorkUnavailable));
-            }
-            let item_id = deterministic_notification_item_id(
-                &completion.notification_id,
+            let item = insert_notification_item_tx(
+                transaction,
+                &row,
                 destination_kind,
+                notification_kind,
+                &completion.notification_id,
                 &completion.conversation_id,
             )?;
-            let notification_payload: serde_json::Value = serde_json::from_str(&row.payload_json)?;
-            let task_id = notification_payload
-                .get("task_id")
-                .and_then(serde_json::Value::as_str)
-                .ok_or_else(|| StoreError::InvariantViolation {
-                    message: "task notification payload has no task identity".to_string(),
-                })?;
-            let task_id = TaskId::new(task_id.to_string()).map_err(StoreError::Work)?;
-            let task = load_task(transaction, &task_id)?.ok_or_else(|| {
-                StoreError::InvariantViolation {
-                    message: "task notification references a missing task".to_string(),
-                }
-            })?;
-            let revision = i64::try_from(task.revision).map_err(|_| {
-                StoreError::InvariantViolation {
-                    message: "task notification revision exceeds i64".to_string(),
-                }
-            })?;
-            let item_payload = serde_json::json!({
-                "task_id": task.task_id.as_str(),
-                "title": task.title.as_str(),
-                "stage_id": task.stage_id.as_str(),
-                "revision": revision,
-            });
-            let payload_json = serde_json::to_string(&item_payload)?;
-            let next_sequence: i64 = transaction.query_row(
-                "SELECT COALESCE(MAX(sequence_index), 0) + 1 FROM conversation_items WHERE conversation_id = ?1",
-                [&completion.conversation_id],
-                |value| value.get(0),
-            )?;
-            let metadata = serde_json::json!({
-                "notification_kind": notification_kind.as_str(),
-                "notification_id": completion.notification_id.as_str(),
-                "work_notification": notification_payload,
-            });
-            let inserted = transaction.execute(
-                "INSERT INTO conversation_items (item_id, conversation_id, sequence_index, kind, status, author_actor_id, content_text, payload_json, metadata_json) VALUES (?1, ?2, ?3, 'task_reference', 'completed', 'actor:store:notification', NULL, ?4, ?5) ON CONFLICT(item_id) DO NOTHING",
-                params![item_id, completion.conversation_id, next_sequence, payload_json, metadata.to_string()],
-            )?;
-            let item = load_conversation_item_tx(transaction, &item_id)?.ok_or_else(|| {
-                StoreError::InvariantViolation {
-                    message: "notification conversation item disappeared".to_string(),
-                }
-            })?;
-            if item.conversation_id != completion.conversation_id
-                || item.turn_id.is_some()
-                || item.kind != ConversationItemKind::TaskReference
-                || item.status != ConversationItemStatus::Completed
-                || item.content_text.is_some()
-                || item.payload_json != item_payload
-                || item.metadata != metadata
-            {
-                return Err(if inserted == 0 {
-                    StoreError::Work(WorkDomainError::IdempotencyConflict)
-                } else {
-                    StoreError::InvariantViolation {
-                        message: "inserted notification conversation item failed readback proof"
-                            .to_string(),
-                    }
-                });
-            }
             let changed = transaction.execute(
                 "UPDATE work_notification_outbox SET status = 'delivered', delivered_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE notification_id = ?1 AND status = 'leased' AND lease_token = ?2 AND lease_expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
                 params![completion.notification_id, completion.lease_token],
@@ -315,6 +284,78 @@ impl NoemaStore {
         })
         .await
     }
+}
+
+fn insert_notification_item_tx(
+    transaction: &Transaction<'_>,
+    row: &LeasedNotification,
+    destination_kind: NotificationDestination,
+    notification_kind: NotificationKind,
+    notification_id: &str,
+    conversation_id: &str,
+) -> Result<ConversationItemRecord, StoreError> {
+    let expected_conversation: Option<String> = transaction
+        .query_row(
+            "SELECT primary_conversation_id FROM humans WHERE human_id = ?1",
+            [&row.destination_id],
+            |value| value.get(0),
+        )
+        .optional()?
+        .flatten();
+    if expected_conversation.as_deref() != Some(conversation_id) {
+        return Err(StoreError::Work(WorkDomainError::WorkUnavailable));
+    }
+    let item_id =
+        deterministic_notification_item_id(notification_id, destination_kind, conversation_id)?;
+    let notification_payload: serde_json::Value = serde_json::from_str(&row.payload_json)?;
+    let task_id = notification_payload
+        .get("task_id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| StoreError::InvariantViolation {
+            message: "task notification payload has no task identity".to_string(),
+        })?;
+    let task_id = TaskId::new(task_id.to_string()).map_err(StoreError::Work)?;
+    let task = load_task(transaction, &task_id)?.ok_or_else(|| StoreError::InvariantViolation {
+        message: "task notification references a missing task".to_string(),
+    })?;
+    let item_payload = serde_json::json!({ "task_id": task.task_id.as_str() });
+    let next_sequence: i64 = transaction.query_row(
+        "SELECT COALESCE(MAX(sequence_index), 0) + 1 FROM conversation_items WHERE conversation_id = ?1",
+        [conversation_id],
+        |value| value.get(0),
+    )?;
+    let metadata = serde_json::json!({
+        "notification_kind": notification_kind.as_str(),
+        "notification_id": notification_id,
+        "work_notification": notification_payload,
+    });
+    let inserted = transaction.execute(
+        "INSERT INTO conversation_items (item_id, conversation_id, sequence_index, kind, status, author_actor_id, content_text, payload_json, metadata_json) VALUES (?1, ?2, ?3, 'task_reference', 'completed', 'actor:store:notification', NULL, ?4, ?5) ON CONFLICT(item_id) DO NOTHING",
+        params![item_id, conversation_id, next_sequence, item_payload.to_string(), metadata.to_string()],
+    )?;
+    let item = load_conversation_item_tx(transaction, &item_id)?.ok_or_else(|| {
+        StoreError::InvariantViolation {
+            message: "notification conversation item disappeared".to_string(),
+        }
+    })?;
+    let valid = item.conversation_id == conversation_id
+        && item.turn_id.is_none()
+        && item.kind == ConversationItemKind::TaskReference
+        && item.status == ConversationItemStatus::Completed
+        && item.content_text.is_none()
+        && item.payload_json == item_payload
+        && item.metadata == metadata;
+    if !valid {
+        return Err(if inserted == 0 {
+            StoreError::Work(WorkDomainError::IdempotencyConflict)
+        } else {
+            StoreError::InvariantViolation {
+                message: "inserted notification conversation item failed readback proof"
+                    .to_string(),
+            }
+        });
+    }
+    Ok(item)
 }
 
 fn load_leased_notification_tx(

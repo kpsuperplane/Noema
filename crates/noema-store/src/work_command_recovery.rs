@@ -103,7 +103,6 @@ pub(crate) fn open_configuration_recovery_tx(
         &serde_json::json!({
             "task_id": task.task_id.as_str(),
             "gate_id": gate_id.as_str(),
-            "message": "Recovery decision needed — retry after restoring the provider route.",
             "action_needed": true,
         }),
     )? {

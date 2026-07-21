@@ -190,16 +190,6 @@ impl RuntimeActor {
                 break;
             }
         }
-        if initial_batch_kind.contains_delegation() {
-            self.persist_task_delegation_receipt(
-                turn,
-                &turn.initial_stream_id,
-                initial_response_count,
-                &local_tool_results,
-                item_tx,
-            )
-            .await?;
-        }
         let task_handoff = initial_batch_kind.is_terminal_handoff();
         let all_local_tool_results = local_tool_results.clone();
         let mut progress_tracker = ContinuationProgressTracker::new(&turn.user_input);

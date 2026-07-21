@@ -1,36 +1,52 @@
+import { useQuery, useSubscription } from "@apollo/client/react";
+import {
+  WorkTaskReferenceDocument,
+  WorkTaskEventsDocument,
+  type WorkTaskReferenceQuery
+} from "@/generated/graphql";
 import { IconButton, type IconButtonProps } from "@astryxdesign/core/IconButton";
 import { Item, type ItemProps } from "@astryxdesign/core/Item";
 import * as stylex from "@stylexjs/stylex";
 import { ListTodo, PanelRightOpen } from "lucide-react";
 import { taskDetailTarget, type ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { StageBadge } from "@/components/work/StageBadge";
-import { sentenceCase } from "@/components/work/workModel";
+import { useTaskEventCursor } from "@/components/chatDetail/task/taskEventCursor";
 
 type ItemXStyle = ItemProps["xstyle"];
 type IconButtonXStyle = IconButtonProps["xstyle"];
 
 export function TaskReferenceCard({
   taskId,
-  title,
-  stageId,
-  progress,
-  revision,
-  message,
   onOpenDetail
 }: {
   taskId: string;
-  title: string;
-  stageId: string;
-  progress?: string | null;
-  revision?: number | null;
-  message?: string | null;
   onOpenDetail?: (target: Extract<ChatDetailTarget, { type: "task" }>) => void;
 }) {
+  const result = useQuery(WorkTaskReferenceDocument, {
+    variables: { taskId },
+    fetchPolicy: "cache-and-network",
+    notifyOnNetworkStatusChange: true
+  });
+  const [cursor, recordCursor] = useTaskEventCursor(taskId);
+  const queriedTask = result.data?.task ?? null;
+  const task = queriedTask?.taskId === taskId ? queriedTask : null;
+  useSubscription(WorkTaskEventsDocument, {
+    variables: { taskId, after: cursor },
+    skip: !task,
+    onData: ({ data }) => {
+      const event = data.data?.taskEvents;
+      if (!event) return;
+      recordCursor(event.cursor);
+      void result.refetch();
+    }
+  });
+
   const target = taskDetailTarget(taskId);
   const taskTarget = target?.type === "task" ? target : null;
   const opensDetail = Boolean(taskTarget && onOpenDetail);
-  const progressLine = message ?? progress ?? (revision ? `Revision ${revision}` : "Background task");
-  const stageName = sentenceCase(stageId.split(":").at(-1) ?? stageId);
+  const title = task?.title ?? (result.loading ? "Loading task…" : "Task unavailable");
+  const stageName = task?.stage.name ?? "Task";
+  const progressLine = taskProgress(task);
   const description = (
     <span {...stylex.props(styles.description)}>
       <StageBadge name={stageName} behavior="" />
@@ -56,6 +72,16 @@ export function TaskReferenceCard({
       xstyle={itemXStyle(styles.item, opensDetail && styles.actionItem, !opensDetail && styles.disabledItem)}
     />
   );
+}
+
+type TaskReference = NonNullable<WorkTaskReferenceQuery["task"]>;
+
+function taskProgress(task: TaskReference | null): string {
+  if (!task) return "Unavailable";
+  if (task.attention?.summary) return task.attention.summary;
+  if (task.completedAt) return "Completed";
+  if (task.currentRun) return task.currentRun.activityLabel;
+  return `Revision ${task.revision}`;
 }
 
 function itemXStyle(...xstyle: unknown[]): ItemXStyle {

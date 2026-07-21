@@ -24,6 +24,7 @@ pub(in crate::daemon) mod transcript_persistence;
 pub(in crate::daemon) mod turn;
 pub(crate) mod turn_timing;
 mod web_tools;
+mod work_notification;
 
 pub(crate) use background_task::BackgroundTaskGenerateRequest;
 pub use handle::RuntimeHandle;

@@ -159,7 +159,12 @@ pub(super) fn mark_graphql_published_turn_event(
             item,
             ..
         } => {
-            let (item_kind, activity_kind, status, stage_id) = match item.as_ref() {
+            let (item_kind, activity_kind, status, stage_id): (
+                &str,
+                Option<&str>,
+                Option<&str>,
+                Option<&str>,
+            ) = match item.as_ref() {
                 TurnTranscriptItem::UserText { .. } => ("user_text", None, None, None),
                 TurnTranscriptItem::AssistantText { .. } => ("assistant_text", None, None, None),
                 TurnTranscriptItem::Activity {
@@ -185,9 +190,7 @@ pub(super) fn mark_graphql_published_turn_event(
                 TurnTranscriptItem::ArtifactReference { .. } => {
                     ("artifact_reference", None, None, None)
                 }
-                TurnTranscriptItem::TaskReference { stage_id, .. } => {
-                    ("task_reference", None, None, Some(stage_id.as_str()))
-                }
+                TurnTranscriptItem::TaskReference { .. } => ("task_reference", None, None, None),
             };
             mark_turn_timing_event(
                 "graphql_publish_conversation_item",

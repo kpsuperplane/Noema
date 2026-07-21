@@ -210,12 +210,6 @@ pub struct GraphqlArtifactReference {
 pub struct GraphqlTaskReference {
     /// Stable task id.
     pub task_id: String,
-    /// Display title captured when the reference was written.
-    pub title: String,
-    /// Canonical workflow stage id captured in the task reference.
-    pub stage_id: String,
-    /// Executor revision represented by this reference.
-    pub revision: i64,
 }
 
 /// Transcript item union.
@@ -323,17 +317,9 @@ impl From<TurnTranscriptItem> for GraphqlTranscriptItem {
                 download_url,
                 media_type,
             }),
-            TurnTranscriptItem::TaskReference {
-                task_id,
-                title,
-                stage_id,
-                revision,
-            } => Self::TaskReference(GraphqlTaskReference {
-                task_id,
-                title,
-                stage_id,
-                revision,
-            }),
+            TurnTranscriptItem::TaskReference { task_id } => {
+                Self::TaskReference(GraphqlTaskReference { task_id })
+            }
         }
     }
 }

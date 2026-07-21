@@ -864,10 +864,7 @@ async fn simple_review_approval_auto_accepts_and_other_complexity_waits_for_acce
         Some("submission:review-case")
     );
     assert_eq!(simple_notification["auto_accepted"], true);
-    assert_eq!(
-        simple_notification["message"],
-        "Automatically accepted: the reviewer approved this simple task."
-    );
+    assert!(simple_notification.get("message").is_none());
 
     let (medium, medium_notification) = run_review_case(TaskComplexity::Medium).await;
     assert_eq!(
@@ -875,8 +872,5 @@ async fn simple_review_approval_auto_accepts_and_other_complexity_waits_for_acce
         noema_tasks::PERSONAL_DONE_STAGE_ID
     );
     assert_eq!(medium_notification["action_needed"], true);
-    assert_eq!(
-        medium_notification["message"],
-        "Done — accept the result or request changes."
-    );
+    assert!(medium_notification.get("message").is_none());
 }

@@ -205,6 +205,20 @@ export const WorkTaskEditFieldsDocument = gql`
   }
 `;
 
+export const WorkTaskReferenceDocument = gql`
+  query WorkTaskReference($taskId: String!) {
+    task(taskId: $taskId) {
+      ...WorkCommandTaskFields
+      attention {
+        kind
+        title
+        summary
+      }
+    }
+  }
+  ${WorkCommandTaskFields}
+`;
+
 export const WorkTaskDetailDocument = gql`
   query WorkTaskDetail($taskId: String!) {
     task(taskId: $taskId) {

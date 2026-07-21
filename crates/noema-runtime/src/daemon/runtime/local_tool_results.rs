@@ -212,17 +212,7 @@ pub(super) fn local_tool_task_reference_item(
         return None;
     }
     let task = result.payload.get("task")?;
-    let stage_id = task
-        .get("stage_id")
-        .and_then(Value::as_str)
-        .or_else(|| task.get("stage").and_then(Value::as_str))?;
     Some(TurnTranscriptItem::TaskReference {
         task_id: task.get("task_id")?.as_str()?.to_string(),
-        title: task.get("title")?.as_str()?.to_string(),
-        stage_id: stage_id.to_string(),
-        revision: task
-            .get("revision")
-            .and_then(Value::as_i64)
-            .unwrap_or_default(),
     })
 }

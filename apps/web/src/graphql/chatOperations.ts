@@ -93,9 +93,6 @@ export const ConversationItemFields = gql`
       }
       ... on TaskReference {
         taskId
-        title
-        stageId
-        revision
       }
     }
   }
@@ -256,9 +253,6 @@ export const ConversationEventsDocument = gql`
           }
           ... on TaskReference {
             taskId
-            title
-            stageId
-            revision
           }
         }
       }

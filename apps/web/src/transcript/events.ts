@@ -144,6 +144,9 @@ function entryFromConversationItem(
     };
   }
   if (transcriptItem.kind === "assistant_text") {
+    if (isLegacyTaskDelegationReceipt(metadata)) {
+      return null;
+    }
     return {
       id: itemId,
       itemId,
@@ -178,7 +181,7 @@ function entryFromConversationItem(
       cursor,
       turnId,
       type: "task",
-      item: { ...transcriptItem, ...taskNotificationDetails(metadata) }
+      item: transcriptItem
     };
   }
   if (transcriptItem.kind === "error_notice") {
@@ -195,17 +198,8 @@ function entryFromConversationItem(
   return null;
 }
 
-function taskNotificationDetails(metadata: unknown) {
-  if (!isRecord(metadata) || !isRecord(metadata.work_notification)) {
-    return {};
-  }
-  const notification = metadata.work_notification;
-  return {
-    message: typeof notification.message === "string" ? notification.message : undefined,
-    action_needed: typeof notification.action_needed === "boolean" ? notification.action_needed : undefined,
-    auto_accepted: typeof notification.auto_accepted === "boolean" ? notification.auto_accepted : undefined,
-    notification_kind: typeof metadata.notification_kind === "string" ? metadata.notification_kind : undefined
-  };
+function isLegacyTaskDelegationReceipt(metadata: unknown): boolean {
+  return isRecord(metadata) && metadata.source === "task_delegation_receipt";
 }
 
 function clientMessageIdFromMetadata(metadata: unknown): string | undefined {
@@ -366,10 +360,7 @@ function transcriptItemFromGraphql(item: GraphqlTranscriptItem): TurnTranscriptI
   if (item.__typename === "TaskReference") {
     return {
       kind: "task_reference",
-      task_id: item.taskId,
-      title: item.title,
-      stage_id: item.stageId,
-      revision: item.revision
+      task_id: item.taskId
     };
   }
   return null;
