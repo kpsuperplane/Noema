@@ -62,7 +62,8 @@ function FinalResponse({ detail }: { detail: TaskDetail }) {
         {response ? (
           <Markdown
             autolink="gfm"
-            contentWidth="100%"
+            contentAlign="center"
+            contentWidth="min(760px, calc(100% - var(--spacing-6) - var(--spacing-6)))"
             density="default"
             headingLevelStart={1}
             xstyle={markdownXStyle(styles.markdown)}
@@ -130,15 +131,12 @@ const styles = stylex.create({
     height: "100%",
     overflowX: "hidden",
     overflowY: "auto",
-    paddingBlock: "var(--spacing-4) var(--spacing-6)",
-    paddingInline: "var(--spacing-6)"
+    paddingBlock: "var(--spacing-4) var(--spacing-6)"
   },
   finalContent: {
     display: "grid",
     gap: "var(--spacing-4)",
-    width: "100%",
-    maxWidth: 760,
-    marginInline: "auto"
+    width: "100%"
   },
   markdown: {
     color: "var(--noema-text-primary)",
@@ -148,10 +146,16 @@ const styles = stylex.create({
   artifacts: {
     display: "grid",
     gap: "var(--spacing-2)",
+    width: "calc(100% - var(--spacing-6) - var(--spacing-6))",
+    maxWidth: 760,
+    marginInline: "auto",
     justifyItems: "start"
   },
   empty: {
-    margin: 0,
+    width: "calc(100% - var(--spacing-6) - var(--spacing-6))",
+    maxWidth: 760,
+    marginInline: "auto",
+    marginBlock: 0,
     color: "var(--noema-text-secondary)",
     fontSize: 13
   }
