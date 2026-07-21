@@ -40,6 +40,24 @@ struct BlockingProvider {
     terminal: bool,
 }
 
+#[derive(Debug)]
+struct FailingProvider;
+
+impl noema_providers::ProviderOperations for FailingProvider {
+    fn generate_streaming<'a>(
+        &'a self,
+        _request: GenerateRequest,
+        _on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
+        Box::pin(async {
+            Err(ProviderError::ProviderUnavailable {
+                provider: "test".to_string(),
+                message: "simulated task failure".to_string(),
+            })
+        })
+    }
+}
+
 impl BlockingProvider {
     fn supervised(events: mpsc::UnboundedSender<ProviderEvent>) -> Self {
         Self {
@@ -400,6 +418,42 @@ async fn cancelled_run_stays_excluded_until_its_provider_future_fully_settles() 
     assert_eq!(
         next_event(&mut event_rx, "successor should start after cleanup").await,
         ProviderEvent::Started(successor.run_id)
+    );
+
+    task_runtime.shutdown().await;
+    runtime.shutdown().await;
+}
+
+#[tokio::test]
+async fn failed_run_publishes_work_invalidation_for_automatic_replacement() {
+    let store = crate::test_support::test_store().await;
+    let (task, failed_run) = crate::test_support::seed_task(&store, "Automatic retry event").await;
+    let subscriptions = RuntimeEventRegistry::default();
+    let mut work_events = subscriptions.subscribe_work(PERSONAL_WORKSPACE_ID);
+    let (runtime, task_runtime) =
+        start_task_runtime(Arc::new(FailingProvider), &store, subscriptions).await;
+
+    let event = tokio::time::timeout(Duration::from_secs(2), work_events.recv())
+        .await
+        .expect("failed run should publish a Work invalidation")
+        .expect("Work event stream should remain open");
+    let WorkRuntimeEvent::Committed {
+        workspace_id,
+        task_id,
+    } = event;
+    assert_eq!(workspace_id, PERSONAL_WORKSPACE_ID);
+    assert_eq!(task_id.as_deref(), Some(task.task_id.as_str()));
+
+    let detail = store
+        .get_work_task(&task.task_id)
+        .await
+        .expect("load task after failure")
+        .expect("task should remain available");
+    assert!(
+        detail
+            .runs
+            .iter()
+            .any(|run| run.run_id != failed_run.run_id)
     );
 
     task_runtime.shutdown().await;

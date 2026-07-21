@@ -275,7 +275,7 @@ async fn supervise_claimed_run(
     if let Some(error) = failure {
         let code = SafeErrorCode::new(execution_error_code(&error))
             .unwrap_or_else(|_| SafeErrorCode::new("work_runtime_failed").expect("safe code"));
-        if let Err(report_error) = command_service
+        match command_service
             .report_work_run_failure(
                 noema_store::ReportRunFailure {
                     fence: fence.clone(),
@@ -294,13 +294,20 @@ async fn supervise_claimed_run(
             )
             .await
         {
-            log_system_error(
-                &services.system_errors,
-                "work_runtime_failure_report_failed",
-                "Work run failure could not be committed",
-                Some(json!({"run_id": run.run_id.clone(), "task_id": run.task_id.clone()})),
-                report_error,
-            );
+            Ok(result) => {
+                if let Some(task) = result.task.as_ref() {
+                    publish_work_changed(&services.subscriptions, task);
+                }
+            }
+            Err(report_error) => {
+                log_system_error(
+                    &services.system_errors,
+                    "work_runtime_failure_report_failed",
+                    "Work run failure could not be committed",
+                    Some(json!({"run_id": run.run_id.clone(), "task_id": run.task_id.clone()})),
+                    report_error,
+                );
+            }
         }
         log_system_error(
             &services.system_errors,
@@ -536,12 +543,7 @@ async fn reconcile_one(
                     run_id: None,
                 });
             if let Some(task) = result.task.as_ref() {
-                services
-                    .subscriptions
-                    .publish_work(WorkRuntimeEvent::Committed {
-                        workspace_id: task.workspace_id.to_string(),
-                        task_id: Some(task_id.to_string()),
-                    });
+                publish_work_changed(&services.subscriptions, task);
             }
         }
         Err(error) => log_system_error(
@@ -558,6 +560,13 @@ fn publish_task_changed(subscriptions: &RuntimeEventRegistry, task_id: &noema_ta
     subscriptions.publish_task(TaskRuntimeEvent::Changed {
         task_id: task_id.to_string(),
         run_id: None,
+    });
+}
+
+fn publish_work_changed(subscriptions: &RuntimeEventRegistry, task: &noema_tasks::TaskRecord) {
+    subscriptions.publish_work(WorkRuntimeEvent::Committed {
+        workspace_id: task.workspace_id.to_string(),
+        task_id: Some(task.task_id.to_string()),
     });
 }
 
