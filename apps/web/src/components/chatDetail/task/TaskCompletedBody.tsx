@@ -11,10 +11,12 @@ type MarkdownXStyle = MarkdownProps["xstyle"];
 
 export function TaskCompletedBody({
   detail,
+  contextCard,
   liveRunItems,
   onLatestRunItemChange
 }: {
   detail: TaskDetail;
+  contextCard: React.ReactNode;
   liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
   onLatestRunItemChange?: (runId: string, item: TaskRunItem | null) => void;
 }) {
@@ -38,12 +40,15 @@ export function TaskCompletedBody({
         {activeTab === "final-response" ? (
           <FinalResponse detail={detail} />
         ) : (
-          <div {...stylex.props(styles.transcript)}>
-            <TaskTranscript
-              detail={detail}
-              liveRunItems={liveRunItems}
-              onLatestRunItemChange={onLatestRunItemChange}
-            />
+          <div {...stylex.props(styles.transcriptContent)}>
+            <div {...stylex.props(styles.transcript)}>
+              <TaskTranscript
+                detail={detail}
+                liveRunItems={liveRunItems}
+                onLatestRunItemChange={onLatestRunItemChange}
+              />
+            </div>
+            {contextCard}
           </div>
         )}
       </div>
@@ -117,6 +122,13 @@ const styles = stylex.create({
     minWidth: 0,
     minHeight: 0,
     overflow: "hidden"
+  },
+  transcriptContent: {
+    display: "grid",
+    gridTemplateRows: "minmax(0, 1fr) auto",
+    minWidth: 0,
+    minHeight: 0,
+    height: "100%"
   },
   transcript: {
     minWidth: 0,

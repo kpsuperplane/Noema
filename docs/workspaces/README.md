@@ -213,8 +213,9 @@ window. Executor commentary before a non-terminal tool batch is user-visible;
 hidden provider reasoning is not rendered.
 
 The floating task-context card keeps an optional needs-input row and compact
-validation summary above the transcript. The info popover exposes compact
-metadata only; the validation row discloses individual criteria. An
+validation summary above the active-task transcript, and remains available on
+the Transcript tab for completed tasks; the Result tab omits it. The info
+popover exposes compact metadata only; the validation row discloses individual criteria. An
 unresolved clarification, approval, recovery, or permission
 action is attached to the needs-input row, keeping its prompt and controls
 visible until resolved; after resolution, the decision is represented by the

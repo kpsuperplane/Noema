@@ -72,12 +72,28 @@ export function TaskDetailPanel({
     return <div {...stylex.props(styles.root)}>{actions}<TaskUnavailable message="Task details are unavailable." /></div>;
   }
 
+  const contextCard = (
+    <TaskContextCard
+      key={`context:${taskId}:${currentDetail.attention ? "attention" : "info"}`}
+      actions={actions}
+      detail={currentDetail}
+      governedActions={governedActions}
+      inlineResponse={inlineResponse}
+      latestRunItems={latestRunItems}
+      controlsHostRef={controlsHostRef}
+      showWorkLink={showWorkLink}
+      taskId={taskId}
+    />
+  );
+  const completedResult = currentDetail.stageBehavior === "TERMINAL_SUCCESS" ? currentDetail.completedResult : null;
+
   return (
     <div data-slot="task-detail-view-viewport" {...stylex.props(styles.viewport)}>
       <div data-task-id={currentDetail.taskId} {...stylex.props(styles.root)}>
-        {currentDetail.stageBehavior === "TERMINAL_SUCCESS" && currentDetail.completedResult ? (
+        {completedResult ? (
           <TaskCompletedBody
-            key={`completed:${currentDetail.taskId}:${currentDetail.completedResult.id}`}
+            key={`completed:${currentDetail.taskId}:${completedResult.id}`}
+            contextCard={contextCard}
             detail={currentDetail}
             liveRunItems={liveRunItems}
             onLatestRunItemChange={onLatestRunItemChange}
@@ -91,17 +107,7 @@ export function TaskDetailPanel({
             />
           </div>
         )}
-        <TaskContextCard
-          key={`context:${taskId}:${currentDetail.attention ? "attention" : "info"}`}
-          actions={actions}
-          detail={currentDetail}
-          governedActions={governedActions}
-          inlineResponse={inlineResponse}
-          latestRunItems={latestRunItems}
-          controlsHostRef={controlsHostRef}
-          showWorkLink={showWorkLink}
-          taskId={taskId}
-        />
+        {!completedResult ? contextCard : null}
       </div>
     </div>
   );
