@@ -208,7 +208,7 @@ pub(crate) fn task_submit_review_tool_spec()
 }
 
 fn task_review_schema() -> Value {
-    json!({"type":"object","properties":{"overall_verdict":{"type":"string","enum":["approve","request_changes","needs_human"]},"overall_feedback":{"type":"string","minLength":1,"maxLength":20000},"criteria":{"type":"array","minItems":1,"items":{"type":"object","properties":{"criterion_id":{"type":"string","minLength":1,"maxLength":200},"outcome":{"type":"string","enum":["pass","fail","uncertain"]},"evidence_markdown":{"type":"string","maxLength":20000},"feedback":{"type":"string","maxLength":20000}},"required":["criterion_id","outcome"],"additionalProperties":false}},"human_gate_kind":{"type":"string","enum":["clarification","approval"]},"human_question":{"type":"string","minLength":1,"maxLength":4000}},"required":["overall_verdict","overall_feedback","criteria"],"additionalProperties":false})
+    json!({"type":"object","properties":{"overall_feedback":{"type":"string","minLength":1,"maxLength":20000},"criteria":{"type":"array","minItems":1,"items":{"type":"object","properties":{"criterion_id":{"type":"string","minLength":1,"maxLength":200},"outcome":{"type":"string","enum":["pass","fail","uncertain"]},"evidence_markdown":{"type":"string","maxLength":20000},"feedback":{"type":"string","maxLength":20000}},"required":["criterion_id","outcome"],"additionalProperties":false}},"decision":{"oneOf":[{"type":"object","properties":{"verdict":{"type":"string","enum":["approve"]}},"required":["verdict"],"additionalProperties":false},{"type":"object","properties":{"verdict":{"type":"string","enum":["request_changes"]}},"required":["verdict"],"additionalProperties":false},{"type":"object","properties":{"verdict":{"type":"string","enum":["needs_human"]},"human_gate_kind":{"type":"string","enum":["clarification","approval"]},"human_question":{"type":"string","minLength":1,"maxLength":4000}},"required":["verdict","human_gate_kind","human_question"],"additionalProperties":false}]}},"required":["overall_feedback","criteria","decision"],"additionalProperties":false})
 }
 
 /// Build the background-role task inspection contract. The runtime supplies
@@ -246,21 +246,28 @@ mod tests {
     }
 
     #[test]
-    fn reviewer_schema_is_root_object_with_optional_gate_fields() {
+    fn reviewer_schema_nests_conditional_decision_under_root_object() {
         let schema = task_submit_review_tool_spec().expect("review tool");
         let schema = schema.input_schema.as_value();
+        let decisions = schema["properties"]["decision"]["oneOf"]
+            .as_array()
+            .expect("review decisions");
 
         assert_eq!(schema["type"], "object");
         assert!(schema.get("oneOf").is_none());
         assert_eq!(
-            schema["properties"]["overall_verdict"]["enum"],
-            json!(["approve", "request_changes", "needs_human"])
+            schema["required"],
+            json!(["overall_feedback", "criteria", "decision"])
         );
         assert_eq!(
-            schema["required"],
-            json!(["overall_verdict", "overall_feedback", "criteria"])
+            decisions[0]["properties"]["verdict"]["enum"],
+            json!(["approve"])
         );
-        assert_eq!(schema["properties"]["human_gate_kind"]["type"], "string");
-        assert_eq!(schema["properties"]["human_question"]["type"], "string");
+        assert!(decisions[0]["properties"].get("human_gate_kind").is_none());
+        assert!(decisions[1]["properties"].get("human_gate_kind").is_none());
+        assert_eq!(
+            decisions[2]["required"],
+            json!(["verdict", "human_gate_kind", "human_question"])
+        );
     }
 }

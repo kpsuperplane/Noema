@@ -188,10 +188,10 @@ fn reviewer_approval(response: &GenerateResponse) -> Result<(), String> {
     let payload = only_tool_payload(response, "task.submit_review")?;
     serde_json::from_value::<ReviewerResponse>(payload.clone())
         .map_err(|error| format!("reviewer payload failed production decoding: {error}"))?;
-    if payload.get("overall_verdict").and_then(Value::as_str) != Some("approve") {
+    if payload["decision"].get("verdict").and_then(Value::as_str) != Some("approve") {
         return Err(format!(
             "reviewer did not approve the unambiguously correct result: {:?}",
-            payload.get("overall_verdict")
+            payload["decision"].get("verdict")
         ));
     }
     required_nonempty_string(payload, "overall_feedback")?;

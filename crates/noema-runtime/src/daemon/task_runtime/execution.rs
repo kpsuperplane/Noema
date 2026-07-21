@@ -15,7 +15,8 @@ use crate::{
     daemon::runtime::BackgroundTaskGenerateRequest,
     daemon::task_run_context::{
         ExecutorBlockedResponse, ExecutorSubmissionResponse, PlannerBlockedResponse,
-        PlannerPlanResponse, ReviewerResponse, TaskRolePrompt, build_task_role_prompt,
+        PlannerPlanResponse, ReviewerDecisionResponse, ReviewerResponse, TaskRolePrompt,
+        build_task_role_prompt,
     },
     daemon::{RuntimeEventRegistry, RuntimeHandle, TaskRuntimeEvent, WorkRuntimeEvent},
 };
@@ -190,10 +191,20 @@ fn execute_reviewer(
         return Err("Reviewer returned a role-inappropriate terminal tool".to_string());
     }
     let parsed: ReviewerResponse = parse_payload(call, "Reviewer terminal")?;
-    let verdict = parsed
-        .overall_verdict
-        .parse::<TaskReviewVerdict>()
-        .map_err(|error| format!("invalid reviewer verdict: {error}"))?;
+    let (verdict, human_gate_kind, human_question) = match parsed.decision {
+        ReviewerDecisionResponse::Approve {} => (TaskReviewVerdict::Approve, None, None),
+        ReviewerDecisionResponse::RequestChanges {} => {
+            (TaskReviewVerdict::RequestChanges, None, None)
+        }
+        ReviewerDecisionResponse::NeedsHuman {
+            human_gate_kind,
+            human_question,
+        } => (
+            TaskReviewVerdict::NeedsHuman,
+            Some(human_gate_kind),
+            Some(human_question),
+        ),
+    };
     let criteria = parsed
         .criteria
         .into_iter()
@@ -221,20 +232,12 @@ fn execute_reviewer(
         .latest_review
         .as_ref()
         .filter(|review| review.reviewed_submission_id == submission.submission_id);
-    let human_question = parsed
-        .human_question
+    let human_question = human_question
         .as_deref()
         .map(str::trim)
         .filter(|question| !question.is_empty());
     if verdict == TaskReviewVerdict::NeedsHuman && human_question.is_none() {
         return Err("needs_human review requires a human question".to_string());
-    }
-    if verdict != TaskReviewVerdict::NeedsHuman
-        && (parsed.human_gate_kind.is_some() || parsed.human_question.is_some())
-    {
-        return Err(
-            "approve and request_changes reviews cannot include human gate fields".to_string(),
-        );
     }
     let review = NewTaskReview {
         review_id: None,
@@ -246,7 +249,7 @@ fn execute_reviewer(
             .map_or(1, |review| review.review_attempt_index.saturating_add(1)),
         supersedes_review_id: prior_review.map(|review| review.review_id.clone()),
         overall_verdict: verdict,
-        human_gate_kind: parsed.human_gate_kind,
+        human_gate_kind,
         overall_feedback: human_question.map_or_else(
             || parsed.overall_feedback.clone(),
             |question| {
