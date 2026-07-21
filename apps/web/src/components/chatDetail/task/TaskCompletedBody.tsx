@@ -117,7 +117,7 @@ const styles = stylex.create({
   },
   tabBar: {
     minWidth: 0,
-    paddingInline: "var(--spacing-4)"
+    paddingInline: "var(--spacing-1)"
   },
   content: {
     minWidth: 0,
