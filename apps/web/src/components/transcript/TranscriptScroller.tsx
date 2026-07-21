@@ -97,7 +97,7 @@ const styles = stylex.create({
     minHeight: 0,
     marginInline: 0,
     paddingTop: "var(--spacing-8)",
-    paddingBottom: "calc(var(--spacing-6) + var(--spacing-2))",
+    paddingBottom: "calc(var(--spacing-6) + var(--spacing-2) + var(--task-transcript-bottom-inset, 0px))",
     paddingInline: "var(--spacing-4)"
   },
   virtualSizer: {

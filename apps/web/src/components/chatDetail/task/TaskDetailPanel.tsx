@@ -462,6 +462,7 @@ const styles = stylex.create({
   transcriptRegion: {
     minWidth: 0,
     minHeight: 0,
+    "--task-transcript-bottom-inset": "var(--spacing-3)"
   },
   contextDock: {
     display: "flex",
@@ -472,7 +473,7 @@ const styles = stylex.create({
     minHeight: 0,
     marginInline: "var(--spacing-4)",
     marginBlockEnd: "var(--spacing-4)",
-    marginBlockStart: "calc(-1 * var(--spacing-2))"
+    marginBlockStart: "calc(-1 * var(--spacing-3))"
   },
   contextCard: {
     display: "flex",
