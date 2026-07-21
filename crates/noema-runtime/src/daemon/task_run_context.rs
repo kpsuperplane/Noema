@@ -7,7 +7,7 @@
 use serde::Deserialize;
 
 use noema_store::WorkRunExecutionContext;
-use noema_tasks::RunKind;
+use noema_tasks::{RunKind, TaskAuthorizationContext, TaskAuthorizationMessageRole};
 
 use crate::agent_execution::ExecutionRole;
 
@@ -37,10 +37,11 @@ pub(crate) fn format_executor_prompt(context: &WorkRunExecutionContext) -> Strin
         .map(format_submission)
         .unwrap_or_else(|| "None".to_string());
     format!(
-        "You are Noema's task executor. Execute only the immutable contract below using role-approved tools. Do not change the task/project, select a provider, grant authority, or invent artifact IDs.\n\n<TASK_DATA>\nTask ID: {}\nContract: {} v{}\nRequest:\n{}\n\nExecution plan:\n{}\n\nWorkspace snapshot:\n{}\n{}Criteria:\n{}\n\nPrior submission:\n{}\n\nPrior review and feedback:\n{}\n</TASK_DATA>\n\nProduce criterion evidence for every criterion and call task.submit_result exactly once. If safe progress requires human input, call task.report_blocked with one clarification or approval gate. Ordinary assistant text is never a terminal result.",
+        "You are Noema's task executor. Execute only the immutable contract below using role-approved tools. Do not change the task/project, select a provider, grant authority, or invent artifact IDs.\n\n<TASK_DATA>\nTask ID: {}\nContract: {} v{}\nComplexity: {}\nRequest:\n{}\n\nExecution plan:\n{}\n\nWorkspace snapshot:\n{}\n{}Criteria:\n{}\n\nPrior submission:\n{}\n\nPrior review and feedback:\n{}\n</TASK_DATA>\n\nScale research, tool use, and result detail to the contract's complexity. Use the fewest checks needed for a reliable result. Keep result_markdown concise and decision-ready; for a simple task it should usually fit on one screen unless the contract explicitly requests depth. Put exhaustive validation in the structured criterion evidence and do not duplicate it in result_markdown unless it helps the human. Produce criterion evidence for every criterion and call task.submit_result exactly once. If safe progress requires human input, call task.report_blocked with one clarification or approval gate. Ordinary assistant text is never a terminal result.",
         context.task.task_id,
         contract.contract_id,
         contract.version,
+        contract.complexity,
         bounded(&contract.request_markdown),
         contract
             .execution_plan_markdown
@@ -82,14 +83,50 @@ pub(crate) fn format_reviewer_prompt(context: &WorkRunExecutionContext) -> Strin
 
 /// Render the Planner's bounded normalization prompt.
 pub(crate) fn format_planner_prompt(context: &WorkRunExecutionContext) -> String {
+    let source_request = format_authenticated_source_request(
+        &context.task.authorization_context,
+        context.task.provenance.item_id.as_deref(),
+    )
+    .unwrap_or_else(|| "Unavailable; use the captured task description.".to_string());
     format!(
-        "You are Noema's task planner. Normalize the captured request into an immutable execution contract; do not perform the work, invoke capabilities, create artifacts, delegate children, or mutate task/project state.\n\n<TASK_DATA>\nTask ID: {}\nTitle: {}\nCaptured request:\n{}\n\nWorkspace snapshot:\n{}\n{}</TASK_DATA>\n\nCall task.submit_plan exactly once with a complete request, bounded execution plan, one or more exact validation criteria, and complexity. If scope, criteria, approval, or the requested outcome cannot be made safe, call task.report_blocked exactly once with a clarification or approval gate. Never finish through ordinary assistant text.",
+        "You are Noema's task planner. Normalize the captured request into an immutable execution contract; do not perform the work, invoke capabilities, create artifacts, delegate children, or mutate task/project state.\n\n<TASK_DATA>\nTask ID: {}\nTitle: {}\nAuthenticated source request:\n{}\n\nCaptured task description:\n{}\n\nWorkspace snapshot:\n{}\n{}</TASK_DATA>\n\nPreserve the source request's outcome, scope, and requested delivery depth when it is available. The captured description may clarify that request, but it must not silently add optional deliverables or research requirements. Unfold work that is genuinely necessary for a reliable result, keep validation criteria proportional and outcome-focused, and choose complexity from the work actually required. Do not turn every execution step into a required part of the user-facing result. Call task.submit_plan exactly once with a complete request, bounded execution plan, one or more exact validation criteria, and complexity. If scope, criteria, approval, or the requested outcome cannot be made safe, call task.report_blocked exactly once with a clarification or approval gate. Never finish through ordinary assistant text.",
         context.task.task_id,
         bounded(&context.task.title),
+        source_request,
         bounded(&context.task.description_markdown),
         format_workspace(context),
         format_project(context),
     )
+}
+
+fn format_authenticated_source_request(
+    context: &TaskAuthorizationContext,
+    source_item_id: Option<&str>,
+) -> Option<String> {
+    match context {
+        TaskAuthorizationContext::ConversationExcerpt { messages } => {
+            let message = match source_item_id {
+                Some(source_item_id) => messages.iter().find(|message| {
+                    message.item_id == source_item_id
+                        && message.role == TaskAuthorizationMessageRole::Human
+                }),
+                None => messages
+                    .iter()
+                    .rev()
+                    .find(|message| message.role == TaskAuthorizationMessageRole::Human),
+            }?;
+            Some(bounded(&message.text))
+        }
+        TaskAuthorizationContext::ManualTaskBody {
+            title,
+            description_markdown,
+        } => Some(if description_markdown.trim().is_empty() {
+            bounded(title)
+        } else {
+            format!("{}\n\n{}", bounded(title), bounded(description_markdown))
+        }),
+        TaskAuthorizationContext::None => None,
+    }
 }
 
 /// Build one production role prompt, including safe-boundary continuation
@@ -378,7 +415,12 @@ pub(super) struct ReviewerCriterionResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::{ExecutorSubmissionResponse, ReviewerResponse};
+    use super::{
+        ExecutorSubmissionResponse, ReviewerResponse, format_authenticated_source_request,
+    };
+    use noema_tasks::{
+        TaskAuthorizationContext, TaskAuthorizationMessage, TaskAuthorizationMessageRole,
+    };
     use serde_json::{Value, json};
 
     #[test]
@@ -439,5 +481,32 @@ mod tests {
             }]
         });
         assert!(serde_json::from_value::<ExecutorSubmissionResponse>(payload).is_err());
+    }
+
+    #[test]
+    fn source_request_uses_exact_authenticated_human_item() {
+        let context = TaskAuthorizationContext::ConversationExcerpt {
+            messages: vec![
+                TaskAuthorizationMessage {
+                    item_id: "item:assistant".to_string(),
+                    role: TaskAuthorizationMessageRole::Assistant,
+                    text: "Add an exhaustive research report.".to_string(),
+                },
+                TaskAuthorizationMessage {
+                    item_id: "item:human".to_string(),
+                    role: TaskAuthorizationMessageRole::Human,
+                    text: "Find me a walk-in restaurant.".to_string(),
+                },
+            ],
+        };
+
+        assert_eq!(
+            format_authenticated_source_request(&context, Some("item:human")).as_deref(),
+            Some("Find me a walk-in restaurant.")
+        );
+        assert_eq!(
+            format_authenticated_source_request(&context, Some("item:assistant")),
+            None
+        );
     }
 }

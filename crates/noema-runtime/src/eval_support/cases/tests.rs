@@ -33,11 +33,14 @@ fn task_cases_render_the_production_work_context_contract() {
     for (case_id, expected_markers) in [
         (
             "task_planner_contract",
-            ["Captured request:", "task.submit_plan"],
+            [
+                "Authenticated source request:\nReturn the launch code",
+                "task.submit_plan",
+            ],
         ),
         (
             "task_executor_submission",
-            ["Contract: contract:evaluation v1", "Workspace snapshot:"],
+            ["Complexity: simple", "Workspace snapshot:"],
         ),
         (
             "task_reviewer_approval",
@@ -57,6 +60,12 @@ fn task_cases_render_the_production_work_context_contract() {
         };
         for marker in expected_markers {
             assert!(prompt.contains(marker), "{case_id} omitted {marker}");
+        }
+        if case_id != "task_planner_contract" {
+            assert!(
+                !prompt.contains("Authenticated source request:"),
+                "{case_id} received source context outside planning"
+            );
         }
     }
 }

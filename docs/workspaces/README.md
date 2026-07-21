@@ -168,6 +168,11 @@ The store remains the authority for admission and transition validity.
 Task workers receive only the context needed for their role: the current task,
 contract, relevant prior output, bounded transcript, provider snapshot, and
 execution policy. They do not receive unrestricted primary-chat authority.
+For chat-originated planning, the exact authenticated source request is shown
+alongside the captured task description so the Planner can unfold necessary
+work without silently expanding the requested outcome or delivery depth. The
+resulting immutable contract remains the Executor's sole request authority;
+contract complexity calibrates its research effort and user-facing detail.
 
 Tool visibility follows capability and approval policy. The primary agent may
 delegate a task through the semantic composition; task agents may publish only

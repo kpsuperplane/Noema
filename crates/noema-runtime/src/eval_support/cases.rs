@@ -10,6 +10,7 @@ use noema_store::WorkRunExecutionContext;
 use noema_tasks::{
     AgentRunRecord, ContractOrigin, PERSONAL_DOING_STAGE_ID, PERSONAL_WORKFLOW_ID, RunKind,
     RunStatus, SubmissionCriterionEvidence, TASK_EXECUTOR_AGENT_ID, TASK_REVIEWER_AGENT_ID,
+    TaskAuthorizationContext, TaskAuthorizationMessage, TaskAuthorizationMessageRole,
     TaskComplexity, TaskContractId, TaskExecutionContract, TaskExecutionPolicy, TaskId,
     TaskProvenance, TaskRecord, TaskSourceKind, TaskSubmissionRecord, TaskValidationCriterion,
     WorkflowDefinition, WorkflowId, WorkflowStageId, personal_stages,
@@ -560,9 +561,16 @@ fn fixture_work_context(
         stage_id: stage_id.clone(),
         title: title.to_string(),
         description_markdown: request_markdown.to_string(),
-        authorization_context: noema_tasks::TaskAuthorizationContext::None,
+        authorization_context: TaskAuthorizationContext::ConversationExcerpt {
+            messages: vec![TaskAuthorizationMessage {
+                item_id: "item:evaluation:source".to_string(),
+                role: TaskAuthorizationMessageRole::Human,
+                text: title.to_string(),
+            }],
+        },
         provenance: TaskProvenance {
-            source_kind: TaskSourceKind::System,
+            source_kind: TaskSourceKind::ChatDelegate,
+            item_id: Some("item:evaluation:source".to_string()),
             created_by_actor_id: "actor:agent:primary".to_string(),
             ..TaskProvenance::default()
         },
