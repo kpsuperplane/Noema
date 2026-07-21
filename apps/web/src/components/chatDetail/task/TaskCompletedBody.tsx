@@ -30,7 +30,7 @@ export function TaskCompletedBody({
           size="sm"
           value={activeTab}
         >
-          <Tab label="Final response" value="final-response" />
+          <Tab label="Result" value="final-response" />
           <Tab label="Transcript" value="transcript" />
         </TabList>
       </div>
