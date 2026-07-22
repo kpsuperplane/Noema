@@ -5,7 +5,7 @@ import { Popover } from "@astryxdesign/core/Popover";
 import * as stylex from "@stylexjs/stylex";
 import { ExternalLink, Info } from "lucide-react";
 import { IdentityAvatar } from "@/components/IdentityAvatar";
-import type { TaskDetail, TaskRun, TaskRunItem } from "./taskTypes";
+import type { TaskDetail, TaskRun, TaskRunItem, TaskRunStatus } from "./taskTypes";
 import { TaskCriterionStatusPopover } from "./TaskCriteria";
 import { TaskCompletedBody } from "./TaskCompletedBody";
 import { taskStageLabel } from "./TaskOverview";
@@ -172,11 +172,18 @@ function TaskSummaryHeader({
   taskId: string;
 }) {
   const run = latestTaskRun(detail);
+  const avatarMotion = run ? taskRunAvatarMotion(run.status) : null;
   const latestItem = run ? latestRunItems.get(run.id) ?? null : null;
   return (
     <header {...stylex.props(styles.summaryHeader)}>
       {run ? (
-        <IdentityAvatar actorId={`subagent:${run.instanceName}`} actorType="agent" size="sm" />
+        <IdentityAvatar
+          activity={avatarMotion?.activity}
+          actorId={`subagent:${run.instanceName}`}
+          actorType="agent"
+          animated={avatarMotion?.animated}
+          size="sm"
+        />
       ) : null}
       <span {...stylex.props(styles.summaryCopy)}>
         <strong {...stylex.props(styles.summaryTitle)}>
@@ -364,6 +371,22 @@ function MetadataRow({ label, value }: { label: string; value: string }) {
 
 function latestRevision(detail: TaskDetail): number {
   return detail.revisions.reduce((latest, revision) => Math.max(latest, revision.revision), 0);
+}
+
+function taskRunAvatarMotion(status: TaskRunStatus) {
+  switch (status) {
+    case "queued":
+    case "leased":
+      return { activity: "listening", animated: true } as const;
+    case "running":
+      return { activity: "thinking", animated: true } as const;
+    case "completed":
+    case "waiting_for_approval":
+    case "interrupted":
+    case "failed":
+    case "cancelled":
+      return { activity: "idle", animated: false } as const;
+  }
 }
 
 function latestTaskRun(detail: TaskDetail): TaskRun | null {

@@ -1,6 +1,7 @@
 import * as React from "react";
 import { ContextMenu } from "@astryxdesign/core/ContextMenu";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
+import type { IdentityAvatarActivity } from "@/components/IdentityAvatar";
 import { SpringDisclosure } from "@/motion/SpringDisclosure";
 import type { RuntimeDebugScope, TranscriptEntry } from "@/shared/types";
 import { ActivityRow } from "./ActivityRow";
@@ -12,8 +13,10 @@ import { RenderedTranscriptEntryFrame } from "./RenderedTranscriptEntryFrame";
 import {
   renderableTranscriptEntries,
   renderedChatBubbleGroup,
+  renderedEntryKey,
   renderedEntryMessageId,
   renderedTranscriptLane,
+  rendersPrimaryAssistantAvatar,
   shouldAnchorRenderedEntry,
   shouldAnimateRenderedEntryArrivalForSeen,
   shouldContinueRenderedEntryTextAnimation,
@@ -38,7 +41,6 @@ import { ToolMarker } from "./ToolMarker";
 import { TranscriptBottomFollower } from "./TranscriptBottomFollower";
 import { TranscriptRow } from "./TranscriptRow";
 import { TranscriptScroller, TranscriptScrollerItem, TranscriptScrollerProvider } from "./TranscriptScroller";
-import { TypingMessage } from "./TypingMessage";
 import type { ConversationAgentStatus } from "@/shared/types";
 import { parseProviderUsageDebug } from "./debugUsage";
 import {
@@ -102,6 +104,12 @@ export function Transcript({
   const arrivalMessageIds = transcriptArrivalMessageIds(renderedEntries, seenArrivalMessageIds);
   const arrivalMessageIdsJson = JSON.stringify(arrivalMessageIds);
   const arrivalScrollKey = transcriptArrivalScrollKey(renderedEntries, seenArrivalMessageIds);
+  const latestAssistantAvatar = latestAssistantAvatarAnchor(renderedEntries);
+  const latestAssistantAvatarMotion = conversationAvatarMotion(
+    renderedEntries,
+    latestAssistantAvatar?.humanIndex ?? -1,
+    agentStatus
+  );
   const handleViewportScroll = React.useCallback((event: React.UIEvent<HTMLDivElement>) => {
     followBottomRef.current = isScrolledToBottom(event.currentTarget);
   }, []);
@@ -171,7 +179,8 @@ export function Transcript({
           const previousEntry = renderedEntries[index - 1];
           const nextEntry = renderedEntries[index + 1];
           const previousLane = previousEntry ? transcriptLane(previousEntry) : null;
-          const showAvatar = showActorAvatars && previousLane !== lane;
+          const ownsLatestAssistantAvatar = index === latestAssistantAvatar?.index;
+          const showAvatar = showActorAvatars && (previousLane !== lane || ownsLatestAssistantAvatar);
           const bubbleGroup = renderedChatBubbleGroup(entry, previousEntry, nextEntry);
           const messageId = renderedEntryMessageId(entry);
           const animateArrival = shouldAnimateRenderedEntryArrivalForSeen(entry, messageId, seenArrivalMessageIds);
@@ -181,10 +190,12 @@ export function Transcript({
             seenArrivalMessageIds,
             textAnimatingMessageIds
           );
+          const avatarActivity = ownsLatestAssistantAvatar ? latestAssistantAvatarMotion.activity : "idle";
+          const avatarAnimated = ownsLatestAssistantAvatar && latestAssistantAvatarMotion.animated;
 
           return (
             <TranscriptScrollerItem
-              key={messageId}
+              key={renderedEntryKey(entry)}
               align={lane === "human" ? "end" : "start"}
               compact={
                 shouldCompactMarkerClusterSpacing(entry, previousEntry) ||
@@ -202,6 +213,8 @@ export function Transcript({
                   expandedActivities,
                   onToggleActivity,
                   onSubmitMultipleChoiceSelection,
+                  avatarActivity,
+                  avatarAnimated,
                   showAvatar,
                   showActorAvatars,
                   bubbleGroup,
@@ -244,6 +257,8 @@ function renderTranscriptRenderEntry(
   expandedActivities: Set<string>,
   onToggleActivity: (id: string) => void,
   onSubmitMultipleChoiceSelection: (promptItemId: string, selectedOptionIds: string[]) => void,
+  avatarActivity: IdentityAvatarActivity,
+  avatarAnimated: boolean,
   showAvatar: boolean,
   reserveAvatarSpace: boolean,
   bubbleGroup: ChatBubbleGroup | undefined,
@@ -258,7 +273,13 @@ function renderTranscriptRenderEntry(
     const open = expandedActivities.has(disclosureId);
     return (
       <>
-        <TranscriptRow lane="assistant" reserveAvatarSpace={reserveAvatarSpace} showAvatar={showAvatar}>
+        <TranscriptRow
+          avatarActivity={avatarActivity}
+          avatarAnimated={avatarAnimated}
+          lane="assistant"
+          reserveAvatarSpace={reserveAvatarSpace}
+          showAvatar={showAvatar}
+        >
           <DebugMarkerMenu
             target={grouped ? toolGroupDebugTarget(entry.markers) : toolDebugTarget(entry.marker)}
             onDebug={onDebug}
@@ -289,7 +310,18 @@ function renderTranscriptRenderEntry(
     );
   }
   if (entry.kind === "typing") {
-    return <TypingMessage reserveAvatarSpace={reserveAvatarSpace} showAvatar={showAvatar} />;
+    return (
+      <Message
+        animate={false}
+        avatarActivity={avatarActivity}
+        avatarAnimated={avatarAnimated}
+        reserveAvatarSpace={reserveAvatarSpace}
+        role="assistant"
+        showAvatar={showAvatar}
+        text=""
+        variant="typing"
+      />
+    );
   }
   return renderTranscriptEntry(
     entry.entry,
@@ -297,6 +329,8 @@ function renderTranscriptRenderEntry(
     expandedActivities,
     onToggleActivity,
     onSubmitMultipleChoiceSelection,
+    avatarActivity,
+    avatarAnimated,
     showAvatar,
     reserveAvatarSpace,
     bubbleGroup,
@@ -312,6 +346,8 @@ function renderTranscriptEntry(
   expandedActivities: Set<string>,
   onToggleActivity: (id: string) => void,
   onSubmitMultipleChoiceSelection: (promptItemId: string, selectedOptionIds: string[]) => void,
+  avatarActivity: IdentityAvatarActivity,
+  avatarAnimated: boolean,
   showAvatar: boolean,
   reserveAvatarSpace: boolean,
   bubbleGroup: ChatBubbleGroup | undefined,
@@ -323,6 +359,8 @@ function renderTranscriptEntry(
     return (
       <Message
         animate={animateText}
+        avatarActivity={avatarActivity}
+        avatarAnimated={avatarAnimated}
         group={bubbleGroup}
         reserveAvatarSpace={reserveAvatarSpace}
         role="user"
@@ -345,6 +383,8 @@ function renderTranscriptEntry(
     return (
       <Message
         animate={animateText}
+        avatarActivity={avatarActivity}
+        avatarAnimated={avatarAnimated}
         group={bubbleGroup}
         reserveAvatarSpace={reserveAvatarSpace}
         role="assistant"
@@ -367,6 +407,8 @@ function renderTranscriptEntry(
     return (
       <Message
         animate={animateText}
+        avatarActivity={avatarActivity}
+        avatarAnimated={avatarAnimated}
         group={bubbleGroup}
         reserveAvatarSpace={reserveAvatarSpace}
         role="assistant"
@@ -383,21 +425,21 @@ function renderTranscriptEntry(
   }
   if (entry.type === "card") {
     return (
-      <TranscriptRow lane="assistant" reserveAvatarSpace={reserveAvatarSpace} showAvatar={showAvatar}>
+      <TranscriptRow avatarActivity={avatarActivity} avatarAnimated={avatarAnimated} lane="assistant" reserveAvatarSpace={reserveAvatarSpace} showAvatar={showAvatar}>
         <StructuredCard item={entry.item} open={expandedActivities.has(entry.id)} onToggle={() => onToggleActivity(entry.id)} />
       </TranscriptRow>
     );
   }
   if (entry.type === "artifact") {
     return (
-      <TranscriptRow lane="assistant" reserveAvatarSpace={reserveAvatarSpace} showAvatar={showAvatar}>
+      <TranscriptRow avatarActivity={avatarActivity} avatarAnimated={avatarAnimated} lane="assistant" reserveAvatarSpace={reserveAvatarSpace} showAvatar={showAvatar}>
         <ArtifactReferenceCard item={entry.item} onOpenDetail={onOpenDetail} />
       </TranscriptRow>
     );
   }
   if (entry.type === "task") {
     return (
-      <TranscriptRow lane="assistant" reserveAvatarSpace={reserveAvatarSpace} showAvatar={showAvatar}>
+      <TranscriptRow avatarActivity={avatarActivity} avatarAnimated={avatarAnimated} lane="assistant" reserveAvatarSpace={reserveAvatarSpace} showAvatar={showAvatar}>
         <TaskReferenceCard
           taskId={entry.item.task_id}
           onOpenDetail={onOpenDetail}
@@ -433,6 +475,53 @@ function renderTranscriptEntry(
     );
   }
   return <ErrorNotice message={entry.message} recoverable={entry.recoverable} />;
+}
+
+function avatarActivityForAgentStatus(status: ConversationAgentStatus): IdentityAvatarActivity {
+  switch (status) {
+    case "INPUT_RECEIVED":
+    case "WAITING_FOR_PREVIOUS_TURN_COMPLETION":
+    case "INTERRUPTING":
+      return "listening";
+    case "THINKING":
+    case "TOOL_RUNNING":
+      return "thinking";
+    case "IDLE":
+    case "ERROR":
+    case "connecting":
+    case "closed":
+      return "idle";
+  }
+}
+
+function latestAssistantAvatarAnchor(renderedEntries: RenderTranscriptEntry[]) {
+  for (let humanIndex = renderedEntries.length - 1; humanIndex >= 0; humanIndex -= 1) {
+    const humanEntry = renderedEntries[humanIndex];
+    if (humanEntry && transcriptLane(humanEntry) === "human") {
+      const assistantIndex = renderedEntries.findIndex(
+        (entry, index) => index > humanIndex && rendersPrimaryAssistantAvatar(entry)
+      );
+      return assistantIndex === -1
+        ? null
+        : {
+            humanIndex,
+            index: assistantIndex
+          };
+    }
+  }
+  return null;
+}
+
+function conversationAvatarMotion(
+  renderedEntries: RenderTranscriptEntry[],
+  humanIndex: number,
+  agentStatus: ConversationAgentStatus
+) {
+  const hasLiveStream = renderedEntries
+    .slice(humanIndex + 1)
+    .some((entry) => entry.kind === "entry" && entry.entry.type === "assistant_stream");
+  const activity = hasLiveStream ? "idle" : avatarActivityForAgentStatus(agentStatus);
+  return { activity, animated: hasLiveStream || activity !== "idle" } as const;
 }
 
 function DebugMarkerMenu({

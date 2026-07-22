@@ -1,6 +1,7 @@
 import { ChatMessage, ChatMessageBubble, type ChatMessageBubbleProps, type ChatMessageProps } from "@astryxdesign/core/Chat";
 import * as stylex from "@stylexjs/stylex";
 import { TranscriptActorAvatar } from "./TranscriptActorAvatar";
+import type { IdentityAvatarActivity } from "../IdentityAvatar";
 import type { ChatBubbleGroup } from "./renderModel";
 
 type TranscriptChatBubbleRole = "user" | "assistant" | "input";
@@ -69,6 +70,8 @@ const styles = stylex.create({
 });
 
 export function TranscriptChatBubble({
+  avatarActivity = "idle",
+  avatarAnimated = false,
   children,
   group,
   role,
@@ -77,6 +80,8 @@ export function TranscriptChatBubble({
   variant = "message",
   interactive = false
 }: {
+  avatarActivity?: IdentityAvatarActivity;
+  avatarAnimated?: boolean;
   children: React.ReactNode;
   group?: ChatBubbleGroup;
   role: TranscriptChatBubbleRole;
@@ -91,7 +96,14 @@ export function TranscriptChatBubble({
   return (
     <ChatMessage
       sender={sender}
-      avatar={reserveAvatarSpace ? <TranscriptActorAvatar lane={lane} visible={showAvatar} /> : undefined}
+      avatar={reserveAvatarSpace ? (
+        <TranscriptActorAvatar
+          activity={avatarActivity}
+          animated={avatarAnimated}
+          lane={lane}
+          visible={showAvatar}
+        />
+      ) : undefined}
       xstyle={chatMessageXStyle(styles.message, !reserveAvatarSpace && styles.messageWithoutAvatar)}
     >
       <ChatMessageBubble

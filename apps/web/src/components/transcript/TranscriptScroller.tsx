@@ -6,7 +6,7 @@ import { AnimatePresence, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
 import { animateScrollToBottom } from "@/motion/scroll";
 import { springs } from "@/motion/springs";
-import { renderedEntryMessageId, type RenderTranscriptEntry } from "./renderModel";
+import { renderedEntryKey, renderedEntryMessageId, type RenderTranscriptEntry } from "./renderModel";
 import { BOTTOM_SCROLL_THRESHOLD_PX } from "./scrollModel";
 import { shouldLoadBeforeFromVirtualItems, transcriptBottomAnchorOffset } from "./transcriptScrollerModel";
 
@@ -253,7 +253,7 @@ export function TranscriptScroller({
     followOnAppend: "auto",
     scrollEndThreshold: BOTTOM_SCROLL_THRESHOLD_PX,
     overscan: 8,
-    getItemKey: (index) => renderedEntryMessageId(entries[index])
+    getItemKey: (index) => renderedEntryKey(entries[index])
   });
   const virtualItems = rowVirtualizer.getVirtualItems();
   const totalSize = rowVirtualizer.getTotalSize();

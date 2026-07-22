@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import BoringAvatar from "boring-avatars";
+import Avatar, { type AvatarActivity } from "@kpsuperplane/boring-avatars";
 
 export const NOEMA_AVATAR_COLORS = ["#3b4a6b", "#7d6a91", "#b9786d", "#d6ad6b", "#e6d8c4", "#2f3440"];
 
@@ -7,6 +7,7 @@ export const LOCAL_HUMAN_AVATAR_ID = "human:local";
 export const LOCAL_AGENT_AVATAR_ID = "agent:local";
 
 export type IdentityAvatarActorType = "agent" | "human";
+export type IdentityAvatarActivity = AvatarActivity;
 const CLASS_NAME_PROP = "className";
 
 export function avatarSeedForActorId(actorId: string): string {
@@ -57,13 +58,19 @@ const styles = stylex.create({
 });
 
 export function IdentityAvatar({
+  activity = "idle",
   actorId,
   actorType,
+  animated = false,
+  audioLevel,
   className,
   size = "default"
 }: {
+  activity?: IdentityAvatarActivity;
   actorId: string;
   actorType: IdentityAvatarActorType;
+  animated?: boolean;
+  audioLevel?: number;
   className?: string;
   size?: "xs" | "default" | "sm" | "lg";
 }) {
@@ -90,9 +97,12 @@ export function IdentityAvatar({
       data-avatar-variant={avatarVariant}
       role="img"
     >
-      <BoringAvatar
+      <Avatar
         {...avatarClassNameProp}
+        activity={activity}
+        animated={animated}
         aria-hidden="true"
+        audioLevel={audioLevel}
         colors={NOEMA_AVATAR_COLORS}
         focusable="false"
         name={avatarSeed}

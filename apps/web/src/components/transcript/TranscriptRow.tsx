@@ -1,4 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
+import type { IdentityAvatarActivity } from "../IdentityAvatar";
 import type { TranscriptLane } from "./renderModel";
 import { TranscriptActorAvatar } from "./TranscriptActorAvatar";
 
@@ -43,11 +44,15 @@ const styles = stylex.create({
 });
 
 export function TranscriptRow({
+  avatarActivity = "idle",
+  avatarAnimated = false,
   lane,
   showAvatar = true,
   reserveAvatarSpace = true,
   children
 }: {
+  avatarActivity?: IdentityAvatarActivity;
+  avatarAnimated?: boolean;
   lane: TranscriptLane;
   showAvatar?: boolean;
   reserveAvatarSpace?: boolean;
@@ -55,7 +60,14 @@ export function TranscriptRow({
 }) {
   return (
     <div {...stylex.props(styles.root, lane === "human" && styles.human, !reserveAvatarSpace && styles.withoutAvatar)} data-lane={lane}>
-      {reserveAvatarSpace ? <TranscriptActorAvatar lane={lane} visible={showAvatar} /> : null}
+      {reserveAvatarSpace ? (
+        <TranscriptActorAvatar
+          activity={avatarActivity}
+          animated={avatarAnimated}
+          lane={lane}
+          visible={showAvatar}
+        />
+      ) : null}
       <div {...stylex.props(
         styles.content,
         lane === "human" && styles.humanContent,

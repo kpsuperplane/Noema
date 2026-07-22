@@ -3,10 +3,12 @@ import { ContextMenu } from "@astryxdesign/core/ContextMenu";
 import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
+import type { IdentityAvatarActivity } from "../IdentityAvatar";
 import type { ProviderUsageDebug } from "./debugUsage";
 import { ExpandableTextBubbleContent } from "./ExpandableTextBubble";
 import { TranscriptChatBubble } from "./TranscriptChatBubble";
 import type { ChatBubbleGroup } from "./renderModel";
+import { TypingMessageContent } from "./TypingMessage";
 
 type MarkdownXStyle = MarkdownProps["xstyle"];
 type MarkdownComponents = NonNullable<MarkdownProps["components"]>;
@@ -77,21 +79,27 @@ const userMarkdownComponents: MarkdownComponents = {
 
 export function Message({
   animate,
+  avatarActivity = "idle",
+  avatarAnimated = false,
   group,
   role,
   text,
   showAvatar,
   reserveAvatarSpace = true,
+  variant = "message",
   debugUsage = null,
   onDebug,
   attachment
 }: {
   animate: boolean;
+  avatarActivity?: IdentityAvatarActivity;
+  avatarAnimated?: boolean;
   group?: ChatBubbleGroup;
   role: "user" | "assistant";
   text: string;
   showAvatar: boolean;
   reserveAvatarSpace?: boolean;
+  variant?: "message" | "typing";
   debugUsage?: ProviderUsageDebug | null;
   onDebug?: () => void;
   attachment?: ReactNode;
@@ -100,18 +108,25 @@ export function Message({
   const [overflowing, setOverflowing] = React.useState(false);
   const bubble = (
     <TranscriptChatBubble
+      avatarActivity={avatarActivity}
+      avatarAnimated={avatarAnimated}
       group={group}
-      interactive={overflowing && !expanded}
+      interactive={variant === "message" && overflowing && !expanded}
       reserveAvatarSpace={reserveAvatarSpace}
       role={role}
       showAvatar={showAvatar}
+      variant={variant}
     >
-      <div {...stylex.props(styles.content)}>
-        <ExpandableTextBubbleContent onExpandedChange={setExpanded} onOverflowChange={setOverflowing}>
-          <MessageMarkdown animate={animate} role={role} text={text} />
-        </ExpandableTextBubbleContent>
-        {attachment ? <div {...stylex.props(styles.attachment)}>{attachment}</div> : null}
-      </div>
+      {variant === "typing" ? (
+        <TypingMessageContent />
+      ) : (
+        <div {...stylex.props(styles.content)}>
+          <ExpandableTextBubbleContent onExpandedChange={setExpanded} onOverflowChange={setOverflowing}>
+            <MessageMarkdown animate={animate} role={role} text={text} />
+          </ExpandableTextBubbleContent>
+          {attachment ? <div {...stylex.props(styles.attachment)}>{attachment}</div> : null}
+        </div>
+      )}
     </TranscriptChatBubble>
   );
 

@@ -1,5 +1,10 @@
 import * as stylex from "@stylexjs/stylex";
-import { IdentityAvatar, LOCAL_AGENT_AVATAR_ID, LOCAL_HUMAN_AVATAR_ID } from "../IdentityAvatar";
+import {
+  IdentityAvatar,
+  LOCAL_AGENT_AVATAR_ID,
+  LOCAL_HUMAN_AVATAR_ID,
+  type IdentityAvatarActivity
+} from "../IdentityAvatar";
 import type { TranscriptLane } from "./renderModel";
 
 const styles = stylex.create({
@@ -22,9 +27,13 @@ const styles = stylex.create({
 });
 
 export function TranscriptActorAvatar({
+  activity = "idle",
+  animated = false,
   lane,
   visible = true
 }: {
+  activity?: IdentityAvatarActivity;
+  animated?: boolean;
   lane: TranscriptLane;
   visible?: boolean;
 }) {
@@ -33,7 +42,13 @@ export function TranscriptActorAvatar({
 
   return (
     <span {...stylex.props(styles.root, !visible && styles.hidden)} aria-hidden={!visible}>
-      <IdentityAvatar actorId={actorId} actorType={actorType} size="sm" />
+      <IdentityAvatar
+        activity={activity}
+        actorId={actorId}
+        actorType={actorType}
+        animated={animated && visible}
+        size="sm"
+      />
     </span>
   );
 }

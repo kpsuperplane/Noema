@@ -1,5 +1,4 @@
 import * as stylex from "@stylexjs/stylex";
-import { TranscriptChatBubble } from "./TranscriptChatBubble";
 
 const dotAnimation = {
   animationDuration: "1s",
@@ -35,25 +34,12 @@ const styles = stylex.create({
   }
 });
 
-export function TypingMessage({
-  showAvatar,
-  reserveAvatarSpace = true
-}: {
-  showAvatar: boolean;
-  reserveAvatarSpace?: boolean;
-}) {
+export function TypingMessageContent() {
   return (
-    <TranscriptChatBubble
-      reserveAvatarSpace={reserveAvatarSpace}
-      role="assistant"
-      showAvatar={showAvatar}
-      variant="typing"
-    >
-      <div {...stylex.props(styles.content)} aria-label="Noema is typing" role="status">
-        <span {...stylex.props(styles.dot, styles.firstDot)} />
-        <span {...stylex.props(styles.dot, styles.secondDot)} />
-        <span {...stylex.props(styles.dot)} />
-      </div>
-    </TranscriptChatBubble>
+    <div {...stylex.props(styles.content)} aria-label="Noema is typing" role="status">
+      <span {...stylex.props(styles.dot, styles.firstDot)} />
+      <span {...stylex.props(styles.dot, styles.secondDot)} />
+      <span {...stylex.props(styles.dot)} />
+    </div>
   );
 }
