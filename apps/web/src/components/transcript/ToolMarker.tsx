@@ -5,8 +5,7 @@ import { RollingText } from "@/components/RollingText";
 import {
   toolMarkerExpandable,
   toolMarkerName,
-  toolMarkerPending,
-  toolMarkerTarget
+  toolMarkerPending
 } from "./markerModel";
 import type { ToolMarkerGroup } from "./renderModel";
 import { ToolDetailAttachment } from "./ToolDetailAttachment";
@@ -29,7 +28,6 @@ type ToolMarkerCall = {
   name: string;
   status: ToolMarkerCallStatus;
   expandable: boolean;
-  target?: string;
   errorMessage?: string;
   resultDetail?: ReactNode;
 };
@@ -125,10 +123,6 @@ const styles = stylex.create({
     WebkitLineClamp: 2,
     fontFamily: "var(--noema-font-body)",
     whiteSpace: "normal"
-  },
-  target: {
-    flexShrink: 10,
-    color: "var(--noema-text-faint)"
   },
   chevron: {
     display: "inline-flex",
@@ -370,13 +364,6 @@ function ToolMarkerRowContent({
           {call.name}
         </span>
       )}
-      {animateText ? (
-        <RollingText value={call.target ?? ""} {...stylex.props(styles.target)} data-slot="tool-marker-target" />
-      ) : call.target ? (
-        <span {...stylex.props(styles.text, styles.target)} data-slot="tool-marker-target">
-          {call.target}
-        </span>
-      ) : null}
       {call.expandable && showChevron ? (
         <span {...stylex.props(styles.chevron, open && styles.chevronOpen)} aria-hidden="true">
           <ChevronDownIcon size={14} strokeWidth={2} />
@@ -432,7 +419,6 @@ function latestActiveCall(calls: ToolMarkerCall[]): ToolMarkerCall | undefined {
 }
 
 function activityToolMarkerCall(marker: ToolMarkerGroup): ToolMarkerCall {
-  const target = toolMarkerTarget(marker);
   const expandable = toolMarkerExpandable(marker);
   const errorMessage =
     marker.result?.item.status === "FAILED" ? marker.result.item.summary ?? marker.result.item.title : undefined;
@@ -447,9 +433,6 @@ function activityToolMarkerCall(marker: ToolMarkerGroup): ToolMarkerCall {
     call.resultDetail = <ToolDetailAttachment id={`${marker.id}-details`} marker={marker} />;
   }
 
-  if (target) {
-    call.target = target;
-  }
   if (errorMessage) {
     call.errorMessage = errorMessage;
   }

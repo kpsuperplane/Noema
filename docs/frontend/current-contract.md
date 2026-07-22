@@ -121,7 +121,8 @@ Current behavior:
   the compact tool marker. Consecutive tool calls from the same agent collapse
   to the newest call that has not completed; once every call is terminal, the
   summary retains the call it was already showing. Expanding the group restores
-  each individual marker and its exact tool identity.
+  each individual marker and its exact tool identity. Compact markers show only
+  status and the primary call name; targets and results remain in disclosure.
 - Collapsed tool-group labels and live task-stage badge labels use the shared
   rolling text transition for state changes. Words cross-fade vertically while
   their container width adjusts. Collapsed transcripts represent one or many
