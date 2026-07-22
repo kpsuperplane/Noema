@@ -2,10 +2,10 @@ import * as stylex from "@stylexjs/stylex";
 import {
   AlertCircle,
   CircleCheck,
-  CircleDot,
   Clock3,
   LoaderCircle,
   RotateCcw,
+  Search,
   UserRound,
   X
 } from "lucide-react";
@@ -15,7 +15,7 @@ export function TaskStatusIcon({ status, size = 12 }: { status: TaskStatus; size
   const props = { "aria-hidden": true, size, strokeWidth: 2 } as const;
   const icon = status === "queued" ? <Clock3 {...props} />
     : status === "executing" ? <LoaderCircle {...props} />
-    : status === "reviewing" ? <CircleDot {...props} />
+    : status === "reviewing" ? <Search {...props} />
     : status === "revision_requested" ? <RotateCcw {...props} />
     : status === "waiting_for_human" ? <UserRound {...props} />
     : status === "done" ? <CircleCheck {...props} />

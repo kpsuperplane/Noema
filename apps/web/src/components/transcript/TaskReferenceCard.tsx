@@ -48,8 +48,8 @@ export function TaskReferenceCard({
   const open = opensDetail && taskTarget ? () => onOpenDetail?.(taskTarget) : undefined;
   const status = taskChipStatus(task);
   const statusStyle = status === "done" ? styles.successIcon
-    : status === "executing" ? styles.activeIcon
-    : status === "reviewing" || status === "revision_requested" || status === "waiting_for_human" ? styles.attentionIcon
+    : status === "executing" || status === "reviewing" ? styles.activeIcon
+    : status === "revision_requested" || status === "waiting_for_human" ? styles.attentionIcon
     : status === "failed" || !status ? styles.errorIcon
     : styles.neutralIcon;
 
