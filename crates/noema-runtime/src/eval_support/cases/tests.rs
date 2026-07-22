@@ -66,6 +66,8 @@ fn task_cases_render_the_production_work_context_contract() {
                 !prompt.contains("Authenticated source request:"),
                 "{case_id} received source context outside planning"
             );
+        } else {
+            assert!(prompt.contains("one primary recommendation and at most two alternatives"));
         }
     }
 }
