@@ -130,6 +130,8 @@ Current behavior:
   consecutive calls through the same cluster path and preserve the first call's
   render identity. A one-call cluster sends disclosure directly to that call;
   later calls activate the group disclosure without remounting the summary.
+  Tool-stack disclosure uses direction-aware easing and snaps immediately for
+  reduced-motion preferences.
   Reduced-motion preferences replace text immediately.
 - The shared shell title row keeps the white-to-transparent content scrim on
   home chat. Other routed surfaces use an opaque title row with a hard bottom
