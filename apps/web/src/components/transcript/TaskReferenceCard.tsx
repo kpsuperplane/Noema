@@ -58,15 +58,17 @@ export function TaskReferenceCard({
       variant="ghost"
       xstyle={buttonXStyle(styles.chip)}
     >
-      {completed ? (
-        <CircleCheck aria-hidden="true" size={14} strokeWidth={2} {...stylex.props(styles.completedIcon)} />
-      ) : null}
-      <span {...stylex.props(styles.chipTitle)}>{title}</span>
-      {completed ? null : (
-        <span aria-hidden="true" {...stylex.props(styles.chipProgress)}>
-          {chipProgressLine}
-        </span>
-      )}
+      <span {...stylex.props(styles.chipContent)}>
+        {completed ? (
+          <CircleCheck aria-hidden="true" size={14} strokeWidth={2} {...stylex.props(styles.completedIcon)} />
+        ) : null}
+        <span {...stylex.props(styles.chipTitle)}>{title}</span>
+        {completed ? null : (
+          <span aria-hidden="true" {...stylex.props(styles.chipProgress)}>
+            {chipProgressLine}
+          </span>
+        )}
+      </span>
     </Button>
   );
 }
@@ -87,7 +89,8 @@ function buttonXStyle(...xstyle: unknown[]): ButtonXStyle {
 
 const styles = stylex.create({
   chip: { maxWidth: "100%", justifyContent: "flex-start", gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 999, backgroundColor: "color-mix(in srgb, var(--noema-surface-card) 72%, transparent)", paddingInline: "var(--spacing-2)", color: "var(--noema-text-primary)", boxShadow: "none", ":hover": { backgroundColor: "var(--noema-surface-hover)" } },
-  completedIcon: { color: "var(--noema-pine-700)" },
+  chipContent: { display: "inline-flex", maxWidth: "100%", minWidth: 0, alignItems: "center", gap: "var(--spacing-1)" },
+  completedIcon: { flexShrink: 0, color: "var(--noema-pine-700)" },
   chipTitle: { minWidth: 0, overflow: "hidden", fontSize: 11, fontWeight: 650, textOverflow: "ellipsis", whiteSpace: "nowrap" },
   chipProgress: { flexShrink: 0, color: "var(--noema-text-muted)", fontSize: 10, fontWeight: 500 }
 });
