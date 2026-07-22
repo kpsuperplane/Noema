@@ -55,6 +55,7 @@ export function ChatDetailRail({
   }, [taskTargetId]);
   React.useEffect(() => {
     if (!isModal) {
+      returnFocusRef.current = null;
       return;
     }
     if (isPresent && returnFocusRef.current === null && document.activeElement instanceof HTMLElement) {
@@ -130,9 +131,11 @@ export function ChatDetailRail({
       tabIndex={isModal ? -1 : undefined}
       onKeyDown={handleKeyDown}
       onAnimationComplete={(definition) => {
-        if (definition === "visible" && isModal && isPresent) {
+        if (definition === "visible") {
           hasEnteredRef.current = true;
-          closeButtonRef.current?.focus({ preventScroll: true });
+          if (isModal && isPresent) {
+            closeButtonRef.current?.focus({ preventScroll: true });
+          }
         }
       }}
     >

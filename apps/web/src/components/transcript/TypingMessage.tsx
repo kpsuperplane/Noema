@@ -22,7 +22,10 @@ const styles = stylex.create({
     height: 6,
     borderRadius: 999,
     backgroundColor: "color-mix(in srgb, var(--muted-foreground) 70%, transparent)",
-    ...dotAnimation
+    ...dotAnimation,
+    "@media (prefers-reduced-motion: reduce)": {
+      animationName: "none"
+    }
   },
   firstDot: {
     animationDelay: "-0.24s"

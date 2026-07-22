@@ -105,6 +105,13 @@ export function ChatSurface({
     maxSizePx: 640,
     autoSaveId: "noema-chat-detail-rail"
   });
+  const detailRailResizeProps = React.useMemo<ResizeHandleProps["resizable"]>(() => ({
+    ...detailRail.props,
+    _onResizeStart: () => {
+      setDetailPresenceAnimating(false);
+      detailRail.props._onResizeStart();
+    }
+  }), [detailRail.props]);
 
   React.useLayoutEffect(() => {
     const dock = composerDockRef.current;
@@ -227,7 +234,7 @@ export function ChatSurface({
           <ChatDetailResizeHandle
             key="chat-detail-resize-handle"
             railSize={detailRail.size}
-            resizable={detailRail.props}
+            resizable={detailRailResizeProps}
           />
         ) : null}
       </AnimatePresence>

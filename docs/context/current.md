@@ -223,6 +223,10 @@ subagents, reviews, and size measurement.
   exist. Backend field availability is not a requirement to display a field.
 - Frontend generated GraphQL and route artifacts are generated, never edited by
   hand.
+- Finite frontend motion uses the shared critically damped `micro`, `standard`,
+  and `surface` presets plus sampled CSS/Astryx tokens. Periodic work signals are
+  the only time-based exception and stop under reduced motion; gesture and
+  scrolling springs remain interruptible and preserve semantic state authority.
 
 ## Open Loops
 

@@ -116,6 +116,35 @@ the focal action, essential context, and information order must survive. Test
 long and short content, not only the convenient fixture that inspired the
 change.
 
+## Motion
+
+Motion communicates a finite state change; it does not decorate stable content.
+Use the shared critically damped presets from `apps/web/src/motion/springs.ts`
+and their sampled CSS tokens instead of local durations or easing curves:
+
+| Preset | Physics | Use |
+| --- | --- | --- |
+| `micro` | mass 1, stiffness 900, damping 60 | hover feedback, chevrons, and compact visibility changes |
+| `standard` | mass 1, stiffness 400, damping 40 | replacement, arrival, disclosure, and automatic scrolling |
+| `surface` | mass 1, stiffness 225, damping 30 | shell composition, swipe settlement, rails, and meaningful reflow |
+
+A finite response gets exactly one preset. Preserve pointer position and
+velocity when a gesture hands control to a spring, and let a new state interrupt
+the current response from its current value. Do not add timeouts, retained
+render states, or animation-end state machines when Motion presence can own the
+visual lifecycle. Exiting interactive content becomes inert and leaves the
+accessibility tree when semantic state ends.
+
+Periodic indicators remain time-based because their cadence communicates
+ongoing work: spinners, typing dots, progress signals, and glimmers are the
+approved exceptions. They stop under reduced motion. Reduced motion also sets
+sampled spring durations to zero and applies final geometry immediately without
+changing focus, scroll destination, mounted product state, or information order.
+
+Keep virtualizer positioning transforms outside animated descendants. Automatic
+scrolling uses the shared monotonic `standard` spring against the live clamped
+bottom and yields immediately to wheel, pointer, touch, or keyboard ownership.
+
 ## Review Gate
 
 Before calling a visual change complete, answer these questions:

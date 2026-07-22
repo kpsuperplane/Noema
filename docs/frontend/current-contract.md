@@ -138,14 +138,25 @@ Current behavior:
   status, a structured web-tool icon when applicable, and the primary call
   subject; targets and results remain in disclosure.
 - Collapsed tool-group labels and live task-stage badge labels use the shared
-  rolling text transition for state changes. Words cross-fade vertically while
-  their container width adjusts. Collapsed transcripts represent one or many
+  critically damped rolling-text response for state changes. Words replace
+  vertically with a `micro` response while their container width uses
+  `standard`. Collapsed transcripts represent one or many
   consecutive calls through the same cluster path and preserve the first call's
   render identity. A one-call cluster sends disclosure directly to that call;
   later calls activate the group disclosure without remounting the summary.
-  Tool-stack disclosure uses a long-tail ease-out and snaps immediately for
-  reduced-motion preferences.
-  Reduced-motion preferences replace text immediately.
+  Tool-stack and activity disclosure use interruptible `standard` presence;
+  outgoing controls become inert immediately. Reduced-motion preferences apply
+  final geometry and text immediately.
+- Finite frontend motion uses the three shared critically damped `micro`,
+  `standard`, and `surface` presets. The shell and detail rail use `surface`;
+  transcript arrival, disclosure, replacement, and owned scrolling use
+  `standard`; compact feedback uses `micro`. CSS consumers and Astryx duration
+  tokens use sampled counterparts of the same responses.
+- Transcript arrival animates inside the virtualized row so TanStack Virtual's
+  positioning transform remains authoritative. Bottom-following targets the
+  live clamped bottom with a monotonic spring and cancels immediately when the
+  human takes scroll ownership. Spinners, typing dots, progress indicators, and
+  glimmers remain time-based signals and stop under reduced motion.
 - The shared shell title row keeps the white-to-transparent content scrim on
   home chat. Other routed surfaces use an opaque title row with a hard bottom
   divider, and their body and scroll viewport begin below the shared header.

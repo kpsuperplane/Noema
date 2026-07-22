@@ -240,6 +240,18 @@
 }
 
 [data-astryx-theme="neutral"] {
+  --duration-fast-min: var(--motion-spring-micro-duration);
+  --duration-fast: var(--motion-spring-micro-duration);
+  --duration-fast-max: var(--motion-spring-micro-duration);
+  --duration-medium-min: var(--motion-spring-standard-duration);
+  --duration-medium: var(--motion-spring-standard-duration);
+  --duration-medium-max: var(--motion-spring-standard-duration);
+  --duration-slow-min: var(--motion-spring-surface-duration);
+  --duration-slow: var(--motion-spring-surface-duration);
+  --duration-slow-max: var(--motion-spring-surface-duration);
+  --ease-standard: var(--motion-spring-critical-easing);
+  --transition-fast: var(--motion-spring-micro);
+  --transition-normal: var(--motion-spring-standard);
   --font-family-body: var(--noema-font-body);
   --font-family-heading: var(--noema-font-display);
   --font-family-code: var(--noema-font-mono);
