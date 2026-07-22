@@ -18,7 +18,6 @@ import {
   shouldContinueRenderedEntryTextAnimation,
   shouldAnimateRenderedEntryTextForSeen,
   shouldCompactMarkerClusterSpacing,
-  collapseTaskReferenceEntries,
   type ChatBubbleGroup,
   type RenderTranscriptEntry
 } from "./renderModel";
@@ -87,9 +86,8 @@ export function Transcript({
   ariaLabel?: string;
 }) {
   void awaitingAssistantTurn;
-  const displayEntries = React.useMemo(() => collapseTaskReferenceEntries(entries), [entries]);
   const renderedEntries = renderableTranscriptEntries(
-    displayEntries,
+    entries,
     pending,
     agentStatus,
     collapseConsecutiveToolCalls
@@ -163,6 +161,7 @@ export function Transcript({
           const previousLane = previousEntry ? transcriptLane(previousEntry) : null;
           const showAvatar = showActorAvatars && previousLane !== lane;
           const bubbleGroup = renderedChatBubbleGroup(entry, previousEntry, nextEntry);
+          const connectedTaskReference = isConnectedTaskReference(renderedEntries, index);
           const messageId = renderedEntryMessageId(entry);
           const animateArrival = shouldAnimateRenderedEntryArrivalForSeen(entry, messageId, seenArrivalMessageIds);
           const animateText = shouldAnimateRenderedEntryTextForSeen(
@@ -178,6 +177,7 @@ export function Transcript({
               align={lane === "human" ? "end" : "start"}
               compact={
                 shouldCompactMarkerClusterSpacing(entry, previousEntry) ||
+                connectedTaskReference ||
                 bubbleGroup === "middle" ||
                 bubbleGroup === "last"
               }
@@ -188,7 +188,7 @@ export function Transcript({
               <RenderedTranscriptEntryFrame lane={lane}>
                 {renderTranscriptRenderEntry(
                   entry,
-                  displayEntries,
+                  entries,
                   expandedActivities,
                   onToggleActivity,
                   onSubmitMultipleChoiceSelection,
@@ -219,6 +219,25 @@ export function Transcript({
       />
     </TranscriptScrollerProvider>
   );
+}
+
+function isConnectedTaskReference(entries: RenderTranscriptEntry[], index: number): boolean {
+  const current = entries[index];
+  if (current?.kind !== "entry" || current.entry.type !== "task" || !current.entry.turnId) {
+    return false;
+  }
+
+  for (let previousIndex = index - 1; previousIndex >= 0; previousIndex -= 1) {
+    const previous = entries[previousIndex];
+    if (previous?.kind !== "entry" || previous.entry.turnId !== current.entry.turnId) {
+      return false;
+    }
+    if (previous.entry.type === "task") {
+      continue;
+    }
+    return previous.entry.type === "assistant";
+  }
+  return false;
 }
 
 function transcriptLane(entry: RenderTranscriptEntry) {

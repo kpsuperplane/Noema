@@ -113,6 +113,10 @@ Current behavior:
   history.
 - `conversation_items` include user text, assistant text, durable activity rows,
   A2UI cards, tool calls/results, approvals, and meaningful errors.
+- Every durable task reference remains at its stored transcript position and
+  hydrates current task state. A contiguous run immediately following
+  same-turn assistant text uses compact attachment spacing; references without
+  that concrete relationship remain standalone.
 - Task executors may emit one concise user-visible commentary sentence before a
   non-terminal tool batch; it is rendered as an assistant bubble while the
   adjacent tool calls remain grouped and individually expandable. Hidden

@@ -1,5 +1,6 @@
 //! Focused transactional tests for the semantic Work command writer.
 
+use noema_conversations::{ConversationItemKind, ReplayMode};
 use noema_tasks::{
     AnswerTask, CaptureTask, CommandMeta, CreateProject, CriterionOutcome, DelegateExecutionIntent,
     DelegateTask, NewTaskReview, NewTaskSubmission, NewTaskValidationCriterion, QueueTask,
@@ -11,10 +12,11 @@ use noema_tasks::{
 use noema_workspaces::WorkspaceId;
 
 use crate::{
-    GovernedActionDecision, GovernedActionEffect, GovernedActionState, GovernedAssessmentStatus,
-    NewGovernedAction, NewGovernedActionAssessment, NoemaStore, ReportRunFailure, StoreError,
-    SubmitTaskResult, SubmitTaskReview, WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN,
-    WorkCommandService, WorkRunFence, WorkRunTerminal,
+    CompleteWorkNotification, GovernedActionDecision, GovernedActionEffect, GovernedActionState,
+    GovernedAssessmentStatus, NewGovernedAction, NewGovernedActionAssessment, NoemaStore,
+    ReportRunFailure, StoreError, SubmitTaskResult, SubmitTaskReview,
+    WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN, WorkCommandService, WorkNotificationLeaseRequest,
+    WorkRunFence, WorkRunTerminal,
     test_support::{
         initialize_codex_provider_selections, open_ephemeral_store, ready_hosted_provider_registry,
     },
@@ -248,6 +250,71 @@ async fn assert_source_replay(kind: SourceReplayKind) {
         SourceReplayKind::Delegate => "delegate-source",
     };
     assert_one_durable_row(&store, &format!("SELECT COUNT(*) FROM tasks WHERE source_conversation_id = 'conversation:{source_kind}' AND source_tool_call_id = 'tool_call:same-source'")).await;
+}
+
+#[tokio::test]
+async fn task_created_notification_uses_matching_chat_source_turn_only() {
+    let (store, service) = fixture().await;
+    store
+        .with_connection(|connection| {
+            connection.execute(
+                "UPDATE humans SET primary_conversation_id = 'conversation:capture-source' WHERE human_id = 'human:local'",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("use capture source as primary conversation");
+
+    let chat_task = task!(
+        service,
+        sourced_capture("idem:notification:chat", "notification-chat"),
+        "capture chat task"
+    );
+    let work_ui_task = task!(
+        service,
+        capture("idem:notification:work-ui", "Work UI notification"),
+        "capture Work UI task"
+    );
+    let notifications = store
+        .claim_work_notifications(WorkNotificationLeaseRequest {
+            worker_id: "worker:notification-turn-test".to_string(),
+            lease_seconds: 30,
+            limit: 2,
+        })
+        .await
+        .expect("claim creation notifications");
+    assert_eq!(notifications.len(), 2);
+    for notification in notifications {
+        store
+            .complete_work_notification(CompleteWorkNotification {
+                notification_id: notification.notification_id,
+                lease_token: notification.lease_token,
+                conversation_id: "conversation:capture-source".to_string(),
+            })
+            .await
+            .expect("deliver creation notification");
+    }
+
+    let references = store
+        .list_conversation_items("conversation:capture-source", ReplayMode::Visible)
+        .await
+        .expect("load delivered references")
+        .into_iter()
+        .filter(|item| item.kind == ConversationItemKind::TaskReference)
+        .collect::<Vec<_>>();
+    assert_eq!(references.len(), 2);
+    let reference_for = |task_id: &noema_tasks::TaskId| {
+        references
+            .iter()
+            .find(|item| item.payload_json["task_id"] == task_id.as_str())
+            .expect("task reference")
+    };
+    assert_eq!(
+        reference_for(&chat_task.task_id).turn_id.as_deref(),
+        Some("turn:capture-source")
+    );
+    assert!(reference_for(&work_ui_task.task_id).turn_id.is_none());
 }
 
 #[tokio::test]

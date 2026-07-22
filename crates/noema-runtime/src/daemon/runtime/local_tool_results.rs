@@ -211,8 +211,51 @@ pub(super) fn local_tool_task_reference_item(
     if !crate::daemon::task_tool::is_primary_task_tool(&result.name) || !result.success {
         return None;
     }
+    if matches!(
+        result.name.as_str(),
+        crate::daemon::task_tool::TASK_CAPTURE_TOOL | crate::daemon::task_tool::TASK_DELEGATE_TOOL
+    ) {
+        return None;
+    }
     let task = result.payload.get("task")?;
     Some(TurnTranscriptItem::TaskReference {
         task_id: task.get("task_id")?.as_str()?.to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn successful_task_result(name: &str) -> LocalToolResult {
+        LocalToolResult {
+            call_id: Some("call:task".to_string()),
+            provider_call_id: None,
+            provider_name: None,
+            name: name.to_string(),
+            arguments: json!({}),
+            persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
+            success: true,
+            payload: json!({"task": {"task_id": "task:test"}}),
+            requires_provider_continuation: true,
+            blocked_action_id: None,
+            kind: LocalToolKind::Gateway,
+        }
+    }
+
+    #[test]
+    fn creation_tools_wait_for_notification_reference() {
+        for name in [
+            crate::daemon::task_tool::TASK_CAPTURE_TOOL,
+            crate::daemon::task_tool::TASK_DELEGATE_TOOL,
+        ] {
+            assert!(local_tool_task_reference_item(&successful_task_result(name)).is_none());
+        }
+        assert!(matches!(
+            local_tool_task_reference_item(&successful_task_result(
+                crate::daemon::task_tool::TASK_UPDATE_TOOL
+            )),
+            Some(TurnTranscriptItem::TaskReference { task_id }) if task_id == "task:test"
+        ));
+    }
 }

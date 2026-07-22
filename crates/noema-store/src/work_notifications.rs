@@ -10,7 +10,8 @@ use std::str::FromStr;
 
 use noema_conversations::{ConversationItemKind, ConversationItemRecord, ConversationItemStatus};
 use noema_tasks::{
-    NotificationDestination, NotificationKind, TaskId, WorkDomainError, WorkEventPayload,
+    NotificationDestination, NotificationKind, TaskId, TaskSourceKind, WorkDomainError,
+    WorkEventPayload,
 };
 use ring::digest::{SHA256, digest};
 use rusqlite::{OptionalExtension, Transaction, params};
@@ -318,6 +319,14 @@ fn insert_notification_item_tx(
     let task = load_task(transaction, &task_id)?.ok_or_else(|| StoreError::InvariantViolation {
         message: "task notification references a missing task".to_string(),
     })?;
+    let source_turn_id = (notification_kind == NotificationKind::TaskCreated
+        && matches!(
+            task.provenance.source_kind,
+            TaskSourceKind::ChatCapture | TaskSourceKind::ChatDelegate
+        )
+        && task.provenance.conversation_id.as_deref() == Some(conversation_id))
+    .then(|| task.provenance.turn_id.clone())
+    .flatten();
     let item_payload = serde_json::json!({ "task_id": task.task_id.as_str() });
     let next_sequence: i64 = transaction.query_row(
         "SELECT COALESCE(MAX(sequence_index), 0) + 1 FROM conversation_items WHERE conversation_id = ?1",
@@ -330,8 +339,8 @@ fn insert_notification_item_tx(
         "work_notification": notification_payload,
     });
     let inserted = transaction.execute(
-        "INSERT INTO conversation_items (item_id, conversation_id, sequence_index, kind, status, author_actor_id, content_text, payload_json, metadata_json) VALUES (?1, ?2, ?3, 'task_reference', 'completed', 'actor:store:notification', NULL, ?4, ?5) ON CONFLICT(item_id) DO NOTHING",
-        params![item_id, conversation_id, next_sequence, item_payload.to_string(), metadata.to_string()],
+        "INSERT INTO conversation_items (item_id, conversation_id, turn_id, sequence_index, kind, status, author_actor_id, content_text, payload_json, metadata_json) VALUES (?1, ?2, ?3, ?4, 'task_reference', 'completed', 'actor:store:notification', NULL, ?5, ?6) ON CONFLICT(item_id) DO NOTHING",
+        params![item_id, conversation_id, source_turn_id, next_sequence, item_payload.to_string(), metadata.to_string()],
     )?;
     let item = load_conversation_item_tx(transaction, &item_id)?.ok_or_else(|| {
         StoreError::InvariantViolation {
@@ -339,7 +348,7 @@ fn insert_notification_item_tx(
         }
     })?;
     let valid = item.conversation_id == conversation_id
-        && item.turn_id.is_none()
+        && item.turn_id == source_turn_id
         && item.kind == ConversationItemKind::TaskReference
         && item.status == ConversationItemStatus::Completed
         && item.content_text.is_none()

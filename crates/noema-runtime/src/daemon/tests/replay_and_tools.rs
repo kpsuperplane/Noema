@@ -278,7 +278,7 @@ async fn runtime_executes_every_homogeneous_delegation_and_uses_provider_handoff
             .iter()
             .filter(|item| item.kind == ConversationItemKind::TaskReference)
             .count(),
-        2
+        0
     );
     assert!(!replay
         .iter()

@@ -1,7 +1,6 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  collapseTaskReferenceEntries,
   renderedChatBubbleGroup,
   renderedEntryMessageId,
   renderableTranscriptEntries
@@ -127,18 +126,6 @@ describe("renderableTranscriptEntries", () => {
       rendered.map((entry) => entry.kind),
       ["entry", "entry"]
     );
-  });
-});
-
-describe("task transcript attachments", () => {
-  test("moves the latest task reference to the conversation edge", () => {
-    const collapsed = collapseTaskReferenceEntries([
-      { id: "task-created", type: "task", item: { kind: "task_reference", task_id: "task:1" } },
-      { id: "receipt", type: "assistant", text: "Started the task." },
-      { id: "task-waiting", type: "task", item: { kind: "task_reference", task_id: "task:1" } }
-    ]);
-
-    assert.deepEqual(collapsed.map((entry) => entry.id), ["receipt", "task-waiting"]);
   });
 });
 
