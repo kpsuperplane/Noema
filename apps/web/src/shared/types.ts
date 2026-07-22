@@ -94,7 +94,7 @@ export type TranscriptEntry =
       debugRoundIndex?: number;
       debugScope?: RuntimeDebugScope;
       metadata?: unknown;
-      taskReference?: Extract<TurnTranscriptItem, { kind: "task_reference" }>;
+      taskReferences?: Extract<TurnTranscriptItem, { kind: "task_reference" }>[];
       text: string;
     }
   | {

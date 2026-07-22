@@ -114,9 +114,9 @@ Current behavior:
 - `conversation_items` include user text, assistant text, durable activity rows,
   A2UI cards, tool calls/results, approvals, and meaningful errors.
 - Every surfaced task reference uses the same compact live task control.
-  Task-creation references remain at their stored transcript position; a
-  contiguous run immediately following same-turn assistant text uses compact
-  attachment spacing, while references without that concrete relationship
+  A contiguous run of task-creation references immediately following same-turn
+  assistant text is embedded inside that message bubble at its stored
+  transcript position. Creation references without that concrete relationship
   remain standalone.
 - Completed, waiting, and recovery task notifications pair deterministically
   with the last assistant message carrying the same notification id. Their

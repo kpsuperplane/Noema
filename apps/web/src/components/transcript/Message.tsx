@@ -63,6 +63,9 @@ const styles = stylex.create({
   },
   attachment: {
     display: "flex",
+    alignItems: "flex-start",
+    flexDirection: "column",
+    gap: "var(--spacing-1)",
     minWidth: 0,
     paddingBlockStart: "var(--spacing-1)"
   }

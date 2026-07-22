@@ -75,7 +75,7 @@ function attachWorkNotificationTasks(entries: TranscriptEntry[]): TranscriptEntr
     }
   });
 
-  return entries.flatMap((entry, index) => {
+  const notificationEntries = entries.flatMap((entry, index) => {
     const notificationId = workNotificationId(entry);
     if (
       entry.type === "task" &&
@@ -86,9 +86,28 @@ function attachWorkNotificationTasks(entries: TranscriptEntry[]): TranscriptEntr
     }
     const reference = notificationId ? references.get(notificationId) : undefined;
     return entry.type === "assistant" && notificationId && reference && messageIndexes.get(notificationId) === index
-      ? [{ ...entry, taskReference: reference.item }]
+      ? [{ ...entry, taskReferences: [reference.item] }]
       : [entry];
   });
+
+  return notificationEntries.reduce<TranscriptEntry[]>((attached, entry) => {
+    if (
+      entry.type === "task" &&
+      entry.turnId &&
+      metadataString(entry.metadata, "notification_kind") === "task_created"
+    ) {
+      const previous = attached.at(-1);
+      if (previous?.type === "assistant" && previous.turnId === entry.turnId) {
+        attached[attached.length - 1] = {
+          ...previous,
+          taskReferences: [...(previous.taskReferences ?? []), entry.item]
+        };
+        return attached;
+      }
+    }
+    attached.push(entry);
+    return attached;
+  }, []);
 }
 
 function workNotificationId(entry: TranscriptEntry): string | undefined {
