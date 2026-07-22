@@ -36,10 +36,34 @@ export function TaskRunTranscriptSource({
   refreshEvent?: { runId: string; sequence: number } | null;
 }) {
   const data = useTaskRunTranscriptData(run, liveItems, refreshEvent);
+  const publishedItemIdsRef = React.useRef<ReadonlySet<string> | null>(null);
+  const arrivalBaselineRef = React.useRef<ReadonlySet<string> | null>(null);
+  const arrivalItemIdsRef = React.useRef<ReadonlySet<string>>(new Set());
+  const handledRefreshSequenceRef = React.useRef<number | null>(null);
 
   React.useEffect(() => {
+    if (
+      refreshEvent?.runId === run.id &&
+      refreshEvent.sequence !== handledRefreshSequenceRef.current
+    ) {
+      handledRefreshSequenceRef.current = refreshEvent.sequence;
+      arrivalBaselineRef.current ??= publishedItemIdsRef.current;
+    }
+
+    const baseline = arrivalBaselineRef.current;
+    if (baseline) {
+      const arrivals = data.arrivalCandidates.filter((item) => !baseline.has(item.id));
+      if (arrivals.length > 0) {
+        arrivalItemIdsRef.current = new Set([
+          ...arrivalItemIdsRef.current,
+          ...arrivals.map((item) => item.id)
+        ]);
+        arrivalBaselineRef.current = null;
+      }
+    }
+
     onSnapshot(run.id, {
-      entries: data.entries,
+      entries: taskRunItemsToTranscriptEntries(data.items, arrivalItemIdsRef.current),
       error: data.error ? "Agent transcript could not be loaded." : null,
       latestItem: data.latestItem,
       loadOlder: data.loadOlder,
@@ -48,7 +72,8 @@ export function TaskRunTranscriptSource({
       pageInfo: data.pageInfo ? { hasNextPage: data.pageInfo.hasNextPage } : null
     });
     onLatestRunItemChange?.(run.id, data.latestItem);
-  }, [data, onLatestRunItemChange, onSnapshot, run.id]);
+    publishedItemIdsRef.current = new Set(data.items.map((item) => item.id));
+  }, [data, onLatestRunItemChange, onSnapshot, refreshEvent, run.id]);
 
   return null;
 }
@@ -102,7 +127,10 @@ function useTaskRunTranscriptData(
     () => mergeTaskRunItems(olderItems, currentItems, liveItems),
     [currentItems, liveItems, olderItems]
   );
-  const entries = React.useMemo(() => taskRunItemsToTranscriptEntries(items), [items]);
+  const arrivalCandidates = React.useMemo(
+    () => mergeTaskRunItems(currentItems, liveItems),
+    [currentItems, liveItems]
+  );
   const loadOlder = React.useCallback(async () => {
     if (!pageInfo?.hasNextPage || loadingOlder) return;
     setLoadingOlder(true);
@@ -127,14 +155,15 @@ function useTaskRunTranscriptData(
   }, [currentItems, fetchMore, loadingOlder, pageInfo, role, runId]);
 
   return React.useMemo(() => ({
-    entries,
+    arrivalCandidates,
     error: error ? "Agent transcript could not be loaded." : null,
+    items,
     latestItem: items.at(-1) ?? null,
     loadingOlder,
     olderPageError,
     pageInfo,
     loadOlder,
-  }), [entries, error, items, loadingOlder, olderPageError, pageInfo, loadOlder]);
+  }), [arrivalCandidates, error, items, loadingOlder, olderPageError, pageInfo, loadOlder]);
 }
 
 function mapNode(node: RunItemNode, role: TaskRunRole): TaskRunItem {

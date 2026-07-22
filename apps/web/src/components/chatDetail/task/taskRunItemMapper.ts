@@ -2,6 +2,8 @@ import type { TaskRunItem, TaskRunRole } from "./taskTypes";
 import type { TurnActivityStatus } from "@/generated/graphql";
 import type { TranscriptEntry } from "@/shared/types";
 
+const NO_ARRIVAL_ITEM_IDS: ReadonlySet<string> = new Set();
+
 export type TaskRunItemSource = {
   itemId: string;
   runId?: string | null;
@@ -78,19 +80,26 @@ export function mergeTaskRunItems(
   });
 }
 
-export function taskRunItemsToTranscriptEntries(items: readonly TaskRunItem[]): TranscriptEntry[] {
+export function taskRunItemsToTranscriptEntries(
+  items: readonly TaskRunItem[],
+  arrivalItemIds: ReadonlySet<string> = NO_ARRIVAL_ITEM_IDS
+): TranscriptEntry[] {
   const entries: TranscriptEntry[] = [];
   for (const [index, item] of items.entries()) {
     if (isRedundantLifecycleNotice(items, index)) {
       continue;
     }
-    const entry = taskRunItemToTranscriptEntry(item);
+    const entry = taskRunItemToTranscriptEntry(item, arrivalItemIds.has(item.id));
     if (!entry) {
       continue;
     }
     const previous = entries.at(-1);
     if (entry.type === "assistant" && previous?.type === "assistant" && entry.turnId === previous.turnId) {
-      entries[entries.length - 1] = { ...previous, text: `${previous.text}${entry.text}` };
+      entries[entries.length - 1] = {
+        ...previous,
+        source: previous.source === "replay" && entry.source === "replay" ? "replay" : undefined,
+        text: `${previous.text}${entry.text}`
+      };
     } else {
       entries.push(entry);
     }
@@ -111,14 +120,14 @@ function isRedundantLifecycleNotice(items: readonly TaskRunItem[], index: number
   return next?.kind === "result" && next.runId === item.runId;
 }
 
-function taskRunItemToTranscriptEntry(item: TaskRunItem): TranscriptEntry | null {
+function taskRunItemToTranscriptEntry(item: TaskRunItem, animateArrival: boolean): TranscriptEntry | null {
   if (item.sourceKind === "model_input" || item.sourceKind === "context_checkpoint") {
     return null;
   }
   const turnId = `${item.runId ?? "task-run"}:${item.roundIndex ?? "setup"}:${item.responseIndex ?? "default"}`;
   const base = {
     id: item.id,
-    source: "replay" as const,
+    ...(animateArrival ? {} : { source: "replay" as const }),
     turnId,
     debugScope: item.runId
       ? { kind: "TASK_RUN" as const, scopeId: item.runId }
