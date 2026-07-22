@@ -113,10 +113,18 @@ Current behavior:
   history.
 - `conversation_items` include user text, assistant text, durable activity rows,
   A2UI cards, tool calls/results, approvals, and meaningful errors.
-- Every durable task reference remains at its stored transcript position and
-  hydrates current task state. A contiguous run immediately following
-  same-turn assistant text uses compact attachment spacing; references without
-  that concrete relationship remain standalone.
+- Task-creation references hydrate current task state and remain at their stored
+  transcript position. A contiguous run immediately following same-turn
+  assistant text uses compact attachment spacing; references without that
+  concrete relationship remain standalone.
+- Completed, waiting, and recovery task notifications pair deterministically
+  with the last assistant message carrying the same notification id. Their
+  stored reference row is rendered as a compact live task chip inside that
+  message instead of as a separate transcript card; an unmatched notification
+  reference is not surfaced.
+- Foreground task-tool results do not create task references. Notification
+  delivery is the sole producer after task creation, so routine task mutations
+  do not add transcript cards.
 - Task executors may emit one concise user-visible commentary sentence before a
   non-terminal tool batch; it is rendered as an assistant bubble while the
   adjacent tool calls remain grouped and individually expandable. Hidden

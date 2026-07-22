@@ -56,6 +56,15 @@ const styles = stylex.create({
     width: "100%",
     maxWidth: "100%",
     minWidth: 0
+  },
+  content: {
+    display: "grid",
+    minWidth: 0
+  },
+  attachment: {
+    display: "flex",
+    minWidth: 0,
+    paddingBlockStart: "var(--spacing-1)"
   }
 });
 
@@ -71,7 +80,8 @@ export function Message({
   showAvatar,
   reserveAvatarSpace = true,
   debugUsage = null,
-  onDebug
+  onDebug,
+  attachment
 }: {
   animate: boolean;
   group?: ChatBubbleGroup;
@@ -81,6 +91,7 @@ export function Message({
   reserveAvatarSpace?: boolean;
   debugUsage?: ProviderUsageDebug | null;
   onDebug?: () => void;
+  attachment?: ReactNode;
 }) {
   const [expanded, setExpanded] = React.useState(false);
   const [overflowing, setOverflowing] = React.useState(false);
@@ -92,9 +103,12 @@ export function Message({
       role={role}
       showAvatar={showAvatar}
     >
-      <ExpandableTextBubbleContent onExpandedChange={setExpanded} onOverflowChange={setOverflowing}>
-        <MessageMarkdown animate={animate} role={role} text={text} />
-      </ExpandableTextBubbleContent>
+      <div {...stylex.props(styles.content)}>
+        <ExpandableTextBubbleContent onExpandedChange={setExpanded} onOverflowChange={setOverflowing}>
+          <MessageMarkdown animate={animate} role={role} text={text} />
+        </ExpandableTextBubbleContent>
+        {attachment ? <div {...stylex.props(styles.attachment)}>{attachment}</div> : null}
+      </div>
     </TranscriptChatBubble>
   );
 

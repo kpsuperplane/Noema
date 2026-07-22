@@ -48,13 +48,59 @@ export function renderableTranscriptEntries(
   agentStatus: ConversationAgentStatus,
   collapseConsecutiveToolCalls = false
 ): RenderTranscriptEntry[] {
+  const visibleEntries = attachWorkNotificationTasks(entries);
   const renderedEntries = collapseConsecutiveToolCalls
-    ? collapseConsecutiveToolMarkers(groupTranscriptMarkers(entries))
-    : groupTranscriptMarkers(entries);
+    ? collapseConsecutiveToolMarkers(groupTranscriptMarkers(visibleEntries))
+    : groupTranscriptMarkers(visibleEntries);
   if (shouldShowTypingIndicator(entries, pending, agentStatus)) {
     renderedEntries.push({ kind: "typing", id: "typing-indicator" });
   }
   return renderedEntries;
+}
+
+function attachWorkNotificationTasks(entries: TranscriptEntry[]): TranscriptEntry[] {
+  const references = new Map<string, Extract<TranscriptEntry, { type: "task" }>>();
+  const messageIndexes = new Map<string, number>();
+
+  entries.forEach((entry, index) => {
+    const notificationId = workNotificationId(entry);
+    if (!notificationId) return;
+    if (entry.type === "task" && metadataString(entry.metadata, "notification_kind") !== "task_created") {
+      references.set(notificationId, entry);
+    } else if (
+      entry.type === "assistant" &&
+      metadataString(entry.metadata, "source") === "work_notification"
+    ) {
+      messageIndexes.set(notificationId, index);
+    }
+  });
+
+  return entries.flatMap((entry, index) => {
+    const notificationId = workNotificationId(entry);
+    if (
+      entry.type === "task" &&
+      notificationId &&
+      metadataString(entry.metadata, "notification_kind") !== "task_created"
+    ) {
+      return [];
+    }
+    const reference = notificationId ? references.get(notificationId) : undefined;
+    return entry.type === "assistant" && notificationId && reference && messageIndexes.get(notificationId) === index
+      ? [{ ...entry, taskReference: reference.item }]
+      : [entry];
+  });
+}
+
+function workNotificationId(entry: TranscriptEntry): string | undefined {
+  return entry.type === "assistant" || entry.type === "task"
+    ? metadataString(entry.metadata, "notification_id")
+    : undefined;
+}
+
+function metadataString(metadata: unknown, key: string): string | undefined {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return undefined;
+  const value = (metadata as Record<string, unknown>)[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 export function shouldAnchorTranscriptEntry(entry: TranscriptEntryAnchorCandidate): boolean {

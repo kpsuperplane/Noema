@@ -32,7 +32,7 @@ use super::{
     local_tools::{
         LocalToolKind, LocalToolResult, agent_identity_after_local_tools,
         local_tool_artifact_reference_item, local_tool_result_action_item,
-        local_tool_result_continuation_input, local_tool_task_reference_item,
+        local_tool_result_continuation_input,
     },
     model_context::{
         AgentIdentityContext, ModelContextState, RuntimeEnvironmentContext, ToolVisibilityContext,

@@ -188,17 +188,6 @@ impl RuntimeActor {
                 self.persist_and_send_turn_item(&context, item, item_tx)
                     .await?;
             }
-            if let Some(item) = local_tool_task_reference_item(&result) {
-                let context = ConversationMemoryContext {
-                    turn_index: turn.turn_index,
-                    conversation_id: turn.conversation_id.clone(),
-                    turn_id: turn.turn_id.clone(),
-                    user_item_id: turn.user_item_id.clone(),
-                    assistant_item_id: None,
-                };
-                self.persist_and_send_turn_item(&context, item, item_tx)
-                    .await?;
-            }
             timing.mark(
                 "runtime_tool_result_persisted",
                 json!({

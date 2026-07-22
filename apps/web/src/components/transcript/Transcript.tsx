@@ -359,6 +359,13 @@ function renderTranscriptEntry(
         showAvatar={showAvatar}
         debugUsage={debugUsage}
         onDebug={debugTarget ? () => onDebug(debugTarget) : undefined}
+        attachment={entry.taskReference ? (
+          <TaskReferenceCard
+            taskId={entry.taskReference.task_id}
+            onOpenDetail={onOpenDetail}
+            variant="chip"
+          />
+        ) : undefined}
       />
     );
   }

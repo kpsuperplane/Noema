@@ -4,6 +4,7 @@ import {
   WorkTaskEventsDocument,
   type WorkTaskReferenceQuery
 } from "@/generated/graphql";
+import { Button, type ButtonProps } from "@astryxdesign/core/Button";
 import { IconButton, type IconButtonProps } from "@astryxdesign/core/IconButton";
 import { Item, type ItemProps } from "@astryxdesign/core/Item";
 import * as stylex from "@stylexjs/stylex";
@@ -13,14 +14,17 @@ import { StageBadge } from "@/components/work/StageBadge";
 import { useTaskEventCursor } from "@/components/chatDetail/task/taskEventCursor";
 
 type ItemXStyle = ItemProps["xstyle"];
+type ButtonXStyle = ButtonProps["xstyle"];
 type IconButtonXStyle = IconButtonProps["xstyle"];
 
 export function TaskReferenceCard({
   taskId,
-  onOpenDetail
+  onOpenDetail,
+  variant = "card"
 }: {
   taskId: string;
   onOpenDetail?: (target: Extract<ChatDetailTarget, { type: "task" }>) => void;
+  variant?: "card" | "chip";
 }) {
   const result = useQuery(WorkTaskReferenceDocument, {
     variables: { taskId },
@@ -47,6 +51,7 @@ export function TaskReferenceCard({
   const title = task?.title ?? (result.loading ? "Loading task…" : "Task unavailable");
   const stageName = task?.stage.name ?? "Task";
   const progressLine = taskProgress(task);
+  const chipProgressLine = taskChipProgress(task);
   const description = (
     <span {...stylex.props(styles.description)}>
       <StageBadge key={task ? "ready" : "placeholder"} name={stageName} behavior="" />
@@ -54,6 +59,27 @@ export function TaskReferenceCard({
     </span>
   );
   const open = opensDetail && taskTarget ? () => onOpenDetail?.(taskTarget) : undefined;
+
+  if (variant === "chip") {
+    return (
+      <Button
+        data-slot="task-reference-chip"
+        isDisabled={!opensDetail}
+        label={`Open task: ${title}, ${chipProgressLine}`}
+        icon={<ListTodo aria-hidden="true" size={13} strokeWidth={2} />}
+        onClick={open}
+        size="sm"
+        tooltip={opensDetail ? "Open task details" : undefined}
+        variant="ghost"
+        xstyle={buttonXStyle(styles.chip)}
+      >
+        <span {...stylex.props(styles.chipTitle)}>{title}</span>
+        <span aria-hidden="true" {...stylex.props(styles.chipProgress)}>
+          {chipProgressLine}
+        </span>
+      </Button>
+    );
+  }
 
   return (
     <Item
@@ -84,8 +110,20 @@ function taskProgress(task: TaskReference | null): string {
   return `Revision ${task.revision}`;
 }
 
+function taskChipProgress(task: TaskReference | null): string {
+  if (!task) return "Unavailable";
+  if (task.attention?.title) return task.attention.title;
+  if (task.completedAt) return "Completed";
+  if (task.currentRun) return task.currentRun.activityLabel;
+  return task.stage.name;
+}
+
 function itemXStyle(...xstyle: unknown[]): ItemXStyle {
   return xstyle as unknown as ItemXStyle;
+}
+
+function buttonXStyle(...xstyle: unknown[]): ButtonXStyle {
+  return xstyle as unknown as ButtonXStyle;
 }
 
 function iconButtonXStyle(...xstyle: unknown[]): IconButtonXStyle {
@@ -99,7 +137,10 @@ const styles = stylex.create({
   iconFrame: { display: "inline-flex", width: 32, height: 32, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: "var(--noema-surface-sunken)", color: "var(--noema-pine-700)", flexShrink: 0 },
   action: { position: "absolute", insetInlineEnd: 8, insetBlockEnd: 8, zIndex: 1, display: "inline-flex", color: "var(--noema-text-muted)" },
   description: { display: "inline-flex", flexWrap: "wrap", alignItems: "center", gap: 6, minWidth: 0 },
-  progress: { minWidth: 0, color: "var(--noema-text-muted)", fontSize: 11, overflowWrap: "anywhere" }
+  progress: { minWidth: 0, color: "var(--noema-text-muted)", fontSize: 11, overflowWrap: "anywhere" },
+  chip: { maxWidth: "100%", justifyContent: "flex-start", gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 999, backgroundColor: "color-mix(in srgb, var(--noema-surface-card) 72%, transparent)", paddingInline: "var(--spacing-2)", color: "var(--noema-text-primary)", boxShadow: "none", ":hover": { backgroundColor: "var(--noema-surface-hover)" } },
+  chipTitle: { minWidth: 0, overflow: "hidden", fontSize: 11, fontWeight: 650, textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  chipProgress: { flexShrink: 0, color: "var(--noema-text-muted)", fontSize: 10, fontWeight: 500 }
 });
 
 export type TaskReferenceCardTarget = NonNullable<ReturnType<typeof taskDetailTarget>>;

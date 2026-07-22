@@ -190,6 +190,7 @@ function entryFromConversationItem(
       itemId,
       cursor,
       turnId,
+      metadata,
       type: "task",
       item: transcriptItem
     };
