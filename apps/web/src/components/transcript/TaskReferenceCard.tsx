@@ -88,7 +88,7 @@ function buttonXStyle(...xstyle: unknown[]): ButtonXStyle {
 }
 
 const styles = stylex.create({
-  chip: { maxWidth: "100%", justifyContent: "flex-start", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 999, backgroundColor: "color-mix(in srgb, var(--noema-surface-card) 72%, transparent)", paddingInline: "var(--spacing-2)", color: "var(--noema-text-primary)", boxShadow: "none", ":hover": { backgroundColor: "var(--noema-surface-hover)" } },
+  chip: { width: "fit-content", maxWidth: "100%", justifyContent: "flex-start", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 999, backgroundColor: "color-mix(in srgb, var(--noema-surface-card) 72%, transparent)", paddingInline: "var(--spacing-2)", color: "var(--noema-text-primary)", boxShadow: "none", ":hover": { backgroundColor: "var(--noema-surface-hover)" } },
   chipContent: { display: "flex", maxWidth: "100%", minWidth: 0, alignItems: "center", gap: "var(--spacing-1)" },
   taskIcon: { flexShrink: 0 },
   completedIcon: { flexShrink: 0, color: "var(--noema-pine-700)" },
