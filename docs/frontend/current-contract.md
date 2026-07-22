@@ -113,14 +113,15 @@ Current behavior:
   history.
 - `conversation_items` include user text, assistant text, durable activity rows,
   A2UI cards, tool calls/results, approvals, and meaningful errors.
-- Task-creation references hydrate current task state and remain at their stored
-  transcript position. A contiguous run immediately following same-turn
-  assistant text uses compact attachment spacing; references without that
-  concrete relationship remain standalone.
+- Every surfaced task reference uses the same compact live task control.
+  Task-creation references remain at their stored transcript position; a
+  contiguous run immediately following same-turn assistant text uses compact
+  attachment spacing, while references without that concrete relationship
+  remain standalone.
 - Completed, waiting, and recovery task notifications pair deterministically
   with the last assistant message carrying the same notification id. Their
-  stored reference row is rendered as a compact live task chip inside that
-  message instead of as a separate transcript card; an unmatched notification
+  stored reference is embedded inside that message using the shared control
+  instead of rendered as a separate transcript row; an unmatched notification
   reference is not surfaced.
 - Foreground task-tool results do not create task references. Notification
   delivery is the sole producer after task creation, so routine task mutations

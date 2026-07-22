@@ -363,7 +363,6 @@ function renderTranscriptEntry(
           <TaskReferenceCard
             taskId={entry.taskReference.task_id}
             onOpenDetail={onOpenDetail}
-            variant="chip"
           />
         ) : undefined}
       />
