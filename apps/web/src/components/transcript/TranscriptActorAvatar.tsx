@@ -47,6 +47,7 @@ export function TranscriptActorAvatar({
         actorId={actorId}
         actorType={actorType}
         animated={animated && visible}
+        focusable={visible}
         size="sm"
       />
     </span>

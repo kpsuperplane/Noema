@@ -1,3 +1,4 @@
+import * as React from "react";
 import * as stylex from "@stylexjs/stylex";
 import Avatar, { type AvatarActivity } from "@kpsuperplane/boring-avatars";
 
@@ -64,6 +65,7 @@ export function IdentityAvatar({
   animated = false,
   audioLevel,
   className,
+  focusable = true,
   size = "default"
 }: {
   activity?: IdentityAvatarActivity;
@@ -72,10 +74,14 @@ export function IdentityAvatar({
   animated?: boolean;
   audioLevel?: number;
   className?: string;
+  focusable?: boolean;
   size?: "xs" | "default" | "sm" | "lg";
 }) {
+  const [focused, setFocused] = React.useState(false);
+  const [hovered, setHovered] = React.useState(false);
   const avatarSeed = avatarSeedForActorId(actorId);
   const avatarVariant = avatarVariantForActorType(actorType);
+  const interactionAnimated = focused || hovered;
   const rootProps = stylex.props(
     styles.root,
     size === "xs" && styles.xsSize,
@@ -95,12 +101,20 @@ export function IdentityAvatar({
       aria-label={actorType === "human" ? "Human avatar" : "Agent avatar"}
       data-avatar-seed={avatarSeed}
       data-avatar-variant={avatarVariant}
+      onBlur={() => setFocused(false)}
+      onFocus={() => setFocused(true)}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onPointerDown={focusable ? (event) => {
+        if (event.pointerType === "touch") event.currentTarget.focus({ preventScroll: true });
+      } : undefined}
       role="img"
+      tabIndex={focusable ? -1 : undefined}
     >
       <Avatar
         {...avatarClassNameProp}
-        activity={activity}
-        animated={animated}
+        activity={animated ? activity : "idle"}
+        animated={animated || interactionAnimated}
         aria-hidden="true"
         audioLevel={audioLevel}
         colors={NOEMA_AVATAR_COLORS}

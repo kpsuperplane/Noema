@@ -256,7 +256,7 @@ function PrimaryAgentMenuAvatar() {
       aria-hidden="true"
       {...stylex.props(styles.primaryAgentAvatarFrame)}
     >
-      <IdentityAvatar actorId={LOCAL_AGENT_AVATAR_ID} actorType="agent" size="xs" />
+      <IdentityAvatar actorId={LOCAL_AGENT_AVATAR_ID} actorType="agent" focusable={false} size="xs" />
     </span>
   );
 }

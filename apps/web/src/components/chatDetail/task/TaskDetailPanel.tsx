@@ -217,6 +217,7 @@ function TaskSummaryAvatar({ run }: { run: TaskRun }) {
   return (
     <m.span
       aria-hidden={!isPresent}
+      inert={!isPresent}
       initial={reduceMotion ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}

@@ -64,7 +64,7 @@ export function ActivityRow({
         : "default";
   const detail = activityDetail(item);
   const avatar = activityInstanceName(item)
-    ? <IdentityAvatar actorId={`subagent:${activityInstanceName(item)}`} actorType="agent" size="xs" />
+    ? <IdentityAvatar actorId={`subagent:${activityInstanceName(item)}`} actorType="agent" focusable={false} size="xs" />
     : undefined;
 
   if (item.activity_kind === "task_run_start" || item.activity_kind === "task_run_end") {
