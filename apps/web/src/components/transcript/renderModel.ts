@@ -90,7 +90,8 @@ function attachWorkNotificationTasks(entries: TranscriptEntry[]): TranscriptEntr
       : [entry];
   });
 
-  return notificationEntries.reduce<TranscriptEntry[]>((attached, entry) => {
+  const creationMessageIds = new Set<string>();
+  const attachedEntries = notificationEntries.reduce<TranscriptEntry[]>((attached, entry) => {
     if (
       entry.type === "task" &&
       entry.turnId &&
@@ -98,6 +99,7 @@ function attachWorkNotificationTasks(entries: TranscriptEntry[]): TranscriptEntr
     ) {
       const previous = attached.at(-1);
       if (previous?.type === "assistant" && previous.turnId === entry.turnId) {
+        creationMessageIds.add(previous.id);
         attached[attached.length - 1] = {
           ...previous,
           taskReferences: [...(previous.taskReferences ?? []), entry.item]
@@ -108,6 +110,43 @@ function attachWorkNotificationTasks(entries: TranscriptEntry[]): TranscriptEntr
     attached.push(entry);
     return attached;
   }, []);
+
+  return suppressNearTermCompletionReferences(attachedEntries, creationMessageIds);
+}
+
+function suppressNearTermCompletionReferences(entries: TranscriptEntry[], creationMessageIds: ReadonlySet<string>): TranscriptEntry[] {
+  return entries.map((entry, index) => {
+    if (
+      entry.type !== "assistant" ||
+      metadataString(entry.metadata, "source") !== "work_notification" ||
+      metadataString(entry.metadata, "notification_kind") !== "task_completed" ||
+      !entry.taskReferences?.length
+    ) {
+      return entry;
+    }
+
+    const nearbyTaskIds = new Set<string>();
+    let messagesSeen = 0;
+    for (let previousIndex = index - 1; previousIndex >= 0 && messagesSeen < 2; previousIndex -= 1) {
+      const previous = entries[previousIndex];
+      if (!previous || !isVisibleMessageEntry(previous)) continue;
+      messagesSeen += 1;
+      if (previous.type === "assistant" && creationMessageIds.has(previous.id)) {
+        previous.taskReferences?.forEach((reference) => nearbyTaskIds.add(reference.task_id));
+      }
+    }
+
+    const taskReferences = entry.taskReferences.filter((reference) => !nearbyTaskIds.has(reference.task_id));
+    return taskReferences.length === entry.taskReferences.length
+      ? entry
+      : { ...entry, taskReferences: taskReferences.length ? taskReferences : undefined };
+  });
+}
+
+function isVisibleMessageEntry(entry: TranscriptEntry): boolean {
+  return isTextTranscriptEntry(entry) ||
+    entry.type === "multiple_choice_prompt" ||
+    entry.type === "multiple_choice_selection";
 }
 
 function workNotificationId(entry: TranscriptEntry): string | undefined {
