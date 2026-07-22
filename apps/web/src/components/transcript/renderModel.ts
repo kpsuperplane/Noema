@@ -74,12 +74,6 @@ function attachWorkNotificationTasks(entries: TranscriptEntry[]): TranscriptEntr
       messageIndexes.set(notificationId, index);
     }
   });
-  const completedNotificationIds = new Set(
-    [...references.entries()]
-      .filter(([, reference]) => metadataString(reference.metadata, "notification_kind") === "task_completed")
-      .map(([notificationId]) => notificationId)
-  );
-
   const notificationEntries = entries.flatMap((entry, index) => {
     const notificationId = workNotificationId(entry);
     if (
@@ -95,8 +89,7 @@ function attachWorkNotificationTasks(entries: TranscriptEntry[]): TranscriptEntr
       : [entry];
   });
 
-  const creationMessageIds = new Set<string>();
-  const attachedEntries = notificationEntries.reduce<TranscriptEntry[]>((attached, entry) => {
+  return notificationEntries.reduce<TranscriptEntry[]>((attached, entry) => {
     if (
       entry.type === "task" &&
       entry.turnId &&
@@ -104,7 +97,6 @@ function attachWorkNotificationTasks(entries: TranscriptEntry[]): TranscriptEntr
     ) {
       const previous = attached.at(-1);
       if (previous?.type === "assistant" && previous.turnId === entry.turnId) {
-        creationMessageIds.add(previous.id);
         attached[attached.length - 1] = {
           ...previous,
           taskReferences: [...(previous.taskReferences ?? []), entry.item]
@@ -115,44 +107,7 @@ function attachWorkNotificationTasks(entries: TranscriptEntry[]): TranscriptEntr
     attached.push(entry);
     return attached;
   }, []);
-
-  return suppressNearTermCompletionReferences(attachedEntries, creationMessageIds, completedNotificationIds);
 }
-
-function suppressNearTermCompletionReferences(
-  entries: TranscriptEntry[],
-  creationMessageIds: ReadonlySet<string>,
-  completedNotificationIds: ReadonlySet<string>
-): TranscriptEntry[] {
-  return entries.map((entry, index) => {
-    if (
-      entry.type !== "assistant" ||
-      !completedNotificationIds.has(workNotificationId(entry) ?? "") ||
-      !entry.taskReferences?.length
-    ) {
-      return entry;
-    }
-
-    const nearbyTaskIds = new Set<string>();
-    let messagesSeen = 0;
-    for (let previousIndex = index - 1; previousIndex >= 0 && messagesSeen < 2; previousIndex -= 1) {
-      const previous = entries[previousIndex];
-      if (!previous || !isVisibleMessageEntry(previous)) continue;
-      messagesSeen += 1;
-      if (previous.type === "assistant" && creationMessageIds.has(previous.id)) {
-        previous.taskReferences?.forEach((reference) => nearbyTaskIds.add(reference.task_id));
-      }
-    }
-
-    const taskReferences = entry.taskReferences.filter((reference) => !nearbyTaskIds.has(reference.task_id));
-    return taskReferences.length === entry.taskReferences.length
-      ? entry
-      : { ...entry, taskReferences: taskReferences.length ? taskReferences : undefined };
-  });
-}
-
-const isVisibleMessageEntry = (entry: TranscriptEntry): boolean =>
-  isTextTranscriptEntry(entry) || entry.type === "multiple_choice_prompt" || entry.type === "multiple_choice_selection";
 
 function workNotificationId(entry: TranscriptEntry): string | undefined {
   return entry.type === "assistant" || entry.type === "task"

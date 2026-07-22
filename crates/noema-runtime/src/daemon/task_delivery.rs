@@ -83,18 +83,11 @@ pub(super) async fn drain_work_notifications(services: &TaskRuntimeServices) {
                     continue;
                 }
             };
-        let notification_id = notification.notification_id;
-        let lease_token = notification.lease_token;
+        let notification_id = notification.notification_id.clone();
+        let lease_token = notification.lease_token.clone();
         if let Err(error) = services
             .runtime
-            .deliver_work_notification(
-                noema_store::CompleteWorkNotification {
-                    notification_id: notification_id.clone(),
-                    lease_token: lease_token.clone(),
-                    conversation_id,
-                },
-                work_event.clone(),
-            )
+            .deliver_work_notification(notification, conversation_id, work_event.clone())
             .await
         {
             log_system_error(

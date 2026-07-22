@@ -1,10 +1,10 @@
 //! Notification outbox lease and deterministic delivery contracts.
 //!
 //! The outbox is durable work state, not a best-effort broadcast.  A delivery
-//! worker leases rows, writes one deterministic conversation item, lets the
-//! primary agent narrate from that attachment, and then acknowledges the lease.
-//! Retrying after a crash therefore observes the same item identity instead of
-//! inserting another card.
+//! worker leases rows, lets the primary agent narrate notifications that need a
+//! message, and then atomically inserts any deterministic task reference and
+//! acknowledges the lease. Retrying after a crash reuses the deterministic
+//! narration turn and item identity instead of inserting duplicate history.
 
 use std::str::FromStr;
 
@@ -150,44 +150,8 @@ impl NoemaStore {
         .await
     }
 
-    /// Insert a deterministic task attachment while keeping the outbox lease.
-    ///
-    /// The caller can perform provider work after this step and acknowledge the
-    /// lease with [`Self::complete_work_notification`]. A retry reuses the same
-    /// attachment instead of inserting a second message item.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the completion identity is invalid, the lease is
-    /// stale, or deterministic delivery persistence fails.
-    pub async fn prepare_work_notification(
-        &self,
-        completion: CompleteWorkNotification,
-    ) -> Result<ConversationItemRecord, StoreError> {
-        completion.validate().map_err(StoreError::Work)?;
-        self.with_immediate_transaction_retry(|transaction| {
-            let row = load_leased_notification_tx(
-                transaction,
-                &completion.notification_id,
-                &completion.lease_token,
-            )?;
-            let destination_kind = NotificationDestination::from_str(&row.destination_kind)
-                .map_err(StoreError::Work)?;
-            let notification_kind =
-                NotificationKind::from_str(&row.kind).map_err(StoreError::Work)?;
-            insert_notification_item_tx(
-                transaction,
-                &row,
-                destination_kind,
-                notification_kind,
-                &completion.notification_id,
-                &completion.conversation_id,
-            )
-        })
-        .await
-    }
-
-    /// Acknowledge a delivered card after inserting its deterministic item.
+    /// Acknowledge a delivered notification and insert its task reference when
+    /// the transcript still needs one.
     ///
     /// # Errors
     ///
@@ -196,7 +160,7 @@ impl NoemaStore {
     pub async fn complete_work_notification(
         &self,
         completion: CompleteWorkNotification,
-    ) -> Result<ConversationItemRecord, StoreError> {
+    ) -> Result<Option<ConversationItemRecord>, StoreError> {
         completion.validate().map_err(StoreError::Work)?;
         self.with_immediate_transaction_retry(|transaction| {
             let row = load_leased_notification_tx(
@@ -208,14 +172,29 @@ impl NoemaStore {
                 .map_err(StoreError::Work)?;
             let notification_kind =
                 NotificationKind::from_str(&row.kind).map_err(StoreError::Work)?;
-            let item = insert_notification_item_tx(
+            validate_notification_destination_tx(
                 transaction,
                 &row,
-                destination_kind,
+                &completion.conversation_id,
+            )?;
+            let item = if should_suppress_completion_item_tx(
+                transaction,
+                &row,
                 notification_kind,
                 &completion.notification_id,
                 &completion.conversation_id,
-            )?;
+            )? {
+                None
+            } else {
+                Some(insert_notification_item_tx(
+                    transaction,
+                    &row,
+                    destination_kind,
+                    notification_kind,
+                    &completion.notification_id,
+                    &completion.conversation_id,
+                )?)
+            };
             let changed = transaction.execute(
                 "UPDATE work_notification_outbox SET status = 'delivered', delivered_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE notification_id = ?1 AND status = 'leased' AND lease_token = ?2 AND lease_expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
                 params![completion.notification_id, completion.lease_token],
@@ -295,17 +274,6 @@ fn insert_notification_item_tx(
     notification_id: &str,
     conversation_id: &str,
 ) -> Result<ConversationItemRecord, StoreError> {
-    let expected_conversation: Option<String> = transaction
-        .query_row(
-            "SELECT primary_conversation_id FROM humans WHERE human_id = ?1",
-            [&row.destination_id],
-            |value| value.get(0),
-        )
-        .optional()?
-        .flatten();
-    if expected_conversation.as_deref() != Some(conversation_id) {
-        return Err(StoreError::Work(WorkDomainError::WorkUnavailable));
-    }
     let item_id =
         deterministic_notification_item_id(notification_id, destination_kind, conversation_id)?;
     let notification_payload: serde_json::Value = serde_json::from_str(&row.payload_json)?;
@@ -365,6 +333,75 @@ fn insert_notification_item_tx(
         });
     }
     Ok(item)
+}
+
+fn validate_notification_destination_tx(
+    transaction: &Transaction<'_>,
+    row: &LeasedNotification,
+    conversation_id: &str,
+) -> Result<(), StoreError> {
+    let expected_conversation: Option<String> = transaction
+        .query_row(
+            "SELECT primary_conversation_id FROM humans WHERE human_id = ?1",
+            [&row.destination_id],
+            |value| value.get(0),
+        )
+        .optional()?
+        .flatten();
+    if expected_conversation.as_deref() != Some(conversation_id) {
+        return Err(StoreError::Work(WorkDomainError::WorkUnavailable));
+    }
+    Ok(())
+}
+
+fn should_suppress_completion_item_tx(
+    transaction: &Transaction<'_>,
+    row: &LeasedNotification,
+    notification_kind: NotificationKind,
+    notification_id: &str,
+    conversation_id: &str,
+) -> Result<bool, StoreError> {
+    if notification_kind != NotificationKind::TaskCompleted {
+        return Ok(false);
+    }
+    let notification_payload: serde_json::Value = serde_json::from_str(&row.payload_json)?;
+    let task_id = notification_payload
+        .get("task_id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| StoreError::InvariantViolation {
+            message: "task notification payload has no task identity".to_string(),
+        })?;
+    let completion_sequence = transaction.query_row(
+        "SELECT MAX(sequence_index) FROM conversation_items
+             WHERE conversation_id = ?1 AND kind = 'assistant_text'
+               AND json_extract(metadata_json, '$.source') = 'work_notification'
+               AND json_extract(metadata_json, '$.notification_id') = ?2",
+        params![conversation_id, notification_id],
+        |value| value.get::<_, Option<i64>>(0),
+    )?;
+    let Some(completion_sequence) = completion_sequence else {
+        return Ok(false);
+    };
+    let creation_sequence = transaction.query_row(
+        "SELECT MAX(sequence_index) FROM conversation_items
+             WHERE conversation_id = ?1 AND sequence_index < ?2
+               AND kind = 'task_reference'
+               AND json_extract(metadata_json, '$.notification_kind') = 'task_created'
+               AND json_extract(payload_json, '$.task_id') = ?3",
+        params![conversation_id, completion_sequence, task_id],
+        |value| value.get::<_, Option<i64>>(0),
+    )?;
+    let Some(creation_sequence) = creation_sequence else {
+        return Ok(false);
+    };
+    let intervening_messages: i64 = transaction.query_row(
+        "SELECT COUNT(*) FROM conversation_items
+         WHERE conversation_id = ?1 AND sequence_index > ?2 AND sequence_index < ?3
+           AND kind IN ('user_text', 'assistant_text', 'multiple_choice_prompt', 'multiple_choice_selection')",
+        params![conversation_id, creation_sequence, completion_sequence],
+        |value| value.get(0),
+    )?;
+    Ok(intervening_messages <= 1)
 }
 
 fn load_leased_notification_tx(
@@ -646,7 +683,7 @@ pub struct ClaimedWorkNotification {
     pub lease_expires_at: String,
 }
 
-/// Completion input after deterministic conversation-item insertion.
+/// Completion input after any required notification narration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompleteWorkNotification {
     /// Notification row being acknowledged.

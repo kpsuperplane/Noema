@@ -1,10 +1,10 @@
 //! Primary-conversation narration for durable Work notification attachments.
 
-use std::{collections::HashSet, str::FromStr};
+use std::collections::HashSet;
 
 use noema_conversations::{
-    ActorRef, ConversationItemKind, ConversationItemRecord, ConversationItemStatus,
-    NewConversationItem, NewConversationTurn, ReplayMode,
+    ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
+    NewConversationTurn, ReplayMode,
 };
 use noema_providers::{
     AssistantTextPhase, GenerateMessageRole, GenerateOptions, GenerateRequest, GenerateResponse,
@@ -25,10 +25,11 @@ const ARTIFACT_SELECTION_SCHEMA: &str = "noema.work.artifact_selection.v1";
 const MAX_NOTIFICATION_CONTEXT_BYTES: usize = 48_000;
 
 struct WorkNotificationResponseContext<'a> {
-    trigger: &'a ConversationItemRecord,
+    conversation_id: &'a str,
     turn_id: &'a str,
     turn_index: u64,
     notification_id: &'a str,
+    notification_kind: NotificationKind,
     payload: &'a Value,
     task: &'a noema_store::WorkTaskDetail,
 }
@@ -36,45 +37,21 @@ struct WorkNotificationResponseContext<'a> {
 impl RuntimeActor {
     pub(super) async fn narrate_work_notification(
         &mut self,
-        item: &ConversationItemRecord,
+        notification: &noema_store::ClaimedWorkNotification,
+        conversation_id: &str,
     ) -> Result<(), RuntimeError> {
-        let Some(notification_id) = item
-            .metadata
-            .get("notification_id")
-            .and_then(Value::as_str)
-            .filter(|value| !value.trim().is_empty())
-        else {
-            return Err(RuntimeError::Protocol(format!(
-                "work notification item {} has no notification id",
-                item.item_id
-            )));
-        };
-        let notification_kind = item
-            .metadata
-            .get("notification_kind")
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                RuntimeError::Protocol(format!(
-                    "work notification item {} has no notification kind",
-                    item.item_id
-                ))
-            })
-            .and_then(|value| {
-                NotificationKind::from_str(value).map_err(|error| {
-                    RuntimeError::Protocol(format!("invalid work notification kind: {error}"))
-                })
-            })?;
-        if !should_narrate(notification_kind, item.metadata.get("work_notification")) {
+        let notification_id = notification.notification_id.as_str();
+        let notification_kind = notification.notification_kind;
+        if !should_narrate(notification_kind, Some(&notification.payload)) {
             return Ok(());
         }
-        let task_id = item
-            .payload_json
+        let task_id = notification
+            .payload
             .get("task_id")
             .and_then(Value::as_str)
             .ok_or_else(|| {
                 RuntimeError::Protocol(format!(
-                    "work notification item {} has no task id",
-                    item.item_id
+                    "work notification {notification_id} has no task id"
                 ))
             })
             .and_then(|value| {
@@ -85,14 +62,10 @@ impl RuntimeActor {
             self.store.get_work_task(&task_id).await?.ok_or_else(|| {
                 RuntimeError::Protocol(format!("task {} is unavailable", task_id))
             })?;
-        let payload = item
-            .metadata
-            .get("work_notification")
-            .cloned()
-            .unwrap_or_else(|| json!({ "task_id": task_id.as_str() }));
+        let payload = &notification.payload;
         let turn_index = self
             .store
-            .next_conversation_turn_index(&item.conversation_id)
+            .next_conversation_turn_index(conversation_id)
             .await?;
         let turn_id = format!("turn:work_notification:{notification_id}");
         let (turn, inserted) = self
@@ -100,8 +73,8 @@ impl RuntimeActor {
             .create_conversation_turn_with_id_if_absent(
                 turn_id.clone(),
                 NewConversationTurn {
-                    conversation_id: item.conversation_id.clone(),
-                    trigger_item_id: Some(item.item_id.clone()),
+                    conversation_id: conversation_id.to_string(),
+                    trigger_item_id: None,
                     metadata: json!({
                         "turn_index": turn_index,
                         "source": "work_notification",
@@ -114,7 +87,7 @@ impl RuntimeActor {
         if !inserted {
             let existing = self
                 .store
-                .list_conversation_items(&item.conversation_id, ReplayMode::Visible)
+                .list_conversation_items(conversation_id, ReplayMode::Visible)
                 .await?;
             if existing.iter().any(|existing| {
                 existing.turn_id.as_deref() == Some(turn_id.as_str())
@@ -130,12 +103,12 @@ impl RuntimeActor {
         let route = self.resolve_primary_provider().await?;
         let selection = route.selection().clone();
         let provider = route.operations();
-        let prompt = build_notification_prompt(notification_kind, &payload, &task);
+        let prompt = build_notification_prompt(notification_kind, payload, &task);
         let planned = plan_prompt_context_with_input_role(
             PromptPlanRequest {
                 store: &self.store,
                 provider,
-                conversation_id: &item.conversation_id,
+                conversation_id,
                 provider_kind: &selection.provider_kind,
                 model_profile: selection.model_profile.as_deref(),
                 current_input: &prompt,
@@ -153,7 +126,7 @@ impl RuntimeActor {
         let response = provider
             .generate_streaming(
                 GenerateRequest {
-                    conversation_id: Some(item.conversation_id.clone()),
+                    conversation_id: Some(conversation_id.to_string()),
                     model: selection.model_profile.clone(),
                     input: planned.input,
                     instructions: Some(planned.instructions),
@@ -178,7 +151,7 @@ impl RuntimeActor {
             }
         };
         self.persist_provider_reasoning_items(
-            &item.conversation_id,
+            conversation_id,
             &turn.turn_id,
             &response.reasoning_items,
         )
@@ -186,11 +159,12 @@ impl RuntimeActor {
         let text_count = self
             .persist_work_notification_response(
                 WorkNotificationResponseContext {
-                    trigger: item,
+                    conversation_id,
                     turn_id: &turn.turn_id,
                     turn_index,
                     notification_id,
-                    payload: &payload,
+                    notification_kind,
+                    payload,
                     task: &task,
                 },
                 &response,
@@ -203,12 +177,12 @@ impl RuntimeActor {
             ));
         }
         self.store.complete_conversation_turn(&turn.turn_id).await?;
-        if let Some(conversation) = self.conversations.get_mut(&item.conversation_id) {
+        if let Some(conversation) = self.conversations.get_mut(conversation_id) {
             conversation.next_turn_index = conversation.next_turn_index.max(turn_index + 1);
         }
         self.runtime_events
             .publish_conversation(ConversationRuntimeEvent::Completed {
-                conversation_id: item.conversation_id.clone(),
+                conversation_id: conversation_id.to_string(),
                 client_message_id: None,
             });
         Ok(())
@@ -220,10 +194,11 @@ impl RuntimeActor {
         response: &GenerateResponse,
     ) -> Result<usize, RuntimeError> {
         let WorkNotificationResponseContext {
-            trigger,
+            conversation_id,
             turn_id,
             turn_index,
             notification_id,
+            notification_kind,
             payload,
             task,
         } = context;
@@ -243,15 +218,16 @@ impl RuntimeActor {
                         "phase": effective_phase.as_str(),
                         "source": "work_notification",
                         "notification_id": notification_id,
+                        "notification_kind": notification_kind.as_str(),
                         "provider": response.provider,
                         "model": response.model,
                     });
                     let record = self
                         .store
                         .append_conversation_item(NewConversationItem {
-                            conversation_id: trigger.conversation_id.clone(),
+                            conversation_id: conversation_id.to_string(),
                             turn_id: Some(turn_id.to_string()),
-                            parent_item_id: Some(trigger.item_id.clone()),
+                            parent_item_id: None,
                             kind: ConversationItemKind::AssistantText,
                             status: ConversationItemStatus::Completed,
                             author: ActorRef::agent("agent:primary")
@@ -274,7 +250,7 @@ impl RuntimeActor {
                 {
                     for artifact in selected_artifacts(submission, payload) {
                         self.persist_and_publish_artifact_reference(
-                            trigger,
+                            conversation_id,
                             turn_id,
                             turn_index,
                             notification_id,
@@ -292,7 +268,7 @@ impl RuntimeActor {
 
     async fn persist_and_publish_artifact_reference(
         &mut self,
-        trigger: &ConversationItemRecord,
+        conversation_id: &str,
         turn_id: &str,
         turn_index: u64,
         notification_id: &str,
@@ -300,7 +276,7 @@ impl RuntimeActor {
     ) -> Result<(), RuntimeError> {
         let existing_items = self
             .store
-            .list_conversation_items(&trigger.conversation_id, ReplayMode::Visible)
+            .list_conversation_items(conversation_id, ReplayMode::Visible)
             .await?;
         if existing_items.iter().any(|item| {
             item.kind == ConversationItemKind::ArtifactReference
@@ -334,9 +310,9 @@ impl RuntimeActor {
         let record = self
             .store
             .append_conversation_item(NewConversationItem {
-                conversation_id: trigger.conversation_id.clone(),
+                conversation_id: conversation_id.to_string(),
                 turn_id: Some(turn_id.to_string()),
-                parent_item_id: Some(trigger.item_id.clone()),
+                parent_item_id: None,
                 kind: ConversationItemKind::ArtifactReference,
                 status: ConversationItemStatus::Completed,
                 author: ActorRef::agent("agent:primary")

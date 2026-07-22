@@ -399,11 +399,13 @@ impl RuntimeHandle {
 
     pub(crate) async fn deliver_work_notification(
         &self,
-        completion: noema_store::CompleteWorkNotification,
+        notification: noema_store::ClaimedWorkNotification,
+        conversation_id: String,
         work_event: crate::daemon::WorkRuntimeEvent,
     ) -> Result<(), RuntimeError> {
         self.request(|reply| RuntimeCommand::DeliverWorkNotification {
-            completion,
+            notification,
+            conversation_id,
             work_event,
             reply,
         })
@@ -507,7 +509,8 @@ pub(super) enum RuntimeCommand {
         reply: oneshot::Sender<Result<GenerateResponse, RuntimeError>>,
     },
     DeliverWorkNotification {
-        completion: noema_store::CompleteWorkNotification,
+        notification: noema_store::ClaimedWorkNotification,
+        conversation_id: String,
         work_event: crate::daemon::WorkRuntimeEvent,
         reply: oneshot::Sender<Result<(), RuntimeError>>,
     },

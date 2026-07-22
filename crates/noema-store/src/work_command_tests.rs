@@ -253,7 +253,7 @@ async fn assert_source_replay(kind: SourceReplayKind) {
 }
 
 #[tokio::test]
-async fn task_created_notification_uses_matching_chat_source_turn_only() {
+async fn task_notification_preserves_creation_turn_and_suppresses_near_term_completion() {
     let (store, service) = fixture().await;
     store
         .with_connection(|connection| {
@@ -293,7 +293,8 @@ async fn task_created_notification_uses_matching_chat_source_turn_only() {
                 conversation_id: "conversation:capture-source".to_string(),
             })
             .await
-            .expect("deliver creation notification");
+            .expect("deliver creation notification")
+            .expect("creation reference");
     }
 
     let references = store
@@ -315,6 +316,98 @@ async fn task_created_notification_uses_matching_chat_source_turn_only() {
         Some("turn:capture-source")
     );
     assert!(reference_for(&work_ui_task.task_id).turn_id.is_none());
+
+    let task_id = chat_task.task_id.to_string();
+    store
+        .with_connection(move |connection| {
+            let event_sequence: i64 = connection.query_row(
+                "SELECT event_sequence FROM work_notification_outbox
+                 WHERE notification_kind = 'task_created'
+                   AND json_extract(payload_json, '$.task_id') = ?1",
+                [&task_id],
+                |row| row.get(0),
+            )?;
+            connection.execute_batch(&format!(
+                r#"
+                INSERT INTO conversation_items (item_id, conversation_id, sequence_index, kind, status, author_actor_id)
+                VALUES ('item:completion-activity', 'conversation:capture-source',
+                  (SELECT MAX(sequence_index) + 1 FROM conversation_items WHERE conversation_id = 'conversation:capture-source'),
+                  'activity', 'completed', 'agent:primary');
+                INSERT INTO conversation_items (item_id, conversation_id, sequence_index, kind, status, author_actor_id, content_text)
+                VALUES ('item:completion-gap', 'conversation:capture-source',
+                  (SELECT MAX(sequence_index) + 1 FROM conversation_items WHERE conversation_id = 'conversation:capture-source'),
+                  'user_text', 'completed', 'human:local', 'Intervening message.');
+                INSERT INTO conversation_items
+                  (item_id, conversation_id, sequence_index, kind, status, author_actor_id, content_text, metadata_json)
+                VALUES ('item:completion-message', 'conversation:capture-source',
+                  (SELECT MAX(sequence_index) + 1 FROM conversation_items WHERE conversation_id = 'conversation:capture-source'),
+                  'assistant_text', 'completed', 'agent:primary', 'Task completed.',
+                  '{{"source":"work_notification","notification_id":"notification:completion-window"}}');
+                INSERT INTO work_notification_outbox
+                  (notification_id, event_sequence, destination_kind, destination_id, notification_kind,
+                   payload_json, status, lease_owner, lease_token, lease_expires_at, attempt_count)
+                VALUES ('notification:completion-window', {event_sequence}, 'human_primary_conversation',
+                  'human:local', 'task_completed', '{{"task_id":"{task_id}"}}', 'leased',
+                  'worker:test', 'lease:completion-window', '9999-12-31T23:59:59.999Z', 1);
+                "#
+            ))?;
+            Ok(())
+        })
+        .await
+        .expect("seed near-term completion");
+    assert!(
+        store
+            .complete_work_notification(CompleteWorkNotification {
+                notification_id: "notification:completion-window".to_string(),
+                lease_token: "lease:completion-window".to_string(),
+                conversation_id: "conversation:capture-source".to_string(),
+            })
+            .await
+            .expect("deliver completion notification")
+            .is_none()
+    );
+
+    let task_id = work_ui_task.task_id.to_string();
+    store
+        .with_connection(move |connection| {
+            let event_sequence: i64 = connection.query_row(
+                "SELECT event_sequence FROM work_notification_outbox
+                 WHERE notification_kind = 'task_created'
+                   AND json_extract(payload_json, '$.task_id') = ?1",
+                [&task_id],
+                |row| row.get(0),
+            )?;
+            connection.execute_batch(&format!(
+                r#"
+                INSERT INTO conversation_items
+                  (item_id, conversation_id, sequence_index, kind, status, author_actor_id, content_text, metadata_json)
+                VALUES ('item:distant-completion-message', 'conversation:capture-source',
+                  (SELECT MAX(sequence_index) + 1 FROM conversation_items WHERE conversation_id = 'conversation:capture-source'),
+                  'assistant_text', 'completed', 'agent:primary', 'Another task completed.',
+                  '{{"source":"work_notification","notification_id":"notification:distant-completion"}}');
+                INSERT INTO work_notification_outbox
+                  (notification_id, event_sequence, destination_kind, destination_id, notification_kind,
+                   payload_json, status, lease_owner, lease_token, lease_expires_at, attempt_count)
+                VALUES ('notification:distant-completion', {event_sequence}, 'human_primary_conversation',
+                  'human:local', 'task_completed', '{{"task_id":"{task_id}"}}', 'leased',
+                  'worker:test', 'lease:distant-completion', '9999-12-31T23:59:59.999Z', 1);
+                "#
+            ))?;
+            Ok(())
+        })
+        .await
+        .expect("seed distant completion");
+    assert!(
+        store
+            .complete_work_notification(CompleteWorkNotification {
+                notification_id: "notification:distant-completion".to_string(),
+                lease_token: "lease:distant-completion".to_string(),
+                conversation_id: "conversation:capture-source".to_string(),
+            })
+            .await
+            .expect("deliver distant completion notification")
+            .is_some()
+    );
 }
 
 #[tokio::test]

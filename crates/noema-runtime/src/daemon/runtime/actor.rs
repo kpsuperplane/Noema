@@ -320,34 +320,33 @@ impl RuntimeActor {
                     });
                 }
                 RuntimeCommand::DeliverWorkNotification {
-                    completion,
+                    notification,
+                    conversation_id,
                     work_event,
                     reply,
                 } => {
+                    self.runtime_events.publish_work(work_event);
                     let result = match self
-                        .store
-                        .prepare_work_notification(completion.clone())
+                        .narrate_work_notification(&notification, &conversation_id)
                         .await
                     {
-                        Ok(item) => {
-                            self.runtime_events.publish_work(work_event);
-                            match notification_conversation_event(item.clone()) {
-                                Ok(event) => {
-                                    self.runtime_events.publish_conversation(event);
-                                    match self.narrate_work_notification(&item).await {
-                                        Ok(()) => self
-                                            .store
-                                            .complete_work_notification(completion)
-                                            .await
-                                            .map(|_| ())
-                                            .map_err(RuntimeError::from),
-                                        Err(error) => Err(error),
-                                    }
+                        Ok(()) => {
+                            let completion = noema_store::CompleteWorkNotification {
+                                notification_id: notification.notification_id,
+                                lease_token: notification.lease_token,
+                                conversation_id,
+                            };
+                            match self.store.complete_work_notification(completion).await {
+                                Ok(Some(item)) => {
+                                    notification_conversation_event(item).map(|event| {
+                                        self.runtime_events.publish_conversation(event);
+                                    })
                                 }
-                                Err(error) => Err(error),
+                                Ok(None) => Ok(()),
+                                Err(error) => Err(RuntimeError::from(error)),
                             }
                         }
-                        Err(error) => Err(RuntimeError::from(error)),
+                        Err(error) => Err(error),
                     };
                     let _ = reply.send(result);
                 }
