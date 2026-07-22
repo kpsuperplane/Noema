@@ -17,10 +17,16 @@ export function transcriptArrivalScrollKey(
   entries: RenderTranscriptEntry[],
   seenMessageIds: ReadonlySet<string>
 ): string {
+  return transcriptArrivalMessageIds(entries, seenMessageIds).join("|");
+}
+
+export function transcriptArrivalMessageIds(
+  entries: RenderTranscriptEntry[],
+  seenMessageIds: ReadonlySet<string>
+): string[] {
   return entries
     .filter((entry) => shouldAnimateRenderedEntryArrivalForSeen(entry, renderedEntryMessageId(entry), seenMessageIds))
-    .map(renderedEntryMessageId)
-    .join("|");
+    .map(renderedEntryMessageId);
 }
 
 export function initialSeenArrivalMessageIds(entries: RenderTranscriptEntry[]): ReadonlySet<string> {

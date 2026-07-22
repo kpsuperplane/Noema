@@ -159,8 +159,9 @@ const styles = stylex.create({
     font: "inherit",
     textAlign: "left",
     cursor: "pointer",
-    transitionDuration: "120ms",
+    transitionDuration: "var(--motion-spring-micro-duration)",
     transitionProperty: "opacity",
+    transitionTimingFunction: "var(--motion-spring-critical-easing)",
     ":hover": {
       opacity: 0.72
     },

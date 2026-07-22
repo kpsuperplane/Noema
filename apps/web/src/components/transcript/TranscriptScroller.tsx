@@ -2,6 +2,10 @@ import * as React from "react";
 import * as stylex from "@stylexjs/stylex";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDownIcon } from "lucide-react";
+import { AnimatePresence, useReducedMotion } from "motion/react";
+import * as m from "motion/react-m";
+import { animateScrollToBottom } from "@/motion/scroll";
+import { springs } from "@/motion/springs";
 import { renderedEntryMessageId, type RenderTranscriptEntry } from "./renderModel";
 import { BOTTOM_SCROLL_THRESHOLD_PX } from "./scrollModel";
 import { shouldLoadBeforeFromVirtualItems, transcriptBottomAnchorOffset } from "./transcriptScrollerModel";
@@ -168,9 +172,6 @@ const styles = stylex.create({
     borderColor: "var(--noema-border-default)",
     backgroundColor: "var(--noema-surface-card)",
     color: "var(--noema-text-primary)",
-    transform: "translateX(-50%)",
-    transitionDuration: "200ms",
-    transitionProperty: "opacity, transform",
     ":hover": {
       backgroundColor: "var(--noema-surface-sunken)"
     },
@@ -182,11 +183,6 @@ const styles = stylex.create({
   },
   embeddedScrollButton: {
     bottom: "var(--spacing-4)"
-  },
-  hidden: {
-    pointerEvents: "none",
-    opacity: 0,
-    transform: "translateX(-50%) translateY(100%) scale(0.95)"
   },
   srOnly: {
     position: "absolute",
@@ -236,6 +232,7 @@ export function TranscriptScroller({
   "aria-label": ariaLabel
 }: TranscriptScrollerProps) {
   const { contentRef, viewportRef, scrollToEnd } = useTranscriptScroller();
+  const reduceMotion = useReducedMotion();
   const [stuckToBottom, setStuckToBottom] = React.useState(true);
   const [userScrolledTowardStart, setUserScrolledTowardStart] = React.useState(false);
   const [availableHeight, setAvailableHeight] = React.useState(0);
@@ -245,6 +242,7 @@ export function TranscriptScroller({
   const requestedOldestKeyRef = React.useRef<React.Key | null>(null);
   const autoFillOldestKeyRef = React.useRef<React.Key | null>(null);
   const touchStartYRef = React.useRef<number | null>(null);
+  const userScrollAnimationRef = React.useRef<(() => void) | null>(null);
   // TanStack Virtual exposes imperative measurement functions that React Compiler cannot memoize.
   // eslint-disable-next-line react-hooks/incompatible-library
   const rowVirtualizer = useVirtualizer({
@@ -274,25 +272,32 @@ export function TranscriptScroller({
   const markUserScrolledTowardStart = React.useCallback(() => {
     setUserScrolledTowardStart(true);
   }, []);
+  const cancelUserScrollAnimation = React.useCallback(() => {
+    userScrollAnimationRef.current?.();
+    userScrollAnimationRef.current = null;
+  }, []);
   const handleWheel = React.useCallback(
     (event: React.WheelEvent<HTMLDivElement>) => {
+      cancelUserScrollAnimation();
       if (event.deltaY < 0) {
         markUserScrolledTowardStart();
       }
     },
-    [markUserScrolledTowardStart]
+    [cancelUserScrollAnimation, markUserScrolledTowardStart]
   );
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
+      cancelUserScrollAnimation();
       if (event.key === "ArrowUp" || event.key === "PageUp" || event.key === "Home") {
         markUserScrolledTowardStart();
       }
     },
-    [markUserScrolledTowardStart]
+    [cancelUserScrollAnimation, markUserScrolledTowardStart]
   );
   const handleTouchStart = React.useCallback((event: React.TouchEvent<HTMLDivElement>) => {
+    cancelUserScrollAnimation();
     touchStartYRef.current = event.touches[0]?.clientY ?? null;
-  }, []);
+  }, [cancelUserScrollAnimation]);
   const handleTouchMove = React.useCallback(
     (event: React.TouchEvent<HTMLDivElement>) => {
       const startY = touchStartYRef.current;
@@ -303,6 +308,8 @@ export function TranscriptScroller({
     },
     [markUserScrolledTowardStart]
   );
+
+  React.useEffect(() => cancelUserScrollAnimation, [cancelUserScrollAnimation]);
 
   React.useLayoutEffect(() => {
     const viewport = viewportRef.current;
@@ -419,6 +426,7 @@ export function TranscriptScroller({
         {...stylex.props(styles.viewport, density === "embedded" && styles.viewportEmbedded)}
         aria-label={ariaLabel}
         onKeyDown={handleKeyDown}
+        onPointerDown={cancelUserScrollAnimation}
         onScroll={handleScroll}
         onTouchMove={handleTouchMove}
         onTouchStart={handleTouchStart}
@@ -464,22 +472,39 @@ export function TranscriptScroller({
           </div>
         </div>
       </div>
-      <button
-        type="button"
-        {...stylex.props(
-          styles.scrollButton,
-          density === "embedded" && styles.embeddedScrollButton,
-          stuckToBottom && styles.hidden
-        )}
-        aria-hidden={stuckToBottom}
-        data-active={stuckToBottom ? "false" : "true"}
-        disabled={stuckToBottom}
-        onClick={() => scrollToEnd({ behavior: "smooth" })}
-        tabIndex={stuckToBottom ? -1 : 0}
-      >
-        <ArrowDownIcon aria-hidden="true" size={16} />
-        <span {...stylex.props(styles.srOnly)}>Scroll to end</span>
-      </button>
+      <AnimatePresence initial={false}>
+        {!stuckToBottom ? (
+          <m.button
+            key="scroll-to-end"
+            type="button"
+            {...stylex.props(
+              styles.scrollButton,
+              density === "embedded" && styles.embeddedScrollButton
+            )}
+            data-active="true"
+            initial={reduceMotion ? false : { opacity: 0, x: "-50%", y: 16, scale: 0.95 }}
+            animate={{ opacity: 1, x: "-50%", y: 0, scale: 1 }}
+            exit={{ opacity: 0, x: "-50%", y: 16, scale: 0.95 }}
+            transition={reduceMotion ? { duration: 0 } : springs.micro}
+            onClick={() => {
+              cancelUserScrollAnimation();
+              if (reduceMotion) {
+                scrollToEnd({ behavior: "auto" });
+                return;
+              }
+              const viewport = viewportRef.current;
+              if (viewport) {
+                userScrollAnimationRef.current = animateScrollToBottom(viewport, () => {
+                  userScrollAnimationRef.current = null;
+                });
+              }
+            }}
+          >
+            <ArrowDownIcon aria-hidden="true" size={16} />
+            <span {...stylex.props(styles.srOnly)}>Scroll to end</span>
+          </m.button>
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }

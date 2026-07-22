@@ -46,7 +46,7 @@ const styles = stylex.create({
     fontSize: 13,
     lineHeight: 1.3,
     cursor: "pointer",
-    transition: "background-color 140ms ease, border-color 140ms ease",
+    transition: "background-color var(--motion-spring-micro), border-color var(--motion-spring-micro)",
     ":hover": {
       backgroundColor: "color-mix(in srgb, currentColor 10%, transparent)"
     },

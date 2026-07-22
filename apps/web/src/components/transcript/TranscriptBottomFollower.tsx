@@ -1,9 +1,9 @@
 import * as React from "react";
+import { useReducedMotion } from "motion/react";
+import { animateScrollToBottom } from "@/motion/scroll";
 import { useTranscriptScroller } from "./TranscriptScroller";
 
-export const ARRIVAL_SCROLL_SETTLE_DURATION_MS = 260;
 const INITIAL_SCROLL_SETTLE_DURATION_MS = 600;
-const SCROLL_REVEAL_DURATION_MS = 240;
 
 type ScrollMetrics = {
   clientHeight: number;
@@ -14,20 +14,30 @@ type ScrollMetrics = {
 type ActiveScrollAnimation = {
   cancel: () => void;
   key: string;
+  messageIds: readonly string[];
 };
 
 export function TranscriptBottomFollower({
   arrivalScrollKey,
+  arrivalMessageIdsJson,
   followBottomRef,
+  onArrivalSettled,
   sentMessageScrollRequest,
   scrollKey
 }: {
   arrivalScrollKey: string;
+  arrivalMessageIdsJson: string;
   followBottomRef: React.MutableRefObject<boolean>;
+  onArrivalSettled: (messageIds: readonly string[]) => void;
   sentMessageScrollRequest: number;
   scrollKey: string;
 }) {
   const { contentRef, scrollToEnd, viewportRef } = useTranscriptScroller();
+  const reduceMotion = useReducedMotion();
+  const arrivalMessageIds = React.useMemo<readonly string[]>(
+    () => JSON.parse(arrivalMessageIdsJson) as string[],
+    [arrivalMessageIdsJson]
+  );
   const previousMetricsRef = React.useRef<ScrollMetrics | null>(null);
   const completedArrivalKeyRef = React.useRef("");
   const completedSentMessageScrollRequestRef = React.useRef(sentMessageScrollRequest);
@@ -97,26 +107,31 @@ export function TranscriptBottomFollower({
   React.useLayoutEffect(() => {
     const viewport = viewportRef.current;
     const previousMetrics = previousMetricsRef.current;
-    if (
-      !viewport ||
-      !arrivalScrollKey ||
-      !previousMetrics ||
-      arrivalScrollKey === completedArrivalKeyRef.current ||
-      !followBottomRef.current ||
-      prefersReducedMotion()
-    ) {
+    if (!viewport || !arrivalScrollKey || !previousMetrics || arrivalScrollKey === completedArrivalKeyRef.current) {
+      return;
+    }
+
+    if (!followBottomRef.current || reduceMotion) {
+      if (followBottomRef.current) {
+        scrollToEnd({ behavior: "auto" });
+      }
+      completedArrivalKeyRef.current = arrivalScrollKey;
+      previousMetricsRef.current = readScrollMetrics(viewport);
+      onArrivalSettled(arrivalMessageIds);
       return;
     }
 
     activeScrollAnimationRef.current?.cancel();
     viewport.scrollTop = Math.min(previousMetrics.scrollTop, scrollBottomTop(readScrollMetrics(viewport)));
 
-    const cancel = animateScrollToBottom(viewport, viewport.scrollTop, () => {
+    const cancel = animateScrollToBottom(viewport, () => {
       completedArrivalKeyRef.current = arrivalScrollKey;
       activeScrollAnimationRef.current = null;
+      followBottomRef.current = true;
       previousMetricsRef.current = readScrollMetrics(viewport);
+      onArrivalSettled(arrivalMessageIds);
     });
-    activeScrollAnimationRef.current = { cancel, key: arrivalScrollKey };
+    activeScrollAnimationRef.current = { cancel, key: arrivalScrollKey, messageIds: arrivalMessageIds };
 
     return () => {
       if (activeScrollAnimationRef.current?.key === arrivalScrollKey) {
@@ -125,7 +140,7 @@ export function TranscriptBottomFollower({
         previousMetricsRef.current = readScrollMetrics(viewport);
       }
     };
-  }, [arrivalScrollKey, followBottomRef, viewportRef]);
+  }, [arrivalMessageIds, arrivalScrollKey, followBottomRef, onArrivalSettled, reduceMotion, scrollToEnd, viewportRef]);
 
   React.useLayoutEffect(() => {
     const viewport = viewportRef.current;
@@ -173,6 +188,19 @@ export function TranscriptBottomFollower({
       }
     }
 
+    function cancelAutomaticScroll() {
+      cancelInitialBottomLock();
+      const activeAnimation = activeScrollAnimationRef.current;
+      if (!activeAnimation || !viewport) {
+        return;
+      }
+      activeAnimation.cancel();
+      activeScrollAnimationRef.current = null;
+      followBottomRef.current = false;
+      previousMetricsRef.current = readScrollMetrics(viewport);
+      onArrivalSettled(activeAnimation.messageIds);
+    }
+
     function syncToBottom() {
       if (
         !viewport ||
@@ -212,17 +240,17 @@ export function TranscriptBottomFollower({
     if (content) {
       observer.observe(content);
     }
-    viewport.addEventListener("pointerdown", cancelInitialBottomLock, { passive: true });
-    viewport.addEventListener("wheel", cancelInitialBottomLock, { passive: true });
-    viewport.addEventListener("touchmove", cancelInitialBottomLock, { passive: true });
+    viewport.addEventListener("pointerdown", cancelAutomaticScroll, { passive: true });
+    viewport.addEventListener("wheel", cancelAutomaticScroll, { passive: true });
+    viewport.addEventListener("touchmove", cancelAutomaticScroll, { passive: true });
     window.visualViewport?.addEventListener("resize", scheduleSyncToBottom);
     window.visualViewport?.addEventListener("scroll", scheduleSyncToBottom);
 
     return () => {
       observer.disconnect();
-      viewport.removeEventListener("pointerdown", cancelInitialBottomLock);
-      viewport.removeEventListener("wheel", cancelInitialBottomLock);
-      viewport.removeEventListener("touchmove", cancelInitialBottomLock);
+      viewport.removeEventListener("pointerdown", cancelAutomaticScroll);
+      viewport.removeEventListener("wheel", cancelAutomaticScroll);
+      viewport.removeEventListener("touchmove", cancelAutomaticScroll);
       window.visualViewport?.removeEventListener("resize", scheduleSyncToBottom);
       window.visualViewport?.removeEventListener("scroll", scheduleSyncToBottom);
       if (initialBottomLockTimeoutRef.current !== null) {
@@ -238,7 +266,7 @@ export function TranscriptBottomFollower({
         resizeSyncTimeoutRef.current = null;
       }
     };
-  }, [contentRef, followBottomRef, scrollToEnd, viewportRef]);
+  }, [contentRef, followBottomRef, onArrivalSettled, scrollToEnd, viewportRef]);
 
   React.useLayoutEffect(() => {
     const viewport = viewportRef.current;
@@ -250,46 +278,6 @@ export function TranscriptBottomFollower({
   });
 
   return null;
-}
-
-function animateScrollToBottom(viewport: HTMLDivElement, startScrollTop: number, onComplete: () => void) {
-  let animationFrame: number | null = null;
-  let startedAt: number | null = null;
-
-  const step = (timestamp: number) => {
-    if (startedAt === null) {
-      startedAt = timestamp;
-    }
-
-    const progress = Math.min(1, (timestamp - startedAt) / SCROLL_REVEAL_DURATION_MS);
-    const targetScrollTop = scrollBottomTop(readScrollMetrics(viewport));
-    const distance = targetScrollTop - startScrollTop;
-    viewport.scrollTop = startScrollTop + distance * easeOutCubic(progress);
-
-    if (progress < 1) {
-      animationFrame = window.requestAnimationFrame(step);
-      return;
-    }
-
-    viewport.scrollTop = targetScrollTop;
-    onComplete();
-  };
-
-  animationFrame = window.requestAnimationFrame(step);
-
-  return () => {
-    if (animationFrame !== null) {
-      window.cancelAnimationFrame(animationFrame);
-    }
-  };
-}
-
-function easeOutCubic(progress: number) {
-  return 1 - Math.pow(1 - progress, 3);
-}
-
-function prefersReducedMotion() {
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 function readScrollMetrics(viewport: HTMLDivElement): ScrollMetrics {

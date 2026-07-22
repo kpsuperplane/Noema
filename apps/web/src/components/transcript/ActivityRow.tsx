@@ -1,5 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { ChevronDown } from "lucide-react";
+import { SpringDisclosure } from "@/motion/SpringDisclosure";
 import { statusLabel } from "@/shared/format";
 import type { TurnTranscriptItem } from "@/shared/types";
 import { IdentityAvatar } from "../IdentityAvatar";
@@ -34,7 +35,9 @@ const styles = stylex.create({
     whiteSpace: "nowrap"
   },
   toggleIcon: {
-    transition: "transform 140ms ease"
+    transitionDuration: "var(--motion-spring-micro-duration)",
+    transitionProperty: "transform",
+    transitionTimingFunction: "var(--motion-spring-critical-easing)"
   },
   toggleIconOpen: {
     transform: "rotate(180deg)"
@@ -96,11 +99,9 @@ export function ActivityRow({
             type: "button"
           }}
         >
-          {open ? (
-            <pre id={`${item.id}-detail`} {...stylex.props(styles.detail)}>
-              {detail}
-            </pre>
-          ) : null}
+          <SpringDisclosure open={open} id={`${item.id}-detail`}>
+            <pre {...stylex.props(styles.detail)}>{detail}</pre>
+          </SpringDisclosure>
         </TranscriptAttachmentCard>
       </div>
     );

@@ -2,6 +2,7 @@ import * as stylex from "@stylexjs/stylex";
 import { CheckIcon, ChevronDownIcon, ClockIcon, Globe2Icon, Loader2Icon, SearchIcon, WrenchIcon, XIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { RollingText } from "@/components/RollingText";
+import { SpringDisclosure } from "@/motion/SpringDisclosure";
 import {
   toolMarkerExpandable,
   toolMarkerKind,
@@ -71,8 +72,9 @@ const styles = stylex.create({
     paddingBlock: 2,
     paddingInline: 0,
     textAlign: "left",
-    transitionDuration: "120ms",
-    transitionProperty: "opacity"
+    transitionDuration: "var(--motion-spring-micro-duration)",
+    transitionProperty: "opacity",
+    transitionTimingFunction: "var(--motion-spring-critical-easing)"
   },
   rowButton: {
     ":hover": {
@@ -144,8 +146,9 @@ const styles = stylex.create({
     alignItems: "center",
     justifyContent: "center",
     color: "var(--noema-text-faint)",
-    transitionDuration: "160ms",
+    transitionDuration: "var(--motion-spring-micro-duration)",
     transitionProperty: "transform",
+    transitionTimingFunction: "var(--motion-spring-critical-easing)",
     "@media (prefers-reduced-motion: reduce)": {
       transitionDuration: "0ms"
     }
@@ -178,17 +181,7 @@ const styles = stylex.create({
     paddingTop: "var(--spacing-2)"
   },
   groupContent: {
-    display: "grid",
-    gridTemplateRows: "0fr",
-    transitionDuration: "400ms",
-    transitionProperty: "grid-template-rows",
-    transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
-    "@media (prefers-reduced-motion: reduce)": {
-      transitionDuration: "0ms"
-    }
-  },
-  groupContentOpen: {
-    gridTemplateRows: "1fr"
+    minWidth: 0
   },
   groupContentInner: {
     minHeight: 0,
@@ -284,31 +277,24 @@ export function ToolMarker({
               {rowContent}
             </div>
           )}
-          {!singleCall ? (
-            <div
-              id={groupContentId}
-              aria-hidden={!open}
-              inert={!open ? true : undefined}
-              {...stylex.props(styles.groupContent, open && styles.groupContentOpen)}
-            >
-              <div {...stylex.props(styles.groupContentInner)}>
-                <div {...stylex.props(styles.groupList)}>
-                  {data.markers.map((marker) => (
-                    <ToolMarker
-                      key={marker.id}
-                      data={{ kind: "tool", marker }}
-                      expandedMarkers={expandedMarkers}
-                      onToggleMarker={onToggleMarker}
-                      onToggle={() => onToggleMarker?.(marker.id)}
-                      open={expandedMarkers?.has(marker.id) ?? false}
-                      presentation={presentation}
-                      renderDetail={renderDetail}
-                    />
-                  ))}
+          <SpringDisclosure open={!singleCall && open} id={groupContentId}>
+                <div {...stylex.props(styles.groupContent, styles.groupContentInner)}>
+                  <div {...stylex.props(styles.groupList)}>
+                    {data.markers.map((marker) => (
+                      <ToolMarker
+                        key={marker.id}
+                        data={{ kind: "tool", marker }}
+                        expandedMarkers={expandedMarkers}
+                        onToggleMarker={onToggleMarker}
+                        onToggle={() => onToggleMarker?.(marker.id)}
+                        open={expandedMarkers?.has(marker.id) ?? false}
+                        presentation={presentation}
+                        renderDetail={renderDetail}
+                      />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            </div>
-          ) : null}
+          </SpringDisclosure>
         </div>
       </div>
     );
@@ -342,9 +328,9 @@ export function ToolMarker({
             <ToolMarkerRowContent call={call} open={false} presentation={presentation} />
           </div>
         )}
-        {renderDetail && call.expandable && open && call.resultDetail ? (
+        <SpringDisclosure open={Boolean(renderDetail && call.expandable && open && call.resultDetail)}>
           <div {...stylex.props(styles.detail)}>{call.resultDetail}</div>
-        ) : null}
+        </SpringDisclosure>
       </div>
     </div>
   );

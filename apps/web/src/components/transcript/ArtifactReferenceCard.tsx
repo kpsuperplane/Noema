@@ -41,7 +41,7 @@ const styles = stylex.create({
     backgroundColor: "var(--noema-surface-card)",
     color: "var(--noema-text-primary)",
     boxShadow: "0 1px 0 color-mix(in srgb, black 4%, transparent)",
-    transition: "background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease",
+    transition: "background-color var(--motion-spring-micro), border-color var(--motion-spring-micro), box-shadow var(--motion-spring-micro)",
     ":hover": {
       borderColor: "color-mix(in srgb, var(--noema-pine-500) 30%, var(--noema-border-subtle))",
       backgroundColor: "var(--noema-surface-hover)"

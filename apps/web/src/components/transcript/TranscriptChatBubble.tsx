@@ -47,8 +47,9 @@ const styles = stylex.create({
   },
   interactiveBubble: {
     cursor: "pointer",
-    transitionDuration: "140ms",
+    transitionDuration: "var(--motion-spring-micro-duration)",
     transitionProperty: "box-shadow, filter",
+    transitionTimingFunction: "var(--motion-spring-critical-easing)",
     ":hover": {
       filter: "brightness(0.94)"
     },

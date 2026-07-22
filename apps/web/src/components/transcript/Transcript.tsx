@@ -1,6 +1,7 @@
 import * as React from "react";
 import { ContextMenu } from "@astryxdesign/core/ContextMenu";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
+import { SpringDisclosure } from "@/motion/SpringDisclosure";
 import type { RuntimeDebugScope, TranscriptEntry } from "@/shared/types";
 import { ActivityRow } from "./ActivityRow";
 import { ArtifactReferenceCard } from "./ArtifactReferenceCard";
@@ -24,6 +25,7 @@ import {
 import {
   initialSeenArrivalMessageIds,
   isScrolledToBottom,
+  transcriptArrivalMessageIds,
   transcriptArrivalScrollKey,
   transcriptScrollKey
 } from "./scrollModel";
@@ -33,9 +35,9 @@ import { TranscriptInputMessage } from "./TranscriptInputMessage";
 import { toolMarkerExpandable } from "./markerModel";
 import { ToolDetailAttachment } from "./ToolDetailAttachment";
 import { ToolMarker } from "./ToolMarker";
-import { TranscriptBottomFollower, ARRIVAL_SCROLL_SETTLE_DURATION_MS } from "./TranscriptBottomFollower";
+import { TranscriptBottomFollower } from "./TranscriptBottomFollower";
 import { TranscriptRow } from "./TranscriptRow";
-import { TranscriptScroller, TranscriptScrollerItem, TranscriptScrollerProvider, useTranscriptScroller } from "./TranscriptScroller";
+import { TranscriptScroller, TranscriptScrollerItem, TranscriptScrollerProvider } from "./TranscriptScroller";
 import { TypingMessage } from "./TypingMessage";
 import type { ConversationAgentStatus } from "@/shared/types";
 import { parseProviderUsageDebug } from "./debugUsage";
@@ -43,8 +45,6 @@ import {
   RuntimeDebugDialog,
   type RuntimeDebugTarget
 } from "./RuntimeDebugDialog";
-
-const TOOL_DETAIL_EXIT_DURATION_MS = 400;
 
 export type TranscriptDensity = "full" | "embedded";
 
@@ -99,49 +99,61 @@ export function Transcript({
   const [debugTarget, setDebugTarget] = React.useState<RuntimeDebugTarget | null>(null);
   const followBottomRef = React.useRef(true);
   const scrollKey = transcriptScrollKey(renderedEntries);
+  const arrivalMessageIds = transcriptArrivalMessageIds(renderedEntries, seenArrivalMessageIds);
+  const arrivalMessageIdsJson = JSON.stringify(arrivalMessageIds);
   const arrivalScrollKey = transcriptArrivalScrollKey(renderedEntries, seenArrivalMessageIds);
   const handleViewportScroll = React.useCallback((event: React.UIEvent<HTMLDivElement>) => {
     followBottomRef.current = isScrolledToBottom(event.currentTarget);
   }, []);
 
+  const markArrivalsSettled = React.useCallback((messageIds: readonly string[]) => {
+    setSeenArrivalMessageIds((current) => {
+      const next = new Set(current);
+      for (const messageId of messageIds) {
+        next.add(messageId);
+      }
+      return next.size === current.size ? current : next;
+    });
+  }, []);
+
   React.useEffect(() => {
     const nextSeenMessageIds = new Set(seenArrivalMessageIds);
     const nextTextAnimatingMessageIds = new Set(textAnimatingMessageIds);
-    let changed = false;
+    const arrivalMessageIdSet = new Set(arrivalMessageIds);
+    let immediateSeenChanged = false;
     let textAnimatingChanged = false;
     for (const entry of renderedEntries) {
       const messageId = renderedEntryMessageId(entry);
       if (!nextSeenMessageIds.has(messageId)) {
-        nextSeenMessageIds.add(messageId);
-        changed = true;
+        if (!arrivalMessageIdSet.has(messageId)) {
+          nextSeenMessageIds.add(messageId);
+          immediateSeenChanged = true;
+        }
         if (shouldContinueRenderedEntryTextAnimation(entry) && !nextTextAnimatingMessageIds.has(messageId)) {
           nextTextAnimatingMessageIds.add(messageId);
           textAnimatingChanged = true;
         }
       }
     }
-    if (!changed && !textAnimatingChanged) {
+    if (!immediateSeenChanged && !textAnimatingChanged) {
       return;
     }
 
     let cancelled = false;
-    if (textAnimatingChanged) {
-      window.queueMicrotask(() => {
-        if (!cancelled) {
+    window.queueMicrotask(() => {
+      if (!cancelled) {
+        if (immediateSeenChanged) {
+          setSeenArrivalMessageIds(nextSeenMessageIds);
+        }
+        if (textAnimatingChanged) {
           setTextAnimatingMessageIds(nextTextAnimatingMessageIds);
         }
-      });
-    }
-
-    const timeout = window.setTimeout(() => {
-      setSeenArrivalMessageIds(nextSeenMessageIds);
-    }, arrivalScrollKey ? ARRIVAL_SCROLL_SETTLE_DURATION_MS : 0);
-
+      }
+    });
     return () => {
       cancelled = true;
-      window.clearTimeout(timeout);
     };
-  }, [arrivalScrollKey, renderedEntries, seenArrivalMessageIds, textAnimatingMessageIds]);
+  }, [arrivalMessageIds, renderedEntries, seenArrivalMessageIds, textAnimatingMessageIds]);
 
   return (
     <TranscriptScrollerProvider>
@@ -183,7 +195,7 @@ export function Transcript({
               messageId={messageId}
               scrollAnchor={shouldAnchorRenderedEntry(entry)}
             >
-              <RenderedTranscriptEntryFrame lane={lane}>
+              <RenderedTranscriptEntryFrame animateArrival={animateArrival} lane={lane}>
                 {renderTranscriptRenderEntry(
                   entry,
                   entries,
@@ -194,7 +206,6 @@ export function Transcript({
                   showActorAvatars,
                   bubbleGroup,
                   animateText,
-                  followBottomRef,
                   onOpenDetail,
                   setDebugTarget
                 )}
@@ -205,7 +216,9 @@ export function Transcript({
       />
       <TranscriptBottomFollower
         arrivalScrollKey={arrivalScrollKey}
+        arrivalMessageIdsJson={arrivalMessageIdsJson}
         followBottomRef={followBottomRef}
+        onArrivalSettled={markArrivalsSettled}
         sentMessageScrollRequest={sentMessageScrollRequest}
         scrollKey={scrollKey}
       />
@@ -235,7 +248,6 @@ function renderTranscriptRenderEntry(
   reserveAvatarSpace: boolean,
   bubbleGroup: ChatBubbleGroup | undefined,
   animateText: boolean,
-  followBottomRef: React.MutableRefObject<boolean>,
   onOpenDetail: ((target: ChatDetailTarget) => void) | undefined,
   onDebug: (target: RuntimeDebugTarget) => void
 ) {
@@ -264,12 +276,14 @@ function renderTranscriptRenderEntry(
           </DebugMarkerMenu>
         </TranscriptRow>
         {directMarker ? (
-          <AnimatedToolDetailRow
+          <SpringDisclosure
             open={open && toolMarkerExpandable(directMarker)}
-            marker={directMarker}
-            followBottomRef={followBottomRef}
-            reserveAvatarSpace={reserveAvatarSpace}
-          />
+            slot="tool-detail-row-motion"
+          >
+            <TranscriptRow lane="assistant" reserveAvatarSpace={reserveAvatarSpace} showAvatar={false}>
+              <ToolDetailAttachment id={`${directMarker.id}-details`} marker={directMarker} />
+            </TranscriptRow>
+          </SpringDisclosure>
         ) : null}
       </>
     );
@@ -495,80 +509,4 @@ function multipleChoicePromptSelectedOptionIds(entries: TranscriptEntry[], promp
     return new Set();
   }
   return new Set(selection.item.selected_options.map((option) => option.id));
-}
-
-function AnimatedToolDetailRow({
-  open,
-  marker,
-  followBottomRef,
-  reserveAvatarSpace
-}: {
-  open: boolean;
-  marker: Extract<RenderTranscriptEntry, { kind: "tool_marker" }>["marker"];
-  followBottomRef: React.MutableRefObject<boolean>;
-  reserveAvatarSpace: boolean;
-}) {
-  const { scrollToEnd } = useTranscriptScroller();
-  const [rendered, setRendered] = React.useState(open);
-  const [phase, setPhase] = React.useState<"entering" | "current" | "exiting">(() => (open ? "entering" : "exiting"));
-
-  React.useEffect(() => {
-    let animationFrame: number | null = null;
-    let timeout: number | null = null;
-
-    if (open && (!rendered || phase === "exiting")) {
-      animationFrame = window.requestAnimationFrame(() => {
-        setRendered(true);
-        setPhase("entering");
-      });
-    } else if (!open && rendered) {
-      animationFrame = window.requestAnimationFrame(() => {
-        setPhase("exiting");
-      });
-      timeout = window.setTimeout(() => {
-        setRendered(false);
-      }, TOOL_DETAIL_EXIT_DURATION_MS);
-    }
-
-    return () => {
-      if (animationFrame !== null) {
-        window.cancelAnimationFrame(animationFrame);
-      }
-      if (timeout !== null) {
-        window.clearTimeout(timeout);
-      }
-    };
-  }, [open, phase, rendered]);
-
-  React.useLayoutEffect(() => {
-    if (!rendered || !open || !followBottomRef.current) {
-      return;
-    }
-
-    scrollToEnd({ behavior: "auto" });
-  }, [followBottomRef, open, rendered, scrollToEnd]);
-
-  if (!rendered) {
-    return null;
-  }
-
-  return (
-    <div
-      data-slot="tool-detail-row-motion"
-      data-state={phase}
-      onAnimationEnd={() => {
-        if (phase === "entering") {
-          setPhase("current");
-        } else if (phase === "exiting") {
-          setRendered(false);
-        }
-      }}
-    >
-      <div data-slot="tool-detail-row-motion-inner">
-        <TranscriptRow lane="assistant" reserveAvatarSpace={reserveAvatarSpace} showAvatar={false}>
-          <ToolDetailAttachment id={`${marker.id}-details`} marker={marker} />
-        </TranscriptRow>
-      </div>
-    </div>
-  );
 }

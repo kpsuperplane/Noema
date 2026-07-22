@@ -11,7 +11,7 @@ import type {
 
 const selectorTransitionStyle = {
   transition:
-    "opacity 140ms ease, border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease"
+    "opacity var(--motion-spring-standard), border-color var(--motion-spring-standard), box-shadow var(--motion-spring-standard), background-color var(--motion-spring-standard)"
 } satisfies CSSProperties;
 
 export function ModelPreferenceSelect({

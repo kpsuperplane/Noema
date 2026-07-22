@@ -52,6 +52,18 @@
   --motion-spring-micro: var(--motion-spring-micro-duration) var(--motion-spring-critical-easing);
   --motion-spring-standard: var(--motion-spring-standard-duration) var(--motion-spring-critical-easing);
   --motion-spring-surface: var(--motion-spring-surface-duration) var(--motion-spring-critical-easing);
+  --duration-fast-min: var(--motion-spring-micro-duration);
+  --duration-fast: var(--motion-spring-micro-duration);
+  --duration-fast-max: var(--motion-spring-micro-duration);
+  --duration-medium-min: var(--motion-spring-standard-duration);
+  --duration-medium: var(--motion-spring-standard-duration);
+  --duration-medium-max: var(--motion-spring-standard-duration);
+  --duration-slow-min: var(--motion-spring-surface-duration);
+  --duration-slow: var(--motion-spring-surface-duration);
+  --duration-slow-max: var(--motion-spring-surface-duration);
+  --ease-standard: var(--motion-spring-critical-easing);
+  --transition-fast: var(--motion-spring-micro);
+  --transition-normal: var(--motion-spring-standard);
 
   --noema-surface-page: var(--noema-white);
   --noema-surface-card: var(--noema-white);
@@ -217,6 +229,14 @@
   font-family: var(--noema-font-body);
   font-size: 16px;
   line-height: 1.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-spring-micro-duration: 0ms;
+    --motion-spring-standard-duration: 0ms;
+    --motion-spring-surface-duration: 0ms;
+  }
 }
 
 [data-astryx-theme="neutral"] {
