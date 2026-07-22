@@ -1,34 +1,15 @@
 import * as stylex from "@stylexjs/stylex";
-import { type HTMLAttributes, type Ref, useLayoutEffect, useRef, useState } from "react";
+import { AnimatePresence, useReducedMotion } from "motion/react";
+import * as m from "motion/react-m";
+import { forwardRef, type ComponentProps } from "react";
+import { springs } from "@/motion/springs";
 
-const WORD_STAGGER_MS = 16;
+const WORD_STAGGER_SECONDS = 0.016;
 const MAX_STAGGER_INDEX = 7;
-const TEXT_MOTION_MS = 400;
-const TEXT_MOTION_EASING = "cubic-bezier(0.45, 0, 0.55, 1)";
-const WIDTH_MOTION_MS = 420;
-const SETTLE_DELAY_MS = TEXT_MOTION_MS + MAX_STAGGER_INDEX * WORD_STAGGER_MS + 40;
-const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 
-type RollingTextProps = Omit<HTMLAttributes<HTMLSpanElement>, "children"> & {
+type RollingTextProps = Omit<ComponentProps<typeof m.span>, "children"> & {
   value: string;
 };
-
-type RollingTextMotion = {
-  current: string;
-  previous: string | null;
-  generation: number;
-  width: number | null;
-};
-
-const rollIn = stylex.keyframes({
-  from: { opacity: 0, transform: "perspective(10em) translateY(0.8em) rotateX(-22deg)" },
-  to: { opacity: 1, transform: "perspective(10em) translateY(0) rotateX(0deg)" }
-});
-
-const rollOut = stylex.keyframes({
-  from: { opacity: 1, transform: "perspective(10em) translateY(0) rotateX(0deg)" },
-  to: { opacity: 0, transform: "perspective(10em) translateY(-0.6em) rotateX(22deg)" }
-});
 
 const styles = stylex.create({
   root: {
@@ -36,18 +17,13 @@ const styles = stylex.create({
     maxWidth: "100%",
     minWidth: 0,
     overflow: "hidden",
-    verticalAlign: "bottom",
-    transitionDuration: `${WIDTH_MOTION_MS}ms`,
-    transitionProperty: "width",
-    transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
-    "@media (prefers-reduced-motion: reduce)": {
-      transitionDuration: "0ms"
-    }
+    verticalAlign: "bottom"
   },
   empty: {
     display: "none"
   },
   visual: {
+    position: "relative",
     display: "grid",
     maxWidth: "100%",
     minWidth: 0
@@ -63,30 +39,9 @@ const styles = stylex.create({
     whiteSpace: "pre"
   },
   word: {
-    display: "inline-block"
-  },
-  motionWord: {
+    display: "inline-block",
     backfaceVisibility: "hidden",
     transformOrigin: "50% 50%"
-  },
-  incomingWord: {
-    animationDuration: `${TEXT_MOTION_MS}ms`,
-    animationFillMode: "both",
-    animationName: rollIn,
-    animationTimingFunction: TEXT_MOTION_EASING,
-    "@media (prefers-reduced-motion: reduce)": {
-      animationName: "none"
-    }
-  },
-  outgoingWord: {
-    animationDuration: `${TEXT_MOTION_MS}ms`,
-    animationFillMode: "both",
-    animationName: rollOut,
-    animationTimingFunction: TEXT_MOTION_EASING,
-    "@media (prefers-reduced-motion: reduce)": {
-      display: "none",
-      animationName: "none"
-    }
   },
   srOnly: {
     position: "absolute",
@@ -99,110 +54,59 @@ const styles = stylex.create({
 });
 
 export function RollingText({ value, className, style, ...props }: RollingTextProps) {
-  const rootRef = useRef<HTMLSpanElement>(null);
-  const incomingRef = useRef<HTMLSpanElement>(null);
-  const [motion, setMotion] = useState<RollingTextMotion>(() => ({
-    current: value,
-    previous: null,
-    generation: 0,
-    width: null
-  }));
-
-  useLayoutEffect(() => {
-    if (value === motion.current) {
-      return;
-    }
-    const reducedMotion = window.matchMedia(REDUCED_MOTION_QUERY).matches;
-    const previousWidth = rootRef.current?.getBoundingClientRect().width ?? 0;
-    setMotion((current) => ({
-      current: value,
-      previous: reducedMotion ? null : current.current,
-      generation: current.generation + 1,
-      width: reducedMotion ? null : previousWidth
-    }));
-  }, [motion, value]);
-
-  useLayoutEffect(() => {
-    if (motion.previous === null) {
-      return;
-    }
-    const generation = motion.generation;
-    const nextWidth = incomingRef.current?.scrollWidth ?? 0;
-    const frame = window.requestAnimationFrame(() => {
-      setMotion((current) => current.generation === generation ? { ...current, width: nextWidth } : current);
-    });
-    const timeout = window.setTimeout(() => {
-      setMotion((current) => current.generation === generation
-        ? { ...current, previous: null, width: null }
-        : current);
-    }, SETTLE_DELAY_MS);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      window.clearTimeout(timeout);
-    };
-  }, [motion.generation, motion.previous]);
-
-  const rootStyles = stylex.props(styles.root, motion.previous === null && !motion.current && styles.empty);
+  const reduceMotion = useReducedMotion();
+  const rootStyles = stylex.props(styles.root, !value && styles.empty);
   const mergedClassName = [rootStyles.className, className].filter(Boolean).join(" ") || undefined;
-  const mergedStyle = motion.width === null
-    ? { ...rootStyles.style, ...style }
-    : { ...rootStyles.style, ...style, width: motion.width };
 
   return (
-    <span {...props} ref={rootRef} className={mergedClassName} style={mergedStyle}>
-      <span {...stylex.props(styles.srOnly)}>{motion.current}</span>
+    <m.span
+      {...props}
+      layout={reduceMotion ? false : "size"}
+      className={mergedClassName}
+      style={{ ...rootStyles.style, ...style }}
+      transition={{ layout: springs.standard }}
+    >
+      <span {...stylex.props(styles.srOnly)}>{value}</span>
       <span aria-hidden="true" {...stylex.props(styles.visual)}>
-        {motion.previous !== null ? (
-          <RollingTextLayer animated direction="out" value={motion.previous} />
-        ) : null}
-        <RollingTextLayer
-          ref={incomingRef}
-          animated={motion.previous !== null}
-          direction="in"
-          value={motion.current}
-        />
+        <AnimatePresence initial={false} mode="popLayout">
+          <RollingTextLayer key={value} reduceMotion={Boolean(reduceMotion)} value={value} />
+        </AnimatePresence>
       </span>
-    </span>
+    </m.span>
   );
 }
 
-function RollingTextLayer({
-  value,
-  animated,
-  direction,
-  ref
-}: {
-  value: string;
-  animated: boolean;
-  direction: "in" | "out";
-  ref?: Ref<HTMLSpanElement>;
-}) {
-  const segments = rollingTextSegments(value);
-  return (
-    <span ref={ref} {...stylex.props(styles.layer)}>
-      {segments.map((segment, index) => {
-        if (segment.wordIndex === null) {
-          return segment.text;
-        }
-        const delay = Math.min(segment.wordIndex, MAX_STAGGER_INDEX) * WORD_STAGGER_MS;
-        return (
-          <span
-            key={`${index}:${segment.text}`}
-            {...stylex.props(
-              styles.word,
-              animated && styles.motionWord,
-              animated && direction === "in" && styles.incomingWord,
-              animated && direction === "out" && styles.outgoingWord
-            )}
-            style={animated ? { animationDelay: `${delay}ms` } : undefined}
-          >
-            {segment.text}
-          </span>
-        );
-      })}
-    </span>
-  );
-}
+const RollingTextLayer = forwardRef<HTMLSpanElement, { value: string; reduceMotion: boolean }>(
+  function RollingTextLayer({ value, reduceMotion }, ref) {
+    const segments = rollingTextSegments(value);
+    return (
+      <m.span
+        ref={ref}
+        layout={reduceMotion ? false : "position"}
+        {...stylex.props(styles.layer)}
+      >
+        {segments.map((segment, index) => {
+          if (segment.wordIndex === null) {
+            return segment.text;
+          }
+          const delay = Math.min(segment.wordIndex, MAX_STAGGER_INDEX) * WORD_STAGGER_SECONDS;
+          return (
+            <m.span
+              key={`${index}:${segment.text}`}
+              initial={reduceMotion ? false : { opacity: 0, y: "0.8em", rotateX: -22 }}
+              animate={{ opacity: 1, y: 0, rotateX: 0 }}
+              exit={reduceMotion ? undefined : { opacity: 0, y: "-0.6em", rotateX: 22 }}
+              transition={{ ...springs.micro, delay }}
+              {...stylex.props(styles.word)}
+            >
+              {segment.text}
+            </m.span>
+          );
+        })}
+      </m.span>
+    );
+  }
+);
 
 function rollingTextSegments(value: string): Array<{ text: string; wordIndex: number | null }> {
   let wordIndex = 0;

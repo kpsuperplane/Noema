@@ -22,6 +22,37 @@
   --noema-font-body: "Hanken Grotesk", system-ui, -apple-system, sans-serif;
   --noema-font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
+  /* Critically damped response sampled through 99% settlement. */
+  --motion-spring-critical-easing: linear(
+    0,
+    0.0447,
+    0.1448,
+    0.2653,
+    0.3868,
+    0.4991,
+    0.5977,
+    0.6813,
+    0.7506,
+    0.807,
+    0.8522,
+    0.8881,
+    0.9163,
+    0.9383,
+    0.9554,
+    0.9685,
+    0.9786,
+    0.9863,
+    0.9922,
+    0.9966,
+    1
+  );
+  --motion-spring-micro-duration: 221ms;
+  --motion-spring-standard-duration: 332ms;
+  --motion-spring-surface-duration: 443ms;
+  --motion-spring-micro: var(--motion-spring-micro-duration) var(--motion-spring-critical-easing);
+  --motion-spring-standard: var(--motion-spring-standard-duration) var(--motion-spring-critical-easing);
+  --motion-spring-surface: var(--motion-spring-surface-duration) var(--motion-spring-critical-easing);
+
   --noema-surface-page: var(--noema-white);
   --noema-surface-card: var(--noema-white);
   --noema-surface-sunken: var(--noema-paper-100);
