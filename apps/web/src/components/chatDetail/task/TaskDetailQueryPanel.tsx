@@ -174,7 +174,7 @@ function mapWorkTaskDetail(task: WorkDetail): TaskDetail {
     complexity: task.currentContract
       ? task.currentContract.complexity.toLowerCase() as TaskDetail["complexity"]
       : null,
-    request: task.currentContract?.requestMarkdown ?? task.description,
+    capturedRequest: task.description.trim() || task.title,
     criteria,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,

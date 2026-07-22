@@ -168,7 +168,7 @@ export type TaskDetail = {
   status: TaskStatus;
   stageBehavior: TaskStageBehavior;
   complexity: TaskComplexity | null;
-  request: string;
+  capturedRequest: string;
   criteria: readonly TaskCriterion[];
   createdAt?: string | null;
   updatedAt?: string | null;

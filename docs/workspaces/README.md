@@ -217,6 +217,11 @@ expandable in place, and bounded paging continues from the oldest available run
 window. Executor commentary before a non-terminal tool batch is user-visible;
 hidden provider reasoning is not rendered.
 
+The synthesized initial task message uses the captured task description, never
+the Planner's normalized execution contract. Contract request, plan, and
+criteria remain execution authority and are inspectable through run disclosure
+without being presented as human-authored input.
+
 The floating task-context card keeps an optional needs-input row and compact
 validation summary above the active-task transcript, and remains available on
 the Transcript tab for completed tasks; the Result tab omits it. The info

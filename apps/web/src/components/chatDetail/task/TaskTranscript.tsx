@@ -73,7 +73,7 @@ export function TaskTranscript({
 
   const events = React.useMemo(() => {
     const messages = detail.messages ?? [];
-    const requestAlreadyShown = messages.some((message) => message.body.trim() === detail.request.trim());
+    const requestAlreadyShown = messages.some((message) => message.body.trim() === detail.capturedRequest.trim());
     const next: TranscriptEvent[] = requestAlreadyShown
       ? messages.map((message) => ({
         kind: "message" as const,
@@ -90,7 +90,7 @@ export function TaskTranscript({
             id: `task-request:${detail.taskId}`,
             source: "replay" as const,
             type: "user" as const,
-            text: detail.request
+            text: detail.capturedRequest
           }
         },
         ...messages.map((message) => ({
@@ -112,7 +112,7 @@ export function TaskTranscript({
     }
 
     return next.sort((left, right) => parseTimestamp(left.occurredAt) - parseTimestamp(right.occurredAt) || left.id.localeCompare(right.id));
-  }, [detail.createdAt, detail.messages, detail.request, detail.taskId, runs]);
+  }, [detail.capturedRequest, detail.createdAt, detail.messages, detail.taskId, runs]);
 
   const entries = React.useMemo(() => {
     const next: TranscriptEntry[] = [];

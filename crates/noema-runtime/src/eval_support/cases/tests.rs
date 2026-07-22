@@ -69,6 +69,7 @@ fn task_cases_render_the_production_work_context_contract() {
         } else {
             assert!(prompt.contains("one primary recommendation and at most two alternatives"));
             assert!(prompt.contains("Default to simple"));
+            assert!(prompt.contains("Keep request_markdown to a concise restatement"));
         }
     }
 }
