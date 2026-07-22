@@ -26,10 +26,8 @@ function WorkTaskDetailRoute() {
       </div>
       <ChatDetailRail
         target={{ type: "task", taskId }}
-        motionState="open"
         onChangeVersion={() => undefined}
         onClose={back}
-        onMotionEnd={() => undefined}
         showWorkLink={false}
       />
     </div>

@@ -1,6 +1,12 @@
 import React from "react";
-import { ResizeHandle, useResizable } from "@astryxdesign/core/Resizable";
+import {
+  ResizeHandle,
+  useResizable,
+  type ResizeHandleProps
+} from "@astryxdesign/core/Resizable";
 import * as stylex from "@stylexjs/stylex";
+import { AnimatePresence, useIsPresent, useReducedMotion } from "motion/react";
+import * as m from "motion/react-m";
 import { ChatDetailRail } from "./chatDetail/ChatDetailRail";
 import type { ChatDetailTarget } from "./chatDetail/chatDetailTypes";
 import { Composer } from "./Composer";
@@ -13,6 +19,7 @@ import {
   useShellSurface
 } from "./shell/ShellSurfaceContext";
 import type { ConversationAgentStatus, TranscriptEntry } from "@/shared/types";
+import { springs } from "@/motion/springs";
 
 export function shouldFocusChatComposer({
   ready,
@@ -61,8 +68,6 @@ export type ChatSurfaceProps = {
   onSubmitMultipleChoiceSelection: (promptItemId: string, selectedOptionIds: string[]) => void;
 };
 
-type DetailMotionState = "opening" | "entering" | "open" | "exiting";
-
 export function ChatSurface({
   conversationId,
   transcript,
@@ -90,8 +95,10 @@ export function ChatSurface({
   const [composerDockHeight, setComposerDockHeight] = React.useState(96);
   const [detailTarget, setDetailTarget] = React.useState<ChatDetailTarget | null>(null);
   const [workPanelOpen, setWorkPanelOpen] = React.useState(false);
-  const [detailMotionState, setDetailMotionState] = React.useState<DetailMotionState>("open");
-  const detailReservesSpace = detailTarget && (detailMotionState === "entering" || detailMotionState === "open");
+  const [detailPresenceAnimating, setDetailPresenceAnimating] = React.useState(false);
+  const reduceMotion = useReducedMotion();
+  const wideDetailViewport = useWideDetailViewport();
+  const detailOpen = Boolean(detailTarget);
   const detailRail = useResizable({
     defaultSize: 380,
     minSizePx: 320,
@@ -124,26 +131,6 @@ export function ChatSurface({
     }
   }, [ready, visibility]);
 
-  React.useEffect(() => {
-    if (!detailTarget || detailMotionState !== "opening") {
-      return;
-    }
-
-    let secondFrame = 0;
-    const firstFrame = window.requestAnimationFrame(() => {
-      secondFrame = window.requestAnimationFrame(() => {
-        setDetailMotionState("entering");
-      });
-    });
-
-    return () => {
-      window.cancelAnimationFrame(firstFrame);
-      if (secondFrame !== 0) {
-        window.cancelAnimationFrame(secondFrame);
-      }
-    };
-  }, [detailMotionState, detailTarget]);
-
   const rootStyle = React.useMemo(
     () =>
       ({
@@ -154,44 +141,43 @@ export function ChatSurface({
     [composerDockHeight, detailRail.size]
   );
 
-  const openDetail = React.useCallback(
-    (target: ChatDetailTarget) => {
-      setDetailTarget(target);
-      setDetailMotionState(detailTarget && detailMotionState !== "exiting" ? "open" : "opening");
-    },
-    [detailMotionState, detailTarget]
-  );
+  const openDetail = React.useCallback((target: ChatDetailTarget) => {
+    if (!detailTarget) {
+      setDetailPresenceAnimating(true);
+    }
+    setDetailTarget(target);
+  }, [detailTarget]);
 
   const closeDetail = React.useCallback(() => {
-    setDetailMotionState((state) => (state === "exiting" ? state : "exiting"));
+    setDetailPresenceAnimating(true);
+    setDetailTarget(null);
   }, []);
 
   const selectDetailVersion = React.useCallback((version: string) => {
     setDetailTarget({ type: "artifact", version });
-    setDetailMotionState("open");
   }, []);
-
-  const handleDetailMotionEnd = React.useCallback(() => {
-    if (detailMotionState === "entering") {
-      setDetailMotionState("open");
-      return;
-    }
-    if (detailMotionState === "exiting") {
-      setDetailTarget(null);
-      setDetailMotionState("open");
-    }
-  }, [detailMotionState]);
 
   return (
     <section
       data-slot="chat-surface"
       data-detail-open={detailTarget ? "true" : undefined}
-      data-detail-motion-state={detailTarget ? detailMotionState : undefined}
-      {...stylex.props(styles.root, detailTarget && styles.rootWithDetail)}
+      {...stylex.props(styles.root)}
       style={rootStyle}
       aria-label="Noema chat"
     >
-      <div data-slot="chat-main-pane" {...stylex.props(styles.mainPane, detailReservesSpace && styles.mainPaneWithDetail)}>
+      <m.div
+        data-slot="chat-main-pane"
+        animate={{
+          paddingRight: detailOpen && wideDetailViewport ? detailRail.size + 1 : 0
+        }}
+        transition={
+          reduceMotion || !detailPresenceAnimating
+            ? { duration: 0 }
+            : springs.surface
+        }
+        onAnimationComplete={() => setDetailPresenceAnimating(false)}
+        {...stylex.props(styles.mainPane)}
+      >
         <ChatWorkPanel open={workPanelOpen} onToggle={() => setWorkPanelOpen((value) => !value)} onOpenDetail={openDetail} />
         <div {...stylex.props(styles.contentLayer)}>
           {loadingInitialTranscript || transcript.length === 0 ? (
@@ -231,31 +217,88 @@ export function ChatSurface({
             />
           </div>
         </div>
-      </div>
+      </m.div>
 
-      {detailTarget ? (
-        <>
-          <div data-slot="chat-detail-resize-handle" {...stylex.props(styles.resizeHandleSlot)}>
-            <ResizeHandle
-              direction="horizontal"
-              hasDivider
-              isReversed
-              label="Resize detail sidebar"
-              pillPlacement="center"
-              resizable={detailRail.props}
-            />
-          </div>
+      <AnimatePresence
+        initial={false}
+        onExitComplete={() => setDetailPresenceAnimating(false)}
+      >
+        {detailTarget ? (
+          <ChatDetailResizeHandle
+            key="chat-detail-resize-handle"
+            railSize={detailRail.size}
+            resizable={detailRail.props}
+          />
+        ) : null}
+      </AnimatePresence>
+      <AnimatePresence initial={false}>
+        {detailTarget ? (
           <ChatDetailRail
+            key="chat-detail-rail"
             target={detailTarget}
-            motionState={detailMotionState}
             onChangeVersion={selectDetailVersion}
             onClose={closeDetail}
-            onMotionEnd={handleDetailMotionEnd}
           />
-        </>
-      ) : null}
+        ) : null}
+      </AnimatePresence>
     </section>
   );
+}
+
+function ChatDetailResizeHandle({
+  railSize,
+  resizable
+}: {
+  railSize: number;
+  resizable: ResizeHandleProps["resizable"];
+}) {
+  const isPresent = useIsPresent();
+  const reduceMotion = useReducedMotion();
+
+  return (
+    <m.div
+      data-slot="chat-detail-resize-handle"
+      aria-hidden={isPresent ? undefined : "true"}
+      inert={!isPresent}
+      initial={reduceMotion ? false : { opacity: 0, x: railSize }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: railSize, pointerEvents: "none" }}
+      transition={reduceMotion ? { duration: 0 } : springs.surface}
+      {...stylex.props(styles.resizeHandleSlot)}
+    >
+      <ResizeHandle
+        direction="horizontal"
+        hasDivider
+        isReversed
+        label="Resize detail sidebar"
+        pillPlacement="center"
+        resizable={resizable}
+      />
+    </m.div>
+  );
+}
+
+const wideDetailViewportQuery = "(min-width: 980px)";
+
+function useWideDetailViewport() {
+  const [wide, setWide] = React.useState(() => (
+    typeof window !== "undefined" && typeof window.matchMedia === "function"
+      ? window.matchMedia(wideDetailViewportQuery).matches
+      : false
+  ));
+
+  React.useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
+    }
+    const query = window.matchMedia(wideDetailViewportQuery);
+    const sync = () => setWide(query.matches);
+    sync();
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
+
+  return wide;
 }
 
 const styles = stylex.create({
@@ -277,28 +320,12 @@ const styles = stylex.create({
     width: "100%",
     overflow: "hidden"
   },
-  rootWithDetail: {
-    gridTemplateColumns: {
-      default: "minmax(0, 1fr)",
-      "@media (min-width: 980px)": "minmax(0, 1fr)"
-    }
-  },
   mainPane: {
     display: "grid",
     gridTemplateRows: "minmax(0, 1fr)",
     minWidth: 0,
     minHeight: 0,
-    overflow: "hidden",
-    paddingInlineEnd: {
-      default: 0,
-      "@media (min-width: 980px)": 0
-    }
-  },
-  mainPaneWithDetail: {
-    paddingInlineEnd: {
-      default: 0,
-      "@media (min-width: 980px)": "calc(var(--chat-detail-rail-width) + 1px)"
-    }
+    overflow: "hidden"
   },
   contentLayer: {
     containerName: "chat-transcript",

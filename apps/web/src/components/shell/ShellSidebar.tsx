@@ -1,14 +1,19 @@
 import React from "react";
 import * as stylex from "@stylexjs/stylex";
+import {
+  AnimatePresence,
+  useIsPresent,
+  useReducedMotion,
+  type Variants
+} from "motion/react";
+import * as m from "motion/react-m";
+import { springs } from "@/motion/springs";
 import { IdentityAvatar, LOCAL_AGENT_AVATAR_ID } from "../IdentityAvatar";
 import type { ShellAttention } from "./AppShell";
 import { ShellAttentionItem } from "./ShellAttentionItem";
 import type { ShellMenuItem, ShellMenuLevel, ShellMenuLevelId } from "./shellNavigation";
 
-const shellSidebarMenuTransitionMs = 300;
-
 type ShellSidebarTransitionDirection = "forward" | "backward";
-type ShellSidebarMenuFrameState = "current" | "entering" | "exiting";
 
 const shellSidebarMenuLevelOrder: Record<ShellMenuLevelId, number> = {
   l0: 0,
@@ -24,6 +29,18 @@ export function shellSidebarTransitionDirection(
     : "backward";
 }
 
+const shellSidebarMenuVariants: Variants = {
+  initial: (direction: ShellSidebarTransitionDirection) => ({
+    opacity: 0.4,
+    x: direction === "forward" ? "100%" : "-22%"
+  }),
+  animate: { opacity: 1, x: "0%" },
+  exit: (direction: ShellSidebarTransitionDirection) => ({
+    opacity: 0.4,
+    x: direction === "forward" ? "-22%" : "100%"
+  })
+};
+
 export function ShellSidebar({
   menuLevel,
   attention,
@@ -37,64 +54,24 @@ export function ShellSidebar({
   primaryAgentLabel: string;
   onSelectItem: (item: ShellMenuItem) => void;
 }) {
-  const [settledMenuLevel, setSettledMenuLevel] = React.useState(menuLevel);
-
-  const transitioning = settledMenuLevel.levelId !== menuLevel.levelId;
-  const transitionDirection = transitioning
-    ? shellSidebarTransitionDirection(settledMenuLevel.levelId, menuLevel.levelId)
-    : "forward";
-
-  React.useEffect(() => {
-    if (!transitioning) {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setSettledMenuLevel(menuLevel);
-    }, shellSidebarMenuTransitionMs);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [transitioning, menuLevel]);
-
-  const frames = transitioning
-    ? [
-        {
-          menuLevel: settledMenuLevel,
-          frameState: "exiting" as const,
-          interactive: false
-        },
-        {
-          menuLevel,
-          frameState: "entering" as const,
-          interactive: true
-        }
-      ]
-    : [
-        {
-          menuLevel,
-          frameState: "current" as const,
-          interactive: true
-        }
-      ];
+  const transitionDirection = menuLevel.levelId === "settings" ? "forward" : "backward";
 
   return (
     <div
       data-slot="shell-sidebar-menu-viewport"
       {...stylex.props(styles.viewport)}
     >
-      {frames.map((frame) => (
+      <AnimatePresence initial={false} custom={transitionDirection} mode="sync">
         <ShellSidebarMenuFrame
-          key={`${frame.menuLevel.levelId}-${frame.frameState}`}
-          menuLevel={frame.menuLevel}
+          key={menuLevel.levelId}
+          menuLevel={menuLevel}
           attention={attention}
           primaryAgentNamed={primaryAgentNamed}
           primaryAgentLabel={primaryAgentLabel}
-          frameState={frame.frameState}
           transitionDirection={transitionDirection}
-          interactive={frame.interactive}
           onSelectItem={onSelectItem}
         />
-      ))}
+      </AnimatePresence>
     </div>
   );
 }
@@ -104,27 +81,32 @@ function ShellSidebarMenuFrame({
   attention,
   primaryAgentNamed,
   primaryAgentLabel,
-  frameState,
   transitionDirection,
-  interactive,
   onSelectItem
 }: {
   menuLevel: ShellMenuLevel;
   attention: ShellAttention | null;
   primaryAgentNamed: boolean;
   primaryAgentLabel: string;
-  frameState: ShellSidebarMenuFrameState;
   transitionDirection: ShellSidebarTransitionDirection;
-  interactive: boolean;
   onSelectItem: (item: ShellMenuItem) => void;
 }) {
+  const interactive = useIsPresent();
+  const reduceMotion = useReducedMotion();
+
   return (
-    <div
+    <m.div
       data-slot="shell-sidebar-menu-level-frame"
       data-shell-menu-level={menuLevel.levelId}
-      data-shell-menu-frame-state={frameState}
       data-shell-menu-transition-direction={transitionDirection}
       aria-hidden={interactive ? undefined : "true"}
+      inert={!interactive}
+      custom={transitionDirection}
+      variants={shellSidebarMenuVariants}
+      initial={reduceMotion ? false : "initial"}
+      animate="animate"
+      exit="exit"
+      transition={reduceMotion ? { duration: 0 } : springs.standard}
       {...stylex.props(
         styles.menuFrame,
         !interactive && styles.menuFrameNonInteractive
@@ -138,7 +120,7 @@ function ShellSidebarMenuFrame({
         interactive={interactive}
         onSelectItem={onSelectItem}
       />
-    </div>
+    </m.div>
   );
 }
 
@@ -364,9 +346,9 @@ const styles = stylex.create({
     textAlign: "left",
     fontFamily: "inherit",
     boxSizing: "border-box",
-    transitionDuration: "120ms",
+    transitionDuration: "var(--motion-spring-micro-duration)",
     transitionProperty: "background-color, color",
-    transitionTimingFunction: "ease",
+    transitionTimingFunction: "var(--motion-spring-critical-easing)",
     ":hover": {
       "@media (hover: hover)": {
         backgroundColor: "color-mix(in srgb, var(--pine-100) 44%, transparent)"

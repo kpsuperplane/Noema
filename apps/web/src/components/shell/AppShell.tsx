@@ -4,18 +4,18 @@ import { Button } from "@astryxdesign/core/Button";
 import { Popover, type PopoverProps } from "@astryxdesign/core/Popover";
 import * as stylex from "@stylexjs/stylex";
 import { ChevronDown, Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { useMotionValue } from "motion/react";
+import * as m from "motion/react-m";
 import {
   MemoryTreeDocument,
   type LocalStatusQuery,
   type MemoryTreeQuery
 } from "@/generated/graphql";
 import { isTauriRuntime } from "@/graphql/transportMode";
+import { springs } from "@/motion/springs";
 import type { AppRoute } from "@/app/routes";
 import type { SocketState } from "@/shared/types";
-import {
-  deckTransitionPropertyCanSettleSurfaceVisibility,
-  useDeckNavigation
-} from "./deckNavigation";
+import { useDeckNavigation } from "./deckNavigation";
 import { ShellSidebar } from "./ShellSidebar";
 import {
   ShellSurfaceProvider,
@@ -52,7 +52,6 @@ export const shellTauriDesktopChromeOffset = "72px";
 
 type ShellRootStyle = React.CSSProperties &
   Record<"--shell-sidebar-width" | "--shell-desktop-chrome-offset", string>;
-type ShellContentDeckStyle = React.CSSProperties;
 
 export function shellDesktopChromeOffsetForRuntime(isDesktop = isTauriRuntime()) {
   return isDesktop ? shellTauriDesktopChromeOffset : shellBrowserDesktopChromeOffset;
@@ -197,23 +196,6 @@ function MemoryShellBreadcrumb({
   );
 }
 
-function shellContentDeckStyle({
-  dragging,
-  offsetPx
-}: {
-  dragging: boolean;
-  offsetPx: number;
-}): ShellContentDeckStyle | undefined {
-  if (!dragging) {
-    return undefined;
-  }
-
-  return {
-    transform: `translateX(${offsetPx}px)`,
-    transition: "none"
-  };
-}
-
 export function AppShell({
   route,
   status,
@@ -234,6 +216,7 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   const [memoryBreadcrumb, setMemoryBreadcrumb] = React.useState<ShellMemoryBreadcrumb | null>(null);
+  const deckX = useMotionValue(0);
   const memoryTreeResult = useQuery<MemoryTreeQuery>(MemoryTreeDocument, {
     fetchPolicy: "cache-only",
     skip: route.kind !== "memory"
@@ -284,7 +267,9 @@ export function AppShell({
   const navSwipe = useShellNavSwipe({
     navOpen: deckNavigation.navOpen,
     openNav,
-    closeNav
+    closeNav,
+    deckX,
+    onSettled: settleSurfaceVisibility
   });
 
   const selectShellMenuItem = React.useCallback(
@@ -361,25 +346,19 @@ export function AppShell({
         />
       ) : null}
 
-      <section
+      <m.section
+        layout
         data-slot="shell-content-deck"
         data-nav-open={deckNavigation.navOpen}
         data-nav-swipe-active={navSwipe.dragging ? "true" : undefined}
         aria-label={activeLabel}
-        style={shellContentDeckStyle(navSwipe)}
+        style={{ x: deckX }}
+        transition={{ layout: springs.surface }}
         {...stylex.props(
           styles.contentDeck,
           deckNavigation.sidebarCollapsed ? styles.contentDeckCollapsed : styles.contentDeckExpanded,
           deckNavigation.navOpen && styles.contentDeckNavOpen
         )}
-        onTransitionEnd={(event) => {
-          if (
-            event.currentTarget === event.target &&
-            deckTransitionPropertyCanSettleSurfaceVisibility(event.propertyName)
-          ) {
-            settleSurfaceVisibility();
-          }
-        }}
       >
         <header
           data-slot="shell-deck-header"
@@ -443,7 +422,7 @@ export function AppShell({
             {children}
           </div>
         </ShellSurfaceProvider>
-      </section>
+      </m.section>
     </main>
   );
 }
@@ -523,9 +502,9 @@ const styles = stylex.create({
     borderColor: "var(--border-subtle)",
     backgroundColor: "var(--background)",
     boxShadow: "0 0 24px color-mix(in srgb, var(--pine-700), transparent 80%)",
-    transitionProperty: "inset, left, right, transform, translate, scale, border-radius, box-shadow",
-    transitionDuration: "300ms",
-    transitionTimingFunction: "cubic-bezier(0.2, 0, 0, 1)",
+    transitionProperty: "scale, border-radius, box-shadow",
+    transitionDuration: "var(--motion-spring-surface-duration)",
+    transitionTimingFunction: "var(--motion-spring-critical-easing)",
     "@media (prefers-reduced-motion: reduce)": {
       transition: "none"
     },
@@ -551,17 +530,11 @@ const styles = stylex.create({
     borderRadius: 12
   },
   contentDeckNavOpen: {
-    transform: "translateX(min(calc(var(--shell-sidebar-width) + 20px), 68vw))",
     pointerEvents: "none",
     "@media (min-width: 761px)": {
       scale: 0.97
     },
     "@media (max-width: 760px)": {
-      top: 0,
-      bottom: 0,
-      left: "min(252px, 72vw)",
-      right: "calc(min(252px, 72vw) * -1)",
-      transform: "translateX(0)",
       borderRadius: 12
     }
   },
@@ -602,8 +575,11 @@ const styles = stylex.create({
     minWidth: 0,
     alignItems: "center",
     transitionProperty: "transform",
-    transitionDuration: "300ms",
-    transitionTimingFunction: "cubic-bezier(0.2, 0, 0, 1)"
+    transitionDuration: "var(--motion-spring-surface-duration)",
+    transitionTimingFunction: "var(--motion-spring-critical-easing)",
+    "@media (prefers-reduced-motion: reduce)": {
+      transition: "none"
+    }
   },
   headerOffsetCollapsed: {
     "@media (min-width: 761px)": {

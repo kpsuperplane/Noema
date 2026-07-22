@@ -1,7 +1,7 @@
 import { LazyMotion, MotionConfig } from "motion/react";
 import type { ReactNode } from "react";
 
-const loadMotionFeatures = () => import("motion/react").then((module) => module.domMax);
+const loadMotionFeatures = () => import("./domMax").then((module) => module.default);
 
 export function MotionRoot({ children }: { children: ReactNode }) {
   return (

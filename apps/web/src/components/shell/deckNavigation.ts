@@ -47,16 +47,6 @@ function settledSurfaceVisibility(visibility: ShellSurfaceVisibility): ShellSurf
   return visibility;
 }
 
-export function deckTransitionPropertyCanSettleSurfaceVisibility(propertyName: string) {
-  return (
-    propertyName === "left" ||
-    propertyName === "right" ||
-    propertyName === "transform" ||
-    propertyName === "translate" ||
-    propertyName === "scale"
-  );
-}
-
 export function deckNavigationReducer(
   state: DeckNavigationState,
   action: DeckNavigationAction

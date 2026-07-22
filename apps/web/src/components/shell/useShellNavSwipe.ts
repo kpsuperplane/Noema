@@ -1,4 +1,11 @@
 import React from "react";
+import {
+  animate,
+  useReducedMotion,
+  type AnimationPlaybackControls,
+  type MotionValue
+} from "motion/react";
+import { springs } from "@/motion/springs";
 
 const shellNavSwipeIntentPx = 8;
 const shellNavSwipeVelocityThreshold = 0.45;
@@ -18,19 +25,19 @@ type ShellNavSwipeDrag = {
   velocityX: number;
   velocityTime: number;
   offsetPx: number;
+  originOffsetPx: number;
   captured: boolean;
 };
 
 type ShellNavSwipeSnapshot = {
   dragging: boolean;
-  offsetPx: number;
 };
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
-function shellNavSwipeDeckOffsetPx() {
+export function shellNavDeckOffsetPx() {
   if (typeof window === "undefined") {
     return shellNavSwipeMaxDeckOffsetPx;
   }
@@ -72,11 +79,8 @@ function shouldStartShellNavSwipe(
   return navOpen || targetAllowsShellNavSwipe(event.target);
 }
 
-function shellNavSwipeOffset(mode: ShellNavSwipeMode, deltaX: number) {
-  const maxOffset = shellNavSwipeDeckOffsetPx();
-  return mode === "open"
-    ? clamp(deltaX, 0, maxOffset)
-    : clamp(deltaX, -maxOffset, 0);
+function shellNavSwipeOffset(offsetPx: number) {
+  return clamp(offsetPx, 0, shellNavDeckOffsetPx());
 }
 
 function shouldCommitShellNavSwipe({
@@ -88,35 +92,75 @@ function shouldCommitShellNavSwipe({
   offsetPx: number;
   velocityX: number;
 }) {
-  const threshold = Math.min(84, shellNavSwipeDeckOffsetPx() * 0.35);
+  const maxOffset = shellNavDeckOffsetPx();
+  const threshold = Math.min(84, maxOffset * 0.35);
+  const distance = mode === "open" ? offsetPx : maxOffset - offsetPx;
 
   if (mode === "open") {
-    return offsetPx >= threshold || velocityX >= shellNavSwipeVelocityThreshold;
+    return distance >= threshold || velocityX >= shellNavSwipeVelocityThreshold;
   }
 
-  return Math.abs(offsetPx) >= threshold || velocityX <= -shellNavSwipeVelocityThreshold;
+  return distance >= threshold || velocityX <= -shellNavSwipeVelocityThreshold;
 }
 
 export function useShellNavSwipe({
   navOpen,
   openNav,
-  closeNav
+  closeNav,
+  deckX,
+  onSettled
 }: {
   navOpen: boolean;
   openNav: () => void;
   closeNav: () => void;
+  deckX: MotionValue<number>;
+  onSettled: () => void;
 }) {
   const dragRef = React.useRef<ShellNavSwipeDrag | null>(null);
   const suppressClickRef = React.useRef(false);
+  const animationRef = React.useRef<AnimationPlaybackControls | null>(null);
+  const gestureCommitRef = React.useRef(false);
+  const previousNavOpenRef = React.useRef(navOpen);
+  const reduceMotion = useReducedMotion();
   const [snapshot, setSnapshot] = React.useState<ShellNavSwipeSnapshot>({
-    dragging: false,
-    offsetPx: 0
+    dragging: false
   });
 
   const clearDrag = React.useCallback(() => {
     dragRef.current = null;
-    setSnapshot({ dragging: false, offsetPx: 0 });
+    setSnapshot({ dragging: false });
   }, []);
+
+  const settleDeck = React.useCallback(
+    (target: number, velocityX = 0) => {
+      animationRef.current?.stop();
+      if (reduceMotion) {
+        deckX.set(target);
+        onSettled();
+        return;
+      }
+      animationRef.current = animate(deckX, target, {
+        ...springs.surface,
+        velocity: velocityX * 1_000,
+        onComplete: onSettled
+      });
+    },
+    [deckX, onSettled, reduceMotion]
+  );
+
+  React.useLayoutEffect(() => {
+    if (previousNavOpenRef.current === navOpen) {
+      return;
+    }
+    previousNavOpenRef.current = navOpen;
+    if (gestureCommitRef.current) {
+      gestureCommitRef.current = false;
+      return;
+    }
+    settleDeck(navOpen ? shellNavDeckOffsetPx() : 0);
+  }, [navOpen, settleDeck]);
+
+  React.useEffect(() => () => animationRef.current?.stop(), []);
 
   const onPointerDown = React.useCallback(
     (event: React.PointerEvent<HTMLElement>) => {
@@ -135,6 +179,7 @@ export function useShellNavSwipe({
         velocityX: 0,
         velocityTime: now,
         offsetPx: 0,
+        originOffsetPx: navOpen ? shellNavDeckOffsetPx() : 0,
         captured: false
       };
     },
@@ -162,6 +207,14 @@ export function useShellNavSwipe({
       if (movingTowardMenu && absDeltaX > absDeltaY + shellNavSwipeIntentPx) {
         event.currentTarget.setPointerCapture(event.pointerId);
         drag.captured = true;
+        animationRef.current?.stop();
+        drag.originOffsetPx = deckX.get();
+        drag.startX = event.clientX;
+        drag.lastX = event.clientX;
+        drag.lastTime = typeof performance === "undefined" ? Date.now() : performance.now();
+        drag.offsetPx = drag.originOffsetPx;
+        setSnapshot({ dragging: true });
+        return;
       } else {
         return;
       }
@@ -175,9 +228,9 @@ export function useShellNavSwipe({
     drag.velocityTime = now;
     drag.lastX = event.clientX;
     drag.lastTime = now;
-    drag.offsetPx = shellNavSwipeOffset(drag.mode, deltaX);
-    setSnapshot({ dragging: true, offsetPx: drag.offsetPx });
-  }, [clearDrag]);
+    drag.offsetPx = shellNavSwipeOffset(drag.originOffsetPx + deltaX);
+    deckX.set(drag.offsetPx);
+  }, [clearDrag, deckX]);
 
   const finishDrag = React.useCallback(
     (event: React.PointerEvent<HTMLElement>) => {
@@ -205,7 +258,7 @@ export function useShellNavSwipe({
       }
 
       dragRef.current = null;
-      setSnapshot({ dragging: false, offsetPx: 0 });
+      setSnapshot({ dragging: false });
 
       if (captured) {
         suppressClickRef.current = true;
@@ -214,17 +267,22 @@ export function useShellNavSwipe({
         }, 0);
       }
 
-      if (!commit) {
+      const nextNavOpen = commit ? drag.mode === "open" : drag.mode === "close";
+      const target = nextNavOpen ? shellNavDeckOffsetPx() : 0;
+      settleDeck(target, velocityX);
+
+      if (nextNavOpen === navOpen) {
         return;
       }
 
-      if (drag.mode === "open") {
+      gestureCommitRef.current = true;
+      if (nextNavOpen) {
         openNav();
       } else {
         closeNav();
       }
     },
-    [closeNav, openNav]
+    [closeNav, navOpen, openNav, settleDeck]
   );
 
   const onClickCapture = React.useCallback((event: React.MouseEvent<HTMLElement>) => {
@@ -243,14 +301,16 @@ export function useShellNavSwipe({
       if (drag?.captured && drag.pointerId === event.pointerId && event.currentTarget.hasPointerCapture(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId);
       }
+      if (drag?.captured) {
+        settleDeck(navOpen ? shellNavDeckOffsetPx() : 0);
+      }
       clearDrag();
     },
-    [clearDrag]
+    [clearDrag, navOpen, settleDeck]
   );
 
   return {
     dragging: snapshot.dragging,
-    offsetPx: snapshot.offsetPx,
     pointerHandlers: {
       onPointerDown,
       onPointerMove,

@@ -1,5 +1,8 @@
 import React from "react";
 import * as stylex from "@stylexjs/stylex";
+import { useIsPresent, useReducedMotion, type Variants } from "motion/react";
+import * as m from "motion/react-m";
+import { springs } from "@/motion/springs";
 import {
   ArtifactDetailPanel,
   ArtifactDownloadAction,
@@ -12,22 +15,21 @@ import { ChatDetailCloseButton } from "./ChatDetailCloseButton";
 
 export function ChatDetailRail({
   target,
-  motionState,
   onChangeVersion,
   onClose,
-  onMotionEnd,
   showWorkLink = true
 }: {
   target: ChatDetailTarget;
-  motionState: "opening" | "entering" | "open" | "exiting";
   onChangeVersion: (version: string) => void;
   onClose: () => void;
-  onMotionEnd: () => void;
   showWorkLink?: boolean;
 }) {
   const isModal = useNarrowViewport();
+  const isPresent = useIsPresent();
+  const reduceMotion = useReducedMotion();
   const railRef = React.useRef<HTMLElement>(null);
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
+  const hasEnteredRef = React.useRef(false);
   const taskControlsHostRef = React.useRef<HTMLDivElement>(null);
   const returnFocusRef = React.useRef<HTMLElement | null>(null);
   const taskTargetId = target.type === "task" ? target.taskId : null;
@@ -52,29 +54,22 @@ export function ChatDetailRail({
     if (taskTargetId) setTaskTitleState({ taskId: taskTargetId, title: nextTitle });
   }, [taskTargetId]);
   React.useEffect(() => {
-    if (isModal && motionState === "opening" && returnFocusRef.current === null && document.activeElement instanceof HTMLElement) {
-      returnFocusRef.current = document.activeElement;
+    if (!isModal) {
+      return;
     }
-  }, [isModal, motionState]);
+    if (isPresent && returnFocusRef.current === null && document.activeElement instanceof HTMLElement) {
+      returnFocusRef.current = document.activeElement;
+    } else if (!isPresent) {
+      returnFocusRef.current?.focus({ preventScroll: true });
+      returnFocusRef.current = null;
+    }
+  }, [isModal, isPresent]);
 
   React.useEffect(() => {
-    if (isModal && motionState === "open") {
+    if (isModal && isPresent && (reduceMotion || hasEnteredRef.current)) {
       closeButtonRef.current?.focus({ preventScroll: true });
     }
-  }, [isModal, motionState, target]);
-
-  const handleTransitionEnd = React.useCallback(
-    (event: React.TransitionEvent<HTMLElement>) => {
-      if (event.currentTarget === event.target && event.propertyName === "transform") {
-        if (motionState === "exiting") {
-          returnFocusRef.current?.focus();
-          returnFocusRef.current = null;
-        }
-        onMotionEnd();
-      }
-    },
-    [motionState, onMotionEnd]
-  );
+  }, [isModal, isPresent, reduceMotion, target]);
 
   const updateArtifactDetail = React.useCallback(
     (detail: ArtifactDetail | null) => {
@@ -117,21 +112,32 @@ export function ChatDetailRail({
   }, [isModal, onClose]);
 
   return (
-    <aside
+    <m.aside
       data-slot="chat-detail-rail"
-      data-state={motionState}
+      data-state={isPresent ? "open" : "exiting"}
       aria-modal={isModal ? "true" : undefined}
+      aria-hidden={isPresent ? undefined : "true"}
       aria-label={target.type === "task" ? "Task details" : "Artifact details"}
       ref={railRef}
       role={isModal ? "dialog" : "complementary"}
+      inert={!isPresent}
+      variants={chatDetailRailVariants}
+      initial={reduceMotion ? false : "hidden"}
+      animate="visible"
+      exit="hidden"
+      transition={reduceMotion ? { duration: 0 } : springs.surface}
       {...stylex.props(styles.rail)}
       tabIndex={isModal ? -1 : undefined}
       onKeyDown={handleKeyDown}
-      onTransitionEnd={handleTransitionEnd}
+      onAnimationComplete={(definition) => {
+        if (definition === "visible" && isModal && isPresent) {
+          hasEnteredRef.current = true;
+          closeButtonRef.current?.focus({ preventScroll: true });
+        }
+      }}
     >
       <div
         data-slot="chat-detail-rail-surface"
-        data-state={motionState}
         {...stylex.props(styles.surface, target.type === "task" && styles.taskSurface)}
       >
         <header {...stylex.props(styles.header, target.type === "task" && styles.taskHeader)}>
@@ -176,9 +182,14 @@ export function ChatDetailRail({
           )}
         </div>
       </div>
-    </aside>
+    </m.aside>
   );
 }
+
+const chatDetailRailVariants: Variants = {
+  hidden: { opacity: 0.72, x: "100%" },
+  visible: { opacity: 1, x: "0%" }
+};
 
 const narrowViewportQuery = "(max-width: 979px)";
 

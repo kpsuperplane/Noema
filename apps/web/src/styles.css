@@ -121,31 +121,6 @@ html[data-tauri-runtime="true"] #root {
   background: transparent;
 }
 
-[data-slot="shell-sidebar-menu-level-frame"] {
-  will-change: transform, opacity;
-}
-
-[data-slot="shell-sidebar-menu-level-frame"][data-shell-menu-frame-state="current"] {
-  opacity: 1;
-  transform: translateX(0);
-}
-
-[data-slot="shell-sidebar-menu-level-frame"][data-shell-menu-frame-state="entering"][data-shell-menu-transition-direction="forward"] {
-  animation: shell-sidebar-menu-enter-forward 300ms cubic-bezier(0.2, 0, 0, 1) both;
-}
-
-[data-slot="shell-sidebar-menu-level-frame"][data-shell-menu-frame-state="exiting"][data-shell-menu-transition-direction="forward"] {
-  animation: shell-sidebar-menu-exit-forward 300ms cubic-bezier(0.2, 0, 0, 1) both;
-}
-
-[data-slot="shell-sidebar-menu-level-frame"][data-shell-menu-frame-state="entering"][data-shell-menu-transition-direction="backward"] {
-  animation: shell-sidebar-menu-enter-backward 300ms cubic-bezier(0.2, 0, 0, 1) both;
-}
-
-[data-slot="shell-sidebar-menu-level-frame"][data-shell-menu-frame-state="exiting"][data-shell-menu-transition-direction="backward"] {
-  animation: shell-sidebar-menu-exit-backward 300ms cubic-bezier(0.2, 0, 0, 1) both;
-}
-
 [data-slot="message-scroller-item"][data-arrival="true"] {
   content-visibility: visible;
   position: relative;
@@ -202,74 +177,6 @@ html[data-tauri-runtime="true"] #root {
   animation: tool-detail-row-exit 400ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-[data-slot="chat-detail-rail"] {
-  opacity: 1;
-  transform: translateX(0);
-  transition-property: transform, opacity;
-  transition-duration: 260ms;
-  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
-  will-change: transform, opacity;
-}
-
-[data-slot="chat-detail-rail"][data-state="opening"] {
-  opacity: 0.72;
-  transform: translateX(100%);
-  transition: none;
-}
-
-[data-slot="chat-detail-rail"][data-state="exiting"] {
-  opacity: 0.72;
-  transform: translateX(100%);
-  transition-duration: 220ms;
-  transition-timing-function: cubic-bezier(0.4, 0, 1, 1);
-}
-
-[data-slot="chat-detail-rail"][data-state="open"] {
-  transition: none;
-}
-
-@media (min-width: 980px) {
-  [data-slot="chat-main-pane"] {
-    will-change: padding-inline-end;
-  }
-
-  [data-slot="chat-detail-resize-handle"] {
-    opacity: 1;
-    transform: translateX(0);
-    transition-property: transform, opacity;
-    transition-duration: 260ms;
-    transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
-    will-change: transform, opacity;
-  }
-
-  [data-slot="chat-surface"][data-detail-motion-state="opening"] [data-slot="chat-detail-resize-handle"] {
-    opacity: 0;
-    transform: translateX(var(--chat-detail-rail-width));
-    transition: none;
-  }
-
-  [data-slot="chat-surface"][data-detail-motion-state="entering"] [data-slot="chat-main-pane"] {
-    transition: padding-inline-end 260ms cubic-bezier(0.2, 0, 0, 1);
-  }
-
-  [data-slot="chat-surface"][data-detail-motion-state="exiting"] [data-slot="chat-main-pane"] {
-    transition-property: padding-inline-end;
-    transition-duration: 220ms;
-    transition-timing-function: cubic-bezier(0.4, 0, 1, 1);
-  }
-
-  [data-slot="chat-surface"][data-detail-motion-state="exiting"] [data-slot="chat-detail-resize-handle"] {
-    opacity: 0;
-    transform: translateX(var(--chat-detail-rail-width));
-    transition-duration: 220ms;
-    transition-timing-function: cubic-bezier(0.4, 0, 1, 1);
-  }
-
-  [data-slot="chat-surface"][data-detail-motion-state="open"] [data-slot="chat-detail-resize-handle"] {
-    transition: none;
-  }
-}
-
 [data-slot="marker"][data-pending] {
   --marker-glimmer-base: var(--text-muted);
   --marker-glimmer-flare: color-mix(in srgb, var(--pure-white) 76%, var(--marker-glimmer-base) 24%);
@@ -322,61 +229,6 @@ html[data-tauri-runtime="true"] #root {
   background-size: 230% 100%;
   background-position: 130% 0;
   animation: skeleton-glimmer 2s cubic-bezier(0.45, 0, 0.2, 1) infinite;
-}
-
-@keyframes shell-sidebar-menu-enter-forward {
-  from {
-    opacity: 0.4;
-    transform: translateX(100%);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes shell-sidebar-menu-exit-forward {
-  from {
-    opacity: 1;
-    transform: translateX(0);
-  }
-
-  to {
-    opacity: 0.4;
-    transform: translateX(-22%);
-  }
-}
-
-@keyframes shell-sidebar-menu-enter-backward {
-  from {
-    opacity: 0.4;
-    transform: translateX(-22%);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes shell-sidebar-menu-exit-backward {
-  from {
-    opacity: 1;
-    transform: translateX(0);
-  }
-
-  to {
-    opacity: 0.4;
-    transform: translateX(100%);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  [data-slot="shell-sidebar-menu-level-frame"][data-shell-menu-frame-state="entering"],
-  [data-slot="shell-sidebar-menu-level-frame"][data-shell-menu-frame-state="exiting"] {
-    animation-duration: 1ms;
-  }
 }
 
 @keyframes message-content-arrival {
@@ -484,16 +336,6 @@ html[data-tauri-runtime="true"] #root {
   [data-slot="tool-detail-row-motion"][data-state="entering"],
   [data-slot="tool-detail-row-motion"][data-state="exiting"] {
     animation-duration: 1ms;
-  }
-
-  [data-slot="chat-detail-rail"] {
-    transition-duration: 1ms;
-  }
-
-  [data-slot="chat-surface"][data-detail-motion-state="entering"] [data-slot="chat-main-pane"],
-  [data-slot="chat-surface"][data-detail-motion-state="exiting"] [data-slot="chat-main-pane"],
-  [data-slot="chat-detail-resize-handle"] {
-    transition-duration: 1ms;
   }
 
   [data-slot="marker"][data-pending] [data-slot="marker-content"] {
