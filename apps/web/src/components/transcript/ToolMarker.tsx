@@ -1,12 +1,14 @@
 import * as stylex from "@stylexjs/stylex";
-import { CheckIcon, ChevronDownIcon, ClockIcon, Loader2Icon, WrenchIcon, XIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, ClockIcon, Globe2Icon, Loader2Icon, SearchIcon, WrenchIcon, XIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { RollingText } from "@/components/RollingText";
 import {
   toolMarkerExpandable,
+  toolMarkerKind,
   toolMarkerName,
   toolMarkerPending
 } from "./markerModel";
+import type { ToolMarkerKind } from "./markerModel";
 import type { ToolMarkerGroup } from "./renderModel";
 import { ToolDetailAttachment } from "./ToolDetailAttachment";
 
@@ -26,6 +28,7 @@ type ToolMarkerPresentation = "activity" | "content";
 type ToolMarkerCall = {
   key: string;
   name: string;
+  toolKind?: ToolMarkerKind;
   status: ToolMarkerCallStatus;
   expandable: boolean;
   errorMessage?: string;
@@ -83,6 +86,15 @@ const styles = stylex.create({
     flexShrink: 0,
     alignItems: "center",
     justifyContent: "center"
+  },
+  toolIcon: {
+    display: "inline-flex",
+    width: 16,
+    height: 16,
+    flexShrink: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    color: "var(--noema-text-faint)"
   },
   pending: {
     color: "var(--noema-text-faint)"
@@ -354,6 +366,7 @@ function ToolMarkerRowContent({
   return (
     <>
       <ToolStatusIcon status={call.status} />
+      <ToolTypeIcon kind={call.toolKind} />
       {animateText ? (
         <RollingText value={call.name} {...stylex.props(styles.name)} data-slot="tool-marker-name" />
       ) : (
@@ -370,6 +383,19 @@ function ToolMarkerRowContent({
         </span>
       ) : null}
     </>
+  );
+}
+
+function ToolTypeIcon({ kind }: { kind?: ToolMarkerKind }) {
+  if (!kind) {
+    return null;
+  }
+  const label = kind === "web.search" ? "Web search" : "Web page";
+  const Icon = kind === "web.search" ? SearchIcon : Globe2Icon;
+  return (
+    <span {...stylex.props(styles.toolIcon)} role="img" aria-label={label}>
+      <Icon aria-hidden="true" size={14} strokeWidth={1.8} />
+    </span>
   );
 }
 
@@ -425,6 +451,7 @@ function activityToolMarkerCall(marker: ToolMarkerGroup): ToolMarkerCall {
   const call: ToolMarkerCall = {
     key: marker.id,
     name: toolMarkerName(marker),
+    toolKind: toolMarkerKind(marker),
     status: toolMarkerStatus(marker),
     expandable
   };

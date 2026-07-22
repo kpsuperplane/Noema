@@ -245,9 +245,9 @@ describe("toolMarkerLabel", () => {
 
     assert.equal(toolMarkerName(savedNameMarker), "Saved name");
     assert.equal(toolMarkerTarget(savedNameMarker), "Momo");
-    assert.equal(toolMarkerName(searchMarker), "Web Search");
+    assert.equal(toolMarkerName(searchMarker), "T:0 AI Finance Team startup location t0.ai");
     assert.equal(toolMarkerTarget(searchMarker), "T:0 AI Finance Team startup location t0.ai");
-    assert.equal(toolMarkerName(fetchMarker), "Fetched Web Page");
+    assert.equal(toolMarkerName(fetchMarker), "ycombinator.com");
     assert.equal(toolMarkerTarget(fetchMarker), "https://www.ycombinator.com/companies/clueso");
   });
 
@@ -456,6 +456,7 @@ describe("toolMarkerLabel", () => {
       }
     };
 
+    assert.equal(toolMarkerName(marker), "Example");
     assert.equal(toolMarkerLabel(marker), "Used Fetched Web Page");
     assert.equal(toolMarkerTarget(marker), "https://example.com/page");
     assert.equal(toolMarkerExpandable(marker), false);

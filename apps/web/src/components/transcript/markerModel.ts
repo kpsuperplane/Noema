@@ -1,5 +1,6 @@
 import type { ToolMarkerGroup } from "./renderModel";
 export type ToolDetailRowData = { label: string; value: string };
+export type ToolMarkerKind = "web.search" | "web.fetch";
 
 export function toolMarkerPending(marker: ToolMarkerGroup): boolean {
   return marker.call?.item.status === "STARTED" && !marker.result;
@@ -21,7 +22,12 @@ export function toolMarkerName(marker: ToolMarkerGroup): string {
   if (description) {
     return description;
   }
-  return toolMarkerIdentity(marker) ?? "Tool activity";
+  return toolMarkerSubject(marker) ?? toolMarkerIdentity(marker) ?? "Tool activity";
+}
+
+export function toolMarkerKind(marker: ToolMarkerGroup): ToolMarkerKind | undefined {
+  const toolName = actionToolNameFromMetadata(marker.result?.item.metadata) ?? actionToolNameFromMetadata(marker.call?.item.metadata);
+  return toolName === "web.search" || toolName === "web.fetch" ? toolName : undefined;
 }
 
 function toolMarkerIdentity(marker: ToolMarkerGroup): string | null {
@@ -33,6 +39,53 @@ function toolMarkerIdentity(marker: ToolMarkerGroup): string | null {
     marker.result?.item.title ??
     null
   );
+}
+
+function toolMarkerSubject(marker: ToolMarkerGroup): string | undefined {
+  const kind = toolMarkerKind(marker);
+  if (kind === "web.search") {
+    return (
+      toolPayloadString(marker.call?.item.metadata, "query")?.trim() ??
+      toolPayloadString(marker.result?.item.metadata, "query")?.trim() ??
+      toolDisplayValue(marker.call?.item.metadata, "target", "Web search")?.trim() ??
+      toolDisplayValue(marker.result?.item.metadata, "target", "Web search")?.trim()
+    );
+  }
+  if (kind !== "web.fetch") {
+    return undefined;
+  }
+
+  if (marker.result?.item.status !== "FAILED") {
+    const title =
+      toolPayloadString(marker.result?.item.metadata, "title")?.trim() ??
+      toolPayloadString(marker.call?.item.metadata, "title")?.trim();
+    if (title) {
+      return title;
+    }
+  }
+
+  const target =
+    toolPayloadString(marker.call?.item.metadata, "url")?.trim() ??
+    toolPayloadString(marker.result?.item.metadata, "url")?.trim() ??
+    toolPayloadString(marker.result?.item.metadata, "final_url")?.trim() ??
+    toolDisplayValue(marker.call?.item.metadata, "target", "Fetched web page")?.trim() ??
+    toolDisplayValue(marker.result?.item.metadata, "target", "Fetched web page")?.trim();
+  return webFetchSubject(target);
+}
+
+function webFetchSubject(target: string | undefined): string | undefined {
+  if (!target) {
+    return undefined;
+  }
+  try {
+    const url = new URL(target);
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      return url.hostname.replace(/^www\./u, "") || undefined;
+    }
+  } catch {
+    // Keep non-URL targets readable when a provider supplies one.
+  }
+  return target;
 }
 
 export function formatToolDetail(fallback: string, metadata: unknown): string {
