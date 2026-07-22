@@ -5,7 +5,7 @@ use super::evaluation_cases;
 #[test]
 fn onboarding_case_requires_the_name_tool_for_an_unnamed_agent() {
     let cases = evaluation_cases("local-model").expect("cases");
-    assert_eq!(cases.len(), 13, "qualification request contract changed");
+    assert_eq!(cases.len(), 14, "qualification request contract changed");
     let request = &cases
         .iter()
         .find(|case| case.id == "agent_onboarding_name")
@@ -47,6 +47,10 @@ fn task_cases_render_the_production_work_context_contract() {
             ["Executor submission:", "criterion:alpha:"],
         ),
         (
+            "task_reviewer_internal_contradiction",
+            ["Executor submission:", "NOVA-11"],
+        ),
+        (
             "task_executor_blocked",
             ["criterion_id=criterion:region", "task.report_blocked"],
         ),
@@ -70,6 +74,29 @@ fn task_cases_render_the_production_work_context_contract() {
             assert!(prompt.contains("one primary recommendation and at most two alternatives"));
             assert!(prompt.contains("Default to simple"));
             assert!(prompt.contains("Keep request_markdown to a concise restatement"));
+            assert!(prompt.contains("at most two short execution phases"));
+            assert!(prompt.contains("stop condition explicit"));
         }
     }
+
+    let executor = cases
+        .iter()
+        .find(|case| case.id == "task_executor_submission")
+        .expect("executor case");
+    let GenerateInput::Text(executor_prompt) = &executor.request.input else {
+        panic!("executor case should use text input");
+    };
+    assert!(executor_prompt.contains("one discovery batch"));
+    assert!(executor_prompt.contains("roughly 180 words"));
+    assert!(executor_prompt.contains("reuse the prior submission"));
+
+    let reviewer = cases
+        .iter()
+        .find(|case| case.id == "task_reviewer_approval")
+        .expect("reviewer case");
+    let GenerateInput::Text(reviewer_prompt) = &reviewer.request.input else {
+        panic!("reviewer case should use text input");
+    };
+    assert!(reviewer_prompt.contains("complete authorized evidence"));
+    assert!(reviewer_prompt.contains("background knowledge"));
 }

@@ -2,7 +2,10 @@ use std::{
     collections::HashSet,
     future::Future,
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::Duration,
 };
 
@@ -13,8 +16,8 @@ use noema_providers::{
 };
 use noema_store::WorkCommandService;
 use noema_tasks::{
-    CancelTask, CaptureTask, CommandMeta, QueueTask, ReopenTask, RunStatus, TaskContractAmendment,
-    TaskPrecondition, TaskProvenance, TaskSourceKind, WorkCommand,
+    CancelTask, CaptureTask, CommandMeta, QueueTask, ReopenTask, RunKind, RunStatus,
+    TaskContractAmendment, TaskPrecondition, TaskProvenance, TaskSourceKind, WorkCommand,
 };
 use noema_workspaces::WorkspaceId;
 use tokio::sync::mpsc;
@@ -42,6 +45,82 @@ struct BlockingProvider {
 
 #[derive(Debug)]
 struct FailingProvider;
+
+#[derive(Debug)]
+struct TerminalRepairProvider {
+    always_invalid: bool,
+    executor_calls: AtomicUsize,
+}
+
+impl TerminalRepairProvider {
+    fn new(always_invalid: bool) -> Self {
+        Self {
+            always_invalid,
+            executor_calls: AtomicUsize::new(0),
+        }
+    }
+}
+
+impl noema_providers::ProviderOperations for TerminalRepairProvider {
+    fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
+        ProviderToolCapabilities {
+            tool_transport: ProviderToolTransport::NoemaEnvelope,
+            allowed_tools: true,
+            ..ProviderToolCapabilities::default()
+        }
+    }
+
+    fn generate_streaming<'a>(
+        &'a self,
+        request: GenerateRequest,
+        _on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+    ) -> Pin<Box<dyn Future<Output = Result<GenerateResponse, ProviderError>> + Send + 'a>> {
+        Box::pin(async move {
+            let Some(result_tool) = request
+                .tools
+                .iter()
+                .find(|tool| tool.name.as_str() == "task.submit_result")
+            else {
+                return std::future::pending().await;
+            };
+            let exact_id = result_tool.input_schema.as_value()["properties"]["criteria"]
+                ["items"]["properties"]["criterion_id"]["enum"][0]
+                .as_str()
+                .expect("executor criterion enum")
+                .to_string();
+            let call_index = self.executor_calls.fetch_add(1, Ordering::SeqCst);
+            let criterion_id = if call_index == 0 || self.always_invalid {
+                format!(" {exact_id}")
+            } else {
+                exact_id
+            };
+            Ok(GenerateResponse {
+                responses: Vec::new(),
+                tool_calls: vec![GenerateToolCall {
+                    id: Some(format!("call:terminal:{call_index}")),
+                    provider_call_id: None,
+                    provider_name: None,
+                    name: "task.submit_result".to_string(),
+                    payload: serde_json::json!({
+                        "summary": "done",
+                        "result_markdown": "The requested result.",
+                        "criteria": [{
+                            "criterion_id": criterion_id,
+                            "evidence_markdown": "The result satisfies the criterion."
+                        }],
+                        "artifact_ids": []
+                    }),
+                }],
+                reasoning_items: Vec::new(),
+                response_status: GenerateResponseStatus::NeedsTools,
+                provider: "test".to_string(),
+                model: request.model.unwrap_or_else(|| "test-model".to_string()),
+                response_id: None,
+                usage: None,
+            })
+        })
+    }
+}
 
 impl noema_providers::ProviderOperations for FailingProvider {
     fn generate_streaming<'a>(
@@ -210,6 +289,28 @@ async fn current_task(
         .expect("load task")
         .expect("task exists")
         .task
+}
+
+async fn wait_for_run_status(
+    store: &noema_store::NoemaStore,
+    run_id: &str,
+    expected: RunStatus,
+) -> noema_tasks::AgentRunRecord {
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let run = store
+                .get_work_run_record(run_id)
+                .await
+                .expect("load run")
+                .expect("run exists");
+            if run.status == expected {
+                break run;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("run should reach expected status")
 }
 
 fn publish_task(subscriptions: &RuntimeEventRegistry, task_id: &noema_tasks::TaskId) {
@@ -464,6 +565,71 @@ async fn failed_run_publishes_work_invalidation_for_automatic_replacement() {
 
     task_runtime.shutdown().await;
     runtime.shutdown().await;
+}
+
+#[tokio::test]
+async fn malformed_terminal_is_repaired_in_the_same_executor_run() {
+    let store = crate::test_support::test_store().await;
+    let (_task, run) = crate::test_support::seed_task(&store, "Terminal repair").await;
+    let provider = Arc::new(TerminalRepairProvider::new(false));
+    let (runtime, task_runtime) =
+        start_task_runtime(provider.clone(), &store, RuntimeEventRegistry::default()).await;
+
+    let settled = wait_for_run_status(&store, &run.run_id, RunStatus::Completed).await;
+    assert_eq!(settled.attempt_index, 0);
+    assert_eq!(provider.executor_calls.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        settled.run_id, run.run_id,
+        "repair must stay in the same run"
+    );
+
+    task_runtime.shutdown().await;
+    runtime.shutdown().await;
+}
+
+#[tokio::test]
+async fn second_malformed_terminal_fails_nonretryably_into_recovery() {
+    let store = crate::test_support::test_store().await;
+    let (task, run) = crate::test_support::seed_task(&store, "Terminal recovery").await;
+    let provider = Arc::new(TerminalRepairProvider::new(true));
+    let (runtime, task_runtime) =
+        start_task_runtime(provider.clone(), &store, RuntimeEventRegistry::default()).await;
+
+    let settled = wait_for_run_status(&store, &run.run_id, RunStatus::Failed).await;
+    let detail = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let detail = store
+                .get_work_task(&task.task_id)
+                .await
+                .expect("load recovery task")
+                .expect("recovery task");
+            if detail.active_gate.is_some() {
+                break detail;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("invalid terminal should open recovery");
+
+    assert_eq!(settled.error_code.as_deref(), Some("work_terminal_invalid"));
+    assert_eq!(provider.executor_calls.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        detail
+            .runs
+            .iter()
+            .filter(|candidate| candidate.run_kind == RunKind::Executor)
+            .count(),
+        1,
+        "a second invalid terminal must not queue an automatic retry"
+    );
+    assert_eq!(
+        detail.active_gate.expect("recovery gate").kind,
+        noema_tasks::TaskGateKind::Recovery
+    );
+
+    drop(task_runtime);
+    drop(runtime);
 }
 
 #[tokio::test]

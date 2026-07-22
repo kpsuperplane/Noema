@@ -37,6 +37,7 @@ impl RuntimeActor {
             request.role,
             false,
             capabilities,
+            Some(&request.terminal_contract),
         )
         .await
         .map_err(|error| RuntimeError::Protocol(error.to_string()))?;
@@ -126,6 +127,7 @@ impl RuntimeActor {
         let mut aggregate_usage = response.usage.clone();
         let mut progress = ContinuationProgressTracker::new(&request.input);
         let mut completed_tool_calls = 0usize;
+        let mut invalid_terminal_attempts = 0usize;
 
         for continuation_index in 0..=max_continuations {
             if request.cancellation.is_cancelled() {
@@ -158,7 +160,7 @@ impl RuntimeActor {
                 .iter()
                 .filter(|call| is_task_terminal_tool(&call.name))
                 .collect::<Vec<_>>();
-            if !terminal_calls.is_empty()
+            if (!terminal_calls.is_empty() || invalid_terminal_attempts == 1)
                 && (calls.len() != 1
                     || terminal_calls.len() != 1
                     || !is_valid_terminal_tool(request.role, &terminal_calls[0].name))
@@ -228,6 +230,7 @@ impl RuntimeActor {
                 task_id: Some(request.task_id.clone()),
                 task_run_id: Some(request.run_id.clone()),
                 task_run_fence: Some(request.work_run_fence()),
+                task_terminal_contract: Some(request.terminal_contract.clone()),
                 cwd: None,
                 provider_kind: provider_selection.provider_kind.clone(),
                 model: provider_selection.model_profile.clone(),
@@ -377,9 +380,21 @@ impl RuntimeActor {
                 }
             }
             completed_tool_calls = completed_tool_calls.saturating_add(results.len());
+            if results.iter().any(|result| {
+                !result.success
+                    && result.payload.get("code").and_then(serde_json::Value::as_str)
+                        == Some("invalid_terminal_contract")
+            }) {
+                invalid_terminal_attempts = invalid_terminal_attempts.saturating_add(1);
+            }
             progress.observe_results(&results);
             context.append_results(&results);
             context.finish_round();
+            if invalid_terminal_attempts >= 2 {
+                return Err(RuntimeError::Protocol(
+                    "terminal payload remained invalid after one repair".to_string(),
+                ));
+            }
             let compaction_result = tokio::select! {
                 _ = request.cancellation.cancelled() => {
                     return Err(RuntimeError::Protocol("task execution cancelled".to_string()));
@@ -523,11 +538,50 @@ impl RuntimeActor {
             }
             let continuation_input = context
                 .next_provider_input(capabilities.native_tool_results, response_continuation);
-            let instructions = build_role_tool_result_continuation_system_prompt(
-                &request.instructions,
-                &request.input,
-                &render_continuation_tool_names(&model_tools),
-            );
+            let terminal_repair = invalid_terminal_attempts == 1;
+            let repair_tools = terminal_contract_tools(&model_tools);
+            let instructions = if terminal_repair {
+                terminal_tool_instructions(
+                    "The previous terminal payload was rejected. Correct it using the exact contract below; do not perform more work or call non-terminal tools.",
+                    &model_tools,
+                    &repair_tools,
+                )
+            } else {
+                build_role_tool_result_continuation_system_prompt(
+                    &request.instructions,
+                    &request.input,
+                    &render_continuation_tool_names(&model_tools),
+                )
+            };
+            let (continuation_tools, continuation_tool_choice, parallel_tool_calls) =
+                if terminal_repair {
+                    let choice = if capabilities.allowed_tools {
+                        NoemaToolChoice::Allowed(NoemaAllowedTools {
+                            mode: NoemaAllowedToolsMode::Required,
+                            tools: repair_tools.iter().map(|tool| tool.name.clone()).collect(),
+                        })
+                    } else {
+                        NoemaToolChoice::Required
+                    };
+                    let tools = if capabilities.allowed_tools {
+                        model_tools.provider_tools()
+                    } else {
+                        repair_tools
+                    };
+                    (tools, choice, false)
+                } else {
+                    (
+                        model_tools.provider_tools(),
+                        if capabilities.allowed_tools {
+                            model_tools.allowed_tool_choice(NoemaAllowedToolsMode::Auto)
+                        } else {
+                            NoemaToolChoice::Auto
+                        },
+                        model_tools.transport == noema_providers::ProviderToolTransport::Native
+                            && model_tools.has_callable_tools()
+                            && capabilities.parallel_tool_calls,
+                    )
+                };
             let continuation_request = GenerateRequest {
                 conversation_id: Some(conversation_id.clone()),
                 model: provider_selection.model_profile.clone(),
@@ -541,17 +595,10 @@ impl RuntimeActor {
                     store_response: response_continuation.store_response(),
                     ..GenerateOptions::default()
                 },
-                tools: model_tools.provider_tools(),
+                tools: continuation_tools.clone(),
                 tool_transport: model_tools.transport,
-                tool_choice: if capabilities.allowed_tools {
-                    model_tools.allowed_tool_choice(NoemaAllowedToolsMode::Auto)
-                } else {
-                    NoemaToolChoice::Auto
-                },
-                parallel_tool_calls: model_tools.transport
-                    == noema_providers::ProviderToolTransport::Native
-                    && model_tools.has_callable_tools()
-                    && capabilities.parallel_tool_calls,
+                tool_choice: continuation_tool_choice.clone(),
+                parallel_tool_calls,
             };
             let mut continuation_response = self
                 .generate_task_provider_round(
@@ -588,17 +635,10 @@ impl RuntimeActor {
                                 store_response: response_continuation.store_response(),
                                 ..GenerateOptions::default()
                             },
-                            tools: model_tools.provider_tools(),
+                            tools: continuation_tools,
                             tool_transport: model_tools.transport,
-                            tool_choice: if capabilities.allowed_tools {
-                                model_tools.allowed_tool_choice(NoemaAllowedToolsMode::Auto)
-                            } else {
-                                NoemaToolChoice::Auto
-                            },
-                            parallel_tool_calls: model_tools.transport
-                                == noema_providers::ProviderToolTransport::Native
-                                && model_tools.has_callable_tools()
-                                && capabilities.parallel_tool_calls,
+                            tool_choice: continuation_tool_choice,
+                            parallel_tool_calls,
                         },
                         &model_tools.bindings,
                         &request.run_id,

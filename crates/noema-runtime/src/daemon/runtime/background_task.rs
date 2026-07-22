@@ -12,7 +12,10 @@ use noema_tasks::NewAgentRunItem;
 
 use crate::{
     agent_execution::ExecutionRole,
-    daemon::{RuntimeEventRegistry, agent_onboarding::AgentPromptIdentity, protocol::RuntimeError},
+    daemon::{
+        RuntimeEventRegistry, agent_onboarding::AgentPromptIdentity, protocol::RuntimeError,
+        task_run_context::TaskTerminalContract,
+    },
 };
 use noema_providers::{
     GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
@@ -69,6 +72,8 @@ pub(crate) struct BackgroundTaskGenerateRequest {
     pub input: String,
     /// System instructions for the executor or reviewer contract.
     pub instructions: String,
+    /// Run-specific terminal payload contract derived from admitted task state.
+    pub terminal_contract: TaskTerminalContract,
     /// Runtime event registry for live task-detail refreshes.
     pub runtime_events: RuntimeEventRegistry,
 }

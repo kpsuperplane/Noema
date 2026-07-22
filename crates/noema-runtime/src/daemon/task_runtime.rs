@@ -275,6 +275,7 @@ async fn supervise_claimed_run(
     if let Some(error) = failure {
         let code = SafeErrorCode::new(execution_error_code(&error))
             .unwrap_or_else(|_| SafeErrorCode::new("work_runtime_failed").expect("safe code"));
+        let retryable = !shutdown.is_cancelled() && !error.contains("after one repair");
         match command_service
             .report_work_run_failure(
                 noema_store::ReportRunFailure {
@@ -286,7 +287,7 @@ async fn supervise_claimed_run(
                     },
                     error_code: code,
                     error_message: Some(redact_runtime_error(&error)),
-                    retryable: !shutdown.is_cancelled(),
+                    retryable,
                 },
                 WORK_RUNTIME_ACTOR_ID,
                 Some(run.run_id.as_str()),

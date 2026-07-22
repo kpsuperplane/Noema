@@ -528,6 +528,7 @@ impl RuntimeActor {
                 task_id: turn.task_id.clone(),
                 task_run_id: turn.task_run_id.clone(),
                 task_run_fence: turn.task_run_fence.clone(),
+                task_terminal_contract: turn.task_terminal_contract.clone(),
                 cwd: turn.cwd.clone(),
                 provider_kind: turn.provider_kind.clone(),
                 model: turn.model.clone(),

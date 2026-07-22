@@ -390,6 +390,7 @@ async fn planner_catalog_is_terminal_only() {
             native_tool_results: true,
             ..ProviderToolCapabilities::default()
         },
+        None,
     )
     .await
     .expect("planner tools");
@@ -485,10 +486,16 @@ async fn background_roles_expose_read_tools_and_terminal_contracts_across_transp
             ..ProviderToolCapabilities::default()
         };
         for role in [ExecutionRole::TaskExecutor, ExecutionRole::TaskReviewer] {
-            let tools =
-                build_model_tools_for_role(&store, &capability_bindings, role, true, capabilities)
-                    .await
-                    .expect("role-aware tools");
+            let tools = build_model_tools_for_role(
+                &store,
+                &capability_bindings,
+                role,
+                true,
+                capabilities,
+                None,
+            )
+            .await
+            .expect("role-aware tools");
             let provider_tools = tools.provider_tools();
             let names = provider_tools
                 .iter()
@@ -510,14 +517,17 @@ async fn background_roles_expose_read_tools_and_terminal_contracts_across_transp
                 tools.tool_policy.allows_tool("web.fetch"),
                 role == ExecutionRole::TaskExecutor
             );
-            assert!(tools.tool_policy.allows_tool(TASK_LIST_TOOL));
+            assert_eq!(
+                tools.tool_policy.allows_tool(TASK_LIST_TOOL),
+                role == ExecutionRole::TaskExecutor
+            );
             assert!(!tools.tool_policy.allows_tool(TASK_ANSWER_TOOL));
             if role == ExecutionRole::TaskExecutor {
                 assert!(tools.tool_policy.allows_tool("artifact.create_local_file"));
                 assert!(tools.tool_policy.allows_tool(TASK_READ_ARTIFACT_TOOL));
             } else {
                 assert!(!tools.tool_policy.allows_tool("artifact.create_local_file"));
-                assert!(tools.tool_policy.allows_tool(TASK_READ_ARTIFACT_TOOL));
+                assert!(!tools.tool_policy.allows_tool(TASK_READ_ARTIFACT_TOOL));
             }
             assert!(!tools.tool_policy.allows_tool("task.delegate"));
         }

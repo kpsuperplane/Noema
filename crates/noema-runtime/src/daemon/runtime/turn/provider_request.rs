@@ -588,6 +588,7 @@ impl RuntimeActor {
                             task_id: None,
                             task_run_id: None,
                             task_run_fence: None,
+                            task_terminal_contract: None,
                             cwd: conversation.cwd.clone(),
                             provider_kind: provider_selection.provider_kind.clone(),
                             model: provider_selection.model_profile.clone(),

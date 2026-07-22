@@ -58,6 +58,7 @@ pub(super) enum EvalExpectation {
     SimplePlannerPlan,
     ExecutorSubmission,
     ReviewerApproval,
+    ReviewerRequestChanges,
     BlockedTask,
     ProgressAuditFinalize,
     WebSummary,

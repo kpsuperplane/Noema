@@ -185,6 +185,11 @@ subagents, reviews, and size measurement.
   contracts, submissions, reviews, cancellation, retry, and reopen preserve
   generation and lease authority. Reviewer approval completes a task directly;
   Reopen requires new human direction and queues a fresh generation.
+- Simple contracts default to two short phases and compact results; execution
+  policy values remain runaway-work ceilings. Reviewers are bound to submitted
+  evidence without task-list or web tools. Executor and Reviewer terminal tools
+  enumerate exact criterion ids and allow one in-conversation payload repair
+  before a non-retryable recovery gate.
 - The global `work_events` ledger is an audit and invalidation surface. Do not
   turn it into a second state authority or add replay infrastructure without a
   concrete runtime requirement.

@@ -189,26 +189,30 @@ pub(crate) fn task_report_blocked_tool_spec()
     )
 }
 
-pub(crate) fn task_submit_result_tool_spec()
--> Result<ToolSpec, noema_capabilities::ToolContractError> {
+pub(crate) fn task_submit_result_tool_spec(
+    criterion_ids: &[String],
+) -> Result<ToolSpec, noema_capabilities::ToolContractError> {
+    let criterion_count = criterion_ids.len();
     ToolSpec::new(
         TASK_SUBMIT_RESULT_TOOL,
         "Submit one concise user-facing executor result with separate evidence for every contract criterion.",
-        json!({"type":"object","properties":{"summary":{"type":"string","minLength":1,"maxLength":4000},"result_markdown":{"type":"string","description":"User-facing result. Match the requested delivery depth and avoid duplicating exhaustive criterion evidence.","minLength":1,"maxLength":100000},"criteria":{"type":"array","description":"Structured validation evidence for the reviewer.","minItems":1,"items":{"type":"object","properties":{"criterion_id":{"type":"string","minLength":1,"maxLength":200},"evidence_markdown":{"type":"string","minLength":1,"maxLength":20000}},"required":["criterion_id","evidence_markdown"],"additionalProperties":false}},"artifact_ids":{"type":"array","maxItems":100,"items":{"type":"string","minLength":1,"maxLength":200}}},"required":["summary","result_markdown","criteria","artifact_ids"],"additionalProperties":false}),
+        json!({"type":"object","properties":{"summary":{"type":"string","minLength":1,"maxLength":4000},"result_markdown":{"type":"string","description":"User-facing result. Match the requested delivery depth and avoid duplicating exhaustive criterion evidence.","minLength":1,"maxLength":100000},"criteria":{"type":"array","description":"Structured validation evidence for the reviewer.","minItems":criterion_count,"maxItems":criterion_count,"items":{"type":"object","properties":{"criterion_id":{"type":"string","enum":criterion_ids},"evidence_markdown":{"type":"string","minLength":1,"maxLength":20000}},"required":["criterion_id","evidence_markdown"],"additionalProperties":false}},"artifact_ids":{"type":"array","maxItems":100,"items":{"type":"string","minLength":1,"maxLength":200}}},"required":["summary","result_markdown","criteria","artifact_ids"],"additionalProperties":false}),
     )
 }
 
-pub(crate) fn task_submit_review_tool_spec()
--> Result<ToolSpec, noema_capabilities::ToolContractError> {
+pub(crate) fn task_submit_review_tool_spec(
+    criterion_ids: &[String],
+) -> Result<ToolSpec, noema_capabilities::ToolContractError> {
     ToolSpec::new(
         TASK_SUBMIT_REVIEW_TOOL,
         "Submit one typed review verdict and one outcome for every criterion.",
-        task_review_schema(),
+        task_review_schema(criterion_ids),
     )
 }
 
-fn task_review_schema() -> Value {
-    json!({"type":"object","properties":{"overall_feedback":{"type":"string","minLength":1,"maxLength":20000},"criteria":{"type":"array","minItems":1,"items":{"type":"object","properties":{"criterion_id":{"type":"string","minLength":1,"maxLength":200},"outcome":{"type":"string","enum":["pass","fail","uncertain"]},"evidence_markdown":{"type":"string","maxLength":20000},"feedback":{"type":"string","maxLength":20000}},"required":["criterion_id","outcome"],"additionalProperties":false}},"decision":{"oneOf":[{"type":"object","properties":{"verdict":{"type":"string","enum":["approve"]}},"required":["verdict"],"additionalProperties":false},{"type":"object","properties":{"verdict":{"type":"string","enum":["request_changes"]}},"required":["verdict"],"additionalProperties":false},{"type":"object","properties":{"verdict":{"type":"string","enum":["needs_human"]},"human_gate_kind":{"type":"string","enum":["clarification","approval"]},"human_question":{"type":"string","minLength":1,"maxLength":4000}},"required":["verdict","human_gate_kind","human_question"],"additionalProperties":false}]}},"required":["overall_feedback","criteria","decision"],"additionalProperties":false})
+fn task_review_schema(criterion_ids: &[String]) -> Value {
+    let criterion_count = criterion_ids.len();
+    json!({"type":"object","properties":{"overall_feedback":{"type":"string","minLength":1,"maxLength":20000},"criteria":{"type":"array","minItems":criterion_count,"maxItems":criterion_count,"items":{"type":"object","properties":{"criterion_id":{"type":"string","enum":criterion_ids},"outcome":{"type":"string","enum":["pass","fail","uncertain"]},"evidence_markdown":{"type":"string","maxLength":20000},"feedback":{"type":"string","maxLength":20000}},"required":["criterion_id","outcome"],"additionalProperties":false}},"decision":{"oneOf":[{"type":"object","properties":{"verdict":{"type":"string","enum":["approve"]}},"required":["verdict"],"additionalProperties":false},{"type":"object","properties":{"verdict":{"type":"string","enum":["request_changes"]}},"required":["verdict"],"additionalProperties":false},{"type":"object","properties":{"verdict":{"type":"string","enum":["needs_human"]},"human_gate_kind":{"type":"string","enum":["clarification","approval"]},"human_question":{"type":"string","minLength":1,"maxLength":4000}},"required":["verdict","human_gate_kind","human_question"],"additionalProperties":false}]}},"required":["overall_feedback","criteria","decision"],"additionalProperties":false})
 }
 
 /// Build the background-role task inspection contract. The runtime supplies
@@ -233,11 +237,22 @@ mod tests {
 
     #[test]
     fn executor_result_schema_requires_artifact_array() {
-        let schema = task_submit_result_tool_spec().expect("executor result tool");
+        let schema = task_submit_result_tool_spec(&[
+            "criterion:one".to_string(),
+            "criterion:two".to_string(),
+        ])
+        .expect("executor result tool");
+        let criteria = &schema.input_schema.as_value()["properties"]["criteria"];
 
         assert_eq!(
             schema.input_schema.as_value()["required"],
             json!(["summary", "result_markdown", "criteria", "artifact_ids"])
+        );
+        assert_eq!(criteria["minItems"], 2);
+        assert_eq!(criteria["maxItems"], 2);
+        assert_eq!(
+            criteria["items"]["properties"]["criterion_id"]["enum"],
+            json!(["criterion:one", "criterion:two"])
         );
         assert_eq!(
             schema.input_schema.as_value()["properties"]["artifact_ids"]["type"],
@@ -247,13 +262,24 @@ mod tests {
 
     #[test]
     fn reviewer_schema_nests_conditional_decision_under_root_object() {
-        let schema = task_submit_review_tool_spec().expect("review tool");
+        let schema = task_submit_review_tool_spec(&[
+            "criterion:one".to_string(),
+            "criterion:two".to_string(),
+        ])
+        .expect("review tool");
         let schema = schema.input_schema.as_value();
+        let criteria = &schema["properties"]["criteria"];
         let decisions = schema["properties"]["decision"]["oneOf"]
             .as_array()
             .expect("review decisions");
 
         assert_eq!(schema["type"], "object");
+        assert_eq!(criteria["minItems"], 2);
+        assert_eq!(criteria["maxItems"], 2);
+        assert_eq!(
+            criteria["items"]["properties"]["criterion_id"]["enum"],
+            json!(["criterion:one", "criterion:two"])
+        );
         assert!(schema.get("oneOf").is_none());
         assert_eq!(
             schema["required"],

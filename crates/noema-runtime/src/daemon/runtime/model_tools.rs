@@ -6,6 +6,7 @@ use crate::{
         agent_name_tool::update_own_name_tool_spec,
         artifact_tool::artifact_create_local_file_tool_spec,
         task_artifact_tool::{TASK_READ_ARTIFACT_TOOL, task_read_artifact_tool_spec},
+        task_run_context::TaskTerminalContract,
         task_tool::{
             TASK_ANSWER_TOOL, TASK_CANCEL_TOOL, TASK_LIST_TOOL, TASK_REPORT_BLOCKED_TOOL,
             TASK_SUBMIT_PLAN_TOOL, TASK_SUBMIT_RESULT_TOOL, TASK_SUBMIT_REVIEW_TOOL,
@@ -63,6 +64,7 @@ pub(super) async fn build_model_tools(
         ExecutionRole::PrimaryConversation,
         include_agent_name_tool,
         capabilities,
+        None,
     )
     .await
 }
@@ -78,6 +80,7 @@ pub(super) async fn build_model_tools_for_role(
     role: ExecutionRole,
     include_agent_name_tool: bool,
     capabilities: ProviderToolCapabilities,
+    terminal_contract: Option<&TaskTerminalContract>,
 ) -> Result<ModelTools, ToolContractError> {
     let transport = capabilities.tool_transport;
     let capability_catalog = capability_bindings
@@ -101,7 +104,7 @@ pub(super) async fn build_model_tools_for_role(
         });
     }
 
-    let builtin_tools = role_builtin_tool_specs(role, include_agent_name_tool)?;
+    let builtin_tools = role_builtin_tool_specs(role, include_agent_name_tool, terminal_contract)?;
     let web_search_tool = web_search_tool_spec()?;
     let web_fetch_tool = web_fetch_tool_spec()?;
     let mut tool_policy = ToolPolicy::for_role(role);
@@ -199,7 +202,11 @@ pub(super) async fn build_model_tools_for_role(
 fn role_builtin_tool_specs(
     role: ExecutionRole,
     include_agent_name_tool: bool,
+    terminal_contract: Option<&TaskTerminalContract>,
 ) -> Result<Vec<ToolSpec>, ToolContractError> {
+    let criterion_ids = terminal_contract
+        .map(|contract| contract.criterion_ids.as_slice())
+        .unwrap_or_default();
     let mut tools = match role {
         ExecutionRole::TaskPlanner => {
             vec![
@@ -209,15 +216,12 @@ fn role_builtin_tool_specs(
         }
         ExecutionRole::TaskExecutor => {
             vec![
-                task_submit_result_tool_spec()?,
+                task_submit_result_tool_spec(criterion_ids)?,
                 task_report_blocked_tool_spec()?,
                 task_list_scoped_tool_spec()?,
             ]
         }
-        ExecutionRole::TaskReviewer => vec![
-            task_submit_review_tool_spec()?,
-            task_list_scoped_tool_spec()?,
-        ],
+        ExecutionRole::TaskReviewer => vec![task_submit_review_tool_spec(criterion_ids)?],
         ExecutionRole::PrimaryConversation => Vec::new(),
     };
     if role != ExecutionRole::TaskPlanner {
@@ -225,10 +229,10 @@ fn role_builtin_tool_specs(
     }
     if role == ExecutionRole::PrimaryConversation {
         tools.extend(primary_task_tool_specs()?);
-    } else if matches!(
-        role,
-        ExecutionRole::TaskExecutor | ExecutionRole::TaskReviewer
-    ) {
+    } else if role == ExecutionRole::TaskExecutor
+        || role == ExecutionRole::TaskReviewer
+            && terminal_contract.is_some_and(|contract| contract.has_submission_artifacts)
+    {
         tools.push(task_read_artifact_tool_spec()?);
     }
     Ok(tools)
@@ -237,17 +241,20 @@ fn role_builtin_tool_specs(
 #[cfg(feature = "eval-support")]
 pub(crate) fn task_role_builtin_tool_specs(
     role: ExecutionRole,
+    terminal_contract: &TaskTerminalContract,
 ) -> Result<Vec<ToolSpec>, ToolContractError> {
     let mut policy = ToolPolicy::for_role(role);
-    Ok(role_builtin_tool_specs(role, false)?
-        .into_iter()
-        .filter(|tool| {
-            policy.declare_tool(
-                tool.name.as_str(),
-                builtin_tool_access_class(role, tool.name.as_str()),
-            )
-        })
-        .collect())
+    Ok(
+        role_builtin_tool_specs(role, false, Some(terminal_contract))?
+            .into_iter()
+            .filter(|tool| {
+                policy.declare_tool(
+                    tool.name.as_str(),
+                    builtin_tool_access_class(role, tool.name.as_str()),
+                )
+            })
+            .collect(),
+    )
 }
 
 impl ModelTools {

@@ -368,13 +368,28 @@ impl RuntimeActor {
             || is_task_submit_review_tool(&call.name)
             || is_task_report_blocked_tool(&call.name)
         {
-            LocalToolResult::from_call(
-                call,
-                LocalToolKind::Gateway,
-                true,
-                call.payload.clone(),
-                false,
-            )
+            match turn.task_terminal_contract.as_ref().map(|contract| {
+                contract.validate(
+                    turn.initial_model_tools.tool_policy.role(),
+                    &call.name,
+                    &call.payload,
+                )
+            }) {
+                Some(Err(message)) => LocalToolResult::from_call(
+                    call,
+                    LocalToolKind::Gateway,
+                    false,
+                    json!({"code": "invalid_terminal_contract", "message": message}),
+                    true,
+                ),
+                Some(Ok(())) | None => LocalToolResult::from_call(
+                    call,
+                    LocalToolKind::Gateway,
+                    true,
+                    call.payload.clone(),
+                    false,
+                ),
+            }
         } else if is_web_search_tool(&call.name) {
             let result = match self.web_search_runtime_provider_resolution().await {
                 Ok((provider, fallback_from, fallback_reason, auth_failure_target)) => {

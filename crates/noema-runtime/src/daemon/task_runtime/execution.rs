@@ -300,6 +300,7 @@ fn background_task_generate_request(
         execution_policy: run.execution_policy,
         input: prompt.input,
         instructions: prompt.instructions.to_string(),
+        terminal_contract: prompt.terminal_contract,
         runtime_events: subscriptions.clone(),
     }
 }

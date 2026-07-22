@@ -421,6 +421,14 @@ async fn background_task_pins_local_provider_generation_across_replacement() {
                 execution_policy: claimed_execution_policy,
                 input: contract.request_markdown.clone(),
                 instructions: "Complete the task and submit the result.".to_string(),
+                terminal_contract: crate::daemon::task_run_context::TaskTerminalContract {
+                    criterion_ids: contract
+                        .criteria
+                        .iter()
+                        .map(|criterion| criterion.criterion_id.clone())
+                        .collect(),
+                    has_submission_artifacts: false,
+                },
                 runtime_events: crate::daemon::RuntimeEventRegistry::default(),
             })
             .await

@@ -34,6 +34,7 @@ pub(super) fn grade_response(
         EvalExpectation::SimplePlannerPlan => simple_planner_plan(response),
         EvalExpectation::ExecutorSubmission => executor_submission(response),
         EvalExpectation::ReviewerApproval => reviewer_approval(response),
+        EvalExpectation::ReviewerRequestChanges => reviewer_request_changes(response),
         EvalExpectation::BlockedTask => blocked_task(response),
         EvalExpectation::ProgressAuditFinalize => progress_audit(response),
         EvalExpectation::WebSummary => web_summary(response),
@@ -174,10 +175,17 @@ fn executor_submission(response: &GenerateResponse) -> Result<(), String> {
         .map_err(|error| format!("executor payload failed production decoding: {error}"))?;
     required_nonempty_string(payload, "summary")?;
     let result = required_nonempty_string(payload, "result_markdown")?;
-    if !result.to_ascii_lowercase().contains("orbit-52") {
-        return Err("executor result omitted ORBIT-52".to_string());
+    if result.split_whitespace().count() > 180 {
+        return Err("simple recommendation exceeded 180 words".to_string());
     }
-    require_criterion_ids(payload, &["criterion:alpha", "criterion:beta"])?;
+    if !contains_any(result, &["cedar loop", "alpine pond", "lookout ridge"])
+        || contains_any(result, &["itinerary", "exhaustive"])
+    {
+        return Err(
+            "simple recommendation added an extra deliverable or omitted a choice".to_string(),
+        );
+    }
+    require_criterion_ids(payload, &["criterion:recommendation"])?;
     let criteria = payload["criteria"]
         .as_array()
         .ok_or_else(|| "executor criteria was not an array".to_string())?;
@@ -214,6 +222,19 @@ fn reviewer_approval(response: &GenerateResponse) -> Result<(), String> {
         return Err("reviewer did not pass every satisfied criterion".to_string());
     }
     Ok(())
+}
+
+fn reviewer_request_changes(response: &GenerateResponse) -> Result<(), String> {
+    let payload = only_tool_payload(response, "task.submit_review")?;
+    if payload["decision"].get("verdict").and_then(Value::as_str) != Some("request_changes") {
+        return Err("reviewer approved an internally contradictory result".to_string());
+    }
+    require_criterion_ids(payload, &["criterion:alpha", "criterion:beta"])?;
+    payload["criteria"]
+        .as_array()
+        .is_some_and(|criteria| criteria.iter().any(|item| item["outcome"] == "fail"))
+        .then_some(())
+        .ok_or_else(|| "reviewer did not fail the contradicted criterion".to_string())
 }
 
 fn blocked_task(response: &GenerateResponse) -> Result<(), String> {

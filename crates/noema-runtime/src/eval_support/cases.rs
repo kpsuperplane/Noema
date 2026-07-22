@@ -325,9 +325,15 @@ fn task_cases(model_id: &str) -> Result<Vec<EvalCase>, String> {
     );
     let planner_request = terminal_tool_request(model_id, &planner_context)?;
     let executor_context = fixture_work_context(
-        "Return the launch code",
-        "State that the launch code is **ORBIT-52** using that exact Markdown bold syntax. All required information is present; do not ask a question.",
-        criteria.clone(),
+        "Recommend a fictional hike",
+        "Recommend one good easy hike from these supplied fictional options: Cedar Loop is 4 km and easy; Alpine Pond is 7 km and moderate; Lookout Ridge is 12 km and hard. Give one primary recommendation and at most two concise alternatives. Do not provide an itinerary.",
+        vec![TaskValidationCriterion {
+            criterion_id: "criterion:recommendation".to_string(),
+            ordinal: 1,
+            description: "The result gives a concise recommendation from the supplied options."
+                .to_string(),
+            expected_evidence: None,
+        }],
         RunKind::Executor,
     );
     let executor_request = terminal_tool_request(model_id, &executor_context)?;
@@ -352,6 +358,16 @@ fn task_cases(model_id: &str) -> Result<Vec<EvalCase>, String> {
         RunKind::Reviewer,
     );
     let reviewer_request = terminal_tool_request(model_id, &reviewer_context)?;
+    let mut contradictory_context = reviewer_context;
+    let contradictory = contradictory_context
+        .latest_submission
+        .as_mut()
+        .expect("reviewer submission");
+    contradictory.result_markdown =
+        "The launch code is **ORBIT-52**. The launch code is also NOVA-11.".to_string();
+    contradictory.criteria[0].evidence_markdown =
+        "The result makes two incompatible claims about the only launch code.".to_string();
+    let contradictory_request = terminal_tool_request(model_id, &contradictory_context)?;
 
     Ok(vec![
         EvalCase {
@@ -376,6 +392,13 @@ fn task_cases(model_id: &str) -> Result<Vec<EvalCase>, String> {
             expectation: EvalExpectation::ReviewerApproval,
         },
         EvalCase {
+            id: "task_reviewer_internal_contradiction",
+            category: "tasks",
+            critical: true,
+            request: contradictory_request,
+            expectation: EvalExpectation::ReviewerRequestChanges,
+        },
+        EvalCase {
             id: "task_executor_blocked",
             category: "tasks",
             critical: true,
@@ -393,8 +416,10 @@ fn terminal_tool_request(
         role,
         input,
         instructions,
+        terminal_contract,
     } = build_task_role_prompt(context);
-    let tools = task_role_builtin_tool_specs(role).map_err(|error| error.to_string())?;
+    let tools = task_role_builtin_tool_specs(role, &terminal_contract)
+        .map_err(|error| error.to_string())?;
     Ok(GenerateRequest {
         conversation_id: None,
         model: Some(model_id.to_string()),

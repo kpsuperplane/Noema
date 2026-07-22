@@ -173,6 +173,26 @@ alongside the captured task description so the Planner can unfold necessary
 work without silently expanding the requested outcome or delivery depth. The
 resulting immutable contract remains the Executor's sole request authority;
 contract complexity calibrates its research effort and user-facing detail.
+For a simple contract, the default execution shape is one discovery batch and
+at most one focused verification batch, stopping as soon as every criterion has
+adequate evidence. Its user-facing result should normally stay below roughly
+180 words when the human did not request depth; detailed validation belongs in
+structured criterion evidence. Execution-policy values are safety ceilings for
+runaway work, not effort targets, so they do not authorize broader research.
+
+Reviewers are independent from Executors but bound to the submitted evidence:
+the immutable contract, result, criterion evidence, and submitted artifacts.
+They may reject demonstrated omissions, internal contradictions, artifact
+mismatches, or explicitly required missing evidence, but they cannot invent an
+external contradiction from background knowledge or demand research dimensions
+the criterion did not require. Reviewers receive no web tools and can read an
+artifact only when the submission contains one.
+
+Executor and Reviewer terminal schemas enumerate the current contract's exact
+opaque criterion ids and require one entry for each id. The first malformed
+terminal payload is returned to the same provider conversation for a
+terminal-only repair; a second malformed payload fails non-retryably and opens
+recovery instead of repeating the whole run.
 
 Tool visibility follows capability and approval policy. The primary agent may
 delegate a task through the semantic composition; task agents may publish only
