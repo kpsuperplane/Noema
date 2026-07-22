@@ -124,9 +124,9 @@ and their sampled CSS tokens instead of local durations or easing curves:
 
 | Preset | Physics | Use |
 | --- | --- | --- |
-| `micro` | mass 1, stiffness 900, damping 60 | hover feedback, chevrons, and compact visibility changes |
-| `standard` | mass 1, stiffness 400, damping 40 | replacement, arrival, disclosure, and automatic scrolling |
-| `surface` | mass 1, stiffness 225, damping 30 | shell composition, swipe settlement, rails, and meaningful reflow |
+| `micro` | mass 1, stiffness 1296, damping 72 | hover feedback, chevrons, and compact visibility changes |
+| `standard` | mass 1, stiffness 576, damping 48 | replacement, arrival, disclosure, and automatic scrolling |
+| `surface` | mass 1, stiffness 324, damping 36 | shell composition, swipe settlement, rails, and meaningful reflow |
 
 A finite response gets exactly one preset. Preserve pointer position and
 velocity when a gesture hands control to a spring, and let a new state interrupt
