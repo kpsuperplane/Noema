@@ -4,7 +4,10 @@ import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import { Popover } from "@astryxdesign/core/Popover";
 import * as stylex from "@stylexjs/stylex";
 import { ExternalLink, Info } from "lucide-react";
+import { AnimatePresence, useIsPresent, useReducedMotion } from "motion/react";
+import * as m from "motion/react-m";
 import { IdentityAvatar } from "@/components/IdentityAvatar";
+import { springs } from "@/motion/springs";
 import type { TaskDetail, TaskRun, TaskRunItem, TaskRunStatus } from "./taskTypes";
 import { TaskCriterionStatusPopover } from "./TaskCriteria";
 import { TaskCompletedBody } from "./TaskCompletedBody";
@@ -172,18 +175,15 @@ function TaskSummaryHeader({
   taskId: string;
 }) {
   const run = latestTaskRun(detail);
-  const avatarMotion = run ? taskRunAvatarMotion(run.status) : null;
   const latestItem = run ? latestRunItems.get(run.id) ?? null : null;
   return (
     <header {...stylex.props(styles.summaryHeader)}>
       {run ? (
-        <IdentityAvatar
-          activity={avatarMotion?.activity}
-          actorId={`subagent:${run.instanceName}`}
-          actorType="agent"
-          animated={avatarMotion?.animated}
-          size="sm"
-        />
+        <span {...stylex.props(styles.summaryAvatar)}>
+          <AnimatePresence initial={false}>
+            <TaskSummaryAvatar key={run.id} run={run} />
+          </AnimatePresence>
+        </span>
       ) : null}
       <span {...stylex.props(styles.summaryCopy)}>
         <strong {...stylex.props(styles.summaryTitle)}>
@@ -207,6 +207,30 @@ function TaskSummaryHeader({
         <TaskInfoTrigger detail={detail} />
       </span>
     </header>
+  );
+}
+
+function TaskSummaryAvatar({ run }: { run: TaskRun }) {
+  const isPresent = useIsPresent();
+  const reduceMotion = useReducedMotion();
+  const avatarMotion = taskRunAvatarMotion(run.status);
+  return (
+    <m.span
+      aria-hidden={!isPresent}
+      initial={reduceMotion ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={reduceMotion ? { duration: 0 } : springs.standard}
+      {...stylex.props(styles.summaryAvatarLayer)}
+    >
+      <IdentityAvatar
+        activity={avatarMotion.activity}
+        actorId={`subagent:${run.instanceName}`}
+        actorType="agent"
+        animated={avatarMotion.animated}
+        size="sm"
+      />
+    </m.span>
   );
 }
 
@@ -489,6 +513,8 @@ const styles = stylex.create({
   },
   contextBody: { minWidth: 0, minHeight: 0 },
   summaryHeader: { display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)" },
+  summaryAvatar: { position: "relative", width: 28, height: 28 },
+  summaryAvatarLayer: { position: "absolute", inset: 0, display: "flex" },
   summaryCopy: { display: "grid", minWidth: 0, gap: "var(--spacing-0-5)" },
   summaryTitle: { minWidth: 0, color: "var(--noema-text-primary)", fontSize: 12, fontWeight: 700, lineHeight: 1.35, overflow: "hidden", overflowWrap: "anywhere", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   summaryOutput: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-secondary)", fontSize: 11, lineHeight: 1.35, textOverflow: "ellipsis", whiteSpace: "nowrap" },
