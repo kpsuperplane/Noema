@@ -29,9 +29,9 @@ Every finite state-to-state animation uses exactly one shared spring:
 
 | Preset | Mass | Stiffness | Damping | Approx. 95% response | Intended scale |
 | --- | ---: | ---: | ---: | ---: | --- |
-| `micro` | 1 | 1296 | 72 | 132ms | Movement within one compact component |
-| `standard` | 1 | 576 | 48 | 198ms | A component changing presence, size, or state |
-| `surface` | 1 | 324 | 36 | 263ms | A surface changing screen composition |
+| `micro` | 1 | 1568.16 | 79.2 | 120ms | Movement within one compact component |
+| `standard` | 1 | 696.96 | 52.8 | 180ms | A component changing presence, size, or state |
+| `surface` | 1 | 392.04 | 39.6 | 240ms | A surface changing screen composition |
 
 For a damped spring, `dampingRatio = damping / (2 * sqrt(stiffness * mass))`.
 Each pair therefore has a damping ratio of exactly `1`: the fastest return to
@@ -157,7 +157,7 @@ own the same transform or layout property.
 For critical damping with `mass = 1`, sample the normalized step response
 `1 - (1 + omega * t) * exp(-omega * t)`, where `omega = sqrt(stiffness)`. Use a
 common response threshold and sample density for all three curves. The approximate
-99% settlement windows are 184ms (`micro`), 277ms (`standard`), and 369ms
+99% settlement windows are 168ms (`micro`), 251ms (`standard`), and 335ms
 (`surface`); committed CSS durations may round those values consistently but may
 not be visually retuned per component. Keep the physics tuple and sampled CSS
 representation adjacent and document the generation command in comments so a

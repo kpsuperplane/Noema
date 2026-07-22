@@ -46,9 +46,9 @@
     0.9966,
     1
   );
-  --motion-spring-micro-duration: 184ms;
-  --motion-spring-standard-duration: 277ms;
-  --motion-spring-surface-duration: 369ms;
+  --motion-spring-micro-duration: 168ms;
+  --motion-spring-standard-duration: 251ms;
+  --motion-spring-surface-duration: 335ms;
   --motion-spring-micro: var(--motion-spring-micro-duration) var(--motion-spring-critical-easing);
   --motion-spring-standard: var(--motion-spring-standard-duration) var(--motion-spring-critical-easing);
   --motion-spring-surface: var(--motion-spring-surface-duration) var(--motion-spring-critical-easing);
