@@ -83,10 +83,12 @@ export function TaskActions({
   const canRetry = validActions.includes("RETRY");
   const hasInlineResponse = inlineResponse && (canAnswer || canRetry);
   const responseAction = answer.trim() && canAnswer ? "ANSWER" : canRetry ? "RETRY" : "ANSWER";
+  const showInlineCancel = validActions.length === 1 && validActions[0] === "CANCEL";
   const buttonActions = orderTaskActions(validActions.filter(
-    (action) => action !== "CANCEL" && !(hasInlineResponse && (action === "ANSWER" || action === "RETRY"))
+    (action) => (action !== "CANCEL" || showInlineCancel)
+      && !(hasInlineResponse && (action === "ANSWER" || action === "RETRY"))
   ));
-  const primaryAction = buttonActions.find((action) => action !== "CANCEL") ?? null;
+  const primaryAction = buttonActions.find((action) => action !== "CANCEL") ?? buttonActions[0] ?? null;
   const secondaryActions = buttonActions.filter(
     (action) => action !== primaryAction
   );
@@ -141,7 +143,7 @@ export function TaskActions({
         navigation={navigation}
         closeButtonRef={closeButtonRef}
         busy={commands.busy !== null || editLoad.loading || activeCommand !== null}
-        onCancel={validActions.includes("CANCEL") ? () => openAction("CANCEL") : undefined}
+        onCancel={validActions.includes("CANCEL") && !showInlineCancel ? () => openAction("CANCEL") : undefined}
       />
     </TaskControlsPortal>
   );
@@ -222,8 +224,8 @@ export function TaskActions({
           <Button
             type="button"
             size="sm"
-            variant="primary"
-            label={taskActionLabel(primaryAction, compact, selectedApprovalDecision)}
+            variant={primaryAction === "CANCEL" ? "destructive" : "primary"}
+            label={primaryAction === "CANCEL" ? "Cancel task" : taskActionLabel(primaryAction, compact, selectedApprovalDecision)}
             isDisabled={commands.busy !== null || editLoad.loading}
             onClick={(event) => { event.stopPropagation(); void openAction(primaryAction); }}
           />
