@@ -8,7 +8,7 @@ import { Button, type ButtonProps } from "@astryxdesign/core/Button";
 import { IconButton, type IconButtonProps } from "@astryxdesign/core/IconButton";
 import { Item, type ItemProps } from "@astryxdesign/core/Item";
 import * as stylex from "@stylexjs/stylex";
-import { ListTodo, PanelRightOpen } from "lucide-react";
+import { CircleCheck, ListTodo, PanelRightOpen } from "lucide-react";
 import { taskDetailTarget, type ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { StageBadge } from "@/components/work/StageBadge";
 import { useTaskEventCursor } from "@/components/chatDetail/task/taskEventCursor";
@@ -61,12 +61,15 @@ export function TaskReferenceCard({
   const open = opensDetail && taskTarget ? () => onOpenDetail?.(taskTarget) : undefined;
 
   if (variant === "chip") {
+    const completed = Boolean(task?.completedAt);
     return (
       <Button
         data-slot="task-reference-chip"
         isDisabled={!opensDetail}
         label={`Open task: ${title}, ${chipProgressLine}`}
-        icon={<ListTodo aria-hidden="true" size={13} strokeWidth={2} />}
+        icon={completed
+          ? <CircleCheck aria-hidden="true" size={14} strokeWidth={2} {...stylex.props(styles.completedIcon)} />
+          : <ListTodo aria-hidden="true" size={13} strokeWidth={2} />}
         onClick={open}
         size="sm"
         tooltip={opensDetail ? "Open task details" : undefined}
@@ -74,9 +77,11 @@ export function TaskReferenceCard({
         xstyle={buttonXStyle(styles.chip)}
       >
         <span {...stylex.props(styles.chipTitle)}>{title}</span>
-        <span aria-hidden="true" {...stylex.props(styles.chipProgress)}>
-          {chipProgressLine}
-        </span>
+        {completed ? null : (
+          <span aria-hidden="true" {...stylex.props(styles.chipProgress)}>
+            {chipProgressLine}
+          </span>
+        )}
       </Button>
     );
   }
@@ -139,6 +144,7 @@ const styles = stylex.create({
   description: { display: "inline-flex", flexWrap: "wrap", alignItems: "center", gap: 6, minWidth: 0 },
   progress: { minWidth: 0, color: "var(--noema-text-muted)", fontSize: 11, overflowWrap: "anywhere" },
   chip: { maxWidth: "100%", justifyContent: "flex-start", gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 999, backgroundColor: "color-mix(in srgb, var(--noema-surface-card) 72%, transparent)", paddingInline: "var(--spacing-2)", color: "var(--noema-text-primary)", boxShadow: "none", ":hover": { backgroundColor: "var(--noema-surface-hover)" } },
+  completedIcon: { color: "var(--noema-pine-700)" },
   chipTitle: { minWidth: 0, overflow: "hidden", fontSize: 11, fontWeight: 650, textOverflow: "ellipsis", whiteSpace: "nowrap" },
   chipProgress: { flexShrink: 0, color: "var(--noema-text-muted)", fontSize: 10, fontWeight: 500 }
 });
