@@ -114,6 +114,8 @@ Current behavior:
 - `conversation_items` include user text, assistant text, durable activity rows,
   A2UI cards, tool calls/results, approvals, and meaningful errors.
 - Every surfaced task reference uses the same compact live task control.
+  The control keeps its task icon and expresses live state with a separate
+  semantic icon; the full state phrase remains in its accessible label.
   A contiguous run of task-creation references immediately following same-turn
   assistant text is embedded inside that message bubble at its stored
   transcript position. Creation references without that concrete relationship
