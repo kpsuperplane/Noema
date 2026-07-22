@@ -62,6 +62,7 @@ export function RollingText({ value, className, style, ...props }: RollingTextPr
     <m.span
       {...props}
       layout={reduceMotion ? false : "size"}
+      layoutDependency={value}
       className={mergedClassName}
       style={{ ...rootStyles.style, ...style }}
       transition={{ layout: springs.standard }}
@@ -83,6 +84,7 @@ const RollingTextLayer = forwardRef<HTMLSpanElement, { value: string; reduceMoti
       <m.span
         ref={ref}
         layout={reduceMotion ? false : "position"}
+        layoutDependency={value}
         {...stylex.props(styles.layer)}
       >
         {segments.map((segment, index) => {
