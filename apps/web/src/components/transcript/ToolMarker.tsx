@@ -180,16 +180,15 @@ const styles = stylex.create({
   groupContent: {
     display: "grid",
     gridTemplateRows: "0fr",
-    transitionDuration: "220ms",
+    transitionDuration: "400ms",
     transitionProperty: "grid-template-rows",
-    transitionTimingFunction: "cubic-bezier(0.4, 0, 1, 1)",
+    transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
     "@media (prefers-reduced-motion: reduce)": {
       transitionDuration: "0ms"
     }
   },
   groupContentOpen: {
-    gridTemplateRows: "1fr",
-    transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)"
+    gridTemplateRows: "1fr"
   },
   groupContentInner: {
     minHeight: 0,
