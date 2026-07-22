@@ -67,15 +67,16 @@ export function TaskReferenceCard({
         data-slot="task-reference-chip"
         isDisabled={!opensDetail}
         label={`Open task: ${title}, ${chipProgressLine}`}
-        icon={completed
-          ? <CircleCheck aria-hidden="true" size={14} strokeWidth={2} {...stylex.props(styles.completedIcon)} />
-          : <ListTodo aria-hidden="true" size={13} strokeWidth={2} />}
+        icon={<ListTodo aria-hidden="true" size={13} strokeWidth={2} />}
         onClick={open}
         size="sm"
         tooltip={opensDetail ? "Open task details" : undefined}
         variant="ghost"
         xstyle={buttonXStyle(styles.chip)}
       >
+        {completed ? (
+          <CircleCheck aria-hidden="true" size={14} strokeWidth={2} {...stylex.props(styles.completedIcon)} />
+        ) : null}
         <span {...stylex.props(styles.chipTitle)}>{title}</span>
         {completed ? null : (
           <span aria-hidden="true" {...stylex.props(styles.chipProgress)}>
