@@ -568,6 +568,46 @@ async fn failed_run_publishes_work_invalidation_for_automatic_replacement() {
 }
 
 #[tokio::test]
+async fn runtime_shutdown_queues_an_interrupted_run_for_retry() {
+    let store = crate::test_support::test_store().await;
+    let (task, interrupted_run) = crate::test_support::seed_task(&store, "Shutdown retry").await;
+    let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+    let (runtime, task_runtime) = start_task_runtime(
+        Arc::new(BlockingProvider::supervised(event_tx)),
+        &store,
+        RuntimeEventRegistry::default(),
+    )
+    .await;
+    assert_eq!(
+        next_event(&mut event_rx, "run should start before shutdown").await,
+        ProviderEvent::Started(interrupted_run.run_id.clone())
+    );
+
+    task_runtime.shutdown().await;
+
+    let detail = store
+        .get_work_task(&task.task_id)
+        .await
+        .expect("load task after shutdown")
+        .expect("task should remain available");
+    assert_eq!(
+        detail
+            .runs
+            .iter()
+            .find(|run| run.run_id == interrupted_run.run_id)
+            .expect("interrupted run")
+            .status,
+        RunStatus::Interrupted
+    );
+    assert_eq!(detail.active_gate, None);
+    let replacement = detail.current_run.expect("queued replacement run");
+    assert_ne!(replacement.run_id, interrupted_run.run_id);
+    assert_eq!(replacement.status, RunStatus::Queued);
+
+    runtime.shutdown().await;
+}
+
+#[tokio::test]
 async fn malformed_terminal_is_repaired_in_the_same_executor_run() {
     let store = crate::test_support::test_store().await;
     let (_task, run) = crate::test_support::seed_task(&store, "Terminal repair").await;
