@@ -1,6 +1,43 @@
 use super::*;
 
 #[test]
+fn assistant_delta_stream_id_includes_prior_output_offset() {
+    let (item_tx, mut item_rx) = mpsc::unbounded_channel();
+    let context = ConversationMemoryContext {
+        turn_index: 1,
+        conversation_id: "conversation:1".to_string(),
+        turn_id: "turn:1".to_string(),
+        user_item_id: "user:1".to_string(),
+        assistant_item_id: None,
+    };
+
+    handle_provider_stream_event(
+        GenerateStreamEvent::AssistantTextDelta {
+            response_index: 1,
+            delta: "Done".to_string(),
+        },
+        &item_tx,
+        &context,
+        "assistant_stream:turn:1:continuation",
+        2,
+    );
+
+    let event = item_rx.try_recv().expect("assistant delta event");
+    let TurnStreamEvent::AssistantTextDelta {
+        stream_id,
+        response_index,
+        delta,
+        ..
+    } = event
+    else {
+        panic!("expected assistant delta event");
+    };
+    assert_eq!(stream_id, "assistant_stream:turn:1:continuation:response:3");
+    assert_eq!(response_index, 1);
+    assert_eq!(delta, "Done");
+}
+
+#[test]
 fn web_search_tool_call_display_shows_visible_query() {
     let display = tool_call_display(
         "web.search",

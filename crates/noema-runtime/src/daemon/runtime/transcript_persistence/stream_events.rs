@@ -63,7 +63,7 @@ pub(super) fn handle_provider_stream_event(
             item_tx,
             &context.conversation_id,
             &context.turn_id,
-            &assistant_response_stream_id(stream_id, response_index),
+            &assistant_response_stream_id(stream_id, output_index_base + response_index),
             response_index,
             delta,
         ),
